@@ -163,17 +163,9 @@ with open("/var/log/syslog-capture.log", "ab", buffering=0) as out:
 # sshd 登录普通用户时，登录模块（pam_unix）会调用 unix_chkpwd 读 /etc/shadow 查账号有没有过期。
 # CentOS 的 /etc/shadow 权限是 000，靠 root 的特权读取；而 Ubuntu 主机（GitHub 的 runner）的 AppArmor
 # 对所有名为 unix_chkpwd 的程序套了一个不给这项特权的限制，容器里的也不例外——结果是 root 能登录、
-# 新建的部署用户被「PAM account configuration」拒绝。探测到这种情况时，把演练机的 /etc/shadow 改成
-# 只有 root 可读（400），不靠特权也读得到。
-if ! unix_chkpwd root chkexpiry </dev/null >/dev/null 2>&1; then
-  echo "演练服务器：unix_chkpwd 读不了 /etc/shadow（主机内核的 AppArmor 限制），把它的权限改为 400"
-  chmod 400 /etc/shadow
-  if ! unix_chkpwd root chkexpiry </dev/null >/dev/null 2>&1; then
-    echo "演练服务器：改权限后 unix_chkpwd 仍然读不了 /etc/shadow" >&2
-    dmesg 2>/dev/null | grep -i apparmor | tail -n 10 >&2 || true
-    exit 1
-  fi
-fi
+# 新建的部署用户被「PAM account configuration」拒绝（内核日志里是 profile="unix-chkpwd" 拒绝 dac_override）。
+# 所以把演练机的 /etc/shadow 改成只有 root 可读（400）：不靠那项特权也读得到。之后新建用户时这个权限会保留。
+chmod 400 /etc/shadow
 ssh-keygen -A >/dev/null
 install -d -m 700 /root/.ssh
 printf '%s\n' "$ROOT_PUBLIC_KEY" >/root/.ssh/authorized_keys
