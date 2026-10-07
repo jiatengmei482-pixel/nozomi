@@ -5,7 +5,7 @@
 #
 # 用法：
 #   deploy/client/push-local.sh <环境> init     服务器初始化（NOZOMI_SSH_USER 用 root）
-#   deploy/client/push-local.sh <环境> deploy   本机构建镜像 → 传到服务器 → 上传版本目录 → 部署（NOZOMI_SSH_USER 用 nozomi）
+#   deploy/client/push-local.sh <环境> deploy   本机构建两个镜像（API、前端）→ 传到服务器 → 上传版本目录 → 部署（NOZOMI_SSH_USER 用 nozomi）
 #
 # 连接信息从环境变量读，不写进仓库，本脚本也不打印它们的值：
 #   NOZOMI_SSH_HOST               服务器地址
@@ -25,7 +25,8 @@
 #   ACME_EMAIL        可选，只在 standalone 模式有用
 #   MANAGE_FIREWALL   可选，只对 init 有用；不设时由 EDGE_MODE 决定
 #
-# deploy 部署的是当前检出的提交：工作区必须是干净的，版本号就是提交的 SHA，镜像名是 nozomi-api:<SHA>。
+# deploy 部署的是当前检出的提交：工作区必须是干净的，版本号就是提交的 SHA，镜像名是 nozomi-api:<SHA> 和 nozomi-web:<SHA>
+# （API 和「Caddy + 前端静态文件」，一个版本一对）。构建前端镜像需要 BuildKit（Docker 23 起的默认构建方式）。
 # 不使用 set -x。
 set -euo pipefail
 
@@ -110,21 +111,26 @@ cmd_init() {
 }
 
 cmd_deploy() {
-  local app_env="$1" sha image platform status=0
+  local app_env="$1" sha image web_image platform status=0
   [[ -n "${APP_DOMAIN:-}" ]] || die "deploy 需要 APP_DOMAIN（这个环境的域名）"
   [[ -z "$(git -C "$repo_root" status --porcelain)" ]] ||
     die "工作区有没提交的改动。手工部署的是当前提交，请先提交（或暂存起来）再运行"
   sha="$(git -C "$repo_root" rev-parse HEAD)"
   image="nozomi-api:$sha"
+  # 配对的前端镜像：同一个标签，名字是 nozomi-web（服务器上的 bin/deploy.sh 按同样的规则从 API 镜像名推出它）。
+  web_image="nozomi-web:$sha"
   prepare_ssh
 
   platform="$("$remote" platform)"
   log "构建镜像 $image（$platform）"
   docker build --quiet --platform "$platform" --file "$repo_root/apps/api/Dockerfile" --tag "$image" \
     --label "org.opencontainers.image.revision=$sha" "$repo_root" >/dev/null
+  log "构建镜像 $web_image（$platform）"
+  docker build --quiet --platform "$platform" --file "$repo_root/apps/web/Dockerfile" --tag "$web_image" \
+    --label "org.opencontainers.image.revision=$sha" "$repo_root" >/dev/null
 
   "$remote" upload "$app_env" "$sha"
-  "$remote" load-image "$image"
+  "$remote" load-image "$image" "$web_image"
 
   log "在服务器上部署（备份 → 建应用账号 → 迁移 → 启动 → 健康检查，不健康自动回退）"
   DEPLOY_SKIP_PULL=1 "$remote" deploy "$app_env" "$sha" "$image" </dev/null || status=$?

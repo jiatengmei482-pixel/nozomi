@@ -3,7 +3,7 @@
 # - 测试环境（staging）：main 的 CI 通过后自动部署。
 # - 正式环境（production）：只能手动触发（Actions → Deploy → Run workflow），并经过 Environment 的审批。
 #
-# 流程：构建镜像并推送到 GHCR（标签 = 提交 SHA）→ SSH 到服务器 → 上传 compose 文件和脚本 →
+# 流程：构建两个镜像（API、前端）并推送到 GHCR（标签 = 提交 SHA）→ SSH 到服务器 → 上传 compose 文件和脚本 →
 # 服务器上拉镜像、备份、迁移、启动、等健康检查（不健康自动回退）→ 从外网访问 /health 确认。
 #
 # 对服务器做的每一步都经由 deploy/client/remote.sh——和手工部署（deploy/client/push-local.sh）是同一条路。
@@ -59,6 +59,7 @@ jobs:
       environment: ${{ steps.plan.outputs.environment }}
       sha: ${{ steps.plan.outputs.sha }}
       image: ${{ steps.plan.outputs.image }}
+      web_image: ${{ steps.plan.outputs.web_image }}
       proceed: ${{ steps.plan.outputs.proceed }}
     steps:
       - id: plan
@@ -100,6 +101,9 @@ jobs:
             echo "environment=$environment"
             echo "sha=$sha"
             echo "image=$REGISTRY/${OWNER,,}/nozomi-api:$sha"
+            # 配对的前端镜像（Caddy + 前端静态文件）：同一个仓库前缀、同一个标签。服务器上的部署脚本
+            # 按同样的规则从 API 镜像名推出它，所以部署那一步只需要传 API 镜像。
+            echo "web_image=$REGISTRY/${OWNER,,}/nozomi-web:$sha"
             echo "proceed=$proceed"
           } >>"$GITHUB_OUTPUT"
 
@@ -169,6 +173,7 @@ jobs:
       - name: 构建并推送（同一个提交已经推送过就不重复构建）
         env:
           IMAGE: ${{ needs.plan.outputs.image }}
+          WEB_IMAGE: ${{ needs.plan.outputs.web_image }}
           SHA: ${{ needs.plan.outputs.sha }}
           REGISTRY_USER: ${{ github.repository_owner }}
           REGISTRY_TOKEN: ${{ github.token }}
@@ -176,14 +181,19 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
-          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
-            echo "镜像 $IMAGE 已存在，跳过构建。"
-          else
-            docker build --file apps/api/Dockerfile --tag "$IMAGE" \
+          # 用法：build_and_push <镜像:标签> <Dockerfile>
+          build_and_push() {
+            if docker manifest inspect "$1" >/dev/null 2>&1; then
+              echo "镜像 $1 已存在，跳过构建。"
+              return 0
+            fi
+            docker build --file "$2" --tag "$1" \
               --label "org.opencontainers.image.source=$SOURCE_URL" \
               --label "org.opencontainers.image.revision=$SHA" .
-            docker push "$IMAGE"
-          fi
+            docker push "$1"
+          }
+          build_and_push "$IMAGE" apps/api/Dockerfile
+          build_and_push "$WEB_IMAGE" apps/web/Dockerfile
       - name: 登出镜像仓库
         if: always()
         run: docker logout "$REGISTRY"
@@ -321,7 +331,8 @@ jobs:
               echo "## 已部署到 ${APP_ENV}"
               echo
               echo "- 版本：\`${SHA}\`"
-              echo "- 网址：${DEPLOYED_URL}/health"
+              echo "- 登录页：${DEPLOYED_URL}/（运营后台：${DEPLOYED_URL}/platform/login）"
+              echo "- 自检：${DEPLOYED_URL}/health"
             else
               echo "## 部署到 ${APP_ENV} 没有成功"
               echo

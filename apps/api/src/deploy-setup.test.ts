@@ -150,6 +150,8 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   assert.match(environment["DATABASE_URL"] ?? "", /^postgres:\/\/nozomi_api:\$\{POSTGRES_APP_PASSWORD:\?[^}]*\}@db:5432\/nozomi$/);
   assert.match(compose.services["db"]?.environment?.["POSTGRES_PASSWORD"] ?? "", /^\$\{POSTGRES_PASSWORD:\?/);
   assert.equal(api?.image?.startsWith("${API_IMAGE:?"), true);
+  // 反向代理用的是和 API 配对的前端镜像（Caddy + 前端静态文件），同样没有默认值、不写死
+  assert.match(compose.services["caddy"]?.image ?? "", /^\$\{WEB_IMAGE:\?[^}]*\}$/);
   assert.equal(api?.read_only, true);
   assert.deepEqual(api?.cap_drop, ["ALL"]);
 });
@@ -454,6 +456,8 @@ test("部署相关的文件和文档里没有密钥原文，也没有写死的�
     "deploy/ci/compose.ci.yml",
     "deploy/Caddyfile",
     "apps/api/Dockerfile",
+    "apps/web/Dockerfile",
+    "apps/web/Dockerfile.dockerignore",
     ".github/workflows/deploy.yml",
     ".github/workflows/server-init.yml",
     ".github/workflows/ci.yml",
@@ -600,9 +604,17 @@ test("与别的项目隔离：任何脚本和流水线里都没有会波及全�
   }
   const deployScript = await readText("deploy/bin/deploy.sh");
   const cleanup = deployScript.slice(deployScript.indexOf("cleanup_old() {"), deployScript.indexOf("roll_back_to() {"));
-  assert.match(cleanup, /image="\$\{API_IMAGE%:\*\}"\n {2}docker image ls --format '\{\{\.Repository\}\}:\{\{\.Tag\}\}' "\$image" \|/);
+  assert.match(cleanup, /for image in "\$\{API_IMAGE%:\*\}" "\$\{WEB_IMAGE%:\*\}"; do\n {4}docker image ls --format '\{\{\.Repository\}\}:\{\{\.Tag\}\}' "\$image" \|/);
+  assert.equal(cleanup.match(/docker image ls/g)?.length, 1, "列镜像只有这一处，而且总是带着仓库名");
   assert.match(cleanup, /docker image rm "\$ref"/);
   assert.match(deployScript, /\[\[ "\$\{API_IMAGE%:\*\}" =~ \(\^\|\/\)nozomi-api\$ \]\]/, "只接受本项目自己的镜像名");
+  // 前端镜像的名字不是调用方给的：校验过 API_IMAGE 之后由它推出，镜像名固定是 nozomi-web
+  const validated = deployScript.indexOf('[[ "${API_IMAGE%:*}" =~ (^|/)nozomi-api$ ]]');
+  const derived = deployScript.indexOf('WEB_IMAGE="$(web_image_for "$API_IMAGE")"');
+  assert.ok(validated >= 0 && derived > validated && derived < deployScript.indexOf("check_layout\n"), "WEB_IMAGE 必须在校验 API_IMAGE 之后、动任何东西之前推出");
+  assert.match(deployScript, /printf '%snozomi-web:%s' "\$\{repository%nozomi-api\}" "\$tag"/);
+  assert.equal(deployScript.match(/\bWEB_IMAGE=/g)?.length, 2, "WEB_IMAGE 只在两处被赋值：从 API_IMAGE 推出、写进 release.env");
+  assert.ok(!/\$\{WEB_IMAGE:-/.test(deployScript), "deploy.sh 不应从环境里读 WEB_IMAGE");
 });
 
 test("初始化脚本：支持 Ubuntu 和 RHEL 系；已有的 Docker 不重装不升级；不升级系统、不改 SELinux 模式、不改任何密码和 SSH 服务", async () => {
@@ -694,8 +706,8 @@ test("流水线和手工部署是同一条路：都只通过 remote.sh 操作服
   assert.deepEqual(pushLocalCode.match(/\bssh\s-[^\n]*/g), ['ssh -F "$ssh_dir/config" -o LogLevel=INFO vps true 2>&1)"; then']);
   assert.deepEqual(workflowRuns.match(/\bssh\s[^\n]*/g), [`ssh -F "$NOZOMI_SSH_DIR/config" vps "docker logout '$REGISTRY'" >/dev/null 2>&1 || true`]);
   // 手工部署：镜像不经过镜像仓库，服务器上不拉取
-  assert.match(pushLocal, /"\$remote" load-image "\$image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
-  assert.match(client, /docker save "\$image" \| gzip -c \| remote "gzip -dc \| docker load"/);
+  assert.match(pushLocal, /"\$remote" load-image "\$image" "\$web_image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
+  assert.match(client, /docker save "\$@" \| gzip -c \| remote "gzip -dc \| docker load"/);
   assert.match(pushLocal, /status --porcelain/, "手工部署必须是干净的工作区：版本号就是提交");
 });
 

@@ -13,8 +13,9 @@
 #       读取：SSH_PORT（必填）、EDGE_MODE、MANAGE_FIREWALL、
 #             DEPLOY_PUBLIC_KEY_FILE（可选：要登记到部署用户名下的公钥文件；不设时用本次连接所用私钥的公钥）
 #   remote.sh upload <环境> <版本>            把这个版本的 compose 文件和脚本传到服务器的版本目录
-#   remote.sh load-image <镜像:标签>          把本机的镜像直接传到服务器（docker save → docker load），不经过镜像仓库
-#   remote.sh deploy <环境> <版本> <镜像:标签>  在服务器上执行该版本的 bin/deploy.sh deploy，退出码原样传回
+#   remote.sh load-image <镜像:标签>…         把本机的一个或几个镜像直接传到服务器（docker save → docker load），不经过镜像仓库
+#   remote.sh deploy <环境> <版本> <镜像:标签>  在服务器上执行该版本的 bin/deploy.sh deploy，退出码原样传回。
+#       <镜像:标签> 是 API 镜像（…/nozomi-api:<标签>）；配对的前端镜像（…/nozomi-web:<标签>）由服务器上的脚本推出来
 #       读取：APP_DOMAIN（必填）、ACME_EMAIL、EDGE_MODE、EDGE_LISTEN、DEPLOY_SKIP_PULL、
 #             REGISTRY_HOST、REGISTRY_USER（要登录镜像仓库时，令牌从本脚本的标准输入传给服务器）
 #   remote.sh rollback <环境>                 在服务器上回退到上一个版本
@@ -96,12 +97,14 @@ cmd_upload() {
 }
 
 cmd_load_image() {
-  local image="${1:-}"
-  [[ -n "$image" ]] || die "用法：remote.sh load-image <镜像:标签>"
+  local image
+  [[ $# -gt 0 ]] || die "用法：remote.sh load-image <镜像:标签>…"
   require_ssh
-  docker image inspect "$image" >/dev/null 2>&1 || die "本机没有镜像 $image，请先构建"
-  log "把镜像 $image 传到服务器（视网速需要几分钟）"
-  docker save "$image" | gzip -c | remote "gzip -dc | docker load"
+  for image in "$@"; do
+    docker image inspect "$image" >/dev/null 2>&1 || die "本机没有镜像 $image，请先构建"
+  done
+  log "把镜像 $* 传到服务器（视网速需要几分钟）"
+  docker save "$@" | gzip -c | remote "gzip -dc | docker load"
 }
 
 cmd_deploy() {

@@ -9,7 +9,7 @@
 
 ## 决定
 
-- 每个环境在 VPS 上用 Docker Compose 运行三个容器：API、PostgreSQL 16、反向代理（自动申请和续期 HTTPS 证书）。
+- 每个环境在 VPS 上用 Docker Compose 运行三个容器：API、PostgreSQL 16、反向代理（自动申请和续期 HTTPS 证书；M0-11 起同时提供前端静态文件，见文末「前端接入部署」）。
 - 镜像由 GitHub Actions 构建并推送到 GitHub Container Registry（使用 Actions 自带的令牌，不需要额外密钥）；VPS 只拉取镜像，不在服务器上构建。
 - 部署由 GitHub Actions 通过 SSH 执行：拉取镜像 → 执行 `db:migrate` → 启动新版本 → 检查 `/health`，不健康则回退到上一个镜像。
 - 两个环境对应 GitHub 的两个 Environment（`staging`、`production`）。main 合并后自动部署 staging；production 需要负责人在 GitHub 上批准。
@@ -80,7 +80,7 @@
 | 容器 / 网络 / 数据卷 | 名字都以 `nozomi-<环境>` 开头；compose 文件里不写 `container_name`、不给网络和卷另起名字、不引用外部网络和卷、不用主机网络 | 不加入对方的网络，不挂对方的卷，不连对方的数据库 |
 | 数据库 | 自己的 PostgreSQL 容器和数据卷，只在没有外网出口的内部网络里，不发布任何主机端口 | — |
 | 主机端口 | 只有回环地址上的 `EDGE_LISTEN` 一个 | 80、443 和对方用的其他端口都不占、不改 |
-| 镜像 | 清理旧版本时只在 `nozomi-api` 这一个镜像名下按标签逐个删 | 不用任何 `prune`；对方的镜像、停着的容器、没人用的卷一概不动 |
+| 镜像 | 清理旧版本时只在 `nozomi-api`、`nozomi-web` 这两个镜像名下按标签逐个删 | 不用任何 `prune`；对方的镜像、停着的容器、没人用的卷一概不动 |
 | 文件 | `/opt/nozomi/` 和部署用户 `nozomi` 的家目录 | 不读写对方的目录、环境变量和密钥 |
 | 系统 | 新增一个用户、一个定时任务文件（`/etc/cron.d/nozomi-backup-<环境>`），按需安装缺少的小工具 | 防火墙、Docker 本身、SSH 服务、root 密码、SELinux 都不改 |
 
@@ -103,3 +103,47 @@
 - `deploy/ci/bootstrap-check.sh`：Ubuntu 22.04 / 24.04、CentOS Stream 9 / 10 容器里各跑两遍，覆盖「全新机器」和「已有 Docker、不管防火墙」两种情形。
 - `deploy/ci/push-local-check.sh`：对一台带 SSH、已装 Docker、80/443 被别人的 nginx 占着的 CentOS Stream 10 演练服务器，真实执行手工初始化和两次手工部署。
 - 容器里验证不了的：systemd 管理的服务的真实启停、firewalld 对真实流量的效果、SELinux Enforcing、真实的公网域名和证书。
+
+## 补充（2026-10-07，M0-11）：前端接入部署
+
+### 背景
+
+此前部署出来的站点只有 API：打开域名根路径得到的是接口的 404。ADR 0011 已决定前端和 API 同源（前端只用相对路径、后端不开 CORS），并要求上线前由反向代理加内容安全策略（Content-Security-Policy，下称 CSP）。本节决定前端的静态文件放在哪、由谁提供。
+
+### 决定
+
+- **前端静态文件由 Caddy 提供，API 进程不发静态文件。** 新增一个镜像 `nozomi-web`（`apps/web/Dockerfile`）：官方 Caddy 加上 `pnpm web:build` 的产物（`/srv/web`）。compose 里的反向代理服务（仍叫 `caddy`，容器、数据卷的名字都不变）改用这个镜像；容器仍然是三个。
+- **一个版本 = 一对同标签的镜像。** `nozomi-api:<提交>` 和 `nozomi-web:<提交>`，同一个仓库前缀、同一个标签。部署时只传 API 镜像（`API_IMAGE`，和以前一样），服务器上的 `bin/deploy.sh` 按这条规则推出前端镜像的名字并写进版本目录的 `release.env`（`WEB_IMAGE`）——不接受调用方另外指定，所以前端和后端不会被配成不同的版本。拉取（或确认已在本机）、启动、回退、清理旧镜像都同时作用于这两个镜像；回退用的是上一个版本目录自己的 compose 文件和 `release.env`，前端和后端一起回到上一个版本。清理仍然只在这两个仓库名（末段固定是 `nozomi-api`、`nozomi-web`）下按标签逐个删。
+- **Caddyfile 仍在版本目录里**（和 compose.yml 一样随版本上传、挂进容器），不放进镜像。镜像里另有一个构建时生成的片段 `/etc/nozomi/web.caddy`，Caddyfile 用 `import` 引入。片段里只有两样随前端一起变的东西：
+  - **归 API 的路径前缀**（`@api` 匹配器）：从 `apps/web/src/lib/api-prefixes.ts` 生成——和开发服务器、端到端测试的 Vite 代理用的是同一张表，Caddyfile 里不再抄一遍。每个前缀匹配「前缀本身」和「它下面的全部路径」，查询串不参与匹配。
+  - **CSP 响应头**：`index.html` 里设置主题的那段内联脚本按 `sha256` 哈希放行。哈希在构建镜像时从构建产物 `dist/index.html` 现算（`apps/web/build/edge-config.ts`），不手抄；改了那段脚本，策略自动跟着变。页面里出现策略不放行的东西（内联样式、内联事件处理）时构建直接失败。
+- **CSP 的内容**：`default-src 'self'`；脚本只认同源和那一个哈希；样式、图片、字体、接口请求只认同源；`object-src 'none'`、`base-uri 'none'`、`form-action 'self'`、`frame-ancestors 'none'`。没有 `unsafe-inline`、`unsafe-eval`、通配和站外来源。它和原有的安全响应头（HSTS、nosniff、X-Frame-Options、Referrer-Policy）一样加在全部响应上，包括接口的响应。
+- **路由**：命中 `@api` 的转给 API；其余归前端——有对应文件就返回文件，没有就返回 `index.html`（刷新 `/login`、`/platform/login`、`/accept-invite` 等前端地址不会 404）。例外是 `/assets/` 下不存在的文件返回 404，不回退：否则旧页面引用的旧文件会拿到一份 HTML。
+- **缓存**：`/assets/` 下真实存在的文件（文件名带内容哈希）`Cache-Control: public, max-age=31536000, immutable`；`index.html`（含所有回退到它的地址）`Cache-Control: no-cache`，浏览器每次向服务器确认；接口的响应不加缓存头。
+
+### 理由
+
+- 放在 Caddy 而不是 API 进程里：API 保持「只做接口」，文件系统只读、不带前端依赖；静态文件的压缩、缓存头、回退规则是反向代理的本职。
+- 做成镜像而不是把 `dist` 传到版本目录：自动流程（GHCR 拉取）和手工路径（`docker save | ssh docker load`）本来就都是「传镜像」，前端沿用同一条路，不新增第三种传输方式；镜像不可变，回退到上一个版本时前端一定是当时那一份。
+- 前缀表和哈希在构建时生成而不是手抄加测试：手抄的东西迟早漂移，而这两样一旦错了是「页面白屏」或「接口被前端吞掉」。生成的片段和静态文件在同一个镜像里，二者不可能不一致。
+- 前端镜像名由 API 镜像名推出而不是多传一个参数：发起端（流水线、手工部署）和服务器之间的接口不变，也不存在「两个参数配错版本」的可能。
+
+### 从只含后端的版本升级
+
+服务器上已有的版本目录（`release.env` 里没有 `WEB_IMAGE`、反向代理用官方 `caddy:2` 镜像）不需要任何迁移：新版本照常部署在它之上，数据库容器和数据卷、证书数据卷原样保留，只有反向代理容器换成新镜像。回退到它时用的是它自己的 compose 文件和镜像，行为回到「只有接口」。不需要重新运行服务器初始化。
+
+### 已知限制
+
+- **构建前端镜像需要 BuildKit**（Docker 23 起的默认构建方式）：它的构建上下文白名单是 `apps/web/Dockerfile.dockerignore`，只有 BuildKit 认这种按 Dockerfile 区分的写法。老式构建器会用根目录那份（API 镜像的白名单），构建直接失败，不会悄悄构建出错的东西。
+- **CSP 不拦 `sessionStorage` 被同源脚本读取**：它降低的是被注入脚本的可能性。ADR 0011 里「真正防 XSS 偷令牌要靠 HttpOnly Cookie」的取舍不变。
+- **以后前端要加载站外资源**（地图、支付页面、字体、统计）时必须先改策略（`apps/web/build/edge-config.ts` 的 `contentSecurityPolicy`），否则浏览器会拦掉。端到端测试的 `vite preview` 带的是同一条策略，所以这类改动会先在端到端测试里失败，而不是上线后才发现。
+- **服务器上会留下一个用不到的 `caddy:2` 镜像**（约 50 MB，升级前的反向代理用的）。清理逻辑只删本项目两个镜像名下的标签，不会动它；需要时手工 `docker image rm caddy:2`。
+- **手工部署传上去的两个镜像名没有仓库前缀**（`nozomi-api:<提交>`、`nozomi-web:<提交>`），改用流水线之后最后两个版本的手工镜像不会被自动清理（前文「已知限制」同一条，现在是两个镜像）。
+
+### 验证方式
+
+- `apps/api/src/deploy-web.test.ts`：生成器的单元测试（哈希对页面原文逐字节计算；Caddy 的匹配器、前端的 `isApiPath`、Vite 代理的正则对同一批地址判断一致）；Caddyfile 里没有手抄的前缀和哈希；两个 Dockerfile、流水线、手工部署、服务器脚本用的是同一条镜像命名规则。
+- `apps/api/src/deploy-script.test.ts`：前端镜像名的推导、两个镜像一起确认 / 清理、在只含后端的旧版本目录之上部署和回退。
+- `deploy/ci/smoke.sh`（两种入口模式）：经反向代理打开根路径和各前端地址、每个接口前缀（含前缀本身带查询串）、`/assets/` 存在与不存在的文件、缓存头、安全响应头；CSP 里的哈希用另一套工具（perl + openssl）从实际拿到的页面重新算一遍并比对；建管理员后经反向代理登录、带令牌取自己的资料；部署一个前端和后端都换了镜像的版本再手动回退，确认两者一起回到上一个版本。
+- `deploy/ci/push-local-check.sh`：手工部署后经外层 nginx 按域名打开 `/`、`/login`、`/platform/login` 是前端的登录页，接口前缀仍到 API。
+- 端到端测试（Playwright）：`vite preview` 带同一条 CSP，真实浏览器在这条策略下跑完全部流程。

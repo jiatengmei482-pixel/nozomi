@@ -10,10 +10,10 @@
 #   2. push-local.sh staging init（root 用管理员的钥匙登录，登记到部署用户名下的是另一把部署专用的钥匙）：
 #      不重装 Docker、不碰防火墙、建好部署用户和密钥；部署专用的钥匙登录不了 root
 #   3. 用 root 部署被拒绝，服务器上什么都没留下
-#   4. push-local.sh staging deploy（nozomi）：本机构建镜像 → docker save | ssh docker load → 上传版本目录 → 部署；
+#   4. push-local.sh staging deploy（nozomi）：本机构建两个镜像（API、前端）→ docker save | ssh docker load → 上传版本目录 → 部署；
 #      服务器上不登录、不访问任何镜像仓库；外网访问不通（演练域名解析不了）只是提醒，不算失败
-#   5. 服务器本机访问 EDGE_LISTEN 正常；经那个 nginx 按域名访问正常；审计日志记下的是 nginx 看到的客户端地址，
-#      客户端伪造的 X-Forwarded-For 不被采信
+#   5. 服务器本机访问 EDGE_LISTEN 正常；经那个 nginx 按域名访问正常，域名根路径和 /login 是前端的登录页；
+#      审计日志记下的是 nginx 看到的客户端地址，客户端伪造的 X-Forwarded-For 不被采信
 #   6. 再部署一个新提交：迁移前备份、previous 指向上一个版本
 #   7. 隔离：本项目的容器名都带 nozomi-staging 前缀，只发布回环地址上的一个端口；别人的容器、数据卷、镜像、
 #      80 / 443 上的服务、Docker 本身（软件包版本、进程）、SSH 服务的配置、root 的密码，前后完全一样；没有装防火墙
@@ -220,7 +220,7 @@ if output="$(push_local root deploy 2>&1)"; then fail "用 root 部署应被拒�
 grep -q '不能用 root 部署' <<<"$output" || fail "用 root 部署时的报错不对：$output"
 [[ -z "$(on_server "ls -A $env_root/releases")" ]] || fail "被拒绝的部署不应在服务器上留下文件"
 sha_first="$(git -C "$snapshot" rev-parse HEAD)"
-built_images+=("nozomi-api:$sha_first")
+built_images+=("nozomi-api:$sha_first" "nozomi-web:$sha_first")
 
 step "4. 首次部署（nozomi）：push-local.sh staging deploy"
 output="$(push_local nozomi deploy 2>&1)" || {
@@ -236,7 +236,9 @@ grep -q '外层代理还没有把这个域名转发过来，或证书还没有�
 if grep -qF "$server_address" <<<"$output"; then fail "输出里不应出现服务器地址"; fi
 [[ "$(on_server "readlink $env_root/current")" == "releases/$sha_first" ]] || fail "current 应指向这次的提交"
 [[ "$(on_server "stat -c '%U' $env_root/releases/$sha_first/compose.yml")" == "nozomi" ]] || fail "版本目录里的文件应属于 nozomi"
-on_server "docker image inspect nozomi-api:$sha_first >/dev/null" || fail "镜像应已传到服务器"
+on_server "docker image inspect nozomi-api:$sha_first nozomi-web:$sha_first >/dev/null" || fail "两个镜像（API、前端）都应已传到服务器"
+[[ "$(on_server 'docker inspect --format "{{.Config.Image}}" nozomi-staging-caddy-1')" == "nozomi-web:$sha_first" ]] ||
+  fail "反向代理应运行这次提交的前端镜像"
 if on_server 'test -e /home/nozomi/.docker/config.json'; then fail "手工部署不应在服务器上登录任何镜像仓库"; fi
 
 step "5. 入口：本机端口、经「别人的」nginx 按域名访问、客户端真实地址"
@@ -247,6 +249,18 @@ headers="$(curl --silent --max-time 10 --head --header "Host: $domain" "http://$
 for header in "strict-transport-security: max-age=" "x-content-type-options: nosniff" "x-frame-options: DENY" "referrer-policy: no-referrer"; do
   grep -qi "^$header" <<<"$headers" || fail "经外层 nginx 的响应缺少安全头 $header"
 done
+# 前端：负责人打开域名看到的就是这一页；刷新 /login 不 404；接口前缀（带查询串）仍然到 API。
+for path in / /login /platform/login; do
+  page="$(curl --silent --max-time 10 --header "Host: $domain" "http://$server_address$path")"
+  [[ "$page" == *'<div id="root"></div>'* && "$page" == *'src="/assets/'* ]] || fail "经外层 nginx 按域名访问 $path 应返回前端的登录页"
+done
+headers="$(curl --silent --max-time 10 --head --header "Host: $domain" "http://$server_address/login")"
+grep -qi "^content-security-policy: default-src 'self'; script-src 'self' 'sha256-" <<<"$headers" || fail "登录页的响应缺少内容安全策略"
+grep -qi '^cache-control: no-cache' <<<"$headers" || fail "登录页（index.html）不应被缓存"
+[[ "$(curl --silent --max-time 10 --header "Host: $domain" "http://$server_address/platform/v1?probe=1")" == '{"error":{"code":'* ]] ||
+  fail "接口前缀应仍然转给 API，而不是返回前端页面"
+[[ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' --header "Host: $domain" "http://$server_address/assets/does-not-exist.js")" == "404" ]] ||
+  fail "不存在的 /assets/ 文件应返回 404"
 [[ "$(curl --silent --max-time 10 "http://$server_address/")" == "neighbor" ]] || fail "别人的网站（80）应照常服务"
 [[ "$(curl --silent --max-time 10 "http://$server_address:443/")" == "neighbor" ]] || fail "别人的网站（443）应照常服务"
 code="$(curl --silent --max-time 15 --output /dev/null --write-out '%{http_code}' \
@@ -263,7 +277,7 @@ recorded="$(db_value "select ip from audit_logs where action = 'login_failed' an
 step "6. 再部署一个新提交"
 git -C "$snapshot" -c user.name=push-local-check -c user.email=push-local-check@example.test commit --quiet --allow-empty --message "演练用的第二个提交"
 sha_second="$(git -C "$snapshot" rev-parse HEAD)"
-built_images+=("nozomi-api:$sha_second")
+built_images+=("nozomi-api:$sha_second" "nozomi-web:$sha_second")
 output="$(push_local nozomi deploy 2>&1)" || {
   printf '%s\n' "$output"
   fail "第二次部署失败"

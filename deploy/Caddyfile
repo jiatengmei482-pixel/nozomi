@@ -1,4 +1,5 @@
-# 反向代理：把请求转给 API，加安全响应头，写访问日志。两种入口模式共用这一份文件（ADR 0007）：
+# 反向代理：提供前端静态文件，把接口请求转给 API，加安全响应头，写访问日志。
+# 运行它的是前端镜像（nozomi-web：Caddy + 前端静态文件，apps/web/Dockerfile）。两种入口模式共用这一份文件（ADR 0007）：
 #   standalone    自己占 80/443，自动申请和续期 HTTPS 证书
 #   behind-proxy  前面还有一层别人的反向代理（HTTPS 和证书在那一层）：这里只在容器内的 8080 端口
 #                 提供纯 HTTP，不申请证书、不监听 80/443
@@ -65,7 +66,37 @@
 		defer
 	}
 
-	import proxy_api
+	# 前端镜像在构建时生成的片段（apps/web/build/edge-config.ts），定义两样随前端一起变的东西：
+	#   @api   归 API 的路径前缀（/health、/platform/v1 等，前缀本身和它下面的全部路径）。和开发 / 端到端测试的
+	#          Vite 代理用的是同一张表（apps/web/src/lib/api-prefixes.ts），这里不再抄一遍
+	#   Content-Security-Policy 响应头：index.html 里那段内联的主题脚本按哈希放行，哈希是从构建产物现算的
+	import /etc/nozomi/web.caddy
+
+	handle @api {
+		import proxy_api
+	}
+
+	# 其余路径归前端。
+	handle {
+		root * /srv/web
+
+		# /assets/ 下是文件名带内容哈希的构建产物：内容变了文件名就变，可以永久缓存。
+		# 不存在的文件返回 404（不回退到 index.html，也不带长缓存），否则旧页面引用的旧文件会拿到一份 HTML。
+		@asset path /assets/*
+		handle @asset {
+			@existing file
+			header @existing Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+
+		# 前端路由（/login、/platform/login、/accept-invite 等）没有对应的文件：一律返回 index.html，由前端自己路由。
+		# index.html 每次都要向服务器确认是不是最新的——它指向当前版本的 /assets/ 文件名。
+		handle {
+			try_files {path} /index.html
+			header Cache-Control "no-cache"
+			file_server
+		}
+	}
 
 	# 访问日志不记查询串（可能带令牌、邮箱等），也不记来源页地址。
 	log {

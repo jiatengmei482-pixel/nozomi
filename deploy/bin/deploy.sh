@@ -4,7 +4,7 @@
 # 流程和各退出码的含义见 docs/deploy.md。
 #
 # 用法：
-#   APP_ENV=staging API_IMAGE=<镜像:标签> APP_DOMAIN=<域名> [ACME_EMAIL=<邮箱>] deploy.sh deploy
+#   APP_ENV=staging API_IMAGE=<…/nozomi-api:标签> APP_DOMAIN=<域名> [ACME_EMAIL=<邮箱>] deploy.sh deploy
 #   deploy.sh rollback        把 current 回退到 previous（部署后从外网访问不通时由流水线调用）
 #
 # deploy 的可选环境变量：
@@ -12,8 +12,12 @@
 #                                   behind-proxy：机器上已有别的反向代理，只在回环地址的一个端口上提供 HTTP
 #   EDGE_LISTEN                     behind-proxy 时必填：主机上的监听地址，形如 127.0.0.1:18080，必须是回环地址
 #   REGISTRY_HOST / REGISTRY_USER   需要登录镜像仓库时设置；令牌从标准输入读取，结束时自动登出
-#   DEPLOY_SKIP_PULL=1              镜像已经在这台机器上（手工部署时用 docker load 传上来的，或 CI 冒烟在本机构建的）：
+#   DEPLOY_SKIP_PULL=1              两个镜像已经在这台机器上（手工部署时用 docker load 传上来的，或 CI 冒烟在本机构建的）：
 #                                   不拉取、不登录镜像仓库；镜像不在本机时报错。其余流程完全一样
+#
+# 一个版本是一对镜像（ADR 0007「前端接入部署」）：API_IMAGE（…/nozomi-api:<标签>）和前端镜像
+# （…/nozomi-web:<标签>，Caddy + 前端静态文件）。前端镜像的名字不用传：同一个仓库前缀、同一个标签，
+# 由 API_IMAGE 推出来，写进版本目录的 release.env（WEB_IMAGE）。两个镜像一起拉取、一起启动、一起回退、一起清理。
 #
 # 由入口模式推导、不需要也不允许手填的值：API 信任几层反向代理（standalone 1 层，behind-proxy 2 层）、
 # Caddy 的站点地址和证书方式。它们写在版本目录的 release.env 里。
@@ -75,8 +79,17 @@ release_value() {
   sed -n "s/^$2=//p" "$1/release.env" | tail -n 1
 }
 
-image_of() {
+# 某个版本用到的全部镜像，一行一个。接入前端之前部署的版本目录没有 WEB_IMAGE（那时的反向代理是官方的 caddy 镜像），只输出一行。
+images_of() {
   release_value "$1" API_IMAGE
+  release_value "$1" WEB_IMAGE
+}
+
+# 和某个 API 镜像配对的前端镜像：同一个仓库前缀、同一个标签，名字是 nozomi-web。
+# 调用前 API_IMAGE 已经校验过（镜像名一定是 nozomi-api），所以结果的镜像名一定是 nozomi-web。
+web_image_for() {
+  local repository="${1%:*}" tag="${1##*:}"
+  printf '%snozomi-web:%s' "${repository%nozomi-api}" "$tag"
 }
 
 # behind-proxy 模式：外层代理是从主机回环地址上的那个端口转进来的，所以容器健康之外，
@@ -206,6 +219,7 @@ APP_DOMAIN=$APP_DOMAIN
 ACME_EMAIL=${ACME_EMAIL:-}
 CADDY_TLS_MODE=$tls_mode
 API_IMAGE=$API_IMAGE
+WEB_IMAGE=$WEB_IMAGE
 EDGE_MODE=$EDGE_MODE
 EDGE_LISTEN=$EDGE_LISTEN
 CADDY_SITE_ADDRESS=$site_address
@@ -229,8 +243,8 @@ registry_login() {
 }
 
 # 只保留 current 和 previous 两个版本的目录和镜像，其余删除。清理失败不影响部署结果。
-# 镜像只在「本次部署的镜像所在的那个仓库名」（末段固定是 nozomi-api，见 cmd_deploy 的校验）下按标签逐个删，
-# 不用任何 prune：这台机器上别的项目的镜像、容器、数据卷一概不碰。
+# 镜像只在「本次部署的两个镜像所在的仓库名」（末段固定是 nozomi-api 和 nozomi-web，见 cmd_deploy 的校验）下
+# 按标签逐个删，不用任何 prune：这台机器上别的项目的镜像、容器、数据卷一概不碰。
 cleanup_old() {
   local current previous dir keep_images image ref
   current="$(linked_release current)"
@@ -240,18 +254,19 @@ cleanup_old() {
     [[ "$dir" == "$current" || "$dir" == "$previous" ]] && continue
     rm -rf "$dir"
   done
-  keep_images="$(image_of "$current")"
-  [[ -n "$previous" ]] && keep_images+=$'\n'"$(image_of "$previous")"
-  image="${API_IMAGE%:*}"
-  docker image ls --format '{{.Repository}}:{{.Tag}}' "$image" | while IFS= read -r ref; do
-    grep -qxF "$ref" <<<"$keep_images" || docker image rm "$ref" >/dev/null 2>&1 || true
+  keep_images="$(images_of "$current")"
+  [[ -n "$previous" ]] && keep_images+=$'\n'"$(images_of "$previous")"
+  for image in "${API_IMAGE%:*}" "${WEB_IMAGE%:*}"; do
+    docker image ls --format '{{.Repository}}:{{.Tag}}' "$image" | while IFS= read -r ref; do
+      grep -qxF -- "$ref" <<<"$keep_images" || docker image rm "$ref" >/dev/null 2>&1 || true
+    done
   done
 }
 
 # 回退到指定版本目录；成功返回 0。
 roll_back_to() {
   local fallback="$1"
-  log "回退到上一个版本 $(basename "$fallback")（镜像 $(image_of "$fallback")）"
+  log "回退到上一个版本 $(basename "$fallback")（镜像 $(images_of "$fallback" | paste -sd ' ')）"
   activate "$fallback"
 }
 
@@ -263,6 +278,8 @@ cmd_deploy() {
   # 部署成功后会清理这个仓库名下用不到的旧标签，所以只接受本项目自己的镜像名。
   [[ "${API_IMAGE%:*}" =~ (^|/)nozomi-api$ ]] ||
     die "$EXIT_USAGE" "API_IMAGE 的镜像名必须是 nozomi-api（可以带仓库地址前缀）"
+  # 不接受调用方传进来的值：前端镜像只能是和 API 镜像配对的那一个。
+  WEB_IMAGE="$(web_image_for "$API_IMAGE")"
   [[ "${APP_DOMAIN:-}" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] ||
     die "$EXIT_USAGE" "APP_DOMAIN 只写域名本身（小写），不带 https:// 和路径"
   [[ -z "${ACME_EMAIL:-}" || "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] ||
@@ -275,7 +292,7 @@ cmd_deploy() {
   acquire_lock
   ensure_app_db_password
 
-  local current fallback
+  local current fallback image
   current="$(linked_release current)"
   # 重新部署当前版本时，可回退的是再上一个版本。
   if [[ "$current" == "$release_dir" ]]; then
@@ -285,22 +302,24 @@ cmd_deploy() {
   fi
 
   if [[ "$EDGE_MODE" == "behind-proxy" ]]; then
-    log "环境 $APP_ENV，版本 $release_id，镜像 $API_IMAGE，入口模式 behind-proxy（本机 $EDGE_LISTEN，不占用 80/443）"
+    log "环境 $APP_ENV，版本 $release_id，镜像 $API_IMAGE 和 $WEB_IMAGE，入口模式 behind-proxy（本机 $EDGE_LISTEN，不占用 80/443）"
     [[ -z "${ACME_EMAIL:-}" ]] || log "behind-proxy 模式不申请证书，ACME_EMAIL 这次用不到"
   else
-    log "环境 $APP_ENV，版本 $release_id，镜像 $API_IMAGE，入口模式 standalone（占用 80/443，自动申请证书）"
+    log "环境 $APP_ENV，版本 $release_id，镜像 $API_IMAGE 和 $WEB_IMAGE，入口模式 standalone（占用 80/443，自动申请证书）"
   fi
   normalize_permissions
   write_release_env
   registry_login
 
   if [[ "${DEPLOY_SKIP_PULL:-}" == "1" ]]; then
-    docker image inspect "$API_IMAGE" >/dev/null 2>&1 ||
-      die "$EXIT_NOT_SWITCHED" "设置了 DEPLOY_SKIP_PULL=1，但镜像 $API_IMAGE 不在这台机器上（请先传上来），旧版本没有被替换"
+    for image in "$API_IMAGE" "$WEB_IMAGE"; do
+      docker image inspect "$image" >/dev/null 2>&1 ||
+        die "$EXIT_NOT_SWITCHED" "设置了 DEPLOY_SKIP_PULL=1，但镜像 $image 不在这台机器上（请先传上来），旧版本没有被替换"
+    done
     log "镜像已在本机，不拉取"
   else
     log "拉取镜像"
-    "$release_dir/bin/compose.sh" pull --quiet api ||
+    "$release_dir/bin/compose.sh" pull --quiet api caddy ||
       die "$EXIT_NOT_SWITCHED" "拉取镜像失败，旧版本没有被替换"
   fi
 

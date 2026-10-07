@@ -363,7 +363,8 @@ test("【缺陷】换页后焦点应交给正文（AppShell 里写了这段逻�
 
 test("把浏览器默认字号放大到 200%（字号用 rem，会跟着放大）：360px 宽的登录页和首页不横向滚动、不伸出视口", async ({ page, request }) => {
   const tenant = await createActiveTenant(request);
-  const enlarge = (): Promise<unknown> => page.addStyleTag({ content: "html { font-size: 200%; }" });
+  // 直接改 <html> 的样式属性，而不是往页面里插一段 <style>：页面带着正式环境的内容安全策略，内联样式会被拦下。
+  const enlarge = (): Promise<unknown> => page.evaluate(() => document.documentElement.style.setProperty("font-size", "200%"));
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/login");
   await enlarge();

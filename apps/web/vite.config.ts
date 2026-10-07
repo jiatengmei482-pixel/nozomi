@@ -5,9 +5,11 @@
  * 所以前端一律用相对路径调 API。开发（vite）和端到端测试（vite preview）用同一张代理表模拟这件事。
  * 前端路由不能占用这些前缀。
  */
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
-import { type ProxyOptions, defineConfig } from "vite";
+import { type Plugin, type ProxyOptions, defineConfig } from "vite";
+import { contentSecurityPolicy, inlineScriptHashes } from "./build/edge-config.ts";
 import { API_PATH_PREFIXES } from "./src/lib/api-prefixes.ts";
 
 const apiOrigin = process.env["NOZOMI_API_ORIGIN"] ?? "http://localhost:8080";
@@ -15,9 +17,28 @@ const proxy: Record<string, ProxyOptions> = Object.fromEntries(
   API_PATH_PREFIXES.map((prefix) => [`^${prefix}(/|\\?|$)`, { target: apiOrigin, changeOrigin: false }]),
 );
 
+/**
+ * `vite preview`（端到端测试用它提供构建好的前端）带上和正式环境同一条内容安全策略：
+ * 策略由同一个函数从同一份构建产物算出，所以策略一旦会拦掉页面需要的东西，端到端测试先失败。
+ * 开发服务器（`vite`）不加：热更新要用内联脚本。
+ */
+function previewContentSecurityPolicy(): Plugin {
+  return {
+    name: "nozomi:preview-content-security-policy",
+    configurePreviewServer(server) {
+      const indexHtml = readFileSync(new URL("./dist/index.html", import.meta.url), "utf8");
+      const policy = contentSecurityPolicy(inlineScriptHashes(indexHtml));
+      server.middlewares.use((_request, response, next) => {
+        response.setHeader("Content-Security-Policy", policy);
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
-  plugins: [react()],
+  plugins: [react(), previewContentSecurityPolicy()],
   server: {
     port: 5173,
     strictPort: true,
