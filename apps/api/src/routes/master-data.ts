@@ -297,9 +297,9 @@ function withoutUndefined(values: Record<string, unknown>): ColumnValues {
 
 export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext): void {
   const platform = (request: FastifyRequest, action: PlatformAction) =>
-    authenticatePlatform(ctx, bearerToken(request.headers.authorization), action);
+    authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
   const tenant = (request: FastifyRequest, action: TenantAction) =>
-    authenticateTenant(ctx, bearerToken(request.headers.authorization), action);
+    authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
 
   function register<T extends City | Place | VehicleGroup | Addon, Query extends z.ZodTypeAny, Create extends z.ZodTypeAny, Patch extends z.ZodTypeAny>(
     endpoints: Endpoints<T, Query, Create, Patch>,
