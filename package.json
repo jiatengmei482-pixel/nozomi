@@ -8,9 +8,18 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test \"packages/*/src/**/*.test.ts\"",
-    "check": "pnpm typecheck && pnpm test && pnpm roadmap:check",
+    "dev": "node --watch --import ./scripts/load-env.mjs apps/api/src/server.ts",
+    "db:provision": "node --env-file-if-exists=.env apps/api/src/db/provision-cli.ts",
+    "db:migrate": "node --env-file-if-exists=.env apps/api/src/db/migrate-cli.ts",
+    "admin:create": "node --env-file-if-exists=.env apps/api/src/cli/admin-create.ts",
+    "admin:reset-password": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-password.ts",
+    "web:dev": "pnpm --filter @nozomi/web dev",
+    "web:build": "pnpm --filter @nozomi/web build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",
+    "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\" && pnpm --filter @nozomi/web test:components",
+    "test:e2e": "pnpm --filter @nozomi/web test:e2e",
+    "test:integration": "node --env-file-if-exists=.env --test \"apps/*/src/**/*.itest.ts\"",
+    "check": "pnpm typecheck && pnpm test && pnpm test:integration && pnpm roadmap:check",
     "config:check": "node packages/config/src/cli.ts",
     "roadmap:check": "node scripts/check-roadmap.mjs",
     "progress:build": "node scripts/build-progress.mjs"
