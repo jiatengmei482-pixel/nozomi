@@ -95,6 +95,9 @@ async function raw(method: string, url: string, token: string, headers: Record<s
   return { status: res.statusCode, headers: res.headers, text: res.body, body: parsed };
 }
 
+/** 主数据四类资源的接口形状相同（M1-01）；鉴权先于参数校验，所以请求体给空对象即可。 */
+const MASTER_RESOURCES = ["cities", "places", "vehicle-groups", "addons"] as const;
+
 /** 每个被拦的业务接口配一份「本来会成功」的请求体：证明被拦不是因为参数不对。 */
 function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }): [HttpMethod, string, unknown?][] {
   if (entry === "platform") {
@@ -113,9 +116,21 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }
       ["POST", `/platform/v1/tenants/${ids.tenantId}/admin-password-resets`, { email: "admin@a.test" }],
       ["GET", "/platform/v1/audit-logs"],
       ["GET", "/platform/v1/integrations"],
+      ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
+        ["GET", `/platform/v1/master/${resource}`],
+        ["POST", `/platform/v1/master/${resource}`, {}],
+        ["GET", `/platform/v1/master/${resource}/${ids.userId}`],
+        ["PATCH", `/platform/v1/master/${resource}/${ids.userId}`, {}],
+        ["POST", `/platform/v1/master/${resource}/${ids.userId}/disable`],
+        ["POST", `/platform/v1/master/${resource}/${ids.userId}/enable`],
+      ]),
     ];
   }
   return [
+    ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
+      ["GET", `/tenant/v1/master/${resource}`],
+      ["GET", `/tenant/v1/master/${resource}/${ids.userId}`],
+    ]),
     ["GET", "/tenant/v1/users"],
     ["POST", "/tenant/v1/users", { email: `bypass-${randomUUID().slice(0, 8)}@a.test`, name: "不该出现", role: "dispatch" }],
     ["PUT", `/tenant/v1/users/${ids.userId}`, { name: "被改了", role: "finance", status: "disabled" }],
