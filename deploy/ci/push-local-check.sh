@@ -49,6 +49,8 @@ cleanup() {
     # 排查用：演练服务器上 sshd 的日志（去掉地址）、容器状态和 Docker 的日志。
     printf '\n--- 演练服务器的 sshd 日志 ---\n'
     docker exec "$server" cat /var/log/sshd.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
+    printf '\n--- 演练服务器上和「能不能登录」有关的状态（禁止登录标记、nozomi 账号的有效期字段、系统时间） ---\n'
+    docker exec "$server" bash -c 'ls -l /run/nologin /etc/nologin 2>&1; cat /run/nologin /etc/nologin 2>/dev/null; getent shadow nozomi | cut -d: -f3-; date -u; ls -ld /home/nozomi /home/nozomi/.ssh' 2>&1 || true
     printf '\n--- 演练服务器的容器和 Docker 日志 ---\n'
     docker exec "$server" bash -c 'docker ps --all; tail -n 30 /var/log/dockerd.log' 2>/dev/null || true
   fi
