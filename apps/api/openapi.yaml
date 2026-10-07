@@ -1,0 +1,1682 @@
+openapi: 3.1.0
+info:
+  title: NOZOMI 用车平台 API
+  version: 0.1.0
+  description: |
+    接口定义先于实现：新增或修改接口时先改本文件，再写代码。
+    `apps/api/src/openapi.test.ts` 会校验「已注册的路由」和本文件的 `paths` 完全一致。
+
+    约定：
+    - 出错时统一返回 `{ error: { code, message, details } }`（见 `ErrorResponse`）。
+      唯一的例外是 `/health` 的 503：为了让监控直接看到是哪一项出了问题，仍返回 `HealthResponse`。
+    - 所有接口共有的错误（不在每个接口下重复列出）：
+      - 400 `BAD_REQUEST`：请求体不是合法 JSON、URL 里有非法的百分号编码、发来的根本不是 HTTP 请求
+      - 400 `VALIDATION_FAILED`：参数校验未通过，`details.issues` 列出每一项
+      - 404 `NOT_FOUND`：路径或请求方法不存在
+      - 408 `REQUEST_TIMEOUT`：请求迟迟没有发完
+      - 413 `PAYLOAD_TOO_LARGE`：请求体超过 1MB
+      - 415 `UNSUPPORTED_MEDIA_TYPE`：请求内容类型不支持
+      - 431 `REQUEST_HEADER_FIELDS_TOO_LARGE`：请求头超过 16KB
+      - 500 `INTERNAL_ERROR`：未预期的服务端错误，`message` 不含内部细节
+
+      其中 408、431 和「不是 HTTP 请求」的 400 在解析阶段就被拒绝，应答之后连接会被服务端关闭。
+    - 金额用最小货币单位整数，百分比用基点整数。
+    - 租户接口的 `tenant_id` 只从登录令牌读取；请求参数和请求体里的 `tenant_id` 一律被忽略。
+    - `/platform/v1` 和 `/tenant/v1` 的字段名用 snake_case，时间用带时区的 ISO 8601。
+      （`/health` 是 M0-05 定下的运维接口，字段名保持原样。）
+    - 登录：平台员工用 `/platform/v1/auth/login`，租户用户用 `/tenant/v1/auth/login`，
+      拿到访问令牌后放在请求头 `Authorization: Bearer <令牌>`。令牌 8 小时过期，没有刷新令牌，过期后重新登录。
+      两类令牌互不通用：平台令牌访问租户接口、租户令牌访问平台接口，都是 401。
+      停用账号、退出登录、凭重置令牌改了密码之后，已经发出的令牌立即失效。
+      租户被暂停不影响它的用户登录（暂停的租户还要继续履约已有订单），`tenant.status` 会告诉前端当前状态。
+    - 所有字符串输入都不能包含 NUL 字符（`\u0000`、查询串里的 `%00`），否则 400 `VALIDATION_FAILED`。
+    - 密码找回不依赖邮件：自己改密码用 `auth/change-password`；忘了密码由管理员发一次性重置令牌，
+      本人凭它在 `auth/reset-password` 设置新密码。
+    - 需要登录的接口共有的错误（不在每个接口下重复列出）：
+      - 401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效
+      - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作
+      - 403 `PASSWORD_CHANGE_REQUIRED`：这个账号正在用临时密码，必须先修改密码（见下一条）
+    - 临时密码与强制修改密码：平台超级管理员可以在服务器上用命令行生成一次性显示的随机临时密码
+      （`pnpm admin:create --temporary-password`、`pnpm admin:reset-password --temporary-password`）。
+      用临时密码登录照常成功，但登录应答和 `auth/me` 里的 `must_change_password` 为 `true`。
+      在这种状态下，需要登录的接口里只有三个可用：`GET auth/me`、`POST auth/change-password`、`POST auth/logout`；
+      其余全部返回 403 `PASSWORD_CHANGE_REQUIRED`（先于角色权限和参数校验判断，新增的接口默认也在此列）。
+      `auth/change-password` 成功后标记清除，当前令牌继续可用，不用重新登录；临时密码随即作废。
+      新密码不能和临时密码相同（`PASSWORD_UNCHANGED`）。
+      通过邀请链接或重置链接设置的密码不是临时密码，`must_change_password` 为 `false`。
+      这个标记只出现在本人的登录应答和 `auth/me` 里，不出现在任何账号列表和别人能看到的账号对象里。
+    - 租户接口访问别的租户的资源一律 404，不暴露资源是否存在。
+    - 列表接口用游标分页：`limit`（默认 50，最大 200）+ `cursor`，返回 `next_cursor`（没有下一页时为 null）。
+    - `/platform/v1`、`/tenant/v1` 的所有响应都带 `Cache-Control: no-store`。
+servers:
+  - url: http://localhost:8080
+    description: 本地开发
+tags:
+  - name: 运维
+    description: 健康检查等不属于任何业务域的接口
+  - name: 平台登录
+    description: 平台员工的登录、退出、接受邀请
+  - name: 平台账号
+    description: 平台员工账号管理（只有超级管理员）
+  - name: 租户管理
+    description: 平台侧创建、查看、暂停租户
+  - name: 平台系统
+    description: 审计日志、集成状态
+  - name: 租户登录
+    description: 租户用户的登录、退出、接受邀请
+  - name: 租户账号
+    description: 租户管理员管理本租户的子账号
+paths:
+  /health:
+    get:
+      tags: [运维]
+      operationId: getHealth
+      summary: 健康检查
+      description: |
+        真实执行一次数据库查询，并给出迁移状态和各集成的配置状态。
+        整个检查（数据库探测加迁移探测）共用一个 2 秒的时限，超时按数据库不可用处理，接口不会一直挂起。
+        查询串会被忽略。
+        这个接口不需要登录，所以各集成只给出「已配置 / 未配置」，不带任何说明文字；
+        脱敏后的详情在需要平台登录的 `GET /platform/v1/integrations`。
+
+        - 数据库可用且迁移已全部执行：200，`status` 为 `ok`。
+        - 数据库不可用、迁移未执行完或迁移记录异常：503，`status` 为 `degraded`。
+        - 第三方集成「未配置」不影响 `status`（local / ci 环境允许缺省）。
+      security: []
+      responses:
+        "200":
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: 服务不可用（数据库或迁移有问题），响应体仍是完整的健康检查结构
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /platform/v1/auth/login:
+    post:
+      tags: [平台登录]
+      operationId: platformLogin
+      summary: 平台员工登录
+      description: |
+        邮箱 + 密码登录。邮箱不存在、密码错误、账号还没激活，返回的内容完全一样，分辨不出邮箱是否存在。
+        15 分钟内：同一邮箱 + 同一来源地址最多尝试 5 次，同一邮箱最多 20 次，同一来源地址（不分邮箱）最多失败 50 次；
+        超过返回 429。登录成功后邮箱维度的计数清零。被 429 拦下的请求不验证密码、不写审计日志。
+        登录成功和失败都写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformLoginResponse"
+        "401":
+          description: "`INVALID_CREDENTIALS`：邮箱或密码不正确"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /platform/v1/auth/logout:
+    post:
+      tags: [平台登录]
+      operationId: platformLogout
+      summary: 平台员工退出登录
+      description: 当前令牌立即失效。写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "204":
+          description: 已退出
+  /platform/v1/auth/me:
+    get:
+      tags: [平台登录]
+      operationId: getPlatformMe
+      summary: 当前登录的平台员工
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 当前账号和它能做的操作
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, permissions, must_change_password]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
+                  permissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformAction"
+  /platform/v1/auth/accept-invite:
+    post:
+      tags: [平台登录]
+      operationId: acceptPlatformInvite
+      summary: 平台员工接受邀请并设置密码
+      description: |
+        凭创建账号时返回的一次性邀请令牌设置密码，账号变为在用；之后用邮箱和这个密码登录。
+        令牌只能用一次，7 天过期。令牌不存在、已用过、已过期返回同一个错误。写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "200":
+          description: 已激活
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+        "400":
+          $ref: "#/components/responses/InviteRejected"
+  /platform/v1/auth/change-password:
+    post:
+      tags: [平台登录]
+      operationId: changePlatformPassword
+      summary: 平台员工修改自己的密码
+      description: |
+        需要提供当前密码。成功后这个账号的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
+        核对当前密码和登录一样限速（同一账号同一来源地址 15 分钟 5 次），超过返回 429。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: 已修改
+        "400":
+          $ref: "#/components/responses/PasswordChangeRejected"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /platform/v1/auth/reset-password:
+    post:
+      tags: [平台登录]
+      operationId: resetPlatformPassword
+      summary: 平台员工凭重置令牌设置新密码
+      description: |
+        令牌由超级管理员在 `POST /platform/v1/staff/{id}/password-reset` 发出，24 小时有效，只能用一次。
+        成功后这个账号的全部登录会话失效，用新密码重新登录。写审计日志。
+        令牌不存在、已用过、已过期、账号已停用，返回同一个错误。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: 已重设
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+        "400":
+          $ref: "#/components/responses/ResetRejected"
+  /platform/v1/staff:
+    get:
+      tags: [平台账号]
+      operationId: listPlatformStaff
+      summary: 平台员工列表
+      description: 需要操作 `staff.read`（超级管理员）。按创建时间从早到晚。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页平台员工
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformUser"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [平台账号]
+      operationId: createPlatformStaff
+      summary: 创建平台员工账号（发出邀请）
+      description: |
+        需要操作 `staff.manage`（超级管理员）。账号创建后是「待激活」，响应里带一次性邀请令牌——
+        **令牌只在这一次响应里出现**，数据库只存它的哈希。把令牌交给本人，由本人在接受邀请接口设置密码。
+        对一个从未激活过的邮箱再次调用，会重新发出邀请（旧令牌作废，姓名和角色按本次请求更新）。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, name, role]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/PlatformRole"
+      responses:
+        "201":
+          description: 已创建，带一次性邀请令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：这个邮箱已经有激活过的账号"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/disable:
+    post:
+      tags: [平台账号]
+      operationId: disablePlatformStaff
+      summary: 停用平台员工账号
+      description: |
+        需要操作 `staff.manage`。停用后该账号不能登录，已登录的令牌立即失效；待激活账号的邀请令牌同时作废。
+        在用的超级管理员至少保留一个。已经是停用状态时直接返回当前账号。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`LAST_ADMIN_REQUIRED`：这是最后一个在用的超级管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/enable:
+    post:
+      tags: [平台账号]
+      operationId: enablePlatformStaff
+      summary: 重新启用平台员工账号
+      description: |
+        需要操作 `staff.manage`。只对激活过（设过密码）的账号有效；从未激活过的账号请重新创建（重新邀请）。
+        已经是在用状态时直接返回当前账号。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ACCOUNT_NOT_ACTIVATED`：账号从未激活，不能直接启用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/password-reset:
+    post:
+      tags: [平台账号]
+      operationId: issuePlatformStaffPasswordReset
+      summary: 给平台员工发密码重置令牌
+      description: |
+        需要操作 `staff.manage`（超级管理员）。只对在用的账号有效。响应里带一次性重置令牌——
+        **令牌只在这一次响应里出现**，数据库只存它的哈希，24 小时有效。把它交给本人，由本人在
+        `POST /platform/v1/auth/reset-password` 设置新密码。
+        发出令牌**不改变现有密码**，也不影响现有登录；再发一次会让上一个令牌作废。写审计日志。
+        最后一个超级管理员自己忘了密码时，在服务器上用 `pnpm admin:reset-password`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /platform/v1/tenants:
+    get:
+      tags: [租户管理]
+      operationId: listTenants
+      summary: 租户列表
+      description: 需要操作 `tenant.read`。按创建时间从早到晚。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页租户
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tenant"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [租户管理]
+      operationId: createTenant
+      summary: 创建租户并邀请它的第一个管理员
+      description: |
+        需要操作 `tenant.create`。同时创建租户和它的第一个管理员账号（待激活），
+        响应里带这个管理员的一次性邀请令牌——**令牌只在这一次响应里出现**。
+        把令牌交给租户，由对方在 `POST /tenant/v1/auth/accept-invite` 设置密码后登录。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, admin]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: 租户名称
+                admin:
+                  type: object
+                  additionalProperties: false
+                  required: [email, name]
+                  properties:
+                    email:
+                      $ref: "#/components/schemas/Email"
+                    name:
+                      $ref: "#/components/schemas/PersonName"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tenant, admin_user, invite]
+                properties:
+                  tenant:
+                    $ref: "#/components/schemas/Tenant"
+                  admin_user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：管理员邮箱已被别的租户用户使用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}:
+    get:
+      tags: [租户管理]
+      operationId: getTenant
+      summary: 租户详情
+      description: 需要操作 `tenant.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/suspend:
+    post:
+      tags: [租户管理]
+      operationId: suspendTenant
+      summary: 暂停租户
+      description: |
+        需要操作 `tenant.change_status`。把租户状态改为 `suspended`。
+        暂停**不影响**该租户用户的登录和已有会话（暂停的租户还要继续履约已有订单）；
+        「暂停的租户不参与比价」等业务含义由后续任务（M4-01）实现。
+        已经是暂停状态时直接返回当前租户。写审计日志（含原因）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+                  description: 暂停原因，记入审计日志
+      responses:
+        "200":
+          description: 暂停后的租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/resume:
+    post:
+      tags: [租户管理]
+      operationId: resumeTenant
+      summary: 恢复租户
+      description: 需要操作 `tenant.change_status`。把租户状态改回 `active`。已经是正常状态时直接返回当前租户。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 恢复后的租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/admin-invites:
+    post:
+      tags: [租户管理]
+      operationId: inviteTenantAdmin
+      summary: 给租户再邀请一个管理员（或重发管理员邀请）
+      description: |
+        需要操作 `tenant.create`。用于第一个管理员的邀请过期、或租户需要平台帮忙加一个管理员的情况。
+        邮箱是该租户里一个从未激活过的账号时，重新发出邀请（旧令牌作废，角色改为管理员）。
+        **令牌只在这一次响应里出现**。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, name]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+      responses:
+        "201":
+          description: 已邀请
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EMAIL_TAKEN`：邮箱已被使用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}/admin-password-resets:
+    post:
+      tags: [租户管理]
+      operationId: issueTenantAdminPasswordReset
+      summary: 给租户的管理员发密码重置令牌
+      description: |
+        需要操作 `tenant.create`。用于租户的管理员忘了密码、租户里又没有别的管理员能帮他重置的情况。
+        只对该租户里**在用的管理员**有效（其他角色由租户自己的管理员重置）。
+        **令牌只在这一次响应里出现**，24 小时有效；由本人在 `POST /tenant/v1/auth/reset-password` 设置新密码。
+        发出令牌不改变现有密码。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          description: "`NOT_FOUND`：租户不存在，或这个邮箱不是该租户的管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /platform/v1/audit-logs:
+    get:
+      tags: [平台系统]
+      operationId: listAuditLogs
+      summary: 查询审计日志
+      description: |
+        需要操作 `audit_log.read`（超级管理员）。可以按人、按对象、按租户、按时间筛选，条件之间是「并且」；
+        从新到旧返回。审计日志只能追加，没有修改和删除接口，数据库层面也拦截修改和删除。
+      security:
+        - platformToken: []
+      parameters:
+        - name: actor_id
+          in: query
+          description: 操作人的账号编号
+          schema:
+            type: string
+            format: uuid
+        - name: tenant_id
+          in: query
+          description: 只看某个租户的记录
+          schema:
+            type: string
+            format: uuid
+        - name: resource
+          in: query
+          description: 对象类型，见 `AuditLog.resource`
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          description: 对象编号
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: 动作，见 `AuditLog.action`
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: 起始时间（含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: 结束时间（不含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页审计日志
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLog"
+                  next_cursor:
+                    type: [string, "null"]
+  /platform/v1/integrations:
+    get:
+      tags: [平台系统]
+      operationId: listIntegrations
+      summary: 各集成的配置状态（含脱敏详情）
+      description: |
+        需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
+        多给一段脱敏说明（打码后的数据库地址、只露首尾的密钥），永远不含密钥原文。每次查看都写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 集成状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IntegrationStatusDetail"
+  /tenant/v1/auth/login:
+    post:
+      tags: [租户登录]
+      operationId: tenantLogin
+      summary: 租户用户登录
+      description: |
+        邮箱 + 密码登录。一个邮箱只属于一个租户，所以登录时不用选租户。
+        邮箱不存在、密码错误、账号还没激活，返回的内容完全一样。限速规则与平台登录相同。
+        租户被暂停时照常可以登录，返回的 `tenant.status` 是 `suspended`。
+        登录成功和失败都写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantLoginResponse"
+        "401":
+          description: "`INVALID_CREDENTIALS`：邮箱或密码不正确"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /tenant/v1/auth/logout:
+    post:
+      tags: [租户登录]
+      operationId: tenantLogout
+      summary: 租户用户退出登录
+      description: 当前令牌立即失效。写审计日志。
+      security:
+        - tenantToken: []
+      responses:
+        "204":
+          description: 已退出
+  /tenant/v1/auth/me:
+    get:
+      tags: [租户登录]
+      operationId: getTenantMe
+      summary: 当前登录的租户用户
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 当前账号、所属租户和能做的操作
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, tenant, permissions, must_change_password]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
+                  tenant:
+                    $ref: "#/components/schemas/Tenant"
+                  permissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantAction"
+  /tenant/v1/auth/accept-invite:
+    post:
+      tags: [租户登录]
+      operationId: acceptTenantInvite
+      summary: 租户用户接受邀请并设置密码
+      description: |
+        凭邀请令牌（平台创建租户时返回的，或租户管理员邀请子账号时返回的）设置密码，账号变为在用；
+        之后用邮箱和这个密码登录。令牌只能用一次，7 天过期。令牌不存在、已用过、已过期返回同一个错误。写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "200":
+          description: 已激活
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+        "400":
+          $ref: "#/components/responses/InviteRejected"
+  /tenant/v1/auth/change-password:
+    post:
+      tags: [租户登录]
+      operationId: changeTenantPassword
+      summary: 租户用户修改自己的密码
+      description: |
+        需要提供当前密码。成功后这个用户的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
+        核对当前密码和登录一样限速，超过返回 429。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: 已修改
+        "400":
+          $ref: "#/components/responses/PasswordChangeRejected"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /tenant/v1/auth/reset-password:
+    post:
+      tags: [租户登录]
+      operationId: resetTenantPassword
+      summary: 租户用户凭重置令牌设置新密码
+      description: |
+        令牌由本租户的管理员（`POST /tenant/v1/users/{id}/password-reset`）或平台
+        （`POST /platform/v1/tenants/{id}/admin-password-resets`，只针对租户管理员）发出，24 小时有效，只能用一次。
+        成功后这个用户的全部登录会话失效，用新密码重新登录。写审计日志。
+        令牌不存在、已用过、已过期、账号已停用，返回同一个错误。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: 已重设
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+        "400":
+          $ref: "#/components/responses/ResetRejected"
+  /tenant/v1/users:
+    get:
+      tags: [租户账号]
+      operationId: listTenantUsers
+      summary: 本租户的账号列表
+      description: 需要操作 `user.read`（管理员、只读）。只返回令牌所属租户的账号。按创建时间从早到晚。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页账号
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantUser"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [租户账号]
+      operationId: inviteTenantUser
+      summary: 邀请子账号
+      description: |
+        需要操作 `user.manage`（管理员）。账号建在令牌所属的租户下，请求体里的 `tenant_id` 会被忽略。
+        账号创建后是「待激活」，响应里带一次性邀请令牌——**令牌只在这一次响应里出现**。
+        对本租户里一个从未激活过的邮箱再次调用，会重新发出邀请（旧令牌作废，姓名和角色按本次请求更新）。写审计日志。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name, role]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/TenantRole"
+      responses:
+        "201":
+          description: 已邀请，带一次性邀请令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：这个邮箱已被使用（一个邮箱只能属于一个租户的一个账号）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/users/{id}:
+    put:
+      tags: [租户账号]
+      operationId: updateTenantUser
+      summary: 修改子账号的姓名、角色、状态
+      description: |
+        需要操作 `user.manage`（管理员）。三个字段整体替换。
+        - `status` 只能在 `active` 和 `disabled` 之间改；待激活账号保持 `invited` 或改成 `disabled`（撤销邀请）。
+        - 从未激活过的账号不能直接改成 `active`，请重新邀请。
+        - 在用的管理员至少保留一个：不能把最后一个管理员降级或停用。
+        - 停用后该账号的令牌立即失效。
+        改姓名、改角色、停用 / 启用各写一条审计日志（带前后值，只含变了的那一项）；什么都没变则不写。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role, status]
+              properties:
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/TenantRole"
+                status:
+                  $ref: "#/components/schemas/AccountStatus"
+      responses:
+        "200":
+          description: 修改后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `LAST_ADMIN_REQUIRED`：这是最后一个在用的管理员
+            - `STATUS_INVITED_IS_NOT_SETTABLE`：不能把账号改回待激活
+            - `ACCOUNT_NOT_ACTIVATED`：账号从未激活，不能直接启用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [租户账号]
+      operationId: disableTenantUser
+      summary: 停用子账号
+      description: |
+        需要操作 `user.manage`（管理员）。删除 = 停用：账号保留但不能登录，令牌立即失效，待激活账号的邀请作废。
+        在用的管理员至少保留一个。已经停用的账号再次调用仍返回 204。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已停用
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`LAST_ADMIN_REQUIRED`：这是最后一个在用的管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/users/{id}/password-reset:
+    post:
+      tags: [租户账号]
+      operationId: issueTenantUserPasswordReset
+      summary: 给本租户的用户发密码重置令牌
+      description: |
+        需要操作 `user.manage`（管理员）。只对本租户里在用的账号有效；别的租户的账号和不存在一样，返回 404。
+        **令牌只在这一次响应里出现**，数据库只存它的哈希，24 小时有效。把它交给本人，由本人在
+        `POST /tenant/v1/auth/reset-password` 设置新密码。
+        发出令牌**不改变现有密码**，也不影响现有登录；再发一次会让上一个令牌作废。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /tenant/v1/audit-logs:
+    get:
+      tags: [租户账号]
+      operationId: listTenantAuditLogs
+      summary: 本租户的操作日志
+      description: |
+        需要操作 `audit_log.read`（管理员）。只返回令牌所属租户的记录，从新到旧。
+        只包含本租户用户的操作，以及针对本租户账号的登录失败；平台员工对这个租户做的操作
+        （创建、暂停及原因、代发邀请 / 重置）属于平台内部记录，不在其中。
+        可以按人、按对象、按动作、按时间筛选，条件之间是「并且」。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: actor_id
+          in: query
+          description: 操作人的账号编号
+          schema:
+            type: string
+            format: uuid
+        - name: resource
+          in: query
+          description: 对象类型
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          description: 对象编号
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: 动作，见 `AuditLog.action`
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: 起始时间（含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: 结束时间（不含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页操作日志
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantAuditLog"
+                  next_cursor:
+                    type: [string, "null"]
+components:
+  securitySchemes:
+    platformToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 平台员工登录后拿到的访问令牌
+    tenantToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 租户用户登录后拿到的访问令牌；租户编号只从这里取
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      description: 每页条数；只接受十进制整数的写法
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      description: 上一页返回的 `next_cursor`
+      schema:
+        type: string
+  responses:
+    InternalError:
+      description: 未预期的服务端错误，`message` 不包含内部细节
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ResourceNotFound:
+      description: "`NOT_FOUND`：资源不存在（租户接口里，属于别的租户的资源也是这个结果）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyLoginAttempts:
+      description: "`TOO_MANY_LOGIN_ATTEMPTS`：尝试次数过多，`details.retry_after_seconds` 和响应头 `Retry-After` 是还要等的秒数"
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 还要等多少秒
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PasswordChangeRejected:
+      description: |
+        - `CURRENT_PASSWORD_INCORRECT`：当前密码不正确
+        - `PASSWORD_UNCHANGED`：新密码和当前密码相同
+        - `WEAK_PASSWORD`：新密码强度不够，`details.issues` 列出每一条没满足的规则
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ResetRejected:
+      description: |
+        - `RESET_TOKEN_INVALID`：重置令牌不存在、已用过、已过期，或账号已停用
+        - `WEAK_PASSWORD`：密码强度不够，`details.issues` 列出每一条没满足的规则（令牌仍然可用）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AccountNotActive:
+      description: "`ACCOUNT_NOT_ACTIVE`：账号不是在用状态。待激活的账号请重新邀请，已停用的账号请先启用"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InviteRejected:
+      description: |
+        - `INVITE_INVALID`：邀请令牌不存在、已用过或已过期
+        - `WEAK_PASSWORD`：密码强度不够，`details.issues` 列出每一条没满足的规则（`code` + `message`）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              description: 稳定的机器可读错误码，全大写下划线
+              examples: [NOT_FOUND, VALIDATION_FAILED, BAD_REQUEST, INTERNAL_ERROR]
+            message:
+              type: string
+              description: 给人看的简体中文说明
+            details:
+              type: object
+              description: 补充信息；没有时为空对象
+              additionalProperties: true
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, env, database, migrations, integrations]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        env:
+          type: string
+          enum: [local, ci, staging, production]
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        migrations:
+          $ref: "#/components/schemas/MigrationHealth"
+        integrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegrationStatus"
+    DatabaseHealth:
+      type: object
+      additionalProperties: false
+      required: [state, latencyMs, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up, down]
+        latencyMs:
+          type: [integer, "null"]
+          description: 探测查询耗时（毫秒）；数据库不可用时为 null
+        errorCode:
+          type: [string, "null"]
+          enum: [DB_TIMEOUT, DB_UNREACHABLE, DB_ROLE_UNSAFE, null]
+          description: |
+            数据库不可用的原因；可用时为 null。不返回驱动的原始报错。
+            - `DB_TIMEOUT`：探测查询超时
+            - `DB_UNREACHABLE`：连不上
+            - `DB_ROLE_UNSAFE`：连得上，但服务进程用的数据库账号不是最小权限的应用账号（是超级用户、表的所有者等）。
+              这种账号下服务不执行任何业务查询；修正 `DATABASE_URL` 后重启（ADR 0010）
+    MigrationHealth:
+      type: object
+      additionalProperties: false
+      required: [state, applied, pending, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up_to_date, pending, error, unknown]
+          description: |
+            - `up_to_date`：迁移文件全部已执行
+            - `pending`：有迁移文件尚未执行，需要运行 `pnpm db:migrate`
+            - `error`：迁移记录与文件不一致（见 `errorCode`）
+            - `unknown`：数据库不可用，无法判断
+        applied:
+          type: [integer, "null"]
+          description: 已执行的迁移数量；`unknown` 或 `error` 时为 null
+        pending:
+          type: [integer, "null"]
+          description: 待执行的迁移数量；`unknown` 或 `error` 时为 null
+        errorCode:
+          type: [string, "null"]
+          enum:
+            - MIGRATION_CHECKSUM_MISMATCH
+            - MIGRATION_FILE_MISSING
+            - MIGRATION_OUT_OF_ORDER
+            - null
+    IntegrationStatus:
+      type: object
+      description: 公开的集成状态：只有「已配置 / 未配置」
+      additionalProperties: false
+      required: [key, label, state]
+      properties:
+        key:
+          type: string
+          enum: [database, auth, stripe, googleMaps, fx]
+        label:
+          type: string
+        state:
+          type: string
+          enum: [configured, missing]
+    IntegrationStatusDetail:
+      type: object
+      description: 需要平台登录才能看到的集成状态：多一段脱敏说明
+      additionalProperties: false
+      required: [key, label, state, detail]
+      properties:
+        key:
+          type: string
+          enum: [database, auth, stripe, googleMaps, fx]
+        label:
+          type: string
+        state:
+          type: string
+          enum: [configured, missing]
+        detail:
+          type: string
+          description: 脱敏后的说明，例如打码后的数据库地址、只露首尾的密钥
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+      description: 邮箱；不分大小写，保存和返回时统一为小写
+    PersonName:
+      type: string
+      minLength: 1
+      maxLength: 100
+      description: 姓名（显示用）
+    AccountStatus:
+      type: string
+      enum: [invited, active, disabled]
+      description: "invited：已邀请、还没设密码；active：在用；disabled：已停用"
+    PlatformRole:
+      type: string
+      enum: [super_admin, operations, tenant_onboarding, channel_manager, customer_service, finance, risk, master_data, tech, readonly]
+      description: 平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
+    TenantRole:
+      type: string
+      enum: [admin, pricing, dispatch, finance, readonly]
+      description: 租户角色：管理员、商品价格、调度、财务、只读
+    PlatformAction:
+      type: string
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read]
+    TenantAction:
+      type: string
+      enum: [user.read, user.manage, audit_log.read]
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          $ref: "#/components/schemas/Email"
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    AcceptInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: 一次性邀请令牌
+        password:
+          type: string
+          description: |
+            新密码。规则：12 ~ 128 个字符；小写字母、大写字母、数字、其他字符里至少占三类；
+            至少 6 个不同的字符；不能包含邮箱 @ 前面的部分。
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          description: 新密码，强度规则与接受邀请时相同，且不能和当前密码相同
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: 一次性重置令牌
+        password:
+          type: string
+          description: 新密码，强度规则与接受邀请时相同
+    ResetToken:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: 一次性重置令牌原文，只在这一次响应里出现
+        expires_at:
+          type: string
+          format: date-time
+    Invite:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: 一次性邀请令牌原文，只在这一次响应里出现
+        expires_at:
+          type: string
+          format: date-time
+    PlatformUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/PlatformRole"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Tenant:
+      type: object
+      additionalProperties: false
+      required: [id, name, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended]
+          description: "active：正常；suspended：已被平台暂停（用户仍可登录，前端应提示「已暂停」）"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TenantUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/TenantRole"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PlatformLoginResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_at, user, must_change_password]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+          description: 令牌过期时间（登录后 8 小时）
+        user:
+          $ref: "#/components/schemas/PlatformUser"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+    TenantLoginResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_at, user, tenant, must_change_password]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+          description: 令牌过期时间（登录后 8 小时）
+        user:
+          $ref: "#/components/schemas/TenantUser"
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+    MustChangePassword:
+      type: boolean
+      description: |
+        `true`：这个账号正在用临时密码，必须先调用 `auth/change-password` 修改密码；
+        在那之前除 `auth/me`、`auth/change-password`、`auth/logout` 外的接口都返回 403 `PASSWORD_CHANGE_REQUIRED`。
+        前端应在它为 `true` 时只显示修改密码页。修改成功后为 `false`。
+    AuditLog:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, tenant_id, actor, ip, source, resource, resource_id, action, before, after]
+      properties:
+        id:
+          type: string
+          description: 递增的编号（字符串形式）
+        occurred_at:
+          type: string
+          format: date-time
+        tenant_id:
+          type: [string, "null"]
+          format: uuid
+          description: 记录所属的租户；平台级操作为 null
+        actor:
+          type: object
+          additionalProperties: false
+          required: [type, id, email]
+          properties:
+            type:
+              type: string
+              enum: [platform_user, tenant_user, system, anonymous]
+              description: "谁做的：平台员工、租户用户、系统（命令行）、未登录的访问者（登录失败）"
+            id:
+              type: [string, "null"]
+              format: uuid
+            email:
+              type: [string, "null"]
+        ip:
+          type: [string, "null"]
+          description: 来源地址；命令行操作为 null
+        source:
+          type: string
+          enum: [console, api, cli]
+          description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行"
+        resource:
+          type: string
+          enum: [platform_user, tenant, tenant_user, integration]
+        resource_id:
+          type: [string, "null"]
+        action:
+          type: string
+          enum:
+            - login
+            - login_failed
+            - logout
+            - create
+            - invite
+            - accept_invite
+            - disable
+            - enable
+            - update
+            - change_role
+            - change_password
+            - request_password_reset
+            - reset_password
+            - suspend
+            - resume
+            - view
+        before:
+          type: [object, "null"]
+          additionalProperties: true
+          description: 改动前的值；不含密码哈希、令牌
+        after:
+          type: [object, "null"]
+          additionalProperties: true
+          description: |
+            改动后的值，或这次操作的补充信息（如登录失败的原因）；不含密码、密码哈希、令牌。
+            命令行用临时密码创建账号（`create`）或重设密码（`reset_password`）时带 `temporary_password: true`。
+    TenantAuditLog:
+      type: object
+      description: 租户看到的操作日志；字段含义同 `AuditLog`，没有 `tenant_id`
+      additionalProperties: false
+      required: [id, occurred_at, actor, ip, source, resource, resource_id, action, before, after]
+      properties:
+        id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        actor:
+          type: object
+          additionalProperties: false
+          required: [type, id, email]
+          properties:
+            type:
+              type: string
+              enum: [tenant_user, anonymous]
+              description: "本租户的用户，或未登录的访问者（登录失败）"
+            id:
+              type: [string, "null"]
+              format: uuid
+            email:
+              type: [string, "null"]
+        ip:
+          type: [string, "null"]
+        source:
+          type: string
+          enum: [console, api]
+        resource:
+          type: string
+          enum: [tenant_user]
+        resource_id:
+          type: [string, "null"]
+        action:
+          type: string
+          description: 取值同 `AuditLog.action`
+        before:
+          type: [object, "null"]
+          additionalProperties: true
+        after:
+          type: [object, "null"]
+          additionalProperties: true
