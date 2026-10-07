@@ -1,0 +1,11 @@
+node_modules/
+dist/
+site/
+coverage/
+*.log
+.DS_Store
+
+# 密钥只放在本地 .env 或各平台的密钥设置里，绝不提交
+.env
+.env.*
+!.env.example

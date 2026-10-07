@@ -1,0 +1,10 @@
+{
+  "name": "@nozomi/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "纯业务逻辑：地理计算、金额与币种、汇率换算。不依赖数据库和网络，必须 100% 单元测试覆盖。",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

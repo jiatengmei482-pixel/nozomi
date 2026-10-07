@@ -1,0 +1,178 @@
+{
+  "project": "NOZOMI 用车平台",
+  "updated": "2026-10-07",
+  "statuses": {
+    "todo": "未开始",
+    "doing": "开发中",
+    "review": "待验收",
+    "done": "已验收",
+    "blocked": "受阻"
+  },
+  "roles": {
+    "product": "产品",
+    "designer": "美工",
+    "backend": "后端",
+    "frontend": "前端",
+    "tester": "测试",
+    "acceptance": "验收",
+    "owner": "你"
+  },
+  "milestones": [
+    {
+      "id": "M0",
+      "name": "地基",
+      "goal": "仓库、规范、配置、领域核心、后端与前端骨架、自动测试、测试环境上线",
+      "tasks": [
+        {
+          "id": "M0-01",
+          "title": "仓库结构、开发规范、6 个 AI 角色",
+          "role": "product",
+          "status": "done",
+          "acceptance": ["CLAUDE.md 写明全部开发规则", ".claude/agents 下有 6 个角色定义", "需求文档放入 docs/requirements"],
+          "evidence": "首次提交",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-02",
+          "title": "配置与密钥管理",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["所有密钥只从环境变量读取，启动时校验", "非正式环境禁止 Stripe 正式密钥", "pnpm config:check 只显示脱敏信息", "docs/secrets.md 写明每个账号存放位置"],
+          "evidence": "packages/config，9 个单元测试通过",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-03",
+          "title": "领域核心：地理、金额、汇率",
+          "role": "backend",
+          "status": "done",
+          "acceptance": ["区域判断支持圆形、多边形、带洞多边形、多块多边形", "金额用最小货币单位整数，百分比用基点", "汇率快照含 1.5% 跨币种缓冲"],
+          "evidence": "packages/domain，18 个单元测试通过",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-04",
+          "title": "开发进度页",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["由 docs/progress/roadmap.json 自动生成", "每次 main 更新自动发布到 GitHub Pages", "手机上可查看"],
+          "evidence": "scripts/build-progress.mjs；等你在仓库设置里开启 Pages 后验收",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-05",
+          "title": "后端骨架：Fastify 服务、数据库迁移、/health",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["pnpm dev 启动 API，/health 返回数据库连通状态和集成配置状态（脱敏）", "数据库迁移可重复执行", "提交 pnpm-lock.yaml，CI 改为 --frozen-lockfile", "CI 增加 PostgreSQL 服务并跑集成测试"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-06",
+          "title": "登录与多租户隔离",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["平台管理员通过命令行创建，不预置任何账号", "租户、租户用户、角色表，所有租户表带 tenant_id", "集成测试证明租户 A 读不到租户 B 的任何数据", "敏感操作写审计日志"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-07",
+          "title": "设计规范与前端骨架",
+          "role": "designer",
+          "status": "todo",
+          "acceptance": ["docs/design 写明颜色、字体、间距、组件规范，亮色和暗色", "apps/web 有登录页，能用 M0-06 的账号真实登录", "手机宽度不出现横向滚动"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-08",
+          "title": "测试环境上线（Render）",
+          "role": "backend",
+          "status": "blocked",
+          "blockedBy": "等你注册 Render 并授权本仓库，按 docs/secrets.md 填好测试环境变量",
+          "acceptance": ["main 合并后自动部署到测试环境", "测试环境网址可访问 /health", "Stripe Webhook 端点指向测试环境"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-09",
+          "title": "地基验收",
+          "role": "acceptance",
+          "status": "todo",
+          "acceptance": ["在测试环境上真实走通：创建平台管理员 → 登录 → 创建租户 → 租户登录", "验收报告写入 docs/acceptance/M0.md"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        }
+      ]
+    },
+    {
+      "id": "M1",
+      "name": "主数据与租户配置",
+      "goal": "平台统一维护城市、机场、车站、车型；租户能配置区域、商品、价格规则、调价和库存",
+      "tasks": [
+        { "id": "M1-01", "title": "主数据：城市、地点（机场 / 车站 / 地标）、车型组、附加服务", "role": "backend", "status": "todo", "acceptance": ["机场坐标从公开数据源导入并注明来源", "平台后台可增删改，改动有审计"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "todo", "acceptance": ["地图上画区域并保存", "禁行区优先"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "todo", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "todo", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-05", "title": "库存与批量导入导出", "role": "backend", "status": "todo", "acceptance": ["价格日历、批量设置", "Excel 导入先校验后写入"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-06", "title": "租户后台页面", "role": "frontend", "status": "todo", "acceptance": ["区域、商品、价格、库存全部可在界面上操作"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-07", "title": "M1 验收", "role": "acceptance", "status": "todo", "acceptance": ["新租户从零配置一个东京接送机商品并上架"], "evidence": "", "updated": "2026-10-07" }
+      ]
+    },
+    {
+      "id": "M2",
+      "name": "报价引擎与销售接口",
+      "goal": "/sales/v1 询价：多租户比价、3% 价格带、汇率缓冲、报价快照",
+      "tasks": [
+        { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "todo", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "todo", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "todo", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "todo", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-05", "title": "M2 验收", "role": "acceptance", "status": "todo", "acceptance": ["两个真实租户报价，官网询价得到正确中标结果"], "evidence": "", "updated": "2026-10-07" }
+      ]
+    },
+    {
+      "id": "M3",
+      "name": "订单、支付与履约",
+      "goal": "官网下单 → Stripe 付款 → 自动确认 → Webhook 推送 → 派车 → 司机 H5 → 完成",
+      "tasks": [
+        { "id": "M3-01", "title": "下单与 Stripe 付款（保存支付方式）", "role": "backend", "status": "todo", "acceptance": ["Stripe 测试卡真实付款成功", "Webhook 签名校验"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "todo", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "todo", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "todo", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-05", "title": "官网下单页与订单页", "role": "frontend", "status": "todo", "acceptance": ["客人可点「我已落地」"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-06", "title": "M3 验收", "role": "acceptance", "status": "todo", "acceptance": ["完整走通一单接机，含延误和 no-show 场景"], "evidence": "", "updated": "2026-10-07" }
+      ]
+    },
+    {
+      "id": "M4",
+      "name": "平台运营后台",
+      "goal": "租户管理、渠道、订单中心、工单、风控、通知、审计",
+      "tasks": [
+        { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "todo", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "todo", "acceptance": ["赔付按统一表计算"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-04", "title": "M4 验收", "role": "acceptance", "status": "todo", "acceptance": ["运营人员从零审核一个新租户并处理一张工单"], "evidence": "", "updated": "2026-10-07" }
+      ]
+    },
+    {
+      "id": "M5",
+      "name": "财务结算",
+      "goal": "月结账单、银行转账批量文件、违约金扣减、对账、汇兑损益",
+      "tasks": [
+        { "id": "M5-01", "title": "账单生成与双人复核", "role": "backend", "status": "todo", "acceptance": ["次月 20 日付款批次"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M5-02", "title": "银行转账批量文件与流水号回填", "role": "backend", "status": "todo", "acceptance": ["导出文件格式由你提供的银行模板确定"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M5-03", "title": "M5 验收", "role": "acceptance", "status": "todo", "acceptance": ["一个月真实测试订单生成正确账单"], "evidence": "", "updated": "2026-10-07" }
+      ]
+    }
+  ],
+  "log": [
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "建立仓库：开发规范、6 个 AI 角色、需求文档、配置与密钥管理、领域核心（地理 / 金额 / 汇率，27 个测试通过）、CI、开发进度页。"
+    }
+  ]
+}

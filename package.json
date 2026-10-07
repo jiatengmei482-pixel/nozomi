@@ -1,0 +1,22 @@
+{
+  "name": "nozomi-platform",
+  "private": true,
+  "description": "多租户用车报价与服务平台（接送机 / 点对点 / 包车）",
+  "type": "module",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"packages/*/src/**/*.test.ts\"",
+    "check": "pnpm typecheck && pnpm test && pnpm roadmap:check",
+    "config:check": "node packages/config/src/cli.ts",
+    "roadmap:check": "node scripts/check-roadmap.mjs",
+    "progress:build": "node scripts/build-progress.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3"
+  }
+}
