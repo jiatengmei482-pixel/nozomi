@@ -46,6 +46,10 @@ fail() {
 cleanup() {
   local status=$?
   if [[ $status -ne 0 ]]; then
+    # 排查用：演练服务器上 sshd 的日志（去掉地址）、容器状态和 Docker 的日志。
+    printf '\n--- 演练服务器的 sshd 日志 ---\n'
+    docker exec "$server" cat /var/log/sshd.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
+    printf '\n--- 演练服务器的容器和 Docker 日志 ---\n'
     docker exec "$server" bash -c 'docker ps --all; tail -n 30 /var/log/dockerd.log' 2>/dev/null || true
   fi
   docker rm --force --volumes "$server" >/dev/null 2>&1 || true
@@ -143,7 +147,7 @@ ssh-keygen -A >/dev/null
 install -d -m 700 /root/.ssh
 printf '%s\n' "$ROOT_PUBLIC_KEY" >/root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
-/usr/sbin/sshd -o PidFile=/run/sshd.pid
+/usr/sbin/sshd -o PidFile=/run/sshd.pid -E /var/log/sshd.log
 SETUP
 server_address="$(docker inspect --format '{{.NetworkSettings.Networks.bridge.IPAddress}}' "$server")"
 # 主机密钥直接从演练服务器里读出来（不是经网络现取），相当于负责人事先核对过的指纹。

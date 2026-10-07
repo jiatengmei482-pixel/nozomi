@@ -15,7 +15,8 @@
 #
 # 做的事：
 #   1. 检查系统
-#   2. 只安装缺少的基础工具（已有的软件包不升级）
+#   2. RHEL 系：检查运行中的内核有没有 Docker 容器网络需要的模块（只检查，不安装、不加载；缺了就报错停下）
+#      然后只安装缺少的基础工具（已有的软件包不升级）
 #   3. Docker：已经装好且版本够用就原样使用，不重装、不升级；没装才从 Docker 官方软件源安装
 #   4. 创建部署用户 nozomi（无密码，只能用密钥登录，属于 docker 组）
 #   5. 建目录 /opt/nozomi/<环境>/
@@ -83,6 +84,34 @@ detect_os() {
     die "不支持的系统：${OS_ID:-未知} ${version}。只支持 $SUPPORTED_SUMMARY"
   fi
   log "系统：$OS_ID $version（$(uname -m)）"
+}
+
+# Docker 给容器做端口发布和内置 DNS（容器之间按服务名互访）要用到的内核模块。
+# RHEL 系把它们放在 kernel-modules-extra 这个包里，精简安装的机器上常常没有；缺了的话 Docker 本身能启动，
+# 但容器里解析不了别的容器的名字，部署会在连数据库时失败。这里只检查、不安装、不加载，也不碰内核。
+REQUIRED_KERNEL_MODULES=("xt_nat" "nft_compat" "xt_addrtype")
+
+kernel_module_available() {
+  modprobe --dry-run --quiet "$1" 2>/dev/null
+}
+
+check_kernel_modules() {
+  [[ "$OS_FAMILY" == "rhel" ]] || return 0
+  local release module missing=()
+  release="$(uname -r)"
+  # 没有这个目录说明看不到运行中内核的模块（例如在容器里运行），无从判断。
+  if [[ ! -d "/lib/modules/$release" ]] || ! command -v modprobe >/dev/null 2>&1; then
+    log "内核模块：这里看不到运行中内核（$release）的模块目录，跳过检查"
+    return 0
+  fi
+  for module in "${REQUIRED_KERNEL_MODULES[@]}"; do
+    kernel_module_available "$module" || missing+=("$module")
+  done
+  if ((${#missing[@]} == 0)); then
+    log "内核模块：Docker 容器网络需要的模块齐全（${REQUIRED_KERNEL_MODULES[*]}）"
+    return 0
+  fi
+  die "运行中的内核（$release）缺少 Docker 容器网络需要的模块：${missing[*]}。缺了它们，容器之间按名字互访（Docker 内置 DNS）不工作，部署会在连接数据库时失败。初始化脚本不会安装或升级内核相关的软件包，请服务器管理员处理：先运行 dnf install kernel-modules-extra-$release 安装与运行中内核匹配的模块包；软件源里已经没有这个版本时，升级内核和 kernel-modules-extra 并重启服务器（重启会中断这台机器上的其他服务，请安排好时间）。处理完再重新运行初始化"
 }
 
 # 安装软件包。只装指定的包，不做整机升级。
@@ -384,6 +413,7 @@ main() {
   require_root
   detect_os
   report_selinux
+  check_kernel_modules
   install_base_packages
   install_docker
   ensure_deploy_user "$public_key"

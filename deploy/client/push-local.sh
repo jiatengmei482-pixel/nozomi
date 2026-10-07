@@ -93,8 +93,13 @@ CONFIG
   )
   chmod 600 "$ssh_dir/config"
   export NOZOMI_SSH_DIR="$ssh_dir"
-  ssh -F "$ssh_dir/config" vps true ||
-    die "连不上服务器。常见原因：地址或端口不对；部署公钥没有加到 NOZOMI_SSH_USER 这个账号；NOZOMI_SSH_KNOWN_HOSTS_FILE 不是这台服务器的"
+  # 连不上时把 ssh 自己报的原因也打出来（去掉服务器地址）。
+  local detail
+  if ! detail="$(ssh -F "$ssh_dir/config" -o LogLevel=INFO vps true 2>&1)"; then
+    detail="${detail//"$host"/<服务器>}"
+    [[ -z "$detail" ]] || printf '[手工部署] ssh 报告：%s\n' "$detail" >&2
+    die "连不上服务器。常见原因：地址或端口不对；部署公钥没有加到 NOZOMI_SSH_USER 这个账号；NOZOMI_SSH_KNOWN_HOSTS_FILE 不是这台服务器的；短时间内登录失败过几次，服务器暂时拒绝这个来源地址（ssh 报告 Connection reset / closed，等一两分钟再试）"
+  fi
 }
 
 cmd_init() {

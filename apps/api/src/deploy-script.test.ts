@@ -293,6 +293,22 @@ test("迁移前备份失败：退出码 10，不执行迁移", linuxOnly, async 
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), [], "失败的备份不应留下半截文件");
 });
 
+test("容器里解析不了数据库的服务名（Docker 内置 DNS 不工作）：退出码 10，提示指向内核模块；不建账号、不迁移、不启动新版本", linuxOnly, async () => {
+  await deploy("v1");
+  await clearCalls();
+  await failWhen("migrate node -e ");
+  const result = await deploy("v2");
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /容器里解析不了数据库的服务名 db：Docker 内置 DNS 不工作，旧版本没有被替换/);
+  assert.match(result.output, /kernel-modules-extra/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.ok(indexOfCall(log, /run --rm --no-deps -T migrate node -e /) > indexOfCall(log, /up -d --wait --wait-timeout \d+ db$/), "数据库起来之后才检查");
+  assert.equal(indexOfCall(log, /provision-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /migrate-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /--remove-orphans$/), -1);
+});
+
 test("建应用账号失败：退出码 10，不执行迁移，不启动新版本，current 不变", linuxOnly, async () => {
   await deploy("v1");
   await clearCalls();
