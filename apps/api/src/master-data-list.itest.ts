@@ -5,7 +5,10 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { selectAirports } from "@nozomi/domain";
+import { withPlatformTx, withTenantTx } from "./db/context.ts";
+import { CITY, listMaster } from "./services/master-data.ts";
 import { importAirports } from "./services/airport-import.ts";
+import { testConfig } from "./testing/fixtures.ts";
 import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 
 let api: TestApi;
@@ -295,4 +298,131 @@ test("指定城市并启用一次完成：启用时带 city_id，城市和状态
   assert.equal((await api.call("POST", `/platform/v1/master/places/${zka.id}/disable`, { token: root, body: { city_id: tokyo.id } })).body.city_id, null);
   // 首页的「还没指定城市的机场」跟着减少
   assert.equal((await get("/platform/v1/dashboard/summary")).body.master_data.places.airports_without_city, 1);
+});
+
+test("排序 sort=code：按编码逐字节升序，翻页不重不漏；默认仍按创建时间；租户的列表一样", async () => {
+  const walk = async (base: string, query: string, token = root): Promise<string[]> => {
+    const codes: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const res: ApiResponse = await get(`${base}?${query}${cursor ? `&cursor=${cursor}` : ""}`, token);
+      assert.equal(res.status, 200, res.text);
+      codes.push(...res.body.items.map((item: any) => item.code));
+      cursor = res.body.next_cursor;
+    } while (cursor);
+    return codes;
+  };
+  const byteOrder = (codes: string[]): string[] => [...codes].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  const places = "/platform/v1/master/places";
+  const byCreated = await walk(places, "limit=200");
+  const byCode = await walk(places, "limit=2&sort=code");
+  assert.deepEqual(byCode, byteOrder(byCreated), "和按创建时间取到的是同一批，只是顺序不同");
+  assert.equal(new Set(byCode).size, byCode.length);
+  assert.ok(byCode.indexOf("HND") < byCode.indexOf("HND-T1") && byCode.indexOf("HND-T1") < byCode.indexOf("HND-T3"), "HND 在它的航站楼前面");
+  assert.deepEqual(await walk(places, "limit=200&sort=created"), byCreated, "sort=created 就是默认");
+  assert.notDeepEqual(byCode, byCreated);
+  // 和筛选、关键字一起用
+  assert.deepEqual(await walk(places, "limit=1&sort=code&type=airport"), byteOrder(byCreated.filter((code) => /^[A-Z]{3}$/.test(code))));
+  assert.deepEqual(await walk(places, "limit=1&sort=code&q=terminal"), ["HND-T1", "HND-T3"]);
+  for (const path of ["cities", "vehicle-groups", "addons"]) {
+    const sorted = await walk(`/platform/v1/master/${path}`, "limit=1&sort=code&status=all");
+    assert.deepEqual(sorted, byteOrder(sorted), path);
+    assert.equal(sorted.length, (await get(`/platform/v1/master/${path}`)).body.total, path);
+  }
+  const tenantSorted = await walk("/tenant/v1/master/places", "limit=2&sort=code&status=all", tenant.adminToken);
+  assert.deepEqual(tenantSorted, byCode);
+});
+
+test("游标和排序绑定：换了排序还带原来的游标是 400（两个方向都是），不会悄悄翻到错的位置；sort 写错也是 400", async () => {
+  const created = await get("/platform/v1/master/places?limit=1");
+  const coded = await get("/platform/v1/master/places?limit=1&sort=code");
+  assert.ok(created.body.next_cursor && coded.body.next_cursor);
+  for (const url of [
+    `/platform/v1/master/places?limit=1&sort=code&cursor=${created.body.next_cursor}`,
+    `/platform/v1/master/places?limit=1&cursor=${coded.body.next_cursor}`,
+    `/platform/v1/master/places?limit=1&sort=created&cursor=${coded.body.next_cursor}`,
+    `/tenant/v1/master/places?limit=1&sort=code&cursor=${created.body.next_cursor}`,
+  ]) {
+    const res = await get(url, url.startsWith("/tenant") ? tenant.adminToken : root);
+    assert.equal(res.status, 400, url);
+    assert.deepEqual(res.body.error.details.issues, [{ path: "/cursor", message: "游标无效，请使用上一页返回的 next_cursor" }]);
+  }
+  for (const bad of ["sort=name", "sort=CODE", "sort=", "sort=code,created", "sort=-code"]) {
+    const res = await get(`/platform/v1/master/places?${bad}`);
+    assert.equal(res.status, 400, bad);
+    assert.equal(res.body.error.details.issues[0].path, "/sort");
+  }
+  const forged = Buffer.from(JSON.stringify({ c: "HND'; drop table places; --", id: "99999999-9999-4999-8999-999999999999" })).toString("base64url");
+  assert.equal((await get(`/platform/v1/master/places?sort=code&cursor=${forged}`)).status, 400);
+});
+
+test("总数和当页内容读自同一个快照：读事务开始之后别人提交的新增，这个事务里先后的查询都看不到；快照事务是只读的", async () => {
+  const insert = (code: string): Promise<unknown> =>
+    api.db.owner.query(
+      `insert into cities (code, country_code, name, timezone, center_lng, center_lat, status, created_at, updated_at)
+       values ($1, 'JP', '{"zh": "快照测试"}', 'Asia/Tokyo', 139, 35, 'active', now(), now())`,
+      [code],
+    );
+  const count = async (db: { query: (sql: string) => Promise<{ rows: any[] }> }): Promise<number> => (await db.query("select count(*)::int as n from cities")).rows[0].n;
+
+  for (const [label, run] of [
+    ["平台事务", (fn: (db: any) => Promise<unknown>, snapshot: boolean) => withPlatformTx(api.db.pool, fn, { snapshot })],
+    ["租户事务", (fn: (db: any) => Promise<unknown>, snapshot: boolean) => withTenantTx(api.db.pool, tenant.tenantId, fn, { snapshot })],
+  ] as const) {
+    const code = label === "平台事务" ? "CTY-JP-SNAP1" : "CTY-JP-SNAP2";
+    await run(async (db) => {
+      const first = await count(db);
+      await insert(code);
+      assert.equal(await count(db), first, `${label}：同一个快照里，后一条查询看不到中途提交的新增`);
+      await assert.rejects(db.query("update cities set version = version where false"), { code: "25006" }, `${label}：快照事务只读`);
+    }, true);
+    // 对照：不用快照的事务里，后一条查询能看到中途提交的新增——这正是 total 和当页内容会对不上的原因
+    await run(async (db) => {
+      const first = await count(db);
+      await insert(`${code}B`);
+      assert.equal(await count(db), first + 1, label);
+    }, false);
+  }
+});
+
+test("列表接口真的用了快照：在取这一页和数总数之间插入的记录，这次应答里总数和内容都不含它", async () => {
+  // 把仓库层的查询包一层：第一条查询（数总数）之后、第二条查询（取这一页）之前，由别的连接提交一条新城市
+  const before = (await get("/platform/v1/master/cities?limit=200&status=all")).body;
+  let queries = 0;
+  const pool = api.db.pool;
+  const realConnect = pool.connect.bind(pool);
+  (pool as any).connect = async () => {
+    const client = await realConnect();
+    const realQuery = client.query.bind(client);
+    (client as any).query = async (...args: unknown[]) => {
+      const text = typeof args[0] === "string" ? args[0] : ((args[0] as { text?: string })?.text ?? "");
+      const result = await (realQuery as any)(...args);
+      if (/select count\(\*\)::int as n from cities/.test(text)) {
+        queries += 1;
+        await api.db.owner.query(
+          `insert into cities (code, country_code, name, timezone, center_lng, center_lat, status, created_at, updated_at)
+           values ('CTY-JP-MID', 'JP', '{"zh": "中途新增"}', 'Asia/Tokyo', 139, 35, 'active', now(), now())`,
+        );
+      }
+      return result;
+    };
+    const realRelease = client.release.bind(client);
+    (client as any).release = (...args: unknown[]) => {
+      (client as any).query = realQuery;
+      (client as any).release = realRelease;
+      return (realRelease as any)(...args);
+    };
+    return client;
+  };
+  let page;
+  try {
+    page = await listMaster({ config: testConfig(api.db.url), pool, now: api.clock.now }, { kind: "platform" }, CITY, {}, 200, { by: "created", after: null });
+  } finally {
+    (pool as any).connect = realConnect;
+  }
+  assert.equal(queries, 1, "确实在两条查询之间插入了一条");
+  assert.equal(page.total, before.total);
+  assert.equal(page.items.length, before.total, "这一页的条数和总数对得上");
+  assert.ok(!page.items.some((city) => city.code === "CTY-JP-MID"));
+  assert.equal((await get("/platform/v1/master/cities?status=all")).body.total, before.total + 1, "下一次请求就能看到");
 });

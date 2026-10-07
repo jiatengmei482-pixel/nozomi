@@ -40,7 +40,6 @@ import {
 import type { AppContext } from "../context.ts";
 import { isRetryableDbError } from "../errors.ts";
 import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
-import type { TimeCursor } from "../pagination.ts";
 import { type AuditResource, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   ADDONS,
@@ -49,6 +48,7 @@ import {
   type City,
   type ColumnValues,
   type MasterFilter,
+  type MasterOrder,
   type MasterPage,
   type MasterTable,
   PLACES,
@@ -152,8 +152,10 @@ export const ADDON: MasterResource<Addon> = {
 /** 谁在读：平台员工，或某个租户的用户（租户编号来自登录令牌）。 */
 export type MasterReader = { kind: "platform" } | { kind: "tenant"; tenantId: string };
 
+/** 读事务：只读，而且整个事务读同一个快照——列表的总数和当页内容是先后两条查询，这样才对得上。 */
 function readTx<T>(ctx: AppContext, reader: MasterReader, fn: (db: Db) => Promise<T>): Promise<T> {
-  return reader.kind === "platform" ? withPlatformTx(ctx.pool, fn) : withTenantTx(ctx.pool, reader.tenantId, fn);
+  const options = { snapshot: true };
+  return reader.kind === "platform" ? withPlatformTx(ctx.pool, fn, options) : withTenantTx(ctx.pool, reader.tenantId, fn, options);
 }
 
 export function listMaster<T extends Item>(
@@ -162,9 +164,9 @@ export function listMaster<T extends Item>(
   resource: MasterResource<T>,
   filter: MasterFilter,
   limit: number,
-  after: TimeCursor | null,
+  order: MasterOrder,
 ): Promise<MasterPage<T>> {
-  return readTx(ctx, reader, (db) => listMasterRows(db, resource.spec, filter, limit, after));
+  return readTx(ctx, reader, (db) => listMasterRows(db, resource.spec, filter, limit, order));
 }
 
 export async function getMaster<T extends Item>(

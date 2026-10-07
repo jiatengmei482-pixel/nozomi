@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AppError } from "./errors.ts";
-import { decodeSequenceCursor, decodeTimeCursor, encodeCursor, isUuid, toPage } from "./pagination.ts";
+import { decodeCodeCursor, decodeSequenceCursor, decodeTimeCursor, encodeCursor, isUuid, toPage } from "./pagination.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -93,4 +93,17 @@ test("isUuid", () => {
   assert.equal(isUuid(ID), true);
   assert.equal(isUuid(ID.toUpperCase()), true);
   for (const value of ["", "1", `${ID}0`, ID.replaceAll("-", ""), `${ID.slice(0, -1)}g`]) assert.equal(isUuid(value), false, value);
+});
+
+test("按编码排序的游标：能原样解回来；按创建时间排序的游标、畸形的编码、缺字段的都拒绝，反过来也一样", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  assert.deepEqual(decodeCodeCursor(encodeCursor({ c: "STN-JP-TOKYO-E1", id })), { c: "STN-JP-TOKYO-E1", id });
+  assert.deepEqual(decodeCodeCursor(encodeCursor({ c: "ADD-CHILD_SEAT", id })), { c: "ADD-CHILD_SEAT", id });
+  assert.equal(decodeCodeCursor(null), null);
+  const timeCursor = encodeCursor({ t: "2026-10-07 01:00:00+00", id });
+  assert.throws(() => decodeCodeCursor(timeCursor), /请求参数校验未通过/);
+  assert.throws(() => decodeTimeCursor(encodeCursor({ c: "HND", id })), /请求参数校验未通过/);
+  for (const bad of [{ c: "hnd", id }, { c: "", id }, { c: "HND'; --", id }, { c: "X".repeat(51), id }, { c: 1, id }, { c: "HND" }, { c: "HND", id: "nope" }]) {
+    assert.throws(() => decodeCodeCursor(Buffer.from(JSON.stringify(bad)).toString("base64url")), /请求参数校验未通过/, JSON.stringify(bad));
+  }
 });

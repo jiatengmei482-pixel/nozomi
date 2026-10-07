@@ -22,7 +22,7 @@ import type {
   VehiclePower,
 } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
-import { type Page, type TimeCursor, toPage } from "../pagination.ts";
+import { type CodeCursor, type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 interface Versioned {
   id: string;
@@ -336,13 +336,22 @@ export function containsPattern(keyword: string): string {
   return `%${keyword.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 
-/** 按创建时间从早到晚翻页（创建时间相同的按编号，顺序稳定），同时数出符合筛选条件的总数。 */
+/**
+ * 列表的排序和翻到哪了。两种排序各用各的游标，不能混用：
+ * - created：按创建时间从早到晚，创建时间相同的按编号（同一次导入的机场创建时间相同，彼此之间没有有意义的先后）。
+ * - code：按编码逐字节升序（和数据库的语言环境无关），再按编号。
+ */
+export type MasterOrder = { by: "created"; after: TimeCursor | null } | { by: "code"; after: CodeCursor | null };
+
+/**
+ * 翻页读一页，同时数出符合筛选条件的总数。两条查询要在同一个快照里（调用方用 `snapshot` 事务），总数和这一页才对得上。
+ */
 export async function listMasterRows<Item extends Versioned>(
   db: Db,
   spec: MasterTable<Item>,
   filter: MasterFilter,
   limit: number,
-  after: TimeCursor | null,
+  order: MasterOrder,
 ): Promise<MasterPage<Item>> {
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -373,18 +382,21 @@ export async function listMasterRows<Item extends Versioned>(
     `select count(*)::int as n from ${spec.table} ${conditions.length > 0 ? `where ${conditions.join(" and ")}` : ""}`,
     [...params],
   );
-  if (after !== null) where("(created_at, id) > (?::timestamptz, ?::uuid)", after.t, after.id);
+  if (order.by === "created" && order.after !== null) where("(created_at, id) > (?::timestamptz, ?::uuid)", order.after.t, order.after.id);
+  if (order.by === "code" && order.after !== null) where('(code collate "C", id) > (? collate "C", ?::uuid)', order.after.c, order.after.id);
   params.push(limit + 1);
   const result = await db.query<Row & { cursor_time: string }>(
     `select ${selectList(spec)}, created_at::text as cursor_time
        from ${spec.table}
       ${conditions.length > 0 ? `where ${conditions.join(" and ")}` : ""}
-      order by created_at, id
+      order by ${order.by === "code" ? 'code collate "C", id' : "created_at, id"}
       limit $${params.length}`,
     params,
   );
   return {
-    ...toPage(result.rows, limit, spec.toItem, (row) => ({ t: row.cursor_time, id: row["id"] as string })),
+    ...toPage(result.rows, limit, spec.toItem, (row) =>
+      order.by === "code" ? { c: row["code"] as string, id: row["id"] as string } : { t: row.cursor_time, id: row["id"] as string },
+    ),
     total: total.rows[0]?.n ?? 0,
   };
 }

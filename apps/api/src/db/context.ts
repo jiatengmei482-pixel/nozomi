@@ -32,6 +32,11 @@ export interface Db {
 export interface TxOptions {
   /** 事务自身的每条语句（自检、begin、切换角色、commit）的客户端时限（毫秒）；不传则用连接池的默认值 */
   queryTimeoutMs?: number;
+  /**
+   * 只读、并且整个事务读的是同一个快照（repeatable read）：事务里先后几条查询看到的数据是同一时刻的，
+   * 中间别人提交的改动看不到。用在「一页内容 + 总数」这种要互相对得上的读取上。
+   */
+  snapshot?: boolean;
 }
 
 /** 已经通过自检的连接。连接的登录账号在它的生命周期里不会变，所以每条连接只查一次。 */
@@ -67,7 +72,7 @@ async function inTransaction<T>(
       await assertLeastPrivilege(client, options.queryTimeoutMs);
       verifiedConnections.add(client);
     }
-    await client.query(own("begin"));
+    await client.query(own(options.snapshot ? "begin isolation level repeatable read read only" : "begin"));
     try {
       await client.query(own(`set local role ${role}`));
       if (prepare) await prepare(client);

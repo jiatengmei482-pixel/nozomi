@@ -792,8 +792,8 @@ paths:
       operationId: listCities
       summary: 城市列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
-        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -803,6 +803,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/CountryCodeFilter"
       responses:
@@ -970,8 +971,8 @@ paths:
       operationId: listPlaces
       summary: 地点列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
-        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -981,6 +982,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/PlaceTypeFilter"
         - $ref: "#/components/parameters/CityIdFilter"
@@ -1179,8 +1181,8 @@ paths:
       operationId: listVehicleGroups
       summary: 车型组列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
-        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -1190,6 +1192,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/VehicleGradeFilter"
       responses:
@@ -1352,8 +1355,8 @@ paths:
       operationId: listAddons
       summary: 附加服务列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
-        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -1363,6 +1366,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
       responses:
         "200":
@@ -1921,7 +1925,7 @@ paths:
       summary: 城市列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
-        分页、`total`、关键字 `q` 和平台的列表相同。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -1931,6 +1935,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/CountryCodeFilter"
       responses:
@@ -1979,7 +1984,7 @@ paths:
       summary: 地点列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
-        分页、`total`、关键字 `q` 和平台的列表相同。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -1989,6 +1994,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/PlaceTypeFilter"
         - $ref: "#/components/parameters/CityIdFilter"
@@ -2040,7 +2046,7 @@ paths:
       summary: 车型组列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
-        分页、`total`、关键字 `q` 和平台的列表相同。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -2050,6 +2056,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/VehicleGradeFilter"
       responses:
@@ -2098,7 +2105,7 @@ paths:
       summary: 附加服务列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
-        分页、`total`、关键字 `q` 和平台的列表相同。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -2108,6 +2115,7 @@ paths:
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
         - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
         - $ref: "#/components/parameters/UpdatedSince"
       responses:
         "200":
@@ -2205,6 +2213,17 @@ components:
       schema:
         type: string
         maxLength: 50
+    MasterSort:
+      name: sort
+      in: query
+      description: |
+        排序。`created`（默认）：按创建时间从早到晚，创建时间相同的按编号——同一次导入的机场创建时间相同，彼此的先后没有意义；
+        `code`：按编码升序（逐字节比较，`HND` 在 `HND-T1` 前面）。
+        游标和排序是绑定的：翻页时 `sort` 要和取得游标的那次请求相同，否则 400 `VALIDATION_FAILED`（`/cursor`）。
+      schema:
+        type: string
+        enum: [created, code]
+        default: created
     MasterKeyword:
       name: q
       in: query

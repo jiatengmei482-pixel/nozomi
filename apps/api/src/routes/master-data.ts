@@ -30,7 +30,7 @@ import {
 } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
-import { decodeTimeCursor } from "../pagination.ts";
+import { decodeCodeCursor, decodeTimeCursor } from "../pagination.ts";
 import type { Addon, City, ColumnValues, MasterRef, Place, VehicleGroup } from "../repos/master-data.ts";
 import {
   ADDON,
@@ -185,6 +185,7 @@ const listQuerySchema = pageQuerySchema.extend({
   status: z.enum(["active", "disabled", "all"]).optional(),
   code: codeSchema.optional(),
   q: z.string().trim().min(1).max(100).optional(),
+  sort: z.enum(["created", "code"]).default("created"),
   updated_since: dateTimeSchema.optional(),
 });
 
@@ -341,7 +342,10 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
           search: query.q,
         },
         query.limit,
-        decodeTimeCursor(query.cursor ?? null),
+        // 两种排序的游标各解各的：换了排序还带着原来的游标会被拒绝（400），不会悄悄翻到错的位置
+        query.sort === "code"
+          ? { by: "code", after: decodeCodeCursor(query.cursor ?? null) }
+          : { by: "created", after: decodeTimeCursor(query.cursor ?? null) },
       );
       const refs = endpoints.loadRefs ? await endpoints.loadRefs(reader, page.items) : undefined;
       return { ...pageJson(page, (item) => toJson(item, refs)), total: page.total };

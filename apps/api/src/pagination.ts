@@ -23,7 +23,13 @@ export interface Page<T> {
   nextCursor: string | null;
 }
 
-export function encodeCursor(value: TimeCursor | SequenceCursor): string {
+/** 按「编码 + 编号」排序的列表（主数据的 `sort=code`）用的游标。 */
+export interface CodeCursor {
+  c: string;
+  id: string;
+}
+
+export function encodeCursor(value: TimeCursor | SequenceCursor | CodeCursor): string {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
 }
 
@@ -78,6 +84,14 @@ export function decodeTimeCursor(cursor: string | null): TimeCursor | null {
   return { t, id };
 }
 
+/** 按编码排序的游标。按创建时间排序时拿到的游标里没有编码，带到这里会被拒绝（两种排序的游标不能混用）。 */
+export function decodeCodeCursor(cursor: string | null): CodeCursor | null {
+  if (cursor === null) return null;
+  const { c, id } = decode(cursor);
+  if (typeof c !== "string" || typeof id !== "string" || !/^[A-Z0-9_-]{1,50}$/.test(c) || !isUuid(id)) throw invalidCursor();
+  return { c, id };
+}
+
 export function decodeSequenceCursor(cursor: string | null): SequenceCursor | null {
   if (cursor === null) return null;
   const { id } = decode(cursor);
@@ -93,7 +107,7 @@ export function toPage<Row, Item>(
   rows: readonly Row[],
   limit: number,
   toItem: (row: Row) => Item,
-  toCursor: (lastRow: Row) => TimeCursor | SequenceCursor,
+  toCursor: (lastRow: Row) => TimeCursor | SequenceCursor | CodeCursor,
 ): Page<Item> {
   const pageRows = rows.slice(0, limit);
   const last = pageRows.at(-1);
