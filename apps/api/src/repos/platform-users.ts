@@ -12,6 +12,8 @@ export interface PlatformUser {
   name: string;
   role: PlatformRole;
   status: AccountStatus;
+  /** 正在用临时密码，必须先修改密码（ADR 0013）。只给本人看，不进账号列表的返回 */
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,11 +24,12 @@ interface PlatformUserRow {
   name: string;
   role: PlatformRole;
   status: AccountStatus;
+  must_change_password: boolean;
   created_at: Date;
   updated_at: Date;
 }
 
-const COLUMNS = "id, email, name, role, status, created_at, updated_at";
+const COLUMNS = "id, email, name, role, status, must_change_password, created_at, updated_at";
 
 function toUser(row: PlatformUserRow): PlatformUser {
   return {
@@ -35,6 +38,7 @@ function toUser(row: PlatformUserRow): PlatformUser {
     name: row.name,
     role: row.role,
     status: row.status,
+    mustChangePassword: row.must_change_password,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -146,27 +150,30 @@ export interface NewActivePlatformUser {
   name: string;
   role: PlatformRole;
   passwordHash: string;
+  /** 这个密码是不是临时密码（第一次登录必须改掉） */
+  mustChangePassword: boolean;
 }
 
 /** 直接创建一个在用的账号（只有命令行创建超级管理员时用）。 */
 export async function insertActivePlatformUser(db: Db, input: NewActivePlatformUser, now: Date): Promise<PlatformUser> {
   const result = await db.query<PlatformUserRow>(
-    `insert into platform_users (email, name, role, status, password_hash, created_at, updated_at)
-     values ($1, $2, $3, 'active', $4, $5, $5)
+    `insert into platform_users (email, name, role, status, password_hash, must_change_password, created_at, updated_at)
+     values ($1, $2, $3, 'active', $4, $5, $6, $6)
      returning ${COLUMNS}`,
-    [input.email, input.name, input.role, input.passwordHash, now],
+    [input.email, input.name, input.role, input.passwordHash, input.mustChangePassword, now],
   );
   return toUser(result.rows[0] as PlatformUserRow);
 }
 
 /**
- * 凭邀请令牌激活：写入密码、作废令牌。只有「待激活且令牌没过期」的账号会被更新；
+ * 凭邀请令牌激活：写入密码、作废令牌。密码是本人自己设的，所以不是临时密码。只有「待激活且令牌没过期」的账号会被更新；
  * 令牌已被用掉或已过期时返回 null（并发提交同一个令牌，只有一个成功）。
  */
 export async function activatePlatformUser(db: Db, tokenHash: string, passwordHash: string, now: Date): Promise<PlatformUser | null> {
   const result = await db.query<PlatformUserRow>(
     `update platform_users
-        set status = 'active', password_hash = $2, invite_token_hash = null, invite_expires_at = null, updated_at = $3
+        set status = 'active', password_hash = $2, must_change_password = false,
+            invite_token_hash = null, invite_expires_at = null, updated_at = $3
       where invite_token_hash = $1 and status = 'invited' and invite_expires_at > $3
       returning ${COLUMNS}`,
     [tokenHash, passwordHash, now],
@@ -219,7 +226,7 @@ export async function insertPlatformSession(db: Db, session: PlatformSession): P
 /** 会话还有效（存在、没过期）时返回它的账号；账号状态由调用方判断。 */
 export async function findPlatformSessionUser(db: Db, sessionId: string, userId: string, now: Date): Promise<PlatformUser | null> {
   const result = await db.query<PlatformUserRow>(
-    `select u.id, u.email, u.name, u.role, u.status, u.created_at, u.updated_at
+    `select u.id, u.email, u.name, u.role, u.status, u.must_change_password, u.created_at, u.updated_at
        from platform_sessions s
        join platform_users u on u.id = s.user_id
       where s.id = $1 and s.user_id = $2 and s.expires_at > $3`,
@@ -242,13 +249,23 @@ export async function deleteOtherPlatformSessions(db: Db, userId: string, keepSe
   await db.query("delete from platform_sessions where user_id = $1 and id <> $2", [userId, keepSessionId]);
 }
 
-/** 换密码。还没用掉的重置令牌同时作废。 */
-export async function setPlatformUserPassword(db: Db, id: string, passwordHash: string, now: Date): Promise<void> {
+/**
+ * 换密码。还没用掉的重置令牌同时作废。
+ * `mustChangePassword`：新密码是不是临时密码。本人自己改密码时是 false（同时清掉之前的标记）；
+ * 命令行生成临时密码时是 true。每个调用方都要明确写出来，没有默认值。
+ */
+export async function setPlatformUserPassword(
+  db: Db,
+  id: string,
+  passwordHash: string,
+  mustChangePassword: boolean,
+  now: Date,
+): Promise<void> {
   await db.query(
     `update platform_users
-        set password_hash = $2, reset_token_hash = null, reset_expires_at = null, updated_at = $3
+        set password_hash = $2, must_change_password = $3, reset_token_hash = null, reset_expires_at = null, updated_at = $4
       where id = $1`,
-    [id, passwordHash, now],
+    [id, passwordHash, mustChangePassword, now],
   );
 }
 
@@ -270,13 +287,13 @@ export async function findPlatformUserByResetToken(db: Db, tokenHash: string): P
 }
 
 /**
- * 凭重置令牌换密码、作废令牌。只有「在用且令牌没过期」的账号会被更新；
+ * 凭重置令牌换密码、作废令牌。密码是本人自己设的，所以不是临时密码。只有「在用且令牌没过期」的账号会被更新；
  * 令牌已被用掉或已过期时返回 null（并发提交同一个令牌，只有一个成功）。
  */
 export async function resetPlatformUserPassword(db: Db, tokenHash: string, passwordHash: string, now: Date): Promise<PlatformUser | null> {
   const result = await db.query<PlatformUserRow>(
     `update platform_users
-        set password_hash = $2, reset_token_hash = null, reset_expires_at = null, updated_at = $3
+        set password_hash = $2, must_change_password = false, reset_token_hash = null, reset_expires_at = null, updated_at = $3
       where reset_token_hash = $1 and status = 'active' and reset_expires_at > $3
       returning ${COLUMNS}`,
     [tokenHash, passwordHash, now],

@@ -35,6 +35,16 @@ info:
     - 需要登录的接口共有的错误（不在每个接口下重复列出）：
       - 401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效
       - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作
+      - 403 `PASSWORD_CHANGE_REQUIRED`：这个账号正在用临时密码，必须先修改密码（见下一条）
+    - 临时密码与强制修改密码：平台超级管理员可以在服务器上用命令行生成一次性显示的随机临时密码
+      （`pnpm admin:create --temporary-password`、`pnpm admin:reset-password --temporary-password`）。
+      用临时密码登录照常成功，但登录应答和 `auth/me` 里的 `must_change_password` 为 `true`。
+      在这种状态下，需要登录的接口里只有三个可用：`GET auth/me`、`POST auth/change-password`、`POST auth/logout`；
+      其余全部返回 403 `PASSWORD_CHANGE_REQUIRED`（先于角色权限和参数校验判断，新增的接口默认也在此列）。
+      `auth/change-password` 成功后标记清除，当前令牌继续可用，不用重新登录；临时密码随即作废。
+      新密码不能和临时密码相同（`PASSWORD_UNCHANGED`）。
+      通过邀请链接或重置链接设置的密码不是临时密码，`must_change_password` 为 `false`。
+      这个标记只出现在本人的登录应答和 `auth/me` 里，不出现在任何账号列表和别人能看到的账号对象里。
     - 租户接口访问别的租户的资源一律 404，不暴露资源是否存在。
     - 列表接口用游标分页：`limit`（默认 50，最大 200）+ `cursor`，返回 `next_cursor`（没有下一页时为 null）。
     - `/platform/v1`、`/tenant/v1` 的所有响应都带 `Cache-Control: no-store`。
@@ -152,10 +162,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [user, permissions]
+                required: [user, permissions, must_change_password]
                 properties:
                   user:
                     $ref: "#/components/schemas/PlatformUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
                   permissions:
                     type: array
                     items:
@@ -196,6 +208,8 @@ paths:
       summary: 平台员工修改自己的密码
       description: |
         需要提供当前密码。成功后这个账号的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
         核对当前密码和登录一样限速（同一账号同一来源地址 15 分钟 5 次），超过返回 429。
       security:
         - platformToken: []
@@ -807,10 +821,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [user, tenant, permissions]
+                required: [user, tenant, permissions, must_change_password]
                 properties:
                   user:
                     $ref: "#/components/schemas/TenantUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
                   tenant:
                     $ref: "#/components/schemas/Tenant"
                   permissions:
@@ -853,6 +869,8 @@ paths:
       summary: 租户用户修改自己的密码
       description: |
         需要提供当前密码。成功后这个用户的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
         核对当前密码和登录一样限速，超过返回 429。
       security:
         - tenantToken: []
@@ -1507,7 +1525,7 @@ components:
     PlatformLoginResponse:
       type: object
       additionalProperties: false
-      required: [access_token, token_type, expires_at, user]
+      required: [access_token, token_type, expires_at, user, must_change_password]
       properties:
         access_token:
           type: string
@@ -1520,10 +1538,12 @@ components:
           description: 令牌过期时间（登录后 8 小时）
         user:
           $ref: "#/components/schemas/PlatformUser"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
     TenantLoginResponse:
       type: object
       additionalProperties: false
-      required: [access_token, token_type, expires_at, user, tenant]
+      required: [access_token, token_type, expires_at, user, tenant, must_change_password]
       properties:
         access_token:
           type: string
@@ -1538,6 +1558,14 @@ components:
           $ref: "#/components/schemas/TenantUser"
         tenant:
           $ref: "#/components/schemas/Tenant"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+    MustChangePassword:
+      type: boolean
+      description: |
+        `true`：这个账号正在用临时密码，必须先调用 `auth/change-password` 修改密码；
+        在那之前除 `auth/me`、`auth/change-password`、`auth/logout` 外的接口都返回 403 `PASSWORD_CHANGE_REQUIRED`。
+        前端应在它为 `true` 时只显示修改密码页。修改成功后为 `false`。
     AuditLog:
       type: object
       additionalProperties: false
@@ -1605,7 +1633,9 @@ components:
         after:
           type: [object, "null"]
           additionalProperties: true
-          description: 改动后的值，或这次操作的补充信息（如登录失败的原因）；不含密码哈希、令牌
+          description: |
+            改动后的值，或这次操作的补充信息（如登录失败的原因）；不含密码、密码哈希、令牌。
+            命令行用临时密码创建账号（`create`）或重设密码（`reset_password`）时带 `temporary_password: true`。
     TenantAuditLog:
       type: object
       description: 租户看到的操作日志；字段含义同 `AuditLog`，没有 `tenant_id`

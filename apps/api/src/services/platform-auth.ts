@@ -1,5 +1,11 @@
 /** 平台员工的登录、会话校验、退出、接受邀请。 */
-import { type PlatformAction, checkPasswordStrength, platformRoleCan } from "@nozomi/domain";
+import {
+  type PlatformAction,
+  type SessionPurpose,
+  checkPasswordStrength,
+  passwordChangeRequiredFirst,
+  platformRoleCan,
+} from "@nozomi/domain";
 import { hashInviteToken } from "../auth/invite-token.ts";
 import { hashResetToken } from "../auth/reset-token.ts";
 import { hashPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
@@ -30,6 +36,7 @@ import {
   forbidden,
   invalidCredentials,
   inviteInvalid,
+  passwordChangeRequired,
   passwordUnchanged,
   resetTokenInvalid,
   unauthenticated,
@@ -113,20 +120,31 @@ export interface PlatformPrincipal {
   user: PlatformUser;
 }
 
+/** 一次已登录的平台请求要做什么：需要哪个操作的权限；是不是「查看自己 / 改密码 / 退出」。 */
+export interface PlatformAccess {
+  action?: PlatformAction;
+  /** 不写就是 `general`：账号必须先修改密码时会被拦下。只有查看自己、改密码、退出三个接口写 `self_service` */
+  purpose?: SessionPurpose;
+}
+
 /**
  * 校验平台访问令牌并核对数据库里的会话和账号：令牌无效、过期、会话已删除、账号不在用，都是 401。
+ * 账号正在用临时密码（必须先修改密码）时，除 `self_service` 的请求外一律 403 `PASSWORD_CHANGE_REQUIRED`
+ * ——在这里统一判断，接口不用各自记得；新接口不声明用途就默认被拦。
  * 传了 `action` 时再检查当前角色（以数据库为准，不看令牌里的角色）有没有这个操作的权限，没有则 403。
  */
 export async function authenticatePlatform(
   ctx: AppContext,
   token: string | null,
-  action?: PlatformAction,
+  access: PlatformAccess = {},
 ): Promise<PlatformPrincipal> {
+  const { action, purpose = "general" } = access;
   const now = ctx.now();
   const claims = token === null ? null : verifyAccessToken(ctx.config.authJwtSecret, "platform", token, now);
   if (!claims) throw unauthenticated();
   const user = await withPlatformTx(ctx.pool, (db) => findPlatformSessionUser(db, claims.sid, claims.sub, now));
   if (!user || user.status !== "active") throw unauthenticated();
+  if (passwordChangeRequiredFirst(user.mustChangePassword, purpose)) throw passwordChangeRequired();
   if (action !== undefined && !platformRoleCan(user.role, action)) throw forbidden(action);
   return { sessionId: claims.sid, user };
 }
@@ -188,7 +206,8 @@ export interface ChangePasswordInput {
 
 /**
  * 已登录的平台员工自己改密码：要提供当前密码（核对当前密码和登录一样限速）。
- * 成功后这个账号的其他会话全部失效，当前会话保留。
+ * 成功后这个账号的其他会话全部失效，当前会话保留；「必须先修改密码」的标记同时清掉，
+ * 所以用临时密码登录的人改完密码后，手里的令牌马上可以访问其他接口。
  */
 export async function changePlatformPassword(
   ctx: AppContext,
@@ -212,7 +231,7 @@ export async function changePlatformPassword(
   await withPlatformTx(ctx.pool, async (db) => {
     const locked = await lockPlatformUser(db, user.id);
     if (!locked || locked.user.status !== "active") throw unauthenticated();
-    await setPlatformUserPassword(db, user.id, passwordHash, now);
+    await setPlatformUserPassword(db, user.id, passwordHash, false, now);
     await deleteOtherPlatformSessions(db, user.id, principal.sessionId);
     await insertAuditLog(db, consoleOrigin(platformActor(user), ip, now), {
       tenantId: null,

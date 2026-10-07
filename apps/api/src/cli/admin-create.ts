@@ -1,11 +1,14 @@
 /**
- * `pnpm admin:create --email <邮箱> --name <姓名>`：创建一个平台超级管理员。
+ * `pnpm admin:create --email <邮箱> --name <姓名> [--temporary-password]`：创建一个平台超级管理员。
  *
  * 平台上不预置任何账号，第一个账号只能这样创建；之后的平台账号由超级管理员在后台创建。
  * 密码不接受命令行参数（会留在 shell 历史和进程列表里）：
  * - 在终端里运行时交互输入两遍，不回显；
  * - 自动化场景从标准输入读：`pnpm admin:create --email … --name … < 密码文件`。
- * 密码不会被打印，也不会进任何日志；数据库只存哈希。
+ * 这样设置的密码不会被打印，也不会进任何日志；数据库只存哈希。
+ *
+ * 带 `--temporary-password` 时不读密码，改为生成一个随机临时密码，只在标准输出显示一次（ADR 0013）；
+ * 账号被标记为「必须先修改密码」，用临时密码登录后改完密码才能使用其他功能。
  */
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -16,20 +19,28 @@ import { AppError } from "../errors.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { emailSchema, personNameSchema } from "../validation.ts";
 import { SecretInputAborted, readNewPassword } from "./read-secret.ts";
+import { newTemporaryPassword, printTemporaryPassword } from "./temporary-password.ts";
 
 const USAGE = [
-  "用法：pnpm admin:create --email <邮箱> --name <姓名>",
+  "用法：pnpm admin:create --email <邮箱> --name <姓名> [--temporary-password]",
   "密码不能写在命令行参数里：在终端里运行时按提示输入（不回显），或者从标准输入传入（< 密码文件）。",
+  "加 --temporary-password：不用输入密码，由命令生成一个只显示一次的随机临时密码，第一次登录后必须修改。",
 ].join("\n");
 
 class UsageError extends Error {}
 
-function readOptions(argv: readonly string[]): { email: string; name: string } {
-  let values: { email?: string | undefined; name?: string | undefined };
+interface Options {
+  email: string;
+  name: string;
+  temporaryPassword: boolean;
+}
+
+function readOptions(argv: readonly string[]): Options {
+  let values: { email?: string | undefined; name?: string | undefined; "temporary-password"?: boolean | undefined };
   try {
     ({ values } = parseArgs({
       args: [...argv],
-      options: { email: { type: "string" }, name: { type: "string" } },
+      options: { email: { type: "string" }, name: { type: "string" }, "temporary-password": { type: "boolean" } },
       strict: true,
       allowPositionals: false,
     }));
@@ -38,22 +49,28 @@ function readOptions(argv: readonly string[]): { email: string; name: string } {
   }
   const parsed = z.object({ email: emailSchema, name: personNameSchema }).safeParse(values);
   if (!parsed.success) throw new UsageError("需要合法的 --email 和不为空的 --name。");
-  return parsed.data;
+  return { ...parsed.data, temporaryPassword: values["temporary-password"] === true };
 }
 
 async function main(): Promise<void> {
   const options = readOptions(process.argv.slice(2));
   const config = loadConfig();
-  const password = await readNewPassword(process.stdin, process.stderr, {
-    first: "设置密码（输入时不显示）：",
-    confirm: "再输入一遍：",
-    mismatch: "两次输入的密码不一致，没有创建账号。",
-  });
+  const password = options.temporaryPassword
+    ? newTemporaryPassword(options.email)
+    : await readNewPassword(process.stdin, process.stderr, {
+        first: "设置密码（输入时不显示）：",
+        confirm: "再输入一遍：",
+        mismatch: "两次输入的密码不一致，没有创建账号。",
+      });
   const pool = createPool(config.databaseUrl, { max: 1 });
   try {
     const user = await createSuperAdmin(pool, { ...options, password }, new Date());
     console.log(`已创建超级管理员：${user.email}（编号 ${user.id}）`);
-    console.log("现在可以用这个邮箱和刚才设置的密码登录平台后台。");
+    if (options.temporaryPassword) {
+      printTemporaryPassword(process.stdout, password);
+    } else {
+      console.log("现在可以用这个邮箱和刚才设置的密码登录平台后台。");
+    }
   } finally {
     await pool.end();
   }

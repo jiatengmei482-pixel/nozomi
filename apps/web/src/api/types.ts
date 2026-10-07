@@ -44,6 +44,8 @@ export interface PlatformLoginResponse {
   token_type: "Bearer";
   expires_at: string;
   user: PlatformUser;
+  /** 正在用临时密码：除了改密码和退出，别的都做不了（ADR 0013） */
+  must_change_password: boolean;
 }
 
 export interface TenantLoginResponse {
@@ -52,17 +54,20 @@ export interface TenantLoginResponse {
   expires_at: string;
   user: TenantUser;
   tenant: Tenant;
+  must_change_password: boolean;
 }
 
 export interface PlatformMe {
   user: PlatformUser;
   permissions: PlatformAction[];
+  must_change_password: boolean;
 }
 
 export interface TenantMe {
   user: TenantUser;
   tenant: Tenant;
   permissions: TenantAction[];
+  must_change_password: boolean;
 }
 
 /** 接受邀请、凭重置令牌设密码共用同一种请求体。 */
@@ -96,8 +101,8 @@ export const SCHEMA_FIELDS = {
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
   Tenant: ["id", "name", "status", "created_at", "updated_at"],
   LoginRequest: ["email", "password"],
-  PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user"],
-  TenantLoginResponse: ["access_token", "token_type", "expires_at", "user", "tenant"],
+  PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user", "must_change_password"],
+  TenantLoginResponse: ["access_token", "token_type", "expires_at", "user", "tenant", "must_change_password"],
   AcceptInviteRequest: ["token", "password"],
   ResetPasswordRequest: ["token", "password"],
   ChangePasswordRequest: ["current_password", "new_password"],
@@ -124,8 +129,8 @@ export const SCHEMA_FIELDS_ARE_COMPLETE: [UnlistedFields] extends [never] ? true
 
 /** 对账用：`auth/me` 响应的顶层字段（OpenAPI 里是内联定义，没有具名 schema）。 */
 export const ME_FIELDS = {
-  platform: ["user", "permissions"],
-  tenant: ["user", "tenant", "permissions"],
+  platform: ["user", "permissions", "must_change_password"],
+  tenant: ["user", "tenant", "permissions", "must_change_password"],
 } as const satisfies { [P in keyof PortalTypes]: readonly (keyof PortalTypes[P]["me"])[] };
 
 /** 前端认识的租户状态；OpenAPI 新增状态时对账测试会失败，届时请美工定颜色和文案。 */

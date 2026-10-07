@@ -12,6 +12,10 @@ export interface Running {
   child: ChildProcess;
   /** 进程的全部输出（标准输出 + 标准错误） */
   output: () => string;
+  /** 只有标准输出 */
+  stdout: () => string;
+  /** 只有标准错误 */
+  stderr: () => string;
   /** 退出码；被信号杀死时为 null */
   exited: Promise<number | null>;
 }
@@ -38,10 +42,20 @@ export function startProcess(
   });
   if (options.input !== undefined) child.stdin?.end(options.input);
   let output = "";
-  child.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")));
-  child.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")));
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    output += text;
+    stdout += text;
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString("utf8");
+    output += text;
+    stderr += text;
+  });
   const exited = once(child, "exit").then(([code]) => code as number | null);
-  return { child, output: () => output, exited };
+  return { child, output: () => output, stdout: () => stdout, stderr: () => stderr, exited };
 }
 
 /** 用当前的 node 直接运行一个 .ts 入口文件。 */

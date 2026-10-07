@@ -1,6 +1,7 @@
 /**
  * /platform/v1：平台员工的接口。这里只做鉴权、校验、调用、返回；流程在 services/。
- * 除登录和接受邀请外，每个接口的第一步都是 `authenticatePlatform`（带所需的操作）。
+ * 除登录、接受邀请、凭重置令牌设密码外，每个接口的第一步都是鉴权（带所需的操作）。
+ * 账号必须先修改密码时，鉴权这一步就会拦下除「查看自己、修改密码、退出」之外的全部接口（ADR 0013）。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -67,8 +68,12 @@ const adminEmailSchema = z.object({ email: emailSchema });
 const auditQuerySchema = auditFilterSchema.extend({ tenant_id: uuidSchema.optional() });
 
 export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): void {
+  /** 普通接口的鉴权：账号必须先修改密码时一律被拦（ADR 0013）。新接口都用这个。 */
   const authenticate = (request: FastifyRequest, action?: PlatformAction): Promise<PlatformPrincipal> =>
-    authenticatePlatform(ctx, bearerToken(request.headers.authorization), action);
+    authenticatePlatform(ctx, bearerToken(request.headers.authorization), action === undefined ? {} : { action });
+  /** 只给「查看自己、修改密码、退出」三个接口用：账号必须先修改密码时也放行。 */
+  const authenticateSelfService = (request: FastifyRequest): Promise<PlatformPrincipal> =>
+    authenticatePlatform(ctx, bearerToken(request.headers.authorization), { purpose: "self_service" });
 
   app.post("/platform/v1/auth/login", async (request) => {
     const input = parseInput(loginSchema, request.body, "body");
@@ -78,18 +83,23 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
       token_type: "Bearer",
       expires_at: result.expiresAt.toISOString(),
       user: platformUserJson(result.user),
+      must_change_password: result.user.mustChangePassword,
     };
   });
 
   app.post("/platform/v1/auth/logout", async (request, reply) => {
-    const principal = await authenticate(request);
+    const principal = await authenticateSelfService(request);
     await platformLogout(ctx, principal, request.ip);
     return reply.code(204).send();
   });
 
   app.get("/platform/v1/auth/me", async (request) => {
-    const principal = await authenticate(request);
-    return { user: platformUserJson(principal.user), permissions: platformPermissions(principal.user.role) };
+    const principal = await authenticateSelfService(request);
+    return {
+      user: platformUserJson(principal.user),
+      permissions: platformPermissions(principal.user.role),
+      must_change_password: principal.user.mustChangePassword,
+    };
   });
 
   app.post("/platform/v1/auth/accept-invite", async (request) => {
@@ -98,7 +108,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   });
 
   app.post("/platform/v1/auth/change-password", async (request, reply) => {
-    const principal = await authenticate(request);
+    const principal = await authenticateSelfService(request);
     const input = parseInput(changePasswordSchema, request.body, "body");
     await changePlatformPassword(
       ctx,

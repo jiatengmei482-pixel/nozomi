@@ -1,6 +1,7 @@
 /**
  * 内部对象 → 接口返回的 JSON（字段名 snake_case，时间为带时区的 ISO 8601）。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口里。
+ * 「必须先修改密码」的标记有意不在账号对象里：它只在本人的登录应答和 `auth/me` 的顶层给出（ADR 0013）。
  */
 import type { AuditLog } from "../repos/audit-logs.ts";
 import type { PlatformUser } from "../repos/platform-users.ts";

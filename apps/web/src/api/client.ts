@@ -129,11 +129,17 @@ function malformedResponse(): ApiError {
   return new ApiError(502, "UNKNOWN", "", {}, null);
 }
 
-/** 登录应答必须带可用的令牌和合法的过期时间；否则不能当作登录成功。 */
+/** 登录应答必须带可用的令牌、合法的过期时间和「是否必须先改密码」；否则不能当作登录成功。 */
 function isLoginResponse(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
-  const { access_token: accessToken, expires_at: expiresAt } = value as Record<string, unknown>;
-  return typeof accessToken === "string" && accessToken !== "" && typeof expiresAt === "string" && !Number.isNaN(Date.parse(expiresAt));
+  const { access_token: accessToken, expires_at: expiresAt, must_change_password: mustChangePassword } = value as Record<string, unknown>;
+  return (
+    typeof accessToken === "string" &&
+    accessToken !== "" &&
+    typeof expiresAt === "string" &&
+    !Number.isNaN(Date.parse(expiresAt)) &&
+    typeof mustChangePassword === "boolean"
+  );
 }
 
 export async function login<P extends Portal>(portal: P, request: LoginRequest): Promise<PortalTypes[P]["login"]> {

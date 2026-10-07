@@ -3,7 +3,8 @@
  * 1. 在数据库里新建一个随机名字的 schema 并用迁移账号执行全部迁移（做法同后端集成测试）；API 进程只用应用账号；
  * 2. 用 `admin:create` 的命令行创建平台超级管理员，密码走标准输入；
  * 3. 起 API 进程和前端（vite preview，把 API 前缀代理给刚起的 API）；
- * 4. 把管理员账号通过环境变量交给测试进程。
+ * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
+ *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
  * 返回的函数在全部测试结束后执行：停掉两个进程，删除整个 schema，不留任何数据。
  *
  * 这里的密码和签名密钥都是本次运行临时生成的随机值，不是任何环境的真实密钥。
@@ -134,6 +135,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
+    process.env["E2E_DATABASE_URL"] = database.url;
   } catch (err) {
     await teardown();
     throw err;

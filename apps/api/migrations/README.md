@@ -30,5 +30,6 @@
 | `0003_audit_logs.sql` | 审计日志（只能追加）及其行级安全策略 |
 | `0004_password_reset.sql` | 平台员工和租户用户的密码重置令牌（只存哈希和有效期） |
 | `0005_database_roles.sql` | 平台角色 `nozomi_platform`、登录前角色 `nozomi_preauth` 及其授权和策略；登录前定位租户用户的两个函数（不改表结构） |
+| `0006_must_change_password.sql` | 平台员工和租户用户的「必须先修改密码」标记（非空，默认 false）；只加列，授权不变 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。

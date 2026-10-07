@@ -23,6 +23,7 @@ pnpm db:provision      # 创建数据库的应用账号（权限最小，服务�
 pnpm db:migrate        # 用迁移账号执行数据库迁移，可以反复运行
 pnpm admin:create --email 你的邮箱 --name 你的名字   # 创建平台超级管理员；密码按提示输入（不显示），不要写在命令里
 pnpm admin:reset-password --email 你的邮箱         # 超级管理员忘了密码时在服务器上重设；密码同样按提示输入
+# 上面两条命令都可以在末尾加 --temporary-password：不用输入密码，命令生成一个只显示一次的临时密码，第一次登录后必须修改
 pnpm dev               # 启动后端，http://localhost:8080/health 查看数据库、迁移状态，以及各账号是否已配置
 
 pnpm check             # 提交前必须通过：类型检查 + 单元测试 + 集成测试 + 进度文件校验（需要本地数据库在运行）
@@ -42,7 +43,7 @@ pnpm progress:build    # 生成进度页到 site/index.html
 系统里没有任何预置账号。从空库到租户能登录的顺序是：
 
 1. `pnpm db:provision` 建数据库的应用账号，`pnpm db:migrate` 建表。
-2. `pnpm admin:create --email … --name …` 创建第一个平台超级管理员（在服务器上运行；密码交互输入，或 `< 密码文件` 从标准输入传入）。
+2. `pnpm admin:create --email … --name …` 创建第一个平台超级管理员（在服务器上运行；密码交互输入，或 `< 密码文件` 从标准输入传入）。由别人代为执行时加 `--temporary-password`：命令生成一个只显示一次的临时密码，本人用它登录后必须先修改密码，改之前不能使用其他功能。
 3. 超级管理员登录（`POST /platform/v1/auth/login`），创建租户（`POST /platform/v1/tenants`）。响应里有租户第一个管理员的一次性邀请令牌，只显示这一次。
 4. 把邀请令牌交给租户；对方凭它设置密码（`POST /tenant/v1/auth/accept-invite`），然后登录（`POST /tenant/v1/auth/login`）。
 5. 租户管理员用同样的方式邀请自己的子账号（`POST /tenant/v1/users`）；平台超级管理员用同样的方式创建其他平台员工（`POST /platform/v1/staff`）。
@@ -53,7 +54,7 @@ pnpm progress:build    # 生成进度页到 site/index.html
 - 租户用户忘了：本租户的管理员给他发一次性重置令牌（`POST /tenant/v1/users/{id}/password-reset`）。
 - 租户的管理员忘了、又没有别的管理员：平台给他发（`POST /platform/v1/tenants/{id}/admin-password-resets`）。
 - 平台员工忘了：超级管理员给他发（`POST /platform/v1/staff/{id}/password-reset`）。
-- 超级管理员自己忘了：在服务器上运行 `pnpm admin:reset-password --email …`。
+- 超级管理员自己忘了：在服务器上运行 `pnpm admin:reset-password --email …`（同样可以加 `--temporary-password`）。
 
 重置令牌只显示一次、24 小时有效；本人凭它设置新密码（`POST /platform/v1/auth/reset-password`、`POST /tenant/v1/auth/reset-password`）。
 

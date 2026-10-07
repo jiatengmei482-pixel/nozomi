@@ -3,6 +3,7 @@
  *
  * - ≥ 1024px 侧边栏常驻；更窄时点顶栏的菜单按钮从左侧滑入（原生 <dialog>：焦点限制在内部、Esc 关闭）。
  * - 菜单只列真实存在的页面。
+ * - 账号正在用临时密码、必须先改密码时：不显示侧边栏和菜单按钮，账号菜单里只留「退出登录」。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router";
@@ -47,7 +48,7 @@ function SidebarContent({ items, onNavigate }: { items: readonly NavItem[]; onNa
 }
 
 function AccountMenu() {
-  const { portal, account, signOut } = usePortalSession();
+  const { portal, account, signOut, mustChangePassword } = usePortalSession();
   const [signingOut, setSigningOut] = useState(false);
   const ready = account.status === "ready" ? account.account : null;
   const role = ready ? (roleName(portal.key, ready.role) ?? "—") : null;
@@ -75,9 +76,11 @@ function AccountMenu() {
           <span className="menu-header__detail menu-header__email">{ready.email}</span>
         </div>
       )}
-      <Link role="menuitem" className="menu-item" to={portal.paths.changePassword}>
-        <span className="menu-item__text">修改密码</span>
-      </Link>
+      {!mustChangePassword && (
+        <Link role="menuitem" className="menu-item" to={portal.paths.changePassword}>
+          <span className="menu-item__text">修改密码</span>
+        </Link>
+      )}
       <button
         type="button"
         role="menuitem"
@@ -96,7 +99,7 @@ function AccountMenu() {
 }
 
 export function AppShell({ pageName, children }: { pageName: string; children: ReactNode }) {
-  const { portal, lastShellPath } = usePortalSession();
+  const { portal, lastShellPath, mustChangePassword } = usePortalSession();
   const location = useLocation();
   const drawerRef = useRef<HTMLDialogElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -128,40 +131,51 @@ export function AppShell({ pageName, children }: { pageName: string; children: R
   }, [location.pathname, lastShellPath]);
 
   return (
-    <div className="shell">
+    <div className={mustChangePassword ? "shell shell--restricted" : "shell"}>
       <a className="skip-link" href="#main">
         跳到正文
       </a>
-      <aside className="sidebar sidebar--pinned">
-        <SidebarContent items={items} />
-      </aside>
-      <dialog
-        ref={drawerRef}
-        className="sidebar sidebar--drawer"
-        aria-label="主菜单"
-        onClose={() => {
-          setDrawerOpen(false);
-          menuButtonRef.current?.focus();
-        }}
-        onClick={(event) => {
-          if (event.target === drawerRef.current) closeDrawer();
-        }}
-      >
-        <div className="sidebar__drawer-body">
-          <SidebarContent items={items} onNavigate={closeDrawer} />
-        </div>
-      </dialog>
+      {!mustChangePassword && (
+        <>
+          <aside className="sidebar sidebar--pinned">
+            <SidebarContent items={items} />
+          </aside>
+          <dialog
+            ref={drawerRef}
+            className="sidebar sidebar--drawer"
+            aria-label="主菜单"
+            onClose={() => {
+              setDrawerOpen(false);
+              menuButtonRef.current?.focus();
+            }}
+            onClick={(event) => {
+              if (event.target === drawerRef.current) closeDrawer();
+            }}
+          >
+            <div className="sidebar__drawer-body">
+              <SidebarContent items={items} onNavigate={closeDrawer} />
+            </div>
+          </dialog>
+        </>
+      )}
       <div className="shell__column">
         <header className="topbar">
-          <IconButton
-            ref={menuButtonRef}
-            icon="menu"
-            label="打开菜单"
-            tooltipAlign="start"
-            className="topbar__menu-button"
-            aria-expanded={drawerOpen}
-            onClick={openDrawer}
-          />
+          {mustChangePassword ? (
+            <span className="topbar__brand">
+              <span className="topbar__brand-name">NOZOMI</span>
+              <span className="topbar__portal">{portal.name}</span>
+            </span>
+          ) : (
+            <IconButton
+              ref={menuButtonRef}
+              icon="menu"
+              label="打开菜单"
+              tooltipAlign="start"
+              className="topbar__menu-button"
+              aria-expanded={drawerOpen}
+              onClick={openDrawer}
+            />
+          )}
           <nav aria-label="当前位置" className="breadcrumb">
             <span aria-current="page">{pageName}</span>
           </nav>

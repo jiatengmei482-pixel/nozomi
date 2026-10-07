@@ -122,7 +122,12 @@ export interface NewSuperAdmin {
   email: string;
   name: string;
   password: string;
+  /** 这个密码是命令行生成的临时密码：第一次登录必须先改掉（ADR 0013） */
+  temporaryPassword?: boolean;
 }
+
+/** 审计日志里只记「用了临时密码」这件事，不记密码本身。没用临时密码时没有这一项。 */
+const TEMPORARY_PASSWORD_FACT = { temporary_password: true } as const;
 
 /**
  * 创建一个在用的超级管理员（`pnpm admin:create` 用）。这是平台上第一个账号的唯一来源；
@@ -132,11 +137,18 @@ export async function createSuperAdmin(pool: Pool, input: NewSuperAdmin, now: Da
   const issues = checkPasswordStrength(input.password, input.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
+  const temporaryPassword = input.temporaryPassword ?? false;
   try {
     return await withPlatformTx(pool, async (db) => {
       const user = await insertActivePlatformUser(
         db,
-        { email: input.email, name: input.name, role: "super_admin", passwordHash },
+        {
+          email: input.email,
+          name: input.name,
+          role: "super_admin",
+          passwordHash,
+          mustChangePassword: temporaryPassword,
+        },
         now,
       );
       await insertAuditLog(
@@ -148,7 +160,7 @@ export async function createSuperAdmin(pool: Pool, input: NewSuperAdmin, now: Da
           resourceId: user.id,
           action: "create",
           before: null,
-          after: accountValues(user),
+          after: temporaryPassword ? { ...accountValues(user), ...TEMPORARY_PASSWORD_FACT } : accountValues(user),
         },
       );
       return user;
@@ -192,12 +204,15 @@ export async function issueStaffPasswordReset(
 /**
  * 在服务器上给一个在用的超级管理员重设密码（`pnpm admin:reset-password` 用）。
  * 这是「最后一个超级管理员忘了密码」时的恢复途径。该账号的全部会话失效；审计日志记为「系统 / 命令行」。
+ * `temporaryPassword` 为真时新密码是命令行生成的临时密码，账号被标记为必须先修改密码；
+ * 为假时清掉之前可能留下的标记（密码是操作人自己设的）。
  */
 export async function resetSuperAdminPassword(
   pool: Pool,
-  input: { email: string; password: string },
+  input: { email: string; password: string; temporaryPassword?: boolean },
   now: Date,
 ): Promise<PlatformUser> {
+  const temporaryPassword = input.temporaryPassword ?? false;
   const found = await withPlatformTx(pool, (db) => findPlatformUserByEmail(db, input.email));
   if (!found || found.user.role !== "super_admin" || found.user.status !== "active" || found.passwordHash === null) {
     throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用超级管理员");
@@ -210,7 +225,7 @@ export async function resetSuperAdminPassword(
     if (!locked || locked.user.role !== "super_admin" || locked.user.status !== "active") {
       throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用超级管理员");
     }
-    await setPlatformUserPassword(db, locked.user.id, passwordHash, now);
+    await setPlatformUserPassword(db, locked.user.id, passwordHash, temporaryPassword, now);
     await deletePlatformSessionsOfUser(db, locked.user.id);
     await insertAuditLog(
       db,
@@ -221,7 +236,7 @@ export async function resetSuperAdminPassword(
         resourceId: locked.user.id,
         action: "reset_password",
         before: null,
-        after: null,
+        after: temporaryPassword ? TEMPORARY_PASSWORD_FACT : null,
       },
     );
     return locked.user;

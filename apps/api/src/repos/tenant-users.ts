@@ -19,6 +19,8 @@ export interface TenantUser {
   name: string;
   role: TenantRole;
   status: AccountStatus;
+  /** 必须先修改密码（ADR 0013）。只给本人看，不进账号列表的返回 */
+  mustChangePassword: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,11 +32,12 @@ interface TenantUserRow {
   name: string;
   role: TenantRole;
   status: AccountStatus;
+  must_change_password: boolean;
   created_at: Date;
   updated_at: Date;
 }
 
-const COLUMNS = "id, tenant_id, email, name, role, status, created_at, updated_at";
+const COLUMNS = "id, tenant_id, email, name, role, status, must_change_password, created_at, updated_at";
 
 function toUser(row: TenantUserRow): TenantUser {
   return {
@@ -44,6 +47,7 @@ function toUser(row: TenantUserRow): TenantUser {
     name: row.name,
     role: row.role,
     status: row.status,
+    mustChangePassword: row.must_change_password,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -166,7 +170,7 @@ export async function reissueTenantInvite(
 }
 
 /**
- * 凭邀请令牌激活：写入密码、作废令牌。只有「待激活且令牌没过期」的用户会被更新；
+ * 凭邀请令牌激活：写入密码、作废令牌。密码是本人自己设的，所以不是临时密码。只有「待激活且令牌没过期」的用户会被更新；
  * 令牌已被用掉或已过期时返回 null（并发提交同一个令牌，只有一个成功）。
  */
 export async function activateTenantUser(
@@ -178,7 +182,8 @@ export async function activateTenantUser(
 ): Promise<TenantUser | null> {
   const result = await db.query<TenantUserRow>(
     `update tenant_users
-        set status = 'active', password_hash = $3, invite_token_hash = null, invite_expires_at = null, updated_at = $4
+        set status = 'active', password_hash = $3, must_change_password = false,
+            invite_token_hash = null, invite_expires_at = null, updated_at = $4
       where tenant_id = $1 and invite_token_hash = $2 and status = 'invited' and invite_expires_at > $4
       returning ${COLUMNS}`,
     [tenantId, tokenHash, passwordHash, now],
@@ -256,7 +261,7 @@ export async function findTenantSessionUser(
   now: Date,
 ): Promise<TenantUser | null> {
   const result = await db.query<TenantUserRow>(
-    `select u.id, u.tenant_id, u.email, u.name, u.role, u.status, u.created_at, u.updated_at
+    `select u.id, u.tenant_id, u.email, u.name, u.role, u.status, u.must_change_password, u.created_at, u.updated_at
        from tenant_sessions s
        join tenant_users u on u.tenant_id = s.tenant_id and u.id = s.user_id
       where s.tenant_id = $1 and s.id = $2 and s.user_id = $3 and s.expires_at > $4`,
@@ -283,11 +288,14 @@ export async function deleteOtherTenantSessions(db: Db, tenantId: string, userId
   ]);
 }
 
-/** 换密码。还没用掉的重置令牌同时作废。 */
+/**
+ * 本人换密码。还没用掉的重置令牌同时作废；「必须先修改密码」的标记同时清掉
+ * （租户用户没有生成临时密码的途径，所以这里没有把标记置为 true 的参数）。
+ */
 export async function setTenantUserPassword(db: Db, tenantId: string, userId: string, passwordHash: string, now: Date): Promise<void> {
   await db.query(
     `update tenant_users
-        set password_hash = $3, reset_token_hash = null, reset_expires_at = null, updated_at = $4
+        set password_hash = $3, must_change_password = false, reset_token_hash = null, reset_expires_at = null, updated_at = $4
       where tenant_id = $1 and id = $2`,
     [tenantId, userId, passwordHash, now],
   );
@@ -319,7 +327,7 @@ export async function findTenantUserByResetToken(db: Db, tenantId: string, token
 }
 
 /**
- * 凭重置令牌换密码、作废令牌。只有「在用且令牌没过期」的用户会被更新；
+ * 凭重置令牌换密码、作废令牌。密码是本人自己设的，所以不是临时密码。只有「在用且令牌没过期」的用户会被更新；
  * 令牌已被用掉或已过期时返回 null（并发提交同一个令牌，只有一个成功）。
  */
 export async function resetTenantUserPassword(
@@ -331,7 +339,7 @@ export async function resetTenantUserPassword(
 ): Promise<TenantUser | null> {
   const result = await db.query<TenantUserRow>(
     `update tenant_users
-        set password_hash = $3, reset_token_hash = null, reset_expires_at = null, updated_at = $4
+        set password_hash = $3, must_change_password = false, reset_token_hash = null, reset_expires_at = null, updated_at = $4
       where tenant_id = $1 and reset_token_hash = $2 and status = 'active' and reset_expires_at > $4
       returning ${COLUMNS}`,
     [tenantId, tokenHash, passwordHash, now],

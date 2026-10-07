@@ -1,10 +1,13 @@
 /**
- * `pnpm admin:reset-password --email <邮箱>`：在服务器上给一个在用的平台超级管理员重设密码。
+ * `pnpm admin:reset-password --email <邮箱> [--temporary-password]`：在服务器上给一个在用的平台超级管理员重设密码。
  *
  * 用途：超级管理员忘了密码、又没有别的超级管理员能给他发重置链接时的恢复途径。
  * 只对「在用的超级管理员」有效；其他平台员工由超级管理员在后台发重置链接。
  * 和 admin:create 一样，密码不接受命令行参数：在终端里交互输入两遍（不回显），或从标准输入读。
  * 重设后这个账号的全部登录会话失效；审计日志里记为「系统 / 命令行」。
+ *
+ * 带 `--temporary-password` 时不读密码，改为生成一个随机临时密码，只在标准输出显示一次（ADR 0013）；
+ * 账号被标记为「必须先修改密码」。会话同样全部失效。
  */
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -15,20 +18,27 @@ import { AppError } from "../errors.ts";
 import { resetSuperAdminPassword } from "../services/platform-staff.ts";
 import { emailSchema } from "../validation.ts";
 import { SecretInputAborted, readNewPassword } from "./read-secret.ts";
+import { newTemporaryPassword, printTemporaryPassword } from "./temporary-password.ts";
 
 const USAGE = [
-  "用法：pnpm admin:reset-password --email <邮箱>",
+  "用法：pnpm admin:reset-password --email <邮箱> [--temporary-password]",
   "密码不能写在命令行参数里：在终端里运行时按提示输入（不回显），或者从标准输入传入（< 密码文件）。",
+  "加 --temporary-password：不用输入密码，由命令生成一个只显示一次的随机临时密码，下次登录后必须修改。",
 ].join("\n");
 
 class UsageError extends Error {}
 
-function readOptions(argv: readonly string[]): { email: string } {
-  let values: { email?: string | undefined };
+interface Options {
+  email: string;
+  temporaryPassword: boolean;
+}
+
+function readOptions(argv: readonly string[]): Options {
+  let values: { email?: string | undefined; "temporary-password"?: boolean | undefined };
   try {
     ({ values } = parseArgs({
       args: [...argv],
-      options: { email: { type: "string" } },
+      options: { email: { type: "string" }, "temporary-password": { type: "boolean" } },
       strict: true,
       allowPositionals: false,
     }));
@@ -37,21 +47,24 @@ function readOptions(argv: readonly string[]): { email: string } {
   }
   const parsed = z.object({ email: emailSchema }).safeParse(values);
   if (!parsed.success) throw new UsageError("需要合法的 --email。");
-  return parsed.data;
+  return { ...parsed.data, temporaryPassword: values["temporary-password"] === true };
 }
 
 async function main(): Promise<void> {
   const options = readOptions(process.argv.slice(2));
   const config = loadConfig();
-  const password = await readNewPassword(process.stdin, process.stderr, {
-    first: "设置新密码（输入时不显示）：",
-    confirm: "再输入一遍：",
-    mismatch: "两次输入的密码不一致，密码没有改动。",
-  });
+  const password = options.temporaryPassword
+    ? newTemporaryPassword(options.email)
+    : await readNewPassword(process.stdin, process.stderr, {
+        first: "设置新密码（输入时不显示）：",
+        confirm: "再输入一遍：",
+        mismatch: "两次输入的密码不一致，密码没有改动。",
+      });
   const pool = createPool(config.databaseUrl, { max: 1 });
   try {
-    const user = await resetSuperAdminPassword(pool, { email: options.email, password }, new Date());
+    const user = await resetSuperAdminPassword(pool, { ...options, password }, new Date());
     console.log(`已重设超级管理员 ${user.email} 的密码，该账号此前的登录全部失效。`);
+    if (options.temporaryPassword) printTemporaryPassword(process.stdout, password);
   } finally {
     await pool.end();
   }
