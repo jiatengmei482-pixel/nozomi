@@ -100,7 +100,7 @@ function validateGroup(values: VehicleGroupValues, mode: "new" | "edit", lockedS
     if (messages.length > 0) errors[`combos.${index}`] = messages;
   });
   values.models.forEach((model, index) => {
-    if ([...model.trim()].length > SAMPLE_MODEL_MAX_LENGTH) errors[`models.${index}`] = [`代表车型最多 ${SAMPLE_MODEL_MAX_LENGTH} 个字`];
+    if (model.trim().length > SAMPLE_MODEL_MAX_LENGTH) errors[`models.${index}`] = [`代表车型最多 ${SAMPLE_MODEL_MAX_LENGTH} 个字`];
   });
   return errors;
 }
@@ -127,7 +127,7 @@ export const vehicleGroupFormModel: FormModel<"vehicle-groups", VehicleGroupValu
   }),
   validate: (values, context) => validateGroup(values, context.mode, context.record?.seats ?? null),
   labels: { grade: "等级", seats: "座位数", code: "编码", name: "名称", power: "动力", combos: "人数 / 行李数组合", models: "代表车型" },
-  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/grade$/, "grade"], [/^\/seats$/, "seats"], [/^\/power$/, "power"], [/^\/combos\/(\d+)/, (match) => `combos.${match[1]}`], [/^\/combos$/, "combos"], [/^\/sample_models/, "models"]]),
+  fieldOfPath: pathMapper([...COMMON_PATHS, [/^\/grade$/, "grade"], [/^\/seats$/, "seats"], [/^\/power$/, "power"], [/^\/combos\/(\d+)/, (match) => `combos.${match[1]}`], [/^\/combos$/, "combos"], [/^\/sample_models\/(\d+)/, (match) => `models.${match[1]}`], [/^\/sample_models$/, "models"]]),
   toCreate: (values) => ({
     code: values.code,
     grade: values.grade ?? "economy",
@@ -245,7 +245,7 @@ export const vehicleGroupFormModel: FormModel<"vehicle-groups", VehicleGroupValu
               busy={busy}
               count={values.models.length}
               max={MAX_SAMPLE_MODELS}
-              errors={[]}
+              errors={form.errors("models")}
               rowErrors={(index) => form.errors(`models.${index}`)}
               hint="让人知道这个车型组大概是什么车，写具体的品牌车型。"
               onAdd={() => form.set({ models: [...values.models, ""] })}

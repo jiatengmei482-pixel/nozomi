@@ -2,11 +2,13 @@
  * 四个列表页各自的列、筛选条件和文案（docs/design/pages/master-data.md 第 3 节）。
  */
 import { VEHICLE_GRADES, type VehicleGrade } from "@nozomi/domain";
+import { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { type City, type DashboardSummary, type Place, fetchDashboardSummary } from "../../api/master.ts";
 import { Alert } from "../../components/Alert.tsx";
 import { LinkButton } from "../../components/Button.tsx";
-import { Combobox } from "../../components/Combobox.tsx";
+import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
+import { useFilterParam } from "../../components/FilterBar.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import {
@@ -31,28 +33,20 @@ import { cityOption, useAllCities, useCountryOptions } from "./shared.tsx";
 const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function useParam(name: string): [string | null, (value: string | null) => void] {
-  const [params, setParams] = useSearchParams();
-  return [
-    params.get(name),
-    (value) => {
-      const next = new URLSearchParams(params);
-      if (value === null || value === "") next.delete(name);
-      else next.set(name, value);
-      setParams(next, { replace: true });
-    },
-  ];
+/** 页面自己读网址里的条件（决定查什么）。 */
+function useUrlParam(name: string): string | null {
+  return useSearchParams()[0].get(name);
 }
 
 function CountryFilter({ cities }: { cities: readonly City[] | null }) {
-  const [country, setCountry] = useParam("country");
+  const [country, setCountry] = useFilterParam("country");
   const options = useCountryOptions(cities);
   return <Combobox inline label="国家" clearLabel="全部" placeholder="全部" options={options} value={country !== null && COUNTRY_PATTERN.test(country) ? country : null} onChange={setCountry} />;
 }
 
 export function CityListPage() {
   const cities = useAllCities();
-  const [country] = useParam("country");
+  const country = useUrlParam("country");
   const validCountry = country !== null && COUNTRY_PATTERN.test(country) ? country : null;
   const definition: ListDefinition<"cities"> = {
     kind: "cities",
@@ -82,7 +76,16 @@ const TAB_COPY: Readonly<Record<PlaceTab, { empty: { title: string; description:
   poi: { empty: { title: "还没有地标", description: "地标是酒店、景点、港口、商场这类常用的上下车地点。" } },
 };
 
+/** 刚用 ← → 切了页签：新页面画出来以后把焦点放回选中的页签上（列表随页签整个重画，焦点会丢）。 */
+let refocusSelectedTab = false;
+
 function PlaceTabs({ current }: { current: PlaceTab }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!refocusSelectedTab) return;
+    refocusSelectedTab = false;
+    listRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [current]);
   const [params] = useSearchParams();
   const keep: Record<string, string> = {};
   for (const key of ["q", "status"]) {
@@ -91,6 +94,7 @@ function PlaceTabs({ current }: { current: PlaceTab }) {
   }
   return (
     <div
+      ref={listRef}
       className="tabs"
       role="tablist"
       aria-label="地点类型"
@@ -99,7 +103,7 @@ function PlaceTabs({ current }: { current: PlaceTab }) {
         const tabs = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
         const index = tabs.indexOf(document.activeElement as HTMLElement);
         const next = tabs[(index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
-        next?.focus();
+        refocusSelectedTab = true;
         next?.click();
       }}
     >
@@ -110,6 +114,18 @@ function PlaceTabs({ current }: { current: PlaceTab }) {
       ))}
     </div>
   );
+}
+
+function CityFilter({ options, loading, loadFailed }: { options: ComboboxOption[]; loading: boolean; loadFailed: boolean }) {
+  const [city, setCity] = useFilterParam("city");
+  const value = city !== null && options.some((option) => option.value === city) ? city : null;
+  return <Combobox inline label="所属城市" clearLabel="全部" placeholder="全部" options={options} value={value} onChange={setCity} loading={loading} loadFailed={loadFailed} />;
+}
+
+function GradeFilter() {
+  const [grade, setGrade] = useFilterParam("grade");
+  const value = (VEHICLE_GRADES as readonly string[]).includes(grade ?? "") ? (grade as VehicleGrade) : "all";
+  return <SelectField inline label="等级" value={value} options={[{ value: "all", label: "全部" }, ...VEHICLE_GRADES.map((entry) => ({ value: entry, label: vehicleGradeName(entry) }))]} onChange={(next) => setGrade(next === "all" ? null : next)} />;
 }
 
 function CityCell({ place, cities }: { place: Place; cities: readonly City[] | null }) {
@@ -131,8 +147,8 @@ export function PlaceListPage() {
   const canManage = usePlatformCan("master_data.manage");
   const cities = useAllCities();
   const summary = useLoad<DashboardSummary>("summary", tab === "airport" ? fetchDashboardSummary : null);
-  const [cityParam, setCity] = useParam("city");
-  const [countryParam] = useParam("country");
+  const cityParam = useUrlParam("city");
+  const countryParam = useUrlParam("country");
   const city = cityParam === "none" && tab === "airport" ? "none" : cityParam !== null && UUID_PATTERN.test(cityParam) ? cityParam : null;
   const country = countryParam !== null && COUNTRY_PATTERN.test(countryParam) ? countryParam : null;
   const waiting = tab === "airport" ? (summary.state.data?.master_data?.places.airports_without_city ?? 0) : 0;
@@ -180,7 +196,7 @@ export function PlaceListPage() {
     filterParams: ["city", "country"],
     filters: (
       <>
-        <Combobox inline label="所属城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={city} onChange={setCity} loading={cities.state.status === "loading" && cities.state.data === null} loadFailed={cities.state.status === "error"} />
+        <CityFilter options={cityOptions} loading={cities.state.status === "loading" && cities.state.data === null} loadFailed={cities.state.status === "error"} />
         <CountryFilter cities={cities.state.data} />
       </>
     ),
@@ -227,7 +243,7 @@ export function PlaceListPage() {
 }
 
 export function VehicleGroupListPage() {
-  const [gradeParam, setGrade] = useParam("grade");
+  const gradeParam = useUrlParam("grade");
   const grade = (VEHICLE_GRADES as readonly string[]).includes(gradeParam ?? "") ? (gradeParam as VehicleGrade) : null;
   const definition: ListDefinition<"vehicle-groups"> = {
     kind: "vehicle-groups",
@@ -252,15 +268,7 @@ export function VehicleGroupListPage() {
         ),
       },
     ],
-    filters: (
-      <SelectField
-        inline
-        label="等级"
-        value={grade ?? "all"}
-        options={[{ value: "all", label: "全部" }, ...VEHICLE_GRADES.map((value) => ({ value, label: vehicleGradeName(value) }))]}
-        onChange={(value) => setGrade(value === "all" ? null : value)}
-      />
-    ),
+    filters: <GradeFilter />,
     query: grade ? { grade } : {},
     filterParams: ["grade"],
     empty: { title: "还没有车型组", description: "报价、库存和订单都按车型组来，不按具体的车。" },

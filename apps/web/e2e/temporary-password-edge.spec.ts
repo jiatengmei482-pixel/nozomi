@@ -187,6 +187,7 @@ test("已经登录着的会话：标记在别处被置上——刷新后被带�
 });
 
 test("两个标签页都用临时密码登录：一个改完密码，另一个的会话随即失效——提交或刷新都回登录页并提示登录已过期；用新密码登录后不再受限", async ({ page, context }) => {
+  test.slow(); // 两个标签页各登录一次、改密、再登录：四次密码哈希，整套并行跑时 30 秒不够
   const admin = await createTemporaryPasswordAdmin();
   const password = newPassword();
   await page.goto("/platform/login");

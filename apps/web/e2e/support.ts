@@ -219,7 +219,17 @@ export async function importAirports(country: string, airports: readonly SampleA
     const rows = airports.map((airport) => [String(100000 + randomBytes(3).readUIntBE(0, 3)), `X${airport.iata}`, "large_airport", `"${airport.name}"`, airport.lat, airport.lng, country, "yes", airport.iata].join(","));
     const file = join(dir, "airports.csv");
     await writeFile(file, `${[header, ...rows].join("\n")}\n`, "utf8");
-    await runCli("masterdata-import-airports.ts", ["--country", country, "--file", file]);
+    // 导入命令同一时间只允许跑一个（后到的立即退出）；并行的用例撞上时等一下再来，不算失败
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await runCli("masterdata-import-airports.ts", ["--country", country, "--file", file]);
+        break;
+      } catch (err) {
+        const busy = err instanceof Error && /IMPORT_ALREADY_RUNNING|IMPORT_CODE_CONFLICT/.test(err.message);
+        if (!busy || attempt >= 20) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 150 + Math.floor(Math.random() * 250)));
+      }
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

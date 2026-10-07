@@ -4,14 +4,14 @@
  * 各类自己的列、筛选条件、文案由 `ListDefinition` 给出。
  */
 import type { MasterDataStatus } from "@nozomi/domain";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { type MasterKind, type MasterKinds, type MasterListQuery, type MasterPage, listMaster } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
-import { FilterBar, SearchBox } from "../../components/FilterBar.tsx";
+import { FilterBar, SearchBox, useFilterParam } from "../../components/FilterBar.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
@@ -21,10 +21,12 @@ import { masterEditPath } from "../../lib/master-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { CodeLink, NameCell, useReturnState } from "./shared.tsx";
+import { CodeLink, NameCell, type ReturnState, readListPage } from "./shared.tsx";
 import { type ToggleNotice, useStatusToggle } from "./useStatusToggle.tsx";
 
 const DEFAULT_PAGE_SIZE = 50;
+/** 各个列表离开时的滚动位置（按地址记）。 */
+const scrollPositions = new Map<string, number>();
 
 type RecordOf<K extends MasterKind> = MasterKinds[K]["record"];
 
@@ -56,6 +58,17 @@ export interface ListDefinition<K extends MasterKind> {
   notReady?(row: RecordOf<K>, reason: string): ToggleNotice | null;
 }
 
+const STATUS_OPTIONS = [
+  { value: "all", label: "全部" },
+  { value: "active", label: "启用" },
+  { value: "disabled", label: "已停用" },
+] as const;
+
+function StatusFilter() {
+  const [status, setStatus] = useFilterParam("status");
+  return <SelectField inline label="状态" value={status === "active" || status === "disabled" ? status : "all"} options={STATUS_OPTIONS} onChange={(value) => setStatus(value === "all" ? null : value)} />;
+}
+
 function rowLabel(row: { code: string; name: Parameters<typeof displayName>[0] }): string {
   return `${row.code} ${displayName(row.name).text}`;
 }
@@ -65,7 +78,8 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
   const { portal } = usePortalSession();
   useDocumentTitle(`${title} · NOZOMI ${portal.name}`);
   const canManage = usePlatformCan("master_data.manage");
-  const returnState = useReturnState();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
 
   const q = (params.get("q") ?? "").trim().slice(0, 100);
@@ -76,18 +90,42 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
   const extraQuery = definition.query ?? {};
   const filterKey = JSON.stringify([kind, q, status, pageSize, extraQuery]);
 
-  // 走过的每一页的游标（只在内存里）：最后一个是当前页，第一页是 null
-  const [cursors, setCursors] = useState<{ key: string; stack: (string | null)[] }>({ key: filterKey, stack: [null] });
-  const stack = cursors.key === filterKey ? cursors.stack : [null];
+  // 走过的每一页的游标：最后一个是当前页，第一页是 null。记在这条浏览记录的状态里，
+  // 从编辑页回来（取消、保存、浏览器后退）时回到离开时的那一页；游标不进网址，刷新回第一页。
+  const remembered = readListPage(location.state);
+  const stack = remembered !== null && remembered.key === filterKey ? remembered.stack : [null];
   const cursor = stack[stack.length - 1] ?? null;
+  const here = `${location.pathname}${location.search}`;
+  const returnState: ReturnState = { from: here, listPage: { key: filterKey, stack } };
+  const goToPage = (next: (string | null)[]): void => {
+    const state: ReturnState = { listPage: { key: filterKey, stack: next } };
+    void navigate(here, { replace: true, state });
+  };
+
+  // 滚动位置：离开列表时记下（只在内存里），带着翻页位置回来时恢复
+  const restoreScroll = useRef(remembered !== null);
+  useEffect(() => {
+    const main = document.getElementById("main");
+    return () => {
+      if (main) scrollPositions.set(here, main.scrollTop);
+    };
+  }, [here]);
 
   const { state, reload } = useLoad<MasterPage<RecordOf<K>>>(`${filterKey}|${cursor ?? ""}`, (authToken) =>
-    listMaster(kind, authToken, { ...extraQuery, status, limit: pageSize, ...(q !== "" ? { q } : {}), ...(cursor !== null ? { cursor } : {}) }),
+    listMaster(kind, authToken, { ...extraQuery, status, sort: "code", limit: pageSize, ...(q !== "" ? { q } : {}), ...(cursor !== null ? { cursor } : {}) }),
   );
 
   // 行内操作成功后的最新内容：这一行留在原地，只换状态
   const [updated, setUpdated] = useState<Record<string, RecordOf<K>>>({});
   const rows = useMemo(() => (state.data?.items ?? []).map((row) => updated[row.id] ?? row), [state.data, updated]);
+  const ready = state.status === "ready";
+  useEffect(() => {
+    if (!ready || !restoreScroll.current) return;
+    restoreScroll.current = false;
+    const main = document.getElementById("main");
+    const saved = scrollPositions.get(here);
+    if (main && saved !== undefined) main.scrollTop = saved;
+  }, [ready, here]);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   const toggle = useStatusToggle<K>({
     kind,
@@ -120,7 +158,7 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
   const clearFilters = (): void => setParam(Object.fromEntries(filterParams.map((key) => [key, null])));
 
   const columns: Column<RecordOf<K>>[] = [
-    { key: "code", header: "编码", cell: (row) => <CodeLink kind={kind} id={row.id} code={row.code} /> },
+    { key: "code", header: "编码", cell: (row) => <CodeLink kind={kind} id={row.id} code={row.code} state={returnState} /> },
     { key: "name", header: "名称", cell: (row) => <NameCell name={row.name} /> },
     ...definition.columns,
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...MASTER_STATUS_BADGES[row.status]} /> },
@@ -187,18 +225,8 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
     <AppShell pageName={title} trail={[{ label: "主数据" }]}>
       <Page title={title} {...(canManage ? { action: newButton } : {})}>
         {definition.header}
-        <FilterBar search={<SearchBox label="按编码或名称搜索" value={q} onSearch={(value) => setParam({ q: value })} />} active={filtered} onClear={clearFilters}>
-          <SelectField
-            inline
-            label="状态"
-            value={status}
-            options={[
-              { value: "all", label: "全部" },
-              { value: "active", label: "启用" },
-              { value: "disabled", label: "已停用" },
-            ]}
-            onChange={(value) => setParam({ status: value === "all" ? null : value })}
-          />
+        <FilterBar search={<SearchBox label="按编码或名称搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["status", ...(definition.filterParams ?? [])]} active={filtered} onClear={clearFilters}>
+          <StatusFilter />
           {definition.filters}
         </FilterBar>
         {toggle.notice}
@@ -210,10 +238,10 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
           hasPrevious={stack.length > 1}
           hasNext={state.status === "ready" && state.data.next_cursor !== null}
           busy={state.status === "loading"}
-          onPrevious={() => setCursors({ key: filterKey, stack: stack.slice(0, -1) })}
+          onPrevious={() => goToPage(stack.slice(0, -1))}
           onNext={() => {
             const next = state.data?.next_cursor;
-            if (next) setCursors({ key: filterKey, stack: [...stack, next] });
+            if (next) goToPage([...stack, next]);
           }}
         />
         {toggle.dialog}

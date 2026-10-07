@@ -177,8 +177,10 @@ export interface MasterListQuery {
   city_id?: string;
   parent_id?: string;
   grade?: VehicleGrade;
+  /** `code`：按编码升序；不给是按创建时间。游标和排序绑定，翻页时要带同一个 */
+  sort?: "created" | "code";
 }
-export const MASTER_LIST_QUERY_KEYS = ["limit", "cursor", "status", "q", "country_code", "type", "city_id", "parent_id", "grade"] as const satisfies readonly (keyof MasterListQuery)[];
+export const MASTER_LIST_QUERY_KEYS = ["limit", "cursor", "status", "q", "country_code", "type", "city_id", "parent_id", "grade", "sort"] as const satisfies readonly (keyof MasterListQuery)[];
 
 export interface MasterPage<T> {
   items: T[];

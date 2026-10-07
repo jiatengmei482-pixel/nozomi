@@ -144,6 +144,8 @@ function NewCityDialog({ airport, cities, onClose, onCreated }: { airport: Place
     >
       <form ref={formRef} className="form-card" noValidate onSubmit={(event) => void submit(event)}>
         <div role="alert">{failure !== null && <Alert kind="danger">{failure}</Alert>}</div>
+        {/* 表单里要有一个提交按钮，在输入框里按 Enter 才会提交；看得见的那个按钮在对话框底部 */}
+        <button type="submit" hidden tabIndex={-1} aria-hidden="true" />
         <CityFields
           form={form}
           mode="new"
@@ -178,10 +180,11 @@ export function PendingAirportsPage() {
   const cities = useAllCities();
   const countryOptions = useCountryOptions(cities.state.data);
   const [batchCursor, setBatchCursor] = useState<string | null>(null);
+  const [batchFailed, setBatchFailed] = useState(false);
   const first = useLoad<{ page: MasterPage<Place>; start: Place | null }>(`pending:${country ?? ""}:${startId ?? ""}`, canManage
     ? async (authToken) => {
         const [page, start] = await Promise.all([
-          listMaster("places", authToken, { type: "airport", city_id: "none", status: "all", limit: BATCH, ...(country ? { country_code: country } : {}) }),
+          listMaster("places", authToken, { type: "airport", city_id: "none", status: "all", sort: "code", limit: BATCH, ...(country ? { country_code: country } : {}) }),
           startId !== null ? getMaster("places", authToken, startId).catch(() => null) : Promise.resolve(null),
         ]);
         return { page, start };
@@ -215,6 +218,7 @@ export function PendingAirportsPage() {
     setQueue(next);
     setRemaining(Math.max(page.total, next.length));
     setBatchCursor(page.next_cursor);
+    setBatchFailed(false);
     setSkipped(new Set());
     setDraft(next[0] ? draftOf(next[0]) : null);
     setNotice(null);
@@ -225,26 +229,29 @@ export function PendingAirportsPage() {
 
   // 队列快见底、后面还有：在后台取下一批
   useEffect(() => {
-    if (queue === null || batchCursor === null || queue.length >= REFILL_BELOW) return;
+    if (queue === null || batchCursor === null || batchFailed || queue.length >= REFILL_BELOW) return;
     let cancelled = false;
     const cursor = batchCursor;
-    listMaster("places", token, { type: "airport", city_id: "none", status: "all", limit: BATCH, cursor, ...(country ? { country_code: country } : {}) }).then(
+    listMaster("places", token, { type: "airport", city_id: "none", status: "all", sort: "code", limit: BATCH, cursor, ...(country ? { country_code: country } : {}) }).then(
       (page) => {
         if (cancelled) return;
         setBatchCursor(page.next_cursor);
-        setQueue((current) => {
-          const known = new Set((current ?? []).map((place) => place.id));
-          return [...(current ?? []), ...page.items.filter((place) => !known.has(place.id))];
-        });
+        // 每取一批新的，就按接口此刻给的总数校正「还剩」（别人可能同时处理掉了一些）
+        setRemaining(page.total);
+        const known = new Set(queue.map((place) => place.id));
+        const merged = [...queue, ...page.items.filter((place) => !known.has(place.id))];
+        setQueue(merged);
+        if (queue.length === 0 && merged[0]) setDraft(draftOf(merged[0]));
       },
       (err: unknown) => {
-        if (!cancelled && !handleAuthFailure(err)) setBatchCursor(null);
+        // 没取到：不能当成「后面没有了」，留着游标，让人重试
+        if (!cancelled && !handleAuthFailure(err)) setBatchFailed(true);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [queue, batchCursor, token, country, handleAuthFailure]);
+  }, [queue, batchCursor, batchFailed, token, country, handleAuthFailure]);
 
   // 新增城市后焦点交给「保存并启用」：要等新城市进了选项、按钮可用之后
   const [focusSubmit, setFocusSubmit] = useState(false);
@@ -314,7 +321,15 @@ export function PendingAirportsPage() {
       }
     }
     if (err.code === "CONCURRENT_UPDATE") return setNotice({ kind: "warning", text: "同时有其他人在修改相关数据，这次没有保存成功。请再点一次。" });
-    if (err.code === "MASTER_DATA_NOT_READY" || (err.code === "VALIDATION_FAILED" && JSON.stringify(err.details).includes("city_id"))) {
+    if (err.code === "MASTER_DATA_NOT_READY" || err.code === "VALIDATION_FAILED") {
+      // 「指定城市并启用」被拒，先看是不是别人已经给它指定了城市：是的话它不用我处理了
+      try {
+        const fresh = await getMaster("places", token, place.id);
+        if (fresh.city_id !== null) return advance((queue ?? []).slice(1), Math.max(0, remaining - 1), { kind: "info", text: `「${label(place)}」刚被别人处理过了，已为你换到下一个。` });
+      } catch (reloadError) {
+        if (handleAuthFailure(reloadError)) return;
+      }
+      if (err.code === "VALIDATION_FAILED" && !JSON.stringify(err.details).includes("city_id")) return setNotice({ kind: "danger", text: "提交的内容不符合要求，请检查后重试。" });
       cities.reload();
       setCityError("这个城市已经停用或不能用于这个机场。请换一个城市。");
       return cityRef.current?.focus();
@@ -431,7 +446,24 @@ export function PendingAirportsPage() {
           />
         </section>
       )}
-      {queue !== null && current === null && (
+      {queue !== null && current === null && batchCursor !== null && (
+        <section className="card">
+          {batchFailed ? (
+            <StateBlock
+              title="后面的机场没有取到"
+              description="还有待指定城市的机场，但这一批没有加载出来。请检查网络后重试。"
+              action={
+                <Button variant="secondary" onClick={() => setBatchFailed(false)}>
+                  重试
+                </Button>
+              }
+            />
+          ) : (
+            <Skeleton lines={["short", "long", "medium", "control", "control", "control"]} />
+          )}
+        </section>
+      )}
+      {queue !== null && current === null && batchCursor === null && (
         <section className="card">
           {country !== null && done.length === 0 ? (
             <StateBlock

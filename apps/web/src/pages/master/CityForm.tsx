@@ -80,7 +80,12 @@ export interface CityFieldsProps {
 export function CityFields({ form, mode, readOnly, busy, fixedCountry = false, cities, boundarySet = false, centerNote }: CityFieldsProps) {
   const { values } = form;
   const countryOptions = useCountryOptions(cities);
-  const zones = useMemo(allTimeZoneOptions, []);
+  // 已有的时区即使不在浏览器的清单里（同一个时区的旧写法）也要照常显示、能原样保存
+  const current = values.timezone;
+  const zones = useMemo(() => {
+    const listed = allTimeZoneOptions();
+    return current === null || listed.some((zone) => zone.value === current) ? listed : [{ value: current, label: timeZoneLabel(current), keywords: current.replaceAll("_", " ") }, ...listed];
+  }, [current]);
   const locked = mode === "edit";
   return (
     <>

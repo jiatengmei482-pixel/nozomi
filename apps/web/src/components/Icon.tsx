@@ -24,7 +24,8 @@ export type IconName =
   | "search"
   | "x"
   | "copy"
-  | "external";
+  | "external"
+  | "filter";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   eye: (
@@ -102,6 +103,7 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
       <path d="M5 15V6a2 2 0 0 1 2-2h9" />
     </>
   ),
+  filter: <path d="M3 5h18l-7 8.5V19l-4 2v-7.5L3 5z" />,
   external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
 };
 

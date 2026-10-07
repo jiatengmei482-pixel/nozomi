@@ -338,7 +338,7 @@ test("新增城市：空着提交逐项报错并汇总；选了国家自动填�
 
   const country = screen.getByRole("combobox", { name: /国家/ });
   await user.click(country);
-  await user.keyboard("jp{ArrowDown}{ArrowUp}{Enter}");
+  await user.keyboard("jp{Enter}");
   assert.equal((country as HTMLInputElement).value, "日本（JP）");
   const code = screen.getByLabelText(/^编码/) as HTMLInputElement;
   assert.equal(code.value, "CTY-JP-");

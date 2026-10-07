@@ -17,9 +17,10 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime, shortName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { FORBIDDEN_TEXT, returnPath } from "./shared.tsx";
+import { FORBIDDEN_TEXT, returnNavigationState, returnPath } from "./shared.tsx";
 import { type StatusToggleOptions, useStatusToggle } from "./useStatusToggle.tsx";
 
 type RecordOf<K extends MasterKind> = MasterKinds[K]["record"];
@@ -74,6 +75,8 @@ export interface FormModel<K extends MasterKind, V, X = undefined> {
   /** 页面顶部的说明（新增机场的提示） */
   intro?(context: FormContext<K, X>): string | null;
   toggle: Pick<StatusToggleOptions<K>, "objectName" | "objectPhrase" | "inUse" | "notReady">;
+  /** 保存后回到上级的编辑页时，滚到哪一块（航站楼 / 出口保存后回到上级的下级卡片） */
+  returnAnchor?(context: FormContext<K, X>): string | null;
   /** 后端拒绝：城市或上级已停用。返回要显示在哪个字段下，或表单顶部的话 */
   notReady?(reason: string, context: FormContext<K, X>): { field?: string; text: string };
 }
@@ -136,7 +139,11 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
   const [submitting, setSubmitting] = useState<"save" | "continue" | null>(null);
   const [conflict, setConflict] = useState(false);
   const [blocked, setBlocked] = useState<string | null>(null);
-  const [leaving, setLeaving] = useState(false);
+  // 有没保存的修改时想离开：null = 没有；"" = 点了「取消」，回来的地方；其余是要去的站内地址
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
+  // 已经确认过要丢掉修改：离开的这一下不再拦
+  const [discarded, setDiscarded] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   // 取到记录（第一次，或「载入最新内容」之后）就把它填进表单
@@ -154,6 +161,51 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
     }
   }, [record, recordKey, adopted, conflict, values, model]);
 
+  // 「载入最新内容」没有成功：说明白，内容原样留着，可以再试
+  const loadFailed = loaded.state.status === "error";
+  const reloadStarted = useRef(false);
+  useEffect(() => {
+    if (!reloading) return;
+    if (loaded.state.status === "loading") {
+      reloadStarted.current = true;
+      return;
+    }
+    if (!reloadStarted.current) return;
+    reloadStarted.current = false;
+    setReloading(false);
+    if (loadFailed) {
+      setNotice({
+        kind: "warning",
+        title: "最新内容没有载入成功。",
+        text: "请检查网络后重试。你在这个页面上写的内容还在。",
+        action: (
+          <Button variant="secondary" size="sm" onClick={reloadLatest}>
+            再试一次
+          </Button>
+        ),
+      });
+    }
+  }, [reloading, loaded.state.status, loadFailed]);
+  const reloadLatest = (): void => {
+    setReloading(true);
+    loaded.reload();
+  };
+
+  // 从下级的表单保存回来（地址带 #children 之类）：滚到那一块
+  const anchor = location.hash.replace(/^#/, "");
+  const hasRecord = record !== null;
+  useEffect(() => {
+    if (anchor !== "" && hasRecord && values !== null) document.getElementById(anchor)?.scrollIntoView?.({ block: "start" });
+  }, [anchor, hasRecord, values === null]);
+
+  // 后端给的字段级错误必须让人看得见：万一对应的字段没有把它画出来，就落到表单顶部
+  useEffect(() => {
+    const messages = Object.values(serverErrors).flat();
+    if (messages.length === 0) return;
+    const text = formRef.current?.textContent ?? "";
+    if (messages.some((message) => !text.includes(message))) setNotice({ kind: "danger", text: "提交的内容不符合要求，请检查后重试。" });
+  }, [serverErrors]);
+
   const readOnly = mode === "edit" && !canManage;
   const busy = submitting !== null;
   const context: FormContext<K, X> = { mode, record, readOnly, busy, extra };
@@ -161,9 +213,17 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
   const objectName = model.objectName(naming);
   const listPath = model.listPath(naming);
   const backTo = returnPath(location.state, listPath);
+  /** 回到来的地方：带上列表离开时的翻页位置 */
+  const goBack = (hash = ""): void => {
+    const state = returnNavigationState(location.state);
+    void navigate(`${backTo.split("#")[0]}${hash}`, state ? { state } : {});
+  };
   const shown = record ? displayName(record.name) : null;
   const pageTitle = mode === "new" ? `新增${objectName}` : (shown?.text ?? objectName);
   useDocumentTitle(mode === "new" ? `${pageTitle} · NOZOMI ${portal.name}` : `${pageTitle} · ${model.moduleName} · NOZOMI ${portal.name}`);
+
+  const dirtyNow = values === null ? false : mode === "edit" ? record !== null && Object.keys(model.toPatch(values, record) as object).length > 0 : JSON.stringify(values) !== JSON.stringify(initial);
+  useLeaveGuard(dirtyNow && submitting === null && !discarded, setLeaving);
 
   const clientErrors = useMemo(() => (values === null ? {} : model.validate(values, { mode, record, readOnly, busy: false, extra })), [values, mode, record, readOnly, extra, model]);
   const toggle = useStatusToggle<K>({ kind, ...model.toggle, onChanged: (next) => loaded.set(next) });
@@ -229,8 +289,10 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
     errors: errorsFor,
   };
 
+  const returnAnchor = model.returnAnchor?.(context) ?? null;
+  const returnHash = returnAnchor === null ? "" : `#${returnAnchor}`;
   const invalidFields = Object.keys(clientErrors).filter((field) => (clientErrors[field] ?? []).length > 0);
-  const dirty = mode === "edit" && record ? Object.keys(model.toPatch(values, record) as object).length > 0 : JSON.stringify(values) !== JSON.stringify(initial);
+  const dirty = dirtyNow;
 
   const fail = (err: unknown): void => {
     if (handleAuthFailure(err)) return;
@@ -267,7 +329,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
           title: "这条记录刚被别人修改过，你的修改还没有保存。",
           text: "请先载入最新内容，再重新修改。载入后，你在这个页面上还没保存的修改会丢失。",
           action: (
-            <Button variant="secondary" size="sm" onClick={loaded.reload}>
+            <Button variant="secondary" size="sm" onClick={reloadLatest}>
               载入最新内容
             </Button>
           ),
@@ -311,7 +373,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
     if (mode === "edit" && record) {
       const patch = model.toPatch(values, record);
       if (Object.keys(patch as object).length === 0) {
-        void navigate(backTo);
+        goBack();
         return;
       }
       setNotice(null);
@@ -319,7 +381,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
       try {
         const saved = await patchMaster(kind, token, record.id, record.version, patch);
         toast(`已保存「${shortName(displayName(saved.name).text)}」`);
-        void navigate(backTo);
+        goBack(returnHash);
       } catch (err) {
         fail(err);
       } finally {
@@ -342,7 +404,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
         formRef.current?.querySelector<HTMLElement>("input:not([readonly]), textarea")?.focus();
         document.getElementById("main")?.scrollTo?.({ top: 0 });
       } else {
-        void navigate(backTo);
+        goBack(returnHash);
       }
     } catch (err) {
       fail(err);
@@ -422,7 +484,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
           <div className="form-bar">
             {mode === "new" && <span className="form-bar__note">保存后直接是启用状态，供应商马上可以选到。</span>}
             {saveNote !== null && <span className="form-bar__note">{saveNote}</span>}
-            <Button variant="text" disabled={busy} onClick={() => (dirty ? setLeaving(true) : void navigate(backTo))}>
+            <Button variant="text" disabled={busy} onClick={() => (dirty ? setLeaving("") : goBack())}>
               取消
             </Button>
             {mode === "new" && (
@@ -444,15 +506,24 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
       )}
       {toggle.dialog}
       <Dialog
-        open={leaving}
+        open={leaving !== null}
         title="有未保存的修改，确定离开吗？"
-        onClose={() => setLeaving(false)}
+        onClose={() => setLeaving(null)}
         footer={
           <>
-            <Button variant="secondary" data-autofocus onClick={() => setLeaving(false)}>
+            <Button variant="secondary" data-autofocus onClick={() => setLeaving(null)}>
               继续编辑
             </Button>
-            <Button variant="primary" onClick={() => void navigate(backTo)}>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const to = leaving;
+                setLeaving(null);
+                setDiscarded(true);
+                if (to === null || to === "") goBack();
+                else void navigate(to);
+              }}
+            >
               离开
             </Button>
           </>

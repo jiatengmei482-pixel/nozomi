@@ -1,6 +1,8 @@
 /**
  * 组合框（docs/design/02-components.md 第 3 节）：输入框 + 下拉面板，输入文字即筛选，只能从选项里选。
  * 键盘：↓ 打开；↑↓ 移动高亮；Enter 选中；Esc 关闭并把焦点留在输入框。面板关着的时候 Enter 不拦截（提交表单）。
+ * 输入文字后第一个匹配项是「暂定」的高亮：直接 Enter 选它；这时按 ↓ 是确认落在它上面（不跳到第二个），再按才往下走。
+ * 所以「输入 → ↓ → Enter」和「输入 → Enter」选中的都是第一个匹配项。
  */
 import { type KeyboardEvent, type Ref, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon.tsx";
@@ -53,7 +55,10 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
   const selected = options.find((option) => option.value === value) ?? null;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState<string | null>(null);
-  const [active, setActive] = useState(0);
+  // 高亮的是第几项；-1 = 还没有高亮
+  const [active, setActive] = useState(-1);
+  // 高亮是输入文字后自动给的，还没被方向键确认过
+  const tentative = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(() => {
     const filtered = options.filter((option) => matches(option, query ?? ""));
@@ -66,6 +71,7 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
       if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
         setOpen(false);
         setQuery(null);
+        setActive(-1);
       }
     };
     document.addEventListener("pointerdown", close);
@@ -90,22 +96,36 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
     onChange(option.value === "" ? null : option.value);
     setOpen(false);
     setQuery(null);
+    setActive(-1);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!open) {
+        tentative.current = false;
         setOpen(true);
         setActive(0);
         return;
       }
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((current) => (visible.length === 0 ? 0 : (current + step + visible.length) % visible.length));
+      const wasTentative = tentative.current;
+      tentative.current = false;
+      setActive((current) => {
+        if (visible.length === 0) return -1;
+        if (current < 0 || wasTentative) return step === 1 ? 0 : visible.length - 1;
+        return (current + step + visible.length) % visible.length;
+      });
     } else if (event.key === "Enter" && open) {
       event.preventDefault();
-      const option = visible[active];
+      // 没有高亮（点开后什么都没输入）时只是关上面板
+      const option = active >= 0 ? visible[active] : undefined;
       if (option) choose(option);
+      else {
+        setOpen(false);
+        setQuery(null);
+        setActive(-1);
+      }
     } else if (event.key === "Escape" && open) {
       event.preventDefault();
       setOpen(false);
@@ -134,7 +154,7 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={open && visible[active] ? `${id}-option-${active}` : undefined}
+          aria-activedescendant={open && active >= 0 && visible[active] ? `${id}-option-${active}` : undefined}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy || undefined}
           aria-required={required || undefined}
@@ -145,15 +165,23 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
-            setActive(0);
+            tentative.current = event.target.value.trim() !== "";
+            setActive(tentative.current ? 0 : -1);
             if (event.target.value === "" && value !== null) onChange(null);
           }}
           onFocus={(event) => event.target.select()}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            if (!open) {
+              tentative.current = false;
+              setActive(-1);
+            }
+            setOpen(true);
+          }}
           onKeyDown={onKeyDown}
           onBlur={() => {
             setOpen(false);
             setQuery(null);
+            setActive(-1);
             onBlur?.();
           }}
         />

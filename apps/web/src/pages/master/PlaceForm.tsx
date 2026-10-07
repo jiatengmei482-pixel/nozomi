@@ -74,7 +74,7 @@ function validatePlace(values: PlaceValues, mode: "new" | "edit", extra: PlaceEx
   if (!isChild(type) && values.cityId === null && !(mode === "edit" && record?.city_id === null)) errors["cityId"] = ["请选择所属城市"];
   if (type === "station" && values.category === null) errors["category"] = ["请选择车站类型"];
   if (type === "poi" && values.category === null) errors["category"] = ["请选择地标类型"];
-  if (type === "poi" && [...values.address.trim()].length > ADDRESS_MAX_LENGTH) errors["address"] = [`地址最多 ${ADDRESS_MAX_LENGTH} 个字`];
+  if (type === "poi" && values.address.trim().length > ADDRESS_MAX_LENGTH) errors["address"] = [`地址最多 ${ADDRESS_MAX_LENGTH} 个字`];
   if (mode === "edit") return errors;
   const country = countryOf(values, extra, record);
   const parentCode = extra.parent?.code ?? null;
@@ -309,6 +309,7 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     const country = extra.cities?.find((city) => city.id === values.cityId)?.country_code ?? null;
     return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "" };
   },
+  returnAnchor: ({ extra }) => (isChild(extra.type) ? "children" : null),
   intro: ({ mode, extra }) => (mode === "new" && extra.type === "airport" ? "机场一般不用手工新增：技术人员用导入命令从 OurAirports 批量导入。只有数据源里没有的机场才需要在这里录入。" : null),
   notReady: (reason, { extra }) =>
     reason === "CITY_DISABLED"

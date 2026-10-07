@@ -229,7 +229,7 @@ export function LocalizedInput({ legend, value, onChange, errors = [], languageE
                 {multiline ? (
                   <>
                     <textarea {...shared} className="input textarea" rows={3} onChange={(event) => update(event.target.value)} />
-                    {maxLength !== undefined && <span className={[...text].length > maxLength ? "localized__count localized__count--over" : "localized__count"}>{`${[...text].length} / ${maxLength}`}</span>}
+                    {maxLength !== undefined && <span className={text.length > maxLength ? "localized__count localized__count--over" : "localized__count"}>{`${text.length} / ${maxLength}`}</span>}
                   </>
                 ) : (
                   <input {...shared} ref={index === 0 ? firstInputRef : undefined} className="input" type="text" autoComplete="off" onChange={(event) => update(event.target.value)} />

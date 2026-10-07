@@ -424,19 +424,34 @@
   pointer-events: none;
 }
 
+/* < 480px：面板从底部升起，宽度撑满，最高占屏幕 70%；更宽时跟随输入框 */
 .combobox__panel {
-  position: absolute;
-  top: calc(100% + var(--space-1));
+  position: fixed;
   right: 0;
+  bottom: 0;
   left: 0;
   z-index: var(--z-dropdown);
-  max-height: 320px;
+  max-height: 70dvh;
   overflow-y: auto;
   padding: var(--space-1);
+  padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom));
   border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-lg);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
   background: var(--color-bg-surface);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
+}
+
+@media (min-width: 480px) {
+  .combobox__panel {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    bottom: auto;
+    max-height: 320px;
+    padding-bottom: var(--space-1);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .combobox__note,
@@ -492,9 +507,40 @@
   gap: var(--space-2);
 }
 
-.filter-bar > .field--inline {
-  flex: 0 1 240px;
-  min-width: 0;
+/* < 768px：条件收进「筛选」面板；≥ 768px：直接排开，没有「筛选」按钮 */
+.filter-bar__conditions {
+  display: none;
+}
+
+.filter-bar__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.filter-bar__panel > .field--inline {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.filter-bar__panel > .field--inline > .field__label {
+  align-self: flex-start;
+}
+
+@media (min-width: 768px) {
+  .filter-bar__toggle {
+    display: none;
+  }
+
+  .filter-bar__conditions {
+    display: contents;
+  }
+
+  .filter-bar__conditions > .field--inline {
+    flex: 0 1 240px;
+    min-width: 0;
+  }
 }
 
 .filter-bar__clear {
@@ -1142,6 +1188,11 @@ a.entry-card__title:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.done-list__item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .done-list__item {

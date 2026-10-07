@@ -12,6 +12,26 @@ import { type LoadState, useLoad } from "../../lib/use-load.ts";
 /** 从列表去新增页、编辑页时带上「从哪来」，保存或取消后回到原来的筛选条件下。 */
 export interface ReturnState {
   from?: string;
+  /** 列表离开时翻到了哪一页（游标栈）：回来时恢复到这一页 */
+  listPage?: ListPageState;
+}
+
+/** 列表走过的每一页的游标；`key` 是当时的筛选条件，条件变了这份记录就不作数。 */
+export interface ListPageState {
+  key: string;
+  stack: (string | null)[];
+}
+
+export function readListPage(state: unknown): ListPageState | null {
+  const page = typeof state === "object" && state !== null ? (state as ReturnState).listPage : undefined;
+  if (typeof page !== "object" || page === null || typeof page.key !== "string" || !Array.isArray(page.stack)) return null;
+  return page.stack.length > 0 && page.stack[0] === null && page.stack.slice(1).every((cursor) => typeof cursor === "string") ? page : null;
+}
+
+/** 回到列表时带回去的浏览状态（只有翻页位置）。 */
+export function returnNavigationState(state: unknown): ReturnState | undefined {
+  const listPage = readListPage(state);
+  return listPage ? { listPage } : undefined;
 }
 
 export function useReturnState(): ReturnState {
@@ -25,8 +45,9 @@ export function returnPath(state: unknown, fallback: string): string {
   return typeof from === "string" && from.startsWith("/platform/master/") && !from.includes("//") ? from : fallback;
 }
 
-export function CodeLink({ kind, id, code }: { kind: MasterKind; id: string; code: string }) {
-  const state = useReturnState();
+export function CodeLink({ kind, id, code, state: given }: { kind: MasterKind; id: string; code: string; state?: ReturnState }) {
+  const fallback = useReturnState();
+  const state = given ?? fallback;
   return (
     <Link className="link" to={masterEditPath(kind, id)} state={state}>
       {code}

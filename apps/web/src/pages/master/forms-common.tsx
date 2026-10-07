@@ -10,12 +10,15 @@ import type { FieldErrors } from "./MasterForm.tsx";
 
 export const NAME_MAX_LENGTH = 200;
 
-/** 多语言字段：至少一种（`required` 时），每种不超过上限。 */
+/**
+ * 多语言字段：至少一种（`required` 时），每种不超过上限。
+ * 字数的数法和后端一致：按 UTF-16 编码单位数（JS 的 `length`），一个表情或生僻字算两个。
+ */
 export function localizedErrors(field: string, label: string, value: LocalizedText, maxLength: number, required: boolean): FieldErrors {
   const errors: FieldErrors = {};
   if (required && !INPUT_LANGUAGES.some(({ key }) => hasVisibleText(value[key] ?? ""))) errors[field] = ["至少填一种语言"];
   for (const { key, label: language } of INPUT_LANGUAGES) {
-    if ([...(value[key] ?? "").trim()].length > maxLength) errors[`${field}.${key}`] = [`${language}${label}最多 ${maxLength} 个字`];
+    if ((value[key] ?? "").trim().length > maxLength) errors[`${field}.${key}`] = [`${language}${label}最多 ${maxLength} 个字`];
   }
   return errors;
 }
