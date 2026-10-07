@@ -9,7 +9,15 @@ import { type Page, type SequenceCursor, toPage } from "../pagination.ts";
 
 export type AuditActorType = "platform_user" | "tenant_user" | "system" | "anonymous";
 export type AuditSource = "console" | "api" | "cli";
-export type AuditResource = "platform_user" | "tenant" | "tenant_user" | "integration";
+export type AuditResource =
+  | "platform_user"
+  | "tenant"
+  | "tenant_user"
+  | "integration"
+  | "city"
+  | "place"
+  | "vehicle_group"
+  | "addon";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -28,7 +36,9 @@ export type AuditAction =
   | "resume"
   | "view";
 
-export type AuditValues = Record<string, string | number | boolean | null>;
+/** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
+export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };
+export type AuditValues = Record<string, AuditValue>;
 
 export interface AuditActor {
   type: AuditActorType;

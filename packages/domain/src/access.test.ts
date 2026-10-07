@@ -52,20 +52,30 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status"]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read"]);
   }
-  assert.deepEqual(platformPermissions("readonly"), ["tenant.read"]);
-  assert.deepEqual(platformPermissions("tech"), ["integration.read"]);
+  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read"]);
+  assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read"]);
   assert.equal(platformRoleCan("readonly", "tenant.create"), false);
   assert.equal(platformRoleCan("operations", "integration.read"), false);
-  for (const role of ["channel_manager", "customer_service", "finance", "risk", "master_data"] as const) {
-    assert.deepEqual(platformPermissions(role), []);
+  for (const role of ["channel_manager", "customer_service", "finance", "risk"] as const) {
+    assert.deepEqual(platformPermissions(role), ["master_data.read"]);
   }
+});
+
+test("主数据：每个平台角色都能看，只有主数据运营和超级管理员能改；租户每个角色都能看，没有「改主数据」这个操作", () => {
+  for (const { key } of PLATFORM_ROLES) {
+    assert.equal(platformRoleCan(key, "master_data.read"), true, key);
+    assert.equal(platformRoleCan(key, "master_data.manage"), key === "master_data" || key === "super_admin", key);
+  }
+  assert.deepEqual(platformPermissions("master_data"), ["master_data.read", "master_data.manage"]);
+  for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "master_data.read"), true, key);
+  assert.ok(!(TENANT_ACTIONS as readonly string[]).some((action) => action.startsWith("master_data.") && action !== "master_data.read"));
 });
 
 test("租户：操作日志只有管理员能看", () => {
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "audit_log.read"), key === "admin", key);
-  assert.deepEqual(tenantPermissions("readonly"), ["user.read"]);
+  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read"]);
 });
 
 test("租户：账号管理只归管理员，只读角色只能看账号列表，其他角色都不行", () => {
@@ -74,7 +84,7 @@ test("租户：账号管理只归管理员，只读角色只能看账号列表�
   assert.equal(tenantRoleCan("readonly", "user.read"), true);
   assert.equal(tenantRoleCan("readonly", "user.manage"), false);
   for (const role of ["pricing", "dispatch", "finance"] as const) {
-    assert.deepEqual(tenantPermissions(role), []);
+    assert.deepEqual(tenantPermissions(role), ["master_data.read"]);
     assert.equal(tenantRoleCan(role, "user.read"), false);
   }
 });

@@ -43,11 +43,13 @@ export const PLATFORM_ACTIONS = [
   "tenant.change_status",
   "audit_log.read",
   "integration.read",
+  "master_data.read",
+  "master_data.manage",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
 
-export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read"] as const;
+export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read"] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
 
@@ -55,27 +57,31 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 平台角色 → 允许的操作。依据菜单表的「主要使用角色」：
  * 租户管理归招商和运营；系统设置（平台账号、审计日志）只归超级管理员；集成状态归技术。
  * 只读角色能看租户，但看不到系统设置里的内容。
+ * 主数据（城市、地点、车型组、附加服务）是所有岗位都要查的公共资料，每个角色都能看；只有主数据运营（和超级管理员）能改。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status"],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status"],
-  channel_manager: [],
-  customer_service: [],
-  finance: [],
-  risk: [],
-  master_data: [],
-  tech: ["integration.read"],
-  readonly: ["tenant.read"],
+  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read"],
+  channel_manager: ["master_data.read"],
+  customer_service: ["master_data.read"],
+  finance: ["master_data.read"],
+  risk: ["master_data.read"],
+  master_data: ["master_data.read", "master_data.manage"],
+  tech: ["integration.read", "master_data.read"],
+  readonly: ["tenant.read", "master_data.read"],
 };
 
-/** 租户角色 → 允许的操作。账号管理和操作日志只归管理员；只读角色可以看账号列表。 */
+/**
+ * 租户角色 → 允许的操作。账号管理和操作日志只归管理员；只读角色可以看账号列表。
+ * 平台主数据每个角色都能看（配置区域和商品、派车、对账都要引用它），谁都不能改。
+ */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
-  pricing: [],
-  dispatch: [],
-  finance: [],
-  readonly: ["user.read"],
+  pricing: ["master_data.read"],
+  dispatch: ["master_data.read"],
+  finance: ["master_data.read"],
+  readonly: ["user.read", "master_data.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {

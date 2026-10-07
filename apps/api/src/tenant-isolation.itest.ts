@@ -6,7 +6,9 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { signAccessToken, verifyAccessToken } from "./auth/token.ts";
+import { withTenantTx } from "./db/context.ts";
 import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { deniedByDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
 
 let api: TestApi;
@@ -280,6 +282,156 @@ test("假设签名密钥泄露：把租户甲会话的令牌改签成租户乙�
   assert.equal((await api.call("GET", "/tenant/v1/auth/me", { token: forgedUser })).status, 401);
 });
 
+const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"] as const;
+/** 平台建好的主数据：每类一条启用的、一条停用的。 */
+const master: Record<string, { active: any; disabled: any }> = {};
+
+async function seedMasterData(): Promise<void> {
+  if (Object.keys(master).length > 0) return;
+  const create = async (path: string, body: unknown): Promise<any> => {
+    api.clock.advance(1_000);
+    const res = await api.call("POST", `/platform/v1/master/${path}`, { token: platformToken, body });
+    assert.equal(res.status, 201, res.text);
+    return res.body;
+  };
+  const disable = async (path: string, id: string): Promise<any> => {
+    const res = await api.call("POST", `/platform/v1/master/${path}/${id}/disable`, { token: platformToken });
+    assert.equal(res.status, 200, res.text);
+    return res.body;
+  };
+  const city = { country_code: "JP", timezone: "Asia/Tokyo", center: { lng: 139.767125, lat: 35.681236 } };
+  const tokyo = await create("cities", { ...city, code: "CTY-JP-TYO", name: { zh: "东京" } });
+  const closed = await create("cities", { ...city, code: "CTY-JP-OLD", name: { zh: "已停用的城市" } });
+  master["cities"] = { active: tokyo, disabled: await disable("cities", closed.id) };
+  const place = { type: "airport", city_id: tokyo.id, location: { lng: 139.786958, lat: 35.549678 } };
+  const haneda = await create("places", { ...place, code: "HND", name: { zh: "羽田机场" } });
+  const old = await create("places", { ...place, code: "OLD", name: { zh: "已停用的机场" } });
+  master["places"] = { active: haneda, disabled: await disable("places", old.id) };
+  const group = { grade: "business", seats: 7, power: "fuel", combos: [{ passengers: 6, luggage: 2 }] };
+  const biz = await create("vehicle-groups", { ...group, code: "VG-BIZ-7", name: { zh: "商务 7 座" } });
+  const retired = await create("vehicle-groups", { ...group, code: "VG-BIZOLD-7", name: { zh: "已停用的车型组" } });
+  master["vehicle-groups"] = { active: biz, disabled: await disable("vehicle-groups", retired.id) };
+  const addon = { categories: ["charter"], charge_unit: "per_item" };
+  const seat = await create("addons", { ...addon, code: "ADD-CHILD_SEAT", name: { zh: "儿童座椅" } });
+  const gone = await create("addons", { ...addon, code: "ADD-OLD", name: { zh: "已停用的附加服务" } });
+  master["addons"] = { active: seat, disabled: await disable("addons", gone.id) };
+}
+
+/** 平台看到的记录去掉平台内部字段，就是租户应该看到的样子。 */
+function asTenantSees(item: any): any {
+  const { source: _source, ...rest } = item;
+  return rest;
+}
+
+test("GET /tenant/v1/master/*：主数据全平台共用——两个租户看到的一模一样，默认只有启用中的，查询串里的 tenant_id 不起作用", async () => {
+  await seedMasterData();
+  for (const path of MASTER_PATHS) {
+    cover(`GET /tenant/v1/master/${path}`);
+    const fromA = await api.call("GET", `/tenant/v1/master/${path}?tenant_id=${b.tenantId}`, { token: a.adminToken });
+    const fromB = await api.call("GET", `/tenant/v1/master/${path}`, { token: b.adminToken });
+    assert.equal(fromA.status, 200, fromA.text);
+    assert.deepEqual(fromA.body, fromB.body, path);
+    assert.deepEqual(fromA.body, { items: [asTenantSees(master[path]!.active)], next_cursor: null }, path);
+    assert.ok(!fromA.text.includes(a.tenantId) && !fromA.text.includes(b.tenantId), "主数据里没有任何租户的信息");
+
+    const all = await api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken });
+    assert.deepEqual(all.body.items, [asTenantSees(master[path]!.active), asTenantSees(master[path]!.disabled)], path);
+    const disabled = await api.call("GET", `/tenant/v1/master/${path}?status=disabled&limit=1`, { token: bDispatcher.token });
+    assert.deepEqual(disabled.body.items, [asTenantSees(master[path]!.disabled)], "调度角色也能看");
+  }
+  const places = await api.call("GET", "/tenant/v1/master/places?status=all", { token: a.adminToken });
+  assert.ok(!places.text.includes("source"), "租户看不到导入来源这些平台内部字段");
+});
+
+test("GET /tenant/v1/master/*/{id}：按编号查看，已停用的也查得到；不存在的 404", async () => {
+  await seedMasterData();
+  for (const path of MASTER_PATHS) {
+    cover(`GET /tenant/v1/master/${path}/:id`);
+    for (const item of [master[path]!.active, master[path]!.disabled]) {
+      const fromA = await api.call("GET", `/tenant/v1/master/${path}/${item.id}?tenant_id=${b.tenantId}`, { token: a.adminToken });
+      const fromB = await api.call("GET", `/tenant/v1/master/${path}/${item.id}`, { token: b.adminToken });
+      assert.equal(fromA.status, 200, fromA.text);
+      assert.deepEqual(fromA.body, asTenantSees(item));
+      assert.deepEqual(fromB.body, fromA.body);
+    }
+    const missing = await api.call("GET", `/tenant/v1/master/${path}/99999999-9999-4999-8999-999999999999`, { token: a.adminToken });
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.code, "NOT_FOUND");
+  }
+});
+
+test("租户不能改主数据：租户接口里没有任何写操作，租户令牌进不了平台的主数据接口，主数据原样不动", async () => {
+  await seedMasterData();
+  const snapshot = async (): Promise<unknown> => {
+    const tables: Record<string, unknown> = {};
+    for (const table of ["cities", "places", "vehicle_groups", "addons"]) {
+      tables[table] = (await api.db.owner.query(`select id, code, name, status, version, updated_at from ${table} order by code`)).rows;
+    }
+    return tables;
+  };
+  const before = await snapshot();
+  const auditBefore = (await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n;
+  for (const path of MASTER_PATHS) {
+    const item = master[path]!.active;
+    const body = { name: { zh: "被租户改了" }, code: item.code, tenant_id: a.tenantId };
+    const headers = { "if-match": `"${item.version}"` };
+    for (const [method, url] of [
+      ["POST", `/tenant/v1/master/${path}`],
+      ["PATCH", `/tenant/v1/master/${path}/${item.id}`],
+      ["PUT", `/tenant/v1/master/${path}/${item.id}`],
+      ["DELETE", `/tenant/v1/master/${path}/${item.id}`],
+      ["POST", `/tenant/v1/master/${path}/${item.id}/disable`],
+      ["POST", `/tenant/v1/master/${path}/${item.id}/enable`],
+    ] as const) {
+      const res = await api.call(method, url, { token: a.adminToken, body, headers });
+      assert.equal(res.status, 404, `${method} ${url}`);
+    }
+    for (const [method, url] of [
+      ["POST", `/platform/v1/master/${path}`],
+      ["PATCH", `/platform/v1/master/${path}/${item.id}`],
+      ["POST", `/platform/v1/master/${path}/${item.id}/disable`],
+    ] as const) {
+      const res = await api.call(method, url, { token: a.adminToken, body, headers });
+      assert.equal(res.status, 401, `${method} ${url}`);
+    }
+  }
+  assert.deepEqual(await snapshot(), before);
+  assert.equal((await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n, auditBefore);
+  const registered = api.app.registeredRoutes.filter((r) => r.path.startsWith("/tenant/v1/master/") && r.method !== "HEAD").map((r) => r.method);
+  assert.deepEqual([...new Set(registered)], ["GET"], "租户的主数据接口只有读");
+});
+
+test("租户不能改主数据（数据库层面）：租户事务里对主数据表只有读权限，写、改、删都被数据库拒绝", async () => {
+  await seedMasterData();
+  for (const table of ["cities", "places", "vehicle_groups", "addons"]) {
+    const read = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ n: number }>(`select count(*)::int as n from ${table}`));
+    assert.equal(read.rows[0]?.n, 2, table);
+    for (const sql of [
+      `update ${table} set status = 'disabled'`,
+      `update ${table} set name = '{"zh": "被租户改了"}'::jsonb`,
+      `delete from ${table}`,
+      `insert into ${table} select * from ${table}`,
+      `truncate ${table} cascade`,
+      `select 1 from ${table} for update`,
+    ]) {
+      await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query(sql)), deniedByDatabase, `${table}: ${sql}`);
+    }
+  }
+});
+
+test("每个租户角色都能看主数据", async () => {
+  await seedMasterData();
+  for (const role of ["pricing", "dispatch", "finance", "readonly"]) {
+    const user = await addTenantUser(api, a.adminToken, `${role}-master@a.test`, role);
+    for (const path of MASTER_PATHS) {
+      const res = await api.call("GET", `/tenant/v1/master/${path}`, { token: user.token });
+      assert.equal(res.status, 200, `${role} ${path}`);
+      assert.equal(res.body.items.length, 1);
+    }
+  }
+  assert.equal((await api.call("GET", "/tenant/v1/master/cities")).status, 401);
+});
+
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
   for (const route of api.app.registeredRoutes) {
     if (route.method === "HEAD") continue;
@@ -311,6 +463,7 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/auth/me", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/users", { token: a.adminToken }),
     await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } }),
+    ...(await Promise.all(MASTER_PATHS.map((path) => api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken })))),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });

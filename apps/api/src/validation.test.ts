@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AppError } from "./errors.ts";
 import { z } from "zod";
-import { acceptInviteSchema, auditFilterSchema, loginSchema, pageQuerySchema, parseInput, resourceId } from "./validation.ts";
+import { acceptInviteSchema, auditFilterSchema, ifMatchVersion, loginSchema, pageQuerySchema, parseInput, resourceId } from "./validation.ts";
 
 function failure(run: () => unknown): AppError {
   try {
@@ -101,4 +101,46 @@ test("审计筛选的时间：格式对但换算不出时刻的（时区偏移�
   }
   const parsed = parseInput(auditFilterSchema, { from: "2026-10-07T09:00:00+09:00" }, "querystring");
   assert.equal(parsed.from?.toISOString(), "2026-10-07T00:00:00.000Z");
+});
+
+test("If-Match 里的版本号：带引号和不带引号都接受；没带是 428；不是正整数是 400", () => {
+  assert.equal(ifMatchVersion('"3"'), 3);
+  assert.equal(ifMatchVersion("3"), 3);
+  assert.equal(ifMatchVersion(' "12" '), 12);
+  const missing = failure(() => ifMatchVersion(undefined));
+  assert.deepEqual([missing.statusCode, missing.code], [428, "PRECONDITION_REQUIRED"]);
+  for (const header of ["", "0", "-1", "1.5", "abc", '"3', 'W/"3"', "*", '"3", "4"', "9999999999", ["1", "2"], 3]) {
+    const err = failure(() => ifMatchVersion(header));
+    assert.deepEqual([err.statusCode, err.code], [400, "VALIDATION_FAILED"], JSON.stringify(header));
+    assert.deepEqual(err.details, { location: "headers", issues: [{ path: "/if-match", message: '必须是版本号（正整数），例如 "3"' }] });
+  }
+});
+
+test("数据库存不了的字符串：孤立的代理字符（半个表情符号）和 NUL 一样在校验阶段拒绝，指出字段；完整的表情符号可以", () => {
+  const schema = z.object({ name: z.object({ zh: z.string() }), tags: z.array(z.string()).optional() });
+  assert.deepEqual(parseInput(schema, { name: { zh: "出租车🚕" } }, "body"), { name: { zh: "出租车🚕" } });
+  for (const [value, path] of [
+    [{ name: { zh: "abc\ud83d" } }, "/name/zh"],
+    [{ name: { zh: "\udc00abc" } }, "/name/zh"],
+    [{ name: { zh: "a\ud83d\ud83db" } }, "/name/zh"],
+    [{ name: { zh: "ok" }, tags: ["fine", "bad\udfff"] }, "/tags/1"],
+    [{ name: { zh: "ok" }, ["key\ud800"]: 1 }, "/"],
+  ] as const) {
+    const err = failure(() => parseInput(schema, value, "body"));
+    assert.deepEqual([err.statusCode, err.code], [400, "VALIDATION_FAILED"]);
+    assert.deepEqual(err.details["issues"], [{ path, message: "包含不完整的字符（多半是被截断的表情符号），请删掉后重试" }]);
+  }
+});
+
+test("提示都是中文：无穷大的数字、数组的个数、可辨识联合的类型", () => {
+  const schema = z.object({
+    lng: z.number().finite().optional(),
+    items: z.array(z.string()).min(1).max(2).optional(),
+    shape: z.discriminatedUnion("type", [z.object({ type: z.literal("Polygon") }), z.object({ type: z.literal("MultiPolygon") })]).optional(),
+  });
+  const messages = (value: unknown): unknown => failure(() => parseInput(schema, value, "body")).details["issues"];
+  assert.deepEqual(messages({ lng: Number.POSITIVE_INFINITY }), [{ path: "/lng", message: "必须是有限的数字" }]);
+  assert.deepEqual(messages({ items: [] }), [{ path: "/items", message: "至少 1 项" }]);
+  assert.deepEqual(messages({ items: ["a", "b", "c"] }), [{ path: "/items", message: "最多 2 项" }]);
+  assert.deepEqual(messages({ shape: { type: "Point" } }), [{ path: "/shape/type", message: "只能是：Polygon、MultiPolygon" }]);
 });

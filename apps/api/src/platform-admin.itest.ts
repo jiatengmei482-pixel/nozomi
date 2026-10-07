@@ -36,7 +36,8 @@ after(() => api.close());
 
 /** 每个需要权限的平台接口，和它要求的操作。用不存在的编号调用：有权限时得到 404 / 校验错误，没权限时一定是 403。 */
 const MISSING = "99999999-9999-4999-8999-999999999999";
-const PROTECTED: { method: "GET" | "POST"; url: string; action: PlatformAction; body?: unknown }[] = [
+const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
+const PROTECTED: { method: "GET" | "POST" | "PATCH"; url: string; action: PlatformAction; body?: unknown }[] = [
   { method: "GET", url: "/platform/v1/staff", action: "staff.read" },
   { method: "POST", url: "/platform/v1/staff", action: "staff.manage", body: {} },
   { method: "POST", url: `/platform/v1/staff/${MISSING}/disable`, action: "staff.manage" },
@@ -51,6 +52,14 @@ const PROTECTED: { method: "GET" | "POST"; url: string; action: PlatformAction; 
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/resume`, action: "tenant.change_status" },
   { method: "GET", url: "/platform/v1/audit-logs", action: "audit_log.read" },
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
+  ...MASTER_PATHS.flatMap((path) => [
+    { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
+    { method: "GET", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.read" } as const,
+    { method: "POST", url: `/platform/v1/master/${path}`, action: "master_data.manage", body: {} } as const,
+    { method: "PATCH", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.manage", body: {} } as const,
+    { method: "POST", url: `/platform/v1/master/${path}/${MISSING}/disable`, action: "master_data.manage" } as const,
+    { method: "POST", url: `/platform/v1/master/${path}/${MISSING}/enable`, action: "master_data.manage" } as const,
+  ]),
 ];
 
 test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对应操作的一律 403，有的不是 403", async () => {

@@ -13,6 +13,7 @@
 - **新表默认谁都读不了，要在同一个迁移里写明给哪个角色什么权限**（ADR 0010「以后新增表时要做的事」）。服务进程用的应用账号自己没有任何表权限，只能切换到三个权限角色：
   - `nozomi_app`（租户事务）：租户表。策略写明 `to nozomi_app`。
   - `nozomi_platform`（平台事务）：平台表；平台也要访问的租户表另加一条写明 `to nozomi_platform` 的策略。只给用得到的权限，一般不给 `delete` / `truncate`。
+  - 全平台共用、租户也要看的平台表（主数据）：另外只给 `nozomi_app` `select`（ADR 0012）。
   - `nozomi_preauth`（登录前事务）：原则上不给任何新表的权限。
   - 不要 `grant … to public`，不要把权限直接给应用账号（迁移里不出现它的名字，更不出现密码）。
   - 然后把新表登记到 `apps/api/src/schema-structure.itest.ts` 的 `ROLE_GRANTS`（以及 `PLATFORM_TABLES` / `CROSS_TENANT_POLICIES`）。不登记、或登记的和库里的不一致，测试会失败。
@@ -30,5 +31,7 @@
 | `0003_audit_logs.sql` | 审计日志（只能追加）及其行级安全策略 |
 | `0004_password_reset.sql` | 平台员工和租户用户的密码重置令牌（只存哈希和有效期） |
 | `0005_database_roles.sql` | 平台角色 `nozomi_platform`、登录前角色 `nozomi_preauth` 及其授权和策略；登录前定位租户用户的两个函数（不改表结构） |
+| `0007_master_data.sql` | 平台主数据：城市、地点（机场 / 车站 / 地标 / 航站楼 / 出口）、车型组、附加服务。平台可读写、租户只读、谁都不能删（ADR 0012）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
+迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，其余由平台在后台录入。

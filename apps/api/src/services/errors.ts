@@ -74,3 +74,33 @@ export function resetTokenInvalid(): AppError {
 export function accountNotActive(): AppError {
   return new AppError(409, "ACCOUNT_NOT_ACTIVE", "账号不是在用状态：待激活的账号请重新邀请，已停用的账号请先启用");
 }
+
+/** 编码（城市、地点、车型组、附加服务各自全平台唯一）已经被别的记录使用。 */
+export function codeTaken(): AppError {
+  return new AppError(409, "CODE_TAKEN", "这个编码已被使用");
+}
+
+/** 修改了创建后不能改的字段（需求文档「API 通用约定」的 FIELD_LOCKED）。 */
+export function fieldLocked(fields: readonly string[]): AppError {
+  return new AppError(409, "FIELD_LOCKED", "这些字段创建后不能修改", { fields });
+}
+
+/** 修改时带来的版本号不是最新的：别人已经先改过了。 */
+export function versionConflict(currentVersion: number): AppError {
+  return new AppError(409, "VERSION_CONFLICT", "这条记录已被别人修改，请刷新后重试", { current_version: currentVersion });
+}
+
+/** 修改接口必须用请求头 If-Match 带上版本号。 */
+export function versionRequired(): AppError {
+  return new AppError(428, "PRECONDITION_REQUIRED", "修改时必须用请求头 If-Match 带上当前的版本号");
+}
+
+/** 还有启用中的下级记录在用它，不能停用。 */
+export function masterDataInUse(message: string, activeCount: number): AppError {
+  return new AppError(409, "MASTER_DATA_IN_USE", message, { active_count: activeCount });
+}
+
+/** 它依赖的记录还没准备好（没指定城市、城市或上级已停用），不能启用或挂到它下面。 */
+export function masterDataNotReady(reason: string, message: string): AppError {
+  return new AppError(409, "MASTER_DATA_NOT_READY", message, { reason });
+}

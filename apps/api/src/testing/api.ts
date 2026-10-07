@@ -27,6 +27,8 @@ export interface CallOptions {
   body?: unknown;
   /** 模拟不同的来源地址 */
   ip?: string;
+  /** 额外的请求头（如修改主数据时的 If-Match） */
+  headers?: Record<string, string>;
 }
 
 export interface TestClock {
@@ -79,7 +81,7 @@ export async function createTestApi(): Promise<TestApi> {
     const res = await app.inject({
       method,
       url,
-      headers: options.token === undefined ? {} : { authorization: `Bearer ${options.token}` },
+      headers: { ...options.headers, ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }) },
       ...(options.body === undefined ? {} : { payload: options.body as object }),
       ...(options.ip === undefined ? {} : { remoteAddress: options.ip }),
     });

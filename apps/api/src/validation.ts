@@ -7,9 +7,9 @@
 import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, isUuid } from "./pagination.ts";
-import { notFound } from "./services/errors.ts";
+import { notFound, versionRequired } from "./services/errors.ts";
 
-export type InputLocation = "body" | "querystring";
+export type InputLocation = "body" | "querystring" | "headers";
 
 const errorMap: z.ZodErrorMap = (issue, context) => {
   switch (issue.code) {
@@ -18,9 +18,17 @@ const errorMap: z.ZodErrorMap = (issue, context) => {
     case z.ZodIssueCode.invalid_enum_value:
       return { message: `只能是：${issue.options.join("、")}` };
     case z.ZodIssueCode.too_small:
+      if (issue.type === "array") return { message: `至少 ${issue.minimum} 项` };
       return { message: issue.type === "string" ? `至少 ${issue.minimum} 个字符` : `不能小于 ${issue.minimum}` };
     case z.ZodIssueCode.too_big:
+      if (issue.type === "array") return { message: `最多 ${issue.maximum} 项` };
       return { message: issue.type === "string" ? `最多 ${issue.maximum} 个字符` : `不能大于 ${issue.maximum}` };
+    case z.ZodIssueCode.not_finite:
+      return { message: "必须是有限的数字" };
+    case z.ZodIssueCode.invalid_union_discriminator:
+      return { message: `只能是：${issue.options.join("、")}` };
+    case z.ZodIssueCode.invalid_literal:
+      return { message: `只能是：${String(issue.expected)}` };
     case z.ZodIssueCode.invalid_string:
       return { message: issue.validation === "email" ? "不是合法的邮箱" : "格式不正确" };
     default:
@@ -28,41 +36,63 @@ const errorMap: z.ZodErrorMap = (issue, context) => {
   }
 };
 
-/** 找出值里第一个带 NUL 字符的字符串的路径；没有则返回 null。 */
-function findNulCharacter(value: unknown, path: string): string | null {
-  if (typeof value === "string") return value.includes("\u0000") ? path : null;
+/** 孤立的代理字符：前半个后面没有后半个，或后半个前面没有前半个。 */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const NUL_MESSAGE = "不能包含空字符（NUL）";
+const SURROGATE_MESSAGE = "包含不完整的字符（多半是被截断的表情符号），请删掉后重试";
+
+/** 数据库的文本和 JSON 类型存不了的字符串：带 NUL 的、带孤立代理字符（半个表情符号）的。没有问题返回 null。 */
+function unstorableReason(text: string): string | null {
+  if (text.includes("\u0000")) return NUL_MESSAGE;
+  return LONE_SURROGATE.test(text) ? SURROGATE_MESSAGE : null;
+}
+
+/** 找出值里第一个数据库存不了的字符串（对象的键也算）：返回它的路径和原因；没有则返回 null。 */
+function findUnstorableString(value: unknown, path: string): { path: string; message: string } | null {
+  if (typeof value === "string") {
+    const message = unstorableReason(value);
+    return message === null ? null : { path, message };
+  }
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      const found = findNulCharacter(item, `${path}/${index}`);
+      const found = findUnstorableString(item, `${path}/${index}`);
       if (found !== null) return found;
     }
     return null;
   }
   if (typeof value === "object" && value !== null) {
     for (const [key, item] of Object.entries(value)) {
-      const found = findNulCharacter(item, `${path}/${key.replaceAll("\u0000", "")}`);
+      const keyProblem = unstorableReason(key);
+      const found = findUnstorableString(item, `${path}/${keyProblem === null ? key : key.replaceAll("\u0000", "").replace(new RegExp(LONE_SURROGATE, "g"), "\uFFFD")}`);
       if (found !== null) return found;
-      if (key.includes("\u0000")) return path === "" ? "/" : path;
+      if (keyProblem !== null) return { path: path === "" ? "/" : path, message: keyProblem };
     }
   }
   return null;
 }
 
-function validationFailed(location: InputLocation, issues: { path: string; message: string }[]): AppError {
+export interface InputIssue {
+  /** 出问题的字段，如 `/city_id` */
+  path: string;
+  message: string;
+}
+
+/** 字段的格式都对、但内容不合业务规则（编码格式、时区、引用的记录不存在等）时，用同一种错误返回。 */
+export function validationFailed(location: InputLocation, issues: InputIssue[]): AppError {
   return new AppError(400, "VALIDATION_FAILED", "请求参数校验未通过", { location, issues });
 }
 
 /**
  * 校验一份输入（请求体或查询参数）。所有接口的输入都从这里进来，所以对「所有字符串」的统一要求也放在这里：
- * 任何位置的字符串都不能带 NUL 字符（数据库的文本和 JSON 类型不接受它，带进去会变成 500）。
+ * 任何位置的字符串都不能带 NUL 字符或孤立的代理字符（数据库的文本和 JSON 类型不接受它们，带进去会变成 500）。
  */
 export function parseInput<Schema extends z.ZodTypeAny>(
   schema: Schema,
   value: unknown,
   location: InputLocation,
 ): z.output<Schema> {
-  const nulAt = findNulCharacter(value, "");
-  if (nulAt !== null) throw validationFailed(location, [{ path: nulAt === "" ? "/" : nulAt, message: "不能包含空字符（NUL）" }]);
+  const unstorable = findUnstorableString(value, "");
+  if (unstorable !== null) throw validationFailed(location, [{ path: unstorable.path === "" ? "/" : unstorable.path, message: unstorable.message }]);
   const parsed = schema.safeParse(value ?? {}, { errorMap });
   if (parsed.success) return parsed.data as z.output<Schema>;
   throw validationFailed(
@@ -132,3 +162,16 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(1).max(200),
   password: z.string().min(1).max(1024),
 });
+
+/**
+ * 请求头 `If-Match` 里的版本号（需求文档「并发修改」）。接受 `"3"` 和 `3` 两种写法；
+ * 没带是 428，写的不是正整数是 400。
+ */
+export function ifMatchVersion(header: unknown): number {
+  if (header === undefined) throw versionRequired();
+  const match = typeof header === "string" ? /^\s*(?:"([1-9]\d{0,8})"|([1-9]\d{0,8}))\s*$/.exec(header) : null;
+  if (!match) {
+    throw validationFailed("headers", [{ path: "/if-match", message: "必须是版本号（正整数），例如 \"3\"" }]);
+  }
+  return Number(match[1] ?? match[2]);
+}

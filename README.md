@@ -23,6 +23,7 @@ pnpm db:provision      # 创建数据库的应用账号（权限最小，服务�
 pnpm db:migrate        # 用迁移账号执行数据库迁移，可以反复运行
 pnpm admin:create --email 你的邮箱 --name 你的名字   # 创建平台超级管理员；密码按提示输入（不显示），不要写在命令里
 pnpm admin:reset-password --email 你的邮箱         # 超级管理员忘了密码时在服务器上重设；密码同样按提示输入
+pnpm masterdata:import-airports --country JP,KR   # 从 OurAirports（公有领域）导入机场；可反复运行；加 --dry-run 只看不写
 pnpm dev               # 启动后端，http://localhost:8080/health 查看数据库、迁移状态，以及各账号是否已配置
 
 pnpm check             # 提交前必须通过：类型检查 + 单元测试 + 集成测试 + 进度文件校验（需要本地数据库在运行）
@@ -46,6 +47,15 @@ pnpm progress:build    # 生成进度页到 site/index.html
 3. 超级管理员登录（`POST /platform/v1/auth/login`），创建租户（`POST /platform/v1/tenants`）。响应里有租户第一个管理员的一次性邀请令牌，只显示这一次。
 4. 把邀请令牌交给租户；对方凭它设置密码（`POST /tenant/v1/auth/accept-invite`），然后登录（`POST /tenant/v1/auth/login`）。
 5. 租户管理员用同样的方式邀请自己的子账号（`POST /tenant/v1/users`）；平台超级管理员用同样的方式创建其他平台员工（`POST /platform/v1/staff`）。
+
+### 主数据是怎么来的
+
+系统里没有任何预置的城市、机场、车型（[ADR 0012](docs/adr/0012-master-data.md)）。
+
+- 机场：`pnpm masterdata:import-airports --country JP,KR` 从公开数据源 [OurAirports](https://ourairports.com/data/)（公有领域，对方不保证准确）导入所选国家里有定期航班的大中型机场的三字码、英文名、坐标。`--all-countries` 导入全部国家；`--file <路径>` 读已经下载好的 `airports.csv` 而不联网；`--dry-run` 只显示将要做什么。可以反复运行：只新增没有的、更新变了的，平台改过的和手工录入的不覆盖。
+- 导入的机场是停用的、没有所属城市。平台在后台先建城市，再给机场指定城市、补上中文和日文名称，然后启用。
+- 城市、车站、地标、航站楼、车型组、附加服务没有可靠的公开来源，全部由平台在后台录入（`/platform/v1/master/*`）。租户只能看（`/tenant/v1/master/*`）。
+- 主数据不删除，只停用；每次改动都有审计日志。
 
 ### 忘了密码怎么办
 

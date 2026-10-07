@@ -121,7 +121,7 @@
       "name": "主数据与租户配置",
       "goal": "平台统一维护城市、机场、车站、车型；租户能配置区域、商品、价格规则、调价和库存",
       "tasks": [
-        { "id": "M1-01", "title": "主数据：城市、地点（机场 / 车站 / 地标）、车型组、附加服务", "role": "backend", "status": "todo", "acceptance": ["机场坐标从公开数据源导入并注明来源", "平台后台可增删改，改动有审计"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-01", "title": "主数据：城市、地点（机场 / 车站 / 地标）、车型组、附加服务", "role": "backend", "status": "doing", "acceptance": ["机场坐标从公开数据源导入并注明来源", "平台后台可增删改，改动有审计"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "todo", "acceptance": ["地图上画区域并保存", "禁行区优先"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "todo", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "todo", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { AppError, errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
+import { AppError, errorBody, isRetryableDbError, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
 
 test("errorBody 总是带 code、message、details 三项", () => {
   assert.deepEqual(errorBody("X", "说明"), { error: { code: "X", message: "说明", details: {} } });
@@ -88,4 +88,17 @@ test("HTTP 解析阶段的错误：生成完整的原始应答，状态行、长
     assert.deepEqual(Object.keys(parsed.error).sort(), ["code", "details", "message"]);
     assert.equal(parsed.error.code, code);
   }
+});
+
+test("数据库主动放弃的事务（死锁、序列化失败）：不是 500，而是 409 CONCURRENT_UPDATE，提示重试；别的数据库报错仍是 500", () => {
+  for (const code of ["40P01", "40001"]) {
+    const err = Object.assign(new Error("deadlock detected"), { code });
+    assert.equal(isRetryableDbError(err), true);
+    const r = toErrorResponse(err);
+    assert.deepEqual([r.statusCode, r.body.error.code, r.unexpected], [409, "CONCURRENT_UPDATE", false]);
+    assert.ok(!JSON.stringify(r.body).includes("deadlock"));
+  }
+  const other = Object.assign(new Error("syntax error"), { code: "42601" });
+  assert.equal(isRetryableDbError(other), false);
+  assert.equal(toErrorResponse(other).statusCode, 500);
 });

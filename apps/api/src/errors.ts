@@ -50,6 +50,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * 数据库主动放弃了这个事务、重做一遍多半就能成功的报错：死锁（40P01）、序列化失败（40001）。
+ * 事务已经整体回滚，什么都没有改动；这不是服务器故障，不能当成 500。
+ */
+export function isRetryableDbError(err: unknown): boolean {
+  if (!isRecord(err)) return false;
+  return err["code"] === "40P01" || err["code"] === "40001";
+}
+
 export interface ErrorResponse {
   statusCode: number;
   body: ErrorBody;
@@ -76,6 +85,13 @@ export function toErrorResponse(err: unknown): ErrorResponse {
       return {
         statusCode: 400,
         body: errorBody("VALIDATION_FAILED", "请求参数校验未通过", { location, issues }),
+        unexpected: false,
+      };
+    }
+    if (isRetryableDbError(err)) {
+      return {
+        statusCode: 409,
+        body: errorBody("CONCURRENT_UPDATE", "这次操作和别人同时进行的修改撞上了，什么都没有改动，请重试"),
         unexpected: false,
       };
     }

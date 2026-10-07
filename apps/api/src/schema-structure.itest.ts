@@ -15,8 +15,22 @@ import type { Pool } from "./db/pool.ts";
 import { DB_ROLES, PLATFORM_DB_ROLE, PREAUTH_DB_ROLE, TENANT_DB_ROLE } from "./db/roles.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 
-/** 不属于任何租户的表：平台账号与会话、登录限速、迁移记录，以及两张系统定义的角色清单。新增平台表时加到这里。 */
-const PLATFORM_TABLES = ["login_throttles", "platform_roles", "platform_sessions", "platform_users", "schema_migrations", "tenant_roles"];
+/**
+ * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
+ * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012）。新增平台表时加到这里。
+ */
+const PLATFORM_TABLES = [
+  "addons",
+  "cities",
+  "login_throttles",
+  "places",
+  "platform_roles",
+  "platform_sessions",
+  "platform_users",
+  "schema_migrations",
+  "tenant_roles",
+  "vehicle_groups",
+];
 /** 迁移写入的系统常量（不是业务数据）：角色清单。其余的表在空库里必须是 0 行。 */
 const SEEDED_CONSTANTS: Readonly<Record<string, number>> = { platform_roles: 10, tenant_roles: 5 };
 /**
@@ -25,18 +39,28 @@ const SEEDED_CONSTANTS: Readonly<Record<string, number>> = { platform_roles: 10,
  */
 const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> = {
   [TENANT_DB_ROLE]: {
+    // 主数据：租户只读（ADR 0012）
+    addons: ["SELECT"],
     audit_logs: ["INSERT", "SELECT"],
+    cities: ["SELECT"],
+    places: ["SELECT"],
     tenant_roles: ["SELECT"],
     tenant_sessions: ["DELETE", "INSERT", "SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["SELECT"],
+    vehicle_groups: ["SELECT"],
   },
   [PLATFORM_DB_ROLE]: {
+    // 主数据：平台可读、可新增、可修改，不能删（只停用）
+    addons: ["INSERT", "SELECT", "UPDATE"],
     audit_logs: ["INSERT", "SELECT"],
+    cities: ["INSERT", "SELECT", "UPDATE"],
+    places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["INSERT", "SELECT", "UPDATE"],
+    vehicle_groups: ["INSERT", "SELECT", "UPDATE"],
   },
   [PREAUTH_DB_ROLE]: {
     audit_logs: ["INSERT"],
@@ -157,7 +181,10 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
   const expected = Object.fromEntries(Object.keys(counts).map((table) => [table, SEEDED_CONSTANTS[table] ?? 0]));
   expected["schema_migrations"] = files.length;
   assert.deepEqual(counts, expected);
-  for (const table of ["platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles"]) {
+  for (const table of [
+    "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
+    "cities", "places", "vehicle_groups", "addons",
+  ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }
 });
