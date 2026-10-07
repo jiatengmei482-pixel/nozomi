@@ -29,7 +29,7 @@ before(async () => {
 after(() => api.close());
 
 async function userRow(id: string): Promise<Record<string, unknown>> {
-  const result = await api.db.pool.query(
+  const result = await api.db.owner.query(
     "select tenant_id, email, name, role, status, password_hash is not null as has_password from tenant_users where id = $1",
     [id],
   );
@@ -186,7 +186,7 @@ test("POST /tenant/v1/auth/logout：只结束自己的会话，别的租户的�
 test("POST /tenant/v1/auth/change-password：只改自己的密码，只让自己的其他会话失效；别的租户的密码和会话不受影响", async () => {
   cover("POST /tenant/v1/auth/change-password");
   const other = await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } });
-  const bHashBefore = (await api.db.pool.query("select password_hash from tenant_users where id = $1", [b.adminId])).rows[0].password_hash;
+  const bHashBefore = (await api.db.owner.query("select password_hash from tenant_users where id = $1", [b.adminId])).rows[0].password_hash;
   const res = await api.call("POST", `/tenant/v1/auth/change-password?tenant_id=${b.tenantId}`, {
     token: a.adminToken,
     body: { current_password: TEST_PASSWORD, new_password: "Changed-Harbor-2027", tenant_id: b.tenantId, user_id: b.adminId },
@@ -196,7 +196,7 @@ test("POST /tenant/v1/auth/change-password：只改自己的密码，只让自�
   assert.equal((await api.call("GET", "/tenant/v1/auth/me", { token: a.adminToken })).status, 200, "当前会话保留");
   assert.equal((await api.call("GET", "/tenant/v1/auth/me", { token: b.adminToken })).status, 200, "租户乙的会话不受影响");
   assert.equal((await api.call("GET", "/tenant/v1/auth/me", { token: bDispatcher.token })).status, 200);
-  const bHashAfter = (await api.db.pool.query("select password_hash from tenant_users where id = $1", [b.adminId])).rows[0].password_hash;
+  const bHashAfter = (await api.db.owner.query("select password_hash from tenant_users where id = $1", [b.adminId])).rows[0].password_hash;
   assert.equal(bHashAfter, bHashBefore);
   // 改回去，后面的测试还用统一的密码
   const back = await api.call("POST", "/tenant/v1/auth/change-password", { token: a.adminToken, body: { current_password: "Changed-Harbor-2027", new_password: TEST_PASSWORD } });
@@ -209,7 +209,7 @@ test("POST /tenant/v1/users/{id}/password-reset：给租户乙的账号发重置
   const missing = await api.call("POST", "/tenant/v1/users/99999999-9999-4999-8999-999999999999/password-reset", { token: a.adminToken });
   assert.equal(foreign.status, 404);
   assert.equal(foreign.text, missing.text);
-  const row = (await api.db.pool.query("select reset_token_hash from tenant_users where id = $1", [bDispatcher.id])).rows[0];
+  const row = (await api.db.owner.query("select reset_token_hash from tenant_users where id = $1", [bDispatcher.id])).rows[0];
   assert.equal(row.reset_token_hash, null);
 });
 
@@ -220,7 +220,7 @@ test("POST /tenant/v1/auth/reset-password：令牌只对发给它的那个租户
   assert.equal(issued.status, 201, issued.text);
   const token = issued.body.reset.token as string;
   const hashes = async (): Promise<unknown> =>
-    (await api.db.pool.query("select id, password_hash from tenant_users where tenant_id = $1 order by id", [b.tenantId])).rows;
+    (await api.db.owner.query("select id, password_hash from tenant_users where tenant_id = $1 order by id", [b.tenantId])).rows;
   const bBefore = await hashes();
 
   const swapped = `nzr_${b.tenantId.replaceAll("-", "")}.${token.split(".")[1]}`;
@@ -252,7 +252,7 @@ test("GET /tenant/v1/audit-logs：只有自己租户的记录；翻到底、带�
   for (const leaked of [b.tenantId, b.adminId, bDispatcher.id, "@b.test", "车队乙"]) {
     assert.ok(!text.includes(leaked), `租户甲的操作日志里出现了租户乙的内容：${leaked}`);
   }
-  const own = await api.db.pool.query("select id::text as log_id from audit_logs where tenant_id = $1 and actor_type in ('tenant_user', 'anonymous') order by id desc", [a.tenantId]);
+  const own = await api.db.owner.query("select id::text as log_id from audit_logs where tenant_id = $1 and actor_type in ('tenant_user', 'anonymous') order by id desc", [a.tenantId]);
   assert.deepEqual(everything.map((l) => l.id), own.rows.map((r) => r.log_id));
 
   for (const query of [`resource_id=${bDispatcher.id}`, `actor_id=${b.adminId}`]) {

@@ -10,9 +10,16 @@
 - 已经执行过的迁移文件不能修改、删除或改编号（执行器会比对校验和并报错）；要改结构就新增一个迁移。
 - 新迁移的编号必须大于已执行的最大编号。
 - 租户表必须带 `tenant_id` 并作为复合索引第一列（ADR 0003），并且开启行级安全、建策略、按最小权限授权给应用角色 `nozomi_app`——具体步骤见 ADR 0009「以后新增租户表时要做的事」。漏了的话 `rls.itest.ts` 会失败。
+- **新表默认谁都读不了，要在同一个迁移里写明给哪个角色什么权限**（ADR 0010「以后新增表时要做的事」）。服务进程用的应用账号自己没有任何表权限，只能切换到三个权限角色：
+  - `nozomi_app`（租户事务）：租户表。策略写明 `to nozomi_app`。
+  - `nozomi_platform`（平台事务）：平台表；平台也要访问的租户表另加一条写明 `to nozomi_platform` 的策略。只给用得到的权限，一般不给 `delete` / `truncate`。
+  - `nozomi_preauth`（登录前事务）：原则上不给任何新表的权限。
+  - 不要 `grant … to public`，不要把权限直接给应用账号（迁移里不出现它的名字，更不出现密码）。
+  - 然后把新表登记到 `apps/api/src/schema-structure.itest.ts` 的 `ROLE_GRANTS`（以及 `PLATFORM_TABLES` / `CROSS_TENANT_POLICIES`）。不登记、或登记的和库里的不一致，测试会失败。
+- 迁移用迁移账号（`DATABASE_MIGRATION_URL`，表的所有者）执行，不用服务进程的应用账号。
 - 审计日志表 `audit_logs` 只能追加：有触发器拦截修改、删除和清空，迁移里也不要去改它已有的行。
 
-执行：`pnpm db:migrate`（可以反复运行，已执行的会跳过）。
+执行：`pnpm db:migrate`（可以反复运行，已执行的会跳过）。应用账号由 `pnpm db:provision` 创建（同样可以反复运行），和迁移谁先谁后都可以。
 
 ## 现有迁移
 
@@ -22,5 +29,6 @@
 | `0002_tenants.sql` | 应用角色 `nozomi_app`、租户角色清单、租户、租户用户、租户会话，以及它们的行级安全策略 |
 | `0003_audit_logs.sql` | 审计日志（只能追加）及其行级安全策略 |
 | `0004_password_reset.sql` | 平台员工和租户用户的密码重置令牌（只存哈希和有效期） |
+| `0005_database_roles.sql` | 平台角色 `nozomi_platform`、登录前角色 `nozomi_preauth` 及其授权和策略；登录前定位租户用户的两个函数（不改表结构） |
 
-迁移不创建任何账号和租户。第一个平台超级管理员用 `pnpm admin:create` 创建。
+迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。

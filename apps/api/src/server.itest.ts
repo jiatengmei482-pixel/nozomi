@@ -9,7 +9,7 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { type TestDatabase, createTestDatabase } from "./testing/db.ts";
-import { UNREACHABLE_DATABASE_URL, leakedSecrets, testEnv } from "./testing/fixtures.ts";
+import { UNREACHABLE_DATABASE_URL, leakedSecrets, migrateEnv, testEnv } from "./testing/fixtures.ts";
 import { databaseTarget, startTcpProxy } from "./testing/tcp-proxy.ts";
 
 const SERVER_ENTRY = fileURLToPath(new URL("./server.ts", import.meta.url));
@@ -67,7 +67,7 @@ async function waitForHealth(port: number, running: Running): Promise<Response> 
 }
 
 test("先执行迁移命令再启动 API 进程（部署时的顺序）：/health 经真实 HTTP 返回 200；SIGTERM 后优雅退出（退出码 0）；日志里没有密钥原文", async () => {
-  const migrate = start(MIGRATE_ENTRY, testEnv(db.url));
+  const migrate = start(MIGRATE_ENTRY, migrateEnv(db.ownerUrl));
   assert.equal(await migrate.exited, 0, migrate.output());
   assert.match(migrate.output(), /完成：本次执行 \d+ 个迁移，此前已执行 0 个/);
   const port = await freePort();
@@ -91,6 +91,7 @@ test("先执行迁移命令再启动 API 进程（部署时的顺序）：/healt
     assert.match(running.output(), /已关闭/);
     assert.deepEqual(leakedSecrets(running.output()), []);
     assert.ok(!running.output().includes(new URL(db.url).password + "@"));
+    assert.match(running.output(), /数据库账号自检通过/);
   } finally {
     if (running.child.exitCode === null) running.child.kill("SIGKILL");
   }
@@ -104,7 +105,7 @@ test("配置缺失时启动失败：退出码 1，列出问题，不启动服务
 
 test("迁移命令可以反复运行：两次都成功", async () => {
   for (const _round of [1, 2]) {
-    const running = start(MIGRATE_ENTRY, testEnv(db.url));
+    const running = start(MIGRATE_ENTRY, migrateEnv(db.ownerUrl));
     assert.equal(await running.exited, 0, running.output());
     assert.match(running.output(), /数据库结构已是最新|完成：本次执行/);
     assert.deepEqual(leakedSecrets(running.output()), []);
@@ -112,7 +113,7 @@ test("迁移命令可以反复运行：两次都成功", async () => {
 });
 
 test("迁移命令连不上数据库：退出码 1，提示里没有连接串和密码", async () => {
-  const running = start(MIGRATE_ENTRY, testEnv(UNREACHABLE_DATABASE_URL));
+  const running = start(MIGRATE_ENTRY, migrateEnv(UNREACHABLE_DATABASE_URL));
   assert.equal(await running.exited, 1);
   assert.match(running.output(), /迁移失败/);
   assert.deepEqual(leakedSecrets(running.output()), []);

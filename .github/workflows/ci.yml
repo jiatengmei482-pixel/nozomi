@@ -24,8 +24,10 @@ jobs:
           --health-retries 10
     env:
       # 以下全部是 CI 专用的占位值，不是任何真实环境的密钥；数据库是本次运行临时起的容器。
+      # 和真实环境一样用两个数据库账号（ADR 0010）：迁移账号建表，测试里的应用代码只用权限最小的应用账号。
       APP_ENV: ci
-      DATABASE_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      DATABASE_MIGRATION_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      DATABASE_URL: postgres://nozomi_api:ci-placeholder-not-a-real-password@localhost:5432/nozomi
       AUTH_JWT_SECRET: ci-placeholder-not-a-real-secret-0000000000
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +40,10 @@ jobs:
       - run: pnpm typecheck
       - name: 单元测试（不需要数据库）
         run: pnpm test
+      - name: 创建数据库的应用账号（最小权限）
+        run: pnpm db:provision
+      - name: 创建应用账号（再执行一次，必须可重复）
+        run: pnpm db:provision
       - name: 数据库迁移（空库上从头执行）
         run: pnpm db:migrate
       - name: 数据库迁移（再执行一次，必须无变化）
@@ -56,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: 检查 shell 脚本（shellcheck）
         run: shellcheck -x deploy/bootstrap.sh deploy/bin/*.sh deploy/ci/*.sh
-      - name: 部署冒烟（构建镜像 → 整套容器 → 迁移 → /health → 自动回退 → 备份恢复）
+      - name: 部署冒烟（构建镜像 → 整套容器 → 建应用账号 → 迁移 → /health → 账号权限 → 自动回退 → 备份恢复 → 登录）
         run: deploy/ci/smoke.sh
       - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04 容器里各跑两遍（可重复执行）
         run: deploy/ci/bootstrap-check.sh

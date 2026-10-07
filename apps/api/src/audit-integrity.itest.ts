@@ -36,7 +36,7 @@ interface AuditRow {
 }
 
 async function auditSince(id: string): Promise<AuditRow[]> {
-  const rows = await api.db.pool.query<AuditRow>(
+  const rows = await api.db.owner.query<AuditRow>(
     "select tenant_id, actor_type, actor_id, resource, resource_id, action, before, after from audit_logs where id > $1 order by id",
     [id],
   );
@@ -44,12 +44,12 @@ async function auditSince(id: string): Promise<AuditRow[]> {
 }
 
 async function lastAuditId(): Promise<string> {
-  return (await api.db.pool.query<{ id: string }>("select coalesce(max(id), 0)::text as id from audit_logs")).rows[0]?.id ?? "0";
+  return (await api.db.owner.query<{ id: string }>("select coalesce(max(id), 0)::text as id from audit_logs")).rows[0]?.id ?? "0";
 }
 
 /** 整个库的业务数据快照（不含审计日志本身和登录限速计数）。 */
 async function snapshot(): Promise<unknown> {
-  const q = async (sql: string): Promise<unknown[]> => (await api.db.pool.query(sql)).rows;
+  const q = async (sql: string): Promise<unknown[]> => (await api.db.owner.query(sql)).rows;
   return {
     tenants: await q("select * from tenants order by id"),
     tenantUsers: await q("select * from tenant_users order by tenant_id, id"),
@@ -70,8 +70,8 @@ test("审计日志写入失败时，每一类敏感操作都整体回滚：返�
 
   const before = await snapshot();
   const auditBefore = await lastAuditId();
-  await api.db.pool.query("create function itest_audit_down() returns trigger language plpgsql as $$ begin raise exception '审计存储不可用（测试）'; end $$");
-  await api.db.pool.query("create trigger itest_audit_down before insert on audit_logs for each row execute function itest_audit_down()");
+  await api.db.owner.query("create function itest_audit_down() returns trigger language plpgsql as $$ begin raise exception '审计存储不可用（测试）'; end $$");
+  await api.db.owner.query("create trigger itest_audit_down before insert on audit_logs for each row execute function itest_audit_down()");
   const results: [string, ApiResponse][] = [];
   try {
     const attempt = async (label: string, res: Promise<ApiResponse>): Promise<void> => void results.push([label, await res]);
@@ -93,8 +93,8 @@ test("审计日志写入失败时，每一类敏感操作都整体回滚：返�
     await attempt("平台：登录成功", api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }));
     await attempt("平台：查看集成详情", api.call("GET", "/platform/v1/integrations", asPlatform));
   } finally {
-    await api.db.pool.query("drop trigger itest_audit_down on audit_logs");
-    await api.db.pool.query("drop function itest_audit_down()");
+    await api.db.owner.query("drop trigger itest_audit_down on audit_logs");
+    await api.db.owner.query("drop function itest_audit_down()");
   }
   for (const [label, res] of results) {
     assert.equal(res.status, 500, `${label}: ${res.status} ${res.text.slice(0, 200)}`);
@@ -165,6 +165,6 @@ test("应用角色不能绕开「只能追加」：关触发器、删触发器�
   for (const sql of attempts) {
     await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query(sql)), { code: "42501" }, sql);
   }
-  const triggers = await api.db.pool.query("select count(*)::int as n from pg_trigger where tgrelid = 'audit_logs'::regclass and not tgisinternal and tgenabled = 'O'");
+  const triggers = await api.db.owner.query("select count(*)::int as n from pg_trigger where tgrelid = 'audit_logs'::regclass and not tgisinternal and tgenabled = 'O'");
   assert.equal(triggers.rows[0].n, 2);
 });

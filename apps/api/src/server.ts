@@ -2,6 +2,8 @@
  * API 进程入口（`pnpm dev` / 部署时的启动命令）。
  *
  * - 启动时校验配置，有问题立即退出并列出全部问题。
+ * - 启动时自检数据库账号（ADR 0010）：连上的账号是超级用户、表的所有者或能绕过行级安全时拒绝启动并说明原因，
+ *   所有环境都一样。数据库此刻连不上时照常启动（/health 如实报告 503），自检推迟到每条连接第一次使用之前。
  * - 不在启动时自动执行迁移：迁移是单独的一步（`pnpm db:migrate`），/health 会报告是否执行完。
  * - 收到 SIGTERM / SIGINT 时优雅关闭：先停止接收新请求并等在途请求结束，再关闭连接池，然后退出。
  * - 出现没有任何代码接住的异常时不假装没事：按脱敏规则记一条日志，走同样的优雅关闭，以退出码 1 结束，
@@ -10,7 +12,8 @@
  */
 import { ConfigError, loadConfig } from "@nozomi/config";
 import { buildApp } from "./app.ts";
-import { createPool } from "./db/pool.ts";
+import { DbIdentityError, assertLeastPrivilege } from "./db/identity.ts";
+import { createPool, driverErrorCode } from "./db/pool.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { MigrationError } from "./db/migration-plan.ts";
 import { TimeoutError, withTimeout } from "./health.ts";
@@ -20,6 +23,8 @@ import { redactText } from "./logging.ts";
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 /** 关闭连接池的最长等待时间：数据库已经失联时，没必要为了和它道别而拖住退出。 */
 const POOL_CLOSE_TIMEOUT_MS = 3_000;
+/** 启动时账号自检的时限：数据库不应答时不拖住启动。 */
+const DB_IDENTITY_CHECK_TIMEOUT_MS = 5_000;
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -28,6 +33,17 @@ async function main(): Promise<void> {
     onIdleError: ({ code }) => app.log.warn({ code }, "数据库空闲连接出错，下次查询时会重连"),
   });
   const app = buildApp({ config, pool, migrationFiles });
+
+  try {
+    const identity = await assertLeastPrivilege(pool, DB_IDENTITY_CHECK_TIMEOUT_MS);
+    app.log.info({ login: identity.login }, "数据库账号自检通过：最小权限的应用账号");
+  } catch (err) {
+    if (err instanceof DbIdentityError) {
+      await withTimeout(pool.end(), POOL_CLOSE_TIMEOUT_MS).catch(() => undefined);
+      throw err;
+    }
+    app.log.warn({ code: driverErrorCode(err) }, "启动时连不上数据库，账号自检推迟到连上之后（每条连接第一次使用前都会检查）");
+  }
 
   const closePool = async (): Promise<void> => {
     try {
@@ -88,6 +104,8 @@ try {
     console.error("\n怎么配置：见 docs/secrets.md");
   } else if (err instanceof MigrationError) {
     console.error(`[${err.code}] ${err.message}`);
+  } else if (err instanceof DbIdentityError) {
+    console.error(`[${err.code}] 拒绝启动：${err.message}`);
   } else {
     // 不直接打印异常对象：它的附加字段里可能带连接串（规则 5）
     const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);

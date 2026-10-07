@@ -12,7 +12,8 @@
 #   2. 安装 Docker（官方软件源）和需要的基础工具
 #   3. 创建部署用户 nozomi（无密码，只能用密钥登录，属于 docker 组）
 #   4. 建目录 /opt/nozomi/<环境>/
-#   5. 生成 .env 里的数据库密码和登录签名密钥（已有的值绝不覆盖）
+#   5. 生成 .env 里的两个数据库密码（迁移账号、应用账号）和登录签名密钥（已有的值绝不覆盖；
+#      早先初始化过、还没有应用账号密码的服务器，重新运行会补上这一项）
 #   6. 开启防火墙，只放行 SSH、80、443
 #   7. 安装每日数据库备份的定时任务
 #
@@ -155,13 +156,14 @@ ensure_env_file() {
       cat >"$file" <<'HEADER'
 # NOZOMI 运行所需的密钥。每一项的说明见仓库 docs/secrets.md。
 # 格式：一行一个「变量名=值」，值不加引号，等号两边不留空格。
-# POSTGRES_PASSWORD 和 AUTH_JWT_SECRET 是初始化时自动生成的，不要修改：
+# POSTGRES_PASSWORD、POSTGRES_APP_PASSWORD 和 AUTH_JWT_SECRET 是自动生成的，不要修改：
 # 数据库已经用这个密码建好，改了会连不上。
 HEADER
     )
   fi
   chmod 600 "$file"
   ensure_generated_secret "$file" POSTGRES_PASSWORD 24
+  ensure_generated_secret "$file" POSTGRES_APP_PASSWORD 24
   ensure_generated_secret "$file" AUTH_JWT_SECRET 48
   for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY; do
     ensure_placeholder "$file" "$key"

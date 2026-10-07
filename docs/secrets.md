@@ -11,7 +11,7 @@
 | 本地 `.env` 文件 | 你自己的电脑上运行 | 复制 `.env.example` 为 `.env` | 开发用的变量，Stripe 只用测试密钥 |
 | claude.ai/code 云端环境变量 | Claude 的开发会话 | claude.ai/code → 选择环境 → 环境设置 → Environment variables | 开发和端到端测试需要的变量，Stripe 只用测试密钥 |
 | GitHub Environment 的 secrets 和 variables | 自动部署：让 GitHub 能登录你的 VPS | 见下面「一、填在 GitHub 上的」 | 「怎么连上服务器」的 5 项密钥，外加域名（不是密钥） |
-| VPS 上的 `.env` 文件 | 服务器上运行的程序 | 见下面「二、放在 VPS 上的」 | 该环境运行所需的全部业务密钥（其中两项自动生成） |
+| VPS 上的 `.env` 文件 | 服务器上运行的程序 | 见下面「二、放在 VPS 上的」 | 该环境运行所需的全部业务密钥（其中三项自动生成） |
 
 **为什么分两处**：GitHub 只需要知道「怎么登录服务器」，不需要知道 Stripe 密钥、数据库密码；这些业务密钥只留在服务器上，GitHub 被盗也拿不到。
 
@@ -58,7 +58,8 @@
 
 | 变量名 | 是什么 | 谁来填 |
 | --- | --- | --- |
-| `POSTGRES_PASSWORD` | 数据库密码 | **自动生成，不用管。** 不要修改或删除：数据库是用它建的，改了程序就连不上 |
+| `POSTGRES_PASSWORD` | 数据库「迁移账号」的密码：只在更新数据库结构、备份和恢复时用，程序平时运行不用它，也拿不到它 | **自动生成，不用管。** 不要修改或删除：数据库是用它建的，改了就连不上 |
+| `POSTGRES_APP_PASSWORD` | 数据库「应用账号」的密码：程序平时运行用的账号，权限最小（不能改数据库结构，不能改、删操作日志） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除 |
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
@@ -67,7 +68,18 @@
 
 **什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境必须全部填好**，否则程序拒绝启动。
 
-不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、数据库连接串（`DATABASE_URL`）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源有默认值。
+不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源有默认值。
+
+### 本地 `.env` 里的数据库两行
+
+本地开发库是自己电脑上的容器，`.env.example` 里已经写好两行公开的默认值，复制过去不用改：
+
+| 变量名 | 是什么 |
+| --- | --- |
+| `DATABASE_MIGRATION_URL` | 迁移账号的连接串：只有 `pnpm db:migrate`、`pnpm db:provision` 用 |
+| `DATABASE_URL` | 应用账号的连接串：程序、管理员命令和测试用。第一次先运行 `pnpm db:provision` 把这个账号建出来 |
+
+两行不能填成同一个账号；把迁移账号填进 `DATABASE_URL` 时程序会拒绝启动并说明原因（ADR 0010）。
 
 ### 填好之后
 
@@ -84,7 +96,7 @@
 ## 规则
 
 1. 测试环境只用 Stripe 测试密钥（`sk_test_`），代码会拒绝在非正式环境使用正式密钥。
-2. 每个环境的 `AUTH_JWT_SECRET`、`POSTGRES_PASSWORD` 都不一样；`AUTH_JWT_SECRET` 泄露后立即更换，所有人需要重新登录。
+2. 每个环境的 `AUTH_JWT_SECRET`、`POSTGRES_PASSWORD`、`POSTGRES_APP_PASSWORD` 都不一样；`AUTH_JWT_SECRET` 泄露后立即更换，所有人需要重新登录。数据库的两个密码怀疑泄露时告诉 Claude 更换。
 3. 谷歌地图密钥必须在 Google Cloud 里限制 API 范围，并设置每日用量上限。
 4. 部署用的 SSH 私钥只用于部署，只存在 GitHub 的 Environment secrets 里；怀疑泄露时从 VPS 的 `authorized_keys` 里删掉对应公钥，再生成一把新的。
 5. VPS 上的 `.env` 文件权限保持 `600`，不要复制到别处，不要提交到仓库。

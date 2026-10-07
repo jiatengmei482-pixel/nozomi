@@ -6,6 +6,10 @@
 #   - 本目录的 release.env       非密钥项，由 bin/deploy.sh 每次部署写入
 #
 # 传给 API 的环境变量全部集中在下面 api.environment 一处；新增变量只改这里。
+#
+# 数据库有两个账号（ADR 0010）：
+#   - nozomi      迁移账号，表的所有者。只有 db 容器自己和临时启动的 migrate 服务用它。
+#   - nozomi_api  应用账号，权限最小。api 容器只拿得到它的连接串，拿不到迁移账号的密码。
 
 x-logging: &logging
   driver: json-file
@@ -48,8 +52,9 @@ services:
       APP_ENV: ${APP_ENV:?缺少 APP_ENV}
       PORT: "8080"
       PUBLIC_BASE_URL: https://${APP_DOMAIN:?缺少 APP_DOMAIN}
-      # 密码由初始化脚本生成，只含十六进制字符，可以直接拼进连接串。
-      DATABASE_URL: postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi
+      # 应用账号的连接串。密码由初始化脚本生成，只含十六进制字符，可以直接拼进连接串。
+      # 这里不能出现 POSTGRES_PASSWORD（迁移账号的密码）：服务进程发现自己连的是所有者或超级用户会拒绝启动。
+      DATABASE_URL: postgres://nozomi_api:${POSTGRES_APP_PASSWORD:?缺少 POSTGRES_APP_PASSWORD，请重新部署或重新运行服务器初始化}@db:5432/nozomi
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?缺少 AUTH_JWT_SECRET，请先运行服务器初始化}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
@@ -75,6 +80,31 @@ services:
       timeout: 4s
       retries: 6
       start_period: 15s
+    logging: *logging
+
+  # 数据库管理任务：建应用账号（provision-cli.ts）、执行迁移（migrate-cli.ts）。
+  # 不常驻：带 profile，`up` 不会启动它；只由 bin/deploy.sh、bin/restore.sh 用 `run --rm migrate …` 临时启动。
+  # 只有它拿得到迁移账号的连接串；它拿不到登录签名密钥和第三方密钥，也不接外网。
+  migrate:
+    image: ${API_IMAGE}
+    profiles:
+      - tools
+    restart: "no"
+    init: true
+    environment:
+      DATABASE_MIGRATION_URL: postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi
+      # 建应用账号时从这里取账号名和密码；必须和上面 api 的 DATABASE_URL 一致。
+      DATABASE_URL: postgres://nozomi_api:${POSTGRES_APP_PASSWORD}@db:5432/nozomi
+    command: ["node", "apps/api/src/db/migrate-cli.ts"]
+    networks:
+      - backend
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     logging: *logging
 
   caddy:

@@ -1,14 +1,16 @@
 /**
  * 行级安全（RLS）是租户隔离的第二道防线（ADR 0003、ADR 0009）。
  * 这里绕过数据访问层，直接在租户事务里执行「漏写 tenant_id 条件」的 SQL，证明数据库自己拦得住。
- * 测试连接用的是数据库的超级用户——正是 RLS 默认不生效的情形，所以也证明了切换应用角色这一步是有效的。
+ * 测试里的应用代码用的是和线上一样的应用账号（ADR 0010）：它自己没有任何表权限，租户事务切换到 nozomi_app，
+ * 平台事务切换到 nozomi_platform。摆数据、核对结果用迁移账号（api.db.owner）。
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { PLATFORM_ROLES, TENANT_ROLES } from "@nozomi/domain";
-import { APP_DB_ROLE, withSystemTx, withTenantTx } from "./db/context.ts";
+import { APP_DB_ROLE, withPlatformTx, withTenantTx } from "./db/context.ts";
 import { insertAuditLog } from "./repos/audit-logs.ts";
 import { type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { deniedByDatabase } from "./testing/db.ts";
 
 let api: TestApi;
 let a: TenantFixture;
@@ -24,9 +26,10 @@ after(() => api.close());
 
 const inTenantA = <T>(fn: Parameters<typeof withTenantTx<T>>[2]): Promise<T> => withTenantTx(api.db.pool, a.tenantId, fn);
 
-test("前提：测试连接是超级用户或表的所有者，不切换角色时看得到全部租户的数据", async () => {
-  const rows = await withSystemTx(api.db.pool, (db) => db.query("select tenant_id from tenant_users"));
+test("前提：库里确实有两个租户的数据——平台事务看得到全部租户；应用账号不切换角色时一张表都读不了", async () => {
+  const rows = await withPlatformTx(api.db.pool, (db) => db.query("select tenant_id from tenant_users"));
   assert.deepEqual(new Set(rows.rows.map((r) => r.tenant_id)), new Set([a.tenantId, b.tenantId]));
+  await assert.rejects(api.db.pool.query("select tenant_id from tenant_users"), deniedByDatabase);
 });
 
 test("租户事务里不带任何条件地查：只看得到自己租户的用户、会话、审计日志和租户行", async () => {
@@ -54,7 +57,7 @@ test("租户事务里按编号直接查、改、删别的租户的行：一行�
     throw new RollbackForTest();
   }).catch(ignoreRollback);
 
-  const untouched = await withSystemTx(api.db.pool, (db) =>
+  const untouched = await withPlatformTx(api.db.pool, (db) =>
     db.query("select name, role from tenant_users where id = $1", [b.adminId]),
   );
   assert.deepEqual(untouched.rows[0], { name: "车队乙管理员", role: "admin" });
@@ -160,7 +163,7 @@ test("角色和租户设置只在事务内有效：连接还回连接池后不�
 });
 
 test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有策略；应用角色不是超级用户、不能绕过行级安全、不能登录", async () => {
-  const tables = await api.db.pool.query<{ table_name: string; rls: boolean; policies: number }>(
+  const tables = await api.db.owner.query<{ table_name: string; rls: boolean; policies: number }>(
     `select c.relname as table_name, c.relrowsecurity as rls,
             (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies
        from pg_class c
@@ -175,11 +178,11 @@ test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有
     assert.equal(table.rls, true, `${table.table_name} 没有开启行级安全`);
     assert.ok(table.policies >= 1, `${table.table_name} 没有策略`);
   }
-  const role = await api.db.pool.query("select rolsuper, rolbypassrls, rolcanlogin from pg_roles where rolname = $1", [
+  const role = await api.db.owner.query("select rolsuper, rolbypassrls, rolcanlogin from pg_roles where rolname = $1", [
     APP_DB_ROLE,
   ]);
   assert.deepEqual(role.rows[0], { rolsuper: false, rolbypassrls: false, rolcanlogin: false });
-  const owned = await api.db.pool.query(
+  const owned = await api.db.owner.query(
     `select count(*)::int as n from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = current_schema() and pg_get_userbyid(c.relowner) = $1`,
     [APP_DB_ROLE],
@@ -188,7 +191,7 @@ test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有
 });
 
 test("结构检查：每张租户表的主键和普通索引都以 tenant_id 开头（两个登录前定位用的唯一索引是 ADR 0009 记录的例外）", async () => {
-  const indexes = await api.db.pool.query<{ table_name: string; index_name: string; first_column: string }>(
+  const indexes = await api.db.owner.query<{ table_name: string; index_name: string; first_column: string }>(
     `select t.relname as table_name, i.relname as index_name,
             (select att.attname from pg_attribute att where att.attrelid = t.oid and att.attnum = ix.indkey[0]) as first_column
        from pg_index ix
@@ -205,8 +208,8 @@ test("结构检查：每张租户表的主键和普通索引都以 tenant_id 开
 });
 
 test("角色表的内容与代码里的角色清单一致（来源都是需求文档）", async () => {
-  const platform = await api.db.pool.query("select key, name from platform_roles order by sort_order");
+  const platform = await api.db.owner.query("select key, name from platform_roles order by sort_order");
   assert.deepEqual(platform.rows, PLATFORM_ROLES.map(({ key, name }) => ({ key, name })));
-  const tenant = await api.db.pool.query("select key, name from tenant_roles order by sort_order");
+  const tenant = await api.db.owner.query("select key, name from tenant_roles order by sort_order");
   assert.deepEqual(tenant.rows, TENANT_ROLES.map(({ key, name }) => ({ key, name })));
 });

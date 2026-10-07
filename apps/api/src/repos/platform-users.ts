@@ -1,5 +1,5 @@
 /**
- * 平台员工账号和会话的数据访问。平台表不带 tenant_id，只在 withSystemTx 里调用。
+ * 平台员工账号和会话的数据访问。平台表不带 tenant_id，只在 withPlatformTx 里调用。
  * 对外返回的 PlatformUser 不含密码哈希和邀请令牌哈希；需要它们的查询单独返回。
  */
 import type { AccountStatus, PlatformRole } from "@nozomi/domain";

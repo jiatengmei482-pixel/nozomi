@@ -4,7 +4,7 @@ import { newInvite } from "../auth/invite-token.ts";
 import { newPlatformResetToken } from "../auth/reset-token.ts";
 import { hashPassword } from "../auth/password.ts";
 import type { AppContext } from "../context.ts";
-import { isUniqueViolation, withSystemTx } from "../db/context.ts";
+import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
@@ -28,7 +28,7 @@ import { accountNotActive, emailTaken, lastAdminRequired, notFound, statusChange
 import type { PlatformPrincipal } from "./platform-auth.ts";
 
 export function listStaff(ctx: AppContext, limit: number, after: TimeCursor | null): Promise<Page<PlatformUser>> {
-  return withSystemTx(ctx.pool, (db) => listPlatformUsers(db, limit, after));
+  return withPlatformTx(ctx.pool, (db) => listPlatformUsers(db, limit, after));
 }
 
 export interface StaffInput {
@@ -57,7 +57,7 @@ export async function inviteStaff(
   const invite = newInvite(now);
   const fields = { ...input, inviteTokenHash: invite.tokenHash, inviteExpiresAt: invite.expiresAt };
   try {
-    const user = await withSystemTx(ctx.pool, async (db) => {
+    const user = await withPlatformTx(ctx.pool, async (db) => {
       // 锁住已有的这一行：和「本人正在接受邀请」排好先后，不会两边各做一半
       const existing = await findPlatformUserByEmail(db, input.email, { lock: true });
       if (existing && existing.passwordHash !== null) throw emailTaken();
@@ -92,7 +92,7 @@ export async function setStaffStatus(
   ip: string,
 ): Promise<PlatformUser> {
   const now = ctx.now();
-  return withSystemTx(ctx.pool, async (db) => {
+  return withPlatformTx(ctx.pool, async (db) => {
     // 先锁全部在用的超级管理员，再锁目标账号：所有请求的加锁顺序一致
     const activeSuperAdmins = await countActiveSuperAdminsForUpdate(db);
     const target = await lockPlatformUser(db, userId);
@@ -133,7 +133,7 @@ export async function createSuperAdmin(pool: Pool, input: NewSuperAdmin, now: Da
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
   try {
-    return await withSystemTx(pool, async (db) => {
+    return await withPlatformTx(pool, async (db) => {
       const user = await insertActivePlatformUser(
         db,
         { email: input.email, name: input.name, role: "super_admin", passwordHash },
@@ -171,7 +171,7 @@ export async function issueStaffPasswordReset(
 ): Promise<{ user: PlatformUser; reset: IssuedInvite }> {
   const now = ctx.now();
   const reset = newPlatformResetToken(now);
-  const user = await withSystemTx(ctx.pool, async (db) => {
+  const user = await withPlatformTx(ctx.pool, async (db) => {
     const target = await lockPlatformUser(db, userId);
     if (!target) throw notFound("账号");
     if (target.user.status !== "active" || target.passwordHash === null) throw accountNotActive();
@@ -198,14 +198,14 @@ export async function resetSuperAdminPassword(
   input: { email: string; password: string },
   now: Date,
 ): Promise<PlatformUser> {
-  const found = await withSystemTx(pool, (db) => findPlatformUserByEmail(db, input.email));
+  const found = await withPlatformTx(pool, (db) => findPlatformUserByEmail(db, input.email));
   if (!found || found.user.role !== "super_admin" || found.user.status !== "active" || found.passwordHash === null) {
     throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用超级管理员");
   }
   const issues = checkPasswordStrength(input.password, input.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
-  return withSystemTx(pool, async (db) => {
+  return withPlatformTx(pool, async (db) => {
     const locked = await lockPlatformUser(db, found.user.id);
     if (!locked || locked.user.role !== "super_admin" || locked.user.status !== "active") {
       throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用超级管理员");

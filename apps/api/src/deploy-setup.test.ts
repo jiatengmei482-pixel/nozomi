@@ -23,6 +23,7 @@ interface ComposeService {
   volumes?: string[];
   cap_drop?: string[];
   read_only?: boolean;
+  profiles?: string[];
 }
 
 interface ComposeFile {
@@ -80,11 +81,15 @@ const SERVER_SCRIPTS = [
 ];
 
 test("compose：三个服务都自动重启、都有健康检查", () => {
-  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "db"]);
-  for (const [name, service] of Object.entries(compose.services)) {
+  // migrate 不是常驻服务（带 profile，只在部署 / 恢复时临时运行一次），所以不自动重启、没有健康检查
+  const longRunning = Object.entries(compose.services).filter(([, service]) => service.profiles === undefined);
+  assert.deepEqual(longRunning.map(([name]) => name).sort(), ["api", "caddy", "db"]);
+  for (const [name, service] of longRunning) {
     assert.equal(service.restart, "unless-stopped", `${name} 没有设置自动重启`);
     assert.ok((service.healthcheck?.test.length ?? 0) > 1, `${name} 没有健康检查`);
   }
+  assert.deepEqual(Object.keys(compose.services).sort(), ["api", "caddy", "db", "migrate"]);
+  assert.equal(compose.services["migrate"]?.restart, "no");
 });
 
 test("compose：数据库和 API 不映射任何端口到主机，只有反向代理对外开 80 和 443", () => {
@@ -118,11 +123,51 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   ]) {
     assert.match(environment[key] ?? "", /^\$\{[A-Z_]+:[-?].*\}$/, `${key} 必须整体来自变量`);
   }
-  assert.match(environment["DATABASE_URL"] ?? "", /^postgres:\/\/nozomi:\$\{POSTGRES_PASSWORD\}@db:5432\/nozomi$/);
+  assert.match(environment["DATABASE_URL"] ?? "", /^postgres:\/\/nozomi_api:\$\{POSTGRES_APP_PASSWORD:\?[^}]*\}@db:5432\/nozomi$/);
   assert.match(compose.services["db"]?.environment?.["POSTGRES_PASSWORD"] ?? "", /^\$\{POSTGRES_PASSWORD:\?/);
   assert.equal(api?.image?.startsWith("${API_IMAGE:?"), true);
   assert.equal(api?.read_only, true);
   assert.deepEqual(api?.cap_drop, ["ALL"]);
+});
+
+test("compose：迁移账号的密码只给数据库容器和临时的 migrate 服务；api 容器的环境里没有它，也没有迁移用的连接串（ADR 0010）", () => {
+  const apiEnvironment = compose.services["api"]?.environment ?? {};
+  assert.ok(!("DATABASE_MIGRATION_URL" in apiEnvironment));
+  for (const [key, value] of Object.entries(apiEnvironment)) {
+    assert.ok(!/\$\{POSTGRES_PASSWORD\b/.test(value), `api 的 ${key} 用到了迁移账号的密码`);
+  }
+
+  const migrate = compose.services["migrate"];
+  assert.ok(migrate, "缺少 migrate 服务");
+  assert.deepEqual(migrate.profiles, ["tools"], "migrate 必须带 profile：`up` 不启动它，只在部署 / 恢复时临时运行");
+  assert.equal(migrate.image, "${API_IMAGE}");
+  assert.deepEqual(Object.keys(migrate.environment ?? {}).sort(), ["DATABASE_MIGRATION_URL", "DATABASE_URL"], "migrate 不需要登录签名密钥和第三方密钥");
+  assert.equal(migrate.environment?.["DATABASE_MIGRATION_URL"], "postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi");
+  // 建应用账号时用的账号名和密码必须和 api 实际连接用的一致
+  assert.equal(
+    migrate.environment?.["DATABASE_URL"],
+    (apiEnvironment["DATABASE_URL"] ?? "").replace(/\$\{POSTGRES_APP_PASSWORD:\?[^}]*\}/, "${POSTGRES_APP_PASSWORD}"),
+  );
+  assert.deepEqual(migrate.networks, ["backend"]);
+  assert.equal(migrate.read_only, true);
+  assert.deepEqual(migrate.cap_drop, ["ALL"]);
+  assert.ok(!("ports" in migrate));
+});
+
+test("初始化脚本生成两个不同用途的数据库密码；部署、恢复脚本的数据库管理任务都走 migrate 服务；备份用迁移账号", async () => {
+  const bootstrap = await readText("deploy/bootstrap.sh");
+  assert.match(bootstrap, /^\s*ensure_generated_secret "\$file" POSTGRES_PASSWORD 24$/m);
+  assert.match(bootstrap, /^\s*ensure_generated_secret "\$file" POSTGRES_APP_PASSWORD 24$/m);
+  for (const script of ["deploy/bin/deploy.sh", "deploy/bin/restore.sh"]) {
+    const text = await readText(script);
+    const tasks = [...text.matchAll(/run --rm --no-deps -T (\S+) node (\S+)/g)].map((match) => `${match[1]} ${match[2]}`);
+    assert.deepEqual(tasks, ["migrate apps/api/src/db/provision-cli.ts", "migrate apps/api/src/db/migrate-cli.ts"], script);
+  }
+  const backup = await readText("deploy/bin/backup.sh");
+  assert.match(backup, /exec -T db pg_dump -U nozomi -d nozomi /);
+  const restore = await readText("deploy/bin/restore.sh");
+  assert.match(restore, /pg_restore -U nozomi -d nozomi --no-owner --exit-on-error/);
+  assert.ok(!/--no-acl|--no-privileges|\s-x\s/.test(restore), "恢复时不能丢掉授权：权限角色对各表的权限记在备份里");
 });
 
 test("CI 用的覆盖文件只改反向代理的证书方式和端口，不改别的服务", async () => {
@@ -318,6 +363,11 @@ test("CI：每次都跑 shellcheck、部署冒烟和初始化脚本检查；冒�
   const assigned = [...smoke.matchAll(/^(POSTGRES_PASSWORD|AUTH_JWT_SECRET)=(.*)$/gm)].map((match) => match[2] ?? "");
   assert.equal(assigned.length, 2);
   for (const value of assigned) assert.match(value, /^ci-placeholder-not-a-real-/);
+  // 应用账号的密码不写在冒烟脚本里：故意留空，验证部署时会自动生成（早先初始化的服务器就是这种情况）
+  assert.ok(!/^POSTGRES_APP_PASSWORD=/m.test(smoke));
+  assert.match(smoke, /check_db_accounts "首次部署后"/);
+  assert.match(smoke, /check_db_accounts "恢复后"/);
+  assert.match(smoke, /恢复后：同一个管理员登录应返回 200/);
 });
 
 test("初始化脚本：先放行 SSH 再启用防火墙；不改 SSH 服务的登录设置；密钥只生成不打印", async () => {

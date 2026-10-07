@@ -1,16 +1,19 @@
 /**
  * `pnpm db:migrate`：执行所有还没执行的数据库迁移。可以反复运行。
  * 本地、CI、部署到 VPS 时都用这一条命令；只打印迁移文件名，不打印连接串。
+ *
+ * 用迁移账号（DATABASE_MIGRATION_URL，表的所有者）执行，不用服务进程的应用账号（ADR 0010）；
+ * 也不需要登录签名密钥等服务进程才用的配置。
  */
-import { ConfigError, loadConfig } from "@nozomi/config";
+import { ConfigError, loadMigrationConfig } from "@nozomi/config";
 import { createPool, driverErrorCode } from "./pool.ts";
 import { loadMigrationFiles, runMigrations } from "./migrate.ts";
 import { MigrationError } from "./migration-plan.ts";
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  const config = loadMigrationConfig();
   const files = await loadMigrationFiles();
-  const pool = createPool(config.databaseUrl, { max: 1, queryTimeoutMs: 0, statementTimeoutMs: 0 });
+  const pool = createPool(config.databaseMigrationUrl, { max: 1, queryTimeoutMs: 0, statementTimeoutMs: 0 });
   try {
     const result = await runMigrations(pool, files, {
       onApplied: (file) => console.log(`已执行 ${file.fileName}`),

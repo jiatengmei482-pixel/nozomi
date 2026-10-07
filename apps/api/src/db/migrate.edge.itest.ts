@@ -35,7 +35,7 @@ async function writeMigration(fileName: string, sql: string): Promise<void> {
 }
 
 async function tableNames(): Promise<string[]> {
-  const result = await db.pool.query<{ table_name: string }>(
+  const result = await db.owner.query<{ table_name: string }>(
     "select table_name from information_schema.tables where table_schema = $1 order by table_name",
     [db.schema],
   );
@@ -43,12 +43,12 @@ async function tableNames(): Promise<string[]> {
 }
 
 async function appliedVersions(): Promise<number[]> {
-  return (await readAppliedMigrations(db.pool)).map((m) => m.version);
+  return (await readAppliedMigrations(db.owner)).map((m) => m.version);
 }
 
 /** 记录表的完整内容（含执行时间），用来断言「数据库一点没动」。 */
 async function migrationRows(): Promise<unknown[]> {
-  return (await db.pool.query("select version, name, checksum, applied_at from schema_migrations order by version")).rows;
+  return (await db.owner.query("select version, name, checksum, applied_at from schema_migrations order by version")).rows;
 }
 
 function rejectsWith(promise: Promise<unknown>, code: MigrationErrorCode): Promise<void> {
@@ -60,7 +60,7 @@ function rejectsWith(promise: Promise<unknown>, code: MigrationErrorCode): Promi
 }
 
 async function migrate(): Promise<{ applied: string[]; skipped: number }> {
-  const result = await runMigrations(db.pool, await loadMigrationFiles(dir));
+  const result = await runMigrations(db.owner, await loadMigrationFiles(dir));
   return { applied: result.applied.map((f) => f.fileName), skipped: result.skipped };
 }
 
@@ -91,7 +91,7 @@ test("一个文件里有多条语句（含带分号的字符串和函数体）�
   );
   assert.deepEqual((await migrate()).applied, ["0001_multi.sql"]);
   assert.deepEqual(await tableNames(), ["schema_migrations", "t1", "t2"]);
-  assert.equal((await db.pool.query("select bump(41) as n")).rows[0].n, 42);
+  assert.equal((await db.owner.query("select bump(41) as n")).rows[0].n, 42);
 });
 
 test("第一个迁移就有语法错误：它前面已经执行的语句也整体回滚，没有任何记录；改好后可以重新执行", async () => {
@@ -121,7 +121,7 @@ test("迁移失败的报错说明是哪个文件，并带上数据库给出的�
     assert.equal(err.code, "MIGRATION_FAILED");
     assert.match(err.message, /0001_bad\.sql/);
     assert.match(err.message, /table_that_does_not_exist/);
-    assert.ok(!err.message.includes(new URL(db.url).password + "@"), "报错里出现了连接串");
+    assert.ok(!err.message.includes(new URL(db.ownerUrl).password + "@"), "报错里出现了连接串");
     return true;
   });
 });
@@ -193,7 +193,7 @@ test("schema 隔离：迁移建的表和记录表只出现在本测试的 schema
   const table = `iso_${randomBytes(6).toString("hex")}`;
   await writeMigration("0001_isolated.sql", `create table ${table} (id int primary key);`);
   // 记下执行前其他 schema 里的 schema_migrations 内容（本地库或 CI 里 public 可能已经有这张表）
-  const others = createPool(new URL(db.url).href.split("?")[0] as string, { max: 1 });
+  const others = createPool(new URL(db.ownerUrl).href.split("?")[0] as string, { max: 1 });
   try {
     const snapshot = async (): Promise<string> => {
       const tables = await others.query<{ table_schema: string }>(
@@ -229,7 +229,7 @@ test("迁移失败后锁已释放：别的连接可以接着执行，不会等�
   await writeMigration("0001_bad.sql", "select 1/0;");
   await rejectsWith(migrate(), "MIGRATION_FAILED");
   await writeMigration("0001_bad.sql", "select 1;");
-  const other = createPool(db.url, { max: 1 });
+  const other = createPool(db.ownerUrl, { max: 1 });
   try {
     // 锁没释放的话，这里会等满时限后报 MIGRATION_LOCK_TIMEOUT
     const result = await runMigrations(other, await loadMigrationFiles(dir), { lockTimeoutMs: 10_000 });
@@ -246,7 +246,7 @@ interface ChildResult {
 }
 
 async function runChild(childDir: string, timeoutMs = 60_000): Promise<ChildResult> {
-  const running = startNode(CHILD_ENTRY, { DATABASE_URL: db.url }, [childDir]);
+  const running = startNode(CHILD_ENTRY, { DATABASE_URL: db.ownerUrl }, [childDir]);
   const exit = await exitWithin(running, timeoutMs);
   if (exit === "timeout") {
     running.child.kill("SIGKILL");
@@ -279,7 +279,7 @@ test("四个独立进程同时执行迁移：全部退出码 0，每个迁移只
 test("迁移进程执行到一半被强制杀掉：不留下半成品，也不留下死锁；之后重新执行能完整成功", async () => {
   await writeMigration("0001_ok.sql", "create table ok (id int primary key);");
   await writeMigration("0002_long.sql", "create table half (id int primary key); select pg_sleep(3);");
-  const running = startNode(CHILD_ENTRY, { DATABASE_URL: db.url }, [dir]);
+  const running = startNode(CHILD_ENTRY, { DATABASE_URL: db.ownerUrl }, [dir]);
   try {
     // 等第一个迁移提交、第二个迁移正在执行中
     const midway = await waitUntil(async () => (await tableNames()).includes("ok"), 15_000, 100);

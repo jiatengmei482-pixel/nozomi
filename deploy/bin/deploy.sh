@@ -15,7 +15,7 @@
 # 退出码：
 #   0   成功
 #   1   参数或环境不对，什么都没动
-#   10  切换版本之前失败（拉镜像、备份、迁移），正在运行的旧版本没有被替换
+#   10  切换版本之前失败（拉镜像、备份、建应用账号、迁移），正在运行的旧版本没有被替换
 #   20  新版本不健康，已回退到上一个版本，上一个版本健康
 #   30  新版本不健康，且没有可回退的版本或回退后仍不健康——服务可能不可用，需要人工处理
 set -euo pipefail
@@ -82,6 +82,31 @@ check_layout() {
   done
   grep -Eq '^POSTGRES_PASSWORD=[A-Za-z0-9_-]+$' "$root_dir/.env" ||
     die "$EXIT_USAGE" "POSTGRES_PASSWORD 只能包含字母、数字、下划线和连字符（它会被拼进数据库连接串）"
+}
+
+# 应用账号（nozomi_api）的数据库密码。新服务器由初始化脚本生成；在此之前初始化过的服务器没有这一项，
+# 这里补上：值是本机随机生成的，只写进 .env（权限 600），永远不打印。已有的值绝不改动。
+# 在拿到部署锁之后调用，不会有两个部署同时写 .env。
+ensure_app_db_password() {
+  local env_file="$root_dir/.env" value
+  if ! grep -Eq '^POSTGRES_APP_PASSWORD=.+' "$env_file"; then
+    value="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+    [[ "$value" =~ ^[0-9a-f]{48}$ ]] ||
+      die "$EXIT_NOT_SWITCHED" "没能生成应用账号的数据库密码，旧版本没有被替换"
+    if grep -q '^POSTGRES_APP_PASSWORD=' "$env_file"; then
+      sed -i "s/^POSTGRES_APP_PASSWORD=.*/POSTGRES_APP_PASSWORD=$value/" "$env_file"
+    else
+      # 文件末尾可能没有换行，先补一个，避免和上一行连在一起
+      [[ -z "$(tail -c 1 "$env_file")" ]] || printf '\n' >>"$env_file"
+      printf 'POSTGRES_APP_PASSWORD=%s\n' "$value" >>"$env_file"
+    fi
+    chmod 600 "$env_file"
+    log "POSTGRES_APP_PASSWORD（应用账号的数据库密码）原先没有，已自动生成并写入 .env"
+  fi
+  grep -Eq '^POSTGRES_APP_PASSWORD=[A-Za-z0-9_-]{8,}$' "$env_file" ||
+    die "$EXIT_USAGE" "POSTGRES_APP_PASSWORD 至少 8 个字符，只能包含字母、数字、下划线和连字符（它会被拼进数据库连接串）"
+  [[ "$(sed -n 's/^POSTGRES_APP_PASSWORD=//p' "$env_file" | tail -n 1)" != "$(sed -n 's/^POSTGRES_PASSWORD=//p' "$env_file" | tail -n 1)" ]] ||
+    die "$EXIT_USAGE" "POSTGRES_APP_PASSWORD 不能和 POSTGRES_PASSWORD 相同：应用账号和迁移账号必须各用各的密码"
 }
 
 # 版本目录里的文件没有密钥。Caddyfile 要挂进反向代理容器，而容器里的进程去掉了
@@ -157,6 +182,7 @@ cmd_deploy() {
     die "$EXIT_USAGE" "不要用 root 部署。请把 GitHub 上这个环境的 VPS_SSH_USER 改成 nozomi（初始化流程已建好这个账号）再重新部署"
   check_layout
   acquire_lock
+  ensure_app_db_password
 
   local current fallback
   current="$(linked_release current)"
@@ -188,8 +214,13 @@ cmd_deploy() {
       die "$EXIT_NOT_SWITCHED" "迁移前备份失败，为安全起见中止部署，旧版本没有被替换"
   fi
 
+  # 两步都用迁移账号，在临时的 migrate 容器里执行；api 容器拿不到迁移账号的密码（ADR 0010）。
+  log "创建 / 核对数据库的应用账号"
+  "$release_dir/bin/compose.sh" run --rm --no-deps -T migrate node apps/api/src/db/provision-cli.ts ||
+    die "$EXIT_NOT_SWITCHED" "创建数据库的应用账号失败，旧版本没有被替换"
+
   log "执行数据库迁移"
-  "$release_dir/bin/compose.sh" run --rm --no-deps -T api node apps/api/src/db/migrate-cli.ts ||
+  "$release_dir/bin/compose.sh" run --rm --no-deps -T migrate node apps/api/src/db/migrate-cli.ts ||
     die "$EXIT_NOT_SWITCHED" "数据库迁移失败（出错的那个迁移已整体撤销），旧版本没有被替换"
 
   log "启动新版本并等待健康检查通过（最多 $HEALTH_TIMEOUT_SECONDS 秒）"

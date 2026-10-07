@@ -8,7 +8,7 @@ import { integrationStatus } from "@nozomi/config";
 import { PLATFORM_ROLES, type PlatformAction, type PlatformRole, platformPermissions } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
-import { withSystemTx } from "../db/context.ts";
+import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
@@ -202,7 +202,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   app.get("/platform/v1/audit-logs", async (request) => {
     await authenticate(request, "audit_log.read");
     const query = parseInput(auditQuerySchema, request.query, "querystring");
-    const page = await withSystemTx(ctx.pool, (db) =>
+    const page = await withPlatformTx(ctx.pool, (db) =>
       listAuditLogsAcrossTenants(
         db,
         {
@@ -223,7 +223,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get("/platform/v1/integrations", async (request) => {
     const principal = await authenticate(request, "integration.read");
-    await withSystemTx(ctx.pool, (db) =>
+    await withPlatformTx(ctx.pool, (db) =>
       insertAuditLog(db, consoleOrigin(platformActor(principal.user), request.ip, ctx.now()), {
         tenantId: null,
         resource: "integration",

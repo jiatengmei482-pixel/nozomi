@@ -28,7 +28,7 @@ async function run(args: string[], input: string | undefined, databaseUrl = api.
 }
 
 async function adminCount(): Promise<number> {
-  return (await api.db.pool.query("select count(*)::int as n from platform_users")).rows[0].n;
+  return (await api.db.owner.query("select count(*)::int as n from platform_users")).rows[0].n;
 }
 
 test("迁移之后、运行命令之前：没有任何平台账号，谁也登录不了", async () => {
@@ -44,7 +44,7 @@ test("创建超级管理员：密码从标准输入读，输出里没有密码�
   assert.ok(!output.includes(PASSWORD), "输出里出现了密码");
   assert.deepEqual(leakedSecrets(output), []);
 
-  const row = (await api.db.pool.query("select role, status, password_hash from platform_users")).rows[0];
+  const row = (await api.db.owner.query("select role, status, password_hash from platform_users")).rows[0];
   assert.equal(row.role, "super_admin");
   assert.equal(row.status, "active");
   assert.match(row.password_hash, /^scrypt\$1\$/);
@@ -107,7 +107,7 @@ test("缺少邮箱或姓名、邮箱不合法：报用法错误", async () => {
 test("可以再创建第二个超级管理员（比如第一个忘了密码时的恢复手段），并留下审计记录", async () => {
   const { code, output } = await run(["--email", "second@platform.test", "--name", "第二个"], PASSWORD);
   assert.equal(code, 0, output);
-  const audit = await api.db.pool.query(
+  const audit = await api.db.owner.query(
     "select actor_type, source, ip, action, after from audit_logs where resource = 'platform_user' and action = 'create' order by id",
   );
   assert.equal(audit.rows.length, 2);

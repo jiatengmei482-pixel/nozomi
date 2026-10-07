@@ -124,7 +124,7 @@ export interface AuditLogFilter {
   to?: Date | undefined;
 }
 
-/** 平台侧跨租户查询审计日志（只在 withSystemTx 里调用），从新到旧。 */
+/** 平台侧跨租户查询审计日志（只在 withPlatformTx 里调用），从新到旧。 */
 export async function listAuditLogsAcrossTenants(
   db: Db,
   filter: AuditLogFilter,

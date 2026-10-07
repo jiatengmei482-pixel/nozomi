@@ -1,10 +1,10 @@
 /**
  * 平台侧的租户管理：创建租户（同时邀请第一个管理员）、查看、暂停、恢复、补发管理员邀请。
- * 这些是平台员工的跨租户操作，在 withSystemTx 里执行，每条 SQL 自己带租户条件，并写审计日志（ADR 0003）。
+ * 这些是平台员工的跨租户操作，在 withPlatformTx 里执行，每条 SQL 自己带租户条件，并写审计日志（ADR 0003）。
  */
 import { newInvite } from "../auth/invite-token.ts";
 import type { AppContext } from "../context.ts";
-import { withSystemTx } from "../db/context.ts";
+import { withPlatformTx } from "../db/context.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { type TenantUser, findTenantUserByEmail } from "../repos/tenant-users.ts";
@@ -23,11 +23,11 @@ import type { IssuedInvite } from "./platform-staff.ts";
 import { asEmailTaken, inviteTenantUserInTx, issueTenantPasswordResetInTx } from "./tenant-users.ts";
 
 export function listTenants(ctx: AppContext, limit: number, after: TimeCursor | null): Promise<Page<Tenant>> {
-  return withSystemTx(ctx.pool, (db) => listTenantsAcrossTenants(db, limit, after));
+  return withPlatformTx(ctx.pool, (db) => listTenantsAcrossTenants(db, limit, after));
 }
 
 export async function getTenant(ctx: AppContext, tenantId: string): Promise<Tenant> {
-  const tenant = await withSystemTx(ctx.pool, (db) => findTenantForPlatform(db, tenantId, { lock: false }));
+  const tenant = await withPlatformTx(ctx.pool, (db) => findTenantForPlatform(db, tenantId, { lock: false }));
   if (!tenant) throw notFound("租户");
   return tenant;
 }
@@ -53,7 +53,7 @@ export async function createTenant(
   const invite = newInvite(now);
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   try {
-    return await withSystemTx(ctx.pool, async (db) => {
+    return await withPlatformTx(ctx.pool, async (db) => {
       const tenant = await insertTenant(db, input.name, now);
       await insertAuditLog(db, origin, {
         tenantId: tenant.id,
@@ -81,7 +81,7 @@ export async function inviteTenantAdmin(
   const now = ctx.now();
   const invite = newInvite(now);
   try {
-    const user = await withSystemTx(ctx.pool, async (db) => {
+    const user = await withPlatformTx(ctx.pool, async (db) => {
       const tenant = await findTenantForPlatform(db, tenantId, { lock: false });
       if (!tenant) throw notFound("租户");
       return inviteTenantUserInTx(
@@ -111,7 +111,7 @@ export async function changeTenantStatus(
   ip: string,
 ): Promise<Tenant> {
   const now = ctx.now();
-  return withSystemTx(ctx.pool, async (db) => {
+  return withPlatformTx(ctx.pool, async (db) => {
     const before = await findTenantForPlatform(db, tenantId, { lock: true });
     if (!before) throw notFound("租户");
     if (before.status === status) return before;
@@ -140,7 +140,7 @@ export async function issueTenantAdminPasswordReset(
   ip: string,
 ): Promise<{ user: TenantUser; reset: IssuedInvite }> {
   const now = ctx.now();
-  return withSystemTx(ctx.pool, async (db) => {
+  return withPlatformTx(ctx.pool, async (db) => {
     const tenant = await findTenantForPlatform(db, tenantId, { lock: false });
     if (!tenant) throw notFound("租户");
     const target = await findTenantUserByEmail(db, tenantId, email, { lock: true });

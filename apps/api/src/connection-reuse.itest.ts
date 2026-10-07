@@ -10,10 +10,12 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.ts";
-import { APP_DB_ROLE, withSystemTx, withTenantTx } from "./db/context.ts";
+import { APP_DB_ROLE, withPlatformTx, withTenantTx } from "./db/context.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { type Pool, createPool } from "./db/pool.ts";
+import { DB_ROLES, PLATFORM_DB_ROLE } from "./db/roles.ts";
 import { type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { deniedByDatabase } from "./testing/db.ts";
 import { testConfig } from "./testing/fixtures.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 
@@ -28,6 +30,7 @@ const extraApps: FastifyInstance[] = [];
 
 before(async () => {
   api = await createTestApi();
+  appLogin = new URL(api.db.url).username;
   platformToken = await api.superAdminToken();
   a = await api.tenantWithAdmin(platformToken, "车队甲", "admin@a.test");
   b = await api.tenantWithAdmin(platformToken, "车队乙", "admin@b.test");
@@ -45,6 +48,9 @@ after(async () => {
   for (const pool of extraPools) await pool.end();
   await api.close();
 });
+
+/** 应用账号的名字（来自测试用的连接串）。 */
+let appLogin = "";
 
 function poolOf(max: number): Pool {
   const pool = createPool(api.db.url, { max });
@@ -86,18 +92,22 @@ async function send(
   return { status: res.statusCode, body, text: res.body };
 }
 
-/** 把连接池里的连接全部取出来，逐条核对：角色是连接本身的账号，没有残留的租户设置，也没有没结束的事务。 */
+/**
+ * 把连接池里的连接全部取出来，逐条核对：角色是连接本身的账号（应用账号），没有残留的租户设置，也没有没结束的事务。
+ * 应用账号自己没有任何表权限，所以「角色没有残留」还可以从另一面确认：这条连接此刻读不了 tenants
+ * （残留在平台角色上会读到 2 行，残留在租户角色上会读到 0 行或 1 行，都不会是被拒绝）。
+ */
 async function assertPoolClean(pool: Pool, max: number): Promise<void> {
   const clients = await Promise.all(Array.from({ length: max }, () => pool.connect()));
   try {
     for (const client of clients) {
       const state = await client.query(
-        `select current_user = session_user as same_role,
+        `select current_user = session_user as same_role, session_user::text as login,
                 coalesce(current_setting('app.tenant_id', true), '') as tenant,
-                pg_current_xact_id_if_assigned() is null as no_write_tx,
-                (select count(*)::int from tenants) as visible_tenants`,
+                pg_current_xact_id_if_assigned() is null as no_write_tx`,
       );
-      assert.deepEqual(state.rows[0], { same_role: true, tenant: "", no_write_tx: true, visible_tenants: 2 });
+      assert.deepEqual(state.rows[0], { same_role: true, login: appLogin, tenant: "", no_write_tx: true });
+      await assert.rejects(client.query("select count(*) from tenants"), deniedByDatabase);
     }
   } finally {
     for (const client of clients) client.release();
@@ -105,11 +115,11 @@ async function assertPoolClean(pool: Pool, max: number): Promise<void> {
 }
 
 async function snapshotOfB(): Promise<unknown> {
-  const users = await api.db.pool.query(
+  const users = await api.db.owner.query(
     "select id, email, name, role, status, updated_at from tenant_users where tenant_id = $1 order by email",
     [b.tenantId],
   );
-  const tenant = await api.db.pool.query("select name, status, updated_at from tenants where id = $1", [b.tenantId]);
+  const tenant = await api.db.owner.query("select name, status, updated_at from tenants where id = $1", [b.tenantId]);
   return { users: users.rows, tenant: tenant.rows };
 }
 
@@ -231,15 +241,15 @@ class Deliberate extends Error {}
 
 test("同一条连接上：出错的租户事务（SQL 报错、违反行级安全、回调抛错）之后，下一个事务既不带着上一个租户，也不带着应用角色", async () => {
   const pool = poolOf(1);
-  const visibleTenants = async (run: <T>(fn: Parameters<typeof withSystemTx<T>>[1]) => Promise<T>): Promise<string[]> => {
+  const visibleTenants = async (run: <T>(fn: Parameters<typeof withPlatformTx<T>>[1]) => Promise<T>): Promise<string[]> => {
     const rows = await run((db) => db.query<{ tenant_id: string }>("select distinct tenant_id from tenant_users order by 1"));
     return rows.rows.map((row) => row.tenant_id);
   };
-  const asSystem = <T>(fn: Parameters<typeof withSystemTx<T>>[1]): Promise<T> => withSystemTx(pool, fn);
-  const asTenant = (tenantId: string) => <T>(fn: Parameters<typeof withSystemTx<T>>[1]): Promise<T> => withTenantTx(pool, tenantId, fn);
+  const asPlatform = <T>(fn: Parameters<typeof withPlatformTx<T>>[1]): Promise<T> => withPlatformTx(pool, fn);
+  const asTenant = (tenantId: string) => <T>(fn: Parameters<typeof withPlatformTx<T>>[1]): Promise<T> => withTenantTx(pool, tenantId, fn);
   const both = [a.tenantId, b.tenantId].sort();
 
-  const failures: [string, Parameters<typeof withSystemTx<unknown>>[1], object][] = [
+  const failures: [string, Parameters<typeof withPlatformTx<unknown>>[1], object][] = [
     ["SQL 报错（表不存在）", (db) => db.query("select * from no_such_table"), { code: "42P01" }],
     [
       "往别的租户写（违反行级安全）",
@@ -266,33 +276,33 @@ test("同一条连接上：出错的租户事务（SQL 报错、违反行级安�
   ];
   for (const [label, fn] of failures) {
     await withTenantTx(pool, a.tenantId, fn).catch(() => undefined);
-    assert.deepEqual(await visibleTenants(asSystem), both, `${label} 之后：系统事务应该看得到全部租户`);
+    assert.deepEqual(await visibleTenants(asPlatform), both, `${label} 之后：平台事务应该看得到全部租户`);
     assert.deepEqual(await visibleTenants(asTenant(b.tenantId)), [b.tenantId], `${label} 之后：租户乙的事务只该看到乙`);
     assert.deepEqual(await visibleTenants(asTenant(a.tenantId)), [a.tenantId], `${label} 之后：租户甲的事务只该看到甲`);
   }
-  // 出错的系统事务之后，租户事务照样降权
-  await withSystemTx(pool, (db) => db.query("select 1/0")).catch(() => undefined);
+  // 出错的平台事务之后，租户事务照样降权
+  await withPlatformTx(pool, (db) => db.query("select 1/0")).catch(() => undefined);
   const inTenant = await withTenantTx(pool, b.tenantId, (db) =>
     db.query("select current_user::text as role, current_setting('app.tenant_id') as tenant"),
   );
   assert.deepEqual(inTenant.rows[0], { role: APP_DB_ROLE, tenant: b.tenantId });
   await assert.rejects(withTenantTx(pool, b.tenantId, (db) => db.query("select 1 from platform_users")), { code: "42501" });
 
-  const names = await api.db.pool.query("select name from tenant_users where name in ('半途而废', '不该留下', '卧底')");
+  const names = await api.db.owner.query("select name from tenant_users where name in ('半途而废', '不该留下', '卧底')");
   assert.equal(names.rows.length, 0, "失败的事务里的写入没有回滚");
   await assertPoolClean(pool, 1);
 });
 
-test("并发的租户事务和系统事务共用 2 条连接：每个事务里看到的角色、租户、数据都是自己的", async () => {
+test("并发的租户事务和平台事务共用 2 条连接：每个事务里看到的角色、租户、数据都是自己的", async () => {
   const pool = poolOf(2);
   const jobs = Array.from({ length: 60 }, (_, i) => async () => {
     const pause = (i * 7) % 5;
     if (i % 3 === 2) {
-      const rows = await withSystemTx(pool, async (db) => {
+      const rows = await withPlatformTx(pool, async (db) => {
         await db.query("select pg_sleep($1::float / 1000)", [pause]);
-        return db.query("select current_user = session_user as same_role, (select count(distinct tenant_id)::int from tenant_users) as tenants");
+        return db.query("select current_user::text as role, (select count(distinct tenant_id)::int from tenant_users) as tenants");
       });
-      assert.deepEqual(rows.rows[0], { same_role: true, tenants: 2 });
+      assert.deepEqual(rows.rows[0], { role: PLATFORM_DB_ROLE, tenants: 2 });
       return;
     }
     const tenantId = i % 3 === 0 ? a.tenantId : b.tenantId;
@@ -371,51 +381,49 @@ test("应用角色在不设 / 设空 / 设成不存在的租户时：每一张�
   } finally {
     client.release();
   }
-  const ghosts = await api.db.pool.query("select 1 from tenant_users where email = 'ghost@a.test' union all select 1 from tenants where name = '幽灵租户'");
+  const ghosts = await api.db.owner.query("select 1 from tenant_users where email = 'ghost@a.test' union all select 1 from tenants where name = '幽灵租户'");
   assert.equal(ghosts.rows.length, 0);
 });
 
 /**
  * 缺陷：inTransaction 里 `begin; set local role nozomi_app` 这一步失败时（begin 已经成功、切换角色失败），
  * 没有回滚就把连接还回了连接池。这条连接从此停在「事务已失败」的状态，之后分到它的每个请求都会 25P02 报错。
- * 这里用一个没有被授予 nozomi_app 的数据库账号来稳定地复现「切换角色失败」。
+ * 这里用一个临时的应用账号稳定地复现「切换角色失败」：它先通过连接自检（是三个权限角色的成员），
+ * 然后被收回 nozomi_app——连接自检每条连接只做一次，所以下一次租户事务会走到切换角色那一步才失败。
  */
-test("租户事务在切换角色这一步失败后，连接不能带着没结束的事务回到连接池（之后的系统事务应当照常可用）", async () => {
+test("租户事务在切换角色这一步失败后，连接不能带着没结束的事务回到连接池（之后的平台事务应当照常可用）", async () => {
   const role = `nz_itest_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
   const password = randomUUID();
-  await api.db.pool.query(`create role ${role} login password '${password}'`);
+  await api.db.owner.query(`create role ${role} login noinherit password '${password}'`);
   let pool: Pool | null = null;
   try {
-    await api.db.pool.query(`grant usage on schema ${api.db.schema} to ${role}`);
-    await api.db.pool.query(`grant select on tenants, tenant_roles to ${role}`);
+    for (const group of DB_ROLES) await api.db.owner.query(`grant ${group} to ${role} with inherit false, set true`);
     const url = new URL(api.db.url);
     url.username = role;
     url.password = password;
     pool = createPool(url.toString(), { max: 1 });
     const only = pool;
+    const tenantsSeenByPlatform = async (): Promise<number | undefined> =>
+      (await withPlatformTx(only, (db) => db.query<{ n: number }>("select count(*)::int as n from tenants"))).rows[0]?.n;
+    assert.equal(await tenantsSeenByPlatform(), 2);
+    await api.db.owner.query(`revoke ${APP_DB_ROLE} from ${role}`);
     await assert.rejects(withTenantTx(only, a.tenantId, (db) => db.query("select 1")), { code: "42501" });
-    // 这个临时账号不是表的所有者，行级安全对它同样生效：没设租户时 tenants 一行都看不到（0 行，不是 2 行）。
-    // 所以「连接照常可用」用一张没有行级安全的表（角色清单，固定 5 行）来确认。
-    const after = await withSystemTx(only, async (db) => ({
-      roles: (await db.query<{ n: number }>("select count(*)::int as n from tenant_roles")).rows[0]?.n,
-      tenants: (await db.query<{ n: number }>("select count(*)::int as n from tenants")).rows[0]?.n,
-    }));
-    assert.deepEqual(after, { roles: 5, tenants: 0 });
+    assert.equal(await tenantsSeenByPlatform(), 2, "同一条连接上的下一个事务应当照常可用");
+    assert.equal(only.totalCount, 1, "连接不应该被丢弃重建：这里验证的是它被回滚干净后继续用");
   } finally {
     await pool?.end();
-    await api.db.pool.query(`drop owned by ${role}`);
-    await api.db.pool.query(`drop role ${role}`);
+    await api.db.owner.query(`drop role ${role}`);
   }
 });
 
 /**
- * 缺陷：withTenantTx / withSystemTx 用 pool.connect() 取出的连接上没有挂 error 监听。
+ * 缺陷：withTenantTx / withPlatformTx 用 pool.connect() 取出的连接上没有挂 error 监听。
  * 事务进行中数据库断开这条连接（数据库重启、故障切换、网络中断）时，驱动在连接上发出 error 事件，
  * 没有监听就成了未捕获的异常，整个 API 进程退出，其他正在处理的请求一起中断。
  */
-for (const kind of ["system", "tenant"] as const) {
+for (const kind of ["platform", "tenant"] as const) {
   for (const moment of ["idle", "querying"] as const) {
-    test(`${kind === "tenant" ? "租户" : "系统"}事务进行中连接被数据库断开（${moment === "idle" ? "两条语句之间" : "语句执行中"}）：这个请求失败，但进程不能崩，连接池之后照常可用`, async () => {
+    test(`${kind === "tenant" ? "租户" : "平台"}事务进行中连接被数据库断开（${moment === "idle" ? "两条语句之间" : "语句执行中"}）：这个请求失败，但进程不能崩，连接池之后照常可用`, async () => {
       const running = startNode(CHILD, { DATABASE_URL: api.db.url }, [kind, moment, a.tenantId]);
       const code = await exitWithin(running, 20_000);
       if (code === "timeout") running.child.kill("SIGKILL");

@@ -13,7 +13,7 @@ after(() => api.close());
 
 test("空库里没有任何账号和租户（不预置数据）", async () => {
   for (const table of ["platform_users", "tenants", "tenant_users", "platform_sessions", "tenant_sessions", "audit_logs"]) {
-    const result = await api.db.pool.query(`select count(*)::int as n from ${table}`);
+    const result = await api.db.owner.query(`select count(*)::int as n from ${table}`);
     assert.equal(result.rows[0].n, 0, table);
   }
 });

@@ -7,6 +7,9 @@
  * - 只有 production 必须配齐 Stripe、谷歌地图；local / ci / staging 可以缺，缺的集成在功能上显示为「未配置」
  *   （staging 放宽的原因见 ADR 0007「测试环境的配置校验」）。
  * - 测试密钥和正式密钥不能混用：非 production 环境禁止使用 Stripe live 密钥。
+ * - 数据库有两个连接串（ADR 0010）：`DATABASE_URL` 是服务进程用的应用账号（最小权限）；
+ *   `DATABASE_MIGRATION_URL` 是迁移账号（表的所有者），只有 `pnpm db:migrate`、`pnpm db:provision` 读它，
+ *   服务进程的环境里不应该有它。两者不能是同一个账号。
  */
 import { z } from "zod";
 
@@ -16,6 +19,28 @@ export type AppEnv = (typeof APP_ENVS)[number];
 /** 能否被解析成 URL。报错信息里永远不带原值（连接串里有密码）。 */
 function isParsableUrl(value: string): boolean {
   return URL.canParse(value);
+}
+
+function databaseUrlSchema(name: string): z.ZodType<string, z.ZodTypeDef, string> {
+  return z
+    .string({ required_error: `缺少 ${name}` })
+    .regex(/^postgres(ql)?:\/\//, `${name} 必须是 postgres:// 连接串`)
+    .refine(isParsableUrl, `${name} 不是合法的连接串（无法解析，请检查主机名、端口和特殊字符是否转义）`);
+}
+
+/** 连接串里的账号名；解析不了时返回 null。 */
+export function databaseUserOf(url: string): string | null {
+  if (!URL.canParse(url)) return null;
+  const user = decodeURIComponent(new URL(url).username);
+  return user === "" ? null : user;
+}
+
+const SAME_DATABASE_ACCOUNT =
+  "DATABASE_URL 和 DATABASE_MIGRATION_URL 不能是同一个数据库账号：服务进程必须用权限最小的应用账号，迁移账号只给 pnpm db:migrate 用（docs/secrets.md）";
+
+function sameDatabaseAccount(appUrl: string, migrationUrl: string): boolean {
+  const appUser = databaseUserOf(appUrl);
+  return appUser !== null && appUser === databaseUserOf(migrationUrl);
 }
 
 const optionalString = z
@@ -31,10 +56,11 @@ const rawSchema = z.object({
   // 服务前面有几层自己的反向代理（Nginx / Caddy 等）。0 表示直接对外，不信任 X-Forwarded-For。
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
-  DATABASE_URL: z
-    .string()
-    .regex(/^postgres(ql)?:\/\//, "DATABASE_URL 必须是 postgres:// 连接串")
-    .refine(isParsableUrl, "DATABASE_URL 不是合法的连接串（无法解析，请检查主机名、端口和特殊字符是否转义）"),
+  DATABASE_URL: databaseUrlSchema("DATABASE_URL"),
+  DATABASE_MIGRATION_URL: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    databaseUrlSchema("DATABASE_MIGRATION_URL").optional(),
+  ),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
 
   STRIPE_SECRET_KEY: optionalString,
@@ -62,7 +88,10 @@ export interface AppConfig {
   publicBaseUrl: string;
   /** 前置反向代理的层数：决定从 X-Forwarded-For 的哪一段取客户端地址（审计日志、登录限速用） */
   trustProxyHops: number;
+  /** 应用账号的连接串：服务进程和管理员命令行用它 */
   databaseUrl: string;
+  /** 迁移账号的连接串；服务进程的环境里没有它时为 null */
+  databaseMigrationUrl: string | null;
   authJwtSecret: string;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
@@ -128,6 +157,10 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
   }
+  const databaseMigrationUrl = env.DATABASE_MIGRATION_URL ?? null;
+  if (databaseMigrationUrl !== null && sameDatabaseAccount(env.DATABASE_URL, databaseMigrationUrl)) {
+    issues.push(SAME_DATABASE_ACCOUNT);
+  }
   if (issues.length) throw new ConfigError(issues);
 
   return {
@@ -136,11 +169,43 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     publicBaseUrl: env.PUBLIC_BASE_URL,
     trustProxyHops: env.TRUST_PROXY_HOPS,
     databaseUrl: env.DATABASE_URL,
+    databaseMigrationUrl,
     authJwtSecret: env.AUTH_JWT_SECRET,
     stripe,
     googleMapsApiKey,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT },
   };
+}
+
+const migrationSchema = z.object({
+  DATABASE_MIGRATION_URL: databaseUrlSchema("DATABASE_MIGRATION_URL"),
+  DATABASE_URL: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    databaseUrlSchema("DATABASE_URL").optional(),
+  ),
+});
+
+export interface MigrationConfig {
+  /** 迁移账号（表的所有者）的连接串 */
+  databaseMigrationUrl: string;
+  /** 应用账号的连接串；`pnpm db:provision` 从这里取应用账号的名字和密码，`pnpm db:migrate` 不需要它 */
+  databaseUrl: string | null;
+}
+
+/**
+ * 迁移和建应用账号这两个命令的配置：只读两个连接串，不要求登录签名密钥等服务进程才用的项，
+ * 这样执行迁移的容器里不必放那些密钥。
+ */
+export function loadMigrationConfig(source: Record<string, string | undefined> = process.env): MigrationConfig {
+  const parsed = migrationSchema.safeParse(source);
+  if (!parsed.success) {
+    throw new ConfigError(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`));
+  }
+  const databaseUrl = parsed.data.DATABASE_URL ?? null;
+  if (databaseUrl !== null && sameDatabaseAccount(databaseUrl, parsed.data.DATABASE_MIGRATION_URL)) {
+    throw new ConfigError([SAME_DATABASE_ACCOUNT]);
+  }
+  return { databaseMigrationUrl: parsed.data.DATABASE_MIGRATION_URL, databaseUrl };
 }
 
 export type IntegrationState = "configured" | "missing";

@@ -1,7 +1,7 @@
 /**
  * 租户用户管理：列表、邀请、改姓名 / 角色 / 状态、停用。
  * 所有函数都显式接收 tenantId；租户请求在 withTenantTx 里执行（行级安全兜底）。
- * `inviteTenantUserInTx` 也被平台侧「创建租户」「补发管理员邀请」复用，那时它在 withSystemTx 里执行。
+ * `inviteTenantUserInTx` 也被平台侧「创建租户」「补发管理员邀请」复用，那时它在 withPlatformTx 里执行。
  */
 import {
   type AccountStatus,

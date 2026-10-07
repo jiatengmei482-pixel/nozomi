@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { buildApp } from "./app.ts";
 import { runMigrations } from "./db/migrate.ts";
 import { buildMigrationFiles } from "./db/migration-plan.ts";
-import { type TestDatabase, createTestDatabase } from "./testing/db.ts";
+import { type TestDatabase, allowReadingMigrationRecords, createTestDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS, leakedSecrets, testConfig } from "./testing/fixtures.ts";
 
 let db: TestDatabase;
@@ -14,6 +14,12 @@ beforeEach(async () => {
   db = await createTestDatabase();
 });
 afterEach(() => db.drop());
+
+/** 用迁移账号执行这里的假迁移，再让应用账号读得到迁移记录（真实的库里由迁移 0005 授权）。 */
+async function migrate(migrationFiles: Parameters<typeof runMigrations>[1]): Promise<void> {
+  await runMigrations(db.owner, migrationFiles);
+  await allowReadingMigrationRecords(db);
+}
 
 const files = buildMigrationFiles([
   { fileName: "0001_a.sql", sql: "create table a (id int primary key);" },
@@ -28,7 +34,7 @@ async function getHealth(migrationFiles = files): Promise<{ statusCode: number; 
 }
 
 test("数据库可用且迁移已执行完：200 ok", async () => {
-  await runMigrations(db.pool, files);
+  await migrate(files);
   const { statusCode, body } = await getHealth();
   assert.equal(statusCode, 200);
   assert.equal(body.status, "ok");
@@ -46,7 +52,7 @@ test("没有任何迁移文件的空库：200 ok（M0-05 的现状）", async ()
 });
 
 test("集成状态只有「已配置 / 未配置」：每项只含 key、label、state，没有 detail，也没有任何密钥片段", async () => {
-  await runMigrations(db.pool, files);
+  await migrate(files);
   const { text, body } = await getHealth();
   assert.deepEqual(leakedSecrets(text), []);
   const password = new URL(db.url).password;
@@ -79,7 +85,7 @@ test("第三方集成未配置不影响健康状态", async () => {
 });
 
 test("有迁移还没执行：503 degraded，说明差几个", async () => {
-  await runMigrations(db.pool, files.slice(0, 1));
+  await migrate(files.slice(0, 1));
   const { statusCode, body } = await getHealth();
   assert.equal(statusCode, 503);
   assert.equal(body.status, "degraded");
@@ -88,7 +94,7 @@ test("有迁移还没执行：503 degraded，说明差几个", async () => {
 });
 
 test("已执行的迁移文件被改动：503，迁移状态为 error 并给出错误码", async () => {
-  await runMigrations(db.pool, files);
+  await migrate(files);
   const tampered = buildMigrationFiles([
     { fileName: "0001_a.sql", sql: "create table a (id bigint primary key);" },
     { fileName: "0002_b.sql", sql: "create table b (id int primary key);" },

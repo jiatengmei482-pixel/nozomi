@@ -117,7 +117,7 @@ test("创建租户：参数校验；管理员邮箱已被别的租户使用时 4
     body: { name: "先来的车队", admin: { email: "dup@fleet.test", name: "管理员" } },
   });
   assert.equal(first.status, 201);
-  const count = async (): Promise<number> => (await api.db.pool.query("select count(*)::int as n from tenants")).rows[0].n;
+  const count = async (): Promise<number> => (await api.db.owner.query("select count(*)::int as n from tenants")).rows[0].n;
   const before = await count();
   const second = await api.call("POST", "/platform/v1/tenants", {
     token: rootToken,
@@ -193,7 +193,7 @@ test("补发管理员邀请：第一个邀请过期后，平台可以重发；�
   });
   assert.equal(second.status, 201);
   assert.equal(second.body.user.role, "admin");
-  const tenantOf = await api.db.pool.query("select tenant_id from tenant_users where id = $1", [second.body.user.id]);
+  const tenantOf = await api.db.owner.query("select tenant_id from tenant_users where id = $1", [second.body.user.id]);
   assert.equal(tenantOf.rows[0].tenant_id, tenantId);
 
   const taken = await api.call("POST", `/platform/v1/tenants/${tenantId}/admin-invites`, {
@@ -248,10 +248,10 @@ test("两个超级管理员同时停用对方：只有一个成功，不会一�
   ]);
   const statuses = results.map((r) => r.status).sort();
   assert.ok(statuses.includes(200), JSON.stringify(statuses));
-  const remaining = await api.db.pool.query("select count(*)::int as n from platform_users where role = 'super_admin' and status = 'active'");
+  const remaining = await api.db.owner.query("select count(*)::int as n from platform_users where role = 'super_admin' and status = 'active'");
   assert.equal(remaining.rows[0].n, 1);
   // 恢复现场：让 root 继续可用
-  const survivor = (await api.db.pool.query("select email from platform_users where role = 'super_admin' and status = 'active'")).rows[0].email;
+  const survivor = (await api.db.owner.query("select email from platform_users where role = 'super_admin' and status = 'active'")).rows[0].email;
   const survivorToken = (await api.call("POST", "/platform/v1/auth/login", { body: { email: survivor, password: TEST_PASSWORD } })).body.access_token;
   await api.call("POST", `/platform/v1/staff/${rootId}/enable`, { token: survivorToken });
   rootToken = (await api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;

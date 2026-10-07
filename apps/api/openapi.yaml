@@ -1281,8 +1281,13 @@ components:
           description: 探测查询耗时（毫秒）；数据库不可用时为 null
         errorCode:
           type: [string, "null"]
-          enum: [DB_TIMEOUT, DB_UNREACHABLE, null]
-          description: 数据库不可用的原因；可用时为 null。不返回驱动的原始报错
+          enum: [DB_TIMEOUT, DB_UNREACHABLE, DB_ROLE_UNSAFE, null]
+          description: |
+            数据库不可用的原因；可用时为 null。不返回驱动的原始报错。
+            - `DB_TIMEOUT`：探测查询超时
+            - `DB_UNREACHABLE`：连不上
+            - `DB_ROLE_UNSAFE`：连得上，但服务进程用的数据库账号不是最小权限的应用账号（是超级用户、表的所有者等）。
+              这种账号下服务不执行任何业务查询；修正 `DATABASE_URL` 后重启（ADR 0010）
     MigrationHealth:
       type: object
       additionalProperties: false

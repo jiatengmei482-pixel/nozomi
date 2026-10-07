@@ -10,6 +10,7 @@
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { ConfigError, loadConfig } from "@nozomi/config";
+import { DbIdentityError } from "../db/identity.ts";
 import { createPool, driverErrorCode } from "../db/pool.ts";
 import { AppError } from "../errors.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
@@ -71,6 +72,8 @@ try {
   } else if (err instanceof AppError) {
     const issues = (err.details["issues"] ?? []) as { message: string }[];
     console.error([`没有创建账号：${err.message}`, ...issues.map((issue) => `- ${issue.message}`)].join("\n"));
+  } else if (err instanceof DbIdentityError) {
+    console.error(`没有创建账号：${err.message}`);
   } else if (driverErrorCode(err) !== null) {
     // 不打印异常本身：驱动的报错里可能带连接信息（规则 5）
     console.error(

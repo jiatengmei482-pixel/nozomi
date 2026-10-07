@@ -10,6 +10,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { QueryResultRow } from "pg";
 import type { Pool, PoolClient } from "./pool.ts";
 import { type QueryInput, driverErrorCode, timedQuery } from "./pool.ts";
 import {
@@ -46,7 +47,10 @@ export async function loadMigrationFiles(dir: string = MIGRATIONS_DIR): Promise<
   return buildMigrationFiles(inputs);
 }
 
-type Queryable = Pick<Pool, "query">;
+/** 能执行带时限查询的东西：连接池、连接，或事务里的查询入口。 */
+interface Queryable {
+  query<R extends QueryResultRow = QueryResultRow>(input: QueryInput): Promise<{ rows: R[] }>;
+}
 
 export interface ReadAppliedOptions {
   /** 记录表的名字（可带 schema）；默认按当前 search_path 找 `schema_migrations` */

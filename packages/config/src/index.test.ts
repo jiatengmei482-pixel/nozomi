@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, integrationStatus, loadConfig, mask } from "./index.ts";
+import { ConfigError, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mask } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -134,4 +134,58 @@ test("TRUST_PROXY_HOPS：默认 0（不信任 X-Forwarded-For），只接受 0 ~
   for (const value of ["-1", "6", "1.5", "true"]) {
     assert.ok(issuesOf({ ...base, TRUST_PROXY_HOPS: value }).some((i) => i.startsWith("TRUST_PROXY_HOPS")), value);
   }
+});
+
+const migrationUrl = "postgres://owner:owner-pw@localhost:5432/nozomi";
+
+test("服务进程的配置：DATABASE_MIGRATION_URL 可以没有（服务进程不需要迁移账号）；填了就必须是另一个账号的合法连接串", () => {
+  assert.equal(loadConfig(base).databaseMigrationUrl, null);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: "" }).databaseMigrationUrl, null);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: migrationUrl }).databaseMigrationUrl, migrationUrl);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: migrationUrl }).databaseUrl, base.DATABASE_URL);
+
+  const sameAccount = issuesOf({ ...base, DATABASE_MIGRATION_URL: "postgres://app:other-pw@other-host:5432/nozomi" });
+  assert.equal(sameAccount.length, 1);
+  assert.match(sameAccount[0] as string, /不能是同一个数据库账号/);
+  const malformed = issuesOf({ ...base, DATABASE_MIGRATION_URL: "mysql://owner:secret-owner-pw@db:3306/nozomi" });
+  assert.ok(malformed.some((i) => i.startsWith("DATABASE_MIGRATION_URL")));
+  assert.ok(!malformed.join(" ").includes("secret-owner-pw"));
+});
+
+test("迁移命令的配置：只要求 DATABASE_MIGRATION_URL，不要求登录签名密钥；缺失、格式不对、和应用账号相同都报错且不带原值", () => {
+  assert.deepEqual(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl }), {
+    databaseMigrationUrl: migrationUrl,
+    databaseUrl: null,
+  });
+  assert.deepEqual(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: base.DATABASE_URL }), {
+    databaseMigrationUrl: migrationUrl,
+    databaseUrl: base.DATABASE_URL,
+  });
+  assert.equal(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: " " }).databaseUrl, null);
+
+  const failing: [Record<string, string>, RegExp][] = [
+    [{}, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_URL: base.DATABASE_URL }, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_MIGRATION_URL: "postgres://owner:secret-owner-pw@db host/nozomi" }, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: "postgres://owner:secret-owner-pw@elsewhere/nozomi" }, /不能是同一个数据库账号/],
+    [{ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: "mysql://app:secret-owner-pw@db/nozomi" }, /DATABASE_URL/],
+  ];
+  for (const [env, expected] of failing) {
+    assert.throws(
+      () => loadMigrationConfig(env),
+      (err: unknown) => {
+        assert.ok(err instanceof ConfigError);
+        assert.match(err.message, expected);
+        assert.ok(!err.message.includes("secret-owner-pw") && !err.message.includes("owner-pw"));
+        return true;
+      },
+    );
+  }
+});
+
+test("databaseUserOf：取连接串里的账号名（还原百分号编码）；没有账号名或解析不了时为 null", () => {
+  assert.equal(databaseUserOf("postgres://nozomi_api:pw@db:5432/nozomi"), "nozomi_api");
+  assert.equal(databaseUserOf("postgres://a%40b:pw@db/nozomi"), "a@b");
+  assert.equal(databaseUserOf("postgres://db/nozomi"), null);
+  assert.equal(databaseUserOf("postgres://app:pw@db host/nozomi"), null);
 });

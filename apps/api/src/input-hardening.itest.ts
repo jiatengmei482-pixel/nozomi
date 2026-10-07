@@ -166,7 +166,7 @@ test("审计查询的时间参数：不带时区、不存在的日期、SQL 片�
 });
 
 test("SQL 注入式的输入：登录、邀请、筛选、路径编号都不会执行，表还在、数据没变", async () => {
-  const before = await api.db.pool.query("select (select count(*)::int from tenant_users) as users, (select count(*)::int from tenants) as tenants, (select count(*)::int from platform_users) as staff");
+  const before = await api.db.owner.query("select (select count(*)::int from tenant_users) as users, (select count(*)::int from tenants) as tenants, (select count(*)::int from platform_users) as staff");
   const payloads = ["' or '1'='1", "'; drop table tenant_users; --", "admin@a.test' --", "\" or \"\"=\"", "1; select pg_sleep(5)", "$1", "\\", "%", "_"];
   for (const payload of payloads) {
     for (const entry of ["tenant", "platform"]) {
@@ -193,7 +193,7 @@ test("SQL 注入式的输入：登录、邀请、筛选、路径编号都不会�
   const invited = await api.call("POST", "/tenant/v1/users", { token: a.adminToken, body: { email: "bobby@a.test", name, role: "readonly" } });
   assert.equal(invited.status, 201, invited.text);
   assert.equal(invited.body.user.name, name);
-  const after = await api.db.pool.query("select (select count(*)::int from tenant_users) as users, (select count(*)::int from tenants) as tenants, (select count(*)::int from platform_users) as staff");
+  const after = await api.db.owner.query("select (select count(*)::int from tenant_users) as users, (select count(*)::int from tenants) as tenants, (select count(*)::int from platform_users) as staff");
   assert.deepEqual(after.rows[0], { ...before.rows[0], users: before.rows[0].users + 1 });
 });
 
@@ -219,7 +219,7 @@ test("超大请求体 413、错误的 Content-Type 415（纯文本 400）、不�
     const res = await api.app.inject({ method: "POST", url, headers: { "content-type": contentType }, payload });
     return { status: res.statusCode, headers: res.headers, text: res.body, body: JSON.parse(res.body) as unknown };
   };
-  const reserved = async (): Promise<number> => (await api.db.pool.query("select coalesce(sum(attempt_count), 0)::int as n from login_throttles")).rows[0].n;
+  const reserved = async (): Promise<number> => (await api.db.owner.query("select coalesce(sum(attempt_count), 0)::int as n from login_throttles")).rows[0].n;
   const reservedBefore = await reserved();
   const good = JSON.stringify({ email: "admin@a.test", password: "x" });
   const huge = await raw(JSON.stringify({ email: "admin@a.test", password: "x".repeat(1_100_000) }), "application/json");
@@ -269,7 +269,7 @@ test("X-Forwarded-For 默认不被信任：伪造它换不了来源地址，审�
   const statuses: number[] = [];
   for (let i = 0; i < 6; i += 1) statuses.push(await attempt(`203.0.113.${i + 1}`));
   assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429], "每次换一个伪造的地址就绕过了「同一邮箱 + 同一地址 5 次」的限制");
-  const ips = await api.db.pool.query("select distinct ip from audit_logs where action = 'login_failed' and after->>'email' = 'xff-victim@platform.test'");
+  const ips = await api.db.owner.query("select distinct ip from audit_logs where action = 'login_failed' and after->>'email' = 'xff-victim@platform.test'");
   assert.deepEqual(ips.rows, [{ ip: "198.51.100.7" }]);
 });
 
@@ -291,7 +291,7 @@ test("TRUST_PROXY_HOPS=1：只信任最靠近服务的那一层代理写的地�
       remoteAddress: "10.0.0.2",
     });
     assert.equal(res.statusCode, 401);
-    const ips = await api.db.pool.query("select ip from audit_logs where action = 'login_failed' and after->>'email' = 'proxied@platform.test'");
+    const ips = await api.db.owner.query("select ip from audit_logs where action = 'login_failed' and after->>'email' = 'proxied@platform.test'");
     assert.deepEqual(ips.rows, [{ ip: "203.0.113.50" }]);
   } finally {
     await proxied.close();

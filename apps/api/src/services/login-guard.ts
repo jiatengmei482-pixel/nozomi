@@ -11,7 +11,7 @@ import {
   evaluateThrottle,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { withSystemTx } from "../db/context.ts";
+import { withPreAuthTx } from "../db/context.ts";
 import {
   clearLoginAttempts,
   deleteStaleLoginThrottles,
@@ -44,7 +44,7 @@ export async function reserveLogin(
   const perIp = throttleKey(entry, "ip", ip);
   const perEmailAndIp = throttleKey(entry, "email+ip", email, ip);
   const perEmail = throttleKey(entry, "email", email);
-  const decision = await withSystemTx(ctx.pool, async (db) => {
+  const decision = await withPreAuthTx(ctx.pool, async (db) => {
     await deleteStaleLoginThrottles(db, now);
     // 先看来源地址这一层：被它拦下的请求不再占用邮箱维度的次数，
     // 否则已经被拦下的攻击者还能继续把别人邮箱的计数顶满
@@ -64,7 +64,7 @@ export async function reserveLogin(
 
 /** 验证通过：邮箱维度清零，来源地址维度退还这一次。 */
 export async function clearLoginReservation(ctx: AppContext, reservation: LoginReservation): Promise<void> {
-  await withSystemTx(ctx.pool, async (db) => {
+  await withPreAuthTx(ctx.pool, async (db) => {
     await refundLoginAttempt(db, reservation.perIp);
     await clearLoginAttempts(db, reservation.perEmail);
   });

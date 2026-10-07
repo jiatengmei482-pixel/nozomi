@@ -1,6 +1,6 @@
 /**
  * 租户主体的数据访问。
- * - 带 `AcrossTenants` 或以平台视角操作的函数只在 withSystemTx 里调用（平台员工的操作）。
+ * - 带 `AcrossTenants` 或以平台视角操作的函数只在 withPlatformTx 里调用（平台员工的操作）。
  * - `findOwnTenant` 在 withTenantTx 里调用：行级安全保证只读得到自己这一行。
  */
 import type { Db } from "../db/context.ts";

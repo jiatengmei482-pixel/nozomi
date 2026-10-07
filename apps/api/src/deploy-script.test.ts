@@ -22,6 +22,9 @@ const linuxOnly = { skip: process.platform === "linux" ? false : "部署脚本�
 /** 明显的占位值：测试里没有任何真实密钥。 */
 const PLACEHOLDER_PASSWORD = "test-placeholder-not-a-real-password";
 const PLACEHOLDER_JWT = "test-placeholder-not-a-real-secret-0000000000";
+const PLACEHOLDER_APP_PASSWORD = "test-placeholder-not-a-real-app-password";
+/** 在有应用账号之前初始化的服务器上的 .env：没有 POSTGRES_APP_PASSWORD。 */
+const LEGACY_ENV_FILE = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
 const PLACEHOLDER_TOKEN = "test-placeholder-registry-token";
 const IMAGE = "registry.example.test/nozomi/nozomi-api";
 
@@ -67,7 +70,7 @@ beforeEach(async () => {
   await chmod(join(stubDir, "bin", "docker"), 0o755);
   await writeFile(
     join(root, ".env"),
-    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
+    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
     { mode: 0o644 },
   );
   sandbox = { root, stubDir };
@@ -141,7 +144,7 @@ function indexOfCall(log: string[], pattern: RegExp): number {
   return log.findIndex((line) => pattern.test(line));
 }
 
-test("首次部署成功：拉镜像 → 起数据库 → 迁移 → 启动，顺序正确；current 指向新版本，没有 previous，也不做迁移前备份", linuxOnly, async () => {
+test("首次部署成功：拉镜像 → 起数据库 → 建应用账号 → 迁移 → 启动，顺序正确；current 指向新版本，没有 previous，也不做迁移前备份", linuxOnly, async () => {
   const result = await deploy("v1");
   assert.equal(result.code, 0, result.output);
   assert.equal(await linkTarget("current"), "releases/v1");
@@ -150,9 +153,12 @@ test("首次部署成功：拉镜像 → 起数据库 → 迁移 → 启动，�
   const log = await calls();
   const pull = indexOfCall(log, /pull --quiet api$/);
   const database = indexOfCall(log, /up -d --wait --wait-timeout \d+ db$/);
-  const migrate = indexOfCall(log, /run --rm --no-deps -T api node apps\/api\/src\/db\/migrate-cli\.ts$/);
+  // 建账号和迁移都在临时的 migrate 容器里用迁移账号执行，不在 api 容器里（api 拿不到迁移账号的密码）
+  const provision = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/provision-cli\.ts$/);
+  const migrate = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/);
   const activate = indexOfCall(log, activationOf("v1"));
-  assert.ok(pull >= 0 && database > pull && migrate > database && activate > migrate, log.join("\n"));
+  assert.ok(pull >= 0 && database > pull && provision > database && migrate > provision && activate > migrate, log.join("\n"));
+  assert.ok(!log.some((line) => / -T api node /.test(line)), "数据库管理任务不应在 api 容器里执行");
   assert.ok(!log.some((line) => line.includes("pg_dump")), "首次部署时数据库是空的，不应备份");
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), []);
 });
@@ -177,6 +183,7 @@ test("release.env 只有非密钥项；证书方式随 ACME_EMAIL 有无而变�
   assert.match(withoutEmail, /^CADDY_TLS_MODE=auto$/m);
   assert.match(withoutEmail, new RegExp(`^API_IMAGE=${IMAGE.replaceAll(".", "\\.")}:v1$`, "m"));
   assert.ok(!withoutEmail.includes(PLACEHOLDER_PASSWORD) && !withoutEmail.includes(PLACEHOLDER_JWT));
+  assert.ok(!withoutEmail.includes(PLACEHOLDER_APP_PASSWORD));
 
   await deploy("v2", { ACME_EMAIL: "ops@example.test" });
   const withEmail = await readFile(join(sandbox.root, "releases", "v2", "release.env"), "utf8");
@@ -248,6 +255,68 @@ test("迁移前备份失败：退出码 10，不执行迁移", linuxOnly, async 
   assert.match(result.output, /迁移前备份失败/);
   assert.equal(indexOfCall(await calls(), /migrate-cli\.ts$/), -1);
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), [], "失败的备份不应留下半截文件");
+});
+
+test("建应用账号失败：退出码 10，不执行迁移，不启动新版本，current 不变", linuxOnly, async () => {
+  await deploy("v1");
+  await clearCalls();
+  await failWhen("provision-cli\\.ts$");
+  const result = await deploy("v2");
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /创建数据库的应用账号失败/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.equal(indexOfCall(log, /migrate-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /--remove-orphans$/), -1, "建账号失败后不应替换正在运行的容器");
+});
+
+test("应用账号的数据库密码：.env 里没有时部署自动生成（只写进 .env，不打印），已有的不改；和迁移账号的密码相同、含特殊字符时拒绝部署", linuxOnly, async () => {
+  const envFile = join(sandbox.root, ".env");
+  const before = LEGACY_ENV_FILE;
+  await writeFile(envFile, before, { mode: 0o644 });
+  const first = await deploy("v1");
+  assert.equal(first.code, 0, first.output);
+  const after = await readFile(envFile, "utf8");
+  assert.ok(after.startsWith(before), "原有的内容必须原样保留");
+  const generated = /^POSTGRES_APP_PASSWORD=([0-9a-f]{48})$/m.exec(after.slice(before.length))?.[1];
+  assert.ok(generated, "应追加一行 48 位十六进制的 POSTGRES_APP_PASSWORD");
+  assert.notEqual(generated, PLACEHOLDER_PASSWORD);
+  assert.equal(after.slice(before.length).trim().split("\n").length, 1, "只应追加这一行");
+  assert.equal(spawnSync("stat", ["-c", "%a", envFile], { encoding: "utf8" }).stdout.trim(), "600");
+  assert.match(first.output, /POSTGRES_APP_PASSWORD（应用账号的数据库密码）原先没有，已自动生成/);
+  assert.ok(!first.output.includes(generated), "生成的密码不能出现在输出里");
+  assert.ok(!(await calls()).some((line) => line.includes(generated)), "生成的密码不能出现在 docker 的命令行参数里");
+
+  const second = await deploy("v2");
+  assert.equal(second.code, 0, second.output);
+  assert.equal(await readFile(envFile, "utf8"), after, "已有的 POSTGRES_APP_PASSWORD 不能被改动");
+  assert.ok(!second.output.includes("已自动生成"));
+
+  // 文件末尾没有换行、或这一项留了空位：都补成完整的一行，不和别的行粘在一起
+  for (const content of [before.trimEnd(), `${before}POSTGRES_APP_PASSWORD=\n`]) {
+    await writeFile(envFile, content);
+    const result = await deploy("v3");
+    assert.equal(result.code, 0, result.output);
+    const lines = (await readFile(envFile, "utf8")).split("\n").filter(Boolean);
+    assert.deepEqual(lines.slice(0, 3), before.trimEnd().split("\n"));
+    assert.equal(lines.length, 4);
+    assert.match(lines[3] ?? "", /^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$/);
+  }
+
+  await clearCalls();
+  const rejected: [string, RegExp][] = [
+    [`POSTGRES_APP_PASSWORD=${PLACEHOLDER_PASSWORD}\n`, /不能和 POSTGRES_PASSWORD 相同/],
+    ["POSTGRES_APP_PASSWORD=bad@placeholder/value\n", /只能包含字母、数字/],
+    ["POSTGRES_APP_PASSWORD=short\n", /至少 8 个字符/],
+  ];
+  for (const [line, message] of rejected) {
+    await writeFile(envFile, before + line);
+    const result = await deploy("v4");
+    assert.equal(result.code, 1, result.output);
+    assert.match(result.output, message);
+    assert.ok(!result.output.includes("bad@placeholder") && !result.output.includes(PLACEHOLDER_PASSWORD));
+  }
+  assert.deepEqual(await calls(), [], "密码不合规时不应碰任何容器");
 });
 
 test("迁移失败：退出码 10，不启动新版本，current 不变", linuxOnly, async () => {
@@ -489,7 +558,7 @@ test("restore.sh：文件不是可用的备份或确认没通过时，不停服�
   assert.ok(!(await calls()).some((line) => destructive.test(line)));
 });
 
-test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重建 → 导入 → 迁移 → 启动", linuxOnly, async () => {
+test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重建 → 建应用账号和权限角色 → 导入 → 迁移 → 启动", linuxOnly, async () => {
   await deploy("v1");
   const script = join(sandbox.root, "current", "bin", "restore.sh");
   const dump = join(sandbox.root, "backups", "nozomi-staging-daily-20990101T000000Z.dump");
@@ -502,8 +571,10 @@ test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重�
     /stop api$/,
     /exec -T db pg_dump /,
     /exec -T db psql .*drop database if exists nozomi/,
-    /exec -T db pg_restore -U nozomi -d nozomi /,
-    /migrate-cli\.ts$/,
+    // 角色不在备份里：导入之前必须先有，否则备份里「把某张表授权给某个角色」的语句会失败
+    /run --rm --no-deps -T migrate node apps\/api\/src\/db\/provision-cli\.ts$/,
+    /exec -T db pg_restore -U nozomi -d nozomi --no-owner /,
+    /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/,
     /up -d --wait --wait-timeout \d+$/,
   ].map((pattern) => indexOfCall(log, pattern));
   assert.ok(order.every((index) => index >= 0), log.join("\n"));

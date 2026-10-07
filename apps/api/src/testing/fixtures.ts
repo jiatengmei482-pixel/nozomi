@@ -35,6 +35,11 @@ export function testEnv(databaseUrl: string): Record<string, string> {
   };
 }
 
+/** 迁移命令（`db:migrate`）的环境变量：只需要迁移账号的连接串。 */
+export function migrateEnv(migrationDatabaseUrl: string): Record<string, string> {
+  return { APP_ENV: "ci", DATABASE_MIGRATION_URL: migrationDatabaseUrl };
+}
+
 /** 断言一段文本里没有任何假密钥原文；返回泄露了的密钥名称列表。 */
 export function leakedSecrets(text: string): string[] {
   return Object.entries(FAKE_SECRETS)

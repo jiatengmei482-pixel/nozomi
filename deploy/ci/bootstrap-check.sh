@@ -49,6 +49,10 @@ password_digest() {
   docker exec "$1" grep '^POSTGRES_PASSWORD=' /opt/nozomi/staging/.env | sha256sum
 }
 
+app_password_digest() {
+  docker exec "$1" grep '^POSTGRES_APP_PASSWORD=' /opt/nozomi/staging/.env | sha256sum
+}
+
 in_container() {
   local name="$1"
   shift
@@ -56,7 +60,7 @@ in_container() {
 }
 
 check_version() {
-  local version="$1" name="nozomi-bootstrap-check-${1//./}" first second rules password_before
+  local version="$1" name="nozomi-bootstrap-check-${1//./}" first second rules password_before app_password_before
   printf '\n=== Ubuntu %s ===\n' "$version"
   docker run --detach --name "$name" --cap-add NET_ADMIN \
     --volume /var/run/docker.sock:/var/run/docker.sock \
@@ -75,6 +79,9 @@ check_version() {
   [[ "$(in_container "$name" 'stat -c "%a %U" /home/nozomi/.ssh/authorized_keys')" == "600 nozomi" ]] || fail "authorized_keys 应为 600、属于 nozomi"
   [[ "$(in_container "$name" 'wc -l </home/nozomi/.ssh/authorized_keys')" == "1" ]] || fail "部署公钥应只登记一次"
   in_container "$name" 'grep -Eq "^POSTGRES_PASSWORD=[0-9a-f]{48}$" /opt/nozomi/staging/.env' || fail "POSTGRES_PASSWORD 应为 48 位十六进制"
+  in_container "$name" 'grep -Eq "^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$" /opt/nozomi/staging/.env' || fail "POSTGRES_APP_PASSWORD 应为 48 位十六进制"
+  [[ "$(in_container "$name" 'grep "^POSTGRES_PASSWORD=" /opt/nozomi/staging/.env | cut -d= -f2 | sha256sum')" != "$(in_container "$name" 'grep "^POSTGRES_APP_PASSWORD=" /opt/nozomi/staging/.env | cut -d= -f2 | sha256sum')" ]] ||
+    fail "迁移账号和应用账号的密码不应相同"
   in_container "$name" 'grep -Eq "^AUTH_JWT_SECRET=[0-9a-f]{96}$" /opt/nozomi/staging/.env' || fail "AUTH_JWT_SECRET 应为 96 位十六进制"
   in_container "$name" 'grep -q "^STRIPE_SECRET_KEY=$" /opt/nozomi/staging/.env' || fail "应给 Stripe 密钥留好空位"
   in_container "$name" 'id -nG nozomi | grep -qw docker' || fail "nozomi 应属于 docker 组"
@@ -96,6 +103,18 @@ check_version() {
   in_container "$name" 'grep -q "^GOOGLE_MAPS_API_KEY=placeholder-filled-by-owner$" /opt/nozomi/staging/.env' || fail "已经填过的值被改动了"
   in_container "$name" 'grep -Eq "^AUTH_JWT_SECRET=[0-9a-f]{96}$" /opt/nozomi/staging/.env' || fail "被清空的 AUTH_JWT_SECRET 应重新生成"
   [[ "$(password_digest "$name")" == "$password_before" ]] || fail "POSTGRES_PASSWORD 被改动了"
+
+  # 在有应用账号之前初始化过的服务器：.env 里没有 POSTGRES_APP_PASSWORD。重跑后补上这一项，其余的值一个都不变。
+  app_password_before="$(app_password_digest "$name")"
+  bootstrap "$name" staging 22 "$public_key" >/dev/null
+  [[ "$(app_password_digest "$name")" == "$app_password_before" ]] || fail "已有的 POSTGRES_APP_PASSWORD 被改动了"
+  in_container "$name" 'sed -i "/^POSTGRES_APP_PASSWORD=/d" /opt/nozomi/staging/.env'
+  first="$(in_container "$name" 'sha256sum </opt/nozomi/staging/.env')"
+  bootstrap "$name" staging 22 "$public_key" >/dev/null
+  in_container "$name" 'grep -Eq "^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$" /opt/nozomi/staging/.env' || fail "早先初始化过的服务器重跑后应补上 POSTGRES_APP_PASSWORD"
+  [[ "$(in_container "$name" 'grep -v "^POSTGRES_APP_PASSWORD=" /opt/nozomi/staging/.env | sha256sum')" == "$first" ]] || fail "补 POSTGRES_APP_PASSWORD 时改动了 .env 里别的内容"
+  [[ "$(password_digest "$name")" == "$password_before" ]] || fail "补 POSTGRES_APP_PASSWORD 时 POSTGRES_PASSWORD 被改动了"
+  [[ "$(in_container "$name" 'stat -c "%a %U" /opt/nozomi/staging/.env')" == "600 nozomi" ]] || fail "补 POSTGRES_APP_PASSWORD 后 .env 应仍为 600、属于 nozomi"
 
   if docker exec --user nozomi --interactive "$name" bash -s -- staging 22 "$public_key" <"$repo_root/deploy/bootstrap.sh" >/dev/null 2>&1; then
     fail "非 root 运行应报错退出"
