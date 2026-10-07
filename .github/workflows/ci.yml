@@ -47,6 +47,52 @@ jobs:
       - run: pnpm roadmap:check
       - run: pnpm progress:build
 
+  # 端到端测试（M0-07）：真实浏览器 → 构建好的前端 → 真实运行的 API → 真实 PostgreSQL，不 mock 接口。
+  # 测试自己在临时 schema 里准备数据（迁移、admin:create、经 API 建租户），结束后整个删掉。
+  # API 和前端由 apps/web/e2e/global-setup.ts 起在非默认端口上；登录签名密钥是每次运行临时生成的随机值。
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nozomi
+          POSTGRES_PASSWORD: nozomi
+          POSTGRES_DB: nozomi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nozomi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # CI 专用的占位值；数据库是本次运行临时起的容器。
+      APP_ENV: ci
+      DATABASE_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 安装 Playwright 的 Chromium 和它需要的系统库
+        run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium
+      - name: 端到端测试（先构建前端，再起 API 和前端跑 Playwright）
+        run: pnpm test:e2e
+      - name: 失败时上传 Playwright 报告和现场（截图、trace）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+
   # 部署用的镜像、compose.yml、Caddyfile 和服务器脚本，每次都在 runner 上真实跑一遍（ADR 0007）。
   # 这里的密码全部是 deploy/ci/smoke.sh 里写明的占位值，数据库是本次运行临时起的容器。
   deploy-smoke:

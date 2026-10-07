@@ -81,7 +81,7 @@
           "id": "M0-07",
           "title": "设计规范与前端骨架",
           "role": "designer",
-          "status": "todo",
+          "status": "doing",
           "acceptance": ["docs/design 写明颜色、字体、间距、组件规范，亮色和暗色", "apps/web 有登录页，能用 M0-06 的账号真实登录", "手机宽度不出现横向滚动"],
           "evidence": "",
           "updated": "2026-10-07"
