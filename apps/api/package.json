@@ -1,0 +1,16 @@
+{
+  "name": "@nozomi/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "后端服务：Fastify + PostgreSQL。接口层只做鉴权、校验、调用、返回；业务规则在 @nozomi/domain。",
+  "dependencies": {
+    "@nozomi/config": "workspace:*",
+    "fastify": "^5.6.0",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "yaml": "^2.8.0"
+  }
+}

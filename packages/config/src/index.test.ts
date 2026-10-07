@@ -35,10 +35,34 @@ test("缺少 DATABASE_URL 时报错", () => {
   assert.ok(issuesOf({ AUTH_JWT_SECRET: "x".repeat(40) }).some((i) => i.startsWith("DATABASE_URL")));
 });
 
-test("staging 环境必须配齐 Stripe 和谷歌地图", () => {
-  const issues = issuesOf({ ...base, APP_ENV: "staging" });
+test("production 环境必须配齐 Stripe 和谷歌地图", () => {
+  const issues = issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" });
   assert.ok(issues.some((i) => i.includes("Stripe")));
   assert.ok(issues.some((i) => i.includes("GOOGLE_MAPS_API_KEY")));
+});
+
+test("staging 环境缺 Stripe 和谷歌地图时照常启动，两项显示未配置", () => {
+  const c = loadConfig({ ...base, APP_ENV: "staging" });
+  assert.equal(c.appEnv, "staging");
+  assert.equal(c.stripe, null);
+  assert.equal(c.googleMapsApiKey, null);
+  const status = integrationStatus(c);
+  assert.equal(status.find((s) => s.key === "stripe")?.state, "missing");
+  assert.equal(status.find((s) => s.key === "googleMaps")?.state, "missing");
+});
+
+test("staging 环境只配了其中一项（只有谷歌地图，或只有 Stripe）也能启动", () => {
+  const mapsOnly = loadConfig({ ...base, APP_ENV: "staging", GOOGLE_MAPS_API_KEY: "AIzaSyExample000000000000000" });
+  assert.equal(mapsOnly.stripe, null);
+  assert.ok(mapsOnly.googleMapsApiKey);
+  const stripeOnly = loadConfig({ ...base, ...stripeTest, APP_ENV: "staging" });
+  assert.equal(stripeOnly.stripe?.mode, "test");
+  assert.equal(stripeOnly.googleMapsApiKey, null);
+});
+
+test("staging 环境 Stripe 只填一部分仍然报错（放宽的只是「可以整体不配」）", () => {
+  const issues = issuesOf({ ...base, APP_ENV: "staging", STRIPE_SECRET_KEY: stripeTest.STRIPE_SECRET_KEY });
+  assert.ok(issues.some((i) => i.includes("同时配置")));
 });
 
 test("Stripe 只填一部分时报错", () => {
@@ -79,4 +103,27 @@ test("空字符串视为未填写", () => {
 test("mask 只保留首尾", () => {
   assert.equal(mask("sk_test_1234567890abcd"), "sk_test…abcd");
   assert.equal(mask("short"), "•••••");
+});
+
+test("mask：不够长的密钥全部打码，脱敏结果里不含任何原文字符", () => {
+  for (const length of [0, 1, 10, 11, 12, 14, 19]) {
+    const secret = "Zk3".repeat(7).slice(0, length);
+    assert.equal(mask(secret), "•".repeat(length));
+  }
+  const twenty = "abcdefg" + "X".repeat(9) + "wxyz";
+  assert.equal(mask(twenty), "abcdefg…wxyz");
+});
+
+test("DATABASE_URL 前缀正确但无法解析（端口超范围、主机名有空格）：报错，且报错里没有原值", () => {
+  for (const url of ["postgres://app:pw-Zq7@127.0.0.1:99999/nozomi", "postgres://app:pw-Zq7@db host/nozomi"]) {
+    const issues = issuesOf({ ...base, DATABASE_URL: url });
+    assert.ok(issues.some((i) => i.startsWith("DATABASE_URL") && i.includes("无法解析")), url);
+    assert.ok(!issues.join("\n").includes("pw-Zq7"));
+  }
+});
+
+test("连接串脱敏：密码写在查询参数里也不输出", () => {
+  const c = loadConfig({ ...base, DATABASE_URL: "postgres://app@localhost:5432/nozomi?password=query-pw&sslmode=disable" });
+  const detail = integrationStatus(c).find((s) => s.key === "database")?.detail;
+  assert.equal(detail, "postgres://app:•••@localhost:5432/nozomi");
 });

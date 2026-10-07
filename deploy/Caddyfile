@@ -1,0 +1,62 @@
+# 反向代理：自动申请和续期 HTTPS 证书，把请求转给 API。
+# APP_DOMAIN、CADDY_TLS_MODE、ACME_EMAIL 由 compose.yml 传入。
+{
+	# 只开 HTTP/1.1 和 HTTP/2：HTTP/3 走 UDP 443，防火墙和端口映射都没有放行它。
+	servers {
+		protocols h1 h2
+	}
+}
+
+(proxy_api) {
+	reverse_proxy api:8080
+}
+
+# 证书的三种申请方式，由 CADDY_TLS_MODE 选一种：
+#   auto      默认方式向证书机构申请
+#   email     同上，并登记联系邮箱（证书出问题时证书机构会发邮件）
+#   internal  Caddy 自签，只给 CI 冒烟和本地验证用
+(tls_auto) {
+}
+
+(tls_email) {
+	tls {$ACME_EMAIL}
+}
+
+(tls_internal) {
+	tls internal
+}
+
+{$APP_DOMAIN} {
+	import tls_{$CADDY_TLS_MODE}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+		-Via
+		defer
+	}
+
+	import proxy_api
+
+	# 访问日志不记查询串（可能带令牌、邮箱等），也不记来源页地址。
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*" ""
+				request>headers>Referer delete
+			}
+		}
+	}
+}
+
+# 只给容器内的健康检查用：端口没有映射到主机，外部访问不到。
+http://:8081 {
+	import proxy_api
+}

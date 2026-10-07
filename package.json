@@ -8,9 +8,12 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "dev": "node --watch --import ./scripts/load-env.mjs apps/api/src/server.ts",
+    "db:migrate": "node --env-file-if-exists=.env apps/api/src/db/migrate-cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test \"packages/*/src/**/*.test.ts\"",
-    "check": "pnpm typecheck && pnpm test && pnpm roadmap:check",
+    "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\"",
+    "test:integration": "node --env-file-if-exists=.env --test \"apps/*/src/**/*.itest.ts\"",
+    "check": "pnpm typecheck && pnpm test && pnpm test:integration && pnpm roadmap:check",
     "config:check": "node packages/config/src/cli.ts",
     "roadmap:check": "node scripts/check-roadmap.mjs",
     "progress:build": "node scripts/build-progress.mjs"
