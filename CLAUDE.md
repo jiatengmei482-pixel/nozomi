@@ -35,7 +35,7 @@
 - `apps/api`：后端（Fastify + PostgreSQL），M0-05 创建。
 - `apps/web`：前端（React + Vite），M0-07 创建。
 - 测试：Node 内置 `node:test`；端到端用 Playwright。
-- 部署：Render（测试环境、正式环境），GitHub Actions 做 CI。
+- 部署：负责人自有的 VPS（测试环境、正式环境，Docker Compose，见 ADR 0007），GitHub Actions 做 CI 和部署。
 
 ## 常用命令
 
