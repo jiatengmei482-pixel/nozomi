@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,15 +28,18 @@ const PLACEHOLDER_APP_PASSWORD = "test-placeholder-not-a-real-app-password";
 const LEGACY_ENV_FILE = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
 const PLACEHOLDER_TOKEN = "test-placeholder-registry-token";
 const IMAGE = "registry.example.test/nozomi/nozomi-api";
+/** 配对的前端镜像：同一个仓库前缀、同一个标签，由 deploy.sh 从 API 镜像名推出来。 */
+const WEB_IMAGE = "registry.example.test/nozomi/nozomi-web";
 
 /**
- * docker 的替身。每次调用往 $STUB_DIR/calls.log 追加一行「[调用方环境里的 API_IMAGE] 全部参数」；
+ * docker 的替身。每次调用往 $STUB_DIR/calls.log 追加一行「[调用方环境里的 API_IMAGE 和 WEB_IMAGE] 全部参数」；
  * 参数匹配 $STUB_DIR/fail-patterns 里任意一条正则时以 1 退出。
+ * `image ls <仓库名>` 只输出 $STUB_DIR/images 里属于这个仓库名的那些行（和真的 docker 一样）。
  */
 const DOCKER_STUB = `#!/usr/bin/env bash
 set -euo pipefail
 args="$*"
-printf '[%s] %s\\n' "\${API_IMAGE:-}" "$args" >>"$STUB_DIR/calls.log"
+printf '[%s] %s\\n' "\${API_IMAGE:-}\${WEB_IMAGE:+ \$WEB_IMAGE}" "$args" >>"$STUB_DIR/calls.log"
 if [[ "$args" == login* ]]; then cat >"$STUB_DIR/login-stdin"; fi
 if [[ -f "$STUB_DIR/fail-patterns" ]]; then
   while IFS= read -r pattern; do
@@ -44,7 +47,9 @@ if [[ -f "$STUB_DIR/fail-patterns" ]]; then
   done <"$STUB_DIR/fail-patterns"
 fi
 if [[ "$args" == *"pg_dump"* ]]; then printf 'stub-dump'; fi
-if [[ "$args" == "image ls"* && -f "$STUB_DIR/images" ]]; then cat "$STUB_DIR/images"; fi
+if [[ "$args" == "image ls"* && -f "$STUB_DIR/images" ]]; then
+  awk -v prefix="\${!#}:" 'index(\$0, prefix) == 1' "$STUB_DIR/images"
+fi
 exit 0
 `;
 
@@ -187,7 +192,7 @@ test("首次部署成功：拉镜像 → 起数据库 → 建应用账号 → �
   assert.equal(await linkTarget("previous"), null);
 
   const log = await calls();
-  const pull = indexOfCall(log, /pull --quiet api$/);
+  const pull = indexOfCall(log, /pull --quiet api caddy$/);
   const database = indexOfCall(log, /up -d --wait --wait-timeout \d+ db$/);
   // 建账号和迁移都在临时的 migrate 容器里用迁移账号执行，不在 api 容器里（api 拿不到迁移账号的密码）
   const provision = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/provision-cli\.ts$/);
@@ -218,6 +223,7 @@ test("release.env 只有非密钥项；证书方式随 ACME_EMAIL 有无而变�
   assert.match(withoutEmail, /^APP_DOMAIN=staging\.example\.test$/m);
   assert.match(withoutEmail, /^CADDY_TLS_MODE=auto$/m);
   assert.match(withoutEmail, new RegExp(`^API_IMAGE=${IMAGE.replaceAll(".", "\\.")}:v1$`, "m"));
+  assert.match(withoutEmail, new RegExp(`^WEB_IMAGE=${WEB_IMAGE.replaceAll(".", "\\.")}:v1$`, "m"));
   assert.ok(!withoutEmail.includes(PLACEHOLDER_PASSWORD) && !withoutEmail.includes(PLACEHOLDER_JWT));
   assert.ok(!withoutEmail.includes(PLACEHOLDER_APP_PASSWORD));
 
@@ -247,7 +253,7 @@ test("上传的文件权限过严时，部署会把 Caddyfile 改成所有人可
 test("第二次部署成功：迁移前先备份；previous 指向上一个版本；更早的版本目录和用不到的镜像被清理", linuxOnly, async () => {
   await deploy("v1");
   await deploy("v2");
-  await writeFile(join(sandbox.stubDir, "images"), [`${IMAGE}:v1`, `${IMAGE}:v2`, `${IMAGE}:v3`].join("\n") + "\n");
+  await writeFile(join(sandbox.stubDir, "images"), [IMAGE, WEB_IMAGE].flatMap((name) => [`${name}:v1`, `${name}:v2`, `${name}:v3`]).join("\n") + "\n");
   await clearCalls();
   for (const name of await readdir(join(sandbox.root, "backups"))) await rm(join(sandbox.root, "backups", name));
 
@@ -266,13 +272,14 @@ test("第二次部署成功：迁移前先备份；previous 指向上一个版�
   assert.ok(backups.every((name) => /^nozomi-staging-pre-deploy-\d{8}T\d{6}Z\.dump$/.test(name)), backups.join());
 
   assert.ok(log.some((line) => line.endsWith(`image rm ${IMAGE}:v1`)), "应删除不再需要的 v1 镜像");
+  assert.ok(log.some((line) => line.endsWith(`image rm ${WEB_IMAGE}:v1`)), "配对的 v1 前端镜像也应删除");
   assert.ok(!log.some((line) => /image rm .*:(v2|v3)$/.test(line)), "current 和 previous 的镜像不能删");
 });
 
 test("拉镜像失败：退出码 10，旧版本没有被碰（不迁移、不启动新版本），current 不变", linuxOnly, async () => {
   await deploy("v1");
   await clearCalls();
-  await failWhen("pull --quiet api$");
+  await failWhen("pull --quiet api caddy$");
   const result = await deploy("v2");
   assert.equal(result.code, 10, result.output);
   assert.match(result.output, /拉取镜像失败/);
@@ -291,6 +298,22 @@ test("迁移前备份失败：退出码 10，不执行迁移", linuxOnly, async 
   assert.match(result.output, /迁移前备份失败/);
   assert.equal(indexOfCall(await calls(), /migrate-cli\.ts$/), -1);
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), [], "失败的备份不应留下半截文件");
+});
+
+test("容器里解析不了数据库的服务名（Docker 内置 DNS 不工作）：退出码 10，提示指向内核模块；不建账号、不迁移、不启动新版本", linuxOnly, async () => {
+  await deploy("v1");
+  await clearCalls();
+  await failWhen("migrate node -e ");
+  const result = await deploy("v2");
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /容器里解析不了数据库的服务名 db：Docker 内置 DNS 不工作，旧版本没有被替换/);
+  assert.match(result.output, /kernel-modules-extra/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.ok(indexOfCall(log, /run --rm --no-deps -T migrate node -e /) > indexOfCall(log, /up -d --wait --wait-timeout \d+ db$/), "数据库起来之后才检查");
+  assert.equal(indexOfCall(log, /provision-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /migrate-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /--remove-orphans$/), -1);
 });
 
 test("建应用账号失败：退出码 10，不执行迁移，不启动新版本，current 不变", linuxOnly, async () => {
@@ -457,7 +480,7 @@ test("镜像仓库的令牌只从标准输入传给 docker login，不出现在�
   let log = await calls();
   assert.equal(await readFile(join(sandbox.stubDir, "login-stdin"), "utf8"), PLACEHOLDER_TOKEN);
   assert.ok(log.some((line) => line.endsWith("login registry.example.test --username deployer --password-stdin")));
-  assert.ok(indexOfCall(log, /\] login /) < indexOfCall(log, /pull --quiet api$/));
+  assert.ok(indexOfCall(log, /\] login /) < indexOfCall(log, /pull --quiet api caddy$/));
   assert.ok(log.at(-1)?.endsWith("logout registry.example.test"), "最后一步应是登出");
   assert.ok(!log.join("\n").includes(PLACEHOLDER_TOKEN) && !ok.output.includes(PLACEHOLDER_TOKEN));
 
@@ -484,7 +507,7 @@ test("DEPLOY_SKIP_PULL=1 时不拉镜像（CI 冒烟用本机构建的镜像）"
 
 test("DEPLOY_SKIP_PULL=1（手工部署：镜像已传到本机）：先确认镜像在本机；不拉取、不登录镜像仓库；其余步骤和顺序与拉镜像的部署完全一样", linuxOnly, async () => {
   await deploy("v1");
-  const pulled = (await calls()).filter((line) => !/pull --quiet api$/.test(line));
+  const pulled = (await calls()).filter((line) => !/pull --quiet api caddy$/.test(line));
   await rm(join(sandbox.root, "current"));
   await clearCalls();
 
@@ -494,8 +517,9 @@ test("DEPLOY_SKIP_PULL=1（手工部署：镜像已传到本机）：先确认�
   assert.match(result.output, /镜像已在本机，不拉取/);
   const log = await calls();
   assert.ok(log[0]?.endsWith(`image inspect ${IMAGE}:v1`), "第一件事应是确认镜像在本机");
+  assert.ok(log[1]?.endsWith(`image inspect ${WEB_IMAGE}:v1`), "配对的前端镜像也要确认在本机");
   assert.equal(indexOfCall(log, /pull|login|logout/), -1, log.join("\n"));
-  assert.deepEqual(log.slice(1), pulled, "除了「拉镜像」换成「确认镜像在本机」，其余调用应完全一样");
+  assert.deepEqual(log.slice(2), pulled, "除了「拉镜像」换成「确认镜像在本机」，其余调用应完全一样");
 });
 
 test("DEPLOY_SKIP_PULL=1 但镜像不在本机：退出码 10，不碰数据库和容器", linuxOnly, async () => {
@@ -503,6 +527,15 @@ test("DEPLOY_SKIP_PULL=1 但镜像不在本机：退出码 10，不碰数据库�
   const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1" });
   assert.equal(result.code, 10, result.output);
   assert.match(result.output, /不在这台机器上/);
+  assert.equal(indexOfCall(await calls(), /\] compose /), -1);
+  assert.equal(await linkTarget("current"), null);
+});
+
+test("DEPLOY_SKIP_PULL=1 但只传了 API 镜像、配对的前端镜像不在本机：同样退出码 10，不碰数据库和容器", linuxOnly, async () => {
+  await failWhen("^image inspect .*/nozomi-web:");
+  const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1" });
+  assert.equal(result.code, 10, result.output);
+  assert.ok(result.output.includes(`镜像 ${WEB_IMAGE}:v1 不在这台机器上`), result.output);
   assert.equal(indexOfCall(await calls(), /\] compose /), -1);
   assert.equal(await linkTarget("current"), null);
 });
@@ -628,18 +661,19 @@ test("入口模式的参数不合法：退出码 1，不调用 docker；EDGE_LIS
   }
 });
 
-test("清理旧镜像：只按标签逐个删本次镜像所在仓库名下的镜像，从不使用 prune", linuxOnly, async () => {
+test("清理旧镜像：只按标签逐个删本次的两个镜像（API、前端）所在仓库名下的镜像，从不使用 prune", linuxOnly, async () => {
   await deploy("v1");
   await deploy("v2");
-  await writeFile(join(sandbox.stubDir, "images"), [`${IMAGE}:v0`, `${IMAGE}:v1`, `${IMAGE}:v2`, `${IMAGE}:v3`].join("\n") + "\n");
+  const neighbor = "registry.example.test/someone-else/site";
+  const present = [...[IMAGE, WEB_IMAGE].flatMap((name) => ["v0", "v1", "v2", "v3"].map((tag) => `${name}:${tag}`)), `${neighbor}:v0`, "caddy:2"];
+  await writeFile(join(sandbox.stubDir, "images"), present.join("\n") + "\n");
   await clearCalls();
   assert.equal((await deploy("v3")).code, 0);
   const log = await calls();
-  const listing = log.filter((line) => /\] image ls /.test(line));
-  assert.equal(listing.length, 1);
-  assert.ok(listing[0]?.endsWith(` ${IMAGE}`), "列镜像时必须限定在本次镜像的仓库名下");
+  const listing = log.filter((line) => /\] image ls /.test(line)).map((line) => line.split(" ").at(-1));
+  assert.deepEqual(listing, [IMAGE, WEB_IMAGE], "列镜像时必须限定在本次两个镜像各自的仓库名下");
   const removed = log.filter((line) => /\] image rm /.test(line)).map((line) => line.split(" ").at(-1));
-  assert.deepEqual(removed.sort(), [`${IMAGE}:v0`, `${IMAGE}:v1`]);
+  assert.deepEqual(removed.sort(), [`${IMAGE}:v0`, `${IMAGE}:v1`, `${WEB_IMAGE}:v0`, `${WEB_IMAGE}:v1`]);
   assert.ok(!log.some((line) => /prune|rmi|volume rm|network rm|system /.test(line)), log.join("\n"));
 });
 
@@ -777,4 +811,85 @@ test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重�
   assert.ok(order.every((index) => index >= 0), log.join("\n"));
   assert.deepEqual(order, [...order].sort((a, b) => a - b), log.join("\n"));
   assert.ok((await readdir(join(sandbox.root, "backups"))).some((name) => name.includes("pre-restore")));
+});
+
+/**
+ * 接入前端之前部署的版本目录（服务器上现有的那种）：release.env 里没有 WEB_IMAGE，反向代理用的是官方 caddy 镜像。
+ * 这里把它摆成正在运行的版本。
+ */
+async function installLegacyCurrent(id: string): Promise<void> {
+  const dir = await installRelease(id);
+  await writeFile(
+    join(dir, "release.env"),
+    [
+      "APP_ENV=staging",
+      "APP_DOMAIN=staging.example.test",
+      "ACME_EMAIL=",
+      "CADDY_TLS_MODE=auto",
+      `API_IMAGE=${IMAGE}:${id}`,
+      "EDGE_MODE=standalone",
+      "EDGE_LISTEN=",
+      "CADDY_SITE_ADDRESS=staging.example.test",
+      "TRUST_PROXY_HOPS=1",
+      "",
+    ].join("\n"),
+  );
+  await symlink(`releases/${id}`, join(sandbox.root, "current"));
+}
+
+test("前端镜像的名字由 API 镜像推出：同一个仓库前缀、同一个标签（带端口的仓库地址、不带仓库地址都一样）；调用方传的 WEB_IMAGE 不被采信", linuxOnly, async () => {
+  for (const [id, apiImage, webImage] of [
+    ["v1", "nozomi-api:abc123", "nozomi-web:abc123"],
+    ["v2", "registry.example.test:5000/team/nozomi-api:v2", "registry.example.test:5000/team/nozomi-web:v2"],
+    ["v3", "ghcr.io/owner/nozomi-api:0f3c", "ghcr.io/owner/nozomi-web:0f3c"],
+  ] as const) {
+    await clearCalls();
+    const result = await deploy(id, { API_IMAGE: apiImage, WEB_IMAGE: "registry.example.test/someone-else/site:latest" });
+    assert.equal(result.code, 0, result.output);
+    const env = await releaseEnv(id);
+    assert.ok(env.includes(`\nAPI_IMAGE=${apiImage}\n`), env);
+    assert.ok(env.includes(`\nWEB_IMAGE=${webImage}\n`), env);
+    assert.ok(!env.includes("someone-else"), "调用方环境里的 WEB_IMAGE 不能进 release.env");
+    // 两个镜像名都只从这个版本的 release.env 进 docker compose，不从调用方的环境进
+    const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
+    assert.ok(composeCalls.length > 0);
+    for (const line of composeCalls) assert.ok(line.startsWith("[] "), line);
+  }
+});
+
+test("在只含后端的旧部署之上直接部署：不需要重新初始化；previous 指向旧版本，它的镜像不被清理", linuxOnly, async () => {
+  await installLegacyCurrent("legacy");
+  await writeFile(join(sandbox.stubDir, "images"), [`${IMAGE}:older`, `${IMAGE}:legacy`, `${IMAGE}:v2`, `${WEB_IMAGE}:v2`].join("\n") + "\n");
+  const result = await deploy("v2");
+  assert.equal(result.code, 0, result.output);
+  assert.equal(await linkTarget("current"), "releases/v2");
+  assert.equal(await linkTarget("previous"), "releases/legacy");
+  const log = await calls();
+  assert.ok(indexOfCall(log, /exec -T db pg_dump /) >= 0, "已有部署时迁移前要备份");
+  const removed = log.filter((line) => /\] image rm /.test(line)).map((line) => line.split(" ").at(-1));
+  assert.deepEqual(removed, [`${IMAGE}:older`], "只删用不到的旧标签；旧版本的 API 镜像要留着供回退");
+  assert.ok(!(await releaseEnv("legacy")).includes("WEB_IMAGE"), "旧版本目录不应被改动");
+});
+
+test("在只含后端的旧部署之上部署的新版本不健康：回退到旧版本目录（它自己的 compose 文件和镜像），退出码 20；之后手动回退同样可用", linuxOnly, async () => {
+  await installLegacyCurrent("legacy");
+  await failWhen("releases/v2/compose\\.yml up -d --wait .*--remove-orphans$");
+  const failed = await deploy("v2");
+  assert.equal(failed.code, 20, failed.output);
+  assert.ok(failed.output.includes(`回退到上一个版本 legacy（镜像 ${IMAGE}:legacy）`), failed.output);
+  assert.equal(await linkTarget("current"), "releases/legacy");
+  const log = await calls();
+  const restored = log.filter((line) => activationOf("legacy").test(line));
+  assert.equal(restored.length, 1);
+  // 回退用的是旧版本目录自己的两个变量文件；新版本的镜像名（API 和前端）都不会漏进去
+  assert.ok(restored[0]?.startsWith("[] "), restored[0]);
+  assert.ok(restored[0]?.includes(`--env-file ${join(sandbox.root, "releases", "legacy", "release.env")} `));
+
+  await failWhen();
+  assert.equal((await deploy("v3")).code, 0);
+  await clearCalls();
+  const back = rollback("v3");
+  assert.equal(back.code, 0, back.output);
+  assert.equal(await linkTarget("current"), "releases/legacy");
+  assert.ok((await calls()).some((line) => activationOf("legacy").test(line)));
 });

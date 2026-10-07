@@ -7,6 +7,8 @@
 #   事先放一个 docker 命令的替身（自称 Compose 5.x）。检查：脚本不安装、不升级 Docker，不配置 Docker 软件源，
 #   除了查版本和状态不执行任何 docker 命令；不安装也不启用防火墙；MANAGE_FIREWALL 可以明确覆盖由模式推导的结果；
 #   已有的 Docker 版本太旧时报错停下，而不是去升级它。
+#   CentOS 上另外检查内核模块预检：运行中的内核缺 Docker 容器网络需要的模块时报错停下、什么都不装；
+#   这一项用 modprobe 的替身和一个空的模块目录来模拟（容器里看不到真实内核的模块）。
 # 两种情形都检查：部署用户、目录权限、密钥生成且不被覆盖、公钥不重复追加、定时任务及其服务。
 #
 # 容器里验证不了、所以这里没有覆盖的部分：
@@ -60,7 +62,15 @@ case "\$*" in
 esac
 exit 0
 STUB
-chmod 755 "$work_dir/systemctl" "$work_dir/firewall-cmd" "$work_dir/docker"
+# modprobe 的替身：记录每次调用；/etc/modprobe-stub-missing 里列出的模块算「没有」。
+cat >"$work_dir/modprobe" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" >>/var/log/modprobe-stub.log
+for last; do :; done
+if grep -qx "$last" /etc/modprobe-stub-missing 2>/dev/null; then exit 1; fi
+exit 0
+STUB
+chmod 755 "$work_dir/systemctl" "$work_dir/firewall-cmd" "$work_dir/docker" "$work_dir/modprobe"
 
 # 临时生成一把只在本次检查里用的密钥，取它的公钥；结束时随临时目录一起删除。
 ssh-keygen -q -t ed25519 -N '' -C '' -f "$work_dir/key"
@@ -214,6 +224,7 @@ check_fresh() {
     [[ "$(grep -c 'ALLOW IN' <<<"$rules")" == "6" ]] || fail "防火墙应只放行 22、80、443（IPv4 和 IPv6 各一条）"
   else
     in_container "$name" 'test -s /etc/yum.repos.d/docker-ce.repo' || fail "应配置了 Docker 官方软件源"
+    grep -q '内核模块：这里看不到运行中内核' <<<"$output" || fail "容器里看不到内核模块目录时，预检应跳过并说明"
     rules="$(in_container "$name" 'firewall-offline-cmd --list-ports' | tr ' ' '\n' | sort | tr '\n' ' ')"
     [[ "$rules" == "22/tcp 443/tcp 80/tcp " ]] || fail "firewalld 的永久配置里应只多放行 22、80、443，实际是：$rules"
     in_container "$name" "grep -qx 'enable --now firewalld' $systemctl_log" || fail "应启动 firewalld 并设为开机自启"
@@ -227,7 +238,26 @@ check_shared() {
   local label="$1" image="$2" family="$3" name="nozomi-bootstrap-check-shared-${2//[^a-z0-9]/}" first second output firewall_package=firewalld
   [[ "$family" == "debian" ]] && firewall_package=ufw
   printf '\n=== 已有 Docker 和别的服务的机器（behind-proxy）：%s ===\n' "$label"
-  start_container "$name" "$image" --volume "$work_dir/docker:/usr/local/bin/docker:ro"
+  start_container "$name" "$image" --volume "$work_dir/docker:/usr/local/bin/docker:ro" --volume "$work_dir/modprobe:/mnt/modprobe:ro"
+
+  if [[ "$family" == "rhel" ]]; then
+    # 内核模块预检：模拟真实机器（有模块目录、有 modprobe）。「看不到模块目录时跳过」在情形一里检查。
+    in_container "$name" 'echo 5.0.1 >/etc/docker-stub-compose-version'
+    # shellcheck disable=SC2016
+    in_container "$name" 'cp /mnt/modprobe /usr/local/sbin/modprobe && mkdir -p "/lib/modules/$(uname -r)" && printf "xt_nat\nnft_compat\n" >/etc/modprobe-stub-missing'
+    if output="$(bootstrap "$name" EDGE_MODE=behind-proxy -- staging 22 "$public_key" 2>&1)"; then
+      fail "运行中的内核缺少容器网络模块时应报错退出"
+    fi
+    grep -q '缺少 Docker 容器网络需要的模块：xt_nat nft_compat。' <<<"$output" || fail "缺内核模块时的报错应列出缺的模块，实际输出：$output"
+    grep -q "dnf install kernel-modules-extra-$(in_container "$name" 'uname -r')" <<<"$output" || fail "缺内核模块时应告诉负责人安装哪个包"
+    grep -q '升级内核和 kernel-modules-extra 并重启服务器' <<<"$output" || fail "缺内核模块时应说明装不到匹配版本怎么办"
+    if in_container "$name" 'id nozomi >/dev/null 2>&1 || command -v crond >/dev/null 2>&1'; then fail "内核模块预检没过时不应继续安装软件或创建用户"; fi
+    if in_container "$name" "grep -Ev '^--dry-run --quiet [a-z_]+$' /var/log/modprobe-stub.log"; then fail "预检只能试探模块在不在（--dry-run），不能加载模块"; fi
+    in_container "$name" ': >/etc/modprobe-stub-missing'
+    output="$(bootstrap "$name" EDGE_MODE=behind-proxy -- staging 22 "$public_key")"
+    grep -q '内核模块：Docker 容器网络需要的模块齐全' <<<"$output" || fail "模块齐全时应说明检查通过"
+    in_container "$name" 'userdel --remove nozomi && rm -rf /opt/nozomi /etc/cron.d/nozomi-backup-staging /var/log/systemctl-stub.log /var/log/docker-stub.log'
+  fi
 
   # 已有的 Docker 太旧（Compose 低于 2.25）：报错停下，不去升级它，也不往下做任何事。
   in_container "$name" 'echo 2.20.3 >/etc/docker-stub-compose-version'
