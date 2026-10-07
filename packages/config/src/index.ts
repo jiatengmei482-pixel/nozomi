@@ -4,13 +4,19 @@
  * 规则：
  * - 所有配置只从环境变量读取，代码里不写任何密钥。
  * - 启动时校验一次，缺失或格式不对立即报错退出（fail fast）。
- * - staging / production 必须配齐 Stripe、谷歌地图；local / ci 可以缺，缺的集成在功能上显示为「未配置」。
+ * - 只有 production 必须配齐 Stripe、谷歌地图；local / ci / staging 可以缺，缺的集成在功能上显示为「未配置」
+ *   （staging 放宽的原因见 ADR 0007「测试环境的配置校验」）。
  * - 测试密钥和正式密钥不能混用：非 production 环境禁止使用 Stripe live 密钥。
  */
 import { z } from "zod";
 
 export const APP_ENVS = ["local", "ci", "staging", "production"] as const;
 export type AppEnv = (typeof APP_ENVS)[number];
+
+/** 能否被解析成 URL。报错信息里永远不带原值（连接串里有密码）。 */
+function isParsableUrl(value: string): boolean {
+  return URL.canParse(value);
+}
 
 const optionalString = z
   .string()
@@ -22,10 +28,13 @@ const rawSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:8080"),
+  // 服务前面有几层自己的反向代理（Nginx / Caddy 等）。0 表示直接对外，不信任 X-Forwarded-For。
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
   DATABASE_URL: z
     .string()
-    .regex(/^postgres(ql)?:\/\//, "DATABASE_URL 必须是 postgres:// 连接串"),
+    .regex(/^postgres(ql)?:\/\//, "DATABASE_URL 必须是 postgres:// 连接串")
+    .refine(isParsableUrl, "DATABASE_URL 不是合法的连接串（无法解析，请检查主机名、端口和特殊字符是否转义）"),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
 
   STRIPE_SECRET_KEY: optionalString,
@@ -51,6 +60,8 @@ export interface AppConfig {
   appEnv: AppEnv;
   port: number;
   publicBaseUrl: string;
+  /** 前置反向代理的层数：决定从 X-Forwarded-For 的哪一段取客户端地址（审计日志、登录限速用） */
+  trustProxyHops: number;
   databaseUrl: string;
   authJwtSecret: string;
   stripe: StripeConfig | null;
@@ -67,8 +78,6 @@ export class ConfigError extends Error {
   }
 }
 
-const STRICT_ENVS: ReadonlySet<AppEnv> = new Set(["staging", "production"]);
-
 function parseStripe(
   env: z.output<typeof rawSchema>,
   issues: string[],
@@ -76,7 +85,7 @@ function parseStripe(
   const { STRIPE_SECRET_KEY: sk, STRIPE_PUBLISHABLE_KEY: pk, STRIPE_WEBHOOK_SECRET: wh } = env;
   const given = [sk, pk, wh].filter(Boolean).length;
   if (given === 0) {
-    if (STRICT_ENVS.has(env.APP_ENV)) issues.push(`${env.APP_ENV} 环境必须配置 Stripe 三个密钥`);
+    if (env.APP_ENV === "production") issues.push("production 环境必须配置 Stripe 三个密钥");
     return null;
   }
   if (given < 3) {
@@ -113,8 +122,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
 
   const stripe = parseStripe(env, issues);
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
-  if (!googleMapsApiKey && STRICT_ENVS.has(env.APP_ENV)) {
-    issues.push(`${env.APP_ENV} 环境必须配置 GOOGLE_MAPS_API_KEY`);
+  if (!googleMapsApiKey && env.APP_ENV === "production") {
+    issues.push("production 环境必须配置 GOOGLE_MAPS_API_KEY");
   }
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
@@ -125,6 +134,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     appEnv: env.APP_ENV,
     port: env.PORT,
     publicBaseUrl: env.PUBLIC_BASE_URL,
+    trustProxyHops: env.TRUST_PROXY_HOPS,
     databaseUrl: env.DATABASE_URL,
     authJwtSecret: env.AUTH_JWT_SECRET,
     stripe,
@@ -157,13 +167,18 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
   ];
 }
 
+/** 露出首尾所需的最短长度：短于它时首 7 位 + 末 4 位会占掉大半甚至全部，所以整体打码。 */
+const MASK_MIN_LENGTH = 20;
+
+/** 密钥脱敏：足够长时只露首 7 位和末 4 位（至少遮住 9 位），否则全部打码。 */
 export function mask(secret: string): string {
-  if (secret.length <= 10) return "•".repeat(secret.length);
+  if (secret.length < MASK_MIN_LENGTH) return "•".repeat(secret.length);
   return `${secret.slice(0, 7)}…${secret.slice(-4)}`;
 }
 
+/** 连接串脱敏：只留协议、用户名、主机、库名；密码和查询参数一律不输出。解析不了时不输出任何原文。 */
 function maskUrl(url: string): string {
+  if (!URL.canParse(url)) return "连接串无法解析";
   const u = new URL(url);
-  if (u.password) u.password = "•••";
   return `${u.protocol}//${u.username ? u.username + ":•••@" : ""}${u.host}${u.pathname}`;
 }

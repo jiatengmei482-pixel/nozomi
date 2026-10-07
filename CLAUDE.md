@@ -35,16 +35,22 @@
 - `apps/api`：后端（Fastify + PostgreSQL），M0-05 创建。
 - `apps/web`：前端（React + Vite），M0-07 创建。
 - 测试：Node 内置 `node:test`；端到端用 Playwright。
-- 部署：Render（测试环境、正式环境），GitHub Actions 做 CI。
+- 部署：负责人自有的 VPS（测试环境、正式环境，Docker Compose，见 ADR 0007），GitHub Actions 做 CI 和部署。
 
 ## 常用命令
 
 ```bash
 pnpm install
-pnpm check            # 类型检查 + 测试 + 进度文件校验，提交前必须通过
-pnpm config:check     # 看当前环境哪些账号已配置
-pnpm progress:build   # 本地生成进度页到 site/index.html
-docker compose up -d  # 本地数据库
+docker compose up -d   # 本地数据库
+pnpm db:migrate        # 执行数据库迁移，可重复运行
+pnpm dev               # 启动后端，http://localhost:8080/health
+pnpm admin:create --email <邮箱> --name <姓名>   # 创建平台超级管理员；密码按提示输入，不接受命令行参数
+pnpm admin:reset-password --email <邮箱>         # 给超级管理员重设密码
+pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验，提交前必须通过（需要本地数据库在运行）
+pnpm test              # 只跑单元测试（不需要数据库）
+pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
+pnpm config:check      # 看当前环境哪些账号已配置
+pnpm progress:build    # 本地生成进度页到 site/index.html
 ```
 
 ## 一个任务的完整流程

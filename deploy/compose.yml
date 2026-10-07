@@ -1,0 +1,121 @@
+# 一个环境在 VPS 上运行的全部容器（ADR 0007）：数据库、API、反向代理。
+#
+# 不要直接 `docker compose -f` 这个文件：用同目录下的 bin/compose.sh，
+# 它会带上正确的项目名和两个变量文件——
+#   - /opt/nozomi/<环境>/.env   只放密钥，由初始化脚本生成、负责人补充（docs/secrets.md）
+#   - 本目录的 release.env       非密钥项，由 bin/deploy.sh 每次部署写入
+#
+# 传给 API 的环境变量全部集中在下面 api.environment 一处；新增变量只改这里。
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: nozomi
+      POSTGRES_DB: nozomi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?缺少 POSTGRES_PASSWORD，请先运行服务器初始化}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # 只在内部网络，不映射任何端口到主机；backend 网络也没有外网出口。
+    networks:
+      - backend
+    healthcheck:
+      # 走 TCP：镜像首次初始化期间的临时实例只监听本地套接字，不会被误判为就绪。
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "nozomi", "-d", "nozomi"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    logging: *logging
+
+  api:
+    image: ${API_IMAGE:?缺少 API_IMAGE，请通过 bin/deploy.sh 部署}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:?缺少 APP_ENV}
+      PORT: "8080"
+      PUBLIC_BASE_URL: https://${APP_DOMAIN:?缺少 APP_DOMAIN}
+      # 密码由初始化脚本生成，只含十六进制字符，可以直接拼进连接串。
+      DATABASE_URL: postgres://nozomi:${POSTGRES_PASSWORD}@db:5432/nozomi
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?缺少 AUTH_JWT_SECRET，请先运行服务器初始化}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # 前面只有 Caddy 这一层反向代理：审计日志和登录限速据此取客户端真实地址。
+      TRUST_PROXY_HOPS: "1"
+    # 不映射端口：外部只能经反向代理访问。
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # /health 在数据库不通或迁移没执行完时返回 503，所以「健康」意味着这个版本真的能用。
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 15s
+    logging: *logging
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      # auto | email | internal，含义见 Caddyfile；由 bin/deploy.sh 根据有没有 ACME_EMAIL 决定。
+      CADDY_TLS_MODE: ${CADDY_TLS_MODE:?缺少 CADDY_TLS_MODE，请通过 bin/deploy.sh 部署}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      # 经容器内部的 8081 端口走一遍「代理 → API /health」，证明整条链路是通的。
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 4s
+      retries: 6
+      start_period: 10s
+    logging: *logging
+
+networks:
+  backend:
+    internal: true
+  edge:
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
