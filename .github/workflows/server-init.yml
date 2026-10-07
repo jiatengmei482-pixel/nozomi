@@ -1,0 +1,64 @@
+# 服务器初始化：把一台全新的 VPS 准备成可以部署的状态（装 Docker、建部署用户、建目录、
+# 生成数据库密码和登录签名密钥、开防火墙、装每日备份）。每台服务器做一次；可以重复运行，不会覆盖已有的密钥。
+#
+# 怎么用（详见 docs/deploy.md）：仓库 → Actions → Server init → Run workflow → 选环境。
+# 运行前该环境的 5 项 Environment secrets 要先填好，其中 VPS_SSH_USER 第一次填 root。
+name: Server init
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 初始化哪个环境的服务器
+        type: choice
+        required: true
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+# 和部署用同一个并发组：同一个环境的初始化和部署不会同时进行。
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  init:
+    name: 初始化 ${{ inputs.environment }} 服务器
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ssh-setup
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          user: ${{ secrets.VPS_SSH_USER }}
+          private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          known-hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      - name: 在服务器上执行初始化脚本
+        env:
+          APP_ENV: ${{ inputs.environment }}
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          # 公钥从本次使用的部署私钥算出来（只取「类型 内容」两段），写进部署用户的 authorized_keys。
+          public_key="$(ssh-keygen -y -f "$NOZOMI_SSH_DIR/key" | cut -d' ' -f1,2)"
+          ssh -F "$NOZOMI_SSH_DIR/config" vps "bash -s -- '$APP_ENV' '$SSH_PORT' '$public_key'" <deploy/bootstrap.sh
+      - name: 写结果摘要
+        env:
+          APP_ENV: ${{ inputs.environment }}
+        run: |
+          {
+            echo "## ${APP_ENV} 服务器初始化完成"
+            echo
+            echo "接下来请你做一件事：到 Settings → Environments → ${APP_ENV} → Environment secrets，把 \`VPS_SSH_USER\` 的值改成 \`nozomi\`。"
+            echo
+            echo "改完后，下一次 main 有新提交会自动部署到测试环境；也可以到 Actions → Deploy → Run workflow 手动部署。"
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: 删除 runner 上的 SSH 密钥文件
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/nozomi-ssh"
