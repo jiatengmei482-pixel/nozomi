@@ -273,7 +273,7 @@ test("地点：机场、车站、地标归属城市，国家取自城市；航�
   const city = await newCity();
   const airport = await created("places", { ...HANEDA, city_id: city.id });
   assert.deepEqual(Object.keys(airport).sort(), [
-    "address", "category", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent_id", "source", "status", "type", "updated_at", "version",
+    "address", "category", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent", "parent_id", "source", "status", "type", "updated_at", "version",
   ]);
   assert.deepEqual(
     [airport.country_code, airport.city_id, airport.parent_id, airport.status, airport.version, airport.source, airport.category, airport.flight_scope],

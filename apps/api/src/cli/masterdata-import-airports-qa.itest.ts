@@ -332,7 +332,11 @@ test("不覆盖平台维护的内容：平台指定了城市、启用、补了�
     [{ en: "QA Alpha Intl Airport", ja: "QAアルファ空港", zh: "测试甲机场" }, { lng: 139.781111, lat: 35.553333 }, city.body.id, "active", "international", false],
   );
   const terminalNow = (await call("GET", `places/${terminal.body.id}`)).body;
-  assert.deepEqual(terminalNow, terminal.body, "航站楼完全没动");
+  // M1-08 起地点的应答里带着上级的编码和名称（parent）：机场的英文名被导入更新了，航站楼自己的每个字段仍然完全没动
+  const { parent: parentNow, ...terminalOwnNow } = terminalNow;
+  const { parent: parentBefore, ...terminalOwnBefore } = terminal.body;
+  assert.deepEqual(terminalOwnNow, terminalOwnBefore, "航站楼完全没动");
+  assert.deepEqual(parentNow, { ...parentBefore, name: alphaNow.name }, "上级的名称跟着机场的最新名称走");
   const bravoNow = (await call("GET", `places/${bravo.id}`)).body;
   assert.deepEqual([bravoNow.name, bravoNow.location, bravoNow.version], [{ en: "QA Bravo (corrected)" }, { lng: 135.244003, lat: 34.427299 }, renamed.body.version]);
   // 导入的更新带了版本：后台拿着导入之前的版本号来改，要 409 而不是把导入的结果盖掉

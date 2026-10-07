@@ -331,7 +331,7 @@ test("GET /tenant/v1/master/*：主数据全平台共用——两个租户看到
     const fromB = await api.call("GET", `/tenant/v1/master/${path}`, { token: b.adminToken });
     assert.equal(fromA.status, 200, fromA.text);
     assert.deepEqual(fromA.body, fromB.body, path);
-    assert.deepEqual(fromA.body, { items: [asTenantSees(master[path]!.active)], next_cursor: null }, path);
+    assert.deepEqual(fromA.body, { items: [asTenantSees(master[path]!.active)], next_cursor: null, total: 1 }, path);
     assert.ok(!fromA.text.includes(a.tenantId) && !fromA.text.includes(b.tenantId), "主数据里没有任何租户的信息");
 
     const all = await api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken });

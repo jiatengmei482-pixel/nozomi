@@ -13,6 +13,7 @@ import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
+import { type DashboardSummary, type StatusCounts, getDashboardSummary } from "../services/dashboard.ts";
 import {
   type PlatformPrincipal,
   acceptPlatformInvite,
@@ -66,6 +67,30 @@ const suspendSchema = z.object({ reason: z.string().trim().min(1).max(500).optio
 const adminEmailSchema = z.object({ email: emailSchema });
 
 const auditQuerySchema = auditFilterSchema.extend({ tenant_id: uuidSchema.optional() });
+
+function statusCountsJson(counts: StatusCounts): Record<string, number> {
+  return { total: counts.total, active: counts.active, disabled: counts.disabled };
+}
+
+function dashboardSummaryJson(summary: DashboardSummary): Record<string, unknown> {
+  const master = summary.masterData;
+  return {
+    tenants: summary.tenants === null ? null : { total: summary.tenants.total, active: summary.tenants.active, suspended: summary.tenants.suspended },
+    master_data:
+      master === null
+        ? null
+        : {
+            cities: statusCountsJson(master.cities),
+            places: {
+              ...statusCountsJson(master.places),
+              by_type: Object.fromEntries(Object.entries(master.places.byType).map(([type, counts]) => [type, statusCountsJson(counts)])),
+              airports_without_city: master.places.airportsWithoutCity,
+            },
+            vehicle_groups: statusCountsJson(master.vehicleGroups),
+            addons: statusCountsJson(master.addons),
+          },
+  };
+}
 
 export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): void {
   /** 普通接口的鉴权：账号必须先修改密码时一律被拦（ADR 0013）。新接口都用这个。 */
@@ -229,6 +254,11 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
       ),
     );
     return pageJson(page, auditLogJson);
+  });
+
+  app.get("/platform/v1/dashboard/summary", async (request) => {
+    const principal = await authenticate(request);
+    return dashboardSummaryJson(await getDashboardSummary(ctx, principal.user.role));
   });
 
   app.get("/platform/v1/integrations", async (request) => {

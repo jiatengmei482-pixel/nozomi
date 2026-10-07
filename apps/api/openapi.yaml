@@ -744,6 +744,24 @@ paths:
                       $ref: "#/components/schemas/AuditLog"
                   next_cursor:
                     type: [string, "null"]
+  /platform/v1/dashboard/summary:
+    get:
+      tags: [平台系统]
+      operationId: getDashboardSummary
+      summary: 首页统计
+      description: |
+        任何已登录的平台员工都能调（账号必须先修改密码时同样被拦）。一次返回首页需要的数量，按模块分组；只有数量，没有任何明细。
+        每个模块只给有权看它的角色：没有 `tenant.read` 的角色拿到的 `tenants` 是 null，没有 `master_data.read` 的拿到的 `master_data` 是 null。
+        以后新增模块会在这个对象里加新的一组，不改已有的字段。不写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 各模块的数量
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
   /platform/v1/integrations:
     get:
       tags: [平台系统]
@@ -774,7 +792,8 @@ paths:
       operationId: listCities
       summary: 城市列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚。
+        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -783,6 +802,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/CountryCodeFilter"
       responses:
@@ -793,7 +813,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -801,6 +821,10 @@ paths:
                       $ref: "#/components/schemas/City"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
     post:
       tags: [主数据]
       operationId: createCity
@@ -946,7 +970,8 @@ paths:
       operationId: listPlaces
       summary: 地点列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚。
+        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -955,6 +980,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/PlaceTypeFilter"
         - $ref: "#/components/parameters/CityIdFilter"
@@ -968,7 +994,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -976,6 +1002,10 @@ paths:
                       $ref: "#/components/schemas/Place"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
     post:
       tags: [主数据]
       operationId: createPlace
@@ -1108,12 +1138,26 @@ paths:
       operationId: enablePlace
       summary: 启用地点
       description: |
-        需要操作 `master_data.manage`。必须已经指定所属城市且城市是启用的；航站楼 / 出口的上级也必须是启用的，否则 409 `MASTER_DATA_NOT_READY`。
+        需要操作 `master_data.manage`。
+        可以在请求体里带 `city_id`，一次完成「指定城市并启用」：两件事在同一个事务里，要么都成功要么都不变
+        （审计日志是一条 `enable`，前后值里带 `city_id`）。只能给还没有城市的地点指定；已经有城市的地点要换城市请用修改接口；
+        航站楼、出口的城市跟随上级，不能指定。城市不存在、和地点不在同一个国家返回 400 `VALIDATION_FAILED`。必须已经指定所属城市且城市是启用的；航站楼 / 出口的上级也必须是启用的，否则 409 `MASTER_DATA_NOT_READY`。
         已经启用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `enable`）。
       security:
         - platformToken: []
       parameters:
         - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                city_id:
+                  type: string
+                  format: uuid
+                  description: 同时指定的所属城市（可选）
       responses:
         "200":
           description: 启用后的地点
@@ -1135,7 +1179,8 @@ paths:
       operationId: listVehicleGroups
       summary: 车型组列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚。
+        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -1144,6 +1189,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/VehicleGradeFilter"
       responses:
@@ -1154,7 +1200,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -1162,6 +1208,10 @@ paths:
                       $ref: "#/components/schemas/VehicleGroup"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
     post:
       tags: [主数据]
       operationId: createVehicleGroup
@@ -1302,7 +1352,8 @@ paths:
       operationId: listAddons
       summary: 附加服务列表
       description: |
-        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚。
+        需要操作 `master_data.read`（每个平台角色都有）。按创建时间从早到晚（创建时间相同的按编号，顺序稳定）。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。
         不带 `status` 时返回全部（启用的和停用的）。
       security:
         - platformToken: []
@@ -1311,6 +1362,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
       responses:
         "200":
@@ -1320,7 +1372,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -1328,6 +1380,10 @@ paths:
                       $ref: "#/components/schemas/Addon"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
     post:
       tags: [主数据]
       operationId: createAddon
@@ -1865,6 +1921,7 @@ paths:
       summary: 城市列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -1873,6 +1930,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/CountryCodeFilter"
       responses:
@@ -1883,7 +1941,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -1891,6 +1949,10 @@ paths:
                       $ref: "#/components/schemas/City"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
   /tenant/v1/master/cities/{id}:
     get:
       tags: [租户主数据]
@@ -1917,6 +1979,7 @@ paths:
       summary: 地点列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -1925,6 +1988,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/PlaceTypeFilter"
         - $ref: "#/components/parameters/CityIdFilter"
@@ -1938,7 +2002,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -1946,6 +2010,10 @@ paths:
                       $ref: "#/components/schemas/TenantPlace"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
   /tenant/v1/master/places/{id}:
     get:
       tags: [租户主数据]
@@ -1972,6 +2040,7 @@ paths:
       summary: 车型组列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -1980,6 +2049,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
         - $ref: "#/components/parameters/VehicleGradeFilter"
       responses:
@@ -1990,7 +2060,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -1998,6 +2068,10 @@ paths:
                       $ref: "#/components/schemas/VehicleGroup"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
   /tenant/v1/master/vehicle-groups/{id}:
     get:
       tags: [租户主数据]
@@ -2024,6 +2098,7 @@ paths:
       summary: 附加服务列表（只读）
       description: |
         需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q` 和平台的列表相同。
         不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
       security:
         - tenantToken: []
@@ -2032,6 +2107,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/MasterStatusFilter"
         - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
         - $ref: "#/components/parameters/UpdatedSince"
       responses:
         "200":
@@ -2041,7 +2117,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, total]
                 properties:
                   items:
                     type: array
@@ -2049,6 +2125,10 @@ paths:
                       $ref: "#/components/schemas/Addon"
                   next_cursor:
                     type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
   /tenant/v1/master/addons/{id}:
     get:
       tags: [租户主数据]
@@ -2125,6 +2205,14 @@ components:
       schema:
         type: string
         maxLength: 50
+    MasterKeyword:
+      name: q
+      in: query
+      description: 关键字：编码或任意一种语言的名称里包含它（不区分大小写；首尾空白会去掉；`%`、`_` 按字面匹配）
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
     UpdatedSince:
       name: updated_since
       in: query
@@ -2148,10 +2236,13 @@ components:
     CityIdFilter:
       name: city_id
       in: query
-      description: 只看这个城市的地点
+      description: 只看这个城市的地点（城市的编号）；写 `none` 表示只看还没有所属城市的地点（导入后等待复核的机场）。`total` 同样按这个条件算
       schema:
-        type: string
-        format: uuid
+        oneOf:
+          - type: string
+            format: uuid
+          - type: string
+            enum: [none]
     ParentIdFilter:
       name: parent_id
       in: query
@@ -2758,6 +2849,33 @@ components:
       type: string
       enum: [per_order, per_item, per_person, per_duration]
       description: 计费方式：按次、按个、按人、按时长
+    MasterRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      description: 被引用的主数据记录的简要信息
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+    PlaceParentRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        type:
+          $ref: "#/components/schemas/PlaceType"
     City:
       type: object
       additionalProperties: false
@@ -2834,7 +2952,7 @@ components:
       type: object
       description: 租户看到的地点（没有导入来源等平台内部信息）
       additionalProperties: false
-      required: [id, type, code, country_code, city_id, parent_id, name, location, category, flight_scope, address, status, version, created_at, updated_at]
+      required: [id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at]
       properties:
         id:
           type: string
@@ -2855,6 +2973,16 @@ components:
           type: [string, "null"]
           format: uuid
           description: 航站楼所属的机场 / 出口所属的车站；其他类型为 null
+        city:
+          description: 所属城市的编码和名称（和 `city_id` 对应）；没有城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/MasterRef"
+            - type: "null"
+        parent:
+          description: 上级地点的编码、名称和类型（和 `parent_id` 对应）；没有上级时为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceParentRef"
+            - type: "null"
         name:
           $ref: "#/components/schemas/LocalizedName"
         location:
@@ -2887,7 +3015,7 @@ components:
     Place:
       type: object
       additionalProperties: false
-      required: [id, type, code, country_code, city_id, parent_id, name, location, category, flight_scope, address, status, version, created_at, updated_at, source]
+      required: [id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source]
       properties:
         id:
           type: string
@@ -2908,6 +3036,16 @@ components:
           type: [string, "null"]
           format: uuid
           description: 航站楼所属的机场 / 出口所属的车站；其他类型为 null
+        city:
+          description: 所属城市的编码和名称（和 `city_id` 对应）；没有城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/MasterRef"
+            - type: "null"
+        parent:
+          description: 上级地点的编码、名称和类型（和 `parent_id` 对应）；没有上级时为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceParentRef"
+            - type: "null"
         name:
           $ref: "#/components/schemas/LocalizedName"
         location:
@@ -3179,3 +3317,84 @@ components:
           $ref: "#/components/schemas/LocalizedName"
         description:
           $ref: "#/components/schemas/LocalizedText"
+    StatusCounts:
+      type: object
+      additionalProperties: false
+      required: [total, active, disabled]
+      description: 启用 / 停用的数量；`total` 是两者之和
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        active:
+          type: integer
+          minimum: 0
+        disabled:
+          type: integer
+          minimum: 0
+    DashboardSummary:
+      type: object
+      additionalProperties: false
+      required: [tenants, master_data]
+      properties:
+        tenants:
+          type: [object, "null"]
+          description: 租户数量（按状态）；当前角色没有 `tenant.read` 时为 null
+          additionalProperties: false
+          required: [total, active, suspended]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            active:
+              type: integer
+              minimum: 0
+            suspended:
+              type: integer
+              minimum: 0
+        master_data:
+          type: [object, "null"]
+          description: 主数据数量；当前角色没有 `master_data.read` 时为 null
+          additionalProperties: false
+          required: [cities, places, vehicle_groups, addons]
+          properties:
+            cities:
+              $ref: "#/components/schemas/StatusCounts"
+            places:
+              type: object
+              additionalProperties: false
+              required: [total, active, disabled, by_type, airports_without_city]
+              properties:
+                total:
+                  type: integer
+                  minimum: 0
+                active:
+                  type: integer
+                  minimum: 0
+                disabled:
+                  type: integer
+                  minimum: 0
+                by_type:
+                  type: object
+                  description: 每种地点类型的数量；五种类型都有，没有记录的是 0
+                  additionalProperties: false
+                  required: [airport, station, poi, terminal, exit]
+                  properties:
+                    airport:
+                      $ref: "#/components/schemas/StatusCounts"
+                    station:
+                      $ref: "#/components/schemas/StatusCounts"
+                    poi:
+                      $ref: "#/components/schemas/StatusCounts"
+                    terminal:
+                      $ref: "#/components/schemas/StatusCounts"
+                    exit:
+                      $ref: "#/components/schemas/StatusCounts"
+                airports_without_city:
+                  type: integer
+                  minimum: 0
+                  description: 导入之后还没有指定所属城市的机场数量（等平台复核；它们都是停用的）
+            vehicle_groups:
+              $ref: "#/components/schemas/StatusCounts"
+            addons:
+              $ref: "#/components/schemas/StatusCounts"

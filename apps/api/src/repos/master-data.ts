@@ -264,6 +264,25 @@ export async function updateMasterRowAtVersion<Item extends Versioned>(
   return row ? spec.toItem(row) : null;
 }
 
+/** 被地点引用的城市或上级地点的简要信息：够在列表里显示，不用再取一次。 */
+export interface MasterRef {
+  id: string;
+  code: string;
+  name: LocalizedText;
+}
+
+export async function findCityRefs(db: Db, ids: readonly string[]): Promise<MasterRef[]> {
+  if (ids.length === 0) return [];
+  const result = await db.query<MasterRef>("select id, code, name from cities where id = any($1::uuid[])", [ids]);
+  return result.rows;
+}
+
+export async function findPlaceRefs(db: Db, ids: readonly string[]): Promise<(MasterRef & { type: PlaceType })[]> {
+  if (ids.length === 0) return [];
+  const result = await db.query<MasterRef & { type: PlaceType }>("select id, code, name, type from places where id = any($1::uuid[])", [ids]);
+  return result.rows;
+}
+
 /** 只读出一个地点的上级编号（不加锁）。 */
 export async function findPlaceParentId(db: Db, placeId: string): Promise<string | null> {
   const result = await db.query<{ parent_id: string | null }>("select parent_id from places where id = $1", [placeId]);
@@ -299,18 +318,32 @@ export async function findMasterRow<Item extends Versioned>(
 /** 列表的筛选条件：列名 → 值（相等），外加状态和「这个时间之后改过的」。 */
 export interface MasterFilter {
   equals?: ColumnValues;
+  /** 这些列必须为空（如「还没有所属城市」） */
+  isNull?: readonly string[] | undefined;
+  /** 关键字：编码或任意一种语言的名称里包含它（不区分大小写） */
+  search?: string | undefined;
   status?: MasterDataStatus | undefined;
   updatedSince?: Date | undefined;
 }
 
-/** 按创建时间从早到晚翻页。 */
+/** 一页主数据，外加符合筛选条件的总数（和翻到第几页无关）。 */
+export interface MasterPage<Item> extends Page<Item> {
+  total: number;
+}
+
+/** 把关键字变成 LIKE 的「包含」模式：关键字里的 %、_、\ 按字面匹配。 */
+export function containsPattern(keyword: string): string {
+  return `%${keyword.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+}
+
+/** 按创建时间从早到晚翻页（创建时间相同的按编号，顺序稳定），同时数出符合筛选条件的总数。 */
 export async function listMasterRows<Item extends Versioned>(
   db: Db,
   spec: MasterTable<Item>,
   filter: MasterFilter,
   limit: number,
   after: TimeCursor | null,
-): Promise<Page<Item>> {
+): Promise<MasterPage<Item>> {
   const conditions: string[] = [];
   const params: unknown[] = [];
   /** `sql` 里的每个 `?` 依次对应 `values` 里的一个值 */
@@ -322,8 +355,24 @@ export async function listMasterRows<Item extends Versioned>(
     if (!spec.columns.includes(column)) throw new Error(`${spec.table} 没有可筛选的列 ${column}`);
     where(`${column} = ?`, value);
   }
+  for (const column of filter.isNull ?? []) {
+    if (!spec.columns.includes(column)) throw new Error(`${spec.table} 没有可筛选的列 ${column}`);
+    where(`${column} is null`);
+  }
   if (filter.status !== undefined) where("status = ?", filter.status);
   if (filter.updatedSince !== undefined) where("updated_at >= ?", filter.updatedSince);
+  if (filter.search !== undefined) {
+    const pattern = containsPattern(filter.search);
+    where(
+      "(code ilike ? escape '\\' or exists (select 1 from jsonb_each_text(name) as localized(lang, value) where localized.value ilike ? escape '\\'))",
+      pattern,
+      pattern,
+    );
+  }
+  const total = await db.query<{ n: number }>(
+    `select count(*)::int as n from ${spec.table} ${conditions.length > 0 ? `where ${conditions.join(" and ")}` : ""}`,
+    [...params],
+  );
   if (after !== null) where("(created_at, id) > (?::timestamptz, ?::uuid)", after.t, after.id);
   params.push(limit + 1);
   const result = await db.query<Row & { cursor_time: string }>(
@@ -334,7 +383,10 @@ export async function listMasterRows<Item extends Versioned>(
       limit $${params.length}`,
     params,
   );
-  return toPage(result.rows, limit, spec.toItem, (row) => ({ t: row.cursor_time, id: row["id"] as string }));
+  return {
+    ...toPage(result.rows, limit, spec.toItem, (row) => ({ t: row.cursor_time, id: row["id"] as string })),
+    total: total.rows[0]?.n ?? 0,
+  };
 }
 
 /**

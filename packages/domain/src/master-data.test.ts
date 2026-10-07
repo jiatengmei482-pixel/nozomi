@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_BOUNDARY_POINTS,
+  COUNTRY_CODES,
   PLACE_TYPES,
   VEHICLE_GRADES,
   VEHICLE_GRADE_ABBREVIATIONS,
@@ -112,7 +113,8 @@ test("地点的属性：车站 / 地标必须有各自的类型，地址只属�
 
   assert.deepEqual(placeAttributeIssues("station", none).map(([field]) => field), ["category"]);
   assert.deepEqual(placeAttributeIssues("poi", none).map(([field]) => field), ["category"]);
-  assert.deepEqual(placeAttributeIssues("station", { ...none, category: "hotel" }).map(([field]) => field), ["category"]);
+  assert.deepEqual(placeAttributeIssues("station", { ...none, category: "hotel" }), [["category", "车站的类型只能是：新干线、铁路、地铁"]]);
+  assert.deepEqual(placeAttributeIssues("poi", { ...none, category: "rail" }), [["category", "地标的类型只能是：酒店、景点、港口、商场"]]);
   assert.deepEqual(placeAttributeIssues("poi", { ...none, category: "metro" }).map(([field]) => field), ["category"]);
   assert.deepEqual(placeAttributeIssues("airport", { ...none, category: "hotel" }).map(([field]) => field), ["category"]);
   assert.deepEqual(placeAttributeIssues("station", { category: "rail", flightScope: "mixed", address: "x" }).map(([field]) => field), ["flightScope", "address"]);
@@ -143,7 +145,8 @@ test("车型组编码的等级段：以某个等级的缩写开头时，等级�
   assert.equal(vehicleGroupCodeIssue("VG-ECO-4", 4, "economy"), null);
   assert.equal(vehicleGroupCodeIssue("VG-CMF-5", 5, "comfort"), null);
   assert.equal(vehicleGroupCodeIssue("VG-LUX-4", 4, "luxury"), null);
-  assert.match(vehicleGroupCodeIssue("VG-ECO-4", 4, "luxury") ?? "", /等级 ECO 和等级 luxury 不一致/);
+  assert.match(vehicleGroupCodeIssue("VG-ECO-4", 4, "luxury") ?? "", /ECO 是「经济」的缩写，和所选的等级「豪华」不一致（豪华的缩写是 LUX）/);
+  assert.doesNotMatch(vehicleGroupCodeIssue("VG-ECO-4", 4, "luxury") ?? "", /luxury|economy/, "说明里不夹接口的英文取值");
   assert.match(vehicleGroupCodeIssue("VG-LUXEV-4", 4, "business") ?? "", /不一致/);
   assert.equal(vehicleGroupCodeIssue("VG-VAN-9", 9, "comfort"), null);
   assert.deepEqual(Object.keys(VEHICLE_GRADE_ABBREVIATIONS), [...VEHICLE_GRADES]);
@@ -172,4 +175,12 @@ test("附加服务编码：ADD-代码", () => {
   for (const code of ["CHILD_SEAT", "ADD-", "ADD-child_seat", "ADD-1SEAT", "ADD-A", "ADD-CHILD SEAT", "ADD-CHILD-SEAT", `ADD-${"A".repeat(41)}`]) {
     assert.match(addonCodeIssue(code) ?? "", /格式/, code);
   }
+});
+
+test("国家代码清单：250 个（ISO 的 249 个加 XK），按字母排序、不重复，和 isCountryCode 一致", () => {
+  assert.equal(COUNTRY_CODES.length, 250);
+  assert.equal(new Set(COUNTRY_CODES).size, 250);
+  assert.deepEqual([...COUNTRY_CODES], [...COUNTRY_CODES].sort());
+  assert.ok(COUNTRY_CODES.every((code) => /^[A-Z]{2}$/.test(code) && isCountryCode(code)));
+  for (const code of ["JP", "KR", "CN", "XK"]) assert.ok(COUNTRY_CODES.includes(code), code);
 });

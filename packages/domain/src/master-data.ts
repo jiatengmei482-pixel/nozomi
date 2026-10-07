@@ -32,6 +32,17 @@ export const POI_CATEGORIES = ["hotel", "attraction", "port", "mall"] as const;
 export const PLACE_CATEGORIES = [...STATION_CATEGORIES, ...POI_CATEGORIES] as const;
 export type PlaceCategory = (typeof PLACE_CATEGORIES)[number];
 
+/** 车站类型、地标类型的中文名（给人看的说明里用，不夹接口里的英文取值）。 */
+export const PLACE_CATEGORY_NAMES: Readonly<Record<PlaceCategory, string>> = {
+  shinkansen: "新干线",
+  rail: "铁路",
+  metro: "地铁",
+  hotel: "酒店",
+  attraction: "景点",
+  port: "港口",
+  mall: "商场",
+};
+
 /** 机场 / 航站楼的国际、国内属性（国际线和国内线的默认免等时长不同）。 */
 export const FLIGHT_SCOPES = ["international", "domestic", "mixed"] as const;
 export type FlightScope = (typeof FLIGHT_SCOPES)[number];
@@ -39,6 +50,13 @@ export type FlightScope = (typeof FLIGHT_SCOPES)[number];
 /** 车型等级：经济 / 舒适 / 商务 / 豪华，从低到高。 */
 export const VEHICLE_GRADES = ["economy", "comfort", "business", "luxury"] as const;
 export type VehicleGrade = (typeof VEHICLE_GRADES)[number];
+
+export const VEHICLE_GRADE_NAMES: Readonly<Record<VehicleGrade, string>> = {
+  economy: "经济",
+  comfort: "舒适",
+  business: "商务",
+  luxury: "豪华",
+};
 
 /** 动力：燃油 / 电动。 */
 export const VEHICLE_POWERS = ["fuel", "ev"] as const;
@@ -57,7 +75,7 @@ export const MAX_BOUNDARY_POINTS = 5_000;
 /**
  * ISO 3166-1 alpha-2 的 249 个正式代码，外加 XK（科索沃：不在 ISO 正式清单里，但机场数据源和各国际机构都在用）。
  */
-const COUNTRY_CODES: ReadonlySet<string> = new Set(
+export const COUNTRY_CODES: readonly string[] = (
   (
     "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ " +
     "CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR " +
@@ -66,11 +84,13 @@ const COUNTRY_CODES: ReadonlySet<string> = new Set(
     "MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW " +
     "SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ " +
     "UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW XK"
-  ).split(" "),
-);
+  ).split(" ")
+).sort();
+
+const COUNTRY_CODE_SET: ReadonlySet<string> = new Set(COUNTRY_CODES);
 
 export function isCountryCode(code: string): boolean {
-  return COUNTRY_CODES.has(code);
+  return COUNTRY_CODE_SET.has(code);
 }
 
 const TIME_ZONE_SHAPE = /^[A-Z][A-Za-z]+(\/[A-Z][A-Za-z0-9_+-]*){1,2}$/;
@@ -196,7 +216,8 @@ export function placeAttributeIssues(type: PlaceType, attributes: PlaceAttribute
   } else if (attributes.category === null) {
     issues.push(["category", "必填"]);
   } else if (!allowed.includes(attributes.category)) {
-    issues.push(["category", `只能是：${allowed.join("、")}`]);
+    const names = allowed.map((category) => PLACE_CATEGORY_NAMES[category as PlaceCategory]).join("、");
+    issues.push(["category", `${type === "station" ? "车站" : "地标"}的类型只能是：${names}`]);
   }
   if (attributes.flightScope !== null && type !== "airport" && type !== "terminal") {
     issues.push(["flightScope", "只有机场和航站楼有国际 / 国内属性"]);
@@ -252,7 +273,7 @@ export function vehicleGroupCodeIssue(code: string, seats: number, grade?: Vehic
     const segment = match[1] as string;
     const implied = VEHICLE_GRADES.find((candidate) => segment.startsWith(VEHICLE_GRADE_ABBREVIATIONS[candidate]));
     if (implied !== undefined && implied !== grade) {
-      return `编码里的等级 ${VEHICLE_GRADE_ABBREVIATIONS[implied]} 和等级 ${grade} 不一致（${grade} 的缩写是 ${VEHICLE_GRADE_ABBREVIATIONS[grade]}）`;
+      return `编码里的 ${VEHICLE_GRADE_ABBREVIATIONS[implied]} 是「${VEHICLE_GRADE_NAMES[implied]}」的缩写，和所选的等级「${VEHICLE_GRADE_NAMES[grade]}」不一致（${VEHICLE_GRADE_NAMES[grade]}的缩写是 ${VEHICLE_GRADE_ABBREVIATIONS[grade]}）`;
     }
   }
   return null;

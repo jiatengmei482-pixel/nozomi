@@ -37,6 +37,8 @@ after(() => api.close());
 /** 每个需要权限的平台接口，和它要求的操作。用不存在的编号调用：有权限时得到 404 / 校验错误，没权限时一定是 403。 */
 const MISSING = "99999999-9999-4999-8999-999999999999";
 const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
+/** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
+const ANY_STAFF = ["GET /platform/v1/dashboard/summary"];
 const PROTECTED: { method: "GET" | "POST" | "PATCH"; url: string; action: PlatformAction; body?: unknown }[] = [
   { method: "GET", url: "/platform/v1/staff", action: "staff.read" },
   { method: "POST", url: "/platform/v1/staff", action: "staff.manage", body: {} },
@@ -88,8 +90,18 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
-  const tested = PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id")}`).sort();
+  const tested = [...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id")}`), ...ANY_STAFF].sort();
   assert.deepEqual(tested, registered);
+});
+
+test("首页统计：每个角色都能调；租户数量只给有 tenant.read 的角色，其余角色拿到 null；没登录 401", async () => {
+  for (const { key: role } of PLATFORM_ROLES) {
+    const res = await api.call("GET", "/platform/v1/dashboard/summary", { token: tokens.get(role)! });
+    assert.equal(res.status, 200, role);
+    assert.equal(res.body.tenants === null, !platformRoleCan(role, "tenant.read"), role);
+    assert.notEqual(res.body.master_data, null, role);
+  }
+  assert.equal((await api.call("GET", "/platform/v1/dashboard/summary")).status, 401);
 });
 
 test("me：返回当前账号和它的操作清单；每个角色都能调", async () => {

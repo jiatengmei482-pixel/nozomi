@@ -40,7 +40,7 @@ import {
 import type { AppContext } from "../context.ts";
 import { isRetryableDbError } from "../errors.ts";
 import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
-import type { Page, TimeCursor } from "../pagination.ts";
+import type { TimeCursor } from "../pagination.ts";
 import { type AuditResource, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   ADDONS,
@@ -49,6 +49,7 @@ import {
   type City,
   type ColumnValues,
   type MasterFilter,
+  type MasterPage,
   type MasterTable,
   PLACES,
   type Place,
@@ -56,8 +57,11 @@ import {
   type VehicleGroup,
   countActiveChildPlaces,
   countActivePlacesInCity,
+  type MasterRef,
+  findCityRefs,
   findMasterRow,
   findPlaceParentId,
+  findPlaceRefs,
   insertMasterRow,
   isKnownTimeZone,
   listMasterRows,
@@ -159,7 +163,7 @@ export function listMaster<T extends Item>(
   filter: MasterFilter,
   limit: number,
   after: TimeCursor | null,
-): Promise<Page<T>> {
+): Promise<MasterPage<T>> {
   return readTx(ctx, reader, (db) => listMasterRows(db, resource.spec, filter, limit, after));
 }
 
@@ -292,23 +296,30 @@ async function setStatus<T extends Item>(
   resource: MasterResource<T>,
   id: string,
   status: MasterDataStatus,
-  guard: (db: Db, current: T) => Promise<void>,
+  /** 检查能不能改；可以返回要和状态一起改的列（如启用地点的同时指定城市） */
+  guard: (db: Db, current: T) => Promise<ColumnValues | void>,
+  /** 状态已经是目标状态时也要做的检查 */
+  precheck: (current: T) => void = () => {},
 ): Promise<T> {
   const now = ctx.now();
   return writeTx(ctx, async (db) => {
     await lockParentFirst(db, resource, id);
     const current = await findMasterRow(db, resource.spec, id, { lock: true });
     if (!current) throw notFound(resource.label);
+    precheck(current);
     if (current.status === status) return current;
-    await guard(db, current);
-    const updated = await updateMasterRow(db, resource.spec, id, {}, status, now);
+    const columnsBefore = resource.columns(current);
+    const extra = Object.fromEntries(
+      Object.entries((await guard(db, current)) ?? {}).filter(([column, value]) => !isDeepStrictEqual(value, columnsBefore[column])),
+    );
+    const updated = await updateMasterRow(db, resource.spec, id, extra, status, now);
     await insertAuditLog(db, consoleOrigin(platformActor(writer.principal.user), writer.ip, now), {
       tenantId: null,
       resource: resource.audit,
       resourceId: id,
       action: status === "disabled" ? "disable" : "enable",
-      before: { status: current.status },
-      after: { status: updated.status },
+      before: { status: current.status, ...Object.fromEntries(Object.keys(extra).map((column) => [column, columnsBefore[column] ?? null])) },
+      after: { status: updated.status, ...(extra as AuditValues) },
     });
     return updated;
   });
@@ -551,18 +562,61 @@ export function updatePlace(ctx: AppContext, writer: MasterWriter, id: string, v
   });
 }
 
-export function setPlaceStatus(ctx: AppContext, writer: MasterWriter, id: string, status: MasterDataStatus): Promise<Place> {
-  return setStatus(ctx, writer, PLACE, id, status, async (db, place) => {
-    if (status === "disabled") {
-      const active = await countActiveChildPlaces(db, place.id);
-      if (active > 0) throw masterDataInUse(`它下面还有 ${active} 个启用中的航站楼或出口，请先停用它们`, active);
-      return;
-    }
-    const city = place.cityId === null ? null : await findMasterRow(db, CITIES, place.cityId, { lock: true });
-    const parent = place.parentId === null ? null : await findMasterRow(db, PLACES, place.parentId, { lock: true });
-    const blocker = placeEnableBlocker({ cityStatus: city?.status ?? null, parentStatus: parent?.status ?? null });
-    if (blocker !== null) notReady(blocker);
-  });
+/**
+ * 停用 / 启用地点。启用时可以顺带指定所属城市（`cityId`）：导入的机场「指定城市并启用」在一个事务里完成，
+ * 不会出现城市写进去了、启用却失败的半截状态。只能给还没有城市的地点指定；已经有城市的要换城市请用修改接口（带版本号）。
+ */
+export function setPlaceStatus(
+  ctx: AppContext,
+  writer: MasterWriter,
+  id: string,
+  status: MasterDataStatus,
+  cityId?: string | undefined,
+): Promise<Place> {
+  return setStatus(
+    ctx,
+    writer,
+    PLACE,
+    id,
+    status,
+    async (db, place) => {
+      if (status === "disabled") {
+        const active = await countActiveChildPlaces(db, place.id);
+        if (active > 0) throw masterDataInUse(`它下面还有 ${active} 个启用中的航站楼或出口，请先停用它们`, active);
+        return;
+      }
+      const targetCityId = place.cityId ?? cityId ?? null;
+      const city = targetCityId === null ? null : await findMasterRow(db, CITIES, targetCityId, { lock: true });
+      if (targetCityId !== null && !city) invalid([{ path: "/city_id", message: "城市不存在" }]);
+      if (city && city.countryCode !== place.countryCode) {
+        invalid([{ path: "/city_id", message: `这个城市属于 ${city.countryCode}，而地点在 ${place.countryCode}` }]);
+      }
+      const parent = place.parentId === null ? null : await findMasterRow(db, PLACES, place.parentId, { lock: true });
+      const blocker = placeEnableBlocker({ cityStatus: city?.status ?? null, parentStatus: parent?.status ?? null });
+      if (blocker !== null) notReady(blocker);
+      return { city_id: targetCityId };
+    },
+    (place) => {
+      if (cityId === undefined || cityId === place.cityId) return;
+      if (place.parentId !== null) invalid([{ path: "/city_id", message: "航站楼和出口的城市跟随上级，不用单独指定" }]);
+      if (place.cityId !== null) invalid([{ path: "/city_id", message: "这个地点已经有所属城市；要换城市请用修改接口" }]);
+    },
+  );
+}
+
+/** 一批地点引用到的城市和上级地点（编号 → 编码和名称），给接口的应答用。 */
+export interface PlaceRefs {
+  cities: ReadonlyMap<string, MasterRef>;
+  parents: ReadonlyMap<string, MasterRef & { type: PlaceType }>;
+}
+
+export function loadPlaceRefs(ctx: AppContext, reader: MasterReader, places: readonly Place[]): Promise<PlaceRefs> {
+  const cityIds = [...new Set(places.flatMap((place) => (place.cityId === null ? [] : [place.cityId])))];
+  const parentIds = [...new Set(places.flatMap((place) => (place.parentId === null ? [] : [place.parentId])))];
+  return readTx(ctx, reader, async (db) => ({
+    cities: new Map((await findCityRefs(db, cityIds)).map((ref) => [ref.id, ref])),
+    parents: new Map((await findPlaceRefs(db, parentIds)).map((ref) => [ref.id, ref])),
+  }));
 }
 
 // ---- 车型组 ----

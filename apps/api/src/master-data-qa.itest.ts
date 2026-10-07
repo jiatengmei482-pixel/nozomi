@@ -291,7 +291,7 @@ test("租户：看导入的机场时没有任何导入来源的字段；读接�
   const imported = (await get("places?code=ZQA")).body.items[0];
   assert.equal(imported.source.name, "ourairports", "平台看得到来源");
 
-  const expectedKeys = ["address", "category", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent_id", "status", "type", "updated_at", "version"];
+  const expectedKeys = ["address", "category", "city", "city_id", "code", "country_code", "created_at", "flight_scope", "id", "location", "name", "parent", "parent_id", "status", "type", "updated_at", "version"];
   const list = await api.call("GET", "/tenant/v1/master/places?status=all&code=ZQA", { token: tenant.adminToken });
   const single = await api.call("GET", `/tenant/v1/master/places/${imported.id}`, { token: tenant.adminToken });
   assert.equal(list.status, 200, list.text);

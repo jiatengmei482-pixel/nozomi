@@ -31,7 +31,7 @@ import {
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
-import type { Addon, City, ColumnValues, Place, VehicleGroup } from "../repos/master-data.ts";
+import type { Addon, City, ColumnValues, MasterRef, Place, VehicleGroup } from "../repos/master-data.ts";
 import {
   ADDON,
   CITY,
@@ -39,6 +39,7 @@ import {
   type MasterResource,
   type MasterWriter,
   PLACE,
+  type PlaceRefs,
   VEHICLE_GROUP,
   createAddon,
   createCity,
@@ -46,6 +47,7 @@ import {
   createVehicleGroup,
   getMaster,
   listMaster,
+  loadPlaceRefs,
   setAddonStatus,
   setCityStatus,
   setPlaceStatus,
@@ -182,12 +184,13 @@ const addonPatchSchema = z.object({
 const listQuerySchema = pageQuerySchema.extend({
   status: z.enum(["active", "disabled", "all"]).optional(),
   code: codeSchema.optional(),
+  q: z.string().trim().min(1).max(100).optional(),
   updated_since: dateTimeSchema.optional(),
 });
 
 const placeListQuerySchema = listQuerySchema.extend({
   type: z.enum(PLACE_TYPES).optional(),
-  city_id: uuidSchema.optional(),
+  city_id: z.union([z.literal("none"), uuidSchema]).optional(),
   parent_id: uuidSchema.optional(),
   country_code: z.string().regex(/^[A-Z]{2}$/, "必须是两位大写字母的国家码").optional(),
 });
@@ -216,8 +219,13 @@ export function cityJson(city: City): Json {
   };
 }
 
-/** 租户看到的地点：没有导入来源这些平台内部的信息。 */
-export function tenantPlaceJson(place: Place): Json {
+function refJson(ref: MasterRef | undefined): Json | null {
+  return ref === undefined ? null : { id: ref.id, code: ref.code, name: ref.name };
+}
+
+/** 租户看到的地点：没有导入来源这些平台内部的信息。`city`、`parent` 是所属城市和上级的编码与名称，省得再查一次。 */
+export function tenantPlaceJson(place: Place, refs?: PlaceRefs): Json {
+  const parent = place.parentId === null ? undefined : refs?.parents.get(place.parentId);
   return {
     id: place.id,
     type: place.type,
@@ -225,6 +233,8 @@ export function tenantPlaceJson(place: Place): Json {
     country_code: place.countryCode,
     city_id: place.cityId,
     parent_id: place.parentId,
+    city: refJson(place.cityId === null ? undefined : refs?.cities.get(place.cityId)),
+    parent: parent === undefined ? null : { ...refJson(parent), type: parent.type },
     name: place.name,
     location: { lng: place.lng, lat: place.lat },
     category: place.category,
@@ -234,9 +244,9 @@ export function tenantPlaceJson(place: Place): Json {
   };
 }
 
-export function placeJson(place: Place): Json {
+export function placeJson(place: Place, refs?: PlaceRefs): Json {
   return {
-    ...tenantPlaceJson(place),
+    ...tenantPlaceJson(place, refs),
     source:
       place.source === null
         ? null
@@ -279,8 +289,14 @@ export function addonJson(addon: Addon): Json {
 interface Endpoints<T extends City | Place | VehicleGroup | Addon, Query extends z.ZodTypeAny, Create extends z.ZodTypeAny, Patch extends z.ZodTypeAny> {
   path: string;
   resource: MasterResource<T>;
-  platformJson: (item: T) => Json;
-  tenantJson: (item: T) => Json;
+  platformJson: (item: T, refs?: PlaceRefs) => Json;
+  tenantJson: (item: T, refs?: PlaceRefs) => Json;
+  /** 应答里要带上被引用记录的编码和名称时，怎么取（只有地点需要） */
+  loadRefs?: (reader: MasterReader, items: T[]) => Promise<PlaceRefs>;
+  /** 查询参数里要求「为空」的列 */
+  nulls?: (query: z.output<Query>) => string[];
+  /** 启用接口的请求体（只有地点有：顺带指定城市） */
+  enableSchema?: z.ZodType<{ city_id?: string | undefined }>;
   querySchema: Query;
   /** 查询参数里各类主数据自己的筛选项 → 列名 */
   equals: (query: z.output<Query>) => ColumnValues;
@@ -288,7 +304,7 @@ interface Endpoints<T extends City | Place | VehicleGroup | Addon, Query extends
   create: (writer: MasterWriter, input: z.output<Create>) => Promise<T>;
   patchSchema: Patch;
   update: (writer: MasterWriter, id: string, version: number, patch: z.output<Patch>) => Promise<T>;
-  setStatus: (writer: MasterWriter, id: string, status: MasterDataStatus) => Promise<T>;
+  setStatus: (writer: MasterWriter, id: string, status: MasterDataStatus, cityId?: string) => Promise<T>;
 }
 
 function withoutUndefined(values: Record<string, unknown>): ColumnValues {
@@ -305,7 +321,11 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
     endpoints: Endpoints<T, Query, Create, Patch>,
   ): void {
     const { resource } = endpoints;
-    const list = async (request: FastifyRequest, reader: MasterReader, toJson: (item: T) => Json): Promise<Json> => {
+    type ToJson = (item: T, refs?: PlaceRefs) => Json;
+    const PLATFORM: MasterReader = { kind: "platform" };
+    const one = async (reader: MasterReader, item: T, toJson: ToJson): Promise<Json> =>
+      toJson(item, endpoints.loadRefs ? await endpoints.loadRefs(reader, [item]) : undefined);
+    const list = async (request: FastifyRequest, reader: MasterReader, toJson: ToJson): Promise<Json> => {
       const query = parseInput(endpoints.querySchema, request.query, "querystring") as z.output<typeof listQuerySchema>;
       // 平台默认看全部；租户默认只看启用中的（要引用的是能用的），需要时可以显式要停用的或全部
       const status = query.status ?? (reader.kind === "platform" ? "all" : "active");
@@ -315,32 +335,35 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
         resource,
         {
           equals: withoutUndefined({ code: query.code, ...endpoints.equals(query) }),
+          isNull: endpoints.nulls?.(query as z.output<Query>),
           status: status === "all" ? undefined : status,
           updatedSince: query.updated_since,
+          search: query.q,
         },
         query.limit,
         decodeTimeCursor(query.cursor ?? null),
       );
-      return pageJson(page, toJson);
+      const refs = endpoints.loadRefs ? await endpoints.loadRefs(reader, page.items) : undefined;
+      return { ...pageJson(page, (item) => toJson(item, refs)), total: page.total };
     };
 
     const platformBase = `/platform/v1/master/${endpoints.path}`;
     app.get(platformBase, async (request) => {
       await platform(request, "master_data.read");
-      return list(request, { kind: "platform" }, endpoints.platformJson);
+      return list(request, PLATFORM, endpoints.platformJson);
     });
 
     app.post(platformBase, async (request, reply) => {
       const principal = await platform(request, "master_data.manage");
       const input = parseInput(endpoints.createSchema, request.body, "body");
       const created = await endpoints.create({ principal, ip: request.ip }, input);
-      return reply.code(201).send(endpoints.platformJson(created));
+      return reply.code(201).send(await one(PLATFORM, created, endpoints.platformJson));
     });
 
     app.get(`${platformBase}/:id`, async (request) => {
       await platform(request, "master_data.read");
       const id = resourceId(request.params, resource.label);
-      return endpoints.platformJson(await getMaster(ctx, { kind: "platform" }, resource, id));
+      return one(PLATFORM, await getMaster(ctx, PLATFORM, resource, id), endpoints.platformJson);
     });
 
     app.patch(`${platformBase}/:id`, async (request) => {
@@ -348,14 +371,15 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
       const id = resourceId(request.params, resource.label);
       const version = ifMatchVersion(request.headers["if-match"]);
       const patch = parseInput(endpoints.patchSchema, request.body, "body");
-      return endpoints.platformJson(await endpoints.update({ principal, ip: request.ip }, id, version, patch));
+      return one(PLATFORM, await endpoints.update({ principal, ip: request.ip }, id, version, patch), endpoints.platformJson);
     });
 
     for (const [action, status] of [["disable", "disabled"], ["enable", "active"]] as const) {
       app.post(`${platformBase}/:id/${action}`, async (request) => {
         const principal = await platform(request, "master_data.manage");
         const id = resourceId(request.params, resource.label);
-        return endpoints.platformJson(await endpoints.setStatus({ principal, ip: request.ip }, id, status));
+        const body = action === "enable" && endpoints.enableSchema ? parseInput(endpoints.enableSchema, request.body, "body") : {};
+        return one(PLATFORM, await endpoints.setStatus({ principal, ip: request.ip }, id, status, body.city_id), endpoints.platformJson);
       });
     }
 
@@ -368,7 +392,8 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
     app.get(`${tenantBase}/:id`, async (request) => {
       const principal = await tenant(request, "master_data.read");
       const id = resourceId(request.params, resource.label);
-      return endpoints.tenantJson(await getMaster(ctx, { kind: "tenant", tenantId: principal.tenantId }, resource, id));
+      const reader: MasterReader = { kind: "tenant", tenantId: principal.tenantId };
+      return one(reader, await getMaster(ctx, reader, resource, id), endpoints.tenantJson);
     });
   }
 
@@ -410,7 +435,15 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
     platformJson: placeJson,
     tenantJson: tenantPlaceJson,
     querySchema: placeListQuerySchema,
-    equals: (query) => ({ type: query.type, city_id: query.city_id, parent_id: query.parent_id, country_code: query.country_code }),
+    equals: (query) => ({
+      type: query.type,
+      city_id: query.city_id === "none" ? undefined : query.city_id,
+      parent_id: query.parent_id,
+      country_code: query.country_code,
+    }),
+    nulls: (query) => (query.city_id === "none" ? ["city_id"] : []),
+    loadRefs: (reader, items) => loadPlaceRefs(ctx, reader, items),
+    enableSchema: z.object({ city_id: uuidSchema.optional() }),
     createSchema: placeSchema,
     create: (writer, input) =>
       createPlace(ctx, writer, {
@@ -439,7 +472,7 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
         flightScope: patch.flight_scope,
         address: patch.address,
       }),
-    setStatus: (writer, id, status) => setPlaceStatus(ctx, writer, id, status),
+    setStatus: (writer, id, status, cityId) => setPlaceStatus(ctx, writer, id, status, cityId),
   });
 
   register({
