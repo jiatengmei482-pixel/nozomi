@@ -41,10 +41,14 @@
 
 ```bash
 pnpm install
-pnpm check            # 类型检查 + 测试 + 进度文件校验，提交前必须通过
-pnpm config:check     # 看当前环境哪些账号已配置
-pnpm progress:build   # 本地生成进度页到 site/index.html
-docker compose up -d  # 本地数据库
+docker compose up -d   # 本地数据库
+pnpm db:migrate        # 执行数据库迁移，可重复运行
+pnpm dev               # 启动后端，http://localhost:8080/health
+pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验，提交前必须通过（需要本地数据库在运行）
+pnpm test              # 只跑单元测试（不需要数据库）
+pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
+pnpm config:check      # 看当前环境哪些账号已配置
+pnpm progress:build    # 本地生成进度页到 site/index.html
 ```
 
 ## 一个任务的完整流程
