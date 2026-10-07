@@ -1,0 +1,298 @@
+/* 后台框架（docs/design/03-layout.md）。只有 <main> 纵向滚动。 */
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100dvh;
+}
+
+.shell__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.shell__main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--layout-page-padding);
+}
+
+/* ───────────── 侧边栏 ───────────── */
+.sidebar {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+.sidebar--pinned {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: var(--border-width) solid var(--color-border-default);
+}
+
+/* < 1024px：点菜单按钮后从左侧滑入的模态面板 */
+.sidebar--drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: var(--z-sidebar);
+  width: min(280px, 100% - 56px);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-right: var(--border-width) solid var(--color-border-default);
+  box-shadow: var(--shadow-lg);
+  overflow-y: auto;
+}
+
+.sidebar--drawer[open] {
+  animation: drawer-in var(--duration-slow) var(--easing-standard);
+}
+
+.sidebar--drawer::backdrop {
+  background: var(--color-bg-overlay);
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+.sidebar__drawer-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.sidebar__brand {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.sidebar__brand-name {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0.08em;
+}
+
+.sidebar__portal {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.sidebar__nav {
+  padding: var(--space-2);
+}
+
+.sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  text-decoration: none;
+}
+
+@media (pointer: coarse) {
+  .nav-item {
+    min-height: var(--control-height-md);
+  }
+}
+
+@media (hover: hover) {
+  .nav-item:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+  }
+}
+
+.nav-item[aria-current="page"] {
+  background: var(--color-primary-subtle);
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}
+
+.nav-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: 0;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.nav-item:focus-visible {
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+/* ───────────── 顶栏 ───────────── */
+.topbar {
+  position: relative;
+  z-index: var(--z-topbar);
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--layout-topbar-height);
+  padding: 0 var(--space-2);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
+}
+
+.breadcrumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.account-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: var(--control-height-md);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .account-button:hover {
+    background: var(--color-bg-hover);
+  }
+}
+
+.account-button__avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+  color: var(--color-text-link);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+/* < 768px：账号只显示姓名首字，姓名和角色收进下拉菜单 */
+.account-button__name,
+.account-button__role {
+  display: none;
+}
+
+.account-button__name {
+  max-width: 160px;
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-button__role {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .topbar {
+    padding: 0 var(--space-4);
+  }
+
+  .account-button__name,
+  .account-button__role {
+    display: inline;
+  }
+}
+
+/* ≥ 1024px：侧边栏常驻，菜单按钮不显示 */
+@media (min-width: 1024px) {
+  .shell {
+    grid-template-columns: var(--layout-sidebar-width) minmax(0, 1fr);
+  }
+
+  .sidebar--pinned {
+    display: flex;
+  }
+
+  .topbar__menu-button {
+    display: none;
+  }
+}
+
+/* ───────────── 内容区 ───────────── */
+.page {
+  min-width: 0;
+}
+
+.page > * + * {
+  margin-top: var(--space-6);
+}
+
+.page > .page__header + * {
+  margin-top: var(--space-4);
+}
+
+.page--content {
+  max-width: var(--layout-content-max-width);
+}
+
+.page--form {
+  max-width: var(--layout-form-max-width);
+}
+
+.page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.page__title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
