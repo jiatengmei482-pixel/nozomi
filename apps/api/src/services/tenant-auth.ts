@@ -1,8 +1,9 @@
 /**
  * 租户用户的登录、会话校验、退出、接受邀请。
  *
- * 登录和接受邀请是仅有的两个「还不知道租户」的入口：先在系统事务里按邮箱 / 邀请令牌定位到
- * （租户编号，用户编号），之后的读写全部回到那个租户的事务里做，行级安全照常生效。
+ * 登录和接受邀请是仅有的两个「还不知道租户」的入口：先在登录前事务里按邮箱 / 邀请令牌定位到
+ * （租户编号，用户编号）——那个事务读不到 tenant_users，只能调用两个定位函数——
+ * 之后的读写全部回到那个租户的事务里做，行级安全照常生效。
  */
 import { type TenantAction, checkPasswordStrength, tenantRoleCan } from "@nozomi/domain";
 import { hashInviteToken } from "../auth/invite-token.ts";
@@ -11,7 +12,7 @@ import { hashPassword, verifyPassword, verifyPasswordAgainstNothing } from "../a
 import { issueSession } from "../auth/session.ts";
 import { verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
-import { withSystemTx, withTenantTx } from "../db/context.ts";
+import { withPreAuthTx, withTenantTx } from "../db/context.ts";
 import type { Page, SequenceCursor } from "../pagination.ts";
 import { type AuditLog, type TenantAuditLogFilter, insertAuditLog, listTenantAuditLogs } from "../repos/audit-logs.ts";
 import {
@@ -64,7 +65,7 @@ interface Located {
 export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string): Promise<TenantLoginResult> {
   const now = ctx.now();
   const reservation = await reserveLogin(ctx, "tenant", input.email, ip, now);
-  const locator = await withSystemTx(ctx.pool, (db) => locateTenantUserByEmailAcrossTenants(db, input.email));
+  const locator = await withPreAuthTx(ctx.pool, (db) => locateTenantUserByEmailAcrossTenants(db, input.email));
   const found: Located | null = locator
     ? await withTenantTx(ctx.pool, locator.tenantId, async (db) => {
         const secrets = await findTenantUserSecrets(db, locator.tenantId, locator.userId);
@@ -104,7 +105,7 @@ export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string
         }),
       );
     } else {
-      await withSystemTx(ctx.pool, (db) =>
+      await withPreAuthTx(ctx.pool, (db) =>
         insertAuditLog(db, origin, {
           tenantId: null,
           resource: "tenant_user",
@@ -198,7 +199,7 @@ export async function tenantLogout(ctx: AppContext, principal: TenantPrincipal, 
 export async function acceptTenantInvite(ctx: AppContext, input: AcceptInviteInput, ip: string): Promise<TenantUser> {
   const now = ctx.now();
   const tokenHash = hashInviteToken(input.token);
-  const locator = await withSystemTx(ctx.pool, (db) => locateTenantUserByInviteTokenAcrossTenants(db, tokenHash));
+  const locator = await withPreAuthTx(ctx.pool, (db) => locateTenantUserByInviteTokenAcrossTenants(db, tokenHash));
   if (!locator) throw inviteInvalid();
   const tenantId = locator.tenantId;
   const invited = await withTenantTx(ctx.pool, tenantId, (db) => findTenantUserSecrets(db, tenantId, locator.userId));

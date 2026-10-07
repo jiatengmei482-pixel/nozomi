@@ -201,7 +201,7 @@ test("查看集成详情：每看一次记一条", async () => {
 });
 
 test("被拒绝的操作不产生「成功」的记录：没权限的、校验失败的、被「至少保留一个管理员」拦下的", async () => {
-  const count = async (): Promise<number> => (await api.db.pool.query("select count(*)::int as n from audit_logs")).rows[0].n;
+  const count = async (): Promise<number> => (await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n;
   // 用一个新的租户会话来做下面的尝试（登录本身会写一条记录，所以在计数之前做）
   const relogin = await api.call("POST", "/tenant/v1/auth/login", { ip: TENANT_IP, body: { email: "admin@a.test", password: TEST_PASSWORD } });
   const tenantToken = relogin.body.access_token as string;
@@ -261,7 +261,7 @@ test("查询参数校验：编号、时间格式不对返回 400", async () => {
 });
 
 test("只能追加：数据库层面拒绝修改、删除、清空（即使用表的所有者 / 超级用户连接）", async () => {
-  const count = async (): Promise<number> => (await api.db.pool.query("select count(*)::int as n from audit_logs")).rows[0].n;
+  const count = async (): Promise<number> => (await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n;
   const before = await count();
   const attempts = [
     "update audit_logs set action = 'tampered'",
@@ -272,10 +272,10 @@ test("只能追加：数据库层面拒绝修改、删除、清空（即使用�
     "truncate audit_logs, tenant_sessions cascade",
   ];
   for (const sql of attempts) {
-    await assert.rejects(api.db.pool.query(sql), { code: "23001", message: /只能追加/ }, sql);
+    await assert.rejects(api.db.owner.query(sql), { code: "23001", message: /只能追加/ }, sql);
   }
   assert.equal(await count(), before);
-  const tampered = await api.db.pool.query("select count(*)::int as n from audit_logs where action = 'tampered'");
+  const tampered = await api.db.owner.query("select count(*)::int as n from audit_logs where action = 'tampered'");
   assert.equal(tampered.rows[0].n, 0);
 });
 
@@ -288,7 +288,7 @@ test("接口上没有修改或删除审计日志的入口", async () => {
 });
 
 test("审计日志和应用日志里没有密码、密码哈希、邀请令牌、访问令牌、配置里的密钥", async () => {
-  const table = await api.db.pool.query("select row_to_json(a)::text as line from audit_logs a");
+  const table = await api.db.owner.query("select row_to_json(a)::text as line from audit_logs a");
   const auditText = table.rows.map((r) => r.line).join("\n");
   const apiText = JSON.stringify(await logs(""));
   const logText = api.logs();
@@ -300,7 +300,7 @@ test("审计日志和应用日志里没有密码、密码哈希、邀请令牌�
     assert.doesNotMatch(text, /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./, `${name}里出现了访问令牌`);
     assert.deepEqual(leakedSecrets(text), [], name);
   }
-  const hashes = await api.db.pool.query(
+  const hashes = await api.db.owner.query(
     "select password_hash as h from platform_users union all select password_hash from tenant_users union all select invite_token_hash from tenant_users",
   );
   for (const { h } of hashes.rows) if (h) assert.ok(!auditText.includes(h) && !logText.includes(h));

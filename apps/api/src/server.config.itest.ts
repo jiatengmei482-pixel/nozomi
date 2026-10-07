@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { type TestDatabase, createTestDatabase } from "./testing/db.ts";
-import { FAKE_SECRETS, UNREACHABLE_DATABASE_URL, leakedSecrets, testEnv } from "./testing/fixtures.ts";
+import { FAKE_SECRETS, UNREACHABLE_DATABASE_URL, leakedSecrets, migrateEnv, testEnv } from "./testing/fixtures.ts";
 import { exitWithin, freePort, httpGet, startNode, waitForHealth } from "./testing/process.ts";
 
 const SERVER_ENTRY = fileURLToPath(new URL("./server.ts", import.meta.url));
@@ -28,7 +28,37 @@ async function stop(running: ReturnType<typeof startNode>): Promise<void> {
 }
 
 test("配置的值不合规（不只是缺失）：两个入口都以退出码 1 结束，指出是哪一项，输出里没有任何配置值的原文", async () => {
-  const cases: { name: string; env: Record<string, string>; mentions: RegExp; forbidden: string[] }[] = [
+  // 迁移命令只读两个数据库连接串（ADR 0010：执行迁移的容器里不放登录签名密钥等），所以它有自己的一组用例
+  const mysqlUrl = `mysql://app:${FAKE_SECRETS.databasePassword}@db.internal:3306/nozomi`;
+  const cases: { name: string; entry?: string; env: Record<string, string>; mentions: RegExp; forbidden: string[] }[] = [
+    {
+      name: "迁移命令：DATABASE_MIGRATION_URL 不是 postgres 连接串",
+      entry: MIGRATE_ENTRY,
+      env: migrateEnv(mysqlUrl),
+      mentions: /DATABASE_MIGRATION_URL/,
+      forbidden: [FAKE_SECRETS.databasePassword, "db.internal"],
+    },
+    {
+      name: "迁移命令：只给了应用账号的 DATABASE_URL，没有 DATABASE_MIGRATION_URL",
+      entry: MIGRATE_ENTRY,
+      env: testEnv(db.url),
+      mentions: /DATABASE_MIGRATION_URL/,
+      forbidden: [new URL(db.url).password + "@"],
+    },
+    {
+      name: "迁移命令：两个连接串是同一个账号",
+      entry: MIGRATE_ENTRY,
+      env: { ...migrateEnv(db.ownerUrl), DATABASE_URL: db.ownerUrl },
+      mentions: /不能是同一个数据库账号/,
+      forbidden: [new URL(db.ownerUrl).password + "@"],
+    },
+    {
+      name: "服务进程：两个连接串是同一个账号",
+      entry: SERVER_ENTRY,
+      env: { ...testEnv(db.url), DATABASE_MIGRATION_URL: db.url },
+      mentions: /不能是同一个数据库账号/,
+      forbidden: [new URL(db.url).password + "@"],
+    },
     {
       name: "DATABASE_URL 不是 postgres 连接串",
       env: { ...testEnv(db.url), DATABASE_URL: `mysql://app:${FAKE_SECRETS.databasePassword}@db.internal:3306/nozomi` },
@@ -70,9 +100,9 @@ test("配置的值不合规（不只是缺失）：两个入口都以退出码 1
       forbidden: [],
     },
   ];
-  for (const { name, env, mentions, forbidden } of cases) {
-    for (const entry of [SERVER_ENTRY, MIGRATE_ENTRY]) {
-      const running = startNode(entry, env);
+  for (const { name, entry, env, mentions, forbidden } of cases) {
+    {
+      const running = startNode(entry ?? SERVER_ENTRY, env);
       try {
         assert.equal(await exitWithin(running, 15_000), 1, `${name}：${running.output()}`);
         assert.match(running.output(), /配置有误/, name);
@@ -182,9 +212,9 @@ test("DATABASE_URL 写错但能通过配置校验：API 进程的输出里不能
   }
 });
 
-test("DATABASE_URL 写错但能通过配置校验：迁移命令以退出码 1 结束，输出里没有数据库密码", async () => {
+test("DATABASE_MIGRATION_URL 写错但能通过配置校验：迁移命令以退出码 1 结束，输出里没有数据库密码", async () => {
   for (const { name, url } of MALFORMED_DATABASE_URLS) {
-    const running = startNode(MIGRATE_ENTRY, testEnv(url));
+    const running = startNode(MIGRATE_ENTRY, migrateEnv(url));
     try {
       assert.equal(await exitWithin(running, 15_000), 1, `${name}：${running.output()}`);
       assert.deepEqual(leakedSecrets(running.output()), [], name);

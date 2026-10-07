@@ -87,7 +87,7 @@ test("不包含平台内部的记录：平台员工对这个租户做的操作�
   for (const query of [`actor_id=${platformUserId}`, "resource=tenant", "action=suspend", "resource=platform_user"]) {
     assert.deepEqual(await all(query), [], query);
   }
-  const expected = await api.db.pool.query(
+  const expected = await api.db.owner.query(
     "select count(*)::int as n from audit_logs where tenant_id = $1 and actor_type in ('tenant_user', 'anonymous')",
     [tenant.tenantId],
   );

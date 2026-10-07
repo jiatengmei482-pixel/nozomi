@@ -32,7 +32,7 @@ async function run(args: string[], input: string): Promise<{ code: number | null
 
 const login = (email: string, password: string) => api.call("POST", "/platform/v1/auth/login", { body: { email, password } });
 const passwordHash = async (email: string): Promise<string> =>
-  (await api.db.pool.query("select password_hash from platform_users where email = $1", [email])).rows[0].password_hash;
+  (await api.db.owner.query("select password_hash from platform_users where email = $1", [email])).rows[0].password_hash;
 
 test("重设唯一的超级管理员的密码：输出里没有密码；旧密码作废、新密码能登录；此前的会话全部失效；审计记为命令行", async () => {
   const { code, output } = await run(["--email", "Owner@Platform.test"], `${NEW_PASSWORD}\n`);
@@ -47,7 +47,7 @@ test("重设唯一的超级管理员的密码：输出里没有密码；旧密�
   assert.equal(relogin.status, 200, relogin.text);
   rootToken = relogin.body.access_token;
 
-  const audit = await api.db.pool.query(
+  const audit = await api.db.owner.query(
     "select actor_type, actor_id, source, ip, resource_id, before, after from audit_logs where action = 'reset_password'",
   );
   assert.deepEqual(audit.rows, [
@@ -95,7 +95,7 @@ test("只对在用的超级管理员有效：不存在的邮箱、不是超级�
   }
   assert.equal(new Set(outputs).size, 1, "四种情况的输出应当完全一样");
   assert.equal((await login("ops@platform.test", TEST_PASSWORD)).status, 200);
-  const disabled = await api.db.pool.query("select status from platform_users where email = 'root2@platform.test'");
+  const disabled = await api.db.owner.query("select status from platform_users where email = 'root2@platform.test'");
   assert.equal(disabled.rows[0].status, "disabled", "命令行不会顺手把停用的账号启用");
 });
 

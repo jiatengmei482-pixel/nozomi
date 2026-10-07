@@ -42,6 +42,7 @@
 ```bash
 pnpm install
 docker compose up -d   # 本地数据库
+pnpm db:provision      # 创建 / 校正应用用的数据库账号（首次和换密码后运行一次）
 pnpm db:migrate        # 执行数据库迁移，可重复运行
 pnpm dev               # 启动后端，http://localhost:8080/health
 pnpm admin:create --email <邮箱> --name <姓名>   # 创建平台超级管理员；密码按提示输入，不接受命令行参数

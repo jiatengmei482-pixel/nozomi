@@ -19,7 +19,8 @@
 pnpm install
 docker compose up -d   # 本地数据库（PostgreSQL 16）
 cp .env.example .env   # 第一次：复制后填 AUTH_JWT_SECRET（见 docs/secrets.md）
-pnpm db:migrate        # 执行数据库迁移，可以反复运行
+pnpm db:provision      # 创建数据库的应用账号（权限最小，服务进程用它连接）；可以反复运行
+pnpm db:migrate        # 用迁移账号执行数据库迁移，可以反复运行
 pnpm admin:create --email 你的邮箱 --name 你的名字   # 创建平台超级管理员；密码按提示输入（不显示），不要写在命令里
 pnpm admin:reset-password --email 你的邮箱         # 超级管理员忘了密码时在服务器上重设；密码同样按提示输入
 pnpm dev               # 启动后端，http://localhost:8080/health 查看数据库、迁移状态，以及各账号是否已配置
@@ -32,13 +33,15 @@ pnpm progress:build    # 生成进度页到 site/index.html
 ```
 
 `pnpm check` 包含集成测试；数据库没启动时会直接失败并提示先运行 `docker compose up -d`，不会跳过。
+
+数据库有两个账号（[ADR 0010](docs/adr/0010-database-roles.md)）：迁移账号（`DATABASE_MIGRATION_URL`）是表的所有者，只给 `pnpm db:migrate`、`pnpm db:provision` 用；应用账号（`DATABASE_URL`）权限最小，服务进程、管理员命令和测试里的应用代码都用它。把迁移账号填进 `DATABASE_URL` 时服务会拒绝启动并说明原因。已经有本地数据库和 `.env` 的，照 `.env.example` 把这两行改好，再运行一次 `pnpm db:provision` 和 `pnpm db:migrate`。
 接口定义在 [`apps/api/openapi.yaml`](apps/api/openapi.yaml)，数据库迁移在 [`apps/api/migrations/`](apps/api/migrations/)。
 
 ### 账号是怎么来的
 
 系统里没有任何预置账号。从空库到租户能登录的顺序是：
 
-1. `pnpm db:migrate` 建表。
+1. `pnpm db:provision` 建数据库的应用账号，`pnpm db:migrate` 建表。
 2. `pnpm admin:create --email … --name …` 创建第一个平台超级管理员（在服务器上运行；密码交互输入，或 `< 密码文件` 从标准输入传入）。
 3. 超级管理员登录（`POST /platform/v1/auth/login`），创建租户（`POST /platform/v1/tenants`）。响应里有租户第一个管理员的一次性邀请令牌，只显示这一次。
 4. 把邀请令牌交给租户；对方凭它设置密码（`POST /tenant/v1/auth/accept-invite`），然后登录（`POST /tenant/v1/auth/login`）。

@@ -270,7 +270,7 @@ for (const entry of ["platform", "tenant"] as const) {
 
   test(`${entry} 邀请：数据库里只有令牌的哈希，没有原文；激活前没有密码`, async () => {
     const invited = await invite();
-    const row = (await api.db.pool.query(`select * from ${table} where id = $1`, [invited.id])).rows[0];
+    const row = (await api.db.owner.query(`select * from ${table} where id = $1`, [invited.id])).rows[0];
     assert.match(row.invite_token_hash, /^[0-9a-f]{64}$/);
     assert.equal(row.password_hash, null);
     assert.ok(!JSON.stringify(row).includes(invited.token));
@@ -363,8 +363,8 @@ test("同一来源地址轮换邮箱猜密码：失败满 50 次后，这个地�
   const ip = freshIp();
   const attempt = (email: string, password = "Wrong-Password-000", from = ip) =>
     api.call("POST", "/tenant/v1/auth/login", { ip: from, body: { email, password } });
-  const auditCount = async (): Promise<number> => (await api.db.pool.query("select count(*)::int as n from audit_logs")).rows[0].n;
-  const throttleRows = async (): Promise<number> => (await api.db.pool.query("select count(*)::int as n from login_throttles")).rows[0].n;
+  const auditCount = async (): Promise<number> => (await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n;
+  const throttleRows = async (): Promise<number> => (await api.db.owner.query("select count(*)::int as n from login_throttles")).rows[0].n;
 
   // 正常登录不占用这一层的次数：同一个地址上连续成功登录远超 50 次的量级也不受影响（这里做 3 次示意，并核对计数被退还）
   for (let i = 0; i < 3; i++) assert.equal((await attempt("admin@a.test", TEST_PASSWORD)).status, 200);
@@ -424,7 +424,7 @@ for (const entry of ["platform", "tenant"] as const) {
       const outcome = `${reissued.status}/${accepted.status}`;
       assert.ok(outcome === "201/400" || outcome === "409/200", `第 ${round + 1} 轮：重发 ${reissued.status} ${reissued.text}，接受 ${accepted.status} ${accepted.text}`);
       if (reissued.status === 409) assert.equal(reissued.body.error.code, "EMAIL_TAKEN");
-      const row = (await api.db.pool.query(`select status, password_hash is not null as has_password, invite_token_hash is not null as has_invite from ${entry === "platform" ? "platform_users" : "tenant_users"} where email = $1`, [email])).rows[0];
+      const row = (await api.db.owner.query(`select status, password_hash is not null as has_password, invite_token_hash is not null as has_invite from ${entry === "platform" ? "platform_users" : "tenant_users"} where email = $1`, [email])).rows[0];
       assert.deepEqual(row, outcome === "409/200" ? { status: "active", has_password: true, has_invite: false } : { status: "invited", has_password: false, has_invite: true });
     }
   });

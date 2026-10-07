@@ -3,7 +3,7 @@
  *
  * - 每个函数都显式接收 `tenantId`，每条 SQL 都带 `tenant_id = …` 条件。
  * - 租户请求在 withTenantTx 里调用它们（行级安全是第二道防线）；
- *   平台员工替租户操作（创建租户时邀请管理员、暂停租户时清会话）在 withSystemTx 里调用，条件同样带租户。
+ *   平台员工替租户操作（创建租户时邀请管理员、给管理员发重置令牌）在 withPlatformTx 里调用，条件同样带租户。
  * - 只有文件末尾的两个 `…AcrossTenants` 函数不带租户条件：登录时只有邮箱、接受邀请时只有令牌，
  *   它们只返回「是哪个租户的哪个用户」，后续操作仍回到租户事务里做。
  * - 对外返回的 TenantUser 不含密码哈希和邀请令牌哈希。
@@ -346,22 +346,25 @@ export interface TenantUserLocator {
   userId: string;
 }
 
-/** 登录时按邮箱定位用户（邮箱全平台唯一）。只在 withSystemTx 里调用。 */
+/**
+ * 登录时按邮箱定位用户（邮箱全平台唯一）。只在 withPreAuthTx 里调用：
+ * 登录前的角色读不了 tenant_users，只能调用这个数据库函数（迁移 0005），它只返回两个编号。
+ */
 export async function locateTenantUserByEmailAcrossTenants(db: Db, email: string): Promise<TenantUserLocator | null> {
-  const result = await db.query<{ tenant_id: string; id: string }>(
-    "select tenant_id, id from tenant_users where email = $1",
+  const result = await db.query<{ tenant_id: string; user_id: string }>(
+    "select tenant_id, user_id from locate_tenant_user_by_email($1)",
     [email],
   );
   const row = result.rows[0];
-  return row ? { tenantId: row.tenant_id, userId: row.id } : null;
+  return row ? { tenantId: row.tenant_id, userId: row.user_id } : null;
 }
 
-/** 接受邀请时按令牌哈希定位用户。只在 withSystemTx 里调用。 */
+/** 接受邀请时按令牌哈希定位用户。只在 withPreAuthTx 里调用，同样只经数据库函数返回两个编号。 */
 export async function locateTenantUserByInviteTokenAcrossTenants(db: Db, tokenHash: string): Promise<TenantUserLocator | null> {
-  const result = await db.query<{ tenant_id: string; id: string }>(
-    "select tenant_id, id from tenant_users where invite_token_hash = $1",
+  const result = await db.query<{ tenant_id: string; user_id: string }>(
+    "select tenant_id, user_id from locate_tenant_user_by_invite_token($1)",
     [tokenHash],
   );
   const row = result.rows[0];
-  return row ? { tenantId: row.tenant_id, userId: row.id } : null;
+  return row ? { tenantId: row.tenant_id, userId: row.user_id } : null;
 }

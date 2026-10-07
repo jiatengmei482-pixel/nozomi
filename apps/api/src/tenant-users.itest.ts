@@ -133,7 +133,7 @@ test("两个管理员同时把对方降级：只有一个成功，租户不会�
       api.call("PUT", `/tenant/v1/users/${secondId}`, { token: tenant.adminToken, body: { name: "乙", role: "readonly", status: "active" } }),
       api.call("PUT", `/tenant/v1/users/${tenant.adminId}`, { token: second.body.access_token, body: { name: "甲", role: "readonly", status: "active" } }),
     ]);
-    const admins = await api.db.pool.query(
+    const admins = await api.db.owner.query(
       "select id from tenant_users where tenant_id = $1 and role = 'admin' and status = 'active'",
       [tenant.tenantId],
     );

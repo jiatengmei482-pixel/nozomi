@@ -6,7 +6,7 @@ import { hashPassword, verifyPassword, verifyPasswordAgainstNothing } from "../a
 import { issueSession } from "../auth/session.ts";
 import { verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
-import { withSystemTx } from "../db/context.ts";
+import { withPlatformTx } from "../db/context.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import {
   type PlatformUser,
@@ -53,7 +53,7 @@ type LoginFailure = "unknown_email" | "not_activated" | "wrong_password" | "acco
 export async function platformLogin(ctx: AppContext, input: LoginInput, ip: string): Promise<PlatformLoginResult> {
   const now = ctx.now();
   const reservation = await reserveLogin(ctx, "platform", input.email, ip, now);
-  const found = await withSystemTx(ctx.pool, (db) => findPlatformUserByEmail(db, input.email));
+  const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByEmail(db, input.email));
   const passwordMatches = found?.passwordHash
     ? await verifyPassword(input.password, found.passwordHash)
     : await verifyPasswordAgainstNothing(input.password);
@@ -69,7 +69,7 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
           : null;
 
   if (failure !== null || !found) {
-    await withSystemTx(ctx.pool, (db) =>
+    await withPlatformTx(ctx.pool, (db) =>
       insertAuditLog(db, consoleOrigin(ANONYMOUS_ACTOR, ip, now), {
         tenantId: null,
         resource: "platform_user",
@@ -88,7 +88,7 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
     { audience: "platform", userId: user.id, tenantId: null, role: user.role },
     now,
   );
-  await withSystemTx(ctx.pool, async (db) => {
+  await withPlatformTx(ctx.pool, async (db) => {
     await insertPlatformSession(db, {
       id: session.sessionId,
       userId: user.id,
@@ -125,7 +125,7 @@ export async function authenticatePlatform(
   const now = ctx.now();
   const claims = token === null ? null : verifyAccessToken(ctx.config.authJwtSecret, "platform", token, now);
   if (!claims) throw unauthenticated();
-  const user = await withSystemTx(ctx.pool, (db) => findPlatformSessionUser(db, claims.sid, claims.sub, now));
+  const user = await withPlatformTx(ctx.pool, (db) => findPlatformSessionUser(db, claims.sid, claims.sub, now));
   if (!user || user.status !== "active") throw unauthenticated();
   if (action !== undefined && !platformRoleCan(user.role, action)) throw forbidden(action);
   return { sessionId: claims.sid, user };
@@ -133,7 +133,7 @@ export async function authenticatePlatform(
 
 export async function platformLogout(ctx: AppContext, principal: PlatformPrincipal, ip: string): Promise<void> {
   const now = ctx.now();
-  await withSystemTx(ctx.pool, async (db) => {
+  await withPlatformTx(ctx.pool, async (db) => {
     await deletePlatformSession(db, principal.sessionId);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {
       tenantId: null,
@@ -154,7 +154,7 @@ export interface AcceptInviteInput {
 export async function acceptPlatformInvite(ctx: AppContext, input: AcceptInviteInput, ip: string): Promise<PlatformUser> {
   const now = ctx.now();
   const tokenHash = hashInviteToken(input.token);
-  const invited = await withSystemTx(ctx.pool, (db) => findPlatformUserByInviteToken(db, tokenHash));
+  const invited = await withPlatformTx(ctx.pool, (db) => findPlatformUserByInviteToken(db, tokenHash));
   if (
     !invited ||
     invited.user.status !== "invited" ||
@@ -166,7 +166,7 @@ export async function acceptPlatformInvite(ctx: AppContext, input: AcceptInviteI
   const issues = checkPasswordStrength(input.password, invited.user.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
-  return withSystemTx(ctx.pool, async (db) => {
+  return withPlatformTx(ctx.pool, async (db) => {
     const user = await activatePlatformUser(db, tokenHash, passwordHash, now);
     if (!user) throw inviteInvalid();
     await insertAuditLog(db, consoleOrigin(platformActor(user), ip, now), {
@@ -199,7 +199,7 @@ export async function changePlatformPassword(
   const now = ctx.now();
   const user = principal.user;
   const reservation = await reserveLogin(ctx, "platform-change-password", user.email, ip, now);
-  const current = await withSystemTx(ctx.pool, (db) => findPlatformUserByEmail(db, user.email));
+  const current = await withPlatformTx(ctx.pool, (db) => findPlatformUserByEmail(db, user.email));
   const matches = current?.passwordHash
     ? await verifyPassword(input.currentPassword, current.passwordHash)
     : await verifyPasswordAgainstNothing(input.currentPassword);
@@ -209,7 +209,7 @@ export async function changePlatformPassword(
   const issues = checkPasswordStrength(input.newPassword, user.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.newPassword);
-  await withSystemTx(ctx.pool, async (db) => {
+  await withPlatformTx(ctx.pool, async (db) => {
     const locked = await lockPlatformUser(db, user.id);
     if (!locked || locked.user.status !== "active") throw unauthenticated();
     await setPlatformUserPassword(db, user.id, passwordHash, now);
@@ -234,7 +234,7 @@ export interface ResetPasswordInput {
 export async function resetPlatformPassword(ctx: AppContext, input: ResetPasswordInput, ip: string): Promise<PlatformUser> {
   const now = ctx.now();
   const tokenHash = hashResetToken(input.token);
-  const found = await withSystemTx(ctx.pool, (db) => findPlatformUserByResetToken(db, tokenHash));
+  const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByResetToken(db, tokenHash));
   if (
     !found ||
     found.user.status !== "active" ||
@@ -246,7 +246,7 @@ export async function resetPlatformPassword(ctx: AppContext, input: ResetPasswor
   const issues = checkPasswordStrength(input.password, found.user.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
-  return withSystemTx(ctx.pool, async (db) => {
+  return withPlatformTx(ctx.pool, async (db) => {
     const user = await resetPlatformUserPassword(db, tokenHash, passwordHash, now);
     if (!user) throw resetTokenInvalid();
     await deletePlatformSessionsOfUser(db, user.id);

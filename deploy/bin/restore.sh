@@ -6,7 +6,13 @@
 # 用法：restore.sh <备份文件> [--yes]
 #   /opt/nozomi/<环境>/current/bin/restore.sh /opt/nozomi/<环境>/backups/nozomi-<环境>-daily-<时间>.dump
 #
-# 过程：停 API → 备份当前库 → 删库重建 → 导入备份 → 执行迁移（把结构补到当前版本）→ 启动 API 并等它健康。
+# 过程：停 API → 备份当前库 → 删库重建 → 建好应用账号和权限角色 → 导入备份 → 执行迁移（把结构补到当前版本）
+#       → 启动 API 并等它健康。
+#
+# 两个数据库账号（ADR 0010）：导入用迁移账号，导入的表全部归它所有（--no-owner）；备份里记着的
+# 「哪个权限角色能对哪张表做什么」原样恢复。角色和账号本身不在备份里（它们属于整个数据库实例），
+# 所以导入前先确保它们存在——恢复到一台全新的服务器上时尤其需要。
+# API 启动时会自检自己的数据库账号：恢复后应用账号不是最小权限的话，服务不会变健康。
 set -euo pipefail
 
 HEALTH_TIMEOUT_SECONDS=120
@@ -45,12 +51,14 @@ log "清空数据库并导入备份"
 "$compose" exec -T db psql -U nozomi -d postgres -v ON_ERROR_STOP=1 --quiet \
   -c 'drop database if exists nozomi with (force)' \
   -c 'create database nozomi owner nozomi'
+"$compose" run --rm --no-deps -T migrate node apps/api/src/db/provision-cli.ts ||
+  die "创建数据库的应用账号失败。数据库现在是空的：请排查后重试，或用刚才生成的 pre-restore 备份恢复"
 "$compose" exec -T db pg_restore -U nozomi -d nozomi --no-owner --exit-on-error <"$backup_file" ||
   die "导入失败。数据库现在不完整：请换一个备份重试，或用刚才生成的 pre-restore 备份恢复"
 
 log "执行迁移，把结构补到当前版本"
 migrated=yes
-"$compose" run --rm --no-deps -T api node apps/api/src/db/migrate-cli.ts || migrated=no
+"$compose" run --rm --no-deps -T migrate node apps/api/src/db/migrate-cli.ts || migrated=no
 
 log "启动 API"
 if "$compose" up -d --wait --wait-timeout "$HEALTH_TIMEOUT_SECONDS" && [[ "$migrated" == yes ]]; then

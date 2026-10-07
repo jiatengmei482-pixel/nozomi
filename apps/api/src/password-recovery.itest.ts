@@ -44,7 +44,7 @@ async function login(entry: "platform" | "tenant", email: string, password: stri
 }
 
 async function auditOf(resourceId: string, action: string): Promise<any[]> {
-  const rows = await api.db.pool.query(
+  const rows = await api.db.owner.query(
     "select tenant_id, actor_type, actor_id, source, ip, before, after from audit_logs where resource_id = $1 and action = $2 order by id",
     [resourceId, action],
   );
@@ -100,7 +100,7 @@ for (const entry of ["platform", "tenant"] as const) {
 
   test(`${entry} 自己改密码：当前密码不对、新密码太弱、新旧相同、没登录，都不改；错误里不回显密码`, async () => {
     const account = await newAccount(entry);
-    const hashBefore = (await api.db.pool.query(`select password_hash from ${table} where id = $1`, [account.id])).rows[0].password_hash;
+    const hashBefore = (await api.db.owner.query(`select password_hash from ${table} where id = $1`, [account.id])).rows[0].password_hash;
     const wrong = await change(account.token, "Wrong-Password-000", NEW_PASSWORD);
     assert.equal(wrong.status, 400);
     assert.equal(wrong.body.error.code, "CURRENT_PASSWORD_INCORRECT");
@@ -120,7 +120,7 @@ for (const entry of ["platform", "tenant"] as const) {
     for (const res of [wrong, weak, withEmail, same, missing]) {
       assert.ok(!res.text.includes("Wrong-Password-000") && !res.text.includes(TEST_PASSWORD) && !res.text.includes(NEW_PASSWORD));
     }
-    const hashAfter = (await api.db.pool.query(`select password_hash from ${table} where id = $1`, [account.id])).rows[0].password_hash;
+    const hashAfter = (await api.db.owner.query(`select password_hash from ${table} where id = $1`, [account.id])).rows[0].password_hash;
     assert.equal(hashAfter, hashBefore);
     assert.deepEqual(await auditOf(account.id, "change_password"), []);
   });
@@ -150,7 +150,7 @@ for (const entry of ["platform", "tenant"] as const) {
 
     assert.equal((await me(account.token)).status, 200, "发出重置令牌不应让现有会话失效");
     await login(entry, account.email, TEST_PASSWORD);
-    const row = (await api.db.pool.query(`select * from ${table} where id = $1`, [account.id])).rows[0];
+    const row = (await api.db.owner.query(`select * from ${table} where id = $1`, [account.id])).rows[0];
     assert.match(row.reset_token_hash, /^[0-9a-f]{64}$/);
     assert.ok(!JSON.stringify(row).includes(token));
 
@@ -266,7 +266,7 @@ test("发重置令牌需要权限：平台只有超级管理员能给平台员�
     assert.equal(res.status, 403);
   }
   for (const id of [target.id, dispatcher.id]) {
-    const row = await api.db.pool.query(
+    const row = await api.db.owner.query(
       "select reset_token_hash from platform_users where id = $1 union all select reset_token_hash from tenant_users where id = $1",
       [id],
     );
@@ -309,7 +309,7 @@ test("平台给租户管理员发重置令牌：租户唯一的管理员忘了�
   }
   assert.equal((await api.call("POST", "/platform/v1/tenants/99999999-9999-4999-8999-999999999999/admin-password-resets", { token: ops.token, body: { email: "admin@a.test" } })).status, 404);
   assert.equal((await api.call("POST", url, { token: ops.token, body: {} })).status, 400);
-  const untouched = await api.db.pool.query("select reset_token_hash from tenant_users where id = $1", [other.adminId]);
+  const untouched = await api.db.owner.query("select reset_token_hash from tenant_users where id = $1", [other.adminId]);
   assert.equal(untouched.rows[0].reset_token_hash, null, "租户乙的管理员不应被动到");
   await login("tenant", "admin@b.test", TEST_PASSWORD);
 });
@@ -318,7 +318,7 @@ test("重置令牌、新旧密码不出现在审计日志和应用日志里", as
   const account = await newAccount("tenant");
   const token = (await account.issue()).body.reset.token as string;
   await api.call("POST", "/tenant/v1/auth/reset-password", { body: { token, password: "Logged-Nowhere-2030" } });
-  const audit = (await api.db.pool.query("select row_to_json(a)::text as line from audit_logs a")).rows.map((r) => r.line).join("\n");
+  const audit = (await api.db.owner.query("select row_to_json(a)::text as line from audit_logs a")).rows.map((r) => r.line).join("\n");
   for (const [name, text] of [["审计表", audit], ["应用日志", api.logs()]] as const) {
     for (const secret of [token, "Logged-Nowhere-2030", NEW_PASSWORD, TEST_PASSWORD]) assert.ok(!text.includes(secret), `${name}里出现了 ${secret.slice(0, 8)}…`);
     assert.doesNotMatch(text, /nzr_[A-Za-z0-9_.-]{20,}/, name);

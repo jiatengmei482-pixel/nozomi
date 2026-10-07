@@ -23,7 +23,7 @@ const tenantLogin = (email: string, password: string, ip?: string): Promise<ApiR
   api.call("POST", "/tenant/v1/auth/login", { body: { email, password }, ...(ip === undefined ? {} : { ip }) });
 
 async function auditCount(): Promise<number> {
-  return (await api.db.pool.query("select count(*)::int as n from audit_logs")).rows[0].n;
+  return (await api.db.owner.query("select count(*)::int as n from audit_logs")).rows[0].n;
 }
 
 test("邮箱换大小写、加前后空格都算同一个邮箱：第 6 次照样 429；被拦下的请求不写审计、不建会话，Retry-After 与响应体一致并随时间减少", async () => {
@@ -35,7 +35,7 @@ test("邮箱换大小写、加前后空格都算同一个邮箱：第 6 次照�
     assert.equal(res.status, 401, `${JSON.stringify(email)}: ${res.text}`);
   }
   const auditBefore = await auditCount();
-  const sessionsBefore = (await api.db.pool.query("select count(*)::int as n from tenant_sessions where user_id = $1", [reader.id])).rows[0].n;
+  const sessionsBefore = (await api.db.owner.query("select count(*)::int as n from tenant_sessions where user_id = $1", [reader.id])).rows[0].n;
   // 第 6 次：换一种写法，而且密码是对的
   const blocked = await tenantLogin("Throttle@a.TEST", TEST_PASSWORD, ip);
   assert.equal(blocked.status, 429, blocked.text);
@@ -44,7 +44,7 @@ test("邮箱换大小写、加前后空格都算同一个邮箱：第 6 次照�
   assert.equal(blocked.headers["retry-after"], String(15 * 60));
   assert.equal(blocked.body.error.details.retry_after_seconds, 15 * 60);
   assert.equal(await auditCount(), auditBefore, "被限速拦下的请求不应写审计（ADR 0008）");
-  const sessionsAfter = (await api.db.pool.query("select count(*)::int as n from tenant_sessions where user_id = $1", [reader.id])).rows[0].n;
+  const sessionsAfter = (await api.db.owner.query("select count(*)::int as n from tenant_sessions where user_id = $1", [reader.id])).rows[0].n;
   assert.equal(sessionsAfter, sessionsBefore, "被限速拦下的请求建了会话");
 
   api.clock.advance(15 * 60 * 1000 - 1);
@@ -76,14 +76,14 @@ test("邮箱换大小写、加空格造不出第二个账号；全角字符等�
     const res = await api.call("POST", "/tenant/v1/users", { token: a.adminToken, body: { email, name: "形近", role: "readonly" } });
     assert.equal(res.status, 400, `${JSON.stringify(email)}: ${res.status} ${res.text}`);
   }
-  const stored = await api.db.pool.query(
+  const stored = await api.db.owner.query(
     `select email from tenant_users where email <> lower(btrim(email))
      union all select email from platform_users where email <> lower(btrim(email))`,
   );
   assert.deepEqual(stored.rows, []);
-  const duplicates = await api.db.pool.query("select lower(email) from tenant_users group by 1 having count(*) > 1");
+  const duplicates = await api.db.owner.query("select lower(email) from tenant_users group by 1 having count(*) > 1");
   assert.deepEqual(duplicates.rows, []);
-  assert.equal((await api.db.pool.query("select count(*)::int as n from tenants")).rows[0].n, 1, "邮箱冲突的创建请求留下了租户");
+  assert.equal((await api.db.owner.query("select count(*)::int as n from tenants")).rows[0].n, 1, "邮箱冲突的创建请求留下了租户");
 });
 
 test("邮箱不存在、密码错误、已邀请未激活、已停用但密码错误：状态码、响应体、响应头完全一样，分辨不出账号是否存在", async () => {
@@ -108,10 +108,10 @@ test("邮箱不存在、密码错误、已邀请未激活、已停用但密码�
 
 test("限速表里只有哈希：没有邮箱和来源地址的原文", async () => {
   await tenantLogin("plaintext-check@a.test", "wrong-password", "198.51.100.40");
-  const rows = await api.db.pool.query<{ key: string }>("select key from login_throttles");
+  const rows = await api.db.owner.query<{ key: string }>("select key from login_throttles");
   assert.ok(rows.rows.length >= 2);
   for (const row of rows.rows) assert.match(row.key, /^[0-9a-f]{64}$/);
-  const dump = JSON.stringify((await api.db.pool.query("select * from login_throttles")).rows);
+  const dump = JSON.stringify((await api.db.owner.query("select * from login_throttles")).rows);
   assert.ok(!dump.includes("plaintext-check") && !dump.includes("198.51.100.40"));
 });
 
@@ -163,7 +163,7 @@ test("对已激活过又被停用的账号重发邀请：409，账号仍是停�
   assert.equal(again.body.invite, undefined);
   const viaPlatform = await api.call("POST", `/platform/v1/tenants/${a.tenantId}/admin-invites`, { token: platformToken, body: { email: "used@a.test", name: "换个名字" } });
   assert.equal(viaPlatform.status, 409, viaPlatform.text);
-  const row = (await api.db.pool.query("select name, role, status, invite_token_hash from tenant_users where id = $1", [used.id])).rows[0];
+  const row = (await api.db.owner.query("select name, role, status, invite_token_hash from tenant_users where id = $1", [used.id])).rows[0];
   assert.deepEqual(row, { name: "used@a.test", role: "readonly", status: "disabled", invite_token_hash: null });
 
   const first = await api.call("POST", "/tenant/v1/users", { token: a.adminToken, body: { email: "never@a.test", name: "从未激活", role: "readonly" } });
@@ -191,7 +191,7 @@ test("并发邀请同一个新邮箱（8 个请求同时到）：没有 500，�
     const statuses = results.map((res) => res.status);
     assert.ok(statuses.every((status) => status === 201 || status === 409), `${label}: ${statuses.join(",")}`);
     assert.ok(statuses.includes(201), label);
-    const rows = await api.db.pool.query(`select invite_token_hash from ${table} where email like 'race@%'`);
+    const rows = await api.db.owner.query(`select invite_token_hash from ${table} where email like 'race@%'`);
     assert.equal(rows.rows.length, 1, `${label}: 留下了 ${rows.rows.length} 个账号`);
     const issued = results.filter((res) => res.status === 201).map((res) => hashInviteToken(res.body.invite.token as string));
     assert.equal(issued.filter((hash) => hash === rows.rows[0].invite_token_hash).length, 1, label);
@@ -222,7 +222,7 @@ test("两个管理员同时对自己 / 对方下手（停用自己、停用对�
     const refused = results.filter((res) => res.status === 409 || res.status === 403 || res.status === 401).length;
     assert.equal(ok, 1, `${label}: ${results.map((res) => `${res.status} ${res.text}`).join(" | ")}`);
     assert.equal(refused, 1, label);
-    const active = await api.db.pool.query<{ id: string }>(
+    const active = await api.db.owner.query<{ id: string }>(
       "select id from tenant_users where tenant_id = $1 and role = 'admin' and status = 'active'",
       [a.tenantId],
     );

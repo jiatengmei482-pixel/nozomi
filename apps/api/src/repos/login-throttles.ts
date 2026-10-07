@@ -1,7 +1,7 @@
 /**
  * 登录限速的计数（规则见 @nozomi/domain 的 login-throttle.ts）。
  * 计数在一条 SQL 里原子完成（先占用、后验证密码），并发请求不可能绕过。
- * 表里只有哈希后的 key，没有邮箱和地址原文。平台表，只在 withSystemTx 里调用。
+ * 表里只有哈希后的 key，没有邮箱和地址原文。平台表，只在 withPreAuthTx 里调用。
  */
 import { LOGIN_THROTTLE_WINDOW_MS, type ThrottleCounter } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";

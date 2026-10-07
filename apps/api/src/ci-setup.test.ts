@@ -86,7 +86,7 @@ test("CI 安装依赖时用 --frozen-lockfile，没有不带它的 pnpm install"
   assert.ok(!runs.some((run) => /(^|[^p])npm (install|ci)\b/.test(run)), "CI 里混用了 npm 安装");
 });
 
-test("CI 起了 PostgreSQL 服务：版本与本地 docker-compose 一致，带健康检查，DATABASE_URL 指向它", async () => {
+test("CI 起了 PostgreSQL 服务：版本与本地 docker-compose 一致，带健康检查；迁移账号的连接串指向它，应用账号是同一个库上的另一个账号", async () => {
   const postgres = job?.services?.["postgres"];
   assert.ok(postgres, "CI 没有 postgres 服务");
   const compose = parse(await readText("docker-compose.yml")) as { services: { db: { image: string } } };
@@ -94,26 +94,37 @@ test("CI 起了 PostgreSQL 服务：版本与本地 docker-compose 一致，带�
   assert.match(postgres.options ?? "", /--health-cmd/);
   assert.ok((postgres.ports ?? []).some((port) => String(port).endsWith(":5432")));
 
-  const url = new URL(job?.env?.["DATABASE_URL"] ?? "");
+  const url = new URL(job?.env?.["DATABASE_MIGRATION_URL"] ?? "");
   assert.equal(url.username, postgres.env?.["POSTGRES_USER"]);
   assert.equal(url.password, postgres.env?.["POSTGRES_PASSWORD"]);
   assert.equal(url.pathname, `/${postgres.env?.["POSTGRES_DB"]}`);
   assert.equal(url.port, "5432");
+
+  // 集成测试里的应用代码用的是另一个账号（ADR 0010）：同一个库，不是建库时的超级用户
+  const appUrl = new URL(job?.env?.["DATABASE_URL"] ?? "");
+  assert.notEqual(appUrl.username, url.username);
+  assert.notEqual(appUrl.password, url.password);
+  assert.match(appUrl.password, /^ci-placeholder-not-a-real-/);
+  assert.equal(`${appUrl.host}${appUrl.pathname}`, `${url.host}${url.pathname}`);
 });
 
-test("CI 在安装之后依次跑：类型检查、单元测试、迁移两次（验证可重复执行）、集成测试", () => {
+test("CI 在安装之后依次跑：类型检查、单元测试、建应用账号两次、迁移两次（验证可重复执行）、集成测试", () => {
   const indexOf = (pattern: RegExp, from = 0): number => runs.findIndex((run, i) => i >= from && pattern.test(run));
   const install = indexOf(/pnpm install/);
   const typecheck = indexOf(/^pnpm typecheck$/);
   const unit = indexOf(/^pnpm test$/);
+  const firstProvision = indexOf(/^pnpm db:provision$/);
+  const secondProvision = indexOf(/^pnpm db:provision$/, firstProvision + 1);
   const firstMigrate = indexOf(/^pnpm db:migrate$/);
   const secondMigrate = indexOf(/^pnpm db:migrate$/, firstMigrate + 1);
   const integration = indexOf(/^pnpm test:integration$/);
-  for (const [name, index] of Object.entries({ install, typecheck, unit, firstMigrate, secondMigrate, integration })) {
+  for (const [name, index] of Object.entries({ install, typecheck, unit, firstProvision, secondProvision, firstMigrate, secondMigrate, integration })) {
     assert.ok(index >= 0, `CI 缺少步骤：${name}`);
   }
   assert.ok(install < typecheck && install < unit && install < firstMigrate && install < integration);
   assert.ok(firstMigrate < secondMigrate);
+  // 应用账号要在集成测试之前建好（可重复执行）；集成测试里的应用代码只用它连接数据库
+  assert.ok(install < firstProvision && firstProvision < secondProvision && secondProvision < integration);
 });
 
 test("CI 的集成测试步骤没有被设成「失败也继续」", () => {

@@ -3,6 +3,7 @@
  *
  * 真实执行脚本，但把 `docker` 换成一个替身（放在 PATH 最前面）：它只记录每次调用的参数，
  * 并按测试指定的规则让某些调用失败。不需要 Docker，也不需要数据库。
+ * behind-proxy 模式下脚本还会用 `curl` 从本机访问入口端口：同样换成替身（并把 `sleep` 换成立即返回）。
  * 真实容器上的同一套流程由 CI 的 deploy/ci/smoke.sh 覆盖。
  *
  * 脚本依赖 Linux 的 flock、mv -T，所以只在 Linux 上运行（CI 和服务器都是 Linux）。
@@ -22,6 +23,9 @@ const linuxOnly = { skip: process.platform === "linux" ? false : "部署脚本�
 /** 明显的占位值：测试里没有任何真实密钥。 */
 const PLACEHOLDER_PASSWORD = "test-placeholder-not-a-real-password";
 const PLACEHOLDER_JWT = "test-placeholder-not-a-real-secret-0000000000";
+const PLACEHOLDER_APP_PASSWORD = "test-placeholder-not-a-real-app-password";
+/** 在有应用账号之前初始化的服务器上的 .env：没有 POSTGRES_APP_PASSWORD。 */
+const LEGACY_ENV_FILE = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
 const PLACEHOLDER_TOKEN = "test-placeholder-registry-token";
 const IMAGE = "registry.example.test/nozomi/nozomi-api";
 
@@ -44,6 +48,20 @@ if [[ "$args" == "image ls"* && -f "$STUB_DIR/images" ]]; then cat "$STUB_DIR/im
 exit 0
 `;
 
+/**
+ * curl 的替身：每次调用往 $STUB_DIR/curl.log 追加一行全部参数，并输出一个 HTTP 状态码
+ * （脚本用 --write-out 取它）：$STUB_DIR/curl-status 存在时输出其内容，否则 200。
+ */
+const CURL_STUB = `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >>"$STUB_DIR/curl.log"
+if [[ -f "$STUB_DIR/curl-status" ]]; then cat "$STUB_DIR/curl-status"; else printf '200'; fi
+`;
+
+const SLEEP_STUB = "#!/usr/bin/env bash\nexit 0\n";
+
+const BEHIND_PROXY = { EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080" };
+
 interface Sandbox {
   root: string;
   stubDir: string;
@@ -63,11 +81,13 @@ beforeEach(async () => {
   await mkdir(join(root, "releases"), { recursive: true });
   await mkdir(join(root, "backups"));
   await mkdir(join(stubDir, "bin"), { recursive: true });
-  await writeFile(join(stubDir, "bin", "docker"), DOCKER_STUB);
-  await chmod(join(stubDir, "bin", "docker"), 0o755);
+  for (const [name, content] of [["docker", DOCKER_STUB], ["curl", CURL_STUB], ["sleep", SLEEP_STUB]] as const) {
+    await writeFile(join(stubDir, "bin", name), content);
+    await chmod(join(stubDir, "bin", name), 0o755);
+  }
   await writeFile(
     join(root, ".env"),
-    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
+    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
     { mode: 0o644 },
   );
   sandbox = { root, stubDir };
@@ -77,11 +97,11 @@ afterEach(async () => {
   await rm(join(sandbox.root, ".."), { recursive: true, force: true });
 });
 
-/** 和流水线上传到服务器的是同一组文件。 */
+/** 和 deploy/client/remote.sh 上传到服务器的是同一组文件。 */
 async function installRelease(id: string): Promise<string> {
   const dir = join(sandbox.root, "releases", id);
   await mkdir(dir, { recursive: true });
-  for (const entry of ["compose.yml", "Caddyfile", "bin"]) {
+  for (const entry of ["compose.yml", "compose.behind-proxy.yml", "Caddyfile", "bin"]) {
     await cp(join(DEPLOY_DIR, entry), join(dir, entry), { recursive: true });
   }
   return dir;
@@ -122,6 +142,25 @@ async function calls(): Promise<string[]> {
 
 async function clearCalls(): Promise<void> {
   await rm(join(sandbox.stubDir, "calls.log"), { force: true });
+  await rm(join(sandbox.stubDir, "curl.log"), { force: true });
+}
+
+/** curl 替身被调用的记录（behind-proxy 模式下从本机访问入口端口）。 */
+async function curlCalls(): Promise<string[]> {
+  const path = join(sandbox.stubDir, "curl.log");
+  if (!existsSync(path)) return [];
+  return (await readFile(path, "utf8")).split("\n").filter(Boolean);
+}
+
+/** 让本机访问入口端口得到指定的状态码（不传则恢复为 200）。 */
+async function edgeAnswers(status?: string): Promise<void> {
+  const path = join(sandbox.stubDir, "curl-status");
+  if (status === undefined) await rm(path, { force: true });
+  else await writeFile(path, status);
+}
+
+async function releaseEnv(id: string): Promise<string> {
+  return readFile(join(sandbox.root, "releases", id, "release.env"), "utf8");
 }
 
 async function linkTarget(name: string): Promise<string | null> {
@@ -141,7 +180,7 @@ function indexOfCall(log: string[], pattern: RegExp): number {
   return log.findIndex((line) => pattern.test(line));
 }
 
-test("首次部署成功：拉镜像 → 起数据库 → 迁移 → 启动，顺序正确；current 指向新版本，没有 previous，也不做迁移前备份", linuxOnly, async () => {
+test("首次部署成功：拉镜像 → 起数据库 → 建应用账号 → 迁移 → 启动，顺序正确；current 指向新版本，没有 previous，也不做迁移前备份", linuxOnly, async () => {
   const result = await deploy("v1");
   assert.equal(result.code, 0, result.output);
   assert.equal(await linkTarget("current"), "releases/v1");
@@ -150,9 +189,12 @@ test("首次部署成功：拉镜像 → 起数据库 → 迁移 → 启动，�
   const log = await calls();
   const pull = indexOfCall(log, /pull --quiet api$/);
   const database = indexOfCall(log, /up -d --wait --wait-timeout \d+ db$/);
-  const migrate = indexOfCall(log, /run --rm --no-deps -T api node apps\/api\/src\/db\/migrate-cli\.ts$/);
+  // 建账号和迁移都在临时的 migrate 容器里用迁移账号执行，不在 api 容器里（api 拿不到迁移账号的密码）
+  const provision = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/provision-cli\.ts$/);
+  const migrate = indexOfCall(log, /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/);
   const activate = indexOfCall(log, activationOf("v1"));
-  assert.ok(pull >= 0 && database > pull && migrate > database && activate > migrate, log.join("\n"));
+  assert.ok(pull >= 0 && database > pull && provision > database && migrate > provision && activate > migrate, log.join("\n"));
+  assert.ok(!log.some((line) => / -T api node /.test(line)), "数据库管理任务不应在 api 容器里执行");
   assert.ok(!log.some((line) => line.includes("pg_dump")), "首次部署时数据库是空的，不应备份");
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), []);
 });
@@ -177,6 +219,7 @@ test("release.env 只有非密钥项；证书方式随 ACME_EMAIL 有无而变�
   assert.match(withoutEmail, /^CADDY_TLS_MODE=auto$/m);
   assert.match(withoutEmail, new RegExp(`^API_IMAGE=${IMAGE.replaceAll(".", "\\.")}:v1$`, "m"));
   assert.ok(!withoutEmail.includes(PLACEHOLDER_PASSWORD) && !withoutEmail.includes(PLACEHOLDER_JWT));
+  assert.ok(!withoutEmail.includes(PLACEHOLDER_APP_PASSWORD));
 
   await deploy("v2", { ACME_EMAIL: "ops@example.test" });
   const withEmail = await readFile(join(sandbox.root, "releases", "v2", "release.env"), "utf8");
@@ -248,6 +291,68 @@ test("迁移前备份失败：退出码 10，不执行迁移", linuxOnly, async 
   assert.match(result.output, /迁移前备份失败/);
   assert.equal(indexOfCall(await calls(), /migrate-cli\.ts$/), -1);
   assert.deepEqual(await readdir(join(sandbox.root, "backups")), [], "失败的备份不应留下半截文件");
+});
+
+test("建应用账号失败：退出码 10，不执行迁移，不启动新版本，current 不变", linuxOnly, async () => {
+  await deploy("v1");
+  await clearCalls();
+  await failWhen("provision-cli\\.ts$");
+  const result = await deploy("v2");
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /创建数据库的应用账号失败/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.equal(indexOfCall(log, /migrate-cli\.ts$/), -1);
+  assert.equal(indexOfCall(log, /--remove-orphans$/), -1, "建账号失败后不应替换正在运行的容器");
+});
+
+test("应用账号的数据库密码：.env 里没有时部署自动生成（只写进 .env，不打印），已有的不改；和迁移账号的密码相同、含特殊字符时拒绝部署", linuxOnly, async () => {
+  const envFile = join(sandbox.root, ".env");
+  const before = LEGACY_ENV_FILE;
+  await writeFile(envFile, before, { mode: 0o644 });
+  const first = await deploy("v1");
+  assert.equal(first.code, 0, first.output);
+  const after = await readFile(envFile, "utf8");
+  assert.ok(after.startsWith(before), "原有的内容必须原样保留");
+  const generated = /^POSTGRES_APP_PASSWORD=([0-9a-f]{48})$/m.exec(after.slice(before.length))?.[1];
+  assert.ok(generated, "应追加一行 48 位十六进制的 POSTGRES_APP_PASSWORD");
+  assert.notEqual(generated, PLACEHOLDER_PASSWORD);
+  assert.equal(after.slice(before.length).trim().split("\n").length, 1, "只应追加这一行");
+  assert.equal(spawnSync("stat", ["-c", "%a", envFile], { encoding: "utf8" }).stdout.trim(), "600");
+  assert.match(first.output, /POSTGRES_APP_PASSWORD（应用账号的数据库密码）原先没有，已自动生成/);
+  assert.ok(!first.output.includes(generated), "生成的密码不能出现在输出里");
+  assert.ok(!(await calls()).some((line) => line.includes(generated)), "生成的密码不能出现在 docker 的命令行参数里");
+
+  const second = await deploy("v2");
+  assert.equal(second.code, 0, second.output);
+  assert.equal(await readFile(envFile, "utf8"), after, "已有的 POSTGRES_APP_PASSWORD 不能被改动");
+  assert.ok(!second.output.includes("已自动生成"));
+
+  // 文件末尾没有换行、或这一项留了空位：都补成完整的一行，不和别的行粘在一起
+  for (const content of [before.trimEnd(), `${before}POSTGRES_APP_PASSWORD=\n`]) {
+    await writeFile(envFile, content);
+    const result = await deploy("v3");
+    assert.equal(result.code, 0, result.output);
+    const lines = (await readFile(envFile, "utf8")).split("\n").filter(Boolean);
+    assert.deepEqual(lines.slice(0, 3), before.trimEnd().split("\n"));
+    assert.equal(lines.length, 4);
+    assert.match(lines[3] ?? "", /^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$/);
+  }
+
+  await clearCalls();
+  const rejected: [string, RegExp][] = [
+    [`POSTGRES_APP_PASSWORD=${PLACEHOLDER_PASSWORD}\n`, /不能和 POSTGRES_PASSWORD 相同/],
+    ["POSTGRES_APP_PASSWORD=bad@placeholder/value\n", /只能包含字母、数字/],
+    ["POSTGRES_APP_PASSWORD=short\n", /至少 8 个字符/],
+  ];
+  for (const [line, message] of rejected) {
+    await writeFile(envFile, before + line);
+    const result = await deploy("v4");
+    assert.equal(result.code, 1, result.output);
+    assert.match(result.output, message);
+    assert.ok(!result.output.includes("bad@placeholder") && !result.output.includes(PLACEHOLDER_PASSWORD));
+  }
+  assert.deepEqual(await calls(), [], "密码不合规时不应碰任何容器");
 });
 
 test("迁移失败：退出码 10，不启动新版本，current 不变", linuxOnly, async () => {
@@ -377,6 +482,167 @@ test("DEPLOY_SKIP_PULL=1 时不拉镜像（CI 冒烟用本机构建的镜像）"
   assert.equal(indexOfCall(await calls(), /pull/), -1);
 });
 
+test("DEPLOY_SKIP_PULL=1（手工部署：镜像已传到本机）：先确认镜像在本机；不拉取、不登录镜像仓库；其余步骤和顺序与拉镜像的部署完全一样", linuxOnly, async () => {
+  await deploy("v1");
+  const pulled = (await calls()).filter((line) => !/pull --quiet api$/.test(line));
+  await rm(join(sandbox.root, "current"));
+  await clearCalls();
+
+  // 即使调用方带了镜像仓库的账号，也不去登录
+  const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1", REGISTRY_HOST: "registry.example.test", REGISTRY_USER: "deployer" }, PLACEHOLDER_TOKEN);
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, /镜像已在本机，不拉取/);
+  const log = await calls();
+  assert.ok(log[0]?.endsWith(`image inspect ${IMAGE}:v1`), "第一件事应是确认镜像在本机");
+  assert.equal(indexOfCall(log, /pull|login|logout/), -1, log.join("\n"));
+  assert.deepEqual(log.slice(1), pulled, "除了「拉镜像」换成「确认镜像在本机」，其余调用应完全一样");
+});
+
+test("DEPLOY_SKIP_PULL=1 但镜像不在本机：退出码 10，不碰数据库和容器", linuxOnly, async () => {
+  await failWhen("^image inspect ");
+  const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1" });
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /不在这台机器上/);
+  assert.equal(indexOfCall(await calls(), /\] compose /), -1);
+  assert.equal(await linkTarget("current"), null);
+});
+
+test("入口模式 standalone（默认）：API 信任 1 层代理，Caddy 的站点地址是域名；不叠加 behind-proxy 的 compose 文件，不做本机入口检查", linuxOnly, async () => {
+  for (const [id, env] of [["v1", {}], ["v2", { EDGE_MODE: "standalone" }]] as const) {
+    const result = await deploy(id, env);
+    assert.equal(result.code, 0, result.output);
+    const written = await releaseEnv(id);
+    assert.match(written, /^EDGE_MODE=standalone$/m);
+    assert.match(written, /^EDGE_LISTEN=$/m);
+    assert.match(written, /^TRUST_PROXY_HOPS=1$/m);
+    assert.match(written, /^CADDY_SITE_ADDRESS=staging\.example\.test$/m);
+    assert.match(written, /^CADDY_TLS_MODE=auto$/m);
+  }
+  const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
+  assert.ok(composeCalls.length > 0);
+  for (const line of composeCalls) assert.ok(!line.includes("compose.behind-proxy.yml"), line);
+  assert.deepEqual(await curlCalls(), []);
+});
+
+test("入口模式 behind-proxy：API 信任 2 层代理，Caddy 只在容器内提供 HTTP、不用证书；每次 compose 调用都叠加只改端口的文件；容器健康后从本机访问 EDGE_LISTEN 的 /health", linuxOnly, async () => {
+  // 带了 ACME_EMAIL 也不申请证书
+  const result = await deploy("v1", { ...BEHIND_PROXY, ACME_EMAIL: "ops@example.test" });
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, /入口模式 behind-proxy（本机 127\.0\.0\.1:18080，不占用 80\/443）/);
+  assert.match(result.output, /本机访问 http:\/\/127\.0\.0\.1:18080\/health 返回 200/);
+  const written = await releaseEnv("v1");
+  assert.match(written, /^EDGE_MODE=behind-proxy$/m);
+  assert.match(written, /^EDGE_LISTEN=127\.0\.0\.1:18080$/m);
+  assert.match(written, /^TRUST_PROXY_HOPS=2$/m);
+  assert.match(written, /^CADDY_SITE_ADDRESS=http:\/\/:8080$/m);
+  assert.match(written, /^CADDY_TLS_MODE=off$/m);
+  assert.match(written, /^APP_DOMAIN=staging\.example\.test$/m);
+
+  const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
+  assert.ok(composeCalls.length >= 3);
+  const dir = join(sandbox.root, "releases", "v1");
+  for (const line of composeCalls) {
+    assert.ok(line.includes(`-f ${join(dir, "compose.yml")} -f ${join(dir, "compose.behind-proxy.yml")} `), line);
+    assert.match(line, /--project-name nozomi-staging /);
+  }
+  const probes = await curlCalls();
+  assert.equal(probes.length, 1, "容器健康后应访问一次本机入口");
+  assert.ok(probes[0]?.endsWith("http://127.0.0.1:18080/health"), probes[0]);
+  const mode = spawnSync("stat", ["-c", "%a", join(dir, "compose.behind-proxy.yml")], { encoding: "utf8" }).stdout.trim();
+  assert.equal(mode, "644");
+});
+
+test("behind-proxy：容器都健康但本机入口不通——有上一个版本时回退（退出码 20），首次部署时退出码 30 且不建立 current", linuxOnly, async () => {
+  await edgeAnswers("000");
+  const first = await deploy("v1", BEHIND_PROXY);
+  assert.equal(first.code, 30, first.output);
+  assert.match(first.output, /从本机访问 http:\/\/127\.0\.0\.1:18080\/health 没有返回 200（最后一次是 000）/);
+  assert.equal(await linkTarget("current"), null);
+  assert.ok((await curlCalls()).length > 1, "应重试几次再判定不通");
+
+  await edgeAnswers();
+  assert.equal((await deploy("v1", BEHIND_PROXY)).code, 0);
+  await clearCalls();
+  // 新版本换了一个不通的端口；上一个版本的端口仍然是通的
+  await writeFile(
+    join(sandbox.stubDir, "bin", "curl"),
+    CURL_STUB.replace("if [[ -f", 'if [[ "$*" == *:18999/health ]]; then printf 502; exit 0; fi\nif [[ -f'),
+  );
+  const second = await deploy("v2", { EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18999" });
+  assert.equal(second.code, 20, second.output);
+  assert.match(second.output, /已回退，上一个版本 v1 运行正常/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.ok(indexOfCall(log, /releases\/v2\/compose\.behind-proxy\.yml up -d --wait .*--remove-orphans$/) >= 0, "应先启动过新版本");
+  assert.ok(indexOfCall(log, /releases\/v1\/compose\.behind-proxy\.yml up -d --wait .*--remove-orphans$/) >= 0, "应重新启动上一个版本");
+  const probes = await curlCalls();
+  assert.ok(probes.at(-1)?.endsWith("http://127.0.0.1:18080/health"), "回退后检查的是上一个版本自己记录的入口");
+});
+
+test("behind-proxy：rollback 命令同样以本机入口可达为准", linuxOnly, async () => {
+  await deploy("v1", BEHIND_PROXY);
+  await deploy("v2", BEHIND_PROXY);
+  await clearCalls();
+  await edgeAnswers("502");
+  const failed = rollback("v2");
+  assert.equal(failed.code, 30, failed.output);
+  assert.equal(await linkTarget("current"), "releases/v2");
+
+  await edgeAnswers();
+  const ok = rollback("v2");
+  assert.equal(ok.code, 0, ok.output);
+  assert.equal(await linkTarget("current"), "releases/v1");
+});
+
+test("入口模式的参数不合法：退出码 1，不调用 docker；EDGE_LISTEN 只接受回环地址", linuxOnly, async () => {
+  const cases: [Record<string, string>, RegExp][] = [
+    [{ EDGE_MODE: "proxy" }, /EDGE_MODE 必须是 standalone 或 behind-proxy/],
+    [{ EDGE_MODE: "behind-proxy" }, /必须设置 EDGE_LISTEN/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "0.0.0.0:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "192.0.2.10:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: ":18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "localhost:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.256:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080:8080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080; touch /tmp/x" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:70000" }, /1 到 65535/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:443" }, /不能用 80 或 443/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:80" }, /不能用 80 或 443/],
+    [{ EDGE_LISTEN: "127.0.0.1:18080" }, /只在 EDGE_MODE=behind-proxy 时使用/],
+    [{ API_IMAGE: "registry.example.test/other/mysql:v1" }, /镜像名必须是 nozomi-api/],
+    [{ API_IMAGE: "not-nozomi-api:v1" }, /镜像名必须是 nozomi-api/],
+  ];
+  for (const [env, message] of cases) {
+    const result = await deploy("v1", env);
+    assert.equal(result.code, 1, JSON.stringify(env) + result.output);
+    assert.match(result.output, message);
+  }
+  assert.deepEqual(await calls(), []);
+  assert.deepEqual(await curlCalls(), []);
+
+  for (const listen of ["127.0.0.1:1", "127.0.0.1:65535", "127.255.255.254:8443"]) {
+    const result = await deploy("v1", { EDGE_MODE: "behind-proxy", EDGE_LISTEN: listen });
+    assert.equal(result.code, 0, listen + result.output);
+  }
+});
+
+test("清理旧镜像：只按标签逐个删本次镜像所在仓库名下的镜像，从不使用 prune", linuxOnly, async () => {
+  await deploy("v1");
+  await deploy("v2");
+  await writeFile(join(sandbox.stubDir, "images"), [`${IMAGE}:v0`, `${IMAGE}:v1`, `${IMAGE}:v2`, `${IMAGE}:v3`].join("\n") + "\n");
+  await clearCalls();
+  assert.equal((await deploy("v3")).code, 0);
+  const log = await calls();
+  const listing = log.filter((line) => /\] image ls /.test(line));
+  assert.equal(listing.length, 1);
+  assert.ok(listing[0]?.endsWith(` ${IMAGE}`), "列镜像时必须限定在本次镜像的仓库名下");
+  const removed = log.filter((line) => /\] image rm /.test(line)).map((line) => line.split(" ").at(-1));
+  assert.deepEqual(removed.sort(), [`${IMAGE}:v0`, `${IMAGE}:v1`]);
+  assert.ok(!log.some((line) => /prune|rmi|volume rm|network rm|system /.test(line)), log.join("\n"));
+});
+
 test("参数不合法：退出码 1，不调用 docker，报错里说明是哪一项", linuxOnly, async () => {
   const cases: [Record<string, string>, RegExp][] = [
     [{ APP_ENV: "local" }, /APP_ENV/],
@@ -489,7 +755,7 @@ test("restore.sh：文件不是可用的备份或确认没通过时，不停服�
   assert.ok(!(await calls()).some((line) => destructive.test(line)));
 });
 
-test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重建 → 导入 → 迁移 → 启动", linuxOnly, async () => {
+test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重建 → 建应用账号和权限角色 → 导入 → 迁移 → 启动", linuxOnly, async () => {
   await deploy("v1");
   const script = join(sandbox.root, "current", "bin", "restore.sh");
   const dump = join(sandbox.root, "backups", "nozomi-staging-daily-20990101T000000Z.dump");
@@ -502,8 +768,10 @@ test("restore.sh 确认后的顺序：停 API → 备份当前库 → 删库重�
     /stop api$/,
     /exec -T db pg_dump /,
     /exec -T db psql .*drop database if exists nozomi/,
-    /exec -T db pg_restore -U nozomi -d nozomi /,
-    /migrate-cli\.ts$/,
+    // 角色不在备份里：导入之前必须先有，否则备份里「把某张表授权给某个角色」的语句会失败
+    /run --rm --no-deps -T migrate node apps\/api\/src\/db\/provision-cli\.ts$/,
+    /exec -T db pg_restore -U nozomi -d nozomi --no-owner /,
+    /run --rm --no-deps -T migrate node apps\/api\/src\/db\/migrate-cli\.ts$/,
     /up -d --wait --wait-timeout \d+$/,
   ].map((pattern) => indexOfCall(log, pattern));
   assert.ok(order.every((index) => index >= 0), log.join("\n"));
