@@ -35,10 +35,34 @@ test("缺少 DATABASE_URL 时报错", () => {
   assert.ok(issuesOf({ AUTH_JWT_SECRET: "x".repeat(40) }).some((i) => i.startsWith("DATABASE_URL")));
 });
 
-test("staging 环境必须配齐 Stripe 和谷歌地图", () => {
-  const issues = issuesOf({ ...base, APP_ENV: "staging" });
+test("production 环境必须配齐 Stripe 和谷歌地图", () => {
+  const issues = issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" });
   assert.ok(issues.some((i) => i.includes("Stripe")));
   assert.ok(issues.some((i) => i.includes("GOOGLE_MAPS_API_KEY")));
+});
+
+test("staging 环境缺 Stripe 和谷歌地图时照常启动，两项显示未配置", () => {
+  const c = loadConfig({ ...base, APP_ENV: "staging" });
+  assert.equal(c.appEnv, "staging");
+  assert.equal(c.stripe, null);
+  assert.equal(c.googleMapsApiKey, null);
+  const status = integrationStatus(c);
+  assert.equal(status.find((s) => s.key === "stripe")?.state, "missing");
+  assert.equal(status.find((s) => s.key === "googleMaps")?.state, "missing");
+});
+
+test("staging 环境只配了其中一项（只有谷歌地图，或只有 Stripe）也能启动", () => {
+  const mapsOnly = loadConfig({ ...base, APP_ENV: "staging", GOOGLE_MAPS_API_KEY: "AIzaSyExample000000000000000" });
+  assert.equal(mapsOnly.stripe, null);
+  assert.ok(mapsOnly.googleMapsApiKey);
+  const stripeOnly = loadConfig({ ...base, ...stripeTest, APP_ENV: "staging" });
+  assert.equal(stripeOnly.stripe?.mode, "test");
+  assert.equal(stripeOnly.googleMapsApiKey, null);
+});
+
+test("staging 环境 Stripe 只填一部分仍然报错（放宽的只是「可以整体不配」）", () => {
+  const issues = issuesOf({ ...base, APP_ENV: "staging", STRIPE_SECRET_KEY: stripeTest.STRIPE_SECRET_KEY });
+  assert.ok(issues.some((i) => i.includes("同时配置")));
 });
 
 test("Stripe 只填一部分时报错", () => {

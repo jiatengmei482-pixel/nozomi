@@ -1,6 +1,6 @@
 /**
  * `pnpm db:migrate`：执行所有还没执行的数据库迁移。可以反复运行。
- * 本地、CI、Render 部署前都用这一条命令；只打印迁移文件名，不打印连接串。
+ * 本地、CI、部署到 VPS 时都用这一条命令；只打印迁移文件名，不打印连接串。
  */
 import { ConfigError, loadConfig } from "@nozomi/config";
 import { createPool, driverErrorCode } from "./pool.ts";

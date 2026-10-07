@@ -4,7 +4,8 @@
  * 规则：
  * - 所有配置只从环境变量读取，代码里不写任何密钥。
  * - 启动时校验一次，缺失或格式不对立即报错退出（fail fast）。
- * - staging / production 必须配齐 Stripe、谷歌地图；local / ci 可以缺，缺的集成在功能上显示为「未配置」。
+ * - 只有 production 必须配齐 Stripe、谷歌地图；local / ci / staging 可以缺，缺的集成在功能上显示为「未配置」
+ *   （staging 放宽的原因见 ADR 0007「测试环境的配置校验」）。
  * - 测试密钥和正式密钥不能混用：非 production 环境禁止使用 Stripe live 密钥。
  */
 import { z } from "zod";
@@ -77,8 +78,6 @@ export class ConfigError extends Error {
   }
 }
 
-const STRICT_ENVS: ReadonlySet<AppEnv> = new Set(["staging", "production"]);
-
 function parseStripe(
   env: z.output<typeof rawSchema>,
   issues: string[],
@@ -86,7 +85,7 @@ function parseStripe(
   const { STRIPE_SECRET_KEY: sk, STRIPE_PUBLISHABLE_KEY: pk, STRIPE_WEBHOOK_SECRET: wh } = env;
   const given = [sk, pk, wh].filter(Boolean).length;
   if (given === 0) {
-    if (STRICT_ENVS.has(env.APP_ENV)) issues.push(`${env.APP_ENV} 环境必须配置 Stripe 三个密钥`);
+    if (env.APP_ENV === "production") issues.push("production 环境必须配置 Stripe 三个密钥");
     return null;
   }
   if (given < 3) {
@@ -123,8 +122,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
 
   const stripe = parseStripe(env, issues);
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
-  if (!googleMapsApiKey && STRICT_ENVS.has(env.APP_ENV)) {
-    issues.push(`${env.APP_ENV} 环境必须配置 GOOGLE_MAPS_API_KEY`);
+  if (!googleMapsApiKey && env.APP_ENV === "production") {
+    issues.push("production 环境必须配置 GOOGLE_MAPS_API_KEY");
   }
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");

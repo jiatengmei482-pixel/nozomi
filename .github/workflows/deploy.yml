@@ -1,0 +1,304 @@
+# 部署到 VPS（ADR 0007，说明见 docs/deploy.md）。
+#
+# - 测试环境（staging）：main 的 CI 通过后自动部署。
+# - 正式环境（production）：只能手动触发（Actions → Deploy → Run workflow），并经过 Environment 的审批。
+#
+# 流程：构建镜像并推送到 GHCR（标签 = 提交 SHA）→ SSH 到服务器 → 上传 compose 文件和脚本 →
+# 服务器上拉镜像、备份、迁移、启动、等健康检查（不健康自动回退）→ 从外网访问 /health 确认。
+#
+# 镜像里没有任何密钥；业务密钥只在服务器的 .env 里，不经过 GitHub。
+# 所有步骤都不使用 set -x，不打印任何密钥。
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 部署到哪个环境（只能从 main 分支部署）
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  # 服务器上每个环境的根目录是 <DEPLOY_BASE>/<环境>，与 deploy/bootstrap.sh 里的 BASE_DIR 一致。
+  DEPLOY_BASE: /opt/nozomi
+
+jobs:
+  plan:
+    name: 确定要部署的环境和版本
+    # 自动触发只认「本仓库 main 分支的 push 触发的、成功的 CI」；来自 PR 或其他仓库的 CI 一律不部署。
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      environment: ${{ steps.plan.outputs.environment }}
+      sha: ${{ steps.plan.outputs.sha }}
+      image: ${{ steps.plan.outputs.image }}
+      proceed: ${{ steps.plan.outputs.proceed }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          proceed=true
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            environment="$INPUT_ENVIRONMENT"
+            sha="$DISPATCH_SHA"
+            if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
+              echo "::error title=只能从 main 部署::请在 Run workflow 时选择 main 分支。"
+              exit 1
+            fi
+            passed="$(gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success" --jq '.total_count')"
+            if [[ "$passed" -lt 1 ]]; then
+              echo "::error title=这个版本的 CI 还没有通过::main 最新提交的 CI 通过之后才能部署，请等 CI 变绿后再试。"
+              exit 1
+            fi
+          else
+            environment=staging
+            sha="$RUN_SHA"
+            # 两个提交接连合并时，较早那个的 CI 可能后跑完；不让旧提交盖掉新提交。
+            latest="$(gh api "repos/$REPOSITORY/commits/main" --jq '.sha')"
+            if [[ "$latest" != "$sha" ]]; then
+              proceed=false
+              echo "::notice title=跳过部署::main 上已经有更新的提交，这个较早的版本不再部署。"
+            fi
+          fi
+          {
+            echo "environment=$environment"
+            echo "sha=$sha"
+            echo "image=$REGISTRY/${OWNER,,}/nozomi-api:$sha"
+            echo "proceed=$proceed"
+          } >>"$GITHUB_OUTPUT"
+
+  # 负责人可能先合并代码、后准备服务器。测试环境的服务器信息还没填时，自动部署不应把流水线标红，
+  # 但必须明显地告诉他「这次没有部署」：这个 job 给出警告，后面的构建和部署显示为「已跳过」。
+  # 正式环境不走这一步：它只能手动触发，缺配置时直接失败。
+  preflight:
+    name: 检查测试环境的服务器信息是否已填
+    needs: plan
+    if: needs.plan.outputs.proceed == 'true' && needs.plan.outputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          HAS_HOST: ${{ secrets.VPS_HOST != '' }}
+          HAS_PORT: ${{ secrets.VPS_SSH_PORT != '' }}
+          HAS_USER: ${{ secrets.VPS_SSH_USER != '' }}
+          HAS_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY != '' }}
+          HAS_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS != '' }}
+          HAS_DOMAIN: ${{ vars.APP_DOMAIN != '' }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ "$HAS_HOST" == "true" ]] || missing+=("VPS_HOST")
+          [[ "$HAS_PORT" == "true" ]] || missing+=("VPS_SSH_PORT")
+          [[ "$HAS_USER" == "true" ]] || missing+=("VPS_SSH_USER")
+          [[ "$HAS_KEY" == "true" ]] || missing+=("VPS_SSH_PRIVATE_KEY")
+          [[ "$HAS_KNOWN_HOSTS" == "true" ]] || missing+=("VPS_SSH_KNOWN_HOSTS")
+          [[ "$HAS_DOMAIN" == "true" ]] || missing+=("APP_DOMAIN（填在 Environment variables）")
+          if ((${#missing[@]} == 0)); then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "configured=false" >>"$GITHUB_OUTPUT"
+          list="$(printf '%s、' "${missing[@]}")"
+          list="${list%、}"
+          echo "::warning title=测试环境没有部署::staging 环境还缺这些配置：${list}。这次提交没有被部署到测试环境。怎么填见 docs/secrets.md 和 docs/deploy.md。"
+          {
+            echo "## 没有部署：测试环境的服务器信息还没填"
+            echo
+            echo "这次提交**没有**部署到测试环境。staging 环境还缺："
+            echo
+            for item in "${missing[@]}"; do echo "- \`$item\`"; done
+            echo
+            echo "填写位置：仓库 → Settings → Environments → staging。说明见 \`docs/secrets.md\`，第一次上线的完整步骤见 \`docs/deploy.md\`。"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: 构建并推送镜像
+    needs: [plan, preflight]
+    if: >-
+      always() && needs.plan.result == 'success' && needs.plan.outputs.proceed == 'true' &&
+      (needs.plan.outputs.environment == 'production' || needs.preflight.outputs.configured == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - name: 构建并推送（同一个提交已经推送过就不重复构建）
+        env:
+          IMAGE: ${{ needs.plan.outputs.image }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          REGISTRY_USER: ${{ github.repository_owner }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
+          if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "镜像 $IMAGE 已存在，跳过构建。"
+          else
+            docker build --file apps/api/Dockerfile --tag "$IMAGE" \
+              --label "org.opencontainers.image.source=$SOURCE_URL" \
+              --label "org.opencontainers.image.revision=$SHA" .
+            docker push "$IMAGE"
+          fi
+      - name: 登出镜像仓库
+        if: always()
+        run: docker logout "$REGISTRY"
+
+  deploy:
+    name: 部署到 ${{ needs.plan.outputs.environment }}
+    needs: [plan, build]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: ${{ needs.plan.outputs.environment }}
+      url: ${{ steps.verify.outputs.url }}
+    # 同一个环境的部署（和初始化）排队进行，不并发、不中途取消。
+    concurrency:
+      group: deploy-${{ needs.plan.outputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      APP_ENV: ${{ needs.plan.outputs.environment }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      IMAGE: ${{ needs.plan.outputs.image }}
+      APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+      ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+    steps:
+      - name: 检查这个环境的非密钥配置
+        run: |
+          set -euo pipefail
+          if [[ ! "$APP_DOMAIN" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+            echo "::error title=APP_DOMAIN 没填或格式不对::请到 Settings → Environments → ${APP_ENV} → Environment variables 填 APP_DOMAIN：只写域名本身（小写），不带 https:// 和路径。"
+            exit 1
+          fi
+          if [[ -n "$ACME_EMAIL" && ! "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]]; then
+            echo "::error title=ACME_EMAIL 格式不对::ACME_EMAIL 是可选项；要填就填一个邮箱地址。"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: ./.github/actions/ssh-setup
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          user: ${{ secrets.VPS_SSH_USER }}
+          private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          known-hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+      - name: 上传这个版本的 compose 文件和脚本
+        run: |
+          set -euo pipefail
+          release_dir="$DEPLOY_BASE/$APP_ENV/releases/$SHA"
+          if ! ssh -F "$NOZOMI_SSH_DIR/config" vps "test -f '$DEPLOY_BASE/$APP_ENV/.env' && test -w '$DEPLOY_BASE/$APP_ENV/releases'"; then
+            echo "::error title=服务器还没有初始化::请先运行 Actions → Server init（选 ${APP_ENV}），完成后把 VPS_SSH_USER 改成 nozomi，再重新部署。步骤见 docs/deploy.md。"
+            exit 1
+          fi
+          tar -C deploy -cf - compose.yml Caddyfile bin |
+            ssh -F "$NOZOMI_SSH_DIR/config" vps "mkdir -p '$release_dir' && tar -xf - -C '$release_dir'"
+      - name: 在服务器上部署（拉镜像 → 备份 → 迁移 → 启动 → 健康检查，不健康自动回退）
+        env:
+          REGISTRY_USER: ${{ github.repository_owner }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_dir="$DEPLOY_BASE/$APP_ENV/releases/$SHA"
+          status=0
+          # 拉镜像用的令牌是本次运行的短期令牌，经 SSH 的标准输入传给服务器上的 docker login，
+          # 不出现在命令行参数里；deploy.sh 结束时会登出。
+          printf '%s' "$REGISTRY_TOKEN" | ssh -F "$NOZOMI_SSH_DIR/config" vps \
+            "APP_ENV='$APP_ENV' API_IMAGE='$IMAGE' APP_DOMAIN='$APP_DOMAIN' ACME_EMAIL='$ACME_EMAIL' REGISTRY_HOST='$REGISTRY' REGISTRY_USER='$REGISTRY_USER' '$release_dir/bin/deploy.sh' deploy" ||
+            status=$?
+          case "$status" in
+            0) ;;
+            10) echo "::error title=部署失败，线上仍是旧版本::新版本在切换之前就失败了（拉镜像、备份或数据库迁移），正在运行的旧版本没有受影响。原因见上面的日志。" ;;
+            20) echo "::error title=部署失败，已自动回退::新版本启动后健康检查没通过，已回退到上一个版本，上一个版本运行正常。" ;;
+            30) echo "::error title=部署失败，服务可能不可用::新版本不健康，而且没有可回退的版本或回退后仍不健康。需要立即处理，见 docs/deploy.md「出问题怎么办」。" ;;
+            *) echo "::error title=部署没有执行::参数或服务器环境有问题（退出码 ${status}），线上没有被改动。原因见上面的日志。" ;;
+          esac
+          exit "$status"
+      - name: 从外网访问 /health 确认（域名解析、证书、反向代理整条链路）
+        id: verify
+        run: |
+          set -euo pipefail
+          url="https://$APP_DOMAIN"
+          # 第一次部署要等证书签发，最多等 3 分钟。
+          for attempt in $(seq 1 36); do
+            code="$(curl --silent --output /dev/null --max-time 10 --write-out '%{http_code}' "$url/health" || true)"
+            if [[ "$code" == "200" ]]; then
+              echo "url=$url" >>"$GITHUB_OUTPUT"
+              echo "第 $attempt 次检查：$url/health 返回 200。"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error title=外网访问不到新版本::服务器上健康检查已通过，但从外网访问 $url/health 没有返回 200（最后一次是 ${code}）。常见原因：域名没有解析到这台服务器、服务商控制台的防火墙没放行 80/443、证书申请失败。正在回退到上一个版本。"
+          ssh -F "$NOZOMI_SSH_DIR/config" vps "'$DEPLOY_BASE/$APP_ENV/current/bin/deploy.sh' rollback" ||
+            echo "::error title=没有回退::没有可回退的版本（第一次部署时是正常的），或回退后仍不健康。服务器上保持当前状态，便于排查。"
+          exit 1
+      - name: 写结果摘要
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          DEPLOYED_URL: ${{ steps.verify.outputs.url }}
+        run: |
+          {
+            if [[ "$JOB_STATUS" == "success" ]]; then
+              echo "## 已部署到 ${APP_ENV}"
+              echo
+              echo "- 版本：\`${SHA}\`"
+              echo "- 网址：${DEPLOYED_URL}/health"
+            else
+              echo "## 部署到 ${APP_ENV} 没有成功"
+              echo
+              echo "- 版本：\`${SHA}\`"
+              echo "- 原因见本次运行里红色的那一步；处理办法见 \`docs/deploy.md\`「出问题怎么办」。"
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: 清理：服务器登出镜像仓库，删除 runner 上的 SSH 密钥文件
+        if: always()
+        run: |
+          if [[ -n "${NOZOMI_SSH_DIR:-}" && -f "$NOZOMI_SSH_DIR/config" ]]; then
+            ssh -F "$NOZOMI_SSH_DIR/config" vps "docker logout '$REGISTRY'" >/dev/null 2>&1 || true
+          fi
+          rm -rf "$RUNNER_TEMP/nozomi-ssh"
