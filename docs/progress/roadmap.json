@@ -63,7 +63,7 @@
           "id": "M0-05",
           "title": "后端骨架：Fastify 服务、数据库迁移、/health",
           "role": "backend",
-          "status": "todo",
+          "status": "doing",
           "acceptance": ["pnpm dev 启动 API，/health 返回数据库连通状态和集成配置状态（脱敏）", "数据库迁移可重复执行", "提交 pnpm-lock.yaml，CI 改为 --frozen-lockfile", "CI 增加 PostgreSQL 服务并跑集成测试"],
           "evidence": "",
           "updated": "2026-10-07"
