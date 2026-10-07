@@ -8,6 +8,27 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nozomi
+          POSTGRES_PASSWORD: nozomi
+          POSTGRES_DB: nozomi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nozomi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # 以下全部是 CI 专用的占位值，不是任何真实环境的密钥；数据库是本次运行临时起的容器。
+      # 和真实环境一样用两个数据库账号（ADR 0010）：迁移账号建表，测试里的应用代码只用权限最小的应用账号。
+      APP_ENV: ci
+      DATABASE_MIGRATION_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      DATABASE_URL: postgres://nozomi_api:ci-placeholder-not-a-real-password@localhost:5432/nozomi
+      AUTH_JWT_SECRET: ci-placeholder-not-a-real-secret-0000000000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -15,9 +36,33 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      # M0-05 提交 pnpm-lock.yaml 后改为 --frozen-lockfile
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - name: 单元测试（不需要数据库）
+        run: pnpm test
+      - name: 创建数据库的应用账号（最小权限）
+        run: pnpm db:provision
+      - name: 创建应用账号（再执行一次，必须可重复）
+        run: pnpm db:provision
+      - name: 数据库迁移（空库上从头执行）
+        run: pnpm db:migrate
+      - name: 数据库迁移（再执行一次，必须无变化）
+        run: pnpm db:migrate
+      - name: 集成测试（真实 PostgreSQL）
+        run: pnpm test:integration
       - run: pnpm roadmap:check
       - run: pnpm progress:build
+
+  # 部署用的镜像、compose.yml、Caddyfile 和服务器脚本，每次都在 runner 上真实跑一遍（ADR 0007）。
+  # 这里的密码全部是 deploy/ci/smoke.sh 里写明的占位值，数据库是本次运行临时起的容器。
+  deploy-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 检查 shell 脚本（shellcheck）
+        run: shellcheck -x deploy/bootstrap.sh deploy/bin/*.sh deploy/ci/*.sh
+      - name: 部署冒烟（构建镜像 → 整套容器 → 建应用账号 → 迁移 → /health → 账号权限 → 自动回退 → 备份恢复 → 登录）
+        run: deploy/ci/smoke.sh
+      - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04 容器里各跑两遍（可重复执行）
+        run: deploy/ci/bootstrap-check.sh
