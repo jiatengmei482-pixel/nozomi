@@ -303,6 +303,7 @@ NOZOMI_SSH_USER=nozomi NOZOMI_SSH_KEY_FILE=nozomi-deploy私钥路径 \
 
 - 初始化脚本支持 CentOS Stream、RHEL、Rocky Linux、AlmaLinux 的 9 和 10，做的事情和 Ubuntu 上一样；软件用 dnf 安装，定时任务用系统的 crond（没装会自动装上并启用）。
 - 需要脚本管理防火墙时（独占一台服务器的模式），这类系统用的是 firewalld；`behind-proxy` 模式下不安装、不启用、不改任何防火墙规则。
+- **内核模块**：Docker 让容器之间按名字互相找到（程序就是这样找数据库的）要用到几个内核模块，这类系统把它们放在 `kernel-modules-extra` 软件包里，精简安装的机器上可能没有。初始化会检查（只检查，不安装）；缺了会报错并停下，部署时也会在「确认容器之间能按服务名互访」这一步报同样的原因。处理办法由服务器管理员来做：安装和「正在运行的内核」版本一致的 `kernel-modules-extra`（`dnf install kernel-modules-extra-$(uname -r)`）；软件源里已经没有这个版本时，升级内核并**重启服务器**（会中断这台机器上的其他服务，请安排好时间）。
 - SELinux：脚本只查看并报告它的状态，不会去改。目前的测试服务器 SELinux 是关闭的；如果换到一台 SELinux 开着的机器，请先告诉 Claude 做一次验证（这种情况还没有实测过）。
 
 ### 5. 需要知道的限制
