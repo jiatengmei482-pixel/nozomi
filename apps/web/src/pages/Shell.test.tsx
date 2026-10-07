@@ -42,11 +42,13 @@ const tenantMe = (status: "active" | "suspended") => () =>
     user: { id: "u1", email: "dispatcher@supplier.example", name: "测试调度", role: "dispatch", status: "active", ...stamps },
     tenant: { id: "t1", name: "测试用供应商", status, ...stamps },
     permissions: [],
+    must_change_password: false,
   });
 const platformMe = () =>
   json(200, {
     user: { id: "p1", email: "admin@platform.example", name: "测试管理员", role: "super_admin", status: "active", ...stamps },
     permissions: ["tenant.read"],
+    must_change_password: false,
   });
 
 function detail(label: string): HTMLElement {
@@ -237,8 +239,8 @@ test("后台里不存在的页面：保留框架，提示找不到并给回首�
   renderAt("/platform/nowhere", ROUTES);
   assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "找不到这个页面");
   assert.equal(screen.getByRole("link", { name: "回到首页" }).getAttribute("href"), "/platform");
-  assert.ok(document.querySelector('nav[aria-label="主菜单"]'));
   assert.ok(await screen.findByRole("button", { name: /账号菜单：\s*测试管理员/ }), "顶栏的账号照常加载");
+  assert.ok(document.querySelector('nav[aria-label="主菜单"]'));
 });
 
 test("修改密码页取不到账号信息：给出「加载失败」和「重试」，表单和已填内容保留；重试成功后提示消失", async () => {
@@ -259,6 +261,40 @@ test("修改密码页取不到账号信息：给出「加载失败」和「重�
   await screen.findByRole("button", { name: /账号菜单：\s*测试调度/ });
   assertAbsent(screen.queryByRole("heading", { level: 2, name: "加载失败" }));
   assert.equal((screen.getByLabelText("当前密码") as HTMLInputElement).value, "typed-before-retry");
+});
+
+test("刷新后还不知道账号状态时不先画菜单：auth/me 回来之前侧边栏只有骨架，回来说不用改密码才出现菜单", async () => {
+  signIn("tenant");
+  const pending = deferred();
+  stubApi({ "GET /tenant/v1/auth/me": () => pending.promise });
+  renderAt("/", ROUTES);
+  assertAbsent(document.querySelector('nav[aria-label="主菜单"]'));
+  assert.ok(document.querySelector(".sidebar--pinned .skeleton"));
+  assert.ok(document.querySelector(".sidebar--pinned")?.textContent?.includes("供应商后台"));
+  pending.resolve(await tenantMe("active")());
+  await screen.findByText("测试用供应商");
+  assert.ok(document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]'));
+  assertAbsent(document.querySelector(".sidebar--pinned .skeleton"));
+});
+
+test("本次登录已经知道不用改密码（登录应答刚说过）：进后台立刻有菜单，不等 auth/me", async () => {
+  signIn("tenant");
+  sessionStore.setMustChangePassword("tenant", false);
+  const pending = deferred();
+  stubApi({ "GET /tenant/v1/auth/me": () => pending.promise });
+  renderAt("/", ROUTES);
+  assert.ok(document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]'));
+  pending.resolve(await tenantMe("active")());
+  await screen.findByText("测试用供应商");
+});
+
+test("auth/me 的 must_change_password 不是布尔值：菜单一直不显示", async () => {
+  signIn("platform");
+  stubApi({ "GET /platform/v1/auth/me": () => json(200, { user: { id: "p1", email: "admin@platform.example", name: "测试管理员", role: "super_admin", status: "active", ...stamps }, permissions: [], must_change_password: "false" }) });
+  renderAt("/platform", ROUTES);
+  await screen.findByText("admin@platform.example", { selector: "dd" });
+  assertAbsent(document.querySelector('nav[aria-label="主菜单"]'));
+  assertAbsent(document.querySelector(".sidebar--pinned .skeleton"));
 });
 
 const NEW_PASSWORD = "Kyoto-Station-2026";

@@ -13,6 +13,7 @@ import { ThemeSwitcher } from "../theme/ThemeSwitcher.tsx";
 import { IconButton } from "./Button.tsx";
 import { Dropdown } from "./Dropdown.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
+import { Skeleton } from "./States.tsx";
 
 /** 侧边栏常驻显示的最小宽度：tokens.css 的 --breakpoint-lg。 */
 const SIDEBAR_PINNED_QUERY = "(min-width: 1024px)";
@@ -24,7 +25,23 @@ interface NavItem {
 }
 
 function SidebarContent({ items, onNavigate }: { items: readonly NavItem[]; onNavigate?: () => void }) {
-  const { portal } = usePortalSession();
+  const { portal, account, navigationAllowed } = usePortalSession();
+  if (!navigationAllowed) {
+    // 还不知道这个账号能不能用别的页面（auth/me 没回来）：先不画菜单，免得画出来又收回去
+    return (
+      <>
+        <div className="sidebar__brand">
+          <span className="sidebar__brand-name">NOZOMI</span>
+          <span className="sidebar__portal">{portal.name}</span>
+        </div>
+        {account.status === "loading" && (
+          <div className="sidebar__nav">
+            <Skeleton lines={["long"]} label="正在加载菜单" />
+          </div>
+        )}
+      </>
+    );
+  }
   return (
     <>
       <div className="sidebar__brand">

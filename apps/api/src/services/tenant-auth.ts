@@ -14,7 +14,7 @@ import {
 } from "@nozomi/domain";
 import { hashInviteToken } from "../auth/invite-token.ts";
 import { hashResetToken, tenantIdOfResetToken } from "../auth/reset-token.ts";
-import { hashPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
+import { hashPassword, sameStoredPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
 import { issueSession } from "../auth/session.ts";
 import { verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
@@ -96,9 +96,9 @@ export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string
           ? "account_disabled"
           : null;
 
-  if (failure !== null || !found) {
+  const reject = async (reason: LoginFailure): Promise<never> => {
     const origin = consoleOrigin(ANONYMOUS_ACTOR, ip, now);
-    const after = { email: input.email, reason: failure };
+    const after = { email: input.email, reason };
     if (found) {
       const { tenantId, id } = found.secrets.user;
       await withTenantTx(ctx.pool, tenantId, (db) =>
@@ -123,17 +123,25 @@ export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string
         }),
       );
     }
-    throw failure === "account_disabled" ? accountDisabled() : invalidCredentials();
-  }
+    throw reason === "account_disabled" ? accountDisabled() : invalidCredentials();
+  };
+  if (failure !== null || !found) return reject(failure ?? "unknown_email");
 
-  const { user } = found.secrets;
-  const tenantId = user.tenantId;
+  const verified = found.secrets;
+  const tenantId = verified.user.tenantId;
   const session = issueSession(
     ctx.config.authJwtSecret,
-    { audience: "tenant", userId: user.id, tenantId, role: user.role },
+    { audience: "tenant", userId: verified.user.id, tenantId, role: verified.user.role },
     now,
   );
-  await withTenantTx(ctx.pool, tenantId, async (db) => {
+  // 密码是在事务外验证的（慢计算不持锁）。建会话前锁住用户再核对一次：这期间密码被改过或用户被停用，
+  // 刚才的验证就不算数——否则「改密 / 重设让全部会话失效」之后，还会冒出一个用旧密码建的新会话。
+  const user = await withTenantTx(ctx.pool, tenantId, async (db) => {
+    const locked = await lockTenantUser(db, tenantId, verified.user.id);
+    if (!locked || locked.user.status !== "active" || !sameStoredPassword(verified.passwordHash, locked.passwordHash)) {
+      return null;
+    }
+    const user = locked.user;
     await insertTenantSession(db, tenantId, {
       id: session.sessionId,
       tenantId,
@@ -149,7 +157,9 @@ export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string
       before: null,
       after: null,
     });
+    return user;
   });
+  if (!user) return reject("wrong_password");
   await clearLoginReservation(ctx, reservation);
   return { accessToken: session.accessToken, expiresAt: session.expiresAt, user, tenant: found.tenant };
 }
@@ -250,6 +260,8 @@ export async function acceptTenantInvite(ctx: AppContext, input: AcceptInviteInp
 /**
  * 已登录的租户用户自己改密码：要提供当前密码（核对当前密码和登录一样限速）。
  * 成功后这个用户的其他会话全部失效，当前会话保留；「必须先修改密码」的标记同时清掉。
+ * 并发的处理和平台一侧相同（见 `changePlatformPassword`）：写入前锁住用户，确认本会话还在、
+ * 库里的密码还是事务外验证过的那个；同一个当前密码只能被用来改一次。
  */
 export async function changeTenantPassword(
   ctx: AppContext,
@@ -273,6 +285,8 @@ export async function changeTenantPassword(
   await withTenantTx(ctx.pool, tenantId, async (db) => {
     const locked = await lockTenantUser(db, tenantId, user.id);
     if (!locked || locked.user.status !== "active") throw unauthenticated();
+    if (!(await findTenantSessionUser(db, tenantId, principal.sessionId, user.id, now))) throw unauthenticated();
+    if (!sameStoredPassword(current?.passwordHash ?? null, locked.passwordHash)) throw currentPasswordIncorrect();
     await setTenantUserPassword(db, tenantId, user.id, passwordHash, now);
     await deleteOtherTenantSessions(db, tenantId, user.id, principal.sessionId);
     await insertAuditLog(db, consoleOrigin(tenantActor(user), ip, now), {

@@ -2,7 +2,7 @@
 import { type PlatformRole, checkPasswordStrength, checkStatusChange, removesLastKeyRoleHolder } from "@nozomi/domain";
 import { newInvite } from "../auth/invite-token.ts";
 import { newPlatformResetToken } from "../auth/reset-token.ts";
-import { hashPassword } from "../auth/password.ts";
+import { hashPassword, sameStoredPassword } from "../auth/password.ts";
 import type { AppContext } from "../context.ts";
 import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
@@ -24,7 +24,15 @@ import {
 } from "../repos/platform-users.ts";
 import { accountValues, consoleOrigin, platformActor } from "./audit.ts";
 import { AppError } from "../errors.ts";
-import { accountNotActive, emailTaken, lastAdminRequired, notFound, statusChangeRejected, weakPassword } from "./errors.ts";
+import {
+  accountNotActive,
+  emailTaken,
+  lastAdminRequired,
+  notFound,
+  passwordChangedMeanwhile,
+  statusChangeRejected,
+  weakPassword,
+} from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
 
 export function listStaff(ctx: AppContext, limit: number, after: TimeCursor | null): Promise<Page<PlatformUser>> {
@@ -225,6 +233,9 @@ export async function resetSuperAdminPassword(
     if (!locked || locked.user.role !== "super_admin" || locked.user.status !== "active") {
       throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用超级管理员");
     }
+    // 从读到账号到加锁之间密码被别人改过（本人刚改了密码、另一次重设）：不覆盖，让操作人确认后重试。
+    // 否则两次同时进行的重设都会报成功、各显示一个临时密码，而其中一个其实已经无效。
+    if (!sameStoredPassword(found.passwordHash, locked.passwordHash)) throw passwordChangedMeanwhile();
     await setPlatformUserPassword(db, locked.user.id, passwordHash, temporaryPassword, now);
     await deletePlatformSessionsOfUser(db, locked.user.id);
     await insertAuditLog(
