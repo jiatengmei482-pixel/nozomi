@@ -44,6 +44,8 @@ pnpm install
 docker compose up -d   # 本地数据库
 pnpm db:migrate        # 执行数据库迁移，可重复运行
 pnpm dev               # 启动后端，http://localhost:8080/health
+pnpm admin:create --email <邮箱> --name <姓名>   # 创建平台超级管理员；密码按提示输入，不接受命令行参数
+pnpm admin:reset-password --email <邮箱>         # 给超级管理员重设密码
 pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验，提交前必须通过（需要本地数据库在运行）
 pnpm test              # 只跑单元测试（不需要数据库）
 pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）

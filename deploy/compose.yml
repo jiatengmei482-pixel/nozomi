@@ -55,6 +55,8 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # 前面只有 Caddy 这一层反向代理：审计日志和登录限速据此取客户端真实地址。
+      TRUST_PROXY_HOPS: "1"
     # 不映射端口：外部只能经反向代理访问。
     networks:
       - backend

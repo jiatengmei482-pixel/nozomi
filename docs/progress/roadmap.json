@@ -72,9 +72,9 @@
           "id": "M0-06",
           "title": "登录与多租户隔离",
           "role": "backend",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["平台管理员通过命令行创建，不预置任何账号", "租户、租户用户、角色表，所有租户表带 tenant_id", "集成测试证明租户 A 读不到租户 B 的任何数据", "敏感操作写审计日志", "公开的 /health 只返回各集成「已配置 / 未配置」，脱敏详情移到需要平台登录的接口"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/3 ；单元测试 237 个、集成测试 262 个全部通过",
           "updated": "2026-10-07"
         },
         {
@@ -102,6 +102,15 @@
           "role": "acceptance",
           "status": "todo",
           "acceptance": ["在测试环境上真实走通：创建平台管理员 → 登录 → 创建租户 → 租户登录", "验收报告写入 docs/acceptance/M0.md"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-10",
+          "title": "数据库账号分离：迁移账号与应用账号分开",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["应用日常使用的数据库账号不是表的所有者、不是超级用户", "该账号无法绕过行级安全读到其他租户的数据", "该账号无法修改或删除审计日志", "部署脚本自动创建并使用两个账号"],
           "evidence": "",
           "updated": "2026-10-07"
         }
@@ -154,6 +163,8 @@
         { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "todo", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "todo", "acceptance": ["赔付按统一表计算"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "todo", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-06", "title": "公司统一登录（SSO）", "role": "backend", "status": "blocked", "blockedBy": "等你确定用 Google Workspace 还是 Microsoft，并在其管理后台创建登录应用", "acceptance": ["平台员工可用公司账号登录"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-04", "title": "M4 验收", "role": "acceptance", "status": "todo", "acceptance": ["运营人员从零审核一个新租户并处理一张工单"], "evidence": "", "updated": "2026-10-07" }
       ]
     },
@@ -183,6 +194,11 @@
       "date": "2026-10-07",
       "by": "Claude",
       "summary": "部署目标由 Render 改为负责人自有的 VPS（ADR 0007）。docs/secrets.md 已重写：列出需要负责人提供的 VPS 信息，分「填在 GitHub 上」和「填在 VPS 上」两部分。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-06 待验收：平台 / 租户登录、邀请、密码修改与重置、租户行级安全隔离、审计日志、公开 /health 精简。测试角色发现 7 个缺陷已全部修复。按需求文档，暂停的租户仍可登录。新增任务 M0-10（数据库账号分离）、M4-05（两步验证等）、M4-06（SSO，受阻）。"
     }
   ]
 }
