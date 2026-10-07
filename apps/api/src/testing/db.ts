@@ -6,6 +6,7 @@
  * 连不上时直接报错（不跳过），避免「没跑集成测试却显示全绿」。
  */
 import { randomBytes } from "node:crypto";
+import { loadMigrationFiles, runMigrations } from "../db/migrate.ts";
 import { type Pool, createPool, driverErrorCode } from "../db/pool.ts";
 
 /** docker-compose.yml 里本地开发库的连接串（公开的本地默认值，不是密钥）。 */
@@ -51,4 +52,19 @@ export async function createTestDatabase(): Promise<TestDatabase> {
       await admin.end();
     },
   };
+}
+
+/**
+ * 新建一个测试 schema 并执行仓库里的全部迁移：给「真的启动 API 进程」的测试用，
+ * 那些测试要求 /health 返回 200（迁移已执行完）。
+ */
+export async function createMigratedTestDatabase(): Promise<TestDatabase> {
+  const db = await createTestDatabase();
+  try {
+    await runMigrations(db.pool, await loadMigrationFiles());
+  } catch (err) {
+    await db.drop();
+    throw err;
+  }
+  return db;
 }

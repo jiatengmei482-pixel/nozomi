@@ -8,7 +8,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { type TestDatabase, createTestDatabase } from "./testing/db.ts";
+import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 import { leakedSecrets, testEnv } from "./testing/fixtures.ts";
 import {
   type Running,
@@ -26,7 +26,7 @@ const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 let db: TestDatabase;
 let devCommand: string;
 before(async () => {
-  db = await createTestDatabase();
+  db = await createMigratedTestDatabase();
   const pkg = JSON.parse(await readFile(new URL("package.json", `file://${REPO_ROOT}`), "utf8")) as {
     scripts: Record<string, string>;
   };

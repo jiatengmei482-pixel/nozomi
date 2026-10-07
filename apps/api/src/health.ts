@@ -1,7 +1,8 @@
 /**
  * 健康检查：数据库连通（真实执行查询，带超时）、迁移状态、各集成的配置状态。
  *
- * - 集成状态只用 @nozomi/config 的 `integrationStatus`，那里已经脱敏；这里不直接接触任何密钥。
+ * - /health 不需要登录，所以各集成只给出「已配置 / 未配置」（key、label、state）；
+ *   脱敏后的说明文字（detail）只在需要平台登录的 GET /platform/v1/integrations 返回。
  * - 数据库出错时只返回归类后的错误码，不返回驱动的原始报错。
  * - 第三方集成「未配置」不算故障（local / ci 允许缺省，staging / production 缺了根本启动不了）。
  * - 整个检查共用一个时限 `timeoutMs`：数据库探测和迁移探测加起来不超过它。
@@ -57,7 +58,14 @@ export interface HealthReport {
   env: AppEnv;
   database: DatabaseHealth;
   migrations: MigrationHealth;
-  integrations: IntegrationStatus[];
+  integrations: PublicIntegrationStatus[];
+}
+
+/** 公开的集成状态：没有 detail。 */
+export type PublicIntegrationStatus = Pick<IntegrationStatus, "key" | "label" | "state">;
+
+export function publicIntegrationStatus(config: AppConfig): PublicIntegrationStatus[] {
+  return integrationStatus(config).map(({ key, label, state }) => ({ key, label, state }));
 }
 
 export interface HealthDeps {
@@ -117,6 +125,6 @@ export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
     env: deps.config.appEnv,
     database,
     migrations,
-    integrations: integrationStatus(deps.config),
+    integrations: publicIntegrationStatus(deps.config),
   };
 }

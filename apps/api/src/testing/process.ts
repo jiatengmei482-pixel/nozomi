@@ -20,6 +20,8 @@ export interface StartOptions {
   cwd?: string;
   /** 让子进程自成一个进程组，便于连同它的子孙一起清理（见 killGroup） */
   detached?: boolean;
+  /** 写进子进程标准输入的内容（写完即关闭）；不传则子进程没有标准输入 */
+  input?: string;
 }
 
 export function startProcess(
@@ -30,10 +32,11 @@ export function startProcess(
 ): Running {
   const child = spawn(command, [...args], {
     env: { PATH: process.env["PATH"] ?? "", ...env },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     detached: options.detached ?? false,
   });
+  if (options.input !== undefined) child.stdin?.end(options.input);
   let output = "";
   child.stdout?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")));
   child.stderr?.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")));
@@ -42,8 +45,13 @@ export function startProcess(
 }
 
 /** 用当前的 node 直接运行一个 .ts 入口文件。 */
-export function startNode(entry: string, env: Record<string, string>, args: readonly string[] = []): Running {
-  return startProcess(process.execPath, [entry, ...args], env);
+export function startNode(
+  entry: string,
+  env: Record<string, string>,
+  args: readonly string[] = [],
+  options: StartOptions = {},
+): Running {
+  return startProcess(process.execPath, [entry, ...args], env, options);
 }
 
 /** 强制结束整个进程组（子进程必须是用 `detached: true` 启动的）。进程组已不存在时不报错。 */

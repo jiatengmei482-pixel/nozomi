@@ -66,7 +66,10 @@ async function waitForHealth(port: number, running: Running): Promise<Response> 
   throw new Error(`API 进程没有在限时内就绪。输出：\n${running.output()}`);
 }
 
-test("启动 API 进程：/health 经真实 HTTP 返回 200；SIGTERM 后优雅退出（退出码 0）；日志里没有密钥原文", async () => {
+test("先执行迁移命令再启动 API 进程（部署时的顺序）：/health 经真实 HTTP 返回 200；SIGTERM 后优雅退出（退出码 0）；日志里没有密钥原文", async () => {
+  const migrate = start(MIGRATE_ENTRY, testEnv(db.url));
+  assert.equal(await migrate.exited, 0, migrate.output());
+  assert.match(migrate.output(), /完成：本次执行 \d+ 个迁移，此前已执行 0 个/);
   const port = await freePort();
   const running = start(SERVER_ENTRY, { ...testEnv(db.url), PORT: String(port) });
   try {

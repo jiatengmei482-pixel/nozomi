@@ -27,6 +27,8 @@ const rawSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:8080"),
+  // 服务前面有几层自己的反向代理（Nginx / Caddy 等）。0 表示直接对外，不信任 X-Forwarded-For。
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
 
   DATABASE_URL: z
     .string()
@@ -57,6 +59,8 @@ export interface AppConfig {
   appEnv: AppEnv;
   port: number;
   publicBaseUrl: string;
+  /** 前置反向代理的层数：决定从 X-Forwarded-For 的哪一段取客户端地址（审计日志、登录限速用） */
+  trustProxyHops: number;
   databaseUrl: string;
   authJwtSecret: string;
   stripe: StripeConfig | null;
@@ -131,6 +135,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     appEnv: env.APP_ENV,
     port: env.PORT,
     publicBaseUrl: env.PUBLIC_BASE_URL,
+    trustProxyHops: env.TRUST_PROXY_HOPS,
     databaseUrl: env.DATABASE_URL,
     authJwtSecret: env.AUTH_JWT_SECRET,
     stripe,

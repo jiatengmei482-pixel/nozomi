@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { Agent } from "node:http";
 import { fileURLToPath } from "node:url";
-import { type TestDatabase, createTestDatabase } from "./testing/db.ts";
+import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 import { leakedSecrets, testEnv } from "./testing/fixtures.ts";
 import {
   type HttpResult,
@@ -26,7 +26,7 @@ const SERVER_ENTRY = fileURLToPath(new URL("./server.ts", import.meta.url));
 let db: TestDatabase;
 let proxy: TcpProxy;
 before(async () => {
-  db = await createTestDatabase();
+  db = await createMigratedTestDatabase();
   proxy = await startTcpProxy(databaseTarget(db.url));
 });
 after(async () => {

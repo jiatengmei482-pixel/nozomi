@@ -4,6 +4,9 @@
  * - 启动时校验配置，有问题立即退出并列出全部问题。
  * - 不在启动时自动执行迁移：迁移是单独的一步（`pnpm db:migrate`），/health 会报告是否执行完。
  * - 收到 SIGTERM / SIGINT 时优雅关闭：先停止接收新请求并等在途请求结束，再关闭连接池，然后退出。
+ * - 出现没有任何代码接住的异常时不假装没事：按脱敏规则记一条日志，走同样的优雅关闭，以退出码 1 结束，
+ *   由进程管理器（Docker 的重启策略）拉起新进程。已知会发生的故障（如事务中途连接被断开）在各自的位置处理，
+ *   不依赖这里。
  */
 import { ConfigError, loadConfig } from "@nozomi/config";
 import { buildApp } from "./app.ts";
@@ -36,7 +39,7 @@ async function main(): Promise<void> {
   };
 
   let shuttingDown = false;
-  const shutdown = async (signal: string): Promise<void> => {
+  const shutdown = async (signal: string, failureExitCode = 0): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     app.log.info({ signal }, "收到退出信号，开始优雅关闭");
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }, SHUTDOWN_TIMEOUT_MS);
     forceExit.unref();
-    let exitCode = 0;
+    let exitCode = failureExitCode;
     try {
       await app.close();
       await closePool();
@@ -60,6 +63,13 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
+  // 不直接让 Node 打印异常并崩溃：默认的输出会带上异常对象的全部字段，里面可能有连接信息（规则 5）
+  const onFatal = (kind: string, err: unknown): void => {
+    app.log.fatal({ err, kind }, "未捕获的异常，进程即将退出");
+    void shutdown(kind, 1);
+  };
+  process.on("uncaughtException", (err) => onFatal("uncaughtException", err));
+  process.on("unhandledRejection", (reason) => onFatal("unhandledRejection", reason));
 
   try {
     await app.listen({ host: "0.0.0.0", port: config.port });

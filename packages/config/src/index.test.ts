@@ -103,3 +103,11 @@ test("连接串脱敏：密码写在查询参数里也不输出", () => {
   const detail = integrationStatus(c).find((s) => s.key === "database")?.detail;
   assert.equal(detail, "postgres://app:•••@localhost:5432/nozomi");
 });
+
+test("TRUST_PROXY_HOPS：默认 0（不信任 X-Forwarded-For），只接受 0 ~ 5 的整数", () => {
+  assert.equal(loadConfig(base).trustProxyHops, 0);
+  assert.equal(loadConfig({ ...base, TRUST_PROXY_HOPS: "1" }).trustProxyHops, 1);
+  for (const value of ["-1", "6", "1.5", "true"]) {
+    assert.ok(issuesOf({ ...base, TRUST_PROXY_HOPS: value }).some((i) => i.startsWith("TRUST_PROXY_HOPS")), value);
+  }
+});

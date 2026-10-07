@@ -54,7 +54,7 @@ test("数据库查询报错：degraded + DB_UNREACHABLE，不透出驱动的原�
   assert.ok(!JSON.stringify(report).includes("authentication"));
 });
 
-test("数据库故障时仍给出脱敏的集成状态", async () => {
+test("数据库故障时仍给出集成状态（只有已配置 / 未配置，没有 detail）", async () => {
   const report = await checkHealth({
     config: testConfig(),
     pool: stubPool(() => Promise.reject(new Error("down"))),
@@ -62,6 +62,7 @@ test("数据库故障时仍给出脱敏的集成状态", async () => {
     timeoutMs: 20,
   });
   assert.deepEqual(report.integrations.map((i) => i.key), ["database", "auth", "stripe", "googleMaps", "fx"]);
+  for (const item of report.integrations) assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
   assert.deepEqual(leakedSecrets(JSON.stringify(report)), []);
   assert.equal(report.env, "ci");
 });

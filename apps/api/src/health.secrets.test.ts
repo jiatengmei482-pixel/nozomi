@@ -1,5 +1,6 @@
 /**
- * /health 没有鉴权，任何人都能访问。这里验证各种形态的密钥和连接串都不会原样出现在响应里。
+ * /health 没有鉴权，任何人都能访问。这里验证各种形态的密钥和连接串都不会出现在响应里——
+ * 包括脱敏后的片段：M0-06 起 /health 只给「已配置 / 未配置」，脱敏详情在需要平台登录的接口。
  * 不需要数据库（连接池指向必然连不上的地址）。
  */
 import { after, test } from "node:test";
@@ -14,8 +15,8 @@ after(() => pool.end());
 
 interface Integration {
   key: string;
+  label: string;
   state: string;
-  detail: string;
 }
 
 async function healthWith(config: AppConfig): Promise<{ statusCode: number; text: string; integrations: Map<string, Integration> }> {
@@ -41,14 +42,15 @@ test("配了 Stripe 和谷歌地图假密钥：响应里没有任何密钥原文
   assert.ok(!text.includes(FAKE_SECRETS.authJwtSecret.slice(-8)));
 });
 
-test("密钥的脱敏显示最多露出首 7 位和末 4 位，中间部分不出现", async () => {
-  const { integrations } = await healthWith(testConfig());
-  const stripeDetail = integrations.get("stripe")?.detail ?? "";
-  const mapsDetail = integrations.get("googleMaps")?.detail ?? "";
-  assert.ok(!stripeDetail.includes(FAKE_SECRETS.stripeSecretKey.slice(7, -4)));
-  assert.ok(!mapsDetail.includes(FAKE_SECRETS.googleMapsApiKey.slice(7, -4)));
-  assert.ok(!stripeDetail.includes(FAKE_SECRETS.stripeSecretKey.slice(0, 8)), "露出的前缀超过 7 位");
-  assert.ok(!mapsDetail.includes(FAKE_SECRETS.googleMapsApiKey.slice(-5)), "露出的后缀超过 4 位");
+test("公开的集成状态每项只有 key、label、state：没有 detail，也没有密钥的首尾片段", async () => {
+  const { text, integrations } = await healthWith(testConfig());
+  assert.equal(integrations.size, 5);
+  for (const item of integrations.values()) assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
+  assert.ok(!text.includes("detail"));
+  for (const secret of [FAKE_SECRETS.stripeSecretKey, FAKE_SECRETS.googleMapsApiKey]) {
+    assert.ok(!text.includes(secret.slice(0, 7)), "响应里出现了密钥的前缀");
+    assert.ok(!text.includes(secret.slice(-4)), "响应里出现了密钥的后缀");
+  }
 });
 
 test("数据库连接串的各种写法：响应里都没有密码（含转义字符的密码、写在查询参数里的密码）", async () => {
@@ -81,15 +83,10 @@ test("数据库连接串的各种写法：响应里都没有密码（含转义�
   }
 });
 
-test("较短的密钥（11 个字符）：脱敏后不能拼回完整的密钥", async () => {
+test("较短的密钥（11 个字符）：响应里一个片段都没有", async () => {
   const shortKey = "AIzaShort11";
   assert.equal(shortKey.length, 11);
-  const { integrations } = await healthWith({ ...testConfig(), googleMapsApiKey: shortKey });
-  const detail = integrations.get("googleMaps")?.detail ?? "";
-  const visible = detail.replaceAll("…", "").replaceAll("•", "");
-  assert.notEqual(
-    visible,
-    shortKey,
-    `无鉴权的 /health 返回的「脱敏」内容是 ${detail.slice(0, 3)}…（共露出 ${visible.length} 个字符），去掉省略号就是完整的密钥`,
-  );
+  const { text, integrations } = await healthWith({ ...testConfig(), googleMapsApiKey: shortKey });
+  assert.equal(integrations.get("googleMaps")?.state, "configured");
+  assert.ok(!text.includes("AIza") && !text.includes("Short") && !text.includes("•"));
 });

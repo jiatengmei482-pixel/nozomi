@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "node --watch --import ./scripts/load-env.mjs apps/api/src/server.ts",
     "db:migrate": "node --env-file-if-exists=.env apps/api/src/db/migrate-cli.ts",
+    "admin:create": "node --env-file-if-exists=.env apps/api/src/cli/admin-create.ts",
+    "admin:reset-password": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-password.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test \"packages/*/src/**/*.test.ts\" \"apps/*/src/**/*.test.ts\"",
     "test:integration": "node --env-file-if-exists=.env --test \"apps/*/src/**/*.itest.ts\"",

@@ -45,19 +45,26 @@ test("没有任何迁移文件的空库：200 ok（M0-05 的现状）", async ()
   assert.deepEqual(body.migrations, { state: "up_to_date", applied: 0, pending: 0, errorCode: null });
 });
 
-test("集成状态是脱敏的：响应里没有数据库密码、登录密钥、Stripe 和谷歌地图密钥原文", async () => {
+test("集成状态只有「已配置 / 未配置」：每项只含 key、label、state，没有 detail，也没有任何密钥片段", async () => {
   await runMigrations(db.pool, files);
   const { text, body } = await getHealth();
   assert.deepEqual(leakedSecrets(text), []);
   const password = new URL(db.url).password;
   assert.ok(password.length > 0);
-  assert.ok(!text.includes(`:${password}@`), "响应里出现了数据库密码");
-  const byKey = new Map<string, { state: string; detail: string }>(body.integrations.map((i: any) => [i.key, i]));
-  assert.deepEqual([...byKey.keys()], ["database", "auth", "stripe", "googleMaps", "fx"]);
-  assert.match(byKey.get("database")!.detail, /:•••@/);
-  assert.equal(byKey.get("auth")!.detail, `${FAKE_SECRETS.authJwtSecret.length} 个字符`);
-  assert.equal(byKey.get("stripe")!.state, "configured");
-  assert.match(byKey.get("stripe")!.detail, /^测试模式 · sk_test…/);
+  assert.ok(!text.includes(password), "响应里出现了数据库密码");
+  assert.deepEqual(
+    body.integrations.map((i: any) => i.key),
+    ["database", "auth", "stripe", "googleMaps", "fx"],
+  );
+  for (const item of body.integrations) {
+    assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
+    assert.equal(item.state, "configured");
+  }
+  // 以前放在 detail 里的内容：打码的连接串、密钥长度、密钥首尾、汇率源主机名，现在都不应该出现
+  assert.ok(!text.includes("detail"));
+  assert.ok(!text.includes("postgres://") && !text.includes("•"));
+  assert.ok(!text.includes(`${FAKE_SECRETS.authJwtSecret.length} 个字符`));
+  assert.ok(!text.includes("sk_test") && !text.includes("AIza") && !text.includes("er-api"));
 });
 
 test("第三方集成未配置不影响健康状态", async () => {

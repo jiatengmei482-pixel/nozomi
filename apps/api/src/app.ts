@@ -9,8 +9,11 @@ import type { AppConfig } from "@nozomi/config";
 import { type Pool, driverErrorCode } from "./db/pool.ts";
 import type { MigrationFile } from "./db/migration-plan.ts";
 import { errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
+import type { AppContext } from "./context.ts";
 import { checkHealth } from "./health.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
+import { registerPlatformRoutes } from "./routes/platform.ts";
+import { registerTenantRoutes } from "./routes/tenant.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -23,6 +26,8 @@ export interface AppDeps {
   logDestination?: { write(line: string): void };
   /** /health 整个检查的时限（毫秒） */
   healthTimeoutMs?: number;
+  /** 时钟；默认系统时间。测试用它验证会话过期、限速窗口、邀请过期 */
+  now?: () => Date;
 }
 
 export interface RegisteredRoute {
@@ -69,6 +74,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const { config, pool, migrationFiles } = deps;
   const app = Fastify({
     logger: deps.logger === false ? false : loggerOptions(deps),
+    // 前面有自己的反向代理时，从 X-Forwarded-For 取客户端地址（审计日志、登录限速用）；层数来自配置
+    trustProxy: config.trustProxyHops > 0 ? (_address: string, hop: number) => hop < config.trustProxyHops : false,
     // 路由阶段就出错的请求（畸形的百分号编码等）也走统一错误格式
     frameworkErrors: (err, _request, reply) => {
       const response = toErrorResponse(err);
@@ -114,7 +121,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (response.unexpected) {
       request.log.error({ err }, "未预期的异常");
     }
+    const retryAfter = response.body.error.details["retry_after_seconds"];
+    if (response.statusCode === 429 && typeof retryAfter === "number") reply.header("retry-after", retryAfter);
     return reply.code(response.statusCode).send(response.body);
+  });
+
+  // 带令牌或账号数据的响应不允许被任何缓存保存
+  app.addHook("onSend", async (request, reply) => {
+    const path = pathOnly(request.url);
+    if (path.startsWith("/platform/") || path.startsWith("/tenant/")) reply.header("cache-control", "no-store");
   });
 
   app.get("/health", async (_request, reply) => {
@@ -129,6 +144,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       .header("cache-control", "no-store")
       .send(report);
   });
+
+  const context: AppContext = { config, pool, now: deps.now ?? (() => new Date()) };
+  registerPlatformRoutes(app, context);
+  registerTenantRoutes(app, context);
 
   return app;
 }
