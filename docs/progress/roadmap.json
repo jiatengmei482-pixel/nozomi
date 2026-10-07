@@ -63,9 +63,9 @@
           "id": "M0-05",
           "title": "后端骨架：Fastify 服务、数据库迁移、/health",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["pnpm dev 启动 API，/health 返回数据库连通状态和集成配置状态（脱敏）", "数据库迁移可重复执行", "提交 pnpm-lock.yaml，CI 改为 --frozen-lockfile", "CI 增加 PostgreSQL 服务并跑集成测试"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/1 ；单元测试 123 个、集成测试 57 个全部通过",
           "updated": "2026-10-07"
         },
         {
@@ -173,6 +173,11 @@
       "date": "2026-10-07",
       "by": "Claude",
       "summary": "建立仓库：开发规范、6 个 AI 角色、需求文档、配置与密钥管理、领域核心（地理 / 金额 / 汇率，27 个测试通过）、CI、开发进度页。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-05 待验收：后端骨架（Fastify 服务、迁移执行器、/health）、提交 pnpm-lock.yaml、CI 增加 PostgreSQL 与集成测试。测试角色发现 9 个缺陷已全部修复；单元测试 123 个、集成测试 57 个通过。注意：pnpm check 现在需要本地数据库；部署时须先 pnpm db:migrate 再启动。"
     }
   ]
 }

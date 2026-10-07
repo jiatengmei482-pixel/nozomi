@@ -8,6 +8,25 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nozomi
+          POSTGRES_PASSWORD: nozomi
+          POSTGRES_DB: nozomi
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nozomi"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # 以下全部是 CI 专用的占位值，不是任何真实环境的密钥；数据库是本次运行临时起的容器。
+      APP_ENV: ci
+      DATABASE_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      AUTH_JWT_SECRET: ci-placeholder-not-a-real-secret-0000000000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -15,9 +34,15 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      # M0-05 提交 pnpm-lock.yaml 后改为 --frozen-lockfile
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
+      - name: 单元测试（不需要数据库）
+        run: pnpm test
+      - name: 数据库迁移（空库上从头执行）
+        run: pnpm db:migrate
+      - name: 数据库迁移（再执行一次，必须无变化）
+        run: pnpm db:migrate
+      - name: 集成测试（真实 PostgreSQL）
+        run: pnpm test:integration
       - run: pnpm roadmap:check
       - run: pnpm progress:build

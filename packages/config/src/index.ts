@@ -12,6 +12,11 @@ import { z } from "zod";
 export const APP_ENVS = ["local", "ci", "staging", "production"] as const;
 export type AppEnv = (typeof APP_ENVS)[number];
 
+/** 能否被解析成 URL。报错信息里永远不带原值（连接串里有密码）。 */
+function isParsableUrl(value: string): boolean {
+  return URL.canParse(value);
+}
+
 const optionalString = z
   .string()
   .trim()
@@ -25,7 +30,8 @@ const rawSchema = z.object({
 
   DATABASE_URL: z
     .string()
-    .regex(/^postgres(ql)?:\/\//, "DATABASE_URL 必须是 postgres:// 连接串"),
+    .regex(/^postgres(ql)?:\/\//, "DATABASE_URL 必须是 postgres:// 连接串")
+    .refine(isParsableUrl, "DATABASE_URL 不是合法的连接串（无法解析，请检查主机名、端口和特殊字符是否转义）"),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
 
   STRIPE_SECRET_KEY: optionalString,
@@ -157,13 +163,18 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
   ];
 }
 
+/** 露出首尾所需的最短长度：短于它时首 7 位 + 末 4 位会占掉大半甚至全部，所以整体打码。 */
+const MASK_MIN_LENGTH = 20;
+
+/** 密钥脱敏：足够长时只露首 7 位和末 4 位（至少遮住 9 位），否则全部打码。 */
 export function mask(secret: string): string {
-  if (secret.length <= 10) return "•".repeat(secret.length);
+  if (secret.length < MASK_MIN_LENGTH) return "•".repeat(secret.length);
   return `${secret.slice(0, 7)}…${secret.slice(-4)}`;
 }
 
+/** 连接串脱敏：只留协议、用户名、主机、库名；密码和查询参数一律不输出。解析不了时不输出任何原文。 */
 function maskUrl(url: string): string {
+  if (!URL.canParse(url)) return "连接串无法解析";
   const u = new URL(url);
-  if (u.password) u.password = "•••";
   return `${u.protocol}//${u.username ? u.username + ":•••@" : ""}${u.host}${u.pathname}`;
 }

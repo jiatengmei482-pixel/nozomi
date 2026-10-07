@@ -80,3 +80,26 @@ test("mask 只保留首尾", () => {
   assert.equal(mask("sk_test_1234567890abcd"), "sk_test…abcd");
   assert.equal(mask("short"), "•••••");
 });
+
+test("mask：不够长的密钥全部打码，脱敏结果里不含任何原文字符", () => {
+  for (const length of [0, 1, 10, 11, 12, 14, 19]) {
+    const secret = "Zk3".repeat(7).slice(0, length);
+    assert.equal(mask(secret), "•".repeat(length));
+  }
+  const twenty = "abcdefg" + "X".repeat(9) + "wxyz";
+  assert.equal(mask(twenty), "abcdefg…wxyz");
+});
+
+test("DATABASE_URL 前缀正确但无法解析（端口超范围、主机名有空格）：报错，且报错里没有原值", () => {
+  for (const url of ["postgres://app:pw-Zq7@127.0.0.1:99999/nozomi", "postgres://app:pw-Zq7@db host/nozomi"]) {
+    const issues = issuesOf({ ...base, DATABASE_URL: url });
+    assert.ok(issues.some((i) => i.startsWith("DATABASE_URL") && i.includes("无法解析")), url);
+    assert.ok(!issues.join("\n").includes("pw-Zq7"));
+  }
+});
+
+test("连接串脱敏：密码写在查询参数里也不输出", () => {
+  const c = loadConfig({ ...base, DATABASE_URL: "postgres://app@localhost:5432/nozomi?password=query-pw&sslmode=disable" });
+  const detail = integrationStatus(c).find((s) => s.key === "database")?.detail;
+  assert.equal(detail, "postgres://app:•••@localhost:5432/nozomi");
+});

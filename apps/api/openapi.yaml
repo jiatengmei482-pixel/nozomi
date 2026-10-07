@@ -1,0 +1,167 @@
+openapi: 3.1.0
+info:
+  title: NOZOMI 用车平台 API
+  version: 0.1.0
+  description: |
+    接口定义先于实现：新增或修改接口时先改本文件，再写代码。
+    `apps/api/src/openapi.test.ts` 会校验「已注册的路由」和本文件的 `paths` 完全一致。
+
+    约定：
+    - 出错时统一返回 `{ error: { code, message, details } }`（见 `ErrorResponse`）。
+      唯一的例外是 `/health` 的 503：为了让监控直接看到是哪一项出了问题，仍返回 `HealthResponse`。
+    - 所有接口共有的错误（不在每个接口下重复列出）：
+      - 400 `BAD_REQUEST`：请求体不是合法 JSON、URL 里有非法的百分号编码、发来的根本不是 HTTP 请求
+      - 400 `VALIDATION_FAILED`：参数校验未通过，`details.issues` 列出每一项
+      - 404 `NOT_FOUND`：路径或请求方法不存在
+      - 408 `REQUEST_TIMEOUT`：请求迟迟没有发完
+      - 413 `PAYLOAD_TOO_LARGE`：请求体超过 1MB
+      - 415 `UNSUPPORTED_MEDIA_TYPE`：请求内容类型不支持
+      - 431 `REQUEST_HEADER_FIELDS_TOO_LARGE`：请求头超过 16KB
+      - 500 `INTERNAL_ERROR`：未预期的服务端错误，`message` 不含内部细节
+
+      其中 408、431 和「不是 HTTP 请求」的 400 在解析阶段就被拒绝，应答之后连接会被服务端关闭。
+    - 金额用最小货币单位整数，百分比用基点整数。
+    - 租户接口的 `tenant_id` 只从登录令牌读取，不接受请求参数。
+servers:
+  - url: http://localhost:8080
+    description: 本地开发
+tags:
+  - name: 运维
+    description: 健康检查等不属于任何业务域的接口
+paths:
+  /health:
+    get:
+      tags: [运维]
+      operationId: getHealth
+      summary: 健康检查
+      description: |
+        真实执行一次数据库查询，并给出迁移状态和各集成的配置状态。
+        整个检查（数据库探测加迁移探测）共用一个 2 秒的时限，超时按数据库不可用处理，接口不会一直挂起。
+        查询串会被忽略。
+        集成状态来自 `@nozomi/config` 的 `integrationStatus`，只含脱敏信息，永远不含密钥原文。
+
+        - 数据库可用且迁移已全部执行：200，`status` 为 `ok`。
+        - 数据库不可用、迁移未执行完或迁移记录异常：503，`status` 为 `degraded`。
+        - 第三方集成「未配置」不影响 `status`（local / ci 环境允许缺省）。
+      security: []
+      responses:
+        "200":
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: 服务不可用（数据库或迁移有问题），响应体仍是完整的健康检查结构
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  responses:
+    InternalError:
+      description: 未预期的服务端错误，`message` 不包含内部细节
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              description: 稳定的机器可读错误码，全大写下划线
+              examples: [NOT_FOUND, VALIDATION_FAILED, BAD_REQUEST, INTERNAL_ERROR]
+            message:
+              type: string
+              description: 给人看的简体中文说明
+            details:
+              type: object
+              description: 补充信息；没有时为空对象
+              additionalProperties: true
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, env, database, migrations, integrations]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        env:
+          type: string
+          enum: [local, ci, staging, production]
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        migrations:
+          $ref: "#/components/schemas/MigrationHealth"
+        integrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegrationStatus"
+    DatabaseHealth:
+      type: object
+      additionalProperties: false
+      required: [state, latencyMs, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up, down]
+        latencyMs:
+          type: [integer, "null"]
+          description: 探测查询耗时（毫秒）；数据库不可用时为 null
+        errorCode:
+          type: [string, "null"]
+          enum: [DB_TIMEOUT, DB_UNREACHABLE, null]
+          description: 数据库不可用的原因；可用时为 null。不返回驱动的原始报错
+    MigrationHealth:
+      type: object
+      additionalProperties: false
+      required: [state, applied, pending, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up_to_date, pending, error, unknown]
+          description: |
+            - `up_to_date`：迁移文件全部已执行
+            - `pending`：有迁移文件尚未执行，需要运行 `pnpm db:migrate`
+            - `error`：迁移记录与文件不一致（见 `errorCode`）
+            - `unknown`：数据库不可用，无法判断
+        applied:
+          type: [integer, "null"]
+          description: 已执行的迁移数量；`unknown` 或 `error` 时为 null
+        pending:
+          type: [integer, "null"]
+          description: 待执行的迁移数量；`unknown` 或 `error` 时为 null
+        errorCode:
+          type: [string, "null"]
+          enum:
+            - MIGRATION_CHECKSUM_MISMATCH
+            - MIGRATION_FILE_MISSING
+            - MIGRATION_OUT_OF_ORDER
+            - null
+    IntegrationStatus:
+      type: object
+      additionalProperties: false
+      required: [key, label, state, detail]
+      properties:
+        key:
+          type: string
+          enum: [database, auth, stripe, googleMaps, fx]
+        label:
+          type: string
+        state:
+          type: string
+          enum: [configured, missing]
+        detail:
+          type: string
+          description: 脱敏后的说明，例如打码后的数据库地址、只露首尾的密钥
