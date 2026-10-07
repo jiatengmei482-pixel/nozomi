@@ -49,6 +49,8 @@ cleanup() {
     # 排查用：演练服务器上 sshd 的日志（去掉地址）、容器状态和 Docker 的日志。
     printf '\n--- 演练服务器的 sshd 日志 ---\n'
     docker exec "$server" cat /var/log/sshd.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
+    printf '\n--- 演练服务器上登录模块（PAM）写的系统日志 ---\n'
+    docker exec "$server" cat /var/log/syslog-capture.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
     printf '\n--- 演练服务器上和「能不能登录」有关的状态（禁止登录标记、nozomi 账号的有效期字段、系统时间） ---\n'
     docker exec "$server" bash -c 'ls -l /run/nologin /etc/nologin 2>&1; cat /run/nologin /etc/nologin 2>/dev/null; getent shadow nozomi | cut -d: -f3-; date -u; ls -ld /home/nozomi /home/nozomi/.ssh' 2>&1 || true
     printf '\n--- 演练服务器的容器和 Docker 日志 ---\n'
@@ -145,6 +147,16 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker info >/dev/null
+# 容器里没有系统日志服务：sshd 调用的登录模块（PAM）把拒绝登录的原因写到 /dev/log，这里接下来存成文件，排查时用。
+rm -f /dev/log
+(python3 -c '
+import socket
+s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+s.bind("/dev/log")
+with open("/var/log/syslog-capture.log", "ab", buffering=0) as out:
+    while True:
+        out.write(s.recv(8192) + b"\n")
+' >/dev/null 2>&1 &)
 ssh-keygen -A >/dev/null
 install -d -m 700 /root/.ssh
 printf '%s\n' "$ROOT_PUBLIC_KEY" >/root/.ssh/authorized_keys
