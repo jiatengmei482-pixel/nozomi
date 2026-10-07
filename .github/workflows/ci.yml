@@ -74,9 +74,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # CI 专用的占位值；数据库是本次运行临时起的容器。
+      # CI 专用的占位值；数据库是本次运行临时起的容器。和真实环境一样用两个数据库账号（ADR 0010）。
       APP_ENV: ci
-      DATABASE_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      DATABASE_MIGRATION_URL: postgres://nozomi:nozomi@localhost:5432/nozomi
+      DATABASE_URL: postgres://nozomi_api:ci-placeholder-not-a-real-password@localhost:5432/nozomi
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -87,6 +88,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 安装 Playwright 的 Chromium 和它需要的系统库
         run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium
+      - name: 创建数据库的应用账号（最小权限）
+        run: pnpm db:provision
       - name: 端到端测试（先构建前端，再起 API 和前端跑 Playwright）
         run: pnpm test:e2e
       - name: 失败时上传 Playwright 报告和现场（截图、trace）

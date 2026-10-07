@@ -1,6 +1,6 @@
 /**
  * 端到端测试的环境准备（每次运行一次）：
- * 1. 在数据库里新建一个随机名字的 schema 并执行全部迁移（做法同后端集成测试）；
+ * 1. 在数据库里新建一个随机名字的 schema 并用迁移账号执行全部迁移（做法同后端集成测试）；API 进程只用应用账号；
  * 2. 用 `admin:create` 的命令行创建平台超级管理员，密码走标准输入；
  * 3. 起 API 进程和前端（vite preview，把 API 前缀代理给刚起的 API）；
  * 4. 把管理员账号通过环境变量交给测试进程。
@@ -112,6 +112,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       AUTH_JWT_SECRET: randomBytes(48).toString("base64url"),
       TRUST_PROXY_HOPS: "0",
     };
+    // 服务进程只拿应用账号（ADR 0010），迁移账号不交给它。
+    delete apiEnv["DATABASE_MIGRATION_URL"];
 
     const adminEmail = `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`;
     const adminPassword = `E2e-${randomBytes(18).toString("base64url")}-9z`;
