@@ -23,7 +23,7 @@
 # 退出码：
 #   0   成功
 #   1   参数或环境不对，什么都没动
-#   10  切换版本之前失败（拉镜像、备份、建应用账号、迁移），正在运行的旧版本没有被替换
+#   10  切换版本之前失败（拉镜像、备份、容器间按名字互访、建应用账号、迁移），正在运行的旧版本没有被替换
 #   20  新版本不健康，已回退到上一个版本，上一个版本健康
 #   30  新版本不健康，且没有可回退的版本或回退后仍不健康——服务可能不可用，需要人工处理
 set -euo pipefail
@@ -39,6 +39,8 @@ EDGE_CHECK_ATTEMPTS=10
 EDGE_CHECK_INTERVAL_SECONDS=2
 # Caddy 在容器内提供 HTTP 的端口（behind-proxy），与 compose.behind-proxy.yml、Caddyfile 一致。
 EDGE_CONTAINER_PORT=8080
+# 在容器里解析数据库的服务名（只解析，不连接）：解析得到就以 0 退出。
+DNS_PROBE='require("node:dns").lookup("db", (err) => process.exit(err ? 1 : 0))'
 
 log() { printf '[部署] %s\n' "$*"; }
 die() {
@@ -311,6 +313,12 @@ cmd_deploy() {
     "$release_dir/bin/backup.sh" pre-deploy ||
       die "$EXIT_NOT_SWITCHED" "迁移前备份失败，为安全起见中止部署，旧版本没有被替换"
   fi
+
+  # 先确认容器里按服务名找得到数据库。找不到时后面每一步都会以「连不上数据库」失败，而真正的原因是
+  # Docker 内置 DNS 不工作——这里单独查出来，给出能照着处理的提示。
+  log "确认容器之间能按服务名互访"
+  "$release_dir/bin/compose.sh" run --rm --no-deps -T migrate node -e "$DNS_PROBE" ||
+    die "$EXIT_NOT_SWITCHED" "容器里解析不了数据库的服务名 db：Docker 内置 DNS 不工作，旧版本没有被替换。CentOS / RHEL 上最常见的原因是运行中的内核缺少 kernel-modules-extra 里的模块（xt_nat、nft_compat、xt_addrtype；Docker 的日志里会有 Resolver Start failed / setting up DNAT/SNAT rules failed）。请服务器管理员安装与运行中内核（uname -r）匹配的 kernel-modules-extra，装不到匹配的版本就升级内核并重启服务器，然后重新部署（docs/deploy.md「CentOS / RHEL 系统的说明」）"
 
   # 两步都用迁移账号，在临时的 migrate 容器里执行；api 容器拿不到迁移账号的密码（ADR 0010）。
   log "创建 / 核对数据库的应用账号"

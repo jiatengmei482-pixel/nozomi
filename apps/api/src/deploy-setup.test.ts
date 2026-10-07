@@ -185,7 +185,9 @@ test("初始化脚本生成两个不同用途的数据库密码；部署、恢�
   for (const script of ["deploy/bin/deploy.sh", "deploy/bin/restore.sh"]) {
     const text = await readText(script);
     const tasks = [...text.matchAll(/run --rm --no-deps -T (\S+) node (\S+)/g)].map((match) => `${match[1]} ${match[2]}`);
-    assert.deepEqual(tasks, ["migrate apps/api/src/db/provision-cli.ts", "migrate apps/api/src/db/migrate-cli.ts"], script);
+    // 部署时在建账号之前多一步：在同一个临时容器里确认按服务名解析得到数据库（只解析，不连接）
+    const expected = ["migrate apps/api/src/db/provision-cli.ts", "migrate apps/api/src/db/migrate-cli.ts"];
+    assert.deepEqual(tasks, script === "deploy/bin/deploy.sh" ? ["migrate -e", ...expected] : expected, script);
   }
   const backup = await readText("deploy/bin/backup.sh");
   assert.match(backup, /exec -T db pg_dump -U nozomi -d nozomi /);
@@ -689,7 +691,7 @@ test("流水线和手工部署是同一条路：都只通过 remote.sh 操作服
   }
   // 两条路径除了准备 SSH 连接时的连通性测试、流水线最后的登出，不再自己拼远程命令
   const pushLocalCode = codeOf(pushLocal);
-  assert.deepEqual(pushLocalCode.match(/\bssh\s[^\n]*/g), ['ssh -F "$ssh_dir/config" vps true ||']);
+  assert.deepEqual(pushLocalCode.match(/\bssh\s-[^\n]*/g), ['ssh -F "$ssh_dir/config" -o LogLevel=INFO vps true 2>&1)"; then']);
   assert.deepEqual(workflowRuns.match(/\bssh\s[^\n]*/g), [`ssh -F "$NOZOMI_SSH_DIR/config" vps "docker logout '$REGISTRY'" >/dev/null 2>&1 || true`]);
   // 手工部署：镜像不经过镜像仓库，服务器上不拉取
   assert.match(pushLocal, /"\$remote" load-image "\$image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
@@ -759,4 +761,28 @@ test("文档：给外层 nginx 的示例配置和 CI 冒烟里模拟外层代理
   for (const limit of ["docker 组", "证书", "重载"]) assert.ok(adr.includes(limit), `ADR 0007 的已知限制缺少：${limit}`);
   const secrets = await readText("docs/secrets.md");
   for (const name of ["`EDGE_MODE`", "`EDGE_LISTEN`"]) assert.ok(secrets.includes(name), `docs/secrets.md 的变量表缺少 ${name}`);
+});
+
+test("RHEL 系的内核模块预检：只检查不修改；缺模块时初始化报错停下，部署在建应用账号之前单独查出「容器里解析不了服务名」", async () => {
+  const script = await readText("deploy/bootstrap.sh");
+  assert.match(script, /^REQUIRED_KERNEL_MODULES=\("xt_nat" "nft_compat" "xt_addrtype"\)$/m);
+  const check = script.slice(script.indexOf("kernel_module_available() {"), script.indexOf("# 安装软件包。"));
+  assert.match(check, /\[\[ "\$OS_FAMILY" == "rhel" \]\] \|\| return 0/);
+  assert.match(check, /dnf install kernel-modules-extra-\$release/);
+  assert.match(check, /升级内核和 kernel-modules-extra 并重启服务器/);
+  // 只检查：这一段里不安装、不加载、不升级任何东西（报错文字里给负责人看的命令不算）
+  const executed = codeOf(check).replace(/(log|die) "[^"]*"/g, "");
+  assert.ok(!/install_packages|ensure_command|\bdnf\b|\binsmod\b|\bgrubby\b|\breboot\b/.test(executed));
+  assert.deepEqual(executed.match(/modprobe[^\n]*/g), ['modprobe --dry-run --quiet "$1" 2>/dev/null', "modprobe >/dev/null 2>&1; then"]);
+  // 在安装任何软件、创建用户之前就检查
+  const main = script.slice(script.indexOf("\nmain() {"));
+  assert.ok(main.indexOf("check_kernel_modules") > main.indexOf("detect_os"));
+  assert.ok(main.indexOf("check_kernel_modules") < main.indexOf("install_base_packages"));
+
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  const probe = deployScript.indexOf('run --rm --no-deps -T migrate node -e "$DNS_PROBE"');
+  assert.ok(probe > deployScript.indexOf("pre-deploy") && probe < deployScript.indexOf("provision-cli.ts"), "自检要在备份之后、建应用账号之前");
+  assert.match(deployScript, /^DNS_PROBE='require\("node:dns"\)\.lookup\("db", \(err\) => process\.exit\(err \? 1 : 0\)\)'$/m);
+  assert.match(deployScript.slice(probe, probe + 600), /die "\$EXIT_NOT_SWITCHED" "容器里解析不了数据库的服务名 db[^"]*kernel-modules-extra[^"]*升级内核并重启服务器/);
+  assert.match(await readText("docs/deploy.md"), /kernel-modules-extra-\$\(uname -r\)/);
 });

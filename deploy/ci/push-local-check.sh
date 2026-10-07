@@ -18,6 +18,8 @@
 #   7. 隔离：本项目的容器名都带 nozomi-staging 前缀，只发布回环地址上的一个端口；别人的容器、数据卷、镜像、
 #      80 / 443 上的服务、Docker 本身（软件包版本、进程）、SSH 服务的配置、root 的密码，前后完全一样；没有装防火墙
 #
+# 排查用：sshd 的日志和登录模块（PAM）写的系统日志都存在演练服务器上，失败时连同相关状态一起打出来（地址已去掉）。
+#
 # 这里验证不了的：systemd 管理的服务（容器里没有 systemd，systemctl 是只记录调用的替身，Docker 和 sshd 是手工启动的）、
 # 真实的公网域名和证书、SELinux 为 Enforcing 的情形（容器里是 Disabled，和目前的测试服务器一致）。
 # standalone 模式的同一套服务器脚本由 smoke.sh 覆盖；这里不重复。
@@ -46,6 +48,14 @@ fail() {
 cleanup() {
   local status=$?
   if [[ $status -ne 0 ]]; then
+    # 排查用：演练服务器上 sshd 的日志（去掉地址）、容器状态和 Docker 的日志。
+    printf '\n--- 演练服务器的 sshd 日志 ---\n'
+    docker exec "$server" cat /var/log/sshd.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
+    printf '\n--- 演练服务器上登录模块（PAM）写的系统日志 ---\n'
+    docker exec "$server" cat /var/log/syslog-capture.log 2>/dev/null | sed -E 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<地址>/g' || true
+    printf '\n--- 演练服务器上和「能不能登录」有关的状态（禁止登录标记、shadow 的权限、nozomi 账号的有效期字段、内核的 AppArmor 拒绝记录） ---\n'
+    docker exec "$server" bash -c 'ls -l /run/nologin /etc/nologin /etc/shadow 2>&1; getent shadow nozomi | cut -d: -f3-; ls -ld /home/nozomi /home/nozomi/.ssh; dmesg 2>/dev/null | grep -i "apparmor.*denied" | tail -n 10' 2>&1 || true
+    printf '\n--- 演练服务器的容器和 Docker 日志 ---\n'
     docker exec "$server" bash -c 'docker ps --all; tail -n 30 /var/log/dockerd.log' 2>/dev/null || true
   fi
   docker rm --force --volumes "$server" >/dev/null 2>&1 || true
@@ -139,11 +149,28 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker info >/dev/null
+# 容器里没有系统日志服务：sshd 调用的登录模块（PAM）把拒绝登录的原因写到 /dev/log，这里接下来存成文件，排查时用。
+rm -f /dev/log
+(python3 -c '
+import socket
+s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+s.bind("/dev/log")
+with open("/var/log/syslog-capture.log", "ab", buffering=0) as out:
+    while True:
+        out.write(s.recv(8192) + b"\n")
+' >/dev/null 2>&1 &)
+# 只和「在别的系统的内核上跑 CentOS 容器」有关，真实的 CentOS 机器没有这个问题：
+# sshd 登录普通用户时，登录模块（pam_unix）会调用 unix_chkpwd 读 /etc/shadow 查账号有没有过期。
+# CentOS 的 /etc/shadow 权限是 000，靠 root 的特权读取；而 Ubuntu 主机（GitHub 的 runner）的 AppArmor
+# 对所有名为 unix_chkpwd 的程序套了一个不给这项特权的限制，容器里的也不例外——结果是 root 能登录、
+# 新建的部署用户被「PAM account configuration」拒绝（内核日志里是 profile="unix-chkpwd" 拒绝 dac_override）。
+# 所以把演练机的 /etc/shadow 改成只有 root 可读（400）：不靠那项特权也读得到。之后新建用户时这个权限会保留。
+chmod 400 /etc/shadow
 ssh-keygen -A >/dev/null
 install -d -m 700 /root/.ssh
 printf '%s\n' "$ROOT_PUBLIC_KEY" >/root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
-/usr/sbin/sshd -o PidFile=/run/sshd.pid
+/usr/sbin/sshd -o PidFile=/run/sshd.pid -E /var/log/sshd.log
 SETUP
 server_address="$(docker inspect --format '{{.NetworkSettings.Networks.bridge.IPAddress}}' "$server")"
 # 主机密钥直接从演练服务器里读出来（不是经网络现取），相当于负责人事先核对过的指纹。
