@@ -57,12 +57,16 @@ jobs:
   # 这里的密码全部是 deploy/ci/smoke.sh 里写明的占位值，数据库是本次运行临时起的容器。
   deploy-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: 检查 shell 脚本（shellcheck）
-        run: shellcheck -x deploy/bootstrap.sh deploy/bin/*.sh deploy/ci/*.sh
+        run: shellcheck -x deploy/bootstrap.sh deploy/bin/*.sh deploy/ci/*.sh deploy/client/*.sh
       - name: 部署冒烟（构建镜像 → 整套容器 → 建应用账号 → 迁移 → /health → 账号权限 → 自动回退 → 备份恢复 → 登录）
         run: deploy/ci/smoke.sh
-      - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04 容器里各跑两遍（可重复执行）
+      - name: 部署冒烟：behind-proxy 模式（前面套一层 nginx 模拟机器上原有的反向代理，同样的全流程）
+        run: deploy/ci/smoke.sh behind-proxy
+      - name: 服务器初始化脚本在 Ubuntu 22.04 / 24.04、CentOS Stream 9 / 10 容器里各跑两遍（可重复执行）
         run: deploy/ci/bootstrap-check.sh
+      - name: 手工部署演练（push-local.sh → remote.sh → 一台已有 Docker、80/443 被别的网站占着的 CentOS Stream 10 演练服务器）
+        run: deploy/ci/push-local-check.sh

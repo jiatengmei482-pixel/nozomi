@@ -27,8 +27,10 @@ interface ComposeService {
 }
 
 interface ComposeFile {
+  name?: string;
   services: Record<string, ComposeService>;
-  networks?: Record<string, { internal?: boolean } | null>;
+  networks?: Record<string, { internal?: boolean; name?: string; external?: unknown } | null>;
+  volumes?: Record<string, { name?: string; external?: unknown } | null>;
 }
 
 interface Step {
@@ -58,6 +60,7 @@ interface Workflow {
 }
 
 const compose = parse(await readText("deploy/compose.yml")) as ComposeFile;
+const behindProxyCompose = parse(await readText("deploy/compose.behind-proxy.yml")) as ComposeFile;
 const deployWorkflow = parse(await readText(".github/workflows/deploy.yml")) as Workflow;
 const initWorkflow = parse(await readText(".github/workflows/server-init.yml")) as Workflow;
 const ciWorkflow = parse(await readText(".github/workflows/ci.yml")) as Workflow;
@@ -70,15 +73,36 @@ const deploySteps: Step[] = [
   ...sshAction.runs.steps,
 ];
 
-const SERVER_SCRIPTS = [
+/** 在真实服务器上执行的脚本，以及从流水线 / 开发机对服务器发起操作的脚本。 */
+const PRODUCTION_SCRIPTS = [
   "deploy/bootstrap.sh",
   "deploy/bin/compose.sh",
   "deploy/bin/deploy.sh",
   "deploy/bin/backup.sh",
   "deploy/bin/restore.sh",
+  "deploy/client/remote.sh",
+  "deploy/client/push-local.sh",
+];
+
+const SERVER_SCRIPTS = [
+  ...PRODUCTION_SCRIPTS,
   "deploy/ci/smoke.sh",
   "deploy/ci/bootstrap-check.sh",
+  "deploy/ci/push-local-check.sh",
 ];
+
+/** 去掉注释行，只留下会被执行的内容。 */
+function codeOf(script: string): string {
+  return script
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("#"))
+    .join("\n");
+}
+
+/** workflow 里某个 job 的全部脚本。 */
+function runsOf(job: Job | undefined): string {
+  return (job?.steps ?? []).map((step) => step.run ?? "").join("\n");
+}
 
 test("compose：三个服务都自动重启、都有健康检查", () => {
   // migrate 不是常驻服务（带 profile，只在部署 / 恢复时临时运行一次），所以不自动重启、没有健康检查
@@ -317,7 +341,7 @@ test("密钥不进脚本文本：run 里没有任何 ${{ }} 表达式（全部�
   }
 });
 
-test("镜像仓库令牌：runner 和服务器上都只经标准输入传给 docker login，用完登出", () => {
+test("镜像仓库令牌：runner 和服务器上都只经标准输入传给 docker login，用完登出", async () => {
   const build = deployWorkflow.jobs["build"]?.steps ?? [];
   const buildRun = build.map((step) => step.run ?? "").join("\n");
   assert.match(buildRun, /printf '%s' "\$REGISTRY_TOKEN" \| docker login "\$REGISTRY" --username "\$REGISTRY_USER" --password-stdin/);
@@ -326,36 +350,58 @@ test("镜像仓库令牌：runner 和服务器上都只经标准输入传给 doc
   assert.match(build.at(-1)?.run ?? "", /docker logout/);
 
   const deploy = deployWorkflow.jobs["deploy"]?.steps ?? [];
-  const remote = deploy.find((step) => (step.run ?? "").includes("deploy.sh' deploy"))?.run ?? "";
-  assert.match(remote, /printf '%s' "\$REGISTRY_TOKEN" \| ssh /);
+  const remote = deploy.find((step) => (step.run ?? "").includes("remote.sh deploy"))?.run ?? "";
+  // 令牌从流水线的标准输入进 remote.sh，再由它里面的 ssh 原样接到服务器上 deploy.sh 的标准输入
+  assert.match(remote, /printf '%s' "\$REGISTRY_TOKEN" \| REGISTRY_HOST="\$REGISTRY" deploy\/client\/remote\.sh deploy /);
   assert.ok(!/REGISTRY_TOKEN='?\$REGISTRY_TOKEN/.test(remote), "令牌不能拼进远程命令行");
   assert.match(deploy.at(-1)?.run ?? "", /docker logout/);
+
+  const client = await readText("deploy/client/remote.sh");
+  assert.ok(!/REGISTRY_TOKEN|GH_TOKEN|PASSWORD/.test(codeOf(client)), "remote.sh 不应接触任何令牌或密码变量");
+  const remoteDeploy = client.slice(client.indexOf("cmd_deploy() {"), client.indexOf("cmd_rollback() {"));
+  assert.ok(!/<(?=["$/<&])|\bcat\b|\bread\b/.test(codeOf(remoteDeploy)), "remote.sh deploy 不能读取或改接标准输入：令牌要原样到达服务器");
+  assert.match(remoteDeploy, /REGISTRY_HOST=\$\(quoted "\$\{REGISTRY_HOST:-\}"\) REGISTRY_USER=\$\(quoted "\$\{REGISTRY_USER:-\}"\)/);
 });
 
-test("部署 workflow 上传到服务器的文件，和 CI 冒烟装进版本目录的文件是同一组", async () => {
-  const pattern = /tar -C \S*deploy"? -cf - ([\w. ]+?) \|/;
-  const upload = deploySteps.map((step) => step.run ?? "").join("\n").match(pattern)?.[1];
+test("上传到服务器的文件（流水线和手工部署共用的 remote.sh），和 CI 冒烟装进版本目录的文件是同一组", async () => {
+  const pattern = /tar -C \S*deploy(?:_dir)?"? -cf - ([\w. -]+?) \|/;
+  const upload = (await readText("deploy/client/remote.sh")).match(pattern)?.[1];
   const smoke = (await readText("deploy/ci/smoke.sh")).match(pattern)?.[1];
-  assert.equal(upload, "compose.yml Caddyfile bin");
+  assert.equal(upload, "compose.yml compose.behind-proxy.yml Caddyfile bin");
   assert.equal(smoke, upload);
   const shipped = (await readdir(new URL("deploy/bin/", ROOT))).sort();
   assert.deepEqual(shipped, ["backup.sh", "compose.sh", "deploy.sh", "restore.sh"]);
+  // deploy/ 下除了上传的这几样，只有不上服务器的东西：初始化脚本（经标准输入执行）、CI 脚本、发起端脚本
+  const top = (await readdir(new URL("deploy/", ROOT))).sort();
+  assert.deepEqual(top, ["Caddyfile", "bin", "bootstrap.sh", "ci", "client", "compose.behind-proxy.yml", "compose.yml"]);
+  // 流水线自己不再直接 tar / 直接调用服务器上的脚本，全部经 remote.sh
+  const workflowRuns = deploySteps.map((step) => step.run ?? "").join("\n");
+  assert.ok(!/\btar\b|bootstrap\.sh|bin\/deploy\.sh/.test(workflowRuns), "流水线应只通过 deploy/client/remote.sh 操作服务器");
 });
 
-test("部署失败时 job 失败：没有 continue-on-error，退出码原样传出", () => {
+test("部署失败时 job 失败：没有 continue-on-error，退出码原样传出", async () => {
   for (const step of deploySteps) assert.ok(!("continue-on-error" in step));
-  const remote = deployWorkflow.jobs["deploy"]?.steps.find((step) => (step.run ?? "").includes("deploy.sh' deploy"))?.run ?? "";
+  const remote = deployWorkflow.jobs["deploy"]?.steps.find((step) => (step.run ?? "").includes("remote.sh deploy"))?.run ?? "";
+  assert.match(remote, /remote\.sh deploy "\$APP_ENV" "\$SHA" "\$IMAGE" \|\|\s+status=\$\?/);
   assert.match(remote, /exit "\$status"/);
   const verify = deployWorkflow.jobs["deploy"]?.steps.find((step) => step.id === "verify")?.run ?? "";
-  assert.match(verify, /deploy\.sh' rollback/);
+  assert.match(verify, /remote\.sh rollback "\$APP_ENV"/);
   assert.match(verify, /exit 1\s*$/);
+  // remote.sh 把服务器上 deploy.sh 的退出码原样传回：deploy 那一段的最后一条命令就是 ssh，没有任何吞掉退出码的写法
+  const client = await readText("deploy/client/remote.sh");
+  const remoteDeploy = codeOf(client.slice(client.indexOf("cmd_deploy() {"), client.indexOf("cmd_rollback() {")));
+  assert.match(remoteDeploy, /\n {2}remote "APP_ENV=[^\n]*bin\/deploy\.sh"\) deploy"\n\}\s*$/);
+  assert.ok(!/\|\| true|\|\| :|set \+e/.test(remoteDeploy));
 });
 
 test("CI：每次都跑 shellcheck、部署冒烟和初始化脚本检查；冒烟用的是占位值和 APP_ENV=ci", async () => {
   const runs = (ciWorkflow.jobs["deploy-smoke"]?.steps ?? []).map((step) => step.run ?? "");
-  assert.ok(runs.some((run) => /^shellcheck -x deploy\/bootstrap\.sh deploy\/bin\/\*\.sh deploy\/ci\/\*\.sh$/.test(run)));
+  assert.ok(runs.some((run) => /^shellcheck -x deploy\/bootstrap\.sh deploy\/bin\/\*\.sh deploy\/ci\/\*\.sh deploy\/client\/\*\.sh$/.test(run)));
+  // 两种入口模式各跑一遍完整的冒烟
   assert.ok(runs.includes("deploy/ci/smoke.sh"));
+  assert.ok(runs.includes("deploy/ci/smoke.sh behind-proxy"));
   assert.ok(runs.includes("deploy/ci/bootstrap-check.sh"));
+  assert.ok(runs.includes("deploy/ci/push-local-check.sh"));
   for (const step of ciWorkflow.jobs["deploy-smoke"]?.steps ?? []) assert.ok(!("continue-on-error" in step));
 
   const smoke = await readText("deploy/ci/smoke.sh");
@@ -394,22 +440,28 @@ test("服务器脚本：都有 set -euo pipefail，没有命令回显，仓库�
   }
 });
 
-test("部署相关的文件和文档里没有密钥原文，也没有写死的服务器 IP", async () => {
+/** 文档和脚本里允许出现的真实主机名：本项目用到的公开服务（镜像仓库、软件源、第三方平台的网址）。 */
+const ALLOWED_HOSTNAME =
+  /^((.*\.)?example\.(com|net|org)|ghcr\.io|quay\.io|download\.docker\.com|containerd\.io|(.*\.)?github\.com|stripe\.com|console\.cloud\.google\.com|claude\.ai|open\.er-api\.com)$/;
+
+test("部署相关的文件和文档里没有密钥原文，也没有写死的服务器 IP 和真实域名", async () => {
   const files = [
     ...SERVER_SCRIPTS,
     "deploy/compose.yml",
+    "deploy/compose.behind-proxy.yml",
     "deploy/ci/compose.ci.yml",
     "deploy/Caddyfile",
     "apps/api/Dockerfile",
     ".github/workflows/deploy.yml",
     ".github/workflows/server-init.yml",
+    ".github/workflows/ci.yml",
     ".github/actions/ssh-setup/action.yml",
     "docs/deploy.md",
     "docs/secrets.md",
     "docs/adr/0007-vps-deployment.md",
   ];
-  /** 回环地址、通配地址，以及文档示例专用网段（RFC 5737）。 */
-  const allowedAddress = /^(127\.0\.0\.1|0\.0\.0\.0|192\.0\.2\.\d+|198\.51\.100\.\d+|203\.0\.113\.\d+)$/;
+  /** 回环网段、通配地址，以及文档示例专用网段（RFC 5737）。 */
+  const allowedAddress = /^(127\.\d+\.\d+\.\d+|0\.0\.0\.0|192\.0\.2\.\d+|198\.51\.100\.\d+|203\.0\.113\.\d+)$/;
   for (const path of files) {
     const text = await readText(path);
     assert.ok(!/sk_(live|test)_[0-9A-Za-z]{8,}|pk_(live|test)_[0-9A-Za-z]{8,}|whsec_[0-9A-Za-z]{8,}|AIza[0-9A-Za-z_-]{20,}/.test(text), `${path} 里有像密钥的内容`);
@@ -418,5 +470,293 @@ test("部署相关的文件和文档里没有密钥原文，也没有写死的�
     for (const match of text.matchAll(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g)) {
       assert.match(match[0], allowedAddress, `${path} 里有写死的 IP：${match[0]}`);
     }
+    // 域名只能是示例专用的（RFC 2606 / 6761）、本项目用到的公开服务，或文件名、代码里的属性名
+    for (const match of text.matchAll(/\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:io|com|net|org|cn|jp|dev|app|co)\b/g)) {
+      assert.match(match[0], ALLOWED_HOSTNAME, `${path} 里有不是示例的域名：${match[0]}`);
+    }
   }
+});
+
+test("入口模式：behind-proxy 的 compose 文件只改反向代理对主机发布的端口——只发布回环地址上的一个端口，不占 80/443", async () => {
+  assert.deepEqual(Object.keys(behindProxyCompose), ["services"]);
+  assert.deepEqual(Object.keys(behindProxyCompose.services), ["caddy"]);
+  assert.deepEqual(Object.keys(behindProxyCompose.services["caddy"] ?? {}), ["ports"]);
+  const ports = behindProxyCompose.services["caddy"]?.ports ?? [];
+  assert.equal(ports.length, 1);
+  assert.match(ports[0] ?? "", /^\$\{EDGE_LISTEN:\?[^}]*\}:8080$/, "主机一侧的地址必须整体来自 EDGE_LISTEN，没有默认值");
+  // 必须是整体替换（!override）：compose 默认会把两个文件的端口列表合并，那样 80 和 443 仍会被占用
+  assert.match(await readText("deploy/compose.behind-proxy.yml"), /^ {4}ports: !override$/m);
+
+  const composeScript = await readText("deploy/bin/compose.sh");
+  assert.match(composeScript, /edge_mode="\$\(sed -n 's\/\^EDGE_MODE=\/\/p' "\$release_env" \| tail -n 1\)"/);
+  assert.match(composeScript, /if \[\[ "\$edge_mode" == "behind-proxy" \]\]; then\n {2}files\+=\(-f "\$release_dir\/compose\.behind-proxy\.yml"\)/);
+
+  // EDGE_LISTEN 只接受 IPv4 回环地址；校验在服务器上的 deploy.sh 里（流水线和手工部署都会经过）
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  assert.match(deployScript, /\[\[ "\$EDGE_LISTEN" =~ \^127\\\.\$octet\\\.\$octet\\\.\$octet:\(\[1-9\]\[0-9\]\{0,4\}\)\$ \]\]/);
+});
+
+test("入口模式：API 信任几层代理由模式推导（standalone 1、behind-proxy 2），不是任何人手填的变量", async () => {
+  assert.match(compose.services["api"]?.environment?.["TRUST_PROXY_HOPS"] ?? "", /^\$\{TRUST_PROXY_HOPS:\?[^}]*\}$/);
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  const writer = deployScript.slice(deployScript.indexOf("write_release_env() {"), deployScript.indexOf("registry_logout() {"));
+  assert.match(writer, /local tls_mode=auto site_address="\$APP_DOMAIN" proxy_hops=1\n/);
+  assert.match(writer, /if \[\[ "\$EDGE_MODE" == "behind-proxy" \]\]; then\n {4}tls_mode=off\n {4}site_address="http:\/\/:\$EDGE_CONTAINER_PORT"\n {4}proxy_hops=2\n {2}fi/);
+  assert.match(writer, /^TRUST_PROXY_HOPS=\$proxy_hops$/m);
+  assert.match(deployScript, /^EDGE_CONTAINER_PORT=8080$/m);
+  // 调用方（流水线、手工部署、remote.sh）都不传这一项；负责人要填的变量表里也没有它
+  for (const path of [".github/workflows/deploy.yml", ".github/workflows/server-init.yml", "deploy/client/remote.sh", "deploy/client/push-local.sh", "docs/secrets.md"]) {
+    assert.ok(!(await readText(path)).includes("TRUST_PROXY_HOPS"), `${path} 不应出现 TRUST_PROXY_HOPS`);
+  }
+  assert.ok(!/\$\{?TRUST_PROXY_HOPS/.test(deployScript), "deploy.sh 不应从环境里读 TRUST_PROXY_HOPS");
+});
+
+test("Caddyfile：只有 behind-proxy 才信任上一跳带来的 X-Forwarded-For，而且只信回环 / 私有网段；该模式不监听 80/443、不用证书", async () => {
+  const caddyfile = await readText("deploy/Caddyfile");
+  assert.match(caddyfile, /^\(trust_standalone\) \{\n\}$/m, "standalone 不能信任任何上一跳");
+  assert.match(caddyfile, /^\(trust_behind-proxy\) \{\n\ttrusted_proxies static private_ranges\n\ttrusted_proxies_strict\n\}$/m);
+  assert.equal(caddyfile.match(/trusted_proxies /g)?.length, 1, "trusted_proxies 只能出现在 behind-proxy 那一段");
+  assert.ok(!/0\.0\.0\.0\/0|::\/0/.test(caddyfile));
+  assert.match(caddyfile, /^\t\timport trust_\{\$EDGE_MODE\}$/m);
+  assert.match(caddyfile, /^\{\$CADDY_SITE_ADDRESS\} \{$/m);
+  assert.match(caddyfile, /^\(tls_off\) \{\n\}$/m);
+  const caddyEnvironment = compose.services["caddy"]?.environment ?? {};
+  assert.deepEqual(Object.keys(caddyEnvironment).sort(), ["ACME_EMAIL", "CADDY_SITE_ADDRESS", "CADDY_TLS_MODE", "EDGE_MODE"]);
+  for (const key of ["CADDY_SITE_ADDRESS", "CADDY_TLS_MODE", "EDGE_MODE"]) {
+    assert.match(caddyEnvironment[key] ?? "", /^\$\{[A-Z_]+:\?[^}]*\}$/, `${key} 必须由 deploy.sh 写入，没有默认值`);
+  }
+});
+
+test("与同一台机器上别的 Compose 项目隔离：项目名明确且带环境名，所有 compose 调用都经 compose.sh；名字、网络、数据卷都不和别人共用", async () => {
+  const composeScript = await readText("deploy/bin/compose.sh");
+  assert.match(composeScript, /^exec docker compose \\\n {2}--project-name "nozomi-\$app_env" \\$/m);
+  assert.match(await readText("deploy/bin/deploy.sh"), /\[\[ "\$\{APP_ENV:-\}" =~ \^\(staging\|production\|ci\)\$ \]\]/, "环境名只有固定的几个，项目名不会是目录名 deploy");
+  for (const path of PRODUCTION_SCRIPTS.filter((name) => name !== "deploy/bin/compose.sh")) {
+    // 初始化脚本查询 Compose 的版本（docker compose version）不算
+    assert.ok(!/docker compose(?! version)|docker-compose(?!-plugin)/.test(codeOf(await readText(path))), `${path} 不应绕过 compose.sh 直接调用 docker compose`);
+  }
+
+  for (const [path, file] of [
+    ["deploy/compose.yml", compose],
+    ["deploy/compose.behind-proxy.yml", behindProxyCompose],
+    ["deploy/ci/compose.ci.yml", parse(await readText("deploy/ci/compose.ci.yml")) as ComposeFile],
+  ] as const) {
+    assert.equal(file.name, undefined, `${path} 不应自己指定项目名`);
+    const text = codeOf(await readText(path));
+    for (const forbidden of ["container_name", "network_mode", "external", "volumes_from", "extra_hosts", "docker.sock", "privileged", "pid:", "ipc:", "host.docker.internal", "3306"]) {
+      assert.ok(!text.includes(forbidden), `${path} 不应出现 ${forbidden}`);
+    }
+    for (const [name, definition] of Object.entries({ ...file.networks, ...file.volumes })) {
+      assert.equal(definition?.name, undefined, `${path} 的 ${name} 不应另起名字（名字要带项目名前缀）`);
+    }
+  }
+  assert.deepEqual(Object.keys(compose.networks ?? {}).sort(), ["backend", "edge"]);
+  assert.deepEqual(Object.keys(compose.volumes ?? {}).sort(), ["caddy-config", "caddy-data", "db-data"]);
+  // 挂进容器的只有本项目自己的命名卷，和版本目录里的 Caddyfile
+  const mounts = Object.values(compose.services).flatMap((service) => service.volumes ?? []);
+  assert.deepEqual(mounts.sort(), ["./Caddyfile:/etc/caddy/Caddyfile:ro,z", "caddy-config:/config", "caddy-data:/data", "db-data:/var/lib/postgresql/data"]);
+  // 数据库不发布任何主机端口（两种模式都是）
+  for (const file of [compose, behindProxyCompose]) {
+    for (const [name, service] of Object.entries(file.services)) {
+      if (name !== "caddy") assert.equal(service.ports, undefined, `${name} 不应发布端口`);
+    }
+  }
+});
+
+test("与别的项目隔离：任何脚本和流水线里都没有会波及全机的 docker 命令；清理旧镜像只在本项目的镜像仓库名下按标签删", async () => {
+  const everywhere = [
+    ...SERVER_SCRIPTS,
+    ".github/workflows/deploy.yml",
+    ".github/workflows/server-init.yml",
+    ".github/workflows/ci.yml",
+    ".github/actions/ssh-setup/action.yml",
+  ];
+  const machineWide = [
+    /\bprune\b/,
+    /docker\s+(ps|container\s+ls)[^\n|]*\|\s*xargs/,
+    /docker\s+(rm|stop|kill|restart|rmi)\b[^\n]*\$\(\s*docker\s+(ps|images|container|image)\b/,
+    /docker\s+(images|image\s+ls)\s+(-a\s+)?-q\b/,
+    /systemctl\s+(restart|stop|reload|disable)\s+(docker|containerd)/,
+  ];
+  /** 真实服务器上运行的脚本和流水线还不能碰 Docker 的配置和内核的包过滤规则（CI 脚本里只有「检查它们没被动过」）。 */
+  const hostWide = [/daemon\.json/, /\biptables\b|\bnft\b/];
+  for (const path of everywhere) {
+    const code = codeOf(await readText(path));
+    const patterns = path.startsWith("deploy/ci/") ? machineWide : [...machineWide, ...hostWide];
+    for (const pattern of patterns) assert.ok(!pattern.test(code), `${path} 里有会波及别的项目的命令：${pattern}`);
+  }
+  // 真实服务器上运行的脚本：除了经 compose.sh 的调用，直接用到的 docker 子命令只有这几个
+  const allowedDirect = new Set(["compose", "image", "login", "logout", "info", "save", "load", "build", "--version"]);
+  for (const path of PRODUCTION_SCRIPTS) {
+    const code = codeOf(await readText(path));
+    for (const match of code.matchAll(/(?:^|[\s(|;&"])docker[ \t]+([a-z-]+)/gm)) {
+      assert.ok(allowedDirect.has(match[1] ?? ""), `${path} 直接调用了 docker ${match[1]}`);
+    }
+    for (const match of code.matchAll(/docker\s+image\s+([a-z]+)/g)) {
+      assert.ok(["ls", "rm", "inspect"].includes(match[1] ?? ""), `${path} 调用了 docker image ${match[1]}`);
+    }
+  }
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  const cleanup = deployScript.slice(deployScript.indexOf("cleanup_old() {"), deployScript.indexOf("roll_back_to() {"));
+  assert.match(cleanup, /image="\$\{API_IMAGE%:\*\}"\n {2}docker image ls --format '\{\{\.Repository\}\}:\{\{\.Tag\}\}' "\$image" \|/);
+  assert.match(cleanup, /docker image rm "\$ref"/);
+  assert.match(deployScript, /\[\[ "\$\{API_IMAGE%:\*\}" =~ \(\^\|\/\)nozomi-api\$ \]\]/, "只接受本项目自己的镜像名");
+});
+
+test("初始化脚本：支持 Ubuntu 和 RHEL 系；已有的 Docker 不重装不升级；不升级系统、不改 SELinux 模式、不改任何密码和 SSH 服务", async () => {
+  const script = await readText("deploy/bootstrap.sh");
+  // 「passwd」只允许以这两种无害的形式出现：查询账号信息（getent passwd）、提供 useradd 的软件包名
+  const code = codeOf(script).replaceAll("getent passwd ", "getent-account ").replace("ensure_command useradd passwd shadow-utils", "");
+  assert.match(script, /^SUPPORTED_UBUNTU=\("22\.04" "24\.04"\)$/m);
+  assert.match(script, /^SUPPORTED_RHEL_IDS=\("centos" "rhel" "rocky" "almalinux"\)$/m);
+  assert.match(script, /^SUPPORTED_RHEL_MAJOR=\("9" "10"\)$/m);
+
+  const docker = script.slice(script.indexOf("\ninstall_docker() {"), script.indexOf("selinux_state() {"));
+  // 已经有 docker 命令时：版本不够用就报错停下，够用就原样使用——两条路都不会走到安装
+  assert.match(docker, /if command -v docker >\/dev\/null 2>&1; then\n[\s\S]*compose_version_ok "\$compose_version" \|\|\n\s+die "[^"]*不会重装或升级已有的 Docker/);
+  assert.match(docker, /docker info >\/dev\/null 2>&1 && return 0\n {2}else\n {4}install_docker_from_official_repo\n {2}fi/);
+  assert.match(script, /https:\/\/download\.docker\.com\/linux\/\$repo_os\/docker-ce\.repo/);
+  assert.match(script, /https:\/\/download\.docker\.com\/linux\/ubuntu\/gpg/);
+
+  for (const forbidden of [
+    /\b(dnf|yum)\s+(-\S+\s+)*(upgrade|update|distro-sync|remove|erase|autoremove)\b/,
+    /apt(-get)?\s+(-\S+\s+)*(upgrade|dist-upgrade|full-upgrade|remove|purge|autoremove)\b/,
+    /--allowerasing|--nobest/,
+    /\bsetenforce\b|\bsemanage\b|\bsetsebool\b|\/etc\/selinux|\bchcon\b/,
+    /\bchpasswd\b|\bpasswd\s|usermod[^\n]*(-p|--password)\b|\/etc\/shadow/,
+    /systemctl\s+(restart|reload|stop|disable|mask)\b/,
+    /firewall-(offline-)?cmd[^\n]*--(remove|set-default-zone|panic|lockdown)|ufw\s+(delete|reset|disable|deny\s+\d)/,
+  ]) {
+    assert.ok(!forbidden.test(code), `初始化脚本不应包含 ${forbidden}`);
+  }
+  // 软件包只在命令缺失时安装
+  assert.match(script, /command -v "\$command_name" >\/dev\/null 2>&1 && return 0/);
+  // SELinux：只读取状态；只有 Enforcing 时才恢复自己新建文件的默认标签
+  assert.match(script, /\[\[ "\$\(selinux_state\)" == "Enforcing" \]\] \|\| return 0\n[^\n]*\n {2}restorecon -R "\$@"/);
+  assert.match(script, /Permissive \| Disabled\)\n\s+log "SELinux：\$\(selinux_state\)。不做任何改动"/);
+  // 定时任务服务：两类系统各用各的名字，没在运行才启动
+  assert.match(script, /ensure_command crond cron cronie/);
+  assert.match(script, /systemctl enable --now "\$cron_service"/);
+});
+
+test("初始化脚本的防火墙开关：由入口模式推导（behind-proxy 不管、standalone 管），可用 MANAGE_FIREWALL 明确指定；不管时一条防火墙命令都不执行；RHEL 系同样先放行 SSH 再启用", async () => {
+  const script = await readText("deploy/bootstrap.sh");
+  assert.match(script, /if \[\[ "\$EDGE_MODE" == "behind-proxy" \]\]; then manage_firewall=0; else manage_firewall=1; fi/);
+  assert.match(script, /manage_firewall="\$\{MANAGE_FIREWALL:-\}"\n {2}if \[\[ -z "\$manage_firewall" \]\]; then/);
+  assert.match(script, /\[\[ "\$manage_firewall" =~ \^\[01\]\$ \]\] \|\| die/);
+
+  const firewall = script.slice(script.indexOf("configure_firewall() {"), script.indexOf("install_backup_cron() {"));
+  const firewallCommand = /\b(ufw|firewall-cmd|firewall-offline-cmd|firewalld)\b/;
+  const optOut = firewall.indexOf('if [[ "$manage" != "1" ]]; then');
+  const optOutEnd = firewall.indexOf("return 0", optOut);
+  assert.ok(optOut >= 0 && optOutEnd > optOut);
+  const before = codeOf(firewall.slice(0, optOutEnd)).replace(/log "[^"]*"/g, "");
+  assert.ok(!firewallCommand.test(before), "「不管理」这条路在返回之前不能执行任何防火墙命令，也不能安装防火墙");
+  const outside = codeOf(script.replace(firewall, "")).replace(/(log|die) "[^"]*"/g, "");
+  assert.ok(!firewallCommand.test(outside), "防火墙命令只能出现在 configure_firewall 里");
+  assert.match(firewall, /没有增删任何规则/);
+
+  const allowPorts = firewall.indexOf('firewall-offline-cmd --add-port="$port/tcp"');
+  const enable = firewall.indexOf("systemctl enable --now firewalld");
+  const reload = firewall.indexOf("firewall-cmd --reload");
+  assert.ok(allowPorts >= 0 && enable > allowPorts && reload > enable, "RHEL 系必须先把 SSH 端口写进规则，再启动 firewalld");
+  assert.match(firewall, /for port in \$ports 80 443; do\n\s+firewall-offline-cmd/);
+
+  // 流水线和手工部署把同样的两个变量传给初始化脚本
+  const init = initWorkflow.jobs["init"]?.steps.find((step) => (step.run ?? "").includes("remote.sh init"));
+  assert.equal(init?.env?.["EDGE_MODE"], "${{ vars.EDGE_MODE }}");
+  assert.equal(init?.env?.["MANAGE_FIREWALL"], "${{ vars.MANAGE_FIREWALL }}");
+  assert.match(await readText("deploy/client/remote.sh"), /remote "EDGE_MODE=\$\(quoted "\$\{EDGE_MODE:-\}"\) MANAGE_FIREWALL=\$\(quoted "\$\{MANAGE_FIREWALL:-\}"\) bash -s -- /);
+});
+
+test("流水线和手工部署是同一条路：都只通过 remote.sh 操作服务器，传给服务器的变量在 remote.sh 里一处拼装", async () => {
+  const client = await readText("deploy/client/remote.sh");
+  const pushLocal = await readText("deploy/client/push-local.sh");
+  // 入口模式相关的变量：流水线来自 Environment variables，手工部署来自同名的环境变量
+  const deployJob = deployWorkflow.jobs["deploy"] as (Job & { env?: Record<string, string> }) | undefined;
+  assert.equal(deployJob?.env?.["EDGE_MODE"], "${{ vars.EDGE_MODE }}");
+  assert.equal(deployJob?.env?.["EDGE_LISTEN"], "${{ vars.EDGE_LISTEN }}");
+  assert.equal(deployJob?.env?.["APP_DOMAIN"], "${{ vars.APP_DOMAIN }}");
+  for (const name of ["APP_ENV", "API_IMAGE", "APP_DOMAIN", "ACME_EMAIL", "EDGE_MODE", "EDGE_LISTEN", "DEPLOY_SKIP_PULL", "REGISTRY_HOST", "REGISTRY_USER"]) {
+    assert.ok(client.includes(`${name}=$(quoted "`), `remote.sh deploy 没有把 ${name} 传给服务器`);
+  }
+  assert.ok(!/'\$[A-Z_]+'/.test(codeOf(client)), "传给服务器的值必须经过 quoted 转义，不能直接套单引号");
+
+  const workflowRuns = runsOf(deployWorkflow.jobs["deploy"]) + runsOf(initWorkflow.jobs["init"]);
+  for (const command of ["init", "upload", "deploy", "rollback", "public-health"]) {
+    assert.ok(workflowRuns.includes(`deploy/client/remote.sh ${command} `), `流水线没有用到 remote.sh ${command}`);
+    assert.ok(pushLocal.includes(`"$remote" ${command} `), `push-local.sh 没有用到 remote.sh ${command}`);
+  }
+  // 两条路径除了准备 SSH 连接时的连通性测试、流水线最后的登出，不再自己拼远程命令
+  const pushLocalCode = codeOf(pushLocal);
+  assert.deepEqual(pushLocalCode.match(/\bssh\s[^\n]*/g), ['ssh -F "$ssh_dir/config" vps true ||']);
+  assert.deepEqual(workflowRuns.match(/\bssh\s[^\n]*/g), [`ssh -F "$NOZOMI_SSH_DIR/config" vps "docker logout '$REGISTRY'" >/dev/null 2>&1 || true`]);
+  // 手工部署：镜像不经过镜像仓库，服务器上不拉取
+  assert.match(pushLocal, /"\$remote" load-image "\$image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
+  assert.match(client, /docker save "\$image" \| gzip -c \| remote "gzip -dc \| docker load"/);
+  assert.match(pushLocal, /status --porcelain/, "手工部署必须是干净的工作区：版本号就是提交");
+});
+
+test("手工部署的 SSH：连接信息只从环境变量读、不打印；和流水线一样严格校验主机身份", async () => {
+  const pushLocal = await readText("deploy/client/push-local.sh");
+  for (const option of ["StrictHostKeyChecking yes", 'UserKnownHostsFile "$known_hosts_file"', "GlobalKnownHostsFile /dev/null", "IdentitiesOnly yes", "BatchMode yes"]) {
+    assert.ok(pushLocal.includes(option), `push-local.sh 的 SSH 配置缺少 ${option}`);
+  }
+  for (const path of ["deploy/client/push-local.sh", "deploy/client/remote.sh", "deploy/ci/push-local-check.sh"]) {
+    const code = codeOf(await readText(path));
+    if (path !== "deploy/ci/push-local-check.sh") {
+      assert.ok(!/StrictHostKeyChecking[= ](no|accept-new|off)/i.test(code), path);
+      assert.ok(!/UserKnownHostsFile[= ]"?\/dev\/null/.test(code), path);
+      assert.ok(!code.includes("ssh-keyscan"), `${path} 不能现取主机密钥（那等于不校验）`);
+    }
+    assert.ok(!/-o\s+StrictHostKeyChecking/.test(code), path);
+  }
+  const code = codeOf(pushLocal);
+  for (const name of ["NOZOMI_SSH_HOST", "NOZOMI_SSH_USER", "NOZOMI_SSH_KEY_FILE", "NOZOMI_SSH_KNOWN_HOSTS_FILE", "NOZOMI_SSH_PORT"]) {
+    assert.ok(pushLocal.includes(`\${${name}:-`), `push-local.sh 没有读取 ${name}`);
+  }
+  assert.ok(!/(log|die|echo|printf)[^\n]*\$\{?(host|key_file|known_hosts_file|NOZOMI_SSH_HOST)\b/.test(code), "不能打印服务器地址和密钥文件路径");
+  assert.match(pushLocal, /rm -rf -- "\$ssh_dir"/, "临时的 SSH 配置要在结束时删除");
+  // 私钥不复制：只在临时目录里放一个指向它的链接
+  assert.match(pushLocal, /ln -s "\$key_file" "\$ssh_dir\/key"/);
+  assert.ok(!/\bcp\b|cat "\$key_file"/.test(code));
+});
+
+test("入口模式 behind-proxy 的成败判定：服务器本机访问 EDGE_LISTEN 决定成败和回退；从外网访问不通只是警告", async () => {
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  assert.match(deployScript, /activate\(\) \{\n {2}"\$1\/bin\/compose\.sh" up -d --wait --wait-timeout "\$HEALTH_TIMEOUT_SECONDS" --remove-orphans &&\n {4}check_edge "\$1"\n\}/);
+  assert.match(deployScript, /"http:\/\/\$listen\/health"/);
+
+  const verify = deployWorkflow.jobs["deploy"]?.steps.find((step) => step.id === "verify")?.run ?? "";
+  const warning = verify.indexOf("::warning title=部署成功，但从外网还访问不到::");
+  const leave = verify.indexOf("exit 0", warning);
+  const rollback = verify.indexOf("remote.sh rollback");
+  assert.ok(warning >= 0 && leave > warning && rollback > leave, "behind-proxy 必须在回退之前以警告结束");
+  assert.match(verify.slice(0, leave), /if \[\[ "\$EDGE_MODE" == "behind-proxy" \]\]; then\n[^\n]*\n\s+echo "::warning /);
+  assert.match(verify, /外层代理：它还没有把这个域名转发到 \$EDGE_LISTEN，或证书还没有配置/);
+  // standalone 不变：外网不通是错误，并回退
+  assert.match(verify.slice(leave), /::error title=外网访问不到新版本::[\s\S]*remote\.sh rollback "\$APP_ENV"[\s\S]*exit 1\s*$/);
+
+  const check = deployWorkflow.jobs["deploy"]?.steps.find((step) => step.name === "检查这个环境的非密钥配置")?.run ?? "";
+  assert.match(check, /case "\$\{EDGE_MODE:-standalone\}" in/);
+  assert.match(check, /::error title=EDGE_LISTEN 没填或格式不对::/);
+  assert.match(check, /::error title=EDGE_MODE 不对::/);
+});
+
+test("文档：给外层 nginx 的示例配置和 CI 冒烟里模拟外层代理用的转发头一致；ADR 和手册说明了共用机器的做法", async () => {
+  const guide = await readText("docs/deploy.md");
+  const smoke = await readText("deploy/ci/smoke.sh");
+  for (const directive of ["proxy_set_header Host $host;", "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;", "proxy_http_version 1.1;"]) {
+    assert.ok(guide.includes(directive), `docs/deploy.md 的示例缺少 ${directive}`);
+    assert.ok(smoke.replaceAll("\\$", "$").includes(directive), `冒烟里的外层代理缺少 ${directive}`);
+  }
+  assert.match(guide, /proxy_set_header X-Forwarded-Proto \$scheme;/);
+  assert.match(guide, /proxy_pass http:\/\/127\.0\.0\.1:18080;/);
+  assert.match(guide, /## .*服务器上已有别的网站时/);
+  assert.ok(!guide.includes("add_header Strict-Transport-Security"), "HSTS 由 Caddy 加，示例里不要再加一遍");
+  const adr = await readText("docs/adr/0007-vps-deployment.md");
+  assert.match(adr, /## 补充.*与其他服务共用一台机器（behind-proxy 模式）/);
+  for (const limit of ["docker 组", "证书", "重载"]) assert.ok(adr.includes(limit), `ADR 0007 的已知限制缺少：${limit}`);
+  const secrets = await readText("docs/secrets.md");
+  for (const name of ["`EDGE_MODE`", "`EDGE_LISTEN`"]) assert.ok(secrets.includes(name), `docs/secrets.md 的变量表缺少 ${name}`);
 });

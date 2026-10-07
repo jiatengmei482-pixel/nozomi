@@ -4,6 +4,11 @@
 # 它会带上正确的项目名和两个变量文件——
 #   - /opt/nozomi/<环境>/.env   只放密钥，由初始化脚本生成、负责人补充（docs/secrets.md）
 #   - 本目录的 release.env       非密钥项，由 bin/deploy.sh 每次部署写入
+# 入口模式是 behind-proxy 时，它还会叠加同目录的 compose.behind-proxy.yml（只改反向代理对主机发布的端口）。
+#
+# 和同一台机器上别的 Compose 项目互不相干：项目名固定为 nozomi-<环境>（由 bin/compose.sh 指定），
+# 所以容器、网络、数据卷的名字都以它开头。这里不写 container_name、不给网络和卷另起名字、
+# 不引用外部（external）的网络和卷、不用主机网络（network_mode: host）。
 #
 # 传给 API 的环境变量全部集中在下面 api.environment 一处；新增变量只改这里。
 #
@@ -60,8 +65,9 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
-      # 前面只有 Caddy 这一层反向代理：审计日志和登录限速据此取客户端真实地址。
-      TRUST_PROXY_HOPS: "1"
+      # API 前面有几层我们信任的反向代理：审计日志和登录限速据此从 X-Forwarded-For 取客户端真实地址。
+      # 不手填，由 bin/deploy.sh 按入口模式算出：standalone 是 1（只有 Caddy），behind-proxy 是 2（外层代理 + Caddy）。
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?缺少 TRUST_PROXY_HOPS，请通过 bin/deploy.sh 部署}
     # 不映射端口：外部只能经反向代理访问。
     networks:
       - backend
@@ -114,15 +120,20 @@ services:
       api:
         condition: service_healthy
     environment:
-      APP_DOMAIN: ${APP_DOMAIN}
-      # auto | email | internal，含义见 Caddyfile；由 bin/deploy.sh 根据有没有 ACME_EMAIL 决定。
+      # 以下四项的含义见 Caddyfile，值由 bin/deploy.sh 按入口模式算出。
+      EDGE_MODE: ${EDGE_MODE:?缺少 EDGE_MODE，请通过 bin/deploy.sh 部署}
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:?缺少 CADDY_SITE_ADDRESS，请通过 bin/deploy.sh 部署}
       CADDY_TLS_MODE: ${CADDY_TLS_MODE:?缺少 CADDY_TLS_MODE，请通过 bin/deploy.sh 部署}
       ACME_EMAIL: ${ACME_EMAIL:-}
+    # standalone 模式对主机发布的端口。behind-proxy 模式由 compose.behind-proxy.yml 整体替换成
+    # 「只在主机回环地址上的一个端口」，80 和 443 留给机器上原有的反向代理。
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # z：开着 SELinux 的系统（CentOS / RHEL）上，让容器读得到这个从主机挂进来的文件；
+      # 没有 SELinux 或 SELinux 关着的系统（Ubuntu 等）上 Docker 会忽略它。
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
       - caddy-data:/data
       - caddy-config:/config
     networks:

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # 对某个版本目录执行 docker compose，自动带上项目名、密钥文件和该版本的变量文件。
+# 服务器上所有的 docker compose 调用都经过这里，所以都限定在 nozomi-<环境> 这一个项目里，
+# 碰不到同一台机器上别的 Compose 项目的容器、网络和数据卷。
 #
 # 在服务器上查看当前运行的版本：
 #   /opt/nozomi/<环境>/current/bin/compose.sh ps
@@ -7,7 +9,7 @@
 #
 # 目录约定（<根目录> 默认是 /opt/nozomi/<环境>）：
 #   <根目录>/.env                      密钥（权限 600）
-#   <根目录>/releases/<版本>/           本脚本所在的版本目录：compose.yml、Caddyfile、bin/、release.env
+#   <根目录>/releases/<版本>/           本脚本所在的版本目录：compose.yml、compose.behind-proxy.yml、Caddyfile、bin/、release.env
 #   <根目录>/current -> releases/<版本>  当前运行的版本
 set -euo pipefail
 
@@ -38,6 +40,11 @@ while IFS= read -r name; do
 done < <(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$root_dir/.env" "$release_env")
 
 files=(-f "$release_dir/compose.yml")
+# 入口模式记在这个版本的 release.env 里；behind-proxy 时叠加只改端口发布的那个文件。
+edge_mode="$(sed -n 's/^EDGE_MODE=//p' "$release_env" | tail -n 1)"
+if [[ "$edge_mode" == "behind-proxy" ]]; then
+  files+=(-f "$release_dir/compose.behind-proxy.yml")
+fi
 # 只有 CI 冒烟和本地验证会设置这个变量（deploy/ci/smoke.sh）。
 if [[ -n "${DEPLOY_COMPOSE_OVERRIDE:-}" ]]; then
   files+=(-f "$DEPLOY_COMPOSE_OVERRIDE")

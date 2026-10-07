@@ -1,5 +1,8 @@
-# 服务器初始化：把一台全新的 VPS 准备成可以部署的状态（装 Docker、建部署用户、建目录、
+# 服务器初始化：把一台 VPS 准备成可以部署的状态（装 Docker、建部署用户、建目录、
 # 生成数据库密码和登录签名密钥、开防火墙、装每日备份）。每台服务器做一次；可以重复运行，不会覆盖已有的密钥。
+# 已经装好的 Docker 不会被重装或升级。入口模式是 behind-proxy（Environment variables 里的 EDGE_MODE）时
+# 默认不碰服务器防火墙；想明确指定可以再设 MANAGE_FIREWALL（1 管理，0 不管理）。
+# 实际执行的是 deploy/client/remote.sh init——和手工初始化（deploy/client/push-local.sh）是同一条路。
 #
 # 怎么用（详见 docs/deploy.md）：仓库 → Actions → Server init → Run workflow → 选环境。
 # 运行前该环境的 5 项 Environment secrets 要先填好，其中 VPS_SSH_USER 第一次填 root。
@@ -43,11 +46,12 @@ jobs:
         env:
           APP_ENV: ${{ inputs.environment }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+          EDGE_MODE: ${{ vars.EDGE_MODE }}
+          MANAGE_FIREWALL: ${{ vars.MANAGE_FIREWALL }}
         run: |
           set -euo pipefail
-          # 公钥从本次使用的部署私钥算出来（只取「类型 内容」两段），写进部署用户的 authorized_keys。
-          public_key="$(ssh-keygen -y -f "$NOZOMI_SSH_DIR/key" | cut -d' ' -f1,2)"
-          ssh -F "$NOZOMI_SSH_DIR/config" vps "bash -s -- '$APP_ENV' '$SSH_PORT' '$public_key'" <deploy/bootstrap.sh
+          # 部署公钥由 remote.sh 从本次使用的部署私钥算出来，写进部署用户的 authorized_keys。
+          deploy/client/remote.sh init "$APP_ENV"
       - name: 写结果摘要
         env:
           APP_ENV: ${{ inputs.environment }}

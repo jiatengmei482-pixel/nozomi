@@ -6,6 +6,14 @@
 # 流程：构建镜像并推送到 GHCR（标签 = 提交 SHA）→ SSH 到服务器 → 上传 compose 文件和脚本 →
 # 服务器上拉镜像、备份、迁移、启动、等健康检查（不健康自动回退）→ 从外网访问 /health 确认。
 #
+# 对服务器做的每一步都经由 deploy/client/remote.sh——和手工部署（deploy/client/push-local.sh）是同一条路。
+#
+# 入口模式（Environment variables 里的 EDGE_MODE，ADR 0007）：
+# - standalone（默认）：服务器自己占 80/443 并申请证书；从外网访问不通算部署失败并回退。
+# - behind-proxy：服务器上已有别的反向代理，本项目只监听本机回环地址上的 EDGE_LISTEN；
+#   成败以服务器本机访问 EDGE_LISTEN 的 /health 为准（bin/deploy.sh 负责，不通会回退），
+#   从外网访问不通只给警告——那取决于外层代理的配置，不在本仓库管理。
+#
 # 镜像里没有任何密钥；业务密钥只在服务器的 .env 里，不经过 GitHub。
 # 所有步骤都不使用 set -x，不打印任何密钥。
 name: Deploy
@@ -31,8 +39,6 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  # 服务器上每个环境的根目录是 <DEPLOY_BASE>/<环境>，与 deploy/bootstrap.sh 里的 BASE_DIR 一致。
-  DEPLOY_BASE: /opt/nozomi
 
 jobs:
   plan:
@@ -204,6 +210,8 @@ jobs:
       IMAGE: ${{ needs.plan.outputs.image }}
       APP_DOMAIN: ${{ vars.APP_DOMAIN }}
       ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+      EDGE_MODE: ${{ vars.EDGE_MODE }}
+      EDGE_LISTEN: ${{ vars.EDGE_LISTEN }}
     steps:
       - name: 检查这个环境的非密钥配置
         run: |
@@ -216,6 +224,24 @@ jobs:
             echo "::error title=ACME_EMAIL 格式不对::ACME_EMAIL 是可选项；要填就填一个邮箱地址。"
             exit 1
           fi
+          case "${EDGE_MODE:-standalone}" in
+            standalone)
+              if [[ -n "$EDGE_LISTEN" ]]; then
+                echo "::error title=EDGE_LISTEN 用不上::EDGE_LISTEN 只在 EDGE_MODE 是 behind-proxy 时使用。这个环境要么把 EDGE_MODE 设成 behind-proxy，要么删掉 EDGE_LISTEN。"
+                exit 1
+              fi
+              ;;
+            behind-proxy)
+              if [[ ! "$EDGE_LISTEN" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}:[1-9][0-9]{0,4}$ ]]; then
+                echo "::error title=EDGE_LISTEN 没填或格式不对::EDGE_MODE 是 behind-proxy 时必须填 EDGE_LISTEN：本机回环地址加端口，例如 127.0.0.1:18080。不能是 0.0.0.0 或公网地址。"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error title=EDGE_MODE 不对::EDGE_MODE 只能是 standalone（默认，可以不填）或 behind-proxy。"
+              exit 1
+              ;;
+          esac
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.plan.outputs.sha }}
@@ -229,30 +255,28 @@ jobs:
       - name: 上传这个版本的 compose 文件和脚本
         run: |
           set -euo pipefail
-          release_dir="$DEPLOY_BASE/$APP_ENV/releases/$SHA"
-          if ! ssh -F "$NOZOMI_SSH_DIR/config" vps "test -f '$DEPLOY_BASE/$APP_ENV/.env' && test -w '$DEPLOY_BASE/$APP_ENV/releases'"; then
+          status=0
+          deploy/client/remote.sh upload "$APP_ENV" "$SHA" || status=$?
+          if [[ "$status" -eq 3 ]]; then
             echo "::error title=服务器还没有初始化::请先运行 Actions → Server init（选 ${APP_ENV}），完成后把 VPS_SSH_USER 改成 nozomi，再重新部署。步骤见 docs/deploy.md。"
-            exit 1
           fi
-          tar -C deploy -cf - compose.yml Caddyfile bin |
-            ssh -F "$NOZOMI_SSH_DIR/config" vps "mkdir -p '$release_dir' && tar -xf - -C '$release_dir'"
+          exit "$status"
       - name: 在服务器上部署（拉镜像 → 备份 → 迁移 → 启动 → 健康检查，不健康自动回退）
         env:
           REGISTRY_USER: ${{ github.repository_owner }}
           REGISTRY_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release_dir="$DEPLOY_BASE/$APP_ENV/releases/$SHA"
           status=0
-          # 拉镜像用的令牌是本次运行的短期令牌，经 SSH 的标准输入传给服务器上的 docker login，
-          # 不出现在命令行参数里；deploy.sh 结束时会登出。
-          printf '%s' "$REGISTRY_TOKEN" | ssh -F "$NOZOMI_SSH_DIR/config" vps \
-            "APP_ENV='$APP_ENV' API_IMAGE='$IMAGE' APP_DOMAIN='$APP_DOMAIN' ACME_EMAIL='$ACME_EMAIL' REGISTRY_HOST='$REGISTRY' REGISTRY_USER='$REGISTRY_USER' '$release_dir/bin/deploy.sh' deploy" ||
+          # 拉镜像用的令牌是本次运行的短期令牌，经标准输入一路传给服务器上的 docker login，
+          # 不出现在任何命令行参数里；deploy.sh 结束时会登出。
+          # APP_DOMAIN、ACME_EMAIL、EDGE_MODE、EDGE_LISTEN、REGISTRY_USER 由 remote.sh 从环境里读出并传给服务器。
+          printf '%s' "$REGISTRY_TOKEN" | REGISTRY_HOST="$REGISTRY" deploy/client/remote.sh deploy "$APP_ENV" "$SHA" "$IMAGE" ||
             status=$?
           case "$status" in
             0) ;;
             10) echo "::error title=部署失败，线上仍是旧版本::新版本在切换之前就失败了（拉镜像、备份或数据库迁移），正在运行的旧版本没有受影响。原因见上面的日志。" ;;
-            20) echo "::error title=部署失败，已自动回退::新版本启动后健康检查没通过，已回退到上一个版本，上一个版本运行正常。" ;;
+            20) echo "::error title=部署失败，已自动回退::新版本启动后健康检查没通过（behind-proxy 模式下也可能是服务器本机访问 EDGE_LISTEN 不通），已回退到上一个版本，上一个版本运行正常。" ;;
             30) echo "::error title=部署失败，服务可能不可用::新版本不健康，而且没有可回退的版本或回退后仍不健康。需要立即处理，见 docs/deploy.md「出问题怎么办」。" ;;
             *) echo "::error title=部署没有执行::参数或服务器环境有问题（退出码 ${status}），线上没有被改动。原因见上面的日志。" ;;
           esac
@@ -262,18 +286,21 @@ jobs:
         run: |
           set -euo pipefail
           url="https://$APP_DOMAIN"
-          # 第一次部署要等证书签发，最多等 3 分钟。
-          for attempt in $(seq 1 36); do
-            code="$(curl --silent --output /dev/null --max-time 10 --write-out '%{http_code}' "$url/health" || true)"
-            if [[ "$code" == "200" ]]; then
-              echo "url=$url" >>"$GITHUB_OUTPUT"
-              echo "第 $attempt 次检查：$url/health 返回 200。"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error title=外网访问不到新版本::服务器上健康检查已通过，但从外网访问 $url/health 没有返回 200（最后一次是 ${code}）。常见原因：域名没有解析到这台服务器、服务商控制台的防火墙没放行 80/443、证书申请失败。正在回退到上一个版本。"
-          ssh -F "$NOZOMI_SSH_DIR/config" vps "'$DEPLOY_BASE/$APP_ENV/current/bin/deploy.sh' rollback" ||
+          # standalone：第一次部署要等证书签发，最多等 3 分钟。behind-proxy：只是确认一下，等半分钟。
+          attempts=36
+          if [[ "$EDGE_MODE" == "behind-proxy" ]]; then attempts=6; fi
+          if deploy/client/remote.sh public-health "$APP_DOMAIN" "$attempts"; then
+            echo "url=$url" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$EDGE_MODE" == "behind-proxy" ]]; then
+            # 这个模式下部署成败已由服务器本机访问 EDGE_LISTEN 的 /health 判定（上一步）；外网这一段不归本仓库管，只提醒。
+            echo "::warning title=部署成功，但从外网还访问不到::新版本已在服务器上运行，本机访问 $EDGE_LISTEN 的 /health 正常；但从外网访问 $url/health 没有返回 200。原因在外层代理：它还没有把这个域名转发到 $EDGE_LISTEN，或证书还没有配置。见 docs/deploy.md「服务器上已有别的网站时」。"
+            echo "public=unreachable" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error title=外网访问不到新版本::服务器上健康检查已通过，但从外网访问 $url/health 没有返回 200。常见原因：域名没有解析到这台服务器、服务商控制台的防火墙没放行 80/443、证书申请失败。正在回退到上一个版本。"
+          deploy/client/remote.sh rollback "$APP_ENV" ||
             echo "::error title=没有回退::没有可回退的版本（第一次部署时是正常的），或回退后仍不健康。服务器上保持当前状态，便于排查。"
           exit 1
       - name: 写结果摘要
@@ -281,9 +308,16 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           DEPLOYED_URL: ${{ steps.verify.outputs.url }}
+          PUBLIC_STATE: ${{ steps.verify.outputs.public }}
         run: |
           {
-            if [[ "$JOB_STATUS" == "success" ]]; then
+            if [[ "$JOB_STATUS" == "success" && "$PUBLIC_STATE" == "unreachable" ]]; then
+              echo "## 已部署到 ${APP_ENV}，但从外网还访问不到"
+              echo
+              echo "- 版本：\`${SHA}\`"
+              echo "- 服务器本机访问 \`${EDGE_LISTEN}\` 的 /health 正常。"
+              echo "- 外层代理还没有把 \`${APP_DOMAIN}\` 转发过来，或证书还没有配置。见 \`docs/deploy.md\`「服务器上已有别的网站时」。"
+            elif [[ "$JOB_STATUS" == "success" ]]; then
               echo "## 已部署到 ${APP_ENV}"
               echo
               echo "- 版本：\`${SHA}\`"

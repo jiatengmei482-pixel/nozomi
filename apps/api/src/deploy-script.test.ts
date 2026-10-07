@@ -3,6 +3,7 @@
  *
  * 真实执行脚本，但把 `docker` 换成一个替身（放在 PATH 最前面）：它只记录每次调用的参数，
  * 并按测试指定的规则让某些调用失败。不需要 Docker，也不需要数据库。
+ * behind-proxy 模式下脚本还会用 `curl` 从本机访问入口端口：同样换成替身（并把 `sleep` 换成立即返回）。
  * 真实容器上的同一套流程由 CI 的 deploy/ci/smoke.sh 覆盖。
  *
  * 脚本依赖 Linux 的 flock、mv -T，所以只在 Linux 上运行（CI 和服务器都是 Linux）。
@@ -47,6 +48,20 @@ if [[ "$args" == "image ls"* && -f "$STUB_DIR/images" ]]; then cat "$STUB_DIR/im
 exit 0
 `;
 
+/**
+ * curl 的替身：每次调用往 $STUB_DIR/curl.log 追加一行全部参数，并输出一个 HTTP 状态码
+ * （脚本用 --write-out 取它）：$STUB_DIR/curl-status 存在时输出其内容，否则 200。
+ */
+const CURL_STUB = `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >>"$STUB_DIR/curl.log"
+if [[ -f "$STUB_DIR/curl-status" ]]; then cat "$STUB_DIR/curl-status"; else printf '200'; fi
+`;
+
+const SLEEP_STUB = "#!/usr/bin/env bash\nexit 0\n";
+
+const BEHIND_PROXY = { EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080" };
+
 interface Sandbox {
   root: string;
   stubDir: string;
@@ -66,8 +81,10 @@ beforeEach(async () => {
   await mkdir(join(root, "releases"), { recursive: true });
   await mkdir(join(root, "backups"));
   await mkdir(join(stubDir, "bin"), { recursive: true });
-  await writeFile(join(stubDir, "bin", "docker"), DOCKER_STUB);
-  await chmod(join(stubDir, "bin", "docker"), 0o755);
+  for (const [name, content] of [["docker", DOCKER_STUB], ["curl", CURL_STUB], ["sleep", SLEEP_STUB]] as const) {
+    await writeFile(join(stubDir, "bin", name), content);
+    await chmod(join(stubDir, "bin", name), 0o755);
+  }
   await writeFile(
     join(root, ".env"),
     `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
@@ -80,11 +97,11 @@ afterEach(async () => {
   await rm(join(sandbox.root, ".."), { recursive: true, force: true });
 });
 
-/** 和流水线上传到服务器的是同一组文件。 */
+/** 和 deploy/client/remote.sh 上传到服务器的是同一组文件。 */
 async function installRelease(id: string): Promise<string> {
   const dir = join(sandbox.root, "releases", id);
   await mkdir(dir, { recursive: true });
-  for (const entry of ["compose.yml", "Caddyfile", "bin"]) {
+  for (const entry of ["compose.yml", "compose.behind-proxy.yml", "Caddyfile", "bin"]) {
     await cp(join(DEPLOY_DIR, entry), join(dir, entry), { recursive: true });
   }
   return dir;
@@ -125,6 +142,25 @@ async function calls(): Promise<string[]> {
 
 async function clearCalls(): Promise<void> {
   await rm(join(sandbox.stubDir, "calls.log"), { force: true });
+  await rm(join(sandbox.stubDir, "curl.log"), { force: true });
+}
+
+/** curl 替身被调用的记录（behind-proxy 模式下从本机访问入口端口）。 */
+async function curlCalls(): Promise<string[]> {
+  const path = join(sandbox.stubDir, "curl.log");
+  if (!existsSync(path)) return [];
+  return (await readFile(path, "utf8")).split("\n").filter(Boolean);
+}
+
+/** 让本机访问入口端口得到指定的状态码（不传则恢复为 200）。 */
+async function edgeAnswers(status?: string): Promise<void> {
+  const path = join(sandbox.stubDir, "curl-status");
+  if (status === undefined) await rm(path, { force: true });
+  else await writeFile(path, status);
+}
+
+async function releaseEnv(id: string): Promise<string> {
+  return readFile(join(sandbox.root, "releases", id, "release.env"), "utf8");
 }
 
 async function linkTarget(name: string): Promise<string | null> {
@@ -444,6 +480,167 @@ test("DEPLOY_SKIP_PULL=1 时不拉镜像（CI 冒烟用本机构建的镜像）"
   const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1" });
   assert.equal(result.code, 0, result.output);
   assert.equal(indexOfCall(await calls(), /pull/), -1);
+});
+
+test("DEPLOY_SKIP_PULL=1（手工部署：镜像已传到本机）：先确认镜像在本机；不拉取、不登录镜像仓库；其余步骤和顺序与拉镜像的部署完全一样", linuxOnly, async () => {
+  await deploy("v1");
+  const pulled = (await calls()).filter((line) => !/pull --quiet api$/.test(line));
+  await rm(join(sandbox.root, "current"));
+  await clearCalls();
+
+  // 即使调用方带了镜像仓库的账号，也不去登录
+  const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1", REGISTRY_HOST: "registry.example.test", REGISTRY_USER: "deployer" }, PLACEHOLDER_TOKEN);
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, /镜像已在本机，不拉取/);
+  const log = await calls();
+  assert.ok(log[0]?.endsWith(`image inspect ${IMAGE}:v1`), "第一件事应是确认镜像在本机");
+  assert.equal(indexOfCall(log, /pull|login|logout/), -1, log.join("\n"));
+  assert.deepEqual(log.slice(1), pulled, "除了「拉镜像」换成「确认镜像在本机」，其余调用应完全一样");
+});
+
+test("DEPLOY_SKIP_PULL=1 但镜像不在本机：退出码 10，不碰数据库和容器", linuxOnly, async () => {
+  await failWhen("^image inspect ");
+  const result = await deploy("v1", { DEPLOY_SKIP_PULL: "1" });
+  assert.equal(result.code, 10, result.output);
+  assert.match(result.output, /不在这台机器上/);
+  assert.equal(indexOfCall(await calls(), /\] compose /), -1);
+  assert.equal(await linkTarget("current"), null);
+});
+
+test("入口模式 standalone（默认）：API 信任 1 层代理，Caddy 的站点地址是域名；不叠加 behind-proxy 的 compose 文件，不做本机入口检查", linuxOnly, async () => {
+  for (const [id, env] of [["v1", {}], ["v2", { EDGE_MODE: "standalone" }]] as const) {
+    const result = await deploy(id, env);
+    assert.equal(result.code, 0, result.output);
+    const written = await releaseEnv(id);
+    assert.match(written, /^EDGE_MODE=standalone$/m);
+    assert.match(written, /^EDGE_LISTEN=$/m);
+    assert.match(written, /^TRUST_PROXY_HOPS=1$/m);
+    assert.match(written, /^CADDY_SITE_ADDRESS=staging\.example\.test$/m);
+    assert.match(written, /^CADDY_TLS_MODE=auto$/m);
+  }
+  const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
+  assert.ok(composeCalls.length > 0);
+  for (const line of composeCalls) assert.ok(!line.includes("compose.behind-proxy.yml"), line);
+  assert.deepEqual(await curlCalls(), []);
+});
+
+test("入口模式 behind-proxy：API 信任 2 层代理，Caddy 只在容器内提供 HTTP、不用证书；每次 compose 调用都叠加只改端口的文件；容器健康后从本机访问 EDGE_LISTEN 的 /health", linuxOnly, async () => {
+  // 带了 ACME_EMAIL 也不申请证书
+  const result = await deploy("v1", { ...BEHIND_PROXY, ACME_EMAIL: "ops@example.test" });
+  assert.equal(result.code, 0, result.output);
+  assert.match(result.output, /入口模式 behind-proxy（本机 127\.0\.0\.1:18080，不占用 80\/443）/);
+  assert.match(result.output, /本机访问 http:\/\/127\.0\.0\.1:18080\/health 返回 200/);
+  const written = await releaseEnv("v1");
+  assert.match(written, /^EDGE_MODE=behind-proxy$/m);
+  assert.match(written, /^EDGE_LISTEN=127\.0\.0\.1:18080$/m);
+  assert.match(written, /^TRUST_PROXY_HOPS=2$/m);
+  assert.match(written, /^CADDY_SITE_ADDRESS=http:\/\/:8080$/m);
+  assert.match(written, /^CADDY_TLS_MODE=off$/m);
+  assert.match(written, /^APP_DOMAIN=staging\.example\.test$/m);
+
+  const composeCalls = (await calls()).filter((line) => line.includes("] compose "));
+  assert.ok(composeCalls.length >= 3);
+  const dir = join(sandbox.root, "releases", "v1");
+  for (const line of composeCalls) {
+    assert.ok(line.includes(`-f ${join(dir, "compose.yml")} -f ${join(dir, "compose.behind-proxy.yml")} `), line);
+    assert.match(line, /--project-name nozomi-staging /);
+  }
+  const probes = await curlCalls();
+  assert.equal(probes.length, 1, "容器健康后应访问一次本机入口");
+  assert.ok(probes[0]?.endsWith("http://127.0.0.1:18080/health"), probes[0]);
+  const mode = spawnSync("stat", ["-c", "%a", join(dir, "compose.behind-proxy.yml")], { encoding: "utf8" }).stdout.trim();
+  assert.equal(mode, "644");
+});
+
+test("behind-proxy：容器都健康但本机入口不通——有上一个版本时回退（退出码 20），首次部署时退出码 30 且不建立 current", linuxOnly, async () => {
+  await edgeAnswers("000");
+  const first = await deploy("v1", BEHIND_PROXY);
+  assert.equal(first.code, 30, first.output);
+  assert.match(first.output, /从本机访问 http:\/\/127\.0\.0\.1:18080\/health 没有返回 200（最后一次是 000）/);
+  assert.equal(await linkTarget("current"), null);
+  assert.ok((await curlCalls()).length > 1, "应重试几次再判定不通");
+
+  await edgeAnswers();
+  assert.equal((await deploy("v1", BEHIND_PROXY)).code, 0);
+  await clearCalls();
+  // 新版本换了一个不通的端口；上一个版本的端口仍然是通的
+  await writeFile(
+    join(sandbox.stubDir, "bin", "curl"),
+    CURL_STUB.replace("if [[ -f", 'if [[ "$*" == *:18999/health ]]; then printf 502; exit 0; fi\nif [[ -f'),
+  );
+  const second = await deploy("v2", { EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18999" });
+  assert.equal(second.code, 20, second.output);
+  assert.match(second.output, /已回退，上一个版本 v1 运行正常/);
+  assert.equal(await linkTarget("current"), "releases/v1");
+  const log = await calls();
+  assert.ok(indexOfCall(log, /releases\/v2\/compose\.behind-proxy\.yml up -d --wait .*--remove-orphans$/) >= 0, "应先启动过新版本");
+  assert.ok(indexOfCall(log, /releases\/v1\/compose\.behind-proxy\.yml up -d --wait .*--remove-orphans$/) >= 0, "应重新启动上一个版本");
+  const probes = await curlCalls();
+  assert.ok(probes.at(-1)?.endsWith("http://127.0.0.1:18080/health"), "回退后检查的是上一个版本自己记录的入口");
+});
+
+test("behind-proxy：rollback 命令同样以本机入口可达为准", linuxOnly, async () => {
+  await deploy("v1", BEHIND_PROXY);
+  await deploy("v2", BEHIND_PROXY);
+  await clearCalls();
+  await edgeAnswers("502");
+  const failed = rollback("v2");
+  assert.equal(failed.code, 30, failed.output);
+  assert.equal(await linkTarget("current"), "releases/v2");
+
+  await edgeAnswers();
+  const ok = rollback("v2");
+  assert.equal(ok.code, 0, ok.output);
+  assert.equal(await linkTarget("current"), "releases/v1");
+});
+
+test("入口模式的参数不合法：退出码 1，不调用 docker；EDGE_LISTEN 只接受回环地址", linuxOnly, async () => {
+  const cases: [Record<string, string>, RegExp][] = [
+    [{ EDGE_MODE: "proxy" }, /EDGE_MODE 必须是 standalone 或 behind-proxy/],
+    [{ EDGE_MODE: "behind-proxy" }, /必须设置 EDGE_LISTEN/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "0.0.0.0:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "192.0.2.10:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: ":18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "localhost:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.256:18080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080:8080" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:18080; touch /tmp/x" }, /回环地址/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:70000" }, /1 到 65535/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:443" }, /不能用 80 或 443/],
+    [{ EDGE_MODE: "behind-proxy", EDGE_LISTEN: "127.0.0.1:80" }, /不能用 80 或 443/],
+    [{ EDGE_LISTEN: "127.0.0.1:18080" }, /只在 EDGE_MODE=behind-proxy 时使用/],
+    [{ API_IMAGE: "registry.example.test/other/mysql:v1" }, /镜像名必须是 nozomi-api/],
+    [{ API_IMAGE: "not-nozomi-api:v1" }, /镜像名必须是 nozomi-api/],
+  ];
+  for (const [env, message] of cases) {
+    const result = await deploy("v1", env);
+    assert.equal(result.code, 1, JSON.stringify(env) + result.output);
+    assert.match(result.output, message);
+  }
+  assert.deepEqual(await calls(), []);
+  assert.deepEqual(await curlCalls(), []);
+
+  for (const listen of ["127.0.0.1:1", "127.0.0.1:65535", "127.255.255.254:8443"]) {
+    const result = await deploy("v1", { EDGE_MODE: "behind-proxy", EDGE_LISTEN: listen });
+    assert.equal(result.code, 0, listen + result.output);
+  }
+});
+
+test("清理旧镜像：只按标签逐个删本次镜像所在仓库名下的镜像，从不使用 prune", linuxOnly, async () => {
+  await deploy("v1");
+  await deploy("v2");
+  await writeFile(join(sandbox.stubDir, "images"), [`${IMAGE}:v0`, `${IMAGE}:v1`, `${IMAGE}:v2`, `${IMAGE}:v3`].join("\n") + "\n");
+  await clearCalls();
+  assert.equal((await deploy("v3")).code, 0);
+  const log = await calls();
+  const listing = log.filter((line) => /\] image ls /.test(line));
+  assert.equal(listing.length, 1);
+  assert.ok(listing[0]?.endsWith(` ${IMAGE}`), "列镜像时必须限定在本次镜像的仓库名下");
+  const removed = log.filter((line) => /\] image rm /.test(line)).map((line) => line.split(" ").at(-1));
+  assert.deepEqual(removed.sort(), [`${IMAGE}:v0`, `${IMAGE}:v1`]);
+  assert.ok(!log.some((line) => /prune|rmi|volume rm|network rm|system /.test(line)), log.join("\n"));
 });
 
 test("参数不合法：退出码 1，不调用 docker，报错里说明是哪一项", linuxOnly, async () => {
