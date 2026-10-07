@@ -23,6 +23,7 @@ async function expectForcedPage(page: Page, what: string): Promise<void> {
 }
 
 test("临时密码登录 → 被带到修改密码页 → 去别的地址都被带回 → 改密码 → 进首页且导航可用 → 退出后临时密码作废、新密码可用", async ({ page, context }) => {
+  test.slow(); // 步骤多（多次登录、每次都要算密码哈希），机器忙的时候 30 秒不够
   const admin = await createTemporaryPasswordAdmin();
   const password = newPassword();
 
@@ -115,6 +116,7 @@ test("必须先改密码的状态下可以退出登录；临时密码仍然有�
 });
 
 test("强制修改密码页：320 / 360 / 1280 宽度下不横向滚动（含字段出错）；亮色、暗色通过 axe 检查", async ({ page }) => {
+  test.slow(); // 步骤多（多次登录、每次都要算密码哈希），机器忙的时候 30 秒不够
   const admin = await createTemporaryPasswordAdmin();
   await page.goto("/platform/login");
   await fillLogin(page, admin.email, admin.temporaryPassword);

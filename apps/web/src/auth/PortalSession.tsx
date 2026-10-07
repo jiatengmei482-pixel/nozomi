@@ -26,21 +26,15 @@ export interface LoginLocationState {
   from?: string;
 }
 
-/** 进入后台页面时可以带的提示。只是提示：真正的状态以 `auth/me` 为准。 */
+/** 进入后台页面时可以带的提示。只是提示：真正的状态以 `auth/me` 为准。只能收紧，不能放开。 */
 export interface ShellLocationState {
-  /** 刚用临时密码登录：`auth/me` 回来之前就按「必须先改密码」显示，不闪出导航 */
+  /** 刚用临时密码登录：`auth/me` 回来之前就按「必须先改密码」显示 */
   passwordChangeRequired?: boolean;
-  /** 刚改完临时密码来到首页 */
-  passwordChanged?: boolean;
 }
 
 export function readShellLocationState(state: unknown): ShellLocationState {
   if (typeof state !== "object" || state === null) return {};
-  const { passwordChangeRequired, passwordChanged } = state as Record<string, unknown>;
-  return {
-    ...(passwordChangeRequired === true ? { passwordChangeRequired: true } : {}),
-    ...(passwordChanged === true ? { passwordChanged: true } : {}),
-  };
+  return (state as Record<string, unknown>)["passwordChangeRequired"] === true ? { passwordChangeRequired: true } : {};
 }
 
 export interface CurrentAccount {
@@ -64,6 +58,13 @@ export interface PortalSessionValue {
   expire(): void;
   /** 账号正在用临时密码：只能改密码和退出，导航不显示，别的页面都带回修改密码页 */
   mustChangePassword: boolean;
+  /**
+   * 能不能显示导航：只有后端明确说过「不用改密码」才显示。
+   * 还不知道（刚刷新、`auth/me` 没回来或给的值不对）时不显示，免得先闪出导航再收起。
+   */
+  navigationAllowed: boolean;
+  /** 刚刚改掉了临时密码：首页据此显示一次成功提示。只在内存里，刷新或离开首页后就没有了 */
+  passwordJustChanged: boolean;
   /** 修改密码成功后调用：解除上面的限制（后端已清标记，当前令牌继续可用） */
   passwordChanged(): void;
   /**
@@ -105,9 +106,17 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
   const [account, setAccount] = useState<AccountState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   // null = 还不知道（auth/me 没回来）；刚用临时密码登录时登录页会带来提示，先按 true 显示
-  const [mustChange, setMustChange] = useState<boolean | null>(() =>
-    readShellLocationState(location.state).passwordChangeRequired === true ? true : null,
+  const [mustChange, setMustChangeState] = useState<boolean | null>(() =>
+    readShellLocationState(location.state).passwordChangeRequired === true ? true : sessionStore.getMustChangePassword(portal),
   );
+  const setMustChange = useCallback(
+    (value: boolean): void => {
+      sessionStore.setMustChangePassword(portal, value);
+      setMustChangeState(value);
+    },
+    [portal],
+  );
+  const [passwordJustChanged, setPasswordJustChanged] = useState(false);
   const here = `${location.pathname}${location.search}`;
 
   const expire = useCallback((): void => {
@@ -141,7 +150,8 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
         if (cancelled) return;
         const tenant = "tenant" in me ? me.tenant : null;
         setAccount({ status: "ready", account: { name: me.user.name, email: me.user.email, role: me.user.role, tenant } });
-        setMustChange(me.must_change_password === true);
+        // 只认布尔值；给的不是布尔值时保持原样（未知就继续不显示导航）
+        if (typeof me.must_change_password === "boolean") setMustChange(me.must_change_password);
       },
       (err: unknown) => {
         if (cancelled) return;
@@ -152,9 +162,25 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
     return () => {
       cancelled = true;
     };
-  }, [portal, token, attempt]);
+  }, [portal, token, attempt, setMustChange]);
 
-  const passwordChanged = useCallback((): void => setMustChange(false), []);
+  const passwordChanged = useCallback((): void => {
+    setMustChange(false);
+    setPasswordJustChanged(true);
+  }, [setMustChange]);
+
+  // 成功提示是一次性的：只在紧接着的首页上显示，去了别的页面就收回
+  const onHome = location.pathname === config.paths.home;
+  const seenOnHome = useRef(false);
+  useEffect(() => {
+    if (!passwordJustChanged) {
+      seenOnHome.current = false;
+    } else if (onHome) {
+      seenOnHome.current = true;
+    } else if (seenOnHome.current) {
+      setPasswordJustChanged(false);
+    }
+  }, [passwordJustChanged, onHome]);
   const handleAuthFailure = useCallback(
     (err: unknown): boolean => {
       if (isUnauthenticated(err)) {
@@ -167,7 +193,7 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
       }
       return false;
     },
-    [expire],
+    [expire, setMustChange],
   );
 
   const lastShellPath = useRef<string | null>(null);
@@ -181,11 +207,13 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
       signOut,
       expire,
       mustChangePassword,
+      navigationAllowed: mustChange === false,
+      passwordJustChanged,
       passwordChanged,
       handleAuthFailure,
       lastShellPath,
     }),
-    [config, token, account, signOut, expire, mustChangePassword, passwordChanged, handleAuthFailure],
+    [config, token, account, signOut, expire, mustChange, mustChangePassword, passwordJustChanged, passwordChanged, handleAuthFailure],
   );
   // 必须先改密码时，本后台的其他页面一律带回修改密码页（地址栏直接输入、后退、刷新、新标签页都一样）
   const redirectToChangePassword = mustChangePassword && location.pathname !== config.paths.changePassword;
