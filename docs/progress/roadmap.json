@@ -149,6 +149,24 @@
           "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/10 ；单元 502、前端组件 140、集成 482、端到端 109 个全部通过",
           "updated": "2026-10-07"
         },
+        {
+          "id": "M1-09",
+          "title": "城市批量导入与机场的城市建议",
+          "role": "backend",
+          "status": "doing",
+          "acceptance": ["主要城市从注明来源和许可的公开数据导入，可重复运行，不覆盖人工修改", "处理导入的机场时自动建议最近的城市，确认即可", "测试环境导入日本、韩国主要城市"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M1-10",
+          "title": "运营后台：供应商与平台员工管理页面",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["供应商列表、新建、暂停 / 恢复、邀请管理员、发起密码重置都可在界面上操作", "平台员工列表、新增、停用 / 启用、发起密码重置都可在界面上操作", "审计日志可在界面上查看", "首页供应商卡片可点进列表"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
         { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "todo", "acceptance": ["地图上画区域并保存", "禁行区优先"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "todo", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "todo", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },
