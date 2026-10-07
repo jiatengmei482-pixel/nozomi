@@ -66,6 +66,11 @@ export function currentPasswordIncorrect(): AppError {
   return new AppError(400, "CURRENT_PASSWORD_INCORRECT", "当前密码不正确");
 }
 
+/** 命令行重设密码时，这个账号的密码刚被别的操作改过：不覆盖，请确认后重试。只出现在命令行里。 */
+export function passwordChangedMeanwhile(): AppError {
+  return new AppError(409, "PASSWORD_CHANGED_MEANWHILE", "这个账号的密码刚刚被别的操作改过，本次没有重设；确认后请再运行一次");
+}
+
 export function passwordUnchanged(): AppError {
   return new AppError(400, "PASSWORD_UNCHANGED", "新密码不能和当前密码相同");
 }

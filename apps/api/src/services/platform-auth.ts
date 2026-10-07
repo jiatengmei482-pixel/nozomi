@@ -8,7 +8,7 @@ import {
 } from "@nozomi/domain";
 import { hashInviteToken } from "../auth/invite-token.ts";
 import { hashResetToken } from "../auth/reset-token.ts";
-import { hashPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
+import { hashPassword, sameStoredPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
 import { issueSession } from "../auth/session.ts";
 import { verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
@@ -75,7 +75,7 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
           ? "account_disabled"
           : null;
 
-  if (failure !== null || !found) {
+  const reject = async (reason: LoginFailure): Promise<never> => {
     await withPlatformTx(ctx.pool, (db) =>
       insertAuditLog(db, consoleOrigin(ANONYMOUS_ACTOR, ip, now), {
         tenantId: null,
@@ -83,19 +83,26 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
         resourceId: found?.user.id ?? null,
         action: "login_failed",
         before: null,
-        after: { email: input.email, reason: failure },
+        after: { email: input.email, reason },
       }),
     );
-    throw failure === "account_disabled" ? accountDisabled() : invalidCredentials();
-  }
+    throw reason === "account_disabled" ? accountDisabled() : invalidCredentials();
+  };
+  if (failure !== null || !found) return reject(failure ?? "unknown_email");
 
-  const user = found.user;
   const session = issueSession(
     ctx.config.authJwtSecret,
-    { audience: "platform", userId: user.id, tenantId: null, role: user.role },
+    { audience: "platform", userId: found.user.id, tenantId: null, role: found.user.role },
     now,
   );
-  await withPlatformTx(ctx.pool, async (db) => {
+  // 密码是在事务外验证的（慢计算不持锁）。建会话前锁住账号再核对一次：这期间密码被改过或账号被停用，
+  // 刚才的验证就不算数——否则「改密 / 重设让全部会话失效」之后，还会冒出一个用旧密码建的新会话。
+  const user = await withPlatformTx(ctx.pool, async (db) => {
+    const locked = await lockPlatformUser(db, found.user.id);
+    if (!locked || locked.user.status !== "active" || !sameStoredPassword(found.passwordHash, locked.passwordHash)) {
+      return null;
+    }
+    const user = locked.user;
     await insertPlatformSession(db, {
       id: session.sessionId,
       userId: user.id,
@@ -110,7 +117,9 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
       before: null,
       after: null,
     });
+    return user;
   });
+  if (!user) return reject("wrong_password");
   await clearLoginReservation(ctx, reservation);
   return { accessToken: session.accessToken, expiresAt: session.expiresAt, user };
 }
@@ -208,6 +217,11 @@ export interface ChangePasswordInput {
  * 已登录的平台员工自己改密码：要提供当前密码（核对当前密码和登录一样限速）。
  * 成功后这个账号的其他会话全部失效，当前会话保留；「必须先修改密码」的标记同时清掉，
  * 所以用临时密码登录的人改完密码后，手里的令牌马上可以访问其他接口。
+ *
+ * 并发：当前密码在事务外验证（慢计算不持锁）；写入前锁住账号，再确认两件事——
+ * 本会话还在（否则 401：别的会话刚改了密码、或密码被重设，本会话已被作废），
+ * 库里的密码还是刚才验证过的那个（否则 400 当前密码不正确：同一会话的重复提交已经把它改掉了）。
+ * 所以同一个当前密码只能被用来改一次，后到的请求不会盖掉先到的。
  */
 export async function changePlatformPassword(
   ctx: AppContext,
@@ -231,6 +245,8 @@ export async function changePlatformPassword(
   await withPlatformTx(ctx.pool, async (db) => {
     const locked = await lockPlatformUser(db, user.id);
     if (!locked || locked.user.status !== "active") throw unauthenticated();
+    if (!(await findPlatformSessionUser(db, principal.sessionId, user.id, now))) throw unauthenticated();
+    if (!sameStoredPassword(current?.passwordHash ?? null, locked.passwordHash)) throw currentPasswordIncorrect();
     await setPlatformUserPassword(db, user.id, passwordHash, false, now);
     await deleteOtherPlatformSessions(db, user.id, principal.sessionId);
     await insertAuditLog(db, consoleOrigin(platformActor(user), ip, now), {

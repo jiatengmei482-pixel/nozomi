@@ -51,6 +51,18 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return timingSafeEqual(actual, expected);
 }
 
+/**
+ * 两个存储值（`scrypt$…` 整串）是不是同一个，恒定时间比较。
+ * 用途：密码在事务外验证（慢计算不能持锁做），加锁之后用它确认「库里现在的哈希还是刚才验证过的那个」
+ * ——不是的话，说明这期间密码被别的请求改过，刚才的验证结果已经作废（ADR 0013「并发」）。
+ */
+export function sameStoredPassword(verified: string | null, current: string | null): boolean {
+  if (verified === null || current === null) return false;
+  const a = Buffer.from(verified, "utf8");
+  const b = Buffer.from(current, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 const DUMMY_SALT = Buffer.alloc(SALT_LENGTH);
 
 /**
