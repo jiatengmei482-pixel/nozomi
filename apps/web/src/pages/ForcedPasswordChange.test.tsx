@@ -102,7 +102,7 @@ test("用临时密码登录：不管原来想去哪，直接进修改密码页�
     await user.type(screen.getByLabelText("密码"), TEMPORARY);
     await user.click(screen.getByRole("button", { name: "登录" }));
     assert.ok(await screen.findByText(WARNING), key);
-    assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "修改密码");
+    assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "设置新密码");
     assert.equal(sessionStore.get(key)?.accessToken, "temp-session");
     assertAbsent(document.querySelector('nav[aria-label="主菜单"]'));
     assert.ok(target);
@@ -118,7 +118,7 @@ test("必须先改密码时：本后台的首页、不存在的页面都带回�
     const warning = await screen.findByText(WARNING);
     assert.ok(warning.closest('[role="alert"]'), start);
     assert.ok(warning.closest(".alert--warning"));
-    assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "修改密码");
+    assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "设置新密码");
     assert.ok(screen.getByLabelText("临时密码"));
     assertAbsent(screen.queryByLabelText("当前密码"));
     assertAbsent(screen.queryByText("找不到这个页面"));
@@ -167,12 +167,6 @@ test("改掉临时密码：提交临时密码和新密码，成功后直接进�
   await userEvent.setup().click(screen.getByRole("button", { name: /账号菜单/ }));
   assert.deepEqual(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent), ["修改密码", "退出登录"]);
 
-  // 提示是一次性的：去别的页面再回首页就没有了
-  await userEvent.setup().click(screen.getByRole("menuitem", { name: "修改密码" }));
-  await screen.findByLabelText("当前密码");
-  await userEvent.setup().click(document.querySelector('.sidebar--pinned a[href="/platform"]') as HTMLElement);
-  await screen.findByRole("heading", { level: 1, name: "首页" });
-  assertAbsent(screen.queryByText("新密码已生效，临时密码已作废。"));
 });
 
 test("临时密码填错、新密码与临时密码相同、空着提交：出错文字都说「临时密码」，仍留在修改密码页", async () => {
@@ -224,7 +218,7 @@ test("别的接口返回 403 PASSWORD_CHANGE_REQUIRED（标记在别处被重新
   renderAt("/platform/other", ROUTES);
   await userEvent.setup().click(screen.getByRole("button", { name: "调别的接口" }));
   assert.ok(await screen.findByText(WARNING));
-  assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "修改密码");
+  assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "设置新密码");
   assert.ok(screen.getByLabelText("临时密码"));
   assert.notEqual(document.title, "没有权限");
   assert.ok(sessionStore.get("platform"), "不是 401，不退出登录");

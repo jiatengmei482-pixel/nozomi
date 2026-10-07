@@ -6,9 +6,10 @@
  * - 账号正在用临时密码、必须先改密码时：不显示侧边栏和菜单按钮，账号菜单里只留「退出登录」。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router";
+import { isPlatformRole, platformRoleCan } from "@nozomi/domain";
+import { Link, useLocation } from "react-router";
 import { usePortalSession } from "../auth/PortalSession.tsx";
-import { roleName } from "../lib/portal.ts";
+import { type Portal, roleName } from "../lib/portal.ts";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.tsx";
 import { IconButton } from "./Button.tsx";
 import { Dropdown } from "./Dropdown.tsx";
@@ -18,22 +19,101 @@ import { Skeleton } from "./States.tsx";
 /** 侧边栏常驻显示的最小宽度：tokens.css 的 --breakpoint-lg。 */
 const SIDEBAR_PINNED_QUERY = "(min-width: 1024px)";
 
-interface NavItem {
+interface NavLeaf {
   to: string;
   label: string;
-  icon: IconName;
+  icon?: IconName;
+  /** 当前地址以它开头就算当前页（列表页的菜单项也管它的新增页、编辑页）；不给则要求完全相同 */
+  prefix?: boolean;
 }
 
-function SidebarContent({ items, onNavigate }: { items: readonly NavItem[]; onNavigate?: () => void }) {
+interface NavGroup {
+  key: string;
+  label: string;
+  icon: IconName;
+  children: readonly NavLeaf[];
+}
+
+type NavEntry = NavLeaf | NavGroup;
+
+/** 菜单只列已经做出来、当前角色有权限看的页面（docs/design/pages/platform-home.md 第 2 节）。 */
+function navEntries(portal: Portal, home: string, role: string | null): NavEntry[] {
+  const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
+    entries.push({
+      key: "master",
+      label: "主数据",
+      icon: "database",
+      children: [
+        { to: "/platform/master/cities", label: "城市", prefix: true },
+        { to: "/platform/master/places", label: "地点", prefix: true },
+        { to: "/platform/master/vehicle-groups", label: "车型组", prefix: true },
+        { to: "/platform/master/addons", label: "附加服务", prefix: true },
+      ],
+    });
+  }
+  return entries;
+}
+
+function isCurrent(leaf: NavLeaf, pathname: string): boolean {
+  return leaf.prefix ? pathname === leaf.to || pathname.startsWith(`${leaf.to}/`) : pathname === leaf.to;
+}
+
+/** 用户收起了哪些分组：只记在内存里（本次打开期间有效）。 */
+const collapsedGroups = new Set<string>();
+
+function NavLeafLink({ leaf, onNavigate }: { leaf: NavLeaf; onNavigate?: (() => void) | undefined }) {
+  const { pathname } = useLocation();
+  return (
+    <Link to={leaf.to} className={leaf.icon ? "nav-item" : "nav-item nav-item--child"} aria-current={isCurrent(leaf, pathname) ? "page" : undefined} {...(onNavigate ? { onClick: onNavigate } : {})}>
+      {leaf.icon && <Icon name={leaf.icon} />}
+      <span>{leaf.label}</span>
+    </Link>
+  );
+}
+
+function NavGroupItem({ group, onNavigate }: { group: NavGroup; onNavigate?: (() => void) | undefined }) {
+  const { pathname } = useLocation();
+  const containsCurrent = group.children.some((leaf) => isCurrent(leaf, pathname));
+  const [collapsed, setCollapsed] = useState(() => collapsedGroups.has(group.key) && !containsCurrent);
+  const toggle = (): void => {
+    if (collapsed) collapsedGroups.delete(group.key);
+    else collapsedGroups.add(group.key);
+    setCollapsed(!collapsed);
+  };
+  return (
+    <>
+      <button type="button" className={collapsed && containsCurrent ? "nav-item nav-item--group nav-item--within" : "nav-item nav-item--group"} aria-expanded={!collapsed} onClick={toggle}>
+        <Icon name={group.icon} />
+        <span className="nav-item__label">{group.label}</span>
+        <Icon name={collapsed ? "chevron-right" : "chevron-down"} />
+      </button>
+      {!collapsed && (
+        <ul className="sidebar__list sidebar__list--children">
+          {group.children.map((leaf) => (
+            <li key={leaf.to}>
+              <NavLeafLink leaf={leaf} onNavigate={onNavigate} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { portal, account, navigationAllowed } = usePortalSession();
+  const brand = (
+    <div className="sidebar__brand">
+      <span className="sidebar__brand-name">NOZOMI</span>
+      <span className="sidebar__portal">{portal.name}</span>
+    </div>
+  );
   if (!navigationAllowed) {
     // 还不知道这个账号能不能用别的页面（auth/me 没回来）：先不画菜单，免得画出来又收回去
     return (
       <>
-        <div className="sidebar__brand">
-          <span className="sidebar__brand-name">NOZOMI</span>
-          <span className="sidebar__portal">{portal.name}</span>
-        </div>
+        {brand}
         {account.status === "loading" && (
           <div className="sidebar__nav">
             <Skeleton lines={["long"]} label="正在加载菜单" />
@@ -42,21 +122,14 @@ function SidebarContent({ items, onNavigate }: { items: readonly NavItem[]; onNa
       </>
     );
   }
+  const entries = navEntries(portal.key, portal.paths.home, account.status === "ready" ? account.account.role : null);
   return (
     <>
-      <div className="sidebar__brand">
-        <span className="sidebar__brand-name">NOZOMI</span>
-        <span className="sidebar__portal">{portal.name}</span>
-      </div>
+      {brand}
       <nav aria-label="主菜单" className="sidebar__nav">
         <ul className="sidebar__list">
-          {items.map((item) => (
-            <li key={item.to}>
-              <NavLink to={item.to} end className="nav-item" {...(onNavigate ? { onClick: onNavigate } : {})}>
-                <Icon name={item.icon} />
-                <span>{item.label}</span>
-              </NavLink>
-            </li>
+          {entries.map((entry) => (
+            <li key={"key" in entry ? entry.key : entry.to}>{"key" in entry ? <NavGroupItem group={entry} onNavigate={onNavigate} /> : <NavLeafLink leaf={entry} onNavigate={onNavigate} />}</li>
           ))}
         </ul>
       </nav>
@@ -115,13 +188,21 @@ function AccountMenu() {
   );
 }
 
-export function AppShell({ pageName, children }: { pageName: string; children: ReactNode }) {
+export interface Crumb {
+  label: string;
+  to?: string;
+}
+
+/**
+ * `pageName` 是面包屑的最后一级（当前页）；`trail` 是它前面的几级（有地址的是链接）。
+ * < 768px 只显示最后一级。
+ */
+export function AppShell({ pageName, trail = [], children }: { pageName: string; trail?: readonly Crumb[]; children: ReactNode }) {
   const { portal, lastShellPath, mustChangePassword } = usePortalSession();
   const location = useLocation();
   const drawerRef = useRef<HTMLDialogElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const items: readonly NavItem[] = [{ to: portal.paths.home, label: "首页", icon: "home" }];
 
   const openDrawer = (): void => {
     drawerRef.current?.showModal();
@@ -155,7 +236,7 @@ export function AppShell({ pageName, children }: { pageName: string; children: R
       {!mustChangePassword && (
         <>
           <aside className="sidebar sidebar--pinned">
-            <SidebarContent items={items} />
+            <SidebarContent />
           </aside>
           <dialog
             ref={drawerRef}
@@ -170,7 +251,7 @@ export function AppShell({ pageName, children }: { pageName: string; children: R
             }}
           >
             <div className="sidebar__drawer-body">
-              <SidebarContent items={items} onNavigate={closeDrawer} />
+              <SidebarContent onNavigate={closeDrawer} />
             </div>
           </dialog>
         </>
@@ -193,9 +274,25 @@ export function AppShell({ pageName, children }: { pageName: string; children: R
               onClick={openDrawer}
             />
           )}
-          <nav aria-label="当前位置" className="breadcrumb">
-            <span aria-current="page">{pageName}</span>
-          </nav>
+          {mustChangePassword ? (
+            <span className="breadcrumb" />
+          ) : (
+            <nav aria-label="当前位置" className="breadcrumb">
+              {trail.map((crumb) => (
+                <span key={crumb.label} className="breadcrumb__ancestor">
+                  {crumb.to !== undefined ? (
+                    <Link className="link" to={crumb.to}>
+                      {crumb.label}
+                    </Link>
+                  ) : (
+                    crumb.label
+                  )}
+                  <span aria-hidden="true"> / </span>
+                </span>
+              ))}
+              <span aria-current="page">{pageName}</span>
+            </nav>
+          )}
           <div className="topbar__actions">
             <ThemeSwitcher />
             <AccountMenu />
@@ -210,12 +307,16 @@ export function AppShell({ pageName, children }: { pageName: string; children: R
 }
 
 /** 内容区的页面标题行 + 内容。每页只有这一个 <h1>。 */
-export function Page({ title, width = "content", children }: { title: string; width?: "content" | "form"; children: ReactNode }) {
+export function Page({ title, titleLang, width = "content", action, meta, children }: { title: ReactNode; titleLang?: string; width?: "content" | "form" | "centered"; action?: ReactNode; meta?: ReactNode; children: ReactNode }) {
   return (
     <div className={`page page--${width}`}>
       <div className="page__header">
-        <h1 className="page__title">{title}</h1>
+        <h1 className="page__title" lang={titleLang}>
+          {title}
+        </h1>
+        {action && <div className="page__action">{action}</div>}
       </div>
+      {meta && <div className="page__meta">{meta}</div>}
       {children}
     </div>
   );

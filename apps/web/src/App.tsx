@@ -4,11 +4,14 @@
  */
 import { Outlet, Route, Routes } from "react-router";
 import { PortalSession } from "./auth/PortalSession.tsx";
+import { ToastProvider } from "./components/Toast.tsx";
 import { PORTALS, type Portal } from "./lib/portal.ts";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
+import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
+import { masterRoutes } from "./pages/master/routes.tsx";
 import { SetPasswordPage } from "./pages/SetPasswordPage.tsx";
 
 function portalRoutes(portal: Portal) {
@@ -26,7 +29,8 @@ function portalRoutes(portal: Portal) {
           </PortalSession>
         }
       >
-        <Route path={paths.home} element={<HomePage />} />
+        <Route path={paths.home} element={portal === "platform" ? <PlatformHomePage /> : <HomePage />} />
+        {portal === "platform" && masterRoutes()}
         <Route path={paths.changePassword} element={<ChangePasswordPage />} />
         <Route path={everythingElse} element={<NotFoundPage />} />
       </Route>
@@ -36,9 +40,11 @@ function portalRoutes(portal: Portal) {
 
 export function App() {
   return (
-    <Routes>
-      {portalRoutes("platform")}
-      {portalRoutes("tenant")}
-    </Routes>
+    <ToastProvider>
+      <Routes>
+        {portalRoutes("platform")}
+        {portalRoutes("tenant")}
+      </Routes>
+    </ToastProvider>
   );
 }

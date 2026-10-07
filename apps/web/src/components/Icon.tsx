@@ -17,7 +17,14 @@ export type IconName =
   | "alert-triangle"
   | "alert-circle"
   | "chevron-down"
-  | "check";
+  | "chevron-right"
+  | "check"
+  | "database"
+  | "plus"
+  | "search"
+  | "x"
+  | "copy"
+  | "external";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   eye: (
@@ -73,7 +80,29 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
     </>
   ),
   "chevron-down": <path d="M6 9l6 6 6-6" />,
+  "chevron-right": <path d="M9 6l6 6-6 6" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+  database: (
+    <>
+      <ellipse cx="12" cy="6" rx="8" ry="3" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </>
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="M16.5 16.5L21 21" />
+    </>
+  ),
+  x: <path d="M6 6l12 12M18 6L6 18" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </>
+  ),
+  external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
 };
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {

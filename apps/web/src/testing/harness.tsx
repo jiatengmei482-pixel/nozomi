@@ -7,6 +7,7 @@ import { cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { sessionStore } from "../auth/session-store.ts";
+import { ToastProvider } from "../components/Toast.tsx";
 
 export interface ApiCall {
   method: string;
@@ -33,6 +34,24 @@ export function stubApi(routes: Record<string, Responder>): ApiCall[] {
     const responder = routes[`${call.method} ${call.path}`];
     if (!responder) throw new Error(`测试没有登记接口：${call.method} ${call.path}`);
     return responder(call);
+  }) as typeof fetch;
+  return calls;
+}
+
+/** 同上，但由一个函数按「方法 + 路径（含查询串）」决定应答；返回 null 表示没有登记，测试失败。 */
+export function stubApiWith(respond: (call: ApiCall & { url: URL }) => Response | Promise<Response> | null): ApiCall[] {
+  const calls: ApiCall[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const call: ApiCall = {
+      method: init?.method ?? "GET",
+      path: String(input),
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+    };
+    calls.push(call);
+    const response = respond({ ...call, url: new URL(call.path, "http://localhost") });
+    if (response === null) throw new Error(`测试没有登记接口：${call.method} ${call.path}`);
+    return response;
   }) as typeof fetch;
   return calls;
 }
@@ -67,14 +86,16 @@ function LocationProbe() {
  * 在内存路由里渲染。`routes` 之外的任何地址都会渲染一个探针，
  * 测试用 `currentLocation()` 读出「页面跳到了哪里、带了什么 state」。
  */
-export function renderAt(initial: string | { pathname: string; hash?: string; state?: unknown }, routes: ReactNode) {
+export function renderAt(initial: string | { pathname: string; search?: string; hash?: string; state?: unknown }, routes: ReactNode) {
   return render(
-    <MemoryRouter initialEntries={[initial]}>
-      <Routes>
-        {routes}
-        <Route path="*" element={<LocationProbe />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={[initial]}>
+        <Routes>
+          {routes}
+          <Route path="*" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   );
 }
 

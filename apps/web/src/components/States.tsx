@@ -20,12 +20,26 @@ export function Skeleton({ lines, label = "加载中" }: { lines: readonly ("sho
   );
 }
 
-/** 某个区域加载失败，或页面处于无法继续的状态：标题 + 说明 + 最多一个操作。 */
-export function StateBlock({ title, description, action, headingLevel = "h2" }: { title: string; description: string; action?: ReactNode; headingLevel?: "h1" | "h2" }) {
+/** 某个区域加载失败、空着、或处于无法继续的状态：标题 + 说明 + 最多一个操作。 */
+export function StateBlock({
+  title,
+  description,
+  action,
+  headingLevel = "h2",
+  tone = "danger",
+}: {
+  title: string;
+  description: string;
+  action?: ReactNode;
+  headingLevel?: "h1" | "h2" | "h3";
+  /** danger：出错（圆形叹号）；neutral：空状态、没有权限（不带图标）；success：都处理完了（对勾） */
+  tone?: "danger" | "neutral" | "success";
+}) {
   const Heading = headingLevel;
   return (
     <div className="state-block">
-      <Icon name="alert-circle" className="state-block__icon" />
+      {tone === "danger" && <Icon name="alert-circle" className="state-block__icon" />}
+      {tone === "success" && <Icon name="check-circle" className="state-block__icon state-block__icon--success" />}
       <Heading className="state-block__title">{title}</Heading>
       <p className="state-block__description">{description}</p>
       {action && <div className="state-block__action">{action}</div>}

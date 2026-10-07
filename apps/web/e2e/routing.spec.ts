@@ -3,7 +3,7 @@
  * 刷新、新标签页、前进后退时登录状态的表现。
  */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, detail, fillLogin, loginAs } from "./support.ts";
+import { adminCredentials, createActiveTenant, detail, fillLogin, loginAs, expectSignedInAs } from "./support.ts";
 
 test("API 前缀下不存在的地址由后端回 JSON 的 404，不会被当成前端页面；相似的前端地址仍是页面", async ({ request }) => {
   for (const path of ["/platform/v1/no-such-endpoint", "/platform/v1", "/platform/v1/", "/tenant/v1/no-such-endpoint", "/tenant/v1/auth", "/sales/v1/anything", "/webhooks/anything"]) {
@@ -89,7 +89,7 @@ test("未知地址：未登录时先登录；登录后在各自后台的框架�
   await expect(page.locator(".sidebar--pinned")).toContainText("运营后台");
   await page.getByRole("link", { name: "回到首页" }).click();
   await expect(page).toHaveURL(/\/platform$/);
-  await expect(detail(page, "角色")).toHaveText("超级管理员");
+  await expectSignedInAs(page, { role: "超级管理员" });
 });
 
 test("地址末尾多一个斜杠（/login/、/platform/login/、/platform/）也能打开对应页面", async ({ page }) => {

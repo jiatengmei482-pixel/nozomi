@@ -21,7 +21,7 @@ const relative = (path: string): string => path.slice(DIST.length);
 const textFiles = files.filter((path) => /\.(js|css|html|json|txt|svg)$/.test(path)).map((path) => ({ name: relative(path), text: readFileSync(path, "utf8") }));
 
 /** 库自带的网址：XML 命名空间、React 的报错说明页、react-router 的说明页、解析相对路径用的占位站点。都不会被请求。 */
-const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^http:\/\/localhost$/];
+const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/];
 
 test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () => {
   const names = files.map(relative).sort();

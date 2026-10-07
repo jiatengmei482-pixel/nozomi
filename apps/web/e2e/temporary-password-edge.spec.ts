@@ -7,7 +7,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
-import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword } from "./support.ts";
+import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, expectSignedInAs } from "./support.ts";
 
 const WARNING = "你正在使用临时密码，请先设置新密码。设置完成前不能使用其他功能。";
 /** docker-compose.yml 里本地开发库的迁移账号（公开的本地默认值，不是密钥）；CI 里由 DATABASE_MIGRATION_URL 给出。 */
@@ -41,7 +41,7 @@ async function expectForced(page: Page, portal: "tenant" | "platform", what: str
   await expect(page, what).toHaveURL(portal === "tenant" ? /\/account\/password$/ : /\/platform\/account\/password$/);
   if (portal === "tenant") expect(new URL(page.url()).pathname, what).toBe("/account/password");
   await expect(page.getByRole("alert").filter({ hasText: WARNING }), what).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1, name: "修改密码" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "设置新密码" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主菜单" }), `${what}：不显示导航`).toHaveCount(0);
   await expect(page.getByRole("button", { name: "打开菜单" })).toHaveCount(0);
 }
@@ -295,7 +295,7 @@ test("【缺陷】改完临时密码进首页后刷新：「新密码已生效�
 
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
-  await expect(detail(page, "邮箱")).toHaveText(admin.email);
+  await expectSignedInAs(page, { email: admin.email });
   await expect(notice, "刷新之后还在显示上一次操作的成功提示").toHaveCount(0);
 });
 

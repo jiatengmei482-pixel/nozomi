@@ -102,6 +102,7 @@ const MASTER_RESOURCES = ["cities", "places", "vehicle-groups", "addons"] as con
 function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }): [HttpMethod, string, unknown?][] {
   if (entry === "platform") {
     return [
+      ["GET", "/platform/v1/dashboard/summary"],
       ["GET", "/platform/v1/staff"],
       ["POST", "/platform/v1/staff", { email: `bypass-${randomUUID().slice(0, 8)}@platform.test`, name: "不该出现", role: "finance" }],
       ["POST", `/platform/v1/staff/${ids.userId}/disable`],

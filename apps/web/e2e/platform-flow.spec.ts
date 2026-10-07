@@ -1,6 +1,6 @@
 /** 运营后台：登录 → 首页 → 退出；平台员工的邀请与重置；两个后台的登录状态互不影响。 */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, detail, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, createActiveTenant, detail, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail, expectSignedInAs } from "./support.ts";
 
 test("平台登录 → 首页 → 退出", async ({ page }) => {
   const admin = adminCredentials();
@@ -13,9 +13,7 @@ test("平台登录 → 首页 → 退出", async ({ page }) => {
   await expect(page).toHaveURL(/\/platform$/);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   await expect(page).toHaveTitle("首页 · NOZOMI 运营后台");
-  await expect(detail(page, "姓名")).toHaveText("端到端测试管理员");
-  await expect(detail(page, "邮箱")).toHaveText(admin.email);
-  await expect(detail(page, "角色")).toHaveText("超级管理员");
+  await expectSignedInAs(page, { name: "端到端测试管理员", email: admin.email, role: "超级管理员" });
   await expect(page.getByText("供应商名称")).toHaveCount(0);
   await expect(page.locator(".sidebar--pinned")).toContainText("运营后台");
   expect(await page.evaluate(() => Object.keys(sessionStorage))).toEqual(["nozomi.session.platform"]);
@@ -45,7 +43,7 @@ test("平台员工：接受邀请设置密码 → 登录；管理员发重置令
   await expect(page.getByLabel("邮箱")).toHaveValue(email);
   await page.getByLabel("密码", { exact: true }).fill(firstPassword);
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(detail(page, "角色")).toHaveText("运营");
+  await expectSignedInAs(page, { role: "运营" });
 
   const issued = await request.post(`/platform/v1/staff/${user.id}/password-reset`, { headers });
   expect(issued.status()).toBe(201);
@@ -61,7 +59,7 @@ test("平台员工：接受邀请设置密码 → 登录；管理员发重置令
   await page.getByLabel("密码", { exact: true }).fill(secondPassword);
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
-  await expect(detail(page, "姓名")).toHaveText("端到端测试运营");
+  await expectSignedInAs(page, { name: "端到端测试运营" });
 });
 
 test("两个后台的登录状态分开存：同一个标签页里先后登录两边互不覆盖，退出一边不影响另一边", async ({ page, request }) => {
@@ -72,7 +70,7 @@ test("两个后台的登录状态分开存：同一个标签页里先后登录�
   expect((await page.evaluate(() => Object.keys(sessionStorage))).sort()).toEqual(["nozomi.session.platform", "nozomi.session.tenant"]);
 
   await page.goto("/platform");
-  await expect(detail(page, "角色")).toHaveText("超级管理员");
+  await expectSignedInAs(page, { role: "超级管理员" });
 
   await page.getByRole("button", { name: /账号菜单/ }).click();
   await page.getByRole("menuitem", { name: "退出登录" }).click();

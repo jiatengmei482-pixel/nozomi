@@ -4,7 +4,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
-import { createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, newPassword } from "./support.ts";
+import { createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, newPassword, expectSignedInAs } from "./support.ts";
 
 const WARNING = "你正在使用临时密码，请先设置新密码。设置完成前不能使用其他功能。";
 
@@ -17,7 +17,7 @@ async function expectAccessible(page: Page, what: string): Promise<void> {
 async function expectForcedPage(page: Page, what: string): Promise<void> {
   await expect(page, what).toHaveURL(/\/platform\/account\/password$/);
   await expect(page.getByRole("alert").filter({ hasText: WARNING }), what).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1, name: "修改密码" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "设置新密码" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主菜单" }), `${what}：不显示导航`).toHaveCount(0);
   await expect(page.getByRole("button", { name: "打开菜单" })).toHaveCount(0);
 }
@@ -76,9 +76,8 @@ test("临时密码登录 → 被带到修改密码页 → 去别的地址都被�
   await expect(page).toHaveURL(/\/platform$/);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "新密码已生效，临时密码已作废。" })).toBeVisible();
-  await expect(detail(page, "邮箱")).toHaveText(admin.email);
-  await expect(detail(page, "角色")).toHaveText("超级管理员");
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页"]);
+  await expectSignedInAs(page, { email: admin.email, role: "超级管理员" });
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "城市", "地点", "车型组", "附加服务"]);
 
   await page.reload();
   await expect(page, "刷新后仍在首页，不再被带去改密码").toHaveURL(/\/platform$/);

@@ -2,6 +2,9 @@
  * 端到端测试的公用步骤。测试数据全部经真实 API 创建在本次运行的临时 schema 里，运行结束随 schema 一起删除。
  */
 import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
@@ -98,6 +101,19 @@ export function detail(page: Page, label: string) {
 }
 
 /**
+ * 当前登录的是谁：打开顶栏的账号菜单核对姓名、角色、邮箱，再关上。
+ * 运营后台的首页是模块入口，不再有「当前登录」卡片，这些内容只在账号菜单里。
+ */
+export async function expectSignedInAs(page: Page, expected: { name?: string; role?: string; email?: string }): Promise<void> {
+  await page.getByRole("button", { name: /账号菜单/ }).click();
+  const header = page.locator(".menu-header");
+  if (expected.name !== undefined) await expect(header.locator(".menu-header__name")).toHaveText(expected.name);
+  if (expected.role !== undefined) await expect(header.locator(".menu-header__detail").first()).toHaveText(expected.role);
+  if (expected.email !== undefined) await expect(header.locator(".menu-header__email")).toHaveText(expected.email);
+  await page.keyboard.press("Escape");
+}
+
+/**
  * 页面本身不出现横向滚动（docs/design/03-layout.md 第 5 节的断言）。
  * 后台框架里纵向滚动的是 <main>，所以它也要查。
  */
@@ -158,4 +174,53 @@ export function createTemporaryPasswordAdmin(): Promise<{ email: string; name: s
       else resolve({ email, name, temporaryPassword });
     });
   });
+}
+
+function runCli(script: string, args: readonly string[]): Promise<string> {
+  const databaseUrl = process.env["E2E_DATABASE_URL"];
+  if (!databaseUrl) throw new Error("global-setup 没有交出本次运行的数据库连接串");
+  const env: NodeJS.ProcessEnv = { ...process.env, APP_ENV: "ci", DATABASE_URL: databaseUrl, AUTH_JWT_SECRET: randomBytes(48).toString("base64url") };
+  delete env["DATABASE_MIGRATION_URL"];
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [`apps/api/src/cli/${script}`, ...args], { cwd: fileURLToPath(new URL("../../../", import.meta.url)), env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`${script} 失败（退出码 ${code}）：${stderr}`))));
+  });
+}
+
+export interface SampleAirport {
+  iata: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+/** 三个大写字母的随机编码片段：机场三字码、城市编码的序号都用它，避免并行的用例互相撞。 */
+export function randomLetters(length = 3): string {
+  return Array.from(randomBytes(length), (byte) => String.fromCharCode(65 + (byte % 26))).join("");
+}
+
+/**
+ * 用真实的导入命令 `masterdata-import-airports.ts --file` 导入一小份测试里构造的机场清单（OurAirports 的 CSV 格式）。
+ * 不联网；导入进来的机场是停用的、没有所属城市，和正式导入完全一样。
+ */
+export async function importAirports(country: string, airports: readonly SampleAirport[]): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "nozomi-e2e-airports-"));
+  try {
+    const header = "id,ident,type,name,latitude_deg,longitude_deg,iso_country,scheduled_service,iata_code";
+    const rows = airports.map((airport) => [String(100000 + randomBytes(3).readUIntBE(0, 3)), `X${airport.iata}`, "large_airport", `"${airport.name}"`, airport.lat, airport.lng, country, "yes", airport.iata].join(","));
+    const file = join(dir, "airports.csv");
+    await writeFile(file, `${[header, ...rows].join("\n")}\n`, "utf8");
+    await runCli("masterdata-import-airports.ts", ["--country", country, "--file", file]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

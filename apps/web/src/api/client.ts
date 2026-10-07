@@ -78,14 +78,24 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, body.error.code, body.error.message, body.error.details, retryAfter);
 }
 
-interface RequestOptions {
+export interface RequestOptions {
   body?: unknown;
   token?: string;
+  /** 额外的请求头（例如修改主数据时的 If-Match） */
+  headers?: Readonly<Record<string, string>>;
 }
 
-async function call<T>(portal: Portal, endpoint: AuthEndpoint, options: RequestOptions = {}): Promise<T> {
+function call<T>(portal: Portal, endpoint: AuthEndpoint, options: RequestOptions = {}): Promise<T> {
   const { method, path } = AUTH_ENDPOINTS[endpoint];
-  const headers: Record<string, string> = { accept: "application/json" };
+  return apiRequest<T>(method, `${PORTALS[portal].apiBase}${path}`, options);
+}
+
+/**
+ * 所有接口共用的请求函数：相对路径、JSON、10 秒超时（覆盖到读完响应体）、不带 Cookie。
+ * `url` 必须是站内的相对路径。
+ */
+export async function apiRequest<T>(method: string, url: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { accept: "application/json", ...options.headers };
   if (options.body !== undefined) headers["content-type"] = "application/json";
   if (options.token !== undefined) headers["authorization"] = `Bearer ${options.token}`;
 
@@ -95,7 +105,7 @@ async function call<T>(portal: Portal, endpoint: AuthEndpoint, options: RequestO
   try {
     let response: Response;
     try {
-      response = await fetch(`${PORTALS[portal].apiBase}${path}`, {
+      response = await fetch(url, {
         method,
         headers,
         signal: abort.signal,

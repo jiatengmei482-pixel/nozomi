@@ -63,8 +63,6 @@ export interface PortalSessionValue {
    * 还不知道（刚刷新、`auth/me` 没回来或给的值不对）时不显示，免得先闪出导航再收起。
    */
   navigationAllowed: boolean;
-  /** 刚刚改掉了临时密码：首页据此显示一次成功提示。只在内存里，刷新或离开首页后就没有了 */
-  passwordJustChanged: boolean;
   /** 修改密码成功后调用：解除上面的限制（后端已清标记，当前令牌继续可用） */
   passwordChanged(): void;
   /**
@@ -116,7 +114,6 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
     },
     [portal],
   );
-  const [passwordJustChanged, setPasswordJustChanged] = useState(false);
   const here = `${location.pathname}${location.search}`;
 
   const expire = useCallback((): void => {
@@ -164,23 +161,8 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
     };
   }, [portal, token, attempt, setMustChange]);
 
-  const passwordChanged = useCallback((): void => {
-    setMustChange(false);
-    setPasswordJustChanged(true);
-  }, [setMustChange]);
+  const passwordChanged = useCallback((): void => setMustChange(false), [setMustChange]);
 
-  // 成功提示是一次性的：只在紧接着的首页上显示，去了别的页面就收回
-  const onHome = location.pathname === config.paths.home;
-  const seenOnHome = useRef(false);
-  useEffect(() => {
-    if (!passwordJustChanged) {
-      seenOnHome.current = false;
-    } else if (onHome) {
-      seenOnHome.current = true;
-    } else if (seenOnHome.current) {
-      setPasswordJustChanged(false);
-    }
-  }, [passwordJustChanged, onHome]);
   const handleAuthFailure = useCallback(
     (err: unknown): boolean => {
       if (isUnauthenticated(err)) {
@@ -208,12 +190,11 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
       expire,
       mustChangePassword,
       navigationAllowed: mustChange === false,
-      passwordJustChanged,
       passwordChanged,
       handleAuthFailure,
       lastShellPath,
     }),
-    [config, token, account, signOut, expire, mustChange, mustChangePassword, passwordJustChanged, passwordChanged, handleAuthFailure],
+    [config, token, account, signOut, expire, mustChange, mustChangePassword, passwordChanged, handleAuthFailure],
   );
   // 必须先改密码时，本后台的其他页面一律带回修改密码页（地址栏直接输入、后退、刷新、新标签页都一样）
   const redirectToChangePassword = mustChangePassword && location.pathname !== config.paths.changePassword;

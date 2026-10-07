@@ -1,9 +1,8 @@
 /**
- * 登录后的首页：只显示当前登录人、角色，以及（供应商后台）所属供应商的名称与状态。
+ * 供应商后台登录后的首页（运营后台的首页是 PlatformHomePage）：只显示当前登录人、角色，以及（供应商后台）所属供应商的名称与状态。
  * 数据全部来自 `auth/me`，没有任何预置内容。
  */
 import { usePortalSession } from "../auth/PortalSession.tsx";
-import { AlertSlot } from "../components/Alert.tsx";
 import { AppShell, Page } from "../components/AppShell.tsx";
 import { Button } from "../components/Button.tsx";
 import { Skeleton, StateBlock } from "../components/States.tsx";
@@ -12,13 +11,12 @@ import { roleName } from "../lib/portal.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
 
 export function HomePage() {
-  const { portal, account, reloadAccount, passwordJustChanged } = usePortalSession();
+  const { portal, account, reloadAccount } = usePortalSession();
   useDocumentTitle(`首页 · NOZOMI ${portal.name}`);
 
   return (
     <AppShell pageName="首页">
       <Page title="首页">
-        {passwordJustChanged && <AlertSlot notice={{ kind: "success", text: "新密码已生效，临时密码已作废。" }} />}
         <section className="card" aria-labelledby="current-account-title">
           <h2 className="card__title" id="current-account-title">
             当前登录

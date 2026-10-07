@@ -33,7 +33,7 @@ function renderApp(initial: string | { pathname: string; search?: string; state?
 
 async function expectForced(what: string, currentLabel = "临时密码"): Promise<void> {
   assert.ok(await screen.findByText(WARNING), what);
-  assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "修改密码", what);
+  assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "设置新密码", what);
   assert.ok(screen.getByLabelText(currentLabel), what);
   assertAbsent(document.querySelector('nav[aria-label="主菜单"]'));
   assertAbsent(screen.queryByRole("button", { name: "打开菜单" }));
@@ -112,7 +112,7 @@ test("两个后台都登录着、各自的状态各自算：供应商后台必�
   stubApi({ "GET /platform/v1/auth/me": platformMe(false), "GET /tenant/v1/auth/me": tenantMe(true) });
   renderApp("/platform");
   assert.ok(await screen.findByRole("heading", { level: 1, name: "首页" }));
-  await screen.findByText("owner@platform.example");
+  await screen.findByRole("button", { name: /账号菜单：\s*测试负责人/ });
   assertAbsent(screen.queryByText(WARNING));
   resetBrowser();
 

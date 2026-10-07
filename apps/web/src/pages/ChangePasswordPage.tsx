@@ -4,11 +4,12 @@
  * 账号正在用临时密码时（ADR 0013）这是唯一能用的页面：顶部说明原因，「当前密码」改叫「临时密码」，
  * 改完直接进首页，不用重新登录。
  */
-import { type FormEvent, useRef, useState } from "react";
+import { type ClipboardEvent, type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError, changePassword } from "../api/client.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
 import { Alert, AlertSlot, type Notice } from "../components/Alert.tsx";
+import { useToast } from "../components/Toast.tsx";
 import { AppShell, Page } from "../components/AppShell.tsx";
 import { Button } from "../components/Button.tsx";
 import { StateBlock } from "../components/States.tsx";
@@ -23,7 +24,9 @@ export function ChangePasswordPage() {
   const navigate = useNavigate();
   /** 「当前密码」这一项在两种情形下的叫法 */
   const currentName = mustChangePassword ? "临时密码" : "当前密码";
-  useDocumentTitle(`修改密码 · NOZOMI ${portal.name}`);
+  const pageTitle = mustChangePassword ? "设置新密码" : "修改密码";
+  useDocumentTitle(`${pageTitle} · NOZOMI ${portal.name}`);
+  const toast = useToast();
   const email = account.status === "ready" ? account.account.email : "";
 
   const [current, setCurrent] = useState("");
@@ -72,6 +75,7 @@ export function ChangePasswordPage() {
       await changePassword(portal.key, token, { current_password: current, new_password: next });
       if (mustChangePassword) {
         passwordChanged();
+        toast("新密码已生效，临时密码已作废。");
         void navigate(portal.paths.home, { replace: true });
         return;
       }
@@ -87,6 +91,7 @@ export function ChangePasswordPage() {
       if (err instanceof ApiError && err.code === "CURRENT_PASSWORD_INCORRECT") {
         setCurrentRejected(`${currentName}不正确，请重新输入`);
         currentRef.current?.focus();
+        currentRef.current?.select();
       } else if (err instanceof ApiError && err.code === "PASSWORD_UNCHANGED") {
         setNextRejected([`新密码不能和${currentName}相同`]);
         nextRef.current?.focus();
@@ -103,8 +108,8 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <AppShell pageName="修改密码">
-      <Page title="修改密码" width="form">
+    <AppShell pageName={pageTitle}>
+      <Page title={pageTitle} width={mustChangePassword ? "centered" : "form"}>
         {mustChangePassword && (
           <div role="alert">
             <Alert kind="warning">你正在使用临时密码，请先设置新密码。设置完成前不能使用其他功能。</Alert>
@@ -129,6 +134,17 @@ export function ChangePasswordPage() {
           <PasswordField
             ref={currentRef}
             label={currentName}
+            {...(mustChangePassword
+              ? {
+                  hint: "就是别人交给你的那串临时密码，区分大小写，中间的连字符也要输入。",
+                  onPaste: (event: ClipboardEvent<HTMLInputElement>) => {
+                    // 从聊天软件里复制来的临时密码常带着首尾的空格或换行
+                    event.preventDefault();
+                    setCurrent(event.clipboardData.getData("text").trim());
+                    setCurrentRejected(null);
+                  },
+                }
+              : {})}
             name="current-password"
             autoComplete="current-password"
             required
