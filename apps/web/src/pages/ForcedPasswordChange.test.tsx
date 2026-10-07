@@ -166,6 +166,13 @@ test("改掉临时密码：提交临时密码和新密码，成功后直接进�
   assertAbsent(screen.queryByText(WARNING));
   await userEvent.setup().click(screen.getByRole("button", { name: /账号菜单/ }));
   assert.deepEqual(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent), ["修改密码", "退出登录"]);
+
+  // 提示是一次性的：去别的页面再回首页就没有了
+  await userEvent.setup().click(screen.getByRole("menuitem", { name: "修改密码" }));
+  await screen.findByLabelText("当前密码");
+  await userEvent.setup().click(document.querySelector('.sidebar--pinned a[href="/platform"]') as HTMLElement);
+  await screen.findByRole("heading", { level: 1, name: "首页" });
+  assertAbsent(screen.queryByText("新密码已生效，临时密码已作废。"));
 });
 
 test("临时密码填错、新密码与临时密码相同、空着提交：出错文字都说「临时密码」，仍留在修改密码页", async () => {

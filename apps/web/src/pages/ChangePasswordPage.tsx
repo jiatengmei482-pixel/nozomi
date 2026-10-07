@@ -7,7 +7,7 @@
 import { type FormEvent, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { ApiError, changePassword } from "../api/client.ts";
-import { type ShellLocationState, usePortalSession } from "../auth/PortalSession.tsx";
+import { usePortalSession } from "../auth/PortalSession.tsx";
 import { Alert, AlertSlot, type Notice } from "../components/Alert.tsx";
 import { AppShell, Page } from "../components/AppShell.tsx";
 import { Button } from "../components/Button.tsx";
@@ -72,8 +72,7 @@ export function ChangePasswordPage() {
       await changePassword(portal.key, token, { current_password: current, new_password: next });
       if (mustChangePassword) {
         passwordChanged();
-        const state: ShellLocationState = { passwordChanged: true };
-        void navigate(portal.paths.home, { replace: true, state });
+        void navigate(portal.paths.home, { replace: true });
         return;
       }
       setCurrent("");

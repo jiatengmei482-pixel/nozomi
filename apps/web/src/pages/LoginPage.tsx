@@ -63,7 +63,8 @@ function useExistingSession(portal: Portal): ExistingSession {
     }
     let cancelled = false;
     fetchMe(portal, stored.accessToken).then(
-      () => {
+      (me) => {
+        if (typeof me.must_change_password === "boolean") sessionStore.setMustChangePassword(portal, me.must_change_password);
         if (!cancelled) setState("valid");
       },
       (err: unknown) => {
@@ -142,6 +143,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
     }
     // 跳转放在 try 外面：登录已经成功，跳转本身出的错不能被当成「系统无法登录」
     sessionStore.set(portal, { accessToken: result.access_token, expiresAt: result.expires_at });
+    sessionStore.setMustChangePassword(portal, result.must_change_password);
     if (result.must_change_password) {
       // 临时密码：不管原来想去哪，先去修改密码页（ADR 0013）
       const state: ShellLocationState = { passwordChangeRequired: true };

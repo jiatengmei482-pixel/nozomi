@@ -4,6 +4,8 @@
  * - 关掉标签页即失效；不进 localStorage，不跨标签页共享。
  * - 两个后台各存各的，互不覆盖：同一个浏览器标签页可以先后登录两个后台。
  * - 只存令牌和过期时间。账号资料每次从 `auth/me` 取，不落在浏览器里。
+ * - 「这次登录是否必须先改密码」（ADR 0013）只记在内存里、不进 sessionStorage：
+ *   刷新页面后就是未知，要等 `auth/me` 回来。
  */
 import type { Portal } from "../lib/portal.ts";
 
@@ -24,6 +26,9 @@ export interface SessionStore {
   get(portal: Portal): StoredSession | null;
   set(portal: Portal, session: StoredSession): void;
   clear(portal: Portal): void;
+  /** 这次登录是否必须先改密码：后端上一次告诉我们的结果；没问过（刚刷新）为 null。只在内存里。 */
+  getMustChangePassword(portal: Portal): boolean | null;
+  setMustChangePassword(portal: Portal, value: boolean): void;
 }
 
 function parseStored(raw: string | null): StoredSession | null {
@@ -43,6 +48,7 @@ function parseStored(raw: string | null): StoredSession | null {
 /** `storage` 为 null（浏览器禁用了存储）时只放在内存里：刷新页面后需要重新登录。 */
 export function createSessionStore(storage: SessionStorageLike | null): SessionStore {
   const memory = new Map<Portal, StoredSession>();
+  const mustChangePassword = new Map<Portal, boolean>();
 
   const read = (portal: Portal): StoredSession | null => {
     try {
@@ -62,6 +68,7 @@ export function createSessionStore(storage: SessionStorageLike | null): SessionS
     },
     set(portal, session) {
       memory.set(portal, session);
+      mustChangePassword.delete(portal);
       try {
         storage?.setItem(STORAGE_KEYS[portal], JSON.stringify(session));
       } catch {
@@ -70,11 +77,18 @@ export function createSessionStore(storage: SessionStorageLike | null): SessionS
     },
     clear(portal) {
       memory.delete(portal);
+      mustChangePassword.delete(portal);
       try {
         storage?.removeItem(STORAGE_KEYS[portal]);
       } catch {
         // 存储不可用时没有东西可删
       }
+    },
+    getMustChangePassword(portal) {
+      return mustChangePassword.get(portal) ?? null;
+    },
+    setMustChangePassword(portal, value) {
+      mustChangePassword.set(portal, value);
     },
   };
 }
