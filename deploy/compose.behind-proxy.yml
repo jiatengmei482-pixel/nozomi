@@ -1,0 +1,10 @@
+# 入口模式是 behind-proxy 时叠加在 compose.yml 上（由 bin/compose.sh 按 release.env 里的 EDGE_MODE 决定，
+# 不要手工 `-f`）。这台机器的 80 / 443 属于原有的反向代理，本项目不占用：
+# Caddy 只把容器内的 8080（纯 HTTP）发布到主机回环地址上的一个端口，由外层代理转发过来。
+#
+# EDGE_LISTEN 形如 127.0.0.1:18080，必须是回环地址（bin/deploy.sh 会校验）：
+# Docker 发布的端口不受主机防火墙约束，写成别的地址就等于直接暴露到外网。
+services:
+  caddy:
+    ports: !override
+      - "${EDGE_LISTEN:?缺少 EDGE_LISTEN，请通过 bin/deploy.sh 部署}:8080"

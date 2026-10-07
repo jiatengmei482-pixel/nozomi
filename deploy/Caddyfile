@@ -1,0 +1,86 @@
+# 反向代理：把请求转给 API，加安全响应头，写访问日志。两种入口模式共用这一份文件（ADR 0007）：
+#   standalone    自己占 80/443，自动申请和续期 HTTPS 证书
+#   behind-proxy  前面还有一层别人的反向代理（HTTPS 和证书在那一层）：这里只在容器内的 8080 端口
+#                 提供纯 HTTP，不申请证书、不监听 80/443
+# EDGE_MODE、CADDY_SITE_ADDRESS、CADDY_TLS_MODE、ACME_EMAIL 由 compose.yml 传入，值由 bin/deploy.sh 按模式算出。
+
+# 要不要相信请求里带来的 X-Forwarded-For / X-Forwarded-Proto，由 EDGE_MODE 选一种：
+#   standalone    不信：请求直接来自互联网，这两个头一律用自己看到的连接信息重写
+#   behind-proxy  只信来自回环 / 私有网段的上一跳（同一台机器上的外层代理），保留它写的头并在后面追加
+(trust_standalone) {
+}
+
+(trust_behind-proxy) {
+	trusted_proxies static private_ranges
+	trusted_proxies_strict
+}
+
+{
+	# 只开 HTTP/1.1 和 HTTP/2：HTTP/3 走 UDP 443，防火墙和端口映射都没有放行它。
+	servers {
+		protocols h1 h2
+		import trust_{$EDGE_MODE}
+	}
+}
+
+(proxy_api) {
+	reverse_proxy api:8080
+}
+
+# 证书的四种方式，由 CADDY_TLS_MODE 选一种：
+#   auto      默认方式向证书机构申请
+#   email     同上，并登记联系邮箱（证书出问题时证书机构会发邮件）
+#   internal  Caddy 自签，只给 CI 冒烟和本地验证用
+#   off       不用证书（behind-proxy：站点地址是 http://，HTTPS 由外层代理负责）
+(tls_auto) {
+}
+
+(tls_email) {
+	tls {$ACME_EMAIL}
+}
+
+(tls_internal) {
+	tls internal
+}
+
+(tls_off) {
+}
+
+# standalone 时是域名本身（Caddy 监听 80/443 并申请证书）；behind-proxy 时是 http://:8080。
+{$CADDY_SITE_ADDRESS} {
+	import tls_{$CADDY_TLS_MODE}
+
+	encode zstd gzip
+
+	# 两种模式都由这里加全部安全响应头（含 Strict-Transport-Security）：behind-proxy 时响应经外层代理
+	# 的 HTTPS 回到浏览器，这个头照样生效；外层代理的配置不在本仓库里，所以不依赖它来加，
+	# 它也不应再加一遍（docs/deploy.md 的示例配置里没有加）。
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+		-Via
+		defer
+	}
+
+	import proxy_api
+
+	# 访问日志不记查询串（可能带令牌、邮箱等），也不记来源页地址。
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "\?.*" ""
+				request>headers>Referer delete
+			}
+		}
+	}
+}
+
+# 只给容器内的健康检查用：端口没有映射到主机，外部访问不到。
+http://:8081 {
+	import proxy_api
+}
