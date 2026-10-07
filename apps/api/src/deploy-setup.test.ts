@@ -150,6 +150,8 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   assert.match(environment["DATABASE_URL"] ?? "", /^postgres:\/\/nozomi_api:\$\{POSTGRES_APP_PASSWORD:\?[^}]*\}@db:5432\/nozomi$/);
   assert.match(compose.services["db"]?.environment?.["POSTGRES_PASSWORD"] ?? "", /^\$\{POSTGRES_PASSWORD:\?/);
   assert.equal(api?.image?.startsWith("${API_IMAGE:?"), true);
+  // 反向代理用的是和 API 配对的前端镜像（Caddy + 前端静态文件），同样没有默认值、不写死
+  assert.match(compose.services["caddy"]?.image ?? "", /^\$\{WEB_IMAGE:\?[^}]*\}$/);
   assert.equal(api?.read_only, true);
   assert.deepEqual(api?.cap_drop, ["ALL"]);
 });
@@ -185,7 +187,9 @@ test("初始化脚本生成两个不同用途的数据库密码；部署、恢�
   for (const script of ["deploy/bin/deploy.sh", "deploy/bin/restore.sh"]) {
     const text = await readText(script);
     const tasks = [...text.matchAll(/run --rm --no-deps -T (\S+) node (\S+)/g)].map((match) => `${match[1]} ${match[2]}`);
-    assert.deepEqual(tasks, ["migrate apps/api/src/db/provision-cli.ts", "migrate apps/api/src/db/migrate-cli.ts"], script);
+    // 部署时在建账号之前多一步：在同一个临时容器里确认按服务名解析得到数据库（只解析，不连接）
+    const expected = ["migrate apps/api/src/db/provision-cli.ts", "migrate apps/api/src/db/migrate-cli.ts"];
+    assert.deepEqual(tasks, script === "deploy/bin/deploy.sh" ? ["migrate -e", ...expected] : expected, script);
   }
   const backup = await readText("deploy/bin/backup.sh");
   assert.match(backup, /exec -T db pg_dump -U nozomi -d nozomi /);
@@ -452,6 +456,8 @@ test("部署相关的文件和文档里没有密钥原文，也没有写死的�
     "deploy/ci/compose.ci.yml",
     "deploy/Caddyfile",
     "apps/api/Dockerfile",
+    "apps/web/Dockerfile",
+    "apps/web/Dockerfile.dockerignore",
     ".github/workflows/deploy.yml",
     ".github/workflows/server-init.yml",
     ".github/workflows/ci.yml",
@@ -598,9 +604,17 @@ test("与别的项目隔离：任何脚本和流水线里都没有会波及全�
   }
   const deployScript = await readText("deploy/bin/deploy.sh");
   const cleanup = deployScript.slice(deployScript.indexOf("cleanup_old() {"), deployScript.indexOf("roll_back_to() {"));
-  assert.match(cleanup, /image="\$\{API_IMAGE%:\*\}"\n {2}docker image ls --format '\{\{\.Repository\}\}:\{\{\.Tag\}\}' "\$image" \|/);
+  assert.match(cleanup, /for image in "\$\{API_IMAGE%:\*\}" "\$\{WEB_IMAGE%:\*\}"; do\n {4}docker image ls --format '\{\{\.Repository\}\}:\{\{\.Tag\}\}' "\$image" \|/);
+  assert.equal(cleanup.match(/docker image ls/g)?.length, 1, "列镜像只有这一处，而且总是带着仓库名");
   assert.match(cleanup, /docker image rm "\$ref"/);
   assert.match(deployScript, /\[\[ "\$\{API_IMAGE%:\*\}" =~ \(\^\|\/\)nozomi-api\$ \]\]/, "只接受本项目自己的镜像名");
+  // 前端镜像的名字不是调用方给的：校验过 API_IMAGE 之后由它推出，镜像名固定是 nozomi-web
+  const validated = deployScript.indexOf('[[ "${API_IMAGE%:*}" =~ (^|/)nozomi-api$ ]]');
+  const derived = deployScript.indexOf('WEB_IMAGE="$(web_image_for "$API_IMAGE")"');
+  assert.ok(validated >= 0 && derived > validated && derived < deployScript.indexOf("check_layout\n"), "WEB_IMAGE 必须在校验 API_IMAGE 之后、动任何东西之前推出");
+  assert.match(deployScript, /printf '%snozomi-web:%s' "\$\{repository%nozomi-api\}" "\$tag"/);
+  assert.equal(deployScript.match(/\bWEB_IMAGE=/g)?.length, 2, "WEB_IMAGE 只在两处被赋值：从 API_IMAGE 推出、写进 release.env");
+  assert.ok(!/\$\{WEB_IMAGE:-/.test(deployScript), "deploy.sh 不应从环境里读 WEB_IMAGE");
 });
 
 test("初始化脚本：支持 Ubuntu 和 RHEL 系；已有的 Docker 不重装不升级；不升级系统、不改 SELinux 模式、不改任何密码和 SSH 服务", async () => {
@@ -689,11 +703,11 @@ test("流水线和手工部署是同一条路：都只通过 remote.sh 操作服
   }
   // 两条路径除了准备 SSH 连接时的连通性测试、流水线最后的登出，不再自己拼远程命令
   const pushLocalCode = codeOf(pushLocal);
-  assert.deepEqual(pushLocalCode.match(/\bssh\s[^\n]*/g), ['ssh -F "$ssh_dir/config" vps true ||']);
+  assert.deepEqual(pushLocalCode.match(/\bssh\s-[^\n]*/g), ['ssh -F "$ssh_dir/config" -o LogLevel=INFO vps true 2>&1)"; then']);
   assert.deepEqual(workflowRuns.match(/\bssh\s[^\n]*/g), [`ssh -F "$NOZOMI_SSH_DIR/config" vps "docker logout '$REGISTRY'" >/dev/null 2>&1 || true`]);
   // 手工部署：镜像不经过镜像仓库，服务器上不拉取
-  assert.match(pushLocal, /"\$remote" load-image "\$image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
-  assert.match(client, /docker save "\$image" \| gzip -c \| remote "gzip -dc \| docker load"/);
+  assert.match(pushLocal, /"\$remote" load-image "\$image" "\$web_image"\n[\s\S]*DEPLOY_SKIP_PULL=1 "\$remote" deploy "\$app_env" "\$sha" "\$image" <\/dev\/null/);
+  assert.match(client, /docker save "\$@" \| gzip -c \| remote "gzip -dc \| docker load"/);
   assert.match(pushLocal, /status --porcelain/, "手工部署必须是干净的工作区：版本号就是提交");
 });
 
@@ -759,4 +773,28 @@ test("文档：给外层 nginx 的示例配置和 CI 冒烟里模拟外层代理
   for (const limit of ["docker 组", "证书", "重载"]) assert.ok(adr.includes(limit), `ADR 0007 的已知限制缺少：${limit}`);
   const secrets = await readText("docs/secrets.md");
   for (const name of ["`EDGE_MODE`", "`EDGE_LISTEN`"]) assert.ok(secrets.includes(name), `docs/secrets.md 的变量表缺少 ${name}`);
+});
+
+test("RHEL 系的内核模块预检：只检查不修改；缺模块时初始化报错停下，部署在建应用账号之前单独查出「容器里解析不了服务名」", async () => {
+  const script = await readText("deploy/bootstrap.sh");
+  assert.match(script, /^REQUIRED_KERNEL_MODULES=\("xt_nat" "nft_compat" "xt_addrtype"\)$/m);
+  const check = script.slice(script.indexOf("kernel_module_available() {"), script.indexOf("# 安装软件包。"));
+  assert.match(check, /\[\[ "\$OS_FAMILY" == "rhel" \]\] \|\| return 0/);
+  assert.match(check, /dnf install kernel-modules-extra-\$release/);
+  assert.match(check, /升级内核和 kernel-modules-extra 并重启服务器/);
+  // 只检查：这一段里不安装、不加载、不升级任何东西（报错文字里给负责人看的命令不算）
+  const executed = codeOf(check).replace(/(log|die) "[^"]*"/g, "");
+  assert.ok(!/install_packages|ensure_command|\bdnf\b|\binsmod\b|\bgrubby\b|\breboot\b/.test(executed));
+  assert.deepEqual(executed.match(/modprobe[^\n]*/g), ['modprobe --dry-run --quiet "$1" 2>/dev/null', "modprobe >/dev/null 2>&1; then"]);
+  // 在安装任何软件、创建用户之前就检查
+  const main = script.slice(script.indexOf("\nmain() {"));
+  assert.ok(main.indexOf("check_kernel_modules") > main.indexOf("detect_os"));
+  assert.ok(main.indexOf("check_kernel_modules") < main.indexOf("install_base_packages"));
+
+  const deployScript = await readText("deploy/bin/deploy.sh");
+  const probe = deployScript.indexOf('run --rm --no-deps -T migrate node -e "$DNS_PROBE"');
+  assert.ok(probe > deployScript.indexOf("pre-deploy") && probe < deployScript.indexOf("provision-cli.ts"), "自检要在备份之后、建应用账号之前");
+  assert.match(deployScript, /^DNS_PROBE='require\("node:dns"\)\.lookup\("db", \(err\) => process\.exit\(err \? 1 : 0\)\)'$/m);
+  assert.match(deployScript.slice(probe, probe + 600), /die "\$EXIT_NOT_SWITCHED" "容器里解析不了数据库的服务名 db[^"]*kernel-modules-extra[^"]*升级内核并重启服务器/);
+  assert.match(await readText("docs/deploy.md"), /kernel-modules-extra-\$\(uname -r\)/);
 });

@@ -20,6 +20,11 @@ export function isUnauthenticated(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
 }
 
+/** 账号正在用临时密码，后端拒绝了改密码以外的操作（ADR 0013）。 */
+export function isPasswordChangeRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403 && err.code === "PASSWORD_CHANGE_REQUIRED";
+}
+
 export function isThrottled(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 429;
 }

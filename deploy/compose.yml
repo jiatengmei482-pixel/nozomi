@@ -1,4 +1,4 @@
-# 一个环境在 VPS 上运行的全部容器（ADR 0007）：数据库、API、反向代理。
+# 一个环境在 VPS 上运行的全部容器（ADR 0007）：数据库、API、反向代理（同时提供前端静态文件）。
 #
 # 不要直接 `docker compose -f` 这个文件：用同目录下的 bin/compose.sh，
 # 它会带上正确的项目名和两个变量文件——
@@ -113,8 +113,10 @@ services:
       - no-new-privileges:true
     logging: *logging
 
+  # 反向代理 + 前端静态文件。镜像是 nozomi-web（官方 Caddy 加上构建好的前端，apps/web/Dockerfile），
+  # 和 API_IMAGE 同一个仓库前缀、同一个标签，由 bin/deploy.sh 从 API_IMAGE 推出来：前端和后端一起部署、一起回退。
   caddy:
-    image: caddy:2
+    image: ${WEB_IMAGE:?缺少 WEB_IMAGE，请通过 bin/deploy.sh 部署}
     restart: unless-stopped
     depends_on:
       api:

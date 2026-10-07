@@ -375,3 +375,46 @@ test("浏览器存储被改坏：主题的值不是 light / dark 时按跟随系
   }
   expect(pageErrors).toEqual([]);
 });
+
+test("内容安全策略（和正式环境同一条）：内联的主题脚本按哈希放行并照常执行；登录、切换主题、退出全程没有任何东西被策略拦下；别的内联脚本会被拦", async ({ page }) => {
+  // 浏览器每拦下一样东西就触发一次 securitypolicyviolation；这段监听由 Playwright 注入，不受页面的策略约束。
+  await page.addInitScript(() => {
+    const blocked: string[] = [];
+    (window as unknown as { __cspBlocked: string[] }).__cspBlocked = blocked;
+    document.addEventListener("securitypolicyviolation", (event) => blocked.push(`${event.violatedDirective} ${event.blockedURI}`));
+  });
+  const blockedSoFar = (): Promise<string[]> => page.evaluate(() => (window as unknown as { __cspBlocked: string[] }).__cspBlocked);
+
+  const response = await page.goto("/login");
+  const policy = response?.headers()["content-security-policy"] ?? "";
+  expect(policy, "vite preview 应带上和正式环境同一条策略").toMatch(/^default-src 'self'; script-src 'self' 'sha256-[A-Za-z0-9+/]{43}='; /);
+  expect(policy).not.toMatch(/unsafe-inline|unsafe-eval/);
+  await expect(page.getByRole("button", { name: "登录" })).toBeVisible();
+  expect(await blockedSoFar()).toEqual([]);
+
+  // 只让内联脚本有机会设置主题：把打包出来的脚本全部拦掉再刷新，<html> 上的 data-theme 只可能来自 index.html 里那一段。
+  await page.evaluate(() => localStorage.setItem("nozomi.theme", "dark"));
+  await page.route("**/assets/*.js", (route) => route.abort());
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await blockedSoFar(), "内联的主题脚本不应被策略拦下").toEqual([]);
+  await page.unroute("**/assets/*.js");
+
+  const { email, password } = adminCredentials();
+  await loginAs(page, "platform", email, password);
+  await page.getByRole("button", { name: "切换主题" }).click();
+  await page.getByRole("menuitemradio", { name: "跟随系统" }).click();
+  await page.keyboard.press("Escape");
+  await signOut(page);
+  expect(await blockedSoFar(), "登录后的页面里有东西被策略拦下了").toEqual([]);
+
+  // 反过来确认策略真的在起作用：页面里新插入的内联脚本不执行，并被记为一次违规。
+  const executed = await page.evaluate(() => {
+    const script = document.createElement("script");
+    script.textContent = "window.__injected = 1";
+    document.head.append(script);
+    return (window as unknown as { __injected?: number }).__injected ?? null;
+  });
+  expect(executed).toBeNull();
+  expect((await blockedSoFar()).some((entry) => entry.startsWith("script-src"))).toBe(true);
+});

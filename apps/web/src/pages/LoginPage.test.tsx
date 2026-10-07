@@ -17,7 +17,7 @@ const ROUTES = (
 );
 
 const TENANT_LOGIN = "POST /tenant/v1/auth/login";
-const loginOk = () => json(200, { access_token: "new-token", token_type: "Bearer", expires_at: FAR_FUTURE, user: {}, tenant: {} });
+const loginOk = () => json(200, { access_token: "new-token", token_type: "Bearer", expires_at: FAR_FUTURE, user: {}, tenant: {}, must_change_password: false });
 
 async function fillAndSubmit(email: string, password: string): Promise<void> {
   const user = userEvent.setup();

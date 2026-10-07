@@ -262,6 +262,32 @@
   }
 }
 
+/* 必须先改密码时没有侧边栏：整页一栏，顶栏左侧写明这是哪个后台 */
+.topbar__brand {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+}
+
+.topbar__brand-name {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+}
+
+.topbar__portal {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+@media (min-width: 1024px) {
+  .shell--restricted {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ───────────── 内容区 ───────────── */
 .page {
   min-width: 0;

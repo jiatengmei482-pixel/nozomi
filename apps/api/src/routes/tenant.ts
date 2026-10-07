@@ -51,8 +51,12 @@ const updateUserSchema = z.object({
 });
 
 export function registerTenantRoutes(app: FastifyInstance, ctx: AppContext): void {
+  /** 普通接口的鉴权：账号必须先修改密码时一律被拦（ADR 0013）。新接口都用这个。 */
   const authenticate = (request: FastifyRequest, action?: TenantAction): Promise<TenantPrincipal> =>
-    authenticateTenant(ctx, bearerToken(request.headers.authorization), action);
+    authenticateTenant(ctx, bearerToken(request.headers.authorization), action === undefined ? {} : { action });
+  /** 只给「查看自己、修改密码、退出」三个接口用：账号必须先修改密码时也放行。 */
+  const authenticateSelfService = (request: FastifyRequest): Promise<TenantPrincipal> =>
+    authenticateTenant(ctx, bearerToken(request.headers.authorization), { purpose: "self_service" });
 
   app.post("/tenant/v1/auth/login", async (request) => {
     const input = parseInput(loginSchema, request.body, "body");
@@ -63,21 +67,23 @@ export function registerTenantRoutes(app: FastifyInstance, ctx: AppContext): voi
       expires_at: result.expiresAt.toISOString(),
       user: tenantUserJson(result.user),
       tenant: tenantJson(result.tenant),
+      must_change_password: result.user.mustChangePassword,
     };
   });
 
   app.post("/tenant/v1/auth/logout", async (request, reply) => {
-    const principal = await authenticate(request);
+    const principal = await authenticateSelfService(request);
     await tenantLogout(ctx, principal, request.ip);
     return reply.code(204).send();
   });
 
   app.get("/tenant/v1/auth/me", async (request) => {
-    const principal = await authenticate(request);
+    const principal = await authenticateSelfService(request);
     return {
       user: tenantUserJson(principal.user),
       tenant: tenantJson(principal.tenant),
       permissions: tenantPermissions(principal.user.role),
+      must_change_password: principal.user.mustChangePassword,
     };
   });
 
@@ -87,7 +93,7 @@ export function registerTenantRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/tenant/v1/auth/change-password", async (request, reply) => {
-    const principal = await authenticate(request);
+    const principal = await authenticateSelfService(request);
     const input = parseInput(changePasswordSchema, request.body, "body");
     await changeTenantPassword(
       ctx,

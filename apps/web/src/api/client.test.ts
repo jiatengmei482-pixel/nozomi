@@ -26,7 +26,7 @@ function json(status: number, body: unknown, headers: Record<string, string> = {
 }
 
 test("登录：相对路径、POST、JSON 请求体，不带令牌和 Cookie", async () => {
-  const seen = stubFetch(() => json(200, { access_token: "t", token_type: "Bearer", expires_at: "2026-01-01T08:00:00.000Z" }));
+  const seen = stubFetch(() => json(200, { access_token: "t", token_type: "Bearer", expires_at: "2026-01-01T08:00:00.000Z", must_change_password: false }));
   await login("tenant", { email: "a@b.co", password: "x" });
   await login("platform", { email: "a@b.co", password: "x" });
   assert.deepEqual(seen.map((call) => call.url), ["/tenant/v1/auth/login", "/platform/v1/auth/login"]);
@@ -93,9 +93,9 @@ test("成功应答却不是 JSON 时按服务端错误处理", async () => {
   await assert.rejects(fetchMe("tenant", "t"), (err) => err instanceof ApiError && err.status === 502);
 });
 
-test("登录应答没有可用的令牌或过期时间不合法：按服务端错误处理，不当作登录成功", async () => {
-  const good = { access_token: "t", token_type: "Bearer", expires_at: "2026-01-01T08:00:00.000Z", user: {} };
-  for (const body of [{}, { ...good, access_token: "" }, { ...good, access_token: 1 }, { ...good, expires_at: "明天" }, { ...good, expires_at: null }, null, []]) {
+test("登录应答没有可用的令牌、过期时间不合法或缺少 must_change_password：按服务端错误处理，不当作登录成功", async () => {
+  const good = { access_token: "t", token_type: "Bearer", expires_at: "2026-01-01T08:00:00.000Z", user: {}, must_change_password: false };
+  for (const body of [{}, { ...good, access_token: "" }, { ...good, access_token: 1 }, { ...good, expires_at: "明天" }, { ...good, expires_at: null }, { ...good, must_change_password: "false" }, { ...good, must_change_password: undefined }, null, []]) {
     stubFetch(() => json(200, body));
     await assert.rejects(login("platform", { email: "a@b.co", password: "x" }), (err) => err instanceof ApiError && err.status === 502, JSON.stringify(body));
   }

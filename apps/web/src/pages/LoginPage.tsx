@@ -4,7 +4,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { ApiError, NetworkError, fetchMe, login } from "../api/client.ts";
-import type { LoginLocationState, LoginReason } from "../auth/PortalSession.tsx";
+import type { LoginLocationState, LoginReason, ShellLocationState } from "../auth/PortalSession.tsx";
 import { isExpired, sessionStore } from "../auth/session-store.ts";
 import { AlertSlot, type Notice } from "../components/Alert.tsx";
 import { AuthLayout } from "../components/AuthLayout.tsx";
@@ -142,6 +142,12 @@ export function LoginPage({ portal }: { portal: Portal }) {
     }
     // 跳转放在 try 外面：登录已经成功，跳转本身出的错不能被当成「系统无法登录」
     sessionStore.set(portal, { accessToken: result.access_token, expiresAt: result.expires_at });
+    if (result.must_change_password) {
+      // 临时密码：不管原来想去哪，先去修改密码页（ADR 0013）
+      const state: ShellLocationState = { passwordChangeRequired: true };
+      void navigate(config.paths.changePassword, { replace: true, state });
+      return;
+    }
     void navigate(destination, { replace: true });
   };
 

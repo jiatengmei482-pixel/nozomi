@@ -66,7 +66,7 @@ const tenantMe = () => json(200, tenantMeBody());
 
 const GOOD_PASSWORD = "Tokyo-Haneda-2026";
 const TENANT_LOGIN = "POST /tenant/v1/auth/login";
-const loginOk = () => json(200, { access_token: "new-token", token_type: "Bearer", expires_at: FAR_FUTURE, user: {}, tenant: {} });
+const loginOk = () => json(200, { access_token: "new-token", token_type: "Bearer", expires_at: FAR_FUTURE, user: {}, tenant: {}, must_change_password: false });
 const html = (status: number) => () => new Response("<html><body><h1>Bad Gateway</h1></body></html>", { status, headers: { "content-type": "text/html" } });
 const offline = () => {
   throw new TypeError("Failed to fetch");

@@ -284,6 +284,33 @@ test("三个权限角色的表权限清单一项不多一项不少；除它们�
   assert.deepEqual(columnGrants.rows, [], "有列级别的授权");
 });
 
+test("「必须先修改密码」标记（迁移 0006，ADR 0013）：平台员工表和租户用户表各一列，非空、默认 false；只在这两张表上；加列没有带来新的授权", async () => {
+  const columns = await db.owner.query(
+    `select table_name, data_type, is_nullable, column_default from information_schema.columns
+      where table_schema = current_schema() and column_name = 'must_change_password' order by 1`,
+  );
+  assert.deepEqual(columns.rows, [
+    { table_name: "platform_users", data_type: "boolean", is_nullable: "NO", column_default: "false" },
+    { table_name: "tenant_users", data_type: "boolean", is_nullable: "NO", column_default: "false" },
+  ]);
+  const constraints = await db.owner.query<{ name: string }>(
+    `select con.conname::text as name from pg_constraint con join pg_namespace n on n.oid = con.connamespace
+      where n.nspname = current_schema() and con.conname like '%must_change_needs_password' order by 1`,
+  );
+  assert.deepEqual(constraints.rows.map((row) => row.name), [
+    "platform_users_must_change_needs_password",
+    "tenant_users_must_change_needs_password",
+  ]);
+  // 读写这一列用的是已有的表级权限：平台角色对两张表、租户角色对 tenant_users；登录前角色两张表都碰不到
+  const grants = await grantsByGrantee(db.owner);
+  assert.deepEqual(grants[PLATFORM_DB_ROLE]?.["platform_users"], ["INSERT", "SELECT", "UPDATE"]);
+  assert.deepEqual(grants[PLATFORM_DB_ROLE]?.["tenant_users"], ["INSERT", "SELECT", "UPDATE"]);
+  assert.deepEqual(grants[TENANT_DB_ROLE]?.["tenant_users"], ["INSERT", "SELECT", "UPDATE"]);
+  assert.equal(grants[TENANT_DB_ROLE]?.["platform_users"], undefined);
+  assert.equal(grants[PREAUTH_DB_ROLE]?.["platform_users"], undefined);
+  assert.equal(grants[PREAUTH_DB_ROLE]?.["tenant_users"], undefined);
+});
+
 test("审计日志：应用账号经任何一个权限角色能拿到的权限只有追加和读；改、删、清空、建触发器、引用一概没有", async () => {
   const grants = await grantsByGrantee(db.owner);
   const reachable = new Set(DB_ROLES.flatMap((role) => grants[role]?.["audit_logs"] ?? []));

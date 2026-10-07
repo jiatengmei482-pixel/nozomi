@@ -1,7 +1,9 @@
 /**
  * 端到端测试的公用步骤。测试数据全部经真实 API 创建在本次运行的临时 schema 里，运行结束随 schema 一起删除。
  */
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
 
 export const VIEWPORTS = {
@@ -117,4 +119,43 @@ export async function expectNoHorizontalOverflow(page: Page, what: string): Prom
 export async function snapshot(page: Page, name: string): Promise<void> {
   const dir = process.env["E2E_SCREENSHOT_DIR"];
   if (dir) await page.screenshot({ path: `${dir}/${name}.png`, fullPage: true });
+}
+
+/**
+ * 用真实的命令行 `admin-create.ts --temporary-password` 创建一个平台超级管理员，
+ * 从标准输出里「临时密码：」那一行读出临时密码（ADR 0013）。连的是本次运行的临时 schema。
+ */
+export function createTemporaryPasswordAdmin(): Promise<{ email: string; name: string; temporaryPassword: string }> {
+  const databaseUrl = process.env["E2E_DATABASE_URL"];
+  if (!databaseUrl) throw new Error("global-setup 没有交出本次运行的数据库连接串");
+  const email = uniqueEmail("temp-admin");
+  const name = "端到端测试临时密码管理员";
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    APP_ENV: "ci",
+    DATABASE_URL: databaseUrl,
+    AUTH_JWT_SECRET: randomBytes(48).toString("base64url"),
+  };
+  delete env["DATABASE_MIGRATION_URL"];
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["apps/api/src/cli/admin-create.ts", "--email", email, "--name", name, "--temporary-password"], {
+      cwd: fileURLToPath(new URL("../../../", import.meta.url)),
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      const temporaryPassword = /^临时密码：(\S+)$/m.exec(stdout)?.[1];
+      if (code !== 0 || !temporaryPassword) reject(new Error(`admin:create --temporary-password 失败（退出码 ${code}）：${stderr}`));
+      else resolve({ email, name, temporaryPassword });
+    });
+  });
 }
