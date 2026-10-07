@@ -100,9 +100,9 @@
           "id": "M0-11",
           "title": "前端接入部署",
           "role": "backend",
-          "status": "doing",
+          "status": "review",
           "acceptance": ["打开测试环境域名能看到登录页并用真实账号登录", "刷新任意前端地址不出现 404；接口地址不被前端页面吞掉", "带内容安全策略等安全响应头；静态资源有缓存策略", "两种入口模式的部署冒烟都覆盖前端"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/7 ；单元 384、前端组件 76、集成 290、端到端 66 个通过；测试环境 https://nozomi.moveglobal.io/platform/login 真实浏览器打开正常",
           "updated": "2026-10-07"
         },
         {
@@ -228,6 +228,11 @@
       "date": "2026-10-07",
       "by": "Claude",
       "summary": "M0-08：测试环境上线，https://nozomi.moveglobal.io/health 可访问。经负责人同意升级了服务器内核并重启、恢复了 Docker 对网络规则的管理（容器可访问外网）；原有网站复查正常。初始化脚本新增内核模块预检。自动部署和 Stripe Webhook 两条待 PR 合并和 Stripe 账号。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-11 待验收：前端接入部署。新增前端镜像（Caddy + 构建产物），与后端镜像同版本同进同退；带内容安全策略，静态资源长缓存。已部署到测试环境，打开域名即登录页。"
     }
   ]
 }
