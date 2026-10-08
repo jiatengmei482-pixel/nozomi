@@ -42,6 +42,7 @@
 | 列表、看板 | `layout-content-max-width`（1440px） | 订单列表、价格规则、总览 |
 | 表单、设置 | `layout-form-max-width`（720px），居左 | 新建司机、账号设置 |
 | 详情（主栏 + 侧栏） | `layout-content-max-width`；≥ 1024px 时主栏 `minmax(0, 1fr)` + 侧栏 320px，栏间距 `space-6`；更窄时侧栏排到主栏下方 | 订单详情 |
+| 编辑器（表单栏 + 画布） | `layout-content-max-width`；≥ 1024px 时表单栏 `minmax(0, 380px)` + 画布 `minmax(0, 1fr)`，栏间距 `space-6`，画布吸在视口里、占满余下的高度；更窄时单栏，画布排在基本信息之后。两种布局的 DOM 顺序相同 | 区域的新增 / 编辑（`pages/tenant-areas.md` 第 3 节） |
 | 大段文字 | `layout-reading-max-width`（960px） | 条款、帮助说明 |
 
 **卡片**：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，内边距 `space-4`（≥ 768px 为 `space-6`），无阴影。卡片标题 `font-size-lg` + `font-weight-bold`。卡片里不再套卡片；需要再分区时用标题加分隔线。
@@ -90,7 +91,7 @@
    - 装有长文字、表格、代码的 Flex 子元素加 `min-width: 0`。
 4. 表格、代码块、页签条、价格日历等宽内容包在 `overflow-x: auto` 的容器里，容器自身 `max-width: 100%`。
 5. 不会自动断行的长字符串——订单号、商品 ID、邮箱、网址、密钥、WKT 文本——所在元素加 `overflow-wrap: anywhere`。
-6. 图片、视频、地图、图表：`max-width: 100%; height: auto`。
+6. 图片、视频、地图、图表：`max-width: 100%; height: auto`。地图画布的高度由页面规定（`02-components.md` 第 20 节），宽度同样不超过容器。
 7. 固定宽度一律写成「不超过容器」的形式：`width: min(480px, 100%)`。任何元素的固定宽度不得超过 328px（360 − 两侧各 16px 的页面边距），除非它在可滚动的容器里。
 8. 需要占满宽度时用 `100%`，**不用 `100vw`**：`100vw` 包含纵向滚动条的宽度，在有滚动条的系统上必然溢出。
 9. 全屏高度用 `100dvh`，不用 `100vh`（手机浏览器的地址栏会让 `100vh` 比可见区域高）。
