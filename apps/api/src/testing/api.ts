@@ -8,7 +8,8 @@ import { buildApp } from "../app.ts";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
-import { testConfig } from "./fixtures.ts";
+import { loadConfig } from "@nozomi/config";
+import { testConfig, testEnv } from "./fixtures.ts";
 
 /** 测试里统一使用的密码：满足强度规则，且不含任何测试邮箱的邮箱名。 */
 export const TEST_PASSWORD = "Quiet-Harbor-2026";
@@ -57,7 +58,12 @@ export interface TenantFixture {
   adminToken: string;
 }
 
-export async function createTestApi(): Promise<TestApi> {
+export interface TestApiOptions {
+  /** 在测试配置之上追加或覆盖的环境变量（如地图底图的配置） */
+  env?: Record<string, string>;
+}
+
+export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
   const db = await createMigratedTestDatabase();
   const migrationFiles = await loadMigrationFiles();
 
@@ -70,7 +76,7 @@ export async function createTestApi(): Promise<TestApi> {
   };
   let logs = "";
   const app = buildApp({
-    config: testConfig(db.url),
+    config: options.env === undefined ? testConfig(db.url) : loadConfig({ ...testEnv(db.url), ...options.env }),
     pool: db.pool,
     migrationFiles,
     now: clock.now,

@@ -36,6 +36,7 @@
 | `0008_master_data_list_indexes.sql` | 地点表的列表 / 统计索引（类型 × 状态、国家）。只加索引 |
 | `0009_master_data_code_order.sql` | 四张主数据表按编码排序用的索引（逐字节比较）。只加索引 |
 | `0010_city_import_source.sql` | 城市表加「来源」字段（从 GeoNames 导入的城市用，ADR 0014）和两个索引。不含任何数据 |
+| `0011_areas.sql` | 区域（供应商的营运区和禁行区）：`areas`、`area_polygons`，第一批带 `tenant_id` 的业务表；外加创建类接口的幂等键 `idempotency_keys`。三张都开行级安全、只授权给租户角色（ADR 0015）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，其余由平台在后台录入。

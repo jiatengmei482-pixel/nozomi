@@ -49,6 +49,88 @@ const optionalString = z
   .transform((v) => (v === "" ? undefined : v))
   .optional();
 
+/** 浏览器请求瓦片图片时可以用的来源页策略（全站是 no-referrer；多数瓦片服务要求带上来源域名）。 */
+export const MAP_TILE_REFERRER_POLICIES = ["no-referrer", "origin", "strict-origin", "strict-origin-when-cross-origin"] as const;
+export type MapTileReferrerPolicy = (typeof MAP_TILE_REFERRER_POLICIES)[number];
+
+export interface MapTileAttribution {
+  text: string;
+  /** 署名链接；没有链接时为 null */
+  href: string | null;
+}
+
+/** 地图底图的配置。接口原样下发给浏览器（`GET /tenant/v1/map/config`）。 */
+export interface MapTilesConfig {
+  urlTemplate: string;
+  darkUrlTemplate: string | null;
+  minZoom: number;
+  maxZoom: number;
+  tileSize: number;
+  referrerPolicy: MapTileReferrerPolicy;
+  attribution: MapTileAttribution[];
+}
+
+/**
+ * 瓦片地址模板的写法：`https://主机[:端口]/路径`，路径里有 {z}、{x}、{y}。只接受这一种形状——
+ * 它的「协议 + 主机 + 端口」要原样拼进内容安全策略（deploy/bin/compose.sh 用同一条规则取），不能带引号、空白、分号这些字符。
+ */
+const TILE_URL_TEMPLATE = /^(https:\/\/[A-Za-z0-9.-]+(?::[0-9]{1,5})?)\/[A-Za-z0-9._~\-\/{}?=&%@:+,]*$/;
+
+/**
+ * 瓦片地址的来源（协议 + 主机 + 端口），就是要放进内容安全策略 `img-src` 的那个值；地址不合规返回 null。
+ * 本机调试和端到端测试用的 `http://127.0.0.1:端口/…`、`http://localhost:端口/…` 也认。
+ */
+export function mapTileOrigin(urlTemplate: string): string | null {
+  const match = TILE_URL_TEMPLATE.exec(urlTemplate) ?? /^(http:\/\/(?:127\.0\.0\.1|localhost)(?::[0-9]{1,5})?)\/[A-Za-z0-9._~\-\/{}?=&%@:+,]*$/.exec(urlTemplate);
+  if (!match) return null;
+  return ["{z}", "{x}", "{y}"].every((part) => urlTemplate.includes(part)) ? (match[1] as string) : null;
+}
+
+/** 署名的写法：`文字|链接`，多条用 `;;` 隔开；链接可以不写。例如 `© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright`。 */
+function parseAttribution(value: string): MapTileAttribution[] | null {
+  const items = value.split(";;").map((item) => item.trim()).filter((item) => item !== "");
+  const parsed = items.map((item): MapTileAttribution | null => {
+    const [text = "", href = "", ...rest] = item.split("|").map((part) => part.trim());
+    if (text === "" || text.length > 200 || rest.length > 0) return null;
+    if (href !== "" && !/^https:\/\/[^\s"'<>]+$/.test(href)) return null;
+    return { text, href: href === "" ? null : href };
+  });
+  return parsed.length > 0 && parsed.every((item) => item !== null) ? (parsed as MapTileAttribution[]) : null;
+}
+
+function parseMapTiles(env: z.output<typeof rawSchema>, issues: string[]): MapTilesConfig | null {
+  const url = env.MAP_TILE_URL_TEMPLATE;
+  if (url === undefined) {
+    if (env.MAP_TILE_DARK_URL_TEMPLATE !== undefined || env.MAP_TILE_ATTRIBUTION !== undefined) {
+      issues.push("配置了 MAP_TILE_DARK_URL_TEMPLATE 或 MAP_TILE_ATTRIBUTION，却没有 MAP_TILE_URL_TEMPLATE");
+    }
+    return null;
+  }
+  const local = env.APP_ENV === "local" || env.APP_ENV === "ci";
+  const acceptable = (template: string): boolean => {
+    const origin = mapTileOrigin(template);
+    return origin !== null && (origin.startsWith("https://") || local);
+  };
+  const shape = "应当是 https://主机/…{z}/{x}/{y}… 这样的地址，包含 {z}、{x}、{y}，不能有空格和引号";
+  if (!acceptable(url)) issues.push(`MAP_TILE_URL_TEMPLATE ${shape}`);
+  const dark = env.MAP_TILE_DARK_URL_TEMPLATE ?? null;
+  if (dark !== null && !acceptable(dark)) issues.push(`MAP_TILE_DARK_URL_TEMPLATE ${shape}`);
+  const attribution = env.MAP_TILE_ATTRIBUTION === undefined ? null : parseAttribution(env.MAP_TILE_ATTRIBUTION);
+  if (attribution === null) {
+    issues.push("配置了地图底图就必须配置 MAP_TILE_ATTRIBUTION（版权署名，写法：文字|https://链接，多条用 ;; 隔开）：底图服务的使用条款都要求在地图上显示署名");
+  }
+  if (env.MAP_TILE_MIN_ZOOM > env.MAP_TILE_MAX_ZOOM) issues.push("MAP_TILE_MIN_ZOOM 不能大于 MAP_TILE_MAX_ZOOM");
+  return {
+    urlTemplate: url,
+    darkUrlTemplate: dark,
+    minZoom: env.MAP_TILE_MIN_ZOOM,
+    maxZoom: env.MAP_TILE_MAX_ZOOM,
+    tileSize: env.MAP_TILE_SIZE,
+    referrerPolicy: env.MAP_TILE_REFERRER_POLICY,
+    attribution: attribution ?? [],
+  };
+}
+
 const rawSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
@@ -68,6 +150,15 @@ const rawSchema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
+
+  // 地图底图（栅格瓦片）。不是密钥：这些值会经接口下发给浏览器。没配 = 这个环境没有底图。见 ADR 0015。
+  MAP_TILE_URL_TEMPLATE: optionalString,
+  MAP_TILE_DARK_URL_TEMPLATE: optionalString,
+  MAP_TILE_ATTRIBUTION: optionalString,
+  MAP_TILE_REFERRER_POLICY: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(MAP_TILE_REFERRER_POLICIES).default("strict-origin")),
+  MAP_TILE_MIN_ZOOM: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(22).default(3)),
+  MAP_TILE_MAX_ZOOM: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(1).max(22).default(19)),
+  MAP_TILE_SIZE: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().refine((size) => size === 256 || size === 512, "只能是 256 或 512").default(256)),
 
   FX_SOURCE_URL: z.string().url().default("https://open.er-api.com/v6/latest/USD"),
   FX_BUFFER_PERCENT: z.coerce.number().min(0).max(10).default(1.5),
@@ -95,6 +186,8 @@ export interface AppConfig {
   authJwtSecret: string;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
+  /** 地图底图；这个环境没有配置时为 null */
+  mapTiles: MapTilesConfig | null;
   fx: { sourceUrl: string; bufferPercent: number };
 }
 
@@ -150,6 +243,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   const issues: string[] = [];
 
   const stripe = parseStripe(env, issues);
+  const mapTiles = parseMapTiles(env, issues);
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
   if (!googleMapsApiKey && env.APP_ENV === "production") {
     issues.push("production 环境必须配置 GOOGLE_MAPS_API_KEY");
@@ -173,6 +267,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     authJwtSecret: env.AUTH_JWT_SECRET,
     stripe,
     googleMapsApiKey,
+    mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT },
   };
 }

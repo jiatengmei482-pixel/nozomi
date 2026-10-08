@@ -75,6 +75,10 @@ export interface InputIssue {
   /** 出问题的字段，如 `/city_id` */
   path: string;
   message: string;
+  /** 机器可读的原因代码（图形的问题用它，前端按代码显示自己的定稿文字） */
+  reason?: string;
+  /** 原因的补充信息，如交叉的两条边的点号 */
+  detail?: Record<string, number>;
 }
 
 /** 字段的格式都对、但内容不合业务规则（编码格式、时区、引用的记录不存在等）时，用同一种错误返回。 */
@@ -174,4 +178,17 @@ export function ifMatchVersion(header: unknown): number {
     throw validationFailed("headers", [{ path: "/if-match", message: "必须是版本号（正整数），例如 \"3\"" }]);
   }
   return Number(match[1] ?? match[2]);
+}
+
+/**
+ * 请求头 `Idempotency-Key`（需求文档「幂等」：创建类 POST 必须带）。8 到 128 位的字母、数字、`_ . : -`（UUID 就行）。
+ * 没带、格式不对都是 400。
+ */
+export function idempotencyKey(header: unknown): string {
+  if (typeof header !== "string" || !/^[A-Za-z0-9_.:-]{8,128}$/.test(header.trim())) {
+    throw validationFailed("headers", [
+      { path: "/idempotency-key", message: header === undefined ? "必填：新增时要带请求头 Idempotency-Key（例如一个 UUID）" : "必须是 8 到 128 位的字母、数字或 _ . : -" },
+    ]);
+  }
+  return header.trim();
 }

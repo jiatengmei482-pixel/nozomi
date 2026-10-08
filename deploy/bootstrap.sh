@@ -316,7 +316,7 @@ HEADER
   ensure_generated_secret "$file" POSTGRES_PASSWORD 24
   ensure_generated_secret "$file" POSTGRES_APP_PASSWORD 24
   ensure_generated_secret "$file" AUTH_JWT_SECRET 48
-  for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY; do
+  for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY MAP_TILE_URL_TEMPLATE MAP_TILE_ATTRIBUTION; do
     ensure_placeholder "$file" "$key"
   done
   chown "$DEPLOY_USER:$DEPLOY_USER" "$file"

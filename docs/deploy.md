@@ -92,6 +92,28 @@ ssh-keyscan -p SSH端口 服务器IP
 /opt/nozomi/staging/current/bin/compose.sh up -d --wait
 ```
 
+### 9. 以后再做：配置地图底图
+
+供应商后台的区域页面上有地图。不配置底图页面也能用（图形画在空白背景上，旁边有坐标表）；配置之后才有地图背景。
+
+用 `nozomi` 账号登录服务器，编辑环境目录下的 `.env`，填这两行（测试环境用 OpenStreetMap 的免费底图，不需要注册和密钥）：
+
+```
+MAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
+MAP_TILE_ATTRIBUTION=© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright
+```
+
+然后让它生效（和上一节同一条命令）：
+
+```bash
+/opt/nozomi/staging/current/bin/compose.sh up -d --wait
+```
+
+- 这两项不是密钥，值会发给浏览器。地址填错（不是 `https://` 开头、带了引号或空格）时这条命令会直接报错并说明，不会带着错误的配置启动。
+- 网页的安全策略会自动只放行这一个图片来源，不用另外设置；去掉这两行的值再执行一次，就回到没有底图。
+- OpenStreetMap 的免费底图不保证可用、在中国大陆的网络下常常很慢，**只适合测试环境**。正式环境用哪家底图需要你定（`docs/adr/0015-areas.md`「地图底图」）。
+- 使用它意味着：打开区域页面时，你的浏览器会直接向 OpenStreetMap 的服务器请求地图图片，对方能看到你的 IP 和测试环境的域名（看不到账号、区域内容和页面路径）。
+
 ## 二、平时怎么部署
 
 - **测试环境**：什么都不用做。代码合并到 main、自动检查（CI）通过后，自动部署。

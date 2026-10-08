@@ -446,7 +446,7 @@ test("服务器脚本：都有 set -euo pipefail，没有命令回显，仓库�
 
 /** 文档和脚本里允许出现的真实主机名：本项目用到的公开服务（镜像仓库、软件源、第三方平台的网址）。 */
 const ALLOWED_HOSTNAME =
-  /^((.*\.)?example\.(com|net|org)|ghcr\.io|quay\.io|download\.docker\.com|containerd\.io|(.*\.)?github\.com|stripe\.com|console\.cloud\.google\.com|claude\.ai|open\.er-api\.com)$/;
+  /^((.*\.)?example\.(com|net|org)|ghcr\.io|quay\.io|download\.docker\.com|containerd\.io|(.*\.)?github\.com|stripe\.com|console\.cloud\.google\.com|claude\.ai|open\.er-api\.com|(tile|www)\.openstreetmap\.org)$/;
 
 test("部署相关的文件和文档里没有密钥原文，也没有写死的服务器 IP 和真实域名", async () => {
   const files = [
@@ -527,7 +527,7 @@ test("Caddyfile：只有 behind-proxy 才信任上一跳带来的 X-Forwarded-Fo
   assert.match(caddyfile, /^\{\$CADDY_SITE_ADDRESS\} \{$/m);
   assert.match(caddyfile, /^\(tls_off\) \{\n\}$/m);
   const caddyEnvironment = compose.services["caddy"]?.environment ?? {};
-  assert.deepEqual(Object.keys(caddyEnvironment).sort(), ["ACME_EMAIL", "CADDY_SITE_ADDRESS", "CADDY_TLS_MODE", "EDGE_MODE"]);
+  assert.deepEqual(Object.keys(caddyEnvironment).sort(), ["ACME_EMAIL", "CADDY_SITE_ADDRESS", "CADDY_TLS_MODE", "EDGE_MODE", "MAP_TILE_CSP_SOURCES"]);
   for (const key of ["CADDY_SITE_ADDRESS", "CADDY_TLS_MODE", "EDGE_MODE"]) {
     assert.match(caddyEnvironment[key] ?? "", /^\$\{[A-Z_]+:\?[^}]*\}$/, `${key} 必须由 deploy.sh 写入，没有默认值`);
   }

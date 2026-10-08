@@ -39,6 +39,25 @@ while IFS= read -r name; do
   unset "$name"
 done < <(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$root_dir/.env" "$release_env")
 
+# 地图底图的图片来源 → 内容安全策略的 img-src（ADR 0015）。
+# 从 .env 里的瓦片地址取「协议 + 主机 + 端口」，和 API 下发给浏览器的底图地址是同一个变量算出来的，不会一个改了另一个没改。
+# 规则和 packages/config 的 mapTileOrigin 相同：只接受 https://主机[:端口]/…；写错了在这里就停下，而不是把奇怪的字符拼进策略。
+map_tile_csp_sources=""
+tile_url_pattern='^(https://[A-Za-z0-9.-]+(:[0-9]{1,5})?)/[A-Za-z0-9._~/{}?=&%@:+,-]*$'
+for name in MAP_TILE_URL_TEMPLATE MAP_TILE_DARK_URL_TEMPLATE; do
+  template="$(sed -n "s/^${name}=//p" "$root_dir/.env" | tail -n 1)"
+  [[ -n "$template" ]] || continue
+  if [[ ! "$template" =~ $tile_url_pattern ]]; then
+    printf '错误：%s 里的 %s 不是合法的瓦片地址（应当是 https://主机/…{z}/{x}/{y}… ，不带引号和空格）。\n' "$root_dir/.env" "$name" >&2
+    exit 1
+  fi
+  origin="${BASH_REMATCH[1]}"
+  if [[ " $map_tile_csp_sources " != *" $origin "* ]]; then
+    map_tile_csp_sources="${map_tile_csp_sources:+$map_tile_csp_sources }$origin"
+  fi
+done
+export MAP_TILE_CSP_SOURCES="$map_tile_csp_sources"
+
 files=(-f "$release_dir/compose.yml")
 # 入口模式记在这个版本的 release.env 里；behind-proxy 时叠加只改端口发布的那个文件。
 edge_mode="$(sed -n 's/^EDGE_MODE=//p' "$release_env" | tail -n 1)"

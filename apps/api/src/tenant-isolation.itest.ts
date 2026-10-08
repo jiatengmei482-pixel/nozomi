@@ -6,7 +6,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { signAccessToken, verifyAccessToken } from "./auth/token.ts";
-import { withTenantTx } from "./db/context.ts";
+import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
@@ -430,6 +430,204 @@ test("每个租户角色都能看主数据", async () => {
     }
   }
   assert.equal((await api.call("GET", "/tenant/v1/master/cities")).status, 401);
+});
+
+/** 区域的跨租户验证用的数据：平台建一个城市，甲、乙各建一个同名的区域（不同供应商之间允许同名）。 */
+const areaFixture: { cityId?: string; a?: any; b?: any; key?: string } = {};
+const AREA_POLYGON = { kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.6, 35.6], [139.8, 35.6], [139.8, 35.8], [139.6, 35.8], [139.6, 35.6]]] } };
+
+async function seedAreas(): Promise<{ cityId: string; a: any; b: any; key: string }> {
+  if (areaFixture.cityId === undefined) {
+    const city = await api.call("POST", "/platform/v1/master/cities", {
+      token: platformToken,
+      body: { code: "CTY-JP-ISO", country_code: "JP", name: { zh: "隔离测试市" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 } },
+    });
+    assert.equal(city.status, 201, city.text);
+    areaFixture.cityId = city.body.id;
+    // 两个供应商用同一个幂等键、同一个名字各建一个区域：互不相干
+    areaFixture.key = "shared-key-0001";
+    for (const [name, fixture] of [["a", a], ["b", b]] as const) {
+      api.clock.advance(1_000);
+      const res = await api.call("POST", "/tenant/v1/areas", {
+        token: fixture.adminToken,
+        headers: { "idempotency-key": areaFixture.key },
+        body: { city_id: areaFixture.cityId, name: { zh: "市区" }, biz_type: "general", polygons: [AREA_POLYGON, { ...AREA_POLYGON, kind: "forbid" }], tenant_id: name === "a" ? b.tenantId : a.tenantId },
+      });
+      assert.equal(res.status, 201, res.text);
+      areaFixture[name] = res.body;
+    }
+  }
+  return areaFixture as { cityId: string; a: any; b: any; key: string };
+}
+
+async function areaRows(): Promise<unknown> {
+  return {
+    areas: (await api.db.owner.query("select tenant_id, id, name, status, version, updated_at from areas order by id")).rows,
+    polygons: (await api.db.owner.query("select tenant_id, id, area_id, kind, seq, geometry from area_polygons order by id")).rows,
+  };
+}
+
+test("POST /tenant/v1/areas：区域建在令牌所属的供应商名下，请求体里的 tenant_id 不生效；同一个幂等键、同一个名字在两个供应商之间互不相干", async () => {
+  cover("POST /tenant/v1/areas");
+  const areas = await seedAreas();
+  assert.notEqual(areas.a.id, areas.b.id, "同一个幂等键在乙那里没有拿到甲的结果");
+  const rows = await api.db.owner.query("select tenant_id, id from areas order by created_at");
+  assert.deepEqual(rows.rows, [{ tenant_id: a.tenantId, id: areas.a.id }, { tenant_id: b.tenantId, id: areas.b.id }]);
+  // 甲带着同一个键再来：拿回的是甲自己的那一个
+  const again = await api.call("POST", "/tenant/v1/areas", {
+    token: a.adminToken,
+    headers: { "idempotency-key": areas.key },
+    body: { city_id: areas.cityId, name: { zh: "市区" }, biz_type: "general", polygons: [AREA_POLYGON, { ...AREA_POLYGON, kind: "forbid" }] },
+  });
+  assert.deepEqual([again.status, again.body.id], [201, areas.a.id]);
+  assert.ok(!again.text.includes(areas.b.id) && !again.text.includes(b.tenantId));
+  const keys = await api.db.owner.query("select tenant_id from idempotency_keys where key = $1 order by created_at", [areas.key]);
+  assert.deepEqual(keys.rows.map((row) => row.tenant_id), [a.tenantId, b.tenantId]);
+});
+
+test("GET /tenant/v1/areas：只列出自己的区域，筛选、关键字、别人的翻页游标、查询串里的 tenant_id 都翻不出别人的", async () => {
+  cover("GET /tenant/v1/areas");
+  const areas = await seedAreas();
+  for (const query of ["", `?tenant_id=${b.tenantId}`, `?q=${encodeURIComponent("市区")}`, `?city_id=${areas.cityId}`, "?status=all&limit=200"]) {
+    const res = await api.call("GET", `/tenant/v1/areas${query}`, { token: a.adminToken });
+    assert.equal(res.status, 200, res.text);
+    assert.deepEqual([res.body.total, res.body.items.map((item: any) => item.id)], [1, [areas.a.id]], query);
+    assert.ok(!res.text.includes(areas.b.id));
+  }
+  // 乙再建一个，拿乙的翻页游标到甲这里用
+  const more = await api.call("POST", "/tenant/v1/areas", {
+    token: b.adminToken,
+    headers: { "idempotency-key": "isolation-b-second" },
+    body: { city_id: areas.cityId, name: { zh: "乙的第二个区域" }, biz_type: "general", polygons: [AREA_POLYGON] },
+  });
+  assert.equal(more.status, 201, more.text);
+  const bPage = await api.call("GET", "/tenant/v1/areas?limit=1", { token: b.adminToken });
+  assert.ok(bPage.body.next_cursor);
+  const stolen = await api.call("GET", `/tenant/v1/areas?cursor=${bPage.body.next_cursor}`, { token: a.adminToken });
+  assert.equal(stolen.status, 200);
+  assert.ok(stolen.body.items.every((item: any) => item.id === areas.a.id));
+  assert.equal((await api.call("DELETE", `/tenant/v1/areas/${more.body.id}`, { token: b.adminToken })).status, 204);
+});
+
+test("GET /tenant/v1/areas/{id}：别的供应商的区域是 404，和根本不存在的一模一样", async () => {
+  cover("GET /tenant/v1/areas/:id");
+  const areas = await seedAreas();
+  const foreign = await api.call("GET", `/tenant/v1/areas/${areas.b.id}?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  const missing = await api.call("GET", "/tenant/v1/areas/99999999-9999-4999-8999-999999999999", { token: a.adminToken });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  assert.equal((await api.call("GET", `/tenant/v1/areas/${areas.a.id}`, { token: a.adminToken })).body.id, areas.a.id);
+});
+
+test("PUT /tenant/v1/areas/{id}：改不了别的供应商的区域（404，对方的数据原样不动）；也不能把别人的图形编号塞进自己的区域", async () => {
+  cover("PUT /tenant/v1/areas/:id");
+  const areas = await seedAreas();
+  const before = await areaRows();
+  const payload = { name: { zh: "被甲改了" }, biz_type: "charter", polygons: [AREA_POLYGON], tenant_id: b.tenantId };
+  for (const version of [1, areas.b.version, 99]) {
+    const res = await api.call("PUT", `/tenant/v1/areas/${areas.b.id}`, { token: a.adminToken, headers: { "if-match": `"${version}"` }, body: payload });
+    assert.equal(res.status, 404, `版本 ${version}`);
+    assert.equal(res.body.error.code, "NOT_FOUND");
+  }
+  const smuggled = await api.call("PUT", `/tenant/v1/areas/${areas.a.id}`, {
+    token: a.adminToken,
+    headers: { "if-match": `"${areas.a.version}"` },
+    body: { name: areas.a.name, biz_type: "general", polygons: [{ ...AREA_POLYGON, id: areas.b.polygons[0].id }] },
+  });
+  assert.equal(smuggled.status, 400);
+  assert.deepEqual(smuggled.body.error.details.issues.map((issue: any) => [issue.path, issue.reason]), [["/polygons/0/id", "UNKNOWN_POLYGON"]]);
+  assert.deepEqual(await areaRows(), before);
+});
+
+test("DELETE /tenant/v1/areas/{id}：删不了别的供应商的区域", async () => {
+  cover("DELETE /tenant/v1/areas/:id");
+  const areas = await seedAreas();
+  const before = await areaRows();
+  const res = await api.call("DELETE", `/tenant/v1/areas/${areas.b.id}`, { token: a.adminToken });
+  const missing = await api.call("DELETE", "/tenant/v1/areas/99999999-9999-4999-8999-999999999999", { token: a.adminToken });
+  assert.equal(res.status, 404);
+  assert.equal(res.text, missing.text);
+  assert.deepEqual(await areaRows(), before);
+  assert.equal((await api.call("GET", `/tenant/v1/areas/${areas.b.id}`, { token: b.adminToken })).status, 200);
+});
+
+test("POST /tenant/v1/areas/{id}/disable、enable：停用、启用不了别的供应商的区域", async () => {
+  cover("POST /tenant/v1/areas/:id/disable");
+  cover("POST /tenant/v1/areas/:id/enable");
+  const areas = await seedAreas();
+  const before = await areaRows();
+  for (const action of ["disable", "enable"]) {
+    const res = await api.call("POST", `/tenant/v1/areas/${areas.b.id}/${action}`, { token: a.adminToken, body: { tenant_id: b.tenantId } });
+    assert.equal(res.status, 404, action);
+  }
+  assert.deepEqual(await areaRows(), before);
+});
+
+test("POST /tenant/v1/areas/{id}/check-point：自测不了别的供应商的区域（不暴露它存不存在、画在哪里）", async () => {
+  cover("POST /tenant/v1/areas/:id/check-point");
+  const areas = await seedAreas();
+  const point = { lat: 35.7, lng: 139.7 };
+  const foreign = await api.call("POST", `/tenant/v1/areas/${areas.b.id}/check-point`, { token: a.adminToken, body: point });
+  const missing = await api.call("POST", "/tenant/v1/areas/99999999-9999-4999-8999-999999999999/check-point", { token: a.adminToken, body: point });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  const own = await api.call("POST", `/tenant/v1/areas/${areas.a.id}/check-point`, { token: a.adminToken, body: point });
+  assert.deepEqual([own.body.result, own.body.forbid_polygon_ids], ["forbid", [areas.a.polygons[1].id]]);
+  assert.ok(!own.text.includes(areas.b.polygons[0].id));
+});
+
+test("GET /tenant/v1/dashboard/summary：只数自己的区域", async () => {
+  cover("GET /tenant/v1/dashboard/summary");
+  await seedAreas();
+  const extra = await api.tenantWithAdmin(platformToken, "车队丙", "admin@c.test");
+  assert.deepEqual((await api.call("GET", `/tenant/v1/dashboard/summary?tenant_id=${b.tenantId}`, { token: extra.adminToken })).body, { areas: { active: 0, disabled: 0 } });
+  assert.deepEqual((await api.call("GET", "/tenant/v1/dashboard/summary", { token: a.adminToken })).body, { areas: { active: 1, disabled: 0 } });
+});
+
+test("GET /tenant/v1/map/config：底图配置和供应商无关，两边拿到的一样，里面没有任何供应商的信息", async () => {
+  cover("GET /tenant/v1/map/config");
+  const fromA = await api.call("GET", `/tenant/v1/map/config?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  const fromB = await api.call("GET", "/tenant/v1/map/config", { token: b.adminToken });
+  assert.equal(fromA.status, 200);
+  assert.deepEqual(fromA.body, fromB.body);
+  assert.ok(!fromA.text.includes(a.tenantId) && !fromA.text.includes(b.tenantId));
+});
+
+test("区域的隔离（数据库层面）：租户事务里不带任何条件也只看得到、改得到、删得到自己的行；写不进别人名下；幂等键也一样", async () => {
+  const areas = await seedAreas();
+  const before = await areaRows();
+  for (const table of ["areas", "area_polygons", "idempotency_keys"]) {
+    const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>(`select distinct tenant_id from ${table}`));
+    assert.deepEqual(seen.rows.map((row) => row.tenant_id), [a.tenantId], table);
+  }
+  const touched = await withTenantTx(api.db.pool, a.tenantId, async (db) => {
+    const updated = await db.query("update areas set status = 'disabled' where id = $1", [areas.b.id]);
+    const moved = await db.query("update area_polygons set kind = 'forbid' where area_id = $1", [areas.b.id]);
+    const deleted = await db.query("delete from areas where id = $1", [areas.b.id]);
+    const polygons = await db.query("delete from area_polygons where area_id = $1", [areas.b.id]);
+    return [updated.rowCount, moved.rowCount, deleted.rowCount, polygons.rowCount];
+  });
+  assert.deepEqual(touched, [0, 0, 0, 0]);
+  await assert.rejects(
+    withTenantTx(api.db.pool, a.tenantId, (db) =>
+      db.query(
+        `insert into areas (tenant_id, city_id, name, name_keys, biz_type, status, created_at, updated_at)
+         values ($1, $2, '{"zh": "塞进别人名下"}', '{塞进别人名下}', 'general', 'active', now(), now())`,
+        [b.tenantId, areas.cityId],
+      ),
+    ),
+    { code: "42501" },
+  );
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update areas set tenant_id = $1 where id = $2", [b.tenantId, areas.a.id])), { code: "42501" });
+  await assert.rejects(
+    withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into idempotency_keys (tenant_id, scope, key, request_hash, created_at) values ($1, 's', 'stolen-key-0001', 'h', now())", [b.tenantId])),
+    { code: "42501" },
+  );
+  // 没有设置租户（登录前的角色、平台角色）一行都碰不到：这三张表没有给它们任何权限
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from areas")), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from area_polygons")), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from idempotency_keys")), deniedByDatabase);
+  assert.deepEqual(await areaRows(), before);
 });
 
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {

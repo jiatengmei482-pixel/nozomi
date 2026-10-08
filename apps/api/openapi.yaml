@@ -78,6 +78,8 @@ tags:
     description: 平台统一维护的城市、地点（机场 / 车站 / 地标 / 航站楼 / 出口）、车型组、附加服务；只停用、不删除
   - name: 租户主数据
     description: 租户只读地查看平台主数据（配置区域和商品时引用）
+  - name: 区域
+    description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
 paths:
   /health:
     get:
@@ -2165,6 +2167,327 @@ paths:
                 $ref: "#/components/schemas/Addon"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/areas:
+    get:
+      tags: [区域]
+      operationId: listAreas
+      summary: 区域列表
+      description: |
+        需要操作 `area.read`（管理员、商品价格、只读）。只返回令牌所属供应商自己的区域，按最近修改从新到旧
+        （修改时间相同的按编号，顺序稳定）。列表里的每一项不带图形的坐标（没有 `polygons`），只带块数。
+        `total` 是符合筛选条件的总数，和这一页的内容读自同一时刻的数据。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          description: 关键字：任意一种语言的名称里包含它（不区分大小写；`%`、`_` 按字面匹配）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: city_id
+          in: query
+          description: 只看这个城市的区域
+          schema:
+            type: string
+            format: uuid
+        - name: biz_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/AreaBizType"
+        - name: status
+          in: query
+          description: 按状态筛选；不带或 `all` 表示全部
+          schema:
+            type: string
+            enum: [active, disabled, all]
+            default: all
+      responses:
+        "200":
+          description: 一页区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AreaSummary"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [区域]
+      operationId: createArea
+      summary: 新增区域
+      description: |
+        需要操作 `area.manage`（管理员、商品价格）。必须带请求头 `Idempotency-Key`。
+        - 所属城市必须是平台启用中的城市；创建后不能改。新增的区域直接是启用的。
+        - 至少一块营运区；每一块是不带洞的简单多边形。多边形给 `geometry`；圆给 `circle`（圆心 + 半径），
+          后端用 `@nozomi/domain` 的 `circleToRing` 算出 64 边的多边形保存——判断「点在不在里面」只认多边形。
+        - 保存时图形被整理成：6 位小数、逆时针（第一个点不变）、首尾闭合。返回的就是整理后的。
+        - 每块图形的 `seq`（「营运 1」里的 1）由后端分配。
+        - 同一个供应商在同一个城市里不能有同名的区域（不分大小写、全角半角，不看是哪种语言）。
+        - 上限：一个区域最多 50 块图形、一个多边形最多 1000 个点、合计最多 5000 个点；圆的半径 100 到 100000 米。
+        写审计日志（`resource` = `area`，`action` = `create`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaCreate"
+      responses:
+        "201":
+          description: 新增的区域（同一个幂等键再来时，原样返回第一次的这份应答）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "409":
+          description: |
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `MASTER_DATA_NOT_READY`：所属城市已被平台停用（`details.reason` = `CITY_DISABLED`）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}:
+    get:
+      tags: [区域]
+      operationId: getArea
+      summary: 查看一个区域
+      description: 需要操作 `area.read`。带全部图形。别的供应商的区域是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [区域]
+      operationId: updateArea
+      summary: 修改区域
+      description: |
+        需要操作 `area.manage`。必须用请求头 `If-Match` 带上当前的 `version`。
+        名称、业务类型、图形都是**整体替换**：`polygons` 里没有的图形被删掉。
+        - 已有的图形带上它的 `id`（编号不变；类别没变的话序号也不变）；新加的图形不带 `id`，序号按这一类保存前的最大序号往上数，删掉的序号不再用。
+        - 把 `GET` 拿到的 `polygons` 原样提交回来是合法的（多出来的 `seq` 被忽略）。
+        - 不能改城市：带了 `city_id` 且和现有的不同返回 409 `FIELD_LOCKED`。
+        - 内容没有变化时原样返回，`version` 不变、不写日志。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaUpdate"
+      responses:
+        "200":
+          description: 修改后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了城市，`details.fields` = `["city_id"]`
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [区域]
+      operationId: deleteArea
+      summary: 删除区域
+      description: |
+        需要操作 `area.manage`。区域可以真的删除（连同它的图形），删了不能恢复；删除前的完整内容记在审计日志里（`action` = `delete`）。
+        只是暂时不用的话请用停用。被已上架的商品引用时不能删除（409 `AREA_IN_USE`）——这条规则随商品（M1-03）一起生效，现在不会返回。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量（M1-03 起）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/disable:
+    post:
+      tags: [区域]
+      operationId: disableArea
+      summary: 停用区域
+      description: |
+        需要操作 `area.manage`。停用 = 暂时不用：建商品时不能再选它、报价时不再使用它；区域和图形都保留，可以再启用，停用期间也可以修改和自测。
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）——随商品（M1-03）一起生效，现在不会返回。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域（M1-03 起）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/enable:
+    post:
+      tags: [区域]
+      operationId: enableArea
+      summary: 启用区域
+      description: |
+        需要操作 `area.manage`。所属城市必须是平台启用中的城市。已经启用的再次调用原样返回。
+        有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：所属城市已被平台停用（`details.reason` = `CITY_DISABLED`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/check-point:
+    post:
+      tags: [区域]
+      operationId: checkAreaPoint
+      summary: 自测：一个位置在区域的哪里
+      description: |
+        需要操作 `area.read`。按**已保存**的图形判断，禁行区优先；不管在不在里面都返回 200。正好压在边线上的位置算在里面。
+        只看这一个区域自己的图形（禁行区只管它所在的区域）；停用的区域也能测。不写任何东西。
+        判断用的是 `@nozomi/domain` 的 `locatePoint`，以后报价用的也是它。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lng:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+      responses:
+        "200":
+          description: 判断结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AreaPointCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/map/config:
+    get:
+      tags: [区域]
+      operationId: getTenantMapConfig
+      summary: 地图底图的配置
+      description: |
+        任何已登录的供应商账号都能调（账号必须先修改密码时同样被拦）。返回这个环境的底图（栅格瓦片）配置；没有配置时 `tiles` 是 null，
+        页面按「没有配置底图」显示，功能不受影响。
+        值来自部署环境的配置（`MAP_TILE_URL_TEMPLATE` 等），内容和供应商无关。全站的内容安全策略 `img-src` 放行的就是这里的瓦片来源（同一个环境变量算出来的）。
+        全站 `Referrer-Policy` 是 `no-referrer`；瓦片图片请按 `referrer_policy` 单独设置（多数底图服务要求带上来源域名）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 底图配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapConfig"
+  /tenant/v1/dashboard/summary:
+    get:
+      tags: [区域]
+      operationId: getTenantDashboardSummary
+      summary: 供应商后台首页的数量
+      description: |
+        任何已登录的供应商账号都能调（账号必须先修改密码时同样被拦）。按模块分组，只有数量；只数令牌所属供应商自己的。
+        每个模块只给有权看它的角色：没有 `area.read` 的角色拿到的 `areas` 是 null。以后每个模块加一组，不改已有的字段。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 各模块的数量
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantDashboardSummary"
 components:
   securitySchemes:
     platformToken:
@@ -2222,6 +2545,17 @@ components:
       schema:
         type: string
         maxLength: 50
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        幂等键：8 到 128 位的字母、数字或 `_ . : -`（用一个 UUID 就行）。同一个供应商、同一个接口、24 小时内，
+        同一个键配同样的内容再来，原样返回第一次的应答，不会重复创建；配了不同的内容返回 422 `IDEMPOTENCY_KEY_REUSED`。
+        失败的请求不占用键，修好以后可以带同一个键重试。没带或格式不对返回 400 `VALIDATION_FAILED`（`/idempotency-key`）。
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_.:-]{8,128}$"
     MasterSort:
       name: sort
       in: query
@@ -2338,6 +2672,20 @@ components:
       description: |
         - `INVITE_INVALID`：邀请令牌不存在、已用过或已过期
         - `WEAK_PASSWORD`：密码强度不够，`details.issues` 列出每一条没满足的规则（`code` + `message`）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AreaInvalid:
+      description: |
+        `VALIDATION_FAILED`：字段或图形不合规。`details.issues[]` 每条有 `path`、`message`（中文），图形的问题另有机器可读的 `reason`：
+        `NO_OPERATE_POLYGON`、`TOO_MANY_POLYGONS`、`TOO_MANY_TOTAL_VERTICES`（`path` 是 `/polygons`）；
+        `INVALID_COORDINATE`、`TOO_FEW_POINTS`、`TOO_MANY_VERTICES`、`DUPLICATE_POINT`、`CROSSES_ANTIMERIDIAN`、`COLLINEAR`、
+        `SELF_INTERSECTION`、`HAS_HOLES`（`path` 是 `/polygons/{i}/geometry`）；`RADIUS_OUT_OF_RANGE`（`/polygons/{i}/circle/radius_m`）；
+        `UNKNOWN_POLYGON`（`/polygons/{i}/id`：这个编号的图形不在这个区域里）。
+        部分原因带 `detail`：`SELF_INTERSECTION` 是 `{ a, b }`（第 a–a+1 个点之间的边和第 b–b+1 个点之间的边交叉，点号从 1 数）；
+        `DUPLICATE_POINT` 是 `{ a, b }`；`INVALID_COORDINATE` 是 `{ point }`；`TOO_FEW_POINTS`、`TOO_MANY_VERTICES`、`TOO_MANY_POLYGONS`、`TOO_MANY_TOTAL_VERTICES` 是 `{ count }`。
+        这些代码和 `@nozomi/domain` 的 `ringIssues` / `areaShapeIssues` 返回的是同一套。
       content:
         application/json:
           schema:
@@ -2493,7 +2841,7 @@ components:
       enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -2707,7 +3055,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area]
         resource_id:
           type: [string, "null"]
         action:
@@ -2722,6 +3070,7 @@ components:
             - disable
             - enable
             - update
+            - delete
             - change_role
             - change_password
             - request_password_reset
@@ -2771,7 +3120,7 @@ components:
           enum: [console, api]
         resource:
           type: string
-          enum: [tenant_user]
+          enum: [tenant_user, area]
         resource_id:
           type: [string, "null"]
         action:
@@ -3466,3 +3815,335 @@ components:
               $ref: "#/components/schemas/StatusCounts"
             addons:
               $ref: "#/components/schemas/StatusCounts"
+    AreaBizType:
+      type: string
+      enum: [general, airport_transfer, point_to_point, charter]
+      description: 业务类型：通用、接送机、点对点、包车。建商品时只能选到业务类型和商品品类相同的区域，或「通用」的区域
+    AreaPolygonKind:
+      type: string
+      enum: [operate, forbid]
+      description: "operate：营运区；forbid：禁行区（优先于营运区）"
+    AreaPolygonSource:
+      type: string
+      enum: [drawn, pasted, circle]
+      description: "这块图形是怎么来的：drawn 画的；pasted 粘贴的；circle 圆。只影响之后怎么编辑，不影响判断"
+    AreaGeometry:
+      type: object
+      additionalProperties: false
+      required: [type, coordinates]
+      description: GeoJSON 的 Polygon：只有一圈（不带洞）、首尾闭合、`[经度, 纬度]`、6 位小数、逆时针
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+        coordinates:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: array
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                type: number
+    AreaCircle:
+      type: object
+      additionalProperties: false
+      required: [center, radius_m]
+      description: 圆心和半径。只用于再次编辑；判断只认 `geometry` 里的多边形
+      properties:
+        center:
+          type: object
+          additionalProperties: false
+          required: [lat, lng]
+          properties:
+            lat:
+              type: number
+              minimum: -90
+              maximum: 90
+            lng:
+              type: number
+              minimum: -180
+              maximum: 180
+        radius_m:
+          type: integer
+          minimum: 100
+          maximum: 100000
+          description: 半径（整数米）：0.1 到 100 公里
+    AreaPolygon:
+      type: object
+      additionalProperties: false
+      required: [id, kind, seq, label, source, circle, geometry]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/AreaPolygonKind"
+        seq:
+          type: integer
+          minimum: 1
+          description: 这一类里的序号（「营运 1」里的 1）。由后端分配，删除别的图形后不重排
+        label:
+          type: [string, "null"]
+          maxLength: 40
+          description: 备注名
+        source:
+          $ref: "#/components/schemas/AreaPolygonSource"
+        circle:
+          description: "`source` 是 `circle` 时有，其余为 null"
+          oneOf:
+            - $ref: "#/components/schemas/AreaCircle"
+            - type: "null"
+        geometry:
+          $ref: "#/components/schemas/AreaGeometry"
+    AreaPolygonInput:
+      type: object
+      required: [kind]
+      description: |
+        提交的一块图形。多边形：给 `geometry`（`circle` 不给或为 null）；圆：给 `circle`，不用给 `geometry`（给了也不看，后端按圆心半径重算）。
+        已有的图形带 `id`，新加的不带。`seq` 不用给（给了被忽略）。
+      properties:
+        id:
+          type: [string, "null"]
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/AreaPolygonKind"
+        label:
+          type: [string, "null"]
+          maxLength: 40
+        source:
+          description: 不给时：有 `circle` 的是 `circle`，其余是 `drawn`
+          oneOf:
+            - $ref: "#/components/schemas/AreaPolygonSource"
+            - type: "null"
+        circle:
+          oneOf:
+            - $ref: "#/components/schemas/AreaCircle"
+            - type: "null"
+        geometry:
+          description: 提交时可以是顺时针、可以多于 6 位小数、可以不闭合；带洞的不接受
+          oneOf:
+            - type: object
+              required: [type, coordinates]
+              properties:
+                type:
+                  type: string
+                  enum: [Polygon]
+                coordinates:
+                  type: array
+            - type: "null"
+    AreaCity:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, status, center, boundary]
+      description: 区域所属城市的信息（读取时现查的最新值）
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        center:
+          $ref: "#/components/schemas/Point"
+        boundary:
+          oneOf:
+            - $ref: "#/components/schemas/Boundary"
+            - type: "null"
+    AreaSummary:
+      type: object
+      additionalProperties: false
+      description: 列表里的一项：不带图形的坐标
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          description: 多语言名称，至少一种语言，每种最多 100 个字
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+          description: 所属城市；创建后不能改
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Area:
+      type: object
+      additionalProperties: false
+      description: 区域的详情：比列表项多全部图形
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, version, created_at, updated_at, polygons]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          description: 全部图形，按加入的先后
+          items:
+            $ref: "#/components/schemas/AreaPolygon"
+    AreaCreate:
+      type: object
+      required: [city_id, name, biz_type, polygons]
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        polygons:
+          type: array
+          items:
+            $ref: "#/components/schemas/AreaPolygonInput"
+    AreaUpdate:
+      type: object
+      required: [name, biz_type, polygons]
+      description: 整体替换。`city_id` 不用带；带了且和现有的不同返回 409 `FIELD_LOCKED`
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        polygons:
+          type: array
+          items:
+            $ref: "#/components/schemas/AreaPolygonInput"
+    AreaPointCheck:
+      type: object
+      additionalProperties: false
+      required: [result, operate_polygon_ids, forbid_polygon_ids]
+      properties:
+        result:
+          type: string
+          enum: [operate, forbid, outside]
+          description: "operate：在营运区里且不在禁行区里；forbid：在任何一块禁行区里；outside：都不在"
+        operate_polygon_ids:
+          type: array
+          description: 这个位置落在其中的全部营运区（`result` 是 `forbid` 时也列出来）
+          items:
+            type: string
+            format: uuid
+        forbid_polygon_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    MapConfig:
+      type: object
+      additionalProperties: false
+      required: [tiles]
+      properties:
+        tiles:
+          type: [object, "null"]
+          description: 栅格瓦片底图；这个环境没有配置时为 null
+          additionalProperties: false
+          required: [url_template, dark_url_template, min_zoom, max_zoom, tile_size, referrer_policy, attribution]
+          properties:
+            url_template:
+              type: string
+              description: 瓦片地址模板，含 `{z}`、`{x}`、`{y}`
+              examples: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"]
+            dark_url_template:
+              type: [string, "null"]
+              description: 暗色主题用的瓦片地址；没有时为 null（前端用滤镜压暗）
+            min_zoom:
+              type: integer
+            max_zoom:
+              type: integer
+            tile_size:
+              type: integer
+              enum: [256, 512]
+            referrer_policy:
+              type: string
+              enum: [no-referrer, origin, strict-origin, strict-origin-when-cross-origin]
+              description: 请求瓦片图片时用的来源页策略（设在瓦片图片上，不改全站的策略）
+            attribution:
+              type: array
+              description: 必须在地图上常驻显示的版权署名
+              items:
+                type: object
+                additionalProperties: false
+                required: [text, href]
+                properties:
+                  text:
+                    type: string
+                  href:
+                    type: [string, "null"]
+    TenantDashboardSummary:
+      type: object
+      additionalProperties: false
+      required: [areas]
+      properties:
+        areas:
+          type: [object, "null"]
+          description: 本供应商的区域数量；当前角色没有 `area.read` 时为 null
+          additionalProperties: false
+          required: [active, disabled]
+          properties:
+            active:
+              type: integer
+              minimum: 0
+            disabled:
+              type: integer
+              minimum: 0
