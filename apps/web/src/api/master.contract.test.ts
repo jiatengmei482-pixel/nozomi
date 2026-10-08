@@ -89,6 +89,17 @@ test("列表接口的查询参数名：前端用到的每一个，接口都认",
   assert.ok(text.includes("`none` 表示只看还没有所属城市的地点"), "city_id=none 的约定变了");
 });
 
+test("待指定城市的地点列表带城市建议：顶层可选字段 city_suggestions，每项指向 PlaceCitySuggestion", () => {
+  const list = body(op("get", `${MASTER_BASE}/places`), "200");
+  assert.equal(ref(list?.properties?.["city_suggestions"]?.items), "PlaceCitySuggestion");
+  assert.equal((list?.required ?? []).includes("city_suggestions"), false, "只在 city_id=none 时才有，前端按可选处理");
+  const suggestion = schemas["PlaceCitySuggestion"];
+  assert.equal(ref(suggestion?.properties?.["nearby_cities"]?.items), "CitySuggestion");
+  assert.ok((suggestion?.properties?.["suggested_city"]?.oneOf ?? []).some((option) => ref(option) === "CitySuggestion"));
+  assert.ok((suggestion?.properties?.["suggested_city"]?.oneOf ?? []).some((option) => option.type === "null"), "没有合适的城市时是 null");
+  assert.equal(schemas["CitySuggestion"]?.properties?.["distance_km"]?.type, "number");
+});
+
 test("启用地点时可以带 city_id 一次完成指定城市并启用", () => {
   const request = op("post", `${MASTER_BASE}/places/{id}/enable`).requestBody?.content?.["application/json"]?.schema;
   assert.deepEqual(Object.keys(request?.properties ?? {}), ["city_id"]);

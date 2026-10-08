@@ -16,13 +16,14 @@ interface Row {
   country?: string;
   scheduled?: string;
   iata?: string;
+  municipality?: string;
 }
 
 function line(row: Row): string {
   const name = row.name ?? `Test Airport ${row.id}`;
   return [
     row.id, `"T${row.id}"`, `"${row.type ?? "large_airport"}"`, `"${name}"`, row.lat ?? "35.5", row.lng ?? "139.7", "10", '"AS"',
-    `"${row.country ?? "JP"}"`, '"JP-13"', '"Testville"', `"${row.scheduled ?? "yes"}"`, "", `"${row.iata ?? ""}"`, "", "", "", "", '"a, b"',
+    `"${row.country ?? "JP"}"`, '"JP-13"', `"${row.municipality ?? "Testville"}"`, `"${row.scheduled ?? "yes"}"`, "", `"${row.iata ?? ""}"`, "", "", "", "", '"a, b"',
   ].join(",");
 }
 
@@ -53,7 +54,7 @@ test("只挑所选国家里有定期航班的大型、中型机场", () => {
   );
   assert.equal(selection.totalRows, 8);
   assert.deepEqual(selection.airports.map((airport) => airport.iata), ["AAA", "BBB", "GGG"]);
-  assert.deepEqual(selection.airports[0], { sourceRef: "1", iata: "AAA", countryCode: "JP", name: "Alpha, International", lat: 35.549678, lng: 139.786958 });
+  assert.deepEqual(selection.airports[0], { sourceRef: "1", iata: "AAA", countryCode: "JP", name: "Alpha, International", lat: 35.549678, lng: 139.786958, municipality: "Testville" });
   assert.deepEqual(selection.skipped, []);
   assert.deepEqual(selection.outOfScopeRefs, ["3", "4", "5", "6"], "所选国家里不在范围内的记录要记下编号；别的国家的不记");
 });
@@ -223,4 +224,21 @@ test("导入计划：以前导入过、现在数据源里关闭了或没有定�
   const plan = planAirportImport([existing({ code: "AAA", sourceRef: "1" }), existing({ code: "BBB", sourceRef: "2" })], selection);
   assert.deepEqual(plan.outOfScope, ["AAA", "BBB"]);
   assert.deepEqual([plan.creates, plan.updates, plan.unchanged], [[], [], []]);
+});
+
+test("所属城市名（municipality）：原样带出，去掉首尾空白；没填、只有空白、超长时为 null；文件里没有这一列也能导入", () => {
+  const selection = selectAirports(
+    csv([
+      { id: "1", iata: "AAA", municipality: " Tokyo " },
+      { id: "2", iata: "BBB", municipality: "" },
+      { id: "3", iata: "CCC", municipality: "   " },
+      { id: "4", iata: "DDD", municipality: "x".repeat(201) },
+      { id: "5", iata: "EEE", municipality: "Seoul (Gangseo-gu)" },
+    ]),
+    null,
+  );
+  assert.deepEqual(selection.airports.map((airport) => airport.municipality), ["Tokyo", null, null, null, "Seoul (Gangseo-gu)"]);
+  assert.deepEqual(selection.skipped, [], "城市名不合格不影响机场本身导入");
+  const withoutColumn = selectAirports('"id","type","name","latitude_deg","longitude_deg","iso_country","scheduled_service","iata_code"\n1,"large_airport","Alpha",35.5,139.7,"JP","yes","AAA"\n', null);
+  assert.deepEqual(withoutColumn.airports.map((airport) => [airport.iata, airport.municipality]), [["AAA", null]]);
 });

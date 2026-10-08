@@ -124,6 +124,9 @@ test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出
   }
 });
 
+const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
+const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
+
 test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用 localStorage，登录状态只用 sessionStorage", () => {
   for (const { name, text: withComments } of sources) {
     const text = stripComments(withComments);
@@ -131,14 +134,35 @@ test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用
     if (/\bsessionStorage\b/.test(text)) assert.equal(name, "auth/session-store.ts", `${name} 用了 sessionStorage`);
     assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel|postMessage\(/, `${name} 用了别的存放或传递途径`);
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
-    assert.doesNotMatch(text, /window\.open\(|target="_blank"/, `${name} 打开新窗口（会带出 opener / Referer）`);
+    assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
+    // 新标签页打开的链接只允许出现在专用的站外链接组件里
+    if (name !== EXTERNAL_LINK_COMPONENT) assert.doesNotMatch(text, /target="_blank"/, `${name} 打开新窗口（会带出 opener / Referer）`);
   }
+});
+
+test("站外链接组件写死了 noopener noreferrer：对方页面拿不到本站窗口，也看不到来源地址", () => {
+  const component = sources.find((source) => source.name === EXTERNAL_LINK_COMPONENT);
+  assert.ok(component, `找不到 ${EXTERNAL_LINK_COMPONENT}`);
+  const text = stripComments(component.text);
+  const opens = text.match(/target="_blank"/g) ?? [];
+  assert.equal(opens.length, 1);
+  assert.match(text, /target="_blank" rel="noopener noreferrer"/);
+  assert.doesNotMatch(text, /rel=\{/, "rel 不能由调用方传入");
+  assert.match(text, /href=\{EXTERNAL_LINKS\[to\]\}/, "地址只能来自登记的清单");
+});
+
+test("站外地址只登记在 lib/external-links.ts：恰好是预期的三个，都是 https", () => {
+  const registry = sources.find((source) => source.name === EXTERNAL_LINK_REGISTRY);
+  assert.ok(registry, `找不到 ${EXTERNAL_LINK_REGISTRY}`);
+  const urls = [...stripComments(registry.text).matchAll(/["'](https?:\/\/[^"']+)["']/g)].map((match) => match[1]).sort();
+  assert.deepEqual(urls, ["https://creativecommons.org/licenses/by/4.0/", "https://ourairports.com/data/", "https://www.geonames.org/"]);
 });
 
 test("前端只用相对路径调接口：代码里没有写死的站点地址、没有环境变量", () => {
   for (const { name, text } of sources) {
     const withoutComments = stripComments(text);
-    assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
+    // 站外地址只允许集中登记在这一个文件里（下面另有一条核对它的内容）
+    if (name !== EXTERNAL_LINK_REGISTRY) assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
     assert.doesNotMatch(withoutComments, /import\.meta\.env|process\.env/, `${name} 读了环境变量；密钥和配置不能进前端产物`);
   }
 });

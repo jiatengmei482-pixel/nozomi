@@ -3,6 +3,7 @@
  * 键盘：↓ 打开；↑↓ 移动高亮；Enter 选中；Esc 关闭并把焦点留在输入框。面板关着的时候 Enter 不拦截（提交表单）。
  * 输入文字后第一个匹配项是「暂定」的高亮：直接 Enter 选它；这时按 ↓ 是确认落在它上面（不跳到第二个），再按才往下走。
  * 所以「输入 → ↓ → Enter」和「输入 → Enter」选中的都是第一个匹配项。
+ * 重新输入了和已选项一模一样的文字时（值没变，不会有变更通知）面板也照常打开。
  */
 import { type KeyboardEvent, type Ref, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon.tsx";
@@ -60,6 +61,18 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
   // 高亮是输入文字后自动给的，还没被方向键确认过
   const tentative = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const attach = (node: HTMLInputElement | null): void => {
+    inputRef.current = node;
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+  };
+
+  // 值被别处填进来（例如按建议预填）而焦点正好在输入框里：把文字全选，接着打字是替换，不是接在后面
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input && value !== null && document.activeElement === input) input.select();
+  }, [value]);
   const visible = useMemo(() => {
     const filtered = options.filter((option) => matches(option, query ?? ""));
     return clearLabel !== undefined && (query ?? "") === "" ? [{ value: "", label: clearLabel }, ...filtered] : filtered;
@@ -147,7 +160,7 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
       </label>
       <div className="field__control combobox">
         <input
-          ref={ref}
+          ref={attach}
           id={id}
           className="input input--with-suffix"
           role="combobox"
@@ -169,6 +182,7 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
             setActive(tentative.current ? 0 : -1);
             if (event.target.value === "" && value !== null) onChange(null);
           }}
+          onInput={() => setOpen(true)}
           onFocus={(event) => event.target.select()}
           onClick={() => {
             if (!open) {

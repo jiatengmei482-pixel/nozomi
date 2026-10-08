@@ -18,7 +18,7 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfig } from "@nozomi/config";
-import { type CitySelection, DEFAULT_MIN_POPULATION, GEONAMES, selectCities } from "@nozomi/domain";
+import { type CitySelection, DEFAULT_MIN_POPULATION, EXCLUDED_CITY_REASON_NAMES, GEONAMES, selectCities } from "@nozomi/domain";
 import { createPool } from "../db/pool.ts";
 import { downloadCities, downloadCityNames, geonamesText } from "../integrations/geonames.ts";
 import { type CityImportResult, importCities } from "../services/city-import.ts";
@@ -136,6 +136,16 @@ function report(options: Options, sources: Sources, selection: CitySelection, re
   ];
   if (result.creates.length > 0) lines.push(`  新增的：${listed(result.creates.map((city) => `${city.name.en ?? city.code}`))}`);
   if (result.keptManual.length > 0) lines.push(`  平台改过的：${listed(result.keptManual)}`);
+  if (result.populationBackfilled > 0) lines.push(`给 ${result.populationBackfilled} 个已有的城市${options.dryRun ? "将补上" : "补上了"}数据源里的人口（只用来给机场建议城市，不算修改）`);
+  if (selection.excluded.length > 0) {
+    lines.push(`没有选的 ${selection.excluded.length} 条（人口够，但不是城市）：`);
+    for (const row of selection.excluded.slice(0, LIST_LIMIT)) lines.push(`  - ${row.label}：${EXCLUDED_CITY_REASON_NAMES[row.reason]}`);
+    if (selection.excluded.length > LIST_LIMIT) lines.push(`  - …… 其余 ${selection.excluded.length - LIST_LIMIT} 条略`);
+  }
+  if (result.excludedExisting.length > 0) {
+    lines.push(`以前导入过、其实不是城市的 ${result.excludedExisting.length} 个（没有自动停用，也没有删除；请在后台核对后停用，已经挂了地点的先把地点改到正确的城市）：`);
+    for (const row of result.excludedExisting) lines.push(`  - ${row.label}：${EXCLUDED_CITY_REASON_NAMES[row.reason]}`);
+  }
   const skipped = [
     ...selection.skipped.map((row) => `第 ${row.row} 行 ${row.label}：${row.reason}`),
     ...result.unknownTimeZones.map((city) => `${city.label}：数据库不认识时区 ${city.timezone}`),

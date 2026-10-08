@@ -13,7 +13,7 @@ import { type CityImportPlan, type CitySelection, GEONAMES, planCityImport } fro
 import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
-import { CITIES, insertMasterRow, isKnownTimeZone, listAllCities, markCitiesSynced, tryLockCityImport, updateMasterRowAtVersion } from "../repos/master-data.ts";
+import { CITIES, insertMasterRow, isKnownTimeZone, listAllCities, markCitiesSynced, setCityPopulations, tryLockCityImport, updateMasterRowAtVersion } from "../repos/master-data.ts";
 import { MasterImportError } from "./import-errors.ts";
 
 /** 城市导入没有进行（或整体回滚了）、换个时间再运行即可的情况。 */
@@ -29,6 +29,8 @@ export interface CityImportOptions {
 export interface CityImportResult extends CityImportPlan {
   /** 时区不在数据库的时区名单里而没有导入的城市 */
   unknownTimeZones: { label: string; timezone: string }[];
+  /** 人口和数据源不一样（多半是以前导入时还没存人口）而回填的城市个数；不算修改，不动版本号和「平台改过」 */
+  populationBackfilled: number;
 }
 
 export async function importCities(pool: Pool, selection: CitySelection, now: Date, options: CityImportOptions): Promise<CityImportResult> {
@@ -71,7 +73,10 @@ function runImport(pool: Pool, selection: CitySelection, now: Date, options: Cit
       })),
       usable,
     );
-    if (options.dryRun) return { ...plan, unknownTimeZones };
+    // 人口只用来给机场排建议的城市：按数据源编号回填到已有的城市上，平台改过的城市也回填（它改的是名称、时区、坐标）
+    const populationByRef = new Map(usable.cities.map((city) => [city.sourceRef, city.population]));
+    const stale = existing.filter((city) => city.source === GEONAMES.source && city.sourceRef !== null && populationByRef.has(city.sourceRef) && populationByRef.get(city.sourceRef) !== city.population);
+    if (options.dryRun) return { ...plan, unknownTimeZones, populationBackfilled: stale.length };
 
     const status = options.activate ? "active" : "disabled";
     for (const city of plan.creates) {
@@ -88,6 +93,7 @@ function runImport(pool: Pool, selection: CitySelection, now: Date, options: Cit
           source: GEONAMES.source,
           source_ref: city.sourceRef,
           source_synced_at: now,
+          population: city.population,
         },
         status,
         now,
@@ -139,6 +145,11 @@ function runImport(pool: Pool, selection: CitySelection, now: Date, options: Cit
     const checked = new Set([...plan.unchanged, ...plan.keptManual, ...plan.updates.map((update) => update.code)]);
     const refs = existing.flatMap((city) => (checked.has(city.code) && city.source === GEONAMES.source && city.sourceRef !== null ? [city.sourceRef] : []));
     if (refs.length > 0) await markCitiesSynced(db, GEONAMES.source, refs, now);
-    return { ...plan, unknownTimeZones };
+    const populationBackfilled = await setCityPopulations(
+      db,
+      GEONAMES.source,
+      stale.flatMap((city) => (city.sourceRef === null ? [] : [{ sourceRef: city.sourceRef, population: populationByRef.get(city.sourceRef) ?? 0 }])),
+    );
+    return { ...plan, unknownTimeZones, populationBackfilled };
   });
 }

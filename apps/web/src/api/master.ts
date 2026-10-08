@@ -171,6 +171,8 @@ export interface MasterListQuery {
   cursor?: string;
   status?: MasterDataStatus | "all";
   q?: string;
+  /** 按编码精确查找 */
+  code?: string;
   country_code?: string;
   type?: PlaceType;
   /** 城市编号；`none` = 还没有所属城市 */
@@ -180,12 +182,28 @@ export interface MasterListQuery {
   /** `code`：按编码升序；不给是按创建时间。游标和排序绑定，翻页时要带同一个 */
   sort?: "created" | "code";
 }
-export const MASTER_LIST_QUERY_KEYS = ["limit", "cursor", "status", "q", "country_code", "type", "city_id", "parent_id", "grade", "sort"] as const satisfies readonly (keyof MasterListQuery)[];
+export const MASTER_LIST_QUERY_KEYS = ["limit", "cursor", "status", "q", "code", "country_code", "type", "city_id", "parent_id", "grade", "sort"] as const satisfies readonly (keyof MasterListQuery)[];
 
 export interface MasterPage<T> {
   items: T[];
   next_cursor: string | null;
   total: number;
+  /** 只有地点列表按 `city_id=none` 筛选时才有：给这一页每个地点建议的城市 */
+  city_suggestions?: PlaceCitySuggestion[];
+}
+
+/** 给还没有所属城市的地点建议的一个城市。 */
+export interface CitySuggestion extends MasterRef {
+  /** 地点到这个城市中心的球面距离（公里） */
+  distance_km: number;
+}
+
+export interface PlaceCitySuggestion {
+  place_id: string;
+  /** 首选：机场资料里的所属城市名对得上的优先，其余按人口和距离综合；附近没有启用中的城市时为 null */
+  suggested_city: CitySuggestion | null;
+  /** 按建议的先后排，不是由近到远；最多 3 个，第一个就是 suggested_city */
+  nearby_cities: CitySuggestion[];
 }
 
 function withQuery(path: string, query: MasterListQuery): string {
@@ -251,7 +269,11 @@ export const MASTER_SCHEMA_FIELDS = {
   PlaceParentRef: ["id", "code", "name", "type"],
   StatusCounts: ["total", "active", "disabled"],
   Point: ["lng", "lat"],
+  CitySuggestion: ["id", "code", "name", "distance_km"],
+  PlaceCitySuggestion: ["place_id", "suggested_city", "nearby_cities"],
 } as const satisfies {
+  CitySuggestion: readonly (keyof CitySuggestion)[];
+  PlaceCitySuggestion: readonly (keyof PlaceCitySuggestion)[];
   City: readonly (keyof City)[];
   Place: readonly (keyof Place)[];
   VehicleGroup: readonly (keyof VehicleGroup)[];

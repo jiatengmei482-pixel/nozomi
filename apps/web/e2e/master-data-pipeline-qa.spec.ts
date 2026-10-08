@@ -43,6 +43,15 @@ async function pendingOf(request: APIRequestContext, country: string): Promise<{
   return (await response.json()) as { total: number; items: PendingPlace[] };
 }
 
+/** 每个待指定城市的机场，接口建议的城市叫什么（没有建议的不在表里）。 */
+async function suggestedCityNames(request: APIRequestContext, country: string): Promise<Map<string, string>> {
+  const headers = await platformAdminHeaders(request);
+  const response = await request.get(`/platform/v1/master/places?type=airport&city_id=none&country_code=${country}&sort=code&limit=200`, { headers });
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as { city_suggestions?: { place_id: string; suggested_city: { name: Record<string, string> } | null }[] };
+  return new Map((body.city_suggestions ?? []).flatMap((entry) => (entry.suggested_city ? [[entry.place_id, entry.suggested_city.name["zh"] ?? ""] as const] : [])));
+}
+
 async function signIn(page: Page): Promise<void> {
   const admin = adminCredentials();
   await loginAs(page, "platform", admin.email, admin.password);
@@ -100,6 +109,8 @@ test("97 个导入的机场：只用键盘连续处理几十个，「还剩」�
   await expect(page.locator(".pending__head .badge")).toHaveText("已停用");
 
   // 连续 30 个，全程键盘：每处理一个，换下一个、「还剩」减一、焦点回到所属城市、读屏播报下一个
+  const suggestedName = await suggestedCityNames(request, country);
+  let notCarriedOver = 0;
   await cityBox(page).focus();
   for (let n = 0; n < 30; n += 1) {
     await expect(code(page), `第 ${n + 1} 个`).toHaveText(at(order, n));
@@ -107,8 +118,16 @@ test("97 个导入的机场：只用键盘连续处理几十个，「还剩」�
     await expect(code(page), `第 ${n + 1} 个处理完换下一个`).toHaveText(at(order, n + 1));
     await expect(remaining(page)).toHaveText(`还剩 ${total - n - 1} 个`);
     await expect(cityBox(page)).toBeFocused();
-    await expect(cityBox(page), "不沿用上一个机场选的城市").toHaveValue("");
+    // 换到下一个机场后，所属城市是「这个机场自己的建议城市」（没有建议时为空），不是上一个机场手工选的那个
+    const picked = n % 2 === 0 ? nairobi.name : mombasa.name;
+    const suggestedForNext = suggestedName.get(order[n + 1]?.id ?? "") ?? "";
+    await expect(cityBox(page), "所属城市是这个机场自己的建议").toHaveValue(suggestedForNext);
+    if (picked !== suggestedForNext) {
+      notCarriedOver += 1;
+      await expect(cityBox(page), "不沿用上一个机场选的城市").not.toHaveValue(picked);
+    }
   }
+  expect(notCarriedOver, "至少有一步手工选的不是下一个机场的建议城市，「不沿用上一个」才算验证过").toBeGreaterThan(0);
   await expect(page.getByRole("status").filter({ hasText: `下一个：${at(order, 30)} ${nameAt(order, 30)}，还剩 67 个` })).toHaveCount(1);
   await expect(page.locator(".done-list__item"), "「本次已处理」最多 10 条").toHaveCount(10);
   await expect(page.locator(".done-list__item").first(), "最新的在最上面").toContainText(at(order, 29));
@@ -147,6 +166,9 @@ test("97 个导入的机场：只用键盘连续处理几十个，「还剩」�
   await expect(code(page)).toHaveText(at(order, 33));
 
   // 没选城市直接按 Enter：不发请求，提示在字段下，焦点在所属城市
+  // （这个机场有建议的城市、已经预填了：先清掉，才是「没选城市」）
+  await cityBox(page).fill("");
+  await page.keyboard.press("Escape");
   await cityBox(page).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("请选择所属城市")).toBeVisible();

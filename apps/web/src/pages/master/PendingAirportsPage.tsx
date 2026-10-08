@@ -6,10 +6,11 @@ import { FLIGHT_SCOPES, type FlightScope, type LocalizedText } from "@nozomi/dom
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type City, type MasterPage, type Place, type PlacePatch, createMaster, enableMaster, getMaster, listMaster, patchMaster } from "../../api/master.ts";
+import { type City, type CitySuggestion, type MasterPage, type Place, type PlaceCitySuggestion, type PlacePatch, createMaster, enableMaster, getMaster, listMaster, patchMaster } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
@@ -18,6 +19,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { FLIGHT_SCOPE_NAMES, MASTER_STATUS_BADGES, cleanLocalized, countryLabel, countryName, displayName, formatCount, formatPoint, sameLocalized, shortName } from "../../lib/master-display.ts";
+import { formatDistance } from "../../lib/distance.ts";
 import { masterEditPath, placeListPath } from "../../lib/master-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -32,6 +34,7 @@ const REFILL_BELOW = 20;
 const DONE_LIMIT = 10;
 const COUNTRY_PATTERN = /^[A-Z]{2}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NO_CITIES: readonly CitySuggestion[] = [];
 const SCOPE_OPTIONS = [{ value: "none" as const, label: "不填" }, ...FLIGHT_SCOPES.map((scope) => ({ value: scope, label: FLIGHT_SCOPE_NAMES[scope] }))];
 
 interface Draft {
@@ -187,7 +190,16 @@ export function PendingAirportsPage() {
           listMaster("places", authToken, { type: "airport", city_id: "none", status: "all", sort: "code", limit: BATCH, ...(country ? { country_code: country } : {}) }),
           startId !== null ? getMaster("places", authToken, startId).catch(() => null) : Promise.resolve(null),
         ]);
-        return { page, start };
+        // 指定从某一个机场开始、而它不在第一批里：单独问一次它的城市建议（建议只随列表给）
+        const known = (page.city_suggestions ?? []).some((entry) => entry.place_id === start?.id);
+        const extra =
+          start !== null && start.city_id === null && !known
+            ? await listMaster("places", authToken, { type: "airport", city_id: "none", status: "all", code: start.code, limit: 1 }).then(
+                (single) => single.city_suggestions ?? [],
+                () => [],
+              )
+            : [];
+        return { page: { ...page, city_suggestions: [...(page.city_suggestions ?? []), ...extra] }, start };
       }
     : null);
 
@@ -196,6 +208,13 @@ export function PendingAirportsPage() {
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   const [done, setDone] = useState<Done[]>([]);
   const [recentCities, setRecentCities] = useState<string[]>([]);
+  // 后端给的城市建议（按机场编号记；机场资料里的所属城市名对得上的优先，其余按人口和距离综合）；只是建议，预填以后仍要人看一眼再确认
+  const [suggestions, setSuggestions] = useState<ReadonlyMap<string, PlaceCitySuggestion>>(new Map());
+  const prefilledFor = useRef<string | null>(null);
+  const remember = (entries: readonly PlaceCitySuggestion[] | undefined): void => {
+    if (!entries || entries.length === 0) return;
+    setSuggestions((known) => new Map([...known, ...entries.map((entry) => [entry.place_id, entry] as const)]));
+  };
   const [draft, setDraft] = useState<Draft | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [cityError, setCityError] = useState<string | null>(null);
@@ -216,6 +235,8 @@ export function PendingAirportsPage() {
     const head = start !== null && start.type === "airport" && start.city_id === null ? [start] : [];
     const next = [...head, ...page.items.filter((place) => place.id !== head[0]?.id)];
     setQueue(next);
+    setSuggestions(new Map((page.city_suggestions ?? []).map((entry) => [entry.place_id, entry])));
+    prefilledFor.current = null;
     setRemaining(Math.max(page.total, next.length));
     setBatchCursor(page.next_cursor);
     setBatchFailed(false);
@@ -236,6 +257,7 @@ export function PendingAirportsPage() {
       (page) => {
         if (cancelled) return;
         setBatchCursor(page.next_cursor);
+        remember(page.city_suggestions);
         // 每取一批新的，就按接口此刻给的总数校正「还剩」（别人可能同时处理掉了一些）
         setRemaining(page.total);
         const known = new Set(queue.map((place) => place.id));
@@ -265,16 +287,37 @@ export function PendingAirportsPage() {
 
   const current = queue?.[0] ?? null;
   const cityList = cities.state.data;
+  const suggestion = current ? (suggestions.get(current.id) ?? null) : null;
+  const suggested: readonly CitySuggestion[] = suggestion?.nearby_cities ?? NO_CITIES;
+  // 建议是取列表那一刻算的：之后被停用的城市不再当候选
+  const nearby = useMemo(() => suggested.filter((city) => !(cityList ?? []).some((known) => known.id === city.id && known.status !== "active")), [suggested, cityList]);
+
+  // 轮到一个机场、而「所属城市」还空着：把建议的城市预先填进去（每个机场只填一次，用户清掉后不再填回去）
+  const currentId = current?.id ?? null;
+  const suggestedId = nearby[0]?.id ?? null;
+  // 每轮到一个机场（包括刚进页面的第一个），焦点都在「所属城市」：这一页就是用来连续按键盘处理的
+  useEffect(() => {
+    if (currentId !== null) cityRef.current?.focus();
+  }, [currentId]);
+  useEffect(() => {
+    if (currentId === null || suggestion === null || prefilledFor.current === currentId) return;
+    prefilledFor.current = currentId;
+    if (suggestedId !== null) setDraft((value) => (value !== null && value.cityId === null ? { ...value, cityId: suggestedId } : value));
+  }, [currentId, suggestion, suggestedId]);
   const choices = useMemo<ComboboxOption[]>(() => {
     if (current === null || cityList === null) return [];
     const eligible = cityList.filter((city) => city.country_code === current.country_code && city.status === "active");
     const recent = recentCities.flatMap((id) => eligible.filter((city) => city.id === id));
-    return [...recent.map((city) => ({ ...cityOption(city), group: "最近用过" })), ...eligible.filter((city) => !recentCities.includes(city.id)).map((city) => ({ ...cityOption(city), ...(recent.length > 0 ? { group: "全部" } : {}) }))];
-  }, [current, cityList, recentCities]);
+    const listed = [...recent.map((city) => ({ ...cityOption(city), group: "最近用过" })), ...eligible.filter((city) => !recentCities.includes(city.id)).map((city) => ({ ...cityOption(city), ...(recent.length > 0 ? { group: "全部" } : {}) }))];
+    // 建议里的城市万一不在清单里（清单取回之后才新增的），也要选得上、显示得出名字
+    const missing = nearby.filter((city) => !cityList.some((known) => known.id === city.id)).map((city) => ({ value: city.id, label: displayName(city.name).text, detail: city.code }));
+    return [...listed, ...missing];
+  }, [current, cityList, recentCities, nearby]);
 
   /** 换下一个。`left` 是换完以后还剩多少个（跳过的不减）。 */
   const advance = (rest: Place[], left: number, message?: CardNotice): void => {
     setQueue(rest);
+    prefilledFor.current = null;
     const next = rest[0] ?? null;
     setDraft(next ? draftOf(next) : null);
     setAttempted(false);
@@ -410,6 +453,7 @@ export function PendingAirportsPage() {
 
   if (account.status === "ready" && !canManage) return shell(<StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />);
 
+  const chosenSuggestion = draft ? (nearby.find((city) => city.id === draft.cityId) ?? null) : null;
   const loading = queue === null && first.state.status !== "error" && first.state.status !== "forbidden" && first.state.status !== "not-found";
   const failed = queue === null && !loading;
   const noCities = current !== null && cityList !== null && choices.length === 0;
@@ -562,7 +606,13 @@ export function PendingAirportsPage() {
                 loading={cityList === null && cities.state.status === "loading"}
                 loadFailed={cityList === null && cities.state.status === "error"}
                 errors={[...(cityError !== null ? [cityError] : []), ...(attempted && draft.cityId === null ? ["请选择所属城市"] : [])]}
-                hint={noCities ? `还没有${countryLabel(current.country_code)}的启用中的城市。请先新增城市。` : `只能选${countryLabel(current.country_code)}的启用中的城市。`}
+                hint={
+                  noCities
+                    ? `还没有${countryLabel(current.country_code)}的启用中的城市。请先新增城市。`
+                    : chosenSuggestion
+                      ? `建议：${displayName(chosenSuggestion.name).text}（${formatDistance(chosenSuggestion.distance_km)}）。按机场资料里的所属城市和周边的大城市给出的建议，请核对后再保存。`
+                      : `只能选${countryLabel(current.country_code)}的启用中的城市。`
+                }
                 onChange={(cityId) => {
                   if (locked) return;
                   setDraft({ ...draft, cityId });
@@ -573,6 +623,32 @@ export function PendingAirportsPage() {
                 新增城市
               </Button>
             </div>
+            {nearby.length > 0 && (
+              <div className="suggestions" role="group" aria-labelledby="pending-suggestions-lead">
+                <p className="suggestions__lead" id="pending-suggestions-lead">
+                  <strong>建议的城市</strong>
+                  （按机场资料里的所属城市和周边的大城市给出，括号里是到城市中心的直线距离）。建议不一定对，请核对：
+                </p>
+                <div className="suggestions__list">
+                  {nearby.map((city) => (
+                    <Button
+                      key={city.id}
+                      className="suggestions__option"
+                      aria-pressed={draft.cityId === city.id}
+                      disabled={locked}
+                      onClick={() => {
+                        setDraft({ ...draft, cityId: city.id });
+                        setCityError(null);
+                        submitRef.current?.focus();
+                      }}
+                    >
+                      <span lang={displayName(city.name).lang}>{displayName(city.name).text}</span>
+                      <span className="suggestions__distance">{formatDistance(city.distance_km)}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div data-field="name">
               <LocalizedInput
                 legend="名称"
@@ -621,6 +697,7 @@ export function PendingAirportsPage() {
           </ul>
         </section>
       )}
+      <Attributions sources={["ourairports", "geonames"]} />
       {addingCity && current !== null && cityList !== null && (
         <NewCityDialog
           airport={current}

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CsvError } from "./csv.ts";
-import { nearestWithin } from "./geo.ts";
 import {
   DEFAULT_MIN_POPULATION,
+  EXCLUDED_CITY_REASON_NAMES,
   type ExistingCity,
   GEONAMES,
   geonamesCityCode,
@@ -11,7 +11,7 @@ import {
   planCityImport,
   selectCities,
 } from "./geonames.ts";
-import { CITY_SUGGESTION_MAX_KM, cityCodeIssue } from "./master-data.ts";
+import { cityCodeIssue } from "./master-data.ts";
 
 /** 下面的记录都是为测试编的（编号用 99 开头的大数），格式和 GeoNames 的 cities15000.txt 一样：19 列、制表符分隔。 */
 interface Row {
@@ -24,12 +24,14 @@ interface Row {
   country?: string;
   population?: number | string;
   timezone?: string;
+  admin1?: string;
+  admin2?: string;
 }
 
 function line(row: Row): string {
   return [
     row.id, row.name ?? `City ${row.id}`, "ascii", "alt1,alt2", row.lat ?? "35.5", row.lng ?? "139.5", row.cls ?? "P", row.code ?? "PPL", row.country ?? "JP",
-    "", "13", "", "", "", row.population ?? 500000, "", "40", row.timezone ?? "Asia/Tokyo", "2026-01-01",
+    "", row.admin1 ?? "13", row.admin2 ?? "", "", "", row.population ?? 500000, "", "40", row.timezone ?? "Asia/Tokyo", "2026-01-01",
   ].join("\t");
 }
 
@@ -283,26 +285,61 @@ test("导入计划：导入要用的编码已被别的城市占用、数据源�
   assert.match(plan.conflicts[1]?.reason ?? "", /国家由 JP 变成了 KR/);
 });
 
-test("最近的城市：只要范围以内的，由近到远，最多给几个；坐标不合法的忽略", () => {
-  const haneda = { lat: 35.549678, lng: 139.786958 };
-  const cities = [
-    { id: "tokyo", lat: 35.6895, lng: 139.69171 },
-    { id: "kawasaki", lat: 35.52056, lng: 139.71722 },
-    { id: "yokohama", lat: 35.43333, lng: 139.65 },
-    { id: "chiba", lat: 35.6, lng: 140.11667 },
-    { id: "osaka", lat: 34.69379, lng: 135.50107 },
-    { id: "broken", lat: 95, lng: 139 },
-  ];
-  const near = nearestWithin(haneda, cities, CITY_SUGGESTION_MAX_KM * 1000, 3);
-  assert.deepEqual(near.map((entry) => entry.item.id), ["kawasaki", "tokyo", "yokohama"], "羽田离川崎比离东京近：所以要给出几个候选让人确认");
-  assert.ok(near[0] && near[0].meters > 6_000 && near[0].meters < 8_000);
-  assert.ok(near[1] && near[1].meters > 16_000 && near[1].meters < 19_000);
-  assert.deepEqual(nearestWithin(haneda, cities, CITY_SUGGESTION_MAX_KM * 1000, 10).map((entry) => entry.item.id), ["kawasaki", "tokyo", "yokohama", "chiba"]);
-  assert.deepEqual(nearestWithin(haneda, cities, 5_000, 3), []);
-  assert.deepEqual(nearestWithin(haneda, [], 80_000, 3), []);
-  assert.deepEqual(nearestWithin({ lat: 200, lng: 0 }, cities, 80_000, 3), []);
-  // 成田到东京中心约 58 公里，在 80 公里的范围内
-  const narita = nearestWithin({ lat: 35.76858, lng: 140.388714 }, [cities[0] as { id: string; lat: number; lng: number }], CITY_SUGGESTION_MAX_KM * 1000, 1);
-  assert.ok(narita[0] && narita[0].meters > 55_000 && narita[0].meters < 66_000);
-  assert.equal(CITY_SUGGESTION_MAX_KM, 80);
+test("不算城市的：日本的「区」（日文名以区结尾、没有以市町村结尾的名字）和市内的街区（PPL，同一个二级行政区另有首府记录）", () => {
+  const text = file([
+    { id: 990001, name: "Tokyo", population: 9_000_000, code: "PPLC", admin1: "40" },
+    { id: 990002, name: "Ota", population: 748_000, code: "PPLA2", admin1: "40", admin2: "1853655" },
+    { id: 990003, name: "Kawasaki", population: 1_538_000, code: "PPLA2", admin1: "19", admin2: "1859635" },
+    { id: 990004, name: "Sagamihara", population: 720_000, code: "PPLA2", admin1: "19", admin2: "1853293" },
+    { id: 990005, name: "Aihara", population: 725_000, code: "PPL", admin1: "19", admin2: "1853293" },
+    { id: 990006, name: "Plain city", population: 400_000, code: "PPL", admin1: "19", admin2: "777" },
+    { id: 990007, name: "Same code other prefecture", population: 400_000, code: "PPL", admin1: "20", admin2: "1853293" },
+    { id: 990008, name: "No district", population: 400_000, code: "PPL", admin1: "19" },
+    { id: 990009, name: "Kita", population: 332_000, code: "PPLA2", admin1: "40", admin2: "1859308" },
+    { id: 990010, name: "Ku City", population: 500_000, code: "PPLA2", admin1: "01", admin2: "5" },
+    { id: 990011, name: "Gangnam-gu", population: 500_000, code: "PPLA2", country: "KR", admin1: "11", admin2: "9" },
+    { id: 990012, name: "Old ward", population: 500_000, code: "PPLA2", admin1: "02", admin2: "6" },
+    // 首府记录本身人口不够、不在导入范围内，也照样说明同一个市里的 PPL 是街区
+    { id: 990013, name: "Small seat", population: 20_000, code: "PPLA2", admin1: "30", admin2: "8" },
+    { id: 990014, name: "Inflated block", population: 375_000, code: "PPL", admin1: "30", admin2: "8" },
+  ]);
+  const names = [
+    alt(990002, "ja", "大田区", { preferred: true }),
+    alt(990002, "en", "Ōta"),
+    alt(990003, "ja", "川崎市"),
+    alt(990009, "ja", "北", { short: true }),
+    alt(990009, "ja", "北区"),
+    // 既叫「…区」又叫「…市」：按城市算
+    alt(990010, "ja", "某地区"),
+    alt(990010, "ja", "某市"),
+    // 韩国的记录不按日文名判断
+    alt(990011, "ja", "江南区"),
+    // 历史上的名字不算
+    alt(990012, "ja", "旧区", { historic: true }),
+  ].join("\n");
+  const selection = selectCities(text, [names], all);
+  assert.deepEqual(selection.cities.map((city) => city.name.en).sort(), ["Gangnam-gu", "Kawasaki", "Ku City", "No district", "Old ward", "Plain city", "Sagamihara", "Same code other prefecture", "Tokyo"]);
+  assert.deepEqual(selection.excluded, [
+    { sourceRef: "990002", label: "大田区（CTY-JP-GL7W2）", reason: "ward" },
+    { sourceRef: "990005", label: "Aihara（CTY-JP-GL7W5）", reason: "inside_city" },
+    { sourceRef: "990009", label: "北（CTY-JP-GL7W9）", reason: "ward" },
+    { sourceRef: "990014", label: "Inflated block（CTY-JP-GL7WE）", reason: "inside_city" },
+  ]);
+  assert.deepEqual(selection.skipped, []);
+  for (const reason of ["ward", "inside_city"] as const) assert.match(EXCLUDED_CITY_REASON_NAMES[reason], /不是城市/);
+  // 没给名称文件：「区」判断不了，只排除市内的街区
+  assert.deepEqual(selectCities(text, [], all).excluded.map((row) => row.sourceRef), ["990005", "990014"]);
+});
+
+test("以前导入过、现在不算城市的：不更新、不新增，列进 excludedExisting；没导入过的不列", () => {
+  const text = file([
+    { id: 990002, name: "Ota", population: 748_000, code: "PPLA2", admin2: "1" },
+    { id: 990009, name: "Kita", population: 332_000, code: "PPLA2", admin2: "2" },
+    { id: 990003, name: "Kawasaki", population: 1_538_000, code: "PPLA2", admin2: "3" },
+  ]);
+  const selection = selectCities(text, [[alt(990002, "ja", "大田区"), alt(990009, "ja", "北区")].join("\n")], all);
+  const imported: ExistingCity = { id: "c-ota", code: geonamesCityCode("JP", 990002), countryCode: "JP", name: { en: "Ota (old name)" }, timezone: "Asia/Tokyo", lng: 1, lat: 1, sourceRef: "990002", sourceOverridden: false };
+  const plan = planCityImport([imported], selection);
+  assert.deepEqual(plan.excludedExisting, [{ code: imported.code, label: `大田区（${imported.code}）`, reason: "ward" }]);
+  assert.deepEqual([plan.creates.map((city) => city.name.en), plan.updates, plan.unchanged, plan.keptManual, plan.conflicts], [["Kawasaki"], [], [], [], []]);
 });

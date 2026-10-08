@@ -15,7 +15,6 @@ import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { loadConfig } from "@nozomi/config";
 import {
-  type AirportImportPlan,
   type AirportSelection,
   OURAIRPORTS,
   decodeUtf8Strict,
@@ -23,7 +22,7 @@ import {
 } from "@nozomi/domain";
 import { createPool } from "../db/pool.ts";
 import { downloadAirportsCsv } from "../integrations/ourairports.ts";
-import { importAirports } from "../services/airport-import.ts";
+import { type AirportImportResult, importAirports } from "../services/airport-import.ts";
 import { LIST_LIMIT, UsageError, failureMessage, listed, readCountries } from "./import-common.ts";
 
 const USAGE = [
@@ -60,7 +59,7 @@ function readOptions(argv: readonly string[]): Options {
   return { countries, file: values.file ?? null, dryRun: values["dry-run"] === true };
 }
 
-function report(options: Options, selection: AirportSelection, plan: AirportImportPlan): string {
+function report(options: Options, selection: AirportSelection, plan: AirportImportResult): string {
   const lines = [
     `数据来源：${OURAIRPORTS.name}（${OURAIRPORTS.homepage}），许可：${OURAIRPORTS.license}`,
     `文件：${options.file ?? OURAIRPORTS.downloadUrl}，共 ${selection.totalRows} 条记录`,
@@ -70,6 +69,9 @@ function report(options: Options, selection: AirportSelection, plan: AirportImpo
     `更新 ${plan.updates.length} 个；没有变化 ${plan.unchanged.length} 个；平台改过、没有覆盖 ${plan.keptManual.length} 个`,
   ];
   if (plan.keptManual.length > 0) lines.push(`  平台改过的：${listed(plan.keptManual)}`);
+  if (plan.municipalityBackfilled > 0) {
+    lines.push(`给 ${plan.municipalityBackfilled} 个已有的机场${options.dryRun ? "将补上" : "补上了"}数据源里的「所属城市名」（只用来建议城市，不算修改，也不算平台改过）`);
+  }
   if (selection.skipped.length > 0) {
     lines.push(`跳过 ${selection.skipped.length} 条不合格的记录：`);
     for (const row of selection.skipped.slice(0, LIST_LIMIT)) lines.push(`  - 第 ${row.row} 条 ${row.label}：${row.reason}`);

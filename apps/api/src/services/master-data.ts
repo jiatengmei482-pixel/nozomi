@@ -10,8 +10,7 @@
 import { isDeepStrictEqual } from "node:util";
 import {
   type AddonChargeUnit,
-  CITY_SUGGESTION_LIMIT,
-  CITY_SUGGESTION_MAX_KM,
+  type CitySuggestionReason,
   type FlightScope,
   type GeoJsonMultiPolygon,
   type GeoJsonPolygon,
@@ -31,7 +30,6 @@ import {
   isIanaTimeZone,
   isLatitude,
   isLongitude,
-  nearestWithin,
   placeAttributeIssues,
   placeCodeIssue,
   placeEnableBlocker,
@@ -39,6 +37,7 @@ import {
   roundCoordinate,
   vehicleComboIssues,
   vehicleGroupCodeIssue,
+  rankCitySuggestions,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { isRetryableDbError } from "../errors.ts";
@@ -646,15 +645,16 @@ export function loadPlaceRefs(ctx: AppContext, reader: MasterReader, places: rea
   }));
 }
 
-/** 给一个还没有城市的地点建议的城市：编号、编码、名称和距离。 */
+/** 给一个还没有城市的地点建议的城市：编号、编码、名称、距离，以及为什么建议它。 */
 export interface CitySuggestion extends MasterRef {
   distanceKm: number;
+  reason: CitySuggestionReason;
 }
 
 /**
- * 给这批地点里还没有城市的那些找建议的城市：同一个国家、启用中、中心坐标在 80 公里以内，由近到远最多 3 个。
- * 返回 地点编号 → 候选列表（没有合适的城市时是空列表）；已经有城市的地点不在返回里。
- * 只是建议：最近的不一定就是对的（羽田离川崎比离东京近），要人确认。
+ * 给这批地点里还没有城市的那些找建议的城市，最多 3 个，第一个是首选：同一个国家、启用中的城市里，
+ * 名称和数据源说的「机场所属的城市」对得上的排第一；其余是 80 公里以内的，大城市优先（规则见 @nozomi/domain 的 city-suggestion.ts）。
+ * 返回 地点编号 → 候选列表（没有合适的城市时是空列表）；已经有城市的地点不在返回里。只是建议，要人确认。
  */
 export async function suggestCities(ctx: AppContext, places: readonly Place[]): Promise<Map<string, CitySuggestion[]>> {
   const pending = places.filter((place) => place.cityId === null);
@@ -663,10 +663,10 @@ export async function suggestCities(ctx: AppContext, places: readonly Place[]): 
   const candidates = await readTx(ctx, { kind: "platform" }, (db) => listActiveCityCandidates(db, [...new Set(pending.map((place) => place.countryCode))]));
   for (const place of pending) {
     const sameCountry = candidates.filter((city) => city.countryCode === place.countryCode);
-    const nearest = nearestWithin({ lat: place.lat, lng: place.lng }, sameCountry, CITY_SUGGESTION_MAX_KM * 1000, CITY_SUGGESTION_LIMIT);
+    const ranked = rankCitySuggestions({ lat: place.lat, lng: place.lng, municipality: place.municipality }, sameCountry);
     result.set(
       place.id,
-      nearest.map(({ item, meters }) => ({ id: item.id, code: item.code, name: item.name, distanceKm: Math.round(meters / 100) / 10 })),
+      ranked.map(({ item, meters, reason }) => ({ id: item.id, code: item.code, name: item.name, distanceKm: Math.round(meters / 100) / 10, reason })),
     );
   }
   return result;

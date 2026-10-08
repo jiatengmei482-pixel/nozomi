@@ -41,6 +41,8 @@ export interface SourceAirport {
   name: string;
   lng: number;
   lat: number;
+  /** 数据源的 municipality 列：这个机场所属 / 服务的城市名（给它建议城市时用）；文件里没有这一列或没填时为 null */
+  municipality: string | null;
 }
 
 export interface SkippedAirportRow {
@@ -74,6 +76,8 @@ export function selectAirports(csvText: string, countries: readonly string[] | n
     (typeof REQUIRED_COLUMNS)[number],
     number
   >;
+  // municipality 不是必有的列：老版本的文件、手工裁剪过的文件没有它也能导入，只是没有城市名可用
+  const municipalityColumn = header.indexOf("municipality");
   const wanted = countries === null ? null : new Set(countries);
 
   const selection: AirportSelection = { totalRows: rows.length - 1, airports: [], skipped: [], outOfScopeRefs: [] };
@@ -113,7 +117,16 @@ export function selectAirports(csvText: string, countries: readonly string[] | n
     else {
       seenIata.add(iata);
       seenRef.add(sourceRef);
-      selection.airports.push({ sourceRef, iata, countryCode, name, lng: roundCoordinate(lng), lat: roundCoordinate(lat) });
+      const municipality = municipalityColumn === -1 ? "" : (row[municipalityColumn] ?? "").trim();
+      selection.airports.push({
+        sourceRef,
+        iata,
+        countryCode,
+        name,
+        lng: roundCoordinate(lng),
+        lat: roundCoordinate(lat),
+        municipality: hasVisibleText(municipality) && municipality.length <= MAX_NAME_LENGTH ? municipality : null,
+      });
     }
   }
   return selection;

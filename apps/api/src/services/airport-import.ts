@@ -15,6 +15,7 @@ import {
   insertMasterRow,
   listAllAirports,
   markAirportsSynced,
+  setAirportMunicipalities,
   tryLockAirportImport,
   updateMasterRowAtVersion,
 } from "../repos/master-data.ts";
@@ -29,6 +30,14 @@ export interface AirportImportOptions {
   dryRun: boolean;
 }
 
+export interface AirportImportResult extends AirportImportPlan {
+  /**
+   * 「所属城市名」和数据源不一样（多半是以前导入时还没存这一项）而回填的机场个数。
+   * 它只用来给机场建议城市，不算修改：不动版本号、更新时间，也不把机场标成「平台改过」；平台改过的机场同样回填。
+   */
+  municipalityBackfilled: number;
+}
+
 /**
  * 并发：
  * - 同一时间只允许一次导入（咨询锁，事务结束自动释放）；后到的那次立即报「另一个导入正在运行」。试运行不写库，不需要锁。
@@ -40,7 +49,7 @@ export async function importAirports(
   selection: AirportSelection,
   now: Date,
   options: AirportImportOptions,
-): Promise<AirportImportPlan> {
+): Promise<AirportImportResult> {
   try {
     return await runImport(pool, selection, now, options);
   } catch (err) {
@@ -51,7 +60,7 @@ export async function importAirports(
   }
 }
 
-function runImport(pool: Pool, selection: AirportSelection, now: Date, options: AirportImportOptions): Promise<AirportImportPlan> {
+function runImport(pool: Pool, selection: AirportSelection, now: Date, options: AirportImportOptions): Promise<AirportImportResult> {
   const origin: AuditOrigin = { occurredAt: now, actor: { type: "system", id: null, email: null }, ip: null, source: "cli" };
   return withPlatformTx(pool, async (db) => {
     if (!options.dryRun && !(await tryLockAirportImport(db))) {
@@ -71,7 +80,13 @@ function runImport(pool: Pool, selection: AirportSelection, now: Date, options: 
       })),
       selection,
     );
-    if (options.dryRun) return plan;
+    const municipalityByRef = new Map(selection.airports.map((airport) => [airport.sourceRef, airport.municipality]));
+    const stale = existing.flatMap((place) => {
+      if (place.source !== OURAIRPORTS.source || place.sourceRef === null) return [];
+      const municipality = municipalityByRef.get(place.sourceRef);
+      return municipality === undefined || municipality === place.municipality ? [] : [{ sourceRef: place.sourceRef, municipality }];
+    });
+    if (options.dryRun) return { ...plan, municipalityBackfilled: stale.length };
 
     for (const airport of plan.creates) {
       const created = await insertMasterRow(
@@ -87,6 +102,7 @@ function runImport(pool: Pool, selection: AirportSelection, now: Date, options: 
           source: OURAIRPORTS.source,
           source_ref: airport.sourceRef,
           source_synced_at: now,
+          municipality: airport.municipality,
         },
         "disabled",
         now,
@@ -145,6 +161,6 @@ function runImport(pool: Pool, selection: AirportSelection, now: Date, options: 
     const checked = new Set([...plan.unchanged, ...plan.keptManual, ...plan.updates.map((update) => update.code)]);
     const refs = existing.flatMap((place) => (checked.has(place.code) && place.sourceRef !== null ? [place.sourceRef] : []));
     if (refs.length > 0) await markAirportsSynced(db, OURAIRPORTS.source, refs, now);
-    return plan;
+    return { ...plan, municipalityBackfilled: await setAirportMunicipalities(db, OURAIRPORTS.source, stale) };
   });
 }
