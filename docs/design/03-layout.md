@@ -43,6 +43,7 @@
 | 表单、设置 | `layout-form-max-width`（720px），居左 | 新建司机、账号设置 |
 | 详情（主栏 + 侧栏） | `layout-content-max-width`；≥ 1024px 时主栏 `minmax(0, 1fr)` + 侧栏 320px，栏间距 `space-6`；更窄时侧栏排到主栏下方 | 订单详情 |
 | 编辑器（表单栏 + 画布） | `layout-content-max-width`；≥ 1024px 时表单栏 `minmax(0, 380px)` + 画布 `minmax(0, 1fr)`，栏间距 `space-6`，画布吸在视口里、占满余下的高度；更窄时单栏，画布排在基本信息之后。两种布局的 DOM 顺序相同 | 区域的新增 / 编辑（`pages/tenant-areas.md` 第 3 节） |
+| 分步编辑（步骤导航 + 当前步骤） | `layout-content-max-width`；≥ 1024px 时步骤导航 `minmax(0, 240px)` + 当前步骤 `minmax(0, 1fr)`，栏间距 `space-6`，步骤导航吸在视口里；当前步骤的内容自己再限制到 `layout-form-max-width`，居左。更窄时单栏，步骤导航收成一个按钮排在标题行下面（`02-components.md` 第 24 节）。两种布局的 DOM 顺序相同 | 商品的新建 / 编辑（`pages/tenant-products.md` 第 3 节） |
 | 大段文字 | `layout-reading-max-width`（960px） | 条款、帮助说明 |
 
 **卡片**：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，内边距 `space-4`（≥ 768px 为 `space-6`），无阴影。卡片标题 `font-size-lg` + `font-weight-bold`。卡片里不再套卡片；需要再分区时用标题加分隔线。
