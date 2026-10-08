@@ -1,0 +1,9 @@
+# 只给 CI 冒烟和本地验证用的覆盖文件（deploy/ci/smoke.sh）。真实环境不使用。
+# 和 compose.yml 的差别只有两处：证书用 Caddy 自签的内部证书；对外端口换成不常用的高位端口。
+services:
+  caddy:
+    environment:
+      CADDY_TLS_MODE: internal
+    ports: !override
+      - "127.0.0.1:${SMOKE_HTTP_PORT:-18080}:80"
+      - "127.0.0.1:${SMOKE_HTTPS_PORT:-18443}:443"

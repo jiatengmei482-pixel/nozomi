@@ -125,3 +125,17 @@ export function validatePolygon(geometry: GeoJsonPolygon | GeoJsonMultiPolygon):
   });
   return issues;
 }
+
+/**
+ * 离某个点最近的几个候选（球面距离），只要 `maxMeters` 以内的，由近到远，最多 `limit` 个。
+ * 距离相同的保持候选原来的先后。坐标不合法的候选被忽略。
+ */
+export function nearestWithin<T extends LatLng>(origin: LatLng, candidates: readonly T[], maxMeters: number, limit: number): { item: T; meters: number }[] {
+  if (!isValidLatLng(origin)) return [];
+  return candidates
+    .filter(isValidLatLng)
+    .map((item) => ({ item, meters: haversineMeters(origin, item) }))
+    .filter((entry) => entry.meters <= maxMeters)
+    .sort((x, y) => x.meters - y.meters)
+    .slice(0, limit);
+}
