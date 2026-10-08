@@ -46,12 +46,28 @@ export function geonamesNamesFile(countryCode: string): { url: string; entry: st
 
 /**
  * 默认的导入范围：人口 30 万以上的城市，外加首都和一级行政区（都道府县、道 / 广域市）的首府。
- * 按 2026-10-07 的文件，日本 92 个、韩国 35 个——是「会有接送需求的城市」的量级，而不是几千个町村。
+ * 按 2026-10-08 的文件，去掉区和市内的街区之后日本 84 个、韩国 35 个——是「会有接送需求的城市」的量级，而不是几千个町村。
  */
 export const DEFAULT_MIN_POPULATION = 300_000;
 
 /** 算作「城市」的类型：一般的聚居地和各级首府。城市里的区（PPLX）、已废弃的、历史上的都不算。 */
 const CITY_FEATURE_CODES: readonly string[] = ["PPL", "PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLC", "PPLG"];
+/** 各级行政区的首府 */
+const SEAT_FEATURE_CODES: readonly string[] = ["PPLA", "PPLA2", "PPLA3", "PPLA4", "PPLC"];
+/**
+ * 光看类型分不出「城市」和「城市里的区」：东京 23 区在 GeoNames 里和川崎、八王子一样是 PPLA2（二级行政区的首府），
+ * 还有一些街区被标成 PPL 并带着所在城市的人口。下面两种不算城市（M1-11）：
+ *
+ * 1. 区：日本的记录，日文名里有以「区」结尾的（大田区、葛飾区），并且没有以「市」「町」「村」结尾的。
+ *    需要各语言名称文件；没给名称文件时这一条判断不了，不排除。
+ * 2. 市内的街区：类型是 PPL（不是任何一级的首府），而文件里同一个二级行政区（国家 + admin1 + admin2）另有一条首府记录——
+ *    那条首府记录才是这个市本身（相原 → 相模原、湊 → 和歌山）。二级行政区代码为空的不适用。
+ */
+export type ExcludedCityReason = "ward" | "inside_city";
+export const EXCLUDED_CITY_REASON_NAMES: Readonly<Record<ExcludedCityReason, string>> = {
+  ward: "是城市里的区（日文名以「区」结尾），不是城市",
+  inside_city: "是某个市里面的街区（同一个市另有一条首府记录），不是城市",
+};
 /** 不论人口多少都导入的类型：首都、一级行政区首府。 */
 const ALWAYS_IMPORTED_CODES: readonly string[] = ["PPLC", "PPLA"];
 const CITY_COLUMNS = 19;
@@ -89,6 +105,12 @@ export interface SkippedCityRow {
   reason: string;
 }
 
+export interface ExcludedCity {
+  sourceRef: string;
+  label: string;
+  reason: ExcludedCityReason;
+}
+
 export interface CitySelection {
   /** 城市文件的总行数 */
   totalRows: number;
@@ -96,6 +118,8 @@ export interface CitySelection {
   cities: SourceCity[];
   /** 在导入范围内、但数据不合格而跳过的行 */
   skipped: SkippedCityRow[];
+  /** 人口和类型都在导入范围内、但其实是区或市内街区而没有选的记录 */
+  excluded: ExcludedCity[];
 }
 
 export interface CitySelectionOptions {
@@ -123,9 +147,13 @@ function nameRank(language: MasterDataLanguage, tag: string, preferred: boolean,
   return LANGUAGE_TAGS[language].indexOf(tag) * 4 + kind;
 }
 
-/** 从各语言名称文件里给选中的城市挑名称。返回 城市编号 → 语言 → 名称。 */
-function pickNames(namesTexts: readonly string[], wanted: ReadonlySet<string>): Map<string, LocalizedText> {
+/**
+ * 从各语言名称文件里给选中的城市挑名称（城市编号 → 语言 → 名称），顺便找出其中日文名说明它是「区」的那些。
+ */
+function pickNames(namesTexts: readonly string[], wanted: ReadonlySet<string>): { names: Map<string, LocalizedText>; wards: Set<string> } {
   const best = new Map<string, Partial<Record<MasterDataLanguage, { rank: number; text: string }>>>();
+  const wardLike = new Set<string>();
+  const cityLike = new Set<string>();
   for (const text of namesTexts) {
     for (const [index, line] of lines(text).entries()) {
       if (line === "") continue;
@@ -138,6 +166,8 @@ function pickNames(namesTexts: readonly string[], wanted: ReadonlySet<string>): 
       const language = MASTER_DATA_LANGUAGES.find((candidate) => LANGUAGE_TAGS[candidate].includes(tag));
       const name = rawName.trim();
       if (language === undefined || !hasVisibleText(name) || name.length > MAX_NAME_LENGTH) continue;
+      if (language === "ja" && name.endsWith("区")) wardLike.add(geonameId);
+      if (language === "ja" && /[市町村]$/.test(name)) cityLike.add(geonameId);
       const rank = nameRank(language, tag, preferred === "1", short === "1");
       const entry = best.get(geonameId) ?? {};
       const current = entry[language];
@@ -154,7 +184,7 @@ function pickNames(namesTexts: readonly string[], wanted: ReadonlySet<string>): 
     }
     result.set(geonameId, names);
   }
-  return result;
+  return { names: result, wards: new Set([...wardLike].filter((geonameId) => !cityLike.has(geonameId))) };
 }
 
 /**
@@ -169,8 +199,11 @@ export function selectCities(citiesText: string, namesTexts: readonly string[], 
     throw new CsvError(`城市文件不是 GeoNames 的 cities15000.txt：每行应当有 ${CITY_COLUMNS} 列（制表符分隔）`);
   }
   const wanted = options.countries === null ? null : new Set(options.countries);
-  const selection: CitySelection = { totalRows: rows.length, cities: [], skipped: [] };
+  const selection: CitySelection = { totalRows: rows.length, cities: [], skipped: [], excluded: [] };
   const seen = new Set<string>();
+  // 有首府记录的二级行政区，和每个候选所在的二级行政区、类型（判断「市内的街区」用）
+  const seats = new Set<string>();
+  const placement = new Map<string, { district: string | null; featureCode: string }>();
   for (const [index, line] of rows.entries()) {
     if (line.includes("\u0000")) throw new CsvError(`城市文件的第 ${index + 1} 行里有 NUL 字符，文件可能已损坏或不是文本文件。请重新下载后再试`);
     const cells = line.split("\t");
@@ -186,6 +219,9 @@ export function selectCities(citiesText: string, namesTexts: readonly string[], 
       continue;
     }
     const featureCode = (cells[7] ?? "").trim();
+    const admin2 = (cells[11] ?? "").trim();
+    const district = admin2 === "" ? null : `${countryCode}|${(cells[10] ?? "").trim()}|${admin2}`;
+    if (cells[6] === "P" && district !== null && SEAT_FEATURE_CODES.includes(featureCode)) seats.add(district);
     const populationText = (cells[14] ?? "").trim();
     const population = /^\d{1,12}$/.test(populationText) ? Number(populationText) : 0;
     if (cells[6] !== "P" || !CITY_FEATURE_CODES.includes(featureCode)) continue;
@@ -204,6 +240,7 @@ export function selectCities(citiesText: string, namesTexts: readonly string[], 
     else if (!isIanaTimeZone(timezone)) skip(`时区 ${timezone || "（空）"} 不是合法的 IANA 时区名`);
     else {
       seen.add(sourceRef);
+      placement.set(sourceRef, { district, featureCode });
       selection.cities.push({
         sourceRef,
         code: geonamesCityCode(countryCode, Number(sourceRef)),
@@ -216,8 +253,20 @@ export function selectCities(citiesText: string, namesTexts: readonly string[], 
       });
     }
   }
-  const names = pickNames(namesTexts, seen);
+  const { names, wards } = pickNames(namesTexts, seen);
   for (const city of selection.cities) city.name = { ...city.name, ...names.get(city.sourceRef) };
+  const excludedReason = (city: SourceCity): ExcludedCityReason | null => {
+    if (city.countryCode === "JP" && wards.has(city.sourceRef)) return "ward";
+    const placed = placement.get(city.sourceRef);
+    return placed && placed.featureCode === "PPL" && placed.district !== null && seats.has(placed.district) ? "inside_city" : null;
+  };
+  const kept: SourceCity[] = [];
+  for (const city of selection.cities) {
+    const reason = excludedReason(city);
+    if (reason === null) kept.push(city);
+    else selection.excluded.push({ sourceRef: city.sourceRef, label: `${city.name.ja ?? city.name.en ?? city.code}（${city.code}）`, reason });
+  }
+  selection.cities = kept;
   selection.cities.sort((x, y) => y.population - x.population || Number(x.sourceRef) - Number(y.sourceRef));
   return selection;
 }
@@ -260,6 +309,8 @@ export interface CityImportPlan {
   keptManual: string[];
   /** 需要人工处理、这次没有动的情况 */
   conflicts: { label: string; reason: string }[];
+  /** 以前导入过、按现在的规则其实是区或市内街区的城市：不自动停用、不删除，列出来请人在后台核对后停用 */
+  excludedExisting: { code: string; label: string; reason: ExcludedCityReason }[];
 }
 
 function sameText(x: string, y: string): boolean {
@@ -285,6 +336,7 @@ function sameFields(x: CitySourceFields, y: CitySourceFields): boolean {
  * - 手工建的城市和数据源里的某个城市「看起来是同一个」（同一个国家，并且有相同的名称或相距不到 5 公里）：
  *   不自动合并，也不重复创建，列出来交给人看。
  * - 导入要用的编码已被别的城市占用、数据源里某个城市的国家变了：同样只列出来。
+ * - 以前导入过、按现在的规则不算城市的（区、市内的街区）：不更新、不停用、不删除，列进 `excludedExisting` 交给人处理。
  */
 export function planCityImport(existing: readonly ExistingCity[], selection: CitySelection): CityImportPlan {
   const byRef = new Map<string, ExistingCity>();
@@ -294,7 +346,11 @@ export function planCityImport(existing: readonly ExistingCity[], selection: Cit
     byCode.set(city.code, city);
   }
   const manual = existing.filter((city) => city.sourceRef === null);
-  const plan: CityImportPlan = { creates: [], updates: [], unchanged: [], keptManual: [], conflicts: [] };
+  const plan: CityImportPlan = { creates: [], updates: [], unchanged: [], keptManual: [], conflicts: [], excludedExisting: [] };
+  for (const excluded of selection.excluded) {
+    const known = byRef.get(excluded.sourceRef);
+    if (known) plan.excludedExisting.push({ code: known.code, label: excluded.label, reason: excluded.reason });
+  }
   for (const incoming of selection.cities) {
     const label = `${incoming.name.en ?? incoming.code}（${incoming.code}）`;
     const known = byRef.get(incoming.sourceRef);

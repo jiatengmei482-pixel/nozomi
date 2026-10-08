@@ -36,6 +36,7 @@
 | `0008_master_data_list_indexes.sql` | 地点表的列表 / 统计索引（类型 × 状态、国家）。只加索引 |
 | `0009_master_data_code_order.sql` | 四张主数据表按编码排序用的索引（逐字节比较）。只加索引 |
 | `0010_city_import_source.sql` | 城市表加「来源」字段（从 GeoNames 导入的城市用，ADR 0014）和两个索引。不含任何数据 |
+| `0012_city_suggestion_hints.sql` | 给机场建议城市用的两项数据源信息：`places.municipality`（OurAirports 的所属城市名）、`cities.population`（GeoNames 的人口）。只加列，由导入命令填（ADR 0014「M1-11 的修订」）。0011 是区域（M1-02），在另一个分支上、先于本迁移部署 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，其余由平台在后台录入。

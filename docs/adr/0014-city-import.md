@@ -80,6 +80,50 @@ CC BY 要求在使用处注明来源。我们在这些地方注明：
 - 距离在应用层用 `packages/domain/src/geo.ts` 的球面距离算（ADR 0002），不引入 PostGIS：一个国家启用中的城市是几十到几百个，逐个算是微秒级。
 - 因为只在启用中的城市里找，流程是：导入城市 → 复核并启用城市（或导入时 `--activate`）→ 处理机场时才有建议。
 
+### M1-11 的修订：建议的排序依据、不把区当城市
+
+M1-09 上线后在测试环境的真实数据上看，「最近的城市」对主要机场常常不对：羽田是大田 / 川崎 / 东京，成田是千叶 / 柏 / 松户（没有东京），关西是和歌山 / 湊 / 堺（没有大阪），金浦是富川 / 光明 / 高阳（没有首尔）。两个原因，分别改了。上面「候选」「最近的不一定对」两条以这一节为准。
+
+**排序依据**（`packages/domain/src/city-suggestion.ts`，纯函数）
+
+1. OurAirports 的 `municipality` 列写着机场所属 / 服务的城市名（羽田是 Tokyo，关西、伊丹是 Osaka，仁川、金浦是 Seoul）。同一个国家、启用中、**150 公里以内**、任何一种语言的名称和它对得上的城市排第一。比较前去掉大小写、变音符号、空格和连字符，以及结尾的 City / -shi / -si / -gun；一栏里写了几个（`/`、逗号、括号分开）的每个都算；同名的取人口多的，再取近的。
+2. 其余候选是 **80 公里以内**的城市（阈值没有放宽），按「人口 ÷ 距离的平方」从大到小。不足 10 公里的按 10 公里算——否则机场恰好坐落在一个小城市里时，小城市会压过它真正服务的大城市。不知道人口的城市（手工录入的）按 30 万算。
+3. 最多 3 个，第一个是首选。数据源说的城市库里没有时（成田写的是 Narita，中部机场写的是 Tokoname）就只有第 2 步，结果是东京、名古屋。
+
+为此存了两项数据源信息（迁移 `0012_city_suggestion_hints.sql`）：`places.municipality`、`cities.population`。它们只用来排建议，不出现在接口的应答里。重新运行两个导入命令会按数据源编号回填已有的记录；回填和「核对时间」一样**不算修改**：不动版本号、更新时间，不写审计日志，不把记录标成「平台改过」，平台改过的记录也照样回填。老版本的 airports.csv 没有 `municipality` 列也能导入。
+
+应答的结构没有变（`suggested_city` + `nearby_cities`，每项 `id`、`code`、`name`、`distance_km`）。「为什么建议它」（`municipality_match` / `nearest`）后端已经算出来了，但没有放进应答：前端的接口约定测试把 `CitySuggestion` 的字段逐个钉住了，要加得前端一起改。
+
+**不把区和街区当城市**（`packages/domain/src/geonames.ts`）
+
+光看 GeoNames 的类型分不出来：东京 23 区和川崎、八王子一样是 PPLA2，还有街区被标成 PPL 并带着所在城市的人口。人口和类型都在导入范围内的记录，符合下面任何一条的不导入，命令的输出里逐条写明原因：
+
+1. **区**：日本的记录，日文名里有以「区」结尾的（大田区、葛飾区），并且没有以「市」「町」「村」结尾的日文名。要用到各语言名称文件；`--file` 而不给 `--names-file` 时这一条判断不了。只对日本生效——韩国的导入范围里目前没有区，等出现了再定规则。
+2. **市内的街区**：类型是 PPL，而文件里同一个二级行政区（国家 + admin1 + admin2）另有一条首府类型的记录（PPLA / PPLA2 / PPLA3 / PPLA4 / PPLC）——那一条才是这个市本身。二级行政区代码为空的不适用。
+
+按 2026-10-08 的文件，默认范围下日本因此少 8 个（品川区、葛飾区、北区、大田区、中野区、江東区是区；湊在和歌山市内、相原在相模原市内），日本 84 个、韩国 35 个。
+
+已经导入的这类城市**不自动停用、不删除、也不再更新**：它可能已经挂了地点。城市导入命令每次运行都在输出里把它们列出来（「以前导入过、其实不是城市的 N 个」），请人在后台核对后停用。
+
+**在真实文件上的前后对比**（日本、韩国，默认范围，全部启用；城市名后面是到市中心的公里数）
+
+| 机场 | 之前 | 之后 |
+| --- | --- | --- |
+| HND 羽田 | Ōta 6.5 / Kawasaki 7.1 / Tokyo 17.8 | Tokyo 17.8 / Kawasaki 7.1 / Yokohama 17.9 |
+| NRT 成田 | Chiba 30.9 / Kashiwa 38.5 / Matsudo 44 | Tokyo 63.5 / Chiba 30.9 / Yokohama 76.5 |
+| KIX 关西 | Wakayama 22.7 / Minato 25.1 / Sakai 26.7 | Osaka 37.8 / Kobe 29.9 / Sakai 26.7 |
+| ITM 伊丹 | Toyonaka 2.6 / Suita 7.2 / Amagasaki 7.5 | Osaka 11.1 / Amagasaki 7.5 / Toyonaka 2.6 |
+| NGO 中部 | Yokkaichi 21 / Tsu 29.8 / Okazaki 34.5 | Nagoya 37.1 / Yokkaichi 21 / Okazaki 34.5 |
+| CTS 新千岁 | Sapporo 42.7 | Sapporo 42.7 |
+| FUK 福冈 | Fukuoka 3.5 / Kurume 30.6 / Saga 41.6 | Fukuoka 3.5 / Kitakyushu 47.3 / Kurume 30.6 |
+| OKA 那霸 | Naha 4.5 | Naha 4.5 |
+| ICN 仁川 | Incheon 22.5 / Bucheon-si 29.5 / Ansan-si 36.5 | Seoul 47.7 / Incheon 22.5 / Bucheon-si 29.5 |
+| GMP 金浦 | Bucheon-si 6.6 / Gwangmyeong 11.2 / Goyang-si 11.6 | Seoul 16.5 / Incheon 13.6 / Bucheon-si 6.6 |
+| PUS 金海 | Gimhae 8 / Busan 12 / Yangsan 20 | Busan 12 / Gimhae 8 / Changwon 24 |
+| CJU 济州 | Jeju City 2.7 | Jeju City 2.7 |
+
+97 个机场里没有建议的仍是 31 个，和排序无关：它们是离岛和小城市的机场（函馆、钏路、带广、石垣、宫古、奄美……），80 公里以内没有导入范围内（人口 30 万以上或都道府县首府）的城市。阈值没有为它们放宽——放宽只会把隔着海的城市建议出来。要给它们建议，得先有对应的城市：用 `--min-population 100000` 导入后是 24 个没有建议，其余的是离岛，由平台手工建城市。
+
 ### 压缩包
 
 GeoNames 的文件是 zip。Node 没有内置的 zip 读取，我们也不为此引入第三方库（ADR 0001）：`apps/api/src/integrations/zip.ts` 用内置的 `zlib` 实现了只读、只取一个文件的最小解压（不加密、不分卷、小于 4GB，核对 CRC，解压后的大小有上限）。`--file` 也可以直接给解压好的 `.txt`。

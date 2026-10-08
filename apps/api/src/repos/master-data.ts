@@ -44,6 +44,8 @@ export interface City extends Versioned {
   sourceRef: string | null;
   sourceSyncedAt: Date | null;
   sourceOverridden: boolean;
+  /** 数据源给的人口（建议城市时用）；手工录入的为 null */
+  population: number | null;
 }
 
 export interface Place extends Versioned {
@@ -61,6 +63,8 @@ export interface Place extends Versioned {
   sourceRef: string | null;
   sourceSyncedAt: Date | null;
   sourceOverridden: boolean;
+  /** 数据源给的「所属 / 服务的城市名」（建议城市时用）；手工录入的为 null */
+  municipality: string | null;
 }
 
 export interface VehicleGroup extends Versioned {
@@ -118,6 +122,7 @@ export const CITIES: MasterTable<City> = {
     "source_ref",
     "source_synced_at",
     "source_overridden",
+    "population",
   ],
   jsonColumns: ["name", "boundary"],
   codeConstraint: "cities_code_key",
@@ -133,6 +138,7 @@ export const CITIES: MasterTable<City> = {
     sourceRef: row["source_ref"],
     sourceSyncedAt: row["source_synced_at"],
     sourceOverridden: row["source_overridden"],
+    population: row["population"],
   }),
 };
 
@@ -154,6 +160,7 @@ export const PLACES: MasterTable<Place> = {
     "source_ref",
     "source_synced_at",
     "source_overridden",
+    "municipality",
   ],
   jsonColumns: ["name"],
   codeConstraint: "places_code_key",
@@ -173,6 +180,7 @@ export const PLACES: MasterTable<Place> = {
     sourceRef: row["source_ref"],
     sourceSyncedAt: row["source_synced_at"],
     sourceOverridden: row["source_overridden"],
+    municipality: row["municipality"],
   }),
 };
 
@@ -481,8 +489,36 @@ export async function markCitiesSynced(db: Db, source: string, sourceRefs: reado
   await db.query("update cities set source_synced_at = $3 where source = $1 and source_ref = any($2::text[])", [source, sourceRefs, now]);
 }
 
-/** 建议城市时的候选：城市的编码、名称和中心坐标。 */
+/**
+ * 把数据源给的「机场所属的城市名」写到这些导入的机场上（按数据源编号对应）。和核对时间一样不算一次修改：
+ * 版本号、更新时间、「平台改过」的标记都不变。返回实际改了几条。
+ */
+export async function setAirportMunicipalities(db: Db, source: string, entries: readonly { sourceRef: string; municipality: string | null }[]): Promise<number> {
+  if (entries.length === 0) return 0;
+  const result = await db.query(
+    `update places p set municipality = v.municipality
+       from unnest($2::text[], $3::text[]) as v(source_ref, municipality)
+      where p.source = $1 and p.source_ref = v.source_ref and p.municipality is distinct from v.municipality`,
+    [source, entries.map((entry) => entry.sourceRef), entries.map((entry) => entry.municipality)],
+  );
+  return result.rowCount ?? 0;
+}
+
+/** 把数据源给的人口写到这些导入的城市上。同样不算一次修改。返回实际改了几条。 */
+export async function setCityPopulations(db: Db, source: string, entries: readonly { sourceRef: string; population: number }[]): Promise<number> {
+  if (entries.length === 0) return 0;
+  const result = await db.query(
+    `update cities c set population = v.population
+       from unnest($2::text[], $3::int[]) as v(source_ref, population)
+      where c.source = $1 and c.source_ref = v.source_ref and c.population is distinct from v.population`,
+    [source, entries.map((entry) => entry.sourceRef), entries.map((entry) => entry.population)],
+  );
+  return result.rowCount ?? 0;
+}
+
+/** 建议城市时的候选：城市的编码、名称、中心坐标和人口。 */
 export interface CityCandidate extends MasterRef {
+  population: number | null;
   countryCode: string;
   lng: number;
   lat: number;
@@ -492,7 +528,7 @@ export interface CityCandidate extends MasterRef {
 export async function listActiveCityCandidates(db: Db, countryCodes: readonly string[]): Promise<CityCandidate[]> {
   if (countryCodes.length === 0) return [];
   const result = await db.query<Row>(
-    `select id, code, name, country_code, center_lng, center_lat
+    `select id, code, name, country_code, center_lng, center_lat, population
        from cities
       where status = 'active' and country_code = any($1::text[])
       order by code collate "C"`,
@@ -503,6 +539,7 @@ export async function listActiveCityCandidates(db: Db, countryCodes: readonly st
     code: row["code"],
     name: row["name"],
     countryCode: row["country_code"],
+    population: row["population"],
     lng: Number(row["center_lng"]),
     lat: Number(row["center_lat"]),
   }));

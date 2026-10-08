@@ -1013,8 +1013,10 @@ paths:
                     type: array
                     description: |
                       只在按 `city_id=none` 筛选时出现：给这一页的每个地点（顺序和 `items` 相同）建议所属城市。
-                      候选是和地点同一个国家、启用中、中心坐标在 80 公里以内的城市，按球面距离由近到远。
-                      只是建议——最近的不一定对（羽田机场离川崎比离东京近），请对照 `nearby_cities` 确认。
+                      候选是和地点同一个国家、启用中的城市，最多 3 个，**不是按距离排的**：
+                      数据源说的「机场所属的城市」名称对得上的（150 公里以内）排第一；其余是中心坐标在 80 公里以内的，
+                      按「人口 ÷ 距离的平方」从大到小——大城市优先（羽田、成田建议东京，仁川机场建议首尔）。
+                      只是建议，请对照 `nearby_cities` 确认。
                     items:
                       $ref: "#/components/schemas/PlaceCitySuggestion"
     post:
@@ -3070,13 +3072,13 @@ components:
           format: uuid
           description: 地点的编号
         suggested_city:
-          description: 最近的那个城市；80 公里以内没有启用中的城市时为 null
+          description: 首选的城市（就是 `nearby_cities` 的第一个，不一定是最近的）；没有合适的城市时为 null
           oneOf:
             - $ref: "#/components/schemas/CitySuggestion"
             - type: "null"
         nearby_cities:
           type: array
-          description: 80 公里以内的启用中的城市，由近到远，最多 3 个；第一个就是 `suggested_city`
+          description: 候选城市，按建议的先后（不是按距离），最多 3 个；第一个就是 `suggested_city`
           maxItems: 3
           items:
             $ref: "#/components/schemas/CitySuggestion"
