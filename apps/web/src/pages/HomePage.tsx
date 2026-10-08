@@ -31,8 +31,8 @@ export function HomePage() {
   return (
     <AppShell pageName="首页">
       <Page title="首页">
-        <div role="alert">
-          {failed && (
+        {failed && (
+          <div role="alert">
             <Alert kind="danger">
               <strong className="alert__title">数量没有加载出来</strong>
               <span>入口可以照常使用。请检查网络后重试。</span>
@@ -40,8 +40,8 @@ export function HomePage() {
                 重试
               </Button>
             </Alert>
-          )}
-        </div>
+          </div>
+        )}
         {showAreas && (
           <section className="home-section" aria-labelledby="home-catalog">
             <h2 className="home-section__title" id="home-catalog">

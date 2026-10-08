@@ -172,6 +172,18 @@ test("首页引导 → 新增区域：坐标表填营运区、在地图上用鼠
   await clickMap(page, 240, -100);
   await expect(group(page, "营运区").getByRole("heading", { level: 3 })).toHaveText("营运区（2）");
   await expect(shapeItem(page, "营运 2")).toContainText(/圆 · 半径 [\d.]+ 公里/);
+  // 刚画的圆是选中的：拖半径上的控制点往外，半径跟着变大
+  const radiusBox = page.getByLabel("营运 2 半径（公里）");
+  const radiusBefore = Number(await radiusBox.inputValue());
+  const radiusHandle = await page.locator(".area-map__overlay .area-handle--radius").boundingBox();
+  const circleCenter = await mapPoint(page, 200, -100);
+  if (!radiusHandle) throw new Error("没有找到半径的控制点");
+  const from = { x: radiusHandle.x + radiusHandle.width / 2, y: radiusHandle.y + radiusHandle.height / 2 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + (from.x - circleCenter.x) * 0.5, from.y + (from.y - circleCenter.y) * 0.5, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await radiusBox.inputValue())).toBeGreaterThan(radiusBefore);
 
   // 拖动顶点：选中禁行 1，把它的第 3 个点（最上面那个）再往上拖，坐标表跟着变
   await shapeItem(page, "禁行 1").locator(".shape__toggle").click();
@@ -443,6 +455,14 @@ test("底图取不到（瓦片服务不通）：有提示，图形照常显示�
   await expect(page.locator(".area-map__overlay .area-stroke--operate")).toHaveCount(1);
   await shapeItem(page, "营运 1").locator(".shape__toggle").click();
   await expect(page.locator(".area-map__overlay circle.area-handle:not(.area-handle--mid)")).toHaveCount(4);
+  // 拖一条边中间的点：在这条边上加出一个顶点
+  const middle = await page.locator(".area-map__overlay .area-handle--mid").first().boundingBox();
+  if (!middle) throw new Error("没有找到边中间的控制点");
+  await page.mouse.move(middle.x + middle.width / 2, middle.y + middle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(middle.x + middle.width / 2 + 20, middle.y + middle.height / 2 + 20, { steps: 4 });
+  await page.mouse.up();
+  await expect(shapeItem(page, "营运 1")).toContainText("多边形 · 5 个点");
   await page.getByLabel("营运 1 第 1 个点的纬度").fill(String(CENTER.lat - 0.2));
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page).toHaveURL(/\/areas$/);
