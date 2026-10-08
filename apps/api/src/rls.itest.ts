@@ -173,7 +173,7 @@ test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有
                      where att.attrelid = c.oid and att.attname = 'tenant_id' and not att.attisdropped)
       order by 1`,
   );
-  assert.deepEqual(tables.rows.map((r) => r.table_name), ["audit_logs", "tenant_sessions", "tenant_users"]);
+  assert.deepEqual(tables.rows.map((r) => r.table_name), ["area_polygons", "areas", "audit_logs", "idempotency_keys", "tenant_sessions", "tenant_users"]);
   for (const table of tables.rows) {
     assert.equal(table.rls, true, `${table.table_name} 没有开启行级安全`);
     assert.ok(table.policies >= 1, `${table.table_name} 没有策略`);

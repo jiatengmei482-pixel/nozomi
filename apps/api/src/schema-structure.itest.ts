@@ -41,8 +41,13 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
   [TENANT_DB_ROLE]: {
     // 主数据：租户只读（ADR 0012）
     addons: ["SELECT"],
+    // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
+    area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     audit_logs: ["INSERT", "SELECT"],
     cities: ["SELECT"],
+    // 创建类接口的幂等键：过期的键在再次使用时删除
+    idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
     tenant_roles: ["SELECT"],
     tenant_sessions: ["DELETE", "INSERT", "SELECT"],
@@ -183,7 +188,7 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
   assert.deepEqual(counts, expected);
   for (const table of [
     "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
-    "cities", "places", "vehicle_groups", "addons",
+    "cities", "places", "vehicle_groups", "addons", "areas", "area_polygons", "idempotency_keys",
   ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }

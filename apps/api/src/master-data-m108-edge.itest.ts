@@ -130,12 +130,17 @@ test("首页统计的权限裁剪：十个平台角色各调一次——有 tena
   }
 });
 
-test("首页统计：租户令牌（两个租户、各角色都一样）、没有令牌、伪造的令牌都进不来；租户一侧没有这个接口", async () => {
+test("首页统计：租户令牌（两个租户、各角色都一样）、没有令牌、伪造的令牌都进不来；租户一侧自己的首页数量里没有平台的统计", async () => {
   for (const token of [tenantA.adminToken, tenantB.adminToken, "not-a-token", `${root}x`]) {
     assert.equal((await get("/platform/v1/dashboard/summary", token)).status, 401);
   }
   assert.equal((await api.call("GET", "/platform/v1/dashboard/summary")).status, 401);
-  assert.equal((await get("/tenant/v1/dashboard/summary", tenantA.adminToken)).status, 404);
+  // M1-02 起供应商后台有了自己的首页数量接口：它是另一个接口，只有供应商自己的数量，没有平台的任何一组；平台令牌进不去
+  const own = await get("/tenant/v1/dashboard/summary", tenantA.adminToken);
+  assert.equal(own.status, 200, own.text);
+  assert.deepEqual(Object.keys(own.body), ["areas"]);
+  assert.doesNotMatch(own.text, /tenants|master_data|suspended/);
+  assert.equal((await get("/tenant/v1/dashboard/summary", root)).status, 401);
   for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const) {
     const res = await api.call(method, "/platform/v1/dashboard/summary", { token: root, body: {} });
     assert.ok(res.status === 404 || res.status === 405, `${method} 不是写接口，实际 ${res.status}`);

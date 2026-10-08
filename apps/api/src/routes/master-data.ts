@@ -69,12 +69,12 @@ type Json = Record<string, unknown>;
 const LANGUAGE_HINT = `只支持这些语言：${MASTER_DATA_LANGUAGES.join("、")}`;
 
 /** 一段要给人看的文字：去掉首尾空白后不为空，而且不能只有零宽空格这类不可见字符。 */
-function visibleText(maxLength: number) {
+export function visibleText(maxLength: number) {
   return z.string().trim().min(1).max(maxLength).refine((text) => text === "" || hasVisibleText(text), "不能只有空白或不可见字符");
 }
 
 /** 多语言文本：键是语言代码，值是去掉首尾空白后不为空的文字。结果里只留下填了的语言。 */
-function localized(maxLength: number) {
+export function localized(maxLength: number) {
   const text = visibleText(maxLength).optional();
   return z
     .object({ ja: text, zh: text, en: text, ko: text })

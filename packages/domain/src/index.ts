@@ -9,4 +9,5 @@ export * from "./csv.ts";
 export * from "./ourairports.ts";
 export * from "./temporary-password.ts";
 export * from "./geonames.ts";
+export * from "./areas.ts";
 export * from "./city-suggestion.ts";

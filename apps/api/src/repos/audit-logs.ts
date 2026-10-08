@@ -17,7 +17,8 @@ export type AuditResource =
   | "city"
   | "place"
   | "vehicle_group"
-  | "addon";
+  | "addon"
+  | "area";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -28,6 +29,7 @@ export type AuditAction =
   | "disable"
   | "enable"
   | "update"
+  | "delete"
   | "change_role"
   | "change_password"
   | "request_password_reset"

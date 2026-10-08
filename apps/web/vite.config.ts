@@ -21,13 +21,16 @@ const proxy: Record<string, ProxyOptions> = Object.fromEntries(
  * `vite preview`（端到端测试用它提供构建好的前端）带上和正式环境同一条内容安全策略：
  * 策略由同一个函数从同一份构建产物算出，所以策略一旦会拦掉页面需要的东西，端到端测试先失败。
  * 开发服务器（`vite`）不加：热更新要用内联脚本。
+ * 地图底图的图片来源在正式环境由部署时的 MAP_TILE_CSP_SOURCES 填进策略（ADR 0015）；这里对应的是 NOZOMI_MAP_TILE_CSP_SOURCES
+ *（空格分隔），端到端测试把本机的假瓦片服务填进来。没设就是只认同源。
  */
 function previewContentSecurityPolicy(): Plugin {
   return {
     name: "nozomi:preview-content-security-policy",
     configurePreviewServer(server) {
       const indexHtml = readFileSync(new URL("./dist/index.html", import.meta.url), "utf8");
-      const policy = contentSecurityPolicy(inlineScriptHashes(indexHtml));
+      const imageSources = (process.env["NOZOMI_MAP_TILE_CSP_SOURCES"] ?? "").split(/\s+/).filter((source) => source !== "");
+      const policy = imageSources.length === 0 ? contentSecurityPolicy(inlineScriptHashes(indexHtml)) : contentSecurityPolicy(inlineScriptHashes(indexHtml), imageSources);
       server.middlewares.use((_request, response, next) => {
         response.setHeader("Content-Security-Policy", policy);
         next();

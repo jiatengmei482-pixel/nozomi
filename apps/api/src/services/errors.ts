@@ -85,6 +85,16 @@ export function accountNotActive(): AppError {
   return new AppError(409, "ACCOUNT_NOT_ACTIVE", "账号不是在用状态：待激活的账号请重新邀请，已停用的账号请先启用");
 }
 
+/** 同一个城市里已经有同名的区域（本供应商自己的）。 */
+export function areaNameTaken(): AppError {
+  return new AppError(409, "AREA_NAME_TAKEN", "这个城市已经有同名的区域，请换一个名字");
+}
+
+/** 同一个幂等键配了不同的请求内容。 */
+export function idempotencyKeyReused(): AppError {
+  return new AppError(422, "IDEMPOTENCY_KEY_REUSED", "这个 Idempotency-Key 已经用于另一个内容不同的请求，请换一个新的键");
+}
+
 /** 编码（城市、地点、车型组、附加服务各自全平台唯一）已经被别的记录使用。 */
 export function codeTaken(): AppError {
   return new AppError(409, "CODE_TAKEN", "这个编码已被使用");

@@ -230,6 +230,9 @@ running_images() {
 }
 
 # 前端：和负责人在浏览器里做的事一样，全部经反向代理（behind-proxy 时再经外层代理）。部署后、回退后各查一遍。
+# 内容安全策略里应当放行的地图底图来源；没配底图时为空。
+expected_tile_origin=""
+
 check_frontend() {
   local label="$1" index headers policy script_hash path body asset stylesheet
   index="$(request --max-time 10 "$base_url/")"
@@ -253,7 +256,13 @@ check_frontend() {
   for directive in "default-src 'self'" "style-src 'self'" "connect-src 'self'" "object-src 'none'" "base-uri 'none'" "frame-ancestors 'none'"; do
     grep -qF "$directive" <<<"$policy" || fail "$label：内容安全策略缺少 $directive"
   done
-  if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"$policy"; then fail "$label：内容安全策略不应放行内联、eval 或任何站外来源：$policy"; fi
+  # 图片来源：没配地图底图时只认同源；配了以后只多出那一个来源（bin/compose.sh 从 .env 的 MAP_TILE_URL_TEMPLATE 算出）。
+  if [[ -z "$expected_tile_origin" ]]; then
+    grep -Eq "img-src 'self' ?;" <<<"$policy" || fail "$label：没有配置地图底图时 img-src 应只认同源，实际策略：$policy"
+  else
+    grep -qF "img-src 'self' $expected_tile_origin;" <<<"$policy" || fail "$label：img-src 应放行地图底图的来源 $expected_tile_origin，实际策略：$policy"
+  fi
+  if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"${policy//$expected_tile_origin/}"; then fail "$label：内容安全策略不应放行内联、eval 或底图之外的任何站外来源：$policy"; fi
 
   # 刷新任意前端地址：没有对应的文件，一律拿到 index.html。最后两个长得像接口前缀但不是，也归前端。
   for path in /login /platform/login /accept-invite /platform/reset-password /platform "/login?next=%2Faccount" /some/deep/page /healthz /platform/v1x; do
@@ -520,8 +529,13 @@ docker build --quiet --tag "$next_web_image" - <<DOCKERFILE
 FROM $good_web_image
 RUN printf 'v3' >/srv/web$version_marker_path
 DOCKERFILE
+# 这一次部署前在 .env 里配上地图底图：API 拿到同一个地址，反向代理的 img-src 多出它的来源（地址不会被真的请求）。
+printf '%s\n' 'MAP_TILE_URL_TEMPLATE=https://tiles.smoke.test/{z}/{x}/{y}.png' 'MAP_TILE_ATTRIBUTION=© 冒烟测试底图|https://tiles.smoke.test/copyright' >>"$root_dir/.env"
+expected_tile_origin="https://tiles.smoke.test"
 install_release v3
 deploy_release v3 "$next_image"
+[[ "$(compose exec -T api printenv MAP_TILE_URL_TEMPLATE)" == 'https://tiles.smoke.test/{z}/{x}/{y}.png' ]] || fail "API 容器应拿到 .env 里的地图底图地址"
+check_frontend "配置地图底图后"
 [[ "$(current_release)" == "v3" ]] || fail "current 应指向 v3"
 [[ "$(running_images)" == "$next_image $next_web_image" ]] || fail "第三次部署后应运行新版本的两个镜像，实际是：$(running_images)"
 [[ "$(request --max-time 10 "$base_url$version_marker_path")" == "v3" ]] || fail "第三次部署后前端应已换成新版本"

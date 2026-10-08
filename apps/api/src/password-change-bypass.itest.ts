@@ -98,6 +98,14 @@ async function raw(method: string, url: string, token: string, headers: Record<s
 /** 主数据四类资源的接口形状相同（M1-01）；鉴权先于参数校验，所以请求体给空对象即可。 */
 const MASTER_RESOURCES = ["cities", "places", "vehicle-groups", "addons"] as const;
 
+/** 一份合格的区域请求体（城市编号是随便写的：被拦的请求根本走不到查城市那一步）。 */
+const AREA_BODY = {
+  city_id: "99999999-9999-4999-8999-999999999999",
+  name: { zh: "不该出现的区域" },
+  biz_type: "general",
+  polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139, 35], [140, 35], [140, 36], [139, 35]]] } }],
+};
+
 /** 每个被拦的业务接口配一份「本来会成功」的请求体：证明被拦不是因为参数不对。 */
 function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }): [HttpMethod, string, unknown?][] {
   if (entry === "platform") {
@@ -138,6 +146,16 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }
     ["DELETE", `/tenant/v1/users/${ids.userId}`],
     ["POST", `/tenant/v1/users/${ids.userId}/password-reset`],
     ["GET", "/tenant/v1/audit-logs"],
+    ["GET", "/tenant/v1/areas"],
+    ["POST", "/tenant/v1/areas", AREA_BODY],
+    ["GET", `/tenant/v1/areas/${ids.userId}`],
+    ["PUT", `/tenant/v1/areas/${ids.userId}`, AREA_BODY],
+    ["DELETE", `/tenant/v1/areas/${ids.userId}`],
+    ["POST", `/tenant/v1/areas/${ids.userId}/disable`],
+    ["POST", `/tenant/v1/areas/${ids.userId}/enable`],
+    ["POST", `/tenant/v1/areas/${ids.userId}/check-point`, { lat: 35.5, lng: 139.5 }],
+    ["GET", "/tenant/v1/map/config"],
+    ["GET", "/tenant/v1/dashboard/summary"],
   ];
 }
 

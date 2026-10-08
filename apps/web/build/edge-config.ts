@@ -5,6 +5,8 @@
  *    所以「哪些路径转给 API、其余归前端」在开发、测试、正式环境里不会各说各话；
  * 2. 内容安全策略（CSP）——`index.html` 里设置主题的那段内联脚本用哈希放行。哈希从构建产物里现算，
  *    不手抄：改了那段脚本、或构建工具改了它的输出，策略自动跟着变。
+ *    唯一按环境变的部分是地图底图的图片来源（ADR 0015）：同一份镜像要部署到底图不同的环境，所以片段里留一个
+ *    Caddy 的环境变量占位，由部署时的 `MAP_TILE_CSP_SOURCES` 填入；没配就是只认同源。
  *
  * 纯函数，不读写文件；命令行入口在同目录的 edge-config-cli.ts。
  */
@@ -39,20 +41,32 @@ export function inlineScriptHashes(html: string): string[] {
   return hashes;
 }
 
+/** 部署时由反向代理填入「地图底图的图片来源」的环境变量名；值由 deploy/bin/compose.sh 从底图地址算出。 */
+export const MAP_TILE_CSP_SOURCES_ENV = "MAP_TILE_CSP_SOURCES";
+/** Caddy 配置里的环境变量占位：启动时被替换成变量的值，没设置时替换成空。 */
+const MAP_TILE_CSP_PLACEHOLDER = `{$${MAP_TILE_CSP_SOURCES_ENV}}`;
+
+/** 能放进 `img-src` 的图片来源：协议 + 主机名（+ 端口），不带路径、通配符、引号。本机地址给端到端测试的假瓦片服务用。 */
+const IMAGE_SOURCE = /^(https:\/\/[A-Za-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost))(:[0-9]{1,5})?$/;
+
 /**
- * 全站的内容安全策略。前端不加载任何站外资源、不用内联样式（ADR 0011），所以除了按哈希放行的内联脚本，一律只认同源。
+ * 全站的内容安全策略。前端不加载任何站外的脚本、样式、字体，不用内联样式（ADR 0011），所以除了按哈希放行的内联脚本，一律只认同源。
+ * 例外只有一个：地图底图的瓦片图片（ADR 0015）——`imageSources` 里的来源加进 `img-src`，别的指令不动。
  * `frame-ancestors 'none'` 与 X-Frame-Options: DENY 同义，两个都留：老浏览器只认后者。
  */
-export function contentSecurityPolicy(scriptHashes: readonly string[]): string {
+export function contentSecurityPolicy(scriptHashes: readonly string[], imageSources: readonly string[] = []): string {
   for (const hash of scriptHashes) {
     if (!/^sha256-[A-Za-z0-9+/]{43}=$/.test(hash)) throw new Error(`不是合法的 sha256 哈希：${hash}`);
+  }
+  for (const source of imageSources) {
+    if (source !== MAP_TILE_CSP_PLACEHOLDER && !IMAGE_SOURCE.test(source)) throw new Error(`不能放进 img-src 的图片来源：${source}`);
   }
   const scriptSources = ["'self'", ...scriptHashes.map((hash) => `'${hash}'`)];
   return [
     "default-src 'self'",
     `script-src ${scriptSources.join(" ")}`,
     "style-src 'self'",
-    "img-src 'self'",
+    ["img-src 'self'", ...imageSources].join(" "),
     "font-src 'self'",
     "connect-src 'self'",
     "object-src 'none'",
@@ -77,7 +91,7 @@ export function renderEdgeConfig(indexHtml: string): string {
   return [
     "# 构建前端镜像时由 apps/web/build/edge-config.ts 生成，不要手工修改。",
     `@api path ${apiPathPatterns().join(" ")}`,
-    `header Content-Security-Policy "${contentSecurityPolicy(hashes)}"`,
+    `header Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER])}"`,
     "",
   ].join("\n");
 }

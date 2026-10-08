@@ -119,7 +119,10 @@ test("生成的 Caddy 片段：只有 @api 匹配器和内容安全策略两条�
   const lines = codeOf(renderEdgeConfig(indexHtml)).split("\n").filter(Boolean);
   assert.equal(lines.length, 2);
   assert.equal(lines[0], `@api path ${apiPathPatterns().join(" ")}`);
-  assert.equal(lines[1], `header Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml))}"`);
+  // 图片来源里有一个 Caddy 的环境变量占位：部署时由 MAP_TILE_CSP_SOURCES 填入（地图底图的来源，ADR 0015），没配就是空
+  assert.equal(lines[1], `header Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"])}"`);
+  assert.match(lines[1] ?? "", /; img-src 'self' \{\$MAP_TILE_CSP_SOURCES\}; font-src 'self';/);
+  assert.equal((lines[1] ?? "").split("{$").length, 2, "整条策略里只有这一处按环境变化");
   assert.notEqual(renderEdgeConfig(indexHtml.replace("nozomi.theme", "nozomi.theme2")), renderEdgeConfig(indexHtml), "页面里的脚本变了，策略跟着变");
 });
 

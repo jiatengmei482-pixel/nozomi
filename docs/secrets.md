@@ -74,6 +74,15 @@
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe` → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
 | `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
 
+同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：
+
+| 名称 | 是什么 | 怎么填 |
+| --- | --- | --- |
+| `MAP_TILE_URL_TEMPLATE` | 地图底图的图片地址 | 测试环境填 `https://tile.openstreetmap.org/{z}/{x}/{y}.png`（OpenStreetMap 的免费底图，不要密钥、不保证可用，只适合测试）。正式环境换成你选定的付费底图服务给的地址。不填 = 没有底图：区域页面照样能用，只是图形画在空白背景上 |
+| `MAP_TILE_ATTRIBUTION` | 地图右下角必须显示的版权署名 | 填了上一项就必须填这一项（底图服务的使用条款要求）。写法 `文字|链接`，多条用 `;;` 隔开。OpenStreetMap 填 `© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright` |
+
+填好后重新部署一次即可生效；网页的安全策略会自动放行这一个图片来源，不用另外设置。还有几项一般不用动、有默认值的（暗色底图地址 `MAP_TILE_DARK_URL_TEMPLATE`、缩放范围 `MAP_TILE_MIN_ZOOM` / `MAP_TILE_MAX_ZOOM`、图片尺寸 `MAP_TILE_SIZE`、来源页策略 `MAP_TILE_REFERRER_POLICY`），说明见 `docs/adr/0015-areas.md`。
+
 **什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境必须全部填好**，否则程序拒绝启动。
 
 不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、程序前面有几层反向代理（由 `EDGE_MODE` 自动决定）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源有默认值。

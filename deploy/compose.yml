@@ -65,6 +65,14 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # 地图底图（不是密钥，会经接口下发给浏览器；不配 = 这个环境没有底图）。说明见 docs/secrets.md、ADR 0015。
+      MAP_TILE_URL_TEMPLATE: ${MAP_TILE_URL_TEMPLATE:-}
+      MAP_TILE_DARK_URL_TEMPLATE: ${MAP_TILE_DARK_URL_TEMPLATE:-}
+      MAP_TILE_ATTRIBUTION: ${MAP_TILE_ATTRIBUTION:-}
+      MAP_TILE_REFERRER_POLICY: ${MAP_TILE_REFERRER_POLICY:-}
+      MAP_TILE_MIN_ZOOM: ${MAP_TILE_MIN_ZOOM:-}
+      MAP_TILE_MAX_ZOOM: ${MAP_TILE_MAX_ZOOM:-}
+      MAP_TILE_SIZE: ${MAP_TILE_SIZE:-}
       # API 前面有几层我们信任的反向代理：审计日志和登录限速据此从 X-Forwarded-For 取客户端真实地址。
       # 不手填，由 bin/deploy.sh 按入口模式算出：standalone 是 1（只有 Caddy），behind-proxy 是 2（外层代理 + Caddy）。
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?缺少 TRUST_PROXY_HOPS，请通过 bin/deploy.sh 部署}
@@ -127,6 +135,9 @@ services:
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:?缺少 CADDY_SITE_ADDRESS，请通过 bin/deploy.sh 部署}
       CADDY_TLS_MODE: ${CADDY_TLS_MODE:?缺少 CADDY_TLS_MODE，请通过 bin/deploy.sh 部署}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      # 内容安全策略 img-src 里放行的地图底图来源。不手填：bin/compose.sh 从 .env 的 MAP_TILE_URL_TEMPLATE 算出，
+      # 所以它和接口下发的底图地址永远是同一个来源；没配底图时为空（只认同源）。
+      MAP_TILE_CSP_SOURCES: ${MAP_TILE_CSP_SOURCES:-}
     # standalone 模式对主机发布的端口。behind-proxy 模式由 compose.behind-proxy.yml 整体替换成
     # 「只在主机回环地址上的一个端口」，80 和 443 留给机器上原有的反向代理。
     ports:

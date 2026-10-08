@@ -25,7 +25,13 @@ export type IconName =
   | "x"
   | "copy"
   | "external"
-  | "filter";
+  | "filter"
+  | "map"
+  | "more"
+  | "undo"
+  | "redo"
+  | "target"
+  | "minus";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   eye: (
@@ -103,6 +109,17 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
       <path d="M5 15V6a2 2 0 0 1 2-2h9" />
     </>
   ),
+  map: <path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5V6.5zM9 4v13.5M15 6.5V20" />,
+  more: <path d="M5 12h.01M12 12h.01M19 12h.01" />,
+  undo: <path d="M8 6L4 10l4 4M4 10h10a6 6 0 0 1 0 12h-3" />,
+  redo: <path d="M16 6l4 4-4 4M20 10H10a6 6 0 0 0 0 12h3" />,
+  target: (
+    <>
+      <circle cx="12" cy="12" r="6" />
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
   filter: <path d="M3 5h18l-7 8.5V19l-4 2v-7.5L3 5z" />,
   external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
 };
