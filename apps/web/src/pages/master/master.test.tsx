@@ -746,15 +746,15 @@ function suggestionRoutes(extra: Route = () => null): Route {
 
 const candidates = (): string[] => [...document.querySelectorAll(".suggestions__option")].map((option) => `${option.textContent}:${option.getAttribute("aria-pressed")}`);
 
-test("城市建议：最近的城市预先填好并写明是建议和距离，候选都列出来；直接按 Enter 就指定并启用；没有建议的机场保持原样", async () => {
+test("城市建议：首选的城市预先填好并写明是建议和距离，候选都列出来；直接按 Enter 就指定并启用；没有建议的机场保持原样", async () => {
   const calls = open("/platform/master/places/pending", "master_data", suggestionRoutes((call) => (call.path.endsWith(`/${HND_ID}/enable`) ? json(200, { ...hnd, city_id: KAWASAKI_ID, status: "active", version: 2 }) : null)));
   const user = userEvent.setup();
   await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
   const city = screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement;
   await waitFor(() => assert.equal(city.value, "川崎"));
-  assert.ok(screen.getByText("建议：川崎（约 7 公里）。这是按距离给的建议，请核对后再保存。"));
-  assert.ok(screen.getByText("离这个机场最近的城市"));
-  assert.ok(screen.getByText(/最近的不一定对，请核对/));
+  assert.ok(screen.getByText("建议：川崎（约 7 公里）。按机场资料里的所属城市和周边的大城市给出的建议，请核对后再保存。"));
+  assert.ok(screen.getByText("建议的城市"));
+  assert.ok(screen.getByText(/建议不一定对，请核对/));
   assert.deepEqual(candidates(), ["川崎约 7 公里:true", "东京约 18 公里:false"]);
   assert.equal(written(calls).length, 0, "预填不等于处理：没按确认之前不发任何请求");
 
@@ -770,7 +770,7 @@ test("城市建议：最近的城市预先填好并写明是建议和距离，�
   assert.equal(written(calls).length, 1);
 });
 
-test("城市建议：最近的不对时换一个候选（按钮可用键盘操作），或者清掉自己搜；清掉以后不会被填回去", async () => {
+test("城市建议：首选的不对时换一个候选（按钮可用键盘操作），或者清掉自己搜；清掉以后不会被填回去", async () => {
   const calls = open("/platform/master/places/pending", "master_data", suggestionRoutes((call) => (call.path.endsWith(`/${HND_ID}/enable`) ? json(200, { ...hnd, city_id: TOKYO_ID, status: "active", version: 2 }) : null)));
   const user = userEvent.setup();
   await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
@@ -788,7 +788,7 @@ test("城市建议：最近的不对时换一个候选（按钮可用键盘操�
   await user.keyboard("{Enter}");
   assert.equal(city.value, "东京");
   assert.deepEqual(candidates(), ["川崎约 7 公里:false", "东京约 18 公里:true"]);
-  assert.ok(screen.getByText("建议：东京（约 18 公里）。这是按距离给的建议，请核对后再保存。"));
+  assert.ok(screen.getByText("建议：东京（约 18 公里）。按机场资料里的所属城市和周边的大城市给出的建议，请核对后再保存。"));
   assertFocused(screen.getByRole("button", { name: "保存并启用" }));
   await user.keyboard("{Enter}");
   await screen.findByRole("heading", { level: 2, name: "Kansai International Airport" });

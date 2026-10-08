@@ -188,7 +188,7 @@ export interface MasterPage<T> {
   items: T[];
   next_cursor: string | null;
   total: number;
-  /** 只有地点列表按 `city_id=none` 筛选时才有：给这一页每个地点按距离建议的城市 */
+  /** 只有地点列表按 `city_id=none` 筛选时才有：给这一页每个地点建议的城市 */
   city_suggestions?: PlaceCitySuggestion[];
 }
 
@@ -200,9 +200,9 @@ export interface CitySuggestion extends MasterRef {
 
 export interface PlaceCitySuggestion {
   place_id: string;
-  /** 最近的那个；80 公里以内没有启用中的城市时为 null */
+  /** 首选：机场资料里的所属城市名对得上的优先，其余按人口和距离综合；附近没有启用中的城市时为 null */
   suggested_city: CitySuggestion | null;
-  /** 由近到远，最多 3 个；第一个就是 suggested_city */
+  /** 按建议的先后排，不是由近到远；最多 3 个，第一个就是 suggested_city */
   nearby_cities: CitySuggestion[];
 }
 

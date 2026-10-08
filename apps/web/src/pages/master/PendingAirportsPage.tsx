@@ -208,7 +208,7 @@ export function PendingAirportsPage() {
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   const [done, setDone] = useState<Done[]>([]);
   const [recentCities, setRecentCities] = useState<string[]>([]);
-  // 后端按距离给的城市建议（按机场编号记）；只是建议，预填以后仍要人看一眼再确认
+  // 后端给的城市建议（按机场编号记；机场资料里的所属城市名对得上的优先，其余按人口和距离综合）；只是建议，预填以后仍要人看一眼再确认
   const [suggestions, setSuggestions] = useState<ReadonlyMap<string, PlaceCitySuggestion>>(new Map());
   const prefilledFor = useRef<string | null>(null);
   const remember = (entries: readonly PlaceCitySuggestion[] | undefined): void => {
@@ -610,7 +610,7 @@ export function PendingAirportsPage() {
                   noCities
                     ? `还没有${countryLabel(current.country_code)}的启用中的城市。请先新增城市。`
                     : chosenSuggestion
-                      ? `建议：${displayName(chosenSuggestion.name).text}（${formatDistance(chosenSuggestion.distance_km)}）。这是按距离给的建议，请核对后再保存。`
+                      ? `建议：${displayName(chosenSuggestion.name).text}（${formatDistance(chosenSuggestion.distance_km)}）。按机场资料里的所属城市和周边的大城市给出的建议，请核对后再保存。`
                       : `只能选${countryLabel(current.country_code)}的启用中的城市。`
                 }
                 onChange={(cityId) => {
@@ -626,8 +626,8 @@ export function PendingAirportsPage() {
             {nearby.length > 0 && (
               <div className="suggestions" role="group" aria-labelledby="pending-suggestions-lead">
                 <p className="suggestions__lead" id="pending-suggestions-lead">
-                  <strong>离这个机场最近的城市</strong>
-                  （按到城市中心的直线距离）。最近的不一定对，请核对：
+                  <strong>建议的城市</strong>
+                  （按机场资料里的所属城市和周边的大城市给出，括号里是到城市中心的直线距离）。建议不一定对，请核对：
                 </p>
                 <div className="suggestions__list">
                   {nearby.map((city) => (

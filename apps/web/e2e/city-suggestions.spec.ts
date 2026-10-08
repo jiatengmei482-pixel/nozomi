@@ -1,5 +1,5 @@
 /**
- * 处理导入的机场：按距离建议城市（M1-09），真实后端。
+ * 处理导入的机场：建议城市（M1-09；排序规则见 M1-11），真实后端。
  * 城市经接口新建（启用的、中心坐标由用例给定），机场经真实的导入命令从用例构造的小样本导入。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
@@ -31,7 +31,7 @@ const cityBox = (page: Page) => page.getByRole("combobox", { name: /所属城市
 const code = (page: Page) => page.locator(".pending__code");
 const candidates = (page: Page) => page.locator(".suggestions__option");
 
-test("流水线页按距离预填建议的城市并列出候选：连续按 Enter 处理、换候选、没有建议的机场保持原样", async ({ page, request }) => {
+test("流水线页预填建议的城市并列出候选：连续按 Enter 处理、换候选、没有建议的机场保持原样", async ({ page, request }) => {
   test.slow();
   const country = "UY";
   const tag = randomLetters(4);
@@ -54,14 +54,14 @@ test("流水线页按距离预填建议的城市并列出候选：连续按 Ente
 
   await page.goto(`/platform/master/places/pending?country=${country}`);
   await expect(code(page)).toHaveText(`${prefix}A`);
-  await expect(cityBox(page), "最近的城市预先填好").toHaveValue(near.name);
-  await expect(page.getByText(new RegExp(`^建议：${near.name}（约 \\d+ 公里）。这是按距离给的建议，请核对后再保存。$`))).toBeVisible();
+  await expect(cityBox(page), "首选的城市预先填好").toHaveValue(near.name);
+  await expect(page.getByText(new RegExp(`^建议：${near.name}（约 \\d+ 公里）。按机场资料里的所属城市和周边的大城市给出的建议，请核对后再保存。$`))).toBeVisible();
   await expect(candidates(page)).toHaveCount(2);
   await expect(candidates(page).nth(0)).toContainText(near.name);
   await expect(candidates(page).nth(0)).toHaveAttribute("aria-pressed", "true");
   await expect(candidates(page).nth(1)).toContainText(far.name);
   await expect(candidates(page).nth(1)).toContainText(/约 \d+ 公里/);
-  await expect(page.getByText("最近的不一定对，请核对", { exact: false })).toBeVisible();
+  await expect(page.getByText("建议不一定对，请核对", { exact: false })).toBeVisible();
   expect(writes, "预填不等于处理：还没有发任何修改请求").toBe(0);
   expect((await placeByCode(request, `${prefix}A`)).city_id).toBeNull();
 
@@ -72,7 +72,7 @@ test("流水线页按距离预填建议的城市并列出候选：连续按 Ente
   await expect(cityBox(page)).toHaveValue(near.name);
   await expect(cityBox(page)).toBeFocused();
 
-  // 第二个：最近的不对，用键盘换成另一个候选再确认
+  // 第二个：首选的不对，用键盘换成另一个候选再确认
   await candidates(page).nth(1).focus();
   await page.keyboard.press("Enter");
   await expect(cityBox(page)).toHaveValue(far.name);
