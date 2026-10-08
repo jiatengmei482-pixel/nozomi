@@ -10,6 +10,7 @@ import { type MasterKind, type MasterKinds, createMaster, getMaster, patchMaster
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
 import { AppShell, type Crumb, Page } from "../../components/AppShell.tsx";
+import { Attributions, type DataSource } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
@@ -75,6 +76,8 @@ export interface FormModel<K extends MasterKind, V, X = undefined> {
   /** 页面顶部的说明（新增机场的提示） */
   intro?(context: FormContext<K, X>): string | null;
   toggle: Pick<StatusToggleOptions<K>, "objectName" | "objectPhrase" | "inUse" | "notReady">;
+  /** 页面底部的数据来源署名 */
+  footnotes?(context: FormContext<K, X>): readonly DataSource[];
   /** 保存后回到上级的编辑页时，滚到哪一块（航站楼 / 出口保存后回到上级的下级卡片） */
   returnAnchor?(context: FormContext<K, X>): string | null;
   /** 后端拒绝：城市或上级已停用。返回要显示在哪个字段下，或表单顶部的话 */
@@ -504,6 +507,7 @@ export function MasterFormPage<K extends MasterKind, V, X>({ model }: { model: F
           <LinkButton to={backTo}>回到列表</LinkButton>
         </div>
       )}
+      <Attributions sources={model.footnotes?.(context) ?? []} />
       {toggle.dialog}
       <Dialog
         open={leaving !== null}

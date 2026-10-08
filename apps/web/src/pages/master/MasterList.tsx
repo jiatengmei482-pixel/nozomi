@@ -9,6 +9,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { type MasterKind, type MasterKinds, type MasterListQuery, type MasterPage, listMaster } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, type DataSource } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
 import { FilterBar, SearchBox, useFilterParam } from "../../components/FilterBar.tsx";
@@ -50,6 +51,8 @@ export interface ListDefinition<K extends MasterKind> {
   empty: { title: string; description: string };
   /** 标题行下面、筛选条上面的内容（页签、提示条） */
   header?: ReactNode;
+  /** 页面底部的数据来源署名 */
+  footnotes?: readonly DataSource[];
   /** 这一行还不能启用、要先去别处处理（还没有城市的导入机场）：给出替代「启用」的链接 */
   blockedAction?(row: RecordOf<K>): { label: string; to: string } | null;
   /** 停用被保护规则拒绝时的说明 */
@@ -159,7 +162,7 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
 
   const columns: Column<RecordOf<K>>[] = [
     { key: "code", header: "编码", cell: (row) => <CodeLink kind={kind} id={row.id} code={row.code} state={returnState} /> },
-    { key: "name", header: "名称", cell: (row) => <NameCell name={row.name} /> },
+    { key: "name", header: "名称", wrap: true, cell: (row) => <NameCell name={row.name} /> },
     ...definition.columns,
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...MASTER_STATUS_BADGES[row.status]} /> },
   ];
@@ -244,6 +247,7 @@ export function MasterList<K extends MasterKind>({ definition }: { definition: L
             if (next) goToPage([...stack, next]);
           }}
         />
+        <Attributions sources={definition.footnotes ?? []} />
         {toggle.dialog}
       </Page>
     </AppShell>

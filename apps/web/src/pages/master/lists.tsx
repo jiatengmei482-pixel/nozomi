@@ -62,6 +62,7 @@ export function CityListPage() {
     query: validCountry ? { country_code: validCountry } : {},
     filterParams: ["country"],
     empty: { title: "还没有城市", description: "先新增城市，才能新增地点、给导入的机场指定城市。" },
+    footnotes: ["geonames"],
     inUse: (row, count) => ({
       text: `这个城市下还有 ${formatCount(count)} 个启用中的地点，请先停用它们，再回来停用城市。`,
       link: { label: "查看这些地点", to: placeListPath("airport", { city: row.id, status: "active" }) },
@@ -201,6 +202,7 @@ export function PlaceListPage() {
       </>
     ),
     empty: TAB_COPY[tab].empty,
+    footnotes: tab === "airport" ? ["ourairports", "geonames"] : ["geonames"],
     header: (
       <>
         <PlaceTabs current={tab} />
