@@ -187,6 +187,7 @@ export const cityFormModel: FormModel<"cities", CityValues, { cities: City[] | n
     if (!samePoint(values.center, city.center)) patch.center = toPoint(values.center);
     return patch;
   },
+  footnotes: () => ["geonames"],
   continueWith: (values) => ({ ...EMPTY_CITY, country: values.country, code: cityCodePrefix(values.country), timezone: values.timezone }),
   Fields: ({ form, context }) => <CityFields form={form} mode={context.mode} readOnly={context.readOnly} busy={context.busy} cities={context.extra.cities} boundarySet={context.record?.boundary != null} />,
   toggle: {

@@ -10,6 +10,7 @@ import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { DataTable } from "../../components/DataTable.tsx";
+import { ExternalLink } from "../../components/ExternalLink.tsx";
 import { CodeField, CoordinateInput, type CoordinateValue, LocalizedInput, RadioGroup, StaticField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
@@ -218,8 +219,8 @@ function SourceCard({ place }: { place: Place }) {
         <div>
           <dt>来源</dt>
           <dd>
-            OurAirports
-            （公开数据，ourairports.com/data）
+            <ExternalLink to="ourairports">OurAirports</ExternalLink>
+            （公开数据）
           </dd>
         </div>
         <div>
@@ -309,6 +310,7 @@ export const placeFormModel: FormModel<"places", PlaceValues, PlaceExtra> = {
     const country = extra.cities?.find((city) => city.id === values.cityId)?.country_code ?? null;
     return { cityId: values.cityId, code: codePrefix(type, country, extra.parent?.code ?? null), name: {}, category: values.category, flightScope: "none", location: { lat: "", lng: "" }, address: "" };
   },
+  footnotes: ({ record }) => (record?.source ? ["ourairports", "geonames"] : ["geonames"]),
   returnAnchor: ({ extra }) => (isChild(extra.type) ? "children" : null),
   intro: ({ mode, extra }) => (mode === "new" && extra.type === "airport" ? "机场一般不用手工新增：技术人员用导入命令从 OurAirports 批量导入。只有数据源里没有的机场才需要在这里录入。" : null),
   notReady: (reason, { extra }) =>

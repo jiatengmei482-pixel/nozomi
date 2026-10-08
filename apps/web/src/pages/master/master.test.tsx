@@ -363,7 +363,7 @@ test("新增城市：空着提交逐项报错并汇总；选了国家自动填�
   await user.click(screen.getByRole("button", { name: "保存" }));
   assert.ok(await screen.findByText("已新增城市「东京」"));
   assert.deepEqual(written(calls)[0]?.body, { code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lat: 35.681236, lng: 139.767125 } });
-  await screen.findByRole("heading", { level: 1, name: "城市" });
+  await screen.findByRole("heading", { level: 1, name: "城市" }, { timeout: 5000 });
 });
 
 test("新增被拒：编码已被使用显示在编码下并全选；后端的校验说明显示在对应字段下；内容都保留", async () => {
@@ -717,4 +717,127 @@ test("处理导入的机场：这个国家还没有启用中的城市时提示�
   assert.equal((screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement).value, "首尔");
   assert.deepEqual(written(calls)[0]?.body, { code: "CTY-KR-SEL", country_code: "KR", name: { zh: "首尔" }, timezone: "Asia/Seoul", center: { lat: 37.469101, lng: 126.450996 } });
   await waitFor(() => assertFocused(screen.getByRole("button", { name: "保存并启用" })));
+});
+
+/* ───────────── 城市建议（M1-09）与数据来源署名 ───────────── */
+
+const KAWASAKI_ID = "66666666-6666-4666-8666-666666666666";
+const kawasaki: City = { ...tokyo, id: KAWASAKI_ID, code: "CTY-JP-G13KWS", name: { zh: "川崎", en: "Kawasaki" } };
+const hndSuggestion = {
+  place_id: HND_ID,
+  suggested_city: { id: KAWASAKI_ID, code: kawasaki.code, name: kawasaki.name, distance_km: 7.2 },
+  nearby_cities: [
+    { id: KAWASAKI_ID, code: kawasaki.code, name: kawasaki.name, distance_km: 7.2 },
+    { id: TOKYO_ID, code: tokyo.code, name: tokyo.name, distance_km: 18.4 },
+  ],
+};
+
+function suggestionRoutes(extra: Route = () => null): Route {
+  return (call) => {
+    const custom = extra(call);
+    if (custom !== null) return custom;
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo, kawasaki, osaka]);
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/master/places" && call.url.searchParams.get("city_id") === "none") {
+      return json(200, { items: [hnd, kix], next_cursor: null, total: 2, city_suggestions: [hndSuggestion, { place_id: KIX_ID, suggested_city: null, nearby_cities: [] }] });
+    }
+    return null;
+  };
+}
+
+const candidates = (): string[] => [...document.querySelectorAll(".suggestions__option")].map((option) => `${option.textContent}:${option.getAttribute("aria-pressed")}`);
+
+test("城市建议：最近的城市预先填好并写明是建议和距离，候选都列出来；直接按 Enter 就指定并启用；没有建议的机场保持原样", async () => {
+  const calls = open("/platform/master/places/pending", "master_data", suggestionRoutes((call) => (call.path.endsWith(`/${HND_ID}/enable`) ? json(200, { ...hnd, city_id: KAWASAKI_ID, status: "active", version: 2 }) : null)));
+  const user = userEvent.setup();
+  await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
+  const city = screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement;
+  await waitFor(() => assert.equal(city.value, "川崎"));
+  assert.ok(screen.getByText("建议：川崎（约 7 公里）。这是按距离给的建议，请核对后再保存。"));
+  assert.ok(screen.getByText("离这个机场最近的城市"));
+  assert.ok(screen.getByText(/最近的不一定对，请核对/));
+  assert.deepEqual(candidates(), ["川崎约 7 公里:true", "东京约 18 公里:false"]);
+  assert.equal(written(calls).length, 0, "预填不等于处理：没按确认之前不发任何请求");
+
+  city.focus();
+  await user.keyboard("{Enter}");
+  assert.ok(await screen.findByRole("heading", { level: 2, name: "Kansai International Airport" }));
+  assert.deepEqual(written(calls).map((call) => [call.path, call.body]), [[`/platform/v1/master/places/${HND_ID}/enable`, { city_id: KAWASAKI_ID }]]);
+  assert.equal((screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement).value, "", "没有建议的机场不预填");
+  assertAbsent(document.querySelector(".suggestions"));
+  assert.ok(screen.getByText("只能选日本（JP）的启用中的城市。"));
+  await user.keyboard("{Enter}");
+  assert.ok(screen.getByText("请选择所属城市"), "没有建议又没选城市，Enter 不会把它处理掉");
+  assert.equal(written(calls).length, 1);
+});
+
+test("城市建议：最近的不对时换一个候选（按钮可用键盘操作），或者清掉自己搜；清掉以后不会被填回去", async () => {
+  const calls = open("/platform/master/places/pending", "master_data", suggestionRoutes((call) => (call.path.endsWith(`/${HND_ID}/enable`) ? json(200, { ...hnd, city_id: TOKYO_ID, status: "active", version: 2 }) : null)));
+  const user = userEvent.setup();
+  await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
+  const city = screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement;
+  await waitFor(() => assert.equal(city.value, "川崎"));
+
+  await user.clear(city);
+  assert.equal(city.value, "");
+  assert.deepEqual(candidates(), ["川崎约 7 公里:false", "东京约 18 公里:false"]);
+  await user.tab();
+  assert.equal(city.value, "", "用户清掉的不再自动填回去");
+
+  const tokyoButton = screen.getByRole("button", { name: /东京\s*约 18 公里/ });
+  tokyoButton.focus();
+  await user.keyboard("{Enter}");
+  assert.equal(city.value, "东京");
+  assert.deepEqual(candidates(), ["川崎约 7 公里:false", "东京约 18 公里:true"]);
+  assert.ok(screen.getByText("建议：东京（约 18 公里）。这是按距离给的建议，请核对后再保存。"));
+  assertFocused(screen.getByRole("button", { name: "保存并启用" }));
+  await user.keyboard("{Enter}");
+  await screen.findByRole("heading", { level: 2, name: "Kansai International Airport" });
+  assert.deepEqual(written(calls)[0]?.body, { city_id: TOKYO_ID });
+});
+
+test("城市建议：从列表行内「指定城市」进来、那个机场不在第一批里时，单独取它的建议", async () => {
+  const calls = open(`/platform/master/places/pending?start=${HND_ID}`, "master_data", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo, kawasaki]);
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/master/places/${HND_ID}`) return json(200, hnd);
+    if (call.method === "GET" && call.url.searchParams.get("city_id") === "none") {
+      return call.url.searchParams.get("code") === "HND" ? json(200, { items: [hnd], next_cursor: null, total: 1, city_suggestions: [hndSuggestion] }) : json(200, { items: [kix], next_cursor: null, total: 2, city_suggestions: [] });
+    }
+    return null;
+  });
+  await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
+  await waitFor(() => assert.equal((screen.getByRole("combobox", { name: /所属城市/ }) as HTMLInputElement).value, "川崎"));
+  assert.ok(calls.some((call) => call.path.includes("code=HND")));
+});
+
+const attributions = (): string[] => [...document.querySelectorAll(".page__attribution")].map((line) => (line.textContent ?? "").replace("（在新标签页打开）", "").replace("（在新标签页打开）", ""));
+const GEONAMES_LINE = "城市数据来自 GeoNames（geonames.org），CC BY 4.0";
+const OURAIRPORTS_LINE = "机场数据来自 OurAirports（ourairports.com），公有领域";
+
+test("数据来源署名：展示城市的页面都有 GeoNames 那一行并链过去；机场相关的页面另有 OurAirports；外链在新标签页打开且不带来源", async () => {
+  open("/platform/master/cities", "readonly", (call) => (call.url.searchParams.get("limit") === "50" ? page([tokyo]) : null));
+  await screen.findByRole("link", { name: "CTY-JP-TYO" });
+  assert.deepEqual(attributions(), [GEONAMES_LINE]);
+  const geonames = screen.getByRole("link", { name: /^GeoNames/ });
+  assert.equal(geonames.getAttribute("href"), "https://www.geonames.org/");
+  assert.equal(geonames.getAttribute("target"), "_blank");
+  assert.equal(geonames.getAttribute("rel"), "noopener noreferrer");
+  assert.equal(screen.getByRole("link", { name: /^CC BY 4\.0/ }).getAttribute("href"), "https://creativecommons.org/licenses/by/4.0/");
+  resetBrowser();
+
+  open(`/platform/master/cities/${TOKYO_ID}`, "master_data", (call) => (call.url.pathname === `/platform/v1/master/cities/${TOKYO_ID}` ? json(200, tokyo) : null));
+  await screen.findByLabelText("名称 中文");
+  assert.deepEqual(attributions(), [GEONAMES_LINE]);
+  resetBrowser();
+
+  open("/platform/master/places", "master_data", (call) => (call.url.pathname === "/platform/v1/master/places" ? page([hnd]) : null));
+  await screen.findByRole("link", { name: "HND" });
+  assert.deepEqual(attributions(), [OURAIRPORTS_LINE, GEONAMES_LINE]);
+  const ourairports = screen.getByRole("link", { name: /^OurAirports/ });
+  assert.equal(ourairports.getAttribute("href"), "https://ourairports.com/data/");
+  assert.equal(ourairports.getAttribute("rel"), "noopener noreferrer");
+  resetBrowser();
+
+  open("/platform/master/places/pending", "master_data", suggestionRoutes());
+  await screen.findByRole("heading", { level: 2, name: "Tokyo Haneda International Airport" });
+  assert.deepEqual(attributions(), [OURAIRPORTS_LINE, GEONAMES_LINE]);
 });

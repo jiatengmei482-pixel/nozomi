@@ -27,6 +27,65 @@
   margin-top: var(--space-4);
 }
 
+.page__attribution {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.external-link__icon {
+  width: 12px;
+  height: 12px;
+  margin-left: var(--space-0-5);
+  vertical-align: baseline;
+}
+
+.page > .page__attribution + .page__attribution {
+  margin-top: var(--space-1);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+}
+
+.suggestions__lead {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.suggestions__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.suggestions__option {
+  height: auto;
+  min-height: var(--control-height-md);
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  white-space: normal;
+  text-align: left;
+}
+
+.suggestions__option[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-bg-selected);
+  color: var(--color-text-link);
+}
+
+.suggestions__distance {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  white-space: nowrap;
+}
+
 .page__lead {
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
@@ -682,25 +741,23 @@
   font-weight: var(--font-weight-medium);
 }
 
-/* 第一列（编码）固定在左侧，在里面折行 */
+/* 第一列（编码）永远单行：三字码不能被挤成一个字母一行。≥ 480px 时固定在左侧；
+   更窄时不固定——四十多位的长编码不折行又固定的话，会把整个表格盖住。 */
 .table th:first-child {
-  position: sticky;
-  left: 0;
-  z-index: var(--z-base);
-  max-width: 120px;
   border-right: var(--border-width) solid var(--color-border-default);
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .table tbody th:first-child {
   background: var(--color-bg-surface);
   font-family: var(--font-family-mono);
-  overflow-wrap: anywhere;
 }
 
 @media (min-width: 480px) {
   .table th:first-child {
-    max-width: 160px;
+    position: sticky;
+    left: 0;
+    z-index: var(--z-base);
   }
 }
 
