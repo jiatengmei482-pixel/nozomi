@@ -1,8 +1,14 @@
 /**
- * 供应商后台登录后的首页（运营后台的首页是 PlatformHomePage）：只显示当前登录人、角色，以及（供应商后台）所属供应商的名称与状态。
- * 数据全部来自 `auth/me`，没有任何预置内容。
+ * 供应商后台登录后的首页（运营后台的首页是 PlatformHomePage）：各模块的入口卡片（数量来自 dashboard/summary），
+ * 以及当前登录人、角色、所属供应商的名称与状态（来自 `auth/me`）。没有任何预置内容。
  */
+import { type TenantDashboardSummary, fetchTenantSummary } from "../api/areas.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
+import { Alert } from "../components/Alert.tsx";
+import { EntryCard, type EntryCounts } from "../components/EntryCard.tsx";
+import { AREA_LIST_PATH, AREA_NEW_PATH } from "../lib/area-paths.ts";
+import { useLoad } from "../lib/use-load.ts";
+import { useTenantCan } from "../lib/use-master-access.ts";
 import { AppShell, Page } from "../components/AppShell.tsx";
 import { Button } from "../components/Button.tsx";
 import { Skeleton, StateBlock } from "../components/States.tsx";
@@ -13,10 +19,40 @@ import { useDocumentTitle } from "../lib/use-document-title.ts";
 export function HomePage() {
   const { portal, account, reloadAccount } = usePortalSession();
   useDocumentTitle(`首页 · NOZOMI ${portal.name}`);
+  const canSeeAreas = useTenantCan("area.read");
+  const canManageAreas = useTenantCan("area.manage");
+  const summary = useLoad<TenantDashboardSummary>("tenant-summary", canSeeAreas ? fetchTenantSummary : null);
+  const data = summary.state.data;
+  const failed = canSeeAreas && data === null && summary.state.status !== "loading";
+  const showAreas = data !== null ? data.areas !== null : canSeeAreas;
+  const areas = data?.areas ?? null;
+  const areaCounts: EntryCounts = areas ? { status: "ready", counts: [{ value: areas.active, label: "启用" }, { value: areas.disabled, label: "已停用" }] } : failed ? { status: "failed" } : { status: "loading" };
 
   return (
     <AppShell pageName="首页">
       <Page title="首页">
+        <div role="alert">
+          {failed && (
+            <Alert kind="danger">
+              <strong className="alert__title">数量没有加载出来</strong>
+              <span>入口可以照常使用。请检查网络后重试。</span>
+              <Button variant="text" size="sm" onClick={summary.reload}>
+                重试
+              </Button>
+            </Alert>
+          )}
+        </div>
+        {showAreas && (
+          <section className="home-section" aria-labelledby="home-catalog">
+            <h2 className="home-section__title" id="home-catalog">
+              商品配置
+            </h2>
+            <div className="entry-grid">
+              <EntryCard title="区域" to={AREA_LIST_PATH} counts={areaCounts} reminders={areas && areas.active + areas.disabled === 0 && canManageAreas ? [{ text: "还没有区域，先建一个", to: AREA_NEW_PATH }] : []} />
+            </div>
+          </section>
+        )}
+        {account.status === "ready" && !showAreas && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
         <section className="card" aria-labelledby="current-account-title">
           <h2 className="card__title" id="current-account-title">
             当前登录

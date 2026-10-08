@@ -6,7 +6,7 @@
  * - 账号正在用临时密码、必须先改密码时：不显示侧边栏和菜单按钮，账号菜单里只留「退出登录」。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { isPlatformRole, platformRoleCan } from "@nozomi/domain";
+import { isPlatformRole, isTenantRole, platformRoleCan, tenantRoleCan } from "@nozomi/domain";
 import { Link, useLocation } from "react-router";
 import { usePortalSession } from "../auth/PortalSession.tsx";
 import { type Portal, roleName } from "../lib/portal.ts";
@@ -51,6 +51,9 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
         { to: "/platform/master/addons", label: "附加服务", prefix: true },
       ],
     });
+  }
+  if (portal === "tenant" && role !== null && isTenantRole(role) && tenantRoleCan(role, "area.read")) {
+    entries.push({ key: "catalog", label: "商品配置", icon: "map", children: [{ to: "/areas", label: "区域", prefix: true }] });
   }
   return entries;
 }
