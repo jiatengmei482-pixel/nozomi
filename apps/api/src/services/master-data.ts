@@ -72,6 +72,7 @@ import {
   moveChildPlacesToCity,
   updateMasterRow,
 } from "../repos/master-data.ts";
+import { type MasterReference, countPublishedProductsUsing } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { codeTaken, fieldLocked, masterDataInUse, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -345,6 +346,15 @@ function coordinateIssues(lng: number, lat: number, lngPath: string, latPath: st
   return issues;
 }
 
+/**
+ * 有已上架的商品在用这条主数据时不能停用（ADR 0012 留下的检查，ADR 0016 补上）：
+ * 停用会让那些商品报不出价，要供应商先下架或换掉。草稿、已下架的商品不拦——它们上架时的校验会指出来。
+ */
+async function assertNoPublishedProducts(db: Db, reference: MasterReference, id: string, what: string): Promise<void> {
+  const count = await countPublishedProductsUsing(db, reference, id);
+  if (count > 0) throw masterDataInUse(`有 ${count} 个已上架的商品在用${what}，不能停用。请先让供应商下架这些商品或换掉它`, count);
+}
+
 // ---- 城市 ----
 
 export interface CityInput {
@@ -428,6 +438,7 @@ export function setCityStatus(ctx: AppContext, writer: MasterWriter, id: string,
     if (status !== "disabled") return;
     const active = await countActivePlacesInCity(db, city.id);
     if (active > 0) throw masterDataInUse(`这个城市下还有 ${active} 个启用中的地点，请先停用它们`, active);
+    await assertNoPublishedProducts(db, "city", city.id, "这个城市");
   });
 }
 
@@ -598,6 +609,7 @@ export function setPlaceStatus(
       if (status === "disabled") {
         const active = await countActiveChildPlaces(db, place.id);
         if (active > 0) throw masterDataInUse(`它下面还有 ${active} 个启用中的航站楼或出口，请先停用它们`, active);
+        await assertNoPublishedProducts(db, "place", place.id, "这个地点");
         return;
       }
       const targetCityId = place.cityId ?? cityId ?? null;
@@ -716,7 +728,9 @@ export function updateVehicleGroup(
 }
 
 export function setVehicleGroupStatus(ctx: AppContext, writer: MasterWriter, id: string, status: MasterDataStatus): Promise<VehicleGroup> {
-  return setStatus(ctx, writer, VEHICLE_GROUP, id, status, async () => {});
+  return setStatus(ctx, writer, VEHICLE_GROUP, id, status, async (db, group) => {
+    if (status === "disabled") await assertNoPublishedProducts(db, "vehicle_group", group.id, "这个车型组");
+  });
 }
 
 // ---- 附加服务 ----
@@ -757,5 +771,7 @@ export function updateAddon(ctx: AppContext, writer: MasterWriter, id: string, v
 }
 
 export function setAddonStatus(ctx: AppContext, writer: MasterWriter, id: string, status: MasterDataStatus): Promise<Addon> {
-  return setStatus(ctx, writer, ADDON, id, status, async () => {});
+  return setStatus(ctx, writer, ADDON, id, status, async (db, addon) => {
+    if (status === "disabled") await assertNoPublishedProducts(db, "addon", addon.id, "这个附加服务");
+  });
 }

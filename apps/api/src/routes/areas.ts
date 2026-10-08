@@ -25,6 +25,7 @@ import {
   setAreaStatus,
   updateArea,
 } from "../services/areas.ts";
+import { productCounts } from "../services/products.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { idempotencyKey, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { localized, visibleText } from "./master-data.ts";
@@ -95,6 +96,7 @@ export function areaJson(view: AreaView): Json {
     status: area.status,
     operate_polygon_count: view.operatePolygonCount,
     forbid_polygon_count: view.forbidPolygonCount,
+    usage: { product_count: view.usage.productCount, published_product_count: view.usage.publishedProductCount },
     version: area.version,
     created_at: area.createdAt.toISOString(),
     updated_at: area.updatedAt.toISOString(),
@@ -198,6 +200,10 @@ export function registerAreaRoutes(app: FastifyInstance, ctx: AppContext): void 
   // 首页的数量：任何已登录的供应商账号都能调，按模块裁剪——没有 area.read 的角色拿到的 areas 是 null。
   app.get("/tenant/v1/dashboard/summary", async (request) => {
     const principal = await authenticate(request);
-    return { areas: tenantRoleCan(principal.user.role, "area.read") ? await areaCounts(ctx, principal.tenantId) : null };
+    const role = principal.user.role;
+    return {
+      areas: tenantRoleCan(role, "area.read") ? await areaCounts(ctx, principal.tenantId) : null,
+      products: tenantRoleCan(role, "product.read") ? await productCounts(ctx, principal.tenantId) : null,
+    };
   });
 }

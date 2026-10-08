@@ -49,7 +49,7 @@ export const PLATFORM_ACTIONS = [
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
 
-export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage"] as const;
+export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage"] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
 
@@ -75,14 +75,15 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
 /**
  * 租户角色 → 允许的操作。账号管理和操作日志只归管理员；只读角色可以看账号列表。
  * 平台主数据每个角色都能看（配置区域和商品、派车、对账都要引用它），谁都不能改。
- * 区域（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
+ * 区域、商品（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
+ * 子品牌决定商品的币种，新建和改名只归管理员；能看商品的角色都能看子品牌（`product.read`）。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
-  pricing: ["master_data.read", "area.read", "area.manage"],
+  pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
   dispatch: ["master_data.read"],
   finance: ["master_data.read"],
-  readonly: ["user.read", "master_data.read", "area.read"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {

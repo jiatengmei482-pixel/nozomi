@@ -31,7 +31,7 @@ import {
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withTenantTx } from "../db/context.ts";
-import { isRetryableDbError } from "../errors.ts";
+import { AppError, isRetryableDbError } from "../errors.ts";
 import type { TimeCursor } from "../pagination.ts";
 import {
   type Area,
@@ -53,6 +53,7 @@ import {
   updateArea as updateAreaRow,
 } from "../repos/areas.ts";
 import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
+import { type AreaUsage, areaUsage } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -82,7 +83,18 @@ export interface AreaView {
   city: AreaCity | null;
   operatePolygonCount: number;
   forbidPolygonCount: number;
+  /** 被多少个商品选了、其中多少个已上架 */
+  usage: AreaUsage;
   polygons: AreaPolygon[] | null;
+}
+
+const UNUSED: AreaUsage = { productCount: 0, publishedProductCount: 0 };
+
+/** 有已上架的商品在用这个区域：不能删、不能停用（需求文档「被上架商品引用的区域不能删除」）。 */
+function areaInUse(action: string, usage: AreaUsage): AppError {
+  return new AppError(409, "AREA_IN_USE", `有 ${usage.publishedProductCount} 个已上架的商品在用这个区域，不能${action}。请先把这些商品下架，或在商品里去掉这个区域`, {
+    published_product_count: usage.publishedProductCount,
+  });
 }
 
 export interface AreaWriter {
@@ -197,7 +209,8 @@ function counts(polygons: readonly { kind: AreaPolygonKind }[]): { operatePolygo
 async function detail(db: Db, tenantId: string, area: Area): Promise<AreaView> {
   const polygons = await listAreaPolygons(db, tenantId, area.id);
   const city = (await findAreaCities(db, [area.cityId])).get(area.cityId) ?? null;
-  return { area, city, ...counts(polygons), polygons };
+  const usage = (await areaUsage(db, tenantId, [area.id])).get(area.id) ?? UNUSED;
+  return { area, city, ...counts(polygons), usage, polygons };
 }
 
 /** 数据库因为死锁、序列化失败放弃事务时自动重做（接口层对仍不成功的返回 409 CONCURRENT_UPDATE）。 */
@@ -235,9 +248,10 @@ export async function listAreas(
     async (db) => {
       const page = await listAreaRows(db, tenantId, filter, limit, after);
       const cities = await findAreaCities(db, [...new Set(page.items.map((item) => item.cityId))]);
+      const usages = await areaUsage(db, tenantId, page.items.map((item) => item.id));
       const items = page.items.map((item: AreaListItem): AreaView => {
         const { operatePolygonCount, forbidPolygonCount, ...area } = item;
-        return { area, city: cities.get(item.cityId) ?? null, operatePolygonCount, forbidPolygonCount, polygons: null };
+        return { area, city: cities.get(item.cityId) ?? null, operatePolygonCount, forbidPolygonCount, usage: usages.get(item.id) ?? UNUSED, polygons: null };
       });
       return { items, nextCursor: page.nextCursor, total: page.total };
     },
@@ -325,6 +339,8 @@ export async function updateArea(ctx: AppContext, writer: AreaWriter, id: string
     const bizTypeChanged = input.bizType !== current.bizType;
     const polygonsChanged = drafts.length !== stored.length || drafts.some((draft, index) => !samePolygon(stored[index] as AreaPolygon, draft));
     if (!nameChanged && !bizTypeChanged && !polygonsChanged) return detail(db, tenantId, current);
+    // 已经有商品选了这个区域时不能改业务类型：商品只能用业务类型和自己品类相同（或通用）的区域
+    if (bizTypeChanged && ((await areaUsage(db, tenantId, [id])).get(id)?.productCount ?? 0) > 0) throw fieldLocked(["biz_type"]);
 
     const nameKeys = areaNameKeys(input.name);
     if (nameChanged) {
@@ -345,7 +361,7 @@ export async function updateArea(ctx: AppContext, writer: AreaWriter, id: string
 
 /**
  * 停用 / 启用。启用时所属城市必须是启用中的。已经是目标状态时原样返回。
- * 「被已上架的商品用着的不能停用」等有了商品（M1-03）在这里加检查，返回 409 AREA_IN_USE。
+ * 被已上架的商品用着的区域不能停用（409 AREA_IN_USE）。
  */
 export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: string, status: AreaStatus): Promise<AreaView> {
   const now = ctx.now();
@@ -357,6 +373,9 @@ export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: str
     if (status === "active") {
       const city = (await findAreaCities(db, [current.cityId])).get(current.cityId);
       if (!city || city.status !== "active") throw masterDataNotReady("CITY_DISABLED", "所属城市已被平台停用，不能启用这个区域");
+    } else {
+      const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
+      if (usage.publishedProductCount > 0) throw areaInUse("停用", usage);
     }
     const updated = await updateAreaRow(db, tenantId, id, null, status, now);
     await audit(db, ctx, writer, now, {
@@ -371,7 +390,7 @@ export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: str
 
 /**
  * 删除区域（真的删除，连同它的图形；不能恢复）。删除前的完整内容记在审计日志里。
- * 「被已上架的商品用着的不能删除」等有了商品（M1-03）在这里加检查，返回 409 AREA_IN_USE。
+ * 被已上架的商品用着的区域不能删除（409 AREA_IN_USE）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
  */
 export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string): Promise<void> {
   const now = ctx.now();
@@ -379,6 +398,8 @@ export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string
   await writeTx(ctx, tenantId, async (db) => {
     const current = await findArea(db, tenantId, id, { lock: true });
     if (!current) throw notFound("区域");
+    const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
+    if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
     const stored = await listAreaPolygons(db, tenantId, id);
     await deleteAreaRow(db, tenantId, id);
     await audit(db, ctx, writer, now, { areaId: id, action: "delete", before: areaAudit(current, stored), after: null });

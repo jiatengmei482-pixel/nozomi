@@ -65,7 +65,7 @@ test("把令牌里的角色改成管理员 / 超级管理员再重签：权限�
   assert.equal(promote.status, 403, promote.text);
   const self = await me("tenant", elevated);
   assert.equal(self.body.user.role, "readonly");
-  assert.deepEqual(self.body.permissions, ["user.read", "master_data.read", "area.read"]);
+  assert.deepEqual(self.body.permissions, ["user.read", "master_data.read", "area.read", "product.read"]);
 
   const elevatedStaff = forge(staffToken, { role: "super_admin" });
   for (const [method, url] of [["GET", "/platform/v1/staff"], ["GET", "/platform/v1/audit-logs"], ["GET", "/platform/v1/integrations"]] as const) {

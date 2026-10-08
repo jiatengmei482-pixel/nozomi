@@ -21,6 +21,7 @@ import {
   type MasterDataStatus,
   PLACE_CATEGORIES,
   PLACE_TYPES,
+  type PlaceType,
   type PlatformAction,
   SERVICE_CATEGORIES,
   type TenantAction,
@@ -191,8 +192,15 @@ const listQuerySchema = pageQuerySchema.extend({
   updated_since: dateTimeSchema.optional(),
 });
 
+/** 一个或多个地点类型，逗号分隔（如 `airport,station`）；重复的算一个。 */
+const placeTypesSchema = z
+  .string()
+  .max(100)
+  .refine((value) => value.split(",").every((type) => (PLACE_TYPES as readonly string[]).includes(type)), `只能是这些类型：${PLACE_TYPES.join("、")}；多个用逗号分隔`)
+  .transform((value) => [...new Set(value.split(","))] as PlaceType[]);
+
 const placeListQuerySchema = listQuerySchema.extend({
-  type: z.enum(PLACE_TYPES).optional(),
+  type: placeTypesSchema.optional(),
   city_id: z.union([z.literal("none"), uuidSchema]).optional(),
   parent_id: uuidSchema.optional(),
   country_code: z.string().regex(/^[A-Z]{2}$/, "必须是两位大写字母的国家码").optional(),

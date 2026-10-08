@@ -96,7 +96,7 @@ test("新增：多边形和圆一起保存；返回完整的区域——城市�
   assert.equal(res.status, 201, res.text);
   const area = res.body;
   assert.deepEqual(Object.keys(area).sort(), [
-    "biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "polygons", "status", "updated_at", "version",
+    "biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "polygons", "status", "updated_at", "usage", "version",
   ]);
   assert.deepEqual(
     [area.name, area.city_id, area.biz_type, area.status, area.version, area.operate_polygon_count, area.forbid_polygon_count],
@@ -414,7 +414,7 @@ test("列表：按最近修改从新到旧翻页不重不漏，每页的 total �
   assert.deepEqual(seen, [a.id, d.id, c.id, b.id], "刚改过的排最前");
 
   const first = (await call("GET", "/areas?limit=1")).body.items[0];
-  assert.deepEqual(Object.keys(first).sort(), ["biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "status", "updated_at", "version"]);
+  assert.deepEqual(Object.keys(first).sort(), ["biz_type", "city", "city_id", "created_at", "forbid_polygon_count", "id", "name", "operate_polygon_count", "status", "updated_at", "usage", "version"]);
   assert.deepEqual([first.operate_polygon_count, first.forbid_polygon_count, first.version, first.city.code], [1, 0, 2, "CTY-JP-TYO"]);
   assert.ok(!JSON.stringify(first).includes("coordinates") || first.city.boundary === null);
 
@@ -495,14 +495,14 @@ test("首页数量：本供应商自己的区域按状态数；没有 area.read 
     assert.equal(res.status, 200, res.text);
     return res.body;
   };
-  assert.deepEqual(await summary(fresh.adminToken), { areas: { active: 0, disabled: 0 } });
+  assert.deepEqual(await summary(fresh.adminToken), { areas: { active: 0, disabled: 0 }, products: { draft: 0, published: 0, unpublished: 0 } });
   const one = await post(body(), randomUUID(), fresh.adminToken);
   const two = await post(body(), randomUUID(), fresh.adminToken);
   assert.deepEqual([one.status, two.status], [201, 201]);
   assert.equal((await call("POST", `/areas/${two.body.id}/disable`, { token: fresh.adminToken })).status, 200);
-  assert.deepEqual(await summary(fresh.adminToken), { areas: { active: 1, disabled: 1 } });
-  assert.deepEqual(await summary((await addTenantUser(api, fresh.adminToken, "readonly@fresh.test", "readonly")).token), { areas: { active: 1, disabled: 1 } });
-  assert.deepEqual(await summary((await addTenantUser(api, fresh.adminToken, "finance@fresh.test", "finance")).token), { areas: null });
+  assert.deepEqual(await summary(fresh.adminToken), { areas: { active: 1, disabled: 1 }, products: { draft: 0, published: 0, unpublished: 0 } });
+  assert.deepEqual(await summary((await addTenantUser(api, fresh.adminToken, "readonly@fresh.test", "readonly")).token), { areas: { active: 1, disabled: 1 }, products: { draft: 0, published: 0, unpublished: 0 } });
+  assert.deepEqual(await summary((await addTenantUser(api, fresh.adminToken, "finance@fresh.test", "finance")).token), { areas: null, products: null });
   assert.equal((await api.call("GET", "/tenant/v1/dashboard/summary")).status, 401);
   assert.equal((await api.call("GET", "/tenant/v1/dashboard/summary", { token: root })).status, 401);
 });

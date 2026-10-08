@@ -45,10 +45,19 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     audit_logs: ["INSERT", "SELECT"],
+    // 子品牌：不删除（商品引用着它）
+    brands: ["INSERT", "SELECT", "UPDATE"],
     cities: ["SELECT"],
     // 创建类接口的幂等键：过期的键在再次使用时删除
     idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
+    // 商品：草稿可以真的删除；它选的区域、车型组、调度人每次保存整体替换
+    product_areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 商品编号的流水号
+    product_code_seq: ["USAGE"],
+    product_dispatchers: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    product_vehicle_groups: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    products: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     tenant_roles: ["SELECT"],
     tenant_sessions: ["DELETE", "INSERT", "SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
@@ -63,6 +72,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
+    // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016）
+    product_vehicle_groups: ["SELECT"],
+    products: ["SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["INSERT", "SELECT", "UPDATE"],
     vehicle_groups: ["INSERT", "SELECT", "UPDATE"],
@@ -90,6 +102,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "tenants.tenants_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "tenant_users.tenant_users_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  "products.products_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],
@@ -108,6 +122,8 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 商品编号全平台唯一（ADR 0016）
+  "products_code_key",
   "tenant_users_email_key",
   "tenant_users_invite_token_key",
 ];
@@ -189,6 +205,7 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
   for (const table of [
     "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
     "cities", "places", "vehicle_groups", "addons", "areas", "area_polygons", "idempotency_keys",
+    "brands", "products", "product_areas", "product_vehicle_groups", "product_dispatchers",
   ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }

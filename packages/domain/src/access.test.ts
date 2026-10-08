@@ -75,7 +75,7 @@ test("主数据：每个平台角色都能看，只有主数据运营和超级�
 
 test("租户：操作日志只有管理员能看", () => {
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "audit_log.read"), key === "admin", key);
-  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read"]);
+  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read"]);
 });
 
 test("租户：账号管理只归管理员，只读角色只能看账号列表，其他角色都不行", () => {
@@ -84,7 +84,7 @@ test("租户：账号管理只归管理员，只读角色只能看账号列表�
   assert.equal(tenantRoleCan("readonly", "user.read"), true);
   assert.equal(tenantRoleCan("readonly", "user.manage"), false);
   for (const role of ["pricing", "dispatch", "finance"] as const) {
-    assert.deepEqual(tenantPermissions(role), role === "pricing" ? ["master_data.read", "area.read", "area.manage"] : ["master_data.read"]);
+    assert.deepEqual(tenantPermissions(role), role === "pricing" ? ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"] : ["master_data.read"]);
     assert.equal(tenantRoleCan(role, "user.read"), false);
   }
 });
@@ -130,5 +130,14 @@ test("区域：管理员和商品价格能改，只读能看不能改，调度�
   const expected: Record<string, [boolean, boolean]> = { admin: [true, true], pricing: [true, true], dispatch: [false, false], finance: [false, false], readonly: [true, false] };
   for (const { key } of TENANT_ROLES) {
     assert.deepEqual([tenantRoleCan(key, "area.read"), tenantRoleCan(key, "area.manage")], expected[key], key);
+  }
+});
+
+test("商品：管理员和商品价格能改，只读能看不能改，调度和财务都不能；子品牌只有管理员能建", () => {
+  const expected: Record<string, [boolean, boolean, boolean]> = {
+    admin: [true, true, true], pricing: [true, true, false], dispatch: [false, false, false], finance: [false, false, false], readonly: [true, false, false],
+  };
+  for (const { key } of TENANT_ROLES) {
+    assert.deepEqual([tenantRoleCan(key, "product.read"), tenantRoleCan(key, "product.manage"), tenantRoleCan(key, "brand.manage")], expected[key], key);
   }
 });

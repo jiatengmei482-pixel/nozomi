@@ -138,7 +138,7 @@ test("首页统计：租户令牌（两个租户、各角色都一样）、没�
   // M1-02 起供应商后台有了自己的首页数量接口：它是另一个接口，只有供应商自己的数量，没有平台的任何一组；平台令牌进不去
   const own = await get("/tenant/v1/dashboard/summary", tenantA.adminToken);
   assert.equal(own.status, 200, own.text);
-  assert.deepEqual(Object.keys(own.body), ["areas"]);
+  assert.deepEqual(Object.keys(own.body), ["areas", "products"]);
   assert.doesNotMatch(own.text, /tenants|master_data|suspended/);
   assert.equal((await get("/tenant/v1/dashboard/summary", root)).status, 401);
   for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const) {

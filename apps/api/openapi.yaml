@@ -78,6 +78,8 @@ tags:
     description: 平台统一维护的城市、地点（机场 / 车站 / 地标 / 航站楼 / 出口）、车型组、附加服务；只停用、不删除
   - name: 租户主数据
     description: 租户只读地查看平台主数据（配置区域和商品时引用）
+  - name: 商品
+    description: 子品牌、商品（基础信息、服务规则、商品详情）、上架校验、上架 / 下架
   - name: 区域
     description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
 paths:
@@ -2328,7 +2330,7 @@ paths:
         "409":
           description: |
             - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
-            - `FIELD_LOCKED`：改了城市，`details.fields` = `["city_id"]`
+            - `FIELD_LOCKED`：改了城市（`city_id`），或已经有商品选了这个区域时改了业务类型（`biz_type`）；`details.fields` 列出是哪个
             - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
             - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
           content:
@@ -2343,7 +2345,7 @@ paths:
       summary: 删除区域
       description: |
         需要操作 `area.manage`。区域可以真的删除（连同它的图形），删了不能恢复；删除前的完整内容记在审计日志里（`action` = `delete`）。
-        只是暂时不用的话请用停用。被已上架的商品引用时不能删除（409 `AREA_IN_USE`）——这条规则随商品（M1-03）一起生效，现在不会返回。
+        只是暂时不用的话请用停用。被已上架的商品引用时不能删除（409 `AREA_IN_USE`）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
       security:
         - tenantToken: []
       parameters:
@@ -2354,7 +2356,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量（M1-03 起）"
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
           content:
             application/json:
               schema:
@@ -2367,7 +2369,7 @@ paths:
       description: |
         需要操作 `area.manage`。停用 = 暂时不用：建商品时不能再选它、报价时不再使用它；区域和图形都保留，可以再启用，停用期间也可以修改和自测。
         已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
-        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）——随商品（M1-03）一起生效，现在不会返回。
+        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）。
       security:
         - tenantToken: []
       parameters:
@@ -2382,7 +2384,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`AREA_IN_USE`：有已上架的商品在用这个区域（M1-03 起）"
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
           content:
             application/json:
               schema:
@@ -2488,6 +2490,507 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TenantDashboardSummary"
+  /tenant/v1/brands:
+    get:
+      tags: [商品]
+      operationId: listBrands
+      summary: 子品牌列表
+      description: |
+        需要操作 `product.read`（管理员、商品价格、只读）。本供应商的全部子品牌，按创建的先后；数量很少，不分页。
+        子品牌决定它下面商品所有金额的币种。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 全部子品牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Brand"
+    post:
+      tags: [商品]
+      operationId: createBrand
+      summary: 新增子品牌
+      description: |
+        需要操作 `brand.manage`（只有管理员）。必须带请求头 `Idempotency-Key`。
+        币种创建后不能改。同一个供应商下子品牌不能重名（不分大小写）。写审计日志（`resource` = `brand`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCreate"
+      responses:
+        "201":
+          description: 新增的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "409":
+          description: |
+            - `BRAND_NAME_TAKEN`：已经有同名的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/brands/{id}:
+    put:
+      tags: [商品]
+      operationId: updateBrand
+      summary: 给子品牌改名
+      description: 需要操作 `brand.manage`。必须带 `If-Match`。只能改名称；带了 `currency` 且和现有的不同返回 409 `FIELD_LOCKED`。名称没变时原样返回。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandUpdate"
+      responses:
+        "200":
+          description: 修改后的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `FIELD_LOCKED`：改了币种
+            - `BRAND_NAME_TAKEN`：已经有同名的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products:
+    get:
+      tags: [商品]
+      operationId: listProducts
+      summary: 商品列表
+      description: |
+        需要操作 `product.read`。只返回令牌所属供应商自己的商品，按最近修改从新到旧（修改时间相同的按编号，顺序稳定）。
+        列表项不带区域、车型组、调度人的明细，只带个数。`total` 是符合筛选条件的总数。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          description: 关键字：商品编号，或任意一种语言的标题里包含它（不区分大小写；`%`、`_` 按字面匹配）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          description: 按状态筛选；不带或 `all` 表示全部
+          schema:
+            type: string
+            enum: [draft, published, unpublished, all]
+            default: all
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/ServiceCategory"
+        - name: city_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: brand_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: area_id
+          in: query
+          description: 只看选了这个区域的商品
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页商品
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductSummary"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [商品]
+      operationId: createProduct
+      summary: 新增商品（创建即草稿）
+      description: |
+        需要操作 `product.manage`（管理员、商品价格）。必须带请求头 `Idempotency-Key`。
+        - `brand_id`、`city_id`、`category`、`poi_id` 创建后不能改，所以新增时就要给全：子品牌和城市必须是启用中的；
+          接送机商品必须选一个本城市、启用中的机场或车站，其他品类不能有 `poi_id`。
+        - `areas`、`vehicle_groups`、`dispatchers` 可以现在给，也可以之后用修改接口分步保存。规则同修改接口。
+        - 商品编号 `code` 由后端生成：`PRD` + 创建时间 + 流水号，全平台唯一。
+        - 服务规则和商品详情是空的，分别用各自的接口保存。
+        写审计日志（`resource` = `product`，`action` = `create`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+      responses:
+        "201":
+          description: 新增的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "409":
+          description: |
+            - `MASTER_DATA_NOT_READY`：城市或接送点存在但已被平台停用（`details.reason` = `CITY_DISABLED` / `PICKUP_PLACE_DISABLED`），和新增区域一致
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}:
+    get:
+      tags: [商品]
+      operationId: getProduct
+      summary: 查看一个商品
+      description: 需要操作 `product.read`。带区域、车型组、调度人的明细（连同它们现在的状态）。别的供应商的商品是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [商品]
+      operationId: updateProduct
+      summary: 修改基础信息（区域、车型组、调度人）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品只有一个版本号：它下面任何一部分变了都加一）。
+        `areas`、`vehicle_groups`、`dispatchers` 带了哪个就整体替换哪个，没带的不动；可以分步保存。
+        - 区域：只能选本供应商自己的、商品所在城市的、业务类型和品类相同或「通用」的区域；顺序就是优先级；新选的必须是启用中的。
+        - 车型组：平台主数据；每个选一个「人数 / 行李数」组合，必须是这个车型组的可选组合之一；新选的必须是启用中的。
+        - 调度人：姓名 + 电话。
+        - `brand_id`、`city_id`、`category`、`poi_id` 不能改：带了且和现有的不同返回 409 `FIELD_LOCKED`。
+        - 已上架的商品改完之后必须仍然通过上架校验，否则返回 409 `PUBLISH_CHECK_FAILED`、什么都不改。
+        内容没变时原样返回。有变化时写审计日志（只记变了的那几项）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductPatch"
+      responses:
+        "200":
+          description: 修改后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了；`details.items` 是逐项结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [商品]
+      operationId: deleteProduct
+      summary: 删除商品（只有草稿可以）
+      description: 需要操作 `product.manage`。只有草稿可以删除，删了不能恢复；删除前的完整内容记在审计日志里。上过架的商品请下架。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PRODUCT_NOT_DRAFT`：不是草稿，`details.status` 是当前状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/service-rules:
+    get:
+      tags: [商品]
+      operationId: getProductServiceRules
+      summary: 服务规则
+      description: |
+        需要操作 `product.read`。商品级的服务规则（不分区域和车型）。新建的商品是一份空的规则。
+        金额都是 `currency`（子品牌的币种）的最小货币单位整数。`free_wait_minimums` 是平台规定的各项免等最少分钟数。
+        取消规则不在这里：它由平台按品类和车型级别统一设置，供应商不设。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 服务规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductServiceRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [商品]
+      operationId: putProductServiceRules
+      summary: 保存服务规则（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）。整体替换；可以只填一部分——保存时只查填了的写得对不对，缺什么留到上架校验。
+        - 预订规则：下单有效期（城市当地日期，含两端）、每天的服务时间（`HH:mm`，可以跨午夜；全天写 `00:00`–`24:00`）、提前预订时长（小时，0 到 720）。
+        - 加急：每档「离用车不到 N 小时下单加收 X」，N 不能超过提前预订时长、不能重复；报价时取最小的命中 N 一档。
+        - 夜间加价：时段可以跨午夜；按次或按与夜间时段重叠的小时数。
+        - 免等：接送机填 `pickup` 和 `dropoff`，点对点和包车填 `general`；有限时长不能短于 `free_wait_minimums`。
+        - 附加服务：平台目录里的；开着的必须是启用中、适用于这个品类的；单价 0 = 免费提供；`first_free` 只有按个计费的可以设。
+        - 司机语言：每种语言（两位小写代码）一个单价。
+        所有时间规则以后都按商品所在城市的时区计算。已上架的商品改完必须仍然通过上架校验。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceRules"
+      responses:
+        "200":
+          description: 保存后的服务规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductServiceRules"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/content:
+    get:
+      tags: [商品]
+      operationId: getProductContent
+      summary: 商品详情
+      description: 需要操作 `product.read`。各语言的标题、简介、包含 / 不含、行程路线（包车）、接机指引（接送机）。只返回填了的语言。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 商品详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductContentResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [商品]
+      operationId: putProductContent
+      summary: 保存商品详情（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）。整体替换；可以只填一部分。空串当作没填；一种语言什么都没填就不保存这种语言。
+        上架要求：至少一种语言有标题；接送机商品，每一种有标题的语言都要有接机指引。
+        使用条款、取消政策等由模版生成的文字不在这里（本期不做）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductContent"
+      responses:
+        "200":
+          description: 保存后的商品详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductContentResponse"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/publish-check:
+    get:
+      tags: [商品]
+      operationId: getProductPublishCheck
+      summary: 上架校验
+      description: |
+        需要操作 `product.read`。逐项给出通过 / 不通过和原因，界面照着显示清单。六项，顺序固定：
+        `basic_info` 基础信息、`service_rules` 服务规则、`price_rules` 价格规则、`content` 商品详情（这四项必须）；`adjust_rules` 调价规则、`inventory` 库存（可选，恒通过）。
+        **价格规则功能上线之前，`price_rules` 一项固定不通过**（原因 `FEATURE_NOT_AVAILABLE`）：商品可以建、可以跑校验，但还不能上架。
+        校验看的是现在的情况：选的区域、车型组、接送点、附加服务后来被停用了，也会在这里指出来。
+        判断用的是 `@nozomi/domain` 的 `publishCheck`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 校验结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/publish:
+    post:
+      tags: [商品]
+      operationId: publishProduct
+      summary: 上架
+      description: |
+        需要操作 `product.manage`。必须的校验项全部通过才能上架，否则 409 `PUBLISH_CHECK_FAILED`，`details.items` 是逐项结果（结构同上架校验接口的 `items`）。
+        草稿和已下架的都可以上架；已经上架的再次调用原样返回。写审计日志（`action` = `publish`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 上架后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PUBLISH_CHECK_FAILED`：还有上架条件没有满足
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/unpublish:
+    post:
+      tags: [商品]
+      operationId: unpublishProduct
+      summary: 下架
+      description: 需要操作 `product.manage`。已上架 → 已下架；已经下架的再次调用原样返回；草稿没有上过架，返回 409。写审计日志（`action` = `unpublish`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 下架后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PRODUCT_STATE_INVALID`：草稿不能下架
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   securitySchemes:
     platformToken:
@@ -2592,9 +3095,10 @@ components:
     PlaceTypeFilter:
       name: type
       in: query
-      description: 按地点类型筛选
+      description: 按地点类型筛选。可以一次给多个，用逗号分隔（如 `airport,station`），符合其中任何一个的都算。
       schema:
-        $ref: "#/components/schemas/PlaceType"
+        type: string
+        pattern: "^(airport|station|terminal|exit|poi)(,(airport|station|terminal|exit|poi))*$"
     CityIdFilter:
       name: city_id
       in: query
@@ -2686,6 +3190,19 @@ components:
         部分原因带 `detail`：`SELF_INTERSECTION` 是 `{ a, b }`（第 a–a+1 个点之间的边和第 b–b+1 个点之间的边交叉，点号从 1 数）；
         `DUPLICATE_POINT` 是 `{ a, b }`；`INVALID_COORDINATE` 是 `{ point }`；`TOO_FEW_POINTS`、`TOO_MANY_VERTICES`、`TOO_MANY_POLYGONS`、`TOO_MANY_TOTAL_VERTICES` 是 `{ count }`。
         这些代码和 `@nozomi/domain` 的 `ringIssues` / `areaShapeIssues` 返回的是同一套。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ProductInvalid:
+      description: |
+        `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、平台规定的最小值等）。
+        基础信息：`UNKNOWN_BRAND`、`BRAND_DISABLED`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`、`PLACE_OTHER_CITY`、
+        `UNKNOWN_AREA`（区域不存在，别的供应商的区域也是这个结果）、`AREA_OTHER_CITY`、`AREA_NOT_USABLE`、`AREA_DISABLED`、
+        `UNKNOWN_VEHICLE_GROUP`、`VEHICLE_GROUP_DISABLED`、`VEHICLE_COMBO_NOT_OFFERED`、`INVALID_PHONE`、`DUPLICATE`、`TOO_MANY`、`REQUIRED`、`NOT_APPLICABLE`。
+        服务规则和商品详情：`INVALID_DATE`、`DATE_RANGE_REVERSED`、`INVALID_TIME`、`EMPTY_WINDOW`、`OUT_OF_RANGE`、`NOT_INTEGER`、`TOO_MANY`、`TOO_LONG`、`DUPLICATE`、
+        `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
+        这些代码和 `@nozomi/domain` 的 `serviceRuleIssues` / `contentIssues` 返回的是同一套。子品牌的币种不支持时是 `UNSUPPORTED_CURRENCY`。
       content:
         application/json:
           schema:
@@ -2841,7 +3358,7 @@ components:
       enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -3055,7 +3572,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product]
         resource_id:
           type: [string, "null"]
         action:
@@ -3071,6 +3588,8 @@ components:
             - enable
             - update
             - delete
+            - publish
+            - unpublish
             - change_role
             - change_password
             - request_password_reset
@@ -3120,7 +3639,7 @@ components:
           enum: [console, api]
         resource:
           type: string
-          enum: [tenant_user, area]
+          enum: [tenant_user, area, brand, product]
         resource_id:
           type: [string, "null"]
         action:
@@ -3960,7 +4479,7 @@ components:
       type: object
       additionalProperties: false
       description: 列表里的一项：不带图形的坐标
-      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, version, created_at, updated_at]
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at]
       properties:
         id:
           type: string
@@ -3985,6 +4504,18 @@ components:
         forbid_polygon_count:
           type: integer
           minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [product_count, published_product_count]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
         version:
           type: integer
           minimum: 1
@@ -3998,7 +4529,7 @@ components:
       type: object
       additionalProperties: false
       description: 区域的详情：比列表项多全部图形
-      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, version, created_at, updated_at, polygons]
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons]
       properties:
         id:
           type: string
@@ -4021,6 +4552,18 @@ components:
         forbid_polygon_count:
           type: integer
           minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [product_count, published_product_count]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
         version:
           type: integer
           minimum: 1
@@ -4133,7 +4676,7 @@ components:
     TenantDashboardSummary:
       type: object
       additionalProperties: false
-      required: [areas]
+      required: [areas, products]
       properties:
         areas:
           type: [object, "null"]
@@ -4147,3 +4690,765 @@ components:
             disabled:
               type: integer
               minimum: 0
+        products:
+          type: [object, "null"]
+          description: 本供应商的商品数量（按状态）；当前角色没有 `product.read` 时为 null
+          additionalProperties: false
+          required: [draft, published, unpublished]
+          properties:
+            draft:
+              type: integer
+              minimum: 0
+            published:
+              type: integer
+              minimum: 0
+            unpublished:
+              type: integer
+              minimum: 0
+    ProductStatus:
+      type: string
+      enum: [draft, published, unpublished]
+      description: "draft：草稿（还没上过架，可以删除）；published：已上架；unpublished：已下架"
+    Brand:
+      type: object
+      additionalProperties: false
+      required: [id, name, currency, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 50
+        currency:
+          type: string
+          description: ISO 4217 币种代码；创建后不能改
+          enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BrandCreate:
+      type: object
+      required: [name, currency]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        currency:
+          type: string
+          enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+    BrandUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+    ProductBrandRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, currency, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currency:
+          type: string
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductCityRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, country_code, timezone, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        country_code:
+          type: string
+        timezone:
+          type: string
+          description: 城市的 IANA 时区；服务规则里的日期、时段都按它算
+          examples: [Asia/Tokyo]
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductPlaceRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, type, flight_scope, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        type:
+          $ref: "#/components/schemas/PlaceType"
+        flight_scope:
+          description: 机场的航线范围（决定接机免等的最低值）；不是机场或平台没标时为 null
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductSummary:
+      type: object
+      additionalProperties: false
+      description: 列表里的一项：不带区域、车型组、调度人的明细，多一个上架校验的概况
+      required: [id, code, status, category, title, brand_id, brand, city_id, city, poi_id, poi, area_count, vehicle_group_count, version, published_at, created_at, updated_at, check]
+      properties:
+        check:
+          type: object
+          additionalProperties: false
+          description: 上架校验的概况（完整的逐项结果用 `publish-check`）
+          required: [can_publish, failed_required, unavailable_required]
+          properties:
+            can_publish:
+              type: boolean
+            failed_required:
+              type: integer
+              minimum: 0
+              description: 没满足的必须项里，功能已经开放、供应商自己能补的有几项
+            unavailable_required:
+              type: integer
+              minimum: 0
+              description: 没满足的必须项里，因为功能还没上线（`FEATURE_NOT_AVAILABLE`）而没法满足的有几项
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: 商品编号：`PRD` + 创建时间（UTC 的年月日时分秒）+ 流水号，全平台唯一
+          examples: [PRD202610081530120042]
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        title:
+          description: 各语言的标题（来自商品详情）；还没填时是空对象
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        brand_id:
+          type: string
+          format: uuid
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/ProductBrandRef"
+            - type: "null"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCityRef"
+            - type: "null"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送点（机场或车站）；只有接送机商品有
+        poi:
+          oneOf:
+            - $ref: "#/components/schemas/ProductPlaceRef"
+            - type: "null"
+        area_count:
+          type: integer
+          minimum: 0
+        vehicle_group_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的版本号：基础信息、服务规则、商品详情、上下架任何一处变了都加一；各修改接口都用它做 `If-Match`
+        published_at:
+          type: [string, "null"]
+          format: date-time
+          description: 最近一次上架的时间
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Product:
+      type: object
+      additionalProperties: false
+      description: 商品的详情：比列表项多区域、车型组、调度人
+      required: [id, code, status, category, title, brand_id, brand, city_id, city, poi_id, poi, area_count, vehicle_group_count, version, published_at, created_at, updated_at, areas, vehicle_groups, dispatchers]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        brand_id:
+          type: string
+          format: uuid
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/ProductBrandRef"
+            - type: "null"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCityRef"
+            - type: "null"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+        poi:
+          oneOf:
+            - $ref: "#/components/schemas/ProductPlaceRef"
+            - type: "null"
+        area_count:
+          type: integer
+          minimum: 0
+        vehicle_group_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        published_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        areas:
+          type: array
+          description: 选的区域，按优先级（`priority` 小的在前），连同区域现在的名称、业务类型、状态
+          items:
+            type: object
+            additionalProperties: false
+            required: [area_id, priority, name, biz_type, status]
+            properties:
+              area_id:
+                type: string
+                format: uuid
+              priority:
+                type: integer
+                minimum: 0
+              name:
+                $ref: "#/components/schemas/LocalizedText"
+              biz_type:
+                $ref: "#/components/schemas/AreaBizType"
+              status:
+                $ref: "#/components/schemas/MasterDataStatus"
+        vehicle_groups:
+          type: array
+          description: 选的车型组和各自的「人数 / 行李数」组合，连同车型组现在的编码、名称、档次、座位数、代表车型、可选组合、状态（已停用的也照常带出）
+          items:
+            type: object
+            additionalProperties: false
+            required: [vehicle_group_id, passengers, luggage, code, name, grade, seats, sample_models, combos, status]
+            properties:
+              vehicle_group_id:
+                type: string
+                format: uuid
+              passengers:
+                type: integer
+              luggage:
+                type: integer
+              code:
+                type: string
+              name:
+                $ref: "#/components/schemas/LocalizedName"
+              grade:
+                $ref: "#/components/schemas/VehicleGrade"
+              seats:
+                type: integer
+              sample_models:
+                type: array
+                items:
+                  type: string
+              combos:
+                type: array
+                description: 这个车型组现在可选的「人数 / 行李数」组合
+                items:
+                  $ref: "#/components/schemas/VehicleCombo"
+              status:
+                $ref: "#/components/schemas/MasterDataStatus"
+        dispatchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    Dispatcher:
+      type: object
+      additionalProperties: false
+      required: [name, phone]
+      description: 调度人：以后随订单推送
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        phone:
+          type: string
+          description: 数字，可以带开头的 + 和中间的空格、横线，6 到 20 位
+    ProductCreate:
+      type: object
+      required: [brand_id, city_id, category]
+      properties:
+        brand_id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机商品必填（本城市、启用中的机场或车站）；其他品类不能填
+        areas:
+          $ref: "#/components/schemas/ProductAreaChoices"
+        vehicle_groups:
+          $ref: "#/components/schemas/ProductVehicleChoices"
+        dispatchers:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    ProductPatch:
+      type: object
+      description: 带了哪个就整体替换哪个。`brand_id`、`city_id`、`category`、`poi_id` 不能改（带了且不同返回 409 `FIELD_LOCKED`）
+      properties:
+        areas:
+          $ref: "#/components/schemas/ProductAreaChoices"
+        vehicle_groups:
+          $ref: "#/components/schemas/ProductVehicleChoices"
+        dispatchers:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    ProductAreaChoices:
+      type: array
+      description: 选的区域；顺序就是优先级。最多 50 个
+      maxItems: 50
+      items:
+        type: object
+        required: [area_id]
+        properties:
+          area_id:
+            type: string
+            format: uuid
+    ProductVehicleChoices:
+      type: array
+      description: 选的车型组，每个选一个「人数 / 行李数」组合。最多 30 个
+      maxItems: 30
+      items:
+        type: object
+        required: [vehicle_group_id, passengers, luggage]
+        properties:
+          vehicle_group_id:
+            type: string
+            format: uuid
+          passengers:
+            type: integer
+            minimum: 1
+          luggage:
+            type: integer
+            minimum: 0
+    DailyWindow:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      description: 每天重复的一个时段。结束早于开始 = 跨过午夜（22:00–06:00）；全天写 00:00–24:00；开始和结束不能相同
+      properties:
+        start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        end:
+          type: string
+          pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+    FreeWait:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      description: "免等：`unlimited` 无限；`limited` 有限，另给 `minutes`"
+      properties:
+        mode:
+          type: string
+          enum: [unlimited, limited]
+        minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+    ServiceRules:
+      type: object
+      description: 服务规则。每一部分都可以不带（按没填算）。金额是子品牌币种的最小货币单位整数
+      properties:
+        booking:
+          type: object
+          additionalProperties: false
+          properties:
+            sale_from:
+              type: [string, "null"]
+              format: date
+              description: 下单有效期的开始（城市当地日期，含）；null = 不限
+            sale_to:
+              type: [string, "null"]
+              format: date
+            service_time:
+              description: 每天的服务时间；用车时间必须在里面（两头都算）
+              oneOf:
+                - $ref: "#/components/schemas/DailyWindow"
+                - type: "null"
+            lead_time_hours:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 720
+              description: 提前预订时长（小时）
+            note:
+              type: [string, "null"]
+              maxLength: 500
+        urgent:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            daily_quota:
+              type: [integer, "null"]
+              minimum: 0
+              description: 每天最多接几单加急；null = 不限
+            tiers:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                additionalProperties: false
+                required: [within_hours, surcharge]
+                properties:
+                  within_hours:
+                    type: integer
+                    minimum: 1
+                    description: 离用车不到这么多小时下单；不能超过提前预订时长
+                  surcharge:
+                    type: integer
+                    minimum: 0
+                    description: 加收的金额（最小货币单位）
+        night:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            window:
+              oneOf:
+                - $ref: "#/components/schemas/DailyWindow"
+                - type: "null"
+            amount:
+              type: [integer, "null"]
+              minimum: 0
+            charge_unit:
+              type: [string, "null"]
+              enum: [per_order, per_hour, null]
+              description: "per_order：按次；per_hour：按与夜间时段重叠的小时数"
+        free_wait:
+          type: object
+          additionalProperties: false
+          description: 接送机填 pickup（接机 / 接站）和 dropoff（送机 / 送站）；点对点和包车填 general
+          properties:
+            pickup:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+            dropoff:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+            general:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+        addons:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, enabled, unit_price, first_free]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+                description: 平台附加服务目录里的编号
+              enabled:
+                type: boolean
+              unit_price:
+                type: integer
+                minimum: 0
+                description: 单价（最小货币单位）；0 = 免费提供
+              first_free:
+                type: boolean
+                description: 首个免费；只有按个计费的附加服务可以设
+        driver_languages:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [language, unit_price]
+            properties:
+              language:
+                type: string
+                pattern: "^[a-z]{2}$"
+              unit_price:
+                type: integer
+                minimum: 0
+    ProductServiceRules:
+      type: object
+      additionalProperties: false
+      required: [version, currency, free_wait_minimums, rules]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的版本号（保存时放进 `If-Match`）
+        currency:
+          type: [string, "null"]
+          description: 金额的币种（子品牌的币种）
+        free_wait_minimums:
+          type: object
+          additionalProperties: false
+          required: [pickup, dropoff, general]
+          description: 平台规定的各项免等最少分钟数；这个品类不填的项是 null
+          properties:
+            pickup:
+              type: [integer, "null"]
+            dropoff:
+              type: [integer, "null"]
+            general:
+              type: [integer, "null"]
+        rules:
+          type: object
+          additionalProperties: false
+          required: [booking, urgent, night, free_wait, addons, driver_languages]
+          description: 结构同 `ServiceRules`，每一部分、每个字段都有（没填的是 null 或空数组）
+          properties:
+            booking:
+              type: object
+              additionalProperties: false
+              required: [sale_from, sale_to, service_time, lead_time_hours, note]
+              properties:
+                sale_from:
+                  type: [string, "null"]
+                sale_to:
+                  type: [string, "null"]
+                service_time:
+                  oneOf:
+                    - $ref: "#/components/schemas/DailyWindow"
+                    - type: "null"
+                lead_time_hours:
+                  type: [integer, "null"]
+                note:
+                  type: [string, "null"]
+            urgent:
+              type: object
+              additionalProperties: false
+              required: [enabled, daily_quota, tiers]
+              properties:
+                enabled:
+                  type: boolean
+                daily_quota:
+                  type: [integer, "null"]
+                tiers:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [within_hours, surcharge]
+                    properties:
+                      within_hours:
+                        type: integer
+                      surcharge:
+                        type: integer
+            night:
+              type: object
+              additionalProperties: false
+              required: [enabled, window, amount, charge_unit]
+              properties:
+                enabled:
+                  type: boolean
+                window:
+                  oneOf:
+                    - $ref: "#/components/schemas/DailyWindow"
+                    - type: "null"
+                amount:
+                  type: [integer, "null"]
+                charge_unit:
+                  type: [string, "null"]
+            free_wait:
+              type: object
+              additionalProperties: false
+              required: [pickup, dropoff, general]
+              properties:
+                pickup:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+                dropoff:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+                general:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+            addons:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [addon_id, enabled, unit_price, first_free]
+                properties:
+                  addon_id:
+                    type: string
+                    format: uuid
+                  enabled:
+                    type: boolean
+                  unit_price:
+                    type: integer
+                  first_free:
+                    type: boolean
+            driver_languages:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [language, unit_price]
+                properties:
+                  language:
+                    type: string
+                  unit_price:
+                    type: integer
+    ProductContentText:
+      type: object
+      additionalProperties: false
+      description: 一种语言的商品详情。提交时每一项都可以不带；返回时每一项都有（没填的是 null 或空数组）
+      properties:
+        title:
+          type: [string, "null"]
+          maxLength: 100
+        summary:
+          type: [string, "null"]
+          maxLength: 2000
+        includes:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            maxLength: 200
+        excludes:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            maxLength: 200
+        itinerary:
+          type: [string, "null"]
+          maxLength: 2000
+          description: 行程路线（包车用）
+        pickup_guide:
+          type: [string, "null"]
+          maxLength: 2000
+          description: 接机 / 接站指引（接送机上架必填）
+    ProductContent:
+      type: object
+      additionalProperties: false
+      description: 各语言的商品详情，键是语言代码
+      properties:
+        ja:
+          $ref: "#/components/schemas/ProductContentText"
+        zh:
+          $ref: "#/components/schemas/ProductContentText"
+        en:
+          $ref: "#/components/schemas/ProductContentText"
+        ko:
+          $ref: "#/components/schemas/ProductContentText"
+    ProductContentResponse:
+      type: object
+      additionalProperties: false
+      required: [version, content]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        content:
+          $ref: "#/components/schemas/ProductContent"
+    PublishCheck:
+      type: object
+      additionalProperties: false
+      required: [can_publish, items]
+      properties:
+        can_publish:
+          type: boolean
+          description: 必须的每一项都通过
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, required, passed, issues]
+            properties:
+              key:
+                type: string
+                enum: [basic_info, service_rules, price_rules, content, adjust_rules, inventory]
+              required:
+                type: boolean
+                description: 这一项不通过就不能上架
+              passed:
+                type: boolean
+              issues:
+                type: array
+                description: |
+                  不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
+                  `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
+                  `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`FEATURE_NOT_AVAILABLE`。
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, reason, message]
+                  properties:
+                    path:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+                    detail:
+                      type: object
+                      additionalProperties:
+                        type: number

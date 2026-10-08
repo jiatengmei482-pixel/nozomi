@@ -45,6 +45,8 @@ export interface AreaPolygon {
 export interface AreaCity {
   id: string;
   code: string;
+  countryCode: string;
+  timezone: string;
   name: LocalizedText;
   status: MasterDataStatus;
   center: { lng: number; lat: number };
@@ -237,11 +239,11 @@ export async function replaceAreaPolygons(db: Db, tenantId: string, areaId: stri
 /** 这些城市的简要信息（区域的应答里带着，读取时现查）。城市是平台主数据，租户角色只读。 */
 export async function findAreaCities(db: Db, cityIds: readonly string[]): Promise<Map<string, AreaCity>> {
   if (cityIds.length === 0) return new Map();
-  const result = await db.query<Row>("select id, code, name, status, center_lng, center_lat, boundary from cities where id = any($1::uuid[])", [cityIds]);
+  const result = await db.query<Row>("select id, code, country_code, timezone, name, status, center_lng, center_lat, boundary from cities where id = any($1::uuid[])", [cityIds]);
   return new Map(
     result.rows.map((row) => [
       row["id"] as string,
-      { id: row["id"], code: row["code"], name: row["name"], status: row["status"], center: { lng: Number(row["center_lng"]), lat: Number(row["center_lat"]) }, boundary: row["boundary"] },
+      { id: row["id"], code: row["code"], countryCode: row["country_code"], timezone: row["timezone"], name: row["name"], status: row["status"], center: { lng: Number(row["center_lng"]), lat: Number(row["center_lat"]) }, boundary: row["boundary"] },
     ]),
   );
 }

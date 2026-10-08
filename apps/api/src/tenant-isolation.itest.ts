@@ -5,9 +5,10 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { signAccessToken, verifyAccessToken } from "./auth/token.ts";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
-import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
 
@@ -576,12 +577,16 @@ test("POST /tenant/v1/areas/{id}/check-point：自测不了别的供应商的区
   assert.ok(!own.text.includes(areas.b.polygons[0].id));
 });
 
-test("GET /tenant/v1/dashboard/summary：只数自己的区域", async () => {
+test("GET /tenant/v1/dashboard/summary：只数自己的区域和商品", async () => {
   cover("GET /tenant/v1/dashboard/summary");
   await seedAreas();
   const extra = await api.tenantWithAdmin(platformToken, "车队丙", "admin@c.test");
-  assert.deepEqual((await api.call("GET", `/tenant/v1/dashboard/summary?tenant_id=${b.tenantId}`, { token: extra.adminToken })).body, { areas: { active: 0, disabled: 0 } });
-  assert.deepEqual((await api.call("GET", "/tenant/v1/dashboard/summary", { token: a.adminToken })).body, { areas: { active: 1, disabled: 0 } });
+  await seedProducts();
+  assert.deepEqual((await api.call("GET", `/tenant/v1/dashboard/summary?tenant_id=${b.tenantId}`, { token: extra.adminToken })).body, {
+    areas: { active: 0, disabled: 0 },
+    products: { draft: 0, published: 0, unpublished: 0 },
+  });
+  assert.deepEqual((await api.call("GET", "/tenant/v1/dashboard/summary", { token: a.adminToken })).body, { areas: { active: 1, disabled: 0 }, products: { draft: 1, published: 0, unpublished: 0 } });
 });
 
 test("GET /tenant/v1/map/config：底图配置和供应商无关，两边拿到的一样，里面没有任何供应商的信息", async () => {
@@ -630,6 +635,174 @@ test("区域的隔离（数据库层面）：租户事务里不带任何条件�
   assert.deepEqual(await areaRows(), before);
 });
 
+// ---- 子品牌和商品（M1-03）----
+
+const productFixture: { a?: { brand: any; product: any }; b?: { brand: any; product: any }; key?: string } = {};
+const NO_SUCH_ID = "99999999-9999-4999-8999-999999999999";
+
+/** 两个供应商用同一个幂等键、同一个名字各建一个子品牌，再各建一个选了自己区域、填了规则和详情的包车草稿。 */
+async function seedProducts(): Promise<{ a: { brand: any; product: any }; b: { brand: any; product: any }; key: string; cityId: string; areas: { a: any; b: any } }> {
+  const areas = await seedAreas();
+  if (productFixture.key === undefined) {
+    productFixture.key = "shared-key-0002";
+    for (const [name, fixture] of [["a", a], ["b", b]] as const) {
+      api.clock.advance(1_000);
+      const headers = { "idempotency-key": productFixture.key };
+      const other = name === "a" ? b.tenantId : a.tenantId;
+      const brand = await api.call("POST", "/tenant/v1/brands", { token: fixture.adminToken, headers, body: { name: "主品牌", currency: "JPY", tenant_id: other } });
+      assert.equal(brand.status, 201, brand.text);
+      const created = await api.call("POST", "/tenant/v1/products", {
+        token: fixture.adminToken,
+        headers,
+        body: { brand_id: brand.body.id, city_id: areas.cityId, category: "charter", areas: [{ area_id: areas[name].id }], dispatchers: [{ name: `调度 ${name}`, phone: "0312345678" }], tenant_id: other },
+      });
+      assert.equal(created.status, 201, created.text);
+      const content = await api.call("PUT", `/tenant/v1/products/${created.body.id}/content`, { token: fixture.adminToken, headers: { "if-match": '"1"' }, body: { zh: { title: `${name} 的包车` } } });
+      assert.equal(content.status, 200, content.text);
+      const product = await api.call("GET", `/tenant/v1/products/${created.body.id}`, { token: fixture.adminToken });
+      productFixture[name] = { brand: brand.body, product: product.body };
+    }
+  }
+  return { ...(productFixture as { a: { brand: any; product: any }; b: { brand: any; product: any }; key: string }), cityId: areas.cityId, areas };
+}
+
+async function productRows(): Promise<unknown> {
+  const rows: Record<string, unknown[]> = {};
+  for (const [table, order] of [["brands", "id"], ["products", "id"], ["product_areas", "product_id, area_id"], ["product_vehicle_groups", "product_id, vehicle_group_id"], ["product_dispatchers", "product_id, position"]] as const) {
+    rows[table] = (await api.db.owner.query(`select * from ${table} order by ${order}`)).rows;
+  }
+  return rows;
+}
+
+test("子品牌：建在令牌所属的供应商名下，请求体里的 tenant_id 不生效；同名、同幂等键在两个供应商之间互不相干；看不到、改不了别人的", async () => {
+  cover("GET /tenant/v1/brands");
+  cover("POST /tenant/v1/brands");
+  cover("PUT /tenant/v1/brands/:id");
+  const seeded = await seedProducts();
+  assert.notEqual(seeded.a.brand.id, seeded.b.brand.id);
+  const owners = await api.db.owner.query("select id, tenant_id from brands order by created_at");
+  assert.deepEqual(owners.rows, [{ id: seeded.a.brand.id, tenant_id: a.tenantId }, { id: seeded.b.brand.id, tenant_id: b.tenantId }]);
+  const listed = await api.call("GET", `/tenant/v1/brands?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.deepEqual(listed.body.items.map((brand: any) => brand.id), [seeded.a.brand.id]);
+  const before = await productRows();
+  const foreign = await api.call("PUT", `/tenant/v1/brands/${seeded.b.brand.id}`, { token: a.adminToken, headers: { "if-match": '"1"' }, body: { name: "被甲改了", tenant_id: b.tenantId } });
+  const missing = await api.call("PUT", `/tenant/v1/brands/${NO_SUCH_ID}`, { token: a.adminToken, headers: { "if-match": '"1"' }, body: { name: "被甲改了" } });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  assert.deepEqual(await productRows(), before);
+});
+
+test("POST /tenant/v1/products：商品建在令牌所属的供应商名下；用不了别的供应商的子品牌和区域（和不存在一样）；幂等键互不相干", async () => {
+  cover("POST /tenant/v1/products");
+  const seeded = await seedProducts();
+  assert.notEqual(seeded.a.product.id, seeded.b.product.id, "同一个幂等键，两个供应商各建各的");
+  const owners = await api.db.owner.query("select id, tenant_id from products order by created_at");
+  assert.deepEqual(owners.rows, [{ id: seeded.a.product.id, tenant_id: a.tenantId }, { id: seeded.b.product.id, tenant_id: b.tenantId }]);
+  const before = await productRows();
+  const create = (body: Record<string, unknown>): Promise<ApiResponse> =>
+    api.call("POST", "/tenant/v1/products", { token: a.adminToken, headers: { "idempotency-key": randomUUID() }, body: { brand_id: seeded.a.brand.id, city_id: seeded.cityId, category: "charter", ...body } });
+  const reasons = (res: ApiResponse): unknown => res.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason]);
+  const foreignBrand = await create({ brand_id: seeded.b.brand.id });
+  assert.equal(foreignBrand.status, 400, foreignBrand.text);
+  assert.deepEqual(reasons(foreignBrand), [["/brand_id", "UNKNOWN_BRAND"]]);
+  assert.equal(foreignBrand.text, (await create({ brand_id: NO_SUCH_ID })).text, "别人的子品牌和不存在的子品牌，应答一模一样");
+  const foreignArea = await create({ areas: [{ area_id: seeded.areas.a.id }, { area_id: seeded.areas.b.id }] });
+  assert.equal(foreignArea.status, 400, foreignArea.text);
+  assert.deepEqual(reasons(foreignArea), [["/areas/1/area_id", "UNKNOWN_AREA"]]);
+  assert.equal(foreignArea.text, (await create({ areas: [{ area_id: seeded.areas.a.id }, { area_id: NO_SUCH_ID }] })).text);
+  assert.deepEqual(await productRows(), before);
+});
+
+test("GET /tenant/v1/products、/products/{id}：只看得到自己的商品；按别人的子品牌、区域筛选什么都筛不出来", async () => {
+  cover("GET /tenant/v1/products");
+  cover("GET /tenant/v1/products/:id");
+  const seeded = await seedProducts();
+  const list = await api.call("GET", `/tenant/v1/products?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.deepEqual([list.body.total, list.body.items.map((item: any) => item.id)], [1, [seeded.a.product.id]]);
+  assert.ok(!list.text.includes(seeded.b.product.code) && !list.text.includes(b.tenantId));
+  for (const query of [`brand_id=${seeded.b.brand.id}`, `area_id=${seeded.areas.b.id}`, `q=${seeded.b.product.code}`, `q=${encodeURIComponent("b 的包车")}`]) {
+    const res = await api.call("GET", `/tenant/v1/products?${query}`, { token: a.adminToken });
+    assert.deepEqual([res.status, res.body.total, res.body.items], [200, 0, []], query);
+  }
+  const foreign = await api.call("GET", `/tenant/v1/products/${seeded.b.product.id}`, { token: a.adminToken });
+  const missing = await api.call("GET", `/tenant/v1/products/${NO_SUCH_ID}`, { token: a.adminToken });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, missing.text);
+  assert.equal((await api.call("GET", `/tenant/v1/products/${seeded.b.product.id}`, { token: b.adminToken })).status, 200);
+});
+
+test("商品的其余接口：读不到、改不了、删不了、上不了架、下不了架别的供应商的商品（404，和不存在一样，对方的数据原样不动）", async () => {
+  const seeded = await seedProducts();
+  const before = await productRows();
+  const requests: [HttpMethod, string, unknown][] = [
+    ["PATCH", "", { dispatchers: [], tenant_id: b.tenantId }],
+    ["DELETE", "", undefined],
+    ["GET", "/service-rules", undefined],
+    ["PUT", "/service-rules", { booking: { lead_time_hours: 1 } }],
+    ["GET", "/content", undefined],
+    ["PUT", "/content", { zh: { title: "被甲改了" } }],
+    ["GET", "/publish-check", undefined],
+    ["POST", "/publish", undefined],
+    ["POST", "/unpublish", undefined],
+  ];
+  for (const [method, suffix, body] of requests) {
+    cover(`${method} /tenant/v1/products/:id${suffix}`);
+    const send = (id: string): Promise<ApiResponse> =>
+      api.call(method, `/tenant/v1/products/${id}${suffix}`, { token: a.adminToken, headers: { "if-match": `"${seeded.b.product.version}"` }, ...(body === undefined ? {} : { body }) });
+    const foreign = await send(seeded.b.product.id);
+    assert.equal(foreign.status, 404, `${method} ${suffix}：${foreign.text}`);
+    assert.equal(foreign.text, (await send(NO_SUCH_ID)).text, `${method} ${suffix}`);
+  }
+  // 给自己的商品选别人的区域：和选一个不存在的区域一样
+  const patch = (areaId: string): Promise<ApiResponse> =>
+    api.call("PATCH", `/tenant/v1/products/${seeded.a.product.id}`, { token: a.adminToken, headers: { "if-match": `"${seeded.a.product.version}"` }, body: { areas: [{ area_id: areaId }] } });
+  const smuggled = await patch(seeded.areas.b.id);
+  assert.equal(smuggled.status, 400, smuggled.text);
+  assert.deepEqual(smuggled.body.error.details.issues.map((issue: any) => [issue.path, issue.reason]), [["/areas/0/area_id", "UNKNOWN_AREA"]]);
+  assert.equal(smuggled.text, (await patch(NO_SUCH_ID)).text);
+  assert.deepEqual(await productRows(), before);
+  // 区域的使用数只数自己的商品
+  assert.deepEqual((await api.call("GET", `/tenant/v1/areas/${seeded.areas.a.id}`, { token: a.adminToken })).body.usage, { product_count: 1, published_product_count: 0 });
+});
+
+test("子品牌和商品的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下；平台角色只能读商品和它选的车型组", async () => {
+  const seeded = await seedProducts();
+  const before = await productRows();
+  for (const table of ["brands", "products", "product_areas", "product_dispatchers"]) {
+    const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>(`select distinct tenant_id from ${table}`));
+    assert.deepEqual(seen.rows.map((row) => row.tenant_id), [a.tenantId], table);
+  }
+  const theirs = seeded.b.product.id;
+  const touched = await withTenantTx(api.db.pool, a.tenantId, async (db) => {
+    const counts: (number | null)[] = [];
+    counts.push((await db.query("update brands set name = '被甲改了' where id = $1", [seeded.b.brand.id])).rowCount);
+    counts.push((await db.query("update products set status = 'published' where id = $1", [theirs])).rowCount);
+    counts.push((await db.query("delete from products where id = $1", [theirs])).rowCount);
+    for (const table of ["product_areas", "product_vehicle_groups", "product_dispatchers"]) counts.push((await db.query(`delete from ${table} where product_id = $1`, [theirs])).rowCount);
+    return counts;
+  });
+  assert.deepEqual(touched, [0, 0, 0, 0, 0, 0]);
+  const denied: [string, string, unknown[]][] = [
+    ["写子品牌到别人名下", "insert into brands (tenant_id, name, currency, status, created_at, updated_at) values ($1, '塞进来的', 'JPY', 'active', now(), now())", [b.tenantId]],
+    ["把自己的商品挪给别人", "update products set tenant_id = $1 where id = $2", [b.tenantId, seeded.a.product.id]],
+    ["给别人的商品加区域", "insert into product_areas (tenant_id, product_id, area_id, priority) values ($1, $2, $3, 9)", [b.tenantId, theirs, seeded.areas.b.id]],
+    ["给别人的商品加调度人", "insert into product_dispatchers (tenant_id, product_id, position, name, phone) values ($1, $2, 9, '甲的人', '0312345678')", [b.tenantId, theirs]],
+  ];
+  for (const [label, sql, params] of denied) await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query(sql, params)), { code: "42501" }, label);
+  // 用自己的租户编号把别人的区域、别人的商品接到一起：外键带着租户编号，接不上
+  await assert.rejects(
+    withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into product_areas (tenant_id, product_id, area_id, priority) values ($1, $2, $3, 9)", [a.tenantId, seeded.a.product.id, seeded.areas.b.id])),
+    { code: "23503" },
+  );
+  // 平台角色：商品和它选的车型组只读（停用主数据前数已上架的商品用），其余三张表碰不到
+  const platformSees = await withPlatformTx(api.db.pool, (db) => db.query<{ n: number }>("select count(*)::int as n from products"));
+  assert.equal(platformSees.rows[0]?.n, 2);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update products set status = 'published'")), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from product_vehicle_groups")), deniedByDatabase);
+  for (const table of ["brands", "product_areas", "product_dispatchers"]) await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`)), deniedByDatabase, table);
+  assert.deepEqual(await productRows(), before);
+});
+
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
   for (const route of api.app.registeredRoutes) {
     if (route.method === "HEAD") continue;
@@ -662,6 +835,8 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/users", { token: a.adminToken }),
     await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } }),
     ...(await Promise.all(MASTER_PATHS.map((path) => api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken })))),
+    await api.call("GET", "/tenant/v1/brands", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/products", { token: a.adminToken }),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });

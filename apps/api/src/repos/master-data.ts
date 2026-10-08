@@ -391,7 +391,8 @@ export async function listMasterRows<Item extends Versioned>(
   };
   for (const [column, value] of Object.entries(filter.equals ?? {})) {
     if (!spec.columns.includes(column)) throw new Error(`${spec.table} 没有可筛选的列 ${column}`);
-    where(`${column} = ?`, value);
+    if (Array.isArray(value)) where(`${column} = any(?::text[])`, value);
+    else where(`${column} = ?`, value);
   }
   for (const column of filter.isNull ?? []) {
     if (!spec.columns.includes(column)) throw new Error(`${spec.table} 没有可筛选的列 ${column}`);

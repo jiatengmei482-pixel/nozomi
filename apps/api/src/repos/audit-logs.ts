@@ -18,7 +18,9 @@ export type AuditResource =
   | "place"
   | "vehicle_group"
   | "addon"
-  | "area";
+  | "area"
+  | "brand"
+  | "product";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -30,6 +32,8 @@ export type AuditAction =
   | "enable"
   | "update"
   | "delete"
+  | "publish"
+  | "unpublish"
   | "change_role"
   | "change_password"
   | "request_password_reset"
