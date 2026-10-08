@@ -37,7 +37,7 @@
 | `0009_master_data_code_order.sql` | 四张主数据表按编码排序用的索引（逐字节比较）。只加索引 |
 | `0010_city_import_source.sql` | 城市表加「来源」字段（从 GeoNames 导入的城市用，ADR 0014）和两个索引。不含任何数据 |
 | `0011_areas.sql` | 区域（供应商的营运区和禁行区）：`areas`、`area_polygons`，第一批带 `tenant_id` 的业务表；外加创建类接口的幂等键 `idempotency_keys`。三张都开行级安全、只授权给租户角色（ADR 0015）。不含任何数据 |
-| `0012_products.sql` | 子品牌和商品：`brands`、`products`（服务规则、商品详情是它的 jsonb 列）、`product_areas`、`product_vehicle_groups`、`product_dispatchers`，商品编号的序列 `product_code_seq`。五张表都带 `tenant_id`、开行级安全、授权给租户角色；平台角色只能读 `products` 和 `product_vehicle_groups`（停用主数据前数已上架的商品用）（ADR 0016）。不含任何数据 |
+| `0013_products.sql` | 子品牌和商品：`brands`、`products`（服务规则、商品详情是它的 jsonb 列）、`product_areas`、`product_vehicle_groups`、`product_dispatchers`，商品编号的序列 `product_code_seq`。五张表都带 `tenant_id`、开行级安全、授权给租户角色；平台角色只能读 `products` 和 `product_vehicle_groups`（停用主数据前数已上架的商品用）（ADR 0016）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，其余由平台在后台录入。
