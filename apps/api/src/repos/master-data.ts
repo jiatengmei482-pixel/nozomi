@@ -40,6 +40,10 @@ export interface City extends Versioned {
   centerLng: number;
   centerLat: number;
   boundary: GeoJsonPolygon | GeoJsonMultiPolygon | null;
+  source: string | null;
+  sourceRef: string | null;
+  sourceSyncedAt: Date | null;
+  sourceOverridden: boolean;
 }
 
 export interface Place extends Versioned {
@@ -102,7 +106,19 @@ function versioned(row: Row): Versioned {
 
 export const CITIES: MasterTable<City> = {
   table: "cities",
-  columns: ["code", "country_code", "name", "timezone", "center_lng", "center_lat", "boundary"],
+  columns: [
+    "code",
+    "country_code",
+    "name",
+    "timezone",
+    "center_lng",
+    "center_lat",
+    "boundary",
+    "source",
+    "source_ref",
+    "source_synced_at",
+    "source_overridden",
+  ],
   jsonColumns: ["name", "boundary"],
   codeConstraint: "cities_code_key",
   toItem: (row) => ({
@@ -113,6 +129,10 @@ export const CITIES: MasterTable<City> = {
     centerLng: Number(row["center_lng"]),
     centerLat: Number(row["center_lat"]),
     boundary: row["boundary"],
+    source: row["source"],
+    sourceRef: row["source_ref"],
+    sourceSyncedAt: row["source_synced_at"],
+    sourceOverridden: row["source_overridden"],
   }),
 };
 
@@ -290,14 +310,23 @@ export async function findPlaceParentId(db: Db, placeId: string): Promise<string
 }
 
 /**
- * 抢「机场导入」这把锁（事务结束自动释放）：同一个库、同一个 schema 里同一时间只允许一次导入。
+ * 抢某一种导入的锁（事务结束自动释放）：同一个库、同一个 schema 里同一时间只允许一次同类导入。
  * 抢不到立即返回 false，不排队。
  */
-export async function tryLockAirportImport(db: Db): Promise<boolean> {
+async function tryLockImport(db: Db, kind: "import-airports" | "import-cities"): Promise<boolean> {
   const result = await db.query<{ locked: boolean }>(
-    "select pg_try_advisory_xact_lock(hashtextextended(current_database() || '.' || current_schema() || '.masterdata.import-airports', 0)) as locked",
+    "select pg_try_advisory_xact_lock(hashtextextended(current_database() || '.' || current_schema() || '.masterdata.' || $1, 0)) as locked",
+    [kind],
   );
   return result.rows[0]?.locked === true;
+}
+
+export function tryLockAirportImport(db: Db): Promise<boolean> {
+  return tryLockImport(db, "import-airports");
+}
+
+export function tryLockCityImport(db: Db): Promise<boolean> {
+  return tryLockImport(db, "import-cities");
 }
 
 /** 按编号取一行。`lock` 为真时锁住这一行直到事务结束（修改前用；租户事务没有这个权限，只能传 false）。 */
@@ -439,4 +468,42 @@ export async function listAllAirports(db: Db): Promise<Place[]> {
 /** 记下这些导入的机场刚刚和数据源核对过。不算一次修改：版本号和更新时间不变。 */
 export async function markAirportsSynced(db: Db, source: string, sourceRefs: readonly string[], now: Date): Promise<void> {
   await db.query("update places set source_synced_at = $3 where source = $1 and source_ref = any($2::text[])", [source, sourceRefs, now]);
+}
+
+/** 全部城市（手工录入的和导入的都算），给城市导入命令做比较用。 */
+export async function listAllCities(db: Db): Promise<City[]> {
+  const result = await db.query<Row>(`select ${selectList(CITIES)} from cities order by code`);
+  return result.rows.map(CITIES.toItem);
+}
+
+/** 记下这些导入的城市刚刚和数据源核对过。不算一次修改：版本号和更新时间不变。 */
+export async function markCitiesSynced(db: Db, source: string, sourceRefs: readonly string[], now: Date): Promise<void> {
+  await db.query("update cities set source_synced_at = $3 where source = $1 and source_ref = any($2::text[])", [source, sourceRefs, now]);
+}
+
+/** 建议城市时的候选：城市的编码、名称和中心坐标。 */
+export interface CityCandidate extends MasterRef {
+  countryCode: string;
+  lng: number;
+  lat: number;
+}
+
+/** 这些国家里启用中的城市（给还没有城市的机场找最近的城市用）。 */
+export async function listActiveCityCandidates(db: Db, countryCodes: readonly string[]): Promise<CityCandidate[]> {
+  if (countryCodes.length === 0) return [];
+  const result = await db.query<Row>(
+    `select id, code, name, country_code, center_lng, center_lat
+       from cities
+      where status = 'active' and country_code = any($1::text[])
+      order by code collate "C"`,
+    [countryCodes],
+  );
+  return result.rows.map((row) => ({
+    id: row["id"],
+    code: row["code"],
+    name: row["name"],
+    countryCode: row["country_code"],
+    lng: Number(row["center_lng"]),
+    lat: Number(row["center_lat"]),
+  }));
 }

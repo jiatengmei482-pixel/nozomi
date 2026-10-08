@@ -37,6 +37,7 @@ import {
   CITY,
   type MasterReader,
   type MasterResource,
+  type CitySuggestion,
   type MasterWriter,
   PLACE,
   type PlaceRefs,
@@ -52,6 +53,7 @@ import {
   setCityStatus,
   setPlaceStatus,
   setVehicleGroupStatus,
+  suggestCities,
   updateAddon,
   updateCity,
   updatePlace,
@@ -207,6 +209,10 @@ function versionedJson(item: { id: string; status: MasterDataStatus; version: nu
   };
 }
 
+/**
+ * 城市的应答。导入来源（source）目前不在接口里：前端的接口约定还没有这个字段，等前端跟进时再加（ADR 0014）；
+ * 来源记在数据库的每条记录和审计日志里。
+ */
 export function cityJson(city: City): Json {
   return {
     id: city.id,
@@ -218,6 +224,15 @@ export function cityJson(city: City): Json {
     boundary: city.boundary,
     ...versionedJson(city),
   };
+}
+
+function sourceJson(item: { source: string | null; sourceRef: string | null; sourceSyncedAt: Date | null; sourceOverridden: boolean }): Json | null {
+  if (item.source === null) return null;
+  return { name: item.source, ref: item.sourceRef, synced_at: item.sourceSyncedAt?.toISOString() ?? null, overridden: item.sourceOverridden };
+}
+
+function suggestionJson(suggestion: CitySuggestion): Json {
+  return { id: suggestion.id, code: suggestion.code, name: suggestion.name, distance_km: suggestion.distanceKm };
 }
 
 function refJson(ref: MasterRef | undefined): Json | null {
@@ -248,15 +263,7 @@ export function tenantPlaceJson(place: Place, refs?: PlaceRefs): Json {
 export function placeJson(place: Place, refs?: PlaceRefs): Json {
   return {
     ...tenantPlaceJson(place, refs),
-    source:
-      place.source === null
-        ? null
-        : {
-            name: place.source,
-            ref: place.sourceRef,
-            synced_at: place.sourceSyncedAt?.toISOString() ?? null,
-            overridden: place.sourceOverridden,
-          },
+    source: sourceJson(place),
   };
 }
 
@@ -296,6 +303,8 @@ interface Endpoints<T extends City | Place | VehicleGroup | Addon, Query extends
   loadRefs?: (reader: MasterReader, items: T[]) => Promise<PlaceRefs>;
   /** 查询参数里要求「为空」的列 */
   nulls?: (query: z.output<Query>) => string[];
+  /** 平台的列表应答里按查询参数附加的顶层字段（只有地点有：建议的城市） */
+  extras?: (query: Record<string, unknown>, items: T[]) => Promise<Json>;
   /** 启用接口的请求体（只有地点有：顺带指定城市） */
   enableSchema?: z.ZodType<{ city_id?: string | undefined }>;
   querySchema: Query;
@@ -348,7 +357,9 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
           : { by: "created", after: decodeTimeCursor(query.cursor ?? null) },
       );
       const refs = endpoints.loadRefs ? await endpoints.loadRefs(reader, page.items) : undefined;
-      return { ...pageJson(page, (item) => toJson(item, refs)), total: page.total };
+      // 附加字段只给平台：租户的应答里不会出现
+      const extras = reader.kind === "platform" && endpoints.extras ? await endpoints.extras(query, page.items) : {};
+      return { ...pageJson(page, (item) => toJson(item, refs)), total: page.total, ...extras };
     };
 
     const platformBase = `/platform/v1/master/${endpoints.path}`;
@@ -447,6 +458,17 @@ export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext):
     }),
     nulls: (query) => (query.city_id === "none" ? ["city_id"] : []),
     loadRefs: (reader, items) => loadPlaceRefs(ctx, reader, items),
+    extras: async (query, items) => {
+      // 只在「还没有所属城市」的列表里给建议：这就是处理导入的机场的那个页面
+      if (query["city_id"] !== "none") return {};
+      const suggestions = await suggestCities(ctx, items);
+      return {
+        city_suggestions: items.map((item) => {
+          const nearby = (suggestions.get(item.id) ?? []).map(suggestionJson);
+          return { place_id: item.id, suggested_city: nearby[0] ?? null, nearby_cities: nearby };
+        }),
+      };
+    },
     enableSchema: z.object({ city_id: uuidSchema.optional() }),
     createSchema: placeSchema,
     create: (writer, input) =>

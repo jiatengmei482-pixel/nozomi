@@ -14,6 +14,7 @@
     "admin:create": "node --env-file-if-exists=.env apps/api/src/cli/admin-create.ts",
     "admin:reset-password": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-password.ts",
     "masterdata:import-airports": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airports.ts",
+    "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "web:dev": "pnpm --filter @nozomi/web dev",
     "web:build": "pnpm --filter @nozomi/web build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",

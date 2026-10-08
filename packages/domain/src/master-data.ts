@@ -69,6 +69,15 @@ export type AddonChargeUnit = (typeof ADDON_CHARGE_UNITS)[number];
 export const MAX_VEHICLE_SEATS = 60;
 export const MAX_VEHICLE_COMBOS = 20;
 export const MAX_LUGGAGE = 99;
+/**
+ * 给还没有城市的机场建议城市时，只考虑这么远（公里）以内的启用中的城市。
+ * 大机场离它服务的城市中心一般在 60 公里以内（成田 → 东京约 58 公里、仁川 → 首尔约 48 公里）；80 公里留了余量，
+ * 又不至于把隔着一个县的城市也建议出来。
+ */
+export const CITY_SUGGESTION_MAX_KM = 80;
+/** 建议城市时最多列出几个候选（由近到远） */
+export const CITY_SUGGESTION_LIMIT = 3;
+
 /** 城市边界最多多少个顶点：够画一个都市圈，又不会让一条审计记录大到离谱。 */
 export const MAX_BOUNDARY_POINTS = 5_000;
 

@@ -54,7 +54,8 @@ info:
     - 主数据（`/platform/v1/master/*`、`/tenant/v1/master/*`）：每条记录带 `version`；修改用请求头 `If-Match` 带版本号。
       字段格式都对、但内容不合规则（编码格式、时区、坐标范围、引用的城市不存在等）同样返回 400 `VALIDATION_FAILED`，
       `details.issues` 指出字段。机场数据来自 OurAirports（https://ourairports.com/data/，公有领域），
-      用命令 `pnpm masterdata:import-airports` 导入。
+      用命令 `pnpm masterdata:import-airports` 导入；
+      城市数据来自 GeoNames（https://www.geonames.org/，CC BY 4.0，须注明来源），用命令 `pnpm masterdata:import-cities` 导入。
 servers:
   - url: http://localhost:8080
     description: 本地开发
@@ -1008,6 +1009,14 @@ paths:
                     type: integer
                     minimum: 0
                     description: 符合筛选条件的总数（和翻到第几页无关）
+                  city_suggestions:
+                    type: array
+                    description: |
+                      只在按 `city_id=none` 筛选时出现：给这一页的每个地点（顺序和 `items` 相同）建议所属城市。
+                      候选是和地点同一个国家、启用中、中心坐标在 80 公里以内的城市，按球面距离由近到远。
+                      只是建议——最近的不一定对（羽田机场离川崎比离东京近），请对照 `nearby_cities` 确认。
+                    items:
+                      $ref: "#/components/schemas/PlaceCitySuggestion"
     post:
       tags: [主数据]
       operationId: createPlace
@@ -2255,7 +2264,10 @@ components:
     CityIdFilter:
       name: city_id
       in: query
-      description: 只看这个城市的地点（城市的编号）；写 `none` 表示只看还没有所属城市的地点（导入后等待复核的机场）。`total` 同样按这个条件算
+      description: |
+        只看这个城市的地点（城市的编号）；写 `none` 表示只看还没有所属城市的地点（导入后等待复核的机场），`total` 同样按这个条件算。
+        平台的列表在 `city_id=none` 时，应答另带 `city_suggestions`（给这一页的每个地点按距离建议的城市）；租户的列表不带。
+        确认后用启用接口带 `city_id` 一次完成「指定城市并启用」。
       schema:
         oneOf:
           - type: string
@@ -3031,6 +3043,43 @@ components:
         updated_at:
           type: string
           format: date-time
+    CitySuggestion:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, distance_km]
+      description: 给还没有所属城市的地点建议的一个城市
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        distance_km:
+          type: number
+          minimum: 0
+          description: 地点到这个城市中心的球面距离（公里，保留 1 位小数）
+    PlaceCitySuggestion:
+      type: object
+      additionalProperties: false
+      required: [place_id, suggested_city, nearby_cities]
+      properties:
+        place_id:
+          type: string
+          format: uuid
+          description: 地点的编号
+        suggested_city:
+          description: 最近的那个城市；80 公里以内没有启用中的城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/CitySuggestion"
+            - type: "null"
+        nearby_cities:
+          type: array
+          description: 80 公里以内的启用中的城市，由近到远，最多 3 个；第一个就是 `suggested_city`
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/CitySuggestion"
     Place:
       type: object
       additionalProperties: false

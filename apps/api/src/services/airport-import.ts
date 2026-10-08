@@ -8,6 +8,7 @@
 import { type AirportImportPlan, type AirportSelection, OURAIRPORTS, planAirportImport } from "@nozomi/domain";
 import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
+import { MasterImportError, type MasterImportErrorCode } from "./import-errors.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   PLACES,
@@ -18,21 +19,10 @@ import {
   updateMasterRowAtVersion,
 } from "../repos/master-data.ts";
 
-export type AirportImportErrorCode =
-  /** 另一次导入正在运行 */
-  | "IMPORT_ALREADY_RUNNING"
-  /** 导入期间有人在后台新增了同一个三字码的机场 */
-  | "IMPORT_CODE_CONFLICT";
+export type AirportImportErrorCode = MasterImportErrorCode;
 
-/** 导入没有进行（或整体回滚了）、换个时间再运行即可的情况。 */
-export class AirportImportError extends Error {
-  readonly code: AirportImportErrorCode;
-  constructor(code: AirportImportErrorCode, message: string) {
-    super(message);
-    this.name = "AirportImportError";
-    this.code = code;
-  }
-}
+/** 机场导入没有进行（或整体回滚了）、换个时间再运行即可的情况。 */
+export class AirportImportError extends MasterImportError {}
 
 export interface AirportImportOptions {
   /** 只算出要做什么，不写库 */

@@ -10,6 +10,8 @@
 import { isDeepStrictEqual } from "node:util";
 import {
   type AddonChargeUnit,
+  CITY_SUGGESTION_LIMIT,
+  CITY_SUGGESTION_MAX_KM,
   type FlightScope,
   type GeoJsonMultiPolygon,
   type GeoJsonPolygon,
@@ -29,6 +31,7 @@ import {
   isIanaTimeZone,
   isLatitude,
   isLongitude,
+  nearestWithin,
   placeAttributeIssues,
   placeCodeIssue,
   placeEnableBlocker,
@@ -64,6 +67,7 @@ import {
   findPlaceRefs,
   insertMasterRow,
   isKnownTimeZone,
+  listActiveCityCandidates,
   listMasterRows,
   moveChildPlacesToCity,
   updateMasterRow,
@@ -96,6 +100,8 @@ export const CITY: MasterResource<City> = {
     center_lng: city.centerLng,
     center_lat: city.centerLat,
     boundary: city.boundary as AuditValue,
+    // 来源只有导入的城市才记：手工录入的城市的审计内容和以前一样
+    ...(city.source === null ? {} : { source: city.source, source_ref: city.sourceRef, source_overridden: city.sourceOverridden }),
   }),
 };
 
@@ -406,7 +412,14 @@ export function updateCity(ctx: AppContext, writer: MasterWriter, id: string, ve
       boundary: patch.boundary === undefined ? current.boundary : patch.boundary,
     };
     await assertCity(db, merged);
-    return { values: cityColumns({ ...patch, code: undefined, countryCode: undefined }) };
+    const values = cityColumns({ ...patch, code: undefined, countryCode: undefined });
+    // 导入的城市被改了名称、时区或中心坐标：记下「平台改过」，以后再导入不会覆盖这次修改
+    const sourceFieldChanged =
+      (patch.name !== undefined && !isDeepStrictEqual(patch.name, current.name)) ||
+      merged.timezone !== current.timezone ||
+      (values["center_lng"] !== undefined && values["center_lng"] !== current.centerLng) ||
+      (values["center_lat"] !== undefined && values["center_lat"] !== current.centerLat);
+    return { values: current.source !== null && sourceFieldChanged ? { ...values, source_overridden: true } : values };
   });
 }
 
@@ -619,6 +632,32 @@ export function loadPlaceRefs(ctx: AppContext, reader: MasterReader, places: rea
     cities: new Map((await findCityRefs(db, cityIds)).map((ref) => [ref.id, ref])),
     parents: new Map((await findPlaceRefs(db, parentIds)).map((ref) => [ref.id, ref])),
   }));
+}
+
+/** 给一个还没有城市的地点建议的城市：编号、编码、名称和距离。 */
+export interface CitySuggestion extends MasterRef {
+  distanceKm: number;
+}
+
+/**
+ * 给这批地点里还没有城市的那些找建议的城市：同一个国家、启用中、中心坐标在 80 公里以内，由近到远最多 3 个。
+ * 返回 地点编号 → 候选列表（没有合适的城市时是空列表）；已经有城市的地点不在返回里。
+ * 只是建议：最近的不一定就是对的（羽田离川崎比离东京近），要人确认。
+ */
+export async function suggestCities(ctx: AppContext, places: readonly Place[]): Promise<Map<string, CitySuggestion[]>> {
+  const pending = places.filter((place) => place.cityId === null);
+  const result = new Map<string, CitySuggestion[]>();
+  if (pending.length === 0) return result;
+  const candidates = await readTx(ctx, { kind: "platform" }, (db) => listActiveCityCandidates(db, [...new Set(pending.map((place) => place.countryCode))]));
+  for (const place of pending) {
+    const sameCountry = candidates.filter((city) => city.countryCode === place.countryCode);
+    const nearest = nearestWithin({ lat: place.lat, lng: place.lng }, sameCountry, CITY_SUGGESTION_MAX_KM * 1000, CITY_SUGGESTION_LIMIT);
+    result.set(
+      place.id,
+      nearest.map(({ item, meters }) => ({ id: item.id, code: item.code, name: item.name, distanceKm: Math.round(meters / 100) / 10 })),
+    );
+  }
+  return result;
 }
 
 // ---- 车型组 ----

@@ -13,31 +13,24 @@
  */
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { ConfigError, loadConfig } from "@nozomi/config";
+import { loadConfig } from "@nozomi/config";
 import {
   type AirportImportPlan,
   type AirportSelection,
-  CsvError,
   OURAIRPORTS,
   decodeUtf8Strict,
-  isCountryCode,
   selectAirports,
 } from "@nozomi/domain";
-import { DbIdentityError } from "../db/identity.ts";
-import { createPool, driverErrorCode } from "../db/pool.ts";
-import { OurAirportsError, downloadAirportsCsv } from "../integrations/ourairports.ts";
-import { AirportImportError, importAirports } from "../services/airport-import.ts";
+import { createPool } from "../db/pool.ts";
+import { downloadAirportsCsv } from "../integrations/ourairports.ts";
+import { importAirports } from "../services/airport-import.ts";
+import { LIST_LIMIT, UsageError, failureMessage, listed, readCountries } from "./import-common.ts";
 
 const USAGE = [
   "用法：pnpm masterdata:import-airports --country <国家码[,国家码…]> [--file <airports.csv 的路径>] [--dry-run]",
   "      pnpm masterdata:import-airports --all-countries [--file <airports.csv 的路径>] [--dry-run]",
   "国家码是 ISO 3166-1 的两位字母，例如 JP,KR。不带 --file 时从 OurAirports 下载最新文件。",
 ].join("\n");
-
-/** 清单太长时只列前面这么多条 */
-const LIST_LIMIT = 20;
-
-class UsageError extends Error {}
 
 interface Options {
   countries: string[] | null;
@@ -62,21 +55,9 @@ function readOptions(argv: readonly string[]): Options {
   } catch {
     throw new UsageError("参数不正确。");
   }
-  const all = values["all-countries"] === true;
-  if (all === (values.country !== undefined)) throw new UsageError("--country 和 --all-countries 必须给且只能给一个。");
-  let countries: string[] | null = null;
-  if (values.country !== undefined) {
-    countries = [...new Set(values.country.split(",").map((code) => code.trim().toUpperCase()))];
-    const unknown = countries.filter((code) => !isCountryCode(code));
-    if (unknown.length > 0) throw new UsageError(`不是合法的国家码：${unknown.map((code) => code || "（空）").join("、")}`);
-  }
+  const countries = readCountries(values.country, values["all-countries"]);
   if (values.file !== undefined && values.file.trim() === "") throw new UsageError("--file 后面要跟文件路径。");
   return { countries, file: values.file ?? null, dryRun: values["dry-run"] === true };
-}
-
-function listed(items: readonly string[]): string {
-  const shown = items.slice(0, LIST_LIMIT).join("、");
-  return items.length > LIST_LIMIT ? `${shown} 等 ${items.length} 个` : shown;
 }
 
 function report(options: Options, selection: AirportSelection, plan: AirportImportPlan): string {
@@ -132,24 +113,6 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch (err) {
-  if (err instanceof UsageError) {
-    console.error(`${err.message}\n${USAGE}`);
-  } else if (err instanceof ConfigError) {
-    console.error(err.message);
-    console.error("\n怎么配置：见 docs/secrets.md");
-  } else if (err instanceof CsvError) {
-    console.error(`没有导入：${err.message}。数据库没有任何变化。`);
-  } else if (err instanceof AirportImportError) {
-    console.error(`没有导入：${err.message}（${err.code}）。`);
-  } else if (err instanceof OurAirportsError) {
-    console.error(`没有导入：${err.message}（${err.code}）。可以稍后再试，或先把文件下载到本地再用 --file 指定。`);
-  } else if (err instanceof DbIdentityError) {
-    console.error(`没有导入：${err.message}`);
-  } else if (driverErrorCode(err) !== null) {
-    // 不打印异常本身：驱动的报错里可能带连接信息（规则 5）
-    console.error(`没有导入：数据库操作失败（${driverErrorCode(err)}）。请确认数据库已启动并且已经运行过 pnpm db:migrate。数据库没有任何变化。`);
-  } else {
-    console.error(`没有导入：${err instanceof Error ? err.message : "未知错误"}`);
-  }
+  console.error(failureMessage(err, USAGE));
   process.exit(1);
 }
