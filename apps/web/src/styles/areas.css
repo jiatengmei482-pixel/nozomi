@@ -1,0 +1,736 @@
+/* 区域编辑器：布局、绘制工具条、地图画布、图形列表与坐标表、自测。
+   规范：docs/design/02-components.md 第 20–23 节，pages/tenant-areas.md 第 3、6、12 节。 */
+
+/* ---------- 编辑器布局 ---------- */
+
+.area-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 提示条的容器一直在页面上（读屏靠它播报），空着时不占位置 */
+.area-editor > [role]:empty {
+  display: none;
+}
+
+.area-editor__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.area-editor__map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.area-editor__bar {
+  margin-top: 0;
+}
+
+.area-editor__summary {
+  flex: 1;
+  align-self: flex-start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 窄屏：概况一行在上，「保存」「取消」各占一行在下 */
+.area-editor__bar > .area-editor__summary {
+  order: 1;
+}
+
+@media (min-width: 480px) {
+  .area-editor__bar > .area-editor__summary {
+    order: 0;
+    align-self: center;
+  }
+}
+
+@media (min-width: 1024px) {
+  .area-editor__layout {
+    grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+    column-gap: var(--space-6);
+    align-items: start;
+  }
+
+  .area-editor__basic,
+  .area-editor__shapes,
+  .area-editor__probe {
+    grid-column: 1;
+  }
+
+  /* 右栏吸在视口里（滚动的是 <main>，所以只留 space-4） */
+  .area-editor__map {
+    position: sticky;
+    top: var(--space-4);
+    grid-row: 1 / span 3;
+    grid-column: 2;
+  }
+
+  .area-editor__bar {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---------- 绘制工具条 ---------- */
+
+.draw-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.draw-bar__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* 「新图形是」和两个单选排在同一行 */
+.draw-bar__kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.draw-bar__kind > .choice {
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height-sm);
+  padding: 0;
+  font-size: var(--font-size-sm);
+}
+
+.draw-bar__kind > .choice > input {
+  margin: 0;
+}
+
+.draw-bar > .field__hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.button[aria-pressed="true"] {
+  border-color: var(--color-border-focus);
+  background: var(--color-primary-subtle);
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-bold);
+}
+
+/* ---------- 地图画布 ---------- */
+
+.area-map,
+.area-map-placeholder {
+  min-height: 280px;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-subtle);
+}
+
+.area-map {
+  position: relative;
+  max-width: 100%;
+  height: min(56dvh, 420px);
+  overflow: hidden;
+}
+
+.area-map-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* 桌面：地图占满顶栏和吸底操作区之间余下的高度，不小于 400px。
+   减掉的依次是：顶栏、内容区上下内边距、吸底操作区（按钮 + 上下内边距 + 上边线）和它上面的间距、
+   标题行（含编辑页的状态那一行）、两行高的绘制工具条和它下面的间距。 */
+@media (min-width: 1024px) {
+  .area-map,
+  .area-map-placeholder {
+    height: calc(
+      100dvh - var(--layout-topbar-height) - var(--layout-page-padding) * 2 - var(--control-height-md) - var(--space-3) * 2 - var(--border-width) - var(--space-4) - var(--space-16) - var(--space-5) - var(--space-16) -
+        var(--space-6)
+    );
+    min-height: 400px;
+  }
+}
+
+.area-map__canvas,
+.area-map__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.area-map__canvas {
+  overflow: hidden;
+  background: var(--color-bg-subtle);
+  cursor: grab;
+}
+
+.area-map__canvas:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.area-map--drawing .area-map__canvas {
+  cursor: crosshair;
+}
+
+/* 暗色而底图没有暗色样式：只把底图那一层压暗 */
+.area-map__canvas--dimmed {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+}
+
+/* 地图库（Leaflet）要的最少几条定位规则；它自带的样式文件有写死的颜色和图片，不引入（ADR 0017） */
+.leaflet-pane,
+.leaflet-layer,
+.leaflet-tile,
+.leaflet-tile-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.leaflet-tile-container {
+  pointer-events: none;
+}
+
+.leaflet-tile {
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  visibility: hidden;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.leaflet-tile-loaded {
+  visibility: inherit;
+}
+
+.leaflet-touch-zoom {
+  touch-action: pan-x pan-y;
+}
+
+.leaflet-touch-drag {
+  touch-action: pinch-zoom;
+}
+
+.leaflet-touch-drag.leaflet-touch-zoom {
+  touch-action: none;
+}
+
+/* 图形：我们自己画的一层，压在底图上；除了控制点都不接指针事件（点击落到地图上） */
+.area-map__overlay {
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.area-fill {
+  stroke: transparent;
+  fill-opacity: 0.16;
+}
+
+.area-fill--operate {
+  fill: var(--color-success-text);
+}
+
+.area-fill--forbid {
+  fill: var(--color-danger-text);
+  fill-opacity: 0.1;
+}
+
+.area-fill--selected {
+  fill-opacity: 0.24;
+}
+
+.area-fill--forbid.area-fill--selected {
+  fill-opacity: 0.18;
+}
+
+.area-hatch {
+  fill: transparent;
+  stroke: var(--color-danger-text);
+  stroke-width: 1.5px;
+}
+
+.area-casing {
+  fill: transparent;
+  stroke: var(--color-bg-surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.area-stroke {
+  fill: transparent;
+  stroke-width: 2px;
+  stroke-linejoin: round;
+}
+
+.area-stroke--operate {
+  stroke: var(--color-success-text);
+}
+
+.area-stroke--forbid {
+  stroke: var(--color-danger-text);
+  stroke-dasharray: 6 4;
+}
+
+.area-stroke--selected {
+  stroke-width: 3px;
+}
+
+.area-stroke--problem {
+  stroke: var(--color-warning-text);
+}
+
+.area-stroke--draft {
+  stroke-width: 1.5px;
+  stroke-opacity: 0.8;
+}
+
+.area-label {
+  fill: var(--color-text-primary);
+  stroke: var(--color-bg-surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  dominant-baseline: middle;
+}
+
+.area-label--selected {
+  font-weight: var(--font-weight-bold);
+}
+
+.area-handle {
+  fill: var(--color-bg-surface);
+  stroke: var(--color-primary);
+  stroke-width: 2px;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.area-handle:active {
+  fill: var(--color-primary);
+  cursor: grabbing;
+}
+
+@media (hover: hover) {
+  .area-handle:hover {
+    fill: var(--color-primary);
+  }
+}
+
+.area-handle--mid {
+  fill: var(--color-primary);
+  fill-opacity: 0.6;
+  stroke: var(--color-bg-surface);
+  stroke-width: 1px;
+}
+
+.area-handle--first {
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.area-handle--static {
+  fill: var(--color-primary);
+  stroke: var(--color-bg-surface);
+  pointer-events: none;
+}
+
+.area-probe__pin {
+  fill: var(--color-primary);
+  stroke: var(--color-bg-surface);
+  stroke-width: 2px;
+}
+
+/* 浮在地图上的控件：右上缩放和定位，左下图例，右下署名，上方提示 */
+.area-map__controls {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.area-map__control {
+  color: var(--color-text-primary);
+}
+
+.area-map__control:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.area-map__hint {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  max-width: calc(100% - var(--control-height-md) - var(--space-8));
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.area-map__hint--trouble {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.area-map__hint + .area-map__hint--trouble {
+  top: auto;
+  bottom: 50%;
+}
+
+/* 图例在左、署名在右；放不下时署名折到图例下面，谁也不盖住谁 */
+.area-map__footer {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  left: var(--space-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+  pointer-events: none;
+}
+
+.area-map__footer > * {
+  pointer-events: auto;
+}
+
+.area-map__legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: min(240px, 100%);
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  list-style: none;
+}
+
+.area-map__legend > li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.legend-swatch {
+  flex: none;
+  width: 24px;
+  height: 14px;
+}
+
+.area-map__attribution {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 var(--space-2);
+  max-width: 100%;
+  margin: 0 0 0 auto;
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 图形列表与坐标表 ---------- */
+
+.shape-group + .shape-group {
+  margin-top: var(--space-5);
+}
+
+.shape-group__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.shape-group__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.shape-list {
+  margin: 0;
+  padding: 0;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  list-style: none;
+}
+
+.shape-list:empty {
+  display: none;
+}
+
+.shape + .shape {
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.shape__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: var(--table-row-height);
+  padding: 0 var(--space-1) 0 0;
+  border-left: var(--focus-ring-width) solid transparent;
+}
+
+.shape--selected > .shape__header {
+  border-left-color: var(--color-primary);
+  background: var(--color-bg-selected);
+}
+
+.shape__toggle {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-0-5) var(--space-2);
+  min-width: 0;
+  min-height: var(--table-row-height);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shape__name {
+  min-width: 0;
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.shape__summary {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.shape__flag {
+  font-size: var(--font-size-sm);
+}
+
+.shape__flag--danger {
+  color: var(--color-danger-text);
+}
+
+.shape__flag--warning {
+  color: var(--color-warning-text);
+}
+
+.shape__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.coords {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.coords th {
+  padding: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+.coords td {
+  padding: var(--space-1) var(--space-0-5);
+}
+
+.coords td:not(.coords__actions) {
+  width: 50%;
+}
+
+.coords__input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--space-2);
+}
+
+.coords__actions > .icon-button {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+}
+
+@media (pointer: coarse) {
+  .coords__actions > .icon-button {
+    width: var(--control-height-lg);
+    height: var(--control-height-lg);
+  }
+}
+
+.coords__actions {
+  white-space: nowrap;
+}
+
+.coords--circle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.coords--circle > .field__hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.coords__label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+/* 窄屏：每个点排两行——上面是序号和行尾按钮，下面是纬度、经度等分宽度 */
+.coords thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.coords tbody tr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+
+.coords tbody tr + tr {
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.coords tbody th {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.coords tbody .coords__actions {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+}
+
+.coords tbody td:not(.coords__actions) {
+  grid-row: 2;
+  width: auto;
+}
+
+@media (min-width: 480px) {
+  .coords thead {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
+
+  .coords tbody tr {
+    display: table-row;
+    padding: 0;
+  }
+
+  .coords tbody tr + tr {
+    border-top: 0;
+  }
+
+  .coords tbody td:not(.coords__actions) {
+    width: 50%;
+  }
+}
+
+.paste__text {
+  min-height: calc(var(--control-height-md) * 4);
+  font-family: var(--font-family-mono);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 自测 ---------- */
+
+.probe {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.probe:empty {
+  display: none;
+}
+
+.probe__sentence {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.probe__shape {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}

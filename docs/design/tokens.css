@@ -1,0 +1,302 @@
+/*
+ * NOZOMI 设计令牌（唯一数值来源）
+ *
+ * - 说明文档：docs/design/01-tokens.md。文档与本文件不一致时，以本文件为准。
+ * - 前端只能通过 var(--xxx) 引用这里的令牌，不能在组件里写死颜色、字号、间距、圆角、阴影、层级。
+ * - 主题：默认亮色；跟随系统 prefers-color-scheme；
+ *   <html data-theme="light"> 或 <html data-theme="dark"> 可以手动覆盖两个方向。
+ * - 暗色令牌出现两次（系统暗色、手动暗色），两段必须逐行相同。
+ *   改颜色后运行：node docs/design/contrast-check.mjs（校验两段一致 + 对比度达标）。
+ */
+
+/* ───────────── 亮色 + 与主题无关的令牌 ───────────── */
+:root {
+  color-scheme: light;
+
+  /* 背景 */
+  --color-bg-page: #F4F5F7;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-subtle: #ECEEF2;
+  --color-bg-hover: #E3E6EB;
+  --color-bg-selected: #E6EDFD;
+  --color-bg-disabled: #ECEEF2;
+  --color-bg-inverse: #1A1F29;
+  --color-bg-overlay: rgb(15 18 23 / 0.5);
+
+  /* 文字 */
+  --color-text-primary: #1A1F29;
+  --color-text-secondary: #4A5361;
+  --color-text-tertiary: #5C6574;
+  --color-text-disabled: #9AA3B1;
+  --color-text-inverse: #FFFFFF;
+  --color-text-link: #1B4FD0;
+
+  /* 边框 */
+  --color-border-default: #D6DAE1;
+  --color-border-strong: #7C8696;
+  --color-border-focus: #1B4FD0;
+
+  /* 主色 */
+  --color-primary: #1B4FD0;
+  --color-primary-hover: #173FA8;
+  --color-primary-active: #123287;
+  --color-on-primary: #FFFFFF;
+  --color-primary-subtle: #E6EDFD;
+
+  /* 成功 */
+  --color-success-text: #146C3A;
+  --color-success-bg: #E2F4E8;
+  --color-success-border: #9AD1AE;
+
+  /* 警告 */
+  --color-warning-text: #8A4B00;
+  --color-warning-bg: #FCEFD2;
+  --color-warning-border: #E5BE6A;
+
+  /* 危险 */
+  --color-danger-text: #B42318;
+  --color-danger-bg: #FDE8E6;
+  --color-danger-border: #F0A9A2;
+  --color-danger-solid: #C4281C;
+  --color-danger-solid-hover: #A32015;
+  --color-danger-solid-active: #861A11;
+  --color-on-danger: #FFFFFF;
+
+  /* 信息 */
+  --color-info-text: #0A5F86;
+  --color-info-bg: #E0F0F9;
+  --color-info-border: #93C8E6;
+
+  /* 中性（未开始、草稿、已停用等不带倾向的状态） */
+  --color-neutral-text: #4A5361;
+  --color-neutral-bg: #ECEEF2;
+  --color-neutral-border: #D6DAE1;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgb(15 18 23 / 0.08);
+  --shadow-md: 0 4px 12px rgb(15 18 23 / 0.12);
+  --shadow-lg: 0 12px 32px rgb(15 18 23 / 0.18);
+
+  /* 字体 */
+  --font-family-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --font-family-sans-ja: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --font-family-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", "Liberation Mono", "Menlo", monospace;
+
+  /* 字号（1rem = 16px） */
+  --font-size-xs: 0.75rem;    /* 12px */
+  --font-size-sm: 0.8125rem;  /* 13px */
+  --font-size-md: 0.875rem;   /* 14px 正文默认 */
+  --font-size-lg: 1rem;       /* 16px */
+  --font-size-xl: 1.125rem;   /* 18px */
+  --font-size-2xl: 1.25rem;   /* 20px */
+  --font-size-3xl: 1.5rem;    /* 24px */
+  --font-size-4xl: 1.875rem;  /* 30px */
+
+  /* 行高 */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-loose: 1.7;
+
+  /* 字重 */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 600;
+
+  /* 间距（4px 基准） */
+  --space-0: 0;
+  --space-0-5: 0.125rem;  /* 2px */
+  --space-1: 0.25rem;     /* 4px */
+  --space-2: 0.5rem;      /* 8px */
+  --space-3: 0.75rem;     /* 12px */
+  --space-4: 1rem;        /* 16px */
+  --space-5: 1.25rem;     /* 20px */
+  --space-6: 1.5rem;      /* 24px */
+  --space-8: 2rem;        /* 32px */
+  --space-10: 2.5rem;     /* 40px */
+  --space-12: 3rem;       /* 48px */
+  --space-16: 4rem;       /* 64px */
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* 边框与聚焦环 */
+  --border-width: 1px;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 控件尺寸（按钮、输入框、选择器共用；触屏下的取值见文件末尾） */
+  --control-height-sm: 28px;
+  --control-height-md: 32px;
+  --control-height-lg: 40px;
+  --control-font-size: var(--font-size-md);
+  --table-row-height: 40px;
+
+  /* 布局 */
+  --layout-sidebar-width: 232px;
+  --layout-sidebar-width-collapsed: 56px;
+  --layout-topbar-height: 48px;
+  --layout-page-padding: var(--space-4);
+  --layout-content-max-width: 1440px;
+  --layout-form-max-width: 720px;
+  --layout-reading-max-width: 960px;
+  --layout-auth-card-width: 400px;
+
+  /*
+   * 断点。CSS 自定义属性不能用在 @media 条件里，这里的值只供脚本读取；
+   * 样式里按下面的数值直接写 @media (min-width: 768px)，不得使用其他数值。
+   */
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  /* 层级 */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-topbar: 200;
+  --z-sidebar: 300;
+  --z-dropdown: 400;
+  --z-overlay: 500;
+  --z-dialog: 510;
+  --z-toast: 600;
+  --z-tooltip: 700;
+
+  /* 动效 */
+  --duration-fast: 100ms;
+  --duration-base: 160ms;
+  --duration-slow: 240ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* ───────────── 暗色：跟随系统（未手动指定亮色时） ───────────── */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg-page: #0F1217;
+    --color-bg-surface: #171B22;
+    --color-bg-subtle: #1E232C;
+    --color-bg-hover: #272D38;
+    --color-bg-selected: #1B2B52;
+    --color-bg-disabled: #1E232C;
+    --color-bg-inverse: #E6E9EE;
+    --color-bg-overlay: rgb(0 0 0 / 0.6);
+    --color-text-primary: #E6E9EE;
+    --color-text-secondary: #B3BAC6;
+    --color-text-tertiary: #929BAA;
+    --color-text-disabled: #5F6877;
+    --color-text-inverse: #1A1F29;
+    --color-text-link: #8FB2FF;
+    --color-border-default: #2D3440;
+    --color-border-strong: #768092;
+    --color-border-focus: #8FB2FF;
+    --color-primary: #2F62DE;
+    --color-primary-hover: #3868E0;
+    --color-primary-active: #2752C0;
+    --color-on-primary: #FFFFFF;
+    --color-primary-subtle: #1B2B52;
+    --color-success-text: #6FD397;
+    --color-success-bg: #12301F;
+    --color-success-border: #245C3C;
+    --color-warning-text: #F0BD5E;
+    --color-warning-bg: #38290B;
+    --color-warning-border: #6B4E14;
+    --color-danger-text: #FF9C91;
+    --color-danger-bg: #401815;
+    --color-danger-border: #7A2D27;
+    --color-danger-solid: #C9352A;
+    --color-danger-solid-hover: #CE3B30;
+    --color-danger-solid-active: #A82A20;
+    --color-on-danger: #FFFFFF;
+    --color-info-text: #6EC5EE;
+    --color-info-bg: #0E2C3D;
+    --color-info-border: #1D5673;
+    --color-neutral-text: #B3BAC6;
+    --color-neutral-bg: #272D38;
+    --color-neutral-border: #3A4250;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.6);
+  }
+}
+
+/* ───────────── 暗色：手动指定（与上一段逐行相同） ───────────── */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg-page: #0F1217;
+  --color-bg-surface: #171B22;
+  --color-bg-subtle: #1E232C;
+  --color-bg-hover: #272D38;
+  --color-bg-selected: #1B2B52;
+  --color-bg-disabled: #1E232C;
+  --color-bg-inverse: #E6E9EE;
+  --color-bg-overlay: rgb(0 0 0 / 0.6);
+  --color-text-primary: #E6E9EE;
+  --color-text-secondary: #B3BAC6;
+  --color-text-tertiary: #929BAA;
+  --color-text-disabled: #5F6877;
+  --color-text-inverse: #1A1F29;
+  --color-text-link: #8FB2FF;
+  --color-border-default: #2D3440;
+  --color-border-strong: #768092;
+  --color-border-focus: #8FB2FF;
+  --color-primary: #2F62DE;
+  --color-primary-hover: #3868E0;
+  --color-primary-active: #2752C0;
+  --color-on-primary: #FFFFFF;
+  --color-primary-subtle: #1B2B52;
+  --color-success-text: #6FD397;
+  --color-success-bg: #12301F;
+  --color-success-border: #245C3C;
+  --color-warning-text: #F0BD5E;
+  --color-warning-bg: #38290B;
+  --color-warning-border: #6B4E14;
+  --color-danger-text: #FF9C91;
+  --color-danger-bg: #401815;
+  --color-danger-border: #7A2D27;
+  --color-danger-solid: #C9352A;
+  --color-danger-solid-hover: #CE3B30;
+  --color-danger-solid-active: #A82A20;
+  --color-on-danger: #FFFFFF;
+  --color-info-text: #6EC5EE;
+  --color-info-bg: #0E2C3D;
+  --color-info-border: #1D5673;
+  --color-neutral-text: #B3BAC6;
+  --color-neutral-bg: #272D38;
+  --color-neutral-border: #3A4250;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.6);
+}
+
+/* ───────────── 触屏：放大点击区域，输入框 16px 防止 iOS 自动放大页面 ───────────── */
+@media (pointer: coarse) {
+  :root {
+    --control-height-sm: 36px;
+    --control-height-md: 44px;
+    --control-height-lg: 48px;
+    --control-font-size: var(--font-size-lg);
+    --table-row-height: 48px;
+  }
+}
+
+/* ───────────── 桌面宽度：页面边距加大 ───────────── */
+@media (min-width: 768px) {
+  :root {
+    --layout-page-padding: var(--space-6);
+  }
+}
+
+/* ───────────── 用户要求减少动效 ───────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}
