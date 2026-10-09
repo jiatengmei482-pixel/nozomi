@@ -1,6 +1,6 @@
 /**
- * 供应商后台登录后的首页（运营后台的首页是 PlatformHomePage）：各模块的入口卡片（数量来自 dashboard/summary），
- * 以及当前登录人、角色、所属供应商的名称与状态（来自 `auth/me`）。没有任何预置内容。
+ * 供应商后台登录后的首页（运营后台的首页是 PlatformHomePage）：标题行是所属供应商的名称与状态（来自 `auth/me`），
+ * 下面是各模块的入口卡片（数量来自 dashboard/summary）。当前登录人的姓名、角色、邮箱在顶栏的账号菜单里。没有任何预置内容。
  */
 import { type TenantDashboardSummary, fetchTenantSummary } from "../api/areas.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
@@ -14,7 +14,6 @@ import { AppShell, Page } from "../components/AppShell.tsx";
 import { Button } from "../components/Button.tsx";
 import { Skeleton, StateBlock } from "../components/States.tsx";
 import { StatusBadge, TENANT_STATUS_BADGES } from "../components/StatusBadge.tsx";
-import { roleName } from "../lib/portal.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
 
 export function HomePage() {
@@ -41,9 +40,26 @@ export function HomePage() {
   const areas = data?.areas ?? null;
   const areaCounts: EntryCounts = areas ? { status: "ready", counts: [{ value: areas.active, label: "启用" }, { value: areas.disabled, label: "已停用" }] } : failed ? { status: "failed" } : { status: "loading" };
 
+  // 供应商名称和状态在标题行；姓名、角色、邮箱在顶栏的账号菜单里（docs/design/pages/tenant-home.md）
+  const tenant = account.status === "ready" ? account.account.tenant : null;
+
   return (
     <AppShell pageName="首页">
-      <Page title="首页">
+      <Page
+        title="首页"
+        {...(tenant
+          ? {
+              meta: (
+                <>
+                  <span className="tenant-name">{tenant.name}</span>
+                  <span className="tenant-status">
+                    <StatusBadge {...TENANT_STATUS_BADGES[tenant.status]} />
+                  </span>
+                </>
+              ),
+            }
+          : {})}
+      >
         {failed && (
           <div role="alert">
             <Alert kind="danger">
@@ -67,12 +83,13 @@ export function HomePage() {
           </section>
         )}
         {account.status === "ready" && !showAreas && !showProducts && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
-        <section className="card" aria-labelledby="current-account-title">
-          <h2 className="card__title" id="current-account-title">
-            当前登录
-          </h2>
-          {account.status === "loading" && <Skeleton lines={["medium", "long", "short"]} />}
-          {account.status === "error" && (
+        {account.status === "loading" && (
+          <section className="card">
+            <Skeleton lines={["medium", "long", "short"]} />
+          </section>
+        )}
+        {account.status === "error" && (
+          <section className="card">
             <StateBlock
               title="加载失败"
               description="请检查网络后重试。"
@@ -82,38 +99,8 @@ export function HomePage() {
                 </Button>
               }
             />
-          )}
-          {account.status === "ready" && (
-            <dl className="details">
-              <div className="details__item">
-                <dt>姓名</dt>
-                <dd>{account.account.name}</dd>
-              </div>
-              <div className="details__item">
-                <dt>邮箱</dt>
-                <dd>{account.account.email}</dd>
-              </div>
-              <div className="details__item">
-                <dt>角色</dt>
-                <dd>{roleName(portal.key, account.account.role) ?? "—"}</dd>
-              </div>
-              {account.account.tenant && (
-                <>
-                  <div className="details__item">
-                    <dt>供应商名称</dt>
-                    <dd>{account.account.tenant.name}</dd>
-                  </div>
-                  <div className="details__item">
-                    <dt>供应商状态</dt>
-                    <dd>
-                      <StatusBadge {...TENANT_STATUS_BADGES[account.account.tenant.status]} />
-                    </dd>
-                  </div>
-                </>
-              )}
-            </dl>
-          )}
-        </section>
+          </section>
+        )}
       </Page>
     </AppShell>
   );

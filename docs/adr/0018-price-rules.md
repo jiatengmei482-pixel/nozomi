@@ -118,6 +118,14 @@ M1-04 做商品的第 ③ 步：价格规则（一口价 / 里程 + 时长 / 包
 
 价格规则是供应商的结算价。这些接口的任何返回里都没有对外价和加价比例（那是渠道一侧的事，M2-04），有测试逐个接口核对。
 
+### 页面规范提出后补的（`tenant-prices.md` 14.3）
+
+- 精确值的主单位写法：domain 的 `formatExactMajor(amount, currency)`（按币种小数位挪小数点，整数运算）。接口里的 `base` / `delta` / `after` / `unrounded` 仍是最小货币单位的十进制字符串，页面用它换。
+- 方向的中文名按接送点类型取：`priceDirectionNames(placeType)`，车站是「接站 / 送站」。
+- 批量保存的 400：每条问题的 `detail` 带 `ref`（新增的）或 `id`（修改、删除的）。上架校验「调价规则」一项的原因在 `detail` 里带 `rule_id`、`name`（在接口层加的，domain 的 `PublishIssue.detail` 仍然只有数字）。
+- `price-overview`：每个商品带城市和缺价概况 `coverage { total, missing }`；`summary=1` 只返回两个数。缺价概况一次取回整个供应商的区域、车型组、价格（三条查询），在内存里按商品算。
+- 价格日历的 `vehicle_group_id` 可以给多个（逗号分隔，最多 20 个），应答的 `groups` 里每个各一份；`days` 仍是第一个的。
+
 ## 本期不做
 
 | 内容 | 去向 |

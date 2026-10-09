@@ -174,7 +174,11 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
-  white-space: nowrap;
+  /* 短的一行显示；长的（带着区域名、备注名的「…的更多操作」）在 240px 内折行，不把页面撑宽 */
+  width: max-content;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
   pointer-events: none;
   visibility: hidden;
   opacity: 0;

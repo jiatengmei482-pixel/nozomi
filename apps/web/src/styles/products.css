@@ -998,3 +998,337 @@
   width: var(--control-height-sm);
   height: var(--control-height-sm);
 }
+
+/* ---------- ③ 价格规则 ---------- */
+
+.steps__content--wide {
+  max-width: none;
+}
+
+.price-info {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.price-info > strong {
+  color: var(--color-text-primary);
+}
+
+.price-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.price-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height-lg);
+  padding: 0 var(--space-1);
+  border-bottom: var(--focus-ring-width) solid transparent;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+.price-tabs__tab--current {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}
+
+.price-tabs__missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
+.price-tabs__count {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.coverage__ok,
+.coverage__missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.coverage__ok {
+  color: var(--color-success-text);
+}
+
+.coverage__missing {
+  color: var(--color-warning-text);
+}
+
+.coverage__view {
+  margin: var(--space-2) 0;
+}
+
+.coverage__scroll,
+.price-table__scroll {
+  /* 里面有只给读屏的绝对定位文字：让它们跟着这个容器滚，不把页面撑宽 */
+  position: relative;
+  max-width: 100%;
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.coverage__scroll {
+  max-height: min(60dvh, 480px);
+}
+
+.coverage__table,
+.price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.coverage__table th,
+.coverage__table td {
+  padding: var(--space-1);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+  text-align: right;
+  vertical-align: top;
+}
+
+.coverage__table th {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.coverage__table tbody th {
+  color: var(--color-text-primary);
+  text-align: left;
+}
+
+.coverage__table .product-code {
+  display: block;
+}
+
+.coverage__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-0-5);
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.coverage__cell--missing {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+@media (hover: hover) {
+  .coverage__cell:hover {
+    background: var(--color-bg-hover);
+  }
+}
+
+.coverage__note {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.coverage__cell--missing .coverage__note {
+  flex-basis: 100%;
+  color: var(--color-text-primary);
+  text-align: right;
+}
+
+.coverage__note--info {
+  color: var(--color-info-text);
+}
+
+.price-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.price-filters__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-table th,
+.price-table td {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.price-table thead th {
+  border-bottom: var(--border-width) solid var(--color-border-strong);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.price-table tbody th {
+  font-weight: var(--font-weight-medium);
+}
+
+.price-table .product-code {
+  display: block;
+}
+
+.price-table__row {
+  border-left: var(--focus-ring-width) solid transparent;
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.price-table__row--first {
+  border-top-color: var(--color-border-strong);
+}
+
+.price-table__row--unsaved {
+  border-left-color: var(--color-primary);
+}
+
+.price-table__row--error {
+  border-left-color: var(--color-danger-solid);
+}
+
+.price-table__row--deleted .price-table__input,
+.price-table__row--deleted .price-table__date {
+  text-decoration: line-through;
+}
+
+.price-table__number {
+  text-align: right;
+}
+
+.price-table .price-table__number {
+  text-align: right;
+}
+
+.price-table__input {
+  width: 112px;
+  padding: 0 var(--space-2);
+  text-align: right;
+}
+
+.price-table__date {
+  width: 124px;
+  padding: 0 var(--space-2);
+}
+
+.price-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.price-state--danger {
+  color: var(--color-danger-text);
+}
+
+.price-state--warning,
+.price-summary--warning {
+  color: var(--color-warning-text);
+}
+
+.price-state--info {
+  color: var(--color-info-text);
+}
+
+.price-state--success {
+  color: var(--color-success-text);
+}
+
+.price-state--muted {
+  color: var(--color-text-secondary);
+}
+
+.price-meaning {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.price-meaning__problem {
+  color: var(--color-danger-text);
+}
+
+.price-meaning__overlap {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+.price-meaning__overlap > .button {
+  margin-left: var(--space-2);
+}
+
+.price-packages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.price-packages__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-packages__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.price-packages__remove {
+  display: inline-flex;
+  padding: var(--space-0-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+/* 这一步里的宽表格在自己的容器里横向滚动，不把页面撑宽 */
+.step > * {
+  min-width: 0;
+  max-width: 100%;
+}

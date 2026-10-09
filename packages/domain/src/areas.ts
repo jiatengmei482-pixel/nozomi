@@ -194,6 +194,22 @@ export type RingIssue =
   /** 第 `a`–`a+1` 个点之间的边，和第 `b`–`b+1` 个点之间的边交叉了（最后一个点的下一个是第 1 个） */
   | { reason: "SELF_INTERSECTION"; a: number; b: number };
 
+export type CircleIssue = { reason: "INVALID_COORDINATE" } | { reason: "RADIUS_OUT_OF_RANGE" } | RingIssue;
+
+/**
+ * 一个圆（圆心 + 半径）能不能保存。没有问题返回空数组。前端保存前、后端保存时用的都是这个函数，结论不会不一样：
+ * - 圆心的坐标不合法 → `INVALID_COORDINATE`；半径不是 100 到 100000 的整数米 → `RADIUS_OUT_OF_RANGE`（两样可以同时报）；
+ * - 这两样都没问题时，按保存时的做法（圆心取 6 位小数 → `circleToRing`）算出多边形，再过一遍 `ringIssues`：
+ *   圆跨过 180° 经线或盖住南北极时，算出来的多边形有一条边横跨半个地球，报 `CROSSES_ANTIMERIDIAN`。
+ */
+export function circleIssues(center: LatLng, radiusM: number): CircleIssue[] {
+  const issues: CircleIssue[] = [];
+  if (!isValidLatLng(center)) issues.push({ reason: "INVALID_COORDINATE" });
+  if (!isValidRadiusM(radiusM)) issues.push({ reason: "RADIUS_OUT_OF_RANGE" });
+  if (issues.length > 0) return issues;
+  return ringIssues(circleToRing({ lat: round6(center.lat), lng: round6(center.lng) }, radiusM));
+}
+
 /**
  * 一圈点能不能围成一块合法的图形（页面规范 5.4）。没有问题返回空数组。
  * 前面的问题会让后面的检查没有意义，所以按顺序查、查到一类就返回：坐标 → 点数 → 相邻重复 → 跨 180° 经线 → 共线 → 边交叉。
@@ -390,6 +406,12 @@ export class ShapeParseError extends Error {
 export interface ParsedPolygon {
   outer: Ring;
   holes: Ring[];
+  /**
+   * GeoJSON 要素的 `properties.kind` / `properties.label`（从编辑页「复制图形」出去的内容带着它们）：
+   * 贴回来时每一块还是原来的营运区 / 禁行区和备注名。值不合法（不是这两种类型、备注名为空或超过上限）就没有这个字段。
+   */
+  kind?: AreaPolygonKind;
+  label?: string;
 }
 
 export interface ParsedShapes {
@@ -407,31 +429,48 @@ function parsedPolygon(rings: unknown, polygonNumber: number, syntax: ShapeParse
     if (!positions.every(validPosition)) throw new ShapeParseError({ reason: "COORDINATE_OUT_OF_RANGE", polygon: polygonNumber });
     return normalizeRing(positions, { dedupe: true });
   });
-  return { outer: cleaned[0] as Ring, holes: cleaned.slice(1) };
+  // 一个点都没有的洞直接去掉；外圈一个点都没有的（`"coordinates": [[]]`）由调用方当作「不是多边形」丢掉
+  return { outer: cleaned[0] as Ring, holes: cleaned.slice(1).filter((hole) => hole.length > 0) };
+}
+
+/** 要素的 properties 里合法的类型和备注名（见 ParsedPolygon）。 */
+function featureMeta(properties: unknown): Pick<ParsedPolygon, "kind" | "label"> {
+  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) return {};
+  const { kind, label } = properties as { kind?: unknown; label?: unknown };
+  const meta: Pick<ParsedPolygon, "kind" | "label"> = {};
+  if (typeof kind === "string" && (AREA_POLYGON_KINDS as readonly string[]).includes(kind)) meta.kind = kind as AreaPolygonKind;
+  const text = typeof label === "string" ? label.trim() : "";
+  if (text !== "" && text.length <= AREA_LIMITS.maxLabelLength) meta.label = text;
+  return meta;
 }
 
 /**
  * 从 GeoJSON 对象里取出全部多边形：`Polygon`、`MultiPolygon`，或包着它们的 `Feature`、`FeatureCollection`、`GeometryCollection`。
- * 别的几何类型（点、线）忽略并计数。坐标是 [经度, 纬度]，多出来的高度被丢掉。
+ * 别的几何类型（点、线）忽略并计数；一个点都没有的多边形（`"coordinates": [[]]`）不算多边形，直接去掉——全是这种就是「里面没有多边形」。
+ * 坐标是 [经度, 纬度]，多出来的高度被丢掉。要素的 `properties.kind` / `properties.label` 带到它里面的每个多边形上。
  */
 export function parseGeoJsonShapes(value: unknown): ParsedShapes {
   const syntax: ShapeParseFailure = { reason: "GEOJSON_SYNTAX" };
   const polygons: ParsedPolygon[] = [];
   let ignored = 0;
-  const visit = (node: unknown, depth: number): void => {
+  const add = (rings: unknown, meta: Pick<ParsedPolygon, "kind" | "label">): void => {
+    const polygon = parsedPolygon(rings, polygons.length + 1, syntax);
+    if (polygon.outer.length > 0) polygons.push({ ...polygon, ...meta });
+  };
+  const visit = (node: unknown, depth: number, meta: Pick<ParsedPolygon, "kind" | "label"> = {}): void => {
     if (typeof node !== "object" || node === null || Array.isArray(node) || depth > 8) throw new ShapeParseError(syntax);
     const record = node as Record<string, unknown>;
     switch (record["type"]) {
       case "Polygon":
-        polygons.push(parsedPolygon(record["coordinates"], polygons.length + 1, syntax));
+        add(record["coordinates"], meta);
         return;
       case "MultiPolygon":
         if (!Array.isArray(record["coordinates"])) throw new ShapeParseError(syntax);
-        for (const rings of record["coordinates"]) polygons.push(parsedPolygon(rings, polygons.length + 1, syntax));
+        for (const rings of record["coordinates"]) add(rings, meta);
         return;
       case "Feature":
         if (record["geometry"] === null || record["geometry"] === undefined) ignored += 1;
-        else visit(record["geometry"], depth + 1);
+        else visit(record["geometry"], depth + 1, featureMeta(record["properties"]));
         return;
       case "FeatureCollection":
         if (!Array.isArray(record["features"])) throw new ShapeParseError(syntax);
@@ -439,7 +478,7 @@ export function parseGeoJsonShapes(value: unknown): ParsedShapes {
         return;
       case "GeometryCollection":
         if (!Array.isArray(record["geometries"])) throw new ShapeParseError(syntax);
-        for (const geometry of record["geometries"]) visit(geometry, depth + 1);
+        for (const geometry of record["geometries"]) visit(geometry, depth + 1, meta);
         return;
       case "Point":
       case "MultiPoint":
@@ -456,7 +495,19 @@ export function parseGeoJsonShapes(value: unknown): ParsedShapes {
   return { format: "geojson", polygons, ignored };
 }
 
-const WKT_NUMBER = String.raw`[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?`;
+/**
+ * 粘贴进来的文字最多这么多个字符，超过的不解析、按「认不出」报。界面读文件的上限是 2 MB；这里留了余量，
+ * 只为挡住离谱的输入。单个数字的长度不另设上限：下面的写法保证解析时间和长度成正比，超长的数字照常读出来，
+ * 再由坐标范围的检查拒绝（COORDINATE_OUT_OF_RANGE）。
+ */
+export const MAX_SHAPE_TEXT_LENGTH = 10_000_000;
+
+/**
+ * 数字的写法：整数部分 + 可选的小数部分，或只有小数部分；可以带指数。
+ * 不能写成 `\d+\.?\d*`：一长串数字有很多种拆法，后面不匹配时正则会把每一种都试一遍，
+ * 几千位的数字就能让解析卡上几十秒（测试发现的缺陷）。现在这样每个位置只有一种拆法，解析时间和长度成正比。
+ */
+const WKT_NUMBER = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`;
 const WKT_RING = new RegExp(String.raw`^\(\s*(${WKT_NUMBER}\s+${WKT_NUMBER}(?:\s*,\s*${WKT_NUMBER}\s+${WKT_NUMBER})*)\s*\)`);
 
 /**
@@ -509,7 +560,67 @@ export function parseWktShapes(text: string): ParsedShapes {
   return { format: "wkt", polygons: raw.map((rings, index) => parsedPolygon(rings, index + 1, syntax)), ignored: 0 };
 }
 
-const ROW = new RegExp(String.raw`^\s*(${WKT_NUMBER})\s*[,;\t ]\s*(${WKT_NUMBER})\s*$`);
+const JSON_SPACE = /[ \t\n\r]*/y;
+const JSON_STRING = /"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
+const JSON_SCALAR = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
+
+/**
+ * 一段 JSON 第一处写错的地方在第几个字符（从 0 数）；没有写错返回 null。只用来给「GeoJSON 语法不对」指出行号。
+ * 不递归（嵌套再深也不会爆栈），每个字符只看一遍。
+ */
+export function jsonErrorOffset(text: string): number | null {
+  type State = "value" | "valueOrEnd" | "key" | "keyOrEnd" | "colon" | "commaOrEnd" | "done";
+  const stack: ("{" | "[")[] = [];
+  let state: State = "value";
+  let at = 0;
+  const take = (pattern: RegExp): boolean => {
+    pattern.lastIndex = at;
+    const match = pattern.exec(text);
+    if (match === null || match[0] === "") return false;
+    at += match[0].length;
+    return true;
+  };
+  const afterValue = (): State => (stack.length > 0 ? "commaOrEnd" : "done");
+  for (;;) {
+    take(JSON_SPACE);
+    if (at >= text.length) return state === "done" ? null : at;
+    const char = text[at] as string;
+    const top = stack[stack.length - 1];
+    if (state === "value" || state === "valueOrEnd") {
+      if (char === "{" || char === "[") {
+        stack.push(char);
+        state = char === "{" ? "keyOrEnd" : "valueOrEnd";
+        at += 1;
+      } else if (char === "]" && state === "valueOrEnd") {
+        stack.pop();
+        state = afterValue();
+        at += 1;
+      } else if (take(JSON_STRING) || take(JSON_SCALAR)) state = afterValue();
+      else return at;
+    } else if (state === "key" || state === "keyOrEnd") {
+      if (char === "}" && state === "keyOrEnd") {
+        stack.pop();
+        state = afterValue();
+        at += 1;
+      } else if (take(JSON_STRING)) state = "colon";
+      else return at;
+    } else if (state === "colon") {
+      if (char !== ":") return at;
+      state = "value";
+      at += 1;
+    } else if (state === "commaOrEnd") {
+      if (char === ",") state = top === "{" ? "key" : "value";
+      else if ((char === "}" && top === "{") || (char === "]" && top === "[")) {
+        stack.pop();
+        state = afterValue();
+      } else return at;
+      at += 1;
+    } else return at;
+  }
+}
+
+/** 一行一对坐标：两个数字之间是逗号或分号（两边可以有空白），或只有空白。行首行尾的空白先去掉再匹配。 */
+const ROW = new RegExp(String.raw`^(${WKT_NUMBER})(?:\s*[,;]\s*|\s+)(${WKT_NUMBER})$`);
 
 /**
  * 解析粘贴进来的一段文字，自动认三种写法：GeoJSON、WKT、或每行一对「纬度, 经度」（整段是一个多边形）。
@@ -517,21 +628,24 @@ const ROW = new RegExp(String.raw`^\s*(${WKT_NUMBER})\s*[,;\t ]\s*(${WKT_NUMBER}
  * 解析只管读出来：每一块是否合法（边交叉等）、数量上限，交给 `ringIssues` / `areaShapeIssues`。
  */
 export function parseShapeText(text: string): ParsedShapes {
+  if (text.length > MAX_SHAPE_TEXT_LENGTH) throw new ShapeParseError({ reason: "UNRECOGNIZED" });
   const trimmed = text.replace(/^﻿/, "").trim();
   if (trimmed === "") throw new ShapeParseError({ reason: "EMPTY" });
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     let value: unknown;
     try {
       value = JSON.parse(trimmed);
-    } catch (err) {
-      const position = err instanceof Error ? /position (\d+)/.exec(err.message) : null;
-      const line = position ? trimmed.slice(0, Number(position[1])).split("\n").length : undefined;
-      throw new ShapeParseError(line === undefined ? { reason: "GEOJSON_SYNTAX" } : { reason: "GEOJSON_SYNTAX", line });
+    } catch {
+      // 行号自己找：各个运行环境的报错里有的带位置、有的不带（多一个逗号这类就不带），写法也不一样
+      const offset = jsonErrorOffset(trimmed);
+      if (offset === null) throw new ShapeParseError({ reason: "GEOJSON_SYNTAX" });
+      const leading = text.slice(0, text.indexOf(trimmed));
+      throw new ShapeParseError({ reason: "GEOJSON_SYNTAX", line: (leading + trimmed.slice(0, offset)).split("\n").length });
     }
     return parseGeoJsonShapes(value);
   }
   if (/^(SRID\s*=\s*\d+\s*;\s*)?(MULTI)?POLYGON/i.test(trimmed)) return parseWktShapes(trimmed);
-  const rows = trimmed.split(/\r?\n/).filter((row) => row.trim() !== "");
+  const rows = trimmed.split(/\r?\n/).map((row) => row.trim()).filter((row) => row !== "");
   const pairs = rows.map((row) => ROW.exec(row));
   if (pairs.some((pair) => pair === null)) throw new ShapeParseError({ reason: "UNRECOGNIZED" });
   const positions = pairs.map((pair): Position => [Number((pair as RegExpExecArray)[2]), Number((pair as RegExpExecArray)[1])]);

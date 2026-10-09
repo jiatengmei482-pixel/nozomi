@@ -16,7 +16,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
-import { productPath } from "../../lib/product-paths.ts";
+import { pricePath, productPath } from "../../lib/product-paths.ts";
 import type { ProductFrame } from "./frame.ts";
 import { useProductActions } from "./useProductActions.tsx";
 
@@ -146,7 +146,9 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     const look = STATE_LOOK[state];
     const itemName = checkItemName(item.key);
     const step = CHECK_STEP[item.key as keyof typeof CHECK_STEP];
-    const reasons = state === "missing" ? checkReasons(item, checkContext) : [];
+    // 不是必须的项也可能有要提醒的（调价规则会把价格调到不大于 0）
+    const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, checkContext) : [];
+    const stepPath = item.key === "adjust_rules" ? pricePath(product.id, "adjust") : step ? productPath(product.id, step) : null;
     const stateText = state === "passed" ? "已满足" : state === "missing" ? `还差 ${Math.max(1, reasons.length)} 项` : state === "unavailable" ? "功能即将开放" : "不是必须";
     return (
       <li key={item.key} className="checklist__item" data-check={item.key}>
@@ -165,13 +167,13 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
             </LinkButton>
           )}
         </div>
-        {state === "missing" && reasons.length > 0 && (
+        {reasons.length > 0 && (
           <ul className="checklist__reasons">
             {reasons.map((reason) => (
               <li key={reason.text}>
                 <span>{reason.text}</span>
-                {reason.anchor !== null && step ? (
-                  <Link className="link checklist__go" to={productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : "去填"}：${reason.text}`}>
+                {reason.anchor !== null && step && stepPath ? (
+                  <Link className="link checklist__go" to={step === "prices" ? stepPath : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : "去填"}：${reason.text}`}>
                     {readOnly ? "去查看" : "去填"}
                     <Icon name="chevron-right" />
                   </Link>

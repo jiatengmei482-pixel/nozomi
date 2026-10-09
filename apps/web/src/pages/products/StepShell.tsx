@@ -37,6 +37,14 @@ export interface StepController {
   blocked?: string | null;
   /** 用户没动过，但页面上有替他填好、还没存过的建议值：点保存要真的提交 */
   pending?: boolean;
+  /** 保存成功后 Toast 上的话；不给就是「已保存」 */
+  successText?(): string;
+  /** 这一步自己处理的拒绝（如价格的日期重叠）：处理了返回 true，别的照常走下面的通用处理 */
+  handleRejection?(err: unknown): boolean;
+  /** 别人先改了之后「载入最新内容」会不会保留这一步没保存的修改（价格表会：一次可能改了几十行） */
+  keepsEditsOnReload?: boolean;
+  /** 操作区左侧的概况；不给就是「这一步已完成 / 还差 N 项」 */
+  summary?: ReactNode;
 }
 
 export interface StepView {
@@ -62,6 +70,7 @@ export function StepShell({
   title,
   next,
   controller,
+  hideTitle = false,
   intro,
   children,
 }: {
@@ -71,6 +80,8 @@ export function StepShell({
   /** 「保存并下一步」去哪 */
   next: { slug: ProductStepSlug; label: string };
   controller: StepController;
+  /** 标题由外面画（第 ③ 步：标题下面还有说明行和页签） */
+  hideTitle?: boolean;
   intro?: ReactNode;
   children(view: StepView): ReactNode;
 }) {
@@ -107,6 +118,7 @@ export function StepShell({
 
   const rejected = (err: unknown): void => {
     if (handleAuthFailure(err)) return;
+    if (controller.handleRejection?.(err) === true) return;
     if (!(err instanceof ApiError)) return setNotice({ kind: "danger", text: saveFailureText(err, "保存", true) });
     switch (err.code) {
       case "VALIDATION_FAILED": {
@@ -164,8 +176,9 @@ export function StepShell({
     }
     setSaving(then === "stay" ? "stay" : then === "next" ? "next" : "leave");
     try {
+      const successText = controller.successText?.() ?? "已保存";
       const id = await controller.submit();
-      toast(created ? "已创建商品，现在是草稿" : "已保存");
+      toast(created ? "已创建商品，现在是草稿" : successText);
       setAttempted(false);
       const to = destination(id);
       if (to !== null) void navigate(to, created ? { replace: true, state: { created: true } } : {});
@@ -189,9 +202,11 @@ export function StepShell({
 
   return (
     <div className="step">
-      <h2 className="step__title" ref={heading} tabIndex={-1}>
-        {title}
-      </h2>
+      {!hideTitle && (
+        <h2 className="step__title" ref={heading} tabIndex={-1}>
+          {title}
+        </h2>
+      )}
       <div role="alert" className="step__alerts">
         {problems.length > 0 && (
           <Alert kind="danger">
@@ -207,8 +222,8 @@ export function StepShell({
         )}
         {conflict && (
           <Alert kind="warning">
-            <strong className="alert__title">这个商品刚被别人修改过，你在这一步的修改还没有保存。</strong>
-            <span>请先载入最新内容，再重新修改。载入后，你在这一步还没保存的修改会丢失。</span>
+            <strong className="alert__title">{controller.keepsEditsOnReload ? "这个商品刚被别人修改过，你的修改还没有保存。" : "这个商品刚被别人修改过，你在这一步的修改还没有保存。"}</strong>
+            <span>{controller.keepsEditsOnReload ? "点下面的按钮载入最新的内容，你没保存的修改会留着。" : "请先载入最新内容，再重新修改。载入后，你在这一步还没保存的修改会丢失。"}</span>
             <span className="alert__actions">
               <Button
                 size="sm"
@@ -218,11 +233,11 @@ export function StepShell({
                   setConflict(false);
                   setProblems([]);
                   setAttempted(false);
-                  setNotice({ kind: "info", text: "已载入最新内容。" });
+                  setNotice({ kind: "info", text: controller.keepsEditsOnReload ? "已载入最新内容，你的修改还在，检查后再点保存。" : "已载入最新内容。" });
                   heading.current?.focus();
                 }}
               >
-                载入最新内容
+                {controller.keepsEditsOnReload ? "载入最新内容，保留我的修改" : "载入最新内容"}
               </Button>
             </span>
           </Alert>
@@ -262,7 +277,9 @@ export function StepShell({
       ) : (
         <div className="form-bar step__bar">
           <span className="form-bar__note step__summary">
-            {controller.missing.count === 0 ? (
+            {controller.summary !== undefined ? (
+              controller.summary
+            ) : controller.missing.count === 0 ? (
               "这一步已完成"
             ) : (
               <button
@@ -277,7 +294,7 @@ export function StepShell({
                 {`这一步还差 ${controller.missing.count} 项`}
               </button>
             )}
-            {controller.dirty ? " · 有未保存的修改" : ""}
+            {controller.summary === undefined && controller.dirty ? " · 有未保存的修改" : ""}
             {status === "published" ? " · 已上架，保存后约 1 分钟生效" : ""}
             {reason !== null ? ` · ${reason}` : ""}
           </span>

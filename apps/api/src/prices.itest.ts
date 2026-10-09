@@ -334,6 +334,16 @@ test("批量保存：新增、修改、删除一次提交，全部成功或全�
   assert.deepEqual(issues(invalid), [
     ["/create/1/base_price", "OUT_OF_RANGE"], ["/create/1/area_id", "AREA_NOT_IN_PRODUCT"], ["/update/0/id", "UNKNOWN_PRICE_RULE"], ["/delete/1", "DUPLICATE"], ["/delete/2", "UNKNOWN_PRICE_RULE"],
   ]);
+  // 每条问题的 detail 带着是哪一条：新增的是请求里的 ref，修改、删除的是 id（没给 ref 的新增没有）
+  const tagged = await batch({ create: [fixed({ direction: "pickup", base_price: -1, ref: "第一行" }), fixed({ direction: "dropoff", area_id: ids["a3"], ref: "第二行" }), fixed({ direction: "both", base_price: 0 })], update: [{ ...fixed({ direction: "both", base_price: 1.5 }), id: one.id }, { ...fixed(), id: MISSING }], delete: [MISSING] }, 2);
+  assert.deepEqual(tagged.body.error.details.issues.map((issue: any) => [issue.path, issue.detail]), [
+    ["/create/0/base_price", { min: 1, max: 1_000_000_000, ref: "第一行" }],
+    ["/create/1/area_id", { ref: "第二行" }],
+    ["/create/2/base_price", { min: 1, max: 1_000_000_000 }],
+    ["/update/0/base_price", { id: one.id }],
+    ["/update/1/id", { id: MISSING }],
+    ["/delete/0", { id: MISSING }],
+  ]);
   // 一批里的冲突：新增的两条互相撞（用 ref 指回去）；修改的一条撞上库里没动的一条（用编号）
   const conflict = await batch(
     {
@@ -535,6 +545,7 @@ test("调价规则的校验：名称、日期、周期、时段、步骤；适�
   await ok(call("PUT", `/products/${id}/price-rules/${cheap.id}`, { version: await version(id), body: fixed({ area_id: ids["a2"], base_price: 4_000 }) }));
   const item = (await ok(call("GET", `/products/${id}/publish-check`))).items.find((entry: any) => entry.key === "adjust_rules");
   assert.deepEqual([item.required, item.passed, item.issues.map((issue: any) => [issue.path, issue.reason])], [false, false, [["/0", "ADJUST_RESULT_NOT_POSITIVE"]]]);
+  assert.deepEqual(item.issues[0].detail, { rule_id: scoped.id, name: "旺季" }, "带上是哪一条调价规则");
 });
 
 test("价格日历：一个组合每天的结算价和命中的规则——基础价 → 按顺序链式调价 → 按取整单位取整；跨午夜的时段算在开始那天头上；和 domain 的算法是同一个", async () => {
@@ -577,6 +588,14 @@ test("价格日历：一个组合每天的结算价和命中的规则——基�
   const none = await calendar(id, `area_id=${ids["a2"]}&vehicle_group_id=${ids["biz7"]}&direction=pickup&from=2026-10-10&to=2026-10-10`);
   assert.deepEqual([none.days[0].price_rule, none.days[0].segments], [null, [{ from: "00:00", to: "24:00", final: null, no_price_reason: "NO_RULE", base: null, unrounded: null, adjusts: [] }]]);
   assert.equal((await calendar(id, `${query}&from=2026-09-30&to=2026-09-30`)).days[0].segments[0].no_price_reason, "NOT_IN_EFFECT");
+  // 一次看几个车型组（对比表）：每个各一份，顺序和请求里的一样；days 是第一个的
+  await addPrice(id, fixed({ vehicle_group_id: ids["eco4"], direction: "both", base_price: 12_000 }));
+  const compared = await calendar(id, `area_id=${ids["a1"]}&vehicle_group_id=${ids["eco4"]},${ids["biz7"]},${ids["eco4"]}&direction=pickup&from=2026-10-10&to=2026-10-11`);
+  assert.deepEqual(compared.groups.map((group: any) => [group.vehicle_group_id, group.days.map((day: any) => day.segments.at(-1).final)]), [[ids["eco4"], [13_860, 13_860]], [ids["biz7"], [23_158, 23_158]]]);
+  assert.deepEqual(compared.days, compared.groups[0].days);
+  assert.equal((await calendar(id, `${query}&from=2026-10-10&to=2026-10-10`)).groups.length, 1);
+  assert.equal((await call("GET", `/products/${id}/price-calendar?area_id=${ids["a1"]}&vehicle_group_id=${ids["biz7"]},nope&direction=pickup&from=2026-10-10&to=2026-10-10`)).status, 400);
+  assert.equal((await call("GET", `/products/${id}/price-calendar?area_id=${ids["a1"]}&vehicle_group_id=${Array.from({ length: 21 }, (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`).join(",")}&direction=pickup&from=2026-10-10&to=2026-10-10`)).status, 400);
   // 参数：方向必填、日期合法、最多 62 天
   const bad = async (params: string): Promise<[string, string | undefined][]> => issues(await call("GET", `/products/${id}/price-calendar?${params}`));
   assert.deepEqual(await bad(`area_id=${ids["a1"]}&vehicle_group_id=${ids["biz7"]}&from=2026-10-01&to=2026-10-02`), [["/direction", "REQUIRED"]]);
@@ -687,7 +706,13 @@ test("价格概况：每个商品有没有启用且未过期的价格（按各�
   const overview = await ok(call("GET", "/price-overview", as));
   assert.deepEqual([overview.products_with_price, overview.products_without_price], [1, 2]);
   const byId = Object.fromEntries(overview.items.map((item: any) => [item.product_id, item]));
-  assert.deepEqual(Object.keys(byId[made[0] as string]).sort(), ["active_price_rule_count", "category", "code", "enabled_adjust_rule_count", "has_active_price", "price_rule_count", "product_id", "status", "title"]);
+  assert.deepEqual(Object.keys(byId[made[0] as string]).sort(), ["active_price_rule_count", "category", "city", "code", "coverage", "enabled_adjust_rule_count", "has_active_price", "price_rule_count", "product_id", "status", "title"]);
+  // 城市，和缺价的概况（点对点：1 个区域 × 1 个车型组 = 1 个组合）
+  assert.deepEqual(byId[made[0] as string].city, { id: ids["tokyo"], name: { zh: "东京" } });
+  assert.deepEqual(made.map((productId) => byId[productId].coverage), [{ total: 1, missing: 0 }, { total: 1, missing: 1 }, { total: 1, missing: 1 }, { total: 1, missing: 0 }]);
+  // 首页只要两个数：summary=1 不带 items
+  assert.deepEqual(await ok(call("GET", "/price-overview?summary=1", as)), { products_with_price: 1, products_without_price: 2 });
+  assert.equal((await call("GET", "/price-overview?summary=yes", as)).status, 400);
   assert.deepEqual(
     made.map((productId) => [byId[productId].has_active_price, byId[productId].price_rule_count, byId[productId].enabled_adjust_rule_count, byId[productId].status]),
     [[true, 1, 1, "draft"], [false, 1, 0, "draft"], [false, 1, 0, "draft"], [true, 1, 0, "unpublished"]],
@@ -773,9 +798,10 @@ test("接口定义对账：价格相关应答的字段和 openapi.yaml 里各 sc
   same(await ok(call("POST", `/products/${id}/adjust-rules/${adjust.id}/disable`)), schema("AdjustRuleSaved").required, "AdjustRuleSaved");
   await ok(call("POST", `/products/${id}/adjust-rules/${adjust.id}/enable`));
   const view = await calendar(id, `area_id=${ids["a1"]}&vehicle_group_id=${ids["biz7"]}&direction=pickup&from=2028-01-01&to=2028-01-01`);
-  const day = schema("PriceCalendar").properties.days.items;
+  const day = schema("PriceCalendarDay");
   same(view, schema("PriceCalendar").required, "PriceCalendar");
-  same(view.days[0], day.required, "PriceCalendar.days[]");
+  same(view.groups[0], schema("PriceCalendar").properties.groups.items.required, "PriceCalendar.groups[]");
+  same(view.days[0], schema("PriceCalendarDay").required, "PriceCalendar.days[]");
   same(view.days[0].holiday, day.properties.holiday.oneOf[0].required, "holiday");
   same(view.days[0].price_rule, day.properties.price_rule.oneOf[0].required, "price_rule");
   const segment = day.properties.segments.items;
@@ -783,7 +809,8 @@ test("接口定义对账：价格相关应答的字段和 openapi.yaml 里各 sc
   same(view.days[0].segments[0].adjusts[0], segment.properties.adjusts.items.required, "adjusts[]");
   same(view.days[0].segments[0].adjusts[0].steps[0], segment.properties.adjusts.items.properties.steps.items.required, "steps[]");
   const overview = await ok(call("GET", "/price-overview"));
-  same(overview, schema("PriceOverview").required, "PriceOverview");
+  same(overview, [...schema("PriceOverview").required, "items"], "PriceOverview");
+  same(await ok(call("GET", "/price-overview?summary=1")), schema("PriceOverview").required, "PriceOverview（只要两个数）");
   same(overview.items[0], schema("PriceOverview").properties.items.items.required, "PriceOverview.items[]");
   const holidays = await ok(call("GET", "/holidays?from=2028-01-01&to=2028-01-31"));
   same(holidays, schema("Holidays").required, "Holidays");

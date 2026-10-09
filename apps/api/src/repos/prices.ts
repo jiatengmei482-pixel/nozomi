@@ -3,7 +3,7 @@
  * 价格规则和调价规则是租户表：只在租户事务里调用，每条语句仍然显式带 tenant_id，行级安全再兜一层。
  * 节假日是平台主数据：平台事务里写，租户事务里只读。
  */
-import type { AdjustCycle, AdjustRule, AdjustStep, DailyWindow, LocalizedText, PriceRule, Pricing, TripDirection } from "@nozomi/domain";
+import type { AdjustCycle, AdjustRule, AdjustStep, DailyWindow, LocalizedText, PriceRule, Pricing, ServiceCategory, TripDirection } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 
 type Row = Record<string, any>;
@@ -179,8 +179,11 @@ export interface ProductPriceOverview {
   productId: string;
   code: string;
   status: string;
-  category: string;
+  category: ServiceCategory;
   title: LocalizedText;
+  city: { id: string; name: LocalizedText };
+  /** 商品所在城市当地的今天 */
+  today: string;
   priceRuleCount: number;
   /** 启用且没过期（按商品所在城市当地的今天）的价格规则条数 */
   activePriceRuleCount: number;
@@ -190,7 +193,8 @@ export interface ProductPriceOverview {
 /** 本租户每个商品的价格概况，按最近修改从新到旧。「今天」按每个商品所在城市的时区各自算。 */
 export async function listProductPriceOverview(db: Db, tenantId: string, now: Date, limit: number): Promise<ProductPriceOverview[]> {
   const result = await db.query<Row>(
-    `select p.id, p.code, p.status, p.category, p.content,
+    `select p.id, p.code, p.status, p.category, p.content, c.id as city_id, c.name as city_name,
+            ($2::timestamptz at time zone c.timezone)::date::text as today,
             (select count(*)::int from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id) as price_rule_count,
             (select count(*)::int from price_rules r
               where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
@@ -208,10 +212,29 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
     status: row["status"],
     category: row["category"],
     title: Object.fromEntries(Object.entries(row["content"] as Record<string, { title: string | null }>).flatMap(([language, text]) => (text.title === null ? [] : [[language, text.title]]))),
+    city: { id: row["city_id"], name: row["city_name"] },
+    today: row["today"],
     priceRuleCount: row["price_rule_count"],
     activePriceRuleCount: row["active_price_rule_count"],
     enabledAdjustRuleCount: row["enabled_adjust_rule_count"],
   }));
+}
+
+/**
+ * 整个供应商每个商品算缺价概况要用的东西：选的区域、车型组（按商品里的先后）和全部价格规则。
+ * 三条查询取回全部，不按商品一个一个查。
+ */
+export async function listPriceCoverageInputs(db: Db, tenantId: string): Promise<Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>> {
+  const shapes = new Map<string, { areaIds: string[]; vehicleGroupIds: string[]; rules: StoredPriceRule[] }>();
+  const shape = (productId: string) => {
+    const found = shapes.get(productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
+    shapes.set(productId, found);
+    return found;
+  };
+  for (const row of (await db.query<Row>("select product_id, area_id from product_areas where tenant_id = $1 order by product_id, priority", [tenantId])).rows) shape(row["product_id"]).areaIds.push(row["area_id"]);
+  for (const row of (await db.query<Row>("select product_id, vehicle_group_id from product_vehicle_groups where tenant_id = $1 order by product_id, position", [tenantId])).rows) shape(row["product_id"]).vehicleGroupIds.push(row["vehicle_group_id"]);
+  for (const row of (await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 order by created_at, id`, [tenantId])).rows) shape(row["product_id"]).rules.push(toPriceRule(row));
+  return shapes;
 }
 
 // ---- 节假日日历 ----

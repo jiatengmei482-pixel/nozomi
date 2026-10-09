@@ -25,6 +25,7 @@ import { readListPage } from "../master/shared.tsx";
 import { BasicStep } from "./BasicStep.tsx";
 import { ContentStep } from "./ContentStep.tsx";
 import { PublishStep } from "./PublishStep.tsx";
+import { PricesStep } from "./prices/PricesStep.tsx";
 import { ServiceRulesStep } from "./ServiceRulesStep.tsx";
 import type { ProductFrame } from "./frame.ts";
 import { ProductMoreItems, useProductActions } from "./useProductActions.tsx";
@@ -35,11 +36,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const STEPS: readonly { key: string; name: string; slug: ProductStepSlug | null; check: string }[] = [
   { key: "basic", name: "基础信息", slug: "basic", check: "basic_info" },
   { key: "service-rules", name: "服务规则", slug: "service-rules", check: "service_rules" },
-  { key: "price-rules", name: "价格规则", slug: null, check: "price_rules" },
+  { key: "price-rules", name: "价格规则", slug: "prices", check: "price_rules" },
   { key: "inventory", name: "库存", slug: null, check: "inventory" },
   { key: "content", name: "商品详情", slug: "content", check: "content" },
 ];
-const STEP_TITLES: Readonly<Record<ProductStepSlug, string>> = { basic: "基础信息", "service-rules": "服务规则", content: "商品详情", publish: "上架检查" };
+const STEP_TITLES: Readonly<Record<ProductStepSlug, string>> = { basic: "基础信息", "service-rules": "服务规则", prices: "价格规则", content: "商品详情", publish: "上架检查" };
 const SOON: StepStatus = { icon: "clock", tone: "muted", text: "即将开放" };
 const UNKNOWN: StepStatus = { icon: null, tone: "muted", text: "—" };
 
@@ -59,7 +60,10 @@ function checkContextOf(product: Product): CheckContext {
 }
 
 export function ProductEditorPage() {
-  const { id, step } = useParams();
+  const params = useParams();
+  const id = params["id"];
+  // 步骤后面还可以有分区（第 ③ 步的页签、某一条调价规则）：/products/{id}/prices/adjust/{规则编号}
+  const [step, ...rest] = (params["*"] ?? "").split("/").filter((part) => part !== "") as [string | undefined, ...string[]];
   const isNew = id === undefined;
   const validId = isNew || UUID_PATTERN.test(id);
   const location = useLocation();
@@ -209,6 +213,7 @@ export function ProductEditorPage() {
       );
   } else if (current === "basic") content = <BasicStep key={product.id} frame={frame} />;
   else if (current === "service-rules") content = <ServiceRulesStep key={product.id} frame={frame} product={product} />;
+  else if (current === "prices") content = <PricesStep key={product.id} frame={frame} product={product} rest={rest} />;
   else if (current === "content") content = <ContentStep key={product.id} frame={frame} product={product} />;
   else content = <PublishStep key={product.id} frame={frame} product={product} onReload={reloadCheck} checkStatus={checked.state.status} />;
 
@@ -265,7 +270,7 @@ export function ProductEditorPage() {
       )}
       <div className="steps__layout">
         {nav}
-        <div className="steps__content">{content}</div>
+        <div className={current === "prices" && !(rest[0] === "adjust" && rest.length > 1) ? "steps__content steps__content--wide" : "steps__content"}>{content}</div>
       </div>
       {actions.dialog}
     </div>,

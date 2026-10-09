@@ -6,7 +6,7 @@ import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, type AreaBizType, typ
 import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type Area, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
+import { type Area, type AreaCreate, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
@@ -20,12 +20,14 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { EMPTY_EDITOR, type EditorShape, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
+import { EMPTY_EDITOR, type EditorShape, type PastedPolygon, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
 import { areaProblemText, ringProblemText, shapeProblemText } from "../../lib/area-messages.ts";
+import { type AreaDraft, clearAreaDraft, draftTimeText, readAreaDraft, writeAreaDraft } from "../../lib/area-draft.ts";
 import { AREA_LIST_PATH } from "../../lib/area-paths.ts";
 import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { INPUT_LANGUAGES, MASTER_STATUS_BADGES, cleanLocalized, countryLabel, displayName, formatLocalDateTime, sameLocalized, shortName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -49,6 +51,8 @@ const KIND_OPTIONS: readonly { value: AreaPolygonKind; label: string }[] = [
 ];
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PRESERVED = "你画的图形和填的内容都还在。";
+/** 内容变化后多久写入草稿（规范：1 秒内）。 */
+const DRAFT_DELAY_MS = 600;
 
 interface TopNotice {
   kind: AlertKind;
@@ -112,8 +116,12 @@ export function AreaEditorPage() {
   const [picked, setPicked] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [fitSignal, setFitSignal] = useState(0);
   const [mapBroken, setMapBroken] = useState(false);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const rootRef = useRef<HTMLDivElement>(null);
+  const copier = useCopyText();
+  // 提示条里的按钮是出冲突那一刻生成的：它要复制的是点的时候画面上的图形，不是那一刻的
+  const latestShapes = useRef(editor.shapes);
+  latestShapes.current = editor.shapes;
 
   // 取到区域（第一次，或「载入最新内容」之后）就换到页面上
   const areaKey = area ? `${area.id}:${area.version}` : null;
@@ -166,6 +174,47 @@ export function AreaEditorPage() {
   const publishedUsers = area?.usage?.published_product_count ?? 0;
   useLeaveGuard(dirty && !submitting && !discarded, setLeaving);
 
+  // ── 草稿（规范 10.7）：有修改时存一份在这个标签页里；再打开这个页面时可以恢复 ──
+  const owner = account.status === "ready" && account.account.tenant ? { tenantId: account.account.tenant.id, userId: account.account.id } : null;
+  const ownerKey = owner ? `${owner.tenantId}.${owner.userId}` : "";
+  const draftArea = mode === "edit" ? (id ?? null) : null;
+  const pageReady = owner !== null && !readOnly && (mode === "new" || adopted !== null);
+  // 页面一准备好就看有没有上次留下的草稿（只看这一次；之后自己写进去的不算「上次的」）
+  const storedDraft = useMemo<AreaDraft | null>(() => (pageReady && owner !== null ? readAreaDraft(owner, draftArea) : null), [pageReady, ownerKey]);
+  const [draftDecided, setDraftDecided] = useState(false);
+  const foundDraft = draftDecided ? null : storedDraft;
+  const draftChecked = pageReady;
+  // 页面上现在的内容；`null` = 现在不该存（没改、已经离开、还有一份旧草稿等用户决定）
+  const draftNow = useRef<AreaDraft | null>(null);
+  draftNow.current = pageReady && draftChecked && foundDraft === null && dirty && !discarded ? { savedAt: new Date().toISOString(), baseVersion: area?.version ?? null, cityId, name, bizType, shapes: editor.shapes } : null;
+  const flushDraft = (): void => {
+    if (owner !== null && draftNow.current !== null) writeAreaDraft(owner, draftArea, draftNow.current);
+  };
+  const flushRef = useRef(flushDraft);
+  flushRef.current = flushDraft;
+  const dropDraft = (): void => {
+    draftNow.current = null;
+    if (owner !== null) clearAreaDraft(owner, draftArea);
+  };
+  // 内容变化后不到 1 秒写入；改回原样（没有修改了）就把自己写的那份清掉
+  useEffect(() => {
+    if (!pageReady || !draftChecked || foundDraft !== null || discarded || owner === null) return;
+    if (!dirty) return clearAreaDraft(owner, draftArea);
+    const timer = setTimeout(() => flushRef.current(), DRAFT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [pageReady, draftChecked, foundDraft, discarded, dirty, ownerKey, name, bizType, cityId, editor.shapes]);
+  // 离开页面（包括浏览器的后退）时再写一次：最后几百毫秒里的改动也在
+  useEffect(() => () => flushRef.current(), []);
+  const restoreDraft = (): void => {
+    if (foundDraft === null) return;
+    dispatch({ type: "restore", shapes: foundDraft.shapes });
+    setName(foundDraft.name);
+    if (usedBy === 0 && !bizLocked) setBizType(foundDraft.bizType);
+    if (mode === "new" && foundDraft.cityId !== null) setCityId(foundDraft.cityId);
+    setDraftDecided(true);
+    setFitSignal((value) => value + 1);
+  };
+
   const backTo = returnTo(location.state);
   const goBack = (): void => {
     const listPage = readListPage(location.state);
@@ -175,6 +224,7 @@ export function AreaEditorPage() {
   const actions = useAreaActions({
     onChanged: (next) => loaded.set({ ...(area as Area), ...next }),
     onDeleted: () => {
+      dropDraft();
       setDiscarded(true);
       void navigate(AREA_LIST_PATH);
     },
@@ -255,12 +305,7 @@ export function AreaEditorPage() {
             <>
               <Button
                 size="sm"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(shapesToGeoJson(editor.shapes)).then(
-                    () => toast("已复制"),
-                    () => undefined,
-                  );
-                }}
+                onClick={() => copier.copy(shapesToGeoJson(latestShapes.current))}
               >
                 复制我画的图形
               </Button>
@@ -299,6 +344,30 @@ export function AreaEditorPage() {
     }
   };
 
+  /**
+   * 新增。上一次其实已经建成、只是应答没收到时，后端会说这个幂等键用过了（带着建成的那一条的编号）：
+   * 把现在的内容存成对那一条的修改；那一条已经不在了，就换一个键重新新增。用户不用刷新，图形不会丢。
+   */
+  const createOrAdopt = async (body: AreaCreate): Promise<Area> => {
+    try {
+      return await createArea(token, body, idempotencyKey);
+    } catch (err) {
+      const created = err instanceof ApiError && err.code === "IDEMPOTENCY_KEY_REUSED" ? err.details["created"] : null;
+      const createdId = typeof created === "object" && created !== null ? (created as { id?: unknown }).id : null;
+      if (typeof createdId !== "string") throw err;
+      let existing: Area;
+      try {
+        existing = await getArea(token, createdId);
+      } catch (inner) {
+        if (!(inner instanceof ApiError) || inner.status !== 404) throw inner;
+        const fresh = crypto.randomUUID();
+        setIdempotencyKey(fresh);
+        return createArea(token, body, fresh);
+      }
+      return updateArea(token, existing.id, existing.version, { name: body.name, biz_type: body.biz_type, polygons: body.polygons });
+    }
+  };
+
   const save = async (event?: FormEvent, confirmed = false): Promise<void> => {
     event?.preventDefault();
     if (submitting || conflict || blocked !== null) return;
@@ -311,12 +380,15 @@ export function AreaEditorPage() {
     // 改了图形、而这个区域正被已上架的商品使用：先确认（报价范围会跟着变）
     if (!confirmed && shapesDirty && publishedUsers > 0) return setConfirmingShapes(true);
     setConfirmingShapes(false);
+    // 保存之前先把草稿写好：登录过期被送去登录页时，回来还能恢复
+    flushDraft();
     setNotice(null);
     setSubmitting(true);
     try {
       const body = { name: cleanLocalized(name), biz_type: bizType, polygons: toPolygonInputs(editor.shapes) };
-      const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createArea(token, { city_id: cityId ?? "", ...body }, idempotencyKey);
+      const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createOrAdopt({ city_id: cityId ?? "", ...body });
       toast(mode === "edit" ? `已保存「${shortName(displayName(saved.name).text)}」` : `已新增区域「${shortName(displayName(saved.name).text)}」`);
+      dropDraft();
       setDiscarded(true);
       goBack();
     } catch (err) {
@@ -420,6 +492,29 @@ export function AreaEditorPage() {
         )}
       </div>
       <div role="status">{notice && notice.kind === "info" && <Alert kind="info">{notice.text}</Alert>}</div>
+      {foundDraft !== null && (
+        <div role="status">
+          <Alert kind="info">
+            <strong className="alert__title">{`有一份上次没保存的修改（${draftTimeText(foundDraft.savedAt)}）。`}</strong>
+            <span>恢复后可以接着改、再保存；不要了就丢弃。决定之前，现在的修改不会另存草稿。</span>
+            <span className="alert__actions">
+              <Button size="sm" onClick={restoreDraft}>
+                恢复
+              </Button>
+              <Button
+                size="sm"
+                variant="text"
+                onClick={() => {
+                  if (owner !== null) clearAreaDraft(owner, draftArea);
+                  setDraftDecided(true);
+                }}
+              >
+                丢弃
+              </Button>
+            </span>
+          </Alert>
+        </div>
+      )}
       <div className="area-editor__layout">
         <section className="card area-editor__basic" aria-labelledby="area-basic-title">
           <h2 className="card__title" id="area-basic-title">
@@ -629,6 +724,7 @@ export function AreaEditorPage() {
         </div>
       )}
       {actions.dialog}
+      {copier.dialog}
       {paste && (
         <PasteDialog
           request={paste}
@@ -642,7 +738,7 @@ export function AreaEditorPage() {
               toast("已替换");
             } else {
               dispatch({ type: "addParsed", kind, parsed });
-              const count = parsed.polygons.length + (kind === "operate" ? parsed.polygons.reduce((sum, polygon) => sum + polygon.holes.length, 0) : 0);
+              const count = (parsed.polygons as readonly PastedPolygon[]).reduce((sum, polygon) => sum + 1 + ((polygon.kind ?? kind) === "operate" ? polygon.holes.length : 0), 0);
               toast(`已添加 ${count} 块图形`);
             }
             setFitSignal((value) => value + 1);
@@ -689,6 +785,7 @@ export function AreaEditorPage() {
               onClick={() => {
                 const to = leaving;
                 setLeaving(null);
+                dropDraft();
                 setDiscarded(true);
                 if (to === null || to === "") goBack();
                 else void navigate(to);

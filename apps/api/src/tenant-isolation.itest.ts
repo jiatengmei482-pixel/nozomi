@@ -930,7 +930,10 @@ test("在自己的商品里混进别的供应商的东西：对方的价格编�
   const mixed = await batch(theirs.priceRuleId, theirs.areaId);
   assert.equal(mixed.status, 400, mixed.text);
   assert.deepEqual(reasons(mixed), [["/create/1/area_id", "AREA_NOT_IN_PRODUCT"], ["/update/0/id", "UNKNOWN_PRICE_RULE"], ["/delete/0", "UNKNOWN_PRICE_RULE"]]);
-  assert.equal(mixed.text, (await batch(NO_SUCH_ID, NO_SUCH_ID)).text);
+  // 和写一个不存在的编号时逐条一样（detail 里只是把请求里给的那个编号带回来）
+  const plain = (res: ApiResponse): unknown => res.body.error.details.issues.map((issue: any) => [issue.path, issue.reason, issue.message]);
+  assert.deepEqual(plain(mixed), plain(await batch(NO_SUCH_ID, NO_SUCH_ID)));
+  assert.deepEqual(mixed.body.error.details.issues.map((issue: any) => issue.detail), [{}, { id: seeded.b.priceRuleId }, { id: seeded.b.priceRuleId }]);
   const single = await send("POST", "/price-rules", price(theirs.areaId));
   assert.deepEqual(reasons(single), [["/area_id", "AREA_NOT_IN_PRODUCT"]]);
   // 调价规则的适用区域、排序里混进对方的编号

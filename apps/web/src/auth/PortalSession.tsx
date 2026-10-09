@@ -13,6 +13,7 @@ import { fetchMe, logout } from "../api/client.ts";
 import type { Tenant } from "../api/types.ts";
 import { isPasswordChangeRequired, isUnauthenticated } from "../lib/failure.ts";
 import { PORTALS, type Portal, type PortalConfig } from "../lib/portal.ts";
+import { clearAllAreaDrafts } from "../lib/area-draft.ts";
 import { isExpired, sessionStore } from "./session-store.ts";
 
 /** 带给登录页的「为什么来到这里」。 */
@@ -38,6 +39,8 @@ export function readShellLocationState(state: unknown): ShellLocationState {
 }
 
 export interface CurrentAccount {
+  /** 账号的编号（区分各人自己的草稿用） */
+  id: string;
   name: string;
   email: string;
   role: string;
@@ -129,6 +132,8 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
       // 后端没收到也照样清掉本地令牌：这个浏览器不再持有它；服务端的会话最迟 8 小时后过期
     }
     sessionStore.clear(portal);
+    // 主动退出：这个标签页里没保存的区域草稿一并清掉（登录过期时不清，见 lib/area-draft.ts）
+    clearAllAreaDrafts();
     const state: LoginLocationState = { reason: "logged-out" };
     void navigate(config.paths.login, { replace: true, state });
   }, [portal, token, config, navigate]);
@@ -146,7 +151,7 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
       (me) => {
         if (cancelled) return;
         const tenant = "tenant" in me ? me.tenant : null;
-        setAccount({ status: "ready", account: { name: me.user.name, email: me.user.email, role: me.user.role, tenant } });
+        setAccount({ status: "ready", account: { id: me.user.id, name: me.user.name, email: me.user.email, role: me.user.role, tenant } });
         // 只认布尔值；给的不是布尔值时保持原样（未知就继续不显示导航）
         if (typeof me.must_change_password === "boolean") setMustChange(me.must_change_password);
       },

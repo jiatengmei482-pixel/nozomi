@@ -7,7 +7,7 @@
  * - 这里只算到「基础价 → 调价 → 取整」。加急费、夜间费、附加服务各自独立、不参与调价，由报价引擎（M2-01）相加。
  * - 检查函数只返回路径和原因代码，不返回句子（同 products.ts）。
  */
-import type { ServiceCategory } from "./master-data.ts";
+import type { PlaceType, ServiceCategory } from "./master-data.ts";
 import { hasVisibleText, isCountryCode } from "./master-data.ts";
 import { type CurrencyCode, minorDigits, roundFractionHalfAwayFromZero, roundFractionToUnit } from "./money.ts";
 import { type DailyWindow, MINUTES_PER_DAY, dailyWindowIssue, isLocalDate, parseTimeOfDay } from "./service-time.ts";
@@ -25,6 +25,11 @@ export type PriceDirection = (typeof PRICE_DIRECTIONS)[number];
 export const TRIP_DIRECTIONS = ["pickup", "dropoff"] as const;
 export type TripDirection = (typeof TRIP_DIRECTIONS)[number];
 export const PRICE_DIRECTION_NAMES: Readonly<Record<PriceDirection, string>> = { pickup: "接机", dropoff: "送机", both: "接送通用" };
+
+/** 方向的中文名按接送点的类型取：接送点是车站时叫「接站 / 送站」（和服务规则里免费等待的叫法一致），其余叫「接机 / 送机」。 */
+export function priceDirectionNames(pickupPlaceType: PlaceType | null): Readonly<Record<PriceDirection, string>> {
+  return pickupPlaceType === "station" || pickupPlaceType === "exit" ? { pickup: "接站", dropoff: "送站", both: "接送通用" } : PRICE_DIRECTION_NAMES;
+}
 
 export const PRICE_RULE_STATUSES = ["enabled", "disabled"] as const;
 export type PriceRuleStatus = (typeof PRICE_RULE_STATUSES)[number];
@@ -114,8 +119,22 @@ const DISPLAY_DECIMALS = 6;
  * 四舍五入到 6 位小数。只用来给人看计算过程；参与计算的始终是精确值。
  */
 export function formatExact(amount: ExactAmount): string {
+  return decimalText(amount, DISPLAY_DECIMALS);
+}
+
+/**
+ * 精确的金额换成给人看的**主单位**写法（人民币 460050.5 分 → `"4600.505"`；日元没有小数位，和 `formatExact` 一样）。
+ * 按币种的小数位挪小数点，全程整数运算；写不尽的保留到最小货币单位之后 6 位。只用来显示还没取整的中间结果，
+ * 已经取整的金额用 money.ts 的 `formatMajor`。
+ */
+export function formatExactMajor(amount: ExactAmount, currency: CurrencyCode): string {
+  const digits = minorDigits(currency);
+  return decimalText(exact(amount.numerator, amount.denominator * 10n ** BigInt(digits)), DISPLAY_DECIMALS + digits);
+}
+
+function decimalText(amount: ExactAmount, maxDecimals: number): string {
   let scale = 0;
-  while (scale < DISPLAY_DECIMALS && 10n ** BigInt(scale) % amount.denominator !== 0n) scale += 1;
+  while (scale < maxDecimals && 10n ** BigInt(scale) % amount.denominator !== 0n) scale += 1;
   const scaled = roundFractionHalfAwayFromZero(amount.numerator * 10n ** BigInt(scale), amount.denominator);
   const negative = scaled < 0n;
   const digits = (negative ? -scaled : scaled).toString().padStart(scale + 1, "0");

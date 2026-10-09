@@ -110,7 +110,7 @@ for (const [name, viewport] of Object.entries({ ...VIEWPORTS, zoomed200: { width
     expect((await request.post("/tenant/v1/auth/accept-invite", { data: { token: invite.token, password } })).status()).toBe(200);
 
     await loginAs(page, "tenant", adminEmail, password);
-    await expect(page.locator(".details")).toContainText(tenantName);
+    await expect(page.locator(".page__meta")).toContainText(tenantName);
     await check("首页");
 
     await page.getByRole("button", { name: /账号菜单/ }).click();
@@ -207,7 +207,7 @@ for (const scheme of ["light", "dark"] as const) {
 
     const tenant = await createActiveTenant(request);
     await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
-    await expect(page.locator(".details")).toContainText(tenant.tenantName);
+    await expect(page.locator(".page__meta")).toContainText(tenant.tenantName);
     expect(await bodyBackground(page)).toBe(BACKGROUND[scheme]);
     await expectAccessible(page, `首页（${scheme}）`);
     await page.getByRole("button", { name: /账号菜单/ }).click();
@@ -390,7 +390,7 @@ test("留图：亮 / 暗 × 360 / 400 / 1280 的登录页和首页（只在设�
       await expect(page.getByRole("button", { name: "登录" })).toBeVisible();
       await snapshot(page, `login-platform-${scheme}-${viewport.width}`);
       await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
-      await expect(page.locator(".details")).toContainText(tenant.tenantName);
+      await expect(page.locator(".page__meta")).toContainText(tenant.tenantName);
       await snapshot(page, `home-tenant-${scheme}-${viewport.width}`);
     }
   }

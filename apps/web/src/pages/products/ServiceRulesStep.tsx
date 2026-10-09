@@ -166,7 +166,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
       frame={frame}
       slug="service-rules"
       title="② 服务规则"
-      next={{ slug: "content", label: "保存并下一步" }}
+      next={{ slug: "prices", label: "保存并下一步" }}
       controller={controller}
       intro={
         <Alert kind="info">

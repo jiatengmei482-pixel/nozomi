@@ -77,8 +77,8 @@ export interface InputIssue {
   message: string;
   /** 机器可读的原因代码（图形的问题用它，前端按代码显示自己的定稿文字） */
   reason?: string;
-  /** 原因的补充信息，如交叉的两条边的点号 */
-  detail?: Record<string, number>;
+  /** 原因的补充信息：数字（交叉的两条边的点号、上限），或指明是哪一条的编号、名称 */
+  detail?: Record<string, number | string>;
 }
 
 /** 字段的格式都对、但内容不合业务规则（编码格式、时区、引用的记录不存在等）时，用同一种错误返回。 */

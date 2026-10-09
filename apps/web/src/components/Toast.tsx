@@ -15,9 +15,16 @@ interface ToastItem {
   text: string;
   /** 每次重新触发加一，用来重置计时 */
   round: number;
+  action?: ToastAction;
 }
 
-type ShowToast = (text: string) => void;
+/** Toast 上的一个动作（「撤销」）：点了执行并收起这条 Toast。 */
+export interface ToastAction {
+  label: string;
+  onAction(): void;
+}
+
+type ShowToast = (text: string, action?: ToastAction) => void;
 const ToastContext = createContext<ShowToast>(() => undefined);
 
 /** 发一条 Toast。文案写「已 + 动作 + 对象」。 */
@@ -36,6 +43,18 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone(): void }) {
     <div className="toast" role="status" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
       <Icon name="check" />
       <span className="toast__text">{item.text}</span>
+      {item.action && (
+        <button
+          type="button"
+          className="toast__action"
+          onClick={() => {
+            item.action?.onAction();
+            onDone();
+          }}
+        >
+          {item.action.label}
+        </button>
+      )}
       <button type="button" className="toast__close" aria-label="关闭提示" onClick={onDone}>
         <Icon name="x" />
       </button>
@@ -46,13 +65,13 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone(): void }) {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
-  const show = useCallback<ShowToast>((text) => {
+  const show = useCallback<ShowToast>((text, action) => {
     setItems((current) => {
       const existing = current.find((item) => item.text === text);
-      if (existing) return current.map((item) => (item === existing ? { ...item, round: item.round + 1 } : item));
+      if (existing) return current.map((item) => (item === existing ? { ...item, round: item.round + 1, ...(action ? { action } : {}) } : item));
       const id = nextId.current;
       nextId.current += 1;
-      return [...current, { id, text, round: 0 }].slice(-MAX_VISIBLE);
+      return [...current, { id, text, round: 0, ...(action ? { action } : {}) }].slice(-MAX_VISIBLE);
     });
   }, []);
   const remove = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), []);
