@@ -25,7 +25,7 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await page.getByRole("link", { name: "还没有商品，先建一个" }).click();
   await expect(page).toHaveURL(/\/products\/new$/);
   await expect(page.getByRole("heading", { level: 1, name: "新建商品" })).toBeVisible();
-  await expect(step(page, "库存")).toContainText("即将开放");
+  await expect(step(page, "库存")).toContainText("先保存第 1 步");
   await expect(step(page, "价格规则")).toContainText("先保存第 1 步");
   await expect(step(page, "服务规则")).toContainText("先保存第 1 步");
   await expect(page.getByRole("navigation", { name: "配置步骤" }).getByRole("link")).toHaveCount(0);
@@ -182,7 +182,7 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await expect(checkItem(page, "price_rules")).toContainText("还没有设价格");
   await expect(page.getByText(/失败|未通过/)).toHaveCount(0);
   await expect(step(page, "上架检查")).toContainText("还差 1 项");
-  await expect(page.getByText("已完成 3 / 5")).toBeVisible();
+  await expect(page.getByText("已完成 4 / 5")).toBeVisible();
   await expect(page.getByRole("button", { name: "上架", exact: true })).toHaveAttribute("aria-disabled", "true");
   // 禁用的「上架」键盘到得了、读得到原因，点了不做任何事
   await page.getByRole("button", { name: "上架", exact: true }).click({ force: true });

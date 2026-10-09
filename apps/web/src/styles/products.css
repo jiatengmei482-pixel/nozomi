@@ -2923,3 +2923,7 @@ p.stock-day__status.stock-cell--sold_out {
     display: none;
   }
 }
+
+.import-table .price-state {
+  white-space: nowrap;
+}
