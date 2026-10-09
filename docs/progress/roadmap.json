@@ -63,37 +63,55 @@
           "id": "M0-05",
           "title": "后端骨架：Fastify 服务、数据库迁移、/health",
           "role": "backend",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["pnpm dev 启动 API，/health 返回数据库连通状态和集成配置状态（脱敏）", "数据库迁移可重复执行", "提交 pnpm-lock.yaml，CI 改为 --frozen-lockfile", "CI 增加 PostgreSQL 服务并跑集成测试"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/1 ；单元测试 123 个、集成测试 57 个全部通过",
           "updated": "2026-10-07"
         },
         {
           "id": "M0-06",
           "title": "登录与多租户隔离",
           "role": "backend",
-          "status": "todo",
-          "acceptance": ["平台管理员通过命令行创建，不预置任何账号", "租户、租户用户、角色表，所有租户表带 tenant_id", "集成测试证明租户 A 读不到租户 B 的任何数据", "敏感操作写审计日志"],
-          "evidence": "",
+          "status": "review",
+          "acceptance": ["平台管理员通过命令行创建，不预置任何账号", "租户、租户用户、角色表，所有租户表带 tenant_id", "集成测试证明租户 A 读不到租户 B 的任何数据", "敏感操作写审计日志", "公开的 /health 只返回各集成「已配置 / 未配置」，脱敏详情移到需要平台登录的接口"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/3 ；单元测试 237 个、集成测试 262 个全部通过",
           "updated": "2026-10-07"
         },
         {
           "id": "M0-07",
           "title": "设计规范与前端骨架",
           "role": "designer",
-          "status": "todo",
+          "status": "review",
           "acceptance": ["docs/design 写明颜色、字体、间距、组件规范，亮色和暗色", "apps/web 有登录页，能用 M0-06 的账号真实登录", "手机宽度不出现横向滚动"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/6 ；单元 367、前端组件 76、集成 290、端到端 65 个全部通过",
           "updated": "2026-10-07"
         },
         {
           "id": "M0-08",
-          "title": "测试环境上线（Render）",
+          "title": "测试环境上线（自有 VPS）",
           "role": "backend",
           "status": "blocked",
-          "blockedBy": "等你注册 Render 并授权本仓库，按 docs/secrets.md 填好测试环境变量",
-          "acceptance": ["main 合并后自动部署到测试环境", "测试环境网址可访问 /health", "Stripe Webhook 端点指向测试环境"],
-          "evidence": "",
+          "blockedBy": "测试环境已上线（手工部署）。剩两条要等你：PR 合并到 main 后才能验证自动部署；Stripe Webhook 要等你提供 Stripe 账号",
+          "acceptance": ["main 合并后自动部署到测试环境", "测试环境网址可访问 /health", "Stripe Webhook 端点指向测试环境", "部署失败自动回退到上一个版本", "数据库每日备份；正式上线前补 WAL 归档以支持恢复到任意时间点"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/2 、https://github.com/jiatengmei482-pixel/nozomi/pull/5 ；https://nozomi.moveglobal.io/health 可访问；自动回退和备份恢复在 CI 部署冒烟里每次实跑",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-11",
+          "title": "前端接入部署",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["打开测试环境域名能看到登录页并用真实账号登录", "刷新任意前端地址不出现 404；接口地址不被前端页面吞掉", "带内容安全策略等安全响应头；静态资源有缓存策略", "两种入口模式的部署冒烟都覆盖前端"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/7 ；单元 384、前端组件 76、集成 290、端到端 66 个通过；测试环境 https://nozomi.moveglobal.io/platform/login 真实浏览器打开正常",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-12",
+          "title": "临时密码与首次登录强制修改密码",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["创建管理员时可生成一次性显示的随机临时密码", "用临时密码登录后必须先修改密码，改之前不能使用其他功能", "修改密码后恢复正常，临时密码作废"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/8 ；单元 403、前端组件 100、集成 368、端到端 77 个全部通过；测试环境上负责人已用临时密码登录并改密成功",
           "updated": "2026-10-07"
         },
         {
@@ -104,6 +122,15 @@
           "acceptance": ["在测试环境上真实走通：创建平台管理员 → 登录 → 创建租户 → 租户登录", "验收报告写入 docs/acceptance/M0.md"],
           "evidence": "",
           "updated": "2026-10-07"
+        },
+        {
+          "id": "M0-10",
+          "title": "数据库账号分离：迁移账号与应用账号分开",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["应用日常使用的数据库账号不是表的所有者、不是超级用户", "该账号无法绕过行级安全读到其他租户的数据", "该账号无法修改或删除审计日志", "部署脚本自动创建并使用两个账号"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/4 ；单元测试 253 个、集成测试 290 个全部通过；CI 冒烟实跑通过",
+          "updated": "2026-10-07"
         }
       ]
     },
@@ -112,11 +139,47 @@
       "name": "主数据与租户配置",
       "goal": "平台统一维护城市、机场、车站、车型；租户能配置区域、商品、价格规则、调价和库存",
       "tasks": [
-        { "id": "M1-01", "title": "主数据：城市、地点（机场 / 车站 / 地标）、车型组、附加服务", "role": "backend", "status": "todo", "acceptance": ["机场坐标从公开数据源导入并注明来源", "平台后台可增删改，改动有审计"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "todo", "acceptance": ["地图上画区域并保存", "禁行区优先"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "todo", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "todo", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M1-05", "title": "库存与批量导入导出", "role": "backend", "status": "todo", "acceptance": ["价格日历、批量设置", "Excel 导入先校验后写入"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-01", "title": "主数据：城市、地点（机场 / 车站 / 地标）、车型组、附加服务", "role": "backend", "status": "review", "acceptance": ["机场坐标从公开数据源导入并注明来源", "平台后台可增删改，改动有审计"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/9 ；单元、前端组件、集成测试全部通过（数量见 PR）；测试环境已导入日本、韩国 97 个机场", "updated": "2026-10-07" },
+        {
+          "id": "M1-08",
+          "title": "运营后台：主数据页面与首页入口",
+          "role": "frontend",
+          "status": "review",
+          "acceptance": ["城市、地点（机场 / 车站 / 地标）、车型组、附加服务都有列表、新增、编辑、停用 / 启用页面", "导入的机场可以在界面上指定城市并启用", "首页有各模块入口和数量统计", "手机宽度不出现横向滚动"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/10 ；单元 502、前端组件 140、集成 482、端到端 109 个全部通过",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M1-09",
+          "title": "城市批量导入与机场的城市建议",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["主要城市从注明来源和许可的公开数据导入，可重复运行，不覆盖人工修改", "处理导入的机场时自动建议最近的城市，确认即可", "测试环境导入日本、韩国主要城市"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/11 ；单元 527、前端组件 144、集成 498、端到端 111 个全部通过",
+          "updated": "2026-10-07"
+        },
+        {
+          "id": "M1-11",
+          "title": "机场的城市建议改进",
+          "role": "backend",
+          "status": "review",
+          "acceptance": ["主要机场的首选建议是它服务的城市（羽田 / 成田 → 东京，关西 / 伊丹 → 大阪，金浦 / 仁川 → 首尔）", "城市导入不再把东京的区当成城市", "已有数据经重新导入回填，不算人工修改"],
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/12 （合并 PR，含本任务）；测试环境上主要机场的首选建议已核对",
+          "updated": "2026-10-08"
+        },
+        {
+          "id": "M1-10",
+          "title": "运营后台：供应商与平台员工管理页面",
+          "role": "frontend",
+          "status": "todo",
+          "acceptance": ["供应商列表、新建、暂停 / 恢复、邀请管理员、发起密码重置都可在界面上操作", "平台员工列表、新增、停用 / 启用、发起密码重置都可在界面上操作", "审计日志可在界面上查看", "首页供应商卡片可点进列表"],
+          "evidence": "",
+          "updated": "2026-10-07"
+        },
+        { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "review", "acceptance": ["租户后台可在地图上画区域（多边形、圆）并保存，可粘贴 WKT / GeoJSON", "禁行区优先；自测一个坐标能看到它在营运区、禁行区还是区域外", "租户 A 读不到、改不了租户 B 的区域", "手机宽度不出现横向滚动；地图加载不出来时仍能用坐标表完成全部操作"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/12 （合并 PR，含本任务）；测试角色新增 119 个测试，11 个缺陷已全部修复", "updated": "2026-10-07" },
+        { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "review", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/12 （合并 PR，含本任务）；价格规则上线前商品还不能上架", "updated": "2026-10-07" },
+        { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "review", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/13 、https://github.com/jiatengmei482-pixel/nozomi/pull/14 ；单元 739、前端组件 216、集成 617 个通过；测试角色尚未对本任务找缺陷", "updated": "2026-10-07" },
+        { "id": "M1-05", "title": "库存与批量导入导出", "role": "backend", "status": "review", "acceptance": ["价格日历、批量设置", "Excel 导入先校验后写入"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/15 ；单元 777、前端组件 228、集成 637 个通过；Excel 文件尚未在真实的 Excel / WPS 上验证；测试角色尚未对本任务找缺陷", "updated": "2026-10-07" },
         { "id": "M1-06", "title": "租户后台页面", "role": "frontend", "status": "todo", "acceptance": ["区域、商品、价格、库存全部可在界面上操作"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-07", "title": "M1 验收", "role": "acceptance", "status": "todo", "acceptance": ["新租户从零配置一个东京接送机商品并上架"], "evidence": "", "updated": "2026-10-07" }
       ]
@@ -154,6 +217,8 @@
         { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "todo", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "todo", "acceptance": ["赔付按统一表计算"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "todo", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M4-06", "title": "公司统一登录（SSO）", "role": "backend", "status": "blocked", "blockedBy": "等你确定用 Google Workspace 还是 Microsoft，并在其管理后台创建登录应用", "acceptance": ["平台员工可用公司账号登录"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-04", "title": "M4 验收", "role": "acceptance", "status": "todo", "acceptance": ["运营人员从零审核一个新租户并处理一张工单"], "evidence": "", "updated": "2026-10-07" }
       ]
     },
@@ -173,6 +238,86 @@
       "date": "2026-10-07",
       "by": "Claude",
       "summary": "建立仓库：开发规范、6 个 AI 角色、需求文档、配置与密钥管理、领域核心（地理 / 金额 / 汇率，27 个测试通过）、CI、开发进度页。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-05 待验收：后端骨架（Fastify 服务、迁移执行器、/health）、提交 pnpm-lock.yaml、CI 增加 PostgreSQL 与集成测试。测试角色发现 9 个缺陷已全部修复；单元测试 123 个、集成测试 57 个通过。注意：pnpm check 现在需要本地数据库；部署时须先 pnpm db:migrate 再启动。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "部署目标由 Render 改为负责人自有的 VPS（ADR 0007）。docs/secrets.md 已重写：列出需要负责人提供的 VPS 信息，分「填在 GitHub 上」和「填在 VPS 上」两部分。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-06 待验收：平台 / 租户登录、邀请、密码修改与重置、租户行级安全隔离、审计日志、公开 /health 精简。测试角色发现 7 个缺陷已全部修复。按需求文档，暂停的租户仍可登录。新增任务 M0-10（数据库账号分离）、M4-05（两步验证等）、M4-06（SSO，受阻）。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-10 待验收：应用改用最小权限的数据库账号（不是所有者、不是超级用户），按租户 / 平台 / 登录前三种角色切换；审计日志对应用账号只能追加。新增 pnpm db:provision；本地 .env 需要按 .env.example 改成两个连接串。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-08 进展：部署脚本支持「服务器上已有别的网站」模式（只监听本机端口，不占 80/443，不管防火墙）和 CentOS Stream 9/10，新增手工首次部署路径。测试服务器已初始化（独立用户、目录、数据库容器），域名证书已签发；首次部署卡在那台机器的 Docker 网络配置上，等负责人决定。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-07 待验收：设计规范（颜色、字体、间距、组件，亮暗两套，对比度有脚本校验）、前端骨架、两个后台的登录 / 接受邀请 / 重置密码 / 修改密码页面，端到端测试用真实浏览器连真实后端。测试角色发现 5 个缺陷已全部修复。账号停用时登录页显示专门提示（只在密码正确时出现）。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-08：测试环境上线，https://nozomi.moveglobal.io/health 可访问。经负责人同意升级了服务器内核并重启、恢复了 Docker 对网络规则的管理（容器可访问外网）；原有网站复查正常。初始化脚本新增内核模块预检。自动部署和 Stripe Webhook 两条待 PR 合并和 Stripe 账号。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-11 待验收：前端接入部署。新增前端镜像（Caddy + 构建产物），与后端镜像同版本同进同退；带内容安全策略，静态资源长缓存。已部署到测试环境，打开域名即登录页。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M0-12 待验收：创建或重设管理员时可生成只显示一次的临时密码；用它登录后只能修改密码，改完恢复正常。测试角色发现 2 个缺陷（并发改密互相覆盖、成功提示重复出现）已修复，并顺带修了登录和命令行重设的同类并发问题。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M1-01 待验收：城市、地点、车型组、附加服务四类主数据的平台读写接口和租户只读接口，改动有审计；机场从 OurAirports（公有领域）导入。测试角色发现 6 个缺陷已全部修复。测试环境已导入日本、韩国 97 个机场（默认停用，等指定城市后启用）。按负责人要求新增 M1-08：运营后台主数据页面与首页入口。"
+    },
+    {
+      "date": "2026-10-07",
+      "by": "Claude",
+      "summary": "M1-08 待验收：运营后台首页（模块入口和数量）、城市 / 地点 / 车型组 / 附加服务的列表与新增编辑、「处理导入的机场」连续处理页；后端新增首页统计接口、列表总数 / 关键字 / 按编码排序、指定城市并启用一步完成。测试角色发现 14 个前端缺陷，13 个已修复；浏览器后退离开未保存表单不提醒这一条未做。"
+    },
+    {
+      "date": "2026-10-08",
+      "by": "Claude",
+      "summary": "M1-09 待验收：主要城市从 GeoNames（CC BY 4.0）导入，可重复运行、不覆盖人工修改；处理导入的机场时按距离建议城市并列出候选，确认即可；页面加数据来源署名。按负责人要求调整顺序：接下来 M1-02 区域 → M1-03 商品 → M1-04 价格 → M1-05 库存，每个任务连同租户后台页面一起做并部署，M1-10 排在其后。"
+    },
+    {
+      "date": "2026-10-09",
+      "by": "Claude",
+      "summary": "M1-02、M1-11、M1-03 待验收：租户后台可画区域（多边形、圆、粘贴 WKT / GeoJSON、自测、草稿防丢），机场的城市建议改为优先匹配机场所属城市，商品可建基础信息、服务规则、商品详情并跑上架检查。修复了同一地址并行登录偶发 500 的问题。因开发环境到测试服务器的网络被拦，改走 GitHub 自动部署：到此为止的全部工作合成一个 PR 供负责人一次合并。"
+    },
+    {
+      "date": "2026-10-09",
+      "by": "Claude",
+      "summary": "M1-04 第一部分：价格规则（一口价、里程 + 时长、包车套餐）、调价规则（周期、时段、多步链式、试算）的后端和租户后台页面，商品可以真正上架。超出的里程和时长按实际比例收费、不凑整（负责人确认）。价格日历、价格总览页、取整单位修改在第二部分。"
+    },
+    {
+      "date": "2026-10-09",
+      "by": "Claude",
+      "summary": "M1-04 待验收（第二部分）：价格日历（每天的最终结算价和命中的规则，选一段日期新建调价规则）、菜单「价格规则」总览页与首页提醒、取整单位修改。对比表和价格表的批量操作（粘贴一片、复制到其他区域 / 车型组）未做。"
+    },
+    {
+      "date": "2026-10-09",
+      "by": "Claude",
+      "summary": "M1-05 待验收：库存（不限量 / 限量、库存日历、改某一天、按日期范围和星期批量设置）、价格与库存的 Excel 导入导出（先检查、确认后写入，整份一起成功或一起不写）及租户后台页面。商品现在可以在界面上走完「基础信息 → 服务规则 → 价格 → 库存 → 详情 → 上架」。限量模式下没设库存的日子不可售。"
     }
   ]
 }
