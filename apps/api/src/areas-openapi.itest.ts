@@ -377,7 +377,7 @@ test("底图配置和首页数量：没有配置时 tiles 是 null；配置了�
   const summary = await call("GET", "/tenant/v1/dashboard/summary");
   assert.equal(typeof summary.body.areas.active, "number");
   const finance = await addTenantUser(api, tenant.adminToken, "finance@area-openapi.test", "finance");
-  assert.deepEqual((await call("GET", "/tenant/v1/dashboard/summary", { token: finance.token })).body, { areas: null });
+  assert.deepEqual((await call("GET", "/tenant/v1/dashboard/summary", { token: finance.token })).body, { areas: null, products: null });
   assert.equal((await call("GET", "/tenant/v1/map/config", { token: finance.token })).status, 200);
 });
 
