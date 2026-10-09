@@ -266,3 +266,10 @@ export async function listHolidayCountries(db: Db): Promise<{ countryCode: strin
   const result = await db.query<Row>("select country_code, count(*)::int as n, max(holiday_date)::text as last_date from holidays group by country_code order by country_code");
   return result.rows.map((row) => ({ countryCode: row["country_code"], count: row["n"], lastDate: row["last_date"] }));
 }
+
+/** 这些车型组的编码和名称（导出价格表时，商品已经去掉的车型组也要写得出编码）。 */
+export async function findVehicleGroupLabels(db: Db, ids: readonly string[]): Promise<Map<string, { code: string; name: LocalizedText }>> {
+  if (ids.length === 0) return new Map();
+  const result = await db.query<Row>("select id, code, name from vehicle_groups where id = any($1::uuid[])", [ids]);
+  return new Map(result.rows.map((row) => [row["id"] as string, { code: row["code"] as string, name: row["name"] as LocalizedText }]));
+}

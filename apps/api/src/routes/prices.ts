@@ -170,7 +170,7 @@ function coverageJson(view: { coverage: PriceRulesView["coverage"]; items: Store
   };
 }
 
-function priceRulesJson(view: PriceRulesView): Json {
+export function priceRulesJson(view: PriceRulesView): Json {
   const { coverage } = view;
   return {
     version: view.version,

@@ -7,6 +7,7 @@
  * - 已上架的商品改完价格之后必须仍然满足上架条件（至少一条启用且未过期的价格），否则这次修改被拒绝。
  * - 全部在租户事务里：别的供应商的商品、区域、价格一律当作不存在。金额都是结算价，这里没有对外价和加价比例。
  */
+import { isDeepStrictEqual } from "node:util";
 import {
   type AdjustRule,
   type CalendarSegment,
@@ -108,7 +109,7 @@ function audit(db: Db, writer: ProductWriter, now: Date, event: { resource: "pri
 
 // ---- 一个商品的定价上下文 ----
 
-interface PricingContext {
+export interface PricingContext {
   product: Product;
   currency: CurrencyCode | null;
   roundingUnit: number;
@@ -123,7 +124,7 @@ interface PricingContext {
   adjustRules: StoredAdjustRule[];
 }
 
-async function loadContext(db: Db, tenantId: string, productId: string, now: Date, options: { lock: boolean }): Promise<PricingContext> {
+export async function loadPricingContext(db: Db, tenantId: string, productId: string, now: Date, options: { lock: boolean }): Promise<PricingContext> {
   const product = await findProduct(db, tenantId, productId, options);
   if (!product) throw notFound("商品");
   const view = await detail(db, tenantId, product);
@@ -170,7 +171,7 @@ function priceRulesView(context: PricingContext, product: Product, items: Stored
 export function getPriceRules(ctx: AppContext, tenantId: string, productId: string): Promise<PriceRulesView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: false });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
     return priceRulesView(context, context.product, context.priceRules);
   });
 }
@@ -197,14 +198,136 @@ function priceAudit(rule: PriceRule): AuditValues {
   };
 }
 
-function samePriceRule(a: PriceRule, b: PriceRule): boolean {
-  return JSON.stringify(priceAudit(a)) === JSON.stringify(priceAudit(b));
+export function samePriceRule(a: PriceRule, b: PriceRule): boolean {
+  // 按内容比，不看键的先后：库里取出来的 jsonb 键的顺序和请求里的不一定一样
+  return isDeepStrictEqual(priceAudit(a), priceAudit(b));
 }
 
 export interface PriceSaveResult {
   view: PriceRulesView;
   /** 这次新增的规则，和请求里 `create` 的顺序一一对应 */
   created: StoredPriceRule[];
+}
+
+/** 冲突里指代一条价格：已经在库里的用 `id`，这次新增的用请求里的 `ref`。 */
+export type PriceConflictRef = { id?: string; ref?: string | null; valid_from: string; valid_to: string | null };
+export type PriceConflict = PriceConflictRef & { with: PriceConflictRef[] };
+
+export interface PriceChangeCheck {
+  /** 写得不对的地方（路径指到是哪一条的哪一项） */
+  issues: InputIssue[];
+  /** 生效日期重叠：每一条被拒绝的规则和它撞上的那些。有 `issues` 时不再查重叠 */
+  conflicts: PriceConflict[];
+}
+
+/**
+ * 一批改动能不能存：只检查、不写库（保存和导入的预览共用）。
+ * `single` 决定报错路径的前缀：批量是 `/create/N`、`/update/N`、`/delete/N`，单条没有前缀。
+ */
+export function checkPriceChanges(context: PricingContext, changes: PriceChanges, single: boolean): PriceChangeCheck {
+  const { product } = context;
+  const prefix = (kind: "create" | "update" | "delete", index: number): string => (single ? "" : `/${kind}/${index}`);
+  const total = changes.create.length + changes.update.length + changes.remove.length;
+  if (total > PRICE_LIMITS.maxBatchChanges) return { issues: [{ path: "/", reason: "TOO_MANY", message: `一次最多改 ${PRICE_LIMITS.maxBatchChanges} 条价格规则`, detail: { max: PRICE_LIMITS.maxBatchChanges } }], conflicts: [] };
+
+  const stored = new Map(context.priceRules.map((rule) => [rule.id, rule]));
+  const areas = new Set(context.areaIds);
+  const groups = new Set(context.vehicleGroupIds);
+  const issues: InputIssue[] = [];
+  const touched = new Set<string>();
+  const checkRule = (rule: PriceRule, at: string, before: StoredPriceRule | null): void => {
+    issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at));
+    if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格" });
+    if (!groups.has(rule.vehicleGroupId) && before?.vehicleGroupId !== rule.vehicleGroupId) {
+      issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格" });
+    }
+  };
+  for (const [index, entry] of changes.create.entries()) checkRule(entry.rule, prefix("create", index), null);
+  for (const [index, entry] of changes.update.entries()) {
+    const at = prefix("update", index);
+    const before = stored.get(entry.id);
+    if (!before) issues.push({ path: `${at}/id`, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
+    else if (touched.has(entry.id)) issues.push({ path: `${at}/id`, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
+    else checkRule(entry.rule, at, before);
+    touched.add(entry.id);
+  }
+  for (const [index, id] of changes.remove.entries()) {
+    const at = prefix("delete", index) || "/id";
+    if (!stored.has(id)) issues.push({ path: at, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
+    else if (touched.has(id)) issues.push({ path: at, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
+    touched.add(id);
+  }
+  const remaining = context.priceRules.filter((rule) => !touched.has(rule.id));
+  if (remaining.length + changes.update.length + changes.create.length > PRICE_LIMITS.maxPriceRulesPerProduct) {
+    issues.push({ path: "/", reason: "TOO_MANY", message: `一个商品最多 ${PRICE_LIMITS.maxPriceRulesPerProduct} 条价格规则`, detail: { max: PRICE_LIMITS.maxPriceRulesPerProduct } });
+  }
+  if (issues.length > 0) return { issues, conflicts: [] };
+
+  // 唯一性：保存之后的全部规则里，同一个组合的生效日期不能重叠（停用的也算）
+  type Entry = { rule: PriceRule; id: string | null; ref: string | null; changed: boolean };
+  const after: Entry[] = [
+    ...remaining.map((rule): Entry => ({ rule, id: rule.id, ref: null, changed: false })),
+    ...changes.update.map((entry): Entry => ({ rule: entry.rule, id: entry.id, ref: null, changed: true })),
+    ...changes.create.map((entry): Entry => ({ rule: entry.rule, id: null, ref: entry.ref, changed: true })),
+  ];
+  const overlaps = findPriceRuleOverlaps(after.map((entry) => entry.rule));
+  const label = (entry: Entry): PriceConflictRef => ({ ...(entry.id === null ? { ref: entry.ref } : { id: entry.id }), valid_from: entry.rule.validFrom, valid_to: entry.rule.validTo });
+  const conflicts = after.flatMap((entry, index) => {
+    if (!entry.changed) return [];
+    const others = overlaps.flatMap(([a, b]) => (a === index ? [b] : b === index ? [a] : []));
+    return others.length === 0 ? [] : [{ ...label(entry), with: others.map((other) => label(after[other] as Entry)) }];
+  });
+  return { issues: [], conflicts };
+}
+
+export function priceRuleConflict(conflicts: PriceConflict[]): AppError {
+  return new AppError(409, "PRICE_RULE_CONFLICT", "同一个区域、车型组、方向或套餐的价格，生效日期不能重叠（两头的日期都算在内，停用的也算）", { conflicts });
+}
+
+/**
+ * 在已经锁住商品、核对过版本号的事务里，检查并写入一批价格改动（保存和导入共用）。
+ * 写得不对抛 400，重叠抛 409，已上架的商品改完不满足上架条件抛 409；抛错时事务整体回滚。
+ */
+export async function applyPriceChanges(db: Db, writer: ProductWriter, context: PricingContext, changes: PriceChanges, single: boolean, now: Date): Promise<PriceSaveResult> {
+  const tenantId = writer.principal.tenantId;
+  const { product } = context;
+  const productId = product.id;
+  const stored = new Map(context.priceRules.map((rule) => [rule.id, rule]));
+  // 单条的修改 / 删除：那一条不存在就是 404（批量里则指出是第几条）
+  if (single && [...changes.update.map((entry) => entry.id), ...changes.remove].some((id) => !stored.has(id))) throw notFound("价格规则");
+  const check = checkPriceChanges(context, changes, single);
+  if (check.issues.length > 0) invalid(check.issues);
+  if (check.conflicts.length > 0) throw priceRuleConflict(check.conflicts);
+
+  const noChange = changes.create.length === 0 && changes.remove.length === 0 && changes.update.every((entry) => samePriceRule(entry.rule, stored.get(entry.id) as StoredPriceRule));
+  if (noChange) return { view: priceRulesView(context, product, context.priceRules), created: [] };
+
+  // 先删、再改、再加：数据库里没有唯一约束要躲，这个顺序只是让审计日志好读
+  await deletePriceRules(db, tenantId, productId, changes.remove);
+  for (const id of changes.remove) await audit(db, writer, now, { resource: "price_rule", id, action: "delete", before: { product_id: productId, ...priceAudit(stored.get(id) as StoredPriceRule) }, after: null });
+  for (const entry of changes.update) {
+    const before = stored.get(entry.id) as StoredPriceRule;
+    if (samePriceRule(entry.rule, before)) continue;
+    await updatePriceRule(db, tenantId, productId, entry.id, entry.rule, now);
+    const [old, fresh] = [priceAudit(before), priceAudit(entry.rule)];
+    const changedKeys = Object.keys(fresh).filter((key) => !isDeepStrictEqual(old[key], fresh[key]));
+    await audit(db, writer, now, {
+      resource: "price_rule",
+      id: entry.id,
+      action: "update",
+      before: Object.fromEntries(changedKeys.map((key) => [key, old[key] ?? null])),
+      after: Object.fromEntries(changedKeys.map((key) => [key, fresh[key] ?? null])),
+    });
+  }
+  const created: StoredPriceRule[] = [];
+  for (const entry of changes.create) {
+    const row = await insertPriceRule(db, tenantId, productId, entry.rule, now);
+    created.push(row);
+    await audit(db, writer, now, { resource: "price_rule", id: row.id, action: "create", before: null, after: { product_id: productId, ...priceAudit(row) } });
+  }
+  const updated = await bumpProduct(db, tenantId, productId, {}, now);
+  await assertStillPublishable(db, tenantId, updated, now);
+  return { view: priceRulesView(context, updated, await listPriceRules(db, tenantId, productId)), created };
 }
 
 /**
@@ -224,96 +347,10 @@ export async function savePriceRules(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
-  const prefix = (kind: "create" | "update" | "delete", index: number): string => (options.single ? "" : `/${kind}/${index}`);
   const work = async (db: Db): Promise<{ status: number; body: Record<string, unknown> }> => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: true });
-    const { product } = context;
-    if (product.version !== expectedVersion) throw versionConflict(product.version);
-    const total = changes.create.length + changes.update.length + changes.remove.length;
-    if (total > PRICE_LIMITS.maxBatchChanges) invalid([{ path: "/", reason: "TOO_MANY", message: `一次最多改 ${PRICE_LIMITS.maxBatchChanges} 条价格规则`, detail: { max: PRICE_LIMITS.maxBatchChanges } }]);
-
-    const stored = new Map(context.priceRules.map((rule) => [rule.id, rule]));
-    // 单条的修改 / 删除：那一条不存在就是 404（批量里则指出是第几条）
-    if (options.single && [...changes.update.map((entry) => entry.id), ...changes.remove].some((id) => !stored.has(id))) throw notFound("价格规则");
-    const areas = new Set(context.areaIds);
-    const groups = new Set(context.vehicleGroupIds);
-    const issues: InputIssue[] = [];
-    const touched = new Set<string>();
-    const checkRule = (rule: PriceRule, at: string, before: StoredPriceRule | null): void => {
-      issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at));
-      if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格" });
-      if (!groups.has(rule.vehicleGroupId) && before?.vehicleGroupId !== rule.vehicleGroupId) {
-        issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格" });
-      }
-    };
-    for (const [index, entry] of changes.create.entries()) checkRule(entry.rule, prefix("create", index), null);
-    for (const [index, entry] of changes.update.entries()) {
-      const at = prefix("update", index);
-      const before = stored.get(entry.id);
-      if (!before) issues.push({ path: `${at}/id`, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
-      else if (touched.has(entry.id)) issues.push({ path: `${at}/id`, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
-      else checkRule(entry.rule, at, before);
-      touched.add(entry.id);
-    }
-    for (const [index, id] of changes.remove.entries()) {
-      const at = prefix("delete", index) || "/id";
-      if (!stored.has(id)) issues.push({ path: at, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
-      else if (touched.has(id)) issues.push({ path: at, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
-      touched.add(id);
-    }
-    const remaining = context.priceRules.filter((rule) => !touched.has(rule.id));
-    if (remaining.length + changes.update.length + changes.create.length > PRICE_LIMITS.maxPriceRulesPerProduct) {
-      issues.push({ path: "/", reason: "TOO_MANY", message: `一个商品最多 ${PRICE_LIMITS.maxPriceRulesPerProduct} 条价格规则`, detail: { max: PRICE_LIMITS.maxPriceRulesPerProduct } });
-    }
-    if (issues.length > 0) invalid(issues);
-
-    // 唯一性：保存之后的全部规则里，同一个组合的生效日期不能重叠（停用的也算）
-    type Entry = { rule: PriceRule; id: string | null; ref: string | null; changed: boolean };
-    const after: Entry[] = [
-      ...remaining.map((rule): Entry => ({ rule, id: rule.id, ref: null, changed: false })),
-      ...changes.update.map((entry): Entry => ({ rule: entry.rule, id: entry.id, ref: null, changed: true })),
-      ...changes.create.map((entry): Entry => ({ rule: entry.rule, id: null, ref: entry.ref, changed: true })),
-    ];
-    const overlaps = findPriceRuleOverlaps(after.map((entry) => entry.rule));
-    if (overlaps.length > 0) {
-      const label = (entry: Entry): Record<string, string | null> => ({ ...(entry.id === null ? { ref: entry.ref } : { id: entry.id }), valid_from: entry.rule.validFrom, valid_to: entry.rule.validTo });
-      const conflicts = after.flatMap((entry, index) => {
-        if (!entry.changed) return [];
-        const others = overlaps.flatMap(([a, b]) => (a === index ? [b] : b === index ? [a] : []));
-        return others.length === 0 ? [] : [{ ...label(entry), with: others.map((other) => label(after[other] as Entry)) }];
-      });
-      throw new AppError(409, "PRICE_RULE_CONFLICT", "同一个区域、车型组、方向或套餐的价格，生效日期不能重叠（两头的日期都算在内，停用的也算）", { conflicts });
-    }
-
-    const noChange = changes.create.length === 0 && changes.remove.length === 0 && changes.update.every((entry) => samePriceRule(entry.rule, stored.get(entry.id) as StoredPriceRule));
-    if (noChange) return options.respond({ view: priceRulesView(context, product, context.priceRules), created: [] });
-
-    // 先删、再改、再加：数据库里没有唯一约束要躲，这个顺序只是让审计日志好读
-    await deletePriceRules(db, tenantId, productId, changes.remove);
-    for (const id of changes.remove) await audit(db, writer, now, { resource: "price_rule", id, action: "delete", before: { product_id: productId, ...priceAudit(stored.get(id) as StoredPriceRule) }, after: null });
-    for (const entry of changes.update) {
-      const before = stored.get(entry.id) as StoredPriceRule;
-      if (samePriceRule(entry.rule, before)) continue;
-      await updatePriceRule(db, tenantId, productId, entry.id, entry.rule, now);
-      const [old, fresh] = [priceAudit(before), priceAudit(entry.rule)];
-      const changedKeys = Object.keys(fresh).filter((key) => JSON.stringify(old[key]) !== JSON.stringify(fresh[key]));
-      await audit(db, writer, now, {
-        resource: "price_rule",
-        id: entry.id,
-        action: "update",
-        before: Object.fromEntries(changedKeys.map((key) => [key, old[key] ?? null])),
-        after: Object.fromEntries(changedKeys.map((key) => [key, fresh[key] ?? null])),
-      });
-    }
-    const created: StoredPriceRule[] = [];
-    for (const entry of changes.create) {
-      const row = await insertPriceRule(db, tenantId, productId, entry.rule, now);
-      created.push(row);
-      await audit(db, writer, now, { resource: "price_rule", id: row.id, action: "create", before: null, after: { product_id: productId, ...priceAudit(row) } });
-    }
-    const updated = await bumpProduct(db, tenantId, productId, {}, now);
-    await assertStillPublishable(db, tenantId, updated, now);
-    return options.respond({ view: priceRulesView(context, updated, await listPriceRules(db, tenantId, productId)), created });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
+    if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
+    return options.respond(await applyPriceChanges(db, writer, context, changes, options.single, now));
   };
   return writeTx(ctx, tenantId, async (db) => {
     const { idempotency } = options;
@@ -326,7 +363,7 @@ export async function savePriceRules(
 export function getPriceCoverage(ctx: AppContext, tenantId: string, productId: string): Promise<{ today: string; coverage: PriceCoverage; rules: StoredPriceRule[] }> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: false });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
     const coverage = priceCoverage({ category: context.product.category, areaIds: context.areaIds, vehicleGroupIds: context.vehicleGroupIds, rules: context.priceRules, today: context.today });
     return { today: context.today, coverage, rules: context.priceRules };
   });
@@ -345,7 +382,7 @@ export interface AdjustRulesView {
 export function getAdjustRules(ctx: AppContext, tenantId: string, productId: string): Promise<AdjustRulesView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: false });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
     return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, items: context.adjustRules };
   });
 }
@@ -400,7 +437,7 @@ export function createAdjustRule(ctx: AppContext, writer: ProductWriter, product
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
     const result = await runIdempotent(db, { tenantId, scope: idempotency.scope, key: idempotency.key, request: { productId, expectedVersion, rule }, now }, async () => {
-      const context = await loadContext(db, tenantId, productId, now, { lock: true });
+      const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
       if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
       if (context.adjustRules.length >= PRICE_LIMITS.maxAdjustRulesPerProduct) {
         invalid([{ path: "/", reason: "TOO_MANY", message: `一个商品最多 ${PRICE_LIMITS.maxAdjustRulesPerProduct} 条调价规则`, detail: { max: PRICE_LIMITS.maxAdjustRulesPerProduct } }]);
@@ -429,7 +466,7 @@ async function changeAdjustRule(
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: true });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
     const current = context.adjustRules.find((rule) => rule.id === ruleId);
     if (!current) throw notFound("调价规则");
     if (expectedVersion !== null && context.product.version !== expectedVersion) throw versionConflict(context.product.version);
@@ -440,7 +477,7 @@ async function changeAdjustRule(
       return { version: (await bumpProduct(db, tenantId, productId, {}, now)).version, today: context.today, rule: null };
     }
     const [old, fresh] = [adjustAudit(current), adjustAudit(next)];
-    const changedKeys = Object.keys(fresh).filter((key) => JSON.stringify(old[key]) !== JSON.stringify(fresh[key]));
+    const changedKeys = Object.keys(fresh).filter((key) => !isDeepStrictEqual(old[key], fresh[key]));
     if (changedKeys.length === 0) return { version: context.product.version, today: context.today, rule: current };
     assertAdjustRule(context, next, current);
     const saved = await updateAdjustRuleRow(db, tenantId, productId, ruleId, next, now);
@@ -473,7 +510,7 @@ export function reorderAdjustRules(ctx: AppContext, writer: ProductWriter, produ
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: true });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
     if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
     const current = context.adjustRules.map((rule) => rule.id);
     if (ids.length !== current.length || new Set(ids).size !== ids.length || ids.some((id) => !current.includes(id))) {
@@ -529,7 +566,7 @@ export interface CalendarView {
 export function getPriceCalendar(ctx: AppContext, tenantId: string, productId: string, query: CalendarQuery): Promise<CalendarView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
-    const context = await loadContext(db, tenantId, productId, now, { lock: false });
+    const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
     const { category } = context.product;
     const issues: InputIssue[] = [];
     if (!isLocalDate(query.from)) issues.push({ path: "/from", reason: "INVALID_DATE", message: ISSUE_MESSAGES.INVALID_DATE });
@@ -646,7 +683,7 @@ export function putHoliday(ctx: AppContext, writer: MasterWriter, countryCode: s
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {
     const before = await findHoliday(db, countryCode, date);
-    if (before && JSON.stringify(before.name) === JSON.stringify(name)) return { holiday: before, created: false };
+    if (before && isDeepStrictEqual(before.name, name)) return { holiday: before, created: false };
     const holiday = await upsertHoliday(db, countryCode, date, name, now);
     await insertAuditLog(db, consoleOrigin(platformActor(writer.principal.user), writer.ip, now), {
       tenantId: null,

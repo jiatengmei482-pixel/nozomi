@@ -14,6 +14,7 @@ import { checkHealth } from "./health.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
 import { registerAreaRoutes } from "./routes/areas.ts";
 import { registerMasterDataRoutes } from "./routes/master-data.ts";
+import { registerImportExportRoutes } from "./routes/import-export.ts";
 import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
@@ -158,6 +159,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerProductRoutes(app, context);
   registerPriceRoutes(app, context);
   registerInventoryRoutes(app, context);
+  registerImportExportRoutes(app, context);
 
   return app;
 }
