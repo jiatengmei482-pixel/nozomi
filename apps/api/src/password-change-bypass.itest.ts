@@ -107,10 +107,16 @@ const AREA_BODY = {
 };
 
 /** 每个被拦的业务接口配一份「本来会成功」的请求体：证明被拦不是因为参数不对。 */
-function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }): [HttpMethod, string, unknown?][] {
+const PRICE_BODY = { area_id: "99999999-9999-4999-8999-999999999999", vehicle_group_id: "99999999-9999-4999-8999-999999999999", pricing_model: "fixed", base_price: 1, valid_from: "2026-10-01" };
+const ADJUST_BODY = { name: "不该出现的调价", cycle: { type: "daily" }, steps: [{ type: "percent", value: 1_000 }] };
+
+function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; holiday?: { country: string; date: string } }): [HttpMethod, string, unknown?][] {
   if (entry === "platform") {
     return [
       ["GET", "/platform/v1/dashboard/summary"],
+      ["GET", "/platform/v1/holidays"],
+      ["PUT", `/platform/v1/holidays/${ids.holiday?.country ?? "JP"}/${ids.holiday?.date ?? "2027-01-01"}`, { name: { ja: "不该出现的假日" } }],
+      ["DELETE", `/platform/v1/holidays/${ids.holiday?.country ?? "JP"}/${ids.holiday?.date ?? "2027-01-01"}`],
       ["GET", "/platform/v1/staff"],
       ["POST", "/platform/v1/staff", { email: `bypass-${randomUUID().slice(0, 8)}@platform.test`, name: "不该出现", role: "finance" }],
       ["POST", `/platform/v1/staff/${ids.userId}/disable`],
@@ -169,6 +175,23 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string }
     ["GET", `/tenant/v1/products/${ids.userId}/publish-check`],
     ["POST", `/tenant/v1/products/${ids.userId}/publish`],
     ["POST", `/tenant/v1/products/${ids.userId}/unpublish`],
+    ["GET", `/tenant/v1/products/${ids.userId}/price-rules`],
+    ["POST", `/tenant/v1/products/${ids.userId}/price-rules`, PRICE_BODY],
+    ["POST", `/tenant/v1/products/${ids.userId}/price-rules/batch`, { create: [PRICE_BODY] }],
+    ["PUT", `/tenant/v1/products/${ids.userId}/price-rules/${ids.userId}`, PRICE_BODY],
+    ["DELETE", `/tenant/v1/products/${ids.userId}/price-rules/${ids.userId}`],
+    ["GET", `/tenant/v1/products/${ids.userId}/price-coverage`],
+    ["GET", `/tenant/v1/products/${ids.userId}/price-calendar`],
+    ["GET", `/tenant/v1/products/${ids.userId}/adjust-rules`],
+    ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules`, ADJUST_BODY],
+    ["PUT", `/tenant/v1/products/${ids.userId}/adjust-rules/order`, { ids: [] }],
+    ["PUT", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}`, ADJUST_BODY],
+    ["DELETE", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}`],
+    ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}/enable`],
+    ["POST", `/tenant/v1/products/${ids.userId}/adjust-rules/${ids.userId}/disable`],
+    ["GET", "/tenant/v1/price-overview"],
+    ["PUT", `/tenant/v1/brands/${ids.userId}/rounding-unit`, { rounding_unit: 100 }],
+    ["GET", "/tenant/v1/holidays"],
     ["GET", "/tenant/v1/map/config"],
     ["GET", "/tenant/v1/dashboard/summary"],
   ];
@@ -182,10 +205,11 @@ function assertBlocked(res: ApiResponse, label: string): void {
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
     .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health")
-    .map((route) => `${route.method} ${route.path}`)
+    // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
+    .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();
   const listed = (["platform", "tenant"] as const)
-    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id" }).map(([method, url]) => `${method} ${url}`))
+    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id", holiday: { country: ":id", date: ":id" } }).map(([method, url]) => `${method} ${url}`))
     .sort();
   assert.deepEqual(listed, registered, "新增了业务接口：请把它加进 generalRequests，让下面的用例也覆盖到它");
 });

@@ -39,7 +39,12 @@ const MISSING = "99999999-9999-4999-8999-999999999999";
 const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
 const ANY_STAFF = ["GET /platform/v1/dashboard/summary"];
-const PROTECTED: { method: "GET" | "POST" | "PATCH"; url: string; action: PlatformAction; body?: unknown }[] = [
+const HOLIDAY = "/platform/v1/holidays/JP/2027-01-01";
+const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: string; action: PlatformAction; body?: unknown }[] = [
+  // 节假日日历是平台主数据（ADR 0018）：看用 master_data.read，登记、修改、删除用 master_data.manage
+  { method: "GET", url: "/platform/v1/holidays", action: "master_data.read" },
+  { method: "PUT", url: HOLIDAY, action: "master_data.manage", body: {} },
+  { method: "DELETE", url: "/platform/v1/holidays/JP/2027-12-31", action: "master_data.manage" },
   { method: "GET", url: "/platform/v1/staff", action: "staff.read" },
   { method: "POST", url: "/platform/v1/staff", action: "staff.manage", body: {} },
   { method: "POST", url: `/platform/v1/staff/${MISSING}/disable`, action: "staff.manage" },
@@ -90,7 +95,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
-  const tested = [...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id")}`), ...ANY_STAFF].sort();
+  const tested = [...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`), ...ANY_STAFF].sort();
   assert.deepEqual(tested, registered);
 });
 

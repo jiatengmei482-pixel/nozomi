@@ -803,6 +803,201 @@ test("子品牌和商品的隔离（数据库层面）：租户事务里只看�
   assert.deepEqual(await productRows(), before);
 });
 
+// ---- 价格规则、调价规则（M1-04）----
+
+type PriceSide = { productId: string; brandId: string; areaId: string; priceRuleId: string; adjustRuleId: string };
+const priceFixture: { a?: PriceSide; b?: PriceSide; vehicleGroupId?: string } = {};
+
+/** 两个供应商各有一个点对点商品，选了自己的区域和同一个平台车型组，各有一条价格规则和一条调价规则（用的是同一个幂等键）。 */
+async function seedPrices(): Promise<{ a: PriceSide; b: PriceSide; vehicleGroupId: string }> {
+  const seeded = await seedProducts();
+  await seedMasterData();
+  if (priceFixture.vehicleGroupId === undefined) {
+    const vehicleGroupId = master["vehicle-groups"]!.active.id as string;
+    priceFixture.vehicleGroupId = vehicleGroupId;
+    for (const [name, fixture] of [["a", a], ["b", b]] as const) {
+      api.clock.advance(1_000);
+      const call = (method: HttpMethod, path: string, body: unknown, version?: number): Promise<ApiResponse> =>
+        api.call(method, `/tenant/v1${path}`, { token: fixture.adminToken, body, headers: { "idempotency-key": "shared-key-0003", ...(version === undefined ? {} : { "if-match": `"${version}"` }) } });
+      const areaId = seeded.areas[name].id as string;
+      const chosen = master["vehicle-groups"]!.active.combos[0];
+      const product = await call("POST", "/products", { brand_id: seeded[name].brand.id, city_id: seeded.cityId, category: "point_to_point", areas: [{ area_id: areaId }], vehicle_groups: [{ vehicle_group_id: vehicleGroupId, ...chosen }] });
+      assert.equal(product.status, 201, product.text);
+      const price = await call("POST", `/products/${product.body.id}/price-rules`, { area_id: areaId, vehicle_group_id: vehicleGroupId, pricing_model: "fixed", base_price: name === "a" ? 11_000 : 22_000, valid_from: "2026-10-01", tenant_id: name === "a" ? b.tenantId : a.tenantId }, 1);
+      assert.equal(price.status, 201, price.text);
+      const adjust = await call("POST", `/products/${product.body.id}/adjust-rules`, { name: `${name} 的旺季`, cycle: { type: "daily" }, steps: [{ type: "percent", value: 1_000 }], tenant_id: name === "a" ? b.tenantId : a.tenantId }, 2);
+      assert.equal(adjust.status, 201, adjust.text);
+      priceFixture[name] = { productId: product.body.id, brandId: seeded[name].brand.id, areaId, priceRuleId: price.body.price_rule.id, adjustRuleId: adjust.body.adjust_rule.id };
+    }
+  }
+  return priceFixture as { a: PriceSide; b: PriceSide; vehicleGroupId: string };
+}
+
+async function priceRows(): Promise<unknown> {
+  return {
+    prices: (await api.db.owner.query("select tenant_id, id, product_id, area_id, params, valid_from::text, valid_to::text, status, updated_at from price_rules order by id")).rows,
+    adjusts: (await api.db.owner.query("select tenant_id, id, product_id, name, steps, position, status, updated_at from adjust_rules order by id")).rows,
+    products: (await api.db.owner.query("select id, version, status, updated_at from products order by id")).rows,
+    brands: (await api.db.owner.query("select id, rounding_unit, version from brands order by id")).rows,
+  };
+}
+
+test("价格和调价建在令牌所属的供应商名下：请求体里的 tenant_id 不生效；同一个幂等键在两个供应商之间互不相干；各自只看得到自己的", async () => {
+  cover("POST /tenant/v1/products/:id/price-rules");
+  cover("POST /tenant/v1/products/:id/adjust-rules");
+  cover("GET /tenant/v1/products/:id/price-rules");
+  cover("GET /tenant/v1/products/:id/adjust-rules");
+  cover("GET /tenant/v1/price-overview");
+  const seeded = await seedPrices();
+  assert.notEqual(seeded.a.priceRuleId, seeded.b.priceRuleId);
+  const owners = await api.db.owner.query("select 'price' as kind, id, tenant_id from price_rules union all select 'adjust', id, tenant_id from adjust_rules order by kind, tenant_id");
+  assert.deepEqual(
+    owners.rows.map((row) => [row.kind, row.id, row.tenant_id]).sort(),
+    [["price", seeded.a.priceRuleId, a.tenantId], ["price", seeded.b.priceRuleId, b.tenantId], ["adjust", seeded.a.adjustRuleId, a.tenantId], ["adjust", seeded.b.adjustRuleId, b.tenantId]].sort(),
+  );
+  const mine = await api.call("GET", `/tenant/v1/products/${seeded.a.productId}/price-rules?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.deepEqual(mine.body.items.map((item: any) => [item.id, item.base_price]), [[seeded.a.priceRuleId, 11_000]]);
+  const rules = await api.call("GET", `/tenant/v1/products/${seeded.a.productId}/adjust-rules`, { token: a.adminToken });
+  assert.deepEqual(rules.body.items.map((item: any) => item.id), [seeded.a.adjustRuleId]);
+  const overview = await api.call("GET", `/tenant/v1/price-overview?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.ok(overview.body.items.some((item: any) => item.product_id === seeded.a.productId));
+  assert.ok(!overview.text.includes(seeded.b.productId) && !overview.text.includes(b.tenantId));
+  assert.deepEqual([overview.body.products_with_price, overview.body.items.length], [1, 2], "只数自己的两个商品，其中一个有价格");
+});
+
+test("价格、调价、日历、缺价的每个接口：别的供应商的商品一律 404（和不存在一样），对方的数据原样不动", async () => {
+  const seeded = await seedPrices();
+  const before = await priceRows();
+  const theirs = seeded.b;
+  const calendarQuery = `area_id=${theirs.areaId}&vehicle_group_id=${seeded.vehicleGroupId}&from=2026-10-01&to=2026-10-02`;
+  const price = { area_id: theirs.areaId, vehicle_group_id: seeded.vehicleGroupId, pricing_model: "fixed", base_price: 1, valid_from: "2027-01-01", tenant_id: b.tenantId };
+  const adjust = { name: "被甲改了", cycle: { type: "daily" }, steps: [{ type: "percent", value: -5_000 }] };
+  const requests: [HttpMethod, string, (side: PriceSide | null) => string, unknown?][] = [
+    ["GET", "/tenant/v1/products/:id/price-rules", () => "/price-rules"],
+    ["POST", "/tenant/v1/products/:id/price-rules", () => "/price-rules", price],
+    ["POST", "/tenant/v1/products/:id/price-rules/batch", () => "/price-rules/batch", { delete: [theirs.priceRuleId] }],
+    ["PUT", "/tenant/v1/products/:id/price-rules/:ruleId", () => `/price-rules/${theirs.priceRuleId}`, price],
+    ["DELETE", "/tenant/v1/products/:id/price-rules/:ruleId", () => `/price-rules/${theirs.priceRuleId}`],
+    ["GET", "/tenant/v1/products/:id/price-coverage", () => "/price-coverage"],
+    ["GET", "/tenant/v1/products/:id/price-calendar", () => `/price-calendar?${calendarQuery}`],
+    ["GET", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules"],
+    ["POST", "/tenant/v1/products/:id/adjust-rules", () => "/adjust-rules", adjust],
+    ["PUT", "/tenant/v1/products/:id/adjust-rules/order", () => "/adjust-rules/order", { ids: [theirs.adjustRuleId] }],
+    ["PUT", "/tenant/v1/products/:id/adjust-rules/:ruleId", () => `/adjust-rules/${theirs.adjustRuleId}`, adjust],
+    ["DELETE", "/tenant/v1/products/:id/adjust-rules/:ruleId", () => `/adjust-rules/${theirs.adjustRuleId}`],
+    ["POST", "/tenant/v1/products/:id/adjust-rules/:ruleId/enable", () => `/adjust-rules/${theirs.adjustRuleId}/enable`],
+    ["POST", "/tenant/v1/products/:id/adjust-rules/:ruleId/disable", () => `/adjust-rules/${theirs.adjustRuleId}/disable`],
+  ];
+  for (const [method, route, suffix, body] of requests) {
+    cover(`${method} ${route}`);
+    const send = (productId: string): Promise<ApiResponse> =>
+      api.call(method, `/tenant/v1/products/${productId}${suffix(null)}`, { token: a.adminToken, headers: { "if-match": '"3"', "idempotency-key": randomUUID() }, ...(body === undefined ? {} : { body }) });
+    const foreign = await send(theirs.productId);
+    assert.equal(foreign.status, 404, `${method} ${route}：${foreign.text}`);
+    assert.equal(foreign.text, (await send(NO_SUCH_ID)).text, `${method} ${route}`);
+  }
+  assert.deepEqual(await priceRows(), before);
+  // 对方自己照常用得了
+  assert.equal((await api.call("GET", `/tenant/v1/products/${theirs.productId}/price-calendar?${calendarQuery}`, { token: b.adminToken })).body.days[0].segments[0].final, 24_200);
+});
+
+test("在自己的商品里混进别的供应商的东西：对方的价格编号、调价编号、区域一律和不存在的一样被拒，整批不写", async () => {
+  const seeded = await seedPrices();
+  const before = await priceRows();
+  const mine = seeded.a;
+  const theirs = seeded.b;
+  const version = (await api.call("GET", `/tenant/v1/products/${mine.productId}/price-rules`, { token: a.adminToken })).body.version as number;
+  const send = (method: HttpMethod, suffix: string, body?: unknown): Promise<ApiResponse> =>
+    api.call(method, `/tenant/v1/products/${mine.productId}${suffix}`, { token: a.adminToken, headers: { "if-match": `"${version}"`, "idempotency-key": randomUUID() }, ...(body === undefined ? {} : { body }) });
+  const price = (areaId: string): Record<string, unknown> => ({ area_id: areaId, vehicle_group_id: seeded.vehicleGroupId, pricing_model: "fixed", base_price: 1, valid_from: "2027-01-01" });
+  const reasons = (res: ApiResponse): unknown => res.body.error?.details?.issues?.map((issue: any) => [issue.path, issue.reason]);
+  // 单条：别人的价格 / 调价编号挂在自己的商品下面——404
+  for (const [method, suffix, body] of [
+    ["PUT", `/price-rules/${theirs.priceRuleId}`, price(mine.areaId)],
+    ["DELETE", `/price-rules/${theirs.priceRuleId}`, undefined],
+    ["PUT", `/adjust-rules/${theirs.adjustRuleId}`, { name: "x", cycle: { type: "daily" }, steps: [{ type: "amount", value: 1 }] }],
+    ["DELETE", `/adjust-rules/${theirs.adjustRuleId}`, undefined],
+    ["POST", `/adjust-rules/${theirs.adjustRuleId}/disable`, undefined],
+    ["POST", `/adjust-rules/${theirs.adjustRuleId}/enable`, undefined],
+  ] as const) {
+    const res = await send(method, suffix, body);
+    assert.equal(res.status, 404, `${method} ${suffix}：${res.text}`);
+  }
+  // 批量：一条合法的新增 + 对方的价格编号（改、删）+ 对方的区域——整批 400，和写一个不存在的编号一模一样
+  const batch = (priceId: string, areaId: string): Promise<ApiResponse> =>
+    send("POST", "/price-rules/batch", { create: [price(mine.areaId), price(areaId)], update: [{ ...price(mine.areaId), id: priceId, valid_from: "2028-01-01" }], delete: [priceId] });
+  const mixed = await batch(theirs.priceRuleId, theirs.areaId);
+  assert.equal(mixed.status, 400, mixed.text);
+  assert.deepEqual(reasons(mixed), [["/create/1/area_id", "AREA_NOT_IN_PRODUCT"], ["/update/0/id", "UNKNOWN_PRICE_RULE"], ["/delete/0", "UNKNOWN_PRICE_RULE"]]);
+  assert.equal(mixed.text, (await batch(NO_SUCH_ID, NO_SUCH_ID)).text);
+  const single = await send("POST", "/price-rules", price(theirs.areaId));
+  assert.deepEqual(reasons(single), [["/area_id", "AREA_NOT_IN_PRODUCT"]]);
+  // 调价规则的适用区域、排序里混进对方的编号
+  const adjust = await send("POST", "/adjust-rules", { name: "混进别人的区域", cycle: { type: "daily" }, area_ids: [mine.areaId, theirs.areaId], steps: [{ type: "amount", value: 1 }] });
+  assert.deepEqual(reasons(adjust), [["/area_ids/1", "AREA_NOT_IN_PRODUCT"]]);
+  const order = await send("PUT", "/adjust-rules/order", { ids: [mine.adjustRuleId, theirs.adjustRuleId] });
+  assert.deepEqual(reasons(order), [["/ids", "IDS_MISMATCH"]]);
+  assert.deepEqual(await priceRows(), before);
+});
+
+test("PUT /tenant/v1/brands/{id}/rounding-unit：改不了别的供应商的子品牌的取整单位；GET /tenant/v1/holidays：节假日是平台数据，两边看到的一样", async () => {
+  cover("PUT /tenant/v1/brands/:id/rounding-unit");
+  cover("GET /tenant/v1/holidays");
+  const seeded = await seedPrices();
+  const before = await priceRows();
+  const put = (brandId: string): Promise<ApiResponse> => api.call("PUT", `/tenant/v1/brands/${brandId}/rounding-unit`, { token: a.adminToken, headers: { "if-match": '"1"' }, body: { rounding_unit: 100, tenant_id: b.tenantId } });
+  const foreign = await put(seeded.b.brandId);
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, (await put(NO_SUCH_ID)).text);
+  assert.deepEqual(await priceRows(), before);
+  const day = await api.call("PUT", "/platform/v1/holidays/JP/2027-01-01", { token: platformToken, body: { name: { ja: "元日" } } });
+  assert.ok([200, 201].includes(day.status), day.text);
+  const fromA = await api.call("GET", `/tenant/v1/holidays?from=2027-01-01&to=2027-01-31&tenant_id=${b.tenantId}`, { token: a.adminToken });
+  const fromB = await api.call("GET", "/tenant/v1/holidays?from=2027-01-01&to=2027-01-31", { token: b.adminToken });
+  assert.equal(fromA.status, 200);
+  assert.deepEqual(fromA.body, fromB.body);
+  assert.ok(!fromA.text.includes(a.tenantId) && !fromA.text.includes(b.tenantId));
+  // 租户写不了节假日（数据库层面也没有权限）
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update holidays set name = '{\"ja\": \"x\"}'")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from holidays")), deniedByDatabase);
+});
+
+test("价格和调价的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品和区域上；平台角色碰不到这两张表", async () => {
+  const seeded = await seedPrices();
+  const before = await priceRows();
+  for (const table of ["price_rules", "adjust_rules"]) {
+    const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>(`select distinct tenant_id from ${table}`));
+    assert.deepEqual(seen.rows.map((row) => row.tenant_id), [a.tenantId], table);
+  }
+  const touched = await withTenantTx(api.db.pool, a.tenantId, async (db) => [
+    (await db.query("update price_rules set params = '{\"basePriceMinor\": 1}' where id = $1", [seeded.b.priceRuleId])).rowCount,
+    (await db.query("delete from price_rules where id = $1", [seeded.b.priceRuleId])).rowCount,
+    (await db.query("update adjust_rules set status = 'disabled' where id = $1", [seeded.b.adjustRuleId])).rowCount,
+    (await db.query("delete from adjust_rules where product_id = $1", [seeded.b.productId])).rowCount,
+  ]);
+  assert.deepEqual(touched, [0, 0, 0, 0]);
+  const insertPrice = (tenantId: string, productId: string, areaId: string): Promise<unknown> =>
+    withTenantTx(api.db.pool, a.tenantId, (db) =>
+      db.query(
+        `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, pricing_model, params, valid_from, status, created_at, updated_at)
+         values ($1, $2, $3, $4, 'fixed', '{"basePriceMinor": 1}', '2030-01-01', 'enabled', now(), now())`,
+        [tenantId, productId, areaId, seeded.vehicleGroupId],
+      ),
+    );
+  await assert.rejects(insertPrice(b.tenantId, seeded.b.productId, seeded.b.areaId), { code: "42501" }, "写进别人名下");
+  await assert.rejects(insertPrice(a.tenantId, seeded.b.productId, seeded.a.areaId), { code: "23503" }, "自己的租户编号 + 别人的商品：外键带着租户编号，接不上");
+  await assert.rejects(insertPrice(a.tenantId, seeded.a.productId, seeded.b.areaId), { code: "23503" }, "自己的商品 + 别人的区域");
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update price_rules set tenant_id = $1 where id = $2", [b.tenantId, seeded.a.priceRuleId])), { code: "42501" });
+  await assert.rejects(
+    withTenantTx(api.db.pool, a.tenantId, (db) =>
+      db.query("insert into adjust_rules (tenant_id, product_id, name, cycle, steps, position, status, created_at, updated_at) values ($1, $2, 'x', '{\"type\": \"daily\"}', '[]', 9, 'enabled', now(), now())", [b.tenantId, seeded.b.productId]),
+    ),
+    { code: "42501" },
+  );
+  for (const table of ["price_rules", "adjust_rules"]) await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`)), deniedByDatabase, table);
+  assert.deepEqual(await priceRows(), before);
+});
+
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
   for (const route of api.app.registeredRoutes) {
     if (route.method === "HEAD") continue;
@@ -837,6 +1032,7 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     ...(await Promise.all(MASTER_PATHS.map((path) => api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken })))),
     await api.call("GET", "/tenant/v1/brands", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/products", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });
