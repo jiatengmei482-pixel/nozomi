@@ -23,7 +23,8 @@ export type AuditResource =
   | "product"
   | "price_rule"
   | "adjust_rule"
-  | "holiday";
+  | "holiday"
+  | "inventory";
 export type AuditAction =
   | "login"
   | "login_failed"
