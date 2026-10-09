@@ -25,10 +25,18 @@ export async function reserveLoginAttempt(db: Db, key: string, now: Date): Promi
   return { attemptCount: row.attempt_count, windowStartedAt: row.window_started_at };
 }
 
-/** 退还一次占用（登录成功的那一次不算进「同一来源地址」的失败次数）。 */
+/**
+ * 退还一次占用（登录成功的那一次不算进「同一来源地址」的失败次数）。
+ *
+ * 先减、减不了再删，而且「大于 1 才减」写在同一条语句的条件里。原来是「先删等于 1 的、再无条件减一」：
+ * 同一个来源地址的两次登录同时成功时，两边都看到计数是 2、都不删，接着先后各减一，后一个把计数减成 0，
+ * 撞上表的检查约束（attempt_count > 0），登录明明成功了却返回 500。现在后到的那次等前一次提交后会重新核对条件，
+ * 发现已经是 1，就不减而去删这一行。计数永远不会小于 1；极端的交错下最多多算一次，等窗口结束自然清掉。
+ */
 export async function refundLoginAttempt(db: Db, key: string): Promise<void> {
+  const decremented = await db.query("update login_throttles set attempt_count = attempt_count - 1 where key = $1 and attempt_count > 1", [key]);
+  if ((decremented.rowCount ?? 0) > 0) return;
   await db.query("delete from login_throttles where key = $1 and attempt_count <= 1", [key]);
-  await db.query("update login_throttles set attempt_count = attempt_count - 1 where key = $1", [key]);
 }
 
 /** 登录成功后清掉计数。 */
