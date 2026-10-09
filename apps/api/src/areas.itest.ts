@@ -203,6 +203,11 @@ test("幂等：没带键是 400；同一个键同样的内容再来，原样返�
   // 同一个键配了不同的内容
   const different = await post({ ...payload, biz_type: "charter" }, key);
   assert.deepEqual([different.status, different.body.error.code], [422, "IDEMPOTENCY_KEY_REUSED"]);
+  // 应答丢了、改了内容再存的出路：错误里带着上一次建成的那条，凭它可以转成修改
+  assert.deepEqual(different.body.error.details, { created: { id: first.body.id, version: first.body.version } });
+  const { created: earlier } = different.body.error.details;
+  const adopted = await put(earlier.id, earlier.version, { name: payload["name"], biz_type: "charter", polygons: payload["polygons"] });
+  assert.deepEqual([adopted.status, adopted.body.id, adopted.body.biz_type, adopted.body.version], [200, first.body.id, "charter", first.body.version + 1]);
   // 第一次的结果后来被改了、删了，带同一个键再来仍然返回当时的应答，不会再建一个
   assert.equal((await call("DELETE", `/areas/${first.body.id}`)).status, 204);
   assert.deepEqual((await post(payload, key)).body, first.body);

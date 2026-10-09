@@ -51,11 +51,20 @@ const platformMe = () =>
     must_change_password: false,
   });
 
+/**
+ * 当前登录的信息现在在哪：供应商名称和状态在首页的标题行，姓名和角色在顶栏的账号按钮上，邮箱在账号菜单里
+ * （docs/design/pages/tenant-home.md；原来首页有一张「当前登录」卡片）。
+ */
+const DETAIL_SELECTORS: Readonly<Record<string, string>> = { 姓名: ".account-button__name", 角色: ".account-button__role", 供应商名称: ".page__meta .tenant-name", 供应商状态: ".page__meta .tenant-status" };
 function detail(label: string): HTMLElement {
-  const term = screen.getByText(label, { selector: "dt" });
-  const value = term.parentElement?.querySelector("dd");
+  const value = document.querySelector<HTMLElement>(DETAIL_SELECTORS[label] ?? "");
   assert.ok(value, `没有「${label}」这一项`);
-  return value as HTMLElement;
+  return value;
+}
+
+/** 等账号信息取回来：顶栏的账号按钮上出现姓名。 */
+async function accountLoaded(name: string): Promise<void> {
+  await screen.findByText(name, { selector: ".account-button__name" });
 }
 
 test("没登录打开后台页面：去登录页，并记下原来想去的地址", () => {
@@ -80,7 +89,7 @@ test("供应商后台首页：姓名、邮箱、角色中文名、供应商名�
   signIn("tenant", "tenant-token");
   const calls = stubApi({ "GET /tenant/v1/auth/me": tenantMe("active") });
   renderAt("/", ROUTES);
-  await screen.findByText("dispatcher@supplier.example", { selector: "dd" });
+  await accountLoaded("测试调度");
   assert.equal(calls[0]?.headers["authorization"], "Bearer tenant-token");
   assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "首页");
   assert.equal(document.title, "首页 · NOZOMI 供应商后台");
@@ -89,6 +98,10 @@ test("供应商后台首页：姓名、邮箱、角色中文名、供应商名�
   assert.equal(detail("供应商名称").textContent, "测试用供应商");
   assert.equal(detail("供应商状态").textContent, "正常");
   assert.ok(detail("供应商状态").querySelector(".badge--success"));
+  // 邮箱在账号菜单里
+  await userEvent.setup().click(screen.getByRole("button", { name: /账号菜单/ }));
+  assert.equal(document.querySelector(".menu-header__email")?.textContent, "dispatcher@supplier.example");
+  assertAbsent(screen.queryByText("当前登录"));
 });
 
 test("供应商被暂停：状态徽标写出「已暂停」（颜色 + 文字），页面照常可用", async () => {
@@ -104,10 +117,10 @@ test("运营后台首页：没有供应商那两项；侧边栏写明是运营�
   signIn("platform");
   stubApi({ "GET /platform/v1/auth/me": platformMe });
   renderAt("/platform", ROUTES);
-  await screen.findByText("admin@platform.example", { selector: "dd" });
+  await accountLoaded("测试管理员");
   assert.equal(detail("角色").textContent, "超级管理员");
-  assertAbsent(screen.queryByText("供应商名称"));
-  assertAbsent(screen.queryByText("供应商状态"));
+  assertAbsent(document.querySelector(".tenant-name"));
+  assertAbsent(document.querySelector(".tenant-status"));
   assert.equal(document.title, "首页 · NOZOMI 运营后台");
   assert.ok(document.querySelector(".sidebar--pinned")?.textContent?.includes("运营后台"));
 });
@@ -292,7 +305,7 @@ test("auth/me 的 must_change_password 不是布尔值：菜单一直不显示",
   signIn("platform");
   stubApi({ "GET /platform/v1/auth/me": () => json(200, { user: { id: "p1", email: "admin@platform.example", name: "测试管理员", role: "super_admin", status: "active", ...stamps }, permissions: [], must_change_password: "false" }) });
   renderAt("/platform", ROUTES);
-  await screen.findByText("admin@platform.example", { selector: "dd" });
+  await accountLoaded("测试管理员");
   assertAbsent(document.querySelector('nav[aria-label="主菜单"]'));
   assertAbsent(document.querySelector(".sidebar--pinned .skeleton"));
 });

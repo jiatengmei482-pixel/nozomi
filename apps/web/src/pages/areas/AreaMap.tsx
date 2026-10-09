@@ -10,6 +10,7 @@ import L from "leaflet";
 import { type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { MapTiles } from "../../api/areas.ts";
 import { Icon } from "../../components/Icon.tsx";
+import { QuietTileLayer } from "../../lib/quiet-tile-layer.ts";
 import { type EditorAction, type EditorShape, locateInEditor, metersToKmText, shapeName, shapeProblems, shapeRing, shapesBounds } from "../../lib/area-editor.ts";
 import type { ProbeResult } from "./SelfTest.tsx";
 
@@ -125,7 +126,7 @@ export function AreaMap({ tiles, shapes, selected, dispatch, readOnly, tool, new
     if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
     let loaded = 0;
     let failed = 0;
-    L.tileLayer(url, { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
+    new QuietTileLayer(url, { tileSize: tiles.tile_size, zoomOffset: tiles.tile_size === 512 ? -1 : 0, minZoom: tiles.min_zoom, maxZoom: tiles.max_zoom, referrerPolicy: tiles.referrer_policy })
       .on("tileload", () => {
         loaded += 1;
         setTileTrouble(false);

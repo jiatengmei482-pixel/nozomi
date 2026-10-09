@@ -4,7 +4,7 @@
  * 新建页第一次保存 = 创建商品；之后每次保存只带区域、车型组、调度人。
  */
 import { AREA_BIZ_TYPE_NAMES, type AreaBizType, type LocalizedText, type MasterDataStatus, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, type ServiceCategory, VEHICLE_GRADES, areaUsableByCategory, emptyServiceRules, isPhoneNumber, publishCheck } from "@nozomi/domain";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { type AreaSummary, listTenantCities } from "../../api/areas.ts";
 import type { City, Place, VehicleGroup } from "../../api/master.ts";
@@ -104,8 +104,12 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
   const signature = (value: { areas: AreaPick[]; groups: GroupPick[]; dispatchers: DispatcherRow[] }): string => JSON.stringify([value.areas.map((area) => area.id), value.groups, cleanDispatchers(value.dispatchers)]);
   const dirtyFields = signature({ areas, groups: picked, dispatchers }) !== signature(initial);
   const productKey = product ? `${product.id}:${product.version}` : "";
+  const adoptedKey = useRef(productKey);
   useEffect(() => {
-    if (product === null || dirtyFields) return;
+    // 刚打开时页面上已经是这一份了，不用再换一遍（否则会和用户紧接着的输入抢）
+    if (product === null || adoptedKey.current === productKey) return;
+    adoptedKey.current = productKey;
+    if (dirtyFields) return;
     const next = fromProduct(product);
     setInitial(next);
     setAreas(next.areas);

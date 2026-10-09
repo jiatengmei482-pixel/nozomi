@@ -269,7 +269,8 @@ test("冒烟：两种入口模式都经反向代理检查前端、接口前缀�
 test("端到端测试用的 vite preview 带同一条内容安全策略（同一个函数、同一份构建产物）；文档写明了做法", async () => {
   const viteConfig = await readText("apps/web/vite.config.ts");
   assert.match(viteConfig, /import \{ contentSecurityPolicy, inlineScriptHashes \} from "\.\/build\/edge-config\.ts";/);
-  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*contentSecurityPolicy\(inlineScriptHashes\(indexHtml\)\)[\s\S]*response\.setHeader\("Content-Security-Policy", policy\)/);
+  // 第一个参数必须是这份构建产物的脚本哈希；可以带第二个参数（图片来源，地图底图用，ADR 0015）
+  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*contentSecurityPolicy\(inlineScriptHashes\(indexHtml\)(?:, [A-Za-z]+)?\)[\s\S]*response\.setHeader\("Content-Security-Policy", policy\)/);
   assert.match(viteConfig, /plugins: \[react\(\), previewContentSecurityPolicy\(\)\]/);
 
   const adr = await readText("docs/adr/0007-vps-deployment.md");

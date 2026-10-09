@@ -356,6 +356,9 @@
 }
 
 .page__title {
+  min-width: 0;
+  /* 不带空格的长串（一长串字母数字的名字）也要能折行 */
+  overflow-wrap: anywhere;
   font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);

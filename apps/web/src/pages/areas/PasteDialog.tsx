@@ -2,11 +2,12 @@
  * 粘贴坐标（docs/design/pages/tenant-areas.md 7.4）：GeoJSON、WKT，或每行一对「纬度, 经度」。
  * 解析用 @nozomi/domain 的 parseShapeText（和后端同一份）；文件只在浏览器里读，不上传。
  */
-import { AREA_LIMITS, type AreaPolygonKind, type ParsedShapes, ShapeParseError, parseShapeText } from "@nozomi/domain";
+import { AREA_LIMITS, type AreaPolygonKind, type ParsedShapes, ShapeParseError } from "@nozomi/domain";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { FieldErrors, RadioGroup } from "../../components/FormFields.tsx";
+import { type PastedPolygon, parsePastedShapes } from "../../lib/area-editor.ts";
 import { SHAPE_FORMAT_NAMES, parseFailureText } from "../../lib/area-messages.ts";
 import { formatCount } from "../../lib/master-display.ts";
 
@@ -28,7 +29,7 @@ type Outcome = { ok: true; parsed: ParsedShapes } | { ok: false; message: string
 function read(text: string, kind: AreaPolygonKind, replacing: boolean, existing: number): Outcome {
   let parsed: ParsedShapes;
   try {
-    parsed = parseShapeText(text);
+    parsed = parsePastedShapes(text);
   } catch (err) {
     return { ok: false, message: err instanceof ShapeParseError ? parseFailureText(err.failure) : parseFailureText({ reason: "UNRECOGNIZED" }) };
   }
@@ -39,8 +40,9 @@ function read(text: string, kind: AreaPolygonKind, replacing: boolean, existing:
     if (parsed.polygons.length !== 1 || holes > 0) return { ok: false, message: `这里要的是一个多边形，这段内容里有 ${parsed.polygons.length + holes} 个。要一次加多块，请用工具条上的「粘贴坐标」。` };
     return { ok: true, parsed };
   }
-  if (kind === "forbid" && holes > 0) return { ok: false, message: "禁行区不能带洞。请把它拆成几块不带洞的多边形，或改为「加为营运区」（洞会变成禁行区）。" };
-  const adding = parsed.polygons.length + (kind === "operate" ? holes : 0);
+  const polygons = parsed.polygons as readonly PastedPolygon[];
+  if (polygons.some((polygon) => (polygon.kind ?? kind) === "forbid" && polygon.holes.length > 0)) return { ok: false, message: "禁行区不能带洞。请把它拆成几块不带洞的多边形，或改为「加为营运区」（洞会变成禁行区）。" };
+  const adding = polygons.reduce((sum, polygon) => sum + 1 + ((polygon.kind ?? kind) === "operate" ? polygon.holes.length : 0), 0);
   if (existing + adding > AREA_LIMITS.maxPolygons) return { ok: false, message: `这段内容里有 ${adding} 个多边形，加上已有的 ${existing} 块会超过上限（最多 ${AREA_LIMITS.maxPolygons} 块）。` };
   return { ok: true, parsed };
 }
@@ -48,8 +50,11 @@ function read(text: string, kind: AreaPolygonKind, replacing: boolean, existing:
 function describe(parsed: ParsedShapes, kind: AreaPolygonKind, replacing: boolean): string {
   const points = parsed.polygons.reduce((sum, polygon) => sum + polygon.outer.length + polygon.holes.reduce((inner, hole) => inner + hole.length, 0), 0);
   const holes = parsed.polygons.reduce((sum, polygon) => sum + polygon.holes.length, 0);
+  const copied = (parsed.polygons as readonly PastedPolygon[]).filter((polygon) => polygon.kind !== undefined);
+  const forbidden = copied.filter((polygon) => polygon.kind === "forbid").length;
   return [
     `识别为 ${SHAPE_FORMAT_NAMES[parsed.format]}：${parsed.polygons.length} 个多边形，共 ${formatCount(points)} 个点。`,
+    copied.length > 0 && !replacing ? `这是从这里复制出去的图形：${copied.length - forbidden} 块营运区、${forbidden} 块禁行区，类型和备注名会原样带回，不看上面选的「加为」。` : "",
     holes > 0 && kind === "operate" && !replacing ? `其中 ${holes} 个洞会加为禁行区。` : "",
     parsed.ignored > 0 ? `另有 ${parsed.ignored} 个不是多边形的要素，已忽略。` : "",
   ].join("");

@@ -90,9 +90,19 @@ export function areaNameTaken(): AppError {
   return new AppError(409, "AREA_NAME_TAKEN", "这个城市已经有同名的区域，请换一个名字");
 }
 
-/** 同一个幂等键配了不同的请求内容。 */
-export function idempotencyKeyReused(): AppError {
-  return new AppError(422, "IDEMPOTENCY_KEY_REUSED", "这个 Idempotency-Key 已经用于另一个内容不同的请求，请换一个新的键");
+/**
+ * 同一个幂等键配了不同的请求内容。这个键上一次已经建成了东西时，把那条的编号和当时的版本号放进 `details.created`：
+ * 调用方多半是「第一次其实成功了但没收到应答，改了内容又存一次」，凭它可以改成对那一条的修改，而不是让人刷新后重填。
+ */
+export function idempotencyKeyReused(created: { id: string; version: number } | null = null): AppError {
+  return new AppError(
+    422,
+    "IDEMPOTENCY_KEY_REUSED",
+    created === null
+      ? "这个 Idempotency-Key 已经用于另一个内容不同的请求，请换一个新的键"
+      : "这个 Idempotency-Key 上一次已经创建成功（见 details.created），这次的内容和上一次不同。要改内容请修改已经建好的那一条，或换一个新的键另建",
+    created === null ? {} : { created },
+  );
 }
 
 /** 编码（城市、地点、车型组、附加服务各自全平台唯一）已经被别的记录使用。 */

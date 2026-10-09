@@ -95,9 +95,15 @@ export async function loginAs(page: Page, portal: "tenant" | "platform", email: 
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
 }
 
-/** 「标签：值」里某一项的值。 */
+/**
+ * 当前登录的某一项信息在页面上的位置。供应商后台的首页原来有一张「当前登录」卡片，现在按 tenant-home.md：
+ * 供应商名称和状态在首页的标题行，姓名和角色在顶栏的账号按钮上；邮箱只在账号菜单里，用 expectSignedInAs 核对。
+ */
+const DETAIL_SELECTORS: Readonly<Record<string, string>> = { 姓名: ".account-button__name", 角色: ".account-button__role", 供应商名称: ".page__meta .tenant-name", 供应商状态: ".page__meta .tenant-status" };
 export function detail(page: Page, label: string) {
-  return page.locator(".details__item").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) }).locator("dd");
+  const selector = DETAIL_SELECTORS[label];
+  if (selector === undefined) throw new Error(`「${label}」不在页面上直接显示，请用 expectSignedInAs`);
+  return page.locator(selector);
 }
 
 /**
