@@ -31,6 +31,8 @@ export function ringProblemText(reason: string, detail: Detail = {}): string | n
     }
     case "HAS_HOLES":
       return "图形不能带洞。要在营运区中间挖掉一块，请在那里画一块禁行区。";
+    case "CIRCLE_OUT_OF_BOUNDS":
+      return "这个圆跨过了 180° 经线，或盖住了南北极，不支持。请把半径改小，或把圆心挪开。";
     case "RADIUS_OUT_OF_RANGE":
       return `半径要在 ${AREA_LIMITS.minRadiusM / 1000} 到 ${AREA_LIMITS.maxRadiusM / 1000} 公里之间`;
     default:
@@ -82,7 +84,7 @@ export function parseFailureText(failure: ShapeParseFailure): string {
     case "WKT_SYNTAX":
       return "这段 WKT 的写法不对。应该像这样：POLYGON((139.69 35.68, 139.75 35.68, 139.75 35.72, 139.69 35.68))";
     case "NO_POLYGON":
-      return "这段内容里没有多边形（只有点或线）。区域需要的是多边形。";
+      return "这段内容里没有多边形（只有点、线，或多边形里一个点都没有）。区域需要的是多边形。";
     case "COORDINATE_OUT_OF_RANGE":
       return `第 ${failure.polygon} 个多边形里有超出范围的坐标（纬度要在 -90 到 90、经度要在 -180 到 180 之间）。`;
     case "UNSUPPORTED_SRID":

@@ -4,7 +4,7 @@
  * 浏览器存储被改坏时页面是否还正常。
  */
 import { type Page, type Request, expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, createTenant, detail, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, createActiveTenant, createTenant, detail, expectSignedInAs, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 const SESSION_KEYS = { tenant: "nozomi.session.tenant", platform: "nozomi.session.platform" } as const;
 
@@ -128,7 +128,7 @@ test("邀请链接里的令牌：提交成功后不留在浏览历史里，按�
 test("退出登录后：sessionStorage 清空，令牌在后端作废，「后退」和刷新都看不到登录后的内容", async ({ page, request }) => {
   const tenant = await createActiveTenant(request);
   await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
-  await expect(detail(page, "邮箱")).toHaveText(tenant.adminEmail);
+  await expectSignedInAs(page, { email: tenant.adminEmail });
   const token = await storedToken(page, "tenant");
   await page.getByRole("button", { name: /账号菜单/ }).click();
   await page.getByRole("menuitem", { name: "修改密码" }).click();
@@ -172,7 +172,7 @@ test("同一个浏览器先后登录两个供应商：后一个人直接进首�
   await fillLogin(page, second.adminEmail, second.password);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
-  await expect(detail(page, "邮箱")).toHaveText(second.adminEmail);
+  await expectSignedInAs(page, { email: second.adminEmail });
   await expect(detail(page, "供应商名称")).toHaveText(second.tenantName);
   await expect(page.getByText(first.tenantName)).toHaveCount(0);
   await expect(page.getByText(first.adminEmail)).toHaveCount(0);

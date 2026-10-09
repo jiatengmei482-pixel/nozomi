@@ -3,7 +3,7 @@
  * 图形没有未保存的修改时问接口；有修改（或还没保存过）时用 @nozomi/domain 的同一个函数按画面上的图形算。
  */
 import type { PointLocation } from "@nozomi/domain";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { checkAreaPoint } from "../../api/areas.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -47,6 +47,8 @@ export function SelfTest({ shapes, areaId, shapesDirty, disabledArea, mapAvailab
   const [attempted, setAttempted] = useState(false);
   const [checking, setChecking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** 上一次检查的位置：没检查成功时「重试」用 */
+  const lastPoint = useRef<{ lat: number; lng: number } | null>(null);
   const [stale, setStale] = useState(false);
   const [blocked, setBlocked] = useState(false);
 
@@ -63,6 +65,7 @@ export function SelfTest({ shapes, areaId, shapesDirty, disabledArea, mapAvailab
   }, [fingerprint]);
 
   const check = async (point: { lat: number; lng: number }): Promise<void> => {
+    lastPoint.current = point;
     setFailure(null);
     setStale(false);
     if (hasBlockingProblems(shapes)) {
@@ -139,7 +142,16 @@ export function SelfTest({ shapes, areaId, shapesDirty, disabledArea, mapAvailab
           </Button>
         )}
       </div>
-      <div role="alert">{failure !== null && <Alert kind="danger">{failure}</Alert>}</div>
+      <div role="alert">
+        {failure !== null && (
+          <Alert kind="danger">
+            <span>{failure}</span>
+            <Button variant="text" size="sm" disabled={checking} onClick={() => lastPoint.current && void check(lastPoint.current)}>
+              重试
+            </Button>
+          </Alert>
+        )}
+      </div>
       <div className="probe" role="status">
         {blocked && (
           <p className="field__hint field__hint--warning">

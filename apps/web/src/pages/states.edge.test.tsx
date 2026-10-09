@@ -472,7 +472,7 @@ test("后端返回的姓名、邮箱、供应商名称里带 HTML 时只当文�
   stubApi({ "GET /tenant/v1/auth/me": () => json(200, tenantMeBody({ name: payload, email: `"><svg onload=alert(1)>@x.example`, tenantName: `${payload}供应商` })) });
   const user = userEvent.setup();
   renderAt("/", SHELL_ROUTES);
-  await waitFor(() => assert.ok(document.querySelector(".details")));
+  await waitFor(() => assert.ok(document.querySelector(".page__meta .tenant-name")));
   await user.click(screen.getByRole("button", { name: /账号菜单/ }));
 
   const main = document.querySelector("main") as HTMLElement;
@@ -505,18 +505,18 @@ test("姓名是空的、只有表情、是组合字符时，顶栏和首页照�
     signIn("tenant");
     stubApi({ "GET /tenant/v1/auth/me": () => json(200, tenantMeBody({ name })) });
     renderAt("/", SHELL_ROUTES);
-    await waitFor(() => assert.ok(document.querySelector(".details"), JSON.stringify(name)));
+    await waitFor(() => assert.ok(document.querySelector(".page__meta .tenant-name"), JSON.stringify(name)));
     assert.ok(screen.getByRole("button", { name: /账号菜单/ }));
     resetBrowser();
   }
 });
 
-test("不认识的角色显示「—」，页面照常可用", async () => {
+test("不认识的角色显示「—」（原来在「当前登录」卡片里，现在在顶栏的账号按钮上），页面照常可用", async () => {
   signIn("tenant");
   const body = tenantMeBody();
   stubApi({ "GET /tenant/v1/auth/me": () => json(200, { ...body, user: { ...body.user, role: "role_added_later" } }) });
   renderAt("/", SHELL_ROUTES);
-  await waitFor(() => assert.ok(document.querySelector(".details")));
-  const role = screen.getByText("角色", { selector: "dt" }).parentElement?.querySelector("dd");
-  assert.equal(role?.textContent, "—");
+  await screen.findByText("测试用供应商", { selector: ".page__meta .tenant-name" });
+  assert.equal(document.querySelector(".account-button__role")?.textContent, "—");
+  assert.doesNotMatch(document.body.textContent ?? "", /role_added_later/);
 });

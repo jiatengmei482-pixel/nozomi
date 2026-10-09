@@ -7,7 +7,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, platformAdminHeaders, uniqueEmail, expectSignedInAs } from "./support.ts";
 
 const PASSWORD = "Layout-edge-Password-2026";
 
@@ -97,9 +97,9 @@ test("320 / 360 / 768px：超长且不带空格的姓名、邮箱、供应商名
 
   await page.getByLabel("密码", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.locator(".details")).toContainText(account.tenantName);
+  await expect(page.locator(".page__meta")).toContainText(account.tenantName);
   await checkAtEveryWidth("首页，名称超长", async () => {
-    const clipped = await page.locator(".details dd").evaluateAll((items) => items.filter((item) => item.scrollWidth > item.clientWidth + 1).map((item) => item.textContent?.slice(0, 12)));
+    const clipped = await page.locator(".page__meta .tenant-name").evaluateAll((items) => items.filter((item) => item.scrollWidth > item.clientWidth + 1).map((item) => item.textContent?.slice(0, 12)));
     expect(clipped, "首页的值应折行显示完整，不能被裁掉").toEqual([]);
   });
 
@@ -196,7 +196,7 @@ test("亮色和暗色：找不到页面、首页加载失败、修改密码成�
 
   await page.getByLabel("密码", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "登录" }).click();
-  await expect(page.locator(".details")).toBeVisible();
+  await expect(page.locator(".page__meta")).toBeVisible();
 
   await page.goto("/no-such-page");
   await expect(page.getByRole("heading", { level: 1, name: "找不到这个页面" })).toBeVisible();
@@ -222,7 +222,7 @@ test("亮色和暗色：找不到页面、首页加载失败、修改密码成�
   await expectAccessibleInBothThemes(page, "首页加载失败");
   await page.unroute("**/tenant/v1/auth/me");
   await page.getByRole("button", { name: "重试" }).click();
-  await expect(page.locator(".details")).toContainText(invited.tenantName);
+  await expect(page.locator(".page__meta")).toContainText(invited.tenantName);
 });
 
 test("手机上滑出的侧边栏：亮、暗两套都通过 axe 检查；Tab 一直留在面板里；键盘聚焦到的控件都有 2px 的聚焦环，颜色是聚焦令牌；减少动态效果时没有滑入过程", async ({ page, request }) => {
@@ -230,12 +230,12 @@ test("手机上滑出的侧边栏：亮、暗两套都通过 axe 检查；Tab �
   await page.setViewportSize({ width: 360, height: 740 });
   const tenant = await createActiveTenant(request);
   await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
-  await expect(page.locator(".details")).toBeVisible();
+  await expect(page.locator(".page__meta")).toBeVisible();
 
   for (const [scheme, name] of SCHEMES) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.reload();
-    await expect(page.locator(".details")).toBeVisible();
+    await expect(page.locator(".page__meta")).toBeVisible();
     const focusColor = await page.evaluate(() => {
       const hex = getComputedStyle(document.documentElement).getPropertyValue("--color-border-focus").trim();
       const channel = (start: number): number => Number.parseInt(hex.slice(start, start + 2), 16);
@@ -296,7 +296,7 @@ test("只用键盘：打开账号菜单 → 修改密码 → 填表提交出错 
   await page.setViewportSize({ width: 1280, height: 800 });
   const tenant = await createActiveTenant(request);
   await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
-  await expect(page.locator(".details")).toBeVisible();
+  await expect(page.locator(".page__meta")).toBeVisible();
 
   const accountButton = page.getByRole("button", { name: /账号菜单/ });
   await accountButton.focus();
@@ -375,7 +375,7 @@ test("把浏览器默认字号放大到 200%（字号用 rem，会跟着放大�
   await expectNothingPastViewport(page, "登录页字段出错 200% 字号");
 
   await fillLogin(page, tenant.adminEmail, tenant.password);
-  await expect(page.locator(".details")).toContainText(tenant.tenantName);
+  await expect(page.locator(".page__meta")).toContainText(tenant.tenantName);
   await enlarge();
   await expectNothingPastViewport(page, "首页 200% 字号");
 });
@@ -397,7 +397,7 @@ test("表单输入的边界（真实后端）：邮箱带首尾空格和大写�
   await page.getByLabel("密码", { exact: true }).fill(password);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
-  await expect(page.locator(".details")).toContainText(invited.adminEmail);
+  await expectSignedInAs(page, { email: invited.adminEmail });
 });
 
 test("前后端的密码规则逐条一致：前端即时提示放行的，后端也接受；前端拦下的每一种，后端同样拒绝并给出同一句话", async ({ page, request }) => {

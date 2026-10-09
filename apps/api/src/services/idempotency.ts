@@ -5,7 +5,8 @@
  * 做法：键的记录和业务写入在**同一个事务**里。
  * - 第一次：先插入键的记录（占位），做业务，再把应答存进记录，一起提交。业务失败则整体回滚，键没有被占用，可以带同一个键重试。
  * - 同一个键同时来两次：后到的那次在插入时等前一次的事务结束，然后读到已经存好的应答，原样返回——业务只做了一次。
- * - 同一个键、内容不同：拒绝（422），不悄悄返回上一次的结果。
+ * - 同一个键、内容不同：拒绝（422），不悄悄返回上一次的结果。上一次建成的那条的编号和当时的版本号带在 `details.created` 里
+ *   （存下的应答里有 `id`、`version` 时）：第一次的应答丢了、用户改了内容再存的时候，调用方可以转成对那一条的修改。
  * - 键只在「同一个租户 + 同一个接口」里有意义；过了 24 小时的键可以重新使用。
  */
 import { createHash } from "node:crypto";
@@ -61,7 +62,11 @@ export async function runIdempotent(db: Db, call: IdempotentCall, work: () => Pr
       [call.tenantId, call.scope, call.key],
     );
     const row = existing.rows[0];
-    if (!row || row.request_hash !== hash || row.response_status === null || row.response_body === null) throw idempotencyKeyReused();
+    if (!row || row.response_status === null || row.response_body === null) throw idempotencyKeyReused();
+    if (row.request_hash !== hash) {
+      const { id, version } = row.response_body;
+      throw idempotencyKeyReused(typeof id === "string" && typeof version === "number" ? { id, version } : null);
+    }
     return { status: row.response_status, body: row.response_body, replayed: true };
   }
   const result = await work();
