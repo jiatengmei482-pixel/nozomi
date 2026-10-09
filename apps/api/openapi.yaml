@@ -1,0 +1,5461 @@
+openapi: 3.1.0
+info:
+  title: NOZOMI 用车平台 API
+  version: 0.1.0
+  description: |
+    接口定义先于实现：新增或修改接口时先改本文件，再写代码。
+    `apps/api/src/openapi.test.ts` 会校验「已注册的路由」和本文件的 `paths` 完全一致。
+
+    约定：
+    - 出错时统一返回 `{ error: { code, message, details } }`（见 `ErrorResponse`）。
+      唯一的例外是 `/health` 的 503：为了让监控直接看到是哪一项出了问题，仍返回 `HealthResponse`。
+    - 所有接口共有的错误（不在每个接口下重复列出）：
+      - 400 `BAD_REQUEST`：请求体不是合法 JSON、URL 里有非法的百分号编码、发来的根本不是 HTTP 请求
+      - 400 `VALIDATION_FAILED`：参数校验未通过，`details.issues` 列出每一项
+      - 404 `NOT_FOUND`：路径或请求方法不存在
+      - 408 `REQUEST_TIMEOUT`：请求迟迟没有发完
+      - 413 `PAYLOAD_TOO_LARGE`：请求体超过 1MB
+      - 415 `UNSUPPORTED_MEDIA_TYPE`：请求内容类型不支持
+      - 431 `REQUEST_HEADER_FIELDS_TOO_LARGE`：请求头超过 16KB
+      - 500 `INTERNAL_ERROR`：未预期的服务端错误，`message` 不含内部细节
+
+      其中 408、431 和「不是 HTTP 请求」的 400 在解析阶段就被拒绝，应答之后连接会被服务端关闭。
+    - 金额用最小货币单位整数，百分比用基点整数。
+    - 租户接口的 `tenant_id` 只从登录令牌读取；请求参数和请求体里的 `tenant_id` 一律被忽略。
+    - `/platform/v1` 和 `/tenant/v1` 的字段名用 snake_case，时间用带时区的 ISO 8601。
+      （`/health` 是 M0-05 定下的运维接口，字段名保持原样。）
+    - 登录：平台员工用 `/platform/v1/auth/login`，租户用户用 `/tenant/v1/auth/login`，
+      拿到访问令牌后放在请求头 `Authorization: Bearer <令牌>`。令牌 8 小时过期，没有刷新令牌，过期后重新登录。
+      两类令牌互不通用：平台令牌访问租户接口、租户令牌访问平台接口，都是 401。
+      停用账号、退出登录、凭重置令牌改了密码之后，已经发出的令牌立即失效。
+      租户被暂停不影响它的用户登录（暂停的租户还要继续履约已有订单），`tenant.status` 会告诉前端当前状态。
+    - 所有字符串输入都不能包含 NUL 字符（`\u0000`、查询串里的 `%00`），也不能包含孤立的代理字符（被截断的半个表情符号），
+      否则 400 `VALIDATION_FAILED`。
+    - 任何写接口都可能返回 409 `CONCURRENT_UPDATE`：这次操作和别人同时进行的修改在数据库里撞上了（死锁等），
+      什么都没有改动，原样重试即可。主数据的写接口会先自动重试，极少会真的返回它。
+    - 密码找回不依赖邮件：自己改密码用 `auth/change-password`；忘了密码由管理员发一次性重置令牌，
+      本人凭它在 `auth/reset-password` 设置新密码。
+    - 需要登录的接口共有的错误（不在每个接口下重复列出）：
+      - 401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效
+      - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作
+      - 403 `PASSWORD_CHANGE_REQUIRED`：这个账号正在用临时密码，必须先修改密码（见下一条）
+    - 临时密码与强制修改密码：平台超级管理员可以在服务器上用命令行生成一次性显示的随机临时密码
+      （`pnpm admin:create --temporary-password`、`pnpm admin:reset-password --temporary-password`）。
+      用临时密码登录照常成功，但登录应答和 `auth/me` 里的 `must_change_password` 为 `true`。
+      在这种状态下，需要登录的接口里只有三个可用：`GET auth/me`、`POST auth/change-password`、`POST auth/logout`；
+      其余全部返回 403 `PASSWORD_CHANGE_REQUIRED`（先于角色权限和参数校验判断，新增的接口默认也在此列）。
+      `auth/change-password` 成功后标记清除，当前令牌继续可用，不用重新登录；临时密码随即作废。
+      新密码不能和临时密码相同（`PASSWORD_UNCHANGED`）。
+      通过邀请链接或重置链接设置的密码不是临时密码，`must_change_password` 为 `false`。
+      这个标记只出现在本人的登录应答和 `auth/me` 里，不出现在任何账号列表和别人能看到的账号对象里。
+    - 租户接口访问别的租户的资源一律 404，不暴露资源是否存在。
+    - 列表接口用游标分页：`limit`（默认 50，最大 200）+ `cursor`，返回 `next_cursor`（没有下一页时为 null）。
+    - `/platform/v1`、`/tenant/v1` 的所有响应都带 `Cache-Control: no-store`。
+    - 主数据（`/platform/v1/master/*`、`/tenant/v1/master/*`）：每条记录带 `version`；修改用请求头 `If-Match` 带版本号。
+      字段格式都对、但内容不合规则（编码格式、时区、坐标范围、引用的城市不存在等）同样返回 400 `VALIDATION_FAILED`，
+      `details.issues` 指出字段。机场数据来自 OurAirports（https://ourairports.com/data/，公有领域），
+      用命令 `pnpm masterdata:import-airports` 导入；
+      城市数据来自 GeoNames（https://www.geonames.org/，CC BY 4.0，须注明来源），用命令 `pnpm masterdata:import-cities` 导入。
+servers:
+  - url: http://localhost:8080
+    description: 本地开发
+tags:
+  - name: 运维
+    description: 健康检查等不属于任何业务域的接口
+  - name: 平台登录
+    description: 平台员工的登录、退出、接受邀请
+  - name: 平台账号
+    description: 平台员工账号管理（只有超级管理员）
+  - name: 租户管理
+    description: 平台侧创建、查看、暂停租户
+  - name: 平台系统
+    description: 审计日志、集成状态
+  - name: 租户登录
+    description: 租户用户的登录、退出、接受邀请
+  - name: 租户账号
+    description: 租户管理员管理本租户的子账号
+  - name: 主数据
+    description: 平台统一维护的城市、地点（机场 / 车站 / 地标 / 航站楼 / 出口）、车型组、附加服务；只停用、不删除
+  - name: 租户主数据
+    description: 租户只读地查看平台主数据（配置区域和商品时引用）
+  - name: 商品
+    description: 子品牌、商品（基础信息、服务规则、商品详情）、上架校验、上架 / 下架
+  - name: 区域
+    description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
+paths:
+  /health:
+    get:
+      tags: [运维]
+      operationId: getHealth
+      summary: 健康检查
+      description: |
+        真实执行一次数据库查询，并给出迁移状态和各集成的配置状态。
+        整个检查（数据库探测加迁移探测）共用一个 2 秒的时限，超时按数据库不可用处理，接口不会一直挂起。
+        查询串会被忽略。
+        这个接口不需要登录，所以各集成只给出「已配置 / 未配置」，不带任何说明文字；
+        脱敏后的详情在需要平台登录的 `GET /platform/v1/integrations`。
+
+        - 数据库可用且迁移已全部执行：200，`status` 为 `ok`。
+        - 数据库不可用、迁移未执行完或迁移记录异常：503，`status` 为 `degraded`。
+        - 第三方集成「未配置」不影响 `status`（local / ci 环境允许缺省）。
+      security: []
+      responses:
+        "200":
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: 服务不可用（数据库或迁移有问题），响应体仍是完整的健康检查结构
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /platform/v1/auth/login:
+    post:
+      tags: [平台登录]
+      operationId: platformLogin
+      summary: 平台员工登录
+      description: |
+        邮箱 + 密码登录。邮箱不存在、密码错误、账号还没激活，返回的内容完全一样，分辨不出邮箱是否存在。
+        15 分钟内：同一邮箱 + 同一来源地址最多尝试 5 次，同一邮箱最多 20 次，同一来源地址（不分邮箱）最多失败 50 次；
+        超过返回 429。登录成功后邮箱维度的计数清零。被 429 拦下的请求不验证密码、不写审计日志。
+        登录成功和失败都写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformLoginResponse"
+        "401":
+          description: "`INVALID_CREDENTIALS`：邮箱或密码不正确"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /platform/v1/auth/logout:
+    post:
+      tags: [平台登录]
+      operationId: platformLogout
+      summary: 平台员工退出登录
+      description: 当前令牌立即失效。写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "204":
+          description: 已退出
+  /platform/v1/auth/me:
+    get:
+      tags: [平台登录]
+      operationId: getPlatformMe
+      summary: 当前登录的平台员工
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 当前账号和它能做的操作
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, permissions, must_change_password]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
+                  permissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformAction"
+  /platform/v1/auth/accept-invite:
+    post:
+      tags: [平台登录]
+      operationId: acceptPlatformInvite
+      summary: 平台员工接受邀请并设置密码
+      description: |
+        凭创建账号时返回的一次性邀请令牌设置密码，账号变为在用；之后用邮箱和这个密码登录。
+        令牌只能用一次，7 天过期。令牌不存在、已用过、已过期返回同一个错误。写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "200":
+          description: 已激活
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+        "400":
+          $ref: "#/components/responses/InviteRejected"
+  /platform/v1/auth/change-password:
+    post:
+      tags: [平台登录]
+      operationId: changePlatformPassword
+      summary: 平台员工修改自己的密码
+      description: |
+        需要提供当前密码。成功后这个账号的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
+        核对当前密码和登录一样限速（同一账号同一来源地址 15 分钟 5 次），超过返回 429。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: 已修改
+        "400":
+          $ref: "#/components/responses/PasswordChangeRejected"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /platform/v1/auth/reset-password:
+    post:
+      tags: [平台登录]
+      operationId: resetPlatformPassword
+      summary: 平台员工凭重置令牌设置新密码
+      description: |
+        令牌由超级管理员在 `POST /platform/v1/staff/{id}/password-reset` 发出，24 小时有效，只能用一次。
+        成功后这个账号的全部登录会话失效，用新密码重新登录。写审计日志。
+        令牌不存在、已用过、已过期、账号已停用，返回同一个错误。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: 已重设
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+        "400":
+          $ref: "#/components/responses/ResetRejected"
+  /platform/v1/staff:
+    get:
+      tags: [平台账号]
+      operationId: listPlatformStaff
+      summary: 平台员工列表
+      description: 需要操作 `staff.read`（超级管理员）。按创建时间从早到晚。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页平台员工
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformUser"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [平台账号]
+      operationId: createPlatformStaff
+      summary: 创建平台员工账号（发出邀请）
+      description: |
+        需要操作 `staff.manage`（超级管理员）。账号创建后是「待激活」，响应里带一次性邀请令牌——
+        **令牌只在这一次响应里出现**，数据库只存它的哈希。把令牌交给本人，由本人在接受邀请接口设置密码。
+        对一个从未激活过的邮箱再次调用，会重新发出邀请（旧令牌作废，姓名和角色按本次请求更新）。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, name, role]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/PlatformRole"
+      responses:
+        "201":
+          description: 已创建，带一次性邀请令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：这个邮箱已经有激活过的账号"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/disable:
+    post:
+      tags: [平台账号]
+      operationId: disablePlatformStaff
+      summary: 停用平台员工账号
+      description: |
+        需要操作 `staff.manage`。停用后该账号不能登录，已登录的令牌立即失效；待激活账号的邀请令牌同时作废。
+        在用的超级管理员至少保留一个。已经是停用状态时直接返回当前账号。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`LAST_ADMIN_REQUIRED`：这是最后一个在用的超级管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/enable:
+    post:
+      tags: [平台账号]
+      operationId: enablePlatformStaff
+      summary: 重新启用平台员工账号
+      description: |
+        需要操作 `staff.manage`。只对激活过（设过密码）的账号有效；从未激活过的账号请重新创建（重新邀请）。
+        已经是在用状态时直接返回当前账号。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ACCOUNT_NOT_ACTIVATED`：账号从未激活，不能直接启用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/password-reset:
+    post:
+      tags: [平台账号]
+      operationId: issuePlatformStaffPasswordReset
+      summary: 给平台员工发密码重置令牌
+      description: |
+        需要操作 `staff.manage`（超级管理员）。只对在用的账号有效。响应里带一次性重置令牌——
+        **令牌只在这一次响应里出现**，数据库只存它的哈希，24 小时有效。把它交给本人，由本人在
+        `POST /platform/v1/auth/reset-password` 设置新密码。
+        发出令牌**不改变现有密码**，也不影响现有登录；再发一次会让上一个令牌作废。写审计日志。
+        最后一个超级管理员自己忘了密码时，在服务器上用 `pnpm admin:reset-password`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/PlatformUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /platform/v1/tenants:
+    get:
+      tags: [租户管理]
+      operationId: listTenants
+      summary: 租户列表
+      description: 需要操作 `tenant.read`。按创建时间从早到晚。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页租户
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tenant"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [租户管理]
+      operationId: createTenant
+      summary: 创建租户并邀请它的第一个管理员
+      description: |
+        需要操作 `tenant.create`。同时创建租户和它的第一个管理员账号（待激活），
+        响应里带这个管理员的一次性邀请令牌——**令牌只在这一次响应里出现**。
+        把令牌交给租户，由对方在 `POST /tenant/v1/auth/accept-invite` 设置密码后登录。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, admin]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: 租户名称
+                admin:
+                  type: object
+                  additionalProperties: false
+                  required: [email, name]
+                  properties:
+                    email:
+                      $ref: "#/components/schemas/Email"
+                    name:
+                      $ref: "#/components/schemas/PersonName"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [tenant, admin_user, invite]
+                properties:
+                  tenant:
+                    $ref: "#/components/schemas/Tenant"
+                  admin_user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：管理员邮箱已被别的租户用户使用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}:
+    get:
+      tags: [租户管理]
+      operationId: getTenant
+      summary: 租户详情
+      description: 需要操作 `tenant.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/suspend:
+    post:
+      tags: [租户管理]
+      operationId: suspendTenant
+      summary: 暂停租户
+      description: |
+        需要操作 `tenant.change_status`。把租户状态改为 `suspended`。
+        暂停**不影响**该租户用户的登录和已有会话（暂停的租户还要继续履约已有订单）；
+        「暂停的租户不参与比价」等业务含义由后续任务（M4-01）实现。
+        已经是暂停状态时直接返回当前租户。写审计日志（含原因）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+                  description: 暂停原因，记入审计日志
+      responses:
+        "200":
+          description: 暂停后的租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/resume:
+    post:
+      tags: [租户管理]
+      operationId: resumeTenant
+      summary: 恢复租户
+      description: 需要操作 `tenant.change_status`。把租户状态改回 `active`。已经是正常状态时直接返回当前租户。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 恢复后的租户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/admin-invites:
+    post:
+      tags: [租户管理]
+      operationId: inviteTenantAdmin
+      summary: 给租户再邀请一个管理员（或重发管理员邀请）
+      description: |
+        需要操作 `tenant.create`。用于第一个管理员的邀请过期、或租户需要平台帮忙加一个管理员的情况。
+        邮箱是该租户里一个从未激活过的账号时，重新发出邀请（旧令牌作废，角色改为管理员）。
+        **令牌只在这一次响应里出现**。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, name]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+      responses:
+        "201":
+          description: 已邀请
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EMAIL_TAKEN`：邮箱已被使用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}/admin-password-resets:
+    post:
+      tags: [租户管理]
+      operationId: issueTenantAdminPasswordReset
+      summary: 给租户的管理员发密码重置令牌
+      description: |
+        需要操作 `tenant.create`。用于租户的管理员忘了密码、租户里又没有别的管理员能帮他重置的情况。
+        只对该租户里**在用的管理员**有效（其他角色由租户自己的管理员重置）。
+        **令牌只在这一次响应里出现**，24 小时有效；由本人在 `POST /tenant/v1/auth/reset-password` 设置新密码。
+        发出令牌不改变现有密码。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          description: "`NOT_FOUND`：租户不存在，或这个邮箱不是该租户的管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /platform/v1/audit-logs:
+    get:
+      tags: [平台系统]
+      operationId: listAuditLogs
+      summary: 查询审计日志
+      description: |
+        需要操作 `audit_log.read`（超级管理员）。可以按人、按对象、按租户、按时间筛选，条件之间是「并且」；
+        从新到旧返回。审计日志只能追加，没有修改和删除接口，数据库层面也拦截修改和删除。
+      security:
+        - platformToken: []
+      parameters:
+        - name: actor_id
+          in: query
+          description: 操作人的账号编号
+          schema:
+            type: string
+            format: uuid
+        - name: tenant_id
+          in: query
+          description: 只看某个租户的记录
+          schema:
+            type: string
+            format: uuid
+        - name: resource
+          in: query
+          description: 对象类型，见 `AuditLog.resource`
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          description: 对象编号
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: 动作，见 `AuditLog.action`
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: 起始时间（含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: 结束时间（不含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页审计日志
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLog"
+                  next_cursor:
+                    type: [string, "null"]
+  /platform/v1/dashboard/summary:
+    get:
+      tags: [平台系统]
+      operationId: getDashboardSummary
+      summary: 首页统计
+      description: |
+        任何已登录的平台员工都能调（账号必须先修改密码时同样被拦）。一次返回首页需要的数量，按模块分组；只有数量，没有任何明细。
+        每个模块只给有权看它的角色：没有 `tenant.read` 的角色拿到的 `tenants` 是 null，没有 `master_data.read` 的拿到的 `master_data` 是 null。
+        以后新增模块会在这个对象里加新的一组，不改已有的字段。不写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 各模块的数量
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /platform/v1/integrations:
+    get:
+      tags: [平台系统]
+      operationId: listIntegrations
+      summary: 各集成的配置状态（含脱敏详情）
+      description: |
+        需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
+        多给一段脱敏说明（打码后的数据库地址、只露首尾的密钥），永远不含密钥原文。每次查看都写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 集成状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IntegrationStatusDetail"
+  /platform/v1/master/cities:
+    get:
+      tags: [主数据]
+      operationId: listCities
+      summary: 城市列表
+      description: |
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
+        不带 `status` 时返回全部（启用的和停用的）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CountryCodeFilter"
+      responses:
+        "200":
+          description: 一页城市
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/City"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+    post:
+      tags: [主数据]
+      operationId: createCity
+      summary: 新增城市
+      description: |
+        需要操作 `master_data.manage`（主数据运营、超级管理员）。
+        编码格式 `CTY-国家码-序号`（如 `CTY-JP-TYO`），其中的国家码必须等于 `country_code`。
+        时区必须是 IANA 时区名（如 `Asia/Tokyo`；不接受缩写、固定偏移、UTC）。坐标是 WGS84，保留小数点后 6 位。
+        新增的城市直接是启用的。
+        写审计日志（`resource` = `city`，`action` = `create`，`after` 是完整内容）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CityCreate"
+      responses:
+        "201":
+          description: 新增的城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "409":
+          description: |
+            - `CODE_TAKEN`：这个编码已被使用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/cities/{id}:
+    get:
+      tags: [主数据]
+      operationId: getCity
+      summary: 查看一个城市
+      description: 需要操作 `master_data.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [主数据]
+      operationId: updateCity
+      summary: 修改城市
+      description: |
+        需要操作 `master_data.manage`。只改请求体里带了的字段。
+        必须用请求头 `If-Match` 带上当前的 `version`：和库里的不一致说明别人先改过了，返回 409 `VERSION_CONFLICT`，不会互相覆盖。
+        `code`、`country_code` 创建后不能改。`name`、`center`、`boundary` 带了就是整体替换；`boundary` 传 null 表示清除。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的字段）；什么都没变则原样返回，不写日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CityPatch"
+      responses:
+        "200":
+          description: 修改后的城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/master/cities/{id}/disable:
+    post:
+      tags: [主数据]
+      operationId: disableCity
+      summary: 停用城市
+      description: |
+        需要操作 `master_data.manage`。主数据没有删除，只有停用：停用后租户的列表里默认不再出现，但已有的引用仍然查得到。
+        这个城市下还有启用中的地点时不能停用（409 `MASTER_DATA_IN_USE`）。
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_IN_USE`：还有启用中的下级在用它，`details.active_count` 是数量"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/cities/{id}/enable:
+    post:
+      tags: [主数据]
+      operationId: enableCity
+      summary: 启用城市
+      description: |
+        需要操作 `master_data.manage`。
+        已经启用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/master/places:
+    get:
+      tags: [主数据]
+      operationId: listPlaces
+      summary: 地点列表
+      description: |
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
+        不带 `status` 时返回全部（启用的和停用的）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/PlaceTypeFilter"
+        - $ref: "#/components/parameters/CityIdFilter"
+        - $ref: "#/components/parameters/ParentIdFilter"
+        - $ref: "#/components/parameters/CountryCodeFilter"
+      responses:
+        "200":
+          description: 一页地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Place"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+                  city_suggestions:
+                    type: array
+                    description: |
+                      只在按 `city_id=none` 筛选时出现：给这一页的每个地点（顺序和 `items` 相同）建议所属城市。
+                      候选是和地点同一个国家、启用中的城市，最多 3 个，**不是按距离排的**：
+                      数据源说的「机场所属的城市」名称对得上的（150 公里以内）排第一；其余是中心坐标在 80 公里以内的，
+                      按「人口 ÷ 距离的平方」从大到小——大城市优先（羽田、成田建议东京，仁川机场建议首尔）。
+                      只是建议，请对照 `nearby_cities` 确认。
+                    items:
+                      $ref: "#/components/schemas/PlaceCitySuggestion"
+    post:
+      tags: [主数据]
+      operationId: createPlace
+      summary: 新增地点
+      description: |
+        需要操作 `master_data.manage`（主数据运营、超级管理员）。
+        机场、车站、地标，以及挂在机场下的航站楼、挂在车站下的出口。
+        - 编码：机场是 IATA 三字码（`HND`）；车站 `STN-国家码-序号`；地标 `POI-序号`；航站楼 / 出口是上级编码加后缀（`HND-T3`）。全平台唯一。
+        - 机场、车站、地标必须给 `city_id`，城市必须是启用的；国家取自城市。
+        - 航站楼、出口必须给 `parent_id`（机场 / 车站，必须是启用的）；城市和国家跟随上级，不用给 `city_id`。
+        - 车站、地标必须给 `category`；只有地标有 `address`；只有机场和航站楼有 `flight_scope`。
+        新增的地点直接是启用的。机场一般不用手工新增，用命令 `pnpm masterdata:import-airports` 从 OurAirports 导入（导入的是停用状态、没有城市）。
+        写审计日志（`resource` = `place`，`action` = `create`，`after` 是完整内容）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceCreate"
+      responses:
+        "201":
+          description: 新增的地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "409":
+          description: |
+            - `CODE_TAKEN`：这个编码已被使用
+            - `MASTER_DATA_NOT_READY`：所属城市或上级地点已停用（`details.reason` 是 `CITY_DISABLED` / `PARENT_DISABLED`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/places/{id}:
+    get:
+      tags: [主数据]
+      operationId: getPlace
+      summary: 查看一个地点
+      description: 需要操作 `master_data.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [主数据]
+      operationId: updatePlace
+      summary: 修改地点
+      description: |
+        需要操作 `master_data.manage`。只改请求体里带了的字段。
+        必须用请求头 `If-Match` 带上当前的 `version`：和库里的不一致说明别人先改过了，返回 409 `VERSION_CONFLICT`，不会互相覆盖。
+        `type`、`code`、`parent_id` 创建后不能改。`name`、`location` 带了就是整体替换。
+        - 换城市：新城市必须和地点在同一个国家；地点是启用的话新城市也必须是启用的。机场 / 车站换城市时，它下面的航站楼 / 出口跟着换。
+        - 航站楼、出口不能单独换城市。
+        - 导入的机场被改了英文名或坐标后，`source.overridden` 变为 true，以后再导入不会覆盖。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的字段）；什么都没变则原样返回，不写日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlacePatch"
+      responses:
+        "200":
+          description: 修改后的地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+            - `MASTER_DATA_NOT_READY`：地点是启用的，而新城市已停用（`details.reason` 是 `CITY_DISABLED`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/master/places/{id}/disable:
+    post:
+      tags: [主数据]
+      operationId: disablePlace
+      summary: 停用地点
+      description: |
+        需要操作 `master_data.manage`。主数据没有删除，只有停用：停用后租户的列表里默认不再出现，但已有的引用仍然查得到。
+        它下面还有启用中的航站楼 / 出口时不能停用（409 `MASTER_DATA_IN_USE`）。
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_IN_USE`：还有启用中的下级在用它，`details.active_count` 是数量"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/places/{id}/enable:
+    post:
+      tags: [主数据]
+      operationId: enablePlace
+      summary: 启用地点
+      description: |
+        需要操作 `master_data.manage`。
+        可以在请求体里带 `city_id`，一次完成「指定城市并启用」：两件事在同一个事务里，要么都成功要么都不变
+        （审计日志是一条 `enable`，前后值里带 `city_id`）。只能给还没有城市的地点指定；已经有城市的地点要换城市请用修改接口；
+        航站楼、出口的城市跟随上级，不能指定。城市不存在、和地点不在同一个国家返回 400 `VALIDATION_FAILED`。必须已经指定所属城市且城市是启用的；航站楼 / 出口的上级也必须是启用的，否则 409 `MASTER_DATA_NOT_READY`。
+        已经启用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                city_id:
+                  type: string
+                  format: uuid
+                  description: 同时指定的所属城市（可选）
+      responses:
+        "200":
+          description: 启用后的地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Place"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：`details.reason` 是 `CITY_MISSING`（还没指定城市）、`CITY_DISABLED`（城市已停用）或 `PARENT_DISABLED`（上级已停用）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/vehicle-groups:
+    get:
+      tags: [主数据]
+      operationId: listVehicleGroups
+      summary: 车型组列表
+      description: |
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
+        不带 `status` 时返回全部（启用的和停用的）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/VehicleGradeFilter"
+      responses:
+        "200":
+          description: 一页车型组
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VehicleGroup"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+    post:
+      tags: [主数据]
+      operationId: createVehicleGroup
+      summary: 新增车型组
+      description: |
+        需要操作 `master_data.manage`（主数据运营、超级管理员）。
+        编码格式 `VG-等级-座位数`（如 `VG-BIZ-7`），末尾的数字必须等于 `seats`。
+        等级的缩写是保留的：`ECO` 经济、`CMF` 舒适、`BIZ` 商务、`LUX` 豪华——编码的等级段以其中一个开头时，`grade` 必须就是它
+        （`VG-ECO-4` 不能配 `luxury`）；缩写后面可以再加后缀区分变体（`VG-BIZEV-7`）。
+        `combos` 是可选的「人数 / 行李数」组合，至少一个，人数不能超过座位数，不能重复。新增的车型组直接是启用的。
+        写审计日志（`resource` = `vehicle_group`，`action` = `create`，`after` 是完整内容）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleGroupCreate"
+      responses:
+        "201":
+          description: 新增的车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "409":
+          description: |
+            - `CODE_TAKEN`：这个编码已被使用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/vehicle-groups/{id}:
+    get:
+      tags: [主数据]
+      operationId: getVehicleGroup
+      summary: 查看一个车型组
+      description: 需要操作 `master_data.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [主数据]
+      operationId: updateVehicleGroup
+      summary: 修改车型组
+      description: |
+        需要操作 `master_data.manage`。只改请求体里带了的字段。
+        必须用请求头 `If-Match` 带上当前的 `version`：和库里的不一致说明别人先改过了，返回 409 `VERSION_CONFLICT`，不会互相覆盖。
+        `code`、`grade`、`seats` 创建后不能改（它们决定了这是哪个车型组）。`name`、`sample_models`、`combos` 带了就是整体替换。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的字段）；什么都没变则原样返回，不写日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleGroupPatch"
+      responses:
+        "200":
+          description: 修改后的车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/master/vehicle-groups/{id}/disable:
+    post:
+      tags: [主数据]
+      operationId: disableVehicleGroup
+      summary: 停用车型组
+      description: |
+        需要操作 `master_data.manage`。主数据没有删除，只有停用：停用后租户的列表里默认不再出现，但已有的引用仍然查得到。
+        
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/master/vehicle-groups/{id}/enable:
+    post:
+      tags: [主数据]
+      operationId: enableVehicleGroup
+      summary: 启用车型组
+      description: |
+        需要操作 `master_data.manage`。
+        已经启用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/master/addons:
+    get:
+      tags: [主数据]
+      operationId: listAddons
+      summary: 附加服务列表
+      description: |
+        需要操作 `master_data.read`（每个平台角色都有）。默认按创建时间从早到晚（创建时间相同的按编号，顺序稳定）；`sort=code` 按编码。
+        `total` 是符合筛选条件的总数；`next_cursor` 不为 null 表示还有下一页。`total` 和这一页的内容读自同一时刻的数据。
+        不带 `status` 时返回全部（启用的和停用的）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+      responses:
+        "200":
+          description: 一页附加服务
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Addon"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+    post:
+      tags: [主数据]
+      operationId: createAddon
+      summary: 新增附加服务
+      description: |
+        需要操作 `master_data.manage`（主数据运营、超级管理员）。
+        编码格式 `ADD-代码`（如 `ADD-CHILD_SEAT`）。`categories` 是适用的品类，至少一个。新增的附加服务直接是启用的。
+        单价不在这里：每个租户在自己的商品里给附加服务定价。
+        写审计日志（`resource` = `addon`，`action` = `create`，`after` 是完整内容）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddonCreate"
+      responses:
+        "201":
+          description: 新增的附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "409":
+          description: |
+            - `CODE_TAKEN`：这个编码已被使用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/master/addons/{id}:
+    get:
+      tags: [主数据]
+      operationId: getAddon
+      summary: 查看一个附加服务
+      description: 需要操作 `master_data.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [主数据]
+      operationId: updateAddon
+      summary: 修改附加服务
+      description: |
+        需要操作 `master_data.manage`。只改请求体里带了的字段。
+        必须用请求头 `If-Match` 带上当前的 `version`：和库里的不一致说明别人先改过了，返回 409 `VERSION_CONFLICT`，不会互相覆盖。
+        `code` 创建后不能改。`categories`、`name`、`description` 带了就是整体替换。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的字段）；什么都没变则原样返回，不写日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddonPatch"
+      responses:
+        "200":
+          description: 修改后的附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/master/addons/{id}/disable:
+    post:
+      tags: [主数据]
+      operationId: disableAddon
+      summary: 停用附加服务
+      description: |
+        需要操作 `master_data.manage`。主数据没有删除，只有停用：停用后租户的列表里默认不再出现，但已有的引用仍然查得到。
+        
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/master/addons/{id}/enable:
+    post:
+      tags: [主数据]
+      operationId: enableAddon
+      summary: 启用附加服务
+      description: |
+        需要操作 `master_data.manage`。
+        已经启用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/auth/login:
+    post:
+      tags: [租户登录]
+      operationId: tenantLogin
+      summary: 租户用户登录
+      description: |
+        邮箱 + 密码登录。一个邮箱只属于一个租户，所以登录时不用选租户。
+        邮箱不存在、密码错误、账号还没激活，返回的内容完全一样。限速规则与平台登录相同。
+        租户被暂停时照常可以登录，返回的 `tenant.status` 是 `suspended`。
+        登录成功和失败都写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantLoginResponse"
+        "401":
+          description: "`INVALID_CREDENTIALS`：邮箱或密码不正确"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /tenant/v1/auth/logout:
+    post:
+      tags: [租户登录]
+      operationId: tenantLogout
+      summary: 租户用户退出登录
+      description: 当前令牌立即失效。写审计日志。
+      security:
+        - tenantToken: []
+      responses:
+        "204":
+          description: 已退出
+  /tenant/v1/auth/me:
+    get:
+      tags: [租户登录]
+      operationId: getTenantMe
+      summary: 当前登录的租户用户
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 当前账号、所属租户和能做的操作
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, tenant, permissions, must_change_password]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  must_change_password:
+                    $ref: "#/components/schemas/MustChangePassword"
+                  tenant:
+                    $ref: "#/components/schemas/Tenant"
+                  permissions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantAction"
+  /tenant/v1/auth/accept-invite:
+    post:
+      tags: [租户登录]
+      operationId: acceptTenantInvite
+      summary: 租户用户接受邀请并设置密码
+      description: |
+        凭邀请令牌（平台创建租户时返回的，或租户管理员邀请子账号时返回的）设置密码，账号变为在用；
+        之后用邮箱和这个密码登录。令牌只能用一次，7 天过期。令牌不存在、已用过、已过期返回同一个错误。写审计日志。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInviteRequest"
+      responses:
+        "200":
+          description: 已激活
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+        "400":
+          $ref: "#/components/responses/InviteRejected"
+  /tenant/v1/auth/change-password:
+    post:
+      tags: [租户登录]
+      operationId: changeTenantPassword
+      summary: 租户用户修改自己的密码
+      description: |
+        需要提供当前密码。成功后这个用户的**其他**登录会话全部失效，当前会话保留。写审计日志。
+        账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
+        成功后标记清除，当前令牌可以继续访问其他接口。
+        核对当前密码和登录一样限速，超过返回 429。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: 已修改
+        "400":
+          $ref: "#/components/responses/PasswordChangeRejected"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /tenant/v1/auth/reset-password:
+    post:
+      tags: [租户登录]
+      operationId: resetTenantPassword
+      summary: 租户用户凭重置令牌设置新密码
+      description: |
+        令牌由本租户的管理员（`POST /tenant/v1/users/{id}/password-reset`）或平台
+        （`POST /platform/v1/tenants/{id}/admin-password-resets`，只针对租户管理员）发出，24 小时有效，只能用一次。
+        成功后这个用户的全部登录会话失效，用新密码重新登录。写审计日志。
+        令牌不存在、已用过、已过期、账号已停用，返回同一个错误。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: 已重设
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+        "400":
+          $ref: "#/components/responses/ResetRejected"
+  /tenant/v1/users:
+    get:
+      tags: [租户账号]
+      operationId: listTenantUsers
+      summary: 本租户的账号列表
+      description: 需要操作 `user.read`（管理员、只读）。只返回令牌所属租户的账号。按创建时间从早到晚。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页账号
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantUser"
+                  next_cursor:
+                    type: [string, "null"]
+    post:
+      tags: [租户账号]
+      operationId: inviteTenantUser
+      summary: 邀请子账号
+      description: |
+        需要操作 `user.manage`（管理员）。账号建在令牌所属的租户下，请求体里的 `tenant_id` 会被忽略。
+        账号创建后是「待激活」，响应里带一次性邀请令牌——**令牌只在这一次响应里出现**。
+        对本租户里一个从未激活过的邮箱再次调用，会重新发出邀请（旧令牌作废，姓名和角色按本次请求更新）。写审计日志。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, name, role]
+              properties:
+                email:
+                  $ref: "#/components/schemas/Email"
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/TenantRole"
+      responses:
+        "201":
+          description: 已邀请，带一次性邀请令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, invite]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  invite:
+                    $ref: "#/components/schemas/Invite"
+        "409":
+          description: "`EMAIL_TAKEN`：这个邮箱已被使用（一个邮箱只能属于一个租户的一个账号）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/users/{id}:
+    put:
+      tags: [租户账号]
+      operationId: updateTenantUser
+      summary: 修改子账号的姓名、角色、状态
+      description: |
+        需要操作 `user.manage`（管理员）。三个字段整体替换。
+        - `status` 只能在 `active` 和 `disabled` 之间改；待激活账号保持 `invited` 或改成 `disabled`（撤销邀请）。
+        - 从未激活过的账号不能直接改成 `active`，请重新邀请。
+        - 在用的管理员至少保留一个：不能把最后一个管理员降级或停用。
+        - 停用后该账号的令牌立即失效。
+        改姓名、改角色、停用 / 启用各写一条审计日志（带前后值，只含变了的那一项）；什么都没变则不写。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role, status]
+              properties:
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/TenantRole"
+                status:
+                  $ref: "#/components/schemas/AccountStatus"
+      responses:
+        "200":
+          description: 修改后的账号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantUser"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `LAST_ADMIN_REQUIRED`：这是最后一个在用的管理员
+            - `STATUS_INVITED_IS_NOT_SETTABLE`：不能把账号改回待激活
+            - `ACCOUNT_NOT_ACTIVATED`：账号从未激活，不能直接启用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [租户账号]
+      operationId: disableTenantUser
+      summary: 停用子账号
+      description: |
+        需要操作 `user.manage`（管理员）。删除 = 停用：账号保留但不能登录，令牌立即失效，待激活账号的邀请作废。
+        在用的管理员至少保留一个。已经停用的账号再次调用仍返回 204。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已停用
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`LAST_ADMIN_REQUIRED`：这是最后一个在用的管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/users/{id}/password-reset:
+    post:
+      tags: [租户账号]
+      operationId: issueTenantUserPasswordReset
+      summary: 给本租户的用户发密码重置令牌
+      description: |
+        需要操作 `user.manage`（管理员）。只对本租户里在用的账号有效；别的租户的账号和不存在一样，返回 404。
+        **令牌只在这一次响应里出现**，数据库只存它的哈希，24 小时有效。把它交给本人，由本人在
+        `POST /tenant/v1/auth/reset-password` 设置新密码。
+        发出令牌**不改变现有密码**，也不影响现有登录；再发一次会让上一个令牌作废。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user, reset]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/TenantUser"
+                  reset:
+                    $ref: "#/components/schemas/ResetToken"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/AccountNotActive"
+  /tenant/v1/audit-logs:
+    get:
+      tags: [租户账号]
+      operationId: listTenantAuditLogs
+      summary: 本租户的操作日志
+      description: |
+        需要操作 `audit_log.read`（管理员）。只返回令牌所属租户的记录，从新到旧。
+        只包含本租户用户的操作，以及针对本租户账号的登录失败；平台员工对这个租户做的操作
+        （创建、暂停及原因、代发邀请 / 重置）属于平台内部记录，不在其中。
+        可以按人、按对象、按动作、按时间筛选，条件之间是「并且」。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: actor_id
+          in: query
+          description: 操作人的账号编号
+          schema:
+            type: string
+            format: uuid
+        - name: resource
+          in: query
+          description: 对象类型
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          description: 对象编号
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: 动作，见 `AuditLog.action`
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: 起始时间（含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: 结束时间（不含），ISO 8601 带时区
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页操作日志
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantAuditLog"
+                  next_cursor:
+                    type: [string, "null"]
+  /tenant/v1/master/cities:
+    get:
+      tags: [租户主数据]
+      operationId: listTenantCities
+      summary: 城市列表（只读）
+      description: |
+        需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
+        不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/CountryCodeFilter"
+      responses:
+        "200":
+          description: 一页城市
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/City"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+  /tenant/v1/master/cities/{id}:
+    get:
+      tags: [租户主数据]
+      operationId: getTenantCity
+      summary: 查看一个城市（只读）
+      description: 需要操作 `master_data.read`。已停用的也查得到（看 `status`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 城市
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/City"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/master/places:
+    get:
+      tags: [租户主数据]
+      operationId: listTenantPlaces
+      summary: 地点列表（只读）
+      description: |
+        需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
+        不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/PlaceTypeFilter"
+        - $ref: "#/components/parameters/CityIdFilter"
+        - $ref: "#/components/parameters/ParentIdFilter"
+        - $ref: "#/components/parameters/CountryCodeFilter"
+      responses:
+        "200":
+          description: 一页地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantPlace"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+  /tenant/v1/master/places/{id}:
+    get:
+      tags: [租户主数据]
+      operationId: getTenantPlace
+      summary: 查看一个地点（只读）
+      description: 需要操作 `master_data.read`。已停用的也查得到（看 `status`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPlace"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/master/vehicle-groups:
+    get:
+      tags: [租户主数据]
+      operationId: listTenantVehicleGroups
+      summary: 车型组列表（只读）
+      description: |
+        需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
+        不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+        - $ref: "#/components/parameters/VehicleGradeFilter"
+      responses:
+        "200":
+          description: 一页车型组
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VehicleGroup"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+  /tenant/v1/master/vehicle-groups/{id}:
+    get:
+      tags: [租户主数据]
+      operationId: getTenantVehicleGroup
+      summary: 查看一个车型组（只读）
+      description: 需要操作 `master_data.read`。已停用的也查得到（看 `status`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 车型组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleGroup"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/master/addons:
+    get:
+      tags: [租户主数据]
+      operationId: listTenantAddons
+      summary: 附加服务列表（只读）
+      description: |
+        需要操作 `master_data.read`（每个租户角色都有）。主数据由平台统一维护，所有租户看到的是同一份；租户不能新增、修改、停用。
+        分页、`total`、关键字 `q`、排序 `sort` 和平台的列表相同。
+        不带 `status` 时只返回启用中的；`status=disabled` 或 `status=all` 可以看到已停用的（已有配置引用了后来被停用的记录时用）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/MasterStatusFilter"
+        - $ref: "#/components/parameters/MasterCodeFilter"
+        - $ref: "#/components/parameters/MasterKeyword"
+        - $ref: "#/components/parameters/MasterSort"
+        - $ref: "#/components/parameters/UpdatedSince"
+      responses:
+        "200":
+          description: 一页附加服务
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Addon"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: 符合筛选条件的总数（和翻到第几页无关）
+  /tenant/v1/master/addons/{id}:
+    get:
+      tags: [租户主数据]
+      operationId: getTenantAddon
+      summary: 查看一个附加服务（只读）
+      description: 需要操作 `master_data.read`。已停用的也查得到（看 `status`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 附加服务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Addon"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/areas:
+    get:
+      tags: [区域]
+      operationId: listAreas
+      summary: 区域列表
+      description: |
+        需要操作 `area.read`（管理员、商品价格、只读）。只返回令牌所属供应商自己的区域，按最近修改从新到旧
+        （修改时间相同的按编号，顺序稳定）。列表里的每一项不带图形的坐标（没有 `polygons`），只带块数。
+        `total` 是符合筛选条件的总数，和这一页的内容读自同一时刻的数据。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          description: 关键字：任意一种语言的名称里包含它（不区分大小写；`%`、`_` 按字面匹配）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: city_id
+          in: query
+          description: 只看这个城市的区域
+          schema:
+            type: string
+            format: uuid
+        - name: biz_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/AreaBizType"
+        - name: status
+          in: query
+          description: 按状态筛选；不带或 `all` 表示全部
+          schema:
+            type: string
+            enum: [active, disabled, all]
+            default: all
+      responses:
+        "200":
+          description: 一页区域
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AreaSummary"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [区域]
+      operationId: createArea
+      summary: 新增区域
+      description: |
+        需要操作 `area.manage`（管理员、商品价格）。必须带请求头 `Idempotency-Key`。
+        - 所属城市必须是平台启用中的城市；创建后不能改。新增的区域直接是启用的。
+        - 至少一块营运区；每一块是不带洞的简单多边形。多边形给 `geometry`；圆给 `circle`（圆心 + 半径），
+          后端用 `@nozomi/domain` 的 `circleToRing` 算出 64 边的多边形保存——判断「点在不在里面」只认多边形。
+        - 保存时图形被整理成：6 位小数、逆时针（第一个点不变）、首尾闭合。返回的就是整理后的。
+        - 每块图形的 `seq`（「营运 1」里的 1）由后端分配。
+        - 同一个供应商在同一个城市里不能有同名的区域（不分大小写、全角半角，不看是哪种语言）。
+        - 上限：一个区域最多 50 块图形、一个多边形最多 1000 个点、合计最多 5000 个点；圆的半径 100 到 100000 米。
+        写审计日志（`resource` = `area`，`action` = `create`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaCreate"
+      responses:
+        "201":
+          description: 新增的区域（同一个幂等键再来时，原样返回第一次的这份应答）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "409":
+          description: |
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `MASTER_DATA_NOT_READY`：所属城市已被平台停用（`details.reason` = `CITY_DISABLED`）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求。
+            `details.created` = `{ id, version }`：这个键上一次建成的那个区域的编号和**当时**的版本号。
+            典型情况是第一次其实成功了、应答没收到，用户改了内容又保存：调用方可以 `GET /tenant/v1/areas/{id}` 取到它，
+            再用 `PUT` 把现在的内容存成对它的修改（它之后可能被改过或删掉，以 `GET` 的结果为准：404 就换一个新的键重新新增）。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}:
+    get:
+      tags: [区域]
+      operationId: getArea
+      summary: 查看一个区域
+      description: 需要操作 `area.read`。带全部图形。别的供应商的区域是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [区域]
+      operationId: updateArea
+      summary: 修改区域
+      description: |
+        需要操作 `area.manage`。必须用请求头 `If-Match` 带上当前的 `version`。
+        名称、业务类型、图形都是**整体替换**：`polygons` 里没有的图形被删掉。
+        - 已有的图形带上它的 `id`（编号不变；类别没变的话序号也不变）；新加的图形不带 `id`，序号按这一类保存前的最大序号往上数，删掉的序号不再用。
+        - 把 `GET` 拿到的 `polygons` 原样提交回来是合法的（多出来的 `seq` 被忽略）。
+        - 不能改城市：带了 `city_id` 且和现有的不同返回 409 `FIELD_LOCKED`。
+        - 内容没有变化时原样返回，`version` 不变、不写日志。
+        有变化时 `version` 加一并写审计日志（`action` = `update`，前后值只含变了的那几项）。区域停用时、所属城市被平台停用后也可以改。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AreaUpdate"
+      responses:
+        "200":
+          description: 修改后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "400":
+          $ref: "#/components/responses/AreaInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：`If-Match` 里的版本号不是最新的，`details.current_version` 是当前版本
+            - `FIELD_LOCKED`：改了城市（`city_id`），或已经有商品选了这个区域时改了业务类型（`biz_type`）；`details.fields` 列出是哪个
+            - `AREA_NAME_TAKEN`：这个城市已经有同名的区域
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [区域]
+      operationId: deleteArea
+      summary: 删除区域
+      description: |
+        需要操作 `area.manage`。区域可以真的删除（连同它的图形），删了不能恢复；删除前的完整内容记在审计日志里（`action` = `delete`）。
+        只是暂时不用的话请用停用。被已上架的商品引用时不能删除（409 `AREA_IN_USE`）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/disable:
+    post:
+      tags: [区域]
+      operationId: disableArea
+      summary: 停用区域
+      description: |
+        需要操作 `area.manage`。停用 = 暂时不用：建商品时不能再选它、报价时不再使用它；区域和图形都保留，可以再启用，停用期间也可以修改和自测。
+        已经停用的再次调用原样返回。有变化时 `version` 加一并写审计日志（`action` = `disable`）。
+        被已上架的商品引用时不能停用（409 `AREA_IN_USE`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`AREA_IN_USE`：有已上架的商品在用这个区域，`details.published_product_count` 是数量"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/enable:
+    post:
+      tags: [区域]
+      operationId: enableArea
+      summary: 启用区域
+      description: |
+        需要操作 `area.manage`。所属城市必须是平台启用中的城市。已经启用的再次调用原样返回。
+        有变化时 `version` 加一并写审计日志（`action` = `enable`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Area"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：所属城市已被平台停用（`details.reason` = `CITY_DISABLED`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/areas/{id}/check-point:
+    post:
+      tags: [区域]
+      operationId: checkAreaPoint
+      summary: 自测：一个位置在区域的哪里
+      description: |
+        需要操作 `area.read`。按**已保存**的图形判断，禁行区优先；不管在不在里面都返回 200。正好压在边线上的位置算在里面。
+        只看这一个区域自己的图形（禁行区只管它所在的区域）；停用的区域也能测。不写任何东西。
+        判断用的是 `@nozomi/domain` 的 `locatePoint`，以后报价用的也是它。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lng:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+      responses:
+        "200":
+          description: 判断结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AreaPointCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/map/config:
+    get:
+      tags: [区域]
+      operationId: getTenantMapConfig
+      summary: 地图底图的配置
+      description: |
+        任何已登录的供应商账号都能调（账号必须先修改密码时同样被拦）。返回这个环境的底图（栅格瓦片）配置；没有配置时 `tiles` 是 null，
+        页面按「没有配置底图」显示，功能不受影响。
+        值来自部署环境的配置（`MAP_TILE_URL_TEMPLATE` 等），内容和供应商无关。全站的内容安全策略 `img-src` 放行的就是这里的瓦片来源（同一个环境变量算出来的）。
+        全站 `Referrer-Policy` 是 `no-referrer`；瓦片图片请按 `referrer_policy` 单独设置（多数底图服务要求带上来源域名）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 底图配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapConfig"
+  /tenant/v1/dashboard/summary:
+    get:
+      tags: [区域]
+      operationId: getTenantDashboardSummary
+      summary: 供应商后台首页的数量
+      description: |
+        任何已登录的供应商账号都能调（账号必须先修改密码时同样被拦）。按模块分组，只有数量；只数令牌所属供应商自己的。
+        每个模块只给有权看它的角色：没有 `area.read` 的角色拿到的 `areas` 是 null。以后每个模块加一组，不改已有的字段。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 各模块的数量
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantDashboardSummary"
+  /tenant/v1/brands:
+    get:
+      tags: [商品]
+      operationId: listBrands
+      summary: 子品牌列表
+      description: |
+        需要操作 `product.read`（管理员、商品价格、只读）。本供应商的全部子品牌，按创建的先后；数量很少，不分页。
+        子品牌决定它下面商品所有金额的币种。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 全部子品牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Brand"
+    post:
+      tags: [商品]
+      operationId: createBrand
+      summary: 新增子品牌
+      description: |
+        需要操作 `brand.manage`（只有管理员）。必须带请求头 `Idempotency-Key`。
+        币种创建后不能改。同一个供应商下子品牌不能重名（不分大小写）。写审计日志（`resource` = `brand`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandCreate"
+      responses:
+        "201":
+          description: 新增的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "409":
+          description: |
+            - `BRAND_NAME_TAKEN`：已经有同名的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/brands/{id}:
+    put:
+      tags: [商品]
+      operationId: updateBrand
+      summary: 给子品牌改名
+      description: 需要操作 `brand.manage`。必须带 `If-Match`。只能改名称；带了 `currency` 且和现有的不同返回 409 `FIELD_LOCKED`。名称没变时原样返回。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandUpdate"
+      responses:
+        "200":
+          description: 修改后的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `FIELD_LOCKED`：改了币种
+            - `BRAND_NAME_TAKEN`：已经有同名的子品牌
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products:
+    get:
+      tags: [商品]
+      operationId: listProducts
+      summary: 商品列表
+      description: |
+        需要操作 `product.read`。只返回令牌所属供应商自己的商品，按最近修改从新到旧（修改时间相同的按编号，顺序稳定）。
+        列表项不带区域、车型组、调度人的明细，只带个数。`total` 是符合筛选条件的总数。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          description: 关键字：商品编号，或任意一种语言的标题里包含它（不区分大小写；`%`、`_` 按字面匹配）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          description: 按状态筛选；不带或 `all` 表示全部
+          schema:
+            type: string
+            enum: [draft, published, unpublished, all]
+            default: all
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/ServiceCategory"
+        - name: city_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: brand_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: area_id
+          in: query
+          description: 只看选了这个区域的商品
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页商品
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProductSummary"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [商品]
+      operationId: createProduct
+      summary: 新增商品（创建即草稿）
+      description: |
+        需要操作 `product.manage`（管理员、商品价格）。必须带请求头 `Idempotency-Key`。
+        - `brand_id`、`city_id`、`category`、`poi_id` 创建后不能改，所以新增时就要给全：子品牌和城市必须是启用中的；
+          接送机商品必须选一个本城市、启用中的机场或车站，其他品类不能有 `poi_id`。
+        - `areas`、`vehicle_groups`、`dispatchers` 可以现在给，也可以之后用修改接口分步保存。规则同修改接口。
+        - 商品编号 `code` 由后端生成：`PRD` + 创建时间 + 流水号，全平台唯一。
+        - 服务规则和商品详情是空的，分别用各自的接口保存。
+        写审计日志（`resource` = `product`，`action` = `create`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+      responses:
+        "201":
+          description: 新增的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "409":
+          description: |
+            - `MASTER_DATA_NOT_READY`：城市或接送点存在但已被平台停用（`details.reason` = `CITY_DISABLED` / `PICKUP_PLACE_DISABLED`），和新增区域一致
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}:
+    get:
+      tags: [商品]
+      operationId: getProduct
+      summary: 查看一个商品
+      description: 需要操作 `product.read`。带区域、车型组、调度人的明细（连同它们现在的状态）。别的供应商的商品是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [商品]
+      operationId: updateProduct
+      summary: 修改基础信息（区域、车型组、调度人）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品只有一个版本号：它下面任何一部分变了都加一）。
+        `areas`、`vehicle_groups`、`dispatchers` 带了哪个就整体替换哪个，没带的不动；可以分步保存。
+        - 区域：只能选本供应商自己的、商品所在城市的、业务类型和品类相同或「通用」的区域；顺序就是优先级；新选的必须是启用中的。
+        - 车型组：平台主数据；每个选一个「人数 / 行李数」组合，必须是这个车型组的可选组合之一；新选的必须是启用中的。
+        - 调度人：姓名 + 电话。
+        - `brand_id`、`city_id`、`category`、`poi_id` 不能改：带了且和现有的不同返回 409 `FIELD_LOCKED`。
+        - 已上架的商品改完之后必须仍然通过上架校验，否则返回 409 `PUBLISH_CHECK_FAILED`、什么都不改。
+        内容没变时原样返回。有变化时写审计日志（只记变了的那几项）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductPatch"
+      responses:
+        "200":
+          description: 修改后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `FIELD_LOCKED`：改了创建后不能改的字段，`details.fields` 列出是哪些
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了；`details.items` 是逐项结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [商品]
+      operationId: deleteProduct
+      summary: 删除商品（只有草稿可以）
+      description: 需要操作 `product.manage`。只有草稿可以删除，删了不能恢复；删除前的完整内容记在审计日志里。上过架的商品请下架。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PRODUCT_NOT_DRAFT`：不是草稿，`details.status` 是当前状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/service-rules:
+    get:
+      tags: [商品]
+      operationId: getProductServiceRules
+      summary: 服务规则
+      description: |
+        需要操作 `product.read`。商品级的服务规则（不分区域和车型）。新建的商品是一份空的规则。
+        金额都是 `currency`（子品牌的币种）的最小货币单位整数。`free_wait_minimums` 是平台规定的各项免等最少分钟数。
+        取消规则不在这里：它由平台按品类和车型级别统一设置，供应商不设。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 服务规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductServiceRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [商品]
+      operationId: putProductServiceRules
+      summary: 保存服务规则（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）。整体替换；可以只填一部分——保存时只查填了的写得对不对，缺什么留到上架校验。
+        - 预订规则：下单有效期（城市当地日期，含两端）、每天的服务时间（`HH:mm`，可以跨午夜；全天写 `00:00`–`24:00`）、提前预订时长（小时，0 到 720）。
+        - 加急：每档「离用车不到 N 小时下单加收 X」，N 不能超过提前预订时长、不能重复；报价时取最小的命中 N 一档。
+        - 夜间加价：时段可以跨午夜；按次或按与夜间时段重叠的小时数。
+        - 免等：接送机填 `pickup` 和 `dropoff`，点对点和包车填 `general`；有限时长不能短于 `free_wait_minimums`。
+        - 附加服务：平台目录里的；开着的必须是启用中、适用于这个品类的；单价 0 = 免费提供；`first_free` 只有按个计费的可以设。
+        - 司机语言：每种语言（两位小写代码）一个单价。
+        所有时间规则以后都按商品所在城市的时区计算。已上架的商品改完必须仍然通过上架校验。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceRules"
+      responses:
+        "200":
+          description: 保存后的服务规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductServiceRules"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/content:
+    get:
+      tags: [商品]
+      operationId: getProductContent
+      summary: 商品详情
+      description: 需要操作 `product.read`。各语言的标题、简介、包含 / 不含、行程路线（包车）、接机指引（接送机）。只返回填了的语言。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 商品详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductContentResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [商品]
+      operationId: putProductContent
+      summary: 保存商品详情（整体替换）
+      description: |
+        需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）。整体替换；可以只填一部分。空串当作没填；一种语言什么都没填就不保存这种语言。
+        上架要求：至少一种语言有标题；接送机商品，每一种有标题的语言都要有接机指引。
+        使用条款、取消政策等由模版生成的文字不在这里（本期不做）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductContent"
+      responses:
+        "200":
+          description: 保存后的商品详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductContentResponse"
+        "400":
+          $ref: "#/components/responses/ProductInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：版本号不是最新的
+            - `PUBLISH_CHECK_FAILED`：商品是已上架的，这样改完就不满足上架条件了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/publish-check:
+    get:
+      tags: [商品]
+      operationId: getProductPublishCheck
+      summary: 上架校验
+      description: |
+        需要操作 `product.read`。逐项给出通过 / 不通过和原因，界面照着显示清单。六项，顺序固定：
+        `basic_info` 基础信息、`service_rules` 服务规则、`price_rules` 价格规则、`content` 商品详情（这四项必须）；`adjust_rules` 调价规则、`inventory` 库存（可选，恒通过）。
+        **价格规则功能上线之前，`price_rules` 一项固定不通过**（原因 `FEATURE_NOT_AVAILABLE`）：商品可以建、可以跑校验，但还不能上架。
+        校验看的是现在的情况：选的区域、车型组、接送点、附加服务后来被停用了，也会在这里指出来。
+        判断用的是 `@nozomi/domain` 的 `publishCheck`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 校验结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishCheck"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/publish:
+    post:
+      tags: [商品]
+      operationId: publishProduct
+      summary: 上架
+      description: |
+        需要操作 `product.manage`。必须的校验项全部通过才能上架，否则 409 `PUBLISH_CHECK_FAILED`，`details.items` 是逐项结果（结构同上架校验接口的 `items`）。
+        草稿和已下架的都可以上架；已经上架的再次调用原样返回。写审计日志（`action` = `publish`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 上架后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PUBLISH_CHECK_FAILED`：还有上架条件没有满足
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/unpublish:
+    post:
+      tags: [商品]
+      operationId: unpublishProduct
+      summary: 下架
+      description: 需要操作 `product.manage`。已上架 → 已下架；已经下架的再次调用原样返回；草稿没有上过架，返回 409。写审计日志（`action` = `unpublish`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 下架后的商品
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `PRODUCT_STATE_INVALID`：草稿不能下架
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  securitySchemes:
+    platformToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 平台员工登录后拿到的访问令牌
+    tenantToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 租户用户登录后拿到的访问令牌；租户编号只从这里取
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      description: 每页条数；只接受十进制整数的写法
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      description: 上一页返回的 `next_cursor`
+      schema:
+        type: string
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 当前的版本号（记录里的 `version`），写成 `"3"` 或 `3`。没带返回 428，不是最新的返回 409
+      schema:
+        type: string
+        examples: ['"3"']
+    MasterStatusFilter:
+      name: status
+      in: query
+      description: 按状态筛选；`all` 表示不筛选
+      schema:
+        type: string
+        enum: [active, disabled, all]
+    MasterCodeFilter:
+      name: code
+      in: query
+      description: 按编码精确查找
+      schema:
+        type: string
+        maxLength: 50
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        幂等键：8 到 128 位的字母、数字或 `_ . : -`（用一个 UUID 就行）。同一个供应商、同一个接口、24 小时内，
+        同一个键配同样的内容再来，原样返回第一次的应答，不会重复创建；配了不同的内容返回 422 `IDEMPOTENCY_KEY_REUSED`
+        （`details.created` 带上一次建成的那条的 `id` 和当时的 `version`）。
+        失败的请求不占用键，修好以后可以带同一个键重试。没带或格式不对返回 400 `VALIDATION_FAILED`（`/idempotency-key`）。
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_.:-]{8,128}$"
+    MasterSort:
+      name: sort
+      in: query
+      description: |
+        排序。`created`（默认）：按创建时间从早到晚，创建时间相同的按编号——同一次导入的机场创建时间相同，彼此的先后没有意义；
+        `code`：按编码升序（逐字节比较，`HND` 在 `HND-T1` 前面）。
+        游标和排序是绑定的：翻页时 `sort` 要和取得游标的那次请求相同，否则 400 `VALIDATION_FAILED`（`/cursor`）。
+      schema:
+        type: string
+        enum: [created, code]
+        default: created
+    MasterKeyword:
+      name: q
+      in: query
+      description: 关键字：编码或任意一种语言的名称里包含它（不区分大小写；首尾空白会去掉；`%`、`_` 按字面匹配）
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    UpdatedSince:
+      name: updated_since
+      in: query
+      description: 只返回这个时间（含）之后改过的记录，用于增量同步；带时区的 ISO 8601
+      schema:
+        type: string
+        format: date-time
+    CountryCodeFilter:
+      name: country_code
+      in: query
+      description: 按国家筛选（ISO 3166-1 两位大写字母）
+      schema:
+        type: string
+        pattern: "^[A-Z]{2}$"
+    PlaceTypeFilter:
+      name: type
+      in: query
+      description: 按地点类型筛选。可以一次给多个，用逗号分隔（如 `airport,station`），符合其中任何一个的都算。
+      schema:
+        type: string
+        pattern: "^(airport|station|terminal|exit|poi)(,(airport|station|terminal|exit|poi))*$"
+    CityIdFilter:
+      name: city_id
+      in: query
+      description: |
+        只看这个城市的地点（城市的编号）；写 `none` 表示只看还没有所属城市的地点（导入后等待复核的机场），`total` 同样按这个条件算。
+        平台的列表在 `city_id=none` 时，应答另带 `city_suggestions`（给这一页的每个地点按距离建议的城市）；租户的列表不带。
+        确认后用启用接口带 `city_id` 一次完成「指定城市并启用」。
+      schema:
+        oneOf:
+          - type: string
+            format: uuid
+          - type: string
+            enum: [none]
+    ParentIdFilter:
+      name: parent_id
+      in: query
+      description: 只看这个机场的航站楼 / 这个车站的出口
+      schema:
+        type: string
+        format: uuid
+    VehicleGradeFilter:
+      name: grade
+      in: query
+      description: 按等级筛选
+      schema:
+        $ref: "#/components/schemas/VehicleGrade"
+  responses:
+    InternalError:
+      description: 未预期的服务端错误，`message` 不包含内部细节
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ResourceNotFound:
+      description: "`NOT_FOUND`：资源不存在（租户接口里，属于别的租户的资源也是这个结果）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyLoginAttempts:
+      description: "`TOO_MANY_LOGIN_ATTEMPTS`：尝试次数过多，`details.retry_after_seconds` 和响应头 `Retry-After` 是还要等的秒数"
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 还要等多少秒
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PasswordChangeRejected:
+      description: |
+        - `CURRENT_PASSWORD_INCORRECT`：当前密码不正确
+        - `PASSWORD_UNCHANGED`：新密码和当前密码相同
+        - `WEAK_PASSWORD`：新密码强度不够，`details.issues` 列出每一条没满足的规则
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ResetRejected:
+      description: |
+        - `RESET_TOKEN_INVALID`：重置令牌不存在、已用过、已过期，或账号已停用
+        - `WEAK_PASSWORD`：密码强度不够，`details.issues` 列出每一条没满足的规则（令牌仍然可用）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AccountNotActive:
+      description: "`ACCOUNT_NOT_ACTIVE`：账号不是在用状态。待激活的账号请重新邀请，已停用的账号请先启用"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InviteRejected:
+      description: |
+        - `INVITE_INVALID`：邀请令牌不存在、已用过或已过期
+        - `WEAK_PASSWORD`：密码强度不够，`details.issues` 列出每一条没满足的规则（`code` + `message`）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    AreaInvalid:
+      description: |
+        `VALIDATION_FAILED`：字段或图形不合规。`details.issues[]` 每条有 `path`、`message`（中文），图形的问题另有机器可读的 `reason`：
+        `NO_OPERATE_POLYGON`、`TOO_MANY_POLYGONS`、`TOO_MANY_TOTAL_VERTICES`（`path` 是 `/polygons`）；
+        `INVALID_COORDINATE`、`TOO_FEW_POINTS`、`TOO_MANY_VERTICES`、`DUPLICATE_POINT`、`CROSSES_ANTIMERIDIAN`、`COLLINEAR`、
+        `SELF_INTERSECTION`、`HAS_HOLES`（`path` 是 `/polygons/{i}/geometry`）；`RADIUS_OUT_OF_RANGE`（`/polygons/{i}/circle/radius_m`）；
+        `UNKNOWN_POLYGON`（`/polygons/{i}/id`：这个编号的图形不在这个区域里）。
+        部分原因带 `detail`：`SELF_INTERSECTION` 是 `{ a, b }`（第 a–a+1 个点之间的边和第 b–b+1 个点之间的边交叉，点号从 1 数）；
+        `DUPLICATE_POINT` 是 `{ a, b }`；`INVALID_COORDINATE` 是 `{ point }`；`TOO_FEW_POINTS`、`TOO_MANY_VERTICES`、`TOO_MANY_POLYGONS`、`TOO_MANY_TOTAL_VERTICES` 是 `{ count }`。
+        这些代码和 `@nozomi/domain` 的 `ringIssues` / `areaShapeIssues` 返回的是同一套。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ProductInvalid:
+      description: |
+        `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、平台规定的最小值等）。
+        基础信息：`UNKNOWN_BRAND`、`BRAND_DISABLED`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`、`PLACE_OTHER_CITY`、
+        `UNKNOWN_AREA`（区域不存在，别的供应商的区域也是这个结果）、`AREA_OTHER_CITY`、`AREA_NOT_USABLE`、`AREA_DISABLED`、
+        `UNKNOWN_VEHICLE_GROUP`、`VEHICLE_GROUP_DISABLED`、`VEHICLE_COMBO_NOT_OFFERED`、`INVALID_PHONE`、`DUPLICATE`、`TOO_MANY`、`REQUIRED`、`NOT_APPLICABLE`。
+        服务规则和商品详情：`INVALID_DATE`、`DATE_RANGE_REVERSED`、`INVALID_TIME`、`EMPTY_WINDOW`、`OUT_OF_RANGE`、`NOT_INTEGER`、`TOO_MANY`、`TOO_LONG`、`DUPLICATE`、
+        `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
+        这些代码和 `@nozomi/domain` 的 `serviceRuleIssues` / `contentIssues` 返回的是同一套。子品牌的币种不支持时是 `UNSUPPORTED_CURRENCY`。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    VersionRequired:
+      description: "`PRECONDITION_REQUIRED`：修改时没有用请求头 `If-Match` 带版本号"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              description: 稳定的机器可读错误码，全大写下划线
+              examples: [NOT_FOUND, VALIDATION_FAILED, BAD_REQUEST, INTERNAL_ERROR]
+            message:
+              type: string
+              description: 给人看的简体中文说明
+            details:
+              type: object
+              description: 补充信息；没有时为空对象
+              additionalProperties: true
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, env, database, migrations, integrations]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        env:
+          type: string
+          enum: [local, ci, staging, production]
+        database:
+          $ref: "#/components/schemas/DatabaseHealth"
+        migrations:
+          $ref: "#/components/schemas/MigrationHealth"
+        integrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/IntegrationStatus"
+    DatabaseHealth:
+      type: object
+      additionalProperties: false
+      required: [state, latencyMs, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up, down]
+        latencyMs:
+          type: [integer, "null"]
+          description: 探测查询耗时（毫秒）；数据库不可用时为 null
+        errorCode:
+          type: [string, "null"]
+          enum: [DB_TIMEOUT, DB_UNREACHABLE, DB_ROLE_UNSAFE, null]
+          description: |
+            数据库不可用的原因；可用时为 null。不返回驱动的原始报错。
+            - `DB_TIMEOUT`：探测查询超时
+            - `DB_UNREACHABLE`：连不上
+            - `DB_ROLE_UNSAFE`：连得上，但服务进程用的数据库账号不是最小权限的应用账号（是超级用户、表的所有者等）。
+              这种账号下服务不执行任何业务查询；修正 `DATABASE_URL` 后重启（ADR 0010）
+    MigrationHealth:
+      type: object
+      additionalProperties: false
+      required: [state, applied, pending, errorCode]
+      properties:
+        state:
+          type: string
+          enum: [up_to_date, pending, error, unknown]
+          description: |
+            - `up_to_date`：迁移文件全部已执行
+            - `pending`：有迁移文件尚未执行，需要运行 `pnpm db:migrate`
+            - `error`：迁移记录与文件不一致（见 `errorCode`）
+            - `unknown`：数据库不可用，无法判断
+        applied:
+          type: [integer, "null"]
+          description: 已执行的迁移数量；`unknown` 或 `error` 时为 null
+        pending:
+          type: [integer, "null"]
+          description: 待执行的迁移数量；`unknown` 或 `error` 时为 null
+        errorCode:
+          type: [string, "null"]
+          enum:
+            - MIGRATION_CHECKSUM_MISMATCH
+            - MIGRATION_FILE_MISSING
+            - MIGRATION_OUT_OF_ORDER
+            - null
+    IntegrationStatus:
+      type: object
+      description: 公开的集成状态：只有「已配置 / 未配置」
+      additionalProperties: false
+      required: [key, label, state]
+      properties:
+        key:
+          type: string
+          enum: [database, auth, stripe, googleMaps, fx]
+        label:
+          type: string
+        state:
+          type: string
+          enum: [configured, missing]
+    IntegrationStatusDetail:
+      type: object
+      description: 需要平台登录才能看到的集成状态：多一段脱敏说明
+      additionalProperties: false
+      required: [key, label, state, detail]
+      properties:
+        key:
+          type: string
+          enum: [database, auth, stripe, googleMaps, fx]
+        label:
+          type: string
+        state:
+          type: string
+          enum: [configured, missing]
+        detail:
+          type: string
+          description: 脱敏后的说明，例如打码后的数据库地址、只露首尾的密钥
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+      description: 邮箱；不分大小写，保存和返回时统一为小写
+    PersonName:
+      type: string
+      minLength: 1
+      maxLength: 100
+      description: 姓名（显示用）
+    AccountStatus:
+      type: string
+      enum: [invited, active, disabled]
+      description: "invited：已邀请、还没设密码；active：在用；disabled：已停用"
+    PlatformRole:
+      type: string
+      enum: [super_admin, operations, tenant_onboarding, channel_manager, customer_service, finance, risk, master_data, tech, readonly]
+      description: 平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
+    TenantRole:
+      type: string
+      enum: [admin, pricing, dispatch, finance, readonly]
+      description: 租户角色：管理员、商品价格、调度、财务、只读
+    PlatformAction:
+      type: string
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage]
+    TenantAction:
+      type: string
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          $ref: "#/components/schemas/Email"
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    AcceptInviteRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: 一次性邀请令牌
+        password:
+          type: string
+          description: |
+            新密码。规则：12 ~ 128 个字符；小写字母、大写字母、数字、其他字符里至少占三类；
+            至少 6 个不同的字符；不能包含邮箱 @ 前面的部分。
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          description: 新密码，强度规则与接受邀请时相同，且不能和当前密码相同
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: 一次性重置令牌
+        password:
+          type: string
+          description: 新密码，强度规则与接受邀请时相同
+    ResetToken:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: 一次性重置令牌原文，只在这一次响应里出现
+        expires_at:
+          type: string
+          format: date-time
+    Invite:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      properties:
+        token:
+          type: string
+          description: 一次性邀请令牌原文，只在这一次响应里出现
+        expires_at:
+          type: string
+          format: date-time
+    PlatformUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/PlatformRole"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Tenant:
+      type: object
+      additionalProperties: false
+      required: [id, name, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended]
+          description: "active：正常；suspended：已被平台暂停（用户仍可登录，前端应提示「已暂停」）"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TenantUser:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/TenantRole"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PlatformLoginResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_at, user, must_change_password]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+          description: 令牌过期时间（登录后 8 小时）
+        user:
+          $ref: "#/components/schemas/PlatformUser"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+    TenantLoginResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_at, user, tenant, must_change_password]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_at:
+          type: string
+          format: date-time
+          description: 令牌过期时间（登录后 8 小时）
+        user:
+          $ref: "#/components/schemas/TenantUser"
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+    MustChangePassword:
+      type: boolean
+      description: |
+        `true`：这个账号正在用临时密码，必须先调用 `auth/change-password` 修改密码；
+        在那之前除 `auth/me`、`auth/change-password`、`auth/logout` 外的接口都返回 403 `PASSWORD_CHANGE_REQUIRED`。
+        前端应在它为 `true` 时只显示修改密码页。修改成功后为 `false`。
+    AuditLog:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, tenant_id, actor, ip, source, resource, resource_id, action, before, after]
+      properties:
+        id:
+          type: string
+          description: 递增的编号（字符串形式）
+        occurred_at:
+          type: string
+          format: date-time
+        tenant_id:
+          type: [string, "null"]
+          format: uuid
+          description: 记录所属的租户；平台级操作为 null
+        actor:
+          type: object
+          additionalProperties: false
+          required: [type, id, email]
+          properties:
+            type:
+              type: string
+              enum: [platform_user, tenant_user, system, anonymous]
+              description: "谁做的：平台员工、租户用户、系统（命令行）、未登录的访问者（登录失败）"
+            id:
+              type: [string, "null"]
+              format: uuid
+            email:
+              type: [string, "null"]
+        ip:
+          type: [string, "null"]
+          description: 来源地址；命令行操作为 null
+        source:
+          type: string
+          enum: [console, api, cli]
+          description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行"
+        resource:
+          type: string
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product]
+        resource_id:
+          type: [string, "null"]
+        action:
+          type: string
+          enum:
+            - login
+            - login_failed
+            - logout
+            - create
+            - invite
+            - accept_invite
+            - disable
+            - enable
+            - update
+            - delete
+            - publish
+            - unpublish
+            - change_role
+            - change_password
+            - request_password_reset
+            - reset_password
+            - suspend
+            - resume
+            - view
+        before:
+          type: [object, "null"]
+          additionalProperties: true
+          description: 改动前的值；不含密码哈希、令牌
+        after:
+          type: [object, "null"]
+          additionalProperties: true
+          description: |
+            改动后的值，或这次操作的补充信息（如登录失败的原因）；不含密码、密码哈希、令牌。
+            命令行用临时密码创建账号（`create`）或重设密码（`reset_password`）时带 `temporary_password: true`。
+    TenantAuditLog:
+      type: object
+      description: 租户看到的操作日志；字段含义同 `AuditLog`，没有 `tenant_id`
+      additionalProperties: false
+      required: [id, occurred_at, actor, ip, source, resource, resource_id, action, before, after]
+      properties:
+        id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        actor:
+          type: object
+          additionalProperties: false
+          required: [type, id, email]
+          properties:
+            type:
+              type: string
+              enum: [tenant_user, anonymous]
+              description: "本租户的用户，或未登录的访问者（登录失败）"
+            id:
+              type: [string, "null"]
+              format: uuid
+            email:
+              type: [string, "null"]
+        ip:
+          type: [string, "null"]
+        source:
+          type: string
+          enum: [console, api]
+        resource:
+          type: string
+          enum: [tenant_user, area, brand, product]
+        resource_id:
+          type: [string, "null"]
+        action:
+          type: string
+          description: 取值同 `AuditLog.action`
+        before:
+          type: [object, "null"]
+          additionalProperties: true
+        after:
+          type: [object, "null"]
+          additionalProperties: true
+    MasterDataStatus:
+      type: string
+      enum: [active, disabled]
+      description: "active：启用；disabled：已停用（主数据不删除，只停用）"
+    CountryCode:
+      type: string
+      pattern: "^[A-Z]{2}$"
+      description: ISO 3166-1 两位国家码（另接受科索沃的 XK）
+      examples: [JP, KR]
+    LocalizedText:
+      type: object
+      additionalProperties: false
+      description: 多语言文本，键是语言代码（ISO 639-1）。只返回填了的语言
+      properties:
+        ja:
+          type: string
+        zh:
+          type: string
+        en:
+          type: string
+        ko:
+          type: string
+    LocalizedName:
+      description: 多语言名称，至少有一种语言，每种最多 200 个字符
+      allOf:
+        - $ref: "#/components/schemas/LocalizedText"
+      minProperties: 1
+      examples:
+        - { ja: 東京, zh: 东京, en: Tokyo }
+    Point:
+      type: object
+      additionalProperties: false
+      required: [lng, lat]
+      description: WGS84 坐标，保留小数点后 6 位（多出的位数四舍五入）
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+    Boundary:
+      type: object
+      required: [type, coordinates]
+      description: |
+        GeoJSON 的 Polygon 或 MultiPolygon（坐标顺序是 [经度, 纬度]）。每个环至少 4 个点且首尾相同，
+        顶点总数最多 5000 个。
+      properties:
+        type:
+          type: string
+          enum: [Polygon, MultiPolygon]
+        coordinates:
+          type: array
+    PlaceType:
+      type: string
+      enum: [airport, station, poi, terminal, exit]
+      description: "airport：机场；station：车站；poi：地标；terminal：航站楼（挂在机场下）；exit：出口（挂在车站下）"
+    PlaceCategory:
+      type: string
+      enum: [shinkansen, rail, metro, hotel, attraction, port, mall]
+      description: "车站：shinkansen 新干线 / rail 铁路 / metro 地铁；地标：hotel 酒店 / attraction 景点 / port 港口 / mall 商场"
+    FlightScope:
+      type: string
+      enum: [international, domestic, mixed]
+      description: "international：国际；domestic：国内；mixed：都有"
+    VehicleGrade:
+      type: string
+      enum: [economy, comfort, business, luxury]
+      description: 等级：经济、舒适、商务、豪华
+    VehiclePower:
+      type: string
+      enum: [fuel, ev]
+      description: "fuel：燃油；ev：电动"
+    VehicleCombo:
+      type: object
+      additionalProperties: false
+      required: [passengers, luggage]
+      properties:
+        passengers:
+          type: integer
+          minimum: 1
+          description: 人数，不能超过座位数
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 99
+          description: 行李数
+    ServiceCategory:
+      type: string
+      enum: [airport_transfer, point_to_point, charter]
+      description: 品类：接送机、点对点、包车
+    AddonChargeUnit:
+      type: string
+      enum: [per_order, per_item, per_person, per_duration]
+      description: 计费方式：按次、按个、按人、按时长
+    MasterRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      description: 被引用的主数据记录的简要信息
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+    PlaceParentRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        type:
+          $ref: "#/components/schemas/PlaceType"
+    City:
+      type: object
+      additionalProperties: false
+      required: [id, code, country_code, name, timezone, center, boundary, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          examples: [CTY-JP-TYO]
+        country_code:
+          $ref: "#/components/schemas/CountryCode"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        timezone:
+          type: string
+          description: IANA 时区名；所有时间规则按城市时区计算
+          examples: [Asia/Tokyo]
+        center:
+          $ref: "#/components/schemas/Point"
+        boundary:
+          description: 城市边界；没填为 null
+          oneOf:
+            - $ref: "#/components/schemas/Boundary"
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CityCreate:
+      type: object
+      required: [code, country_code, name, timezone, center]
+      properties:
+        code:
+          type: string
+          pattern: "^CTY-[A-Z]{2}-[A-Z0-9]{2,8}$"
+        country_code:
+          $ref: "#/components/schemas/CountryCode"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        timezone:
+          type: string
+          examples: [Asia/Tokyo]
+        center:
+          $ref: "#/components/schemas/Point"
+        boundary:
+          oneOf:
+            - $ref: "#/components/schemas/Boundary"
+            - type: "null"
+    CityPatch:
+      type: object
+      description: 只带要改的字段。`code`、`country_code` 不能改（带了且和现有值不同返回 409 `FIELD_LOCKED`）
+      properties:
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        timezone:
+          type: string
+        center:
+          $ref: "#/components/schemas/Point"
+        boundary:
+          oneOf:
+            - $ref: "#/components/schemas/Boundary"
+            - type: "null"
+    TenantPlace:
+      type: object
+      description: 租户看到的地点（没有导入来源等平台内部信息）
+      additionalProperties: false
+      required: [id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/PlaceType"
+        code:
+          type: string
+          description: 机场是 IATA 三字码；车站 `STN-国家码-序号`；地标 `POI-序号`；航站楼 / 出口是上级编码加后缀
+          examples: [HND, STN-JP-TOKYO, POI-000123, HND-T3]
+        country_code:
+          $ref: "#/components/schemas/CountryCode"
+        city_id:
+          type: [string, "null"]
+          format: uuid
+          description: 所属城市。只有刚导入、还没归属城市的机场为 null（这样的机场是停用的）
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+          description: 航站楼所属的机场 / 出口所属的车站；其他类型为 null
+        city:
+          description: 所属城市的编码和名称（和 `city_id` 对应）；没有城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/MasterRef"
+            - type: "null"
+        parent:
+          description: 上级地点的编码、名称和类型（和 `parent_id` 对应）；没有上级时为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceParentRef"
+            - type: "null"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        location:
+          $ref: "#/components/schemas/Point"
+        category:
+          description: 车站类型或地标类型；机场、航站楼、出口为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceCategory"
+            - type: "null"
+        flight_scope:
+          description: 机场 / 航站楼的国际、国内属性；没填或其他类型为 null
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        address:
+          type: [string, "null"]
+          description: 地标的地址；其他类型为 null
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CitySuggestion:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, distance_km]
+      description: 给还没有所属城市的地点建议的一个城市
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        distance_km:
+          type: number
+          minimum: 0
+          description: 地点到这个城市中心的球面距离（公里，保留 1 位小数）
+    PlaceCitySuggestion:
+      type: object
+      additionalProperties: false
+      required: [place_id, suggested_city, nearby_cities]
+      properties:
+        place_id:
+          type: string
+          format: uuid
+          description: 地点的编号
+        suggested_city:
+          description: 首选的城市（就是 `nearby_cities` 的第一个，不一定是最近的）；没有合适的城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/CitySuggestion"
+            - type: "null"
+        nearby_cities:
+          type: array
+          description: 候选城市，按建议的先后（不是按距离），最多 3 个；第一个就是 `suggested_city`
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/CitySuggestion"
+    Place:
+      type: object
+      additionalProperties: false
+      required: [id, type, code, country_code, city_id, parent_id, city, parent, name, location, category, flight_scope, address, status, version, created_at, updated_at, source]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/PlaceType"
+        code:
+          type: string
+          description: 机场是 IATA 三字码；车站 `STN-国家码-序号`；地标 `POI-序号`；航站楼 / 出口是上级编码加后缀
+          examples: [HND, STN-JP-TOKYO, POI-000123, HND-T3]
+        country_code:
+          $ref: "#/components/schemas/CountryCode"
+        city_id:
+          type: [string, "null"]
+          format: uuid
+          description: 所属城市。只有刚导入、还没归属城市的机场为 null（这样的机场是停用的）
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+          description: 航站楼所属的机场 / 出口所属的车站；其他类型为 null
+        city:
+          description: 所属城市的编码和名称（和 `city_id` 对应）；没有城市时为 null
+          oneOf:
+            - $ref: "#/components/schemas/MasterRef"
+            - type: "null"
+        parent:
+          description: 上级地点的编码、名称和类型（和 `parent_id` 对应）；没有上级时为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceParentRef"
+            - type: "null"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        location:
+          $ref: "#/components/schemas/Point"
+        category:
+          description: 车站类型或地标类型；机场、航站楼、出口为 null
+          oneOf:
+            - $ref: "#/components/schemas/PlaceCategory"
+            - type: "null"
+        flight_scope:
+          description: 机场 / 航站楼的国际、国内属性；没填或其他类型为 null
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        address:
+          type: [string, "null"]
+          description: 地标的地址；其他类型为 null
+        source:
+          type: [object, "null"]
+          description: 从公开数据源导入的机场才有；手工录入的为 null
+          additionalProperties: false
+          required: [name, ref, synced_at, overridden]
+          properties:
+            name:
+              type: string
+              enum: [ourairports]
+              description: "数据源。ourairports：OurAirports（https://ourairports.com/data/，公有领域）"
+            ref:
+              type: string
+              description: 这个机场在数据源里的编号
+            synced_at:
+              type: string
+              format: date-time
+              description: 最近一次和数据源核对的时间
+            overridden:
+              type: boolean
+              description: 平台改过它的英文名或坐标；为 true 时再次导入不会覆盖
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PlaceCreate:
+      type: object
+      required: [type, code, name, location]
+      properties:
+        type:
+          $ref: "#/components/schemas/PlaceType"
+        code:
+          type: string
+          maxLength: 50
+        city_id:
+          type: [string, "null"]
+          format: uuid
+          description: 机场、车站、地标必填；航站楼、出口不用填
+        parent_id:
+          type: [string, "null"]
+          format: uuid
+          description: 航站楼、出口必填；其他类型不能填
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        location:
+          $ref: "#/components/schemas/Point"
+        category:
+          description: 车站、地标必填
+          oneOf:
+            - $ref: "#/components/schemas/PlaceCategory"
+            - type: "null"
+        flight_scope:
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        address:
+          type: [string, "null"]
+          maxLength: 300
+    PlacePatch:
+      type: object
+      description: 只带要改的字段。`type`、`code`、`parent_id` 不能改（带了且和现有值不同返回 409 `FIELD_LOCKED`）
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        location:
+          $ref: "#/components/schemas/Point"
+        category:
+          oneOf:
+            - $ref: "#/components/schemas/PlaceCategory"
+            - type: "null"
+        flight_scope:
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        address:
+          type: [string, "null"]
+          maxLength: 300
+    VehicleGroup:
+      type: object
+      additionalProperties: false
+      required: [id, code, grade, seats, name, sample_models, power, combos, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          examples: [VG-BIZ-7]
+        grade:
+          $ref: "#/components/schemas/VehicleGrade"
+        seats:
+          type: integer
+          minimum: 1
+          maximum: 60
+          description: 座位数
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        sample_models:
+          type: array
+          description: 代表车型
+          items:
+            type: string
+          examples:
+            - [丰田埃尔法]
+        power:
+          $ref: "#/components/schemas/VehiclePower"
+        combos:
+          type: array
+          description: 可选的「人数 / 行李数」组合
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/VehicleCombo"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    VehicleGroupCreate:
+      type: object
+      required: [code, grade, seats, name, power, combos]
+      properties:
+        code:
+          type: string
+          pattern: "^VG-[A-Z0-9]{2,8}-[1-9][0-9]?$"
+        grade:
+          $ref: "#/components/schemas/VehicleGrade"
+        seats:
+          type: integer
+          minimum: 1
+          maximum: 60
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        sample_models:
+          type: array
+          maxItems: 10
+          default: []
+          items:
+            type: string
+            maxLength: 100
+        power:
+          $ref: "#/components/schemas/VehiclePower"
+        combos:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/VehicleCombo"
+    VehicleGroupPatch:
+      type: object
+      description: 只带要改的字段。`code`、`grade`、`seats` 不能改（带了且和现有值不同返回 409 `FIELD_LOCKED`）
+      properties:
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        sample_models:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 100
+        power:
+          $ref: "#/components/schemas/VehiclePower"
+        combos:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/VehicleCombo"
+    Addon:
+      type: object
+      additionalProperties: false
+      required: [id, code, categories, charge_unit, name, description, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          examples: [ADD-CHILD_SEAT]
+        categories:
+          type: array
+          description: 适用的品类
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
+        charge_unit:
+          $ref: "#/components/schemas/AddonChargeUnit"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        description:
+          description: 多语言说明，每种语言最多 2000 个字符；没填是空对象
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AddonCreate:
+      type: object
+      required: [code, categories, charge_unit, name]
+      properties:
+        code:
+          type: string
+          pattern: "^ADD-[A-Z][A-Z0-9_]{1,39}$"
+        categories:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
+        charge_unit:
+          $ref: "#/components/schemas/AddonChargeUnit"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        description:
+          $ref: "#/components/schemas/LocalizedText"
+    AddonPatch:
+      type: object
+      description: 只带要改的字段。`code` 不能改（带了且和现有值不同返回 409 `FIELD_LOCKED`）
+      properties:
+        categories:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
+        charge_unit:
+          $ref: "#/components/schemas/AddonChargeUnit"
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        description:
+          $ref: "#/components/schemas/LocalizedText"
+    StatusCounts:
+      type: object
+      additionalProperties: false
+      required: [total, active, disabled]
+      description: 启用 / 停用的数量；`total` 是两者之和
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        active:
+          type: integer
+          minimum: 0
+        disabled:
+          type: integer
+          minimum: 0
+    DashboardSummary:
+      type: object
+      additionalProperties: false
+      required: [tenants, master_data]
+      properties:
+        tenants:
+          type: [object, "null"]
+          description: 租户数量（按状态）；当前角色没有 `tenant.read` 时为 null
+          additionalProperties: false
+          required: [total, active, suspended]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            active:
+              type: integer
+              minimum: 0
+            suspended:
+              type: integer
+              minimum: 0
+        master_data:
+          type: [object, "null"]
+          description: 主数据数量；当前角色没有 `master_data.read` 时为 null
+          additionalProperties: false
+          required: [cities, places, vehicle_groups, addons]
+          properties:
+            cities:
+              $ref: "#/components/schemas/StatusCounts"
+            places:
+              type: object
+              additionalProperties: false
+              required: [total, active, disabled, by_type, airports_without_city]
+              properties:
+                total:
+                  type: integer
+                  minimum: 0
+                active:
+                  type: integer
+                  minimum: 0
+                disabled:
+                  type: integer
+                  minimum: 0
+                by_type:
+                  type: object
+                  description: 每种地点类型的数量；五种类型都有，没有记录的是 0
+                  additionalProperties: false
+                  required: [airport, station, poi, terminal, exit]
+                  properties:
+                    airport:
+                      $ref: "#/components/schemas/StatusCounts"
+                    station:
+                      $ref: "#/components/schemas/StatusCounts"
+                    poi:
+                      $ref: "#/components/schemas/StatusCounts"
+                    terminal:
+                      $ref: "#/components/schemas/StatusCounts"
+                    exit:
+                      $ref: "#/components/schemas/StatusCounts"
+                airports_without_city:
+                  type: integer
+                  minimum: 0
+                  description: 导入之后还没有指定所属城市的机场数量（等平台复核；它们都是停用的）
+            vehicle_groups:
+              $ref: "#/components/schemas/StatusCounts"
+            addons:
+              $ref: "#/components/schemas/StatusCounts"
+    AreaBizType:
+      type: string
+      enum: [general, airport_transfer, point_to_point, charter]
+      description: 业务类型：通用、接送机、点对点、包车。建商品时只能选到业务类型和商品品类相同的区域，或「通用」的区域
+    AreaPolygonKind:
+      type: string
+      enum: [operate, forbid]
+      description: "operate：营运区；forbid：禁行区（优先于营运区）"
+    AreaPolygonSource:
+      type: string
+      enum: [drawn, pasted, circle]
+      description: "这块图形是怎么来的：drawn 画的；pasted 粘贴的；circle 圆。只影响之后怎么编辑，不影响判断"
+    AreaGeometry:
+      type: object
+      additionalProperties: false
+      required: [type, coordinates]
+      description: GeoJSON 的 Polygon：只有一圈（不带洞）、首尾闭合、`[经度, 纬度]`、6 位小数、逆时针
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+        coordinates:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: array
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                type: number
+    AreaCircle:
+      type: object
+      additionalProperties: false
+      required: [center, radius_m]
+      description: 圆心和半径。只用于再次编辑；判断只认 `geometry` 里的多边形
+      properties:
+        center:
+          type: object
+          additionalProperties: false
+          required: [lat, lng]
+          properties:
+            lat:
+              type: number
+              minimum: -90
+              maximum: 90
+            lng:
+              type: number
+              minimum: -180
+              maximum: 180
+        radius_m:
+          type: integer
+          minimum: 100
+          maximum: 100000
+          description: 半径（整数米）：0.1 到 100 公里
+    AreaPolygon:
+      type: object
+      additionalProperties: false
+      required: [id, kind, seq, label, source, circle, geometry]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/AreaPolygonKind"
+        seq:
+          type: integer
+          minimum: 1
+          description: 这一类里的序号（「营运 1」里的 1）。由后端分配，删除别的图形后不重排
+        label:
+          type: [string, "null"]
+          maxLength: 40
+          description: 备注名
+        source:
+          $ref: "#/components/schemas/AreaPolygonSource"
+        circle:
+          description: "`source` 是 `circle` 时有，其余为 null"
+          oneOf:
+            - $ref: "#/components/schemas/AreaCircle"
+            - type: "null"
+        geometry:
+          $ref: "#/components/schemas/AreaGeometry"
+    AreaPolygonInput:
+      type: object
+      required: [kind]
+      description: |
+        提交的一块图形。多边形：给 `geometry`（`circle` 不给或为 null）；圆：给 `circle`，不用给 `geometry`（给了也不看，后端按圆心半径重算）。
+        已有的图形带 `id`，新加的不带。`seq` 不用给（给了被忽略）。
+      properties:
+        id:
+          type: [string, "null"]
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/AreaPolygonKind"
+        label:
+          type: [string, "null"]
+          maxLength: 40
+        source:
+          description: 不给时：有 `circle` 的是 `circle`，其余是 `drawn`
+          oneOf:
+            - $ref: "#/components/schemas/AreaPolygonSource"
+            - type: "null"
+        circle:
+          oneOf:
+            - $ref: "#/components/schemas/AreaCircle"
+            - type: "null"
+        geometry:
+          description: 提交时可以是顺时针、可以多于 6 位小数、可以不闭合；带洞的不接受
+          oneOf:
+            - type: object
+              required: [type, coordinates]
+              properties:
+                type:
+                  type: string
+                  enum: [Polygon]
+                coordinates:
+                  type: array
+            - type: "null"
+    AreaCity:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, status, center, boundary]
+      description: 区域所属城市的信息（读取时现查的最新值）
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        center:
+          $ref: "#/components/schemas/Point"
+        boundary:
+          oneOf:
+            - $ref: "#/components/schemas/Boundary"
+            - type: "null"
+    AreaSummary:
+      type: object
+      additionalProperties: false
+      description: 列表里的一项：不带图形的坐标
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          description: 多语言名称，至少一种语言，每种最多 100 个字
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+          description: 所属城市；创建后不能改
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [product_count, published_product_count]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Area:
+      type: object
+      additionalProperties: false
+      description: 区域的详情：比列表项多全部图形
+      required: [id, name, city_id, city, biz_type, status, operate_polygon_count, forbid_polygon_count, usage, version, created_at, updated_at, polygons]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          $ref: "#/components/schemas/AreaCity"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        operate_polygon_count:
+          type: integer
+          minimum: 0
+        forbid_polygon_count:
+          type: integer
+          minimum: 0
+        usage:
+          type: object
+          additionalProperties: false
+          required: [product_count, published_product_count]
+          description: 被多少个商品选了、其中多少个已上架。有已上架的商品在用时不能删除、不能停用；有商品在用时不能改业务类型
+          properties:
+            product_count:
+              type: integer
+              minimum: 0
+            published_product_count:
+              type: integer
+              minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 版本号，每改一次加一；修改时放在请求头 `If-Match` 里
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        polygons:
+          type: array
+          description: 全部图形，按加入的先后
+          items:
+            $ref: "#/components/schemas/AreaPolygon"
+    AreaCreate:
+      type: object
+      required: [city_id, name, biz_type, polygons]
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        polygons:
+          type: array
+          items:
+            $ref: "#/components/schemas/AreaPolygonInput"
+    AreaUpdate:
+      type: object
+      required: [name, biz_type, polygons]
+      description: 整体替换。`city_id` 不用带；带了且和现有的不同返回 409 `FIELD_LOCKED`
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        name:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        biz_type:
+          $ref: "#/components/schemas/AreaBizType"
+        polygons:
+          type: array
+          items:
+            $ref: "#/components/schemas/AreaPolygonInput"
+    AreaPointCheck:
+      type: object
+      additionalProperties: false
+      required: [result, operate_polygon_ids, forbid_polygon_ids]
+      properties:
+        result:
+          type: string
+          enum: [operate, forbid, outside]
+          description: "operate：在营运区里且不在禁行区里；forbid：在任何一块禁行区里；outside：都不在"
+        operate_polygon_ids:
+          type: array
+          description: 这个位置落在其中的全部营运区（`result` 是 `forbid` 时也列出来）
+          items:
+            type: string
+            format: uuid
+        forbid_polygon_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    MapConfig:
+      type: object
+      additionalProperties: false
+      required: [tiles]
+      properties:
+        tiles:
+          type: [object, "null"]
+          description: 栅格瓦片底图；这个环境没有配置时为 null
+          additionalProperties: false
+          required: [url_template, dark_url_template, min_zoom, max_zoom, tile_size, referrer_policy, attribution]
+          properties:
+            url_template:
+              type: string
+              description: 瓦片地址模板，含 `{z}`、`{x}`、`{y}`
+              examples: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"]
+            dark_url_template:
+              type: [string, "null"]
+              description: 暗色主题用的瓦片地址；没有时为 null（前端用滤镜压暗）
+            min_zoom:
+              type: integer
+            max_zoom:
+              type: integer
+            tile_size:
+              type: integer
+              enum: [256, 512]
+            referrer_policy:
+              type: string
+              enum: [no-referrer, origin, strict-origin, strict-origin-when-cross-origin]
+              description: 请求瓦片图片时用的来源页策略（设在瓦片图片上，不改全站的策略）
+            attribution:
+              type: array
+              description: 必须在地图上常驻显示的版权署名
+              items:
+                type: object
+                additionalProperties: false
+                required: [text, href]
+                properties:
+                  text:
+                    type: string
+                  href:
+                    type: [string, "null"]
+    TenantDashboardSummary:
+      type: object
+      additionalProperties: false
+      required: [areas, products]
+      properties:
+        areas:
+          type: [object, "null"]
+          description: 本供应商的区域数量；当前角色没有 `area.read` 时为 null
+          additionalProperties: false
+          required: [active, disabled]
+          properties:
+            active:
+              type: integer
+              minimum: 0
+            disabled:
+              type: integer
+              minimum: 0
+        products:
+          type: [object, "null"]
+          description: 本供应商的商品数量（按状态）；当前角色没有 `product.read` 时为 null
+          additionalProperties: false
+          required: [draft, published, unpublished]
+          properties:
+            draft:
+              type: integer
+              minimum: 0
+            published:
+              type: integer
+              minimum: 0
+            unpublished:
+              type: integer
+              minimum: 0
+    ProductStatus:
+      type: string
+      enum: [draft, published, unpublished]
+      description: "draft：草稿（还没上过架，可以删除）；published：已上架；unpublished：已下架"
+    Brand:
+      type: object
+      additionalProperties: false
+      required: [id, name, currency, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 50
+        currency:
+          type: string
+          description: ISO 4217 币种代码；创建后不能改
+          enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+        version:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BrandCreate:
+      type: object
+      required: [name, currency]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        currency:
+          type: string
+          enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+    BrandUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+    ProductBrandRef:
+      type: object
+      additionalProperties: false
+      required: [id, name, currency, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currency:
+          type: string
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductCityRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, country_code, timezone, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        country_code:
+          type: string
+        timezone:
+          type: string
+          description: 城市的 IANA 时区；服务规则里的日期、时段都按它算
+          examples: [Asia/Tokyo]
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductPlaceRef:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, type, flight_scope, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+        type:
+          $ref: "#/components/schemas/PlaceType"
+        flight_scope:
+          description: 机场的航线范围（决定接机免等的最低值）；不是机场或平台没标时为 null
+          oneOf:
+            - $ref: "#/components/schemas/FlightScope"
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/MasterDataStatus"
+    ProductSummary:
+      type: object
+      additionalProperties: false
+      description: 列表里的一项：不带区域、车型组、调度人的明细，多一个上架校验的概况
+      required: [id, code, status, category, title, brand_id, brand, city_id, city, poi_id, poi, area_count, vehicle_group_count, version, published_at, created_at, updated_at, check]
+      properties:
+        check:
+          type: object
+          additionalProperties: false
+          description: 上架校验的概况（完整的逐项结果用 `publish-check`）
+          required: [can_publish, failed_required, unavailable_required]
+          properties:
+            can_publish:
+              type: boolean
+            failed_required:
+              type: integer
+              minimum: 0
+              description: 没满足的必须项里，功能已经开放、供应商自己能补的有几项
+            unavailable_required:
+              type: integer
+              minimum: 0
+              description: 没满足的必须项里，因为功能还没上线（`FEATURE_NOT_AVAILABLE`）而没法满足的有几项
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: 商品编号：`PRD` + 创建时间（UTC 的年月日时分秒）+ 流水号，全平台唯一
+          examples: [PRD202610081530120042]
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        title:
+          description: 各语言的标题（来自商品详情）；还没填时是空对象
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        brand_id:
+          type: string
+          format: uuid
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/ProductBrandRef"
+            - type: "null"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCityRef"
+            - type: "null"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送点（机场或车站）；只有接送机商品有
+        poi:
+          oneOf:
+            - $ref: "#/components/schemas/ProductPlaceRef"
+            - type: "null"
+        area_count:
+          type: integer
+          minimum: 0
+        vehicle_group_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的版本号：基础信息、服务规则、商品详情、上下架任何一处变了都加一；各修改接口都用它做 `If-Match`
+        published_at:
+          type: [string, "null"]
+          format: date-time
+          description: 最近一次上架的时间
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Product:
+      type: object
+      additionalProperties: false
+      description: 商品的详情：比列表项多区域、车型组、调度人
+      required: [id, code, status, category, title, brand_id, brand, city_id, city, poi_id, poi, area_count, vehicle_group_count, version, published_at, created_at, updated_at, areas, vehicle_groups, dispatchers]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        title:
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        brand_id:
+          type: string
+          format: uuid
+        brand:
+          oneOf:
+            - $ref: "#/components/schemas/ProductBrandRef"
+            - type: "null"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCityRef"
+            - type: "null"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+        poi:
+          oneOf:
+            - $ref: "#/components/schemas/ProductPlaceRef"
+            - type: "null"
+        area_count:
+          type: integer
+          minimum: 0
+        vehicle_group_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        published_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        areas:
+          type: array
+          description: 选的区域，按优先级（`priority` 小的在前），连同区域现在的名称、业务类型、状态
+          items:
+            type: object
+            additionalProperties: false
+            required: [area_id, priority, name, biz_type, status]
+            properties:
+              area_id:
+                type: string
+                format: uuid
+              priority:
+                type: integer
+                minimum: 0
+              name:
+                $ref: "#/components/schemas/LocalizedText"
+              biz_type:
+                $ref: "#/components/schemas/AreaBizType"
+              status:
+                $ref: "#/components/schemas/MasterDataStatus"
+        vehicle_groups:
+          type: array
+          description: 选的车型组和各自的「人数 / 行李数」组合，连同车型组现在的编码、名称、档次、座位数、代表车型、可选组合、状态（已停用的也照常带出）
+          items:
+            type: object
+            additionalProperties: false
+            required: [vehicle_group_id, passengers, luggage, code, name, grade, seats, sample_models, combos, status]
+            properties:
+              vehicle_group_id:
+                type: string
+                format: uuid
+              passengers:
+                type: integer
+              luggage:
+                type: integer
+              code:
+                type: string
+              name:
+                $ref: "#/components/schemas/LocalizedName"
+              grade:
+                $ref: "#/components/schemas/VehicleGrade"
+              seats:
+                type: integer
+              sample_models:
+                type: array
+                items:
+                  type: string
+              combos:
+                type: array
+                description: 这个车型组现在可选的「人数 / 行李数」组合
+                items:
+                  $ref: "#/components/schemas/VehicleCombo"
+              status:
+                $ref: "#/components/schemas/MasterDataStatus"
+        dispatchers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    Dispatcher:
+      type: object
+      additionalProperties: false
+      required: [name, phone]
+      description: 调度人：以后随订单推送
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        phone:
+          type: string
+          description: 数字，可以带开头的 + 和中间的空格、横线，6 到 20 位
+    ProductCreate:
+      type: object
+      required: [brand_id, city_id, category]
+      properties:
+        brand_id:
+          type: string
+          format: uuid
+        city_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机商品必填（本城市、启用中的机场或车站）；其他品类不能填
+        areas:
+          $ref: "#/components/schemas/ProductAreaChoices"
+        vehicle_groups:
+          $ref: "#/components/schemas/ProductVehicleChoices"
+        dispatchers:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    ProductPatch:
+      type: object
+      description: 带了哪个就整体替换哪个。`brand_id`、`city_id`、`category`、`poi_id` 不能改（带了且不同返回 409 `FIELD_LOCKED`）
+      properties:
+        areas:
+          $ref: "#/components/schemas/ProductAreaChoices"
+        vehicle_groups:
+          $ref: "#/components/schemas/ProductVehicleChoices"
+        dispatchers:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/Dispatcher"
+    ProductAreaChoices:
+      type: array
+      description: 选的区域；顺序就是优先级。最多 50 个
+      maxItems: 50
+      items:
+        type: object
+        required: [area_id]
+        properties:
+          area_id:
+            type: string
+            format: uuid
+    ProductVehicleChoices:
+      type: array
+      description: 选的车型组，每个选一个「人数 / 行李数」组合。最多 30 个
+      maxItems: 30
+      items:
+        type: object
+        required: [vehicle_group_id, passengers, luggage]
+        properties:
+          vehicle_group_id:
+            type: string
+            format: uuid
+          passengers:
+            type: integer
+            minimum: 1
+          luggage:
+            type: integer
+            minimum: 0
+    DailyWindow:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      description: 每天重复的一个时段。结束早于开始 = 跨过午夜（22:00–06:00）；全天写 00:00–24:00；开始和结束不能相同
+      properties:
+        start:
+          type: string
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        end:
+          type: string
+          pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+    FreeWait:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      description: "免等：`unlimited` 无限；`limited` 有限，另给 `minutes`"
+      properties:
+        mode:
+          type: string
+          enum: [unlimited, limited]
+        minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+    ServiceRules:
+      type: object
+      description: 服务规则。每一部分都可以不带（按没填算）。金额是子品牌币种的最小货币单位整数
+      properties:
+        booking:
+          type: object
+          additionalProperties: false
+          properties:
+            sale_from:
+              type: [string, "null"]
+              format: date
+              description: 下单有效期的开始（城市当地日期，含）；null = 不限
+            sale_to:
+              type: [string, "null"]
+              format: date
+            service_time:
+              description: 每天的服务时间；用车时间必须在里面（两头都算）
+              oneOf:
+                - $ref: "#/components/schemas/DailyWindow"
+                - type: "null"
+            lead_time_hours:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 720
+              description: 提前预订时长（小时）
+            note:
+              type: [string, "null"]
+              maxLength: 500
+        urgent:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            daily_quota:
+              type: [integer, "null"]
+              minimum: 0
+              description: 每天最多接几单加急；null = 不限
+            tiers:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                additionalProperties: false
+                required: [within_hours, surcharge]
+                properties:
+                  within_hours:
+                    type: integer
+                    minimum: 1
+                    description: 离用车不到这么多小时下单；不能超过提前预订时长
+                  surcharge:
+                    type: integer
+                    minimum: 0
+                    description: 加收的金额（最小货币单位）
+        night:
+          type: object
+          additionalProperties: false
+          properties:
+            enabled:
+              type: boolean
+            window:
+              oneOf:
+                - $ref: "#/components/schemas/DailyWindow"
+                - type: "null"
+            amount:
+              type: [integer, "null"]
+              minimum: 0
+            charge_unit:
+              type: [string, "null"]
+              enum: [per_order, per_hour, null]
+              description: "per_order：按次；per_hour：按与夜间时段重叠的小时数"
+        free_wait:
+          type: object
+          additionalProperties: false
+          description: 接送机填 pickup（接机 / 接站）和 dropoff（送机 / 送站）；点对点和包车填 general
+          properties:
+            pickup:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+            dropoff:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+            general:
+              oneOf:
+                - $ref: "#/components/schemas/FreeWait"
+                - type: "null"
+        addons:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, enabled, unit_price, first_free]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+                description: 平台附加服务目录里的编号
+              enabled:
+                type: boolean
+              unit_price:
+                type: integer
+                minimum: 0
+                description: 单价（最小货币单位）；0 = 免费提供
+              first_free:
+                type: boolean
+                description: 首个免费；只有按个计费的附加服务可以设
+        driver_languages:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [language, unit_price]
+            properties:
+              language:
+                type: string
+                pattern: "^[a-z]{2}$"
+              unit_price:
+                type: integer
+                minimum: 0
+    ProductServiceRules:
+      type: object
+      additionalProperties: false
+      required: [version, currency, free_wait_minimums, rules]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的版本号（保存时放进 `If-Match`）
+        currency:
+          type: [string, "null"]
+          description: 金额的币种（子品牌的币种）
+        free_wait_minimums:
+          type: object
+          additionalProperties: false
+          required: [pickup, dropoff, general]
+          description: 平台规定的各项免等最少分钟数；这个品类不填的项是 null
+          properties:
+            pickup:
+              type: [integer, "null"]
+            dropoff:
+              type: [integer, "null"]
+            general:
+              type: [integer, "null"]
+        rules:
+          type: object
+          additionalProperties: false
+          required: [booking, urgent, night, free_wait, addons, driver_languages]
+          description: 结构同 `ServiceRules`，每一部分、每个字段都有（没填的是 null 或空数组）
+          properties:
+            booking:
+              type: object
+              additionalProperties: false
+              required: [sale_from, sale_to, service_time, lead_time_hours, note]
+              properties:
+                sale_from:
+                  type: [string, "null"]
+                sale_to:
+                  type: [string, "null"]
+                service_time:
+                  oneOf:
+                    - $ref: "#/components/schemas/DailyWindow"
+                    - type: "null"
+                lead_time_hours:
+                  type: [integer, "null"]
+                note:
+                  type: [string, "null"]
+            urgent:
+              type: object
+              additionalProperties: false
+              required: [enabled, daily_quota, tiers]
+              properties:
+                enabled:
+                  type: boolean
+                daily_quota:
+                  type: [integer, "null"]
+                tiers:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [within_hours, surcharge]
+                    properties:
+                      within_hours:
+                        type: integer
+                      surcharge:
+                        type: integer
+            night:
+              type: object
+              additionalProperties: false
+              required: [enabled, window, amount, charge_unit]
+              properties:
+                enabled:
+                  type: boolean
+                window:
+                  oneOf:
+                    - $ref: "#/components/schemas/DailyWindow"
+                    - type: "null"
+                amount:
+                  type: [integer, "null"]
+                charge_unit:
+                  type: [string, "null"]
+            free_wait:
+              type: object
+              additionalProperties: false
+              required: [pickup, dropoff, general]
+              properties:
+                pickup:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+                dropoff:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+                general:
+                  oneOf:
+                    - $ref: "#/components/schemas/FreeWait"
+                    - type: "null"
+            addons:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [addon_id, enabled, unit_price, first_free]
+                properties:
+                  addon_id:
+                    type: string
+                    format: uuid
+                  enabled:
+                    type: boolean
+                  unit_price:
+                    type: integer
+                  first_free:
+                    type: boolean
+            driver_languages:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [language, unit_price]
+                properties:
+                  language:
+                    type: string
+                  unit_price:
+                    type: integer
+    ProductContentText:
+      type: object
+      additionalProperties: false
+      description: 一种语言的商品详情。提交时每一项都可以不带；返回时每一项都有（没填的是 null 或空数组）
+      properties:
+        title:
+          type: [string, "null"]
+          maxLength: 100
+        summary:
+          type: [string, "null"]
+          maxLength: 2000
+        includes:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            maxLength: 200
+        excludes:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            maxLength: 200
+        itinerary:
+          type: [string, "null"]
+          maxLength: 2000
+          description: 行程路线（包车用）
+        pickup_guide:
+          type: [string, "null"]
+          maxLength: 2000
+          description: 接机 / 接站指引（接送机上架必填）
+    ProductContent:
+      type: object
+      additionalProperties: false
+      description: 各语言的商品详情，键是语言代码
+      properties:
+        ja:
+          $ref: "#/components/schemas/ProductContentText"
+        zh:
+          $ref: "#/components/schemas/ProductContentText"
+        en:
+          $ref: "#/components/schemas/ProductContentText"
+        ko:
+          $ref: "#/components/schemas/ProductContentText"
+    ProductContentResponse:
+      type: object
+      additionalProperties: false
+      required: [version, content]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        content:
+          $ref: "#/components/schemas/ProductContent"
+    PublishCheck:
+      type: object
+      additionalProperties: false
+      required: [can_publish, items]
+      properties:
+        can_publish:
+          type: boolean
+          description: 必须的每一项都通过
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [key, required, passed, issues]
+            properties:
+              key:
+                type: string
+                enum: [basic_info, service_rules, price_rules, content, adjust_rules, inventory]
+              required:
+                type: boolean
+                description: 这一项不通过就不能上架
+              passed:
+                type: boolean
+              issues:
+                type: array
+                description: |
+                  不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
+                  `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
+                  `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`FEATURE_NOT_AVAILABLE`。
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [path, reason, message]
+                  properties:
+                    path:
+                      type: string
+                    reason:
+                      type: string
+                    message:
+                      type: string
+                    detail:
+                      type: object
+                      additionalProperties:
+                        type: number
