@@ -5,9 +5,10 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { signAccessToken, verifyAccessToken } from "./auth/token.ts";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
+import { XLSX_CONTENT_TYPE, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
 import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
@@ -996,6 +997,134 @@ test("价格和调价的隔离（数据库层面）：租户事务里只看得�
   );
   for (const table of ["price_rules", "adjust_rules"]) await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`)), deniedByDatabase, table);
   assert.deepEqual(await priceRows(), before);
+});
+
+// ---- 库存和 Excel 导入导出（M1-05）----
+
+/** 上传一个文件（请求体就是文件本身）。 */
+async function uploadFile(url: string, token: string, file: Buffer, headers: Record<string, string> = {}): Promise<ApiResponse> {
+  const res = await api.app.inject({ method: "POST", url, payload: file, headers: { "content-type": XLSX_CONTENT_TYPE, authorization: `Bearer ${token}`, "idempotency-key": randomUUID(), ...headers } });
+  let body: any = null;
+  try {
+    body = res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.statusCode, headers: res.headers, text: res.body, body };
+}
+
+const fileSha = (file: Buffer): string => createHash("sha256").update(file).digest("hex");
+const stockFile = (date: string, total: number): Buffer => writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], [date, { number: String(total) }]] }]);
+
+async function inventoryRows(): Promise<unknown> {
+  return {
+    days: (await api.db.owner.query("select tenant_id, product_id, day::text, total, held, sold, updated_at from inventory_days order by tenant_id, product_id, day")).rows,
+    modes: (await api.db.owner.query("select id, inventory_mode, version from products order by id")).rows,
+  };
+}
+
+/** 两个供应商各自给自己的商品设了一天库存。 */
+async function seedInventory(): Promise<{ a: PriceSide; b: PriceSide; vehicleGroupId: string }> {
+  const seeded = await seedPrices();
+  const existing = await api.db.owner.query("select count(*)::int as n from inventory_days");
+  if (existing.rows[0].n === 0) {
+    for (const [fixture, side, total] of [[a, seeded.a, 3], [b, seeded.b, 7]] as const) {
+      const version = (await api.call("GET", `/tenant/v1/products/${side.productId}/price-rules`, { token: fixture.adminToken })).body.version as number;
+      const res = await api.call("POST", `/tenant/v1/products/${side.productId}/inventory/batch-set`, { token: fixture.adminToken, headers: { "if-match": `"${version}"` }, body: { from: "2026-11-01", to: "2026-11-01", total, tenant_id: fixture === a ? b.tenantId : a.tenantId } });
+      assert.equal(res.status, 200, res.text);
+    }
+  }
+  return seeded;
+}
+
+test("库存：看不到、改不了别的供应商商品的库存（404，和不存在一样）；自己的日历里只有自己的数", async () => {
+  cover("GET /tenant/v1/products/:id/inventory");
+  cover("PUT /tenant/v1/products/:id/inventory");
+  cover("POST /tenant/v1/products/:id/inventory/batch-set");
+  const seeded = await seedInventory();
+  const before = await inventoryRows();
+  const owners = await api.db.owner.query("select tenant_id, product_id, total from inventory_days order by total");
+  assert.deepEqual(owners.rows, [{ tenant_id: a.tenantId, product_id: seeded.a.productId, total: 3 }, { tenant_id: b.tenantId, product_id: seeded.b.productId, total: 7 }]);
+  const requests: [HttpMethod, string, unknown?][] = [
+    ["GET", "/inventory?from=2026-11-01&to=2026-11-02"],
+    ["PUT", "/inventory", { mode: "limited", tenant_id: b.tenantId }],
+    ["POST", "/inventory/batch-set", { from: "2026-11-01", to: "2026-11-01", total: 0 }],
+  ];
+  for (const [method, suffix, body] of requests) {
+    const send = (productId: string): Promise<ApiResponse> => api.call(method, `/tenant/v1/products/${productId}${suffix}`, { token: a.adminToken, headers: { "if-match": '"4"' }, ...(body === undefined ? {} : { body }) });
+    const foreign = await send(seeded.b.productId);
+    assert.equal(foreign.status, 404, `${method} ${suffix}：${foreign.text}`);
+    assert.equal(foreign.text, (await send(NO_SUCH_ID)).text);
+  }
+  assert.deepEqual(await inventoryRows(), before);
+  const mine = await api.call("GET", `/tenant/v1/products/${seeded.a.productId}/inventory?from=2026-11-01&to=2026-11-01&tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.deepEqual(mine.body.days.map((day: any) => day.total), [3]);
+});
+
+test("导入导出：导不出、预览不了、导入不了别的供应商的商品；往自己的商品里导入带着对方价格编号的文件，那一行和编号不存在一样被拒", async () => {
+  for (const route of ["GET /tenant/v1/products/:id/price-rules/export", "POST /tenant/v1/products/:id/price-rules/import/preview", "POST /tenant/v1/products/:id/price-rules/import", "GET /tenant/v1/products/:id/inventory/export", "POST /tenant/v1/products/:id/inventory/import/preview", "POST /tenant/v1/products/:id/inventory/import"]) cover(route);
+  const seeded = await seedInventory();
+  const before = { prices: await priceRows(), inventory: await inventoryRows() };
+  const stock = stockFile("2026-11-02", 9);
+  const header = ["价格编号", "区域", "车型组", "计价方式", "基础价", "起步价", "起步里程(公里)", "起步时长(分钟)", "每公里单价", "每分钟单价", "最低消费", "生效开始", "生效结束", "状态"];
+  const priceFile = (priceId: string): Buffer =>
+    writeXlsx([{ name: "价格", rows: [header, [priceId, "市区", "VG-BIZ-7", "一口价", { number: "1" }, null, null, null, null, null, null, "2026-10-01", null, null]] }]);
+  // 对方的商品：六个接口都是 404，和不存在的商品一模一样
+  for (const productId of [seeded.b.productId]) {
+    const exports = [`/price-rules/export`, `/inventory/export?from=2026-11-01&to=2026-11-02`];
+    for (const suffix of exports) {
+      const foreign = await api.call("GET", `/tenant/v1/products/${productId}${suffix}`, { token: a.adminToken });
+      assert.equal(foreign.status, 404, suffix);
+      assert.equal(foreign.text, (await api.call("GET", `/tenant/v1/products/${NO_SUCH_ID}${suffix}`, { token: a.adminToken })).text);
+      assert.ok(!foreign.text.includes(seeded.b.priceRuleId));
+    }
+    const uploads: [string, Buffer][] = [
+      ["/price-rules/import/preview", priceFile(seeded.b.priceRuleId)],
+      [`/price-rules/import?file_sha256=${fileSha(priceFile(seeded.b.priceRuleId))}`, priceFile(seeded.b.priceRuleId)],
+      ["/inventory/import/preview", stock],
+      [`/inventory/import?file_sha256=${fileSha(stock)}`, stock],
+    ];
+    for (const [suffix, file] of uploads) {
+      const foreign = await uploadFile(`/tenant/v1/products/${productId}${suffix}`, a.adminToken, file, { "if-match": '"4"' });
+      assert.equal(foreign.status, 404, `${suffix}：${foreign.text}`);
+      assert.equal(foreign.text, (await uploadFile(`/tenant/v1/products/${NO_SUCH_ID}${suffix}`, a.adminToken, file, { "if-match": '"4"' })).text);
+    }
+  }
+  // 自己的商品 + 对方的价格编号：那一行出错，原因和编号不存在时一样；确认导入整份拒绝
+  const smuggled = await uploadFile(`/tenant/v1/products/${seeded.a.productId}/price-rules/import/preview`, a.adminToken, priceFile(seeded.b.priceRuleId));
+  const unknown = await uploadFile(`/tenant/v1/products/${seeded.a.productId}/price-rules/import/preview`, a.adminToken, priceFile(NO_SUCH_ID));
+  assert.equal(smuggled.status, 200, smuggled.text);
+  assert.deepEqual(smuggled.body.rows.map((row: any) => [row.action, row.price_rule_id, row.issues.map((issue: any) => issue.reason)]), [["error", null, ["UNKNOWN_PRICE_RULE"]]]);
+  assert.deepEqual(smuggled.body.rows, unknown.body.rows);
+  const version = smuggled.body.version as number;
+  const forced = await uploadFile(`/tenant/v1/products/${seeded.a.productId}/price-rules/import?file_sha256=${fileSha(priceFile(seeded.b.priceRuleId))}`, a.adminToken, priceFile(seeded.b.priceRuleId), { "if-match": `"${version}"` });
+  assert.deepEqual([forced.status, forced.body.error.code], [409, "IMPORT_NOT_CLEAN"]);
+  // 自己导出的文件里只有自己的价格
+  const exported = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${seeded.a.productId}/price-rules/export`, headers: { authorization: `Bearer ${a.adminToken}` } });
+  const cells = JSON.stringify(readXlsx(exported.rawPayload));
+  assert.ok(cells.includes(seeded.a.priceRuleId) && !cells.includes(seeded.b.priceRuleId) && !cells.includes(b.tenantId));
+  assert.deepEqual({ prices: await priceRows(), inventory: await inventoryRows() }, before);
+});
+
+test("库存的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品上；平台角色碰不到", async () => {
+  const seeded = await seedInventory();
+  const before = await inventoryRows();
+  const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>("select distinct tenant_id from inventory_days"));
+  assert.deepEqual(seen.rows.map((row) => row.tenant_id), [a.tenantId]);
+  const touched = await withTenantTx(api.db.pool, a.tenantId, async (db) => [
+    (await db.query("update inventory_days set total = 0 where product_id = $1", [seeded.b.productId])).rowCount,
+    (await db.query("update inventory_days set held = held + 1 where product_id = $1 and total - held - sold >= 1", [seeded.b.productId])).rowCount,
+    (await db.query("delete from inventory_days where product_id = $1", [seeded.b.productId])).rowCount,
+    (await db.query("update products set inventory_mode = 'limited' where id = $1", [seeded.b.productId])).rowCount,
+  ]);
+  assert.deepEqual(touched, [0, 0, 0, 0]);
+  const insert = (tenantId: string, productId: string): Promise<unknown> =>
+    withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into inventory_days (tenant_id, product_id, day, total, created_at, updated_at) values ($1, $2, '2027-01-01', 1, now(), now())", [tenantId, productId]));
+  await assert.rejects(insert(b.tenantId, seeded.b.productId), { code: "42501" }, "写进别人名下");
+  await assert.rejects(insert(a.tenantId, seeded.b.productId), { code: "23503" }, "自己的租户编号 + 别人的商品");
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update inventory_days set tenant_id = $1 where product_id = $2", [b.tenantId, seeded.a.productId])), { code: "42501" });
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from inventory_days")), deniedByDatabase);
+  assert.deepEqual(await inventoryRows(), before);
 });
 
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
