@@ -38,7 +38,7 @@ import {
 } from "../../../lib/adjust-form.ts";
 import { countryName, displayName, shortName } from "../../../lib/master-display.ts";
 import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
-import { amountText, moneyText, readAmount } from "../../../lib/product-display.ts";
+import { moneyText, readAmount } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
@@ -517,7 +517,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
                     </tr>
                   ))}
                   <tr className={result.finalMinor === null ? "adjust-trial__final adjust-trial__final--bad" : "adjust-trial__final"}>
-                    <th scope="row">{prices.rounding_unit > 1 ? `四舍五入、取整到 ${currency} ${amountText(prices.rounding_unit, currency)}` : "四舍五入"}</th>
+                    <th scope="row">{prices.rounding_unit > 1 ? `四舍五入、取整到 ${moneyText(prices.rounding_unit, currency)}` : "四舍五入"}</th>
                     <td />
                     <td className="adjust-trial__amount">
                       {result.finalMinor === null ? (

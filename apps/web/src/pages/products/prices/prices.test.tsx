@@ -782,3 +782,14 @@ test("首页：价格规则卡片的两个数只要概况（summary=1）；有�
   await waitFor(() => assert.match([...document.querySelectorAll(".entry-card")].find((card) => card.textContent?.includes("价格规则"))?.textContent ?? "", /—/));
   assertAbsent(screen.queryByText("数量没有加载出来", { selector: ".alert__title" }));
 });
+
+test("价格表：基础价不是取整单位的整数倍时，读回来的话里说明报价会取整成多少（数来自 domain）", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices`, "admin");
+  const cell = await screen.findByLabelText(`${ROW} 的基础价`);
+  assert.doesNotMatch(document.querySelector(".price-meaning")?.textContent ?? "", /取整单位是/);
+  await actor.clear(cell);
+  await actor.type(cell, "20050");
+  const quoted = applyAdjustRules(exactFromMinor(20050), [], 100).finalMinor;
+  await waitFor(() => assert.match(document.querySelector(".price-meaning")?.textContent ?? "", new RegExp(`取整单位是 JPY 100，报价时会取整成 ${jpy(quoted)}。`)));
+});

@@ -5,7 +5,7 @@
  */
 import { addDays, applyAdjustRules, basePrice, exactFromMinor } from "@nozomi/domain";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { type Supplier, type World, checkItem, createProductByApi, createSupplier, createWorld, expectAccessible, step, tenantHeaders, toast } from "./catalog.ts";
+import { type Supplier, type World, checkItem, createProductByApi, createSupplier, createTenantUser, createWorld, expectAccessible, step, tenantHeaders, toast } from "./catalog.ts";
 import { createActiveTenant, expectNoHorizontalOverflow, loginAs, snapshot } from "./support.ts";
 
 const RULES = {
@@ -112,10 +112,10 @@ async function productVersion(request: APIRequestContext, supplier: Supplier, pr
   return ((await (await request.get(`/tenant/v1/products/${productId}`, { headers: supplier.headers })).json()) as { version: number }).version;
 }
 
-async function createFixedPrice(request: APIRequestContext, supplier: Supplier, world: World, productId: string, amount: number, validFrom: string, validTo: string | null = null): Promise<void> {
+async function createFixedPrice(request: APIRequestContext, supplier: Supplier, world: World, productId: string, amount: number, validFrom: string, validTo: string | null = null, direction: "both" | "pickup" | "dropoff" = "both"): Promise<void> {
   const response = await request.post(`/tenant/v1/products/${productId}/price-rules/batch`, {
     headers: { ...supplier.headers, "if-match": `"${await productVersion(request, supplier, productId)}"`, "idempotency-key": crypto.randomUUID() },
-    data: { create: [{ ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "both", package_hours: null, pricing_model: "fixed", base_price: amount, start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null, valid_from: validFrom, valid_to: validTo, status: "enabled" }], update: [], delete: [] },
+    data: { create: [{ ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction, package_hours: null, pricing_model: "fixed", base_price: amount, start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null, valid_from: validFrom, valid_to: validTo, status: "enabled" }], update: [], delete: [] },
   });
   expect(response.status(), `接口新建价格：${await response.text()}`).toBe(200);
 }
@@ -419,3 +419,166 @@ test("价格日历：某一天的结算价和 domain 一致 → 在月历上选�
   await expect(page).toHaveURL(new RegExp(`/prices/calendar\\?area=${supplier.area.id}&vg=${world.group.id}`));
   await expect(dayCell(from)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(expected)}`));
 });
+
+test("首页的提醒 → 价格规则总览（缺价数和商品里的一致）→ 改取整单位后日历按新的取整（和 domain 一致）；只读角色只能看", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const priced = await readyProduct(request, supplier, world, "airport_transfer", "羽田机场接送");
+  const unpriced = await readyProduct(request, supplier, world, "point_to_point", "东京点对点");
+  const info = (await (await request.get(`/tenant/v1/products/${priced.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string };
+  // 只设了接机的价：送机那个组合还缺着
+  await createFixedPrice(request, supplier, world, priced.id, 20000, `${info.today.slice(0, 8)}01`, null, "pickup");
+  const coverage = (await (await request.get(`/tenant/v1/products/${priced.id}/price-coverage`, { headers: supplier.headers })).json()) as { total: number; missing: number };
+  expect([coverage.total, coverage.missing]).toEqual([2, 1]);
+  const adjust = await request.post(`/tenant/v1/products/${priced.id}/adjust-rules`, { headers: { ...supplier.headers, "if-match": `"${await productVersion(request, supplier, priced.id)}"`, "idempotency-key": crypto.randomUUID() }, data: { name: "旺季", travel_from: null, travel_to: null, cycle: { type: "daily" }, time_slot: null, area_ids: [], vehicle_group_ids: [], directions: [], package_hours: [], steps: [{ type: "percent", value: 1250 }], status: "enabled" } });
+  expect(adjust.status(), await adjust.text()).toBe(201);
+
+  // 首页：两个数和一条提醒
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  const card = page.locator(".entry-card").filter({ hasText: "价格规则" });
+  await expect(card).toContainText("已设价格");
+  await expect(card.locator(".entry-card__count").filter({ hasText: "已设价格" })).toContainText("1");
+  await expect(card.locator(".entry-card__count").filter({ hasText: "还没有设" })).toContainText("1");
+  await expect(page.getByText(/个商品还没有上架/)).toHaveCount(0);
+  await page.getByRole("link", { name: "1 个商品还没有设价格" }).click();
+
+  // 总览：只看没设的 → 全部；缺价数和商品自己的 price-coverage 一致
+  await expect(page).toHaveURL(/\/price-rules\?priced=no$/);
+  await expect(page.getByRole("heading", { level: 1, name: "价格规则" })).toBeVisible();
+  const row = (name: string) => page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
+  await expect(row("东京点对点")).toContainText("还没有设价格");
+  await expect(row("羽田机场接送")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "只看还没有设价格的" }).click();
+  await expect(page).toHaveURL(/\/price-rules$/);
+  await expect(row("羽田机场接送")).toContainText(`${coverage.total} 个组合里 ${coverage.missing} 个没有价格`);
+  await expect(row("羽田机场接送")).toContainText(world.city.name);
+  await expect(row("羽田机场接送")).toContainText("1 条启用");
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "价格规则" })).toHaveAttribute("aria-current", "page");
+  await expectNoHorizontalOverflow(page, "价格规则总览");
+  await expectAccessible(page, "价格规则总览");
+  await snapshot(page, "prices-overview-desktop");
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expectNoHorizontalOverflow(page, "价格规则总览（手机）");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(page, "价格规则总览（手机，暗色）");
+  await snapshot(page, "prices-overview-mobile-dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  expect(await page.locator("body").innerText()).not.toMatch(FORBIDDEN);
+  await page.getByRole("link", { name: "设价格：羽田机场接送" }).click();
+  await expect(page).toHaveURL(new RegExp(`/products/${priced.id}/prices$`));
+  await expect(page.getByRole("navigation", { name: "价格规则的分区" }).getByRole("link", { name: /价格规则/ })).toContainText("缺 1");
+
+  // 取整单位：改成 JPY 1,000，读回来变了；日历上的数按新的取整
+  const before = applyAdjustRules(exactFromMinor(20000), [{ steps: [{ type: "percent", value: 1250 }] }], 1).finalMinor ?? 0;
+  const after = applyAdjustRules(exactFromMinor(20000), [{ steps: [{ type: "percent", value: 1250 }] }], 1000).finalMinor ?? 0;
+  expect(after).not.toBe(before);
+  await page.getByRole("button", { name: "修改取整单位" }).click();
+  const dialog = page.getByRole("dialog", { name: "修改取整单位" });
+  await expect(dialog).toContainText(`这是子品牌「${supplier.brand.name}」的设置。`);
+  await dialog.getByLabel(/取整到/).selectOption("1000");
+  await expect(dialog).toContainText("四舍五入，正好一半时往大的取。");
+  await dialog.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(toast(page, "已保存取整单位")).toBeVisible();
+  await expect(page.locator(".price-info")).toContainText("调价后的结算价取整到 JPY 1,000");
+  expect(((await (await request.get(`/tenant/v1/products/${priced.id}/price-rules`, { headers: supplier.headers })).json()) as { rounding_unit: number }).rounding_unit).toBe(1000);
+  await page.getByRole("navigation", { name: "价格规则的分区" }).getByRole("link", { name: "价格日历" }).click();
+  await expect(page.locator(`#calendar-day-${info.today}`)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(after)}，上调，命中旺季`));
+  await expect(page.locator(".calendar-layout > .calendar-detail")).toContainText(`取整到 JPY 1,000${jpy(after)}`);
+  await page.getByLabel("方向").selectOption("dropoff");
+  await expect(page.locator(`#calendar-day-${info.today}`)).toHaveAttribute("aria-label", /没有价格$/);
+  await expect(page.getByText(`「${supplier.area.name} · ${world.group.name} · 送机」这个月没有价格。`)).toBeVisible();
+
+  // 上架检查里没有价格的原因、总览的数，换个只读角色看：都看得到，都不能改
+  const viewer = await createTenantUser(request, supplier.tenant, "readonly");
+  await page.context().clearCookies();
+  await page.evaluate(() => sessionStorage.clear());
+  await loginAs(page, "tenant", viewer.email, viewer.password);
+  await expect(page.locator(".entry-card").filter({ hasText: "价格规则" })).toContainText("已设价格");
+  await expect(page.getByRole("link", { name: /个商品还没有设价格/ })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "价格规则" }).click();
+  await page.getByRole("link", { name: "看价格：羽田机场接送" }).click();
+  await expect(page.getByLabel(`${supplier.area.name} · ${world.group.name} · 接机 的基础价`)).not.toBeEditable();
+  await expect(page.getByRole("button", { name: "修改取整单位" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /保存/ })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "价格规则的分区" }).getByRole("link", { name: "价格日历" }).click();
+  await page.locator(`#calendar-day-${info.today}`).click();
+  await expect(page.locator(".calendar-bar")).toContainText(`已选 ${info.today}，共 1 天`);
+  await expect(page.getByRole("link", { name: "新建调价规则" })).toHaveCount(0);
+  await expect(page.locator(".calendar-layout > .calendar-detail").getByRole("link", { name: "看这条规则：旺季" })).toBeVisible();
+  await page.getByRole("navigation", { name: "价格规则的分区" }).getByRole("link", { name: /调价规则/ }).click();
+  await expect(page.getByRole("link", { name: "查看 旺季" })).toBeVisible();
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  expect(unpriced.id).not.toBe(priced.id);
+});
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`${scheme === "light" ? "亮色" : "暗色"}：价格规则、取整单位对话框、调价规则列表和表单、价格日历通过 axe 检查；320px 宽都不横向滚动；只用键盘能填价并保存`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await page.emulateMedia({ colorScheme: scheme });
+    const world = await createWorld(request);
+    const supplier = await createSupplier(request, world);
+    const product = await readyProduct(request, supplier, world, "airport_transfer", "很长的标题".repeat(8));
+    await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+    const check = async (what: string): Promise<void> => {
+      for (const width of [1280, 320]) {
+        await page.setViewportSize({ width, height: 800 });
+        await expectNoHorizontalOverflow(page, `${what}（${width}px）`);
+        await expectAccessible(page, `${what}（${width}px，${scheme}）`);
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
+    };
+
+    // 只用键盘：到基础价那一格，填数，Tab 到保存
+    await page.goto(`/products/${product.id}/prices`);
+    const row = `${supplier.area.name} · ${world.group.name} · 接送通用`;
+    await expect(cell(page, row, "基础价")).toBeVisible();
+    await check("价格规则（还没有价格）");
+    await cell(page, row, "基础价").focus();
+    await page.keyboard.type("18000");
+    await page.keyboard.press("Tab");
+    await expect(cell(page, row, "基础价")).toHaveValue("18,000");
+    const save = page.getByRole("button", { name: "保存草稿" });
+    await save.focus();
+    await expect(save).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(toast(page, "已保存 1 条价格")).toBeVisible();
+    await check("价格规则");
+
+    await page.getByRole("button", { name: "修改取整单位" }).focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "修改取整单位" });
+    await expect(dialog.getByLabel(/取整到/)).toBeFocused();
+    await check("取整单位对话框");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("button", { name: "修改取整单位" })).toBeFocused();
+
+    await page.goto(`/products/${product.id}/prices/adjust`);
+    await expect(page.getByRole("heading", { name: "还没有调价规则" })).toBeVisible();
+    await check("调价规则（空）");
+    await page.goto(`/products/${product.id}/prices/adjust/new`);
+    await page.getByRole("textbox", { name: "名称", exact: true }).fill("很长的调价规则名字".repeat(5));
+    await page.getByRole("radio", { name: /每周的某几天/ }).check();
+    await page.getByRole("button", { name: "周末" }).click();
+    await page.getByRole("radio", { name: "指定时段" }).check();
+    await page.getByLabel("时段从").fill("22:00");
+    await page.getByLabel("时段到").fill("06:00");
+    await page.getByLabel("第 1 步的数值").fill("3.33");
+    await expect(page.locator(".adjust-trial")).toBeVisible();
+    await check("调价规则表单");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.locator(".toast").filter({ hasText: "已新建调价规则" })).toBeVisible();
+    await check("调价规则列表");
+
+    await page.goto(`/products/${product.id}/prices/calendar`);
+    await expect(page.getByLabel("用车时间")).toBeVisible();
+    await expect(page.getByRole("grid")).toHaveAttribute("aria-busy", "false");
+    await check("价格日历");
+    await page.goto("/");
+    await expect(page.locator(".entry-card").filter({ hasText: "价格规则" })).toContainText("已设价格");
+    await check("首页");
+  });
+}

@@ -13,7 +13,7 @@ import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { displayName } from "../../../lib/master-display.ts";
 import { tableCoverage, isStationPlace } from "../../../lib/price-form.ts";
 import { rowFromRule } from "../../../lib/price-form.ts";
-import { CURRENCY_NAMES, amountText } from "../../../lib/product-display.ts";
+import { CURRENCY_NAMES, moneyText } from "../../../lib/product-display.ts";
 import { type PriceTab, pricePath, productPath } from "../../../lib/product-paths.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { useTenantCan } from "../../../lib/use-master-access.ts";
@@ -133,7 +133,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
           金额都是<strong>结算价</strong>，币种 <strong>{currency}</strong>
           {digits === 0 ? `（${CURRENCY_NAMES[currency] ?? currency}没有小数）` : `（最多 ${digits} 位小数）`} · {data.rounding_unit > 1 ? "调价后的结算价取整到 " : "调价后的结算价四舍五入到 "}
           <span className="price-info__keep">
-            <strong>{`${currency} ${amountText(data.rounding_unit, currency)}`}</strong>
+            <strong>{moneyText(data.rounding_unit, currency)}</strong>
             {canSetRounding && product.brand && (
               <Button variant="text" size="sm" onClick={() => setRounding(true)} aria-label="修改取整单位">
                 修改

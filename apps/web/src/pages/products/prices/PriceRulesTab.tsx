@@ -3,7 +3,7 @@
  * 表里每一行是一条价格；每个还没有价格的组合也占一行，空着等填。改完一批，一次保存（全部成功或一条都不保存）。
  * 行怎么读、缺不缺价、日期重不重叠都在 lib/price-form.ts（规则来自 @nozomi/domain）。
  */
-import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PricingModel, VEHICLE_GRADES, addDays } from "@nozomi/domain";
+import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../../api/client.ts";
 import { type PriceRuleBatch, type PriceRules, savePriceRules } from "../../../api/prices.ts";
@@ -333,6 +333,18 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     if (!focusedRow) return "点表格里的任何一行，这里会用一句话说明这一行的价格。";
     const reading = readings.get(focusedRow.key);
     const label = rowLabel(focusedRow);
+    /** 基础价不是取整单位的整数倍时，报价会和填的数不一样（里程 + 时长的不说：它的结果本来就不固定）。数用和报价同一个函数算。 */
+    const roundedNote = (rule: PriceRule | null): ReactNode => {
+      if (rule === null || rule.pricing.model === "mileage_time" || prices.rounding_unit <= 1) return null;
+      const quoted = applyAdjustRules(basePrice(rule.pricing, {}, rule.packageHours), [], prices.rounding_unit);
+      if (quoted.finalMinor === null || quoted.finalMinor === quoted.baseMinor) return null;
+      return (
+        <span className="price-meaning__rounded">
+          <Icon name="alert-triangle" />
+          {`取整单位是 ${moneyText(prices.rounding_unit, context.currency)}，报价时会取整成 ${moneyText(quoted.finalMinor, context.currency)}。`}
+        </span>
+      );
+    };
     if (!reading || reading.blank) return `${label}——还没有价格。客人询价这个组合时报不出价。`;
     const overlapWith = (overlaps.get(focusedRow.key) ?? []).map((key) => rows.find((row) => row.key === key)).filter((row): row is PriceRow => row !== undefined);
     return (
@@ -344,6 +356,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         {reading.notes.map((note) => (
           <span key={note}>{` ${note}`}</span>
         ))}
+        {roundedNote(reading.rule)}
         {overlapWith.map((other) => {
           const [mine, theirs] = [reading.rule, readings.get(other.key)?.rule];
           if (!mine || !theirs) return null;

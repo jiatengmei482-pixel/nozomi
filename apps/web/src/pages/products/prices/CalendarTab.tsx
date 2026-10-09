@@ -15,7 +15,7 @@ import { StateBlock } from "../../../components/States.tsx";
 import { stepText } from "../../../lib/adjust-form.ts";
 import { displayName, shortName } from "../../../lib/master-display.ts";
 import { TREND_NAMES, addMonths, cellView, clampMonth, daysInRange, exactTextMoney, isWholeText, monthDates, monthOf, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, sameDayIn, segmentAt, spokenDate, weekdayName } from "../../../lib/price-calendar.ts";
-import { amountText, moneyText } from "../../../lib/product-display.ts";
+import { moneyText } from "../../../lib/product-display.ts";
 import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyTime } from "../../../lib/time-input.ts";
 import { useLoad } from "../../../lib/use-load.ts";
@@ -321,7 +321,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
                 </div>
               ))}
               <div className="calendar-detail__row calendar-detail__row--total">
-                <dt>{prices.rounding_unit > 1 ? `取整到 ${currency} ${amountText(prices.rounding_unit, currency)}` : "四舍五入"}</dt>
+                <dt>{prices.rounding_unit > 1 ? `取整到 ${moneyText(prices.rounding_unit, currency)}` : "四舍五入"}</dt>
                 <dd>{moneyText(segment.final, currency)}</dd>
               </div>
             </dl>

@@ -2396,3 +2396,11 @@
   gap: var(--space-1);
   white-space: nowrap;
 }
+
+.price-meaning__rounded {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-left: var(--space-1);
+  color: var(--color-warning-text);
+}
