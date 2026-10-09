@@ -4,7 +4,7 @@
  */
 import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, type AreaBizType, type AreaPolygonKind, type LocalizedText, hasVisibleText } from "@nozomi/domain";
 import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type Area, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
 import type { City } from "../../api/master.ts";
@@ -15,7 +15,7 @@ import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { Dropdown } from "../../components/Dropdown.tsx";
-import { LocalizedInput, RadioGroup, StaticField } from "../../components/FormFields.tsx";
+import { FieldErrors, LocalizedInput, RadioGroup, StaticField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
@@ -23,6 +23,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { EMPTY_EDITOR, type EditorShape, areaProblems, editorReducer, hasBlockingProblems, sameShapes, shapeName, shapeProblems, shapeWarnings, shapesToGeoJson, toPolygonInputs } from "../../lib/area-editor.ts";
 import { areaProblemText, ringProblemText, shapeProblemText } from "../../lib/area-messages.ts";
 import { AREA_LIST_PATH } from "../../lib/area-paths.ts";
+import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { INPUT_LANGUAGES, MASTER_STATUS_BADGES, cleanLocalized, countryLabel, displayName, formatLocalDateTime, sameLocalized, shortName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
@@ -77,6 +78,7 @@ export function AreaEditorPage() {
   const { portal, token, account, handleAuthFailure } = usePortalSession();
   const canRead = useTenantCan("area.read");
   const canManage = useTenantCan("area.manage");
+  const canSeeProducts = useTenantCan("product.read");
 
   const loaded = useLoad<Area>(`area:${id ?? "new"}`, id !== undefined && validId && canRead ? (authToken) => getArea(authToken, id) : null);
   const area = mode === "edit" ? loaded.state.data : null;
@@ -86,6 +88,11 @@ export function AreaEditorPage() {
   const [cityId, setCityId] = useState<string | null>(null);
   const [name, setName] = useState<LocalizedText>({});
   const [bizType, setBizType] = useState<AreaBizType>("general");
+  const [bizLocked, setBizLocked] = useState(false);
+  const [confirmingShapes, setConfirmingShapes] = useState(false);
+  // 从商品页面的「新增区域」过来：/areas/new?city=&biz= 预先选好；参数不认识就当没带。预先选上的不算「有修改」
+  const [search] = useSearchParams();
+  const [prefilledCity, setPrefilledCity] = useState<string | null>(null);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_EDITOR);
   const [initial, setInitial] = useState<{ name: LocalizedText; bizType: AreaBizType; shapes: readonly EditorShape[] }>({ name: {}, bizType: "general", shapes: [] });
   const [adopted, setAdopted] = useState<string | null>(null);
@@ -129,6 +136,23 @@ export function AreaEditorPage() {
       setNotice({ kind: "info", text: "已载入最新内容。" });
     }
   }, [area, areaKey, adopted, conflict]);
+  const wantedCity = mode === "new" ? search.get("city") : null;
+  const wantedBiz = mode === "new" ? search.get("biz") : null;
+  const cityList = cities.state.data;
+  useEffect(() => {
+    if (wantedBiz !== null && (AREA_BIZ_TYPES as readonly string[]).includes(wantedBiz)) {
+      setBizType(wantedBiz as AreaBizType);
+      setInitial((current) => ({ ...current, bizType: wantedBiz as AreaBizType }));
+    }
+  }, [wantedBiz]);
+  useEffect(() => {
+    if (wantedCity === null || cityList === null || cityId !== null || prefilledCity !== null) return;
+    if (cityList.some((entry) => entry.id === wantedCity)) {
+      setCityId(wantedCity);
+      setPrefilledCity(wantedCity);
+    }
+  }, [wantedCity, cityList]);
+
   const readOnly = mode === "edit" && !canManage;
   const city = area?.city ?? cities.state.data?.find((entry) => entry.id === cityId) ?? null;
   const cityName = city ? displayName(city.name).text : "";
@@ -137,7 +161,9 @@ export function AreaEditorPage() {
   useDocumentTitle(mode === "new" ? `新增区域 · NOZOMI ${portal.name}` : `${pageTitle} · 区域 · NOZOMI ${portal.name}`);
 
   const shapesDirty = !sameShapes(editor.shapes, initial.shapes);
-  const dirty = !readOnly && (shapesDirty || !sameLocalized(name, initial.name) || bizType !== initial.bizType || (mode === "new" && cityId !== null));
+  const dirty = !readOnly && (shapesDirty || !sameLocalized(name, initial.name) || bizType !== initial.bizType || (mode === "new" && cityId !== prefilledCity));
+  const usedBy = area?.usage?.product_count ?? 0;
+  const publishedUsers = area?.usage?.published_product_count ?? 0;
   useLeaveGuard(dirty && !submitting && !discarded, setLeaving);
 
   const backTo = returnTo(location.state);
@@ -253,6 +279,12 @@ export function AreaEditorPage() {
         setFieldErrors({ city: ["这个城市已经被平台停用，不能在它下面新增区域。请换一个城市。"] });
         return jump({ field: "city" });
       case "FIELD_LOCKED":
+        if (Array.isArray(err.details["fields"]) && (err.details["fields"] as unknown[]).includes("biz_type")) {
+          setBizType(initial.bizType);
+          setBizLocked(true);
+          setFieldErrors({ bizType: ["已有商品在用这个区域，不能改业务类型。"] });
+          return jump({ field: "bizType" });
+        }
         return setNotice({ kind: "danger", text: "城市创建后不能修改。请刷新页面后重试。" });
       default:
         if (err.status === 403) {
@@ -267,7 +299,7 @@ export function AreaEditorPage() {
     }
   };
 
-  const save = async (event?: FormEvent): Promise<void> => {
+  const save = async (event?: FormEvent, confirmed = false): Promise<void> => {
     event?.preventDefault();
     if (submitting || conflict || blocked !== null) return;
     setAttempted(true);
@@ -276,6 +308,9 @@ export function AreaEditorPage() {
     const first = problems[0];
     if (first) return jump(first.target);
     if (mode === "edit" && !dirty) return goBack();
+    // 改了图形、而这个区域正被已上架的商品使用：先确认（报价范围会跟着变）
+    if (!confirmed && shapesDirty && publishedUsers > 0) return setConfirmingShapes(true);
+    setConfirmingShapes(false);
     setNotice(null);
     setSubmitting(true);
     try {
@@ -431,7 +466,26 @@ export function AreaEditorPage() {
               />
             </div>
             <div data-field="bizType">
-              <RadioGroup<AreaBizType> legend="业务类型" name="biz-type" required readOnly={readOnly} disabled={submitting} options={BIZ_OPTIONS} value={bizType} errors={fieldErrors["bizType"] ?? []} hint="建商品时，只能选到业务类型和商品品类相同的区域，或「通用」的区域。不管哪一类，上车点或下车点只要落在禁行区，就不报价。" onChange={setBizType} />
+{usedBy > 0 || bizLocked ? (
+                <div className="field">
+                  <span className="field__label">业务类型</span>
+                  <p className="field__static">{AREA_BIZ_TYPE_NAMES[bizType]}</p>
+                  <FieldErrors id="biz-type-error" errors={fieldErrors["bizType"] ?? []} />
+                  <p className="field__hint">
+                    {usedBy > 0 ? `已有 ${usedBy} 个商品在用这个区域，不能改业务类型。` : "已有商品在用这个区域，不能改业务类型。"}
+                    {area && canSeeProducts && (
+                      <>
+                        {" "}
+                        <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}`}>
+                          查看这些商品
+                        </Link>
+                      </>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <RadioGroup<AreaBizType> legend="业务类型" name="biz-type" required readOnly={readOnly} disabled={submitting} options={BIZ_OPTIONS} value={bizType} errors={fieldErrors["bizType"] ?? []} hint="建商品时，只能选到业务类型和商品品类相同的区域，或「通用」的区域。不管哪一类，上车点或下车点只要落在禁行区，就不报价。" onChange={setBizType} />
+              )}
             </div>
           </form>
         </section>
@@ -595,6 +649,32 @@ export function AreaEditorPage() {
           }}
         />
       )}
+      <Dialog
+        open={confirmingShapes}
+        title="保存对图形的修改？"
+        onClose={() => setConfirmingShapes(false)}
+        footer={
+          <>
+            <Button variant="secondary" data-autofocus onClick={() => setConfirmingShapes(false)}>
+              取消
+            </Button>
+            <Button variant="primary" onClick={() => void save(undefined, true)}>
+              保存
+            </Button>
+          </>
+        }
+      >
+        <p>
+          有 <strong>{`${publishedUsers} 个已上架的商品`}</strong>在用这个区域。保存后，这些商品的报价范围会跟着变，大约 1 分钟内生效。
+        </p>
+        {area && canSeeProducts && (
+          <p>
+            <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}&status=published`}>
+              查看这些商品
+            </Link>
+          </p>
+        )}
+      </Dialog>
       <Dialog
         open={leaving !== null}
         title="有未保存的修改，确定离开吗？"

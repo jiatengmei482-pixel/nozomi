@@ -18,6 +18,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
+import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { MASTER_STATUS_BADGES, displayName, formatLocalDateTime, otherNames } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -67,6 +68,7 @@ export function AreaListPage() {
   useDocumentTitle(`区域 · NOZOMI ${portal.name}`);
   const canRead = useTenantCan("area.read");
   const canManage = useTenantCan("area.manage");
+  const canSeeProducts = useTenantCan("product.read");
   const location = useLocation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -180,6 +182,28 @@ export function AreaListPage() {
     { key: "biz", header: "业务类型", cell: (row) => <span className="tag">{AREA_BIZ_TYPE_NAMES[row.biz_type]}</span> },
     { key: "operate", header: "营运区", align: "end", cell: (row) => row.operate_polygon_count },
     { key: "forbid", header: "禁行区", align: "end", cell: (row) => row.forbid_polygon_count },
+    {
+      key: "usage",
+      header: "使用它的商品",
+      align: "end",
+      cell: (row) => {
+        const used = row.usage?.product_count ?? 0;
+        const published = row.usage?.published_product_count ?? 0;
+        if (used === 0) return <span className="table__muted">—</span>;
+        return (
+          <span className="table__names">
+            {canSeeProducts ? (
+              <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${row.id}`} aria-label={`查看使用 ${displayName(row.name).text} 的 ${used} 个商品`}>
+                {`${used} 个商品在用`}
+              </Link>
+            ) : (
+              <span>{`${used} 个商品在用`}</span>
+            )}
+            {published > 0 && <span className="table__other-names">{`${published} 个已上架`}</span>}
+          </span>
+        );
+      },
+    },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...MASTER_STATUS_BADGES[row.status]} /> },
     { key: "updated", header: "最近修改", cell: (row) => <span className="table__muted">{formatLocalDateTime(row.updated_at)}</span> },
   ];

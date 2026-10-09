@@ -4,6 +4,7 @@
  */
 import { AREA_BIZ_TYPE_NAMES } from "@nozomi/domain";
 import { type ReactNode, useState } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type AreaSummary, deleteArea, setAreaStatus } from "../../api/areas.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -13,6 +14,7 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { NETWORK_FAILURE_TEXT } from "../../lib/failure.ts";
 import { displayName, shortName } from "../../lib/master-display.ts";
+import { PRODUCT_LIST_PATH } from "../../lib/product-paths.ts";
 import { NetworkError } from "../../api/client.ts";
 
 export const AREA_FORBIDDEN_TEXT = "你没有权限修改区域。需要的话，请联系你们的管理员开通。";
@@ -22,6 +24,8 @@ interface Pending {
   action: "disable" | "delete";
   phase: "confirm" | "working" | "rejected" | "failed";
   text?: string;
+  /** 被拒的原因是有已上架的商品在用：给一个去看这些商品的链接 */
+  inUse?: boolean;
 }
 
 export interface AreaActions {
@@ -72,7 +76,7 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
       } else if (err instanceof ApiError && err.code === "AREA_IN_USE") {
         const count = err.details["published_product_count"];
         const who = typeof count === "number" ? `有 ${count} 个已上架的商品在用这个区域。` : "有已上架的商品在用这个区域。";
-        setPending({ area, action, phase: "rejected", text: `${who}请先把这些商品下架，或在商品里去掉这个区域${action === "delete" ? "，再回来删除" : ""}。` });
+        setPending({ area, action, phase: "rejected", inUse: true, text: `${who}请先把这些商品下架，或在商品里去掉这个区域${action === "delete" ? "，再回来删除" : ""}。` });
       } else if (err instanceof ApiError && err.status === 403) {
         setPending({ area, action, phase: "rejected", text: AREA_FORBIDDEN_TEXT });
       } else {
@@ -107,6 +111,7 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
   const working = pending?.phase === "working";
   const isDelete = pending?.action === "delete";
   const verb = isDelete ? "删除" : "停用";
+  const unpublishedUsers = area ? (area.usage?.product_count ?? 0) - (area.usage?.published_product_count ?? 0) : 0;
   const dialog = (
     <Dialog
       open={pending !== null}
@@ -136,6 +141,13 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
           <Alert kind="danger">
             <strong className="alert__title">{`现在不能${verb}。`}</strong>
             <span>{pending.text}</span>
+            {pending.inUse && area && (
+              <span className="alert__actions">
+                <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}&status=published`}>
+                  查看这些商品
+                </Link>
+              </span>
+            )}
           </Alert>
         )}
         {pending?.phase === "failed" && <Alert kind="danger">{pending.text}</Alert>}
@@ -145,6 +157,14 @@ export function useAreaActions(options: { onChanged(area: AreaSummary): void; on
           {isDelete
             ? `删除后不能恢复。这个区域的 ${area.operate_polygon_count} 块营运区、${area.forbid_polygon_count} 块禁行区会一起删除。只是暂时不用的话，可以改为停用。`
             : "停用后，建商品时不能再选这个区域，报价时也不再使用它。区域和它的图形都保留，之后可以重新启用。"}
+        </p>
+      )}
+      {pending && pending.phase !== "rejected" && area && isDelete && unpublishedUsers > 0 && (
+        <p>
+          <strong>{`有 ${unpublishedUsers} 个没上架的商品选了这个区域，删除后它们会少掉这个区域。`}</strong>{" "}
+          <Link className="link" to={`${PRODUCT_LIST_PATH}?area=${area.id}`}>
+            查看这些商品
+          </Link>
         </p>
       )}
     </Dialog>
