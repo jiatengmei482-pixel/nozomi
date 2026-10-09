@@ -80,6 +80,10 @@ tags:
     description: 租户只读地查看平台主数据（配置区域和商品时引用）
   - name: 商品
     description: 子品牌、商品（基础信息、服务规则、商品详情）、上架校验、上架 / 下架
+  - name: 价格
+    description: 价格规则、调价规则、价格日历、缺价的组合、子品牌的取整单位、节假日日历（只读）。金额都是供应商的结算价
+  - name: 节假日（平台）
+    description: 平台维护的各国节假日日历（调价规则的「节假日」周期用）
   - name: 区域
     description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
 paths:
@@ -2923,7 +2927,9 @@ paths:
       description: |
         需要操作 `product.read`。逐项给出通过 / 不通过和原因，界面照着显示清单。六项，顺序固定：
         `basic_info` 基础信息、`service_rules` 服务规则、`price_rules` 价格规则、`content` 商品详情（这四项必须）；`adjust_rules` 调价规则、`inventory` 库存（可选，恒通过）。
-        **价格规则功能上线之前，`price_rules` 一项固定不通过**（原因 `FEATURE_NOT_AVAILABLE`）：商品可以建、可以跑校验，但还不能上架。
+        `price_rules`：至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才生效的也算）。不通过的原因分三种：
+        `NO_ACTIVE_PRICE_RULE`（一条都没有）、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`。缺价的组合不拦（见 `price-coverage`）。
+        `adjust_rules` 不是必须的；有启用中的调价规则会把某条价格调到不大于 0 时在这里指出来（`ADJUST_RESULT_NOT_POSITIVE`，`path` 是它在调价规则列表里的位置），不拦上架。
         校验看的是现在的情况：选的区域、车型组、接送点、附加服务后来被停用了，也会在这里指出来。
         判断用的是 `@nozomi/domain` 的 `publishCheck`。
       security:
@@ -2993,6 +2999,649 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/products/{id}/price-rules:
+    get:
+      tags: [价格]
+      operationId: listPriceRules
+      summary: 一个商品的全部价格规则
+      description: |
+        需要操作 `product.read`。一次返回全部（一个商品最多 2000 条），按创建的先后。区域或车型组已经不在商品里的价格也返回（还可以改、可以删）。
+        应答带子品牌的币种和取整单位、这个品类可用的计价方式、**城市当地的今天**（判断过期用它，不要用浏览器的日期），和「该有价格的组合」的概况（明细见 `price-coverage`）。
+        金额都是子品牌币种的最小货币单位整数，是供应商的结算价；这里没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 价格规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [价格]
+      operationId: createPriceRule
+      summary: 新增一条价格规则
+      description: |
+        需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）；成功后商品的版本号加一。
+        一条价格 = 区域 × 车型组 ×（接送机：方向；包车：套餐时长）× 生效日期 + 计价方式和它的几个数。区域、车型组必须是这个商品现在选的。
+        三种计价方式各填各的数（别的留空）：`fixed` 填 `base_price`；`mileage_time` 填 `start_price`、`start_meters`、`start_minutes`、`per_km`、`per_minute`，`min_price` 可不填；
+        `charter_package` 填 `package_km`、`package_price`、`overtime_per_hour`、`over_km_per_km`（套餐时长是 `package_hours`）。
+        写审计日志（`resource` = `price_rule`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceRuleInput"
+      responses:
+        "201":
+          description: 新增的价格规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+              `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/price-rules/batch:
+    post:
+      tags: [价格]
+      operationId: batchSavePriceRules
+      summary: 批量保存价格规则（新增、修改、删除一次提交）
+      description: |
+        需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）。`create`、`update`、`delete` 合计最多 500 条，**全部成功或全部失败**。
+        页面保存「价格规则」一页、一次给一个区域下的多个车型组设价、把价格复制到别的区域，都用它。
+        重叠按**保存之后**的样子判断：同一批里删掉旧的、加上新的同一个组合不算冲突。
+        400 时 `path` 指到是哪一条的哪一项（`/create/3/base_price`、`/update/0/id`、`/delete/2`）。写审计日志（每条变了的规则一条，带前后值）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceRuleBatch"
+      responses:
+        "200":
+          description: 保存之后这个商品的全部价格规则，外加 `created_ids`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceRulesSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+              `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/price-rules/{ruleId}:
+    put:
+      tags: [价格]
+      operationId: updatePriceRule
+      summary: 修改一条价格规则
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。整体修改（请求体和新增相同）；内容没有变化时版本号不变。
+        区域、车型组没换的话，即使它们已经不在商品里也可以改。审计日志只记变了的字段的前后值。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceRuleInput"
+      responses:
+        "200":
+          description: 改完的价格规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+              `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [价格]
+      operationId: deletePriceRule
+      summary: 删除一条价格规则
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。真的删除（审计日志里留有删除前的内容）。已上架的商品不能把最后一条启用且未过期的价格删掉。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: 商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionOnly"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/price-coverage:
+    get:
+      tags: [价格]
+      operationId: getPriceCoverage
+      summary: 缺价的组合
+      description: |
+        需要操作 `product.read`。「该有价格的组合」逐个给出现在的情况：接送机 = 区域 × 车型组 × 接 / 送；点对点 = 区域 × 车型组；
+        包车 = 区域 × 车型组 × 套餐（套餐 = 这个商品现有价格里出现过的套餐时长）。
+        `priced`：今天就有启用、生效中的价格；`upcoming`：有启用、没过期的价格，但以后才开始生效（`from`）；`missing`：没有——客人询价时报不出价。
+        缺价不是错：不拦保存，也不拦上架。判断用的是 `@nozomi/domain` 的 `priceCoverage`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 各组合的情况
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceCoverage"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/price-calendar:
+    get:
+      tags: [价格]
+      operationId: getPriceCalendar
+      summary: 价格日历
+      description: |
+        需要操作 `product.read`。一个组合（区域 + 车型组 + 方向或套餐时长）在一段日期里每天的**结算价**和命中的规则：
+        命中价格规则 → 基础价 → 匹配的调价规则按顺序链式执行 → 按子品牌的取整单位取整。和以后的报价用的是同一个函数（`@nozomi/domain` 的 `tripPrice`）。
+        一天按调价规则的时段切成几段（`segments`），每段里结果相同；跨午夜的时段算在开始的那一天头上。
+        里程 + 时长的价格按「不超出起步」算（起步价或最低消费）。`delta`、`after`、`base`、`unrounded` 是没取整的精确值（十进制字符串，最小货币单位）。
+        最多 62 天。这里没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/CalendarArea"
+        - $ref: "#/components/parameters/CalendarVehicleGroup"
+        - $ref: "#/components/parameters/CalendarDirection"
+        - $ref: "#/components/parameters/CalendarPackageHours"
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: 每天的结算价
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceCalendar"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/adjust-rules:
+    get:
+      tags: [价格]
+      operationId: listAdjustRules
+      summary: 一个商品的全部调价规则
+      description: |
+        需要操作 `product.read`。按执行的先后返回全部（含停用的、已经结束的）：**顺序即优先级**，排在前面的先执行，后一条以前一条的结果为基数。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 调价规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRules"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [价格]
+      operationId: createAdjustRule
+      summary: 新增一条调价规则
+      description: |
+        需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）。新增的排在最后（最后执行）。
+        适用的区域、车型组必须是这个商品现在选的（空 = 全部）。启用的规则单独作用在它碰得到的、启用且没过期的价格上，
+        算下来不大于 0 时不能保存（400，`reason` = `ADJUST_RESULT_NOT_POSITIVE`，`detail.count` 是几条价格）。
+        时段：从 `start` 起（含）到 `end` 止（不含），`end` 可以是 `24:00`；`end` 早于 `start` 是跨午夜，算在开始的那一天头上。
+        写审计日志（`resource` = `adjust_rule`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustRuleInput"
+      responses:
+        "201":
+          description: 新增的调价规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/adjust-rules/order:
+    put:
+      tags: [价格]
+      operationId: reorderAdjustRules
+      summary: 保存调价规则的顺序
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。`ids` 必须正好是这个商品全部调价规则的编号（每个一次），按新的先后；
+        不是同一批时 400（`/ids`，`reason` = `IDS_MISMATCH`）。顺序没变时版本号不变。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustRuleOrder"
+      responses:
+        "200":
+          description: 重排之后的全部调价规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRules"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/adjust-rules/{ruleId}:
+    put:
+      tags: [价格]
+      operationId: updateAdjustRule
+      summary: 修改一条调价规则
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。整体修改；顺序不变。校验同新增。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustRuleInput"
+      responses:
+        "200":
+          description: 改完的调价规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [价格]
+      operationId: deleteAdjustRule
+      summary: 删除一条调价规则
+      description: |
+        需要操作 `product.manage`。`If-Match` 带商品的版本号。真的删除（审计日志里留有删除前的内容）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: 商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionOnly"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
+            - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
+            - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，什么都没有改动，请重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/products/{id}/adjust-rules/{ruleId}/enable:
+    post:
+      tags: [价格]
+      operationId: enableAdjustRule
+      summary: 启用一条调价规则
+      description: |
+        需要操作 `product.manage`。不要求 `If-Match`（列表里的开关）；已经是这个状态的原样返回、版本号不变。启用时和保存一样检查「调完不大于 0」。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+      responses:
+        "200":
+          description: 这条调价规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/adjust-rules/{ruleId}/disable:
+    post:
+      tags: [价格]
+      operationId: disableAdjustRule
+      summary: 停用一条调价规则
+      description: |
+        需要操作 `product.manage`。不要求 `If-Match`（列表里的开关）；已经是这个状态的原样返回、版本号不变。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+      responses:
+        "200":
+          description: 这条调价规则和商品的新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdjustRuleSaved"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/price-overview:
+    get:
+      tags: [价格]
+      operationId: getPriceOverview
+      summary: 各商品的价格概况
+      description: |
+        需要操作 `product.read`。本供应商每个商品（最多 1000 个，最近改过的在前）有没有启用且未过期的价格——「今天」按每个商品所在城市的当地日期各自算。
+        `products_with_price` / `products_without_price` 只数草稿和已上架的商品（首页的「设价格 → 上架」引导用）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 价格概况
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceOverview"
+  /tenant/v1/brands/{id}/rounding-unit:
+    put:
+      tags: [价格]
+      operationId: setBrandRoundingUnit
+      summary: 设置子品牌的取整单位
+      description: |
+        需要操作 `brand.manage`（只有管理员）。`If-Match` 带子品牌的版本号。取整单位是最小货币单位的整数：这个子品牌下所有商品的结算价最后按它四舍五入（正好一半时远离零）。
+        可选的值由币种决定（`@nozomi/domain` 的 `roundingUnitOptions`）：没有小数的币种 1 / 10 / 100 / 1000；两位小数的币种 1 / 10 / 100 / 1000 / 10000。
+        读取：价格规则、调价规则、价格日历的应答里都带 `rounding_unit`。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoundingUnitInput"
+      responses:
+        "200":
+          description: 子品牌的编号、取整单位和新版本号
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoundingUnit"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `VERSION_CONFLICT`：子品牌已经被别人改过
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/holidays:
+    get:
+      tags: [价格]
+      operationId: listTenantHolidays
+      summary: 节假日日历（只读）
+      description: |
+        需要操作 `master_data.read`（所有租户角色都有）。平台维护的各国节假日：调价规则的周期选「节假日」时按它生效，价格日历的格子上显示假日名。
+        `countries` 是「哪些国家有数据」。平台还没有登记数据的国家，选了也不会生效。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/HolidayCountry"
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: 节假日
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holidays"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+  /platform/v1/holidays:
+    get:
+      tags: [节假日（平台）]
+      operationId: listHolidays
+      summary: 节假日日历
+      description: |
+        需要操作 `master_data.read`。节假日日历是平台主数据，不预置任何数据（ADR 0018），由平台逐条登记。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/HolidayCountry"
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: 节假日
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holidays"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+  /platform/v1/holidays/{country}/{date}:
+    put:
+      tags: [节假日（平台）]
+      operationId: putHoliday
+      summary: 登记或修改某个国家某一天的节假日
+      description: |
+        需要操作 `master_data.manage`。名称至少一种语言。内容没有变化时不重复记审计日志。路径里的国家码或日期写得不对返回 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/HolidayCountryPath"
+        - $ref: "#/components/parameters/HolidayDatePath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HolidayInput"
+      responses:
+        "200":
+          description: 修改后的节假日
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holiday"
+        "201":
+          description: 新登记的节假日
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Holiday"
+        "400":
+          $ref: "#/components/responses/PriceInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    delete:
+      tags: [节假日（平台）]
+      operationId: deleteHoliday
+      summary: 删除一条节假日
+      description: |
+        需要操作 `master_data.manage`。写错了就删掉重填。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/HolidayCountryPath"
+        - $ref: "#/components/parameters/HolidayDatePath"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
 components:
   securitySchemes:
     platformToken:
@@ -3006,6 +3655,79 @@ components:
       bearerFormat: JWT
       description: 租户用户登录后拿到的访问令牌；租户编号只从这里取
   parameters:
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      description: 价格规则 / 调价规则的编号
+      schema:
+        type: string
+        format: uuid
+    CalendarArea:
+      name: area_id
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CalendarVehicleGroup:
+      name: vehicle_group_id
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CalendarDirection:
+      name: direction
+      in: query
+      description: 接送机商品必填（这一单的方向）；其他品类不能给
+      schema:
+        $ref: "#/components/schemas/TripDirection"
+    CalendarPackageHours:
+      name: package_hours
+      in: query
+      description: 包车商品必填（套餐时长，小时）；其他品类不能给
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 72
+    DateFrom:
+      name: from
+      in: query
+      required: true
+      description: 开始日期（含），`YYYY-MM-DD`
+      schema:
+        type: string
+        format: date
+    DateTo:
+      name: to
+      in: query
+      required: true
+      description: 结束日期（含），`YYYY-MM-DD`。价格日历最多 62 天，节假日最多 800 天
+      schema:
+        type: string
+        format: date
+    HolidayCountry:
+      name: country_code
+      in: query
+      description: 只看这些国家（ISO 3166-1 两位大写字母），多个用逗号分隔；不给 = 全部
+      schema:
+        type: string
+        pattern: "^[A-Z]{2}(,[A-Z]{2})*$"
+    HolidayCountryPath:
+      name: country
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Z]{2}$"
+    HolidayDatePath:
+      name: date
+      in: path
+      required: true
+      schema:
+        type: string
+        format: date
     Id:
       name: id
       in: path
@@ -3128,6 +3850,17 @@ components:
       schema:
         $ref: "#/components/schemas/VehicleGrade"
   responses:
+    PriceInvalid:
+      description: |
+        `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、范围、条数）。
+        价格规则：`REQUIRED`、`NOT_APPLICABLE`（这种计价方式或这个品类不填这一项）、`MODEL_NOT_ALLOWED`、`NOT_INTEGER`、`OUT_OF_RANGE`、`INVALID_DATE`、`DATE_RANGE_REVERSED`、
+        `AREA_NOT_IN_PRODUCT`、`VEHICLE_GROUP_NOT_IN_PRODUCT`（不是这个商品选的；别的供应商的、不存在的也是这个结果）、`UNKNOWN_PRICE_RULE`、`DUPLICATE`、`TOO_MANY`。
+        调价规则另有：`TOO_LONG`、`INVALID_TIME`、`EMPTY_WINDOW`、`INVALID_COUNTRY`、`ZERO_STEP`、`ADJUST_RESULT_NOT_POSITIVE`、`IDS_MISMATCH`。
+        前面这些里凡是规则本身的，和 `@nozomi/domain` 的 `priceRuleIssues` / `adjustRuleIssues` 返回的是同一套代码。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     InternalError:
       description: 未预期的服务端错误，`message` 不包含内部细节
       content:
@@ -4830,7 +5563,7 @@ components:
             unavailable_required:
               type: integer
               minimum: 0
-              description: 没满足的必须项里，因为功能还没上线（`FEATURE_NOT_AVAILABLE`）而没法满足的有几项
+              description: 没满足的必须项里，因为功能还没上线而没法满足的有几项。价格规则上线（M1-04）之后恒为 0，字段保留
         id:
           type: string
           format: uuid
@@ -5438,7 +6171,8 @@ components:
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
                   `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
-                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`FEATURE_NOT_AVAILABLE`。
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`。
+                  （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:
                   type: object
                   additionalProperties: false
@@ -5454,3 +6188,807 @@ components:
                       type: object
                       additionalProperties:
                         type: number
+    PricingModel:
+      type: string
+      enum: [fixed, mileage_time, charter_package]
+      description: "fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐"
+    PriceDirection:
+      type: string
+      enum: [pickup, dropoff, both]
+    TripDirection:
+      type: string
+      enum: [pickup, dropoff]
+    RuleStatus:
+      type: string
+      enum: [enabled, disabled]
+    VersionOnly:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的新版本号
+    PriceRuleInput:
+      type: object
+      additionalProperties: false
+      required: [area_id, vehicle_group_id, pricing_model, valid_from]
+      description: 金额是子品牌币种的最小货币单位整数。这种计价方式不用的数留空（null 或不给）
+      properties:
+        area_id:
+          type: string
+          format: uuid
+        vehicle_group_id:
+          type: string
+          format: uuid
+        direction:
+          description: 接送机必填：`pickup` 接、`dropoff` 送、`both` 接送通用（接和送用同一个价；和具体方向同时存在时具体的优先）。其他品类为 null
+          oneOf:
+            - $ref: "#/components/schemas/PriceDirection"
+            - type: "null"
+        package_hours:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 72
+          description: 包车必填：套餐时长（小时）。其他品类为 null
+        pricing_model:
+          $ref: "#/components/schemas/PricingModel"
+        base_price:
+          description: 固定一口价：基础价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        start_price:
+          description: 里程 + 时长：起步价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        start_meters:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000
+          multipleOf: 100
+          description: 里程 + 时长：起步里程，**米**（100 的整数倍，即精确到 0.1 公里）
+        start_minutes:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1440
+          description: 里程 + 时长：起步时长（分钟）
+        per_km:
+          description: 里程 + 时长：超出起步里程后每公里的单价（不足 1 公里按比例）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        per_minute:
+          description: 里程 + 时长：超出起步时长后每分钟的单价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        min_price:
+          description: 里程 + 时长：最低消费；不设为 null
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        package_km:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5000
+          description: 包车套餐：套餐公里
+        package_price:
+          description: 包车套餐：套餐价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        overtime_per_hour:
+          description: 包车套餐：超时单价（每小时；不足 1 小时按比例）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        over_km_per_km:
+          description: 包车套餐：超公里单价（每公里）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        valid_from:
+          type: string
+          format: date
+          description: 生效日期的开始（城市当地的**用车日期**，含）
+        valid_to:
+          type: [string, "null"]
+          format: date
+          description: 生效日期的结束（含）；null = 一直有效
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+    PriceRule:
+      type: object
+      additionalProperties: false
+      required: [id, area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, base, valid_from, valid_to, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        area_id:
+          type: string
+          format: uuid
+        vehicle_group_id:
+          type: string
+          format: uuid
+        direction:
+          description: 接送机必填：`pickup` 接、`dropoff` 送、`both` 接送通用（接和送用同一个价；和具体方向同时存在时具体的优先）。其他品类为 null
+          oneOf:
+            - $ref: "#/components/schemas/PriceDirection"
+            - type: "null"
+        package_hours:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 72
+          description: 包车必填：套餐时长（小时）。其他品类为 null
+        pricing_model:
+          $ref: "#/components/schemas/PricingModel"
+        base_price:
+          description: 固定一口价：基础价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        start_price:
+          description: 里程 + 时长：起步价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        start_meters:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000
+          multipleOf: 100
+          description: 里程 + 时长：起步里程，**米**（100 的整数倍，即精确到 0.1 公里）
+        start_minutes:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1440
+          description: 里程 + 时长：起步时长（分钟）
+        per_km:
+          description: 里程 + 时长：超出起步里程后每公里的单价（不足 1 公里按比例）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        per_minute:
+          description: 里程 + 时长：超出起步时长后每分钟的单价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        min_price:
+          description: 里程 + 时长：最低消费；不设为 null
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        package_km:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 5000
+          description: 包车套餐：套餐公里
+        package_price:
+          description: 包车套餐：套餐价
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        overtime_per_hour:
+          description: 包车套餐：超时单价（每小时；不足 1 小时按比例）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        over_km_per_km:
+          description: 包车套餐：超公里单价（每公里）
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 1000000000
+        valid_from:
+          type: string
+          format: date
+          description: 生效日期的开始（城市当地的**用车日期**，含）
+        valid_to:
+          type: [string, "null"]
+          format: date
+          description: 生效日期的结束（含）；null = 一直有效
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+        base:
+          type: string
+          description: 这条价格能报出的最低数（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价），十进制字符串：试算和日历的基数
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PriceCoverageSummary:
+      type: object
+      additionalProperties: false
+      required: [total, priced, missing]
+      properties:
+        total:
+          type: integer
+          description: 该有价格的组合一共多少个
+        priced:
+          type: integer
+          description: 有启用且没过期的价格的（含以后才开始生效的）
+        missing:
+          type: integer
+    PriceRules:
+      type: object
+      additionalProperties: false
+      required: [version, currency, rounding_unit, available_models, today, items, coverage]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的版本号（价格、调价的每次修改都用它做 `If-Match`）
+        currency:
+          type: [string, "null"]
+        rounding_unit:
+          type: integer
+          description: 子品牌的取整单位（最小货币单位）；1 = 不另外取整
+        available_models:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingModel"
+        today:
+          type: string
+          format: date
+          description: 商品所在城市当地的今天
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceRule"
+        coverage:
+          $ref: "#/components/schemas/PriceCoverageSummary"
+    PriceRulesSaved:
+      allOf:
+        - $ref: "#/components/schemas/PriceRules"
+        - type: object
+          required: [created_ids]
+          properties:
+            created_ids:
+              type: array
+              description: 这次新增的规则的编号，和请求里 `create` 的顺序一一对应
+              items:
+                type: string
+                format: uuid
+    PriceRuleSaved:
+      type: object
+      additionalProperties: false
+      required: [version, price_rule]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        price_rule:
+          $ref: "#/components/schemas/PriceRule"
+    PriceRuleBatch:
+      type: object
+      additionalProperties: false
+      properties:
+        create:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/PriceRuleInput"
+              - type: object
+                properties:
+                  ref:
+                    type: [string, "null"]
+                    maxLength: 100
+                    description: 页面自己起的记号；冲突时用它指回这一条
+        update:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/PriceRuleInput"
+              - type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        delete:
+          type: array
+          items:
+            type: string
+            format: uuid
+    PriceCoverage:
+      type: object
+      additionalProperties: false
+      required: [today, total, priced, missing, packages, combos]
+      properties:
+        today:
+          type: string
+          format: date
+        total:
+          type: integer
+        priced:
+          type: integer
+        missing:
+          type: integer
+        packages:
+          type: array
+          description: 包车：出现过的套餐时长（从小到大）；其他品类为空
+          items:
+            type: integer
+        combos:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [area_id, vehicle_group_id, direction, package_hours, state, price_rule_id, via_both, from]
+            properties:
+              area_id:
+                type: string
+                format: uuid
+              vehicle_group_id:
+                type: string
+                format: uuid
+              direction:
+                oneOf:
+                  - $ref: "#/components/schemas/TripDirection"
+                  - type: "null"
+              package_hours:
+                type: [integer, "null"]
+              state:
+                type: string
+                enum: [priced, upcoming, missing]
+              price_rule_id:
+                type: [string, "null"]
+                format: uuid
+                description: 用的是哪一条价格；missing 时为 null
+              via_both:
+                type: boolean
+                description: 用的是不是「接送通用」的价
+              from:
+                type: [string, "null"]
+                format: date
+                description: 那条价格从哪天起生效
+    AdjustStep:
+      type: object
+      additionalProperties: false
+      required: [type, value]
+      properties:
+        type:
+          type: string
+          enum: [percent, amount]
+        value:
+          type: integer
+          description: "percent：基点（1% = 100），−9999 到 100000；amount：最小货币单位。都可以为负，不能为 0"
+    AdjustCycle:
+      description: 周期：每天 / 每周指定星期（1 = 周一 … 7 = 周日）/ 指定日期 / 这些国家的节假日（按平台的节假日日历）
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [type]
+          properties:
+            type:
+              type: string
+              enum: [daily]
+        - type: object
+          additionalProperties: false
+          required: [type, weekdays]
+          properties:
+            type:
+              type: string
+              enum: [weekly]
+            weekdays:
+              type: array
+              minItems: 1
+              items:
+                type: integer
+                minimum: 1
+                maximum: 7
+        - type: object
+          additionalProperties: false
+          required: [type, dates]
+          properties:
+            type:
+              type: string
+              enum: [dates]
+            dates:
+              type: array
+              minItems: 1
+              maxItems: 366
+              items:
+                type: string
+                format: date
+        - type: object
+          additionalProperties: false
+          required: [type, countries]
+          properties:
+            type:
+              type: string
+              enum: [holidays]
+            countries:
+              type: array
+              minItems: 1
+              maxItems: 10
+              items:
+                type: string
+                pattern: "^[A-Z]{2}$"
+    AdjustRuleInput:
+      type: object
+      additionalProperties: false
+      required: [name, cycle, steps]
+      properties:
+        name:
+          type: string
+          maxLength: 50
+        travel_from:
+          type: [string, "null"]
+          format: date
+          description: 出行日期范围的开始（城市当地的用车日期，含）；null = 不限
+        travel_to:
+          type: [string, "null"]
+          format: date
+        cycle:
+          $ref: "#/components/schemas/AdjustCycle"
+        time_slot:
+          description: 适用时段（城市当地的用车时刻）：`start`（含）到 `end`（不含），`end` 可以是 `24:00`；`end` 早于 `start` = 跨午夜，算在开始的那一天头上。null = 全天
+          oneOf:
+            - $ref: "#/components/schemas/DailyWindow"
+            - type: "null"
+        area_ids:
+          type: array
+          description: 适用的区域；空 = 全部
+          items:
+            type: string
+            format: uuid
+        vehicle_group_ids:
+          type: array
+          description: 适用的车型组；空 = 全部
+          items:
+            type: string
+            format: uuid
+        directions:
+          type: array
+          description: 接送机：适用的方向，空 = 接和送；其他品类必须为空
+          items:
+            $ref: "#/components/schemas/TripDirection"
+        package_hours:
+          type: array
+          description: 包车：适用的套餐时长，空 = 全部；其他品类必须为空
+          items:
+            type: integer
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: 策略步骤，按顺序执行，后一步以前一步的结果为基数
+          items:
+            $ref: "#/components/schemas/AdjustStep"
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+    AdjustRule:
+      type: object
+      additionalProperties: false
+      required: [id, name, travel_from, travel_to, cycle, time_slot, area_ids, vehicle_group_ids, directions, package_hours, steps, status, ended, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 50
+        travel_from:
+          type: [string, "null"]
+          format: date
+          description: 出行日期范围的开始（城市当地的用车日期，含）；null = 不限
+        travel_to:
+          type: [string, "null"]
+          format: date
+        cycle:
+          $ref: "#/components/schemas/AdjustCycle"
+        time_slot:
+          description: 适用时段（城市当地的用车时刻）：`start`（含）到 `end`（不含），`end` 可以是 `24:00`；`end` 早于 `start` = 跨午夜，算在开始的那一天头上。null = 全天
+          oneOf:
+            - $ref: "#/components/schemas/DailyWindow"
+            - type: "null"
+        area_ids:
+          type: array
+          description: 适用的区域；空 = 全部
+          items:
+            type: string
+            format: uuid
+        vehicle_group_ids:
+          type: array
+          description: 适用的车型组；空 = 全部
+          items:
+            type: string
+            format: uuid
+        directions:
+          type: array
+          description: 接送机：适用的方向，空 = 接和送；其他品类必须为空
+          items:
+            $ref: "#/components/schemas/TripDirection"
+        package_hours:
+          type: array
+          description: 包车：适用的套餐时长，空 = 全部；其他品类必须为空
+          items:
+            type: integer
+        steps:
+          type: array
+          minItems: 1
+          maxItems: 10
+          description: 策略步骤，按顺序执行，后一步以前一步的结果为基数
+          items:
+            $ref: "#/components/schemas/AdjustStep"
+        status:
+          $ref: "#/components/schemas/RuleStatus"
+        ended:
+          type: boolean
+          description: 出行日期已经全部过去，以后不会再生效
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AdjustRules:
+      type: object
+      additionalProperties: false
+      required: [version, currency, rounding_unit, today, items]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        currency:
+          type: [string, "null"]
+        rounding_unit:
+          type: integer
+        today:
+          type: string
+          format: date
+        items:
+          type: array
+          description: 按执行的先后
+          items:
+            $ref: "#/components/schemas/AdjustRule"
+    AdjustRuleSaved:
+      type: object
+      additionalProperties: false
+      required: [version, adjust_rule]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        adjust_rule:
+          $ref: "#/components/schemas/AdjustRule"
+    AdjustRuleOrder:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    PriceCalendar:
+      type: object
+      additionalProperties: false
+      required: [version, currency, rounding_unit, today, days]
+      properties:
+        version:
+          type: integer
+        currency:
+          type: [string, "null"]
+        rounding_unit:
+          type: integer
+        today:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, weekday, holiday, price_rule, segments]
+            properties:
+              date:
+                type: string
+                format: date
+              weekday:
+                type: integer
+                minimum: 1
+                maximum: 7
+              holiday:
+                description: 商品所在国家这一天的节假日；不是节假日为 null
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [name]
+                    properties:
+                      name:
+                        $ref: "#/components/schemas/LocalizedText"
+                  - type: "null"
+              price_rule:
+                description: 这一天命中的价格规则；没有为 null
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [id, pricing_model, direction, valid_from, valid_to]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      pricing_model:
+                        $ref: "#/components/schemas/PricingModel"
+                      direction:
+                        oneOf:
+                          - $ref: "#/components/schemas/PriceDirection"
+                          - type: "null"
+                      valid_from:
+                        type: string
+                        format: date
+                      valid_to:
+                        type: [string, "null"]
+                        format: date
+                  - type: "null"
+              segments:
+                type: array
+                description: 这一天按时刻切成的几段，每段里结果相同
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [from, to, final, no_price_reason, base, unrounded, adjusts]
+                  properties:
+                    from:
+                      type: string
+                      description: 这一段的开始（含），`HH:mm`
+                    to:
+                      type: string
+                      description: 这一段的结束（不含），`HH:mm`，最后一段是 `24:00`
+                    final:
+                      type: [integer, "null"]
+                      description: 取整后的结算价（最小货币单位）；没有价格、或调完不大于 0 时为 null
+                    no_price_reason:
+                      type: [string, "null"]
+                      enum: [NO_RULE, NOT_IN_EFFECT, RULE_DISABLED, NOT_POSITIVE, null]
+                      description: "NO_RULE：这个组合没有价格规则；NOT_IN_EFFECT：有，但这一天不在生效期；RULE_DISABLED：对得上的那条停用了；NOT_POSITIVE：调价之后不大于 0"
+                    base:
+                      type: [string, "null"]
+                      description: 基础价（精确值）
+                    unrounded:
+                      type: [string, "null"]
+                      description: 全部调价之后、取整之前的精确值
+                    adjusts:
+                      type: array
+                      description: 命中的调价规则，按执行的先后
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required: [rule_id, name, steps]
+                        properties:
+                          rule_id:
+                            type: string
+                            format: uuid
+                          name:
+                            type: string
+                          steps:
+                            type: array
+                            items:
+                              type: object
+                              additionalProperties: false
+                              required: [type, value, delta, after]
+                              properties:
+                                type:
+                                  type: string
+                                  enum: [percent, amount]
+                                value:
+                                  type: integer
+                                delta:
+                                  type: string
+                                  description: 这一步加（减）了多少（精确值）
+                                after:
+                                  type: string
+                                  description: 这一步之后的数（精确值）
+    PriceOverview:
+      type: object
+      additionalProperties: false
+      required: [products_with_price, products_without_price, items]
+      properties:
+        products_with_price:
+          type: integer
+        products_without_price:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [product_id, code, status, category, title, price_rule_count, has_active_price, active_price_rule_count, enabled_adjust_rule_count]
+            properties:
+              product_id:
+                type: string
+                format: uuid
+              code:
+                type: string
+              status:
+                $ref: "#/components/schemas/ProductStatus"
+              category:
+                $ref: "#/components/schemas/ServiceCategory"
+              title:
+                $ref: "#/components/schemas/LocalizedText"
+              price_rule_count:
+                type: integer
+              has_active_price:
+                type: boolean
+                description: 有没有启用且没过期的价格（上架的必要条件）
+              active_price_rule_count:
+                type: integer
+              enabled_adjust_rule_count:
+                type: integer
+    RoundingUnitInput:
+      type: object
+      additionalProperties: false
+      required: [rounding_unit]
+      properties:
+        rounding_unit:
+          type: integer
+          enum: [1, 10, 100, 1000, 10000]
+    RoundingUnit:
+      type: object
+      additionalProperties: false
+      required: [id, rounding_unit, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        rounding_unit:
+          type: integer
+        version:
+          type: integer
+          description: 子品牌的新版本号
+    HolidayInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: "#/components/schemas/LocalizedName"
+    Holiday:
+      type: object
+      additionalProperties: false
+      required: [country_code, date, name, updated_at]
+      properties:
+        country_code:
+          type: string
+        date:
+          type: string
+          format: date
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        updated_at:
+          type: string
+          format: date-time
+    Holidays:
+      type: object
+      additionalProperties: false
+      required: [items, countries]
+      properties:
+        items:
+          type: array
+          description: 按日期、国家排
+          items:
+            $ref: "#/components/schemas/Holiday"
+        countries:
+          type: array
+          description: 哪些国家有节假日数据
+          items:
+            type: object
+            additionalProperties: false
+            required: [country_code, count, last_date]
+            properties:
+              country_code:
+                type: string
+              count:
+                type: integer
+              last_date:
+                type: string
+                format: date
+                description: 登记到的最晚一天

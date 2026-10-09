@@ -7,6 +7,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { parse } from "yaml";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 
 let api: TestApi;
@@ -253,6 +255,25 @@ test("唯一性：同一个「区域 + 车型组 + 方向或套餐时长」的�
   await addPrice(charterId, charter({ package_hours: 5, package_price: 55_000 }));
   const again = await call("POST", `/products/${charterId}/price-rules`, { version: await version(charterId), body: charter({ package_hours: 5, valid_from: "2027-01-01" }) });
   assert.equal(again.body.error.code, "PRICE_RULE_CONFLICT");
+});
+
+test("两个人同时给同一个组合加价格：只有一个成功，另一个 409，库里不会出现重叠的两条（写入前先锁住商品那一行）", async () => {
+  const id = await product();
+  for (let round = 0; round < 3; round += 1) {
+    const current = await version(id);
+    const results = await Promise.all(
+      [0, 1, 2, 3].map((n) => call("POST", `/products/${id}/price-rules`, { version: current, body: fixed({ direction: "dropoff", base_price: 10_000 + n, valid_from: `202${7 + round}-01-01`, valid_to: `202${7 + round}-12-31` }) })),
+    );
+    assert.deepEqual(results.map((res) => res.status).sort(), [201, 409, 409, 409], results.map((res) => res.text).join("\n"));
+    for (const res of results.filter((entry) => entry.status === 409)) assert.ok(["VERSION_CONFLICT", "CONCURRENT_UPDATE"].includes(res.body.error.code), res.text);
+  }
+  const rows = (await ok(call("GET", `/products/${id}/price-rules`))).items;
+  assert.equal(rows.length, 3);
+  // 同一个版本号、不同的日期同时来：也只进一条——后到的要先重新读过别人的改动
+  const current = await version(id);
+  const disjoint = await Promise.all([2031, 2032].map((year) => call("POST", `/products/${id}/price-rules`, { version: current, body: fixed({ direction: "dropoff", valid_from: `${year}-01-01`, valid_to: `${year}-12-31` }) })));
+  assert.deepEqual(disjoint.map((res) => res.status).sort(), [201, 409]);
+  assert.equal((await api.db.owner.query("select count(*)::int as n from price_rules where product_id = $1", [id])).rows[0].n, 4);
 });
 
 test("修改和删除一条价格：用商品的版本号；审计日志只记变了的字段的前后值；没变化不加版本；改出重叠被拒；不存在是 404", async () => {
@@ -726,4 +747,52 @@ test("规则 4：价格相关接口的任何返回里都没有对外价和加价
   }
   const posted = await call("POST", `/products/${id}/price-rules/batch`, { version: await version(id), body: { create: [fixed({ area_id: ids["a2"] })] } });
   assert.doesNotMatch(posted.text, /markup|sell_price|selling_price|public_price|channel|对外价|加价比例/i);
+});
+
+test("接口定义对账：价格相关应答的字段和 openapi.yaml 里各 schema 的必有字段一致", async () => {
+  const doc = parse(await readFile(new URL("../openapi.yaml", import.meta.url), "utf8")) as { components: { schemas: Record<string, any> } };
+  const schema = (name: string): any => doc.components.schemas[name];
+  const same = (actual: object, required: string[], label: string): void => assert.deepEqual(Object.keys(actual).sort(), [...required].sort(), label);
+  const id = await product();
+  const saved = await addPrice(id, fixed({ direction: "both" }));
+  const adjust = await addAdjust(id, adjustBody({ time_slot: { start: "22:00", end: "06:00" } }));
+  await ok(platform("PUT", "/holidays/JP/2028-01-01", { name: { ja: "元日" } }), 201);
+  same(saved, schema("PriceRuleSaved").required, "PriceRuleSaved");
+  same(saved.price_rule, schema("PriceRule").required, "PriceRule");
+  const rules = await ok(call("GET", `/products/${id}/price-rules`));
+  same(rules, schema("PriceRules").required, "PriceRules");
+  same(rules.coverage, schema("PriceCoverageSummary").required, "PriceCoverageSummary");
+  assert.deepEqual(rules.available_models.every((model: string) => schema("PricingModel").enum.includes(model)), true);
+  const batch = await ok(call("POST", `/products/${id}/price-rules/batch`, { version: rules.version, body: {} }));
+  same(batch, [...schema("PriceRules").required, "created_ids"], "PriceRulesSaved");
+  const coverage = await ok(call("GET", `/products/${id}/price-coverage`));
+  same(coverage, schema("PriceCoverage").required, "PriceCoverage");
+  same(coverage.combos[0], schema("PriceCoverage").properties.combos.items.required, "PriceCoverage.combos[]");
+  same(adjust, schema("AdjustRule").required, "AdjustRule");
+  same(await ok(call("GET", `/products/${id}/adjust-rules`)), schema("AdjustRules").required, "AdjustRules");
+  same(await ok(call("POST", `/products/${id}/adjust-rules/${adjust.id}/disable`)), schema("AdjustRuleSaved").required, "AdjustRuleSaved");
+  await ok(call("POST", `/products/${id}/adjust-rules/${adjust.id}/enable`));
+  const view = await calendar(id, `area_id=${ids["a1"]}&vehicle_group_id=${ids["biz7"]}&direction=pickup&from=2028-01-01&to=2028-01-01`);
+  const day = schema("PriceCalendar").properties.days.items;
+  same(view, schema("PriceCalendar").required, "PriceCalendar");
+  same(view.days[0], day.required, "PriceCalendar.days[]");
+  same(view.days[0].holiday, day.properties.holiday.oneOf[0].required, "holiday");
+  same(view.days[0].price_rule, day.properties.price_rule.oneOf[0].required, "price_rule");
+  const segment = day.properties.segments.items;
+  same(view.days[0].segments[0], segment.required, "segments[]");
+  same(view.days[0].segments[0].adjusts[0], segment.properties.adjusts.items.required, "adjusts[]");
+  same(view.days[0].segments[0].adjusts[0].steps[0], segment.properties.adjusts.items.properties.steps.items.required, "steps[]");
+  const overview = await ok(call("GET", "/price-overview"));
+  same(overview, schema("PriceOverview").required, "PriceOverview");
+  same(overview.items[0], schema("PriceOverview").properties.items.items.required, "PriceOverview.items[]");
+  const holidays = await ok(call("GET", "/holidays?from=2028-01-01&to=2028-01-31"));
+  same(holidays, schema("Holidays").required, "Holidays");
+  same(holidays.items[0], schema("Holiday").required, "Holiday");
+  same(holidays.countries[0], schema("Holidays").properties.countries.items.required, "Holidays.countries[]");
+  const brand = (await ok(call("GET", "/brands"))).items.find((item: any) => item.id === ids["brand"]);
+  same(await ok(call("PUT", `/brands/${ids["brand"]}/rounding-unit`, { version: brand.version, body: { rounding_unit: 1 } })), schema("RoundingUnit").required, "RoundingUnit");
+  same(await ok(call("DELETE", `/products/${id}/price-rules/${saved.price_rule.id}`, { version: await version(id) })), schema("VersionOnly").required, "VersionOnly");
+  // 请求体里能给的字段，定义里都有
+  for (const field of Object.keys(fixed())) assert.ok(field in schema("PriceRuleInput").properties, field);
+  for (const field of Object.keys(adjustBody())) assert.ok(field in schema("AdjustRuleInput").properties, field);
 });
