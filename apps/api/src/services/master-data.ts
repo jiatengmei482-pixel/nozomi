@@ -68,6 +68,7 @@ import {
   isKnownTimeZone,
   listActiveCityCandidates,
   listMasterRows,
+  lockMasterReferenceExclusive,
   moveChildPlacesToCity,
   updateMasterRow,
 } from "../repos/master-data.ts";
@@ -311,6 +312,8 @@ async function setStatus<T extends Item>(
 ): Promise<T> {
   const now = ctx.now();
   return writeTx(ctx, async (db) => {
+    // 停用：先和「正在上架、要用这一条」的商品互斥（先于任何行锁），再去数有多少已上架的商品在用
+    if (status === "disabled") await lockMasterReferenceExclusive(db, id);
     await lockParentFirst(db, resource, id);
     const current = await findMasterRow(db, resource.spec, id, { lock: true });
     if (!current) throw notFound(resource.label);

@@ -346,7 +346,8 @@ test("服务规则的校验：日期、时段（可跨午夜）、提前时长�
     ["免等的方式不存在", { free_wait: { pickup: { mode: "forever" } } }, [["/free_wait/pickup/mode", undefined]]],
     ["附加服务不存在", { addons: [{ addon_id: MISSING, unit_price: 0 }] }, [["/addons/0/addon_id", "UNKNOWN_ADDON"]]],
     ["附加服务不适用这个品类", { addons: [{ addon_id: ids["guide"], unit_price: 0 }] }, [["/addons/0/addon_id", "ADDON_NOT_APPLICABLE"]]],
-    ["按次计费的不能设首个免费", { addons: [{ addon_id: ids["sign"], unit_price: 0, first_free: true }] }, [["/addons/0/first_free", "NOT_APPLICABLE"]]],
+    ["每日加急库存不能是 0（不限是留空，不接是关掉加急）", { urgent: { enabled: true, daily_quota: 0 } }, [["/urgent/daily_quota", "OUT_OF_RANGE"]]],
+    ["司机语言不在支持的清单里", { driver_languages: [{ language: "fr", unit_price: 0 }] }, [["/driver_languages/0/language", "INVALID_LANGUAGE"]]],
     ["附加服务重复", { addons: [{ addon_id: ids["seat"], unit_price: 0 }, { addon_id: ids["seat"], unit_price: 1 }] }, [["/addons/1/addon_id", "DUPLICATE"]]],
     ["司机语言写法不对、重复", { driver_languages: [{ language: "Chinese", unit_price: 0 }, { language: "en", unit_price: 0 }, { language: "en", unit_price: 0 }] }, [["/driver_languages/0/language", "INVALID_LANGUAGE"], ["/driver_languages/2/language", "DUPLICATE"]]],
   ];
@@ -362,6 +363,68 @@ test("服务规则的校验：日期、时段（可跨午夜）、提前时长�
     free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "unlimited" } },
   });
   assert.equal(edge.status, 200, edge.text);
+  // 报错的话说得通：提前预订时长是 0 又开着加急；数字超范围时写明范围
+  const zeroLead = await call("PUT", `/products/${product.id}/service-rules`, { version: 2, body: { booking: { lead_time_hours: 0 }, urgent: { enabled: true, tiers: [{ within_hours: 1, surcharge: 0 }] } } });
+  assert.deepEqual(issues(zeroLead), [["/urgent/tiers/0/within_hours", "TIER_NOT_WITHIN_LEAD_TIME"]]);
+  assert.match(zeroLead.body.error.details.issues[0].message, /提前预订时长是 0.*请关掉加急，或把提前预订时长改成至少 1 小时/);
+  const quota = await call("PUT", `/products/${product.id}/service-rules`, { version: 2, body: { urgent: { daily_quota: 0 } } });
+  assert.equal(quota.body.error.details.issues[0].message, "请填 1 到 10000 之间的整数");
+});
+
+test("服务规则只留一种写法：结束在午夜的时段 24:00 和 00:00 等价，保存后统一成 00:00（全天仍是 00:00–24:00）；内容一样的再存不算修改", async () => {
+  const product = await draft();
+  const saved = await ok(call("PUT", `/products/${product.id}/service-rules`, {
+    version: 1,
+    body: { booking: { service_time: { start: "08:00", end: "24:00" } }, night: { window: { start: "22:00", end: "24:00" } } },
+  }));
+  assert.deepEqual([saved.version, saved.rules.booking.service_time, saved.rules.night.window], [2, { start: "08:00", end: "00:00" }, { start: "22:00", end: "00:00" }]);
+  for (const end of ["24:00", "00:00"]) {
+    const again = await ok(call("PUT", `/products/${product.id}/service-rules`, { version: 2, body: { booking: { service_time: { start: "08:00", end } }, night: { window: { start: "22:00", end } } } }));
+    assert.equal(again.version, 2, `结束写成 ${end}：和存着的是同一个时段，不算修改`);
+  }
+  const allDay = await ok(call("PUT", `/products/${product.id}/service-rules`, { version: 2, body: { booking: { service_time: { start: "00:00", end: "24:00" } } } }));
+  assert.deepEqual(allDay.rules.booking.service_time, { start: "00:00", end: "24:00" });
+  assert.deepEqual(issues(await call("PUT", `/products/${product.id}/service-rules`, { version: 3, body: { booking: { service_time: { start: "00:00", end: "00:00" } } } })), [["/booking/service_time", "EMPTY_WINDOW"]]);
+});
+
+test("「首个免费」只对按个计费的附加服务有意义：别的计费方式下带了当作没设；平台后来改了计费方式，读取、上架校验、保存三处结论一致", async () => {
+  // 按次计费的带了 first_free：不拒绝，存成 false
+  const product = await completeDraft();
+  const perOrder = await ok(call("PUT", `/products/${product.id}/service-rules`, { version: product.version, body: { ...RULES, addons: [{ addon_id: ids["sign"], unit_price: 0, first_free: true }, { addon_id: ids["seat"], unit_price: 1000, first_free: true }] } }));
+  assert.deepEqual(perOrder.rules.addons.map((addon: any) => addon.first_free), [false, true]);
+  // 平台把儿童座椅改成按次计费：商品里原来勾着的不再生效
+  const seat = await ok(platform("GET", `/master/addons/${ids["seat"]}`));
+  await ok(platform("PATCH", `/master/addons/${ids["seat"]}`, { charge_unit: "per_order" }, { "if-match": `"${seat.version}"` }));
+  try {
+    const read = await ok(call("GET", `/products/${product.id}/service-rules`));
+    assert.deepEqual([read.version, read.rules.addons.map((addon: any) => addon.first_free)], [perOrder.version, [false, false]], "读到的是生效的那一份，版本号不变");
+    assert.deepEqual((await ok(call("GET", `/products/${product.id}/publish-check`))).items.find((item: any) => item.key === "service_rules"), { key: "service_rules", required: true, passed: true, issues: [] });
+    // 手上还是旧页面（仍然带着 first_free: true）的人改一句备注：能存，存下来的是整理后的
+    const resaved = await ok(call("PUT", `/products/${product.id}/service-rules`, { version: read.version, body: { ...perOrder.rules, booking: { ...perOrder.rules.booking, note: "只加了一句备注" } } }));
+    assert.deepEqual([resaved.version, resaved.rules.addons.map((addon: any) => addon.first_free)], [read.version + 1, [false, false]]);
+    const stored = (await api.db.owner.query("select service_rules from products where id = $1", [product.id])).rows[0].service_rules;
+    assert.deepEqual(stored.addons.map((addon: any) => addon.firstFree), [false, false], "落库的也是整理后的");
+    // 平台改回按个计费：不会自动变回「首个免费」（已经存成没设了）
+    const back = await ok(platform("GET", `/master/addons/${ids["seat"]}`));
+    await ok(platform("PATCH", `/master/addons/${ids["seat"]}`, { charge_unit: "per_item" }, { "if-match": `"${back.version}"` }));
+    assert.deepEqual((await ok(call("GET", `/products/${product.id}/service-rules`))).rules.addons.map((addon: any) => addon.first_free), [false, false]);
+  } finally {
+    const now = await ok(platform("GET", `/master/addons/${ids["seat"]}`));
+    if (now.charge_unit !== "per_item") await ok(platform("PATCH", `/master/addons/${ids["seat"]}`, { charge_unit: "per_item" }, { "if-match": `"${now.version}"` }));
+  }
+});
+
+test("接送点被平台改到别的城市：上架校验的「基础信息」指出来（PICKUP_PLACE_OTHER_CITY）；平台改回来之后恢复", async () => {
+  const osaka = await ok(platform("POST", "/master/cities", { country_code: "JP", timezone: "Asia/Tokyo", code: "CTY-JP-MOV", name: { zh: "搬去的城市" }, center: { lng: 135.5, lat: 34.7 } }), 201);
+  const airport = await ok(platform("POST", "/master/places", { type: "airport", code: "MVD", city_id: ids["tokyo"], name: { zh: "会被挪走的机场" }, location: { lng: 140.1, lat: 35.5 }, flight_scope: "domestic" }), 201);
+  const product = await ok(call("POST", "/products", { body: { brand_id: ids["brand"], city_id: ids["tokyo"], category: "airport_transfer", poi_id: airport.id, dispatchers: [{ name: "x", phone: "0312345678" }] } }), 201);
+  const basic = async (): Promise<string[]> => (await ok(call("GET", `/products/${product.id}/publish-check`))).items[0].issues.map((issue: any) => `${issue.path} ${issue.reason}`);
+  assert.ok(!(await basic()).some((issue) => issue.startsWith("/poi_id")));
+  await ok(platform("PATCH", `/master/places/${airport.id}`, { city_id: osaka.id }, { "if-match": `"${airport.version}"` }));
+  assert.ok((await basic()).includes("/poi_id PICKUP_PLACE_OTHER_CITY"));
+  const moved = await ok(platform("GET", `/master/places/${airport.id}`));
+  await ok(platform("PATCH", `/master/places/${airport.id}`, { city_id: ids["tokyo"] }, { "if-match": `"${moved.version}"` }));
+  assert.ok(!(await basic()).some((issue) => issue.startsWith("/poi_id")), "改回来就好了");
 });
 
 test("商品详情：各语言的标题、简介、包含 / 不含、行程、接机指引；整体保存，空串当没填；标题出现在商品和列表上", async () => {

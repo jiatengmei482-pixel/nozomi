@@ -2826,11 +2826,14 @@ paths:
       description: |
         需要操作 `product.manage`。必须带 `If-Match`（商品的版本号）。整体替换；可以只填一部分——保存时只查填了的写得对不对，缺什么留到上架校验。
         - 预订规则：下单有效期（城市当地日期，含两端）、每天的服务时间（`HH:mm`，可以跨午夜；全天写 `00:00`–`24:00`）、提前预订时长（小时，0 到 720）。
-        - 加急：每档「离用车不到 N 小时下单加收 X」，N 不能超过提前预订时长、不能重复；报价时取最小的命中 N 一档。
+          时段的结束写 `24:00` 和写 `00:00` 是同一个时刻（次日零点，算在时段里）；保存时统一成一种写法：全天是 `00:00`–`24:00`，其余一律 `…–00:00`（应答里返回的是整理后的）。
+        - 加急：每日库存 1 到 10000，不限就传 null（0 不收：不想接加急请关掉加急）。每档「离用车不到 N 小时下单加收 X」，N 不能超过提前预订时长、不能重复；报价时取最小的命中 N 一档。
         - 夜间加价：时段可以跨午夜；按次或按与夜间时段重叠的小时数。
         - 免等：接送机填 `pickup` 和 `dropoff`，点对点和包车填 `general`；有限时长不能短于 `free_wait_minimums`。
-        - 附加服务：平台目录里的；开着的必须是启用中、适用于这个品类的；单价 0 = 免费提供；`first_free` 只有按个计费的可以设。
-        - 司机语言：每种语言（两位小写代码）一个单价。
+        - 附加服务：平台目录里的；开着的必须是启用中、适用于这个品类的；单价 0 = 免费提供。
+          `first_free`（首个免费）只对按个计费的附加服务有意义：别的计费方式下带了 `true` 不拒绝，当作 `false` 保存。
+          平台后来把附加服务改成不按个计费的，商品里原来的 `first_free` 不再生效：读取时返回 `false`，上架校验不算问题，下一次保存时落库。
+        - 司机语言：只能是平台支持的语言（`ja`、`zh`、`en`、`ko`），每种一个单价。
         所有时间规则以后都按商品所在城市的时区计算。已上架的商品改完必须仍然通过上架校验。
       security:
         - tenantToken: []
@@ -5892,7 +5895,8 @@ components:
               type: boolean
             daily_quota:
               type: [integer, "null"]
-              minimum: 0
+              minimum: 1
+              maximum: 10000
               description: 每天最多接几单加急；null = 不限
             tiers:
               type: array
@@ -5964,7 +5968,7 @@ components:
                 description: 单价（最小货币单位）；0 = 免费提供
               first_free:
                 type: boolean
-                description: 首个免费；只有按个计费的附加服务可以设
+                description: 首个免费；只对按个计费的附加服务有意义，别的计费方式下当作 false 保存（不拒绝）
         driver_languages:
           type: array
           maxItems: 10
@@ -5975,7 +5979,7 @@ components:
             properties:
               language:
                 type: string
-                pattern: "^[a-z]{2}$"
+                enum: [ja, zh, en, ko]
               unit_price:
                 type: integer
                 minimum: 0
@@ -6187,7 +6191,7 @@ components:
                 description: |
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
-                  `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
+                  `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`PICKUP_PLACE_OTHER_CITY`（接送点被平台改到了别的城市）、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
                   `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`。
                   （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:

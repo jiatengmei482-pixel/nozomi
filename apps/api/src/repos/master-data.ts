@@ -329,6 +329,28 @@ async function tryLockImport(db: Db, kind: "import-airports" | "import-cities"):
   return result.rows[0]?.locked === true;
 }
 
+/**
+ * 「商品上架」和「平台停用主数据」之间的互斥（ADR 0016）。租户账号对主数据表只有读权限，锁不了行，所以用按主数据编号算出来的事务级 advisory lock：
+ * - 上架（或给已上架的商品换上新的引用）这一边，先对它引用的每一条主数据（城市、接送点、车型组、开着的附加服务）取**共享**锁，再去读它们的状态；
+ * - 平台停用某一条主数据这一边，先取这一条的**排他**锁，再数「有多少已上架的商品在用」。
+ * 两边都是在各自的检查之前先拿锁、事务结束才放，所以不会同时通过各自的检查。
+ * 加锁顺序：租户一边是「商品行 → 主数据的共享锁（按编号排序）→ 写入 → 区域行」，平台一边是「这一条的排他锁 → 主数据行」；
+ * 平台一边每次只取一把排他锁，而且先于任何行锁，所以两边不会互相等死。
+ */
+const REFERENCE_LOCK_KEY = "hashtextextended('masterdata.ref.' || $1::uuid::text, 0)";
+
+/** 租户一边：对引用的这些主数据取共享锁（事务结束自动释放）。 */
+export async function lockMasterReferencesShared(db: Db, ids: readonly string[]): Promise<void> {
+  for (const id of [...new Set(ids.map((value) => value.toLowerCase()))].sort()) {
+    await db.query(`select pg_advisory_xact_lock_shared(${REFERENCE_LOCK_KEY})`, [id]);
+  }
+}
+
+/** 平台一边：停用这一条主数据之前取它的排他锁（事务结束自动释放）。 */
+export async function lockMasterReferenceExclusive(db: Db, id: string): Promise<void> {
+  await db.query(`select pg_advisory_xact_lock(${REFERENCE_LOCK_KEY})`, [id]);
+}
+
 export function tryLockAirportImport(db: Db): Promise<boolean> {
   return tryLockImport(db, "import-airports");
 }

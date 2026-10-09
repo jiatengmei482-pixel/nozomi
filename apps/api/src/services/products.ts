@@ -7,10 +7,12 @@
  *   可以只填一部分——保存时只查「填了的写得对不对」，缺什么留到上架校验。
  * - 商品只有一个版本号：它下面任何一部分变了都加一，各个修改接口都用同一个 `If-Match`。
  * - 已上架的商品可以直接改，但改完必须仍然通过上架校验，否则这次修改被拒绝（409 PUBLISH_CHECK_FAILED）——要大改请先下架。
+ * - 上架、给已上架的商品换引用，和「平台停用主数据」「删除 / 停用区域」互斥：先锁住要用的引用，再读它们的状态（ADR 0016「并发」）。
  */
 import { isDeepStrictEqual } from "node:util";
 import {
   type CurrencyCode,
+  DRIVER_LANGUAGES,
   type FreeWaitItem,
   MASTER_DATA_LANGUAGES,
   PRODUCT_LIMITS,
@@ -38,6 +40,7 @@ import {
   isPhoneNumber,
   isPickupPlaceType,
   minimumFreeWaitMinutes,
+  normalizeServiceRules,
   priceRuleIsActive,
   publishCheck,
   publishCheckSummary,
@@ -83,6 +86,7 @@ import {
   replaceProductVehicleGroups,
   updateProduct as updateProductRow,
 } from "../repos/products.ts";
+import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { listAdjustRules, listPriceRules } from "../repos/prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
@@ -413,6 +417,19 @@ export interface ProductPatch extends ProductRelations {
   poiId?: string | null | undefined;
 }
 
+/**
+ * 上架（或让已上架的商品用上新的引用）之前，对它引用的平台主数据取共享锁：城市、接送点、车型组、开着的附加服务。
+ * 平台停用其中任何一条都要等这个事务结束，然后数到这个已上架的商品而被拒。必须在读这些主数据的状态之前、在写入引用之前调用。
+ */
+async function lockMasterReferences(db: Db, product: Product, vehicleGroupIds: readonly string[], rules: ServiceRules): Promise<void> {
+  await lockMasterReferencesShared(db, [
+    product.cityId,
+    ...(product.poiId === null ? [] : [product.poiId]),
+    ...vehicleGroupIds,
+    ...rules.addons.filter((addon) => addon.enabled).map((addon) => addon.addonId),
+  ]);
+}
+
 /** 这个商品如果是已上架的，改完之后必须仍然通过上架校验。 */
 export async function assertStillPublishable(db: Db, tenantId: string, product: Product, now: Date): Promise<void> {
   if (product.status !== "published") return;
@@ -438,6 +455,10 @@ export async function updateProduct(ctx: AppContext, writer: ProductWriter, id: 
 
     const before = await detail(db, tenantId, current);
     const already = { areaIds: new Set((before.areas ?? []).map((area) => area.areaId)), vehicleGroupIds: new Set((before.vehicleGroups ?? []).map((group) => group.vehicleGroupId)) };
+    // 已上架的商品换上新的车型组：先和平台停用车型组互斥，再查它们是不是启用的
+    if (current.status === "published" && patch.vehicleGroups !== undefined) {
+      await lockMasterReferences(db, current, patch.vehicleGroups.map((choice) => choice.vehicleGroupId), current.serviceRules);
+    }
     await assertRelations(db, tenantId, current, patch, already);
 
     const beforeAudit = relationsAudit(before);
@@ -499,7 +520,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   TIER_NOT_WITHIN_LEAD_TIME: "加急的小时数不能超过提前预订时长",
   BELOW_PLATFORM_MINIMUM: "不能短于平台规定的免等时长",
   NOT_APPLICABLE: "这个品类的商品不填这一项",
-  INVALID_LANGUAGE: "语言要写成两位小写的代码，例如 zh",
+  INVALID_LANGUAGE: `司机语言只能是 ${DRIVER_LANGUAGES.join("、")} 之一`,
   INVALID_PHONE: "电话格式不对",
   NO_AREA: "至少要选一个区域",
   NO_VEHICLE_GROUP: "至少要选一个车型组",
@@ -508,6 +529,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   CITY_DISABLED: "城市已被平台停用",
   PICKUP_PLACE_MISSING: "还没有选接送点",
   PICKUP_PLACE_DISABLED: "接送点已被平台停用",
+  PICKUP_PLACE_OTHER_CITY: "接送点已经不在这个商品所在的城市（平台调整了它所属的城市）",
   AREA_DISABLED: "这个区域已停用",
   AREA_CITY_DISABLED: "这个区域所属的城市已被平台停用",
   AREA_NOT_USABLE: "这个区域的业务类型和商品品类不一致",
@@ -522,8 +544,30 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
+/** 原因代码一样、但带上数字才说得清楚的几种情况。 */
+function ruleMessage(issue: RuleIssue | PublishIssue): string {
+  const detail = issue.detail ?? {};
+  if (issue.reason === "TIER_NOT_WITHIN_LEAD_TIME" && detail["lead_time_hours"] === 0) return "提前预订时长是 0（用车之前随时可以订），用不上加急：请关掉加急，或把提前预订时长改成至少 1 小时";
+  if (issue.reason === "TIER_NOT_WITHIN_LEAD_TIME" && detail["lead_time_hours"] !== undefined) return `加急的小时数不能超过提前预订时长（${detail["lead_time_hours"]} 小时）`;
+  if (issue.reason === "OUT_OF_RANGE" && detail["min"] !== undefined && detail["max"] !== undefined) return `请填 ${detail["min"]} 到 ${detail["max"]} 之间的整数`;
+  if (issue.reason === "BELOW_PLATFORM_MINIMUM" && detail["min"] !== undefined) return `不能短于平台规定的免等时长（${detail["min"]} 分钟）`;
+  return RULE_MESSAGES[issue.reason];
+}
+
 function ruleIssues(issues: readonly (RuleIssue | PublishIssue)[]): InputIssue[] {
-  return issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: RULE_MESSAGES[issue.reason], ...(issue.detail ? { detail: issue.detail } : {}) }));
+  return issues.map((issue) => ({ path: issue.path, reason: issue.reason, message: ruleMessage(issue), ...(issue.detail ? { detail: issue.detail } : {}) }));
+}
+
+/**
+ * 服务规则整理成生效的那一份（domain 的 normalizeServiceRules）：读取、保存、上架校验都先过这一道，所以三处看到的是同一份。
+ * 「首个免费」能不能设看附加服务**现在**的计费方式。
+ */
+async function effectiveServiceRules(db: Db, rules: ServiceRules): Promise<ServiceRules> {
+  const addons = await findAddonsForProduct(db, rules.addons.map((addon) => addon.addonId));
+  return normalizeServiceRules(rules, (addonId) => {
+    const addon = addons.get(addonId);
+    return addon === undefined ? undefined : addonAllowsFirstFree(addon.chargeUnit);
+  });
 }
 
 async function ruleContext(db: Db, product: Product): Promise<ServiceRuleContext> {
@@ -544,7 +588,7 @@ async function serviceRulesView(db: Db, tenantId: string, product: Product): Pro
   const applicable = freeWaitItems(product.category);
   const minimum = (item: FreeWaitItem): number | null => (applicable.includes(item) ? minimumFreeWaitMinutes(product.category, item, context.pickupPlace) : null);
   return {
-    product,
+    product: { ...product, serviceRules: await effectiveServiceRules(db, product.serviceRules) },
     currency: (await findBrands(db, tenantId, [product.brandId])).get(product.brandId)?.currency ?? null,
     freeWaitMinimums: { pickup: minimum("pickup"), dropoff: minimum("dropoff"), general: minimum("general") },
   };
@@ -560,26 +604,27 @@ export async function getServiceRules(ctx: AppContext, tenantId: string, id: str
 
 /**
  * 整体保存服务规则。可以只填一部分（草稿）：只查填了的写得对不对。
- * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的；「首个免费」只有按个计费的附加服务能设。
+ * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的。
+ * 存的是整理之后的一份（时段只留一种写法；「首个免费」只有按个计费的附加服务能设，别的计费方式下带了也当作没设，不拒绝）。
  */
-export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, rules: ServiceRules): Promise<ServiceRulesView> {
+export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.version !== expectedVersion) throw versionConflict(current.version);
+    // 已上架的商品开了新的附加服务：先和平台停用附加服务互斥，再查它们是不是启用的
+    if (current.status === "published") await lockMasterReferences(db, current, [], input);
+    const rules = await effectiveServiceRules(db, input);
     const issues = ruleIssues(serviceRuleIssues(rules, await ruleContext(db, current)));
     const addons = await findAddonsForProduct(db, rules.addons.map((addon) => addon.addonId));
     for (const [index, chosen] of rules.addons.entries()) {
       const at = `/addons/${index}`;
       const addon = addons.get(chosen.addonId);
       if (!addon) issues.push({ path: `${at}/addon_id`, reason: "UNKNOWN_ADDON", message: "附加服务不存在" });
-      else {
-        if (chosen.enabled && addon.status !== "active") issues.push({ path: `${at}/addon_id`, reason: "ADDON_DISABLED", message: RULE_MESSAGES.ADDON_DISABLED });
-        else if (chosen.enabled && !addon.categories.includes(current.category)) issues.push({ path: `${at}/addon_id`, reason: "ADDON_NOT_APPLICABLE", message: RULE_MESSAGES.ADDON_NOT_APPLICABLE });
-        if (chosen.firstFree && !addonAllowsFirstFree(addon.chargeUnit)) issues.push({ path: `${at}/first_free`, reason: "NOT_APPLICABLE", message: "只有按个计费的附加服务（如儿童座椅）可以设「首个免费」" });
-      }
+      else if (chosen.enabled && addon.status !== "active") issues.push({ path: `${at}/addon_id`, reason: "ADDON_DISABLED", message: RULE_MESSAGES.ADDON_DISABLED });
+      else if (chosen.enabled && !addon.categories.includes(current.category)) issues.push({ path: `${at}/addon_id`, reason: "ADDON_NOT_APPLICABLE", message: RULE_MESSAGES.ADDON_NOT_APPLICABLE });
     }
     if (issues.length > 0) invalid(issues);
     if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current);
@@ -666,19 +711,20 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const activePrices = priceRules.filter((rule) => priceRuleIsActive(rule, today));
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));
+  const serviceRules = await effectiveServiceRules(db, product.serviceRules);
   const facts: PublishFacts = {
     category: product.category,
     brandActive: view.brand?.status === "active",
     cityActive: view.city?.status === "active",
-    pickupPlace: view.poi === null ? null : { active: view.poi.status === "active", type: view.poi.type, flightScope: view.poi.flightScope },
+    pickupPlace: view.poi === null ? null : { active: view.poi.status === "active", type: view.poi.type, flightScope: view.poi.flightScope, inCity: view.poi.cityId === product.cityId },
     areas: (view.areas ?? []).map((area) => ({ status: area.status, bizType: area.bizType, cityActive: area.cityId === product.cityId && areaCities.get(area.cityId)?.status === "active" })),
     vehicleGroups: (view.vehicleGroups ?? []).map((group) => ({
       active: group.status === "active",
       comboOffered: group.combos.some((combo) => combo.passengers === group.passengers && combo.luggage === group.luggage),
     })),
     dispatcherCount: view.dispatchers?.length ?? 0,
-    serviceRules: product.serviceRules,
-    addons: product.serviceRules.addons.map((chosen) => {
+    serviceRules,
+    addons: serviceRules.addons.map((chosen) => {
       const addon = addons.get(chosen.addonId);
       return { enabled: chosen.enabled, active: addon?.status === "active", applicable: addon?.categories.includes(product.category) === true };
     }),
@@ -707,6 +753,7 @@ export async function publishProduct(ctx: AppContext, writer: ProductWriter, id:
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.status === "published") return detail(db, tenantId, current);
+    await lockMasterReferences(db, current, (await listProductVehicleGroups(db, tenantId, id)).map((group) => group.vehicleGroupId), current.serviceRules);
     await lockProductAreas(db, tenantId, id);
     const checked = await runPublishCheck(db, tenantId, current, now);
     if (!canPublish(checked.items)) throw publishCheckFailed(checked, "还有上架条件没有满足");

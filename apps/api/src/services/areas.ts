@@ -53,7 +53,7 @@ import {
   updateArea as updateAreaRow,
 } from "../repos/areas.ts";
 import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
-import { type AreaUsage, areaUsage } from "../repos/products.ts";
+import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -403,7 +403,10 @@ export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string
     const usage = (await areaUsage(db, tenantId, [id])).get(id) ?? UNUSED;
     if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
     const stored = await listAreaPolygons(db, tenantId, id);
+    const usedBy = await productIdsUsingArea(db, tenantId, id);
     await deleteAreaRow(db, tenantId, id);
+    // 选了它的草稿 / 已下架商品少掉这个区域：剩下的优先级重新排成连续的
+    await compactAreaPriorities(db, tenantId, usedBy);
     await audit(db, ctx, writer, now, { areaId: id, action: "delete", before: areaAudit(current, stored), after: null });
   });
 }

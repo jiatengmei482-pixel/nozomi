@@ -17,7 +17,9 @@ import {
   freeWaitItems,
   isPhoneNumber,
   isPickupPlaceType,
+  isDriverLanguage,
   minimumFreeWaitMinutes,
+  normalizeServiceRules,
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
@@ -220,6 +222,10 @@ test("上架校验：基础信息——至少一个区域、一个车型组、�
   assert.deepEqual(failing({ brandActive: false, cityActive: false }), { basic_info: ["/brand_id BRAND_DISABLED", "/city_id CITY_DISABLED"] });
   assert.deepEqual(failing({ pickupPlace: null }).basic_info, ["/poi_id PICKUP_PLACE_MISSING"]);
   assert.deepEqual(failing({ pickupPlace: { active: false, type: "airport", flightScope: null } }).basic_info, ["/poi_id PICKUP_PLACE_DISABLED"]);
+  // 接送点被平台改到了别的城市（新建时这种组合是被拒的）：停用和不在本城市可以同时报
+  assert.deepEqual(failing({ pickupPlace: { active: true, type: "airport", flightScope: null, inCity: false } }).basic_info, ["/poi_id PICKUP_PLACE_OTHER_CITY"]);
+  assert.deepEqual(failing({ pickupPlace: { active: false, type: "airport", flightScope: null, inCity: false } }).basic_info, ["/poi_id PICKUP_PLACE_DISABLED", "/poi_id PICKUP_PLACE_OTHER_CITY"]);
+  assert.deepEqual(failing({ pickupPlace: { active: true, type: "airport", flightScope: null, inCity: true } }).basic_info, undefined);
   assert.deepEqual(failing({ category: "charter", pickupPlace: null, content: { zh: text() }, serviceRules: complete({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }), areas: [{ status: "active", bizType: "general", cityActive: true }] }), {}, "包车不需要接送点");
   assert.deepEqual(
     failing({ areas: [{ status: "disabled", bizType: "general", cityActive: true }, { status: "active", bizType: "charter", cityActive: true }, { status: "active", bizType: "general", cityActive: false }] }),
@@ -259,4 +265,30 @@ test("上架校验的概况：分开数「自己能补的」和「功能还没�
   assert.deepEqual(publishCheckSummary(publishCheck(facts({ activePriceRuleCount: 0, content: {} }))), { canPublish: false, failedRequired: 2, unavailableRequired: 0 });
   assert.deepEqual(publishCheckSummary(publishCheck(facts({ activePriceRuleCount: null, areas: [], content: {} }))), { canPublish: false, failedRequired: 2, unavailableRequired: 1 });
   assert.deepEqual(publishCheckSummary([{ key: "inventory", required: false, passed: false, issues: [] }]), { canPublish: true, failedRequired: 0, unavailableRequired: 0 });
+});
+
+test("服务规则整理成生效的一份：时段只留一种写法；「首个免费」只在按个计费的附加服务上留着，说不清的（附加服务不存在）原样留给保存去报；不改传进来的那一份", () => {
+  const rules: ServiceRules = {
+    ...emptyServiceRules(),
+    booking: { ...emptyServiceRules().booking, serviceTime: { start: "08:00", end: "24:00" } },
+    night: { enabled: true, window: { start: "22:00", end: "24:00" }, amountMinor: 100, chargeUnit: "per_order" },
+    addons: [
+      { addonId: "per-item", enabled: true, unitPriceMinor: 1, firstFree: true },
+      { addonId: "per-order", enabled: true, unitPriceMinor: 1, firstFree: true },
+      { addonId: "gone", enabled: false, unitPriceMinor: 1, firstFree: true },
+      { addonId: "per-order-off", enabled: true, unitPriceMinor: 1, firstFree: false },
+    ],
+  };
+  const before = structuredClone(rules);
+  const allowed = (addonId: string): boolean | undefined => (addonId === "gone" ? undefined : addonId === "per-item");
+  const tidy = normalizeServiceRules(rules, allowed);
+  assert.deepEqual([tidy.booking.serviceTime, tidy.night.window], [{ start: "08:00", end: "00:00" }, { start: "22:00", end: "00:00" }]);
+  assert.deepEqual(tidy.addons.map((addon) => addon.firstFree), [true, false, true, false]);
+  assert.deepEqual(rules, before);
+  assert.deepEqual(normalizeServiceRules(tidy, allowed), tidy, "整理过的再整理不变");
+  assert.deepEqual(normalizeServiceRules(emptyServiceRules(), allowed), emptyServiceRules());
+});
+
+test("司机语言只能是平台支持的语言", () => {
+  assert.deepEqual(["ja", "zh", "en", "ko", "fr", "ZH", "zh-CN", ""].map(isDriverLanguage), [true, true, true, true, false, false, false, false]);
 });

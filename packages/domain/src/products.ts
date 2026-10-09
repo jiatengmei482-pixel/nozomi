@@ -11,7 +11,7 @@
  */
 import type { AreaBizType } from "./areas.ts";
 import { type AddonChargeUnit, type FlightScope, type LocalizedText, MASTER_DATA_LANGUAGES, type PlaceType, type ServiceCategory, hasVisibleText } from "./master-data.ts";
-import { type DailyWindow, dailyWindowIssue, isLocalDate } from "./service-time.ts";
+import { type DailyWindow, dailyWindowIssue, isLocalDate, normalizeDailyWindow } from "./service-time.ts";
 
 /** 商品品类就是主数据里的三个品类：接送机、点对点、包车。 */
 export const PRODUCT_CATEGORY_NAMES: Readonly<Record<ServiceCategory, string>> = {
@@ -39,6 +39,8 @@ export const PRODUCT_LIMITS = {
   /** 提前预订时长的上限（小时）：30 天 */
   maxLeadTimeHours: 720,
   maxUrgentTiers: 10,
+  /** 每日加急库存的上限（下限是 1；不限 = 不填） */
+  maxUrgentDailyQuota: 10_000,
   maxAddons: 50,
   maxDriverLanguages: 10,
   maxNoteLength: 500,
@@ -110,6 +112,13 @@ export interface ServiceRules {
   addons: { addonId: string; enabled: boolean; unitPriceMinor: number; firstFree: boolean }[];
   /** 司机语言：每种语言一个单价 */
   driverLanguages: { language: string; unitPriceMinor: number }[];
+}
+
+/** 司机语言能选的语言：就是平台支持的那几种（和商品详情的语言一致）。 */
+export const DRIVER_LANGUAGES: readonly string[] = MASTER_DATA_LANGUAGES;
+
+export function isDriverLanguage(language: string): boolean {
+  return DRIVER_LANGUAGES.includes(language);
 }
 
 /** 一份空的服务规则（新建的草稿）。 */
@@ -210,7 +219,8 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
   const leadOk = booking.leadTimeHours === null || integerIssue("/booking/lead_time_hours", booking.leadTimeHours, 0, PRODUCT_LIMITS.maxLeadTimeHours, issues);
   if (booking.note !== null && booking.note.length > PRODUCT_LIMITS.maxNoteLength) issues.push({ path: "/booking/note", reason: "TOO_LONG", detail: { max: PRODUCT_LIMITS.maxNoteLength } });
 
-  if (urgent.dailyQuota !== null) integerIssue("/urgent/daily_quota", urgent.dailyQuota, 0, 10_000, issues);
+  // 每日加急库存：不限就留空；0 等于「开了加急却一单都不接」，要关就关掉加急
+  if (urgent.dailyQuota !== null) integerIssue("/urgent/daily_quota", urgent.dailyQuota, 1, PRODUCT_LIMITS.maxUrgentDailyQuota, issues);
   if (urgent.tiers.length > PRODUCT_LIMITS.maxUrgentTiers) issues.push({ path: "/urgent/tiers", reason: "TOO_MANY", detail: { max: PRODUCT_LIMITS.maxUrgentTiers } });
   const seenHours = new Set<number>();
   for (const [index, tier] of urgent.tiers.entries()) {
@@ -258,7 +268,7 @@ export function serviceRuleIssues(rules: ServiceRules, context: ServiceRuleConte
   const seenLanguages = new Set<string>();
   for (const [index, entry] of rules.driverLanguages.entries()) {
     const at = `/driver_languages/${index}`;
-    if (!/^[a-z]{2}$/.test(entry.language)) issues.push({ path: `${at}/language`, reason: "INVALID_LANGUAGE" });
+    if (!isDriverLanguage(entry.language)) issues.push({ path: `${at}/language`, reason: "INVALID_LANGUAGE" });
     else if (seenLanguages.has(entry.language)) issues.push({ path: `${at}/language`, reason: "DUPLICATE" });
     seenLanguages.add(entry.language);
     amountIssue(`${at}/unit_price`, entry.unitPriceMinor, issues);
@@ -291,6 +301,21 @@ export function serviceRuleMissing(rules: ServiceRules, context: ServiceRuleCont
 /** 这个附加服务能不能设「首个免费」：只有按个计费的（座椅类）可以。 */
 export function addonAllowsFirstFree(chargeUnit: AddonChargeUnit): boolean {
   return chargeUnit === "per_item";
+}
+
+/**
+ * 服务规则只留一种写法、只留生效的内容（保存、读取、上架校验用的都是整理之后的这一份，所以三处结论一致）：
+ * - 时段的结束在午夜统一成一种写法（见 `normalizeDailyWindow`）；
+ * - 「首个免费」只对按个计费的附加服务有意义：别的计费方式下一律当作没设（平台把附加服务改成不按个计费之后，
+ *   商品里原来勾着的「首个免费」不再生效，也不拦供应商保存）。`firstFreeAllowed` 说不清的（附加服务不存在）原样留着，由保存时去报。
+ */
+export function normalizeServiceRules(rules: ServiceRules, firstFreeAllowed: (addonId: string) => boolean | undefined): ServiceRules {
+  return {
+    ...rules,
+    booking: { ...rules.booking, serviceTime: rules.booking.serviceTime === null ? null : normalizeDailyWindow(rules.booking.serviceTime) },
+    night: { ...rules.night, window: rules.night.window === null ? null : normalizeDailyWindow(rules.night.window) },
+    addons: rules.addons.map((addon) => (addon.firstFree && firstFreeAllowed(addon.addonId) === false ? { ...addon, firstFree: false } : addon)),
+  };
 }
 
 // ---- 商品详情 ----
@@ -377,6 +402,8 @@ export type PublishIssueReason =
   | "CITY_DISABLED"
   | "PICKUP_PLACE_MISSING"
   | "PICKUP_PLACE_DISABLED"
+  /** 接送点已经不在商品所在的城市（平台把它改到了别的城市） */
+  | "PICKUP_PLACE_OTHER_CITY"
   | "AREA_DISABLED"
   | "AREA_CITY_DISABLED"
   | "AREA_NOT_USABLE"
@@ -415,7 +442,7 @@ export interface PublishFacts {
   brandActive: boolean;
   cityActive: boolean;
   /** 接送机商品的接送点：没选是 null */
-  pickupPlace: { active: boolean; type: PlaceType; flightScope: FlightScope | null } | null;
+  pickupPlace: { active: boolean; type: PlaceType; flightScope: FlightScope | null; /** 现在还在不在商品所在的城市；不给按「在」算 */ inCity?: boolean } | null;
   /** 选的区域，按优先级 */
   areas: { status: "active" | "disabled"; bizType: AreaBizType; cityActive: boolean }[];
   /** 选的车型组；`comboOffered` = 选的「人数 / 行李数」组合现在还在这个车型组的可选组合里 */
@@ -446,7 +473,10 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   if (!facts.cityActive) basic.push({ path: "/city_id", reason: "CITY_DISABLED" });
   if (facts.category === "airport_transfer") {
     if (facts.pickupPlace === null) basic.push({ path: "/poi_id", reason: "PICKUP_PLACE_MISSING" });
-    else if (!facts.pickupPlace.active) basic.push({ path: "/poi_id", reason: "PICKUP_PLACE_DISABLED" });
+    else {
+      if (!facts.pickupPlace.active) basic.push({ path: "/poi_id", reason: "PICKUP_PLACE_DISABLED" });
+      if (facts.pickupPlace.inCity === false) basic.push({ path: "/poi_id", reason: "PICKUP_PLACE_OTHER_CITY" });
+    }
   }
   if (facts.areas.length === 0) basic.push({ path: "/areas", reason: "NO_AREA" });
   for (const [index, area] of facts.areas.entries()) {

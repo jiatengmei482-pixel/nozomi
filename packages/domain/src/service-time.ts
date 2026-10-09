@@ -53,12 +53,23 @@ function segments(window: DailyWindow): [number, number][] {
 /**
  * 一个时刻（从零点起的分钟数）在不在时段里。**开始算在里面，结束也算在里面**：
  * 服务时间 08:00–22:00 的商品，22:00 整的用车是接的。跨午夜的时段同理（22:00–06:00 包含 22:00 和 06:00）。
+ * 结束写成 `24:00` 和写成 `00:00` 是同一个时刻（次日零点）：08:00–24:00 和 08:00–00:00 都包含零点整。
  */
 export function withinDailyWindow(window: DailyWindow, minuteOfDay: number): boolean {
   const start = parseTimeOfDay(window.start) ?? 0;
-  const end = parseTimeOfDay(window.end, { allowEndOfDay: true }) ?? 0;
+  const end = (parseTimeOfDay(window.end, { allowEndOfDay: true }) ?? 0) % MINUTES_PER_DAY;
+  if (start === end) return start === 0;
   if (start < end) return minuteOfDay >= start && minuteOfDay <= end;
   return minuteOfDay >= start || minuteOfDay <= end;
+}
+
+/**
+ * 同一个时段只留一种写法（保存时用）：全天是 `00:00–24:00`；其余的结束在午夜一律写成 `00:00`（`08:00–24:00` → `08:00–00:00`）。
+ * 写法不对的原样返回，由 `dailyWindowIssue` 去报。
+ */
+export function normalizeDailyWindow(window: DailyWindow): DailyWindow {
+  if (dailyWindowIssue(window) !== null || window.end !== "24:00" || window.start === "00:00") return window;
+  return { start: window.start, end: "00:00" };
 }
 
 /**
@@ -156,7 +167,7 @@ export type BookingWindowResult =
 /**
  * 现在下单、在某个当地时间用车，按预订规则行不行。全部按城市时区算：
  * - 下单有效期看的是**下单这一刻**在城市当地是哪一天；
- * - 服务时间看的是用车的当地时刻；
+ * - 服务时间看的是用车那一刻在当地的钟面（当地不存在的时间按拨快之后的钟面）；
  * - 提前预订时长按真实经过的时间算（跨时区、跨夏令时都对）：正好等于提前时长的可以下单；
  * - 不足提前时长时，开了加急就取**最小的、仍然够用的那一档**（离用车 5 小时，有「12 小时内」「6 小时内」两档时命中「6 小时内」）；
  *   离用车的时间比最小的一档还短也算命中最小的一档——加急没有下限，只要用车时间还没过。
@@ -166,7 +177,8 @@ export function checkBookingWindow(rules: BookingWindowRules, booking: { now: Da
   if (service === null) return { ok: false, reason: "INVALID_SERVICE_TIME" };
   const today = instantToLocal(booking.now, booking.timeZone).date;
   if ((rules.saleFrom !== null && today < rules.saleFrom) || (rules.saleTo !== null && today > rules.saleTo)) return { ok: false, reason: "OUTSIDE_SALE_PERIOD" };
-  const minuteOfDay = parseTimeOfDay(booking.serviceLocal.slice(11)) ?? 0;
+  // 用实际发生的那一刻的钟面去比（夏令时里不存在的时间已经按拨快之后算了），和下面算提前时长用的是同一个时刻
+  const minuteOfDay = instantToLocal(service, booking.timeZone).minuteOfDay;
   if (!withinDailyWindow(rules.serviceTime, minuteOfDay)) return { ok: false, reason: "OUTSIDE_SERVICE_TIME" };
   const aheadMs = service.getTime() - booking.now.getTime();
   if (aheadMs <= 0) return { ok: false, reason: "SERVICE_TIME_PASSED" };

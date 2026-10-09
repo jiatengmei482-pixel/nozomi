@@ -413,6 +413,24 @@ export async function lockProductAreas(db: Db, tenantId: string, productId: stri
   );
 }
 
+/** 选了这个区域的商品（删除区域之前取，删完用来把它们的优先级重新排紧）。 */
+export async function productIdsUsingArea(db: Db, tenantId: string, areaId: string): Promise<string[]> {
+  const result = await db.query<{ product_id: string }>("select product_id from product_areas where tenant_id = $1 and area_id = $2 order by product_id", [tenantId, areaId]);
+  return result.rows.map((row) => row.product_id);
+}
+
+/** 把这些商品的区域优先级重新排成从 0 起连续的（先后不变）：区域被删除后中间会空出一个号。 */
+export async function compactAreaPriorities(db: Db, tenantId: string, productIds: readonly string[]): Promise<void> {
+  if (productIds.length === 0) return;
+  await db.query(
+    `update product_areas pa set priority = ranked.position
+       from (select product_id, area_id, (row_number() over (partition by product_id order by priority, area_id) - 1)::int as position
+               from product_areas where tenant_id = $1 and product_id = any($2::uuid[])) ranked
+      where pa.tenant_id = $1 and pa.product_id = ranked.product_id and pa.area_id = ranked.area_id and pa.priority <> ranked.position`,
+    [tenantId, productIds],
+  );
+}
+
 // ---- 区域被商品使用的情况 ----
 
 export interface AreaUsage {

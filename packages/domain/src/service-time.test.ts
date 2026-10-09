@@ -7,6 +7,7 @@ import {
   instantToLocal,
   isLocalDate,
   localDateTimeToInstant,
+  normalizeDailyWindow,
   overlapMinutes,
   parseTimeOfDay,
   withinDailyWindow,
@@ -157,4 +158,34 @@ test("提前预订时长跨夏令时：按真实经过的小时数，不按钟�
   const check = (now: string): unknown => checkBookingWindow(rules(), { now: new Date(now), serviceLocal: "2026-03-08T12:00", timeZone: "America/New_York" });
   assert.deepEqual(check("2026-03-07T17:00:00Z"), { ok: false, reason: "LEAD_TIME_TOO_SHORT" }, "纽约 3 月 7 日 12:00 下单：只提前了 23 小时");
   assert.deepEqual(check("2026-03-07T16:00:00Z"), { ok: true, urgentTier: null }, "纽约 3 月 7 日 11:00 下单：正好 24 小时");
+});
+
+test("结束在午夜的两种写法是同一个时段：24:00 和 00:00 判断一致（零点整算在里面），保存时统一成 00:00；全天只有 00:00–24:00", () => {
+  for (const start of ["08:00", "22:00", "23:59", "00:01"]) {
+    const [asEnd, asMidnight] = [{ start, end: "24:00" }, { start, end: "00:00" }];
+    for (let minute = 0; minute < 1440; minute += 1) assert.equal(withinDailyWindow(asEnd, minute), withinDailyWindow(asMidnight, minute), `${start} @${minute}`);
+    assert.equal(withinDailyWindow(asEnd, 0), true, "零点整是时段的结束，算在里面");
+    assert.equal(withinDailyWindow(asEnd, 1), start === "00:01", "零点过一分只在 00:01 开始的时段里");
+    assert.deepEqual(normalizeDailyWindow(asEnd), asMidnight);
+    assert.deepEqual(normalizeDailyWindow(asMidnight), asMidnight);
+  }
+  const allDay = { start: "00:00", end: "24:00" };
+  assert.deepEqual(normalizeDailyWindow(allDay), allDay);
+  for (const minute of [0, 1, 720, 1439]) assert.equal(withinDailyWindow(allDay, minute), true);
+  // 别的时段、写错的时段原样返回
+  assert.deepEqual(normalizeDailyWindow({ start: "22:00", end: "06:00" }), { start: "22:00", end: "06:00" });
+  assert.deepEqual(normalizeDailyWindow({ start: "24:00", end: "24:00" }), { start: "24:00", end: "24:00" });
+  assert.deepEqual(normalizeDailyWindow({ start: "8点", end: "24:00" }), { start: "8点", end: "24:00" });
+});
+
+test("夏令时里不存在的用车时间：服务时间和提前时长用同一个时刻（拨快之后的钟面）", () => {
+  const zone = "America/New_York";
+  const book = (serviceTime: { start: string; end: string }, serviceLocal: string): unknown =>
+    checkBookingWindow({ saleFrom: null, saleTo: null, serviceTime, leadTimeHours: 0, urgentTiers: [] }, { now: new Date("2026-03-01T00:00:00Z"), serviceLocal, timeZone: zone });
+  // 2026-03-08 02:00 拨快到 03:00：02:30 不存在，按 03:30 算
+  assert.deepEqual(book({ start: "03:00", end: "10:00" }, "2026-03-08T02:30"), { ok: true, urgentTier: null });
+  assert.deepEqual(book({ start: "00:00", end: "02:45" }, "2026-03-08T02:30"), { ok: false, reason: "OUTSIDE_SERVICE_TIME" });
+  // 存在的时间不受影响（前一天的 02:30 就是 02:30；拨回那天出现两次的 01:30 钟面还是 01:30）
+  assert.deepEqual(book({ start: "00:00", end: "02:45" }, "2026-03-07T02:30"), { ok: true, urgentTier: null });
+  assert.deepEqual(book({ start: "01:00", end: "01:45" }, "2026-11-01T01:30"), { ok: true, urgentTier: null });
 });
