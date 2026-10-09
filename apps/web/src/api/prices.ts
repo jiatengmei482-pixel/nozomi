@@ -216,7 +216,10 @@ export function saveRoundingUnit(token: string, brandId: string, version: number
   return apiRequest("PUT", `${BRANDS_PATH}/${encodeURIComponent(brandId)}/rounding-unit`, { token, body: { rounding_unit: roundingUnit }, headers: ifMatch(version) });
 }
 
-export function getHolidays(token: string, values: { country?: string; from?: string; to?: string } = {}): Promise<Holidays> {
+/** 节假日的查询参数；`country_code` 可以是逗号分隔的几个国家。 */
+export const HOLIDAY_QUERY_KEYS = ["country_code", "from", "to"] as const;
+
+export function getHolidays(token: string, values: { country_code?: string; from?: string; to?: string } = {}): Promise<Holidays> {
   return apiRequest("GET", query(`${TENANT_BASE}/holidays`, values), { token });
 }
 

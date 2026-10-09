@@ -3,9 +3,10 @@
  * 主数据、供应商、商品的前两步和详情经接口准备好；价格、调价规则、上架都经界面做。
  * 金额的断言和 @nozomi/domain 的计算对照，不在测试里另写公式。
  */
+import { applyAdjustRules, basePrice, exactFromMinor } from "@nozomi/domain";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { type Supplier, type World, checkItem, createProductByApi, createSupplier, createWorld, step, toast } from "./catalog.ts";
-import { expectNoHorizontalOverflow, loginAs, snapshot } from "./support.ts";
+import { type Supplier, type World, checkItem, createProductByApi, createSupplier, createWorld, expectAccessible, step, tenantHeaders, toast } from "./catalog.ts";
+import { createActiveTenant, expectNoHorizontalOverflow, loginAs, snapshot } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -101,4 +102,213 @@ test("设一口价 → 上架检查全部通过 → 真正上架 → 列表显�
   await page.getByRole("menuitem", { name: "下架" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "下架", exact: true }).click();
   await expect(toast(page, "已下架「羽田机场接送」")).toBeVisible();
+});
+
+const jpy = (minor: number): string => `JPY ${minor.toLocaleString("en-US")}`;
+/** 规则 4：供应商后台的任何应答和页面里都不能有对外价和加价比例。 */
+const FORBIDDEN = /markup|sell_price|sale_price|retail|external_price|public_price|对外价|加价/i;
+
+async function productVersion(request: APIRequestContext, supplier: Supplier, productId: string): Promise<number> {
+  return ((await (await request.get(`/tenant/v1/products/${productId}`, { headers: supplier.headers })).json()) as { version: number }).version;
+}
+
+async function createFixedPrice(request: APIRequestContext, supplier: Supplier, world: World, productId: string, amount: number, validFrom: string, validTo: string | null = null): Promise<void> {
+  const response = await request.post(`/tenant/v1/products/${productId}/price-rules/batch`, {
+    headers: { ...supplier.headers, "if-match": `"${await productVersion(request, supplier, productId)}"`, "idempotency-key": crypto.randomUUID() },
+    data: { create: [{ ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "both", package_hours: null, pricing_model: "fixed", base_price: amount, start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null, valid_from: validFrom, valid_to: validTo, status: "enabled" }], update: [], delete: [] },
+  });
+  expect(response.status(), `接口新建价格：${await response.text()}`).toBe(200);
+}
+
+test("调价规则：新建并试算（和 domain 一致）→ 后端的价格日历算出同一个数 → 调完不大于 0 存不了 → 顺序、启停、删除；租户 B 看不到", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const product = await readyProduct(request, supplier, world, "airport_transfer", "羽田机场接送");
+  const priceInfo = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string; rounding_unit: number };
+  await createFixedPrice(request, supplier, world, product.id, 20000, priceInfo.today);
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  await page.goto(`/products/${product.id}/prices/adjust`);
+
+  // 一条都没有 → 新建
+  await expect(page.getByRole("heading", { name: "还没有调价规则" })).toBeVisible();
+  await page.getByRole("link", { name: "新建调价规则" }).click();
+  await expect(page).toHaveURL(/\/prices\/adjust\/new$/);
+  await expect(page.getByRole("heading", { level: 3, name: "新建调价规则" })).toBeVisible();
+  await expect(page.getByLabel("出行日期从")).toHaveValue(priceInfo.today);
+
+  // 没填完整不能保存
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("有 2 处需要修改")).toBeVisible();
+  await expect(page.getByRole("button", { name: "请填写名称" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "第 1 步：请填大于 0 的数。不想调，请删掉这一步" })).toBeVisible();
+
+  // 两步：上调 20%，再下调 JPY 1,000。试算的每个数和 domain 的一样
+  await page.getByRole("textbox", { name: "名称", exact: true }).fill("旺季上调");
+  await page.getByLabel("第 1 步的数值").fill("20");
+  await page.getByRole("button", { name: "加一步" }).click();
+  await page.getByLabel("第 2 步的方向").selectOption("down");
+  await page.getByLabel("第 2 步的方式").selectOption("amount");
+  await page.getByLabel("第 2 步的数值").fill("1000");
+  const steps = [{ type: "percent" as const, value: 2000 }, { type: "amount" as const, value: -1000 }];
+  const expected = applyAdjustRules(basePrice({ model: "fixed", basePriceMinor: 20000 }), [{ steps }], priceInfo.rounding_unit);
+  expect(expected.finalMinor).not.toBeNull();
+  const trial = page.locator(".adjust-trial");
+  await expect(trial.getByRole("row", { name: /第 1 步/ })).toContainText("上调 20%");
+  await expect(trial.getByRole("row", { name: /第 1 步/ })).toContainText("+4,000");
+  await expect(trial.getByRole("row", { name: /第 2 步/ })).toContainText("−1,000");
+  await expect(trial.locator(".adjust-trial__final")).toContainText(jpy(expected.finalMinor ?? 0));
+  await expect(page.locator(".adjust-meaning__sentence")).toContainText("全部区域、全部车型组、接机和送机：在基础价上上调 20%，再下调 JPY 1,000。");
+  await expect(page.locator(".adjust-trial__summary")).toContainText(`${jpy(20000)} → ${jpy(expected.finalMinor ?? 0)}，比基础价高 ${jpy(expected.adjustMinor ?? 0)}。`);
+  await snapshot(page, "prices-adjust-form-desktop");
+  await expectNoHorizontalOverflow(page, "调价规则表单");
+  await expectAccessible(page, "调价规则表单");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(toast(page, "已新建调价规则「旺季上调」")).toBeVisible();
+  await expect(page).toHaveURL(/\/prices\/adjust$/);
+  const first = page.getByRole("row").filter({ has: page.getByRole("link", { name: "旺季上调", exact: true }) });
+  await expect(first).toContainText("上调 20%");
+  await expect(first).toContainText("再下调 JPY 1,000");
+  await expect(first).toContainText("已启用");
+  await expect(first).toContainText(`${priceInfo.today} 起`);
+
+  // 后端的价格日历对同一天算出同一个数
+  const calendar = await request.get(`/tenant/v1/products/${product.id}/price-calendar`, { headers: supplier.headers, params: { area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "pickup", from: priceInfo.today, to: priceInfo.today } });
+  expect(calendar.status(), await calendar.text()).toBe(200);
+  const calendarBody = (await calendar.json()) as { days: { segments: { final: number | null }[] }[] };
+  expect(calendarBody.days[0]?.segments.map((segment) => segment.final)).toEqual([expected.finalMinor]);
+
+  // 调完不大于 0：页面先拦住；先不启用可以存；之后启用被后端拒绝
+  await page.getByRole("link", { name: "新建调价规则" }).click();
+  await page.getByRole("textbox", { name: "名称", exact: true }).fill("清仓");
+  await page.getByLabel("第 1 步的方向").selectOption("down");
+  await page.getByLabel("第 1 步的方式").selectOption("amount");
+  await page.getByLabel("第 1 步的数值").fill("20000");
+  await expect(page.getByText("按这个价算下来不大于 0，这样的规则保存不了。请把下调改小。")).toBeVisible();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText(`按「${supplier.area.name} · ${world.group.name} · 接送通用」的价格 JPY 20,000 算，调完不大于 0。请把下调改小、缩小适用范围，或先不勾「启用」。`)).toBeVisible();
+  await page.getByLabel(/保存后启用/).uncheck();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  // 调得很多（低于基础价的一半）：再问一次，默认焦点在「回去检查」
+  const unusual = page.getByRole("dialog", { name: "这条规则调得很多，确认保存？" });
+  await expect(unusual).toContainText("JPY 20,000 会变成 JPY 0");
+  await expect(unusual.getByRole("button", { name: "回去检查" })).toBeFocused();
+  await unusual.getByRole("button", { name: "确认保存" }).click();
+  await expect(toast(page, "已新建调价规则「清仓」")).toBeVisible();
+  const second = page.getByRole("row").filter({ has: page.getByRole("link", { name: "清仓", exact: true }) });
+  await expect(second).toContainText("已停用");
+  await second.getByRole("switch", { name: "启用 清仓" }).click();
+  await page.getByRole("dialog", { name: "这条规则调得很多，确认启用？" }).getByRole("button", { name: "确认启用" }).click();
+  await expect(page.getByText("按现在的价格算，这条规则有 1 条价格调完不大于 0。请先改这条规则。")).toBeVisible();
+  await expect(second.getByRole("switch", { name: "启用 清仓" })).not.toBeChecked();
+
+  // 顺序：上移 → 保存顺序
+  await second.getByRole("button", { name: "上移 清仓" }).click();
+  await expect(page.getByText("顺序改了，还没有保存。")).toBeVisible();
+  await page.getByRole("button", { name: "保存顺序" }).click();
+  await expect(toast(page, "已保存顺序")).toBeVisible();
+  const listed = (await (await request.get(`/tenant/v1/products/${product.id}/adjust-rules`, { headers: supplier.headers })).json()) as { items: { id: string; name: string; status: string }[] };
+  expect(listed.items.map((item) => [item.name, item.status])).toEqual([["清仓", "disabled"], ["旺季上调", "enabled"]]);
+  await snapshot(page, "prices-adjust-list-desktop");
+  await expectAccessible(page, "调价规则列表");
+
+  // 停用（草稿：立即生效）、删除（要确认）
+  await first.getByRole("switch", { name: "启用 旺季上调" }).click();
+  await expect(toast(page, "已停用「旺季上调」")).toBeVisible();
+  await page.getByRole("button", { name: "清仓 的更多操作" }).click();
+  await page.getByRole("menuitem", { name: "删除" }).click();
+  const confirm = page.getByRole("dialog", { name: "删除调价规则「清仓」？" });
+  await expect(confirm.getByRole("button", { name: "取消" })).toBeFocused();
+  await confirm.getByRole("button", { name: "删除", exact: true }).click();
+  await expect(toast(page, "已删除调价规则「清仓」")).toBeVisible();
+  await expect(page.getByRole("link", { name: "清仓", exact: true })).toHaveCount(0);
+
+  // 手机宽度：卡片，不横向滚动；暗色也过无障碍检查
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expectNoHorizontalOverflow(page, "调价规则列表（手机）");
+  await snapshot(page, "prices-adjust-list-mobile");
+  await page.getByRole("link", { name: "旺季上调", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 3, name: "旺季上调" })).toBeVisible();
+  await expectNoHorizontalOverflow(page, "调价规则表单（手机）");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(page, "调价规则表单（暗色）");
+  await snapshot(page, "prices-adjust-form-mobile-dark");
+  expect(await page.locator("body").innerText()).not.toMatch(FORBIDDEN);
+
+  // 应答里没有对外价和加价比例；租户 B 读不到、改不了
+  for (const path of ["price-rules", "adjust-rules", "price-coverage", `price-calendar?area_id=${supplier.area.id}&vehicle_group_id=${world.group.id}&direction=pickup&from=${priceInfo.today}&to=${priceInfo.today}`]) {
+    const response = await request.get(`/tenant/v1/products/${product.id}/${path}`, { headers: supplier.headers });
+    expect(response.status(), path).toBe(200);
+    expect(await response.text(), path).not.toMatch(FORBIDDEN);
+  }
+  expect(await (await request.get("/tenant/v1/price-overview", { headers: supplier.headers })).text()).not.toMatch(FORBIDDEN);
+  const other = await createActiveTenant(request);
+  const otherHeaders = await tenantHeaders(request, other.adminEmail, other.password);
+  for (const path of ["price-rules", "adjust-rules", "price-coverage"]) expect((await request.get(`/tenant/v1/products/${product.id}/${path}`, { headers: otherHeaders })).status(), `租户 B 读 ${path}`).toBe(404);
+  expect((await request.post(`/tenant/v1/products/${product.id}/adjust-rules/${listed.items[1]?.id}/enable`, { headers: otherHeaders })).status(), "租户 B 启用租户 A 的调价规则").toBe(404);
+  expect(((await (await request.get("/tenant/v1/price-overview", { headers: otherHeaders })).json()) as { items: unknown[] }).items).toEqual([]);
+});
+
+test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、存不了，后端也拒绝", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+
+  // 包车：先加套餐，再填套餐价
+  const charter = await readyProduct(request, supplier, world, "charter", "东京包车");
+  await page.goto(`/products/${charter.id}/prices`);
+  await page.getByRole("button", { name: "新增套餐" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "新增套餐" });
+  await dialog.getByLabel(/套餐时长/).fill("8");
+  await dialog.getByLabel(/套餐公里/).fill("100");
+  await dialog.getByRole("button", { name: "新增", exact: true }).click();
+  const charterRow = `${supplier.area.name} · ${world.group.name} · 8 小时`;
+  await cell(page, charterRow, "套餐价").fill("60000");
+  await cell(page, charterRow, "超时每小时").fill("5000");
+  await cell(page, charterRow, "超公里每公里").fill("300");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(toast(page, "已保存 1 条价格")).toBeVisible();
+  const charterSaved = (await (await request.get(`/tenant/v1/products/${charter.id}/price-rules`, { headers: supplier.headers })).json()) as { items: Record<string, unknown>[] };
+  expect(charterSaved.items.map((item) => [item["pricing_model"], item["package_hours"], item["package_km"], item["package_price"], item["overtime_per_hour"], item["over_km_per_km"]])).toEqual([["charter_package", 8, 100, 60000, 5000, 300]]);
+  await expect(step(page, "价格规则")).toContainText("已完成");
+
+  // 点对点：里程 + 时长
+  const p2p = await readyProduct(request, supplier, world, "point_to_point", "东京点对点");
+  await page.goto(`/products/${p2p.id}/prices`);
+  const p2pRow = `${supplier.area.name} · ${world.group.name}`;
+  await page.getByLabel(`${p2pRow} 的计价方式`).selectOption("mileage_time");
+  await cell(page, p2pRow, "起步价").fill("3000");
+  await cell(page, p2pRow, "起步里程").fill("2.5");
+  await cell(page, p2pRow, "起步时长").fill("10");
+  await cell(page, p2pRow, "超出每公里").fill("400");
+  await cell(page, p2pRow, "超出每分钟").fill("50");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(toast(page, "已保存 1 条价格")).toBeVisible();
+  const p2pSaved = (await (await request.get(`/tenant/v1/products/${p2p.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string; items: Record<string, unknown>[] };
+  expect(p2pSaved.items.map((item) => [item["pricing_model"], item["start_price"], item["start_meters"], item["start_minutes"], item["per_km"], item["per_minute"], item["min_price"]])).toEqual([["mileage_time", 3000, 2500, 10, 400, 50, null]]);
+  expect(exactFromMinor(3000)).toEqual(basePrice({ model: "mileage_time", startPriceMinor: 3000, startMeters: 2500, startMinutes: 10, perKmMinor: 400, perMinuteMinor: 50, minPriceMinor: null }));
+
+  // 同一个组合再加一段日期，和原来那条重叠：当场标出，保存不了
+  await page.getByRole("button", { name: `${p2pRow} 的更多操作` }).click();
+  await page.getByRole("menuitem", { name: "再加一段日期" }).click();
+  const added = page.getByLabel(`${p2pRow} 的生效日期从`).first();
+  await expect(added).toHaveValue("");
+  await added.fill(p2pSaved.today);
+  await expect(page.getByText("有 2 条价格的生效日期重叠，保存前要改。")).toBeVisible();
+  await expect(page.locator(".price-table tbody tr").filter({ hasText: "和 1 条价格的日期重叠" })).toHaveCount(2);
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(page.getByRole("button", { name: /^生效日期重叠——/ })).toBeVisible();
+  await page.getByRole("button", { name: /^生效日期重叠——/ }).click();
+  await expect(page.locator(":focus")).toHaveAttribute("aria-label", `${p2pRow} 的生效日期从`);
+  // 后端对同样的内容也拒绝，并说出是和哪一条重叠
+  const existing = p2pSaved.items[0] as Record<string, unknown>;
+  const { id: existingId, base: _base, created_at: _created, updated_at: _updated, ...input } = existing;
+  const rejected = await request.post(`/tenant/v1/products/${p2p.id}/price-rules/batch`, { headers: { ...supplier.headers, "if-match": `"${await productVersion(request, supplier, p2p.id)}"`, "idempotency-key": crypto.randomUUID() }, data: { create: [{ ...input, ref: "again" }], update: [], delete: [] } });
+  expect(rejected.status()).toBe(409);
+  const rejection = (await rejected.json()) as { error: { code: string; details: { conflicts: { ref?: string; with: { id?: string }[] }[] } } };
+  expect(rejection.error.code).toBe("PRICE_RULE_CONFLICT");
+  expect(rejection.error.details.conflicts.some((conflict) => conflict.ref === "again" && conflict.with.some((entry) => entry.id === existingId))).toBe(true);
 });

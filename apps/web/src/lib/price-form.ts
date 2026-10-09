@@ -91,7 +91,8 @@ export function kmTextToMeters(text: string): number | null {
 }
 
 export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
-  const money = (value: number | null): string => (value === null ? "" : amountText(value, currency));
+  // 没在输入的金额带千分位（和失去焦点时整理成的样子一样）
+  const money = (value: number | null): string => (value === null ? "" : moneyText(value, currency).slice(currency.length).trim());
   return {
     key: rule.id,
     id: rule.id,
@@ -384,4 +385,12 @@ export function lowestText(pricing: Pricing, currency: string, withCurrency = fa
   const full = exactMoney(basePrice(pricing), currency);
   const text = withCurrency ? full : full.slice(currency.length).trim();
   return pricing.model === "mileage_time" ? `${text} 起` : text;
+}
+
+/** 接口里的全部价格 → 启用且没过期的那些（域里的写法）：调价规则的试算、「调完不大于 0」「碰不碰得到」都只看这些。 */
+export function activePriceRules(items: readonly PriceRuleBody[], context: PriceContext): { body: PriceRuleBody; rule: PriceRule }[] {
+  return items.flatMap((body) => {
+    const rule = readRow(rowFromRule(body, context.currency), context).rule;
+    return rule && priceRuleIsActive(rule, context.today) ? [{ body, rule }] : [];
+  });
 }

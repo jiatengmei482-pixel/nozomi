@@ -268,7 +268,8 @@ test("新建：创建后不能改的几项按必填报错；区域只列适用�
   const calls = open("/products/new", "admin", productRoutes({ product: productOf({ title: {} }) }, (call) => (call.method === "POST" && call.path === "/tenant/v1/products" ? json(201, productOf({ title: {} })) : null)));
   await screen.findByText("NOZOMI（JPY）");
   assert.match(stepText("服务规则"), /先保存第 1 步/);
-  assert.match(stepText("价格规则"), /即将开放/);
+  assert.match(stepText("价格规则"), /先保存第 1 步/);
+  assert.match(stepText("库存"), /即将开放/);
   await screen.findByText("先选城市和品类，这里会列出可以用的区域。");
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   const summary = (await screen.findByText("有 2 处需要修改")).closest(".alert") as HTMLElement;
@@ -336,11 +337,11 @@ test("框架：/products/{id} 换到第一个还没完成的开放步骤；步�
   assert.match(stepText("上架检查"), /还差 1 项/);
   assert.ok(screen.getByText("已完成 2 / 5"));
   assert.equal(document.querySelector('.step-nav [aria-current="step"]')?.textContent?.includes("服务规则"), true);
-  assert.equal([...document.querySelectorAll(".step-nav a")].length, 4, "没开放的两步不是链接");
+  assert.equal([...document.querySelectorAll(".step-nav a")].length, 5, "没开放的那一步（库存）不是链接");
   assert.equal(document.title, "服务规则 · 羽田机场接送 · NOZOMI 供应商后台");
 
   resetBrowser();
-  open(`/products/${PRODUCT_ID}/price-rules`, "admin", productRoutes({}));
+  open(`/products/${PRODUCT_ID}/no-such-step`, "admin", productRoutes({ check: checkOf({ price_rules: [] }) }));
   await screen.findByRole("heading", { level: 2, name: "上架检查" });
 
   resetBrowser();

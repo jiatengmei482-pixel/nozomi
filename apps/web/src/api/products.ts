@@ -168,7 +168,7 @@ export interface PublishCheckIssue {
   path: string;
   reason: string;
   message: string;
-  detail?: Record<string, number>;
+  detail?: Record<string, number | string>;
 }
 
 export interface PublishCheckItemBody {
