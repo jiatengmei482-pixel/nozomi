@@ -16,12 +16,16 @@ export interface DialogProps {
   size?: "confirm" | "form";
   busy?: boolean;
   dismissOnBackdrop?: boolean;
+  /** 只能用底部的按钮关闭：没有右上角的关闭按钮，Esc、点遮罩都不关（关掉就没有了的内容，如一次性链接） */
+  sealed?: boolean;
+  /** 对话框的说明所在元素的 id（`aria-describedby`） */
+  describedBy?: string;
   onClose(): void;
   children: ReactNode;
   footer?: ReactNode;
 }
 
-export function Dialog({ open, title, subtitle, size = "confirm", busy = false, dismissOnBackdrop = true, onClose, children, footer }: DialogProps) {
+export function Dialog({ open, title, subtitle, size = "confirm", busy = false, dismissOnBackdrop = true, sealed = false, describedBy, onClose, children, footer }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -42,12 +46,13 @@ export function Dialog({ open, title, subtitle, size = "confirm", busy = false, 
       ref={ref}
       className={`dialog dialog--${size}`}
       aria-labelledby={titleId}
+      aria-describedby={describedBy}
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy) onClose();
+        if (!busy && !sealed) onClose();
       }}
       onClick={(event) => {
-        if (event.target === ref.current && dismissOnBackdrop && !busy) onClose();
+        if (event.target === ref.current && dismissOnBackdrop && !busy && !sealed) onClose();
       }}
     >
       <div className="dialog__panel">
@@ -58,9 +63,11 @@ export function Dialog({ open, title, subtitle, size = "confirm", busy = false, 
             </h2>
             {subtitle && <p className="dialog__subtitle">{subtitle}</p>}
           </div>
-          <button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={onClose}>
-            <Icon name="x" />
-          </button>
+          {!sealed && (
+            <button type="button" className="icon-button" aria-label="关闭" disabled={busy} onClick={onClose}>
+              <Icon name="x" />
+            </button>
+          )}
         </div>
         <div className="dialog__body">{children}</div>
         {footer && <div className="dialog__footer">{footer}</div>}
