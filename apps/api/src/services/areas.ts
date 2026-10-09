@@ -24,7 +24,7 @@ import {
   circleToRing,
   isLatitude,
   isLongitude,
-  isValidRadiusM,
+  circleIssues,
   locatePoint,
   normalizeRing,
   roundCoordinate,
@@ -142,14 +142,16 @@ function buildPolygons(inputs: readonly AreaPolygonInput[], stored: readonly Are
     let source: AreaPolygonSource = input.source ?? "drawn";
     if (input.circle !== null) {
       const { center, radiusM } = input.circle;
-      const centerOk = isLatitude(center.lat) && isLongitude(center.lng);
-      if (!centerOk) issues.push({ path: `${at}/circle/center`, reason: "INVALID_COORDINATE", message: SHAPE_MESSAGES.INVALID_COORDINATE });
-      if (!isValidRadiusM(radiusM)) {
+      // 圆能不能存由 domain 的 circleIssues 说了算（前端保存前用的是同一个函数）。圆心、半径的问题在这里报；
+      // 算出来的多边形的问题（跨 180° 经线、盖住极点）和手画的多边形一样，由下面的 areaShapeIssues 报在 geometry 上。
+      const found = new Set(circleIssues(center, radiusM).map((issue) => issue.reason));
+      if (found.has("INVALID_COORDINATE")) issues.push({ path: `${at}/circle/center`, reason: "INVALID_COORDINATE", message: SHAPE_MESSAGES.INVALID_COORDINATE });
+      if (found.has("RADIUS_OUT_OF_RANGE")) {
         issues.push({ path: `${at}/circle/radius_m`, reason: "RADIUS_OUT_OF_RANGE", message: "半径要在 0.1 到 100 公里之间（100 到 100000 的整数米）" });
       }
       if (input.source !== null && input.source !== "circle") issues.push({ path: `${at}/source`, message: "带了圆心和半径的图形，来源只能是 circle" });
       source = "circle";
-      if (centerOk && isValidRadiusM(radiusM)) {
+      if (!found.has("INVALID_COORDINATE") && !found.has("RADIUS_OUT_OF_RANGE")) {
         circle = { center: { lat: roundCoordinate(center.lat), lng: roundCoordinate(center.lng) }, radiusM };
         ring = circleToRing(circle.center, radiusM);
       }

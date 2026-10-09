@@ -1,6 +1,6 @@
 /** 供应商后台的完整流程：接受邀请 → 登录 → 首页 → 修改密码 → 退出；以及暂停、过期、重置密码。 */
 import { expect, test } from "@playwright/test";
-import { createActiveTenant, createTenant, detail, fillLogin, issueTenantAdminReset, loginAs, newPassword, suspendTenant } from "./support.ts";
+import { createActiveTenant, createTenant, detail, expectSignedInAs, fillLogin, issueTenantAdminReset, loginAs, newPassword, suspendTenant } from "./support.ts";
 
 test("接受邀请 → 登录 → 首页 → 修改密码 → 退出 → 用新密码登录", async ({ page, request }) => {
   // 这一条要做 6 次密码哈希，两核的机器忙的时候正好卡在默认的 30 秒上（实测 30.0 秒）。
@@ -27,7 +27,7 @@ test("接受邀请 → 登录 → 首页 → 修改密码 → 退出 → 用新�
   await expect(page).toHaveURL(/\/$/);
   await expect(page).toHaveTitle("首页 · NOZOMI 供应商后台");
   await expect(detail(page, "姓名")).toHaveText(tenant.adminName);
-  await expect(detail(page, "邮箱")).toHaveText(tenant.adminEmail);
+  await expectSignedInAs(page, { email: tenant.adminEmail });
   await expect(detail(page, "角色")).toHaveText("管理员");
   await expect(detail(page, "供应商名称")).toHaveText(tenant.tenantName);
   await expect(detail(page, "供应商状态")).toHaveText("正常");

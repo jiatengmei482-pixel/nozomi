@@ -4,6 +4,7 @@ import {
   AREA_BIZ_TYPES,
   AREA_BIZ_TYPE_NAMES,
   AREA_LIMITS,
+  MAX_SHAPE_TEXT_LENGTH,
   type AreaPolygonShape,
   type Position,
   type Ring,
@@ -12,8 +13,10 @@ import {
   areaNameKeys,
   areaShapeIssues,
   areaShapeWarnings,
+  circleIssues,
   circleToRing,
   isValidRadiusM,
+  jsonErrorOffset,
   locatePoint,
   normalizeRing,
   parseGeoJsonShapes,
@@ -307,4 +310,73 @@ test("解析坐标行：每行一对「纬度, 经度」，逗号、空格、制
 test("解析只管读出来：边交叉的也读得出，交给图形检查去报", () => {
   const bowtie = parseShapeText("POLYGON((0 0, 2 2, 2 0, 0 2, 0 0))").polygons[0]?.outer as Ring;
   assert.deepEqual(ringIssues(bowtie).map((issue) => issue.reason), ["SELF_INTERSECTION"]);
+});
+
+test("圆能不能保存（前后端同一个函数）：圆心、半径各自报；跨 180° 经线、盖住极点的圆报 CROSSES_ANTIMERIDIAN；正常的没有问题", () => {
+  const found = (lat: number, lng: number, radiusM: number): string[] => circleIssues({ lat, lng }, radiusM).map((issue) => issue.reason);
+  assert.deepEqual(found(35.68, 139.76, 5_000), []);
+  assert.deepEqual(found(35.68, 139.76, AREA_LIMITS.minRadiusM), []);
+  assert.deepEqual(found(35.68, 139.76, AREA_LIMITS.maxRadiusM), []);
+  assert.deepEqual(found(91, 139.76, 5_000), ["INVALID_COORDINATE"]);
+  assert.deepEqual(found(Number.NaN, 139.76, 5_000), ["INVALID_COORDINATE"]);
+  assert.deepEqual(found(35.68, 180.5, 5_000), ["INVALID_COORDINATE"]);
+  assert.deepEqual(found(35.68, 139.76, 99), ["RADIUS_OUT_OF_RANGE"]);
+  assert.deepEqual(found(35.68, 139.76, 100_001), ["RADIUS_OUT_OF_RANGE"]);
+  assert.deepEqual(found(35.68, 139.76, 500.5), ["RADIUS_OUT_OF_RANGE"]);
+  assert.deepEqual(found(-95, 139.76, 0), ["INVALID_COORDINATE", "RADIUS_OUT_OF_RANGE"], "两样可以同时报");
+  // 测试工程师报的三个例子：后端一直是拒绝的，现在前端用同一个函数也能在保存前指出来
+  assert.deepEqual(found(-16.5, 179.99, 5_000), ["CROSSES_ANTIMERIDIAN"], "斐济附近、贴着 180° 经线");
+  assert.deepEqual(found(0, 180, 500), ["CROSSES_ANTIMERIDIAN"], "圆心在 180° 经线上");
+  assert.deepEqual(found(89.9, 20, 50_000), ["CROSSES_ANTIMERIDIAN"], "盖住北极");
+  assert.deepEqual(found(-89.9, -70, 50_000), ["CROSSES_ANTIMERIDIAN"], "盖住南极");
+  // 离 180° 经线够远就没事；结论和「算出多边形再查」逐个相同
+  assert.deepEqual(found(-16.5, 179.9, 5_000), []);
+  for (const [lat, lng, radiusM] of [[35.7, 179.99, 5_000], [35.7, -179.999, 300], [60, 179.5, 20_000], [80, 0, 100_000], [0, 0, 100_000]] as const) {
+    assert.deepEqual(found(lat, lng, radiusM), ringIssues(circleToRing({ lat, lng }, radiusM)).map((issue) => issue.reason), `${lat},${lng},${radiusM}`);
+  }
+});
+
+test("GeoJSON 语法错的行号：自己找第一处写错的位置，不靠运行环境的报错——多一个逗号、少一个逗号、没写完、前面有空行都给得出", () => {
+  const line = (text: string): number | undefined => (failure(() => parseShapeText(text)) as { line?: number }).line;
+  assert.equal(line('{\n"type":"Polygon",\n"coordinates":[[[0,0],[1,0],,[1,1]]]\n}'), 3, "多一个逗号");
+  assert.equal(line('{\n"type":"Polygon",\n"coordinates":[[[0,0] [1,0],[1,1]]]\n}'), 3, "少一个逗号");
+  assert.equal(line('{\n"type":"Polygon",\n"coordinates":[[[0,0],[1,0],[1,1],]]\n}'), 3, "结尾多一个逗号");
+  assert.equal(line('{\n"type":"Polygon"\n"coordinates":[]}'), 3, "两项之间少逗号：指到下一项开头");
+  assert.equal(line('{"type":"Polygon",\n"coordinates":[[[139,35],\n[140,35'), 3, "没写完：指到最后");
+  assert.equal(line("\n\n  {\n'type': 1}"), 4, "前面的空行也数进去，行号和用户贴的内容对得上");
+  assert.equal(line("[1, 2"), 1);
+  // 找位置的函数本身：合法的返回 null，结论和 JSON.parse 一致
+  for (const text of ['{"a":[1,{"b":null}],"c":-1.5e3,"d":"x\\n\\u00e9"}', " [ ] ", "{}", "0", '"x"', "[1e5,-0,0.5,true,false]"]) {
+    assert.equal(jsonErrorOffset(text), null, text);
+    assert.doesNotThrow(() => JSON.parse(text), text);
+  }
+  for (const [text, offset] of [["[1,]", 3], ["{a:1}", 1], ["[01]", 2], ["1 2", 2], ["", 0], ['{"a":1,}', 7], ["[.5]", 1], ['{"a" 1}', 5], ["[1}", 2], ['"\\u12G4"', 0]] as const) {
+    assert.equal(jsonErrorOffset(text), offset, text);
+    assert.throws(() => JSON.parse(text), text);
+  }
+  // 嵌套再深也不爆栈，用时和长度成正比
+  const started = performance.now();
+  assert.equal(jsonErrorOffset("[".repeat(500_000)), 500_000);
+  assert.equal(jsonErrorOffset(`${"[".repeat(100_000)}${"]".repeat(100_000)}`), null);
+  assert.ok(performance.now() - started < 2_000);
+});
+
+test("解析用时和长度成正比：很长的数字、很长的空白、认不出的长行都立刻有结论；超过总长度上限的不解析", () => {
+  const digits = "1".repeat(20_000);
+  const started = performance.now();
+  for (const text of [`${digits} ${digits} ${digits}x`, `${digits}.${digits}e${digits} x`, `1${" ".repeat(200_000)}x`, `1 ,${" ".repeat(200_000)}x`, `${"1 2 ".repeat(50_000)}`]) {
+    assert.equal(failure(() => parseShapeText(text)).reason, "UNRECOGNIZED", text.slice(0, 20));
+  }
+  assert.equal(failure(() => parseShapeText(`POLYGON((${digits} ${digits}x, 1 1, 2 2))`)).reason, "WKT_SYNTAX");
+  assert.equal(failure(() => parseShapeText(`POLYGON((${"1 1,".repeat(100_000)} 2 2x))`)).reason, "WKT_SYNTAX");
+  // 超长的数字照常读出来，再由坐标范围拒绝
+  assert.equal(failure(() => parseShapeText(`POLYGON((${digits} 0, 1 0, 1 1))`)).reason, "COORDINATE_OUT_OF_RANGE");
+  assert.ok(performance.now() - started < 3_000, `用了 ${Math.round(performance.now() - started)} 毫秒`);
+  assert.equal(MAX_SHAPE_TEXT_LENGTH, 10_000_000);
+  assert.equal(failure(() => parseShapeText(" ".repeat(MAX_SHAPE_TEXT_LENGTH + 1))).reason, "UNRECOGNIZED");
+  assert.equal(failure(() => parseShapeText(`{"type":"Polygon","coordinates":[]}${" ".repeat(MAX_SHAPE_TEXT_LENGTH)}`)).reason, "UNRECOGNIZED");
+  // 坐标行的写法没有变：逗号、分号（两边可有空白）或只有空白；一行只能有一个分隔符
+  const rows = parseShapeText(" 35.6 , 139.6 \n35.6;139.8\n35.8\t139.8\r\n35.8   139.6\n+35.7,-.5e1\n1.,2.");
+  assert.deepEqual(rows.polygons[0]?.outer.length, 6);
+  for (const text of ["35.6,,139.6\n1,2\n3,4", "35.6 , ; 139.6\n1,2\n3,4", "35.6\n1,2\n3,4", "1,2,3\n1,2\n3,4", "1e,2\n1,2\n3,4"]) assert.equal(failure(() => parseShapeText(text)).reason, "UNRECOGNIZED", text);
 });

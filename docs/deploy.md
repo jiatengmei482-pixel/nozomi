@@ -103,6 +103,8 @@ MAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
 MAP_TILE_ATTRIBUTION=© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright
 ```
 
+这两行要顶格写成「变量名=值」：不加 `export`、引号，等号两边不留空格，行尾不写注释。写法不标准时下面的命令会停下并说明是哪一行（否则会出现地图一片灰却没有任何报错的情况）。
+
 然后让它生效（和上一节同一条命令）：
 
 ```bash
