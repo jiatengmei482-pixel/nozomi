@@ -3,7 +3,7 @@
  * 页签各有自己的地址，所以是一组链接，不是 tablist。价格规则和调价规则在这里取一次，三个页签共用。
  */
 import { CURRENCIES, isCurrencyCode } from "@nozomi/domain";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { type AdjustRules, type PriceRules, getAdjustRules, getPriceRules } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
@@ -11,16 +11,18 @@ import { Button, LinkButton } from "../../../components/Button.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { displayName } from "../../../lib/master-display.ts";
-import { tableCoverage } from "../../../lib/price-form.ts";
+import { tableCoverage, isStationPlace } from "../../../lib/price-form.ts";
 import { rowFromRule } from "../../../lib/price-form.ts";
 import { CURRENCY_NAMES, amountText } from "../../../lib/product-display.ts";
 import { type PriceTab, pricePath, productPath } from "../../../lib/product-paths.ts";
 import { useLoad } from "../../../lib/use-load.ts";
+import { useTenantCan } from "../../../lib/use-master-access.ts";
 import type { ProductFrame } from "../frame.ts";
 import { AdjustRuleForm } from "./AdjustRuleForm.tsx";
 import { AdjustRulesTab } from "./AdjustRulesTab.tsx";
 import { CalendarTab } from "./CalendarTab.tsx";
 import { PriceRulesTab } from "./PriceRulesTab.tsx";
+import { RoundingUnitDialog } from "./RoundingUnitDialog.tsx";
 
 export interface PricesShared {
   frame: ProductFrame;
@@ -37,6 +39,8 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const prices = useLoad<PriceRules>(`price-rules:${product.id}`, (token) => getPriceRules(token, product.id));
   const adjusts = useLoad<AdjustRules>(`adjust-rules:${product.id}`, (token) => getAdjustRules(token, product.id));
   const heading = useRef<HTMLHeadingElement>(null);
+  const canSetRounding = useTenantCan("brand.manage");
+  const [rounding, setRounding] = useState(false);
   const tab: PriceTab = rest[0] === "adjust" ? "adjust" : rest[0] === "calendar" ? "calendar" : "rules";
   useEffect(() => heading.current?.focus(), []);
   const syncVersion = frame.syncVersion;
@@ -48,7 +52,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const data = prices.state.data;
   const currency = data?.currency ?? product.brand?.currency ?? "";
   const digits = isCurrencyCode(currency) ? CURRENCIES[currency].minorDigits : 0;
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const missing = data ? tableCoverage(data.items.map((item) => rowFromRule(item, currency)), { category: product.category, currency, today: data.today, station }, product.areas.map((area) => area.area_id), product.vehicle_groups.map((group) => group.vehicle_group_id)).missing : 0;
   const enabledAdjusts = (adjusts.state.data?.items ?? []).filter((rule) => rule.status === "enabled" && !rule.ended).length;
 
@@ -128,7 +132,15 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
         <p className="price-info">
           金额都是<strong>结算价</strong>，币种 <strong>{currency}</strong>
           {digits === 0 ? `（${CURRENCY_NAMES[currency] ?? currency}没有小数）` : `（最多 ${digits} 位小数）`} · {data.rounding_unit > 1 ? "调价后的结算价取整到 " : "调价后的结算价四舍五入到 "}
-          <strong>{`${currency} ${amountText(data.rounding_unit, currency)}`}</strong> · 日期按<strong>{`${product.city ? displayName(product.city.name).text : ""}当地时间`}</strong>
+          <span className="price-info__keep">
+            <strong>{`${currency} ${amountText(data.rounding_unit, currency)}`}</strong>
+            {canSetRounding && product.brand && (
+              <Button variant="text" size="sm" onClick={() => setRounding(true)} aria-label="修改取整单位">
+                修改
+              </Button>
+            )}
+          </span>{" "}
+          · 日期按<strong>{`${product.city ? displayName(product.city.name).text : ""}当地时间`}</strong>
         </p>
       )}
       <nav className="price-tabs" aria-label="价格规则的分区">
@@ -140,6 +152,21 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
         ))}
       </nav>
       {body}
+      {data !== null && product.brand && (
+        <RoundingUnitDialog
+          open={rounding}
+          productId={product.id}
+          brandId={product.brand.id}
+          brandName={product.brand.name}
+          currency={currency}
+          current={data.rounding_unit}
+          onClose={() => setRounding(false)}
+          onSaved={() => {
+            prices.reload();
+            adjusts.reload();
+          }}
+        />
+      )}
     </div>
   );
 }

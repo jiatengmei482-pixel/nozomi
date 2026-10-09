@@ -2,7 +2,7 @@
  * 「调价规则」页签的列表（docs/design/pages/tenant-prices.md 5.1、5.2、5.7、5.8）。
  * 顺序就是先后：只靠「上移」「下移」，动过以后要点「保存顺序」；启用 / 停用、删除立即生效。
  */
-import { adjustRuleCoversPrice, adjustRuleIsUnusual, applyAdjustSteps, basePrice } from "@nozomi/domain";
+import { adjustRuleCoversPrice, adjustRuleIsUnusual, applyAdjustRules, applyAdjustSteps, basePrice, compareExact } from "@nozomi/domain";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -18,7 +18,8 @@ import { StatusBadge } from "../../../components/StatusBadge.tsx";
 import { useToast } from "../../../components/Toast.tsx";
 import { cycleText, exactMoneyText, firstAndCount, reachWarning, ruleFromBody, slotText, stepsText, travelText, tripDirectionsText } from "../../../lib/adjust-form.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { type PriceContext, activePriceRules } from "../../../lib/price-form.ts";
+import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
+import { moneyText } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { pricePath, productPath } from "../../../lib/product-paths.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
@@ -32,7 +33,7 @@ interface ListNotice {
   action?: ReactNode;
 }
 
-type Confirm = { kind: "toggle"; rule: AdjustRuleBody; action: "enable" | "disable" } | { kind: "unusual"; rule: AdjustRuleBody; from: string; to: string } | { kind: "delete"; rule: AdjustRuleBody };
+type Confirm = { kind: "toggle"; rule: AdjustRuleBody; action: "enable" | "disable" } | { kind: "unusual"; rule: AdjustRuleBody; label: string; from: string; to: string; change: string } | { kind: "delete"; rule: AdjustRuleBody };
 
 const linkId = (id: string): string => `adjust-rule-${id}`;
 
@@ -53,7 +54,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
   const location = useLocation();
   const readOnly = frame.readOnly;
   const published = product.status === "published";
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const currency = prices.currency;
   const [order, setOrder] = useState<string[] | null>(null);
   const [showEnded, setShowEnded] = useState(false);
@@ -170,7 +171,18 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
       const price = active.find((entry) => adjustRuleCoversPrice(domainRule, entry) && adjustRuleIsUnusual(domainRule, [basePrice(entry.pricing, {}, entry.packageHours)]));
       if (price) {
         const base = basePrice(price.pricing, {}, price.packageHours);
-        return setConfirm({ kind: "unusual", rule, from: exactMoneyText(base, currency), to: exactMoneyText(applyAdjustSteps(base, rule.steps).result, currency) });
+        const after = applyAdjustSteps(base, rule.steps).result;
+        // 差额用同一个函数取整后的数（只为了把话说完整）
+        const delta = applyAdjustRules(base, [{ steps: rule.steps }], 1).adjustMinor;
+        const variant = price.direction !== null ? directionName(price.direction, station) : price.packageHours !== null ? `${price.packageHours} 小时` : null;
+        return setConfirm({
+          kind: "unusual",
+          rule,
+          label: [areaName(price.areaId), groupName(price.vehicleGroupId), variant].filter((part) => part !== null).join(" · "),
+          from: exactMoneyText(base, currency),
+          to: exactMoneyText(after, currency),
+          change: delta === null ? "" : `${compareExact(after, base) > 0 ? "上调" : "下调"}了约 ${moneyText(Math.abs(delta), currency)}`,
+        });
       }
     }
     if (published) return setConfirm({ kind: "toggle", rule, action });
@@ -475,7 +487,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
       </div>
       <Dialog
         open={confirm !== null}
-        title={confirm === null ? "" : confirm.kind === "delete" ? `删除调价规则「${confirm.rule.name}」？` : confirm.kind === "unusual" ? "这条规则调得很多，确认启用？" : `${confirm.action === "enable" ? "启用" : "停用"}「${confirm.rule.name}」？`}
+        title={confirm === null ? "" : confirm.kind === "delete" ? `删除调价规则「${confirm.rule.name}」？` : confirm.kind === "unusual" ? "这条规则调得很多，确认保存？" : `${confirm.action === "enable" ? "启用" : "停用"}「${confirm.rule.name}」？`}
         busy={working === "confirm"}
         onClose={() => setConfirm(null)}
         footer={
@@ -489,8 +501,8 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
                   删除
                 </Button>
               ) : (
-                <Button variant="primary" loading={working === "confirm"} loadingText={confirm.kind === "toggle" && confirm.action === "disable" ? "停用中…" : "启用中…"} onClick={() => void toggle(confirm.rule, confirm.kind === "toggle" ? confirm.action : "enable", true)}>
-                  {confirm.kind === "unusual" ? "确认启用" : confirm.action === "enable" ? "启用" : "停用"}
+                <Button variant="primary" loading={working === "confirm"} loadingText={confirm.kind === "unusual" ? "保存中…" : confirm.action === "disable" ? "停用中…" : "启用中…"} onClick={() => void toggle(confirm.rule, confirm.kind === "toggle" ? confirm.action : "enable", true)}>
+                  {confirm.kind === "unusual" ? "确认保存" : confirm.action === "enable" ? "启用" : "停用"}
                 </Button>
               )}
             </>
@@ -501,9 +513,9 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         {confirm?.kind === "toggle" && <p>{`这个商品已上架，${confirm.action === "enable" ? "启用" : "停用"}后大约 1 分钟生效，之后的报价就会${confirm.action === "enable" ? "按这条规则调价" : "不再按这条规则调价"}。已经下的订单不受影响。`}</p>}
         {confirm?.kind === "unusual" && (
           <p>
-            {`按现在的价格算，${confirm.from} 会变成 `}
+            {`按「${confirm.label}」的价格算，${confirm.from} 会变成 `}
             <strong>{confirm.to}</strong>
-            。如果是多敲了一个 0，请回去改。
+            {confirm.change === "" ? "" : `（${confirm.change}）`}。如果是多敲了一个 0，请回去改。
           </p>
         )}
       </Dialog>

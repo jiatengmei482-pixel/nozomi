@@ -2272,3 +2272,127 @@
     outline-offset: calc(0px - var(--border-width));
   }
 }
+
+/* ───── 菜单里的「价格规则」：各商品的价格情况 ───── */
+.page-intro {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-overview__only {
+  justify-self: start;
+}
+
+.price-overview__price {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.price-overview__price > svg {
+  flex: none;
+  margin-top: var(--space-0-5);
+}
+
+.price-overview__price--warning {
+  color: var(--color-warning-text);
+}
+
+.price-overview__price--success {
+  color: var(--color-success-text);
+}
+
+.price-overview__price:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.price-overview__note {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-overview__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 窄屏：每个商品一张卡片（价格是会在手机上临时改一个数的东西，不用横向滚动的表）；768px 起是表格 */
+.price-overview .table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.price-overview .table,
+.price-overview .table tbody,
+.price-overview .table tbody tr,
+.price-overview .table tbody th,
+.price-overview .table tbody td {
+  display: block;
+}
+
+.price-overview .table tbody tr {
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.price-overview .table tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-1) 0;
+  border: 0;
+  white-space: normal;
+}
+
+.price-overview .table-scroll {
+  position: relative;
+}
+
+@media (min-width: 768px) {
+  .price-overview .table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .price-overview .table {
+    display: table;
+  }
+
+  .price-overview .table tbody {
+    display: table-row-group;
+  }
+
+  .price-overview .table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .price-overview .table tbody th,
+  .price-overview .table tbody td {
+    display: table-cell;
+  }
+
+  .price-overview .table tbody tr > * {
+    height: var(--table-row-height);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+  }
+}
+
+.price-info__keep {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  white-space: nowrap;
+}

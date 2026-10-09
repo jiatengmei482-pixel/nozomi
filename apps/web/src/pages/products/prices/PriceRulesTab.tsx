@@ -37,6 +37,7 @@ import {
   tableCoverage,
   validitySentence,
   withBlankRows,
+  isStationPlace,
 } from "../../../lib/price-form.ts";
 import { comboText, moneyText, readAmount } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
@@ -74,7 +75,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const { readOnly } = frame;
   const { token } = usePortalSession();
   const category = product.category;
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const context: PriceContext = useMemo(() => ({ category, currency: prices.currency, today: prices.today, station }), [category, prices.currency, prices.today, station]);
   const areaIds = useMemo(() => product.areas.map((area) => area.area_id), [product.areas]);
   const groups = useMemo(() => [...product.vehicle_groups].sort((x, y) => VEHICLE_GRADES.indexOf(x.grade) - VEHICLE_GRADES.indexOf(y.grade) || x.seats - y.seats || x.code.localeCompare(y.code)), [product.vehicle_groups]);
@@ -206,7 +207,11 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     frame.saved(saved.version);
     return product.id;
   };
-  const batchRow = (kind: string, index: number): PriceRow | undefined => {
+  /** 出错的是哪一行：先看接口在 detail 里指明的 ref（新增的）或 id（修改、删除的），没有再按提交时的顺序对回去。 */
+  const batchRow = (kind: string, index: number, detail: Record<string, unknown> = {}): PriceRow | undefined => {
+    const named = typeof detail["ref"] === "string" ? detail["ref"] : typeof detail["id"] === "string" ? detail["id"] : null;
+    const direct = named === null ? undefined : rows.find((row) => row.key === named || row.id === named);
+    if (direct) return direct;
     const batch = sent.current?.batch;
     if (!batch) return undefined;
     const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
@@ -222,7 +227,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const FIELD_BY_PATH: Readonly<Record<string, RowField>> = { base_price: "base", start_price: "base", start_meters: "startKm", start_minutes: "startMin", per_km: "perKm", per_minute: "perMin", min_price: "min", package_km: "pkgKm", package_price: "pkgPrice", overtime_per_hour: "overHour", over_km_per_km: "overKm", valid_from: "from", valid_to: "to" };
     return issues.flatMap((issue) => {
       const match = /^\/(create|update|delete)\/(\d+)(?:\/([a-z_]+))?/.exec(issue.path);
-      const row = match ? batchRow(match[1] ?? "", Number(match[2])) : undefined;
+      const row = match ? batchRow(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
       if (!row) return [];
       const text = issue.reason === "AREA_NOT_IN_PRODUCT" ? `「${areaName(row.areaId)}」已经不在这个商品里，这条价格保存不了。` : issue.reason === "VEHICLE_GROUP_NOT_IN_PRODUCT" ? `「${groupName(row.vehicleGroupId)}」已经不在这个商品里，这条价格保存不了。` : issue.message;
       return [{ text: `${rowLabel(row)}：${text}`, target: cellId(row.key, FIELD_BY_PATH[match?.[3] ?? ""] ?? "from") }];

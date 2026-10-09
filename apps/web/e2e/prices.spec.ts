@@ -199,7 +199,7 @@ test("调价规则：新建并试算（和 domain 一致）→ 后端的价格�
   const second = page.getByRole("row").filter({ has: page.getByRole("link", { name: "清仓", exact: true }) });
   await expect(second).toContainText("已停用");
   await second.getByRole("switch", { name: "启用 清仓" }).click();
-  await page.getByRole("dialog", { name: "这条规则调得很多，确认启用？" }).getByRole("button", { name: "确认启用" }).click();
+  await page.getByRole("dialog", { name: "这条规则调得很多，确认保存？" }).getByRole("button", { name: "确认保存" }).click();
   await expect(page.getByText("按现在的价格算，这条规则有 1 条价格调完不大于 0。请先改这条规则。")).toBeVisible();
   await expect(second.getByRole("switch", { name: "启用 清仓" })).not.toBeChecked();
 

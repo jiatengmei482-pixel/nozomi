@@ -14,6 +14,7 @@ import { LoginPage } from "./pages/LoginPage.tsx";
 import { AreaEditorPage } from "./pages/areas/AreaEditorPage.tsx";
 import { AreaListPage } from "./pages/areas/AreaListPage.tsx";
 import { ProductEditorPage } from "./pages/products/ProductEditorPage.tsx";
+import { PRICE_OVERVIEW_PATH, PriceOverviewPage } from "./pages/prices/PriceOverviewPage.tsx";
 import { ProductListPage } from "./pages/products/ProductListPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
 import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
@@ -43,6 +44,7 @@ function portalRoutes(portal: Portal) {
             <Route path={AREA_NEW_PATH} element={<AreaEditorPage key="new" />} />
             <Route path={`${AREA_LIST_PATH}/:id`} element={<AreaEditorPage />} />
             <Route path={PRODUCT_LIST_PATH} element={<ProductListPage />} />
+            <Route path={PRICE_OVERVIEW_PATH} element={<PriceOverviewPage />} />
             <Route path={PRODUCT_NEW_PATH} element={<ProductEditorPage key="new" />} />
             <Route path={`${PRODUCT_LIST_PATH}/:id/*`} element={<ProductEditorPage />} />
           </>

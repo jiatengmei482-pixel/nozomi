@@ -4,12 +4,12 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAdjustRules, exactFromMinor } from "@nozomi/domain";
+import { addDays, applyAdjustRules, exactFromMinor, roundToUnit, weekdayOf } from "@nozomi/domain";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
-import type { AdjustRuleBody, AdjustRules, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
+import type { AdjustRuleBody, AdjustRules, CalendarDay, CalendarSegment, PriceCalendar, PriceOverviewItem, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
 
@@ -68,7 +68,21 @@ interface State {
   prices?: PriceRules;
   adjusts?: AdjustRules;
   holidays?: { items: unknown[]; countries: unknown[] };
+  calendar?: (query: URLSearchParams) => PriceCalendar;
+  overview?: PriceOverviewItem[];
+  summary?: { products: { draft: number; published: number; unpublished: number } | null };
 }
+
+const segmentOf = (changes: Partial<CalendarSegment> = {}): CalendarSegment => ({ from: "00:00", to: "24:00", final: 20000, no_price_reason: null, base: "20000", unrounded: "20000", adjusts: [], ...changes });
+/** 一个月的日历：每天都是基础价；`special` 里的日子换成给的段。 */
+function calendarOf(query: URLSearchParams, special: Record<string, CalendarSegment[]> = {}, holiday: Record<string, string> = {}): PriceCalendar {
+  const days: CalendarDay[] = [];
+  for (let date = query.get("from") ?? ""; date <= (query.get("to") ?? ""); date = addDays(date, 1)) {
+    days.push({ date, weekday: weekdayOf(date), holiday: holiday[date] ? { name: { zh: holiday[date] as string } } : null, price_rule: { id: PRICE_ID, pricing_model: "fixed", direction: "both", valid_from: "2026-10-01", valid_to: null }, segments: special[date] ?? [segmentOf()] });
+  }
+  return { version: 7, currency: "JPY", rounding_unit: 100, today: TODAY, days, groups: [{ vehicle_group_id: query.get("vehicle_group_id") ?? "", days }] };
+}
+const overviewOf = (changes: Partial<PriceOverviewItem> = {}): PriceOverviewItem => ({ product_id: PRODUCT_ID, code: "PRD202610081430050001", status: "draft", category: "airport_transfer", title: { zh: "羽田机场接送" }, city: { id: "c1", name: { zh: "东京" } }, coverage: { total: 2, missing: 0 }, price_rule_count: 12, has_active_price: true, active_price_rule_count: 12, enabled_adjust_rule_count: 2, ...changes });
 
 function open(path: string, role: string, state: State = {}, extra: Route = () => null): ApiCall[] {
   signIn("tenant", "tenant-token");
@@ -83,6 +97,15 @@ function open(path: string, role: string, state: State = {}, extra: Route = () =
     if (at === `${BASE}/price-rules`) return json(200, state.prices ?? pricesOf());
     if (at === `${BASE}/adjust-rules`) return json(200, state.adjusts ?? adjustsOf());
     if (at === "/tenant/v1/holidays") return json(200, state.holidays ?? { items: [], countries: [] });
+    if (at === `${BASE}/price-calendar`) return json(200, (state.calendar ?? calendarOf)(call.url.searchParams));
+    if (at === "/tenant/v1/price-overview") {
+      const items = state.overview ?? [];
+      const counted = items.filter((entry) => entry.status !== "unpublished");
+      const numbers = { products_with_price: counted.filter((entry) => entry.has_active_price).length, products_without_price: counted.filter((entry) => !entry.has_active_price).length };
+      return json(200, call.url.searchParams.get("summary") === "1" ? numbers : { ...numbers, items });
+    }
+    if (at === "/tenant/v1/dashboard/summary") return json(200, { areas: { active: 1, disabled: 0 }, ...(state.summary ?? { products: { draft: 1, published: 0, unpublished: 0 } }) });
+    if (at === "/tenant/v1/brands") return json(200, { items: [{ id: "b1", name: "NOZOMI", currency: "JPY", status: "active", version: 4, ...stamps }] });
     return null;
   });
   render(
@@ -114,7 +137,7 @@ test("第 ③ 步：还没有价格时步骤导航说的是真实原因；说明
   fail = false;
   await user().click(screen.getByRole("button", { name: "重试" }));
   await screen.findByRole("heading", { level: 3, name: "还没有设价格" });
-  assert.match(document.querySelector(".price-info")?.textContent ?? "", /金额都是结算价，币种 JPY（日元没有小数） · 调价后的结算价取整到 JPY 100 · 日期按东京当地时间/);
+  assert.match(document.querySelector(".price-info")?.textContent ?? "", /金额都是结算价，币种 JPY（日元没有小数） · 调价后的结算价取整到 JPY 100修改 · 日期按东京当地时间/);
   assert.equal(document.querySelectorAll(".price-table tbody tr").length, 1);
   assert.match(document.querySelector(".price-table tbody tr")?.textContent ?? "", /没有价格/);
   const tabs = within(screen.getByRole("navigation", { name: "价格规则的分区" }));
@@ -514,4 +537,248 @@ test("上架检查：价格规则、调价规则的真实原因和去处", async
   const adjusts = document.querySelector('[data-check="adjust_rules"]') as HTMLElement;
   assert.equal(adjusts.querySelector("a")?.getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust`);
   assert.doesNotMatch(pageText(), /ALL_PRICE_RULES_EXPIRED|ADJUST_RESULT_NOT_POSITIVE/);
+});
+
+// ───────────── 价格日历 ─────────────
+
+const dayCell = (date: string): HTMLElement => document.getElementById(`calendar-day-${date}`) as HTMLElement;
+const dayLabel = (date: string): string => dayCell(date).getAttribute("aria-label") ?? "";
+const boosted = segmentOf({ final: 24000, unrounded: "24000", adjusts: [{ rule_id: RULE_ID, name: "国庆旺季", steps: [{ type: "percent", value: 2000, delta: "4000", after: "24000" }] }] });
+
+test("价格日历：每一格读得出日期、结算价、被哪条规则调过；没有价格、分时段有文字；明细逐步列出接口给的数；换方向重新取", async () => {
+  const actor = user();
+  const night = segmentOf({ from: "22:00", final: 26400, unrounded: "26400", adjusts: [...boosted.adjusts, { rule_id: RULE2_ID, name: "周末夜间", steps: [{ type: "percent", value: 1000, delta: "2400", after: "26400" }] }] });
+  const special = { "2026-10-01": [boosted], "2026-10-03": [{ ...boosted, to: "22:00" }, night], "2026-10-05": [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })], "2026-10-06": [segmentOf({ final: null, no_price_reason: "RULE_DISABLED" })] };
+  const calls = open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", { adjusts: adjustsOf([adjustOf(), weekend]), calendar: (query) => calendarOf(query, query.get("direction") === "pickup" ? special : {}, { "2026-10-01": "国庆节" }) });
+  await waitFor(() => assert.match(dayLabel("2026-10-01"), /^10 月 1 日周四，国庆节，结算价 JPY 24,000，上调，命中国庆旺季$/));
+  assert.equal(screen.getByRole("heading", { level: 3, name: "2026 年 10 月" }).getAttribute("aria-live"), "polite");
+  assert.match(dayLabel("2026-10-03"), /结算价 JPY 24,000，上调，命中国庆旺季，分时段$/);
+  assert.match(dayLabel("2026-10-05"), /^10 月 5 日周一，没有价格$/);
+  assert.match(dayLabel("2026-10-06"), /没有价格，已停用$/);
+  assert.match(dayLabel("2026-10-08"), /今天，结算价 JPY 20,000$/);
+  assert.equal(dayCell("2026-10-08").getAttribute("aria-current"), "date");
+  assert.equal(document.querySelectorAll('.calendar [role="gridcell"][data-date]').length, 31);
+  const request = calls.find((call) => call.path.includes("/price-calendar")) as ApiCall;
+  assert.match(request.path, new RegExp(`area_id=${AREA_ID}&vehicle_group_id=${GROUP_ID}&direction=pickup&from=2026-10-01&to=2026-10-31`));
+
+  // 明细默认是今天；点一天换成那一天
+  const panel = document.querySelector(".calendar-layout > .calendar-detail") as HTMLElement;
+  assert.match(panel.textContent ?? "", /2026-10-08 周四结算价 JPY 20,00010:00 用车 · 东京 23 区 · 商务七座 · 接机/);
+  await actor.click(dayCell("2026-10-03"));
+  await waitFor(() => assert.match(panel.textContent ?? "", /2026-10-03 周六结算价 JPY 24,000/));
+  assert.match(panel.textContent ?? "", /基础价JPY 20,000/);
+  assert.match(panel.textContent ?? "", /1　国庆旺季改这条规则上调 20%\+4,000JPY 24,000取整到 JPY 100JPY 24,000/);
+  assert.match(panel.textContent ?? "", /这一天不同时段的价现在看的00:00–22:00JPY 24,000命中「国庆旺季」22:00–24:00JPY 26,400命中「国庆旺季」「周末夜间」/);
+  assert.equal(within(panel).getByRole("link", { name: "改这条规则：国庆旺季" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust/${RULE_ID}`);
+  assert.equal(within(panel).getByRole("link", { name: "改这条价格" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices#price-row-${PRICE_ID}`);
+
+  // 「用车时间」换到夜里：不重新取，格子显示夜里的价
+  const before = calls.filter((call) => call.path.includes("/price-calendar")).length;
+  const time = screen.getByLabelText("用车时间");
+  await actor.clear(time);
+  await actor.type(time, "23{Enter}");
+  await waitFor(() => assert.match(dayLabel("2026-10-03"), /结算价 JPY 26,400，上调，命中国庆旺季等 2 条规则，分时段/));
+  assert.equal(calls.filter((call) => call.path.includes("/price-calendar")).length, before);
+
+  // 没有价格的那一天：说明原因和去处
+  await actor.click(dayCell("2026-10-05"));
+  await waitFor(() => assert.match(panel.textContent ?? "", /这一天没有价格.*这个组合还没有价格，客人询价时报不出价。去填价格/));
+
+  await actor.selectOptions(screen.getByLabelText("方向"), "dropoff");
+  await waitFor(() => assert.match(dayLabel("2026-10-01"), /结算价 JPY 20,000$/));
+  assert.match(calls.filter((call) => call.path.includes("/price-calendar")).at(-1)?.path ?? "", /direction=dropoff/);
+  assert.match(pageText(), /日历上是按价格规则和调价规则算出来的结算价，不含加急费、夜间加价和附加服务。日期是东京当地的用车日期。/);
+  assertNoRetailWords();
+});
+
+test("价格日历：点一天再按住 Shift 点另一天选一段；键盘也能选；从选的日期去新建调价规则，日期和适用范围已经填好，取消回到日历", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin");
+  await waitFor(() => assert.match(dayLabel("2026-10-10"), /结算价/));
+  assertAbsent(screen.queryByLabelText("用车时间"));
+  await actor.click(dayCell("2026-10-10"));
+  await actor.keyboard("{Shift>}");
+  await actor.click(dayCell("2026-10-12"));
+  await actor.keyboard("{/Shift}");
+  const bar = document.querySelector(".calendar-bar") as HTMLElement;
+  assert.equal(bar.getAttribute("role"), "status");
+  assert.match(bar.textContent ?? "", /已选 2026-10-10 至 2026-10-12，共 3 天/);
+  assert.deepEqual(["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"].map((date) => dayCell(date).getAttribute("aria-selected")), ["false", "true", "true", "true", "false"]);
+  assert.match(dayLabel("2026-10-10"), /选中的起点$/);
+  assert.match(dayCell("2026-10-12").textContent ?? "", /止/);
+
+  // 键盘：Esc 取消；方向键走；Shift + 方向键选；空格起、空格止
+  dayCell("2026-10-12").focus();
+  await actor.keyboard("{Escape}");
+  assert.equal(bar.textContent, "");
+  await actor.keyboard("{ArrowDown}");
+  assertFocused(dayCell("2026-10-19"));
+  await actor.keyboard("{Shift>}{ArrowRight}{ArrowRight}{/Shift}");
+  assert.match(bar.textContent ?? "", /已选 2026-10-19 至 2026-10-21，共 3 天/);
+  await actor.keyboard("{Escape}{Home} {End} ");
+  assert.match(bar.textContent ?? "", /已选 2026-10-19 至 2026-10-25，共 7 天/);
+  await actor.keyboard("{PageDown}");
+  await screen.findByRole("heading", { level: 3, name: "2026 年 11 月" });
+  await waitFor(() => assertFocused(dayCell("2026-11-25")));
+  await actor.click(screen.getByRole("button", { name: "回到本月" }));
+  await screen.findByRole("heading", { level: 3, name: "2026 年 10 月" });
+
+  await waitFor(() => assert.match(dayLabel("2026-10-10"), /结算价/));
+  await actor.click(dayCell("2026-10-10"));
+  await actor.keyboard("{Shift>}");
+  await actor.click(dayCell("2026-10-12"));
+  await actor.keyboard("{/Shift}");
+  await actor.click(within(bar).getByRole("link", { name: "新建调价规则" }));
+  await screen.findByRole("heading", { level: 3, name: "新建调价规则" });
+  assert.match(pageText(), /已按你在日历上选的填好了日期和适用范围（东京 23 区 · 商务七座 · 接机）。想对全部区域或车型组都调，把下面的「对哪些」改成「全部」。/);
+  assert.deepEqual([(screen.getByLabelText("出行日期从") as HTMLInputElement).value, (screen.getByLabelText("出行日期到") as HTMLInputElement).value], ["2026-10-10", "2026-10-12"]);
+  assert.equal((screen.getByRole("checkbox", { name: "东京 23 区" }) as HTMLInputElement).checked, true);
+  assert.equal((screen.getByRole("checkbox", { name: "商务七座" }) as HTMLInputElement).checked, true);
+  assert.equal((screen.getByRole("radio", { name: "只接机" }) as HTMLInputElement).checked, true);
+  await actor.click(screen.getByRole("button", { name: "取消" }));
+  await waitFor(() => assert.match((document.querySelector(".calendar-bar") as HTMLElement | null)?.textContent ?? "", /已选 2026-10-10 至 2026-10-12/));
+});
+
+test("价格日历的各种状态：还没有价格、加载失败能重试、整个月没有价格、网址里的组合不认识、月份不合法；只读角色不能新建调价规则", async () => {
+  open(`/products/${PRODUCT_ID}/prices/calendar`, "admin", { prices: pricesOf([]) });
+  await screen.findByText("还没有价格，日历上没有东西可看");
+  assert.equal(screen.getByRole("link", { name: "去填价格" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices`);
+  assertAbsent(document.querySelector(".calendar"));
+
+  resetBrowser();
+  let fail = true;
+  const none = [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NOT_IN_EFFECT" })];
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2099-13&area=gone&vg=${GROUP_ID}`, "readonly", { calendar: (query) => calendarOf(query, Object.fromEntries(Array.from({ length: 31 }, (_, index) => [`2026-10-${String(index + 1).padStart(2, "0")}`, none]))) }, (call) => (call.method === "GET" && call.url.pathname === `${BASE}/price-calendar` && fail ? apiError(500, "INTERNAL", "boom") : null));
+  await screen.findByText("加载失败");
+  assert.ok(screen.getByRole("heading", { level: 3, name: "2026 年 10 月" }), "不合法的月份换成本月");
+  assert.ok(screen.getByText("原来看的那个组合已经不在这个商品里了，现在显示的是「东京 23 区 · 商务七座 · 接机」。"));
+  fail = false;
+  await user().click(screen.getByRole("button", { name: "重试" }));
+  await screen.findByText("「东京 23 区 · 商务七座 · 接机」这个月没有价格。");
+  assert.match(dayLabel("2026-10-10"), /没有价格$/);
+  await user().click(dayCell("2026-10-10"));
+  assert.match(document.querySelector(".calendar-bar")?.textContent ?? "", /已选 2026-10-10，共 1 天/);
+  assertAbsent(screen.queryByRole("link", { name: "新建调价规则" }));
+  assertAbsent(screen.queryByText("拖动或用键盘选一段日期，可以直接新建调价规则"));
+  assert.match(document.querySelector(".calendar-layout > .calendar-detail")?.textContent ?? "", /这个组合的价格在这一天不生效：现有的价格是 2026-10-01 起。去看价格/);
+});
+
+// ───────────── 取整单位 ─────────────
+
+test("取整单位：管理员能改——选项和例子来自 domain，保存带子品牌的 If-Match；别人先改了载入最新的；没改直接关；商品价格角色没有「修改」", async () => {
+  const actor = user();
+  let answer: Response = apiError(409, "VERSION_CONFLICT", "stale");
+  const calls = open(`/products/${PRODUCT_ID}/prices`, "admin", {}, (call) => (call.method === "PUT" && call.url.pathname === "/tenant/v1/brands/b1/rounding-unit" ? answer : null));
+  await actor.click(await screen.findByRole("button", { name: "修改取整单位" }));
+  const dialog = screen.getByRole("dialog", { name: "修改取整单位" });
+  assert.match(dialog.textContent ?? "", /这是子品牌「NOZOMI」的设置。这个子品牌下的所有商品都会跟着变，已上架的商品也一样。/);
+  const select = within(dialog).getByLabelText(/取整到/) as HTMLSelectElement;
+  assert.deepEqual([...select.options].map((option) => option.textContent), ["不另外取整（JPY 1）", "JPY 10", "JPY 100", "JPY 1,000"]);
+  assert.equal(select.value, "100");
+  assert.match(dialog.textContent ?? "", new RegExp(`例：JPY 23,150 → JPY ${roundToUnit(23150, 100).toLocaleString("en-US")}；JPY 23,149 → JPY ${roundToUnit(23149, 100).toLocaleString("en-US")}。四舍五入，正好一半时往大的取。`));
+  await actor.click(within(dialog).getByRole("button", { name: "保存" }));
+  assert.equal(writes(calls).length, 0, "没有改就点保存：不发请求");
+  assertAbsent(screen.queryByRole("dialog", { name: "修改取整单位" }));
+
+  await actor.click(screen.getByRole("button", { name: "修改取整单位" }));
+  const again = screen.getByRole("dialog", { name: "修改取整单位" });
+  await actor.selectOptions(within(again).getByLabelText(/取整到/), "1000");
+  assert.match(again.textContent ?? "", new RegExp(`JPY 231,500 → JPY ${roundToUnit(231500, 1000).toLocaleString("en-US")}`));
+  await waitFor(() => assert.equal((within(again).getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled, false));
+  await actor.click(within(again).getByRole("button", { name: "保存" }));
+  await within(again).findByText("这个子品牌刚被别人修改过。已经载入最新的设置，请确认后再保存。");
+  const put = writes(calls)[0] as ApiCall;
+  assert.deepEqual([put.headers["if-match"], put.body], ['"4"', { rounding_unit: 1000 }]);
+  assert.equal((within(again).getByLabelText(/取整到/) as HTMLSelectElement).value, "100", "换成最新的值");
+
+  answer = json(200, { id: "b1", rounding_unit: 10, version: 5 });
+  await actor.selectOptions(within(again).getByLabelText(/取整到/), "10");
+  await actor.click(within(again).getByRole("button", { name: "保存" }));
+  await screen.findByText("已保存取整单位");
+  assert.deepEqual(writes(calls).at(-1)?.body, { rounding_unit: 10 });
+  assert.doesNotMatch(pageText(), /VERSION_CONFLICT/);
+
+  resetBrowser();
+  open(`/products/${PRODUCT_ID}/prices`, "pricing");
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  assertAbsent(screen.queryByRole("button", { name: "修改取整单位" }));
+});
+
+// ───────────── 菜单里的「价格规则」和首页 ─────────────
+
+test("价格规则总览：每个商品的价格情况四种写法，缺价数和接口给的一致；只看没设价格的、搜索都在浏览器里做；链接进第 ③ 步", async () => {
+  const actor = user();
+  const items = [
+    overviewOf(),
+    overviewOf({ product_id: "p2", code: "PRD2", title: { zh: "东京市内包车" }, category: "charter", price_rule_count: 0, has_active_price: false, active_price_rule_count: 0, enabled_adjust_rule_count: 0, coverage: { total: 3, missing: 3 } }),
+    overviewOf({ product_id: "p3", code: "PRD3", title: { zh: "成田接送" }, price_rule_count: 4, has_active_price: false, active_price_rule_count: 0, coverage: { total: 2, missing: 2 } }),
+    overviewOf({ product_id: "p4", code: "PRD4", title: { zh: "京都点对点" }, category: "point_to_point", status: "published", active_price_rule_count: 5, coverage: { total: 6, missing: 2 }, city: { id: "c2", name: { zh: "京都" } } }),
+    overviewOf({ product_id: "p5", code: "PRD5", title: { zh: "下架的" }, status: "unpublished", has_active_price: false, price_rule_count: 0, active_price_rule_count: 0 }),
+  ];
+  const calls = open("/price-rules", "admin", { overview: items });
+  const first = (await screen.findByRole("link", { name: "羽田机场接送" })).closest("tr") as HTMLElement;
+  for (const text of ["PRD202610081430050001", "接送机", "东京", "草稿", "12 条生效中的价格", "2 条启用"]) assert.ok(first.textContent?.includes(text), `应该有「${text}」：${first.textContent}`);
+  assert.equal(within(first).getByRole("link", { name: "设价格：羽田机场接送" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices`);
+  const row = (name: string): string => screen.getByRole("link", { name }).closest("tr")?.textContent ?? "";
+  assert.match(row("东京市内包车"), /还没有设价格/);
+  assert.match(row("成田接送"), /没有可用的价格有 4 条，都停用或过期了/);
+  assert.match(row("京都点对点"), /京都.*6 个组合里 2 个没有价格/);
+  assert.match(pageText(), /价格是按商品设的。选一个商品，进去设它的价格、调价规则，或看价格日历。/);
+  assert.match(pageText(), /共 5 条/);
+  assert.equal(within(screen.getByRole("navigation", { name: "主菜单" })).getByRole("link", { name: "价格规则" }).getAttribute("aria-current"), "page");
+  await actor.click(screen.getByRole("button", { name: "羽田机场接送 的更多操作" }));
+  assert.equal(screen.getByRole("menuitem", { name: "价格日历" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/calendar`);
+  assert.equal(screen.getByRole("menuitem", { name: "调价规则" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust`);
+
+  // 只看还没有设价格的：不含已下架的；不再请求
+  const requests = calls.length;
+  await actor.click(screen.getByRole("checkbox", { name: "只看还没有设价格的" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("link", { name: "羽田机场接送" })));
+  assert.deepEqual([...document.querySelectorAll(".price-overview tbody th a")].map((node) => node.textContent), ["东京市内包车", "成田接送"]);
+  await actor.type(screen.getByRole("searchbox", { name: "按标题或商品编号搜索" }), "prd3{Enter}");
+  await waitFor(() => assert.deepEqual([...document.querySelectorAll(".price-overview tbody th a")].map((node) => node.textContent), ["成田接送"]));
+  assert.equal(calls.length, requests, "搜索和筛选都在浏览器里做");
+  assertNoRetailWords();
+});
+
+test("价格规则总览的状态：加载失败、还没有商品、都设了价格、只读角色写「看价格」、带着 priced=no 进来", async () => {
+  let fail = true;
+  open("/price-rules", "admin", { overview: [] }, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/price-overview" && fail ? apiError(500, "INTERNAL", "boom") : null));
+  await screen.findByText("加载失败");
+  fail = false;
+  await user().click(screen.getByRole("button", { name: "重试" }));
+  await screen.findByText("先建商品，再设价格");
+  assert.equal(screen.getByRole("link", { name: "新建商品" }).getAttribute("href"), "/products/new");
+
+  resetBrowser();
+  open("/price-rules?priced=no", "readonly", { overview: [overviewOf()] });
+  await screen.findByText("所有商品都设了价格");
+  assert.equal((screen.getByRole("checkbox", { name: "只看还没有设价格的" }) as HTMLInputElement).checked, true);
+  await user().click(screen.getByRole("button", { name: "看全部商品" }));
+  const row = (await screen.findByRole("link", { name: "羽田机场接送" })).closest("tr") as HTMLElement;
+  assert.ok(within(row).getByRole("link", { name: "看价格：羽田机场接送" }));
+});
+
+test("首页：价格规则卡片的两个数只要概况（summary=1）；有没设价格的提醒去总览；都设了、还没有上架的提醒去商品列表；只读角色没有提醒；数取不到写「—」", async () => {
+  const calls = open("/", "admin", { overview: [overviewOf(), overviewOf({ product_id: "p2", has_active_price: false })], summary: { products: { draft: 2, published: 0, unpublished: 0 } } });
+  const reminder = await screen.findByRole("link", { name: "1 个商品还没有设价格" });
+  assert.equal(reminder.getAttribute("href"), "/price-rules?priced=no");
+  assert.match([...document.querySelectorAll(".entry-card")].map((card) => card.textContent).join("|"), /价格规则已设价格1还没有设1/);
+  assert.ok(calls.some((call) => call.path.endsWith("/tenant/v1/price-overview?summary=1")));
+  assertAbsent(screen.queryByText(/个商品还没有上架/));
+
+  resetBrowser();
+  open("/", "admin", { overview: [overviewOf(), overviewOf({ product_id: "p2" })], summary: { products: { draft: 2, published: 0, unpublished: 0 } } });
+  assert.equal((await screen.findByRole("link", { name: "2 个商品还没有上架" })).getAttribute("href"), "/products?status=draft");
+  assertAbsent(screen.queryByText(/个商品还没有设价格/));
+
+  resetBrowser();
+  open("/", "readonly", { overview: [overviewOf({ has_active_price: false })] });
+  await waitFor(() => assert.match([...document.querySelectorAll(".entry-card")].map((card) => card.textContent).join("|"), /价格规则已设价格0还没有设1/));
+  assertAbsent(screen.queryByText(/个商品还没有设价格/));
+
+  resetBrowser();
+  open("/", "admin", {}, (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/price-overview" ? apiError(500, "INTERNAL", "boom") : null));
+  await waitFor(() => assert.match([...document.querySelectorAll(".entry-card")].find((card) => card.textContent?.includes("价格规则"))?.textContent ?? "", /—/));
+  assertAbsent(screen.queryByText("数量没有加载出来", { selector: ".alert__title" }));
 });

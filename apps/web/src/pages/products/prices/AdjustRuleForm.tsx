@@ -37,7 +37,7 @@ import {
   tripDirectionsText,
 } from "../../../lib/adjust-form.ts";
 import { countryName, displayName, shortName } from "../../../lib/master-display.ts";
-import { type PriceContext, activePriceRules } from "../../../lib/price-form.ts";
+import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
 import { amountText, moneyText, readAmount } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { pricePath } from "../../../lib/product-paths.ts";
@@ -88,7 +88,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const location = useLocation();
   const readOnly = frame.readOnly;
   const currency = prices.currency;
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const published = product.status === "published";
   const listPath = pricePath(product.id, "adjust");
   const context: PriceContext = { category: product.category, currency, today: prices.today, station };
@@ -212,7 +212,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const scope = { areaIds: form.areaMode === "some" ? form.areaIds : [], vehicleGroupIds: form.groupMode === "some" ? form.groupIds : [], directions: product.category === "airport_transfer" && form.direction !== "both" ? [form.direction] : [], packageHours: product.category === "charter" && form.packageMode === "some" ? form.packages : [] };
   const covered = active.filter((entry) => adjustRuleCoversPrice(scope, entry.rule));
   const priceLabel = (rule: PriceRule): string => {
-    const extra = rule.direction !== null ? (rule.direction === "both" ? (station ? "接送通用" : "接送通用") : rule.direction === "pickup" ? (station ? "接站" : "接机") : station ? "送站" : "送机") : rule.packageHours !== null ? `${rule.packageHours} 小时` : null;
+    const extra = rule.direction !== null ? directionName(rule.direction, station) : rule.packageHours !== null ? `${rule.packageHours} 小时` : null;
     return [shortName(areaName(rule.areaId)), shortName(groupName(rule.vehicleGroupId)), extra].filter((part) => part !== null).join(" · ");
   };
   const trials: Trial[] = covered.slice(0, 20).map((entry) => ({ key: entry.body.id, label: priceLabel(entry.rule), base: basePrice(entry.rule.pricing, {}, entry.rule.packageHours) }));

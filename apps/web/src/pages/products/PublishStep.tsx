@@ -173,7 +173,7 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
               <li key={reason.text}>
                 <span>{reason.text}</span>
                 {reason.anchor !== null && step && stepPath ? (
-                  <Link className="link checklist__go" to={step === "prices" ? stepPath : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : "去填"}：${reason.text}`}>
+                  <Link className="link checklist__go" to={step === "prices" ? (reason.anchor !== null && reason.anchor.startsWith("adjust/") ? pricePath(product.id, "adjust", reason.anchor.slice("adjust".length)) : stepPath) : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : "去填"}：${reason.text}`}>
                     {readOnly ? "去查看" : "去填"}
                     <Icon name="chevron-right" />
                   </Link>
