@@ -8,7 +8,7 @@ import { checkItem, choose, createArea, createBrand, createProductByApi, createS
 import { createActiveTenant, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, snapshot, uniqueEmail } from "./support.ts";
 
 
-test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 → 基础信息、服务规则、商品详情分别保存（中途离开再回来）→ 上架检查说明「不是出错」→ 列表 → 删除草稿", async ({ page, request }) => {
+test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 → 基础信息、服务规则、商品详情分别保存（中途离开再回来）→ 上架检查说明只差价格→ 列表 → 删除草稿", async ({ page, request }) => {
   test.setTimeout(150_000);
   await page.setViewportSize({ width: 1280, height: 800 });
   const world = await createWorld(request);
@@ -25,7 +25,8 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await page.getByRole("link", { name: "还没有商品，先建一个" }).click();
   await expect(page).toHaveURL(/\/products\/new$/);
   await expect(page.getByRole("heading", { level: 1, name: "新建商品" })).toBeVisible();
-  await expect(step(page, "价格规则")).toContainText("即将开放");
+  await expect(step(page, "库存")).toContainText("即将开放");
+  await expect(step(page, "价格规则")).toContainText("先保存第 1 步");
   await expect(step(page, "服务规则")).toContainText("先保存第 1 步");
   await expect(page.getByRole("navigation", { name: "配置步骤" }).getByRole("link")).toHaveCount(0);
 
@@ -144,11 +145,11 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await expect(row).toContainText("接送机");
   await expect(row).toContainText(world.city.name);
   await expect(row).toContainText(world.airport.name);
-  await expect(row.getByRole("link", { name: /的上架检查：还差 1 项/ })).toBeVisible();
+  await expect(row.getByRole("link", { name: /的上架检查：还差 2 项/ })).toBeVisible();
 
   // 回来：/products/{id} 换到第一个还没完成的步骤；服务规则存的都在
   await row.getByRole("link", { name: "羽田机场接送", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/products/${productId}/content$`));
+  await expect(page).toHaveURL(new RegExp(`/products/${productId}/prices$`));
   await step(page, "服务规则").click();
   await expect(page.getByLabel("服务时间到")).toHaveValue("01:00");
   await expect(page.getByLabel("第 1 档：加收的金额")).toHaveValue("5000");
@@ -160,12 +161,11 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   // 上架检查：还差接机指引；「去填」直接落在那个输入框上
   await step(page, "上架检查").click();
   await expect(page.getByRole("heading", { level: 2, name: "上架检查" })).toBeVisible();
-  await expect(page.getByText("还不能上架：还有 1 项要补", { exact: true })).toBeVisible();
+  await expect(page.getByText("还不能上架：还有 2 项要补", { exact: true })).toBeVisible();
   await expect(checkItem(page, "basic_info")).toContainText("已满足");
   await expect(checkItem(page, "service_rules")).toContainText("已满足");
   await expect(checkItem(page, "content")).toContainText("中文还没有填接机指引");
-  await expect(checkItem(page, "price_rules")).toContainText("功能即将开放");
-  await expect(checkItem(page, "price_rules")).toContainText("不是出错");
+  await expect(checkItem(page, "price_rules")).toContainText("还没有设价格（至少要有 1 条启用、没过期的价格）");
   await expect(checkItem(page, "inventory")).toContainText("不是必须");
   await expect(page.getByRole("button", { name: "上架", exact: true })).toHaveAttribute("aria-disabled", "true");
   await page.getByRole("link", { name: "去填：中文还没有填接机指引" }).click();
@@ -177,19 +177,18 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await page.getByRole("button", { name: "保存并看上架检查" }).click();
   await expect(page).toHaveURL(/\/publish$/);
 
-  // 自己能配的都配好了：信息色的说明，不是出错；点上架被后端拒绝也说得清
-  await expect(page.getByText("你能配的都配好了，现在还不能上架")).toBeVisible();
-  await expect(page.getByText("这不是出错。")).toBeVisible();
-  await expect(page.locator(".checklist-card .alert--danger")).toHaveCount(0);
+  // 只差价格：说的是真实的原因（价格的整条流程在 prices.spec.ts）
+  await expect(page.getByText("还不能上架：还有 1 项要补", { exact: true })).toBeVisible();
+  await expect(checkItem(page, "price_rules")).toContainText("还没有设价格");
   await expect(page.getByText(/失败|未通过/)).toHaveCount(0);
-  await expect(step(page, "上架检查")).toContainText("等待开放 1 步");
+  await expect(step(page, "上架检查")).toContainText("还差 1 项");
   await expect(page.getByText("已完成 3 / 5")).toBeVisible();
-  await expect(page.locator("#publish-note")).toHaveText("还不能上架：「价格规则」开放并配好以后才能上架。");
+  await expect(page.getByRole("button", { name: "上架", exact: true })).toHaveAttribute("aria-disabled", "true");
   // 禁用的「上架」键盘到得了、读得到原因，点了不做任何事
   await page.getByRole("button", { name: "上架", exact: true }).click({ force: true });
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const published = await request.post(`/tenant/v1/products/${productId}/publish`, { headers });
-  expect(published.status(), "后端：价格规则上线前不能上架").toBe(409);
+  expect(published.status(), "后端：没有价格不能上架").toBe(409);
   expect(((await published.json()) as { error: { code: string } }).error.code).toBe("PUBLISH_CHECK_FAILED");
   await expectNoHorizontalOverflow(page, "上架检查");
   await snapshot(page, "products-publish-desktop");
@@ -200,7 +199,7 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
 
   // 列表：按品类筛、搜编号；删除草稿
   await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "商品" }).click();
-  await expect(row.getByRole("link", { name: /的上架检查：等待开放 1 步/ })).toBeVisible();
+  await expect(row.getByRole("link", { name: /的上架检查：还差 1 项/ })).toBeVisible();
   await row.getByRole("button", { name: "羽田机场接送 的更多操作" }).click();
   await page.getByRole("menuitem", { name: "删除" }).click();
   const remove = page.getByRole("dialog", { name: "删除草稿「羽田机场接送」？" });
@@ -416,11 +415,11 @@ for (const scheme of ["light", "dark"] as const) {
       await check("rules");
 
       await page.goto(`/products/${product.id}/content`);
-      await expect(page.getByLabel("标题")).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "标题" })).toBeVisible();
       await check("content");
 
       await page.goto(`/products/${product.id}/publish`);
-      await expect(checkItem(page, "price_rules")).toContainText("功能即将开放");
+      await expect(checkItem(page, "price_rules")).toContainText("还没有设价格");
       await check("publish");
     }
   });

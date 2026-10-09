@@ -44,9 +44,11 @@ const rowOf = (overrides: Partial<ProductSummary> = {}): ProductSummary => ({ ..
 const emptyRules: ServiceRulesBody = { booking: { sale_from: null, sale_to: null, service_time: null, lead_time_hours: null, note: null }, urgent: { enabled: false, daily_quota: null, tiers: [] }, night: { enabled: false, window: null, amount: null, charge_unit: null }, free_wait: { pickup: null, dropoff: null, general: null }, addons: [], driver_languages: [] };
 const rulesOf = (rules: Partial<ServiceRulesBody> = {}, version = 7): ProductServiceRules => ({ version, currency: "JPY", free_wait_minimums: { pickup: 60, dropoff: 15, general: null }, rules: { ...emptyRules, ...rules } });
 const item = (key: string, issues: { path: string; reason: string }[] = [], required = true): PublishCheckItemBody => ({ key, required, passed: issues.length === 0, issues: issues.map((issue) => ({ ...issue, message: "说明" })) });
+/** 还没有设价格：商品刚建好时的真实情况。库存还没开放，但它不是上架必须的。 */
+const NO_PRICE = [{ path: "/", reason: "NO_ACTIVE_PRICE_RULE" }];
 const SOON = [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }];
 const checkOf = (changes: Record<string, { path: string; reason: string }[]> = {}): PublishCheckResult => {
-  const items = [item("basic_info", changes["basic_info"]), item("service_rules", changes["service_rules"]), item("price_rules", changes["price_rules"] ?? SOON), item("content", changes["content"]), item("adjust_rules", [], false), item("inventory", [], false)];
+  const items = [item("basic_info", changes["basic_info"]), item("service_rules", changes["service_rules"]), item("price_rules", changes["price_rules"] ?? NO_PRICE), item("content", changes["content"]), item("adjust_rules", [], false), item("inventory", SOON, false)];
   return { can_publish: items.every((entry) => !entry.required || entry.passed), items };
 };
 
@@ -268,7 +270,8 @@ test("新建：创建后不能改的几项按必填报错；区域只列适用�
   const calls = open("/products/new", "admin", productRoutes({ product: productOf({ title: {} }) }, (call) => (call.method === "POST" && call.path === "/tenant/v1/products" ? json(201, productOf({ title: {} })) : null)));
   await screen.findByText("NOZOMI（JPY）");
   assert.match(stepText("服务规则"), /先保存第 1 步/);
-  assert.match(stepText("价格规则"), /即将开放/);
+  assert.match(stepText("价格规则"), /先保存第 1 步/);
+  assert.match(stepText("库存"), /即将开放/);
   await screen.findByText("先选城市和品类，这里会列出可以用的区域。");
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   const summary = (await screen.findByText("有 2 处需要修改")).closest(".alert") as HTMLElement;
@@ -326,7 +329,7 @@ test("新建被拒：城市被停用、选的区域被停用、网络不通—�
 // ───────────── 框架 ─────────────
 
 test("框架：/products/{id} 换到第一个还没完成的开放步骤；步骤导航按检查结果显示每一步；不认识的步骤、找不到的商品、检查结果取不到各有处理", async () => {
-  const check = checkOf({ service_rules: [{ path: "/booking/service_time", reason: "REQUIRED" }, { path: "/booking/lead_time_hours", reason: "REQUIRED" }, { path: "/free_wait/pickup", reason: "REQUIRED" }, { path: "/free_wait/dropoff", reason: "REQUIRED" }] });
+  const check = checkOf({ price_rules: [], service_rules: [{ path: "/booking/service_time", reason: "REQUIRED" }, { path: "/booking/lead_time_hours", reason: "REQUIRED" }, { path: "/free_wait/pickup", reason: "REQUIRED" }, { path: "/free_wait/dropoff", reason: "REQUIRED" }] });
   open(`/products/${PRODUCT_ID}`, "admin", productRoutes({ check }));
   await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
   await screen.findByRole("heading", { level: 1, name: "羽田机场接送" });
@@ -334,13 +337,13 @@ test("框架：/products/{id} 换到第一个还没完成的开放步骤；步�
   assert.match(stepText("服务规则"), /还差 3 项/);
   assert.match(stepText("库存"), /即将开放/);
   assert.match(stepText("上架检查"), /还差 1 项/);
-  assert.ok(screen.getByText("已完成 2 / 5"));
+  assert.ok(screen.getByText("已完成 3 / 5"));
   assert.equal(document.querySelector('.step-nav [aria-current="step"]')?.textContent?.includes("服务规则"), true);
-  assert.equal([...document.querySelectorAll(".step-nav a")].length, 4, "没开放的两步不是链接");
+  assert.equal([...document.querySelectorAll(".step-nav a")].length, 5, "没开放的那一步（库存）不是链接");
   assert.equal(document.title, "服务规则 · 羽田机场接送 · NOZOMI 供应商后台");
 
   resetBrowser();
-  open(`/products/${PRODUCT_ID}/price-rules`, "admin", productRoutes({}));
+  open(`/products/${PRODUCT_ID}/no-such-step`, "admin", productRoutes({ check: checkOf({ price_rules: [] }) }));
   await screen.findByRole("heading", { level: 2, name: "上架检查" });
 
   resetBrowser();
@@ -552,25 +555,8 @@ test("商品详情：四种语言各一张卡片，没填的收起；接送机�
 
 // ───────────── 上架检查 ─────────────
 
-test("上架检查：自己能配的都配好了、只差没开放的功能时，是信息色的「这不是出错」，没有「失败」「未通过」；上架按钮读得到原因", async () => {
-  open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({}));
-  await screen.findByText("你能配的都配好了，现在还不能上架");
-  const card = document.querySelector(".checklist-card") as HTMLElement;
-  assert.ok(card.querySelector(".alert--info"));
-  assertAbsent(card.querySelector(".alert--danger"));
-  assert.match(card.textContent ?? "", /这不是出错。上架还需要「价格规则」，这个功能正在开发，还没有开放。/);
-  assert.match(document.querySelector('[data-check="price_rules"]')?.textContent ?? "", /价格规则，功能即将开放不是出错：设价格的页面还在开发。/);
-  assert.match(document.querySelector('[data-check="inventory"]')?.textContent ?? "", /不是必须不设就是不限量；想限制每天接多少单时才用。功能还在开发。/);
-  assert.match(document.querySelector('[data-check="basic_info"]')?.textContent ?? "", /已满足/);
-  assert.doesNotMatch(document.body.textContent ?? "", /失败|未通过|错误|FEATURE_NOT_AVAILABLE/);
-  const button = screen.getByRole("button", { name: "上架" });
-  assert.equal(button.getAttribute("aria-disabled"), "true");
-  assert.equal(document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent, "还不能上架：「价格规则」开放并配好以后才能上架。");
-  assert.match(stepText("上架检查"), /等待开放 1 步/);
-});
-
 test("上架检查：还有自己要补的——逐条列出原因和「去填」；已上架的显示下架；只读角色只有「去查看」；检查结果取不到给重试", async () => {
-  const check = checkOf({ basic_info: [{ path: "/areas/0", reason: "AREA_DISABLED" }, { path: "/areas/1", reason: "AREA_DISABLED" }, { path: "/dispatchers", reason: "NO_DISPATCHER" }, { path: "/city_id", reason: "CITY_DISABLED" }], content: [{ path: "/zh/pickup_guide", reason: "REQUIRED" }], service_rules: [{ path: "/night/window", reason: "REQUIRED" }, { path: "/night/amount", reason: "REQUIRED" }, { path: "/x", reason: "SOMETHING_NEW" }] });
+  const check = checkOf({ price_rules: [], basic_info: [{ path: "/areas/0", reason: "AREA_DISABLED" }, { path: "/areas/1", reason: "AREA_DISABLED" }, { path: "/dispatchers", reason: "NO_DISPATCHER" }, { path: "/city_id", reason: "CITY_DISABLED" }], content: [{ path: "/zh/pickup_guide", reason: "REQUIRED" }], service_rules: [{ path: "/night/window", reason: "REQUIRED" }, { path: "/night/amount", reason: "REQUIRED" }, { path: "/x", reason: "SOMETHING_NEW" }] });
   open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check }));
   await screen.findByText("还不能上架：还有 3 项要补");
   const basic = document.querySelector('[data-check="basic_info"]') as HTMLElement;
@@ -582,7 +568,7 @@ test("上架检查：还有自己要补的——逐条列出原因和「去填�
   assert.equal(screen.getByRole("link", { name: "去填：中文还没有填接机指引" }).getAttribute("href"), `/products/${PRODUCT_ID}/content#pickup-guide-zh`);
   const rules = document.querySelector('[data-check="service_rules"]') as HTMLElement;
   assert.deepEqual([...rules.querySelectorAll(".checklist__reasons > li > span:first-child")].map((node) => node.textContent), ["夜间加价：时段、计费方式、金额还没有填齐", "说明"]);
-  assert.equal(document.getElementById("publish-note")?.textContent, "还不能上架：还有 3 项要补，另有「价格规则」功能未开放。");
+  assert.equal(document.getElementById("publish-note")?.textContent, "还不能上架：还有 3 项要补。");
 
   resetBrowser();
   open(`/products/${PRODUCT_ID}/publish`, "readonly", productRoutes({ check }));
@@ -603,7 +589,7 @@ test("上架检查：还有自己要补的——逐条列出原因和「去填�
   await screen.findByText("检查结果没有加载出来");
   assertAbsent(screen.queryByRole("button", { name: "上架" }));
   await actor.click(within(document.querySelector(".checklist-card, .step .card") as HTMLElement).getByRole("button", { name: "重试" }));
-  await screen.findByText("你能配的都配好了，现在还不能上架");
+  await screen.findByText("还不能上架：还有 1 项要补", { exact: true });
 });
 
 test("上架：检查都通过时要确认（说明不能拒单）；成功后变成已上架；被拒（内容又变了）时用应答里的最新结果更新清单并说明", async () => {

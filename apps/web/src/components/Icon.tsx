@@ -25,6 +25,7 @@ export type IconName =
   | "alert-circle"
   | "chevron-down"
   | "chevron-right"
+  | "chevron-left"
   | "check"
   | "database"
   | "plus"
@@ -95,6 +96,7 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   ),
   "chevron-down": <path d="M6 9l6 6 6-6" />,
   "chevron-right": <path d="M9 6l6 6-6 6" />,
+  "chevron-left": <path d="M15 6l-6 6 6 6" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   database: (
     <>

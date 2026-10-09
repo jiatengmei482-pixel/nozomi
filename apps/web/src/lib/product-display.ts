@@ -161,8 +161,17 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     if (take(reason("ALL_PRICE_RULES_DISABLED"))) out.push(one("价格都停用了，至少要启用 1 条", ""));
     if (take(reason("ALL_PRICE_RULES_EXPIRED"))) out.push(one("价格都过期了，请把生效日期延长，或加一段新的", ""));
   } else if (item.key === "adjust_rules") {
-    // 接口现在只给第几条，不给规则名：不指到具体哪一条
-    if (take(reason("ADJUST_RESULT_NOT_POSITIVE"))) out.push(one(`有 ${count("ADJUST_RESULT_NOT_POSITIVE")} 条调价规则会把价格调到不大于 0，这些价格报不出来`, "adjust"));
+    // 接口在 detail 里指明是哪一条（rule_id、name）：一条一句，直接去改那一条；没指明的合成一句，去调价规则页签
+    const unnamed = item.issues.filter((issue) => {
+      if (issue.reason !== "ADJUST_RESULT_NOT_POSITIVE") return false;
+      known.add(issue);
+      const id = issue.detail?.["rule_id"];
+      const name = issue.detail?.["name"];
+      if (typeof id !== "string" || typeof name !== "string") return true;
+      out.push(one(`调价规则「${name}」会把价格调到不大于 0，这些价格报不出来`, `adjust/${id}`));
+      return false;
+    }).length;
+    if (unnamed > 0) out.push(one(`有 ${unnamed} 条调价规则会把价格调到不大于 0，这些价格报不出来`, "adjust"));
   }
   // 没列在上面的：用接口带的中文说明
   const seen = new Set<string>();

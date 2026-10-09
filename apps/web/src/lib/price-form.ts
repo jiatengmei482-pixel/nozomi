@@ -19,6 +19,8 @@ import {
   formatExact,
   isCurrencyCode,
   priceCoverage,
+  type PlaceType,
+  priceDirectionNames,
   priceRuleIsActive,
   priceRuleIssues,
 } from "@nozomi/domain";
@@ -72,7 +74,12 @@ export function fieldName(field: PriceField, model: PricingModel): string {
 }
 
 export function directionName(direction: PriceDirection | TripDirection, station: boolean): string {
-  return direction === "both" ? "接送通用" : direction === "pickup" ? (station ? "接站" : "接机") : station ? "送站" : "送机";
+  return priceDirectionNames(station ? "station" : null)[direction];
+}
+
+/** 接送点是不是按「接站 / 送站」叫的那一类（以 @nozomi/domain 的 priceDirectionNames 为准）。 */
+export function isStationPlace(type: PlaceType | null | undefined): boolean {
+  return priceDirectionNames(type ?? null).pickup !== priceDirectionNames(null).pickup;
 }
 
 const EMPTY_VALUES: Record<PriceField, string> = { base: "", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "" };
@@ -91,7 +98,8 @@ export function kmTextToMeters(text: string): number | null {
 }
 
 export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {
-  const money = (value: number | null): string => (value === null ? "" : amountText(value, currency));
+  // 没在输入的金额带千分位（和失去焦点时整理成的样子一样）
+  const money = (value: number | null): string => (value === null ? "" : moneyText(value, currency).slice(currency.length).trim());
   return {
     key: rule.id,
     id: rule.id,
@@ -384,4 +392,12 @@ export function lowestText(pricing: Pricing, currency: string, withCurrency = fa
   const full = exactMoney(basePrice(pricing), currency);
   const text = withCurrency ? full : full.slice(currency.length).trim();
   return pricing.model === "mileage_time" ? `${text} 起` : text;
+}
+
+/** 接口里的全部价格 → 启用且没过期的那些（域里的写法）：调价规则的试算、「调完不大于 0」「碰不碰得到」都只看这些。 */
+export function activePriceRules(items: readonly PriceRuleBody[], context: PriceContext): { body: PriceRuleBody; rule: PriceRule }[] {
+  return items.flatMap((body) => {
+    const rule = readRow(rowFromRule(body, context.currency), context).rule;
+    return rule && priceRuleIsActive(rule, context.today) ? [{ body, rule }] : [];
+  });
 }
