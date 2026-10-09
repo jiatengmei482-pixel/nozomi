@@ -1,0 +1,76 @@
+/* 登录、设置密码页的版式（docs/design/pages/login.md 2.2）。从手机写起。 */
+.auth-page {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  justify-items: center;
+  min-height: 100dvh;
+  padding: var(--space-4);
+}
+
+.auth-page__theme {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+}
+
+/* < 480px：没有边框和底色，由页面边距控制左右留白；手机上靠上、不垂直居中 */
+.auth-card {
+  width: min(var(--layout-auth-card-width), 100%);
+  margin-top: var(--space-12);
+}
+
+.auth-card__brand {
+  margin-bottom: var(--space-1);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0.08em;
+}
+
+.auth-card__title {
+  margin-bottom: var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+}
+
+.auth-card__intro {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.auth-card__switch {
+  margin-top: var(--space-2);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.auth-card .state-block {
+  padding: var(--space-6) 0 0;
+}
+
+@media (min-width: 480px) {
+  .auth-card {
+    padding: var(--space-8);
+    border: var(--border-width) solid var(--color-border-default);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-surface);
+  }
+}
+
+/* ≥ 768px：垂直居中并略偏上（上方留白 : 下方留白 = 2 : 3） */
+@media (min-width: 768px) {
+  .auth-page {
+    grid-template-rows: 2fr auto 3fr;
+    align-content: stretch;
+  }
+
+  .auth-card {
+    grid-row: 2;
+    margin-top: 0;
+  }
+}

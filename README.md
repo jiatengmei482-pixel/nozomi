@@ -17,10 +17,60 @@
 
 ```bash
 pnpm install
-pnpm check            # 类型检查 + 测试 + 进度文件校验
-pnpm config:check     # 当前环境哪些账号已配置（只显示脱敏信息）
-pnpm progress:build   # 生成进度页到 site/index.html
-docker compose up -d  # 本地数据库
+docker compose up -d   # 本地数据库（PostgreSQL 16）
+cp .env.example .env   # 第一次：复制后填 AUTH_JWT_SECRET（见 docs/secrets.md）
+pnpm db:provision      # 创建数据库的应用账号（权限最小，服务进程用它连接）；可以反复运行
+pnpm db:migrate        # 用迁移账号执行数据库迁移，可以反复运行
+pnpm admin:create --email 你的邮箱 --name 你的名字   # 创建平台超级管理员；密码按提示输入（不显示），不要写在命令里
+pnpm admin:reset-password --email 你的邮箱         # 超级管理员忘了密码时在服务器上重设；密码同样按提示输入
+# 上面两条命令都可以在末尾加 --temporary-password：不用输入密码，命令生成一个只显示一次的临时密码，第一次登录后必须修改
+pnpm masterdata:import-airports --country JP,KR   # 从 OurAirports（公有领域）导入机场；可反复运行；加 --dry-run 只看不写
+pnpm masterdata:import-cities --country JP,KR     # 从 GeoNames（CC BY 4.0）导入主要城市；可反复运行；--activate 直接启用，--dry-run 只看不写
+pnpm dev               # 启动后端，http://localhost:8080/health 查看数据库、迁移状态，以及各账号是否已配置
+
+pnpm check             # 提交前必须通过：类型检查 + 单元测试 + 集成测试 + 进度文件校验（需要本地数据库在运行）
+pnpm test              # 只跑单元测试（不需要数据库）
+pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL，每个测试用独立 schema，结束即删除）
+pnpm config:check      # 当前环境哪些账号已配置（只显示脱敏信息）
+pnpm progress:build    # 生成进度页到 site/index.html
 ```
+
+`pnpm check` 包含集成测试；数据库没启动时会直接失败并提示先运行 `docker compose up -d`，不会跳过。
+
+数据库有两个账号（[ADR 0010](docs/adr/0010-database-roles.md)）：迁移账号（`DATABASE_MIGRATION_URL`）是表的所有者，只给 `pnpm db:migrate`、`pnpm db:provision` 用；应用账号（`DATABASE_URL`）权限最小，服务进程、管理员命令和测试里的应用代码都用它。把迁移账号填进 `DATABASE_URL` 时服务会拒绝启动并说明原因。已经有本地数据库和 `.env` 的，照 `.env.example` 把这两行改好，再运行一次 `pnpm db:provision` 和 `pnpm db:migrate`。
+接口定义在 [`apps/api/openapi.yaml`](apps/api/openapi.yaml)，数据库迁移在 [`apps/api/migrations/`](apps/api/migrations/)。
+
+### 账号是怎么来的
+
+系统里没有任何预置账号。从空库到租户能登录的顺序是：
+
+1. `pnpm db:provision` 建数据库的应用账号，`pnpm db:migrate` 建表。
+2. `pnpm admin:create --email … --name …` 创建第一个平台超级管理员（在服务器上运行；密码交互输入，或 `< 密码文件` 从标准输入传入）。由别人代为执行时加 `--temporary-password`：命令生成一个只显示一次的临时密码，本人用它登录后必须先修改密码，改之前不能使用其他功能。
+3. 超级管理员登录（`POST /platform/v1/auth/login`），创建租户（`POST /platform/v1/tenants`）。响应里有租户第一个管理员的一次性邀请令牌，只显示这一次。
+4. 把邀请令牌交给租户；对方凭它设置密码（`POST /tenant/v1/auth/accept-invite`），然后登录（`POST /tenant/v1/auth/login`）。
+5. 租户管理员用同样的方式邀请自己的子账号（`POST /tenant/v1/users`）；平台超级管理员用同样的方式创建其他平台员工（`POST /platform/v1/staff`）。
+
+### 主数据是怎么来的
+
+系统里没有任何预置的城市、机场、车型（[ADR 0012](docs/adr/0012-master-data.md)）。
+
+- 机场：`pnpm masterdata:import-airports --country JP,KR` 从公开数据源 [OurAirports](https://ourairports.com/data/)（公有领域，对方不保证准确）导入所选国家里有定期航班的大中型机场的三字码、英文名、坐标。`--all-countries` 导入全部国家；`--file <路径>` 读已经下载好的 `airports.csv` 而不联网；`--dry-run` 只显示将要做什么。可以反复运行：只新增没有的、更新变了的，平台改过的和手工录入的不覆盖。
+- 导入的机场是停用的、没有所属城市。平台在后台先建城市，再给机场指定城市、补上中文和日文名称，然后启用。
+- 城市：`pnpm masterdata:import-cities --country JP,KR` 从公开数据源 [GeoNames](https://www.geonames.org/)（CC BY 4.0，使用时须注明来源；对方不保证准确）导入所选国家里人口 30 万以上的城市和各级首府的多语言名称、时区、中心坐标（[ADR 0014](docs/adr/0014-city-import.md)）。`--min-population <人口>` 调范围；`--activate` 让新导入的城市直接启用（不带则是停用，等平台复核）；`--file <cities15000.zip> --names-file <JP.zip> --names-file <KR.zip>` 读已经下载好的文件而不联网；`--dry-run` 只显示将要做什么。可以反复运行，平台改过的不覆盖，和手工建的城市看起来相同的不合并也不重复创建。
+- 处理导入的机场时，后台会按距离建议最近的启用中的城市（只是建议，要人确认）。
+- 车站、地标、航站楼、车型组、附加服务，以及人口少但有接送需求的城市，没有可靠的公开来源，由平台在后台录入（`/platform/v1/master/*`）。租户只能看（`/tenant/v1/master/*`）。
+- 主数据不删除，只停用；每次改动都有审计日志。
+
+### 忘了密码怎么办
+
+- 记得当前密码：登录后自己改（`POST /platform/v1/auth/change-password`、`POST /tenant/v1/auth/change-password`）。
+- 租户用户忘了：本租户的管理员给他发一次性重置令牌（`POST /tenant/v1/users/{id}/password-reset`）。
+- 租户的管理员忘了、又没有别的管理员：平台给他发（`POST /platform/v1/tenants/{id}/admin-password-resets`）。
+- 平台员工忘了：超级管理员给他发（`POST /platform/v1/staff/{id}/password-reset`）。
+- 超级管理员自己忘了：在服务器上运行 `pnpm admin:reset-password --email …`（同样可以加 `--temporary-password`）。
+
+重置令牌只显示一次、24 小时有效；本人凭它设置新密码（`POST /platform/v1/auth/reset-password`、`POST /tenant/v1/auth/reset-password`）。
+
+登录、令牌和密码的设计见 [ADR 0008](docs/adr/0008-auth-and-sessions.md)，租户隔离见 [ADR 0003](docs/adr/0003-multi-tenancy.md) 和 [ADR 0009](docs/adr/0009-row-level-security.md)。
 
 规则见 [`CLAUDE.md`](CLAUDE.md)，流程见 [`docs/workflow.md`](docs/workflow.md)，技术决策见 [`docs/adr/`](docs/adr/)。

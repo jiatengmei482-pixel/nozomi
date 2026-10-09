@@ -87,3 +87,28 @@ export function roundToUnit(minor: number, unitMinor: number): number {
   if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
   return roundHalfAwayFromZero(minor / unitMinor) * unitMinor;
 }
+
+/**
+ * 精确的分数 numerator / denominator 四舍五入到整数，0.5 远离零。全程整数运算，没有浮点误差。
+ * 计价的中间结果（里程单价 × 米数 ÷ 1000、百分比调价连乘）用分数精确保留，只在最后调用这里取整一次。
+ */
+export function roundFractionHalfAwayFromZero(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) throw new RangeError("分母不能为 0");
+  const negative = numerator < 0n !== denominator < 0n;
+  const n = numerator < 0n ? -numerator : numerator;
+  const d = denominator < 0n ? -denominator : denominator;
+  const quotient = n / d;
+  const rounded = (n % d) * 2n >= d ? quotient + 1n : quotient;
+  return negative ? -rounded : rounded;
+}
+
+/**
+ * 精确的分数金额（最小货币单位）按取整单位取整：先除以取整单位，四舍五入（0.5 远离零），再乘回来。只取整这一次。
+ * 取整单位为 1 就是取整到最小货币单位。
+ */
+export function roundFractionToUnit(numerator: bigint, denominator: bigint, unitMinor: number): number {
+  if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
+  const minor = Number(roundFractionHalfAwayFromZero(numerator, denominator * BigInt(unitMinor)) * BigInt(unitMinor));
+  assertMinor(minor);
+  return minor;
+}
