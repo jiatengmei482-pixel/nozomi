@@ -2,7 +2,7 @@
  * 菜单里的「价格规则」（docs/design/pages/tenant-prices.md 第 8 节）：一张按价格情况列出所有商品的表，点一个就进它的第 ③ 步。
  * 数据一次取完（最多 1,000 个商品），搜索、筛选、分页都在浏览器里做；条件照常写进网址。
  */
-import { PRODUCT_CATEGORY_NAMES, PRODUCT_STATUSES, PRODUCT_STATUS_NAMES, type ProductStatus, type ServiceCategory } from "@nozomi/domain";
+import { INVENTORY_MODE_NAMES, PRODUCT_CATEGORY_NAMES, PRODUCT_STATUSES, PRODUCT_STATUS_NAMES, type ProductStatus, type ServiceCategory } from "@nozomi/domain";
 import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { type PriceOverview, type PriceOverviewItem, getPriceOverview } from "../../api/prices.ts";
@@ -18,7 +18,7 @@ import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { displayName, shortName } from "../../lib/master-display.ts";
 import { PRODUCT_STATUS_BADGES, productName } from "../../lib/product-display.ts";
-import { PRODUCT_NEW_PATH, pricePath } from "../../lib/product-paths.ts";
+import { PRODUCT_NEW_PATH, inventoryPath, pricePath } from "../../lib/product-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -70,6 +70,7 @@ export function PriceOverviewPage() {
   const categoryParam = params.get("category");
   const category = (CATEGORIES as readonly string[]).includes(categoryParam ?? "") ? (categoryParam as ServiceCategory) : null;
   const unpricedOnly = params.get("priced") === "no";
+  const noStockOnly = params.get("stock") === "none";
   const sizeParam = Number(params.get("size"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
   const setParam = (changes: Record<string, string | null>): void => {
@@ -100,6 +101,7 @@ export function PriceOverviewPage() {
       (status === null || item.status === status) &&
       (category === null || item.category === category) &&
       (!unpricedOnly || lacksPrice(item)) &&
+      (!noStockOnly || (item.no_inventory_ahead && item.status === "published")) &&
       (needle === "" ||
         item.code.toLowerCase().includes(needle) ||
         Object.values(item.title).some((text) => typeof text === "string" && text.toLowerCase().includes(needle))),
@@ -108,8 +110,8 @@ export function PriceOverviewPage() {
   const pageParam = Number(params.get("page"));
   const page = Number.isInteger(pageParam) && pageParam >= 1 && pageParam <= pages ? pageParam : 1;
   const rows = matched.slice((page - 1) * pageSize, page * pageSize);
-  const filtered = q !== "" || status !== null || category !== null || unpricedOnly;
-  const onlyUnpriced = unpricedOnly && q === "" && status === null && category === null;
+  const filtered = q !== "" || status !== null || category !== null || unpricedOnly || noStockOnly;
+  const onlyUnpriced = unpricedOnly && !noStockOnly && q === "" && status === null && category === null;
 
   const columns: Column<PriceOverviewItem>[] = [
     {
@@ -156,6 +158,20 @@ export function PriceOverviewPage() {
         );
       },
     },
+    {
+      key: "stock",
+      header: "库存",
+      wrap: true,
+      cell: (row) =>
+        row.no_inventory_ahead ? (
+          <Link className="price-overview__price price-overview__price--warning" to={inventoryPath(row.product_id)} aria-label={`${shortName(productName(row).text)} 的库存：限量，从今天起没有库存`}>
+            <Icon name="alert-triangle" />
+            <span>从今天起没有库存</span>
+          </Link>
+        ) : (
+          INVENTORY_MODE_NAMES[row.inventory_mode]
+        ),
+    },
     { key: "adjust", header: "调价规则", cell: (row) => (row.enabled_adjust_rule_count === 0 ? "—" : <span className="price-overview__count">{`${row.enabled_adjust_rule_count} 条启用`}</span>) },
     {
       key: "actions",
@@ -174,6 +190,9 @@ export function PriceOverviewPage() {
               <Link role="menuitem" className="menu-item" to={pricePath(row.product_id, "calendar")}>
                 <span className="menu-item__text">价格日历</span>
               </Link>
+              <Link role="menuitem" className="menu-item" to={inventoryPath(row.product_id)}>
+                <span className="menu-item__text">库存</span>
+              </Link>
             </Dropdown>
           </span>
         );
@@ -183,7 +202,7 @@ export function PriceOverviewPage() {
 
   const state = loaded.state;
   const tableState: TableState = !canRead ? "loading" : state.status === "ready" ? "ready" : state.status === "forbidden" ? "forbidden" : state.status === "loading" ? "loading" : "error";
-  const clearFilters = (): void => setParam({ q: null, status: null, category: null, priced: null });
+  const clearFilters = (): void => setParam({ q: null, status: null, category: null, priced: null, stock: null });
   const empty = onlyUnpriced && all.length > 0 ? (
     <StateBlock
       tone="neutral"
@@ -231,6 +250,16 @@ export function PriceOverviewPage() {
         <input type="checkbox" checked={unpricedOnly} onChange={(event) => setParam({ priced: event.target.checked ? "no" : null })} />
         <span className="choice__text">只看还没有设价格的</span>
       </label>
+      {noStockOnly && (
+        <p className="filter-chips">
+          <span className="filter-chip" title="已上架、从今天起没有库存">
+            <span className="filter-chip__text">已上架、从今天起没有库存</span>
+            <button type="button" className="filter-chip__remove" aria-label="去掉条件「已上架、从今天起没有库存」" onClick={() => setParam({ stock: null })}>
+              <Icon name="x" />
+            </button>
+          </span>
+        </p>
+      )}
       <div className="price-overview">
         <DataTable label="各商品的价格情况" columns={columns} rows={rows} rowKey={(row) => row.product_id} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={loaded.reload} empty={empty} />
       </div>

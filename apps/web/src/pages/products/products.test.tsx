@@ -46,9 +46,8 @@ const rulesOf = (rules: Partial<ServiceRulesBody> = {}, version = 7): ProductSer
 const item = (key: string, issues: { path: string; reason: string }[] = [], required = true): PublishCheckItemBody => ({ key, required, passed: issues.length === 0, issues: issues.map((issue) => ({ ...issue, message: "说明" })) });
 /** 还没有设价格：商品刚建好时的真实情况。库存还没开放，但它不是上架必须的。 */
 const NO_PRICE = [{ path: "/", reason: "NO_ACTIVE_PRICE_RULE" }];
-const SOON = [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }];
 const checkOf = (changes: Record<string, { path: string; reason: string }[]> = {}): PublishCheckResult => {
-  const items = [item("basic_info", changes["basic_info"]), item("service_rules", changes["service_rules"]), item("price_rules", changes["price_rules"] ?? NO_PRICE), item("content", changes["content"]), item("adjust_rules", [], false), item("inventory", SOON, false)];
+  const items = [item("basic_info", changes["basic_info"]), item("service_rules", changes["service_rules"]), item("price_rules", changes["price_rules"] ?? NO_PRICE), item("content", changes["content"]), item("adjust_rules", [], false), item("inventory", changes["inventory"], false)];
   return { can_publish: items.every((entry) => !entry.required || entry.passed), items };
 };
 
@@ -271,7 +270,7 @@ test("新建：创建后不能改的几项按必填报错；区域只列适用�
   await screen.findByText("NOZOMI（JPY）");
   assert.match(stepText("服务规则"), /先保存第 1 步/);
   assert.match(stepText("价格规则"), /先保存第 1 步/);
-  assert.match(stepText("库存"), /即将开放/);
+  assert.match(stepText("库存"), /先保存第 1 步/);
   await screen.findByText("先选城市和品类，这里会列出可以用的区域。");
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   const summary = (await screen.findByText("有 2 处需要修改")).closest(".alert") as HTMLElement;
@@ -335,11 +334,11 @@ test("框架：/products/{id} 换到第一个还没完成的开放步骤；步�
   await screen.findByRole("heading", { level: 1, name: "羽田机场接送" });
   assert.match(stepText("基础信息"), /第 1 步，基础信息，已完成/);
   assert.match(stepText("服务规则"), /还差 3 项/);
-  assert.match(stepText("库存"), /即将开放/);
+  assert.match(stepText("库存"), /已完成/);
   assert.match(stepText("上架检查"), /还差 1 项/);
-  assert.ok(screen.getByText("已完成 3 / 5"));
+  assert.ok(screen.getByText("已完成 4 / 5"));
   assert.equal(document.querySelector('.step-nav [aria-current="step"]')?.textContent?.includes("服务规则"), true);
-  assert.equal([...document.querySelectorAll(".step-nav a")].length, 5, "没开放的那一步（库存）不是链接");
+  assert.equal([...document.querySelectorAll(".step-nav a")].length, 6, "五步都开放了，每一步都是链接");
   assert.equal(document.title, "服务规则 · 羽田机场接送 · NOZOMI 供应商后台");
 
   resetBrowser();

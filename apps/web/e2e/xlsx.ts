@@ -12,20 +12,11 @@ export interface Sheet {
   name: string;
   /** 第一行是表头；数字格子是它的十进制写法 */
   rows: (string | null)[][];
-  /** 哪些格子是数字（写回去时仍按数字写） */
-  numeric: Set<string>;
 }
 
 export function readSheet(bytes: Uint8Array): Sheet {
   const sheet = readXlsxSheet(bytes);
-  const numeric = new Set<string>();
-  const rows = sheet.rows.map((row, r) =>
-    row.map((cell, c) => {
-      if (cell.type === "number") numeric.add(`${r}:${c}`);
-      return cell.type === "text" || cell.type === "number" ? cell.text : null;
-    }),
-  );
-  return { name: sheet.name, rows, numeric };
+  return { name: sheet.name, rows: sheet.rows.map((row) => row.map((cell) => (cell.type === "text" || cell.type === "number" ? cell.text : null))) };
 }
 
 export async function readDownload(download: Download): Promise<{ name: string; bytes: Buffer }> {
@@ -42,7 +33,7 @@ export function column(sheet: Sheet, header: string): number {
 
 /** 写成 .xlsx。纯数字的格子按数字写（和 Excel 里手填一样），其余按文字。 */
 export function writeSheet(sheet: Sheet): Buffer {
-  const rows: XlsxWriteCell[][] = sheet.rows.map((row, r) => row.map((cell, c) => (cell === null || cell === "" ? null : r > 0 && (sheet.numeric.has(`${r}:${c}`) || /^-?\d+(\.\d+)?$/.test(cell)) ? { number: cell } : cell)));
+  const rows: XlsxWriteCell[][] = sheet.rows.map((row, r) => row.map((cell, c) => (cell === null || cell === "" ? null : r > 0 && /^-?\d+(\.\d+)?$/.test(cell) ? { number: cell } : cell)));
   return writeXlsx([{ name: sheet.name, rows, header: true }]);
 }
 

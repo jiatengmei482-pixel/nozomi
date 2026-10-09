@@ -110,7 +110,7 @@ test("手写类型的字段与同名 schema 完全一致；提交的字段接口
   assert.deepEqual(schemas[ref(schemas["PriceRules"]?.properties?.["coverage"]) ?? ""]?.required, ["total", "priced", "missing"]);
   assert.deepEqual(schemas["Holidays"]?.properties?.["countries"]?.items?.required, ["country_code", "count", "last_date"]);
   const overview = schemas["PriceOverview"];
-  assert.deepEqual(overview?.required, ["products_with_price", "products_without_price"], "带 summary=1 时没有 items");
+  assert.deepEqual(overview?.required, ["products_with_price", "products_without_price", "published_without_inventory"], "带 summary=1 时没有 items");
   assert.deepEqual([...(overview?.properties?.["items"]?.items?.required ?? [])].sort(), [...PRICE_OVERVIEW_ITEM_FIELDS].sort());
   assert.deepEqual(overview?.properties?.["items"]?.items?.properties?.["coverage"]?.required, ["total", "missing"]);
   assert.ok(params(op("get", `${TENANT_BASE}/price-overview`)).includes("query:summary"));

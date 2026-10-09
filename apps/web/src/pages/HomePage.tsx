@@ -39,11 +39,13 @@ export function HomePage() {
   // 引导一次只出一条，顺序是 区域 → 商品 → 价格规则 → 上架：区域这一步做完了（或看不到区域的数量），才提醒建商品
   const remindProduct = products !== null && products.published + products.draft + products.unpublished === 0 && canManageProducts && (data?.areas == null || data.areas.active > 0);
   // 价格规则的两个数是另一次请求；取不到时卡片上写「—」，两条提醒都不显示
-  const priced = useLoad<Pick<PriceOverview, "products_with_price" | "products_without_price">>("tenant-price-summary", products !== null ? getPriceOverviewSummary : null);
+  const priced = useLoad<Omit<PriceOverview, "items">>("tenant-price-summary", products !== null ? getPriceOverviewSummary : null);
   const prices = priced.state.data;
   const priceCounts: EntryCounts = prices ? { status: "ready", counts: [{ value: prices.products_with_price, label: "已设价格" }, { value: prices.products_without_price, label: "还没有设" }] } : products !== null && priced.state.status === "loading" ? { status: "loading" } : { status: products === null && !failed ? "loading" : "failed" };
   const selling = products !== null ? products.draft + products.published : 0;
   const remindPrice = prices !== null && selling > 0 && prices.products_without_price > 0 && canManageProducts;
+  // 已经在卖的出了问题：不属于「下一步」的引导，可以和引导同时出现
+  const remindStock = prices !== null && prices.published_without_inventory > 0 && canManageProducts;
   const remindPublish = prices !== null && products !== null && products.draft > 0 && products.published === 0 && prices.products_without_price === 0 && canManageProducts;
   const showAreas = data !== null ? data.areas !== null : canSeeAreas;
   const areas = data?.areas ?? null;
@@ -87,7 +89,7 @@ export function HomePage() {
             </h2>
             <div className="entry-grid">
               {showAreas && <EntryCard title="区域" to={AREA_LIST_PATH} counts={areaCounts} reminders={areas && areas.active + areas.disabled === 0 && canManageAreas ? [{ text: "还没有区域，先建一个", to: AREA_NEW_PATH }] : []} />}
-              {showProducts && <EntryCard title="商品" to={PRODUCT_LIST_PATH} counts={productCounts} reminders={remindProduct ? [{ text: "还没有商品，先建一个", to: PRODUCT_NEW_PATH }] : remindPublish ? [{ text: `${products?.draft ?? 0} 个商品还没有上架`, to: `${PRODUCT_LIST_PATH}?status=draft` }] : []} />}
+              {showProducts && <EntryCard title="商品" to={PRODUCT_LIST_PATH} counts={productCounts} reminders={[...(remindProduct ? [{ text: "还没有商品，先建一个", to: PRODUCT_NEW_PATH }] : remindPublish ? [{ text: `${products?.draft ?? 0} 个商品还没有上架`, to: `${PRODUCT_LIST_PATH}?status=draft` }] : []), ...(remindStock ? [{ text: `${prices?.published_without_inventory ?? 0} 个已上架的商品从今天起没有库存`, to: `${PRICE_OVERVIEW_PATH}?stock=none` }] : [])]} />}
               {showProducts && <EntryCard title="价格规则" to={PRICE_OVERVIEW_PATH} counts={priceCounts} reminders={remindPrice ? [{ text: `${prices?.products_without_price ?? 0} 个商品还没有设价格`, to: `${PRICE_OVERVIEW_PATH}?priced=no` }] : []} />}
             </div>
           </section>

@@ -793,6 +793,8 @@ function BatchDialog({ initial, productId, today, mode, onClose, onJump, onSubmi
           void submit(asking);
         }}
       >
+        {/* 按钮在对话框的底栏里（表单外面）：留一个看不见的提交按钮，在输入框里按 Enter 才等于点保存 */}
+        <input type="submit" hidden tabIndex={-1} />
         <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
         <fieldset className="field fieldset">
           <legend className="field__label">

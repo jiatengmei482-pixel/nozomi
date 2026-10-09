@@ -50,7 +50,7 @@ const productOf = (overrides: Partial<Product> = {}): Product =>
 
 const item = (key: string, issues: { path: string; reason: string }[] = [], required = true): PublishCheckItemBody => ({ key, required, passed: issues.length === 0, issues: issues.map((issue) => ({ ...issue, message: "说明" })) });
 const checkOf = (changes: Record<string, { path: string; reason: string }[]> = {}): PublishCheckResult => {
-  const items = [item("basic_info"), item("service_rules"), item("price_rules", changes["price_rules"]), item("content"), item("adjust_rules", changes["adjust_rules"], false), item("inventory", [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }], false)];
+  const items = [item("basic_info"), item("service_rules"), item("price_rules", changes["price_rules"]), item("content"), item("adjust_rules", changes["adjust_rules"], false), item("inventory", changes["inventory"], false)];
   return { can_publish: items.every((entry) => !entry.required || entry.passed), items };
 };
 const NO_PRICE = { price_rules: [{ path: "/", reason: "NO_ACTIVE_PRICE_RULE" }] };
@@ -82,7 +82,7 @@ function calendarOf(query: URLSearchParams, special: Record<string, CalendarSegm
   }
   return { version: 7, currency: "JPY", rounding_unit: 100, today: TODAY, days, groups: [{ vehicle_group_id: query.get("vehicle_group_id") ?? "", days }] };
 }
-const overviewOf = (changes: Partial<PriceOverviewItem> = {}): PriceOverviewItem => ({ product_id: PRODUCT_ID, code: "PRD202610081430050001", status: "draft", category: "airport_transfer", title: { zh: "羽田机场接送" }, city: { id: "c1", name: { zh: "东京" } }, coverage: { total: 2, missing: 0 }, price_rule_count: 12, has_active_price: true, active_price_rule_count: 12, enabled_adjust_rule_count: 2, ...changes });
+const overviewOf = (changes: Partial<PriceOverviewItem> = {}): PriceOverviewItem => ({ product_id: PRODUCT_ID, code: "PRD202610081430050001", status: "draft", category: "airport_transfer", title: { zh: "羽田机场接送" }, city: { id: "c1", name: { zh: "东京" } }, coverage: { total: 2, missing: 0 }, inventory_mode: "unlimited", no_inventory_ahead: false, price_rule_count: 12, has_active_price: true, active_price_rule_count: 12, enabled_adjust_rule_count: 2, ...changes });
 
 function open(path: string, role: string, state: State = {}, extra: Route = () => null): ApiCall[] {
   signIn("tenant", "tenant-token");
@@ -101,7 +101,7 @@ function open(path: string, role: string, state: State = {}, extra: Route = () =
     if (at === "/tenant/v1/price-overview") {
       const items = state.overview ?? [];
       const counted = items.filter((entry) => entry.status !== "unpublished");
-      const numbers = { products_with_price: counted.filter((entry) => entry.has_active_price).length, products_without_price: counted.filter((entry) => !entry.has_active_price).length };
+      const numbers = { products_with_price: counted.filter((entry) => entry.has_active_price).length, products_without_price: counted.filter((entry) => !entry.has_active_price).length, published_without_inventory: items.filter((entry) => entry.status === "published" && entry.no_inventory_ahead).length };
       return json(200, call.url.searchParams.get("summary") === "1" ? numbers : { ...numbers, items });
     }
     if (at === "/tenant/v1/dashboard/summary") return json(200, { areas: { active: 1, disabled: 0 }, ...(state.summary ?? { products: { draft: 1, published: 0, unpublished: 0 } }) });
@@ -132,7 +132,7 @@ test("第 ③ 步：还没有价格时步骤导航说的是真实原因；说明
   open(`/products/${PRODUCT_ID}`, "admin", { check: checkOf(NO_PRICE), prices: pricesOf([]) }, (call) => (call.method === "GET" && call.url.pathname === `${BASE}/price-rules` && fail ? apiError(500, "INTERNAL", "boom") : null));
   await screen.findByRole("heading", { level: 2, name: "③ 价格规则" });
   assert.match(stepText("价格规则"), /还差 1 项/);
-  assert.match(stepText("库存"), /即将开放/);
+  assert.match(stepText("库存"), /已完成/);
   await screen.findByText("加载失败");
   fail = false;
   await user().click(screen.getByRole("button", { name: "重试" }));
