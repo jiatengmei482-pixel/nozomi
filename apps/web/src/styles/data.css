@@ -996,6 +996,19 @@
   cursor: pointer;
 }
 
+.toast__action {
+  flex: none;
+  padding: var(--space-0-5) var(--space-2);
+  border: var(--border-width) solid var(--color-text-inverse);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-inverse);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toast__action:focus-visible,
 .toast__close:focus-visible {
   outline-color: var(--color-text-inverse);
 }

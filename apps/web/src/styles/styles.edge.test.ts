@@ -126,18 +126,36 @@ test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出
 
 const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
 const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
+const AREA_DRAFT_STORE = "lib/area-draft.ts";
 
 test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用 localStorage，登录状态只用 sessionStorage", () => {
   for (const { name, text: withComments } of sources) {
     const text = stripComments(withComments);
     if (/\blocalStorage\b/.test(text)) assert.equal(name, "theme/theme.ts", `${name} 用了 localStorage`);
-    if (/\bsessionStorage\b/.test(text)) assert.equal(name, "auth/session-store.ts", `${name} 用了 sessionStorage`);
+    // 例外只有一个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行；下面另有一条核对它只碰自己的键）
+    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE, `${name} 用了 sessionStorage`);
     assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel|postMessage\(/, `${name} 用了别的存放或传递途径`);
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
     assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
     // 新标签页打开的链接只允许出现在专用的站外链接组件里
     if (name !== EXTERNAL_LINK_COMPONENT) assert.doesNotMatch(text, /target="_blank"/, `${name} 打开新窗口（会带出 opener / Referer）`);
   }
+});
+
+test("区域草稿只用自己的键前缀：不读写登录状态的键，草稿里没有令牌", () => {
+  const store = sources.find((source) => source.name === AREA_DRAFT_STORE);
+  assert.ok(store, `找不到 ${AREA_DRAFT_STORE}`);
+  const text = stripComments(store.text);
+  const prefixes = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(prefixes, ["nozomi.area-draft."], "这个文件里只能有草稿自己的键前缀");
+  assert.doesNotMatch(text, /session-store|accessToken|access_token|token/i, "草稿不碰登录状态和令牌");
+  // 每一次读、写、删都经过 draftKey（它只生成这个前缀下的键）或先按前缀筛过
+  assert.equal((text.match(/\.(getItem|setItem|removeItem)\(/g) ?? []).length, 4);
+  assert.match(text, /getItem\(key\)/);
+  assert.match(text, /setItem\(key, raw\)/);
+  assert.match(text, /removeItem\(key\)/);
+  assert.match(text, /key\.startsWith\(DRAFT_PREFIX\)/);
+  assert.match(text, /return `\$\{DRAFT_PREFIX\}\$\{owner\.tenantId\}\.\$\{owner\.userId\}\.\$\{area\}`;/);
 });
 
 test("站外链接组件写死了 noopener noreferrer：对方页面拿不到本站窗口，也看不到来源地址", () => {
