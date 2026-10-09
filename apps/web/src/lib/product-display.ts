@@ -3,7 +3,7 @@
  * 规则本身（校验、缺项、上架检查）全在 @nozomi/domain，这里只管文字。
  */
 import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
-import { CURRENCIES, type CurrencyCode, type LocalizedText, MASTER_DATA_LANGUAGES, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, PRODUCT_STATUS_NAMES, PUBLISH_CHECK_NAMES, type ProductStatus, type PublishCheckKey, type ServiceCategory, formatMajor, isCurrencyCode, parseMajor } from "@nozomi/domain";
+import { CURRENCIES, type CurrencyCode, type LocalizedText, MASTER_DATA_LANGUAGES, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, PRODUCT_STATUS_NAMES, PUBLISH_CHECK_NAMES, type ProductStatus, type PublishCheckKey, type ServiceCategory, formatMajor, isCurrencyCode, scaledInteger } from "@nozomi/domain";
 import type { PublishCheckIssue, PublishCheckItemBody, PublishCheckResult } from "../api/products.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { type DisplayText, displayName } from "./master-display.ts";
@@ -74,14 +74,11 @@ export function readAmount(text: string, currency: string | null): AmountResult 
   if (!read.ok) return { ok: false, message: read.reason === "grouping" ? GROUPING_PROBLEM : read.reason === "other-currency" ? otherCurrencyProblem(currency) : "请填金额，只能是数字，不能是负数" };
   const tidy = read.text;
   const digits = code ? CURRENCIES[code].minorDigits : 0;
-  if ((tidy.split(".")[1] ?? "").length > digits) return { ok: false, message: digits === 0 ? `${currency ?? "这种币种"}没有小数，请填整数` : `${currency} 最多 ${digits} 位小数` };
-  try {
-    const minor = code ? parseMajor(tidy, code) : Number(tidy);
-    if (minor > PRODUCT_LIMITS.maxAmountMinor) return { ok: false, message: "金额太大了，请检查是不是多打了几个零" };
-    return { ok: true, minor };
-  } catch {
-    return { ok: false, message: "请填金额，只能是数字，不能是负数" };
-  }
+  // 主单位 → 最小货币单位：用 @nozomi/domain 的 scaledInteger（和导入 Excel 同一个函数），先查小数位、再查范围
+  const scaled = scaledInteger(tidy, digits, { min: 0, max: PRODUCT_LIMITS.maxAmountMinor });
+  if ("value" in scaled) return { ok: true, minor: scaled.value };
+  if (scaled.issue === "PRECISION") return { ok: false, message: digits === 0 ? `${currency ?? "这种币种"}没有小数，请填整数` : `${currency} 最多 ${digits} 位小数` };
+  return { ok: false, message: "金额太大了，请检查是不是多打了几个零" };
 }
 
 // ───────────── 上架检查 ─────────────
@@ -112,6 +109,8 @@ export interface CheckReason {
   anchor: string | null;
   /** 不归用户补的原因后面跟的一句 */
   note?: string;
+  /** 这一条牵涉到好几处时（几条调价规则叠加）：每一处各一个去处 */
+  links?: { label: string; anchor: string }[];
 }
 
 export interface CheckContext {
@@ -192,10 +191,14 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
       if (issue.reason !== "ADJUST_STACK_NOT_POSITIVE" && issue.reason !== "ADJUST_STACK_OVER_LIMIT") continue;
       known.add(issue);
       const detail = issue.detail ?? {};
-      const names = typeof detail["names"] === "string" && detail["names"] !== "" ? `「${detail["names"]}」` : "几条调价规则";
+      const nameList = typeof detail["names"] === "string" && detail["names"] !== "" ? detail["names"].split(/[、,，]/).map((name) => name.trim()) : [];
+      const ids = typeof detail["rule_ids"] === "string" ? detail["rule_ids"].split(",").map((id) => id.trim()).filter((id) => id !== "") : [];
+      const names = nameList.length > 0 ? `「${nameList.join("、")}」` : "几条调价规则";
       const when = typeof detail["date"] === "string" ? `（最早是 ${detail["date"]}${typeof detail["time"] === "string" ? ` ${detail["time"]}` : ""}${typeof detail["day_count"] === "number" && detail["day_count"] > 1 ? `，今后一年里有 ${detail["day_count"]} 天` : ""}）` : "";
       const prices = typeof detail["price_count"] === "number" ? `有 ${detail["price_count"]} 条价格` : "有的价格";
-      out.push(one(issue.reason === "ADJUST_STACK_NOT_POSITIVE" ? `${names}同时生效时${when}，${prices}调完不大于 0，报不出来` : `${names}同时生效时${when}，${prices}调完超过了结算价的上限，报不出来`, "adjust"));
+      // 后端给的是完整的中文句子：直接用；没有中文时才用页面按 detail 拼的
+      const text = /[一-鿿]/.test(issue.message) ? issue.message : issue.reason === "ADJUST_STACK_NOT_POSITIVE" ? `${names}同时生效时${when}，${prices}调完不大于 0，报不出来` : `${names}同时生效时${when}，${prices}调完超过了结算价的上限，报不出来`;
+      out.push({ text, anchor: ids.length > 0 ? null : "adjust", ...(ids.length > 0 ? { links: ids.map((id, index) => ({ label: nameList[index] ?? `第 ${index + 1} 条`, anchor: `adjust/${id}` })) } : {}) });
     }
   } else if (item.key === "inventory") {
     if (take(reason("NO_INVENTORY_AHEAD"))) out.push(one("库存是限量的，但从今天起没有一天有库存——上了架也卖不出去。", ""));

@@ -46,7 +46,7 @@ export function HomePage() {
   const remindPrice = prices !== null && selling > 0 && prices.products_without_price > 0 && canManageProducts;
   // 已经在卖的出了问题：不属于「下一步」的引导，可以和引导同时出现
   const remindStock = prices !== null && prices.published_without_inventory > 0 && canManageProducts;
-  // 已上架、价格却都过期或停用了：还挂着「已上架」，一个价都报不出
+  // 已上架、价格却都过期或停用了：还挂着「已上架」，一个价都报不出。这张卡片一次只出一条提醒，它排在「还没有设价格」前面（正在卖的出了问题更急）
   const remindExpired = prices !== null && prices.published_without_price > 0 && canManageProducts;
   const remindPublish = prices !== null && products !== null && products.draft > 0 && products.published === 0 && prices.products_without_price === 0 && canManageProducts;
   const showAreas = data !== null ? data.areas !== null : canSeeAreas;
@@ -92,7 +92,7 @@ export function HomePage() {
             <div className="entry-grid">
               {showAreas && <EntryCard title="区域" to={AREA_LIST_PATH} counts={areaCounts} reminders={areas && areas.active + areas.disabled === 0 && canManageAreas ? [{ text: "还没有区域，先建一个", to: AREA_NEW_PATH }] : []} />}
               {showProducts && <EntryCard title="商品" to={PRODUCT_LIST_PATH} counts={productCounts} reminders={[...(remindProduct ? [{ text: "还没有商品，先建一个", to: PRODUCT_NEW_PATH }] : remindPublish ? [{ text: `${products?.draft ?? 0} 个商品还没有上架`, to: `${PRODUCT_LIST_PATH}?status=draft` }] : []), ...(remindStock ? [{ text: `${prices?.published_without_inventory ?? 0} 个已上架的商品从今天起没有库存`, to: `${PRICE_OVERVIEW_PATH}?stock=none` }] : [])]} />}
-              {showProducts && <EntryCard title="价格规则" to={PRICE_OVERVIEW_PATH} counts={priceCounts} reminders={[...(remindPrice ? [{ text: `${prices?.products_without_price ?? 0} 个商品还没有设价格`, to: `${PRICE_OVERVIEW_PATH}?priced=no` }] : []), ...(remindExpired ? [{ text: `${prices?.published_without_price ?? 0} 个已上架的商品已经没有可用的价格`, to: `${PRICE_OVERVIEW_PATH}?priced=no&status=published` }] : [])]} />}
+              {showProducts && <EntryCard title="价格规则" to={PRICE_OVERVIEW_PATH} counts={priceCounts} reminders={remindExpired ? [{ text: `${prices?.published_without_price ?? 0} 个已上架的商品已经没有可用的价格`, to: `${PRICE_OVERVIEW_PATH}?priced=lost` }] : remindPrice ? [{ text: `${prices?.products_without_price ?? 0} 个商品还没有设价格`, to: `${PRICE_OVERVIEW_PATH}?priced=no` }] : []} />}
             </div>
           </section>
         )}

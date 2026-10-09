@@ -5,7 +5,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type Product, type PublishCheckItemBody, type PublishCheckResult, setProductPublished } from "../../api/products.ts";
+import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, getServiceRules, setProductPublished } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
@@ -17,6 +17,8 @@ import { shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
 import { pricePath, productPath } from "../../lib/product-paths.ts";
+import { localToday } from "../../lib/time-input.ts";
+import { useLoad } from "../../lib/use-load.ts";
 import type { ProductFrame } from "./frame.ts";
 import { useProductActions } from "./useProductActions.tsx";
 
@@ -31,6 +33,7 @@ const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;
+  const rules = useLoad<ProductServiceRules>(`publish-service-rules:${product.id}:${frame.version}`, (token) => getServiceRules(token, product.id));
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const navigate = useNavigate();
@@ -119,6 +122,10 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
   }
 
   const overview = checkOverview(check);
+  // 下单有效期已经过了：不拦上架，只提醒（按城市当地的今天比）
+  const saleTo = rules.state.data?.rules.booking.sale_to ?? null;
+  const cityToday = product.city ? localToday(product.city.timezone) : null;
+  const saleExpired = saleTo !== null && cityToday !== null && saleTo < cityToday;
   const published = product.status === "published";
   const failedCount = overview.failed.length;
   const waiting = quoteNames(overview.unavailable);
@@ -181,6 +188,15 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
                     {readOnly ? "去查看" : item.key === "inventory" ? "去设" : "去填"}
                     <Icon name="chevron-right" />
                   </Link>
+                ) : reason.links ? (
+                  <span className="checklist__links">
+                    {reason.links.map((link) => (
+                      <Link key={link.anchor} className="link checklist__go" to={pricePath(product.id, "adjust", link.anchor.slice("adjust".length))} aria-label={`${readOnly ? "去查看" : "去改"}调价规则「${link.label}」`}>
+                        {`${readOnly ? "看" : "改"}「${link.label}」`}
+                        <Icon name="chevron-right" />
+                      </Link>
+                    ))}
+                  </span>
                 ) : (
                   reason.note && <span className="checklist__note">{reason.note}</span>
                 )}
@@ -220,6 +236,18 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
             </span>
           </Alert>
         </div>
+        {saleExpired && (
+          <p className="adjust-warning" data-remind="sale-expired">
+            <Icon name="alert-triangle" />
+            <span>
+              {`下单有效期已经过了（到 ${saleTo} 为止），客人现在下不了单。它不影响上架。`}
+              <Link className="link checklist__go" to={productPath(product.id, "service-rules", "sale-period")}>
+                {readOnly ? "去查看" : "去改"}
+                <Icon name="chevron-right" />
+              </Link>
+            </span>
+          </p>
+        )}
         <h3 className="checklist__group">上架前必须满足</h3>
         <ul className="checklist">{required.map(row)}</ul>
         {optional.length > 0 && (

@@ -660,3 +660,17 @@ test("区域：列表显示被几个商品使用；停用被拒（有已上架�
   assertAbsent(screen.queryByRole("radio", { name: /^包车/ }));
   assert.equal(screen.getByRole("link", { name: "查看这些商品" }).getAttribute("href"), `/products?area=${AREA_ID}`);
 });
+
+test("上架检查页：下单有效期已经过了时有一句提醒（不拦上架），带去改；没过期、不限时没有", async () => {
+  const expired = rulesOf({ booking: { sale_from: "2020-01-01", sale_to: "2020-12-31", service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null } });
+  open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check: checkOf({ price_rules: [] }), rules: expired }));
+  await screen.findByText(/下单有效期已经过了（到 2020-12-31 为止），客人现在下不了单。它不影响上架。/);
+  assert.equal(document.querySelector('[data-remind="sale-expired"] a')?.getAttribute("href"), `/products/${PRODUCT_ID}/service-rules#sale-period`);
+  assert.ok(screen.getByText("可以上架了"));
+
+  resetBrowser();
+  open(`/products/${PRODUCT_ID}/publish`, "admin", productRoutes({ check: checkOf({ price_rules: [] }), rules: rulesOf({ booking: { sale_from: null, sale_to: "2999-12-31", service_time: null, lead_time_hours: null, note: null } }) }));
+  await screen.findByText("可以上架了");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assertAbsent(document.querySelector('[data-remind="sale-expired"]'));
+});

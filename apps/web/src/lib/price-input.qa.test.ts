@@ -72,8 +72,12 @@ test("金额输入（人民币，两位小数）：元换成分用字符串挪�
 
 test("写法不明确的不静默读成别的数：千分位的逗号后面必须正好三位（「12,50」可能是把逗号当小数点）；全角的 ￥ 和 $ 认得；带着别的币种的标记报错，不按本币读", () => {
   // M1-04 的输入容错收紧之后的口径（原来是「逗号不管在哪都去掉」「别的币种的符号也去掉」，12,50 会被读成 1,250.00）
-  const GROUPING = "逗号的位置不对：千分位的逗号后面要正好三位（如 12,500）；小数点请用「.」";
-  for (const [text, currency] of [["12,50", "CNY"], ["1,00", "JPY"], ["1,,000", "JPY"], ["1 000,50", "JPY"], ["1.000,50", "JPY"], ["1,0000", "JPY"], [",500", "JPY"]] as const) assert.equal(typed(text, currency), GROUPING, text);
+  const GROUPING = "逗号的位置不对：千分位的逗号前面不能以 0 开头、后面要正好三位（如 12,500）；小数点请用「.」";
+  for (const [text, currency] of [["12,50", "CNY"], ["1,00", "JPY"], ["1,,000", "JPY"], ["1 000,50", "JPY"], ["1.000,50", "JPY"], ["1,0000", "JPY"], [",500", "JPY"], ["0,500", "JPY"], ["00,500", "JPY"], ["0,500.00", "CNY"], ["012,500", "JPY"]] as const) assert.equal(typed(text, currency), GROUPING, text);
+  // 和导入 Excel 同一个口径（@nozomi/domain 的 plainDecimal）：0,500 可能是欧洲写法的 0.5，不猜
+  assert.equal(typed("-0.5", "CNY"), "基础价不能是负数");
+  assert.equal(typed("-0,500", "JPY"), "基础价不能是负数");
+  for (const text of ["999,999,999,999,999,999", "1" + ",000".repeat(10)]) assert.equal(typed(text, "JPY"), "基础价最多 JPY 1,000,000,000", text.slice(0, 30));
   assert.equal(typed("12,500", "CNY"), 1_250_000);
   assert.equal(typed("1,234,567.89", "CNY"), 123_456_789);
   // 自己币种的符号，半角全角都认

@@ -2,8 +2,9 @@
  * 修改取整单位（docs/design/pages/tenant-prices.md 第 7 节）。取整单位存在子品牌上，这个子品牌下的所有商品共用；只有管理员能改。
  * 选项来自 @nozomi/domain 的 roundingUnitOptions，例子用 roundToUnit 现算。
  */
-import { isCurrencyCode, roundToUnit, roundingUnitOptions } from "@nozomi/domain";
+import { PRODUCT_STATUS_NAMES, isCurrencyCode, roundToUnit, roundingUnitOptions } from "@nozomi/domain";
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
 import { getPriceRules, saveRoundingUnit } from "../../../api/prices.ts";
 import { listBrands } from "../../../api/products.ts";
@@ -14,6 +15,7 @@ import { Dialog } from "../../../components/Dialog.tsx";
 import { useToast } from "../../../components/Toast.tsx";
 import { moneyText } from "../../../lib/product-display.ts";
 import { saveFailureText } from "../../../lib/product-failure.ts";
+import { pricePath } from "../../../lib/product-paths.ts";
 
 export function RoundingUnitDialog({ open, productId, brandId, brandName, currency, current, onClose, onSaved }: { open: boolean; productId: string; brandId: string; brandName: string; currency: string; current: number; onClose(): void; onSaved(): void }) {
   const { token, handleAuthFailure } = usePortalSession();
@@ -23,6 +25,8 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
   const [version, setVersion] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<{ id: string; code: string; status: string; prices: number }[]>([]);
+  const [productCount, setProductCount] = useState<number | null>(null);
   const options = isCurrencyCode(currency) ? roundingUnitOptions(currency) : [1];
 
   /** 取子品牌的版本号（保存时做 If-Match）。 */
@@ -47,6 +51,7 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
     if (version === null || saving) return;
     setSaving(true);
     setProblem(null);
+    setBlocked([]);
     try {
       const saved = await saveRoundingUnit(token, brandId, version, unit);
       toast(saved.changed_price_count > 0 ? `已保存取整单位，有 ${saved.changed_price_count.toLocaleString("en-US")} 条价格取整后的数变了` : "已保存取整单位");
@@ -69,6 +74,14 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
         const count = (key: string): number | null => (typeof err.details[key] === "number" ? (err.details[key] as number) : null);
         const prices = count("price_count");
         const published = count("published_product_count");
+        setProductCount(count("product_count"));
+        const listed = Array.isArray(err.details["products"]) ? (err.details["products"] as unknown[]) : [];
+        setBlocked(
+          listed.flatMap((entry) => {
+            const row = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>) : {};
+            return typeof row["product_id"] === "string" && typeof row["code"] === "string" ? [{ id: row["product_id"], code: row["code"], status: typeof row["status"] === "string" ? row["status"] : "", prices: typeof row["price_count"] === "number" ? row["price_count"] : 0 }] : [];
+          }),
+        );
         setProblem(`不能改成 ${label(unit)}：这个子品牌下有${prices !== null ? ` ${prices.toLocaleString("en-US")} 条` : ""}价格取整后会变成 0，报不出价${published !== null && published > 0 ? `（其中 ${published.toLocaleString("en-US")} 个商品已上架）` : ""}。请选小一点的取整单位，或先把这些价格改大。`);
       } else if (err instanceof ApiError && err.status === 403) setProblem("你没有权限修改取整单位。");
       else setProblem(saveFailureText(err, "保存"));
@@ -100,7 +113,23 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
       }
     >
       <div className="form">
-        <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        <div role="alert">
+          {problem !== null && (
+            <Alert kind="danger">
+              <span>{problem}</span>
+              {blocked.length > 0 && (
+                <span className="error-summary__list">
+                  {blocked.map((entry) => (
+                    <Link key={entry.id} className="link error-summary__item" to={pricePath(entry.id)} onClick={onClose}>
+                      {`${entry.code}（${(PRODUCT_STATUS_NAMES as Record<string, string>)[entry.status] ?? "商品"}）：${entry.prices.toLocaleString("en-US")} 条价格`}
+                    </Link>
+                  ))}
+                  {productCount !== null && productCount > blocked.length && <span>{`还有 ${(productCount - blocked.length).toLocaleString("en-US")} 个商品`}</span>}
+                </span>
+              )}
+            </Alert>
+          )}
+        </div>
         <Alert kind="warning">
           <strong className="alert__title">{`这是子品牌「${brandName}」的设置。`}</strong>
           <span>这个子品牌下的所有商品都会跟着变，已上架的商品也一样。</span>

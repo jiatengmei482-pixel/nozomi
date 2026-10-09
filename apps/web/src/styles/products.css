@@ -2927,3 +2927,33 @@ p.stock-day__status.stock-cell--sold_out {
 .import-table .price-state {
   white-space: nowrap;
 }
+
+.price-table__group > th {
+  background: var(--color-bg-subtle);
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  white-space: normal;
+}
+
+.price-table__group > th > svg {
+  margin-right: var(--space-1);
+  vertical-align: middle;
+}
+
+.price-table__group-note {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.price-overview__price--danger {
+  color: var(--color-danger-text);
+}
+
+.checklist__links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}

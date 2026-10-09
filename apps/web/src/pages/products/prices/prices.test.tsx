@@ -817,7 +817,7 @@ test("价格表的金额格：已经有千分位的数（18,500），键盘进�
 
 test("后端新口径的配合：取整单位太大被拒时说明有几条价格会变成 0；保存成功说出变了几条；已上架却没有可用价格的在首页提醒；叠加出的问题写在上架检查里", async () => {
   const actor = user();
-  let answer: Response = apiError(409, "ROUNDING_UNIT_ZEROES_PRICES", "zero", { rounding_unit: 1000, price_count: 3, product_count: 2, published_product_count: 1, products: [] });
+  let answer: Response = apiError(409, "ROUNDING_UNIT_ZEROES_PRICES", "zero", { rounding_unit: 1000, price_count: 3, product_count: 2, published_product_count: 1, products: [{ product_id: PRODUCT_ID, code: "PRD202610081430050001", status: "published", price_count: 2 }] });
   open(`/products/${PRODUCT_ID}/prices`, "admin", {}, (call) => (call.method === "PUT" && call.url.pathname === "/tenant/v1/brands/b1/rounding-unit" ? answer : null));
   await actor.click(await screen.findByRole("button", { name: "修改取整单位" }));
   const dialog = screen.getByRole("dialog", { name: "修改取整单位" });
@@ -825,6 +825,8 @@ test("后端新口径的配合：取整单位太大被拒时说明有几条价�
   await waitFor(() => assert.equal((within(dialog).getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled, false));
   await actor.click(within(dialog).getByRole("button", { name: "保存" }));
   await within(dialog).findByText("不能改成 JPY 1,000：这个子品牌下有 3 条价格取整后会变成 0，报不出价（其中 1 个商品已上架）。请选小一点的取整单位，或先把这些价格改大。");
+  assert.equal(within(dialog).getByRole("link", { name: "PRD202610081430050001（已上架）：2 条价格" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices`);
+  assert.match(dialog.textContent ?? "", /还有 1 个商品/);
   answer = json(200, { id: "b1", rounding_unit: 10, version: 5, changed_price_count: 4 });
   await actor.selectOptions(within(dialog).getByLabelText(/取整到/), "10");
   await actor.click(within(dialog).getByRole("button", { name: "保存" }));
@@ -833,7 +835,7 @@ test("后端新口径的配合：取整单位太大被拒时说明有几条价�
 
   resetBrowser();
   open("/", "admin", { overview: [overviewOf({ status: "published", has_active_price: false })], summary: { products: { draft: 0, published: 1, unpublished: 0 } } });
-  assert.equal((await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" })).getAttribute("href"), "/price-rules?priced=no&status=published");
+  assert.equal((await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" })).getAttribute("href"), "/price-rules?priced=lost");
 
   resetBrowser();
   open(`/products/${PRODUCT_ID}/publish`, "admin", {
@@ -844,14 +846,45 @@ test("后端新口径的配合：取整单位太大被拒时说明有几条价�
         item("service_rules"),
         item("price_rules", [{ path: "/", reason: "NO_PRICE_IN_SELECTION" }]),
         item("content"),
-        { key: "adjust_rules", required: false, passed: false, issues: [{ path: "/stacks/0", reason: "ADJUST_STACK_NOT_POSITIVE", message: "x", detail: { rule_ids: "a,b", names: "清仓、夜间优惠", price_count: 2, date: "2026-10-10", time: "22:00", day_count: 5 } }, { path: "/stacks/1", reason: "ADJUST_STACK_OVER_LIMIT", message: "x", detail: { names: "旺季", price_count: 1, date: "2026-12-31" } }] },
+        { key: "adjust_rules", required: false, passed: false, issues: [{ path: "/stacks/0", reason: "ADJUST_STACK_NOT_POSITIVE", message: "「清仓」「夜间优惠」同时生效时，有 2 条价格调完不大于 0", detail: { rule_ids: `${RULE_ID},${RULE2_ID}`, names: "清仓、夜间优惠", price_count: 2, date: "2026-10-10", time: "22:00", day_count: 5 } }, { path: "/stacks/1", reason: "ADJUST_STACK_OVER_LIMIT", message: "x", detail: { names: "旺季", price_count: 1, date: "2026-12-31" } }] },
         item("inventory", [], false),
       ],
     },
   });
   await waitFor(() => assert.match(document.querySelector('[data-check="price_rules"]')?.textContent ?? "", /现有的价格都是给已经不在这个商品里的区域或车型组设的。请给现在选着的区域和车型组设价格/));
   const adjusts = document.querySelector('[data-check="adjust_rules"]')?.textContent ?? "";
-  assert.match(adjusts, /「清仓、夜间优惠」同时生效时（最早是 2026-10-10 22:00，今后一年里有 5 天），有 2 条价格调完不大于 0，报不出来/);
+  assert.match(adjusts, /「清仓」「夜间优惠」同时生效时，有 2 条价格调完不大于 0/, "后端给的完整句子直接显示");
+  assert.equal(screen.getByRole("link", { name: "去改调价规则「清仓」" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust/${RULE_ID}`);
+  assert.equal(screen.getByRole("link", { name: "去改调价规则「夜间优惠」" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust/${RULE2_ID}`);
   assert.match(adjusts, /「旺季」同时生效时（最早是 2026-12-31），有 1 条价格调完超过了结算价的上限，报不出来/);
   assert.doesNotMatch(pageText(), /ADJUST_STACK|NO_PRICE_IN_SELECTION/);
+});
+
+test("这一轮补上的：价格表里已经不在商品里的区域的价格单独一组、只能删；总览页标出已上架却没有可用价格的并能筛；首页价格卡片一次只出一条提醒", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices`, "admin", { prices: pricesOf([priceOf(), priceOf({ id: "orphan-1", area_id: "gone-area", base_price: 9000, base: "9000" })]) });
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  const group = document.querySelector(".price-table__group") as HTMLElement;
+  assert.match(group.textContent ?? "", /已经不在这个商品里的区域或车型组的价格（1 条）这些价格现在不算数；把区域 \/ 车型组选回来会重新生效。用不到的可以删掉。/);
+  const orphan = screen.getByLabelText("已移除的区域 · 商务七座 · 接送通用 的基础价") as HTMLInputElement;
+  assert.deepEqual([orphan.value, orphan.readOnly], ["9,000", true]);
+  await actor.click(screen.getByRole("button", { name: "已移除的区域 · 商务七座 · 接送通用 的更多操作" }));
+  assert.equal((screen.getByRole("menuitem", { name: "再加一段日期" }) as HTMLButtonElement).disabled, true);
+  await actor.click(screen.getByRole("menuitem", { name: "删除" }));
+  assert.match(document.getElementById("price-row-orphan-1")?.textContent ?? "", /将删除/);
+
+  resetBrowser();
+  const lost = overviewOf({ product_id: "p2", code: "PRD2", title: { zh: "价格过期的" }, status: "published", has_active_price: false, price_rule_count: 3, active_price_rule_count: 0 });
+  open("/price-rules?priced=lost", "admin", { overview: [overviewOf(), lost, overviewOf({ product_id: "p3", code: "PRD3", title: { zh: "草稿没价" }, has_active_price: false, price_rule_count: 0, active_price_rule_count: 0 })] });
+  const row = (await screen.findByRole("link", { name: "价格过期的" })).closest("tr") as HTMLElement;
+  assert.match(row.textContent ?? "", /已上架，但没有可用的价格有 3 条，都停用、过期，或不在现在选的区域和车型组里/);
+  assert.deepEqual([...document.querySelectorAll(".price-overview tbody th a")].map((node) => node.textContent), ["价格过期的"]);
+  await actor.click(screen.getByRole("button", { name: "去掉条件「已上架、没有可用的价格」" }));
+  await waitFor(() => assert.equal(document.querySelectorAll(".price-overview tbody th a").length, 3));
+
+  // 首页：两种情况同时有时只出一条，已经在卖的排前面
+  resetBrowser();
+  open("/", "admin", { overview: [lost, overviewOf({ product_id: "p3", has_active_price: false })], summary: { products: { draft: 1, published: 1, unpublished: 0 } } });
+  await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" });
+  assertAbsent(screen.queryByRole("link", { name: /个商品还没有设价格/ }));
 });

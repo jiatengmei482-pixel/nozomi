@@ -56,6 +56,11 @@ function Filters() {
   );
 }
 
+/** 已上架、却已经没有可以卖的价格：还挂着「已上架」，一个价都报不出。 */
+export function lostPrice(item: Pick<PriceOverviewItem, "has_active_price" | "status">): boolean {
+  return !item.has_active_price && item.status === "published";
+}
+
 export function PriceOverviewPage() {
   const { portal, account } = usePortalSession();
   useDocumentTitle(`价格规则 · NOZOMI ${portal.name}`);
@@ -70,6 +75,8 @@ export function PriceOverviewPage() {
   const categoryParam = params.get("category");
   const category = (CATEGORIES as readonly string[]).includes(categoryParam ?? "") ? (categoryParam as ServiceCategory) : null;
   const unpricedOnly = params.get("priced") === "no";
+  /** 已上架、却已经没有可以卖的价格 */
+  const lostOnly = params.get("priced") === "lost";
   const noStockOnly = params.get("stock") === "none";
   const sizeParam = Number(params.get("size"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
@@ -101,6 +108,7 @@ export function PriceOverviewPage() {
       (status === null || item.status === status) &&
       (category === null || item.category === category) &&
       (!unpricedOnly || lacksPrice(item)) &&
+      (!lostOnly || lostPrice(item)) &&
       (!noStockOnly || (item.no_inventory_ahead && item.status === "published")) &&
       (needle === "" ||
         item.code.toLowerCase().includes(needle) ||
@@ -110,7 +118,7 @@ export function PriceOverviewPage() {
   const pageParam = Number(params.get("page"));
   const page = Number.isInteger(pageParam) && pageParam >= 1 && pageParam <= pages ? pageParam : 1;
   const rows = matched.slice((page - 1) * pageSize, page * pageSize);
-  const filtered = q !== "" || status !== null || category !== null || unpricedOnly || noStockOnly;
+  const filtered = q !== "" || status !== null || category !== null || unpricedOnly || lostOnly || noStockOnly;
   const onlyUnpriced = unpricedOnly && !noStockOnly && q === "" && status === null && category === null;
 
   const columns: Column<PriceOverviewItem>[] = [
@@ -140,7 +148,9 @@ export function PriceOverviewPage() {
       cell: (row) => {
         const name = shortName(productName(row).text);
         const view =
-          !row.has_active_price && row.price_rule_count === 0
+          lostPrice(row)
+            ? { tone: "danger", icon: "alert-circle" as const, text: "已上架，但没有可用的价格", note: row.price_rule_count === 0 ? "客人现在询不到价" : `有 ${row.price_rule_count} 条，都停用、过期，或不在现在选的区域和车型组里` }
+            : !row.has_active_price && row.price_rule_count === 0
             ? { tone: "warning", icon: "alert-triangle" as const, text: "还没有设价格", note: null }
             : !row.has_active_price
               ? { tone: "plain", icon: "alert-triangle" as const, text: "没有可用的价格", note: `有 ${row.price_rule_count} 条，都停用或过期了` }
@@ -250,6 +260,16 @@ export function PriceOverviewPage() {
         <input type="checkbox" checked={unpricedOnly} onChange={(event) => setParam({ priced: event.target.checked ? "no" : null })} />
         <span className="choice__text">只看还没有设价格的</span>
       </label>
+      {lostOnly && (
+        <p className="filter-chips">
+          <span className="filter-chip" title="已上架、没有可用的价格">
+            <span className="filter-chip__text">已上架、没有可用的价格</span>
+            <button type="button" className="filter-chip__remove" aria-label="去掉条件「已上架、没有可用的价格」" onClick={() => setParam({ priced: null })}>
+              <Icon name="x" />
+            </button>
+          </span>
+        </p>
+      )}
       {noStockOnly && (
         <p className="filter-chips">
           <span className="filter-chip" title="已上架、从今天起没有库存">

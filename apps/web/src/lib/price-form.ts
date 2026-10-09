@@ -23,9 +23,10 @@ import {
   priceDirectionNames,
   priceRuleIsActive,
   priceRuleIssues,
+  scaledInteger,
 } from "@nozomi/domain";
 import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
-import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
+import { GROUPING_PROBLEM, otherCurrencyProblem, plainDigits, tidyAmountText } from "./amount-input.ts";
 import { CURRENCY_NAMES, amountText, moneyText, readAmount } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
 
@@ -94,8 +95,11 @@ export function metersToKmText(meters: number): string {
 
 /** 公里的写法（最多 1 位小数）→ 整数米；认不出来返回 null。 */
 export function kmTextToMeters(text: string): number | null {
-  const match = /^(\d+)(?:\.(\d))?$/.exec(halfWidth(text).trim().replace(/,/g, ""));
-  return match ? Number(match[1]) * 1000 + Number(match[2] ?? "0") * 100 : null;
+  const digits = plainDigits(halfWidth(text).replace(/\s/g, ""));
+  if (digits === null) return null;
+  // 公里 → 百米用 @nozomi/domain 的 scaledInteger（和导入 Excel 同一个函数），再换成米
+  const tenths = scaledInteger(digits, 1, { min: 0, max: Number.MAX_SAFE_INTEGER / 1000 });
+  return "value" in tenths ? tenths.value * 100 : null;
 }
 
 export function rowFromRule(rule: PriceRuleBody, currency: string): PriceRow {

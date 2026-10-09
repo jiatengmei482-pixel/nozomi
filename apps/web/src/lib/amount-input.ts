@@ -4,7 +4,7 @@
  * 不认，并且说清楚：逗号后面不是正好三位的（「12,50」可能是把逗号当小数点）、别的币种的代码和符号。
  * 这里只整理写法，不做任何换算；换成最小货币单位由 @nozomi/domain 的 parseMajor 做。
  */
-import { CURRENCIES } from "@nozomi/domain";
+import { CURRENCIES, plainDecimal } from "@nozomi/domain";
 
 export type AmountText =
   | { ok: true; text: string }
@@ -35,12 +35,24 @@ export function tidyAmountText(raw: string, currency: string | null): AmountText
   if (foreign) return { ok: false, reason: "other-currency" };
   if (/^-/.test(text)) return { ok: false, reason: "negative" };
   if (text.replace(/,/g, "") === "") return { ok: false, reason: "empty" };
-  if (/^\d+(\.\d+)?$/.test(text)) return { ok: true, text };
-  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(text)) return { ok: true, text: text.replace(/,/g, "") };
+  const digits = plainDigits(text);
+  if (digits !== null) return { ok: true, text: digits };
   return { ok: false, reason: /^[\d.,]+$/.test(text) && text.includes(",") ? "grouping" : "not-number" };
 }
 
-export const GROUPING_PROBLEM = "逗号的位置不对：千分位的逗号后面要正好三位（如 12,500）；小数点请用「.」";
+/**
+ * 输入框里的一个不带符号的数 → 只有数字和小数点的写法（用户敲的位数原样留着，后面查小数位要用）。
+ * 是不是数字、千分位写得对不对，只问 @nozomi/domain 的 plainDecimal（和导入 Excel 是同一个口径：第一组 1 到 3 位、不以 0 开头，
+ * 后面每组正好三位）；这里只多一条：输入框里不收科学计数和正负号。不是数字返回 null。
+ */
+export function plainDigits(text: string): string | null {
+  if (/^\d+(\.\d+)?$/.test(text)) return text;
+  // 带逗号的：千分位写得对不对由 plainDecimal 说了算
+  if (!/^\d[\d,]*(\.\d+)?$/.test(text) || plainDecimal(text) === null) return null;
+  return text.replace(/,/g, "");
+}
+
+export const GROUPING_PROBLEM = "逗号的位置不对：千分位的逗号前面不能以 0 开头、后面要正好三位（如 12,500）；小数点请用「.」";
 export function otherCurrencyProblem(currency: string | null): string {
   return `这一格的币种是 ${currency ?? "商品的币种"}，请不要带别的币种的符号，只填数字`;
 }

@@ -4,7 +4,7 @@
  * 行怎么读、缺不缺价、日期重不重叠都在 lib/price-form.ts（规则来自 @nozomi/domain）。
  */
 import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
 import { exportPrices } from "../../../api/inventory.ts";
@@ -133,8 +133,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const hasMileage = rows.some((row) => row.model === "mileage_time" && !row.deleted);
   const valueFields: readonly PriceField[] = category === "charter" ? MODEL_FIELDS.charter_package : hasMileage ? MODEL_FIELDS.mileage_time : MODEL_FIELDS.fixed;
 
-  const areaName = (id: string): string => displayName(product.areas.find((area) => area.area_id === id)?.name).text;
-  const groupName = (id: string): string => displayName(product.vehicle_groups.find((group) => group.vehicle_group_id === id)?.name).text;
+  const areaName = (id: string): string => (areaIds.includes(id) ? displayName(product.areas.find((area) => area.area_id === id)?.name).text : "已移除的区域");
+  const groupName = (id: string): string => (groupIds.includes(id) ? displayName(product.vehicle_groups.find((group) => group.vehicle_group_id === id)?.name).text : "已移除的车型组");
+  /** 给已经不在这个商品里的区域 / 车型组设的价格：现在不算数（不参与报价、不算「有可用的价格」），只能看和删 */
+  const isOrphan = (row: PriceRow): boolean => !areaIds.includes(row.areaId) || !groupIds.includes(row.vehicleGroupId);
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
   const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
 
@@ -710,8 +712,10 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                           const bad = (field: RowField): true | undefined => (reading.problems.some((problem) => problem.field === field) || ((field === "from" || field === "to") && state.state === "overlap") ? true : undefined);
                           const group = product.vehicle_groups.find((entry) => entry.vehicle_group_id === row.vehicleGroupId);
                           const area = product.areas.find((entry) => entry.area_id === row.areaId);
-                          const firstOfArea = index === 0 || visible[index - 1]?.areaId !== row.areaId;
-                          const rowLocked = locked || row.deleted;
+                          const orphan = isOrphan(row);
+                          const firstOrphan = orphan && (index === 0 || !isOrphan(visible[index - 1] as PriceRow));
+                          const firstOfArea = index === 0 || visible[index - 1]?.areaId !== row.areaId || firstOrphan;
+                          const rowLocked = locked || row.deleted || orphan;
                           const flag = ["error", "overlap"].includes(state.state) ? " price-table__row--error" : ["new", "changed"].includes(state.state) ? " price-table__row--unsaved" : "";
                           const cell = (field: PriceField): ReactNode => {
                             if (!MODEL_FIELDS[row.model].includes(field)) return <span className="table__muted">—</span>;
@@ -770,13 +774,23 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                             />
                           );
                           return (
-                            <tr key={row.key} id={`price-row-${row.key}`} className={`price-table__row${flag}${firstOfArea ? " price-table__row--first" : ""}${row.deleted ? " price-table__row--deleted" : ""}`} onFocus={() => setFocused(row.key)}>
+                            <Fragment key={row.key}>
+                            {firstOrphan && (
+                              <tr className="price-table__group">
+                                <th colSpan={30} scope="colgroup">
+                                  <Icon name="alert-triangle" />
+                                  {`已经不在这个商品里的区域或车型组的价格（${visible.filter(isOrphan).length} 条）`}
+                                  <span className="price-table__group-note">这些价格现在不算数；把区域 / 车型组选回来会重新生效。用不到的可以删掉。</span>
+                                </th>
+                              </tr>
+                            )}
+                            <tr id={`price-row-${row.key}`} className={`price-table__row${flag}${firstOfArea ? " price-table__row--first" : ""}${row.deleted ? " price-table__row--deleted" : ""}`} onFocus={() => setFocused(row.key)}>
                               <th scope="row">
-                                <span className={firstOfArea ? undefined : "visually-hidden"}>{displayName(area?.name).text}</span>
+                                <span className={firstOfArea ? undefined : "visually-hidden"}>{areaName(row.areaId)}</span>
                                 {firstOfArea && area?.status === "disabled" && <StatusBadge tone="neutral" label="已停用" />}
                               </th>
                               <td>
-                                {displayName(group?.name).text}
+                                {groupName(row.vehicleGroupId)}
                                 {group && <span className="product-code">{comboText(group.passengers, group.luggage)}</span>}
                               </td>
                               {category === "airport_transfer" && (
@@ -828,7 +842,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                       type="button"
                                       role="menuitem"
                                       className="menu-item"
-                                      disabled={busy || reading.blank}
+                                      disabled={busy || reading.blank || orphan}
                                       onClick={() => {
                                         const next = reading.rule?.validTo ? addDays(reading.rule.validTo, 1) : "";
                                         const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: next, enabled: row.enabled };
@@ -851,6 +865,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                 </td>
                               )}
                             </tr>
+                            </Fragment>
                           );
                         })}
                       </tbody>
