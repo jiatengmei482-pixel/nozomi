@@ -53,6 +53,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     cities: ["SELECT"],
     // 节假日日历：平台维护，租户只读
     holidays: ["SELECT"],
+    // 每日库存：供应商自己的业务数据，清除就是删行（ADR 0019）
+    inventory_days: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 创建类接口的幂等键：过期的键在再次使用时删除
     idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
@@ -215,7 +217,7 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
     "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
     "cities", "places", "vehicle_groups", "addons", "areas", "area_polygons", "idempotency_keys",
     "brands", "products", "product_areas", "product_vehicle_groups", "product_dispatchers",
-    "price_rules", "adjust_rules", "holidays",
+    "price_rules", "adjust_rules", "holidays", "inventory_days",
   ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }

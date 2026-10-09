@@ -100,37 +100,65 @@ export async function apiRequest<T>(method: string, url: string, options: Reques
   if (options.token !== undefined) headers["authorization"] = `Bearer ${options.token}`;
 
   // 超时覆盖到读完响应体为止：响应头到了、响应体卡住，同样算没拿到应答
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  const sent = await send(method, url, { headers, body: options.body !== undefined ? JSON.stringify(options.body) : null, timeoutMs: REQUEST_TIMEOUT_MS });
   try {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method,
-        headers,
-        signal: abort.signal,
-        cache: "no-store",
-        credentials: "omit",
-        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-      });
-    } catch {
-      throw new NetworkError();
-    }
-
+    const { response } = sent;
     if (!response.ok) {
       const failure = await toApiError(response);
-      if (abort.signal.aborted) throw new NetworkError();
+      if (sent.aborted()) throw new NetworkError();
       throw failure;
     }
     if (response.status === 204) return undefined as T;
     try {
       return (await response.json()) as T;
     } catch {
-      if (abort.signal.aborted) throw new NetworkError();
+      if (sent.aborted()) throw new NetworkError();
       throw malformedResponse();
     }
   } finally {
+    sent.done();
+  }
+}
+
+interface Sent {
+  response: Response;
+  /** 读完响应体以后调用：停掉超时 */
+  done(): void;
+  /** 请求已经被中止（超时，或用户取消） */
+  aborted(): boolean;
+  timedOut(): boolean;
+}
+
+/**
+ * 唯一发请求的地方：相对路径、不带 Cookie、不走缓存、带超时。连不上、超时抛 NetworkError；用户自己取消抛 CancelledError。
+ */
+async function send(method: string, url: string, init: { headers: Record<string, string>; body: BodyInit | null; timeoutMs: number; signal?: AbortSignal | undefined }): Promise<Sent> {
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, init.timeoutMs);
+  const cancel = (): void => abort.abort();
+  init.signal?.addEventListener("abort", cancel);
+  const done = (): void => {
     clearTimeout(timer);
+    init.signal?.removeEventListener("abort", cancel);
+  };
+  try {
+    const response = await fetch(url, { method, headers: init.headers, signal: abort.signal, cache: "no-store", credentials: "omit", ...(init.body !== null ? { body: init.body } : {}) });
+    return { response, done, aborted: () => abort.signal.aborted, timedOut: () => timedOut };
+  } catch {
+    done();
+    throw init.signal?.aborted === true && !timedOut ? new CancelledError() : new NetworkError();
+  }
+}
+
+/** 用户自己取消的请求：不算出错。 */
+export class CancelledError extends Error {
+  constructor() {
+    super("cancelled");
+    this.name = "CancelledError";
   }
 }
 
@@ -176,4 +204,71 @@ export function resetPassword<P extends Portal>(portal: P, request: SetPasswordR
 
 export function changePassword(portal: Portal, token: string, request: ChangePasswordRequest): Promise<void> {
   return call(portal, "changePassword", { token, body: request });
+}
+
+// ───────────── 文件：上传 .xlsx、下载导出的文件 ─────────────
+
+export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+/** 上传和下载文件给的时间比普通请求长（文件最大 1 MB，正常几秒内完成）。 */
+export const FILE_TIMEOUT_MS = 30_000;
+
+export interface FileRequestOptions {
+  token: string;
+  headers?: Readonly<Record<string, string>>;
+  /** 用户点了「取消」 */
+  signal?: AbortSignal;
+}
+
+function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<Sent> {
+  return send(method, url, { headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": XLSX_CONTENT_TYPE } : {}), ...options.headers }, body, timeoutMs: FILE_TIMEOUT_MS, signal: options.signal });
+}
+
+/** 把一个文件原样传上去（请求体就是文件本身），应答是 JSON。令牌只走请求头。 */
+export async function apiUpload<T>(url: string, file: Blob, options: FileRequestOptions): Promise<T> {
+  const { response, done, timedOut } = await fileFetch("POST", url, file, "application/json", options);
+  try {
+    if (!response.ok) throw await toApiError(response);
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw options.signal?.aborted === true && !timedOut() ? new CancelledError() : timedOut() ? new NetworkError() : malformedResponse();
+  } finally {
+    done();
+  }
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  /** 应答头里的文件名；没有时是 null */
+  filename: string | null;
+}
+
+/** `Content-Disposition` 里的文件名：先认 `filename*=UTF-8''…`，再认 `filename="…"`。 */
+export function parseFilename(header: string | null): string | null {
+  if (header === null) return null;
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      return null;
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]+)"/i.exec(header) ?? /filename\s*=\s*([^;]+)/i.exec(header);
+  return plain?.[1]?.trim() ?? null;
+}
+
+/** 取回一个要下载的文件。失败时接口返回的是 JSON 的错误格式；状态是成功、拿到的却不是文件，同样按出错处理。 */
+export async function apiDownload(url: string, options: FileRequestOptions): Promise<DownloadedFile> {
+  const { response, done, timedOut } = await fileFetch("GET", url, null, `${XLSX_CONTENT_TYPE}, application/json`, options);
+  try {
+    if (!response.ok) throw await toApiError(response);
+    if ((response.headers.get("content-type") ?? "").includes("application/json")) throw malformedResponse();
+    return { blob: await response.blob(), filename: parseFilename(response.headers.get("content-disposition")) };
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw timedOut() ? new NetworkError() : malformedResponse();
+  } finally {
+    done();
+  }
 }

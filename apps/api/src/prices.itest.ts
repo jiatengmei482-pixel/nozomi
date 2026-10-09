@@ -684,7 +684,7 @@ test("节假日日历：平台逐条登记、修改、删除（写审计日志�
 test("价格概况：每个商品有没有启用且未过期的价格（按各自城市当地的今天），首页用的两个数只数草稿和已上架的", async () => {
   const fresh = await api.tenantWithAdmin(root, "新车队", "admin@fresh.test");
   const as = { token: fresh.adminToken };
-  assert.deepEqual(await ok(call("GET", "/price-overview", as)), { products_with_price: 0, products_without_price: 0, items: [] });
+  assert.deepEqual(await ok(call("GET", "/price-overview", as)), { products_with_price: 0, products_without_price: 0, published_without_inventory: 0, items: [] });
   const brand = await ok(call("POST", "/brands", { ...as, body: { name: "新品牌", currency: "JPY" } }), 201);
   const zone = (await ok(call("POST", "/areas", { ...as, body: { city_id: ids["tokyo"], name: { zh: "市区" }, biz_type: "general", polygons: [{ kind: "operate", geometry: SQUARE }] } }), 201)).id;
   const made: string[] = [];
@@ -706,12 +706,23 @@ test("价格概况：每个商品有没有启用且未过期的价格（按各�
   const overview = await ok(call("GET", "/price-overview", as));
   assert.deepEqual([overview.products_with_price, overview.products_without_price], [1, 2]);
   const byId = Object.fromEntries(overview.items.map((item: any) => [item.product_id, item]));
-  assert.deepEqual(Object.keys(byId[made[0] as string]).sort(), ["active_price_rule_count", "category", "city", "code", "coverage", "enabled_adjust_rule_count", "has_active_price", "price_rule_count", "product_id", "status", "title"]);
+  assert.deepEqual(Object.keys(byId[made[0] as string]).sort(), ["active_price_rule_count", "category", "city", "code", "coverage", "enabled_adjust_rule_count", "has_active_price", "inventory_mode", "no_inventory_ahead", "price_rule_count", "product_id", "status", "title"]);
   // 城市，和缺价的概况（点对点：1 个区域 × 1 个车型组 = 1 个组合）
   assert.deepEqual(byId[made[0] as string].city, { id: ids["tokyo"], name: { zh: "东京" } });
   assert.deepEqual(made.map((productId) => byId[productId].coverage), [{ total: 1, missing: 0 }, { total: 1, missing: 1 }, { total: 1, missing: 1 }, { total: 1, missing: 0 }]);
   // 首页只要两个数：summary=1 不带 items
-  assert.deepEqual(await ok(call("GET", "/price-overview?summary=1", as)), { products_with_price: 1, products_without_price: 2 });
+  assert.deepEqual(await ok(call("GET", "/price-overview?summary=1", as)), { products_with_price: 1, products_without_price: 2, published_without_inventory: 0 });
+  // 库存的概况：限量而从今天起没有可售库存的标出来；总数只数已上架的
+  assert.deepEqual(made.map((productId) => [byId[productId].inventory_mode, byId[productId].no_inventory_ahead]), [["unlimited", false], ["unlimited", false], ["unlimited", false], ["unlimited", false]]);
+  await api.db.owner.query("update products set inventory_mode = 'limited' where id = any($1::uuid[])", [[made[0], made[1]]]);
+  await api.db.owner.query("update products set status = 'published' where id = $1", [made[1]]);
+  await api.db.owner.query("insert into inventory_days (tenant_id, product_id, day, total, created_at, updated_at) values ($1, $2, '2026-10-06', 5, now(), now()), ($1, $2, '2026-10-08', 2, now(), now())", [fresh.tenantId, made[0]]);
+  await api.db.owner.query("insert into inventory_days (tenant_id, product_id, day, total, sold, created_at, updated_at) values ($1, $2, '2026-10-06', 5, 0, now(), now()), ($1, $2, '2026-10-08', 2, 2, now(), now())", [fresh.tenantId, made[1]]);
+  const stocked = await ok(call("GET", "/price-overview", as));
+  const stockById = Object.fromEntries(stocked.items.map((item: any) => [item.product_id, [item.inventory_mode, item.no_inventory_ahead]]));
+  assert.deepEqual([stockById[made[0] as string], stockById[made[1] as string], stockById[made[2] as string]], [["limited", false], ["limited", true], ["unlimited", false]], "昨天的库存不算；明天的占满了也不算");
+  assert.equal(stocked.published_without_inventory, 1);
+  assert.equal((await ok(call("GET", "/price-overview?summary=1", as))).published_without_inventory, 1);
   assert.equal((await call("GET", "/price-overview?summary=yes", as)).status, 400);
   assert.deepEqual(
     made.map((productId) => [byId[productId].has_active_price, byId[productId].price_rule_count, byId[productId].enabled_adjust_rule_count, byId[productId].status]),

@@ -55,7 +55,7 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
   if (portal === "tenant" && role !== null && isTenantRole(role)) {
     const children = [
       ...(tenantRoleCan(role, "area.read") ? [{ to: "/areas", label: "区域", prefix: true }] : []),
-      ...(tenantRoleCan(role, "product.read") ? [{ to: "/products", label: "商品", prefix: true }] : []),
+      ...(tenantRoleCan(role, "product.read") ? [{ to: "/products", label: "商品", prefix: true }, { to: "/price-rules", label: "价格规则", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "catalog", label: "商品配置", icon: "map", children });
   }

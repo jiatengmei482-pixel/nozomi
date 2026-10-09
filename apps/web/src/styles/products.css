@@ -1821,3 +1821,1109 @@
   display: inline-flex;
   vertical-align: middle;
 }
+
+/* ───── 价格日历 ───── */
+.calendar-tab {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.calendar-tab > * {
+  min-width: 0;
+}
+
+.calendar-tab > .field__hint,
+.calendar-note,
+.calendar-month__picking {
+  margin: 0;
+}
+
+.calendar-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.calendar-filters__item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.calendar-filters__item > .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.calendar-filters__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-month {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.calendar-month__title {
+  min-width: 112px;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+}
+
+.calendar-month__tip {
+  display: none;
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-month__picking {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.calendar-bar:empty {
+  display: none;
+}
+
+.calendar-bar__text {
+  overflow-wrap: anywhere;
+}
+
+.calendar-layout {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.calendar-layout > * {
+  min-width: 0;
+}
+
+.calendar {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.calendar--stale {
+  opacity: 0.6;
+}
+
+.calendar__head {
+  display: none;
+}
+
+.calendar__week {
+  display: grid;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.calendar__week-title {
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar__blank {
+  display: none;
+}
+
+.calendar__cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-0-5) var(--space-2);
+  min-width: 0;
+  min-height: var(--table-row-height);
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--border-width) solid var(--color-border-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.calendar__cell:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(0px - var(--focus-ring-width));
+}
+
+.calendar__cell--selected {
+  background: var(--color-bg-selected);
+}
+
+.calendar__cell--none {
+  background: var(--color-bg-subtle);
+}
+
+.calendar__cell--selected.calendar__cell--none {
+  background: var(--color-bg-selected);
+}
+
+.calendar__day {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar__num {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar__cell--past .calendar__num {
+  color: var(--color-text-tertiary);
+}
+
+.calendar__cell--today .calendar__num,
+.calendar__today {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.calendar__mark {
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}
+
+.calendar__holiday {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar__price {
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.calendar__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-warning-text);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+}
+
+.calendar__flag--bad {
+  color: var(--color-danger-text);
+}
+
+.calendar__skeleton {
+  display: inline-block;
+  width: var(--space-16);
+  height: var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+}
+
+.calendar__rules {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.calendar__rules:empty {
+  display: none;
+}
+
+.calendar__rules > svg,
+.calendar__more,
+.calendar__split {
+  flex: none;
+}
+
+.calendar__rule-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-note {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-detail {
+  display: grid;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.calendar-detail > p,
+.calendar-detail__steps,
+.calendar-detail__segments {
+  margin: 0;
+}
+
+.calendar-detail__title,
+.calendar-detail__subtitle {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.calendar-detail__subtitle {
+  font-size: var(--font-size-sm);
+}
+
+.calendar-detail__final {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.calendar-detail__final--none {
+  font-size: var(--font-size-lg);
+}
+
+.calendar-detail__final-label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.calendar-detail__combo,
+.calendar-detail__loading {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-detail__steps {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0;
+  border-top: var(--border-width) solid var(--color-border-default);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.calendar-detail__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+.calendar-detail__row > dt {
+  min-width: 0;
+}
+
+.calendar-detail__row > dd {
+  margin: 0 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.calendar-detail__row--sub {
+  padding-left: var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-detail__row--total {
+  font-weight: var(--font-weight-bold);
+}
+
+.calendar-detail__delta {
+  margin-right: var(--space-3);
+}
+
+.calendar-detail__segments {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  font-size: var(--font-size-sm);
+  list-style: none;
+}
+
+.calendar-detail__segments > li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.calendar-detail__now {
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-medium);
+}
+
+.calendar-detail__amount {
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-detail__hit {
+  color: var(--color-text-secondary);
+}
+
+.calendar-layout > .calendar-detail {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .calendar-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+  }
+
+  .calendar-filters__item > .input {
+    width: auto;
+    max-width: 240px;
+  }
+
+  .calendar-filters__time {
+    max-width: 96px;
+  }
+
+  .calendar-month__pick {
+    display: none;
+  }
+
+  .calendar-month__tip {
+    display: inline;
+  }
+
+  .calendar-layout > .calendar-detail {
+    display: grid;
+  }
+
+  .calendar {
+    gap: 0;
+    border: var(--border-width) solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-surface);
+    overflow: hidden;
+  }
+
+  .calendar__head,
+  .calendar__week {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    border: 0;
+    background: transparent;
+  }
+
+  .calendar__head-cell {
+    padding: var(--space-1) var(--space-2);
+    background: var(--color-bg-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+  }
+
+  .calendar__week-title,
+  .calendar__weekday,
+  .calendar__currency {
+    display: none;
+  }
+
+  .calendar__blank {
+    display: block;
+    border-top: var(--border-width) solid var(--color-border-default);
+    border-left: var(--border-width) solid var(--color-border-default);
+    background: var(--color-bg-page);
+  }
+
+  .calendar__cell {
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    min-height: calc(var(--table-row-height) * 2);
+    padding: var(--space-1) var(--space-2);
+    border-left: var(--border-width) solid var(--color-border-default);
+  }
+
+  .calendar__week > :nth-child(2) {
+    border-left: 0;
+  }
+
+  .calendar__price {
+    text-align: left;
+  }
+
+  .calendar__cell--shown:not(:focus-visible) {
+    outline: var(--border-width) solid var(--color-border-strong);
+    outline-offset: calc(0px - var(--border-width));
+  }
+}
+
+/* ───── 菜单里的「价格规则」：各商品的价格情况 ───── */
+.page-intro {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-overview__only {
+  justify-self: start;
+}
+
+.price-overview__price {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.price-overview__price > svg {
+  flex: none;
+  margin-top: var(--space-0-5);
+}
+
+.price-overview__price--warning {
+  color: var(--color-warning-text);
+}
+
+.price-overview__price--success {
+  color: var(--color-success-text);
+}
+
+.price-overview__price:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.price-overview__note {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.price-overview__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 窄屏：每个商品一张卡片（价格是会在手机上临时改一个数的东西，不用横向滚动的表）；768px 起是表格 */
+.price-overview .table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.price-overview .table,
+.price-overview .table tbody,
+.price-overview .table tbody tr,
+.price-overview .table tbody th,
+.price-overview .table tbody td {
+  display: block;
+}
+
+.price-overview .table tbody tr {
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.price-overview .table tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-1) 0;
+  border: 0;
+  white-space: normal;
+}
+
+.price-overview .table-scroll {
+  position: relative;
+}
+
+@media (min-width: 768px) {
+  .price-overview .table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .price-overview .table {
+    display: table;
+  }
+
+  .price-overview .table tbody {
+    display: table-row-group;
+  }
+
+  .price-overview .table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .price-overview .table tbody th,
+  .price-overview .table tbody td {
+    display: table-cell;
+  }
+
+  .price-overview .table tbody tr > * {
+    height: var(--table-row-height);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+  }
+}
+
+.price-info__keep {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.price-meaning__rounded {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-left: var(--space-1);
+  color: var(--color-warning-text);
+}
+
+/* ───── ④ 库存 ───── */
+.menu-divider {
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.menu-item__note {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.price-filters__transfer {
+  margin-left: auto;
+}
+
+.stock-mode {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stock-mode__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.stock-mode__now,
+.stock-mode__effect,
+.stock-mode__fact {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.stock-mode__effect {
+  color: var(--color-text-secondary);
+}
+
+.stock-mode__effect > strong {
+  color: var(--color-text-primary);
+}
+
+.stock-calendar {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stock-calendar > * {
+  min-width: 0;
+}
+
+.stock-calendar__head {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.stock-calendar__head > .card__title {
+  margin: 0;
+}
+
+.stock-calendar__tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.stock-calendar__tools > .button,
+.stock-calendar__tools .button {
+  width: 100%;
+  justify-content: center;
+}
+
+.stock-cell__main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.stock-cell__sub {
+  justify-content: flex-end;
+}
+
+.stock-cell--unlimited .stock-cell__main,
+.stock-cell--closed .stock-cell__main,
+.stock-cell--beyond .stock-cell__main {
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.stock-cell--beyond .stock-cell__main {
+  color: var(--color-text-tertiary);
+}
+
+.stock-cell--sold_out .stock-cell__main {
+  color: var(--color-info-text);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+}
+
+.stock-cell--closed {
+  background: var(--color-bg-subtle);
+}
+
+.stock-cell--unset .stock-cell__main {
+  color: var(--color-warning-text);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+}
+
+.stock-cell--unset:not(.stock-cell--past) {
+  background: var(--color-warning-bg);
+}
+
+.stock-cell--unset:not(.stock-cell--past) .stock-cell__sub {
+  color: var(--color-text-primary);
+}
+
+.stock-cell--unset.stock-cell--past .stock-cell__main {
+  color: var(--color-text-secondary);
+}
+
+.calendar__cell--selected.stock-cell {
+  background: var(--color-bg-selected);
+}
+
+.calendar__cell--locked {
+  cursor: default;
+}
+
+.stock-day__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+p.stock-day__status.stock-cell--unset {
+  background: transparent;
+  color: var(--color-warning-text);
+}
+
+p.stock-day__status.stock-cell--closed {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+p.stock-day__status.stock-cell--sold_out {
+  color: var(--color-info-text);
+}
+
+.stock-day__form {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.stock-day__form > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stock-day__legend {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.stock-choices__total {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stock-choices__input {
+  width: 96px;
+}
+
+.stock-choices > .field__hint {
+  margin: 0;
+}
+
+.stock-batch__explain {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.stock-batch__readback {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.stock-batch__readback:empty {
+  display: none;
+}
+
+.stock-batch__overwrite {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.stock-batch__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (min-width: 768px) {
+  .stock-mode {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .stock-calendar__head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .stock-calendar__tools {
+    display: flex;
+  }
+
+  .stock-calendar__tools > .button,
+  .stock-calendar__tools .button {
+    width: auto;
+  }
+
+  .stock-cell__main,
+  .stock-cell__sub {
+    justify-content: flex-start;
+  }
+}
+
+/* ───── 导入价格 / 导入库存 ───── */
+.import-page {
+  display: grid;
+  gap: var(--space-4);
+  max-width: var(--layout-reading-max-width);
+}
+
+.import-page > * {
+  min-width: 0;
+}
+
+.import-page__intro,
+.import-steps {
+  margin: 0;
+}
+
+.import-page__focus:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-steps {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-steps__step--current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.import-page__actions {
+  display: grid;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.import-guide {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.import-guide__summary {
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.import-guide__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.import-drop {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: stretch;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-style: dashed;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  text-align: center;
+}
+
+.import-drop--over {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-selected);
+}
+
+.import-drop__hint {
+  display: none;
+}
+
+.import-drop__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.import-drop__button {
+  cursor: pointer;
+}
+
+.import-drop__input:focus-visible + .import-drop__button {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-drop__limit {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.import-file__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-progress {
+  display: block;
+  height: var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+}
+
+.import-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.import-counts__total {
+  white-space: nowrap;
+}
+
+.import-counts__item {
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.import-counts__item--on {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.import-counts__number {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-table__scroll {
+  position: relative;
+  max-height: 60dvh;
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.import-table__scroll:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-table {
+  width: 100%;
+}
+
+.import-table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.import-table,
+.import-table tbody,
+.import-table tbody tr,
+.import-table tbody th,
+.import-table tbody td {
+  display: block;
+}
+
+.import-table tbody tr {
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.import-table tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-0-5) 0;
+  border: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.import-table__row {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-table__issue {
+  display: block;
+}
+
+.import-table__cell {
+  font-family: var(--font-family-mono);
+  user-select: all;
+}
+
+@media (min-width: 768px) {
+  .import-page__actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .import-drop {
+    justify-items: center;
+  }
+
+  .import-drop__hint {
+    display: inline;
+  }
+
+  .import-table thead {
+    position: sticky;
+    top: 0;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .import-table {
+    display: table;
+  }
+
+  .import-table tbody {
+    display: table-row-group;
+  }
+
+  .import-table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .import-table tbody th,
+  .import-table tbody td {
+    display: table-cell;
+    vertical-align: top;
+  }
+
+  .import-table tbody tr > * {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+  }
+
+  .import-table__mobile {
+    display: none;
+  }
+}
+
+.import-table .price-state {
+  white-space: nowrap;
+}

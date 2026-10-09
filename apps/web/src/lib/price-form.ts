@@ -19,6 +19,8 @@ import {
   formatExact,
   isCurrencyCode,
   priceCoverage,
+  type PlaceType,
+  priceDirectionNames,
   priceRuleIsActive,
   priceRuleIssues,
 } from "@nozomi/domain";
@@ -72,7 +74,12 @@ export function fieldName(field: PriceField, model: PricingModel): string {
 }
 
 export function directionName(direction: PriceDirection | TripDirection, station: boolean): string {
-  return direction === "both" ? "接送通用" : direction === "pickup" ? (station ? "接站" : "接机") : station ? "送站" : "送机";
+  return priceDirectionNames(station ? "station" : null)[direction];
+}
+
+/** 接送点是不是按「接站 / 送站」叫的那一类（以 @nozomi/domain 的 priceDirectionNames 为准）。 */
+export function isStationPlace(type: PlaceType | null | undefined): boolean {
+  return priceDirectionNames(type ?? null).pickup !== priceDirectionNames(null).pickup;
 }
 
 const EMPTY_VALUES: Record<PriceField, string> = { base: "", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "" };

@@ -127,7 +127,7 @@ test("供应商后台：被标记的租户用户登录后只能改密码——�
   await expect(detail(page, "供应商名称")).toHaveText(tenant.tenantName);
   await expectNoHorizontalOverflow(page, "改完之后的首页 320px");
   await page.setViewportSize({ width: 1280, height: 800 });
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "区域", "商品"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "区域", "商品", "价格规则"]);
 
   await page.getByRole("button", { name: /账号菜单/ }).click();
   await page.getByRole("menuitem", { name: "退出登录" }).click();

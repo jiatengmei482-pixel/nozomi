@@ -60,3 +60,33 @@ test("加密的、用了别的压缩方式的：明确说不支持", () => {
   bzip.writeUInt16LE(12, central + 10);
   assert.throws(() => unzipEntry(bzip, "a.txt"), (err: unknown) => err instanceof ZipError && /不支持的压缩方式/.test(err.message));
 });
+
+test("别的工具写出的压缩包：带数据描述符（本地头里大小是 0）、ZIP64（大小和位置写在扩展字段里）、不同的压缩级别——都以目录里的大小为准读出来", () => {
+  const entries = [{ name: "readme.txt", content: Buffer.from("hi") }, { name: "JP.txt", content: text }, { name: "stored.txt", content: text, method: "store" as const }];
+  for (const options of [{ dataDescriptor: true }, { zip64: true }, { zip64: true, dataDescriptor: true }, { level: 0 }, { level: 1 }, { level: 9 }, { zip64: true, comment: "注释" }]) {
+    const zip = buildZip(entries, options);
+    assert.equal(isZip(zip), true);
+    for (const entry of entries) assert.deepEqual(unzipEntry(zip, entry.name), entry.content, `${JSON.stringify(options)} ${entry.name}`);
+    assert.throws(() => unzipEntry(zip, "missing.txt"), (err: unknown) => err instanceof ZipError && /里面有：/.test(err.message));
+  }
+});
+
+test("损坏的 ZIP64：定位记录指到包外、目录位置不对——报错，不越界读", () => {
+  const zip = buildZip([{ name: "JP.txt", content: text }], { zip64: true });
+  const locator = zip.length - 22 - 20;
+  assert.equal(zip.readUInt32LE(locator), 0x07064b50);
+  const outside = Buffer.from(zip);
+  outside.writeBigUInt64LE(BigInt(zip.length * 4), locator + 8);
+  assert.throws(() => unzipEntry(outside, "JP.txt"), ZipError);
+  const huge = Buffer.from(zip);
+  huge.writeBigUInt64LE(2n ** 60n, locator + 8);
+  assert.throws(() => unzipEntry(huge, "JP.txt"), ZipError);
+  const record = locator - 56;
+  assert.equal(zip.readUInt32LE(record), 0x06064b50);
+  const badOffset = Buffer.from(zip);
+  badOffset.writeBigUInt64LE(2n ** 40n, record + 48);
+  assert.throws(() => unzipEntry(badOffset, "JP.txt"), ZipError);
+  const manyEntries = Buffer.from(zip);
+  manyEntries.writeBigUInt64LE(2n ** 50n, record + 32);
+  assert.throws(() => unzipEntry(manyEntries, "JP.txt"), ZipError);
+});

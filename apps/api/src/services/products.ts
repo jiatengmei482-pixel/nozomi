@@ -86,6 +86,7 @@ import {
   replaceProductVehicleGroups,
   updateProduct as updateProductRow,
 } from "../repos/products.ts";
+import { countSellableDays, findInventoryMode } from "../repos/inventory.ts";
 import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { listAdjustRules, listPriceRules } from "../repos/prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
@@ -541,6 +542,7 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ALL_PRICE_RULES_DISABLED: "价格规则都停用了：至少要有一条启用且未过期的",
   ALL_PRICE_RULES_EXPIRED: "启用的价格规则都过期了：至少要有一条启用且未过期的",
   ADJUST_RESULT_NOT_POSITIVE: "这条调价规则会把某些价格调到不大于 0，它生效时那些组合报不出价",
+  NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
@@ -731,6 +733,7 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     content: product.content,
     activePriceRuleCount: priceRules.filter((rule) => priceRuleIsActive(rule, today)).length,
     priceRuleStats: { total: priceRules.length, enabled: priceRules.filter((rule) => rule.status === "enabled").length },
+    inventory: { mode: (await findInventoryMode(db, tenantId, product.id)) ?? "unlimited", sellableDaysAhead: await countSellableDays(db, tenantId, product.id, today) },
     nonPositiveAdjustRules: adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices).length > 0 ? [index] : [])),
   };
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })) };

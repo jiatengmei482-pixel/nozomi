@@ -3,7 +3,7 @@
  * 页面上用「上调 / 下调」和不带正负号的数，接口里是带正负号的基点整数 / 最小货币单位整数；换算只用字符串和整数。
  * 「写得对不对」问 @nozomi/domain 的 adjustRuleIssues；逐步计算和取整用 applyAdjustRules，这里不做任何乘除。
  */
-import { type AdjustRule, type AdjustStep, CURRENCIES, type ExactAmount, PRICE_LIMITS, type PriceRule, type ServiceCategory, type TripDirection, addDays, adjustRuleCoversPrice, adjustRuleIssues, formatExact, formatExactMajor, hasVisibleText, isCurrencyCode, parseTimeOfDay, weekdayOf } from "@nozomi/domain";
+import { type AdjustRule, type AdjustStep, CURRENCIES, type ExactAmount, PRICE_LIMITS, type PriceRule, type ServiceCategory, type TripDirection, addDays, adjustRuleCoversPrice, adjustRuleIssues, formatExact, formatExactMajor, hasVisibleText, priceDirectionNames, isCurrencyCode, parseTimeOfDay, weekdayOf } from "@nozomi/domain";
 import type { AdjustRuleBody, AdjustRuleInput } from "../api/prices.ts";
 import { countryName } from "./master-display.ts";
 import { amountText, moneyText, readAmount } from "./product-display.ts";
@@ -289,6 +289,6 @@ export function firstAndCount(names: readonly string[]): string {
 }
 
 export function tripDirectionsText(directions: readonly TripDirection[], station: boolean): string {
-  const [pickup, dropoff] = station ? ["接站", "送站"] : ["接机", "送机"];
+  const { pickup, dropoff } = priceDirectionNames(station ? "station" : null);
   return directions.length === 1 ? `只${directions[0] === "pickup" ? pickup : dropoff}` : `${pickup}和${dropoff}`;
 }

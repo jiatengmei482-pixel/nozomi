@@ -3,9 +3,11 @@
  * 表里每一行是一条价格；每个还没有价格的组合也占一行，空着等填。改完一批，一次保存（全部成功或一条都不保存）。
  * 行怎么读、缺不缺价、日期重不重叠都在 lib/price-form.ts（规则来自 @nozomi/domain）。
  */
-import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PricingModel, VEHICLE_GRADES, addDays } from "@nozomi/domain";
+import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
+import { exportPrices } from "../../../api/inventory.ts";
 import { type PriceRuleBatch, type PriceRules, savePriceRules } from "../../../api/prices.ts";
 import { usePortalSession } from "../../../auth/PortalSession.tsx";
 import { Alert } from "../../../components/Alert.tsx";
@@ -37,12 +39,15 @@ import {
   tableCoverage,
   validitySentence,
   withBlankRows,
+  isStationPlace,
 } from "../../../lib/price-form.ts";
 import { comboText, moneyText, readAmount } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
 import { type StepController, StepShell } from "../StepShell.tsx";
 import { type StepProblem, focusAnchor } from "../frame.ts";
+import { useDownload } from "../inventory/useDownload.tsx";
+import { importPath } from "../../../lib/product-paths.ts";
 import type { PricesShared } from "./PricesStep.tsx";
 
 const STATE_LOOK: Readonly<Record<RowState, { icon: IconName; tone: string }>> = {
@@ -74,7 +79,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const { readOnly } = frame;
   const { token } = usePortalSession();
   const category = product.category;
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const context: PriceContext = useMemo(() => ({ category, currency: prices.currency, today: prices.today, station }), [category, prices.currency, prices.today, station]);
   const areaIds = useMemo(() => product.areas.map((area) => area.area_id), [product.areas]);
   const groups = useMemo(() => [...product.vehicle_groups].sort((x, y) => VEHICLE_GRADES.indexOf(x.grade) - VEHICLE_GRADES.indexOf(y.grade) || x.seats - y.seats || x.code.localeCompare(y.code)), [product.vehicle_groups]);
@@ -83,6 +88,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const defaultModel: PricingModel = models[0] ?? (category === "charter" ? "charter_package" : "fixed");
 
   const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages);
+  const download = useDownload();
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const adopted = useRef(prices);
   // 重新取到了价格（别人先改了之后「载入最新内容」）：换成最新的，没保存的修改重新套上去
@@ -206,7 +212,11 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     frame.saved(saved.version);
     return product.id;
   };
-  const batchRow = (kind: string, index: number): PriceRow | undefined => {
+  /** 出错的是哪一行：先看接口在 detail 里指明的 ref（新增的）或 id（修改、删除的），没有再按提交时的顺序对回去。 */
+  const batchRow = (kind: string, index: number, detail: Record<string, unknown> = {}): PriceRow | undefined => {
+    const named = typeof detail["ref"] === "string" ? detail["ref"] : typeof detail["id"] === "string" ? detail["id"] : null;
+    const direct = named === null ? undefined : rows.find((row) => row.key === named || row.id === named);
+    if (direct) return direct;
     const batch = sent.current?.batch;
     if (!batch) return undefined;
     const key = kind === "create" ? batch.create[index]?.ref : kind === "update" ? batch.update[index]?.id : batch.delete[index];
@@ -222,7 +232,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     const FIELD_BY_PATH: Readonly<Record<string, RowField>> = { base_price: "base", start_price: "base", start_meters: "startKm", start_minutes: "startMin", per_km: "perKm", per_minute: "perMin", min_price: "min", package_km: "pkgKm", package_price: "pkgPrice", overtime_per_hour: "overHour", over_km_per_km: "overKm", valid_from: "from", valid_to: "to" };
     return issues.flatMap((issue) => {
       const match = /^\/(create|update|delete)\/(\d+)(?:\/([a-z_]+))?/.exec(issue.path);
-      const row = match ? batchRow(match[1] ?? "", Number(match[2])) : undefined;
+      const row = match ? batchRow(match[1] ?? "", Number(match[2]), issue.detail) : undefined;
       if (!row) return [];
       const text = issue.reason === "AREA_NOT_IN_PRODUCT" ? `「${areaName(row.areaId)}」已经不在这个商品里，这条价格保存不了。` : issue.reason === "VEHICLE_GROUP_NOT_IN_PRODUCT" ? `「${groupName(row.vehicleGroupId)}」已经不在这个商品里，这条价格保存不了。` : issue.message;
       return [{ text: `${rowLabel(row)}：${text}`, target: cellId(row.key, FIELD_BY_PATH[match?.[3] ?? ""] ?? "from") }];
@@ -328,6 +338,18 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
     if (!focusedRow) return "点表格里的任何一行，这里会用一句话说明这一行的价格。";
     const reading = readings.get(focusedRow.key);
     const label = rowLabel(focusedRow);
+    /** 基础价不是取整单位的整数倍时，报价会和填的数不一样（里程 + 时长的不说：它的结果本来就不固定）。数用和报价同一个函数算。 */
+    const roundedNote = (rule: PriceRule | null): ReactNode => {
+      if (rule === null || rule.pricing.model === "mileage_time" || prices.rounding_unit <= 1) return null;
+      const quoted = applyAdjustRules(basePrice(rule.pricing, {}, rule.packageHours), [], prices.rounding_unit);
+      if (quoted.finalMinor === null || quoted.finalMinor === quoted.baseMinor) return null;
+      return (
+        <span className="price-meaning__rounded">
+          <Icon name="alert-triangle" />
+          {`取整单位是 ${moneyText(prices.rounding_unit, context.currency)}，报价时会取整成 ${moneyText(quoted.finalMinor, context.currency)}。`}
+        </span>
+      );
+    };
     if (!reading || reading.blank) return `${label}——还没有价格。客人询价这个组合时报不出价。`;
     const overlapWith = (overlaps.get(focusedRow.key) ?? []).map((key) => rows.find((row) => row.key === key)).filter((row): row is PriceRow => row !== undefined);
     return (
@@ -339,6 +361,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         {reading.notes.map((note) => (
           <span key={note}>{` ${note}`}</span>
         ))}
+        {roundedNote(reading.rule)}
         {overlapWith.map((other) => {
           const [mine, theirs] = [reading.rule, readings.get(other.key)?.rule];
           if (!mine || !theirs) return null;
@@ -390,7 +413,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
 
   return (
-    <StepShell frame={frame} slug="prices" title="③ 价格规则" hideTitle next={{ slug: "content", label: "保存并下一步" }} controller={controller}>
+    <StepShell frame={frame} slug="prices" title="③ 价格规则" hideTitle next={{ slug: "inventory", label: "保存并下一步" }} controller={controller}>
       {({ busy }) => {
         const locked = busy || readOnly;
         const groupsOverlap = overlapGroups();
@@ -400,6 +423,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
               {announce}
             </div>
             <div role="alert" className="step__alerts">
+              {download.notice}
               {rejection && (
                 <div id="price-rejection" tabIndex={-1}>
                   <Alert kind="danger">
@@ -600,6 +624,40 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                     <input type="checkbox" checked={showExpired} onChange={(event) => setShowExpired(event.target.checked)} />
                     <span className="choice__text">{`显示已过期的${hiddenExpired > 0 ? `（${hiddenExpired} 条）` : ""}`}</span>
                   </label>
+                  <span className="price-filters__transfer">
+                    <Dropdown
+                      buttonClassName="button button--secondary button--sm"
+                      buttonContent={
+                        download.busy ? (
+                          "正在准备文件…"
+                        ) : (
+                          <>
+                            导入 / 导出
+                            <Icon name="chevron-down" />
+                          </>
+                        )
+                      }
+                      align="end"
+                    >
+                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy} onClick={() => void download.run((session) => exportPrices(session, product.id, "none"), "price-template.xlsx")}>
+                        <span className="menu-item__text">下载空白模版</span>
+                      </button>
+                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy || prices.items.length === 0} onClick={() => void download.run((session) => exportPrices(session, product.id, "all"), "prices.xlsx")}>
+                        <span className="menu-item__text">
+                          {prices.items.length === 0 ? "导出现有的价格（还没有价格）" : `导出现有的价格（${prices.items.length} 条）`}
+                          {changes.length > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
+                        </span>
+                      </button>
+                      {!readOnly && (
+                        <>
+                          <hr className="menu-divider" />
+                          <Link role="menuitem" className="menu-item" to={importPath(product.id, "prices")}>
+                            <span className="menu-item__text">导入价格…</span>
+                          </Link>
+                        </>
+                      )}
+                    </Dropdown>
+                  </span>
                 </div>
 
                 <div className="price-table__scroll" id="price-table" tabIndex={-1}>

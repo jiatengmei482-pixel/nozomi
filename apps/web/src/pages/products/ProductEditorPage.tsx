@@ -2,7 +2,7 @@
  * 新建 / 编辑商品的框架（docs/design/pages/tenant-products.md 第 3 节）：标题行、步骤导航、当前步骤。
  * 每一步单独保存；整个商品只有一个版本号，存在这里各步共用；每一步的完成情况取自上架检查。
  */
-import { PRODUCT_CATEGORY_NAMES } from "@nozomi/domain";
+import { INVENTORY_MODE_NAMES, type InventoryMode, PRODUCT_CATEGORY_NAMES } from "@nozomi/domain";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { type Product, type PublishCheckResult, getProduct, getPublishCheck } from "../../api/products.ts";
@@ -24,12 +24,17 @@ import { useTenantCan } from "../../lib/use-master-access.ts";
 import { readListPage } from "../master/shared.tsx";
 import { BasicStep } from "./BasicStep.tsx";
 import { ContentStep } from "./ContentStep.tsx";
+import { ImportPage } from "./inventory/ImportPage.tsx";
+import { InventoryStep } from "./inventory/InventoryStep.tsx";
 import { PublishStep } from "./PublishStep.tsx";
 import { PricesStep } from "./prices/PricesStep.tsx";
 import { ServiceRulesStep } from "./ServiceRulesStep.tsx";
+import { type Inventory, getInventory } from "../../api/inventory.ts";
 import type { ProductFrame } from "./frame.ts";
 import { ProductMoreItems, useProductActions } from "./useProductActions.tsx";
 
+/** 只用来给「取一天的库存」这个请求填日期（要的是应答里的模式）；页面上的「今天」一律用接口给的。 */
+const requestDate = new Date().toISOString().slice(0, 10);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 五个步骤。`slug` 有值的是开放的（有页面）；以后的任务上线一步，就给那一步接上地址。 */
@@ -37,10 +42,10 @@ const STEPS: readonly { key: string; name: string; slug: ProductStepSlug | null;
   { key: "basic", name: "基础信息", slug: "basic", check: "basic_info" },
   { key: "service-rules", name: "服务规则", slug: "service-rules", check: "service_rules" },
   { key: "price-rules", name: "价格规则", slug: "prices", check: "price_rules" },
-  { key: "inventory", name: "库存", slug: null, check: "inventory" },
+  { key: "inventory", name: "库存", slug: "inventory", check: "inventory" },
   { key: "content", name: "商品详情", slug: "content", check: "content" },
 ];
-const STEP_TITLES: Readonly<Record<ProductStepSlug, string>> = { basic: "基础信息", "service-rules": "服务规则", prices: "价格规则", content: "商品详情", publish: "上架检查" };
+const STEP_TITLES: Readonly<Record<ProductStepSlug, string>> = { basic: "基础信息", "service-rules": "服务规则", prices: "价格规则", inventory: "库存", content: "商品详情", publish: "上架检查" };
 const SOON: StepStatus = { icon: "clock", tone: "muted", text: "即将开放" };
 const UNKNOWN: StepStatus = { icon: null, tone: "muted", text: "—" };
 
@@ -87,7 +92,7 @@ export function ProductEditorPage() {
   const slug = (PRODUCT_STEP_SLUGS as readonly string[]).includes(step ?? "") ? (step as ProductStepSlug) : null;
   const shown = product ? productName(product) : null;
   const pageTitle = isNew ? "新建商品" : (shown?.text ?? "商品");
-  useDocumentTitle(isNew ? `新建商品 · NOZOMI ${portal.name}` : slug && shown ? `${STEP_TITLES[slug]} · ${shown.text} · NOZOMI ${portal.name}` : `商品 · NOZOMI ${portal.name}`);
+  useDocumentTitle(isNew ? `新建商品 · NOZOMI ${portal.name}` : slug && shown ? `${rest[0] === "import" && slug === "prices" ? "导入价格" : rest[0] === "import" && slug === "inventory" ? "导入库存" : STEP_TITLES[slug]} · ${shown.text} · NOZOMI ${portal.name}` : `商品 · NOZOMI ${portal.name}`);
 
   const reloadProduct = loaded.reload;
   const reloadCheck = checked.reload;
@@ -101,6 +106,14 @@ export function ProductEditorPage() {
     },
     [setProduct, reloadProduct, reloadCheck],
   );
+  // 库存是哪种模式：进入编辑页时取一次（只为了步骤导航和上架检查上的那句话）；第 ④ 步里每次取数、改模式后再告诉这里
+  const [inventoryMode, setInventoryMode] = useState<InventoryMode | null>(null);
+  const modeLoaded = useLoad<Inventory>(`product-inventory:${id ?? "new"}`, !isNew && validId && canRead ? (token) => getInventory(token, id, { from: requestDate, to: requestDate }) : null);
+  const loadedMode = modeLoaded.state.data?.mode ?? null;
+  useEffect(() => {
+    if (loadedMode !== null) setInventoryMode(loadedMode);
+  }, [loadedMode]);
+  useEffect(() => setInventoryMode(null), [id]);
   const refresh = useCallback(() => {
     reloadProduct();
     reloadCheck();
@@ -159,6 +172,11 @@ export function ProductEditorPage() {
     if (check === null || context === null) return checkFailed ? UNKNOWN : "loading";
     const item = check.items.find((candidate) => candidate.key === entry.check);
     if (!item) return UNKNOWN;
+    // 库存不是必须的：不限量 / 限量都算完成；限量但从今天起没有库存时提醒（不拦上架）
+    if (entry.key === "inventory") {
+      if (item.issues.some((issue) => issue.reason === "NO_INVENTORY_AHEAD")) return { icon: "alert-triangle", tone: "warning", text: "从今天起没有库存" };
+      return { icon: "check", tone: "success", text: inventoryMode === null ? "已完成" : `已完成 · ${INVENTORY_MODE_NAMES[inventoryMode]}` };
+    }
     return item.passed ? { icon: "check", tone: "success", text: "已完成" } : { icon: "alert-triangle", tone: "warning", text: `还差 ${Math.max(1, checkItemGap(item, context))} 项` };
   };
   const publishStatus = (): StepStatus | "loading" => {
@@ -179,12 +197,12 @@ export function ProductEditorPage() {
     status: stepStatus(entry),
     ...(entry.slug !== null && product ? { to: productPath(product.id, entry.slug) } : {}),
   }));
-  const done = steps.filter((entry) => entry.status !== "loading" && entry.status.text === "已完成").length;
+  const done = steps.filter((entry) => entry.status !== "loading" && entry.status.text.startsWith("已完成")).length;
   const closing: StepEntry[] = [{ key: "publish", name: "上架检查", current: current === "publish", status: publishStatus(), ...(product ? { to: productPath(product.id, "publish") } : {}) }];
   const soon = STEPS.filter((entry) => entry.slug === null).map((entry) => `「${entry.name}」`);
   const nav = <StepNav title="配置步骤" progress={`已完成 ${done} / ${STEPS.length}`} steps={steps} closing={closing} {...(soon.length > 0 ? { note: `${soon.join("")}正在开发，开放后会出现在这里。现在可以先把其他几步配好。` } : {})} />;
 
-  const frame: ProductFrame = { product, version, readOnly, check, checkContext: context, saved, syncVersion: setVersion, refresh, listPath, listState };
+  const frame: ProductFrame = { product, version, readOnly, check, checkContext: context, inventoryMode, setInventoryMode, saved, syncVersion: setVersion, refresh, listPath, listState };
   let content: ReactNode;
   if (isNew) content = <BasicStep key="new" frame={frame} />;
   else if (product === null) {
@@ -213,7 +231,10 @@ export function ProductEditorPage() {
       );
   } else if (current === "basic") content = <BasicStep key={product.id} frame={frame} />;
   else if (current === "service-rules") content = <ServiceRulesStep key={product.id} frame={frame} product={product} />;
+  else if (current === "prices" && rest[0] === "import") content = <ImportPage key={`${product.id}-prices`} kind="prices" frame={frame} product={product} />;
   else if (current === "prices") content = <PricesStep key={product.id} frame={frame} product={product} rest={rest} />;
+  else if (current === "inventory" && rest[0] === "import") content = <ImportPage key={`${product.id}-inventory`} kind="inventory" frame={frame} product={product} />;
+  else if (current === "inventory") content = <InventoryStep key={product.id} frame={frame} product={product} />;
   else if (current === "content") content = <ContentStep key={product.id} frame={frame} product={product} />;
   else content = <PublishStep key={product.id} frame={frame} product={product} onReload={reloadCheck} checkStatus={checked.state.status} />;
 
@@ -270,7 +291,7 @@ export function ProductEditorPage() {
       )}
       <div className="steps__layout">
         {nav}
-        <div className={current === "prices" && !(rest[0] === "adjust" && rest.length > 1) ? "steps__content steps__content--wide" : "steps__content"}>{content}</div>
+        <div className={(current === "prices" || current === "inventory") && rest[0] !== "import" && !(rest[0] === "adjust" && rest.length > 1) ? "steps__content steps__content--wide" : "steps__content"}>{content}</div>
       </div>
       {actions.dialog}
     </div>,

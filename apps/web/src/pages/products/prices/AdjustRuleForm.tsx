@@ -37,8 +37,8 @@ import {
   tripDirectionsText,
 } from "../../../lib/adjust-form.ts";
 import { countryName, displayName, shortName } from "../../../lib/master-display.ts";
-import { type PriceContext, activePriceRules } from "../../../lib/price-form.ts";
-import { amountText, moneyText, readAmount } from "../../../lib/product-display.ts";
+import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
+import { moneyText, readAmount } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
@@ -46,6 +46,7 @@ import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { focusAnchor } from "../frame.ts";
 import { nonPositiveCount } from "./AdjustRulesTab.tsx";
+import type { CalendarHandoff } from "./CalendarTab.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
 
 const CYCLES: readonly { value: CycleType; label: string; hint: string }[] = [
@@ -87,12 +88,17 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const location = useLocation();
   const readOnly = frame.readOnly;
   const currency = prices.currency;
-  const station = product.poi?.type === "station";
+  const station = isStationPlace(product.poi?.type);
   const published = product.status === "published";
   const listPath = pricePath(product.id, "adjust");
   const context: PriceContext = { category: product.category, currency, today: prices.today, station };
   const copyId = typeof (location.state as { copyRule?: unknown } | null)?.copyRule === "string" ? (location.state as { copyRule: string }).copyRule : null;
   const source = adjusts?.items.find((rule) => rule.id === (ruleId ?? copyId)) ?? null;
+  // 从价格日历选了一段日期过来的：预先填好日期和适用范围，保存或取消后回日历
+  const passed = (location.state as { calendar?: CalendarHandoff } | null)?.calendar;
+  const handoff = ruleId === null && passed && typeof passed.from === "string" && typeof passed.to === "string" && typeof passed.back === "string" ? passed : null;
+  const returnPath = handoff?.back ?? listPath;
+  const [handoffNote, setHandoffNote] = useState(handoff !== null);
 
   const [form, setForm] = useState<AdjustForm | null>(null);
   const [initial, setInitial] = useState("");
@@ -121,12 +127,14 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
       if (source === null) return;
       start = formFromAdjustRule(source, currency);
     } else if (source !== null) start = { ...formFromAdjustRule(source, currency), name: `${source.name}（复制）`.slice(0, PRICE_LIMITS.maxAdjustNameLength), enabled: false };
-    else start = emptyAdjustForm(prices.today);
+    else if (handoff !== null) {
+      start = { ...emptyAdjustForm(prices.today), from: handoff.from, to: handoff.to, areaMode: "some", areaIds: [handoff.areaId], groupMode: "some", groupIds: [handoff.vehicleGroupId], direction: handoff.direction ?? "both", packageMode: handoff.packageHours === null ? "all" : "some", packages: handoff.packageHours === null ? [] : [handoff.packageHours] };
+    } else start = emptyAdjustForm(prices.today);
     setForm(start);
     setShown(start);
-    setInitial(ruleId === null ? JSON.stringify(emptyAdjustForm(prices.today)) : JSON.stringify(start));
+    setInitial(ruleId === null && handoff === null ? JSON.stringify(emptyAdjustForm(prices.today)) : JSON.stringify(start));
     requestAnimationFrame(() => heading.current?.focus());
-  }, [ready, form, ruleId, source, currency, prices.today]);
+  }, [ready, form, ruleId, source, currency, prices.today, handoff]);
 
   // 「这条规则的意思」在输入停下 500ms 后更新
   useEffect(() => {
@@ -149,8 +157,8 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const packages = useMemo(() => [...new Set(prices.items.flatMap((item) => (item.package_hours === null ? [] : [item.package_hours])))].sort((x, y) => x - y), [prices.items]);
 
   const back = (
-    <Link className="link adjust-form__back" to={listPath}>
-      ‹ 回到调价规则
+    <Link className="link adjust-form__back" to={returnPath}>
+      {handoff !== null ? "‹ 回到价格日历" : "‹ 回到调价规则"}
     </Link>
   );
 
@@ -204,7 +212,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const scope = { areaIds: form.areaMode === "some" ? form.areaIds : [], vehicleGroupIds: form.groupMode === "some" ? form.groupIds : [], directions: product.category === "airport_transfer" && form.direction !== "both" ? [form.direction] : [], packageHours: product.category === "charter" && form.packageMode === "some" ? form.packages : [] };
   const covered = active.filter((entry) => adjustRuleCoversPrice(scope, entry.rule));
   const priceLabel = (rule: PriceRule): string => {
-    const extra = rule.direction !== null ? (rule.direction === "both" ? (station ? "接送通用" : "接送通用") : rule.direction === "pickup" ? (station ? "接站" : "接机") : station ? "送站" : "送机") : rule.packageHours !== null ? `${rule.packageHours} 小时` : null;
+    const extra = rule.direction !== null ? directionName(rule.direction, station) : rule.packageHours !== null ? `${rule.packageHours} 小时` : null;
     return [shortName(areaName(rule.areaId)), shortName(groupName(rule.vehicleGroupId)), extra].filter((part) => part !== null).join(" · ");
   };
   const trials: Trial[] = covered.slice(0, 20).map((entry) => ({ key: entry.body.id, label: priceLabel(entry.rule), base: basePrice(entry.rule.pricing, {}, entry.rule.packageHours) }));
@@ -268,7 +276,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
       frame.saved(saved.version);
       toast(ruleId === null ? `已新建调价规则「${input.name}」` : `已保存「${input.name}」`);
       setUnusual(null);
-      void navigate(listPath, { state: { savedRule: saved.adjust_rule.id } });
+      void navigate(returnPath, { state: handoff !== null ? { selected: { from: handoff.from, to: handoff.to } } : { savedRule: saved.adjust_rule.id } });
     } catch (err) {
       setUnusual(null);
       if (handleAuthFailure(err)) return;
@@ -332,8 +340,8 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   };
 
   const cancel = (): void => {
-    if (dirty) setLeaving(listPath);
-    else void navigate(listPath);
+    if (dirty) setLeaving(returnPath);
+    else void navigate(returnPath, handoff !== null ? { state: { selected: { from: handoff.from, to: handoff.to } } } : {});
   };
 
   // ───── 读回来的话 ─────
@@ -509,7 +517,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
                     </tr>
                   ))}
                   <tr className={result.finalMinor === null ? "adjust-trial__final adjust-trial__final--bad" : "adjust-trial__final"}>
-                    <th scope="row">{prices.rounding_unit > 1 ? `四舍五入、取整到 ${currency} ${amountText(prices.rounding_unit, currency)}` : "四舍五入"}</th>
+                    <th scope="row">{prices.rounding_unit > 1 ? `四舍五入、取整到 ${moneyText(prices.rounding_unit, currency)}` : "四舍五入"}</th>
                     <td />
                     <td className="adjust-trial__amount">
                       {result.finalMinor === null ? (
@@ -660,6 +668,19 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
           </Alert>
         )}
       </div>
+
+      {handoff !== null && handoffNote && (
+        <div className="adjust-form__handoff" role="status">
+          <Alert kind="info">
+            <span>{`已按你在日历上选的填好了日期和适用范围（${[areaName(handoff.areaId), groupName(handoff.vehicleGroupId), handoff.direction !== null ? tripDirectionsText([handoff.direction], station).replace(/^只/, "") : handoff.packageHours !== null ? `${handoff.packageHours} 小时` : null].filter((part) => part !== null).join(" · ")}）。想对全部区域或车型组都调，把下面的「对哪些」改成「全部」。`}</span>
+            <span className="alert__actions">
+              <Button variant="text" size="sm" onClick={() => setHandoffNote(false)}>
+                知道了
+              </Button>
+            </span>
+          </Alert>
+        </div>
+      )}
 
       <section className="card" aria-labelledby="adjust-name-title">
         <h4 className="card__title" id="adjust-name-title">

@@ -170,7 +170,7 @@ function coverageJson(view: { coverage: PriceRulesView["coverage"]; items: Store
   };
 }
 
-function priceRulesJson(view: PriceRulesView): Json {
+export function priceRulesJson(view: PriceRulesView): Json {
   const { coverage } = view;
   return {
     version: view.version,
@@ -421,7 +421,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await authenticate(request, "product.read");
     const query = parseInput(z.object({ summary: z.enum(["1", "true"]).optional() }), request.query, "querystring");
     const overview = await getPriceOverview(ctx, principal.tenantId, query.summary !== undefined);
-    const totals = { products_with_price: overview.productsWithPrice, products_without_price: overview.productsWithoutPrice };
+    const totals = { products_with_price: overview.productsWithPrice, products_without_price: overview.productsWithoutPrice, published_without_inventory: overview.publishedWithoutInventory };
     // `summary=1`：只要两个数（首页的卡片），不带每个商品的明细
     if (overview.items === null) return totals;
     return {
@@ -434,6 +434,8 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
         title: item.title,
         city: item.city,
         coverage: item.coverage,
+        inventory_mode: item.inventoryMode,
+        no_inventory_ahead: item.noInventoryAhead,
         price_rule_count: item.priceRuleCount,
         has_active_price: item.activePriceRuleCount > 0,
         active_price_rule_count: item.activePriceRuleCount,

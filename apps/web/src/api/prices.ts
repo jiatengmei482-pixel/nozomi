@@ -4,7 +4,7 @@
  * 金额是子品牌币种的最小货币单位整数，百分比是基点整数；精确值（没取整的中间结果）是十进制字符串。
  * 这些接口的任何应答里都没有对外价和加价比例。
  */
-import type { AdjustCycle, AdjustStep, LocalizedText, PriceDirection, PriceRuleStatus, PricingModel, ProductStatus, ServiceCategory, TripDirection } from "@nozomi/domain";
+import type { InventoryMode, AdjustCycle, AdjustStep, LocalizedText, PriceDirection, PriceRuleStatus, PricingModel, ProductStatus, ServiceCategory, TripDirection } from "@nozomi/domain";
 import { TENANT_BASE, query } from "./areas.ts";
 import { apiRequest } from "./client.ts";
 import { BRANDS_PATH, type DailyWindowBody, PRODUCTS_PATH } from "./products.ts";
@@ -135,7 +135,10 @@ export interface PriceCalendar {
   currency: string;
   rounding_unit: number;
   today: string;
+  /** 第一个车型组的日历 */
   days: CalendarDay[];
+  /** 每个车型组各一份，顺序和请求里的一样 */
+  groups: { vehicle_group_id: string; days: CalendarDay[] }[];
 }
 
 export interface PriceOverviewItem {
@@ -144,6 +147,12 @@ export interface PriceOverviewItem {
   status: ProductStatus;
   category: ServiceCategory;
   title: LocalizedText;
+  city: { id: string; name: LocalizedText };
+  /** 该有价格的组合有几个、其中几个没有价格（算法同 price-coverage） */
+  coverage: { total: number; missing: number };
+  inventory_mode: InventoryMode;
+  /** 库存是限量、而从今天起没有一天还有可售库存 */
+  no_inventory_ahead: boolean;
   price_rule_count: number;
   has_active_price: boolean;
   active_price_rule_count: number;
@@ -153,7 +162,10 @@ export interface PriceOverviewItem {
 export interface PriceOverview {
   products_with_price: number;
   products_without_price: number;
-  items: PriceOverviewItem[];
+  /** 已上架的商品里，库存是限量而从今天起没有可售库存的有几个 */
+  published_without_inventory: number;
+  /** 带 `summary=1` 取的时候没有 */
+  items?: PriceOverviewItem[];
 }
 
 const product = (id: string): string => `${PRODUCTS_PATH}/${encodeURIComponent(id)}`;
@@ -208,8 +220,13 @@ export function getPriceCalendar(token: string, productId: string, values: Calen
   return apiRequest("GET", query(`${product(productId)}/price-calendar`, values), { token });
 }
 
-export function getPriceOverview(token: string): Promise<PriceOverview> {
+export function getPriceOverview(token: string): Promise<PriceOverview & { items: PriceOverviewItem[] }> {
   return apiRequest("GET", `${TENANT_BASE}/price-overview`, { token });
+}
+
+/** 只要两个数（首页的卡片）。 */
+export function getPriceOverviewSummary(token: string): Promise<Omit<PriceOverview, "items">> {
+  return apiRequest("GET", `${TENANT_BASE}/price-overview?summary=1`, { token });
 }
 
 export function saveRoundingUnit(token: string, brandId: string, version: number, roundingUnit: number): Promise<{ id: string; rounding_unit: number; version: number }> {
@@ -228,6 +245,8 @@ const PRICE_INPUT = ["area_id", "vehicle_group_id", "direction", "package_hours"
 const ADJUST_INPUT = ["name", "travel_from", "travel_to", "cycle", "time_slot", "area_ids", "vehicle_group_ids", "directions", "package_hours", "steps", "status"] as const;
 export const PRICE_SCHEMA_FIELDS = {
   PriceRule: ["id", ...PRICE_INPUT, "base", "created_at", "updated_at"],
+  PriceCalendar: ["version", "currency", "rounding_unit", "today", "days", "groups"],
+  PriceCalendarDay: ["date", "weekday", "holiday", "price_rule", "segments"],
   PriceRules: ["version", "currency", "rounding_unit", "available_models", "today", "items", "coverage"],
   AdjustRule: ["id", ...ADJUST_INPUT, "ended", "created_at", "updated_at"],
   AdjustRules: ["version", "currency", "rounding_unit", "today", "items"],
@@ -235,12 +254,17 @@ export const PRICE_SCHEMA_FIELDS = {
   Holidays: ["items", "countries"],
 } as const satisfies {
   PriceRule: readonly (keyof PriceRuleBody)[];
+  PriceCalendar: readonly (keyof PriceCalendar)[];
+  PriceCalendarDay: readonly (keyof CalendarDay)[];
   PriceRules: readonly (keyof PriceRules)[];
   AdjustRule: readonly (keyof AdjustRuleBody)[];
   AdjustRules: readonly (keyof AdjustRules)[];
   Holiday: readonly (keyof Holiday)[];
   Holidays: readonly (keyof Holidays)[];
 };
+/** 价格总览里每个商品的字段（schema 是内嵌的，对账时单独比）。 */
+export const PRICE_OVERVIEW_ITEM_FIELDS = ["product_id", "code", "status", "category", "title", "city", "coverage", "inventory_mode", "no_inventory_ahead", "price_rule_count", "has_active_price", "active_price_rule_count", "enabled_adjust_rule_count"] as const satisfies readonly (keyof PriceOverviewItem)[];
+export const NO_PRICE_REASONS = ["NO_RULE", "NOT_IN_EFFECT", "RULE_DISABLED", "NOT_POSITIVE"] as const;
 export const PRICE_WRITE_FIELDS = { PriceRuleInput: PRICE_INPUT, AdjustRuleInput: ADJUST_INPUT, PriceRuleBatch: ["create", "update", "delete"], AdjustRuleOrder: ["ids"] } as const;
 /** 页面专门处理的错误码和原因。 */
 export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED"] as const;

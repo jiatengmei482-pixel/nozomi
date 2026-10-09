@@ -292,3 +292,24 @@ test("服务规则整理成生效的一份：时段只留一种写法；「首�
 test("司机语言只能是平台支持的语言", () => {
   assert.deepEqual(["ja", "zh", "en", "ko", "fr", "ZH", "zh-CN", ""].map(isDriverLanguage), [true, true, true, true, false, false, false, false]);
 });
+
+test("上架校验：价格规则的三种不通过原因、调价规则和库存的提醒（后两项不是必须的，不通过也能上架）", () => {
+  const item = (extra: Parameters<typeof facts>[0], key: string) => publishCheck(facts(extra)).find((entry) => entry.key === key);
+  const priceReasons = (extra: Parameters<typeof facts>[0]): string[] => (item(extra, "price_rules")?.issues ?? []).map((issue) => issue.reason);
+  assert.deepEqual(priceReasons({ activePriceRuleCount: 0 }), ["NO_ACTIVE_PRICE_RULE"]);
+  assert.deepEqual(priceReasons({ activePriceRuleCount: 0, priceRuleStats: { total: 0, enabled: 0 } }), ["NO_ACTIVE_PRICE_RULE"]);
+  assert.deepEqual(priceReasons({ activePriceRuleCount: 0, priceRuleStats: { total: 3, enabled: 0 } }), ["ALL_PRICE_RULES_DISABLED"]);
+  assert.deepEqual(priceReasons({ activePriceRuleCount: 0, priceRuleStats: { total: 3, enabled: 2 } }), ["ALL_PRICE_RULES_EXPIRED"]);
+  assert.deepEqual(priceReasons({ activePriceRuleCount: 1, priceRuleStats: { total: 3, enabled: 2 } }), []);
+  // 调价规则：把价格调到不大于 0 的那几条
+  const adjust = item({ nonPositiveAdjustRules: [0, 2] }, "adjust_rules");
+  assert.deepEqual([adjust?.required, adjust?.passed, adjust?.issues], [false, false, [{ path: "/0", reason: "ADJUST_RESULT_NOT_POSITIVE" }, { path: "/2", reason: "ADJUST_RESULT_NOT_POSITIVE" }]]);
+  assert.equal(canPublish(publishCheck(facts({ nonPositiveAdjustRules: [0] }))), true);
+  // 库存：不限量、限量且有库存 → 通过；限量但从今天起一天都没有 → 提醒
+  assert.equal(item({}, "inventory")?.passed, true);
+  assert.equal(item({ inventory: { mode: "unlimited", sellableDaysAhead: 0 } }, "inventory")?.passed, true);
+  assert.equal(item({ inventory: { mode: "limited", sellableDaysAhead: 3 } }, "inventory")?.passed, true);
+  const empty = item({ inventory: { mode: "limited", sellableDaysAhead: 0 } }, "inventory");
+  assert.deepEqual([empty?.required, empty?.passed, empty?.issues], [false, false, [{ path: "/", reason: "NO_INVENTORY_AHEAD" }]]);
+  assert.equal(canPublish(publishCheck(facts({ inventory: { mode: "limited", sellableDaysAhead: 0 } }))), true, "库存不是必须项");
+});

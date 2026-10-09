@@ -1,4 +1,5 @@
 /** 商品分步编辑各步骤和外层框架之间的约定。 */
+import type { InventoryMode } from "@nozomi/domain";
 import type { Product, PublishCheckResult } from "../../api/products.ts";
 import type { CheckContext } from "../../lib/product-display.ts";
 
@@ -11,6 +12,10 @@ export interface ProductFrame {
   /** 上架检查的结果；没取到是 null */
   check: PublishCheckResult | null;
   checkContext: CheckContext | null;
+  /** 库存是不限量还是限量；没取到是 null */
+  inventoryMode: InventoryMode | null;
+  /** 第 ④ 步取到或改了模式以后告诉外层（步骤导航、上架检查用） */
+  setInventoryMode(mode: InventoryMode): void;
   /** 一步保存成功：记下新的版本号（带了商品就一并换上），并重新取检查结果 */
   saved(version: number, product?: Product): void;
   /** 只同步版本号（进入一步、取到它自己的内容时） */

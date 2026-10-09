@@ -29,7 +29,8 @@ export function StateBlock({
   tone = "danger",
 }: {
   title: string;
-  description: string;
+  /** 标题已经把话说完时可以不给 */
+  description?: string;
   action?: ReactNode;
   headingLevel?: "h1" | "h2" | "h3";
   /** danger：出错（圆形叹号）；neutral：空状态、没有权限（不带图标）；success：都处理完了（对勾） */
@@ -41,7 +42,7 @@ export function StateBlock({
       {tone === "danger" && <Icon name="alert-circle" className="state-block__icon" />}
       {tone === "success" && <Icon name="check-circle" className="state-block__icon state-block__icon--success" />}
       <Heading className="state-block__title">{title}</Heading>
-      <p className="state-block__description">{description}</p>
+      {description !== undefined && <p className="state-block__description">{description}</p>}
       {action && <div className="state-block__action">{action}</div>}
     </div>
   );
