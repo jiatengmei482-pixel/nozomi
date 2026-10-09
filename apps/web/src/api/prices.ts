@@ -162,6 +162,8 @@ export interface PriceOverviewItem {
 export interface PriceOverview {
   products_with_price: number;
   products_without_price: number;
+  /** 已上架、却已经没有可以卖的价格的商品有几个（价格的生效期自然过去了） */
+  published_without_price: number;
   /** 已上架的商品里，库存是限量而从今天起没有可售库存的有几个 */
   published_without_inventory: number;
   /** 带 `summary=1` 取的时候没有 */
@@ -229,7 +231,7 @@ export function getPriceOverviewSummary(token: string): Promise<Omit<PriceOvervi
   return apiRequest("GET", `${TENANT_BASE}/price-overview?summary=1`, { token });
 }
 
-export function saveRoundingUnit(token: string, brandId: string, version: number, roundingUnit: number): Promise<{ id: string; rounding_unit: number; version: number }> {
+export function saveRoundingUnit(token: string, brandId: string, version: number, roundingUnit: number): Promise<{ id: string; rounding_unit: number; version: number; changed_price_count: number }> {
   return apiRequest("PUT", `${BRANDS_PATH}/${encodeURIComponent(brandId)}/rounding-unit`, { token, body: { rounding_unit: roundingUnit }, headers: ifMatch(version) });
 }
 
@@ -264,7 +266,7 @@ export const PRICE_SCHEMA_FIELDS = {
 };
 /** 价格总览里每个商品的字段（schema 是内嵌的，对账时单独比）。 */
 export const PRICE_OVERVIEW_ITEM_FIELDS = ["product_id", "code", "status", "category", "title", "city", "coverage", "inventory_mode", "no_inventory_ahead", "price_rule_count", "has_active_price", "active_price_rule_count", "enabled_adjust_rule_count"] as const satisfies readonly (keyof PriceOverviewItem)[];
-export const NO_PRICE_REASONS = ["NO_RULE", "NOT_IN_EFFECT", "RULE_DISABLED", "NOT_POSITIVE"] as const;
+export const NO_PRICE_REASONS = ["NO_RULE", "NOT_IN_EFFECT", "RULE_DISABLED", "NOT_POSITIVE", "OVER_LIMIT"] as const;
 export const PRICE_WRITE_FIELDS = { PriceRuleInput: PRICE_INPUT, AdjustRuleInput: ADJUST_INPUT, PriceRuleBatch: ["create", "update", "delete"], AdjustRuleOrder: ["ids"] } as const;
 /** 页面专门处理的错误码和原因。 */
-export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED"] as const;
+export const PRICE_ERROR_CODES = ["PRICE_RULE_CONFLICT", "VERSION_CONFLICT", "PUBLISH_CHECK_FAILED", "CONCURRENT_UPDATE", "IDEMPOTENCY_KEY_REUSED", "AREA_NOT_IN_PRODUCT", "VEHICLE_GROUP_NOT_IN_PRODUCT", "UNKNOWN_PRICE_RULE", "TOO_MANY", "ADJUST_RESULT_NOT_POSITIVE", "ADJUST_RESULT_TOO_LARGE", "ADJUST_STACK_NOT_POSITIVE", "ADJUST_STACK_OVER_LIMIT", "NO_PRICE_IN_SELECTION", "ROUNDING_UNIT_ZEROES_PRICES", "IDS_MISMATCH", "NO_ACTIVE_PRICE_RULE", "ALL_PRICE_RULES_DISABLED", "ALL_PRICE_RULES_EXPIRED"] as const;

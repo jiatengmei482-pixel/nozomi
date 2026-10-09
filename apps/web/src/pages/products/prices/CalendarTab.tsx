@@ -233,12 +233,13 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
 
   const priceRuleOf = (day: CalendarDay) => prices.items.find((item) => item.id === day.price_rule?.id) ?? null;
   const mileage = (data?.days ?? []).some((day) => day.price_rule?.pricing_model === "mileage_time");
-  const allEmpty = data !== null && !stale && data.days.length > 0 && data.days.every((day) => day.segments.every((segment) => segment.final === null && segment.no_price_reason !== "NOT_POSITIVE"));
+  const allEmpty = data !== null && !stale && data.days.length > 0 && data.days.every((day) => day.segments.every((segment) => segment.final === null && segment.no_price_reason !== "NOT_POSITIVE" && segment.no_price_reason !== "OVER_LIMIT"));
   const rulesLink = (hash = ""): string => `${pricePath(product.id)}${hash}`;
 
   const detail = (day: CalendarDay | null, headingId: string): ReactNode => {
     if (day === null) return <p className="calendar-detail__loading">{loaded.state.status === "error" ? "没有加载出来。" : "加载中…"}</p>;
     const segment = segmentAt(day, time);
+    const unpriceable = segment?.no_price_reason === "NOT_POSITIVE" || segment?.no_price_reason === "OVER_LIMIT";
     const rule = priceRuleOf(day);
     const spans = prices.items.filter((item) => item.area_id === areaId && item.vehicle_group_id === groupId && item.package_hours === packageHours && (direction === null || item.direction === "both" || item.direction === direction)).map((item) => (item.valid_to === null ? `${item.valid_from} 起` : `${item.valid_from} 至 ${item.valid_to}`));
     return (
@@ -249,9 +250,11 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
         </h4>
         {segment === null || segment.final === null ? (
           <>
-            <p className="calendar-detail__final calendar-detail__final--none">{segment?.no_price_reason === "NOT_POSITIVE" ? "这一天算不出价" : "这一天没有价格"}</p>
+            <p className="calendar-detail__final calendar-detail__final--none">{unpriceable ? "这一天算不出价" : "这一天没有价格"}</p>
             <p className="calendar-detail__combo">{`${time} 用车 · ${comboName}`}</p>
-            {segment?.no_price_reason === "NOT_POSITIVE" ? (
+            {segment?.no_price_reason === "OVER_LIMIT" ? (
+              <p>调价之后的结算价超过了上限，客人询价时报不出价。请检查价格或调价规则是不是多打了几个零。</p>
+            ) : segment?.no_price_reason === "NOT_POSITIVE" ? (
               <p>调价规则把这一天的价调到了不大于 0，客人询价时报不出价。请把下调改小。</p>
             ) : segment?.no_price_reason === "RULE_DISABLED" ? (
               <p>这一天的价格现在是停用的。</p>
@@ -261,8 +264,8 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
               <p>这个组合还没有价格，客人询价时报不出价。</p>
             )}
             <p className="calendar-detail__actions">
-              {segment?.no_price_reason === "NOT_POSITIVE" ? (
-                segment.adjusts[0] && (
+              {unpriceable ? (
+                segment?.adjusts[0] && (
                   <Link className="link" to={pricePath(product.id, "adjust", `/${segment.adjusts[0].rule_id}`)}>
                     {readOnly ? "看这条规则" : "改这条规则"}
                   </Link>

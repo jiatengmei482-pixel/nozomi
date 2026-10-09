@@ -48,8 +48,8 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
     setSaving(true);
     setProblem(null);
     try {
-      await saveRoundingUnit(token, brandId, version, unit);
-      toast("已保存取整单位");
+      const saved = await saveRoundingUnit(token, brandId, version, unit);
+      toast(saved.changed_price_count > 0 ? `已保存取整单位，有 ${saved.changed_price_count.toLocaleString("en-US")} 条价格取整后的数变了` : "已保存取整单位");
       onSaved();
       onClose();
     } catch (err) {
@@ -64,6 +64,12 @@ export function RoundingUnitDialog({ open, productId, brandId, brandName, curren
         } catch {
           setProblem("这个子品牌刚被别人修改过，最新的设置没有加载出来。请关闭后重试。");
         }
+      } else if (err instanceof ApiError && err.code === "ROUNDING_UNIT_ZEROES_PRICES") {
+        // 取整单位太大：比半个单位还小的价格会取整成 0，报不出价
+        const count = (key: string): number | null => (typeof err.details[key] === "number" ? (err.details[key] as number) : null);
+        const prices = count("price_count");
+        const published = count("published_product_count");
+        setProblem(`不能改成 ${label(unit)}：这个子品牌下有${prices !== null ? ` ${prices.toLocaleString("en-US")} 条` : ""}价格取整后会变成 0，报不出价${published !== null && published > 0 ? `（其中 ${published.toLocaleString("en-US")} 个商品已上架）` : ""}。请选小一点的取整单位，或先把这些价格改大。`);
       } else if (err instanceof ApiError && err.status === 403) setProblem("你没有权限修改取整单位。");
       else setProblem(saveFailureText(err, "保存"));
     } finally {

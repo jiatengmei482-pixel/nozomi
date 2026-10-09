@@ -101,7 +101,7 @@ function open(path: string, role: string, state: State = {}, extra: Route = () =
     if (at === "/tenant/v1/price-overview") {
       const items = state.overview ?? [];
       const counted = items.filter((entry) => entry.status !== "unpublished");
-      const numbers = { products_with_price: counted.filter((entry) => entry.has_active_price).length, products_without_price: counted.filter((entry) => !entry.has_active_price).length, published_without_inventory: items.filter((entry) => entry.status === "published" && entry.no_inventory_ahead).length };
+      const numbers = { products_with_price: counted.filter((entry) => entry.has_active_price).length, products_without_price: counted.filter((entry) => !entry.has_active_price).length, published_without_price: items.filter((entry) => entry.status === "published" && !entry.has_active_price).length, published_without_inventory: items.filter((entry) => entry.status === "published" && entry.no_inventory_ahead).length };
       return json(200, call.url.searchParams.get("summary") === "1" ? numbers : { ...numbers, items });
     }
     if (at === "/tenant/v1/dashboard/summary") return json(200, { areas: { active: 1, disabled: 0 }, ...(state.summary ?? { products: { draft: 1, published: 0, unpublished: 0 } }) });
@@ -813,4 +813,45 @@ test("价格表的金额格：已经有千分位的数（18,500），键盘进�
   assert.equal(document.activeElement === cell ? cell.value : "9000", "9000");
   await actor.tab();
   assert.equal(cell.value, "9,000");
+});
+
+test("后端新口径的配合：取整单位太大被拒时说明有几条价格会变成 0；保存成功说出变了几条；已上架却没有可用价格的在首页提醒；叠加出的问题写在上架检查里", async () => {
+  const actor = user();
+  let answer: Response = apiError(409, "ROUNDING_UNIT_ZEROES_PRICES", "zero", { rounding_unit: 1000, price_count: 3, product_count: 2, published_product_count: 1, products: [] });
+  open(`/products/${PRODUCT_ID}/prices`, "admin", {}, (call) => (call.method === "PUT" && call.url.pathname === "/tenant/v1/brands/b1/rounding-unit" ? answer : null));
+  await actor.click(await screen.findByRole("button", { name: "修改取整单位" }));
+  const dialog = screen.getByRole("dialog", { name: "修改取整单位" });
+  await actor.selectOptions(within(dialog).getByLabelText(/取整到/), "1000");
+  await waitFor(() => assert.equal((within(dialog).getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled, false));
+  await actor.click(within(dialog).getByRole("button", { name: "保存" }));
+  await within(dialog).findByText("不能改成 JPY 1,000：这个子品牌下有 3 条价格取整后会变成 0，报不出价（其中 1 个商品已上架）。请选小一点的取整单位，或先把这些价格改大。");
+  answer = json(200, { id: "b1", rounding_unit: 10, version: 5, changed_price_count: 4 });
+  await actor.selectOptions(within(dialog).getByLabelText(/取整到/), "10");
+  await actor.click(within(dialog).getByRole("button", { name: "保存" }));
+  await screen.findByText("已保存取整单位，有 4 条价格取整后的数变了");
+  assert.doesNotMatch(pageText(), /ROUNDING_UNIT_ZEROES_PRICES/);
+
+  resetBrowser();
+  open("/", "admin", { overview: [overviewOf({ status: "published", has_active_price: false })], summary: { products: { draft: 0, published: 1, unpublished: 0 } } });
+  assert.equal((await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" })).getAttribute("href"), "/price-rules?priced=no&status=published");
+
+  resetBrowser();
+  open(`/products/${PRODUCT_ID}/publish`, "admin", {
+    check: {
+      can_publish: false,
+      items: [
+        item("basic_info"),
+        item("service_rules"),
+        item("price_rules", [{ path: "/", reason: "NO_PRICE_IN_SELECTION" }]),
+        item("content"),
+        { key: "adjust_rules", required: false, passed: false, issues: [{ path: "/stacks/0", reason: "ADJUST_STACK_NOT_POSITIVE", message: "x", detail: { rule_ids: "a,b", names: "清仓、夜间优惠", price_count: 2, date: "2026-10-10", time: "22:00", day_count: 5 } }, { path: "/stacks/1", reason: "ADJUST_STACK_OVER_LIMIT", message: "x", detail: { names: "旺季", price_count: 1, date: "2026-12-31" } }] },
+        item("inventory", [], false),
+      ],
+    },
+  });
+  await waitFor(() => assert.match(document.querySelector('[data-check="price_rules"]')?.textContent ?? "", /现有的价格都是给已经不在这个商品里的区域或车型组设的。请给现在选着的区域和车型组设价格/));
+  const adjusts = document.querySelector('[data-check="adjust_rules"]')?.textContent ?? "";
+  assert.match(adjusts, /「清仓、夜间优惠」同时生效时（最早是 2026-10-10 22:00，今后一年里有 5 天），有 2 条价格调完不大于 0，报不出来/);
+  assert.match(adjusts, /「旺季」同时生效时（最早是 2026-12-31），有 1 条价格调完超过了结算价的上限，报不出来/);
+  assert.doesNotMatch(pageText(), /ADJUST_STACK|NO_PRICE_IN_SELECTION/);
 });

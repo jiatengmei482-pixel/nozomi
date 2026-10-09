@@ -46,6 +46,12 @@ export function nonPositiveCount(err: unknown): number | null {
   return typeof count === "number" ? count : 0;
 }
 
+/** 后端说「调完超过了结算价的上限」：是返回 true。 */
+export function resultTooLarge(err: unknown): boolean {
+  return err instanceof ApiError && (err.code === "ADJUST_RESULT_TOO_LARGE" || serverIssues(err).some((entry) => entry.reason === "ADJUST_RESULT_TOO_LARGE"));
+}
+export const TOO_LARGE_TEXT = "按适用范围内的价格算，调完超过了结算价的上限。请检查是不是多打了几个零。";
+
 export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; loadStatus: string }) {
   const { frame, product, prices, adjusts } = shared;
   const { token, handleAuthFailure } = usePortalSession();
@@ -131,6 +137,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         ),
       });
     }
+    if (resultTooLarge(err)) return setNotice({ kind: "danger", title: `${what}。`, text: TOO_LARGE_TEXT });
     if (err instanceof ApiError && err.code === "VERSION_CONFLICT") {
       frame.refresh();
       shared.reloadAdjusts();

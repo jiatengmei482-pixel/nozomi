@@ -45,7 +45,7 @@ import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { focusAnchor } from "../frame.ts";
-import { nonPositiveCount } from "./AdjustRulesTab.tsx";
+import { TOO_LARGE_TEXT, nonPositiveCount, resultTooLarge } from "./AdjustRulesTab.tsx";
 import type { CalendarHandoff } from "./CalendarTab.tsx";
 import type { PricesShared } from "./PricesStep.tsx";
 
@@ -282,6 +282,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
       if (handleAuthFailure(err)) return;
       const count = nonPositiveCount(err);
       if (count !== null) setNotice({ kind: "danger", title: "不能保存。", text: `按适用范围内的${count > 0 ? ` ${count} 条` : ""}价格算，调完不大于 0。请把下调改小、缩小适用范围，或先不勾「启用」。` });
+      else if (resultTooLarge(err)) setNotice({ kind: "danger", title: "不能保存。", text: TOO_LARGE_TEXT });
       else if (!(err instanceof ApiError)) setNotice({ kind: "danger", text: saveFailureText(err, "保存", true) });
       else if (err.code === "VALIDATION_FAILED") {
         const placed = serverIssues(err).flatMap((issue) => {

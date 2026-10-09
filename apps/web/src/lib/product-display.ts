@@ -172,6 +172,7 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     }
   } else if (item.key === "price_rules") {
     if (take(reason("NO_ACTIVE_PRICE_RULE"))) out.push(one("还没有设价格（至少要有 1 条启用、没过期的价格）", ""));
+    if (take(reason("NO_PRICE_IN_SELECTION"))) out.push(one("现有的价格都是给已经不在这个商品里的区域或车型组设的。请给现在选着的区域和车型组设价格", ""));
     if (take(reason("ALL_PRICE_RULES_DISABLED"))) out.push(one("价格都停用了，至少要启用 1 条", ""));
     if (take(reason("ALL_PRICE_RULES_EXPIRED"))) out.push(one("价格都过期了，请把生效日期延长，或加一段新的", ""));
   } else if (item.key === "adjust_rules") {
@@ -186,6 +187,16 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
       return false;
     }).length;
     if (unnamed > 0) out.push(one(`有 ${unnamed} 条调价规则会把价格调到不大于 0，这些价格报不出来`, "adjust"));
+    // 几条规则同时生效时叠加、取整之后出的问题：写出是哪几条、最早哪一天
+    for (const issue of item.issues) {
+      if (issue.reason !== "ADJUST_STACK_NOT_POSITIVE" && issue.reason !== "ADJUST_STACK_OVER_LIMIT") continue;
+      known.add(issue);
+      const detail = issue.detail ?? {};
+      const names = typeof detail["names"] === "string" && detail["names"] !== "" ? `「${detail["names"]}」` : "几条调价规则";
+      const when = typeof detail["date"] === "string" ? `（最早是 ${detail["date"]}${typeof detail["time"] === "string" ? ` ${detail["time"]}` : ""}${typeof detail["day_count"] === "number" && detail["day_count"] > 1 ? `，今后一年里有 ${detail["day_count"]} 天` : ""}）` : "";
+      const prices = typeof detail["price_count"] === "number" ? `有 ${detail["price_count"]} 条价格` : "有的价格";
+      out.push(one(issue.reason === "ADJUST_STACK_NOT_POSITIVE" ? `${names}同时生效时${when}，${prices}调完不大于 0，报不出来` : `${names}同时生效时${when}，${prices}调完超过了结算价的上限，报不出来`, "adjust"));
+    }
   } else if (item.key === "inventory") {
     if (take(reason("NO_INVENTORY_AHEAD"))) out.push(one("库存是限量的，但从今天起没有一天有库存——上了架也卖不出去。", ""));
   }

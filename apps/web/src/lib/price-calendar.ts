@@ -129,7 +129,7 @@ export function cellView(day: CalendarDay, time: string): CellView {
   const segment = segmentAt(day, time);
   const rules = segment?.adjusts.map((adjust) => adjust.name) ?? [];
   const split = day.segments.length > 1;
-  if (segment === null || segment.final === null) return { kind: segment?.no_price_reason === "NOT_POSITIVE" ? "bad" : "none", final: null, trend: null, rules, split, disabled: segment?.no_price_reason === "RULE_DISABLED" };
+  if (segment === null || segment.final === null) return { kind: segment?.no_price_reason === "NOT_POSITIVE" || segment?.no_price_reason === "OVER_LIMIT" ? "bad" : "none", final: null, trend: null, rules, split, disabled: segment?.no_price_reason === "RULE_DISABLED" };
   const compared = segment.base === null || rules.length === 0 ? null : compareExact(exactFromMinor(segment.final), exactFromText(segment.base));
   return { kind: "price", final: segment.final, trend: compared === null ? null : compared > 0 ? "up" : compared < 0 ? "down" : "same", rules, split, disabled: false };
 }
