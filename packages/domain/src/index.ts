@@ -16,3 +16,4 @@ export * from "./products.ts";
 export * from "./pricing.ts";
 export * from "./inventory.ts";
 export * from "./spreadsheet.ts";
+export * from "./quote.ts";
