@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, integrationStatus, loadConfig, mask } from "./index.ts";
+import { ConfigError, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -35,10 +35,34 @@ test("缺少 DATABASE_URL 时报错", () => {
   assert.ok(issuesOf({ AUTH_JWT_SECRET: "x".repeat(40) }).some((i) => i.startsWith("DATABASE_URL")));
 });
 
-test("staging 环境必须配齐 Stripe 和谷歌地图", () => {
-  const issues = issuesOf({ ...base, APP_ENV: "staging" });
+test("production 环境必须配齐 Stripe 和谷歌地图", () => {
+  const issues = issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" });
   assert.ok(issues.some((i) => i.includes("Stripe")));
   assert.ok(issues.some((i) => i.includes("GOOGLE_MAPS_API_KEY")));
+});
+
+test("staging 环境缺 Stripe 和谷歌地图时照常启动，两项显示未配置", () => {
+  const c = loadConfig({ ...base, APP_ENV: "staging" });
+  assert.equal(c.appEnv, "staging");
+  assert.equal(c.stripe, null);
+  assert.equal(c.googleMapsApiKey, null);
+  const status = integrationStatus(c);
+  assert.equal(status.find((s) => s.key === "stripe")?.state, "missing");
+  assert.equal(status.find((s) => s.key === "googleMaps")?.state, "missing");
+});
+
+test("staging 环境只配了其中一项（只有谷歌地图，或只有 Stripe）也能启动", () => {
+  const mapsOnly = loadConfig({ ...base, APP_ENV: "staging", GOOGLE_MAPS_API_KEY: "AIzaSyExample000000000000000" });
+  assert.equal(mapsOnly.stripe, null);
+  assert.ok(mapsOnly.googleMapsApiKey);
+  const stripeOnly = loadConfig({ ...base, ...stripeTest, APP_ENV: "staging" });
+  assert.equal(stripeOnly.stripe?.mode, "test");
+  assert.equal(stripeOnly.googleMapsApiKey, null);
+});
+
+test("staging 环境 Stripe 只填一部分仍然报错（放宽的只是「可以整体不配」）", () => {
+  const issues = issuesOf({ ...base, APP_ENV: "staging", STRIPE_SECRET_KEY: stripeTest.STRIPE_SECRET_KEY });
+  assert.ok(issues.some((i) => i.includes("同时配置")));
 });
 
 test("Stripe 只填一部分时报错", () => {
@@ -79,4 +103,158 @@ test("空字符串视为未填写", () => {
 test("mask 只保留首尾", () => {
   assert.equal(mask("sk_test_1234567890abcd"), "sk_test…abcd");
   assert.equal(mask("short"), "•••••");
+});
+
+test("mask：不够长的密钥全部打码，脱敏结果里不含任何原文字符", () => {
+  for (const length of [0, 1, 10, 11, 12, 14, 19]) {
+    const secret = "Zk3".repeat(7).slice(0, length);
+    assert.equal(mask(secret), "•".repeat(length));
+  }
+  const twenty = "abcdefg" + "X".repeat(9) + "wxyz";
+  assert.equal(mask(twenty), "abcdefg…wxyz");
+});
+
+test("DATABASE_URL 前缀正确但无法解析（端口超范围、主机名有空格）：报错，且报错里没有原值", () => {
+  for (const url of ["postgres://app:pw-Zq7@127.0.0.1:99999/nozomi", "postgres://app:pw-Zq7@db host/nozomi"]) {
+    const issues = issuesOf({ ...base, DATABASE_URL: url });
+    assert.ok(issues.some((i) => i.startsWith("DATABASE_URL") && i.includes("无法解析")), url);
+    assert.ok(!issues.join("\n").includes("pw-Zq7"));
+  }
+});
+
+test("连接串脱敏：密码写在查询参数里也不输出", () => {
+  const c = loadConfig({ ...base, DATABASE_URL: "postgres://app@localhost:5432/nozomi?password=query-pw&sslmode=disable" });
+  const detail = integrationStatus(c).find((s) => s.key === "database")?.detail;
+  assert.equal(detail, "postgres://app:•••@localhost:5432/nozomi");
+});
+
+test("TRUST_PROXY_HOPS：默认 0（不信任 X-Forwarded-For），只接受 0 ~ 5 的整数", () => {
+  assert.equal(loadConfig(base).trustProxyHops, 0);
+  assert.equal(loadConfig({ ...base, TRUST_PROXY_HOPS: "1" }).trustProxyHops, 1);
+  for (const value of ["-1", "6", "1.5", "true"]) {
+    assert.ok(issuesOf({ ...base, TRUST_PROXY_HOPS: value }).some((i) => i.startsWith("TRUST_PROXY_HOPS")), value);
+  }
+});
+
+const migrationUrl = "postgres://owner:owner-pw@localhost:5432/nozomi";
+
+test("服务进程的配置：DATABASE_MIGRATION_URL 可以没有（服务进程不需要迁移账号）；填了就必须是另一个账号的合法连接串", () => {
+  assert.equal(loadConfig(base).databaseMigrationUrl, null);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: "" }).databaseMigrationUrl, null);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: migrationUrl }).databaseMigrationUrl, migrationUrl);
+  assert.equal(loadConfig({ ...base, DATABASE_MIGRATION_URL: migrationUrl }).databaseUrl, base.DATABASE_URL);
+
+  const sameAccount = issuesOf({ ...base, DATABASE_MIGRATION_URL: "postgres://app:other-pw@other-host:5432/nozomi" });
+  assert.equal(sameAccount.length, 1);
+  assert.match(sameAccount[0] as string, /不能是同一个数据库账号/);
+  const malformed = issuesOf({ ...base, DATABASE_MIGRATION_URL: "mysql://owner:secret-owner-pw@db:3306/nozomi" });
+  assert.ok(malformed.some((i) => i.startsWith("DATABASE_MIGRATION_URL")));
+  assert.ok(!malformed.join(" ").includes("secret-owner-pw"));
+});
+
+test("迁移命令的配置：只要求 DATABASE_MIGRATION_URL，不要求登录签名密钥；缺失、格式不对、和应用账号相同都报错且不带原值", () => {
+  assert.deepEqual(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl }), {
+    databaseMigrationUrl: migrationUrl,
+    databaseUrl: null,
+  });
+  assert.deepEqual(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: base.DATABASE_URL }), {
+    databaseMigrationUrl: migrationUrl,
+    databaseUrl: base.DATABASE_URL,
+  });
+  assert.equal(loadMigrationConfig({ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: " " }).databaseUrl, null);
+
+  const failing: [Record<string, string>, RegExp][] = [
+    [{}, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_URL: base.DATABASE_URL }, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_MIGRATION_URL: "postgres://owner:secret-owner-pw@db host/nozomi" }, /DATABASE_MIGRATION_URL/],
+    [{ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: "postgres://owner:secret-owner-pw@elsewhere/nozomi" }, /不能是同一个数据库账号/],
+    [{ DATABASE_MIGRATION_URL: migrationUrl, DATABASE_URL: "mysql://app:secret-owner-pw@db/nozomi" }, /DATABASE_URL/],
+  ];
+  for (const [env, expected] of failing) {
+    assert.throws(
+      () => loadMigrationConfig(env),
+      (err: unknown) => {
+        assert.ok(err instanceof ConfigError);
+        assert.match(err.message, expected);
+        assert.ok(!err.message.includes("secret-owner-pw") && !err.message.includes("owner-pw"));
+        return true;
+      },
+    );
+  }
+});
+
+test("databaseUserOf：取连接串里的账号名（还原百分号编码）；没有账号名或解析不了时为 null", () => {
+  assert.equal(databaseUserOf("postgres://nozomi_api:pw@db:5432/nozomi"), "nozomi_api");
+  assert.equal(databaseUserOf("postgres://a%40b:pw@db/nozomi"), "a@b");
+  assert.equal(databaseUserOf("postgres://db/nozomi"), null);
+  assert.equal(databaseUserOf("postgres://app:pw@db host/nozomi"), null);
+});
+
+const OSM = {
+  MAP_TILE_URL_TEMPLATE: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  MAP_TILE_ATTRIBUTION: "© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright",
+};
+
+test("地图底图：没配置时是 null；配了地址和署名就得到完整的配置，其余项有默认值", () => {
+  assert.equal(loadConfig(base).mapTiles, null);
+  assert.equal(loadConfig({ ...base, MAP_TILE_URL_TEMPLATE: "", MAP_TILE_ATTRIBUTION: " ", MAP_TILE_MAX_ZOOM: "", MAP_TILE_REFERRER_POLICY: "" }).mapTiles, null);
+  assert.deepEqual(loadConfig({ ...base, APP_ENV: "staging", ...OSM }).mapTiles, {
+    urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    darkUrlTemplate: null,
+    minZoom: 3,
+    maxZoom: 19,
+    tileSize: 256,
+    referrerPolicy: "strict-origin",
+    attribution: [{ text: "© OpenStreetMap 贡献者", href: "https://www.openstreetmap.org/copyright" }],
+  });
+  const custom = loadConfig({
+    ...base,
+    MAP_TILE_URL_TEMPLATE: "https://api.example-tiles.com/maps/streets/{z}/{x}/{y}@2x.png?key=pk_public_123",
+    MAP_TILE_DARK_URL_TEMPLATE: "https://api.example-tiles.com/maps/dark/{z}/{x}/{y}.png?key=pk_public_123",
+    MAP_TILE_ATTRIBUTION: "© Example Tiles|https://example-tiles.com/copyright ;; © OpenStreetMap 贡献者 ;;",
+    MAP_TILE_REFERRER_POLICY: "origin",
+    MAP_TILE_MIN_ZOOM: "2",
+    MAP_TILE_MAX_ZOOM: "20",
+    MAP_TILE_SIZE: "512",
+  }).mapTiles;
+  assert.deepEqual([custom?.darkUrlTemplate, custom?.referrerPolicy, custom?.minZoom, custom?.maxZoom, custom?.tileSize], [
+    "https://api.example-tiles.com/maps/dark/{z}/{x}/{y}.png?key=pk_public_123", "origin", 2, 20, 512,
+  ]);
+  assert.deepEqual(custom?.attribution, [{ text: "© Example Tiles", href: "https://example-tiles.com/copyright" }, { text: "© OpenStreetMap 贡献者", href: null }]);
+});
+
+test("地图底图：地址不合规、没有署名、缩放范围颠倒、只配了一半——启动时就报错", () => {
+  const bad: [Record<string, string>, RegExp][] = [
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: "http://tile.example.com/{z}/{x}/{y}.png" }, /MAP_TILE_URL_TEMPLATE 应当是 https/],
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: "https://tile.example.com/tiles.png" }, /MAP_TILE_URL_TEMPLATE/],
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: "https://tile.example.com/{z}/{x}/{y}.png; script-src *" }, /MAP_TILE_URL_TEMPLATE/],
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: 'https://tile.example.com/{z}/{x}/{y}.png"' }, /MAP_TILE_URL_TEMPLATE/],
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: "https://*.example.com/{z}/{x}/{y}.png" }, /MAP_TILE_URL_TEMPLATE/],
+    [{ ...OSM, MAP_TILE_URL_TEMPLATE: "https://user:pw@tile.example.com/{z}/{x}/{y}.png" }, /MAP_TILE_URL_TEMPLATE/],
+    [{ ...OSM, MAP_TILE_DARK_URL_TEMPLATE: "ftp://x/{z}/{x}/{y}" }, /MAP_TILE_DARK_URL_TEMPLATE/],
+    [{ MAP_TILE_URL_TEMPLATE: OSM.MAP_TILE_URL_TEMPLATE }, /必须配置 MAP_TILE_ATTRIBUTION/],
+    [{ ...OSM, MAP_TILE_ATTRIBUTION: "|https://x.example" }, /MAP_TILE_ATTRIBUTION/],
+    [{ ...OSM, MAP_TILE_ATTRIBUTION: "署名|javascript:alert(1)" }, /MAP_TILE_ATTRIBUTION/],
+    [{ ...OSM, MAP_TILE_ATTRIBUTION: "署名|https://a.example|多了一段" }, /MAP_TILE_ATTRIBUTION/],
+    [{ ...OSM, MAP_TILE_MIN_ZOOM: "12", MAP_TILE_MAX_ZOOM: "5" }, /MAP_TILE_MIN_ZOOM 不能大于/],
+    [{ MAP_TILE_ATTRIBUTION: OSM.MAP_TILE_ATTRIBUTION }, /却没有 MAP_TILE_URL_TEMPLATE/],
+  ];
+  for (const [env, expected] of bad) {
+    assert.match(issuesOf({ ...base, APP_ENV: "staging", ...env }).join("\n"), expected, JSON.stringify(env));
+  }
+  for (const env of [{ MAP_TILE_REFERRER_POLICY: "unsafe-url" }, { MAP_TILE_SIZE: "300" }, { MAP_TILE_MAX_ZOOM: "99" }]) {
+    assert.notDeepEqual(issuesOf({ ...base, ...OSM, ...env }), [], JSON.stringify(env));
+  }
+});
+
+test("瓦片地址的来源：协议 + 主机 + 端口，就是放进内容安全策略的那个值；本机地址只在 local / ci 环境能用", () => {
+  assert.equal(mapTileOrigin("https://tile.openstreetmap.org/{z}/{x}/{y}.png"), "https://tile.openstreetmap.org");
+  assert.equal(mapTileOrigin("https://tiles.example.com:8443/v1/{z}/{x}/{y}?key=abc"), "https://tiles.example.com:8443");
+  assert.equal(mapTileOrigin("http://127.0.0.1:4999/{z}/{x}/{y}.png"), "http://127.0.0.1:4999");
+  for (const bad of ["https://tile.example.com/static.png", "//tile.example.com/{z}/{x}/{y}", "https://tile.example.com", "http://tile.example.com/{z}/{x}/{y}", "https://a b/{z}/{x}/{y}"]) {
+    assert.equal(mapTileOrigin(bad), null, bad);
+  }
+  const local = { ...OSM, MAP_TILE_URL_TEMPLATE: "http://127.0.0.1:4999/{z}/{x}/{y}.png" };
+  assert.equal(loadConfig({ ...base, APP_ENV: "ci", ...local }).mapTiles?.urlTemplate, local.MAP_TILE_URL_TEMPLATE);
+  assert.match(issuesOf({ ...base, APP_ENV: "staging", ...local }).join("\n"), /MAP_TILE_URL_TEMPLATE/);
 });
