@@ -457,7 +457,7 @@ export function AuditLogPage() {
       >
         {detail !== null && (
           <div className="audit-detail">
-            <dl className="details">
+            <dl className="audit-detail__list">
               <dt>时间</dt>
               <dd>
                 {localSecond(detail.occurred_at)}

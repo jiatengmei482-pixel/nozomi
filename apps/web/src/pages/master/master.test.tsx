@@ -98,7 +98,7 @@ test("首页：入口不等数量——卡片和链接立即出现；数量来�
   assert.equal(cardOf("城市").querySelector("dl")?.textContent, "启用0已停用3");
   assert.equal(cardOf("车型组").querySelector("dl")?.textContent, "启用8已停用0", "0 也照常显示");
   assert.equal(cardOf("供应商").querySelector("dl")?.textContent, "正常3已暂停1");
-  assertAbsent(within(cardOf("供应商")).queryByRole("link"));
+  assert.equal(within(cardOf("供应商")).getByRole("link", { name: "供应商" }).getAttribute("href"), "/platform/tenants", "M1-10 起供应商卡片进列表");
   assert.equal(screen.getByRole("link", { name: "97 个机场待指定城市" }).getAttribute("href"), "/platform/master/places/pending");
   assert.equal(screen.getByRole("link", { name: "先新增城市，才能给机场指定城市" }).getAttribute("href"), "/platform/master/cities/new");
   assert.equal(within(main()).getByRole("link", { name: "城市" }).getAttribute("aria-describedby"), cardOf("城市").querySelector(".entry-card__counts-row")?.id);

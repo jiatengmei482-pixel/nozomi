@@ -208,6 +208,13 @@
     height: var(--table-row-height);
     padding: var(--space-2) var(--space-3);
     border-bottom: var(--border-width) solid var(--color-border-default);
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .card-table .table tbody tr > .table__cell--wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -431,5 +438,33 @@
 
   .audit-diff td[data-label]::before {
     content: none;
+  }
+}
+
+/* 审计日志详情上半部分：对话框里固定两栏（项目 / 内容），窄屏单栏 */
+.audit-detail__list {
+  display: grid;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+
+.audit-detail__list > dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.audit-detail__list > dd {
+  min-width: 0;
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .audit-detail__list {
+    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+  }
+
+  .audit-detail__list > dd {
+    margin: 0;
   }
 }

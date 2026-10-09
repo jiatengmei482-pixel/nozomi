@@ -508,19 +508,30 @@ export function TenantDetailPage() {
           基本信息
         </h2>
         <dl className="details">
-          <dt>名称</dt>
-          <dd>{tenant.name}</dd>
-          <dt>状态</dt>
-          <dd>{TENANT_STATUS_BADGES[tenant.status].label}</dd>
-          <dt>供应商编号</dt>
-          <dd className="tenant-id">
-            <span className="product-code">{tenant.id}</span>
-            <CopyButton text={tenant.id} label="复制供应商编号" />
-          </dd>
-          <dt>创建时间</dt>
-          <dd>{formatLocalDateTime(tenant.created_at)}</dd>
-          <dt>最近修改</dt>
-          <dd>{formatLocalDateTime(tenant.updated_at)}</dd>
+          <div>
+            <dt>名称</dt>
+            <dd>{tenant.name}</dd>
+          </div>
+          <div>
+            <dt>状态</dt>
+            <dd>{TENANT_STATUS_BADGES[tenant.status].label}</dd>
+          </div>
+          <div>
+            <dt>供应商编号</dt>
+            <dd className="tenant-id">
+              <span className="product-code">{tenant.id}</span>
+              <CopyButton text={tenant.id} label="复制供应商编号" />
+            </dd>
+          </div>
+          <div>
+            <dt>创建时间</dt>
+            <dd>{formatLocalDateTime(tenant.created_at)}</dd>
+          </div>
+          <div>
+            <dt>最近修改</dt>
+            <dd>{formatLocalDateTime(tenant.updated_at)}</dd>
+          </div>
+        
         </dl>
       </section>
       <section className="card" aria-labelledby="tenant-admins-title">
