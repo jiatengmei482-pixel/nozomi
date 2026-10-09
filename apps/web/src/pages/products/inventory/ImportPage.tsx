@@ -87,6 +87,12 @@ function fromInventory(preview: InventoryImportPreview): Checked {
 }
 
 const count = (value: number): string => value.toLocaleString("en-US");
+/** 文件读不了：固定的那句话后面，接上后端对「打不开」的具体说明（如「编码是 UTF-16…请用 Excel 另存为 .xlsx」）。 */
+function invalidFileText(err: ApiError): string {
+  const fixed = fileInvalidText(err.status, err.details);
+  const detail = err.details["reason"] === "CORRUPT" && /[一-鿿]/.test(err.message) ? err.message.trim() : "";
+  return detail === "" || fixed.includes(detail) ? fixed : `${fixed}（${detail.replace(/[。.]$/, "")}）`;
+}
 const problemsText = (counts: Record<RowKind, number>): string => [counts.error > 0 ? `${count(counts.error)} 行出错` : "", counts.conflict > 0 ? `${count(counts.conflict)} 行冲突` : ""].filter((part) => part !== "").join("、");
 
 export function ImportPage({ kind, frame, product }: { kind: Kind; frame: ProductFrame; product: Product }) {
@@ -153,7 +159,7 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
       setAnnounce("");
       if (err instanceof CancelledError) return setPickNote("已取消，没有改动任何东西。");
       if (handleAuthFailure(err)) return;
-      if (err instanceof ApiError && (err.code === "IMPORT_FILE_INVALID" || err.status === 413)) return setPickProblem({ text: fileInvalidText(err.status, err.details), retry: false });
+      if (err instanceof ApiError && (err.code === "IMPORT_FILE_INVALID" || err.status === 413)) return setPickProblem({ text: invalidFileText(err), retry: false });
       if (err instanceof ApiError && err.status === 403) return setPickProblem({ text: PRODUCT_FORBIDDEN_TEXT, retry: false });
       if (err instanceof ApiError && err.status === 404) return setPickProblem({ text: "找不到这个商品，它可能已被别人删除。", retry: false });
       setPickProblem({ text: "没有检查成功，请检查网络后重试。", retry: true });
@@ -223,7 +229,7 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
         case "IMPORT_FILE_CHANGED":
           return backToPick("没有导入。", "这次传上去的文件和刚才检查的不是同一份。请重新选择文件，再检查一次。");
         case "IMPORT_FILE_INVALID":
-          return backToPick("", fileInvalidText(err.status, err.details));
+          return backToPick("", invalidFileText(err));
         case "VERSION_CONFLICT":
           frame.refresh();
           return setRejection({ kind: "danger", title: "没有导入。", text: "检查之后，这个商品被别人修改过。请重新检查这份文件。", recheck: true });
@@ -234,7 +240,7 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
             setChecked(result);
             setFilter(result.counts.error + result.counts.conflict > 0 ? "problems" : "all");
             idempotencyKey.current = crypto.randomUUID();
-          } else void check(file);
+          } else void check(file); // 兜底：应答里没带最新结果时（老版本的后端），用同一个文件再检查一次
           return setRejection({ kind: "danger", title: "没有导入。", text: "再检查时发现有问题（检查之后情况有变化）。下面是最新的检查结果。" });
         }
         case "PUBLISH_CHECK_FAILED": {

@@ -611,3 +611,15 @@ test("上架检查的库存一项：不限量 / 限量各有一句；限量但�
   assert.match(screen.getByRole("dialog", { name: "上架「羽田机场接送」？" }).textContent ?? "", /现在上架也卖不出去：库存是限量的，从今天起没有一天有库存。可以先去设库存，也可以先上架、之后再设。/);
   assert.doesNotMatch(pageText(), /NO_INVENTORY_AHEAD/);
 });
+
+test("导入：文件打不开时，固定的那句话后面接上后端说的具体原因；别的原因不重复后端的话", async () => {
+  const actor = userEvent.setup({ applyAccept: false });
+  let answer: Response = apiError(400, "IMPORT_FILE_INVALID", "文件的编码是 UTF-16，读不了。请用 Excel 另存为 .xlsx。", { reason: "CORRUPT" });
+  open(`/products/${PRODUCT_ID}/inventory/import`, "admin", {}, (call) => (call.method === "POST" ? answer : null));
+  await screen.findByRole("heading", { level: 3, name: "导入库存" });
+  await actor.upload(document.getElementById("import-file") as HTMLInputElement, xlsx());
+  await screen.findByText("这个文件打不开，可能已经损坏。请在 Excel 里重新保存一份再传。（文件的编码是 UTF-16，读不了。请用 Excel 另存为 .xlsx）");
+  answer = apiError(400, "IMPORT_FILE_INVALID", "not a zip", { reason: "CORRUPT" });
+  await actor.upload(document.getElementById("import-file") as HTMLInputElement, xlsx());
+  await screen.findByText("这个文件打不开，可能已经损坏。请在 Excel 里重新保存一份再传。");
+});
