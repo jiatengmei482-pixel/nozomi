@@ -38,7 +38,7 @@ const INNER: [number, number][] = [
 ];
 const operate: AreaPolygon = { id: OPERATE_ID, kind: "operate", seq: 1, label: null, source: "drawn", circle: null, geometry: { type: "Polygon", coordinates: closed(OUTER) } };
 const forbid: AreaPolygon = { id: FORBID_ID, kind: "forbid", seq: 1, label: "皇居", source: "pasted", circle: null, geometry: { type: "Polygon", coordinates: closed(INNER) } };
-const summaryOf = (overrides: Partial<AreaSummary> = {}): AreaSummary => ({ id: AREA_ID, name: { zh: "东京 23 区" }, city_id: TOKYO_ID, city: areaCity, biz_type: "general", status: "active", operate_polygon_count: 1, forbid_polygon_count: 1, version: 4, ...stamps, ...overrides });
+const summaryOf = (overrides: Partial<AreaSummary> = {}): AreaSummary => ({ id: AREA_ID, name: { zh: "东京 23 区" }, city_id: TOKYO_ID, city: areaCity, biz_type: "general", status: "active", operate_polygon_count: 1, forbid_polygon_count: 1, usage: { product_count: 0, published_product_count: 0 }, version: 4, ...stamps, ...overrides });
 const areaOf = (overrides: Partial<Area> = {}): Area => ({ ...summaryOf(), polygons: [operate, forbid], ...overrides });
 
 const me = (role: string) => json(200, { user: { id: "u1", email: "user@supplier.example", name: "测试用户", role, status: "active", ...stamps }, tenant: { id: "t1", name: "测试用供应商", status: "active", ...stamps }, permissions: [], must_change_password: false });

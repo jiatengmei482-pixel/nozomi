@@ -7,6 +7,7 @@ import { usePortalSession } from "../auth/PortalSession.tsx";
 import { Alert } from "../components/Alert.tsx";
 import { EntryCard, type EntryCounts } from "../components/EntryCard.tsx";
 import { AREA_LIST_PATH, AREA_NEW_PATH } from "../lib/area-paths.ts";
+import { PRODUCT_LIST_PATH, PRODUCT_NEW_PATH } from "../lib/product-paths.ts";
 import { useLoad } from "../lib/use-load.ts";
 import { useTenantCan } from "../lib/use-master-access.ts";
 import { AppShell, Page } from "../components/AppShell.tsx";
@@ -21,9 +22,21 @@ export function HomePage() {
   useDocumentTitle(`首页 · NOZOMI ${portal.name}`);
   const canSeeAreas = useTenantCan("area.read");
   const canManageAreas = useTenantCan("area.manage");
-  const summary = useLoad<TenantDashboardSummary>("tenant-summary", canSeeAreas ? fetchTenantSummary : null);
+  const canSeeProducts = useTenantCan("product.read");
+  const canManageProducts = useTenantCan("product.manage");
+  const canSeeAny = canSeeAreas || canSeeProducts;
+  const summary = useLoad<TenantDashboardSummary>("tenant-summary", canSeeAny ? fetchTenantSummary : null);
   const data = summary.state.data;
-  const failed = canSeeAreas && data === null && summary.state.status !== "loading";
+  const failed = canSeeAny && data === null && summary.state.status !== "loading";
+  const showProducts = data !== null ? data.products !== null : canSeeProducts;
+  const products = data?.products ?? null;
+  const productCounts: EntryCounts = products
+    ? { status: "ready", counts: [{ value: products.published, label: "已上架" }, { value: products.draft, label: "草稿" }, { value: products.unpublished, label: "已下架" }] }
+    : failed
+      ? { status: "failed" }
+      : { status: "loading" };
+  // 引导一次只出一条：区域这一步做完了（或看不到区域的数量），才提醒建商品
+  const remindProduct = products !== null && products.published + products.draft + products.unpublished === 0 && canManageProducts && (data?.areas == null || data.areas.active > 0);
   const showAreas = data !== null ? data.areas !== null : canSeeAreas;
   const areas = data?.areas ?? null;
   const areaCounts: EntryCounts = areas ? { status: "ready", counts: [{ value: areas.active, label: "启用" }, { value: areas.disabled, label: "已停用" }] } : failed ? { status: "failed" } : { status: "loading" };
@@ -42,17 +55,18 @@ export function HomePage() {
             </Alert>
           </div>
         )}
-        {showAreas && (
+        {(showAreas || showProducts) && (
           <section className="home-section" aria-labelledby="home-catalog">
             <h2 className="home-section__title" id="home-catalog">
               商品配置
             </h2>
             <div className="entry-grid">
-              <EntryCard title="区域" to={AREA_LIST_PATH} counts={areaCounts} reminders={areas && areas.active + areas.disabled === 0 && canManageAreas ? [{ text: "还没有区域，先建一个", to: AREA_NEW_PATH }] : []} />
+              {showAreas && <EntryCard title="区域" to={AREA_LIST_PATH} counts={areaCounts} reminders={areas && areas.active + areas.disabled === 0 && canManageAreas ? [{ text: "还没有区域，先建一个", to: AREA_NEW_PATH }] : []} />}
+              {showProducts && <EntryCard title="商品" to={PRODUCT_LIST_PATH} counts={productCounts} reminders={remindProduct ? [{ text: "还没有商品，先建一个", to: PRODUCT_NEW_PATH }] : []} />}
             </div>
           </section>
         )}
-        {account.status === "ready" && !showAreas && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
+        {account.status === "ready" && !showAreas && !showProducts && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
         <section className="card" aria-labelledby="current-account-title">
           <h2 className="card__title" id="current-account-title">
             当前登录

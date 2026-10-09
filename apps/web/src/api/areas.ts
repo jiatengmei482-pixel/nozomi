@@ -50,6 +50,7 @@ export interface AreaSummary {
   status: MasterDataStatus;
   operate_polygon_count: number;
   forbid_polygon_count: number;
+  usage: AreaUsage;
   version: number;
   created_at: string;
   updated_at: string;
@@ -101,6 +102,14 @@ export interface MapConfig {
 export interface TenantDashboardSummary {
   /** 当前角色不能看区域时为 null */
   areas: { active: number; disabled: number } | null;
+  /** 当前角色不能看商品时为 null */
+  products: { draft: number; published: number; unpublished: number } | null;
+}
+
+/** 这个区域被多少个商品选了、其中多少个已上架。 */
+export interface AreaUsage {
+  product_count: number;
+  published_product_count: number;
 }
 
 export interface AreaListQuery {
@@ -113,7 +122,7 @@ export interface AreaListQuery {
 }
 export const AREA_LIST_QUERY_KEYS = ["limit", "cursor", "q", "city_id", "biz_type", "status"] as const satisfies readonly (keyof AreaListQuery)[];
 
-function query(path: string, values: object): string {
+export function query(path: string, values: object): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined && value !== "") params.set(key, String(value));
@@ -162,7 +171,7 @@ export function fetchTenantSummary(token: string): Promise<TenantDashboardSummar
   return apiRequest("GET", `${TENANT_BASE}/dashboard/summary`, { token });
 }
 
-async function listAll<T>(path: string, token: string, values: object): Promise<T[]> {
+export async function listAll<T>(path: string, token: string, values: object): Promise<T[]> {
   const all: T[] = [];
   let cursor: string | undefined;
   do {
@@ -184,7 +193,7 @@ export function listTenantPlaces(token: string, cityId: string, type: PlaceType)
 }
 
 /** 对账用：每个类型的字段名清单。 */
-const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "status", "operate_polygon_count", "forbid_polygon_count", "version", "created_at", "updated_at"] as const;
+const SUMMARY = ["id", "name", "city_id", "city", "biz_type", "status", "operate_polygon_count", "forbid_polygon_count", "usage", "version", "created_at", "updated_at"] as const;
 export const AREA_SCHEMA_FIELDS = {
   AreaSummary: SUMMARY,
   Area: [...SUMMARY, "polygons"],

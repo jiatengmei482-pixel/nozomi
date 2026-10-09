@@ -5,6 +5,13 @@
 import type { ReactNode } from "react";
 
 export type IconName =
+  | "clock"
+  | "lock"
+  | "circle"
+  | "arrow-up"
+  | "arrow-down"
+  | "refresh"
+  | "package"
   | "eye"
   | "eye-off"
   | "sun"
@@ -122,6 +129,23 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   minus: <path d="M5 12h14" />,
   filter: <path d="M3 5h18l-7 8.5V19l-4 2v-7.5L3 5z" />,
   external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  circle: <circle cx="12" cy="12" r="8" />,
+  "arrow-up": <path d="M12 19V5M6 11l6-6 6 6" />,
+  "arrow-down": <path d="M12 5v14M6 13l6 6 6-6" />,
+  refresh: <path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4" />,
+  package: <path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5v-9zM3.5 7.5L12 12l8.5-4.5M12 12v9" />,
 };
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {

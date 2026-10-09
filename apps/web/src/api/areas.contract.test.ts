@@ -105,7 +105,9 @@ test("地图底图配置和首页数量", () => {
   assert.deepEqual(Object.keys(tiles?.properties ?? {}).sort(), [...MAP_TILE_FIELDS].sort());
   assert.deepEqual(tiles?.properties?.["attribution"]?.items?.required, ["text", "href"]);
   const summary = schemas[ref(response(op("get", `${TENANT_BASE}/dashboard/summary`), "200")) ?? ""];
-  assert.deepEqual(Object.keys(summary?.properties ?? {}), ["areas"]);
+  assert.deepEqual(Object.keys(summary?.properties ?? {}), ["areas", "products"]);
+  assert.deepEqual(summary?.properties?.["products"]?.required, ["draft", "published", "unpublished"]);
+  assert.deepEqual(schemas["AreaSummary"]?.properties?.["usage"]?.required, ["product_count", "published_product_count"]);
   assert.deepEqual(summary?.properties?.["areas"]?.required, ["active", "disabled"]);
 });
 
