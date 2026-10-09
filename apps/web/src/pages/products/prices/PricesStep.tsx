@@ -19,6 +19,7 @@ import { useLoad } from "../../../lib/use-load.ts";
 import type { ProductFrame } from "../frame.ts";
 import { AdjustRuleForm } from "./AdjustRuleForm.tsx";
 import { AdjustRulesTab } from "./AdjustRulesTab.tsx";
+import { CalendarTab } from "./CalendarTab.tsx";
 import { PriceRulesTab } from "./PriceRulesTab.tsx";
 
 export interface PricesShared {
@@ -67,6 +68,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
         : {}),
     },
     { key: "adjust", name: "调价规则", ...(enabledAdjusts > 0 ? { extra: <span className="price-tabs__count">{enabledAdjusts}</span> } : {}) },
+    { key: "calendar", name: "价格日历" },
   ];
 
   let body: ReactNode;
@@ -109,6 +111,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
     const shared: PricesShared = { frame, product, prices: data, adjusts: adjusts.state.data, setPrices: prices.set, reloadPrices: prices.reload, setAdjusts: adjusts.set, reloadAdjusts: adjusts.reload };
     if (tab === "adjust" && rest.length > 1) body = <AdjustRuleForm key={rest[1]} shared={shared} ruleId={rest[1] === "new" ? null : (rest[1] ?? null)} />;
     else if (tab === "adjust") body = <AdjustRulesTab shared={shared} loadStatus={adjusts.state.status} />;
+    else if (tab === "calendar") body = <CalendarTab shared={shared} />;
     else body = <PriceRulesTab shared={shared} />;
   }
 

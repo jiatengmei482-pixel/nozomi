@@ -97,6 +97,24 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
     return group ? displayName(group.name).text : "已不在这个商品里的车型组";
   };
 
+  /** 去价格日历：月份是这条规则开始的那个月（已经开始的去本月），组合是它适用的第一个。 */
+  const calendarLink = (rule: AdjustRuleBody): string => {
+    const start = rule.cycle.type === "dates" ? ([...rule.cycle.dates].sort().find((date) => date >= prices.today) ?? null) : rule.travel_from;
+    const query = new URLSearchParams();
+    const area = rule.area_ids.find((id) => product.areas.some((entry) => entry.area_id === id));
+    const group = rule.vehicle_group_ids.find((id) => product.vehicle_groups.some((entry) => entry.vehicle_group_id === id));
+    if (area !== undefined || group !== undefined) {
+      query.set("area", area ?? product.areas[0]?.area_id ?? "");
+      query.set("vg", group ?? product.vehicle_groups[0]?.vehicle_group_id ?? "");
+    }
+    if (rule.directions.length === 1 && rule.directions[0] === "dropoff") query.set("dir", "dropoff");
+    if (rule.package_hours[0] !== undefined) query.set("pkg", String(rule.package_hours[0]));
+    if (rule.time_slot !== null) query.set("time", rule.time_slot.start);
+    if (start !== null && start.slice(0, 7) > prices.today.slice(0, 7)) query.set("month", start.slice(0, 7));
+    const search = query.toString();
+    return `${pricePath(product.id, "calendar")}${search === "" ? "" : `?${search}`}`;
+  };
+
   const failed = (err: unknown, what: string, rule?: AdjustRuleBody): void => {
     if (handleAuthFailure(err)) return;
     const count = nonPositiveCount(err);
@@ -335,6 +353,9 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
           </Link>
           {!readOnly && (
             <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${rule.name} 的更多操作`}>
+              <Link role="menuitem" className="menu-item" to={calendarLink(rule)}>
+                <span className="menu-item__text">在价格日历里看</span>
+              </Link>
               <Link role="menuitem" className="menu-item" to={pricePath(product.id, "adjust", "/new")} state={{ copyRule: rule.id }}>
                 <span className="menu-item__text">复制一条</span>
               </Link>
@@ -374,9 +395,16 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
             description="调价规则可以不设：不设的话，每天都按价格规则里的基础价报价。节假日、旺季、周末、夜里想调高或调低时再来建。"
             action={
               readOnly ? undefined : (
-                <LinkButton variant="primary" to={pricePath(product.id, "adjust", "/new")} id="adjust-new">
-                  新建调价规则
-                </LinkButton>
+                <>
+                  <LinkButton variant="primary" to={pricePath(product.id, "adjust", "/new")} id="adjust-new">
+                    新建调价规则
+                  </LinkButton>
+                  {!noPrices && (
+                    <LinkButton variant="text" to={pricePath(product.id, "calendar")}>
+                      去价格日历上选日期
+                    </LinkButton>
+                  )}
+                </>
               )
             }
           />

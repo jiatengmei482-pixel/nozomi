@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { ADJUST_CYCLE_TYPES, PRICE_DIRECTIONS, PRICING_MODELS } from "@nozomi/domain";
 import { TENANT_BASE } from "./areas.ts";
-import { CALENDAR_QUERY_KEYS, HOLIDAY_QUERY_KEYS, PRICE_ERROR_CODES, PRICE_SCHEMA_FIELDS, PRICE_WRITE_FIELDS } from "./prices.ts";
+import { CALENDAR_QUERY_KEYS, HOLIDAY_QUERY_KEYS, NO_PRICE_REASONS, PRICE_ERROR_CODES, PRICE_OVERVIEW_ITEM_FIELDS, PRICE_SCHEMA_FIELDS, PRICE_WRITE_FIELDS } from "./prices.ts";
 import { BRANDS_PATH, PRODUCTS_PATH } from "./products.ts";
 
 interface Schema {
@@ -109,6 +109,16 @@ test("手写类型的字段与同名 schema 完全一致；提交的字段接口
   }
   assert.deepEqual(schemas[ref(schemas["PriceRules"]?.properties?.["coverage"]) ?? ""]?.required, ["total", "priced", "missing"]);
   assert.deepEqual(schemas["Holidays"]?.properties?.["countries"]?.items?.required, ["country_code", "count", "last_date"]);
+  const overview = schemas["PriceOverview"];
+  assert.deepEqual(overview?.required, ["products_with_price", "products_without_price"], "带 summary=1 时没有 items");
+  assert.deepEqual([...(overview?.properties?.["items"]?.items?.required ?? [])].sort(), [...PRICE_OVERVIEW_ITEM_FIELDS].sort());
+  assert.deepEqual(overview?.properties?.["items"]?.items?.properties?.["coverage"]?.required, ["total", "missing"]);
+  assert.ok(params(op("get", `${TENANT_BASE}/price-overview`)).includes("query:summary"));
+  const segment = schemas["PriceCalendarDay"]?.properties?.["segments"]?.items;
+  assert.deepEqual(segment?.required, ["from", "to", "final", "no_price_reason", "base", "unrounded", "adjusts"]);
+  assert.deepEqual((segment?.properties?.["no_price_reason"]?.enum ?? []).filter((value) => value !== null), [...NO_PRICE_REASONS]);
+  assert.deepEqual(segment?.properties?.["adjusts"]?.items?.properties?.["steps"]?.items?.required, ["type", "value", "delta", "after"]);
+  assert.deepEqual(schemas["PriceCalendar"]?.properties?.["groups"]?.items?.required, ["vehicle_group_id", "days"]);
 });
 
 test("枚举值与 @nozomi/domain 一致", () => {

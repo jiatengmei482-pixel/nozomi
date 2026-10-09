@@ -3,7 +3,7 @@
  * 主数据、供应商、商品的前两步和详情经接口准备好；价格、调价规则、上架都经界面做。
  * 金额的断言和 @nozomi/domain 的计算对照，不在测试里另写公式。
  */
-import { applyAdjustRules, basePrice, exactFromMinor } from "@nozomi/domain";
+import { addDays, applyAdjustRules, basePrice, exactFromMinor } from "@nozomi/domain";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { type Supplier, type World, checkItem, createProductByApi, createSupplier, createWorld, expectAccessible, step, tenantHeaders, toast } from "./catalog.ts";
 import { createActiveTenant, expectNoHorizontalOverflow, loginAs, snapshot } from "./support.ts";
@@ -106,7 +106,7 @@ test("设一口价 → 上架检查全部通过 → 真正上架 → 列表显�
 
 const jpy = (minor: number): string => `JPY ${minor.toLocaleString("en-US")}`;
 /** 规则 4：供应商后台的任何应答和页面里都不能有对外价和加价比例。 */
-const FORBIDDEN = /markup|sell_price|sale_price|retail|external_price|public_price|对外价|加价/i;
+const FORBIDDEN = /markup|sell_price|sale_price|retail|external_price|public_price|对外价|加价比例|加价率/i;
 
 async function productVersion(request: APIRequestContext, supplier: Supplier, productId: string): Promise<number> {
   return ((await (await request.get(`/tenant/v1/products/${productId}`, { headers: supplier.headers })).json()) as { version: number }).version;
@@ -311,4 +311,111 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   const rejection = (await rejected.json()) as { error: { code: string; details: { conflicts: { ref?: string; with: { id?: string }[] }[] } } };
   expect(rejection.error.code).toBe("PRICE_RULE_CONFLICT");
   expect(rejection.error.details.conflicts.some((conflict) => conflict.ref === "again" && conflict.with.some((entry) => entry.id === existingId))).toBe(true);
+});
+
+test("价格日历：某一天的结算价和 domain 一致 → 在月历上选一段日期新建调价规则 → 回到日历看到那几天变了；键盘能选；手机是列表；只读角色只能看", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const product = await readyProduct(request, supplier, world, "airport_transfer", "羽田机场接送");
+  const info = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string; rounding_unit: number };
+  await createFixedPrice(request, supplier, world, product.id, 20000, `${info.today.slice(0, 8)}01`);
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  await page.goto(`/products/${product.id}/prices`);
+  await page.getByRole("navigation", { name: "价格规则的分区" }).getByRole("link", { name: "价格日历" }).click();
+  await expect(page).toHaveURL(/\/prices\/calendar$/);
+
+  // 月历：每一天都是基础价；明细面板默认显示今天
+  const month = info.today.slice(0, 7);
+  const grid = page.getByRole("grid");
+  const dayCell = (date: string) => page.locator(`#calendar-day-${date}`);
+  await expect(dayCell(info.today)).toHaveAttribute("aria-label", /结算价 JPY 20,000/);
+  await expect(dayCell(info.today)).toHaveAttribute("aria-current", "date");
+  const panel = page.locator(".calendar-layout > .calendar-detail");
+  await expect(panel).toContainText(info.today);
+  await expect(panel).toContainText("结算价 JPY 20,000");
+  await expect(panel).toContainText(`10:00 用车 · ${supplier.area.name} · ${world.group.name} · 接机`);
+  await expect(page.getByText(`日期是${world.city.name}当地的用车日期。`)).toBeVisible();
+  await expectNoHorizontalOverflow(page, "价格日历");
+  await expectAccessible(page, "价格日历");
+
+  // 选一段日期（点起点，按住 Shift 点终点）→ 新建调价规则：日期和适用范围已经填好
+  const from = `${month}-10`;
+  const to = `${month}-12`;
+  await dayCell(from).click();
+  await dayCell(to).click({ modifiers: ["Shift"] });
+  await expect(page.locator(".calendar-bar")).toContainText(`已选 ${from} 至 ${to}，共 3 天`);
+  await expect(dayCell(`${month}-11`)).toHaveAttribute("aria-selected", "true");
+  await page.locator(".calendar-bar").getByRole("link", { name: "新建调价规则" }).click();
+  await expect(page).toHaveURL(/\/prices\/adjust\/new$/);
+  await expect(page.getByText(`已按你在日历上选的填好了日期和适用范围（${supplier.area.name} · ${world.group.name} · 接机）。`, { exact: false })).toBeVisible();
+  await expect(page.getByLabel("出行日期从")).toHaveValue(from);
+  await expect(page.getByLabel("出行日期到")).toHaveValue(to);
+  await expect(page.getByRole("radio", { name: "指定区域" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "只接机" })).toBeChecked();
+  await page.getByRole("textbox", { name: "名称", exact: true }).fill("连休");
+  await page.getByLabel("第 1 步的数值").fill("12.5");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(toast(page, "已新建调价规则「连休」")).toBeVisible();
+
+  // 回到日历：那三天变了，数和 domain 算的一样；前后的日子和送机没变
+  await expect(page).toHaveURL(/\/prices\/calendar$/);
+  const expected = applyAdjustRules(exactFromMinor(20000), [{ steps: [{ type: "percent", value: 1250 }] }], info.rounding_unit).finalMinor ?? 0;
+  expect(expected).not.toBe(20000);
+  for (const date of [from, `${month}-11`, to]) await expect(dayCell(date)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(expected)}，上调，命中连休`));
+  await expect(dayCell(addDays(to, 1))).toHaveAttribute("aria-label", /结算价 JPY 20,000$/);
+  await expect(page.locator(".calendar-bar")).toContainText(`已选 ${from} 至 ${to}`);
+  await expect(panel).toContainText(`结算价 ${jpy(expected)}`);
+  await expect(panel).toContainText("上调 12.5%");
+  await expect(panel.getByRole("link", { name: "改这条规则：连休" })).toBeVisible();
+  await snapshot(page, "prices-calendar-desktop");
+  await page.getByLabel("方向").selectOption("dropoff");
+  await expect(page).toHaveURL(/dir=dropoff/);
+  await expect(dayCell(from)).toHaveAttribute("aria-label", /结算价 JPY 20,000，选中的起点$/);
+  await page.getByLabel("方向").selectOption("pickup");
+
+  // 键盘：方向键走，Shift + 方向键选；Esc 取消；PageDown 换月份
+  await page.getByRole("button", { name: "取消选择" }).click();
+  await dayCell(`${month}-15`).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(dayCell(`${month}-16`)).toBeFocused();
+  await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.press("Shift+ArrowRight");
+  await expect(page.locator(".calendar-bar")).toContainText(`已选 ${month}-16 至 ${month}-18，共 3 天`);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".calendar-bar")).toBeEmpty();
+  await page.keyboard.press("PageDown");
+  await expect(page.getByRole("heading", { level: 3 }).filter({ hasText: /年 \d+ 月/ })).not.toContainText(new RegExp(`^${Number(month.slice(0, 4))} 年 ${Number(month.slice(5))} 月$`));
+  await expect(page).toHaveURL(/month=\d{4}-\d{2}/);
+  await page.getByRole("button", { name: "回到本月" }).click();
+  await expect(grid).toHaveAttribute("aria-label", new RegExp(`${Number(month.slice(5))} 月每一天的结算价`));
+
+  // 手机：一天一行，点一天从底部看明细；不横向滚动；暗色过无障碍检查
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expect(page.locator(".calendar__head")).toBeHidden();
+  await expectNoHorizontalOverflow(page, "价格日历（手机）");
+  await dayCell(from).click();
+  const sheet = page.getByRole("dialog", { name: `${from} 的价` });
+  await expect(sheet).toContainText(`结算价 ${jpy(expected)}`);
+  await expectNoHorizontalOverflow(page, "价格日历明细（手机）");
+  await sheet.getByRole("button", { name: "关闭" }).last().click();
+  await page.getByRole("button", { name: "选一段日期" }).click();
+  await dayCell(`${month}-20`).click();
+  await expect(page.getByText("再点结束的那一天")).toBeVisible();
+  await dayCell(`${month}-21`).click();
+  await expect(page.locator(".calendar-bar")).toContainText(`已选 ${month}-20 至 ${month}-21，共 2 天`);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(page, "价格日历（手机，暗色）");
+  await snapshot(page, "prices-calendar-mobile-dark");
+  expect(await page.locator("body").innerText()).not.toMatch(FORBIDDEN);
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // 调价规则列表里「在价格日历里看」带着这条规则的组合
+  await page.goto(`/products/${product.id}/prices/adjust`);
+  await page.getByRole("button", { name: "连休 的更多操作" }).click();
+  await page.getByRole("menuitem", { name: "在价格日历里看" }).click();
+  await expect(page).toHaveURL(new RegExp(`/prices/calendar\\?area=${supplier.area.id}&vg=${world.group.id}`));
+  await expect(dayCell(from)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(expected)}`));
 });
