@@ -131,6 +131,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/tenants/${ids.tenantId}/admin-password-resets`, { email: "admin@a.test" }],
       ["GET", "/platform/v1/audit-logs"],
       ["GET", "/platform/v1/integrations"],
+      ["POST", "/platform/v1/quotes/preview", { city_id: ids.userId, category: "charter", currency: "JPY", package_hours: 10, pickup: { lng: 139.7, lat: 35.6 }, service_time: "2027-01-01T10:00", passengers: 2 }],
       ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
         ["GET", `/platform/v1/master/${resource}`],
         ["POST", `/platform/v1/master/${resource}`, {}],
@@ -196,6 +197,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", `/tenant/v1/products/${ids.userId}/inventory`],
     ["PUT", `/tenant/v1/products/${ids.userId}/inventory`, { mode: "limited" }],
     ["POST", `/tenant/v1/products/${ids.userId}/inventory/batch-set`, { from: "2026-10-10", to: "2026-10-11", total: 1 }],
+    ["POST", `/tenant/v1/products/${ids.userId}/quote-preview`, { pickup: { lng: 139.7, lat: 35.6 }, package_hours: 10, service_time: "2027-01-01T10:00", passengers: 2 }],
     ["GET", `/tenant/v1/products/${ids.userId}/inventory/export`],
     ["POST", `/tenant/v1/products/${ids.userId}/inventory/import/preview`, {}],
     ["POST", `/tenant/v1/products/${ids.userId}/inventory/import`, {}],

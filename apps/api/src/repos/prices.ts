@@ -17,9 +17,9 @@ export interface StoredPriceRule extends PriceRule {
 }
 
 // 日期按文字取：驱动会把 date 换成带时区的时刻，再换回来可能差一天
-const PRICE_COLUMNS = "id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from::text as valid_from, valid_to::text as valid_to, status, created_at, updated_at";
+export const PRICE_COLUMNS = "id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from::text as valid_from, valid_to::text as valid_to, status, created_at, updated_at";
 
-function toPriceRule(row: Row): StoredPriceRule {
+export function toPriceRule(row: Row): StoredPriceRule {
   return {
     id: row["id"],
     areaId: row["area_id"],
@@ -82,10 +82,10 @@ export interface StoredAdjustRule extends AdjustRule {
   updatedAt: Date;
 }
 
-const ADJUST_COLUMNS =
+export const ADJUST_COLUMNS =
   "id, name, travel_from::text as travel_from, travel_to::text as travel_to, cycle, time_slot, area_ids, vehicle_group_ids, directions, package_hours, steps, position, status, created_at, updated_at";
 
-function toAdjustRule(row: Row): StoredAdjustRule {
+export function toAdjustRule(row: Row): StoredAdjustRule {
   return {
     id: row["id"],
     name: row["name"],

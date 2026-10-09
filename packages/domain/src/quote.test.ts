@@ -8,13 +8,17 @@ import type { Position } from "./areas.ts";
 import type { AdjustRule, PriceRule, Pricing } from "./pricing.ts";
 import { type ServiceRules, emptyServiceRules } from "./products.ts";
 import {
+  type ComparisonEntry,
+  DEFAULT_TENANT_STANDING,
   QUOTE_REFUSALS,
   QUOTE_RULES,
   type QuoteMoment,
   type QuoteProduct,
   type QuoteRefusal,
   type QuoteRequest,
+  type QuoteSnapshot,
   type RankCandidate,
+  compareQuotes,
   effectiveScoreCenti,
   quoteCheckPoints,
   quoteExpiresAt,
@@ -482,6 +486,61 @@ test("第 12 步 报价快照有效期 30 分钟：到点的那一刻就不能�
   const expiresAt = quoteExpiresAt(created).toISOString();
   assert.equal(expiresAt, "2026-10-06T06:30:00.000Z");
   assert.deepEqual([quoteSnapshotValid({ expiresAt }, new Date("2026-10-06T06:29:59.999Z")), quoteSnapshotValid({ expiresAt }, new Date("2026-10-06T06:30:00.000Z"))], [true, false]);
+});
+
+
+test("第 10–12 步合起来：几个供应商对同一次用车报价——各自的加价比例、汇率换到客人支付的币种后按车型组分组选中标，每组一份快照；报不出的各有原因", () => {
+  const now = new Date("2026-10-07T01:00:00Z");
+  const quoteOf = (p: QuoteProduct, r: QuoteRequest) => quoteProduct(p, r, moment({ now }));
+  const r = request({ vehicleGroupIds: [] });
+  // 甲：日元，商务 20,000 / 经济 12,000；乙：日元，商务 19,800，评分高；丙：人民币 900.00 元的商务；丁：被暂停；戊：美元，没有汇率
+  const a = product({ productId: "prd-a", tenantId: "tenant-a", priceRules: [price(fixed(20_000)), price(fixed(12_000), { vehicleGroupId: "eco4" })] });
+  const b = product({ productId: "prd-b", tenantId: "tenant-b", priceRules: [price(fixed(19_800))] });
+  const c = product({ productId: "prd-c", tenantId: "tenant-c", currency: "CNY", priceRules: [price(fixed(90_000))] });
+  const d = product({ productId: "prd-d", tenantId: "tenant-d", tenantActive: false });
+  const e = product({ productId: "prd-e", tenantId: "tenant-e", currency: "USD", priceRules: [price(fixed(10_000))] });
+  const entry = (p: QuoteProduct, extra: Partial<ComparisonEntry> = {}): ComparisonEntry => ({ quote: quoteOf(p, r), productVersion: 7, standing: DEFAULT_TENANT_STANDING, markupBp: () => 1_000, fx: null, ...extra });
+  const compared = compareQuotes({
+    request: r,
+    currency: "JPY",
+    now,
+    entries: [
+      entry(a, { standing: { scoreCenti: 490, completedOrders: 200, observation: false } }),
+      entry(b, { markupBp: (vehicleGroupId) => (vehicleGroupId === "biz7" ? 1_200 : 1_000) }),
+      entry(c, { fx: { from: "CNY", to: "JPY", rate: "21.5", asOf: "2026-10-07T00:00:00Z" } }),
+      entry(d),
+      entry(e),
+    ],
+  });
+  // 商务：甲 20,000 × 1.10 = 22,000（评分 4.9）；乙 19,800 × 1.12 = 22,176（默认 4.5）；丙 900 元 × 21.5 × 1.015 × 1.10 = 21,604.275 → 21,604 日元（默认 4.5）
+  // 基准 21,604，上限 × 1.03 = 22,252.12：三家都在区间里 → 评分高的甲中标
+  const biz = compared.groups.find((group) => group.vehicleGroupId === "biz7");
+  assert.deepEqual(biz?.ranked.map((item) => [item.candidate.tenantId, item.candidate.sellMinor, item.inBand, item.position]), [["tenant-a", 22_000, true, 1], ["tenant-c", 21_604, true, 2], ["tenant-b", 22_176, true, 3]]);
+  // 经济：只有甲有价
+  assert.deepEqual(compared.groups.map((group) => [group.vehicleGroupId, group.ranked.length, group.snapshot.winner.tenantId]), [["biz7", 3, "tenant-a"], ["eco4", 1, "tenant-a"]]);
+  assert.deepEqual(compared.refused, [
+    { tenantId: "tenant-b", productId: "prd-b", vehicleGroupId: "eco4", reason: "NO_PRICE_RULE" },
+    { tenantId: "tenant-c", productId: "prd-c", vehicleGroupId: "eco4", reason: "NO_PRICE_RULE" },
+    { tenantId: "tenant-d", productId: "prd-d", vehicleGroupId: null, reason: "TENANT_SUSPENDED" },
+    { tenantId: "tenant-e", productId: "prd-e", vehicleGroupId: "eco4", reason: "NO_PRICE_RULE" },
+    { tenantId: "tenant-e", productId: "prd-e", vehicleGroupId: "biz7", reason: "FX_RATE_UNAVAILABLE" },
+  ]);
+  // 快照：中标租户、结算价、加价比例、对外价、汇率、规则版本、全部候选的排序依据；有效期 30 分钟；能原样存成 JSON
+  const snapshot = biz?.snapshot as QuoteSnapshot;
+  assert.deepEqual([snapshot.createdAt, snapshot.expiresAt, snapshot.currency, snapshot.bandBp], ["2026-10-07T01:00:00.000Z", "2026-10-07T01:30:00.000Z", "JPY", 300]);
+  assert.deepEqual([snapshot.winner.tenantId, snapshot.winner.productId, snapshot.winner.productVersion, snapshot.winner.offer.settlement.totalMinor, snapshot.winner.sell.markupBp, snapshot.winner.sell.sellMinor, snapshot.winner.offer.priceRuleId, snapshot.winner.offer.areaId], ["tenant-a", "prd-a", 7, 20_000, 1_000, 22_000, a.priceRules[0]?.id, "a1"]);
+  assert.deepEqual(snapshot.candidates.map((item) => [item.tenantId, item.settlementMinor, item.settlementCurrency, item.sellMinor, item.markupBp, item.scoreCenti, item.rankPrice, item.position]), [
+    ["tenant-a", 20_000, "JPY", 22_000, 1_000, 490, "22000", 1],
+    ["tenant-c", 90_000, "CNY", 21_604, 1_000, 450, "21604", 2],
+    ["tenant-b", 19_800, "JPY", 22_176, 1_200, 450, "22176", 3],
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(snapshot)), snapshot, "快照里没有存不成 JSON 的东西");
+  assert.equal(snapshot.request, r);
+  // 同一个租户两个商品都能报：同一个车型组只留便宜的那个
+  const twice = compareQuotes({ request: r, currency: "JPY", now, entries: [entry(a), entry({ ...a, productId: "prd-a2", priceRules: [price(fixed(18_000))] })] });
+  assert.deepEqual(twice.groups.find((group) => group.vehicleGroupId === "biz7")?.ranked.map((item) => [item.candidate.productId, item.candidate.sellMinor]), [["prd-a2", 19_800]]);
+  // 一个候选都没有：没有组
+  assert.deepEqual(compareQuotes({ request: r, currency: "JPY", now, entries: [entry(d)] }).groups, []);
 });
 
 test("每一个报不出价的原因都有测试触发过（上面各条）", () => {

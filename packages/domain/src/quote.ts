@@ -546,7 +546,9 @@ export type SellPriceFailure = "FX_RATE_UNAVAILABLE" | "SELL_PRICE_OVER_LIMIT";
  * - 客人支付币种和结算币种相同：汇率 1、缓冲 0；不同：要给汇率（`fx`），缓冲 1.5%。没有汇率时报不出价。
  * - 加价比例不得低于渠道下限（默认 10%）：给的比下限低就按下限算。
  */
-export function sellPrice(input: { settlementMinor: number; settlementCurrency: CurrencyCode; currency: CurrencyCode; markupBp: number; markupFloorBp?: number; fx: FxQuote | null }): SellPrice | { failure: SellPriceFailure } {
+export function sellPrice(input: { settlementMinor: number; settlementCurrency: CurrencyCode; currency: CurrencyCode; markupBp: number; markupFloorBp?: number; fxBufferBp?: number; fx: FxQuote | null }): SellPrice | { failure: SellPriceFailure } {
+  const bufferBp = input.fxBufferBp ?? QUOTE_RULES.fxBufferBp;
+  if (!Number.isInteger(bufferBp) || bufferBp < 0 || bufferBp > 1_000) throw new RangeError(`汇率缓冲必须是 0 到 1000 的整数基点：${bufferBp}`);
   const floor = input.markupFloorBp ?? QUOTE_RULES.defaultMarkupFloorBp;
   if (!Number.isInteger(input.markupBp) || !Number.isInteger(floor) || input.markupBp < 0 || floor < 0 || input.markupBp > QUOTE_RULES.maxMarkupBp) throw new RangeError(`加价比例必须是 0 到 ${QUOTE_RULES.maxMarkupBp} 的整数基点：${input.markupBp}`);
   const markupBp = Math.max(input.markupBp, floor);
@@ -559,11 +561,11 @@ export function sellPrice(input: { settlementMinor: number; settlementCurrency: 
     fx = input.fx;
     // 最小货币单位之间的换算：先换成主单位（÷ 10^from 的小数位），乘汇率，再换成对方的最小单位（× 10^to 的小数位）
     amount = scaleExact(scaleExact(amount, rate.numerator, rate.denominator), 10n ** BigInt(minorDigits(input.currency)), 10n ** BigInt(minorDigits(input.settlementCurrency)));
-    amount = scaleExact(amount, BigInt(10_000 + QUOTE_RULES.fxBufferBp), 10_000n);
+    amount = scaleExact(amount, BigInt(10_000 + bufferBp), 10_000n);
   }
   amount = scaleExact(amount, BigInt(10_000 + markupBp), 10_000n);
   if (amount.numerator > BigInt(QUOTE_RULES.maxSellMinor) * amount.denominator) return { failure: "SELL_PRICE_OVER_LIMIT" };
-  return { currency: input.currency, sellMinor: roundMinor(amount), markupBp, fxBufferBp: sameCurrency ? 0 : QUOTE_RULES.fxBufferBp, fx, exact: formatExact(amount) };
+  return { currency: input.currency, sellMinor: roundMinor(amount), markupBp, fxBufferBp: sameCurrency ? 0 : bufferBp, fx, exact: formatExact(amount) };
 }
 
 // ---- 选中标（第 10 步）----
@@ -658,4 +660,137 @@ export function quoteExpiresAt(createdAt: Date): Date {
 /** 快照还能不能用来下单：到了有效期的那一刻就不能用了（需求文档错误码 QUOTE_EXPIRED）。 */
 export function quoteSnapshotValid(snapshot: Pick<QuoteSnapshot, "expiresAt">, now: Date): boolean {
   return now.getTime() < new Date(snapshot.expiresAt).getTime();
+}
+
+// ---- 多个供应商比价（第 10–12 步合起来）----
+
+/** 一个租户在比价里的身份：评分（百分之一分，没有为 null）、已完成订单数、是不是在观察期。 */
+export interface TenantStanding {
+  scoreCenti: number | null;
+  completedOrders: number;
+  observation: boolean;
+}
+
+/** 评分数据还没有的时候（M4-01 之前）每个租户的身份：默认分、0 单、不在观察期。 */
+export const DEFAULT_TENANT_STANDING: TenantStanding = { scoreCenti: null, completedOrders: 0, observation: false };
+
+/** 一个商品参加比价要带的东西：它的报价，和平台一侧给它定的加价、汇率、身份。 */
+export interface ComparisonEntry {
+  quote: ProductQuote;
+  /** 商品当时的版本号（快照里记） */
+  productVersion: number;
+  standing: TenantStanding;
+  /** 这个渠道对这个租户、这个车型组适用的加价比例（基点） */
+  markupBp: (vehicleGroupId: string) => number;
+  /** 从这个商品的结算币种换到客人支付币种的汇率；同币种、或没有汇率时为 null */
+  fx: FxQuote | null;
+}
+
+export type ComparisonRefusal = QuoteRefusal | SellPriceFailure;
+
+export interface ComparedOffer extends RankCandidate {
+  productId: string;
+  productVersion: number;
+  offer: VehicleOffer;
+  sell: SellPrice;
+}
+
+export interface ComparisonGroup {
+  vehicleGroupId: string;
+  packageHours: number | null;
+  /** 全部候选，按名次；第一个是中标的 */
+  ranked: RankedCandidate<ComparedOffer>[];
+  /** 这个车型组的报价快照（没有候选时没有这一组） */
+  snapshot: QuoteSnapshot;
+}
+
+export interface QuoteComparison {
+  /** 每个车型组（包车再按套餐）一组，只有一个中标价；按车型组编号排 */
+  groups: ComparisonGroup[];
+  /** 没能参加比价的：商品层面的（`vehicleGroupId` 为 null）和某个车型组的 */
+  refused: { tenantId: string; productId: string; vehicleGroupId: string | null; reason: ComparisonRefusal }[];
+}
+
+/**
+ * 把各个商品的报价放在一起比（第 10–12 步）：每个报价算出对外价（各自的加价比例、汇率），换到客人支付的币种后，
+ * 按车型组分组选中标，每组生成一份快照。同一个租户的几个商品在同一个车型组里只留排序价最低的那个。
+ */
+export function compareQuotes(input: { request: QuoteRequest; currency: CurrencyCode; entries: readonly ComparisonEntry[]; now: Date; bandBp?: number; markupFloorBp?: number; fxBufferBp?: number }): QuoteComparison {
+  const bandBp = input.bandBp ?? QUOTE_RULES.defaultBandBp;
+  const refused: QuoteComparison["refused"] = [];
+  const byGroup = new Map<string, ComparedOffer[]>();
+  for (const entry of input.entries) {
+    const { quote } = entry;
+    if (!quote.ok) {
+      refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: null, reason: quote.reason });
+      continue;
+    }
+    for (const item of quote.refused) refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: item.vehicleGroupId, reason: item.reason });
+    for (const offer of quote.offers) {
+      const sell = sellPrice({
+        settlementMinor: offer.settlement.totalMinor,
+        settlementCurrency: offer.settlement.currency,
+        currency: input.currency,
+        markupBp: entry.markupBp(offer.vehicleGroupId),
+        ...(input.markupFloorBp === undefined ? {} : { markupFloorBp: input.markupFloorBp }),
+        ...(input.fxBufferBp === undefined ? {} : { fxBufferBp: input.fxBufferBp }),
+        fx: entry.fx,
+      });
+      if ("failure" in sell) {
+        refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: offer.vehicleGroupId, reason: sell.failure });
+        continue;
+      }
+      const compared: ComparedOffer = {
+        tenantId: quote.tenantId,
+        productId: quote.productId,
+        productVersion: entry.productVersion,
+        sellMinor: sell.sellMinor,
+        observation: entry.standing.observation,
+        scoreCenti: effectiveScoreCenti(entry.standing.scoreCenti, entry.standing.completedOrders),
+        completedOrders: entry.standing.completedOrders,
+        // 全都一样时的决胜：租户编号、再商品编号（稳定，和取数的先后无关）
+        tieBreak: `${quote.tenantId}|${quote.productId}`,
+        offer,
+        sell,
+      };
+      byGroup.set(offer.vehicleGroupId, [...(byGroup.get(offer.vehicleGroupId) ?? []), compared]);
+    }
+  }
+  const createdAt = input.now.toISOString();
+  const expiresAt = quoteExpiresAt(input.now).toISOString();
+  const groups = [...byGroup.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([vehicleGroupId, offers]): ComparisonGroup => {
+      const ranked = rankCandidates(offers, bandBp);
+      const winner = (ranked[0] as RankedCandidate<ComparedOffer>).candidate;
+      return {
+        vehicleGroupId,
+        packageHours: input.request.packageHours,
+        ranked,
+        snapshot: {
+          createdAt,
+          expiresAt,
+          request: input.request,
+          currency: input.currency,
+          bandBp,
+          winner: { tenantId: winner.tenantId, productId: winner.productId, productVersion: winner.productVersion, offer: winner.offer, sell: winner.sell },
+          candidates: ranked.map(({ candidate, rankPrice, inBand, position }) => ({
+            tenantId: candidate.tenantId,
+            productId: candidate.productId,
+            productVersion: candidate.productVersion,
+            settlementMinor: candidate.offer.settlement.totalMinor,
+            settlementCurrency: candidate.offer.settlement.currency,
+            sellMinor: candidate.sellMinor,
+            markupBp: candidate.sell.markupBp,
+            observation: candidate.observation,
+            scoreCenti: candidate.scoreCenti,
+            completedOrders: candidate.completedOrders,
+            rankPrice,
+            inBand,
+            position,
+          })),
+        },
+      };
+    });
+  return { groups, refused };
 }
