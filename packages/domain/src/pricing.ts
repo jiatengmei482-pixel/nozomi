@@ -62,6 +62,15 @@ export const PRICE_LIMITS = {
   maxPercentBp: 100_000,
   /** 价格日历一次最多取多少天 */
   maxCalendarDays: 62,
+  /**
+   * 一次用车的结算价（基础价、调价之后的结果）的上限（最小货币单位）：一万亿，是单个金额上限的 1000 倍。
+   * 超过它的不报价（`OVER_LIMIT`）——几条调价规则连乘可以乘出任意大的数，这样的价格只可能是配置写错了。
+   * 中间结果不设上限（用整数分数精确保留，多大都不丢精度），只看最后这个数。
+   */
+  maxSettlementMinor: 1_000_000_000_000,
+  /** 检查调价规则叠加时往后看多少天、最多看多少种「同时生效的规则组合」 */
+  adjustStackDays: 366,
+  maxAdjustStackSets: 200,
 } as const;
 
 /** 子品牌取整单位的可选值（最小货币单位）：没有小数的币种 1 / 10 / 100 / 1000；两位小数的币种 0.01 / 0.1 / 1 / 10 / 100。 */
@@ -110,6 +119,11 @@ function times(a: ExactAmount, numerator: bigint, denominator: bigint = 1n): Exa
 export function compareExact(a: ExactAmount, b: ExactAmount): number {
   const difference = a.numerator * b.denominator - b.numerator * a.denominator;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;
+}
+
+/** 这个金额超过了结算价的上限（`PRICE_LIMITS.maxSettlementMinor`）：不报价。 */
+export function exceedsSettlementLimit(amount: ExactAmount): boolean {
+  return amount.numerator > BigInt(PRICE_LIMITS.maxSettlementMinor) * amount.denominator;
 }
 
 const DISPLAY_DECIMALS = 6;
@@ -306,6 +320,15 @@ export function priceRuleIsActive(rule: Pick<PriceRule, "status" | "validTo">, t
   return rule.status === "enabled" && (rule.validTo === null || rule.validTo >= today);
 }
 
+/**
+ * 「可以卖的价格」：启用且未过期，而且区域和车型组都是商品**现在选着的**。
+ * 能不能上架、首页和列表上「有没有可用价格」、已上架商品的修改保护，三处都看它有没有：一条都没有 = 商品现在一个价都报不出。
+ * （商品去掉了某个区域 / 车型组之后，原来给它设的价格还留着，但不算数。个别组合缺价不拦，见 `priceCoverage`。）
+ */
+export function sellablePriceRules<T extends Pick<PriceRule, "areaId" | "vehicleGroupId" | "status" | "validTo">>(rules: readonly T[], selected: { areaIds: readonly string[]; vehicleGroupIds: readonly string[] }, today: string): T[] {
+  return rules.filter((rule) => priceRuleIsActive(rule, today) && selected.areaIds.includes(rule.areaId) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+}
+
 /** 一次询价要找的组合。 */
 export interface PriceQuery {
   areaId: string;
@@ -497,22 +520,30 @@ export function timeSlotDate(slot: DailyWindow | null, date: string, minuteOfDay
   return minuteOfDay < end ? addDays(date, -1) : null;
 }
 
-/** 一条调价规则对这次用车生不生效（报价引擎第 7 步的「筛出匹配的调价规则」）。停用的不生效。 */
-export function adjustRuleMatches(rule: AdjustRule, moment: AdjustMoment, holidays: HolidayLookup = NO_HOLIDAYS): boolean {
-  if (rule.status !== "enabled") return false;
+/** 调价规则的适用范围（区域、车型组、方向、套餐）包不包括这次用车的组合。 */
+function adjustScopeIncludes(rule: Pick<AdjustRule, "areaIds" | "vehicleGroupIds" | "directions" | "packageHours">, moment: Pick<AdjustMoment, "areaId" | "vehicleGroupId" | "direction" | "packageHours">): boolean {
   if (rule.areaIds.length > 0 && !rule.areaIds.includes(moment.areaId)) return false;
   if (rule.vehicleGroupIds.length > 0 && !rule.vehicleGroupIds.includes(moment.vehicleGroupId)) return false;
   if (rule.directions.length > 0 && (moment.direction === null || !rule.directions.includes(moment.direction))) return false;
-  if (rule.packageHours.length > 0 && (moment.packageHours === null || !rule.packageHours.includes(moment.packageHours))) return false;
-  const date = timeSlotDate(rule.timeSlot, moment.date, moment.minuteOfDay);
-  if (date === null) return false;
-  if (rule.travelFrom !== null && date < rule.travelFrom) return false;
-  if (rule.travelTo !== null && date > rule.travelTo) return false;
+  return rule.packageHours.length === 0 || (moment.packageHours !== null && rule.packageHours.includes(moment.packageHours));
+}
+
+/** 调价规则在这个时刻生不生效（只看出行日期范围、周期、时段；不看适用范围和启停）。 */
+function adjustTimeMatches(rule: Pick<AdjustRule, "timeSlot" | "travelFrom" | "travelTo" | "cycle">, date: string, minuteOfDay: number, holidays: HolidayLookup): boolean {
+  const day = timeSlotDate(rule.timeSlot, date, minuteOfDay);
+  if (day === null) return false;
+  if (rule.travelFrom !== null && day < rule.travelFrom) return false;
+  if (rule.travelTo !== null && day > rule.travelTo) return false;
   const cycle = rule.cycle;
-  if (cycle.type === "weekly") return cycle.weekdays.includes(weekdayOf(date));
-  if (cycle.type === "dates") return cycle.dates.includes(date);
-  if (cycle.type === "holidays") return cycle.countries.some((country) => holidays.has(country, date));
+  if (cycle.type === "weekly") return cycle.weekdays.includes(weekdayOf(day));
+  if (cycle.type === "dates") return cycle.dates.includes(day);
+  if (cycle.type === "holidays") return cycle.countries.some((country) => holidays.has(country, day));
   return true;
+}
+
+/** 一条调价规则对这次用车生不生效（报价引擎第 7 步的「筛出匹配的调价规则」）。停用的不生效。 */
+export function adjustRuleMatches(rule: AdjustRule, moment: AdjustMoment, holidays: HolidayLookup = NO_HOLIDAYS): boolean {
+  return rule.status === "enabled" && adjustScopeIncludes(rule, moment) && adjustTimeMatches(rule, moment.date, moment.minuteOfDay, holidays);
 }
 
 /** 出行日期范围已经过去（以后不会再生效）。 */
@@ -548,7 +579,7 @@ export interface AdjustedPrice<Rule> {
   unrounded: ExactAmount;
   /**
    * 取整之后的结果（最小货币单位）：按取整单位四舍五入，只取整这一次；没有调价规则命中时也取整。
-   * 调完之后不大于 0 时为 null——这样的价格不能报。
+   * 调完之后不大于 0、或者超过了结算价的上限（`exceedsSettlementLimit(unrounded)`）时为 null——这样的价格不能报。
    */
   finalMinor: number | null;
   /**
@@ -571,7 +602,9 @@ export function applyAdjustRules<Rule extends { steps: readonly AdjustStep[] }>(
     adjusts.push({ rule, steps: applied.steps });
     current = applied.result;
   }
-  const finalMinor = current.numerator > 0n ? roundFractionToUnit(current.numerator, current.denominator, roundingUnit) : null;
+  // 超过上限的不取整、不报价：结果可以大到放不进 number（几条规则连乘），到这里为止全程是整数分数，不会出错
+  const priceable = current.numerator > 0n && !exceedsSettlementLimit(current) && !exceedsSettlementLimit(base);
+  const finalMinor = priceable ? roundFractionToUnit(current.numerator, current.denominator, roundingUnit) : null;
   if (finalMinor === null || finalMinor <= 0) return { base, adjusts, unrounded: current, finalMinor: null, baseMinor: null, adjustMinor: null };
   const baseMinor = roundFractionToUnit(base.numerator, base.denominator, 1);
   return { base, adjusts, unrounded: current, finalMinor, baseMinor, adjustMinor: finalMinor - baseMinor };
@@ -599,12 +632,117 @@ export function adjustRuleCoversPrice(rule: Pick<AdjustRule, "areaIds" | "vehicl
 /**
  * 这条调价规则单独作用在它碰得到的价格上，算下来不大于 0 的有哪些（返回价格的下标）。这样的调价规则不能保存。
  * 基础价按「不超出起步 / 套餐」算（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价）——那是这条价格能报出的最低数。
+ * 给了 `roundingUnit` 就看按取整单位取整之后的结果（1,000 调到 0.4、取整到 0 也算）；不调价、光取整就已经不大于 0 的价格
+ * 不算在这条规则头上（那是取整单位的问题）。不给就只看取整之前的精确值。
  */
-export function adjustRuleNonPositivePrices(rule: Pick<AdjustRule, "steps" | "areaIds" | "vehicleGroupIds" | "directions" | "packageHours">, prices: readonly PriceRule[]): number[] {
+export function adjustRuleNonPositivePrices(rule: Pick<AdjustRule, "steps" | "areaIds" | "vehicleGroupIds" | "directions" | "packageHours">, prices: readonly PriceRule[], roundingUnit?: number): number[] {
   return prices.flatMap((price, index) => {
     if (!adjustRuleCoversPrice(rule, price)) return [];
-    return applyAdjustSteps(basePrice(price.pricing, {}, price.packageHours), rule.steps).result.numerator > 0n ? [] : [index];
+    const base = basePrice(price.pricing, {}, price.packageHours);
+    if (roundingUnit === undefined) return applyAdjustSteps(base, rule.steps).result.numerator > 0n ? [] : [index];
+    if (applyAdjustRules(base, [], roundingUnit).finalMinor === null) return [];
+    const adjusted = applyAdjustRules(base, [rule], roundingUnit);
+    return adjusted.finalMinor === null && !exceedsSettlementLimit(adjusted.unrounded) ? [index] : [];
   });
+}
+
+/** 这条调价规则单独作用在它碰得到的价格上，结果超过结算价上限的有哪些（返回价格的下标）。这样的调价规则不能保存。 */
+export function adjustRuleOverLimitPrices(rule: Pick<AdjustRule, "steps" | "areaIds" | "vehicleGroupIds" | "directions" | "packageHours">, prices: readonly PriceRule[]): number[] {
+  return prices.flatMap((price, index) => {
+    if (!adjustRuleCoversPrice(rule, price)) return [];
+    const base = basePrice(price.pricing, {}, price.packageHours);
+    return !exceedsSettlementLimit(base) && exceedsSettlementLimit(applyAdjustSteps(base, rule.steps).result) ? [index] : [];
+  });
+}
+
+/** 几条调价规则同时生效时出的问题。 */
+export interface AdjustStackProblem {
+  /** 是哪几条规则（`adjustRules` 里的下标，按执行顺序） */
+  ruleIndexes: number[];
+  kind: "NOT_POSITIVE" | "OVER_LIMIT";
+  /** 受影响的价格（`priceRules` 里的下标） */
+  priceIndexes: number[];
+  /** 最早出现的一次：城市当地的日期和时刻 */
+  date: string;
+  minuteOfDay: number;
+  /** 往后看的这段日子里有几天会出现 */
+  dayCount: number;
+}
+
+/**
+ * 调价规则叠加、再按取整单位取整之后的问题（保存单条规则时查不出来的那些）：从 `from` 起往后 `days` 天，
+ * 找出每一种「同时生效的规则组合」，把它按顺序作用在每条价格上——
+ * - 两条以上叠加之后不大于 0（每条单独都没问题）→ `NOT_POSITIVE`；
+ * - 结果超过结算价的上限（一条或几条）→ `OVER_LIMIT`。
+ * 基础价按「不超出起步 / 套餐」算。`skipRuleIndexes` 里的规则（单独作用就已经不大于 0 的，另有提示）参与的组合不再重复报。
+ * 「同时生效的规则组合」最多看 `PRICE_LIMITS.maxAdjustStackSets` 种（按出现的先后），超出的不看。
+ */
+export function adjustStackProblems(input: {
+  priceRules: readonly PriceRule[];
+  adjustRules: readonly AdjustRule[];
+  roundingUnit: number;
+  from: string;
+  days?: number;
+  holidays?: HolidayLookup;
+  skipRuleIndexes?: readonly number[];
+}): AdjustStackProblem[] {
+  const holidays = input.holidays ?? NO_HOLIDAYS;
+  const enabled = input.adjustRules.flatMap((rule, index) => (rule.status === "enabled" ? [index] : []));
+  if (enabled.length === 0 || input.priceRules.length === 0) return [];
+  const skip = new Set(input.skipRuleIndexes ?? []);
+  const cuts = new Set<number>([0]);
+  for (const index of enabled) {
+    const slot = (input.adjustRules[index] as AdjustRule).timeSlot;
+    if (slot === null) continue;
+    for (const minute of [parseTimeOfDay(slot.start), parseTimeOfDay(slot.end, { allowEndOfDay: true })]) if (minute !== null && minute < MINUTES_PER_DAY) cuts.add(minute);
+  }
+  const minutes = [...cuts].sort((x, y) => x - y);
+
+  // 第一步：每一种「同一时刻生效的规则组合」（不看适用范围），记下最早的一次和出现的日子
+  const sets = new Map<string, { indexes: number[]; date: string; minuteOfDay: number; dates: Set<string> }>();
+  const days = input.days ?? PRICE_LIMITS.adjustStackDays;
+  for (let offset = 0, date = input.from; offset < days; offset += 1, date = addDays(date, 1)) {
+    for (const minuteOfDay of minutes) {
+      const indexes = enabled.filter((index) => adjustTimeMatches(input.adjustRules[index] as AdjustRule, date, minuteOfDay, holidays));
+      if (indexes.length === 0) continue;
+      const key = indexes.join(",");
+      const seen = sets.get(key);
+      if (seen) seen.dates.add(date);
+      else if (sets.size < PRICE_LIMITS.maxAdjustStackSets) sets.set(key, { indexes, date, minuteOfDay, dates: new Set([date]) });
+    }
+  }
+
+  // 第二步：每种组合按适用范围落到每条价格上，算一次
+  const problems = new Map<string, AdjustStackProblem & { dates: Set<string>; prices: Set<number> }>();
+  const outcomes = new Map<string, "NOT_POSITIVE" | "OVER_LIMIT" | null>();
+  for (const set of sets.values()) {
+    for (const [priceIndex, price] of input.priceRules.entries()) {
+      const base = basePrice(price.pricing, {}, price.packageHours);
+      const directions: (TripDirection | null)[] = price.direction === null ? [null] : price.direction === "both" ? [...TRIP_DIRECTIONS] : [price.direction];
+      for (const direction of directions) {
+        const scoped = set.indexes.filter((index) => adjustScopeIncludes(input.adjustRules[index] as AdjustRule, { areaId: price.areaId, vehicleGroupId: price.vehicleGroupId, direction, packageHours: price.packageHours }));
+        if (scoped.length === 0 || scoped.some((index) => skip.has(index))) continue;
+        const outcomeKey = `${scoped.join(",")}|${base.numerator}/${base.denominator}`;
+        let outcome = outcomes.get(outcomeKey);
+        if (outcome === undefined) {
+          const adjusted = applyAdjustRules(base, scoped.map((index) => input.adjustRules[index] as AdjustRule), input.roundingUnit);
+          const fine = adjusted.finalMinor !== null || applyAdjustRules(base, [], input.roundingUnit).finalMinor === null;
+          outcome = fine ? null : exceedsSettlementLimit(adjusted.unrounded) ? "OVER_LIMIT" : scoped.length > 1 ? "NOT_POSITIVE" : null;
+          outcomes.set(outcomeKey, outcome);
+        }
+        if (outcome === null) continue;
+        const key = `${outcome}|${scoped.join(",")}`;
+        const found = problems.get(key) ?? { ruleIndexes: scoped, kind: outcome, priceIndexes: [], date: set.date, minuteOfDay: set.minuteOfDay, dayCount: 0, dates: new Set<string>(), prices: new Set<number>() };
+        if (set.date < found.date || (set.date === found.date && set.minuteOfDay < found.minuteOfDay)) [found.date, found.minuteOfDay] = [set.date, set.minuteOfDay];
+        for (const day of set.dates) found.dates.add(day);
+        found.prices.add(priceIndex);
+        problems.set(key, found);
+      }
+    }
+  }
+  return [...problems.values()]
+    .map(({ dates, prices, ...problem }) => ({ ...problem, priceIndexes: [...prices].sort((x, y) => x - y), dayCount: dates.size }))
+    .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : x.minuteOfDay - y.minuteOfDay || x.ruleIndexes.join(",").localeCompare(y.ruleIndexes.join(","))));
 }
 
 // ---- 一次用车的结算价（基础价 → 调价 → 取整）----
@@ -616,8 +754,10 @@ export type NoPriceReason =
   | "NOT_IN_EFFECT"
   /** 生效期对得上的那条停用了 */
   | "RULE_DISABLED"
-  /** 调价之后不大于 0 */
-  | "NOT_POSITIVE";
+  /** 调价、取整之后不大于 0 */
+  | "NOT_POSITIVE"
+  /** 结算价超过了上限（`PRICE_LIMITS.maxSettlementMinor`）：只可能是价格或调价规则写错了 */
+  | "OVER_LIMIT";
 
 export interface TripPrice<P, A> {
   priceRule: P | null;
@@ -655,7 +795,8 @@ export function tripPrice<P extends PriceRule, A extends AdjustRule>(input: {
   const moment: AdjustMoment = { date: query.date, minuteOfDay: input.minuteOfDay, areaId: query.areaId, vehicleGroupId: query.vehicleGroupId, direction: query.direction, packageHours: query.packageHours };
   const matched = input.adjustRules.filter((adjust) => adjustRuleMatches(adjust, moment, input.holidays));
   const price = applyAdjustRules(basePrice(rule.pricing, input.usage, rule.packageHours), matched, input.roundingUnit);
-  return { priceRule: rule, noPriceReason: price.finalMinor === null ? "NOT_POSITIVE" : null, price };
+  const noPriceReason: NoPriceReason | null = price.finalMinor !== null ? null : exceedsSettlementLimit(price.unrounded) || exceedsSettlementLimit(price.base) ? "OVER_LIMIT" : "NOT_POSITIVE";
+  return { priceRule: rule, noPriceReason, price };
 }
 
 /** 价格日历里一天中的一段：从 `fromMinute`（含）到 `toMinute`（不含），这一段里结果相同。 */

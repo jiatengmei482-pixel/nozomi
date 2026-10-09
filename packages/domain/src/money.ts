@@ -33,8 +33,19 @@ export function minorDigits(currency: CurrencyCode): number {
   return CURRENCIES[currency].minorDigits;
 }
 
-/** 四舍五入到整数，0.5 远离零。先修正浮点表示误差（如 1.005*100 = 100.49999…）。 */
+/**
+ * 浮点数能放心用的范围：绝对值不超过 10^15（最小货币单位）。再大，相邻两个浮点数的间隔就接近 1，「修正到 15 位有效数字」会把个位改掉。
+ * 平台里单个金额的上限是 10 亿，离这个范围还差六个数量级。
+ */
+export const FLOAT_ROUNDING_LIMIT = 1_000_000_000_000_000;
+
+/**
+ * 四舍五入到整数，0.5 远离零。先修正浮点表示误差（如 1.005*100 = 100.49999…）。
+ * **只给本来就是浮点数的输入用**（汇率换算：汇率是浮点数）。适用范围：绝对值不超过 `FLOAT_ROUNDING_LIMIT`，超出就抛 RangeError，不给出一个可能错的数。
+ * 金额和基点、取整单位之间的计算不要用它：用下面基于整数的函数，计价路径用 `roundFractionHalfAwayFromZero` / `roundFractionToUnit`。
+ */
 export function roundHalfAwayFromZero(value: number): number {
+  if (!Number.isFinite(value) || Math.abs(value) > FLOAT_ROUNDING_LIMIT) throw new RangeError(`数值超出了浮点数四舍五入能保证正确的范围（绝对值不超过 10^15）：${value}`);
   const corrected = Number(value.toPrecision(15));
   const r = Math.round(Math.abs(corrected));
   return corrected < 0 ? -r : r;
@@ -67,25 +78,31 @@ export function formatMajor(minor: number, currency: CurrencyCode): string {
   return `${neg ? "-" : ""}${abs.slice(0, -digits)}.${abs.slice(-digits)}`;
 }
 
-/** 按基点加价：minor × (1 + bp/10000)，结果四舍五入到最小单位。 */
+/** 整数运算的结果换回 number：超出安全整数范围就抛 RangeError（不会悄悄丢精度）。 */
+function safeMinor(value: bigint): number {
+  const minor = Number(value);
+  assertMinor(minor);
+  return minor;
+}
+
+/** 按基点加价：minor × (1 + bp/10000)，结果四舍五入到最小单位。全程整数运算；结果超出安全整数范围时抛 RangeError。 */
 export function applyBasisPoints(minor: number, bp: number): number {
   assertMinor(minor);
-  if (!Number.isInteger(bp)) throw new RangeError(`基点必须是整数：${bp}`);
-  return roundHalfAwayFromZero((minor * (10_000 + bp)) / 10_000);
+  if (!Number.isSafeInteger(bp)) throw new RangeError(`基点必须是整数：${bp}`);
+  return safeMinor(roundFractionHalfAwayFromZero(BigInt(minor) * BigInt(10_000 + bp), 10_000n));
 }
 
-/** 取金额的百分比部分：minor × bp/10000（如违约金 = 结算价 × 30%）。 */
+/** 取金额的百分比部分：minor × bp/10000（如违约金 = 结算价 × 30%）。全程整数运算；结果超出安全整数范围时抛 RangeError。 */
 export function portionBasisPoints(minor: number, bp: number): number {
   assertMinor(minor);
-  if (!Number.isInteger(bp)) throw new RangeError(`基点必须是整数：${bp}`);
-  return roundHalfAwayFromZero((minor * bp) / 10_000);
+  if (!Number.isSafeInteger(bp)) throw new RangeError(`基点必须是整数：${bp}`);
+  return safeMinor(roundFractionHalfAwayFromZero(BigInt(minor) * BigInt(bp), 10_000n));
 }
 
-/** 按品牌取整单位取整，如 JPY 取整到 100 日元（unitMinor = 100）。 */
+/** 按品牌取整单位取整，如 JPY 取整到 100 日元（unitMinor = 100）。全程整数运算，对任何安全整数都对；结果超出安全整数范围时抛 RangeError。 */
 export function roundToUnit(minor: number, unitMinor: number): number {
   assertMinor(minor);
-  if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
-  return roundHalfAwayFromZero(minor / unitMinor) * unitMinor;
+  return roundFractionToUnit(BigInt(minor), 1n, unitMinor);
 }
 
 /**
@@ -104,11 +121,9 @@ export function roundFractionHalfAwayFromZero(numerator: bigint, denominator: bi
 
 /**
  * 精确的分数金额（最小货币单位）按取整单位取整：先除以取整单位，四舍五入（0.5 远离零），再乘回来。只取整这一次。
- * 取整单位为 1 就是取整到最小货币单位。
+ * 取整单位为 1 就是取整到最小货币单位。结果超出安全整数范围时抛 RangeError——计价时先用 pricing.ts 的上限挡住（`exceedsSettlementLimit`），走不到这里。
  */
 export function roundFractionToUnit(numerator: bigint, denominator: bigint, unitMinor: number): number {
   if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
-  const minor = Number(roundFractionHalfAwayFromZero(numerator, denominator * BigInt(unitMinor)) * BigInt(unitMinor));
-  assertMinor(minor);
-  return minor;
+  return safeMinor(roundFractionHalfAwayFromZero(numerator, denominator * BigInt(unitMinor)) * BigInt(unitMinor));
 }

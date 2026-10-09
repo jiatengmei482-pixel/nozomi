@@ -2936,11 +2936,17 @@ paths:
       description: |
         需要操作 `product.read`。逐项给出通过 / 不通过和原因，界面照着显示清单。六项，顺序固定：
         `basic_info` 基础信息、`service_rules` 服务规则、`price_rules` 价格规则、`content` 商品详情（这四项必须）；`adjust_rules` 调价规则、`inventory` 库存（可选，恒通过）。
-        `price_rules`：至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才生效的也算）。不通过的原因分三种：
-        `NO_ACTIVE_PRICE_RULE`（一条都没有）、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`。缺价的组合不拦（见 `price-coverage`）。
+        `price_rules`：商品**现在选着的**区域 × 车型组里，至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才生效的也算）。
+        给已经不在商品里的区域 / 车型组设的价格不算。不通过的原因分四种：`NO_ACTIVE_PRICE_RULE`（一条都没有）、
+        `NO_PRICE_IN_SELECTION`（有价格，但都是给已经不在商品里的区域 / 车型组设的）、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`。
+        个别组合缺价不拦（见 `price-coverage`）；一个有价的组合都没有才拦。`price-overview` 的 `has_active_price`、已上架商品的修改保护用的是同一个判断。
+        已上架的商品被修改时改完必须仍然通过。价格自然过期之后商品不会自动下架（`price-overview` 的 `published_without_price` 数得出来）：
+        这时延长价格有效期、新增价格这类改完就通过的修改可以存，别的修改被 `PUBLISH_CHECK_FAILED` 拒绝，下架任何时候都可以。
         `inventory` 不是必须的（默认不限量）；库存是限量、而从今天起没有一天还有可售库存时在这里指出来（`NO_INVENTORY_AHEAD`），不拦上架。
-        `adjust_rules` 不是必须的；有启用中的调价规则会把某条价格调到不大于 0 时在这里指出来（`ADJUST_RESULT_NOT_POSITIVE`，`path` 是它在调价规则列表里的位置，
-        `detail` 带那条规则的 `rule_id` 和 `name`），不拦上架。
+        `adjust_rules` 不是必须的；有启用中的调价规则会把某条价格调到不大于 0（按取整单位取整之后）时在这里指出来（`ADJUST_RESULT_NOT_POSITIVE`，`path` 是它在调价规则列表里的位置，
+        `detail` 带那条规则的 `rule_id` 和 `name`），不拦上架。几条规则同时生效时叠加、取整出的问题也在这里：`ADJUST_STACK_NOT_POSITIVE`（两条以上叠加后不大于 0）、
+        `ADJUST_STACK_OVER_LIMIT`（调完超过结算价的上限），`path` 是 `/stacks/N`，`detail` 带 `rule_ids`、`names`（逗号 / 顿号分隔，按执行顺序）、`price_count`（几条价格）、
+        `date` 和 `time`（今后一年里最早的一次，城市当地时间）、`day_count`（今后一年里有几天）。叠加只看今后 366 天、最多 200 种同时生效的组合。
         校验看的是现在的情况：选的区域、车型组、接送点、附加服务后来被停用了，也会在这里指出来。
         判断用的是 `@nozomi/domain` 的 `publishCheck`。
       security:
@@ -3296,7 +3302,9 @@ paths:
       description: |
         需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）。新增的排在最后（最后执行）。
         适用的区域、车型组必须是这个商品现在选的（空 = 全部）。启用的规则单独作用在它碰得到的、启用且没过期的价格上，
-        算下来不大于 0 时不能保存（400，`reason` = `ADJUST_RESULT_NOT_POSITIVE`，`detail.count` 是几条价格）。
+        算下来（按取整单位取整之后）不大于 0 时不能保存（400，`reason` = `ADJUST_RESULT_NOT_POSITIVE`，`detail.count` 是几条价格）；
+        超过结算价的上限（一万亿最小货币单位）时也不能保存（400，`reason` = `ADJUST_RESULT_TOO_LARGE`，`detail.count`、`detail.max`）。
+        这里只看商品现在选着的区域 × 车型组下启用且未过期的价格。几条规则叠加之后的问题保存时不查，见上架校验的 `adjust_rules`。
         时段：从 `start` 起（含）到 `end` 止（不含），`end` 可以是 `24:00`；`end` 早于 `start` 是跨午夜，算在开始的那一天头上。
         写审计日志（`resource` = `adjust_rule`）。
       security:
@@ -3506,7 +3514,8 @@ paths:
       operationId: getPriceOverview
       summary: 各商品的价格概况
       description: |
-        需要操作 `product.read`。本供应商每个商品（最多 1000 个，最近改过的在前）有没有启用且未过期的价格——「今天」按每个商品所在城市的当地日期各自算。
+        需要操作 `product.read`。本供应商每个商品（最多 1000 个，最近改过的在前）有没有可以卖的价格（启用、未过期，而且区域和车型组是商品现在选着的；
+        和上架校验的 `price_rules` 同一个判断）——「今天」按每个商品所在城市的当地日期各自算。`published_without_price` 是已上架却没有可以卖的价格的商品数。
         `products_with_price` / `products_without_price` 只数草稿和已上架的商品（首页的「设价格 → 上架」引导用）；只要这两个数时加 `summary=1`。
         每个商品另带所在城市和缺价的概况 `coverage { total, missing }`（算法同 `price-coverage`）。
       security:
@@ -3529,6 +3538,9 @@ paths:
         需要操作 `brand.manage`（只有管理员）。`If-Match` 带子品牌的版本号。取整单位是最小货币单位的整数：这个子品牌下所有商品的结算价最后按它四舍五入（正好一半时远离零）。
         可选的值由币种决定（`@nozomi/domain` 的 `roundingUnitOptions`）：没有小数的币种 1 / 10 / 100 / 1000；两位小数的币种 1 / 10 / 100 / 1000 / 10000。
         读取：价格规则、调价规则、价格日历的应答里都带 `rounding_unit`。写审计日志。
+        取整单位改大会让比半个单位还小的价格取整成 0（报不出价）：这个子品牌下只要有一条可以卖的价格（启用、未过期、区域和车型组是商品现在选着的；
+        草稿、已下架的商品也算）会这样，就拒绝（409 `ROUNDING_UNIT_ZEROES_PRICES`）。成功时 `changed_price_count` 是取整后的数变了的价格条数
+        （按不超出起步 / 套餐的基础价算，不含调价），供页面提示。
       security:
         - tenantToken: []
       parameters:
@@ -3554,6 +3566,8 @@ paths:
         "409":
           description: |
             `VERSION_CONFLICT`：子品牌已经被别人改过
+            `ROUNDING_UNIT_ZEROES_PRICES`：改成这个取整单位后有价格取整成 0。`details` 有 `rounding_unit`、`price_count`（几条价格）、`product_count`、
+            `published_product_count`（其中已上架的商品数）、`products[]`（最多 50 个：`product_id`、`code`、`status`、`price_count`）
           content:
             application/json:
               schema:
@@ -4318,7 +4332,7 @@ components:
         `VALIDATION_FAILED`：字段不合规。`details.issues[]` 每条有 `path`、`message`（中文），业务规则的问题另有机器可读的 `reason`，部分带 `detail`（上限、范围、条数）。
         价格规则：`REQUIRED`、`NOT_APPLICABLE`（这种计价方式或这个品类不填这一项）、`MODEL_NOT_ALLOWED`、`NOT_INTEGER`、`OUT_OF_RANGE`、`INVALID_DATE`、`DATE_RANGE_REVERSED`、
         `AREA_NOT_IN_PRODUCT`、`VEHICLE_GROUP_NOT_IN_PRODUCT`（不是这个商品选的；别的供应商的、不存在的也是这个结果）、`UNKNOWN_PRICE_RULE`、`DUPLICATE`、`TOO_MANY`。
-        调价规则另有：`TOO_LONG`、`INVALID_TIME`、`EMPTY_WINDOW`、`INVALID_COUNTRY`、`ZERO_STEP`、`ADJUST_RESULT_NOT_POSITIVE`、`IDS_MISMATCH`。
+        调价规则另有：`TOO_LONG`、`INVALID_TIME`、`EMPTY_WINDOW`、`INVALID_COUNTRY`、`ZERO_STEP`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_RESULT_TOO_LARGE`、`IDS_MISMATCH`。
         前面这些里凡是规则本身的，和 `@nozomi/domain` 的 `priceRuleIssues` / `adjustRuleIssues` 返回的是同一套代码。
         价格规则的每条问题在 `detail` 里带着是哪一条：新增的是请求里的 `ref`（没给就没有），修改、删除的是 `id`——不用靠 `path` 里的下标去对。
       content:
@@ -6636,7 +6650,7 @@ components:
                   不通过的原因。`path` 是相对于这一项的字段位置（如 `/areas/0`、`/booking/service_time`、`/zh/pickup_guide`；没有具体位置时是 `/`）。
                   `reason` 除了 `ProductInvalid` 里列的规则代码，还有：`NO_AREA`、`NO_VEHICLE_GROUP`、`NO_DISPATCHER`、`BRAND_DISABLED`、`CITY_DISABLED`、
                   `PICKUP_PLACE_MISSING`、`PICKUP_PLACE_DISABLED`、`PICKUP_PLACE_OTHER_CITY`（接送点被平台改到了别的城市）、`AREA_DISABLED`、`AREA_CITY_DISABLED`、`AREA_NOT_USABLE`、`VEHICLE_GROUP_DISABLED`、
-                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`NO_INVENTORY_AHEAD`。
+                  `VEHICLE_COMBO_NOT_OFFERED`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`NO_ACTIVE_PRICE_RULE`、`NO_PRICE_IN_SELECTION`、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`、`ADJUST_RESULT_NOT_POSITIVE`、`ADJUST_STACK_NOT_POSITIVE`、`ADJUST_STACK_OVER_LIMIT`、`NO_INVENTORY_AHEAD`。
                   （`FEATURE_NOT_AVAILABLE` 只在 `@nozomi/domain` 的 `publishCheck` 不知道价格条数时出现，接口不再返回它。）
                 items:
                   type: object
@@ -6909,17 +6923,38 @@ components:
         coverage:
           $ref: "#/components/schemas/PriceCoverageSummary"
     PriceRulesSaved:
-      allOf:
-        - $ref: "#/components/schemas/PriceRules"
-        - type: object
-          required: [created_ids]
-          properties:
-            created_ids:
-              type: array
-              description: 这次新增的规则的编号，和请求里 `create` 的顺序一一对应
-              items:
-                type: string
-                format: uuid
+      type: object
+      additionalProperties: false
+      description: 批量保存之后的全部价格规则（各字段同 `PriceRules`），外加这次新增的规则的编号
+      required: [version, currency, rounding_unit, available_models, today, items, coverage, created_ids]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: 商品的新版本号
+        currency:
+          type: [string, "null"]
+        rounding_unit:
+          type: integer
+        available_models:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingModel"
+        today:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceRule"
+        coverage:
+          $ref: "#/components/schemas/PriceCoverageSummary"
+        created_ids:
+          type: array
+          description: 这次新增的规则的编号，和请求里 `create` 的顺序一一对应
+          items:
+            type: string
+            format: uuid
     PriceRuleSaved:
       type: object
       additionalProperties: false
@@ -7332,8 +7367,8 @@ components:
                 description: 取整后的结算价（最小货币单位）；没有价格、或调完不大于 0 时为 null
               no_price_reason:
                 type: [string, "null"]
-                enum: [NO_RULE, NOT_IN_EFFECT, RULE_DISABLED, NOT_POSITIVE, null]
-                description: "NO_RULE：这个组合没有价格规则；NOT_IN_EFFECT：有，但这一天不在生效期；RULE_DISABLED：对得上的那条停用了；NOT_POSITIVE：调价之后不大于 0"
+                enum: [NO_RULE, NOT_IN_EFFECT, RULE_DISABLED, NOT_POSITIVE, OVER_LIMIT, null]
+                description: "NO_RULE：这个组合没有价格规则；NOT_IN_EFFECT：有，但这一天不在生效期；RULE_DISABLED：对得上的那条停用了；NOT_POSITIVE：调价、取整之后不大于 0；OVER_LIMIT：结算价超过了上限（一万亿最小货币单位，只可能是价格或调价规则写错了）——这时 `final` 是 null，`unrounded` 照常给出"
               base:
                 type: [string, "null"]
                 description: 基础价（精确值）
@@ -7374,12 +7409,15 @@ components:
     PriceOverview:
       type: object
       additionalProperties: false
-      required: [products_with_price, products_without_price, published_without_inventory]
+      required: [products_with_price, products_without_price, published_without_price, published_without_inventory]
       properties:
         products_with_price:
           type: integer
         products_without_price:
           type: integer
+        published_without_price:
+          type: integer
+          description: 已上架、却已经没有可以卖的价格的商品有几个（价格的生效期自然过去了：还挂着「已上架」，一个价都报不出）。总是返回
         published_without_inventory:
           type: integer
           description: 已上架的商品里，库存是限量而从今天起没有可售库存的有几个（上了架却报不出价）
@@ -7447,7 +7485,7 @@ components:
     RoundingUnit:
       type: object
       additionalProperties: false
-      required: [id, rounding_unit, version]
+      required: [id, rounding_unit, version, changed_price_count]
       properties:
         id:
           type: string
@@ -7457,6 +7495,10 @@ components:
         version:
           type: integer
           description: 子品牌的新版本号
+        changed_price_count:
+          type: integer
+          minimum: 0
+          description: 这次修改让多少条可以卖的价格取整后的数变了（没改时是 0）
     HolidayInput:
       type: object
       additionalProperties: false

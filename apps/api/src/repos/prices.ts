@@ -173,6 +173,35 @@ export async function setBrandRoundingUnit(db: Db, tenantId: string, brandId: st
   return (result.rows[0] as { version: number }).version;
 }
 
+/** 一个子品牌下每个商品「可以卖的价格」（口径同 `sellablePriceRules`）：改取整单位之前用来看哪些价格会受影响。 */
+export async function listBrandSellablePrices(db: Db, tenantId: string, brandId: string, now: Date): Promise<{ productId: string; code: string; status: string; rule: StoredPriceRule }[]> {
+  const result = await db.query<Row>(
+    `select p.id as product_id, p.code, p.status as product_status, ${PRICE_COLUMNS.split(", ").map((column) => `r.${column}`).join(", ")}
+       from price_rules r
+       join products p on p.tenant_id = r.tenant_id and p.id = r.product_id
+       join cities c on c.id = p.city_id
+      where r.tenant_id = $1 and p.brand_id = $2 and r.status = 'enabled'
+        and (r.valid_to is null or r.valid_to >= ($3::timestamptz at time zone c.timezone)::date)
+        and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+        and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)
+      order by p.code, r.created_at, r.id`,
+    [tenantId, brandId, now],
+  );
+  return result.rows.map((row) => ({ productId: row["product_id"], code: row["code"], status: row["product_status"], rule: toPriceRule(row) }));
+}
+
+/** 这个区域下的全部价格（跨商品）：删除区域之前取，给连带删除的价格各记一条日志。 */
+export async function listPriceRulesInArea(db: Db, tenantId: string, areaId: string): Promise<{ productId: string; rule: StoredPriceRule }[]> {
+  const result = await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 and area_id = $2 order by product_id, created_at, id`, [tenantId, areaId]);
+  return result.rows.map((row) => ({ productId: row["product_id"], rule: toPriceRule(row) }));
+}
+
+/** 适用范围里写着这个区域的调价规则（跨商品）。 */
+export async function listAdjustRulesWithArea(db: Db, tenantId: string, areaId: string): Promise<{ productId: string; rule: StoredAdjustRule }[]> {
+  const result = await db.query<Row>(`select product_id, ${ADJUST_COLUMNS} from adjust_rules where tenant_id = $1 and $2::uuid = any(area_ids) order by product_id, position, id`, [tenantId, areaId]);
+  return result.rows.map((row) => ({ productId: row["product_id"], rule: toAdjustRule(row) }));
+}
+
 // ---- 各商品的价格概况 ----
 
 export interface ProductPriceOverview {
@@ -188,7 +217,10 @@ export interface ProductPriceOverview {
   /** 限量、而从城市当地的今天起没有一天还有可售库存（客人询价时报不出价）。不限量时恒为假 */
   noInventoryAhead: boolean;
   priceRuleCount: number;
-  /** 启用且没过期（按商品所在城市当地的今天）的价格规则条数 */
+  /**
+   * 「可以卖的价格」条数：启用、没过期（按商品所在城市当地的今天），而且区域和车型组都是商品现在选着的
+   * （和上架校验用的 domain `sellablePriceRules` 是同一个口径）
+   */
   activePriceRuleCount: number;
   enabledAdjustRuleCount: number;
 }
@@ -206,7 +238,9 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
             (select count(*)::int from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id) as price_rule_count,
             (select count(*)::int from price_rules r
               where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
-                and (r.valid_to is null or r.valid_to >= ($2::timestamptz at time zone c.timezone)::date)) as active_price_rule_count,
+                and (r.valid_to is null or r.valid_to >= ($2::timestamptz at time zone c.timezone)::date)
+                and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+                and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)) as active_price_rule_count,
             (select count(*)::int from adjust_rules a where a.tenant_id = p.tenant_id and a.product_id = p.id and a.status = 'enabled') as enabled_adjust_rule_count
        from products p join cities c on c.id = p.city_id
       where p.tenant_id = $1

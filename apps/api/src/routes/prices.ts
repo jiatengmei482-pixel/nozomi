@@ -272,7 +272,7 @@ function calendarDaysJson(days: CalendarView["groups"][number]["days"]): Json[] 
       segments: day.segments.map((segment) => ({
         from: clock(segment.fromMinute),
         to: clock(segment.toMinute),
-        // 取整后的结算价；没有价格、或调完不大于 0 时为 null，原因在 no_price_reason
+        // 取整后的结算价；没有价格、调完不大于 0、或超过结算价上限时为 null，原因在 no_price_reason
         final: segment.price?.finalMinor ?? null,
         no_price_reason: segment.noPriceReason,
         base: segment.price === null ? null : formatExact(segment.price.base),
@@ -421,7 +421,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await authenticate(request, "product.read");
     const query = parseInput(z.object({ summary: z.enum(["1", "true"]).optional() }), request.query, "querystring");
     const overview = await getPriceOverview(ctx, principal.tenantId, query.summary !== undefined);
-    const totals = { products_with_price: overview.productsWithPrice, products_without_price: overview.productsWithoutPrice, published_without_inventory: overview.publishedWithoutInventory };
+    const totals = { products_with_price: overview.productsWithPrice, products_without_price: overview.productsWithoutPrice, published_without_price: overview.publishedWithoutPrice, published_without_inventory: overview.publishedWithoutInventory };
     // `summary=1`：只要两个数（首页的卡片），不带每个商品的明细
     if (overview.items === null) return totals;
     return {
@@ -505,7 +505,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(z.object({ rounding_unit: z.number().int() }), request.body, "body");
     const saved = await setRoundingUnit(ctx, { principal, ip: request.ip }, brandId, version, input.rounding_unit);
-    return { id: saved.id, rounding_unit: saved.roundingUnit, version: saved.version };
+    return { id: saved.id, rounding_unit: saved.roundingUnit, version: saved.version, changed_price_count: saved.changedPriceCount };
   });
 
   // ---- 节假日日历 ----

@@ -548,8 +548,8 @@ test("请求定义和实现一致：必填项、枚举、条数和长度上限�
 test("这份对账把子品牌和商品的每个接口都调到了", () => {
   assert.deepEqual(PRODUCT_OPERATIONS.filter((operation) => !exercised.has(operation)), []);
   const documented = Object.entries(doc.paths)
-    // 价格规则、调价规则、取整单位是 M1-04 的接口，各有自己的对账（prices.itest.ts）；这里只管子品牌和商品本身的
-    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|adjust-rules|rounding-unit)(\/|$)/.test(path))
+    // 价格规则、调价规则、取整单位是 M1-04 的接口，库存和导入导出是 M1-05 的，各有自己的对账；这里只管子品牌和商品本身的
+    .filter(([path]) => (path.startsWith("/tenant/v1/brands") || path.startsWith("/tenant/v1/products")) && !/\/(price-rules|price-calendar|price-coverage|adjust-rules|rounding-unit|inventory)(\/|$)/.test(path))
     .flatMap(([path, methods]) => Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`));
   assert.deepEqual(documented.sort(), [...PRODUCT_OPERATIONS].sort(), "定义里商品相关的接口就是这 15 个操作（9 个路径）");
 });

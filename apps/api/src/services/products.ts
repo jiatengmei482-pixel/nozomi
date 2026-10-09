@@ -28,7 +28,13 @@ import {
   type ServiceRuleContext,
   type ServiceRules,
   addonAllowsFirstFree,
+  type AdjustStackProblem,
+  PRICE_LIMITS,
+  addDays,
   adjustRuleNonPositivePrices,
+  adjustStackProblems,
+  holidayLookup,
+  sellablePriceRules,
   areaUsableByCategory,
   canPublish,
   contentIssues,
@@ -41,7 +47,6 @@ import {
   isPickupPlaceType,
   minimumFreeWaitMinutes,
   normalizeServiceRules,
-  priceRuleIsActive,
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
@@ -88,7 +93,7 @@ import {
 } from "../repos/products.ts";
 import { countSellableDays, findInventoryMode } from "../repos/inventory.ts";
 import { lockMasterReferencesShared } from "../repos/master-data.ts";
-import { listAdjustRules, listPriceRules } from "../repos/prices.ts";
+import { listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -248,7 +253,7 @@ export async function listProducts(
         areas: null,
         vehicleGroups: null,
         dispatchers: null,
-        check: publishCheckSummary((await runPublishCheck(db, tenantId, product, now)).items),
+        check: publishCheckSummary((await runPublishCheck(db, tenantId, product, now, { light: true })).items),
       });
     }
     return { items, nextCursor: page.nextCursor, total: page.total };
@@ -431,11 +436,15 @@ async function lockMasterReferences(db: Db, product: Product, vehicleGroupIds: r
   ]);
 }
 
-/** 这个商品如果是已上架的，改完之后必须仍然通过上架校验。 */
+/**
+ * 这个商品如果是已上架的，改完之后必须仍然通过上架校验。
+ * 已上架的商品可能自己变得不满足条件（价格的生效期自然过去）：这时候能让它恢复的修改（延长有效期、新增价格）改完就通过了，可以存；
+ * 不能让它恢复的修改仍然被拒。下架不走这里，任何时候都可以。
+ */
 export async function assertStillPublishable(db: Db, tenantId: string, product: Product, now: Date): Promise<void> {
   if (product.status !== "published") return;
   await lockProductAreas(db, tenantId, product.id);
-  const checked = await runPublishCheck(db, tenantId, product, now);
+  const checked = await runPublishCheck(db, tenantId, product, now, { light: true });
   if (!canPublish(checked.items)) throw publishCheckFailed(checked, "这样修改之后商品就不满足上架的条件了。请调整后再保存，或者先下架再改");
 }
 
@@ -539,9 +548,12 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ADDON_DISABLED: "这个附加服务已被平台停用",
   ADDON_NOT_APPLICABLE: "这个附加服务不适用于这个品类",
   NO_ACTIVE_PRICE_RULE: "至少要有一条启用且未过期的价格规则",
+  NO_PRICE_IN_SELECTION: "现有的价格都是给已经不在这个商品里的区域或车型组设的：请给现在选着的区域和车型组至少设一条启用且未过期的价格",
   ALL_PRICE_RULES_DISABLED: "价格规则都停用了：至少要有一条启用且未过期的",
   ALL_PRICE_RULES_EXPIRED: "启用的价格规则都过期了：至少要有一条启用且未过期的",
-  ADJUST_RESULT_NOT_POSITIVE: "这条调价规则会把某些价格调到不大于 0，它生效时那些组合报不出价",
+  ADJUST_RESULT_NOT_POSITIVE: "这条调价规则会把某些价格调到不大于 0（按取整单位取整之后），它生效时那些组合报不出价",
+  ADJUST_STACK_NOT_POSITIVE: "几条调价规则同时生效时，有些价格叠加、取整之后不大于 0",
+  ADJUST_STACK_OVER_LIMIT: "调价规则生效时，有些价格调完超过了结算价的上限",
   NO_INVENTORY_AHEAD: "库存是限量的，但从今天起没有一天还有可售的库存，客人询价时报不出价",
   FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
@@ -676,10 +688,30 @@ export interface PublishCheckView {
   items: (Omit<PublishCheckItem, "issues"> & { issues: InputIssue[] })[];
 }
 
-/** 校验结果，外加「调价规则」一项的原因指的是哪几条规则（按调价规则的顺序）。 */
+/** 校验结果，外加「调价规则」一项的原因指的是哪几条规则（按调价规则的顺序）、叠加出的问题各是怎么回事。 */
 interface PublishChecked {
   items: PublishCheckItem[];
   adjustRules: { id: string; name: string }[];
+  stacks: AdjustStackProblem[];
+}
+
+const pad2 = (value: number): string => String(value).padStart(2, "0");
+
+/** 「调价规则」一项里叠加出的问题：说明是哪几条规则、什么时候、影响几条价格。 */
+function stackIssue(issue: InputIssue, problem: AdjustStackProblem, rules: readonly { id: string; name: string }[]): InputIssue {
+  const involved = problem.ruleIndexes.map((index) => rules[index] as { id: string; name: string });
+  const time = `${pad2(Math.floor(problem.minuteOfDay / 60))}:${pad2(problem.minuteOfDay % 60)}`;
+  const who = involved.map((rule) => `「${rule.name}」`).join("");
+  const when = `例如 ${problem.date} ${time}，今后一年里有 ${problem.dayCount} 天`;
+  const message =
+    problem.kind === "OVER_LIMIT"
+      ? `${who}生效时（${when}），有 ${problem.priceIndexes.length} 条价格调完超过了结算价的上限，那些时候报不出价。请检查上调的幅度`
+      : `${who}同时生效时（${when}），有 ${problem.priceIndexes.length} 条价格叠加、取整之后不大于 0，那些时候报不出价。请调小减价的幅度，或错开它们的日期、时段、适用范围`;
+  return {
+    ...issue,
+    message,
+    detail: { rule_ids: involved.map((rule) => rule.id).join(","), names: involved.map((rule) => rule.name).join("、"), price_count: problem.priceIndexes.length, date: problem.date, time, day_count: problem.dayCount },
+  };
 }
 
 function publishCheckView(checked: PublishChecked): PublishCheckView {
@@ -688,7 +720,9 @@ function publishCheckView(checked: PublishChecked): PublishCheckView {
     items: checked.items.map((item) => ({
       ...item,
       issues: ruleIssues(item.issues).map((issue) => {
-        // 「调价规则」一项的每条原因带上是哪一条规则（页面凭它写出名字、链到那一条）
+        // 「调价规则」一项的每条原因带上是哪一条规则（页面凭它写出名字、链到那一条）；叠加出的问题带上是哪几条、什么时候
+        const stack = item.key === "adjust_rules" && issue.path.startsWith("/stacks/") ? checked.stacks[Number(issue.path.slice("/stacks/".length))] : undefined;
+        if (stack !== undefined) return stackIssue(issue, stack, checked.adjustRules);
         const rule = item.key === "adjust_rules" ? checked.adjustRules[Number(issue.path.slice(1))] : undefined;
         return rule === undefined ? issue : { ...issue, detail: { ...issue.detail, rule_id: rule.id, name: rule.name } };
       }),
@@ -703,14 +737,28 @@ function publishCheckFailed(checked: PublishChecked, message: string): AppError 
   });
 }
 
-/** 从库里取出上架校验要看的全部事实，交给 domain 的 publishCheck。 */
-async function runPublishCheck(db: Db, tenantId: string, product: Product, now: Date): Promise<PublishChecked> {
+/**
+ * 从库里取出上架校验要看的全部事实，交给 domain 的 publishCheck。
+ * `light`：只要必须项的结论时（列表上的概况、修改保护）不做「调价规则叠加」那一步——它要逐天看今后一年，而且不影响能不能上架。
+ */
+async function runPublishCheck(db: Db, tenantId: string, product: Product, now: Date, options: { light?: boolean } = {}): Promise<PublishChecked> {
   const view = await detail(db, tenantId, product);
   // 价格过没过期按商品所在城市当地的今天算
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
   const priceRules = await listPriceRules(db, tenantId, product.id);
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
-  const activePrices = priceRules.filter((rule) => priceRuleIsActive(rule, today));
+  // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
+  const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };
+  const inSelection = priceRules.filter((rule) => selected.areaIds.includes(rule.areaId) && selected.vehicleGroupIds.includes(rule.vehicleGroupId));
+  const activePrices = sellablePriceRules(priceRules, selected, today);
+  const roundingUnit = view.brand?.roundingUnit ?? 1;
+  const nonPositive = adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices, roundingUnit).length > 0 ? [index] : []));
+  let stacks: AdjustStackProblem[] = [];
+  if (options.light !== true && activePrices.length > 0 && adjustRules.some((rule) => rule.status === "enabled")) {
+    const countries = [...new Set(adjustRules.flatMap((rule) => (rule.cycle.type === "holidays" ? rule.cycle.countries : [])))];
+    const holidays = countries.length === 0 ? [] : await listHolidays(db, { countryCodes: countries, from: addDays(today, -1), to: addDays(today, PRICE_LIMITS.adjustStackDays) }, 20_000);
+    stacks = adjustStackProblems({ priceRules: activePrices, adjustRules, roundingUnit, from: today, holidays: holidayLookup(holidays), skipRuleIndexes: nonPositive });
+  }
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));
   const serviceRules = await effectiveServiceRules(db, product.serviceRules);
@@ -731,12 +779,13 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
       return { enabled: chosen.enabled, active: addon?.status === "active", applicable: addon?.categories.includes(product.category) === true };
     }),
     content: product.content,
-    activePriceRuleCount: priceRules.filter((rule) => priceRuleIsActive(rule, today)).length,
-    priceRuleStats: { total: priceRules.length, enabled: priceRules.filter((rule) => rule.status === "enabled").length },
+    activePriceRuleCount: activePrices.length,
+    priceRuleStats: { total: inSelection.length, enabled: inSelection.filter((rule) => rule.status === "enabled").length, outOfSelection: priceRules.length - inSelection.length },
     inventory: { mode: (await findInventoryMode(db, tenantId, product.id)) ?? "unlimited", sellableDaysAhead: await countSellableDays(db, tenantId, product.id, today) },
-    nonPositiveAdjustRules: adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices).length > 0 ? [index] : [])),
+    nonPositiveAdjustRules: nonPositive,
+    adjustStackProblems: stacks,
   };
-  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })) };
+  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
 }
 
 export async function getPublishCheck(ctx: AppContext, tenantId: string, id: string): Promise<PublishCheckView> {

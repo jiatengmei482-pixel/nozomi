@@ -24,6 +24,10 @@ import {
   addDays,
   adjustRuleIssues,
   adjustRuleNonPositivePrices,
+  adjustRuleOverLimitPrices,
+  applyAdjustRules,
+  basePrice,
+  sellablePriceRules,
   calendarDay,
   findPriceRuleOverlaps,
   hasVisibleText,
@@ -57,6 +61,9 @@ import {
   listHolidays as listHolidayRows,
   listPriceCoverageInputs,
   listPriceRules,
+  listAdjustRulesWithArea,
+  listBrandSellablePrices,
+  listPriceRulesInArea,
   listProductPriceOverview,
   setAdjustRuleOrder,
   setBrandRoundingUnit,
@@ -407,7 +414,9 @@ function adjustAudit(rule: AdjustRule): AuditValues {
 
 /**
  * 一条调价规则能不能存：写得对不对（domain）；适用的区域、车型组必须是这个商品现在选的（原来就选着的可以留）；
- * 启用的规则单独作用在它碰得到的、启用且没过期的价格上不能不大于 0（400 `ADJUST_RESULT_NOT_POSITIVE`，`detail.count` 是几条价格）。
+ * 启用的规则单独作用在它碰得到的、可以卖的价格上，按取整单位取整之后不能不大于 0（400 `ADJUST_RESULT_NOT_POSITIVE`，`detail.count` 是几条价格），
+ * 也不能超过结算价的上限（400 `ADJUST_RESULT_TOO_LARGE`）。几条规则叠加之后的问题保存时查不了（它们各自什么时候生效要逐天看），
+ * 在上架校验的「调价规则」一项里指出，价格日历和报价遇到时给出「报不出价」的原因。
  */
 function assertAdjustRule(context: PricingContext, rule: AdjustRule, before: StoredAdjustRule | null): void {
   const issues = inputIssues(adjustRuleIssues(rule, { category: context.product.category }), "");
@@ -418,8 +427,14 @@ function assertAdjustRule(context: PricingContext, rule: AdjustRule, before: Sto
     if (!groups.has(groupId)) issues.push({ path: `/vehicle_group_ids/${index}`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能选这个商品选了的车型组" });
   }
   if (issues.length === 0 && rule.status === "enabled") {
-    const count = adjustRuleNonPositivePrices(rule, context.priceRules.filter((price) => priceRuleIsActive(price, context.today))).length;
-    if (count > 0) issues.push({ path: "/steps", reason: "ADJUST_RESULT_NOT_POSITIVE", message: `按这条规则调完，有 ${count} 条价格不大于 0（这样的价格报不出去）。请调小减价的幅度，或缩小适用范围`, detail: { count } });
+    // 只看「可以卖的价格」（启用、没过期、区域和车型组是商品现在选着的），按取整单位取整之后的结果
+    const prices = sellablePriceRules(context.priceRules, context, context.today);
+    const count = adjustRuleNonPositivePrices(rule, prices, context.roundingUnit).length;
+    if (count > 0) issues.push({ path: "/steps", reason: "ADJUST_RESULT_NOT_POSITIVE", message: `按这条规则调完（再按取整单位取整），有 ${count} 条价格不大于 0（这样的价格报不出去）。请调小减价的幅度，或缩小适用范围`, detail: { count } });
+    const tooLarge = adjustRuleOverLimitPrices(rule, prices).length;
+    if (tooLarge > 0) {
+      issues.push({ path: "/steps", reason: "ADJUST_RESULT_TOO_LARGE", message: `按这条规则调完，有 ${tooLarge} 条价格超过了结算价的上限（这样的价格报不出去）。请检查上调的幅度`, detail: { count: tooLarge, max: PRICE_LIMITS.maxSettlementMinor } });
+    }
   }
   if (issues.length > 0) invalid(issues);
 }
@@ -535,6 +550,37 @@ export function reorderAdjustRules(ctx: AppContext, writer: ProductWriter, produ
   });
 }
 
+// ---- 区域被删除时 ----
+
+/**
+ * 删除区域之前调用（在删除区域的事务里、已经锁住区域之后）：这个区域下的价格跟着区域一起没了，这里把它们明着删掉——
+ * 每条各记一条删除日志（带删之前的内容），相关商品的版本号加一（别人手里的旧页面保存时会被告知有变化）。
+ * 调价规则的适用范围里写着这个区域的：去掉它；只写了这一个区域的（去掉之后会变成「全部区域」）整条删除。同样记日志、加版本号。
+ * 能走到这里的只有草稿、已下架的商品，以及已上架但已经不再选这个区域的商品（它留着的旧价格本来就不算数，不影响上架）。
+ */
+export async function removePricingOfArea(db: Db, writer: ProductWriter, areaId: string, now: Date): Promise<void> {
+  const tenantId = writer.principal.tenantId;
+  const prices = await listPriceRulesInArea(db, tenantId, areaId);
+  const adjusts = await listAdjustRulesWithArea(db, tenantId, areaId);
+  const productIds = [...new Set([...prices, ...adjusts].map((entry) => entry.productId))].sort();
+  for (const productId of productIds) await findProduct(db, tenantId, productId, { lock: true });
+  for (const { productId, rule } of prices) {
+    await deletePriceRules(db, tenantId, productId, [rule.id]);
+    await audit(db, writer, now, { resource: "price_rule", id: rule.id, action: "delete", before: { product_id: productId, ...priceAudit(rule) }, after: null });
+  }
+  for (const { productId, rule } of adjusts) {
+    const areaIds = rule.areaIds.filter((id) => id !== areaId);
+    if (areaIds.length === 0) {
+      await deleteAdjustRuleRow(db, tenantId, productId, rule.id);
+      await audit(db, writer, now, { resource: "adjust_rule", id: rule.id, action: "delete", before: { product_id: productId, position: rule.position, ...adjustAudit(rule) }, after: null });
+    } else {
+      await updateAdjustRuleRow(db, tenantId, productId, rule.id, { ...rule, areaIds }, now);
+      await audit(db, writer, now, { resource: "adjust_rule", id: rule.id, action: "update", before: { area_ids: rule.areaIds }, after: { area_ids: areaIds } });
+    }
+  }
+  for (const productId of productIds) await bumpProduct(db, tenantId, productId, {}, now);
+}
+
 // ---- 价格日历 ----
 
 export interface CalendarQuery {
@@ -626,6 +672,8 @@ export interface PriceOverview {
   /** 只数草稿和已上架的商品：有 / 没有「启用且没过期」的价格 */
   productsWithPrice: number;
   productsWithoutPrice: number;
+  /** 已上架、却已经没有可以卖的价格的商品有几个（价格的生效期自然过去了）：还挂着「已上架」，一个价都报不出 */
+  publishedWithoutPrice: number;
   /** 已上架的商品里，库存是限量而从今天起没有可售库存的有几个（上了架却报不出价） */
   publishedWithoutInventory: number;
   /** 只要上面几个数时为 null */
@@ -644,7 +692,7 @@ export function getPriceOverview(ctx: AppContext, tenantId: string, summaryOnly:
     const rows = await listProductPriceOverview(db, tenantId, now, OVERVIEW_LIMIT);
     const counted = rows.filter((item) => item.status !== "unpublished");
     const withPrice = counted.filter((item) => item.activePriceRuleCount > 0).length;
-    const totals = { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice, publishedWithoutInventory: rows.filter((item) => item.status === "published" && item.noInventoryAhead).length };
+    const totals = { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice, publishedWithoutPrice: rows.filter((item) => item.status === "published" && item.activePriceRuleCount === 0).length, publishedWithoutInventory: rows.filter((item) => item.status === "published" && item.noInventoryAhead).length };
     if (summaryOnly) return { ...totals, items: null };
     const shapes = await listPriceCoverageInputs(db, tenantId);
     const items = rows.map((row): PriceOverviewItem => {
@@ -658,8 +706,25 @@ export function getPriceOverview(ctx: AppContext, tenantId: string, summaryOnly:
 
 // ---- 子品牌的取整单位 ----
 
-/** 改子品牌的取整单位（只有管理员）。可选的值由币种决定（domain 的 roundingUnitOptions）。对这个子品牌下所有商品生效。 */
-export function setRoundingUnit(ctx: AppContext, writer: ProductWriter, brandId: string, expectedVersion: number, roundingUnit: number): Promise<{ id: string; roundingUnit: number; version: number }> {
+export interface RoundingUnitSaved {
+  id: string;
+  roundingUnit: number;
+  version: number;
+  /** 这次修改让多少条可以卖的价格取整后的数变了（按「不超出起步 / 套餐」的基础价算，不含调价）；没改时是 0 */
+  changedPriceCount: number;
+}
+
+/** 一条价格的基础价（不超出起步 / 套餐）按取整单位取整后的数；不大于 0（报不出价）时为 null。 */
+function roundedBase(rule: StoredPriceRule, roundingUnit: number): number | null {
+  return applyAdjustRules(basePrice(rule.pricing, {}, rule.packageHours), [], roundingUnit).finalMinor;
+}
+
+/**
+ * 改子品牌的取整单位（只有管理员）。可选的值由币种决定（domain 的 roundingUnitOptions）。对这个子品牌下所有商品生效。
+ * 取整单位改大会让比半个单位还小的价格取整成 0（报不出价）：只要这个子品牌下有任何一条可以卖的价格会这样，就拒绝
+ * （409 `ROUNDING_UNIT_ZEROES_PRICES`，列出是哪些商品、各几条）——已上架的商品不能悄悄报不出价，草稿也拦，免得上架之后才发现。
+ */
+export function setRoundingUnit(ctx: AppContext, writer: ProductWriter, brandId: string, expectedVersion: number, roundingUnit: number): Promise<RoundingUnitSaved> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -668,12 +733,34 @@ export function setRoundingUnit(ctx: AppContext, writer: ProductWriter, brandId:
     if (brand.version !== expectedVersion) throw versionConflict(brand.version);
     const options = roundingUnitOptions(brand.currency);
     if (!options.includes(roundingUnit)) invalid([{ path: "/rounding_unit", reason: "OUT_OF_RANGE", message: `${brand.currency} 的取整单位只能是（最小货币单位）：${options.join("、")}` }]);
-    if (roundingUnit === brand.roundingUnit) return { id: brandId, roundingUnit, version: brand.version };
+    if (roundingUnit === brand.roundingUnit) return { id: brandId, roundingUnit, version: brand.version, changedPriceCount: 0 };
+
+    const prices = await listBrandSellablePrices(db, tenantId, brandId, now);
+    const zeroed = prices.filter((price) => roundedBase(price.rule, brand.roundingUnit) !== null && roundedBase(price.rule, roundingUnit) === null);
+    if (zeroed.length > 0) {
+      const byProduct = new Map<string, { product_id: string; code: string; status: string; price_count: number }>();
+      for (const price of zeroed) {
+        const entry = byProduct.get(price.productId) ?? { product_id: price.productId, code: price.code, status: price.status, price_count: 0 };
+        entry.price_count += 1;
+        byProduct.set(price.productId, entry);
+      }
+      const products = [...byProduct.values()];
+      throw new AppError(
+        409,
+        "ROUNDING_UNIT_ZEROES_PRICES",
+        `取整单位改成这个数之后，有 ${products.length} 个商品的 ${zeroed.length} 条价格取整后是 0（比半个取整单位还小），就报不出价了。请先把这些价格调高或停用，或者选一个小一些的取整单位`,
+        { rounding_unit: roundingUnit, price_count: zeroed.length, product_count: products.length, published_product_count: products.filter((product) => product.status === "published").length, products: products.slice(0, ROUNDING_DETAIL_PRODUCTS) },
+      );
+    }
+    const changedPriceCount = prices.filter((price) => roundedBase(price.rule, brand.roundingUnit) !== roundedBase(price.rule, roundingUnit)).length;
     const version = await setBrandRoundingUnit(db, tenantId, brandId, roundingUnit, now);
     await audit(db, writer, now, { resource: "brand", id: brandId, action: "update", before: { rounding_unit: brand.roundingUnit }, after: { rounding_unit: roundingUnit } });
-    return { id: brandId, roundingUnit, version };
+    return { id: brandId, roundingUnit, version, changedPriceCount };
   });
 }
+
+/** 被拒时最多列出多少个商品（个数另给） */
+const ROUNDING_DETAIL_PRODUCTS = 50;
 
 // ---- 节假日日历（平台主数据）----
 

@@ -413,11 +413,16 @@ export type PublishIssueReason =
   | "ADDON_NOT_APPLICABLE"
   /** 至少要有一条启用且未过期的价格规则：一条价格规则都没有 */
   | "NO_ACTIVE_PRICE_RULE"
+  /** 有价格规则，但都是给已经不在商品里的区域 / 车型组设的：现在选着的组合一个价都没有 */
+  | "NO_PRICE_IN_SELECTION"
   /** 有价格规则，但全都停用了 / 启用的全都过期了 */
   | "ALL_PRICE_RULES_DISABLED"
   | "ALL_PRICE_RULES_EXPIRED"
   /** 这条启用中的调价规则单独作用在某条价格上，算下来不大于 0（那个组合在它生效时报不出价） */
   | "ADJUST_RESULT_NOT_POSITIVE"
+  /** 几条启用中的调价规则同时生效时，叠加、取整之后某些价格不大于 0 / 超过结算价的上限（那些时候报不出价） */
+  | "ADJUST_STACK_NOT_POSITIVE"
+  | "ADJUST_STACK_OVER_LIMIT"
   /** 库存是限量的，但从今天起没有一天还有可售的库存：客人询价时会因为没有库存而报不出价 */
   | "NO_INVENTORY_AHEAD"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
@@ -454,12 +459,20 @@ export interface PublishFacts {
   /** 服务规则里选的附加服务现在的情况（和 serviceRules.addons 一一对应）；只看开着的 */
   addons: { enabled: boolean; active: boolean; applicable: boolean }[];
   content: ProductContent;
-  /** 启用且未过期的价格规则条数；null = 不知道（前端在没取价格规则时预览其余各项用），这一项按「功能未开放」报 */
+  /**
+   * 可以卖的价格规则条数：启用、未过期，而且区域和车型组都是商品现在选着的（pricing.ts 的 `sellablePriceRules`）。
+   * null = 不知道（前端在没取价格规则时预览其余各项用），这一项按「功能未开放」报
+   */
   activePriceRuleCount: number | null;
-  /** 价格规则一共几条、启用的几条：给了就能把「没有可用的价格」分成没有 / 都停用了 / 都过期了 */
-  priceRuleStats?: { total: number; enabled: number };
+  /**
+   * 现在选着的区域 × 车型组下的价格规则一共几条、启用的几条：给了就能把「没有可用的价格」分成没有 / 都停用了 / 都过期了。
+   * `outOfSelection` 是给已经不在商品里的区域 / 车型组设的价格条数（它们不算数）。
+   */
+  priceRuleStats?: { total: number; enabled: number; outOfSelection?: number };
   /** 启用中的调价规则里，会把某条价格调到不大于 0 的那些（调价规则列表里的下标）；不影响能不能上架 */
   nonPositiveAdjustRules?: readonly number[];
+  /** 调价规则叠加、取整之后出的问题（pricing.ts 的 `adjustStackProblems`），一条一个原因；不影响能不能上架 */
+  adjustStackProblems?: readonly { kind: "NOT_POSITIVE" | "OVER_LIMIT" }[];
   /** 库存：模式，和从城市当地的今天起还有剩余库存的日子有几天。不给就当作不限量 */
   inventory?: { mode: "unlimited" | "limited"; sellableDaysAhead: number };
 }
@@ -467,7 +480,8 @@ export interface PublishFacts {
 /**
  * 上架校验（需求文档第 7 节）：逐项给出通过 / 不通过和原因，界面照着显示清单。
  * 四项必须（基础信息、服务规则、价格规则、商品详情），两项可选（调价规则、库存：不通过也能上架）。
- * - 价格规则：至少 1 条启用且未过期（结束日期不早于城市当地的今天；以后才开始生效的也算）。缺价的组合不拦。
+ * - 价格规则：现在选着的区域 × 车型组里，至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才开始生效的也算）。
+ *   个别组合缺价不拦；一个有价的组合都没有才拦。
  * - 调价规则：可以没有；有启用中的规则会把某条价格调到不大于 0 时指出来（不拦上架）。
  * - 库存：可以不设（默认不限量）。限量、而从今天起没有一天还有库存时指出来（不拦上架）。
  */
@@ -504,10 +518,14 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   }
 
   const stats = facts.priceRuleStats;
-  const noPriceReason: PublishIssueReason = stats === undefined || stats.total === 0 ? "NO_ACTIVE_PRICE_RULE" : stats.enabled === 0 ? "ALL_PRICE_RULES_DISABLED" : "ALL_PRICE_RULES_EXPIRED";
+  const noPriceReason: PublishIssueReason =
+    stats === undefined || stats.total === 0 ? ((stats?.outOfSelection ?? 0) > 0 ? "NO_PRICE_IN_SELECTION" : "NO_ACTIVE_PRICE_RULE") : stats.enabled === 0 ? "ALL_PRICE_RULES_DISABLED" : "ALL_PRICE_RULES_EXPIRED";
   const price: PublishIssue[] = facts.activePriceRuleCount === null ? [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }] : facts.activePriceRuleCount > 0 ? [] : [{ path: "/", reason: noPriceReason }];
   const inventory: PublishIssue[] = facts.inventory?.mode === "limited" && facts.inventory.sellableDaysAhead === 0 ? [{ path: "/", reason: "NO_INVENTORY_AHEAD" }] : [];
-  const adjust: PublishIssue[] = (facts.nonPositiveAdjustRules ?? []).map((index) => ({ path: `/${index}`, reason: "ADJUST_RESULT_NOT_POSITIVE" }));
+  const adjust: PublishIssue[] = [
+    ...(facts.nonPositiveAdjustRules ?? []).map((index): PublishIssue => ({ path: `/${index}`, reason: "ADJUST_RESULT_NOT_POSITIVE" })),
+    ...(facts.adjustStackProblems ?? []).map((problem, index): PublishIssue => ({ path: `/stacks/${index}`, reason: problem.kind === "OVER_LIMIT" ? "ADJUST_STACK_OVER_LIMIT" : "ADJUST_STACK_NOT_POSITIVE" })),
+  ];
 
   const content: PublishIssue[] = [...contentMissing(facts.content, facts.category), ...contentIssues(facts.content)];
 

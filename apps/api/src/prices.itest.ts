@@ -618,8 +618,8 @@ test("取整单位：管理员给子品牌设（可选的值由币种决定）�
   assert.deepEqual(issues(await put(brand.id, 10_000, 1)), [["/rounding_unit", "OUT_OF_RANGE"]], "日元最大取整到 1000");
   assert.equal((await put(usd.id, 10_000, 1)).status, 200, "美元可以取整到 100 元（10000 分）");
   assert.equal((await put(brand.id, 1.5, 1)).status, 400);
-  assert.deepEqual(await ok(put(brand.id, 1, 1)), { id: brand.id, rounding_unit: 1, version: 1 }, "没变化不加版本");
-  assert.deepEqual(await ok(put(brand.id, 100, 1)), { id: brand.id, rounding_unit: 100, version: 2 });
+  assert.deepEqual(await ok(put(brand.id, 1, 1)), { id: brand.id, rounding_unit: 1, version: 1, changed_price_count: 0 }, "没变化不加版本");
+  assert.deepEqual(await ok(put(brand.id, 100, 1)), { id: brand.id, rounding_unit: 100, version: 2, changed_price_count: 0 });
   assert.deepEqual((await audits("brand", brand.id)).at(-1), { action: "update", tenant_id: tenant.tenantId, actor_email: "admin@a.test", before: { rounding_unit: 1 }, after: { rounding_unit: 100 } });
   assert.equal((await put(MISSING, 100, 1)).status, 404);
   const pricing = (await addTenantUser(api, tenant.adminToken, "pricing-r@a.test", "pricing")).token;
@@ -684,7 +684,7 @@ test("节假日日历：平台逐条登记、修改、删除（写审计日志�
 test("价格概况：每个商品有没有启用且未过期的价格（按各自城市当地的今天），首页用的两个数只数草稿和已上架的", async () => {
   const fresh = await api.tenantWithAdmin(root, "新车队", "admin@fresh.test");
   const as = { token: fresh.adminToken };
-  assert.deepEqual(await ok(call("GET", "/price-overview", as)), { products_with_price: 0, products_without_price: 0, published_without_inventory: 0, items: [] });
+  assert.deepEqual(await ok(call("GET", "/price-overview", as)), { products_with_price: 0, products_without_price: 0, published_without_price: 0, published_without_inventory: 0, items: [] });
   const brand = await ok(call("POST", "/brands", { ...as, body: { name: "新品牌", currency: "JPY" } }), 201);
   const zone = (await ok(call("POST", "/areas", { ...as, body: { city_id: ids["tokyo"], name: { zh: "市区" }, biz_type: "general", polygons: [{ kind: "operate", geometry: SQUARE }] } }), 201)).id;
   const made: string[] = [];
@@ -711,7 +711,7 @@ test("价格概况：每个商品有没有启用且未过期的价格（按各�
   assert.deepEqual(byId[made[0] as string].city, { id: ids["tokyo"], name: { zh: "东京" } });
   assert.deepEqual(made.map((productId) => byId[productId].coverage), [{ total: 1, missing: 0 }, { total: 1, missing: 1 }, { total: 1, missing: 1 }, { total: 1, missing: 0 }]);
   // 首页只要两个数：summary=1 不带 items
-  assert.deepEqual(await ok(call("GET", "/price-overview?summary=1", as)), { products_with_price: 1, products_without_price: 2, published_without_inventory: 0 });
+  assert.deepEqual(await ok(call("GET", "/price-overview?summary=1", as)), { products_with_price: 1, products_without_price: 2, published_without_price: 0, published_without_inventory: 0 });
   // 库存的概况：限量而从今天起没有可售库存的标出来；总数只数已上架的
   assert.deepEqual(made.map((productId) => [byId[productId].inventory_mode, byId[productId].no_inventory_ahead]), [["unlimited", false], ["unlimited", false], ["unlimited", false], ["unlimited", false]]);
   await api.db.owner.query("update products set inventory_mode = 'limited' where id = any($1::uuid[])", [[made[0], made[1]]]);
@@ -833,4 +833,137 @@ test("接口定义对账：价格相关应答的字段和 openapi.yaml 里各 sc
   // 请求体里能给的字段，定义里都有
   for (const field of Object.keys(fixed())) assert.ok(field in schema("PriceRuleInput").properties, field);
   for (const field of Object.keys(adjustBody())) assert.ok(field in schema("AdjustRuleInput").properties, field);
+});
+
+test("可以卖的价格 = 启用、未过期、区域和车型组是商品现在选着的：上架校验、price-overview、已上架商品的修改保护是同一个判断", async () => {
+  const id = await publishable();
+  await addPrice(id, fixed({ direction: "both" }));
+  const published = await ok(call("POST", `/products/${id}/publish`));
+  const priceItem = async (): Promise<any> => (await ok(call("GET", `/products/${id}/publish-check`))).items.find((item: any) => item.key === "price_rules");
+  const overview = async (): Promise<any> => (await ok(call("GET", "/price-overview"))).items.find((item: any) => item.product_id === id);
+  assert.deepEqual([(await priceItem()).passed, (await overview()).has_active_price, (await overview()).active_price_rule_count], [true, true, 1]);
+  // 已上架：去掉唯一有价格的区域 / 车型组——被拒，什么都不变
+  for (const body of [{ areas: [{ area_id: ids["a2"] }] }, { vehicle_groups: [{ vehicle_group_id: ids["eco4"], passengers: 3, luggage: 2 }] }]) {
+    const refused = await call("PATCH", `/products/${id}`, { version: published.version, body });
+    assert.deepEqual([refused.status, refused.body.error.code], [409, "PUBLISH_CHECK_FAILED"], JSON.stringify(body));
+    assert.deepEqual(refused.body.error.details.items.find((item: any) => item.key === "price_rules").issues.map((issue: any) => [issue.path, issue.reason]), [["/", "NO_PRICE_IN_SELECTION"]]);
+  }
+  assert.equal((await ok(call("GET", `/products/${id}`))).version, published.version);
+  // 去掉一个没有价格的区域可以（个别组合缺价不拦）
+  assert.equal((await call("PATCH", `/products/${id}`, { version: published.version, body: { areas: [{ area_id: ids["a1"] }] } })).status, 200);
+  // 下架之后去掉有价格的区域：价格留着（不算数），三处都说没有可以卖的价格；不能再上架
+  await ok(call("POST", `/products/${id}/unpublish`));
+  await ok(call("PATCH", `/products/${id}`, { version: await version(id), body: { areas: [{ area_id: ids["a2"] }] } }));
+  const rules = await ok(call("GET", `/products/${id}/price-rules`));
+  assert.deepEqual([rules.items.length, rules.coverage.priced], [1, 0], "已经不在商品里的区域的价格还留着");
+  assert.deepEqual([(await priceItem()).issues.map((issue: any) => issue.reason), (await overview()).has_active_price, (await overview()).active_price_rule_count, (await overview()).price_rule_count], [["NO_PRICE_IN_SELECTION"], false, 0, 1]);
+  assert.equal((await call("POST", `/products/${id}/publish`)).body.error.code, "PUBLISH_CHECK_FAILED");
+  // 给现在选着的区域加一条价格就恢复
+  await addPrice(id, fixed({ area_id: ids["a2"], direction: "pickup" }));
+  assert.deepEqual([(await priceItem()).passed, (await overview()).has_active_price], [true, true]);
+});
+
+test("price-overview 数得出「已上架但已经没有可以卖的价格」的商品；这时延长有效期能存、别的修改被拒、下架可以", async () => {
+  const before = (await ok(call("GET", "/price-overview?summary=1"))).published_without_price;
+  const id = await publishable();
+  const added = await addPrice(id, fixed({ direction: "both", valid_from: "2026-10-01", valid_to: "2026-10-31" }));
+  await ok(call("POST", `/products/${id}/publish`));
+  assert.equal((await ok(call("GET", "/price-overview?summary=1"))).published_without_price, before);
+  // 价格自然过期（直接把结束日期摆到昨天，不拨时钟）
+  await api.db.owner.query("update price_rules set valid_to = '2026-10-06' where id = $1", [added.price_rule.id]);
+  assert.equal((await ok(call("GET", "/price-overview?summary=1"))).published_without_price, before + 1);
+  assert.equal((await ok(call("GET", "/price-overview"))).published_without_price, before + 1);
+  assert.equal((await ok(call("GET", `/products/${id}`))).status, "published", "不自动下架");
+  const content = await ok(call("GET", `/products/${id}/content`));
+  assert.equal((await call("PUT", `/products/${id}/content`, { version: content.version, body: { zh: { title: "改个标题" } } })).body.error.code, "PUBLISH_CHECK_FAILED");
+  const extended = await call("PUT", `/products/${id}/price-rules/${added.price_rule.id}`, { version: await version(id), body: fixed({ direction: "both", valid_from: "2026-10-01", valid_to: "2026-12-31" }) });
+  assert.equal(extended.status, 200, extended.text);
+  assert.equal((await ok(call("GET", "/price-overview?summary=1"))).published_without_price, before);
+  await api.db.owner.query("update price_rules set valid_to = '2026-10-06' where id = $1", [added.price_rule.id]);
+  assert.equal((await ok(call("POST", `/products/${id}/unpublish`))).status, "unpublished", "下架任何时候都可以");
+});
+
+test("删除区域：它下面的价格各记一条删除日志、商品版本号加一；调价规则的适用范围里去掉它，只写了它一个的整条删除；没有价格的商品版本号不变", async () => {
+  const zone = await area();
+  const other = await area();
+  const make = async (areas: string[]): Promise<string> => {
+    api.clock.advance(1_000);
+    return (await ok(call("POST", "/products", { body: { brand_id: ids["brand"], city_id: ids["tokyo"], category: "point_to_point", areas: areas.map((area_id) => ({ area_id })), vehicle_groups: [{ vehicle_group_id: ids["biz7"], passengers: 6, luggage: 2 }] } }), 201)).id;
+  };
+  const priced = await make([ids["a1"] as string, zone, other]);
+  const plain = await make([ids["a1"] as string, zone]);
+  const kept = await addPrice(priced, fixed({ direction: null }));
+  const lost = await addPrice(priced, fixed({ area_id: zone, direction: null, base_price: 33_000 }));
+  const narrowed = await addAdjust(priced, adjustBody({ name: "两个区域", area_ids: [zone, other] }));
+  const only = await addAdjust(priced, adjustBody({ name: "只这个区域", area_ids: [zone] }));
+  const everywhere = await addAdjust(priced, adjustBody({ name: "全部区域" }));
+  const versions = [await version(priced), await version(plain)];
+  assert.equal((await call("DELETE", `/areas/${zone}`)).status, 204);
+  assert.deepEqual([await version(priced), await version(plain)], [(versions[0] as number) + 1, versions[1]], "有价格 / 调价被连带改动的商品版本号加一；只是少了这个区域的不变");
+  assert.deepEqual((await ok(call("GET", `/products/${priced}/price-rules`))).items.map((item: any) => item.id), [kept.price_rule.id]);
+  const log = (await audits("price_rule", lost.price_rule.id)).at(-1);
+  assert.deepEqual([log.action, log.actor_email, log.before.product_id, log.before.area_id, log.before.params, log.after], ["delete", "admin@a.test", priced, zone, { basePriceMinor: 33_000 }, null]);
+  assert.equal((await audits("price_rule", kept.price_rule.id)).length, 1, "别的价格没有多余的日志");
+  const adjusts = (await ok(call("GET", `/products/${priced}/adjust-rules`))).items;
+  assert.deepEqual(adjusts.map((item: any) => [item.id, item.area_ids]), [[narrowed.id, [other]], [everywhere.id, []]], "只写了被删区域的那条不会变成「全部区域」，而是删掉");
+  const narrowedLog = (await audits("adjust_rule", narrowed.id)).at(-1);
+  assert.deepEqual([narrowedLog.action, narrowedLog.before, narrowedLog.after], ["update", { area_ids: [zone, other] }, { area_ids: [other] }]);
+  const onlyLog = (await audits("adjust_rule", only.id)).at(-1);
+  assert.deepEqual([onlyLog.action, onlyLog.before.name, onlyLog.before.area_ids, onlyLog.after], ["delete", "只这个区域", [zone], null]);
+  assert.equal((await audits("adjust_rule", everywhere.id)).length, 1);
+});
+
+test("调价规则保存时的检查含取整；叠加和取整之后的问题在上架校验的「调价规则」一项里（不拦上架）；价格日历给出原因", async () => {
+  const brand = await ok(call("POST", "/brands", { body: { name: "叠加测试", currency: "JPY" } }), 201);
+  api.clock.advance(1_000);
+  const id = (await ok(call("POST", "/products", { body: { brand_id: brand.id, city_id: ids["tokyo"], category: "point_to_point", areas: [{ area_id: ids["a1"] }], vehicle_groups: [{ vehicle_group_id: ids["biz7"], passengers: 6, luggage: 2 }] } }), 201)).id;
+  await addPrice(id, fixed({ direction: null, base_price: 1_000 }));
+  await ok(call("PUT", `/brands/${brand.id}/rounding-unit`, { version: 1, body: { rounding_unit: 1_000 } }));
+  // 1000 −60% = 400：精确值大于 0，但取整到 1000 是 0——保存时就拦
+  const rounded = await call("POST", `/products/${id}/adjust-rules`, { version: await version(id), body: adjustBody({ name: "六折以下", steps: [{ type: "percent", value: -6_000 }] }) });
+  assert.deepEqual(issues(rounded), [["/steps", "ADJUST_RESULT_NOT_POSITIVE"]]);
+  // 两条各 −30%：单独都是 700 → 1000，叠加是 490 → 0。各自能存；周末那条只在周六周日生效
+  const daily = await addAdjust(id, adjustBody({ name: "常年七折", steps: [{ type: "percent", value: -3_000 }] }));
+  const weekend = await addAdjust(id, adjustBody({ name: "周末七折", cycle: { type: "weekly", weekdays: [6, 7] }, time_slot: { start: "18:00", end: "24:00" }, steps: [{ type: "percent", value: -3_000 }] }));
+  const check = await ok(call("GET", `/products/${id}/publish-check`));
+  const item = check.items.find((entry: any) => entry.key === "adjust_rules");
+  assert.deepEqual([item.required, item.passed, item.issues.length], [false, false, 1]);
+  // 今天是 2026-10-07（周三）：最早的一次是 10-10（周六）18:00；今后 366 天里周六周日共 104 天
+  assert.deepEqual([item.issues[0].path, item.issues[0].reason, item.issues[0].detail], ["/stacks/0", "ADJUST_STACK_NOT_POSITIVE", { rule_ids: `${daily.id},${weekend.id}`, names: "常年七折、周末七折", price_count: 1, date: "2026-10-10", time: "18:00", day_count: 104 }]);
+  assert.match(item.issues[0].message, /「常年七折」「周末七折」同时生效时（例如 2026-10-10 18:00，今后一年里有 104 天），有 1 条价格叠加、取整之后不大于 0/);
+  // 列表上的概况不受影响（非必须项）；日历上那一段给出原因
+  const days = (await calendar(id, `area_id=${ids["a1"]}&vehicle_group_id=${ids["biz7"]}&from=2026-10-10&to=2026-10-10`)).days;
+  assert.deepEqual(days[0].segments.map((segment: any) => [segment.from, segment.to, segment.final, segment.no_price_reason]), [["00:00", "18:00", 1_000, null], ["18:00", "24:00", null, "NOT_POSITIVE"]]);
+  // 停用其中一条就没有问题了
+  await ok(call("POST", `/products/${id}/adjust-rules/${weekend.id}/disable`));
+  assert.equal((await ok(call("GET", `/products/${id}/publish-check`))).items.find((entry: any) => entry.key === "adjust_rules").passed, true);
+});
+
+test("取整单位改大：会让任何一条可以卖的价格取整成 0 的被拒（草稿里的也算），说明是哪些商品；停用、过期、已经不在商品里的价格不算", async () => {
+  const brand = await ok(call("POST", "/brands", { body: { name: "取整保护", currency: "JPY" } }), 201);
+  const make = async (): Promise<string> => {
+    api.clock.advance(1_000);
+    return (await ok(call("POST", "/products", { body: { brand_id: brand.id, city_id: ids["tokyo"], category: "point_to_point", areas: [{ area_id: ids["a1"] }, { area_id: ids["a2"] }], vehicle_groups: [{ vehicle_group_id: ids["biz7"], passengers: 6, luggage: 2 }] } }), 201)).id;
+  };
+  const [first, second] = [await make(), await make()];
+  await addPrice(first, fixed({ direction: null, base_price: 40 }));
+  await addPrice(first, fixed({ direction: null, area_id: ids["a2"], base_price: 49 }));
+  await addPrice(second, fixed({ direction: null, base_price: 149 }));
+  const put = (unit: number, v: number): Promise<ApiResponse> => call("PUT", `/brands/${brand.id}/rounding-unit`, { version: v, body: { rounding_unit: unit } });
+  // 10：40 → 40、49 → 50、149 → 150，都不归零；两条变了
+  assert.deepEqual(await ok(put(10, 1)), { id: brand.id, rounding_unit: 10, version: 2, changed_price_count: 2 });
+  // 100：40 → 0、49 → 0（第一个商品两条），149 → 100
+  const refused = await put(100, 2);
+  assert.deepEqual([refused.status, refused.body.error.code], [409, "ROUNDING_UNIT_ZEROES_PRICES"]);
+  const code = (await ok(call("GET", `/products/${first}`))).code;
+  assert.deepEqual(refused.body.error.details, { rounding_unit: 100, price_count: 2, product_count: 1, published_product_count: 0, products: [{ product_id: first, code, status: "draft", price_count: 2 }] });
+  assert.match(refused.body.error.message, /有 1 个商品的 2 条价格取整后是 0/);
+  assert.equal((await ok(call("GET", "/brands"))).items.find((item: any) => item.id === brand.id).version, 2, "被拒时什么都没变");
+  // 一条停用、一条所在的区域从商品里去掉：都不算了
+  const rules = (await ok(call("GET", `/products/${first}/price-rules`))).items;
+  const low = rules.find((item: any) => item.base_price === 40);
+  await ok(call("PUT", `/products/${first}/price-rules/${low.id}`, { version: await version(first), body: fixed({ direction: null, base_price: 40, status: "disabled" }) }));
+  assert.equal((await put(100, 2)).body.error.details.price_count, 1);
+  await ok(call("PATCH", `/products/${first}`, { version: await version(first), body: { areas: [{ area_id: ids["a1"] }] } }));
+  assert.deepEqual(await ok(put(100, 2)), { id: brand.id, rounding_unit: 100, version: 3, changed_price_count: 1 });
 });

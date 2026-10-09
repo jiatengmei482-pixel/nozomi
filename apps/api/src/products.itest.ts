@@ -545,7 +545,7 @@ test("已上架的商品可以直接改，但改完必须仍然满足上架条�
   const refused = await call("PATCH", `/products/${product.id}`, { version: live.version, body: { areas: [] } });
   assert.deepEqual([refused.status, refused.body.error.code], [409, "PUBLISH_CHECK_FAILED"]);
   const failing = Object.fromEntries(refused.body.error.details.items.filter((item: any) => !item.passed).map((item: any) => [item.key, item.issues.map((issue: any) => issue.reason)]));
-  assert.deepEqual(failing, { basic_info: ["NO_AREA"] });
+  assert.deepEqual(failing, { basic_info: ["NO_AREA"], price_rules: ["NO_PRICE_IN_SELECTION"] }, "区域全去掉：现在选着的组合里一个有价的都没有");
   const rules = await call("PUT", `/products/${product.id}/service-rules`, { version: live.version, body: {} });
   assert.equal(rules.body.error.code, "PUBLISH_CHECK_FAILED");
   const content = await call("PUT", `/products/${product.id}/content`, { version: live.version, body: {} });

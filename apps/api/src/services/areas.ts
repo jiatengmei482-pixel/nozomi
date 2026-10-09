@@ -54,6 +54,7 @@ import {
 } from "../repos/areas.ts";
 import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
+import { removePricingOfArea } from "./prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -393,6 +394,7 @@ export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: str
 /**
  * 删除区域（真的删除，连同它的图形；不能恢复）。删除前的完整内容记在审计日志里。
  * 被已上架的商品用着的区域不能删除（409 AREA_IN_USE）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
+ * 这个区域下的价格跟着删除（每条一条删除日志，那些商品的版本号加一）；调价规则的适用范围里去掉它（见 prices.ts 的 removePricingOfArea）。
  */
 export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string): Promise<void> {
   const now = ctx.now();
@@ -404,6 +406,8 @@ export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string
     if (usage.publishedProductCount > 0) throw areaInUse("删除", usage);
     const stored = await listAreaPolygons(db, tenantId, id);
     const usedBy = await productIdsUsingArea(db, tenantId, id);
+    // 这个区域下的价格、调价规则里的适用范围：明着删掉 / 去掉，各记日志，相关商品的版本号加一
+    await removePricingOfArea(db, writer, id, now);
     await deleteAreaRow(db, tenantId, id);
     // 选了它的草稿 / 已下架商品少掉这个区域：剩下的优先级重新排成连续的
     await compactAreaPriorities(db, tenantId, usedBy);
