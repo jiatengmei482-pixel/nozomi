@@ -44,8 +44,7 @@ function portalRoutes(portal: Portal) {
             <Route path={`${AREA_LIST_PATH}/:id`} element={<AreaEditorPage />} />
             <Route path={PRODUCT_LIST_PATH} element={<ProductListPage />} />
             <Route path={PRODUCT_NEW_PATH} element={<ProductEditorPage key="new" />} />
-            <Route path={`${PRODUCT_LIST_PATH}/:id`} element={<ProductEditorPage />} />
-            <Route path={`${PRODUCT_LIST_PATH}/:id/:step`} element={<ProductEditorPage />} />
+            <Route path={`${PRODUCT_LIST_PATH}/:id/*`} element={<ProductEditorPage />} />
           </>
         )}
         <Route path={paths.changePassword} element={<ChangePasswordPage />} />
