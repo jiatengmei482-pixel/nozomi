@@ -406,6 +406,12 @@ export class ShapeParseError extends Error {
 export interface ParsedPolygon {
   outer: Ring;
   holes: Ring[];
+  /**
+   * GeoJSON 要素的 `properties.kind` / `properties.label`（从编辑页「复制图形」出去的内容带着它们）：
+   * 贴回来时每一块还是原来的营运区 / 禁行区和备注名。值不合法（不是这两种类型、备注名为空或超过上限）就没有这个字段。
+   */
+  kind?: AreaPolygonKind;
+  label?: string;
 }
 
 export interface ParsedShapes {
@@ -423,31 +429,48 @@ function parsedPolygon(rings: unknown, polygonNumber: number, syntax: ShapeParse
     if (!positions.every(validPosition)) throw new ShapeParseError({ reason: "COORDINATE_OUT_OF_RANGE", polygon: polygonNumber });
     return normalizeRing(positions, { dedupe: true });
   });
-  return { outer: cleaned[0] as Ring, holes: cleaned.slice(1) };
+  // 一个点都没有的洞直接去掉；外圈一个点都没有的（`"coordinates": [[]]`）由调用方当作「不是多边形」丢掉
+  return { outer: cleaned[0] as Ring, holes: cleaned.slice(1).filter((hole) => hole.length > 0) };
+}
+
+/** 要素的 properties 里合法的类型和备注名（见 ParsedPolygon）。 */
+function featureMeta(properties: unknown): Pick<ParsedPolygon, "kind" | "label"> {
+  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) return {};
+  const { kind, label } = properties as { kind?: unknown; label?: unknown };
+  const meta: Pick<ParsedPolygon, "kind" | "label"> = {};
+  if (typeof kind === "string" && (AREA_POLYGON_KINDS as readonly string[]).includes(kind)) meta.kind = kind as AreaPolygonKind;
+  const text = typeof label === "string" ? label.trim() : "";
+  if (text !== "" && text.length <= AREA_LIMITS.maxLabelLength) meta.label = text;
+  return meta;
 }
 
 /**
  * 从 GeoJSON 对象里取出全部多边形：`Polygon`、`MultiPolygon`，或包着它们的 `Feature`、`FeatureCollection`、`GeometryCollection`。
- * 别的几何类型（点、线）忽略并计数。坐标是 [经度, 纬度]，多出来的高度被丢掉。
+ * 别的几何类型（点、线）忽略并计数；一个点都没有的多边形（`"coordinates": [[]]`）不算多边形，直接去掉——全是这种就是「里面没有多边形」。
+ * 坐标是 [经度, 纬度]，多出来的高度被丢掉。要素的 `properties.kind` / `properties.label` 带到它里面的每个多边形上。
  */
 export function parseGeoJsonShapes(value: unknown): ParsedShapes {
   const syntax: ShapeParseFailure = { reason: "GEOJSON_SYNTAX" };
   const polygons: ParsedPolygon[] = [];
   let ignored = 0;
-  const visit = (node: unknown, depth: number): void => {
+  const add = (rings: unknown, meta: Pick<ParsedPolygon, "kind" | "label">): void => {
+    const polygon = parsedPolygon(rings, polygons.length + 1, syntax);
+    if (polygon.outer.length > 0) polygons.push({ ...polygon, ...meta });
+  };
+  const visit = (node: unknown, depth: number, meta: Pick<ParsedPolygon, "kind" | "label"> = {}): void => {
     if (typeof node !== "object" || node === null || Array.isArray(node) || depth > 8) throw new ShapeParseError(syntax);
     const record = node as Record<string, unknown>;
     switch (record["type"]) {
       case "Polygon":
-        polygons.push(parsedPolygon(record["coordinates"], polygons.length + 1, syntax));
+        add(record["coordinates"], meta);
         return;
       case "MultiPolygon":
         if (!Array.isArray(record["coordinates"])) throw new ShapeParseError(syntax);
-        for (const rings of record["coordinates"]) polygons.push(parsedPolygon(rings, polygons.length + 1, syntax));
+        for (const rings of record["coordinates"]) add(rings, meta);
         return;
       case "Feature":
         if (record["geometry"] === null || record["geometry"] === undefined) ignored += 1;
-        else visit(record["geometry"], depth + 1);
+        else visit(record["geometry"], depth + 1, featureMeta(record["properties"]));
         return;
       case "FeatureCollection":
         if (!Array.isArray(record["features"])) throw new ShapeParseError(syntax);
@@ -455,7 +478,7 @@ export function parseGeoJsonShapes(value: unknown): ParsedShapes {
         return;
       case "GeometryCollection":
         if (!Array.isArray(record["geometries"])) throw new ShapeParseError(syntax);
-        for (const geometry of record["geometries"]) visit(geometry, depth + 1);
+        for (const geometry of record["geometries"]) visit(geometry, depth + 1, meta);
         return;
       case "Point":
       case "MultiPoint":

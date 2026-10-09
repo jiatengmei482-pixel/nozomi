@@ -380,3 +380,47 @@ test("解析用时和长度成正比：很长的数字、很长的空白、认�
   assert.deepEqual(rows.polygons[0]?.outer.length, 6);
   for (const text of ["35.6,,139.6\n1,2\n3,4", "35.6 , ; 139.6\n1,2\n3,4", "35.6\n1,2\n3,4", "1,2,3\n1,2\n3,4", "1e,2\n1,2\n3,4"]) assert.equal(failure(() => parseShapeText(text)).reason, "UNRECOGNIZED", text);
 });
+
+test("解析 GeoJSON：要素的 properties.kind / label 带到它的每个多边形上；值不合法的忽略；没有 properties 的不带这两个字段", () => {
+  const ring = [[139, 35], [140, 35], [140, 36], [139, 35]];
+  const feature = (properties: unknown, geometry: unknown = { type: "Polygon", coordinates: [ring] }) => ({ type: "Feature", properties, geometry });
+  const parsed = parseShapeText(
+    JSON.stringify({
+      type: "FeatureCollection",
+      features: [
+        feature({ kind: "forbid", label: " 皇居 ", name: "禁行 1 · 皇居" }),
+        feature({ kind: "operate", label: "" }),
+        feature({ kind: "Forbid", label: 5 }),
+        feature({ kind: "forbid", label: "长".repeat(AREA_LIMITS.maxLabelLength + 1) }),
+        feature({ label: "长".repeat(AREA_LIMITS.maxLabelLength) }),
+        feature(null),
+        feature([1, 2]),
+        feature({ kind: "forbid", label: "两块" }, { type: "MultiPolygon", coordinates: [[ring], [ring]] }),
+        feature({ kind: "forbid", label: "集合" }, { type: "GeometryCollection", geometries: [{ type: "Point", coordinates: [1, 1] }, { type: "Polygon", coordinates: [ring] }] }),
+        { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] } },
+      ],
+    }),
+  );
+  assert.deepEqual(parsed.polygons.map(({ kind, label }) => [kind, label]), [
+    ["forbid", "皇居"], ["operate", undefined], [undefined, undefined], ["forbid", undefined], [undefined, "长".repeat(AREA_LIMITS.maxLabelLength)], [undefined, undefined], [undefined, undefined],
+    ["forbid", "两块"], ["forbid", "两块"], ["forbid", "集合"], [undefined, undefined],
+  ]);
+  assert.deepEqual(Object.keys(parsed.polygons[5] as object), ["outer", "holes"], "没有就不带这两个字段");
+  assert.equal(parsed.ignored, 1);
+  // 不包在要素里的几何没有 properties；WKT、坐标行也没有
+  assert.deepEqual(Object.keys(parseShapeText(JSON.stringify({ type: "Polygon", coordinates: [ring], properties: { kind: "forbid" } })).polygons[0] as object), ["outer", "holes"]);
+  assert.deepEqual(Object.keys(parseShapeText("POLYGON((139 35, 140 35, 140 36, 139 35))").polygons[0] as object), ["outer", "holes"]);
+});
+
+test("解析 GeoJSON：一个点都没有的多边形不算多边形——全是这种就是「里面没有多边形」，混在别的图形里的去掉；空的洞也去掉", () => {
+  const ring = [[139, 35], [140, 35], [140, 36], [139, 35]];
+  const reason = (value: unknown): string => failure(() => parseShapeText(JSON.stringify(value))).reason;
+  assert.equal(reason({ type: "Polygon", coordinates: [[]] }), "NO_POLYGON");
+  assert.equal(reason({ type: "MultiPolygon", coordinates: [[[]], [[]]] }), "NO_POLYGON");
+  assert.equal(reason({ type: "FeatureCollection", features: [{ type: "Feature", properties: { kind: "forbid" }, geometry: { type: "Polygon", coordinates: [[]] } }] }), "NO_POLYGON");
+  assert.equal(reason({ type: "Polygon", coordinates: [] }), "GEOJSON_SYNTAX", "连圈都没有：写法不对");
+  const mixed = parseShapeText(JSON.stringify({ type: "MultiPolygon", coordinates: [[[]], [ring, []], [[]], [ring]] }));
+  assert.deepEqual(mixed.polygons.map((polygon) => [polygon.outer.length, polygon.holes.length]), [[3, 0], [3, 0]]);
+  // 去掉空的之后，报错里的「第几个多边形」按留下来的数
+  assert.deepEqual(failure(() => parseShapeText(JSON.stringify({ type: "MultiPolygon", coordinates: [[[]], [ring], [[[999, 0], [1, 0], [1, 1]]]] }))), { reason: "COORDINATE_OUT_OF_RANGE", polygon: 2 });
+});
