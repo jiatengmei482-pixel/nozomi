@@ -17,7 +17,7 @@ import { Icon, type IconName } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_NEW_PATH } from "../../lib/area-paths.ts";
-import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
+import { displayName, formatLocalDateTime, shortName } from "../../lib/master-display.ts";
 import { PRODUCT_STATUS_BADGES, productName } from "../../lib/product-display.ts";
 import { PRODUCT_NEW_PATH, productPath } from "../../lib/product-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -241,7 +241,7 @@ export function ProductListPage() {
       key: "actions",
       header: "操作",
       cell: (row) => {
-        const name = productName(row).text;
+        const name = shortName(productName(row).text);
         return (
           <span className="table__actions">
             <LinkButton variant="text" size="sm" to={productPath(row.id)} state={returnState} aria-label={`编辑 ${name}`}>

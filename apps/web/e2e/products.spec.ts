@@ -316,3 +316,250 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await expect(page.getByRole("link", { name: "羽田机场接送", exact: true })).toHaveCount(0);
   expect((await request.get(`/tenant/v1/products/${productId}`, { headers })).status()).toBe(404);
 });
+
+interface Supplier {
+  tenant: Awaited<ReturnType<typeof createActiveTenant>>;
+  headers: Record<string, string>;
+  brand: Ref;
+  area: Ref;
+}
+
+/** 一个配好子品牌和一个通用区域的供应商。 */
+async function createSupplier(request: APIRequestContext, world: World): Promise<Supplier> {
+  const tenant = await createActiveTenant(request);
+  const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
+  const brand = await createBrand(request, headers, `品牌 ${randomLetters(4)}`);
+  const area = await createArea(request, headers, world.city, `通用区域 ${randomLetters(4)}`);
+  return { tenant, headers, brand, area };
+}
+
+async function createProductByApi(request: APIRequestContext, supplier: Supplier, world: World, category: "airport_transfer" | "point_to_point" | "charter", complete = true): Promise<{ id: string; version: number; code: string }> {
+  return post(
+    request,
+    { ...supplier.headers, "idempotency-key": crypto.randomUUID() },
+    "/tenant/v1/products",
+    {
+      brand_id: supplier.brand.id,
+      city_id: world.city.id,
+      category,
+      ...(category === "airport_transfer" ? { poi_id: world.airport.id } : {}),
+      ...(complete ? { areas: [{ area_id: supplier.area.id }], vehicle_groups: [{ vehicle_group_id: world.group.id, passengers: 6, luggage: 4 }], dispatchers: [{ name: "山田", phone: "+81 90 1234 5678" }] } : {}),
+    },
+    "接口新建商品",
+  );
+}
+
+test("包车和点对点：没有接送点；各自的服务规则只显示该有的项，夜间加价的默认计费方式不同", async ({ page, request }) => {
+  test.slow();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+
+  for (const [category, unit] of [
+    ["包车", "按小时"],
+    ["点对点", "按次"],
+  ] as const) {
+    await page.goto("/products/new");
+    await expect(page.getByText(`${supplier.brand.name}（JPY）`)).toBeVisible();
+    await fillLocked(page, world, category);
+    await expect(page.getByText("这三项创建后不能修改。")).toBeVisible();
+    await expect(page.getByRole("combobox", { name: /接送点/ })).toHaveCount(0);
+    await pick(page, "添加区域", supplier.area.name);
+    await pick(page, "添加车型组", world.group.code);
+    await page.getByLabel(`${world.group.name} 的人数 / 行李数`).selectOption({ label: "5 人 5 件" });
+    await page.getByRole("button", { name: "保存并下一步" }).click();
+    await expect(page).toHaveURL(/\/service-rules$/);
+    await expect(page.getByRole("heading", { level: 1, name: `未命名的${category}商品` })).toBeVisible();
+    await expect(step(page, "基础信息")).toContainText("还差 1 项");
+    await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveValue(category === "包车" ? "0" : "15");
+    await expect(page.getByLabel("接机免费等待的分钟数")).toHaveCount(0);
+    await page.getByRole("checkbox", { name: "收夜间加价" }).check();
+    await expect(page.getByRole("radio", { name: new RegExp(`^${unit}`) })).toBeChecked();
+    await expect(page.getByRole("checkbox", { name: new RegExp(world.seat.name) })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: new RegExp(world.sign.name) })).toHaveCount(0);
+    if (category === "包车") await expect(page.getByText("包车的超时费、超公里费在「价格规则」里设置。")).toBeVisible();
+    // 免费等待是替用户填好的：没动过也能点保存存下来
+    await page.getByRole("checkbox", { name: "收夜间加价" }).uncheck();
+    await page.getByRole("button", { name: "保存草稿" }).click();
+    await expect(toast(page, "已保存")).toBeVisible();
+    await step(page, "商品详情").click();
+    await expect(page.getByLabel(/接机指引/)).toHaveCount(0);
+    await expect(page.getByLabel(/行程路线/)).toHaveCount(category === "包车" ? 1 : 0);
+  }
+});
+
+test("别人先改了：说明、停用保存；载入最新内容后可以再保存", async ({ page, request }) => {
+  test.slow();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const product = await createProductByApi(request, supplier, world, "charter");
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  await page.goto(`/products/${product.id}/basic`);
+  await expect(page.getByLabel("第 1 个调度人的姓名")).toHaveValue("山田");
+
+  // 别人在另一步保存了一次（整个商品只有一个版本号）
+  const other = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: { zh: { title: "别人起的名字" } } });
+  expect(other.status(), "接口保存商品详情").toBe(200);
+  await page.getByLabel("第 1 个调度人的姓名").fill("佐藤");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(page.getByText("这个商品刚被别人修改过，你在这一步的修改还没有保存。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存草稿" })).toBeDisabled();
+  await expect(page.getByLabel("第 1 个调度人的姓名")).toHaveValue("佐藤");
+  await page.getByRole("button", { name: "载入最新内容" }).click();
+  await expect(page.getByText("已载入最新内容。")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "别人起的名字" })).toBeVisible();
+  await expect(page.getByLabel("第 1 个调度人的姓名")).toHaveValue("山田");
+  await page.getByLabel("第 1 个调度人的姓名").fill("佐藤");
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(toast(page, "已保存")).toBeVisible();
+  const saved = (await (await request.get(`/tenant/v1/products/${product.id}`, { headers: supplier.headers })).json()) as { dispatchers: { name: string }[] };
+  expect(saved.dispatchers[0]?.name).toBe("佐藤");
+});
+
+test("只读角色能看不能改；商品价格角色没有子品牌时请管理员建；另一个供应商看不到这个供应商的商品和子品牌", async ({ page, request, browser }) => {
+  test.slow();
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const product = await createProductByApi(request, supplier, world, "airport_transfer");
+  const viewer = await createTenantUser(request, supplier.tenant, "readonly");
+
+  await loginAs(page, "tenant", viewer.email, viewer.password);
+  await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "商品" }).click();
+  await expect(page.getByRole("link", { name: "新建商品" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /更多操作/ })).toHaveCount(0);
+  await page.getByRole("link", { name: "未命名的接送机商品", exact: true }).click();
+  await expect(page.getByText("你可以查看商品，但不能修改。")).toBeVisible();
+  await expect(page).toHaveURL(/\/service-rules$/);
+  await expect(page.getByRole("button", { name: /保存/ })).toHaveCount(0);
+  await expect(page.getByLabel("服务时间从")).not.toBeEditable();
+  await step(page, "基础信息").click();
+  await expect(page.getByRole("button", { name: "添加区域" })).toHaveCount(0);
+  await expect(page.locator("[data-area-pick]")).toContainText(supplier.area.name);
+  await step(page, "上架检查").click();
+  await expect(page.getByRole("button", { name: "上架", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^去查看/ }).first()).toBeVisible();
+  await page.goto("/products/new");
+  await expect(page.getByText("你没有权限查看这里")).toBeVisible();
+
+  // 另一个供应商：列表是空的、打不开这个商品、也没有这个子品牌
+  const other = await createActiveTenant(request);
+  const pricing = await createTenantUser(request, other, "pricing");
+  const context = await browser.newContext();
+  const otherPage = await context.newPage();
+  try {
+    await loginAs(otherPage, "tenant", pricing.email, pricing.password);
+    await otherPage.goto("/products");
+    await expect(otherPage.getByText("先建区域，再建商品")).toBeVisible();
+    await expect(otherPage.getByRole("link", { name: "未命名的接送机商品" })).toHaveCount(0);
+    await otherPage.goto(`/products/${product.id}/basic`);
+    await expect(otherPage.getByText("找不到这个商品")).toBeVisible();
+    await otherPage.goto("/products/new");
+    await expect(otherPage.getByText("还没有子品牌，暂时不能新建商品。")).toBeVisible();
+    await expect(otherPage.getByText(supplier.brand.name)).toHaveCount(0);
+    await expect(otherPage.getByRole("button", { name: "新建子品牌" })).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("没有可选区域时的引导：去新增区域（带着城市和业务类型）→ 建好回来「重新读取」就能选", async ({ page, request }) => {
+  test.slow();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const world = await createWorld(request);
+  const tenant = await createActiveTenant(request);
+  const headers = await tenantHeaders(request, tenant.adminEmail, tenant.password);
+  await createBrand(request, headers, `品牌 ${randomLetters(4)}`, "USD");
+  await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
+  await page.goto("/products");
+  await expect(page.getByText("先建区域，再建商品")).toBeVisible();
+  await page.getByRole("link", { name: "新建商品" }).click();
+  await expect(page.getByText("先选城市和品类，这里会列出可以用的区域。")).toBeVisible();
+  await fillLocked(page, world, "包车");
+  await expect(page.getByText("你们还没有区域。")).toBeVisible();
+  const link = page.getByRole("link", { name: "新增区域" });
+  await expect(link).toHaveAttribute("href", `/areas/new?city=${world.city.id}&biz=charter`);
+
+  const area = await createArea(request, headers, world.city, `包车区域 ${randomLetters(4)}`, "charter");
+  await page.getByRole("button", { name: "重新读取" }).click();
+  await pick(page, "添加区域", area.name);
+  await expect(page.locator("[data-area-pick]")).toContainText(area.name);
+  // 没选车型组、没填调度人也能先存成草稿
+  await page.getByRole("button", { name: "保存草稿" }).click();
+  await expect(toast(page, "已创建商品，现在是草稿")).toBeVisible();
+  await expect(step(page, "基础信息")).toContainText("还差 2 项");
+  // 币种跟着子品牌：USD 可以有两位小数
+  await step(page, "服务规则").click();
+  await expect(page.locator(".step .alert--info").first()).toContainText("币种 USD");
+
+  // 区域新增页按参数预先选好城市和业务类型；预先选上的不算「有未保存的修改」
+  await page.goto(`/areas/new?city=${world.city.id}&biz=airport_transfer`);
+  await expect(page.getByRole("combobox", { name: /城市/ })).toHaveValue(world.city.name);
+  await expect(page.getByRole("radio", { name: /^接送机/ })).toBeChecked();
+  await page.getByRole("button", { name: "取消" }).click();
+  await expect(page).toHaveURL(/\/areas$/);
+});
+
+for (const scheme of ["light", "dark"] as const) {
+  test(`${scheme === "light" ? "亮色" : "暗色"}：商品列表、三个步骤、上架检查通过 axe 检查；320px 宽都不横向滚动`, async ({ page, request }) => {
+    test.setTimeout(150_000);
+    await page.emulateMedia({ colorScheme: scheme });
+    const world = await createWorld(request);
+    const supplier = await createSupplier(request, world);
+    const product = await createProductByApi(request, supplier, world, "airport_transfer");
+    await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: { zh: { title: `${"很长的标题".repeat(18)}结尾`, includes: ["高速费"] } } });
+    await createProductByApi(request, supplier, world, "charter", false);
+    await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+
+    for (const width of [1280, 320]) {
+      await page.setViewportSize({ width, height: width === 1280 ? 800 : 640 });
+      const wide = width === 1280;
+      const check = async (what: string): Promise<void> => {
+        await expectNoHorizontalOverflow(page, `${what}（${width}px）`);
+        if (wide || scheme === "light") await expectAccessible(page, `${what}（${width}px）`);
+        await snapshot(page, `products-${what}-${width}-${scheme}`);
+      };
+      await page.goto("/products");
+      await expect(page.getByRole("link", { name: "未命名的包车商品", exact: true })).toBeVisible();
+      await check("list");
+
+      await page.goto(`/products/${product.id}/basic`);
+      await expect(page.locator("[data-area-pick]")).toHaveCount(1);
+      if (!wide) {
+        // 窄屏：步骤导航收成一个按钮，点开在原地展开
+        const toggle = page.getByRole("button", { name: /第 1 步，共 5 步 · 基础信息/ });
+        await expect(toggle).toHaveAttribute("aria-expanded", "false");
+        await toggle.click();
+        await expect(step(page, "价格规则")).toBeVisible();
+        await expectNoHorizontalOverflow(page, "步骤导航展开（320px）");
+        await toggle.click();
+      }
+      await page.getByRole("button", { name: "添加车型组", exact: true }).click();
+      await check("basic");
+      await page.getByRole("group", { name: "添加车型组" }).getByRole("button", { name: "完成" }).click();
+
+      await page.goto(`/products/${product.id}/service-rules`);
+      await page.getByLabel("服务时间从").fill("22:00");
+      await page.getByLabel("服务时间到").fill("06:00");
+      await page.getByLabel("提前预订时长（小时）").fill("48");
+      await page.getByRole("checkbox", { name: "允许加急预订" }).check();
+      await page.getByLabel("第 1 档：提前不足多少小时").fill("12");
+      await page.getByLabel("第 1 档：加收的金额").fill("3000");
+      await page.getByRole("checkbox", { name: "收夜间加价" }).check();
+      await page.getByRole("checkbox", { name: new RegExp(world.seat.name) }).check();
+      await page.getByRole("button", { name: "添加语言" }).click();
+      await page.getByRole("button", { name: /保存草稿|保存$/ }).first().click();
+      await expect(page.getByText(/有 \d 处需要修改/)).toBeVisible();
+      await check("rules");
+
+      await page.goto(`/products/${product.id}/content`);
+      await expect(page.getByLabel("标题")).toBeVisible();
+      await check("content");
+
+      await page.goto(`/products/${product.id}/publish`);
+      await expect(checkItem(page, "price_rules")).toContainText("功能即将开放");
+      await check("publish");
+    }
+  });
+}

@@ -15,7 +15,7 @@ import { CopyButton } from "../../components/FormFields.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { type StepEntry, StepNav, type StepStatus } from "../../components/StepNav.tsx";
-import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
+import { displayName, formatLocalDateTime, shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckContext, PRODUCT_STATUS_BADGES, checkItemGap, checkOverview, productName } from "../../lib/product-display.ts";
 import { PRODUCT_LIST_PATH, PRODUCT_STEP_SLUGS, type ProductStepSlug, productPath } from "../../lib/product-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -236,7 +236,7 @@ export function ProductEditorPage() {
           ...(canManage && product.status !== "unpublished"
             ? {
                 action: (
-                  <Dropdown buttonClassName="button button--secondary button--md" buttonContent="更多" label={`${shown.text} 的更多操作`} align="end">
+                  <Dropdown buttonClassName="button button--secondary button--md" buttonContent="更多" label={`${shortName(shown.text)} 的更多操作`} align="end">
                     <ProductMoreItems product={product} actions={actions} withCheck={false} />
                   </Dropdown>
                 ),
