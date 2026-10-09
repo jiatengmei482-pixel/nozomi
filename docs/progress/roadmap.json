@@ -178,7 +178,7 @@
         },
         { "id": "M1-02", "title": "区域管理（圆形 / 多边形，禁行区）", "role": "backend", "status": "doing", "acceptance": ["租户后台可在地图上画区域（多边形、圆）并保存，可粘贴 WKT / GeoJSON", "禁行区优先；自测一个坐标能看到它在营运区、禁行区还是区域外", "租户 A 读不到、改不了租户 B 的区域", "手机宽度不出现横向滚动；地图加载不出来时仍能用坐标表完成全部操作"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-03", "title": "商品：基础信息、服务规则、上架校验", "role": "backend", "status": "doing", "acceptance": ["按需求文档第 2、3、7 节实现"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "todo", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M1-04", "title": "价格规则（一口价 / 里程 + 时长 / 包车套餐）与调价规则", "role": "backend", "status": "doing", "acceptance": ["唯一性校验：区域 + 车型组 + 方向或套餐 + 日期重叠", "调价链式执行、跨午夜时段"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-05", "title": "库存与批量导入导出", "role": "backend", "status": "todo", "acceptance": ["价格日历、批量设置", "Excel 导入先校验后写入"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-06", "title": "租户后台页面", "role": "frontend", "status": "todo", "acceptance": ["区域、商品、价格、库存全部可在界面上操作"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M1-07", "title": "M1 验收", "role": "acceptance", "status": "todo", "acceptance": ["新租户从零配置一个东京接送机商品并上架"], "evidence": "", "updated": "2026-10-07" }
