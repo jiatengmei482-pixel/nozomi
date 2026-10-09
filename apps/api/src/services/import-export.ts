@@ -40,7 +40,7 @@ import {
 import type { AppContext } from "../context.ts";
 import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
-import { type XlsxCell, XlsxError, type XlsxWriteCell, cellReference, readXlsx, writeXlsx } from "../integrations/xlsx.ts";
+import { type XlsxCell, XlsxError, type XlsxSheet, type XlsxWriteCell, cellReference, readXlsxSheet, writeXlsx } from "../integrations/xlsx.ts";
 import { listInventoryDays } from "../repos/inventory.ts";
 import { type StoredPriceRule, findVehicleGroupLabels } from "../repos/prices.ts";
 import { findAreasForProduct } from "../repos/products.ts";
@@ -60,9 +60,10 @@ function fileInvalid(reason: ImportFileReason, message: string, extra: Record<st
   return new AppError(400, "IMPORT_FILE_INVALID", message, { reason, ...extra });
 }
 
-function sheetRows(bytes: Uint8Array): XlsxCell[][] {
+/** 读上传的表：有叫 `sheetName` 的工作表就读它（用户可能把「填写说明」挪到了前面），没有就读第一张。 */
+function sheetRows(bytes: Uint8Array, sheetName: string): XlsxSheet {
   try {
-    return readXlsx(bytes);
+    return readXlsxSheet(bytes, [sheetName]);
   } catch (err) {
     if (err instanceof XlsxError) throw fileInvalid(err.code, `这个文件读不了：${err.message}。请用下载的模版填写后另存为 .xlsx 再上传`);
     throw err;
@@ -86,8 +87,13 @@ class Sheet {
   readonly rows: XlsxCell[][];
   private readonly columns = new Map<string, number>();
 
-  constructor(rows: XlsxCell[][], required: readonly string[]) {
+  /** 这个文件的日期序号是不是 1904 纪元 */
+  readonly date1904: boolean;
+
+  constructor(source: XlsxSheet, required: readonly string[]) {
+    const rows = source.rows;
     this.rows = rows;
+    this.date1904 = source.date1904;
     const header = rows[0] ?? [];
     if (rows.length === 0 || header.every((cell) => cell.type === "empty")) throw fileInvalid("EMPTY", "文件是空的：第一行应当是表头。请用下载的模版填写");
     for (const [index, cell] of header.entries()) if (cell.type === "text" && !this.columns.has(cell.text.trim())) this.columns.set(cell.text.trim(), index);
@@ -132,7 +138,7 @@ function rowReader(sheet: Sheet, row: number, issues: CellIssue[]) {
   };
   const date = (column: string, raw: string | null): string | null => {
     if (raw === null) return null;
-    return sheetDate(raw) ?? problem(column, "INVALID_DATE", "不是合法的日期，请写成 2026-10-01 这样");
+    return sheetDate(raw, { date1904: sheet.date1904 }) ?? problem(column, "INVALID_DATE", "不是合法的日期，请写成 2026-10-01 这样（不要带时间）");
   };
   return { problem, text, required, integer, date };
 }
@@ -164,6 +170,8 @@ const P = {
 
 /** 各种计价方式自己的那几列（一种方式用不到的要留空） */
 const MODEL_COLUMNS: readonly string[] = [P.basePrice, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
+
+const PRICE_SHEET = "价格";
 
 const STATUS_NAMES: Readonly<Record<PriceRuleStatus, string>> = { enabled: "启用", disabled: "停用" };
 
@@ -198,6 +206,17 @@ const FIELD_COLUMNS: Readonly<Record<string, string>> = {
   valid_from: P.validFrom,
   valid_to: P.validTo,
   status: P.status,
+};
+
+/** 保存时的检查报出来的问题，换成对着表格说的话（告诉供应商这一格怎么改）。 */
+const SAVE_MESSAGES: Readonly<Record<string, string>> = {
+  OUT_OF_RANGE: "这个数超出了允许的范围：金额要大于 0（最多 10 位数），套餐时长 1 到 72 小时，套餐公里 1 到 5000。请检查是不是多打或少打了位数",
+  NOT_INTEGER: "这一格只能填整数，请去掉小数",
+  DATE_RANGE_REVERSED: "「生效结束」不能早于「生效开始」，请改其中一个",
+  INVALID_DATE: "不是合法的日期，请写成 2026-10-01 这样",
+  REQUIRED: "这一格必填",
+  NOT_APPLICABLE: "这个商品的品类不填这一列，请留空",
+  MODEL_NOT_ALLOWED: "这个商品的品类不能用这种计价方式，请按「填写说明」里列出的填",
 };
 
 const nameKey = (text: string): string => text.normalize("NFKC").trim().toLowerCase();
@@ -293,7 +312,7 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
     return {
       fileName: `${code}-prices${withRows ? "" : "-template"}.xlsx`,
       content: writeXlsx([
-        { name: "价格", rows, header: true, columnWidths: columns.map((column) => (column === P.id ? 38 : column === P.area ? 24 : 16)) },
+        { name: PRICE_SHEET, rows, header: true, columnWidths: columns.map((column) => (column === P.id ? 38 : column === P.area ? 24 : 16)) },
         { name: "填写说明", rows: help, columnWidths: [60, 30] },
       ]),
     };
@@ -302,14 +321,36 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
 
 export type ImportRowAction = "create" | "update" | "unchanged" | "error" | "conflict";
 
+/** 一条价格是哪个组合：给人看的文字（区域的名称、车型组的编码）。 */
+export interface PriceComboText {
+  area: string | null;
+  vehicleGroup: string | null;
+  direction: PriceDirection | null;
+  packageHours: number | null;
+}
+
+/** 这一行读到的内容（确认前让人核对）：读不出来的项是 null。 */
+export interface PriceRowContent extends PriceComboText {
+  pricingModel: PricingModel | null;
+  /** 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价 */
+  mainPriceMinor: number | null;
+  validFrom: string | null;
+  validTo: string | null;
+  status: PriceRuleStatus;
+}
+
 export interface PriceImportRow {
   /** Excel 里的行号（表头是第 1 行） */
   row: number;
   action: ImportRowAction;
   priceRuleId: string | null;
+  content: PriceRowContent;
   issues: CellIssue[];
-  /** 和它日期重叠的：同一个文件里的行（`row`），或已经在库里、这次没动的价格（`id`） */
-  conflictsWith: { row: number | null; id: string | null; validFrom: string; validTo: string | null }[];
+  /**
+   * 和它日期重叠的：同一个文件里的行（`row`），或已经在库里、这次没动的价格（`id`——一定是这个商品的）。
+   * 都带着组合的文字和日期，页面不用再去找。
+   */
+  conflictsWith: (PriceComboText & { row: number | null; id: string | null; validFrom: string; validTo: string | null })[];
 }
 
 export interface ImportSummary {
@@ -345,7 +386,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
   const { category } = context.product;
   const currency = context.currency ?? "JPY";
   const columns = priceColumns(category);
-  const sheet = new Sheet(sheetRows(bytes), columns.filter((column) => column !== P.id && column !== P.validTo && column !== P.status && column !== P.minPrice));
+  const sheet = new Sheet(sheetRows(bytes, PRICE_SHEET), columns.filter((column) => column !== P.id && column !== P.validTo && column !== P.status && column !== P.minPrice));
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxPriceRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxPriceRows} 行，这个文件有 ${dataRows.length} 行。请分几次导入`, { max: IMPORT_LIMITS.maxPriceRows, rows: dataRows.length });
 
@@ -365,7 +406,8 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
   for (const index of dataRows) {
     const issues: CellIssue[] = [];
     const read = rowReader(sheet, index, issues);
-    const result: PriceImportRow = { row: index + 1, action: "error", priceRuleId: null, issues, conflictsWith: [] };
+    const content: PriceRowContent = { area: null, vehicleGroup: null, direction: null, packageHours: null, pricingModel: null, mainPriceMinor: null, validFrom: null, validTo: null, status: "enabled" };
+    const result: PriceImportRow = { row: index + 1, action: "error", priceRuleId: null, content, issues, conflictsWith: [] };
     rows.push(result);
 
     const idText = read.text(P.id);
@@ -421,21 +463,29 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     if (category === "airport_transfer" && direction === null && !issues.some((issue) => issue.column === P.direction)) read.problem(P.direction, "REQUIRED", "必填");
     let pricing: Pricing | null = null;
     let packageHours: number | null = null;
+    // 这一行读到了什么（哪怕别的格出了错）：区域、车型组认出来了就写规范的名称和编码，没认出来就写表里填的原文
+    content.area = areaId === null ? areaText : displayName(names.areas.get(areaId) ?? {});
+    content.vehicleGroup = groupId === null ? groupText : (names.groups.get(groupId)?.code ?? groupText);
+    content.direction = direction;
     if (category === "charter") {
       packageHours = read.integer(P.packageHours, read.required(P.packageHours));
       const packageKm = read.integer(P.packageKm, read.required(P.packageKm));
       const [packagePrice, overtime, overKm] = [amount(P.packagePrice), amount(P.overtime), amount(P.overKm)];
+      Object.assign(content, { packageHours, pricingModel: "charter_package", mainPriceMinor: packagePrice });
       if (packageKm !== null && packagePrice !== null && overtime !== null && overKm !== null) pricing = { model: "charter_package", packageKm, packagePriceMinor: packagePrice, overtimePerHourMinor: overtime, overKmPerKmMinor: overKm };
     } else {
       const model = word(P.model, MODEL_WORDS, pricingModelsFor(category).map((entry) => PRICING_MODEL_NAMES[entry]));
       if (model === null && !issues.some((issue) => issue.column === P.model)) read.problem(P.model, "REQUIRED", "必填");
+      content.pricingModel = model;
       if (model === "fixed") {
         blank([P.basePrice]);
         const base = amount(P.basePrice);
+        content.mainPriceMinor = base;
         if (base !== null) pricing = { model: "fixed", basePriceMinor: base };
       } else if (model === "mileage_time") {
         blank([P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice]);
         const [startPrice, perKm, perMinute, minPrice] = [amount(P.startPrice), amount(P.perKm), amount(P.perMinute), amount(P.minPrice, true)];
+        content.mainPriceMinor = startPrice;
         const startMinutes = read.integer(P.startMinutes, read.required(P.startMinutes));
         // 起步里程填公里（最多 1 位小数），按字符换成米
         const kmText = read.required(P.startKm);
@@ -455,6 +505,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     const validFrom = read.date(P.validFrom, read.required(P.validFrom));
     const validTo = read.date(P.validTo, read.text(P.validTo));
     const status = word(P.status, STATUS_WORDS, Object.values(STATUS_NAMES)) ?? "enabled";
+    Object.assign(content, { validFrom, validTo, status });
 
     if (issues.length > 0 || areaId === null || groupId === null || pricing === null || validFrom === null) continue;
     const rule: PriceRule = { areaId, vehicleGroupId: groupId, direction, packageHours, pricing, validFrom, validTo, status };
@@ -480,7 +531,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     if (!match || !target) throw fileInvalid("TOO_MANY_ROWS", issue.message);
     const column = FIELD_COLUMNS[(match[3] as string).split("/")[0] as string] ?? P.id;
     target.action = "error";
-    target.issues.push({ cell: sheet.cell(target.row - 1, column).at, column, reason: issue.reason ?? "INVALID", message: issue.message });
+    target.issues.push({ cell: sheet.cell(target.row - 1, column).at, column, reason: issue.reason ?? "INVALID", message: SAVE_MESSAGES[issue.reason ?? ""] ?? issue.message });
   }
   const rowOf = new Map<string, PriceImportRow>([...origin.update.map((row): [string, PriceImportRow] => [`id:${row.priceRuleId}`, row]), ...origin.create.map((row): [string, PriceImportRow] => [`ref:row:${row.row}`, row])]);
   for (const conflict of check.conflicts) {
@@ -489,7 +540,12 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     target.action = "conflict";
     target.conflictsWith = conflict.with.map((other) => {
       const otherRow = rowOf.get(other.id !== undefined ? `id:${other.id}` : `ref:${other.ref}`);
-      return { row: otherRow?.row ?? null, id: otherRow ? null : (other.id ?? null), validFrom: other.valid_from, validTo: other.valid_to };
+      // 不是文件里的行，就是这个商品已有的、这次没动的价格（stored 里只有这个商品的）
+      const existing = otherRow || other.id === undefined ? undefined : stored.get(other.id);
+      const combo: PriceComboText = otherRow
+        ? { area: otherRow.content.area, vehicleGroup: otherRow.content.vehicleGroup, direction: otherRow.content.direction, packageHours: otherRow.content.packageHours }
+        : { area: existing ? displayName(names.areas.get(existing.areaId) ?? {}) : null, vehicleGroup: existing ? (names.groups.get(existing.vehicleGroupId)?.code ?? null) : null, direction: existing?.direction ?? null, packageHours: existing?.packageHours ?? null };
+      return { ...combo, row: otherRow?.row ?? null, id: otherRow ? null : (other.id ?? null), validFrom: other.valid_from, validTo: other.valid_to };
     });
   }
   return { rows, changes };
@@ -514,8 +570,9 @@ function fileChanged(): AppError {
   return new AppError(409, "IMPORT_FILE_CHANGED", "这次上传的文件和预览时的不是同一份（内容变了）。请重新上传预览，确认结果后再导入");
 }
 
-function notClean(summary: ImportSummary): AppError {
-  return new AppError(409, "IMPORT_NOT_CLEAN", summary.error + summary.conflict > 0 ? `文件里有 ${summary.error} 行出错、${summary.conflict} 行冲突，没有导入。请重新预览查看是哪几行` : "文件里没有要新增或修改的内容", { summary });
+/** 确认导入被拒：`details.preview` 是这次重新校验的完整结果（和预览接口的应答同一个结构），页面直接显示，不用再传一次去预览。 */
+function notClean(summary: { error: number; conflict: number }, preview: Record<string, unknown>): AppError {
+  return new AppError(409, "IMPORT_NOT_CLEAN", summary.error + summary.conflict > 0 ? `文件里有 ${summary.error} 行出错、${summary.conflict} 行冲突，没有导入。请看下面每一行的说明，改好后重新上传` : "文件里没有要新增或修改的内容，不用导入", { summary, preview });
 }
 
 /**
@@ -531,6 +588,7 @@ export function importPriceRules(
   previewSha256: string,
   idempotency: { scope: string; key: string },
   respond: (result: { view: PriceRulesView; summary: ImportSummary }) => Record<string, unknown>,
+  previewJson: (preview: PriceImportPreview) => Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
@@ -541,7 +599,7 @@ export function importPriceRules(
       const context = await loadPricingContext(db, tenantId, productId, now, { lock: true });
       if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
       const { preview, changes } = pricePreview(bytes, context, await priceNames(db, tenantId, context));
-      if (!preview.canImport) throw notClean(preview.summary);
+      if (!preview.canImport) throw notClean(preview.summary, previewJson(preview));
       const saved = await applyPriceChanges(db, writer, context, changes, false, now);
       return { status: 200, body: respond({ view: saved.view, summary: preview.summary }) };
     });
@@ -552,6 +610,8 @@ export function importPriceRules(
 // ---- 库存 ----
 
 const I = { date: "日期", total: "可售单数" } as const;
+const INVENTORY_SHEET = "库存";
+const IMPORT_DATE_MESSAGES: Readonly<Record<string, string>> = { TOO_FAR_AHEAD: `最远只能设到 ${INVENTORY_LIMITS.maxDaysAhead} 天以后，请删掉这一行` };
 
 /** 导出一段日期的库存表：每天一行，没设过的那一格是空的——填上数再导入就是设置；也当模版用。 */
 export function exportInventory(ctx: AppContext, tenantId: string, productId: string, from: string, to: string): Promise<ExportedFile> {
@@ -571,7 +631,7 @@ export function exportInventory(ctx: AppContext, tenantId: string, productId: st
       ["填 0 = 这一天停售；留空 = 清除（限量模式下没设的日子不可售）。"],
       ["只能改今天和以后的日子；已经有订单占着的日子，不能改到占用数以下。一次最多 366 行。"],
     ];
-    return { fileName: `${context.product.code}-inventory-${from}-${to}.xlsx`, content: writeXlsx([{ name: "库存", rows, header: true, columnWidths: [14, 12] }, { name: "填写说明", rows: help, columnWidths: [70] }]) };
+    return { fileName: `${context.product.code}-inventory-${from}-${to}.xlsx`, content: writeXlsx([{ name: INVENTORY_SHEET, rows, header: true, columnWidths: [14, 12] }, { name: "填写说明", rows: help, columnWidths: [70] }]) };
   });
 }
 
@@ -594,25 +654,30 @@ export interface InventoryImportPreview {
 }
 
 async function inventoryPreview(db: Db, tenantId: string, context: InventoryContext, bytes: Uint8Array): Promise<{ preview: InventoryImportPreview; changes: InventoryChange[] }> {
-  const sheet = new Sheet(sheetRows(bytes), [I.date, I.total]);
+  const sheet = new Sheet(sheetRows(bytes, INVENTORY_SHEET), [I.date, I.total]);
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxInventoryRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxInventoryRows} 行，这个文件有 ${dataRows.length} 行`, { max: IMPORT_LIMITS.maxInventoryRows, rows: dataRows.length });
   const rows: InventoryImportRow[] = [];
   const seen = new Set<string>();
+  const pastRows = new Set<number>();
   for (const index of dataRows) {
     const issues: CellIssue[] = [];
     const read = rowReader(sheet, index, issues);
     const date = read.date(I.date, read.required(I.date));
     const total = read.integer(I.total, read.text(I.total));
+    let past = false;
     if (date !== null) {
       const dateIssue = inventoryDateIssue(date, context.today);
-      if (dateIssue !== null) read.problem(I.date, dateIssue, INVENTORY_ISSUE_MESSAGES[dateIssue]);
-      else if (seen.has(date)) read.problem(I.date, "DUPLICATE", "同一天在文件里出现了两次");
+      // 过去的日子：先不报错——导出一整个月、只改后半个月的人，前半个月原样留着应当算「没变」。下面和现在的数比过之后，变了的才报
+      if (dateIssue === "DATE_IN_PAST") past = true;
+      else if (dateIssue !== null) read.problem(I.date, dateIssue, IMPORT_DATE_MESSAGES[dateIssue] ?? INVENTORY_ISSUE_MESSAGES[dateIssue]);
+      if (seen.has(date)) read.problem(I.date, "DUPLICATE", "同一天在文件里出现了两次，请只留一行");
       seen.add(date);
     }
     const totalIssue = issues.some((issue) => issue.column === I.total) ? null : inventoryTotalIssue(total);
     if (totalIssue !== null) read.problem(I.total, totalIssue, `要填 0 到 ${INVENTORY_LIMITS.maxDailyTotal} 的整数`);
     rows.push({ row: index + 1, date, action: issues.length > 0 ? "error" : total === null ? "clear" : "set", total, issues, occupied: null });
+    if (past) pastRows.add(index + 1);
   }
   const valid = rows.filter((row) => row.action !== "error" && row.date !== null);
   const dates = valid.map((row) => row.date as string).sort();
@@ -623,7 +688,13 @@ async function inventoryPreview(db: Db, tenantId: string, context: InventoryCont
   for (const row of valid) {
     const day = current.get(row.date as string) ?? null;
     const occupied = inventoryOccupiedBlocking(day, row.total);
-    if (occupied !== null) {
+    if (pastRows.has(row.row)) {
+      if ((day?.total ?? null) === row.total) row.action = "unchanged";
+      else {
+        row.action = "error";
+        row.issues.push({ cell: sheet.cell(row.row - 1, I.date).at, column: I.date, reason: "DATE_IN_PAST", message: "这一天已经过去了，库存不能再改。请把这一行改回原来的数，或者删掉这一行" });
+      }
+    } else if (occupied !== null) {
       row.action = "conflict";
       row.occupied = occupied;
       row.issues.push({ cell: sheet.cell(row.row - 1, I.total).at, column: I.total, reason: "INVENTORY_BELOW_OCCUPIED", message: `这一天已经有 ${occupied} 单占着库存，不能改到它以下，也不能清除` });
@@ -649,6 +720,7 @@ export function importInventory(
   bytes: Uint8Array,
   previewSha256: string,
   idempotency: { scope: string; key: string },
+  previewJson: (preview: InventoryImportPreview) => Record<string, unknown>,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
@@ -659,7 +731,7 @@ export function importInventory(
       const context = await loadInventoryContext(db, tenantId, productId, now, { lock: true });
       if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
       const { preview, changes } = await inventoryPreview(db, tenantId, context, bytes);
-      if (!preview.canImport) throw new AppError(409, "IMPORT_NOT_CLEAN", preview.summary.error + preview.summary.conflict > 0 ? `文件里有 ${preview.summary.error} 行出错、${preview.summary.conflict} 行冲突，没有导入。请重新预览查看是哪几行` : "文件里没有要改的内容", { summary: preview.summary });
+      if (!preview.canImport) throw notClean(preview.summary, previewJson(preview));
       const applied = await applyInventoryChanges(db, writer, context, changes, { source: "import", file_sha256: fileSha256 }, now);
       return { status: 200, body: { version: applied.version, changed_days: applied.changed.length, summary: preview.summary } };
     });

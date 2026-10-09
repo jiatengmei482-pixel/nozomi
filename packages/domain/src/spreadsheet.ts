@@ -38,18 +38,22 @@ export function plainInteger(text: string): number | null {
 }
 
 /**
- * 表格里的一个日期：`2026-10-01`、`2026/10/1`、`2026.10.01`，或 Excel 把日期存成的序号（1900 日期系统，如 46296）。
- * 认不出、日期不存在返回 null。
+ * 表格里的一个日期：`2026-10-01`、`2026/10/1`、`2026.10.01`（后面带 `T00:00:00` 或 ` 00:00:00` 也认），
+ * 或 Excel 把日期存成的序号（如 46296）。序号默认按 1900 纪元算；文件声明用 1904 纪元（老版本的 Mac Excel）时传 `date1904`。
+ * 认不出、日期不存在、带着不是零点的时间返回 null。
  */
-export function sheetDate(text: string): string | null {
+export function sheetDate(text: string, options: { date1904?: boolean } = {}): string | null {
   const trimmed = text.trim();
-  const written = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(trimmed);
+  const written = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:[T ]00:00(?::00(?:\.0+)?)?Z?)?$/.exec(trimmed);
   if (written) {
     const date = `${written[1]}-${(written[2] as string).padStart(2, "0")}-${(written[3] as string).padStart(2, "0")}`;
     return isLocalDate(date) ? date : null;
   }
   const serial = plainInteger(trimmed);
-  // 序号 1 是 1900-01-01；Excel 把 1900 年当成闰年，所以 61 以后的序号要按 1899-12-30 起算。只认 1900-03-01 之后、9999 年之前的
-  if (serial === null || serial < 61 || serial > 2_958_465) return null;
+  if (serial === null) return null;
+  // 1904 纪元：序号 0 是 1904-01-01
+  if (options.date1904 === true) return serial < 0 || serial > 2_957_003 ? null : addDays("1904-01-01", serial);
+  // 1900 纪元：序号 1 是 1900-01-01；Excel 把 1900 年当成闰年，所以 61 以后的序号要按 1899-12-30 起算。只认 1900-03-01 之后、9999 年之前的
+  if (serial < 61 || serial > 2_958_465) return null;
   return addDays("1899-12-30", serial);
 }

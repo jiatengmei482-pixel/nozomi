@@ -30,6 +30,7 @@ export function inventoryJson(view: InventoryView): Json {
     version: view.version,
     mode: view.mode,
     today: view.today,
+    ahead: { sellable_days: view.ahead.sellableDays, last_set_date: view.ahead.lastSetDate },
     days: view.days.map((day) => ({ date: day.date, weekday: weekdayOf(day.date), total: day.total, held: day.held, sold: day.sold, remaining: day.remaining, status: day.status })),
   };
 }

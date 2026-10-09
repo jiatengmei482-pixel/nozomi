@@ -86,6 +86,7 @@ test("新商品的库存是不限量（默认）：日历上每一天都是不�
     version: 1,
     mode: "unlimited",
     today: TODAY,
+    ahead: { sellable_days: 0, last_set_date: null },
     days: [
       { date: "2026-10-06", weekday: 2, total: null, held: 0, sold: 0, remaining: null, status: "unlimited" },
       { date: "2026-10-07", weekday: 3, total: null, held: 0, sold: 0, remaining: null, status: "unlimited" },
@@ -149,9 +150,14 @@ test("批量设置：日期范围（两端都含）× 星期 × 数量；不填�
   assert.deepEqual([cleared.changed_days, days(cleared).map((day: any) => [day[0].slice(8), day[1]])], [2, [["12", null], ["13", null], ["14", null], ["15", null], ["16", null], ["17", null], ["18", 3]]]);
   assert.deepEqual(days(await inventory(id, "2026-10-09", "2026-10-12")), [["2026-10-09", 5, 5, "open"], ["2026-10-10", 8, 8, "open"], ["2026-10-11", 0, 0, "closed"], ["2026-10-12", null, 0, "unset"]]);
   assert.equal((await api.db.owner.query("select count(*)::int as n from inventory_days where product_id = $1", [id])).rows[0].n, 4, "清除就是没有这一行");
+  // 概况看的是从今天起的整段日子（和请求的日期范围无关）：有剩余的 3 天（10-09、10-10、10-18），最晚设到 10-18
+  assert.deepEqual((await inventory(id, TODAY, TODAY)).ahead, { sellable_days: 3, last_set_date: "2026-10-18" });
+  await batchSet(id, { from: "2028-10-06", to: "2028-10-06", total: 1 });
+  assert.deepEqual((await inventory(id, "2026-01-01", "2026-01-02")).ahead, { sellable_days: 4, last_set_date: "2028-10-06" }, "最远的第 730 天也数得到");
+  await batchSet(id, { from: "2028-10-06", to: "2028-10-06" });
 
   const logs = await audits("inventory", id);
-  assert.equal(logs.length, 5, "没有变化的那一次不记");
+  assert.equal(logs.length, 7, "没有变化的那一次不记");
   assert.deepEqual([logs[0].action, logs[0].tenant_id, logs[0].actor_email, logs[0].before, logs[0].after], [
     "update", tenant.tenantId, "admin@a.test",
     { days: { "2026-10-10": null, "2026-10-11": null, "2026-10-17": null, "2026-10-18": null } },

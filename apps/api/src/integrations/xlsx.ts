@@ -230,8 +230,7 @@ function textOf(xml: string): string {
   return text;
 }
 
-function sharedStrings(bytes: Uint8Array): string[] {
-  const name = "xl/sharedStrings.xml";
+function sharedStrings(bytes: Uint8Array, name: string): string[] {
   if (!hasZipEntry(bytes, name)) return [];
   const xml = entry(bytes, name);
   const strings: string[] = [];
@@ -249,27 +248,61 @@ function sharedStrings(bytes: Uint8Array): string[] {
   return strings;
 }
 
-/** 第一张工作表在压缩包里的位置：按工作簿里的顺序取第一张；找不到关系时退回默认的 sheet1.xml。 */
-function firstSheetPath(bytes: Uint8Array): string {
-  const fallback = "xl/worksheets/sheet1.xml";
-  if (!hasZipEntry(bytes, "xl/workbook.xml")) throw new XlsxError("NOT_XLSX", "不是 Excel 的 .xlsx 文件（里面没有工作簿）");
-  let relationId: string | null = null;
-  for (const tag of tags(entry(bytes, "xl/workbook.xml"))) {
-    if (tag.name === "sheet" && !tag.closing) {
-      relationId = attribute(tag.attributes, "r:id") ?? attribute(tag.attributes, "id");
-      break;
-    }
-  }
-  if (relationId === null || !hasZipEntry(bytes, "xl/_rels/workbook.xml.rels")) return fallback;
-  for (const tag of tags(entry(bytes, "xl/_rels/workbook.xml.rels"))) {
-    if (tag.name !== "Relationship" || attribute(tag.attributes, "Id") !== relationId) continue;
+/** 包里一个部件的关系文件：编号 → 目标的路径（包内的绝对路径，不带开头的 `/`）。目标指向包外的直接拒绝。 */
+function relationships(bytes: Uint8Array, partPath: string): { byId: Map<string, string>; byType: Map<string, string> } {
+  const slash = partPath.lastIndexOf("/");
+  const directory = slash < 0 ? "" : partPath.slice(0, slash + 1);
+  const relsPath = `${directory}_rels/${partPath.slice(slash + 1)}.rels`;
+  const byId = new Map<string, string>();
+  const byType = new Map<string, string>();
+  if (!hasZipEntry(bytes, relsPath)) return { byId, byType };
+  for (const tag of tags(entry(bytes, relsPath))) {
+    if (tag.name !== "Relationship" || tag.closing) continue;
+    const id = attribute(tag.attributes, "Id");
     const target = attribute(tag.attributes, "Target") ?? "";
-    const path = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
-    // 只认压缩包里 xl/ 下面的工作表：指向别处的（`../`、绝对地址、外部链接）一律拒绝
-    if (path.includes("..") || path.includes("\\") || path.includes(":") || !path.startsWith("xl/")) throw new XlsxError("UNSAFE", "工作表的位置不在文件里面");
-    return path;
+    const type = attribute(tag.attributes, "Type") ?? "";
+    if (attribute(tag.attributes, "TargetMode") === "External") continue;
+    const path = target.startsWith("/") ? target.slice(1) : `${directory}${target}`;
+    // 只认压缩包里面的部件：`../`、反斜杠、带协议的地址一律拒绝（这些名字只用来在包内查找，从不当作磁盘路径）
+    if (path.includes("..") || path.includes("\\") || path.includes(":")) throw new XlsxError("UNSAFE", "文件里的部件指向了文件外面");
+    if (id !== null) byId.set(id, path);
+    byType.set(type.slice(type.lastIndexOf("/") + 1), path);
   }
-  return fallback;
+  return { byId, byType };
+}
+
+interface Workbook {
+  /** 工作表：名字和在压缩包里的位置，按工作簿里的顺序 */
+  sheets: { name: string; path: string }[];
+  /** 日期用 1904 纪元（老版本的 Mac Excel）：日期序号要按 1904-01-01 起算 */
+  date1904: boolean;
+  /** 共享字符串那份文件的位置 */
+  sharedStringsPath: string;
+}
+
+function workbook(bytes: Uint8Array): Workbook {
+  // 工作簿的位置由包的根关系给出；绝大多数文件是 xl/workbook.xml
+  const root = hasZipEntry(bytes, "_rels/.rels") ? relationships(bytes, "").byType.get("officeDocument") : undefined;
+  const path = root !== undefined && hasZipEntry(bytes, root) ? root : "xl/workbook.xml";
+  if (!hasZipEntry(bytes, path)) throw new XlsxError("NOT_XLSX", "不是 Excel 的 .xlsx 文件（里面没有工作簿）");
+  if (!path.startsWith("xl/")) throw new XlsxError("UNSAFE", "工作簿的位置不对");
+  const { byId, byType } = relationships(bytes, path);
+  const shared = byType.get("sharedStrings");
+  const sheets: Workbook["sheets"] = [];
+  let date1904 = false;
+  for (const tag of tags(entry(bytes, path))) {
+    if (tag.closing) continue;
+    if (tag.name === "workbookPr") date1904 = ["1", "true"].includes(attribute(tag.attributes, "date1904") ?? "");
+    if (tag.name !== "sheet") continue;
+    const relationId = attribute(tag.attributes, "r:id") ?? attribute(tag.attributes, "id");
+    const target = relationId === null ? undefined : byId.get(relationId);
+    if (target === undefined) continue;
+    if (!target.startsWith("xl/")) throw new XlsxError("UNSAFE", "工作表的位置不在文件里面");
+    sheets.push({ name: attribute(tag.attributes, "name") ?? "", path: target });
+  }
+  // 没有关系文件的极简写法：退回默认的位置
+  if (sheets.length === 0) sheets.push({ name: "", path: "xl/worksheets/sheet1.xml" });
+  return { sheets, date1904, sharedStringsPath: shared !== undefined && shared.startsWith("xl/") ? shared : "xl/sharedStrings.xml" };
 }
 
 function columnIndex(reference: string): number | null {
@@ -280,15 +313,32 @@ function columnIndex(reference: string): number | null {
   return index - 1;
 }
 
+export interface XlsxSheet {
+  /** 工作表的名字 */
+  name: string;
+  /** `rows[r][c]`，行和列都从 0 数；中间空着的行、列补成空单元格 */
+  rows: XlsxCell[][];
+  /** 这个文件的日期序号是不是 1904 纪元 */
+  date1904: boolean;
+}
+
+/** 读出 .xlsx 第一张工作表的全部单元格。 */
+export function readXlsx(bytes: Uint8Array): XlsxCell[][] {
+  return readXlsxSheet(bytes).rows;
+}
+
 /**
- * 读出 .xlsx 第一张工作表的全部单元格：`rows[r][c]`，行和列都从 0 数；中间空着的行、列补成空单元格。
+ * 读出 .xlsx 里的一张工作表：有名字在 `preferredNames` 里的就读它（按给的先后），没有就读第一张。
+ * 隐藏的行和列照常读出来；合并单元格只有左上角那一格有值（文件里就是这样存的）。
  * 文件不是 xlsx、已损坏、太大、有不安全的内容时抛 `XlsxError`。
  */
-export function readXlsx(bytes: Uint8Array): XlsxCell[][] {
+export function readXlsxSheet(bytes: Uint8Array, preferredNames: readonly string[] = []): XlsxSheet {
   if (bytes.length > XLSX_LIMITS.maxFileBytes) throw new XlsxError("TOO_LARGE", "文件太大");
   if (!isZip(bytes)) throw new XlsxError("NOT_XLSX", "不是 Excel 的 .xlsx 文件");
-  const xml = entry(bytes, firstSheetPath(bytes));
-  const strings = sharedStrings(bytes);
+  const book = workbook(bytes);
+  const chosen = preferredNames.map((name) => book.sheets.find((sheet) => sheet.name.trim() === name)).find((sheet) => sheet !== undefined) ?? (book.sheets[0] as Workbook["sheets"][number]);
+  const xml = entry(bytes, chosen.path);
+  const strings = sharedStrings(bytes, book.sharedStringsPath);
   const rows: XlsxCell[][] = [];
   let rowIndex = -1;
   let cell: { column: number; type: string; contentStart: number } | null = null;
@@ -334,5 +384,5 @@ export function readXlsx(bytes: Uint8Array): XlsxCell[][] {
       cell = null;
     }
   }
-  return rows;
+  return { name: chosen.name, rows, date1904: book.date1904 };
 }

@@ -28,7 +28,7 @@ import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { findAreaCities } from "../repos/areas.ts";
 import { type AuditValue, insertAuditLog } from "../repos/audit-logs.ts";
-import { type StoredInventoryDay, clearInventoryDays, findInventoryMode, listInventoryDays, setInventoryMode as setInventoryModeRow, upsertInventoryTotals } from "../repos/inventory.ts";
+import { type StoredInventoryDay, clearInventoryDays, findInventoryMode, inventoryAhead, listInventoryDays, setInventoryMode as setInventoryModeRow, upsertInventoryTotals } from "../repos/inventory.ts";
 import { type Product, findProduct, updateProduct as bumpProduct } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
@@ -80,6 +80,11 @@ export interface InventoryView {
   version: number;
   mode: InventoryMode;
   today: string;
+  /**
+   * 从今天起能设库存的整段日子（730 天）的概况，和请求的日期范围无关：还有剩余库存的有几天、设过库存的最晚一天。
+   * 不限量时这些数不起作用，照样给出（切到限量之前先看一眼）。
+   */
+  ahead: { sellableDays: number; lastSetDate: string | null };
   days: InventoryDayView[];
 }
 
@@ -108,7 +113,13 @@ export function getInventory(ctx: AppContext, tenantId: string, productId: strin
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadInventoryContext(db, tenantId, productId, now, { lock: false });
-    return { version: context.product.version, mode: context.mode, today: context.today, days: dayViews(context.mode, await listInventoryDays(db, tenantId, productId, from, to), from, to) };
+    return {
+      version: context.product.version,
+      mode: context.mode,
+      today: context.today,
+      ahead: await inventoryAhead(db, tenantId, productId, context.today, addDays(context.today, INVENTORY_LIMITS.maxDaysAhead)),
+      days: dayViews(context.mode, await listInventoryDays(db, tenantId, productId, from, to), from, to),
+    };
   });
 }
 
@@ -200,6 +211,13 @@ export function batchSetInventory(ctx: AppContext, writer: ProductWriter, produc
     if (issues.length > 0) throw validationFailed("body", inventoryInputIssues(issues));
     const dates = inventoryBatchDates(batch);
     const applied = await applyInventoryChanges(db, writer, context, dates.map((date) => ({ date, total: batch.total })), { from: batch.from, to: batch.to, weekdays: batch.weekdays, total: batch.total }, now);
-    return { version: applied.version, mode: context.mode, today: context.today, days: dayViews(context.mode, await listInventoryDays(db, tenantId, productId, batch.from, batch.to), batch.from, batch.to), changedDays: applied.changed.length };
+    return {
+      version: applied.version,
+      mode: context.mode,
+      today: context.today,
+      ahead: await inventoryAhead(db, tenantId, productId, context.today, addDays(context.today, INVENTORY_LIMITS.maxDaysAhead)),
+      days: dayViews(context.mode, await listInventoryDays(db, tenantId, productId, batch.from, batch.to), batch.from, batch.to),
+      changedDays: applied.changed.length,
+    };
   });
 }

@@ -54,8 +54,29 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
       row: row.row,
       action: row.action,
       price_rule_id: row.priceRuleId,
+      // 这一行读到的内容（确认前核对用）；读不出来的项是 null。main_price 是最小货币单位
+      content: {
+        area: row.content.area,
+        vehicle_group: row.content.vehicleGroup,
+        direction: row.content.direction,
+        package_hours: row.content.packageHours,
+        pricing_model: row.content.pricingModel,
+        main_price: row.content.mainPriceMinor,
+        valid_from: row.content.validFrom,
+        valid_to: row.content.validTo,
+        status: row.content.status,
+      },
       issues: row.issues.map(issueJson),
-      conflicts_with: row.conflictsWith.map((other) => ({ row: other.row, price_rule_id: other.id, valid_from: other.validFrom, valid_to: other.validTo })),
+      conflicts_with: row.conflictsWith.map((other) => ({
+        row: other.row,
+        price_rule_id: other.id,
+        area: other.area,
+        vehicle_group: other.vehicleGroup,
+        direction: other.direction,
+        package_hours: other.packageHours,
+        valid_from: other.validFrom,
+        valid_to: other.validTo,
+      })),
     })),
   };
 }
@@ -103,7 +124,7 @@ export function registerImportExportRoutes(app: FastifyInstance, ctx: AppContext
     const result = await importPriceRules(ctx, { principal, ip: request.ip }, productId, version, uploaded(request), query.file_sha256, { scope: "POST /tenant/v1/products/:id/price-rules/import", key }, (saved) => ({
       ...priceRulesJson(saved.view),
       summary: summaryJson(saved.summary),
-    }));
+    }), pricePreviewJson);
     return reply.code(result.status).send(result.body);
   });
 
@@ -126,7 +147,7 @@ export function registerImportExportRoutes(app: FastifyInstance, ctx: AppContext
     const key = idempotencyKey(request.headers["idempotency-key"]);
     const version = ifMatchVersion(request.headers["if-match"]);
     const query = parseInput(shaQuerySchema, request.query, "querystring");
-    const result = await importInventory(ctx, { principal, ip: request.ip }, productId, version, uploaded(request), query.file_sha256, { scope: "POST /tenant/v1/products/:id/inventory/import", key });
+    const result = await importInventory(ctx, { principal, ip: request.ip }, productId, version, uploaded(request), query.file_sha256, { scope: "POST /tenant/v1/products/:id/inventory/import", key }, inventoryPreviewJson);
     return reply.code(result.status).send(result.body);
   });
 }

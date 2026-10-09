@@ -626,7 +626,9 @@ export interface PriceOverview {
   /** 只数草稿和已上架的商品：有 / 没有「启用且没过期」的价格 */
   productsWithPrice: number;
   productsWithoutPrice: number;
-  /** 只要上面两个数时为 null */
+  /** 已上架的商品里，库存是限量而从今天起没有可售库存的有几个（上了架却报不出价） */
+  publishedWithoutInventory: number;
+  /** 只要上面几个数时为 null */
   items: PriceOverviewItem[] | null;
 }
 
@@ -642,7 +644,7 @@ export function getPriceOverview(ctx: AppContext, tenantId: string, summaryOnly:
     const rows = await listProductPriceOverview(db, tenantId, now, OVERVIEW_LIMIT);
     const counted = rows.filter((item) => item.status !== "unpublished");
     const withPrice = counted.filter((item) => item.activePriceRuleCount > 0).length;
-    const totals = { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice };
+    const totals = { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice, publishedWithoutInventory: rows.filter((item) => item.status === "published" && item.noInventoryAhead).length };
     if (summaryOnly) return { ...totals, items: null };
     const shapes = await listPriceCoverageInputs(db, tenantId);
     const items = rows.map((row): PriceOverviewItem => {

@@ -10,7 +10,8 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { XLSX_CONTENT_TYPE, XLSX_LIMITS, type XlsxWriteCell, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
-import { buildZip } from "./testing/zip.ts";
+import { unzipEntry } from "./integrations/zip.ts";
+import { type TestZipOptions, buildZip } from "./testing/zip.ts";
 
 let api: TestApi;
 let root: string;
@@ -142,6 +143,11 @@ test("下载模版：只有表头，不预置任何价格；第二张表列出�
   const charter = await download(`/products/${usd}/price-rules/export`);
   assert.deepEqual(charter.rows[0], CHARTER_HEADER);
   assert.deepEqual(charter.rows[1]?.slice(1), ["东京市区", "VG-BIZ-7", "10", "300", "980.50", "50.00", "0.05", "2026-10-01", null, "启用"]);
+  // 导出失败时是统一的 JSON 错误格式，不是文件（页面按 Content-Type 分辨）
+  const failed = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${MISSING}/price-rules/export`, headers: { authorization: `Bearer ${tenant.adminToken}` } });
+  assert.deepEqual([failed.statusCode, String(failed.headers["content-type"]).split(";")[0], failed.json().error.code, failed.headers["content-disposition"]], [404, "application/json", "NOT_FOUND", undefined]);
+  const badRange = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${id}/inventory/export?from=2026-10-09&to=2026-10-01`, headers: { authorization: `Bearer ${tenant.adminToken}` } });
+  assert.deepEqual([badRange.statusCode, String(badRange.headers["content-type"]).split(";")[0], badRange.json().error.code], [400, "application/json", "VALIDATION_FAILED"]);
   assert.equal((await download(`/products/${MISSING}/price-rules/export`)).status, 404);
   assert.equal((await api.app.inject({ method: "GET", url: `/tenant/v1/products/${id}/price-rules/export?rows=some`, headers: { authorization: `Bearer ${tenant.adminToken}` } })).statusCode, 400);
 });
@@ -179,6 +185,16 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
     [11, "error", ["B11 REQUIRED", "C11 REQUIRED", "D11 REQUIRED", "E11 REQUIRED", "M11 REQUIRED", "O11 UNKNOWN_VALUE"]],
   ]);
   assert.deepEqual([body.rows[0].price_rule_id, body.rows[1].price_rule_id], [existing.id, null]);
+  // 每一行带着它读到的内容，新增的行也有：确认前可以核对「新增的是不是我想的那些」
+  assert.deepEqual(Object.keys(body.rows[0]).sort(), ["action", "conflicts_with", "content", "issues", "price_rule_id", "row"]);
+  assert.deepEqual(body.rows.slice(0, 3).map((row: any) => row.content), [
+    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 21_000, valid_from: "2026-10-01", valid_to: "2026-12-31", status: "enabled" },
+    { area: "东京市区", vehicle_group: "VG-ECO-4", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 12_000, valid_from: "2026-10-01", valid_to: null, status: "enabled" },
+    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, pricing_model: "mileage_time", main_price: 3_000, valid_from: "2026-10-01", valid_to: null, status: "disabled" },
+  ]);
+  // 出错的行：认得出来的照样带着，认不出来的写表里填的原文，读不出来的是 null
+  assert.deepEqual(body.rows[3].content, { area: "大阪", vehicle_group: "VG-LUX-4", direction: null, package_hours: null, pricing_model: null, main_price: null, valid_from: null, valid_to: null, status: "enabled" });
+  assert.deepEqual([body.rows[4].content.main_price, body.rows[4].content.direction, body.rows[8].content.area], [null, "dropoff", null]);
   const issue = body.rows[4].issues[0];
   assert.deepEqual([issue.cell, issue.column, issue.reason, typeof issue.message], ["F7", "基础价", "PRECISION", "string"]);
   assert.ok(body.rows.flatMap((row: any) => row.issues).every((entry: any) => entry.message.length > 0));
@@ -189,9 +205,9 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
   const conflicts = await preview(id, sheet([TRANSFER_HEADER, fixedRow({ 方向: "送机" }), fixedRow({ 方向: "送机", 生效开始: "2027-01-01" }), fixedRow({ 方向: "接机", 生效开始: "2026-11-01" }), fixedRow({ 车型组: "VG-ECO-4" })]));
   assert.deepEqual(conflicts.summary, { rows: 4, create: 1, update: 0, unchanged: 0, error: 0, conflict: 3 });
   assert.deepEqual(conflicts.rows.map((row: any) => [row.row, row.action, row.conflicts_with]), [
-    [2, "conflict", [{ row: 3, price_rule_id: null, valid_from: "2027-01-01", valid_to: null }]],
-    [3, "conflict", [{ row: 2, price_rule_id: null, valid_from: "2026-10-01", valid_to: null }]],
-    [4, "conflict", [{ row: null, price_rule_id: existing.id, valid_from: "2026-10-01", valid_to: "2026-12-31" }]],
+    [2, "conflict", [{ row: 3, price_rule_id: null, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2027-01-01", valid_to: null }]],
+    [3, "conflict", [{ row: 2, price_rule_id: null, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, valid_from: "2026-10-01", valid_to: null }]],
+    [4, "conflict", [{ row: null, price_rule_id: existing.id, area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, valid_from: "2026-10-01", valid_to: "2026-12-31" }]],
     [5, "create", []],
   ]);
   assert.equal(conflicts.can_import, false);
@@ -232,6 +248,9 @@ test("确认导入：文件指纹和商品版本号都对才写入，全部成�
   // 再导入同一份（换新的键）：现在第 3、4 行会和刚写进去的重叠，整份拒绝
   const again = await upload(path, file, { version: seen.version + 1 });
   assert.deepEqual([again.status, again.body.error.code, again.body.error.details.summary], [409, "IMPORT_NOT_CLEAN", { rows: 3, create: 0, update: 0, unchanged: 1, error: 0, conflict: 2 }]);
+  // 被拒时 details.preview 就是这次重新校验的完整结果，和再调一次预览接口拿到的一模一样
+  assert.deepEqual(again.body.error.details.preview, await preview(id, file));
+  assert.deepEqual(again.body.error.details.preview.rows.map((row: any) => row.action), ["unchanged", "conflict", "conflict"]);
   // 有一行出错的文件：整份不写
   const bad = sheet([TRANSFER_HEADER, fixedRow({ 车型组: "VG-ECO-4", 方向: "送机" }), fixedRow({ 车型组: "VG-ECO-4", 方向: "接机", 基础价: "很多" })]);
   const refused = await upload(`/products/${id}/price-rules/import?file_sha256=${sha(bad)}`, bad, { version: seen.version + 1 });
@@ -329,6 +348,21 @@ test("库存的导出和导入：每天一行，留空 = 清除；预览逐行�
   ]);
   const refused = await upload(`/products/${id}/inventory/import?file_sha256=${sha(file)}`, file, { version: 3 });
   assert.deepEqual([refused.status, refused.body.error.code], [409, "IMPORT_NOT_CLEAN"]);
+  assert.deepEqual(refused.body.error.details.preview, seen, "被拒时带着完整的检查结果");
+  // 过去的日子：原样留着算「没变」（导出一整个月、只改后半个月不会被前半个月挡住）；改了才出错
+  await api.db.owner.query("insert into inventory_days (tenant_id, product_id, day, total, created_at, updated_at) values ($1, $2, '2026-10-05', 4, now(), now())", [tenant.tenantId, id]);
+  const month = await download(`/products/${id}/inventory/export?from=2026-10-04&to=2026-10-10`);
+  assert.deepEqual(month.rows.slice(1, 4), [["2026-10-04"], ["2026-10-05", "4"], ["2026-10-06"]]);
+  const untouched = await ok(upload(`/products/${id}/inventory/import/preview`, month.bytes));
+  assert.deepEqual([untouched.summary, untouched.rows.slice(0, 3).map((row: any) => [row.date, row.action])], [{ rows: 7, set: 0, clear: 0, unchanged: 7, error: 0, conflict: 0 }, [["2026-10-04", "unchanged"], ["2026-10-05", "unchanged"], ["2026-10-06", "unchanged"]]]);
+  const edited = await ok(upload(`/products/${id}/inventory/import/preview`, writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], ["2026-10-04", num(1)], ["2026-10-05", null], ["2026-10-05", num(4)], ["2026-10-09", num(6)]] }])));
+  assert.deepEqual(edited.rows.map((row: any) => [row.date, row.action, row.issues.map((issue: any) => `${issue.cell} ${issue.reason}`)]), [
+    ["2026-10-04", "error", ["A2 DATE_IN_PAST"]],
+    ["2026-10-05", "error", ["A3 DATE_IN_PAST"]],
+    ["2026-10-05", "error", ["A4 DUPLICATE"]],
+    ["2026-10-09", "set", []],
+  ]);
+  assert.match(edited.rows[0].issues[0].message, /已经过去了.*改回原来的数/);
   // 干净的文件
   const good = writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], ["2026-10-09", num(3)], ["2026-10-10", num(5)], ["2026-10-11", null], ["2026-10-12", num(2)], ["2026-10-13", num(0)]] }]);
   const path = `/products/${id}/inventory/import?file_sha256=${sha(good)}`;
@@ -350,6 +384,42 @@ test("库存的导出和导入：每天一行，留空 = 清除；预览逐行�
   assert.deepEqual([invalid.status, invalid.body.error.details.reason, invalid.body.error.details.columns], [400, "MISSING_COLUMNS", ["可售单数"]]);
   const many = await upload(`/products/${id}/inventory/import/preview`, writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], ...Array.from({ length: 367 }, (): XlsxWriteCell[] => [TODAY, num(1)])] }]));
   assert.equal(many.body.error.details.reason, "TOO_MANY_ROWS");
+});
+
+/** 把我们写出的文件重新打包：可以改工作簿的声明、换压缩包的写法——模拟别的软件另存之后的样子。 */
+function repack(file: Buffer, options: { workbook?: (xml: string) => string; zip?: TestZipOptions } = {}): Buffer {
+  const names = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml"];
+  const parts = names.map((name) => {
+    const content = unzipEntry(file, name);
+    return { name, content: name === "xl/workbook.xml" && options.workbook ? Buffer.from(options.workbook(content.toString("utf8")), "utf8") : content };
+  });
+  return buildZip([...parts, { name: "docProps/app.xml", content: Buffer.from("<Properties><Application>Microsoft Excel</Application></Properties>") }], options.zip ?? {});
+}
+
+test("别的软件另存过的文件：数据不在第一张表（按表名找）、1904 纪元的日期序号、ZIP64 和数据描述符的压缩包——导入的结果和原文件一样", async () => {
+  const id = await product();
+  // 说明排在前面，数据在第二张：按表名「价格」找到
+  const rows = [TRANSFER_HEADER, fixedRow({ 生效开始: num(46296) })];
+  const helpFirst = writeXlsx([{ name: "填写说明", rows: [["区域", "车型组"], ["这一张不是数据"]] }, { name: "价格", rows }]);
+  const seen = await preview(id, helpFirst);
+  assert.deepEqual([seen.summary.create, seen.summary.error, seen.rows[0].content.area, seen.rows[0].content.valid_from], [1, 0, "东京市区", "2026-10-01"]);
+  // 同一个序号，文件声明了 1904 纪元：是另一天
+  const mac = repack(helpFirst, { workbook: (xml) => xml.replace("<sheets>", '<workbookPr date1904="1"/><sheets>') });
+  assert.equal((await preview(id, mac)).rows[0].content.valid_from, "2030-10-02");
+  // 压缩包换一种写法：内容不变，结果不变（文件指纹跟着字节变）
+  for (const zip of [{ zip64: true }, { dataDescriptor: true }, { zip64: true, dataDescriptor: true, level: 1 }] satisfies TestZipOptions[]) {
+    const again = await preview(id, repack(helpFirst, { zip }));
+    assert.deepEqual([again.summary, again.rows], [seen.summary, seen.rows], JSON.stringify(zip));
+    assert.notEqual(again.file_sha256, seen.file_sha256);
+  }
+  // 库存：1904 纪元的日期序号
+  await ok(call("PUT", `/products/${id}/inventory`, { version: 1, body: { mode: "limited" } }));
+  const stock = repack(writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], [num(44843), num(3)]] }, { name: "填写说明", rows: [["说明"]] }]), { workbook: (xml) => xml.replace("<sheets>", '<workbookPr date1904="true"/><sheets>'), zip: { zip64: true } });
+  const stockSeen = await ok(upload(`/products/${id}/inventory/import/preview`, stock));
+  assert.deepEqual(stockSeen.rows.map((row: any) => [row.date, row.action, row.total]), [["2026-10-10", "set", 3]]);
+  const done = await upload(`/products/${id}/inventory/import?file_sha256=${sha(stock)}`, stock, { version: 2 });
+  assert.equal(done.status, 200);
+  assert.deepEqual((await ok(call("GET", `/products/${id}/inventory?from=2026-10-10&to=2026-10-10`))).days.map((day: any) => [day.date, day.total]), [["2026-10-10", 3]]);
 });
 
 test("权限：导出要能看（只读可以），预览和导入要能改（只读不行）；调度和财务都不行；应答里没有对外价和加价比例", async () => {
@@ -396,7 +466,9 @@ test("接口定义对账：库存和导入导出应答的字段和 openapi.yaml 
   same(stockPreview, schema("InventoryImportPreview").required, "InventoryImportPreview");
   same(stockPreview.summary, schema("InventoryImportSummary").required, "InventoryImportSummary");
   same(stockPreview.rows[0], schema("InventoryImportPreview").properties.rows.items.required, "InventoryImportPreview.rows[]");
-  same(stockPreview.rows[1].issues[0], schema("InventoryImportPreview").properties.rows.items.properties.issues.items.required, "issues[]");
+  same(stockPreview.rows[1].issues[0], schema("ImportCellIssue").required, "issues[]");
+  assert.ok(schema("ImportCellIssue").properties.reason.enum.includes(stockPreview.rows[1].issues[0].reason));
+  same(view.ahead, schema("Inventory").properties.ahead.required, "Inventory.ahead");
   const good = writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], [TODAY, num(4)]] }]);
   same(await ok(upload(`/products/${id}/inventory/import?file_sha256=${sha(good)}`, good, { version: stockPreview.version })), schema("InventoryImportResult").required, "InventoryImportResult");
   const file = sheet([TRANSFER_HEADER, fixedRow(), fixedRow({ 生效开始: "2027-01-01" })]);
@@ -404,6 +476,7 @@ test("接口定义对账：库存和导入导出应答的字段和 openapi.yaml 
   same(pricePreview, schema("PriceImportPreview").required, "PriceImportPreview");
   same(pricePreview.summary, schema("ImportSummary").required, "ImportSummary");
   same(pricePreview.rows[0], schema("PriceImportPreview").properties.rows.items.required, "PriceImportPreview.rows[]");
+  same(pricePreview.rows[0].content, schema("PriceImportPreview").properties.rows.items.properties.content.required, "PriceImportPreview.rows[].content");
   same(pricePreview.rows[0].conflicts_with[0], schema("PriceImportPreview").properties.rows.items.properties.conflicts_with.items.required, "conflicts_with[]");
   const clean = sheet([TRANSFER_HEADER, fixedRow()]);
   const imported = await ok(upload(`/products/${id}/price-rules/import?file_sha256=${sha(clean)}`, clean, { version: pricePreview.version }));

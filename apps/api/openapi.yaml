@@ -3661,7 +3661,7 @@ paths:
       description: |
         需要操作 `product.read`。一段日期里（两端都含，最多 366 天）每天的可售总数、已预占、已售、剩余。日期是商品所在城市当地的用车日期；过去的日子也可以看。
         库存模式：`unlimited` 不限量（默认，每天的数不起作用）/ `limited` 限量——**限量时没设过的日子不可售**，设成 0 = 这一天停售。
-        每天的 `status`：`unlimited` / `unset`（限量但没设）/ `closed`（停售）/ `sold_out`（占满）/ `open`。现在还没有订单，`held`、`sold` 恒为 0（下单预占、支付扣减是 M3）。
+        每天的 `status`：`unlimited` / `unset`（限量但没设）/ `closed`（停售）/ `sold_out`（占满）/ `open`。`ahead` 是从今天起整段可设日子的概况。现在还没有订单，`held`、`sold` 恒为 0（下单预占、支付扣减是 M3）。
       security:
         - tenantToken: []
       parameters:
@@ -3793,6 +3793,8 @@ paths:
       description: |
         需要操作 `product.manage`。上传填好的库存表，逐行返回结果：`set` 设成一个数、`clear` 清除（那一格留空）、`unchanged` 和现在一样、
         `error` 写得不对（`issues[]` 指到单元格）、`conflict` 这一天有订单占着不能改成这个数（`occupied`）。最多 366 行。什么都不写。
+        过去的日子：和现在的数一样算 `unchanged`（导出一整个月、只改后半个月不会被前半个月挡住），改了才是 `error`（`DATE_IN_PAST`）。
+        文件里有叫「库存」的工作表就读它，没有就读第一张。
         应答里的 `file_sha256` 和 `version` 在确认导入时原样带回来。
       security:
         - tenantToken: []
@@ -3877,7 +3879,7 @@ paths:
           description: |
             - `IMPORT_FILE_CHANGED`：这次上传的文件和预览时的不是同一份（指纹对不上）
             - `VERSION_CONFLICT`：预览之后商品被别人改过，请重新预览
-            - `IMPORT_NOT_CLEAN`：文件里有出错或冲突的行，或者没有要改的内容（`details.summary`）；什么都没写
+            - `IMPORT_NOT_CLEAN`：文件里有出错或冲突的行，或者没有要改的内容；什么都没写。`details.summary` 是各类行数，`details.preview` 是这次重新校验的完整结果（和预览接口的应答同一个结构）
             - `PUBLISH_CHECK_FAILED`：商品已上架，导入之后就不满足上架条件了
             - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
             - `INVENTORY_BELOW_OCCUPIED` 不会出现在这里：有占用的行在校验时就是 `conflict`
@@ -3915,6 +3917,7 @@ paths:
       summary: 导出价格规则 / 下载模版（Excel）
       description: |
         需要操作 `product.read`。`rows=all`（默认）导出现有的全部价格；`rows=none` 只有表头——就是空白模版，不预置任何价格。
+        失败时（商品不存在、没有权限）返回统一的 JSON 错误格式，`Content-Type` 是 `application/json`。
         列按品类不同（接送机有「方向」，包车是套餐的几列）。金额是子品牌币种的**主单位**（日元整数、美元两位小数）。
         第二张表「填写说明」列出这个商品可以填的区域（名称）、车型组（编码）和各列怎么填。以 `= + - @` 开头的文字前面加了单引号，Excel 不会把它当公式。
       security:
@@ -3941,7 +3944,8 @@ paths:
         需要操作 `product.manage`。上传填好的价格表（最多 500 行），逐行返回结果：`create` 新增（「价格编号」空着）、`update` 修改（带着导出的编号）、
         `unchanged`、`error`（`issues[]` 每条有 `cell`（如 `F7`）、`column`、`reason`、`message`）、`conflict`（生效日期和 `conflicts_with` 里的重叠：同一个文件里的行给 `row`，库里没动的价格给 `price_rule_id`）。
         校验和页面保存是同一套；另外：区域按名称认、车型组按编码认；金额按字符换成最小货币单位，小数位超过币种精度报 `PRECISION`，不四舍五入；
-        带公式的单元格报 `FORMULA`（不取它的值）；日期可以写 `2026-10-01` / `2026/10/1`，也认 Excel 的日期格。这里不能删除价格。什么都不写。
+        带公式的单元格报 `FORMULA`（不取它的值）；日期可以写 `2026-10-01` / `2026/10/1`，也认 Excel 的日期格（1900 和 1904 两种纪元）。这里不能删除价格。什么都不写。
+        每一行的 `content` 是它读到的内容（区域、车型组、方向 / 套餐、主价格、生效日期），新增的行也有。文件里有叫「价格」的工作表就读它，没有就读第一张。
       security:
         - tenantToken: []
       parameters:
@@ -4026,7 +4030,7 @@ paths:
           description: |
             - `IMPORT_FILE_CHANGED`：这次上传的文件和预览时的不是同一份（指纹对不上）
             - `VERSION_CONFLICT`：预览之后商品被别人改过，请重新预览
-            - `IMPORT_NOT_CLEAN`：文件里有出错或冲突的行，或者没有要改的内容（`details.summary`）；什么都没写
+            - `IMPORT_NOT_CLEAN`：文件里有出错或冲突的行，或者没有要改的内容；什么都没写。`details.summary` 是各类行数，`details.preview` 是这次重新校验的完整结果（和预览接口的应答同一个结构）
             - `PUBLISH_CHECK_FAILED`：商品已上架，导入之后就不满足上架条件了
             - `CONCURRENT_UPDATE`：和别人同时进行的修改撞上了，请重试
           content:
@@ -7366,20 +7370,28 @@ components:
     PriceOverview:
       type: object
       additionalProperties: false
-      required: [products_with_price, products_without_price]
+      required: [products_with_price, products_without_price, published_without_inventory]
       properties:
         products_with_price:
           type: integer
         products_without_price:
           type: integer
+        published_without_inventory:
+          type: integer
+          description: 已上架的商品里，库存是限量而从今天起没有可售库存的有几个（上了架却报不出价）
         items:
           type: array
           description: 每个商品的概况；带了 `summary=1` 时没有这个字段
           items:
             type: object
             additionalProperties: false
-            required: [product_id, code, status, category, title, city, coverage, price_rule_count, has_active_price, active_price_rule_count, enabled_adjust_rule_count]
+            required: [product_id, code, status, category, title, city, coverage, inventory_mode, no_inventory_ahead, price_rule_count, has_active_price, active_price_rule_count, enabled_adjust_rule_count]
             properties:
+              inventory_mode:
+                $ref: "#/components/schemas/InventoryModeName"
+              no_inventory_ahead:
+                type: boolean
+                description: 库存是限量、而从城市当地的今天起没有一天还有可售库存。不限量时恒为 false
               city:
                 type: object
                 additionalProperties: false
@@ -7517,7 +7529,7 @@ components:
     Inventory:
       type: object
       additionalProperties: false
-      required: [version, mode, today, days]
+      required: [version, mode, today, ahead, days]
       properties:
         version:
           type: integer
@@ -7529,6 +7541,19 @@ components:
           type: string
           format: date
           description: 商品所在城市当地的今天
+        ahead:
+          type: object
+          additionalProperties: false
+          required: [sellable_days, last_set_date]
+          description: 从今天起能设库存的整段日子（730 天）的概况，和请求的日期范围无关
+          properties:
+            sellable_days:
+              type: integer
+              description: 还有剩余库存的有几天
+            last_set_date:
+              type: [string, "null"]
+              format: date
+              description: 设过库存的最晚一天；没设过为 null
         days:
           type: array
           items:
@@ -7584,7 +7609,7 @@ components:
     InventoryBatchResult:
       type: object
       additionalProperties: false
-      required: [version, mode, today, days, changed_days]
+      required: [version, mode, today, ahead, days, changed_days]
       properties:
         version:
           type: integer
@@ -7596,6 +7621,19 @@ components:
           type: string
           format: date
           description: 商品所在城市当地的今天
+        ahead:
+          type: object
+          additionalProperties: false
+          required: [sellable_days, last_set_date]
+          description: 从今天起能设库存的整段日子（730 天）的概况，和请求的日期范围无关
+          properties:
+            sellable_days:
+              type: integer
+              description: 还有剩余库存的有几天
+            last_set_date:
+              type: [string, "null"]
+              format: date
+              description: 设过库存的最晚一天；没设过为 null
         days:
           type: array
           items:
@@ -7669,8 +7707,41 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [row, action, price_rule_id, issues, conflicts_with]
+            required: [row, action, price_rule_id, content, issues, conflicts_with]
             properties:
+              content:
+                type: object
+                additionalProperties: false
+                required: [area, vehicle_group, direction, package_hours, pricing_model, main_price, valid_from, valid_to, status]
+                description: 这一行读到的内容（确认前核对用），新增的行也有。读不出来的项是 null
+                properties:
+                  area:
+                    type: [string, "null"]
+                    description: 区域的名称；没认出来时是表里填的原文
+                  vehicle_group:
+                    type: [string, "null"]
+                    description: 车型组的编码；没认出来时是表里填的原文
+                  direction:
+                    oneOf:
+                      - $ref: "#/components/schemas/PriceDirection"
+                      - type: "null"
+                  package_hours:
+                    type: [integer, "null"]
+                  pricing_model:
+                    oneOf:
+                      - $ref: "#/components/schemas/PricingModel"
+                      - type: "null"
+                  main_price:
+                    type: [integer, "null"]
+                    description: 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价
+                  valid_from:
+                    type: [string, "null"]
+                    format: date
+                  valid_to:
+                    type: [string, "null"]
+                    format: date
+                  status:
+                    $ref: "#/components/schemas/RuleStatus"
               row:
                 type: integer
                 description: Excel 里的行号（表头是第 1 行）
@@ -7683,27 +7754,25 @@ components:
               issues:
                 type: array
                 items:
-                  type: object
-                  additionalProperties: false
-                  required: [cell, column, reason, message]
-                  properties:
-                    cell:
-                      type: string
-                      description: Excel 里的位置，如 `F7`
-                    column:
-                      type: string
-                      description: 那一列的表头
-                    reason:
-                      type: string
-                    message:
-                      type: string
+                  $ref: "#/components/schemas/ImportCellIssue"
               conflicts_with:
                 type: array
                 items:
                   type: object
                   additionalProperties: false
-                  required: [row, price_rule_id, valid_from, valid_to]
+                  required: [row, price_rule_id, area, vehicle_group, direction, package_hours, valid_from, valid_to]
+                  description: 和它重叠的那一条：直接带着组合的文字和日期。`price_rule_id` 一定是这个商品的价格
                   properties:
+                    area:
+                      type: [string, "null"]
+                    vehicle_group:
+                      type: [string, "null"]
+                    direction:
+                      oneOf:
+                        - $ref: "#/components/schemas/PriceDirection"
+                        - type: "null"
+                    package_hours:
+                      type: [integer, "null"]
                     row:
                       type: [integer, "null"]
                       description: 同一个文件里的哪一行
@@ -7778,20 +7847,7 @@ components:
               issues:
                 type: array
                 items:
-                  type: object
-                  additionalProperties: false
-                  required: [cell, column, reason, message]
-                  properties:
-                    cell:
-                      type: string
-                      description: Excel 里的位置，如 `F7`
-                    column:
-                      type: string
-                      description: 那一列的表头
-                    reason:
-                      type: string
-                    message:
-                      type: string
+                  $ref: "#/components/schemas/ImportCellIssue"
     InventoryImportResult:
       type: object
       additionalProperties: false
@@ -7803,3 +7859,47 @@ components:
           type: integer
         summary:
           $ref: "#/components/schemas/InventoryImportSummary"
+    ImportCellIssue:
+      type: object
+      additionalProperties: false
+      required: [cell, column, reason, message]
+      description: 表格里一个单元格的问题。`message` 是给供应商看的中文，说清这一格怎么改，页面可以直接显示
+      properties:
+        cell:
+          type: string
+          description: Excel 里的位置，如 `F7`
+        column:
+          type: string
+          description: 那一列的表头
+        reason:
+          type: string
+          enum:
+            - REQUIRED
+            - FORMULA
+            - NOT_A_NUMBER
+            - NOT_INTEGER
+            - PRECISION
+            - OUT_OF_RANGE
+            - INVALID_DATE
+            - DATE_RANGE_REVERSED
+            - DATE_IN_PAST
+            - TOO_FAR_AHEAD
+            - DUPLICATE
+            - UNKNOWN_VALUE
+            - NOT_APPLICABLE
+            - MODEL_NOT_ALLOWED
+            - UNKNOWN_PRICE_RULE
+            - AREA_NOT_IN_PRODUCT
+            - VEHICLE_GROUP_NOT_IN_PRODUCT
+            - AMBIGUOUS
+            - INVENTORY_BELOW_OCCUPIED
+          description: |
+            `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
+            `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
+            `INVALID_DATE` 日期认不出；`DATE_RANGE_REVERSED` 结束早于开始；`DATE_IN_PAST` 过去的日子的库存被改了；`TOO_FAR_AHEAD` 太远；
+            `DUPLICATE` 同一个价格编号 / 同一天出现了两次；`UNKNOWN_VALUE` 方向、计价方式、状态填了不认识的词；
+            `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
+            `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
+            `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
+        message:
+          type: string

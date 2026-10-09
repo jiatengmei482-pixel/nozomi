@@ -184,6 +184,9 @@ export interface ProductPriceOverview {
   city: { id: string; name: LocalizedText };
   /** 商品所在城市当地的今天 */
   today: string;
+  inventoryMode: "unlimited" | "limited";
+  /** 限量、而从城市当地的今天起没有一天还有可售库存（客人询价时报不出价）。不限量时恒为假 */
+  noInventoryAhead: boolean;
   priceRuleCount: number;
   /** 启用且没过期（按商品所在城市当地的今天）的价格规则条数 */
   activePriceRuleCount: number;
@@ -195,6 +198,11 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
   const result = await db.query<Row>(
     `select p.id, p.code, p.status, p.category, p.content, c.id as city_id, c.name as city_name,
             ($2::timestamptz at time zone c.timezone)::date::text as today,
+            p.inventory_mode,
+            (p.inventory_mode = 'limited' and not exists (
+               select 1 from inventory_days d
+                where d.tenant_id = p.tenant_id and d.product_id = p.id and d.vehicle_group_id is null
+                  and d.day >= ($2::timestamptz at time zone c.timezone)::date and d.total - d.held - d.sold > 0)) as no_inventory_ahead,
             (select count(*)::int from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id) as price_rule_count,
             (select count(*)::int from price_rules r
               where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
@@ -214,6 +222,8 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
     title: Object.fromEntries(Object.entries(row["content"] as Record<string, { title: string | null }>).flatMap(([language, text]) => (text.title === null ? [] : [[language, text.title]]))),
     city: { id: row["city_id"], name: row["city_name"] },
     today: row["today"],
+    inventoryMode: row["inventory_mode"],
+    noInventoryAhead: row["no_inventory_ahead"],
     priceRuleCount: row["price_rule_count"],
     activePriceRuleCount: row["active_price_rule_count"],
     enabledAdjustRuleCount: row["enabled_adjust_rule_count"],

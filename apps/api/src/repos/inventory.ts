@@ -49,6 +49,16 @@ export async function clearInventoryDays(db: Db, tenantId: string, productId: st
   await db.query("delete from inventory_days where tenant_id = $1 and product_id = $2 and vehicle_group_id is null and day = any($3::date[]) and held = 0 and sold = 0", [tenantId, productId, dates]);
 }
 
+/** 从这一天起（含）到 `to`（含）：还有剩余库存的日子有几天，和设过库存的最晚一天（没设过为 null）。 */
+export async function inventoryAhead(db: Db, tenantId: string, productId: string, from: string, to: string): Promise<{ sellableDays: number; lastSetDate: string | null }> {
+  const result = await db.query<{ sellable: number; last_set: string | null }>(
+    `select count(*) filter (where total - held - sold > 0)::int as sellable, max(day)::text as last_set
+       from inventory_days where tenant_id = $1 and product_id = $2 and vehicle_group_id is null and day between $3 and $4`,
+    [tenantId, productId, from, to],
+  );
+  return { sellableDays: result.rows[0]?.sellable ?? 0, lastSetDate: result.rows[0]?.last_set ?? null };
+}
+
 /** 从这一天起（含）还有剩余库存的日子有几天（上架校验的提醒用）。 */
 export async function countSellableDays(db: Db, tenantId: string, productId: string, from: string): Promise<number> {
   const result = await db.query<{ n: number }>(
