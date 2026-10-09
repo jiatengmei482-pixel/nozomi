@@ -6,13 +6,14 @@ import { Outlet, Route, Routes } from "react-router";
 import { PortalSession } from "./auth/PortalSession.tsx";
 import { ToastProvider } from "./components/Toast.tsx";
 import { AREA_LIST_PATH, AREA_NEW_PATH } from "./lib/area-paths.ts";
-import { PRODUCT_LIST_PATH } from "./lib/product-paths.ts";
+import { PRODUCT_LIST_PATH, PRODUCT_NEW_PATH } from "./lib/product-paths.ts";
 import { PORTALS, type Portal } from "./lib/portal.ts";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { AreaEditorPage } from "./pages/areas/AreaEditorPage.tsx";
 import { AreaListPage } from "./pages/areas/AreaListPage.tsx";
+import { ProductEditorPage } from "./pages/products/ProductEditorPage.tsx";
 import { ProductListPage } from "./pages/products/ProductListPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
 import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
@@ -42,6 +43,9 @@ function portalRoutes(portal: Portal) {
             <Route path={AREA_NEW_PATH} element={<AreaEditorPage key="new" />} />
             <Route path={`${AREA_LIST_PATH}/:id`} element={<AreaEditorPage />} />
             <Route path={PRODUCT_LIST_PATH} element={<ProductListPage />} />
+            <Route path={PRODUCT_NEW_PATH} element={<ProductEditorPage key="new" />} />
+            <Route path={`${PRODUCT_LIST_PATH}/:id`} element={<ProductEditorPage />} />
+            <Route path={`${PRODUCT_LIST_PATH}/:id/:step`} element={<ProductEditorPage />} />
           </>
         )}
         <Route path={paths.changePassword} element={<ChangePasswordPage />} />
