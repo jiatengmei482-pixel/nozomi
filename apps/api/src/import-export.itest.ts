@@ -482,3 +482,115 @@ test("接口定义对账：库存和导入导出应答的字段和 openapi.yaml 
   const imported = await ok(upload(`/products/${id}/price-rules/import?file_sha256=${sha(clean)}`, clean, { version: pricePreview.version }));
   same(imported, [...schema("PriceRules").required, "summary"], "PriceImportResult");
 });
+
+/** 直接写工作表的 XML（模拟 Excel 存盘的各种单元格类型）：`cells` 是每一行的单元格 XML，第一行是表头。 */
+function rawSheet(name: string, header: readonly string[], rows: readonly string[][]): Buffer {
+  const inline = (text: string): string => `<c t="inlineStr"><is><t>${text}</t></is></c>`;
+  const data = [header.map(inline), ...rows].map((cells, index) => `<row r="${index + 1}">${cells.join("")}</row>`).join("");
+  return buildZip([
+    { name: "xl/workbook.xml", content: Buffer.from(`<workbook xmlns:r="x"><sheets><sheet name="${name}" r:id="rId1"/></sheets></workbook>`) },
+    { name: "xl/_rels/workbook.xml.rels", content: Buffer.from('<Relationships><Relationship Id="rId1" Type="t" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: "xl/worksheets/sheet1.xml", content: Buffer.from(`<worksheet><sheetData>${data}</sheetData></worksheet>`) },
+  ]);
+}
+const cellText = (text: string): string => `<c t="inlineStr"><is><t>${text}</t></is></c>`;
+const cellNumber = (text: string): string => `<c><v>${text}</v></c>`;
+const BLANK = "<c/>";
+
+test("Excel 存盘的数字：17 位有效数字的金额和里程读回用户填的数；存成文字的按敲的字符；逻辑值、错误值在数字和日期列里报到单元格，不变成 1", async () => {
+  const usd = await product("airport_transfer", "usd");
+  // 价格编号 区域 车型组 方向 计价方式 基础价 起步价 起步里程 起步时长 每公里 每分钟 最低消费 生效开始 生效结束 状态
+  const fixed = (price: string, from: string, extra: { validFrom?: string } = {}): string[] => [BLANK, cellText("东京市区"), cellText("VG-BIZ-7"), cellText("接送通用"), cellText("一口价"), price, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, extra.validFrom ?? cellText(`${from}-01-01`), cellText(`${from}-12-31`), BLANK];
+  const metered = (km: string, from: string): string[] => [BLANK, cellText("东京市区"), cellText("VG-BIZ-7"), cellText("接送通用"), cellText("里程+时长"), BLANK, cellNumber("30.5"), km, cellNumber("20"), cellNumber("3.2999999999999998"), cellNumber("0.57999999999999996"), BLANK, cellText(`${from}-01-01`), cellText(`${from}-12-31`), BLANK];
+  const file = rawSheet("价格", TRANSFER_HEADER, [
+    fixed(cellNumber("19.989999999999998"), "2030"),
+    fixed(cellNumber("1234.5599999999999"), "2031"),
+    fixed(cellText("19.989999999999998"), "2032"),
+    fixed(cellNumber("0.30000000000000004"), "2033"),
+    fixed('<c t="b"><v>1</v></c>', "2034"),
+    fixed('<c t="e"><v>#N/A</v></c>', "2035"),
+    fixed(cellNumber("20"), "2036", { validFrom: '<c t="b"><v>1</v></c>' }),
+    metered(cellNumber("5.0999999999999996"), "2037"),
+    metered(cellNumber("-0.5"), "2038"),
+    metered(cellNumber("5.25"), "2039"),
+    metered(cellNumber("1000.1"), "2040"),
+    metered('<c t="b"><v>0</v></c>', "2041"),
+  ]);
+  const seen = await preview(usd, file);
+  assert.deepEqual(seen.rows.map((row: any) => [row.action, row.content.main_price, row.issues.map((issue: any) => `${issue.cell} ${issue.reason}`)]), [
+    ["create", 1_999, []],
+    ["create", 123_456, []],
+    ["error", null, ["F4 PRECISION"]],
+    ["error", null, ["F5 PRECISION"]],
+    ["error", null, ["F6 NOT_A_NUMBER"]],
+    ["error", null, ["F7 NOT_A_NUMBER"]],
+    ["error", 2_000, ["M8 INVALID_DATE"]],
+    ["create", 3_050, []],
+    ["error", 3_050, ["H10 OUT_OF_RANGE"]],
+    ["error", 3_050, ["H11 PRECISION"]],
+    ["error", 3_050, ["H12 OUT_OF_RANGE"]],
+    ["error", 3_050, ["H13 NOT_A_NUMBER"]],
+  ]);
+  assert.match(seen.rows[4].issues[0].message, /这一格是逻辑值 TRUE，不是数字/);
+  assert.match(seen.rows[5].issues[0].message, /这一格是错误值 #N\/A，不是数字/);
+  assert.match(seen.rows[8].issues[0].message, /起步里程要在 0 到 1000 公里之间/);
+  // 读对的那几行写进去：里程 5.1 公里 = 5100 米，单价 3.30 / 0.58 美元
+  const clean = rawSheet("价格", TRANSFER_HEADER, [metered(cellNumber("5.0999999999999996"), "2037")]);
+  const done = await ok(upload(`/products/${usd}/price-rules/import?file_sha256=${sha(clean)}`, clean, { version: seen.version }));
+  assert.deepEqual(done.items.map((item: any) => [item.start_price, item.start_meters, item.per_km, item.per_minute]), [[3_050, 5_100, 330, 58]]);
+  // 文字列里的逻辑值是它显示的字（认不出这个区域），不是 1
+  const named = await preview(usd, rawSheet("价格", TRANSFER_HEADER, [[BLANK, '<c t="b"><v>1</v></c>', cellText("VG-BIZ-7"), cellText("接送通用"), cellText("一口价"), cellNumber("20"), BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, cellText("2030-01-01"), BLANK, BLANK]]));
+  assert.deepEqual([named.rows[0].content.area, named.rows[0].issues.map((issue: any) => issue.reason)], ["TRUE", ["AREA_NOT_IN_PRODUCT"]]);
+  // 库存：逻辑值、错误值的可售单数；逻辑值的日期
+  const stock = rawSheet("库存", ["日期", "可售单数"], [[cellText("2026-10-20"), '<c t="b"><v>1</v></c>'], [cellText("2026-10-21"), '<c t="e"><v>#REF!</v></c>'], ['<c t="b"><v>1</v></c>', cellNumber("3")], [cellText("2026-10-22"), cellNumber("3.0000000000000004")], [cellNumber("46317"), cellNumber("3")]]);
+  const stockSeen = await ok(upload(`/products/${usd}/inventory/import/preview`, stock));
+  assert.deepEqual(stockSeen.rows.map((row: any) => [row.date, row.action, row.total, row.issues.map((issue: any) => `${issue.cell} ${issue.reason}`)]), [
+    ["2026-10-20", "error", null, ["B2 NOT_INTEGER"]],
+    ["2026-10-21", "error", null, ["B3 NOT_INTEGER"]],
+    [null, "error", 3, ["A4 INVALID_DATE"]],
+    ["2026-10-22", "error", null, ["B5 NOT_INTEGER"]],
+    ["2026-10-22", "error", 3, ["A6 DUPLICATE"]],
+  ]);
+  assert.match(stockSeen.rows[0].issues[0].message, /这一格是逻辑值 TRUE，不是数字/);
+});
+
+test("金额超出范围的提示写出确切的上限（按币种的主单位）；大得存不下的数是超出范围，不是「不是整数」", async () => {
+  const jpy = await product();
+  const usd = await product("airport_transfer", "usd");
+  const rows = (prices: XlsxWriteCell[]): Buffer => sheet([TRANSFER_HEADER, ...prices.map((price, index) => fixedRow({ 基础价: price, 生效开始: `203${index}-01-01`, 生效结束: `203${index}-12-31` }))]);
+  const file = rows([num("1000000001"), "1E+21", num("90071992547409920"), num("-100"), num("0"), num("1000000000")]);
+  const seen = await preview(jpy, file);
+  assert.deepEqual(seen.rows.map((row: any) => [row.action, row.issues.map((issue: any) => issue.reason)]), [["error", ["OUT_OF_RANGE"]], ["error", ["OUT_OF_RANGE"]], ["error", ["OUT_OF_RANGE"]], ["error", ["OUT_OF_RANGE"]], ["error", ["OUT_OF_RANGE"]], ["create", []]]);
+  for (const row of seen.rows.slice(0, 4)) assert.match(row.issues[0].message, /最多 1,000,000,000 JPY/);
+  assert.match(seen.rows[4].issues[0].message, /金额要大于 0，最多 1,000,000,000 JPY/);
+  const dollars = await preview(usd, rows([num("10000000.01"), num("10000000.00")]));
+  assert.deepEqual(dollars.rows.map((row: any) => [row.action, row.content.main_price]), [["error", null], ["create", 1_000_000_000]]);
+  assert.match(dollars.rows[0].issues[0].message, /最多 10,000,000\.00 USD/);
+  for (const body of [seen, dollars]) assert.doesNotMatch(JSON.stringify(body), /10 位数/);
+});
+
+test("确认导入时在同一个事务里锁着重新检查：检查和写入之间挤不进订单——被拒一律是 IMPORT_NOT_CLEAN 加最新的检查结果，不会是 INVENTORY_BELOW_OCCUPIED", async () => {
+  const id = await product();
+  await ok(call("PUT", `/products/${id}/inventory`, { version: 1, body: { mode: "limited" } }));
+  await ok(call("POST", `/products/${id}/inventory/batch-set`, { version: 2, body: { from: "2026-10-20", to: "2026-10-21", total: 5 } }));
+  const file = writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], ["2026-10-20", num(1)], ["2026-10-21", num(4)]] }]);
+  const seen = await ok(upload(`/products/${id}/inventory/import/preview`, file));
+  assert.equal(seen.can_import, true);
+  // 一笔下单正在占 10-20 的库存（事务还没提交，行被它锁着）；这时供应商确认导入
+  const order = await api.db.owner.connect();
+  let confirming: Promise<ApiResponse>;
+  try {
+    await order.query("begin");
+    await order.query("update inventory_days set held = 3 where product_id = $1 and day = '2026-10-20'", [id]);
+    confirming = upload(`/products/${id}/inventory/import?file_sha256=${seen.file_sha256}`, file, { version: seen.version });
+    const state = await Promise.race([confirming.then(() => "finished"), new Promise((resolve) => setTimeout(() => resolve("waiting"), 400))]);
+    assert.equal(state, "waiting", "确认要等这笔下单结束（它在检查的时候就去锁这一天了）");
+    await order.query("commit");
+  } finally {
+    order.release();
+  }
+  const refused = await confirming;
+  assert.deepEqual([refused.status, refused.body.error.code, refused.body.error.details.summary], [409, "IMPORT_NOT_CLEAN", { rows: 2, set: 1, clear: 0, unchanged: 0, error: 0, conflict: 1 }], refused.text);
+  assert.deepEqual(refused.body.error.details.preview.rows.map((row: any) => [row.date, row.action, row.occupied]), [["2026-10-20", "conflict", 3], ["2026-10-21", "set", null]]);
+  assert.deepEqual((await ok(call("GET", `/products/${id}/inventory?from=2026-10-20&to=2026-10-21`))).days.map((day: any) => [day.date, day.total]), [["2026-10-20", 5], ["2026-10-21", 5]], "什么都没写");
+});

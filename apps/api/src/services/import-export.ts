@@ -31,9 +31,10 @@ import {
   inventoryTotalIssue,
   isLocalDate,
   minorDigits,
-  parseMajor,
   plainDecimal,
   plainInteger,
+  scaledInteger,
+  storedNumberDecimal,
   pricingModelsFor,
   sheetDate,
 } from "@nozomi/domain";
@@ -117,30 +118,57 @@ class Sheet {
   }
 }
 
-/** 一行里读单元格的小工具：读到的问题记进 `issues`。 */
+/**
+ * 一行里读单元格的小工具：读到的问题记进 `issues`。
+ * 单元格的类型决定怎么读（xlsx.ts 给出的类型）：
+ * - 要文字的列：文字原样；数字取原文；逻辑值、错误值给它在表里显示的字（`TRUE`、`#N/A`），不会变成 `1`；
+ * - 要数字 / 日期的列：存成数字的按 `storedNumberDecimal`（Excel 把 19.99 存成 19.989999999999998，要读回 19.99），
+ *   存成文字的按用户敲的字符（`plainDecimal`）；逻辑值、错误值一律报「不是数字」到那个单元格；
+ * - 公式不取值，报到单元格。
+ */
 function rowReader(sheet: Sheet, row: number, issues: CellIssue[]) {
   const problem = (column: string, reason: string, message: string): null => {
     issues.push({ cell: sheet.cell(row, column).at, column, reason, message });
     return null;
   };
+  const FORMULA_MESSAGE = "这一格是公式。请把它改成数值（复制后「选择性粘贴 → 值」）";
   /** 单元格里的原文；空的返回 null；带公式的报错 */
   const text = (column: string): string | null => {
     const { value } = sheet.cell(row, column);
     if (value.type === "empty") return null;
-    if (value.type === "formula") return problem(column, "FORMULA", "这一格是公式。请把它改成数值（复制后「选择性粘贴 → 值」）");
+    if (value.type === "formula") return problem(column, "FORMULA", FORMULA_MESSAGE);
     const trimmed = value.text.trim();
     return trimmed === "" ? null : trimmed;
   };
-  const required = (column: string): string | null => text(column) ?? (issues.some((issue) => issue.column === column) ? null : problem(column, "REQUIRED", "必填"));
-  const integer = (column: string, raw: string | null): number | null => {
-    if (raw === null) return null;
-    return plainInteger(raw) ?? problem(column, "NOT_INTEGER", "必须是整数");
+  const missing = (column: string, required: boolean): null => (required && !issues.some((issue) => issue.column === column) ? problem(column, "REQUIRED", "必填") : null);
+  const required = (column: string): string | null => text(column) ?? missing(column, true);
+  /**
+   * 这一格里的数，写成普通的十进制字符串；空的返回 null（必填的记一条）。
+   * `reason` 是「不是数字」时用的原因代码：金额、里程列是 `NOT_A_NUMBER`，要整数的列是 `NOT_INTEGER`，日期列是 `INVALID_DATE`。
+   */
+  const decimal = (column: string, options: { required: boolean; reason: string; hint: string }): string | null => {
+    const { value } = sheet.cell(row, column);
+    if (value.type === "empty" || ((value.type === "text" || value.type === "number") && value.text.trim() === "")) return missing(column, options.required);
+    if (value.type === "formula") return problem(column, "FORMULA", FORMULA_MESSAGE);
+    if (value.type === "boolean") return problem(column, options.reason, `这一格是逻辑值 ${value.text}，不是数字。${options.hint}`);
+    if (value.type === "error") return problem(column, options.reason, `这一格是错误值 ${value.text}，不是数字。${options.hint}`);
+    const plain = value.type === "number" ? storedNumberDecimal(value.text) : plainDecimal(value.text);
+    return plain ?? problem(column, options.reason, options.hint);
   };
-  const date = (column: string, raw: string | null): string | null => {
-    if (raw === null) return null;
-    return sheetDate(raw, { date1904: sheet.date1904 }) ?? problem(column, "INVALID_DATE", "不是合法的日期，请写成 2026-10-01 这样（不要带时间）");
+  const integer = (column: string, isRequired: boolean): number | null => {
+    const plain = decimal(column, { required: isRequired, reason: "NOT_INTEGER", hint: "必须是整数" });
+    if (plain === null) return null;
+    return plainInteger(plain) ?? problem(column, "NOT_INTEGER", "必须是整数");
   };
-  return { problem, text, required, integer, date };
+  const DATE_HINT = "不是合法的日期，请写成 2026-10-01 这样（不要带时间）";
+  const date = (column: string, isRequired: boolean): string | null => {
+    const { value } = sheet.cell(row, column);
+    // 存成文字的日期按写法认；存成数字的是 Excel 的日期序号
+    const raw = value.type === "text" ? (value.text.trim() === "" ? missing(column, isRequired) : value.text) : decimal(column, { required: isRequired, reason: "INVALID_DATE", hint: DATE_HINT });
+    if (raw === null) return null;
+    return sheetDate(raw, { date1904: sheet.date1904 }) ?? problem(column, "INVALID_DATE", DATE_HINT);
+  };
+  return { problem, text, required, decimal, integer, date };
 }
 
 // ---- 价格规则 ----
@@ -210,7 +238,6 @@ const FIELD_COLUMNS: Readonly<Record<string, string>> = {
 
 /** 保存时的检查报出来的问题，换成对着表格说的话（告诉供应商这一格怎么改）。 */
 const SAVE_MESSAGES: Readonly<Record<string, string>> = {
-  OUT_OF_RANGE: "这个数超出了允许的范围：金额要大于 0（最多 10 位数），套餐时长 1 到 72 小时，套餐公里 1 到 5000。请检查是不是多打或少打了位数",
   NOT_INTEGER: "这一格只能填整数，请去掉小数",
   DATE_RANGE_REVERSED: "「生效结束」不能早于「生效开始」，请改其中一个",
   INVALID_DATE: "不是合法的日期，请写成 2026-10-01 这样",
@@ -218,6 +245,20 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   NOT_APPLICABLE: "这个商品的品类不填这一列，请留空",
   MODEL_NOT_ALLOWED: "这个商品的品类不能用这种计价方式，请按「填写说明」里列出的填",
 };
+
+/** 金额的上限写成这个币种的主单位（上限是 10 亿最小货币单位：日元 1,000,000,000，美元 10,000,000.00）。 */
+const amountLimitText = (currency: CurrencyCode): string => formatMajor(PRICE_LIMITS.maxAmountMinor, currency).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+const amountRangeMessage = (currency: CurrencyCode): string => `金额不能是负数，最多 ${amountLimitText(currency)} ${currency}。请检查是不是多打了位数`;
+
+/** 保存时的检查说「超出范围」：按是哪一列说清楚确切的范围。 */
+function outOfRangeMessage(column: string, currency: CurrencyCode): string {
+  if (column === P.packageHours) return `套餐时长要在 1 到 ${PRICE_LIMITS.maxPackageHours} 小时之间`;
+  if (column === P.packageKm) return `套餐公里要在 1 到 ${PRICE_LIMITS.maxPackageKm} 之间`;
+  if (column === P.startKm) return `起步里程要在 0 到 ${PRICE_LIMITS.maxStartMeters / 1_000} 公里之间，最多 1 位小数`;
+  if (column === P.startMinutes) return `起步时长要在 0 到 ${PRICE_LIMITS.maxStartMinutes} 分钟之间`;
+  const zeroAllowed = column === P.perKm || column === P.perMinute || column === P.overtime || column === P.overKm || column === P.startPrice;
+  return `金额要${zeroAllowed ? "不小于 0" : "大于 0"}，最多 ${amountLimitText(currency)} ${currency}。请检查是不是多打或少打了位数`;
+}
 
 const nameKey = (text: string): string => text.normalize("NFKC").trim().toLowerCase();
 const displayName = (name: LocalizedText): string => name.zh ?? name.ja ?? name.en ?? name.ko ?? "";
@@ -441,16 +482,14 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
       const value = words[nameKey(raw)] ?? words[raw.replace(/\s+/g, "")];
       return value ?? read.problem(column, "UNKNOWN_VALUE", `只能填：${options.join("、")}`);
     };
+    // 金额：表里填主单位，按字符换成最小货币单位（domain 的 scaledInteger：符号、小数位、范围都在那里统一处理）
     const amount = (column: string, optional = false): number | null => {
-      const raw = optional ? read.text(column) : read.required(column);
-      if (raw === null) return null;
-      const plain = plainDecimal(raw);
-      if (plain === null) return read.problem(column, "NOT_A_NUMBER", "必须是数字");
-      try {
-        return parseMajor(plain, currency);
-      } catch {
-        return read.problem(column, "PRECISION", minorDigits(currency) === 0 ? `${currency} 的金额只能是整数` : `${currency} 的金额最多 ${minorDigits(currency)} 位小数`);
-      }
+      const plain = read.decimal(column, { required: !optional, reason: "NOT_A_NUMBER", hint: "必须是数字（只填数字，不带币种符号）" });
+      if (plain === null) return null;
+      const scaled = scaledInteger(plain, minorDigits(currency), { min: 0, max: PRICE_LIMITS.maxAmountMinor });
+      if ("value" in scaled) return scaled.value;
+      if (scaled.issue === "PRECISION") return read.problem(column, "PRECISION", minorDigits(currency) === 0 ? `${currency} 的金额只能是整数` : `${currency} 的金额最多 ${minorDigits(currency)} 位小数`);
+      return read.problem(column, "OUT_OF_RANGE", amountRangeMessage(currency));
     };
     const blank = (allowed: readonly string[]): void => {
       for (const column of MODEL_COLUMNS) {
@@ -468,8 +507,8 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     content.vehicleGroup = groupId === null ? groupText : (names.groups.get(groupId)?.code ?? groupText);
     content.direction = direction;
     if (category === "charter") {
-      packageHours = read.integer(P.packageHours, read.required(P.packageHours));
-      const packageKm = read.integer(P.packageKm, read.required(P.packageKm));
+      packageHours = read.integer(P.packageHours, true);
+      const packageKm = read.integer(P.packageKm, true);
       const [packagePrice, overtime, overKm] = [amount(P.packagePrice), amount(P.overtime), amount(P.overKm)];
       Object.assign(content, { packageHours, pricingModel: "charter_package", mainPriceMinor: packagePrice });
       if (packageKm !== null && packagePrice !== null && overtime !== null && overKm !== null) pricing = { model: "charter_package", packageKm, packagePriceMinor: packagePrice, overtimePerHourMinor: overtime, overKmPerKmMinor: overKm };
@@ -486,24 +525,24 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
         blank([P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice]);
         const [startPrice, perKm, perMinute, minPrice] = [amount(P.startPrice), amount(P.perKm), amount(P.perMinute), amount(P.minPrice, true)];
         content.mainPriceMinor = startPrice;
-        const startMinutes = read.integer(P.startMinutes, read.required(P.startMinutes));
-        // 起步里程填公里（最多 1 位小数），按字符换成米
-        const kmText = read.required(P.startKm);
-        const kmPlain = kmText === null ? null : plainDecimal(kmText);
+        const startMinutes = read.integer(P.startMinutes, true);
+        // 起步里程填公里（最多 1 位小数），按字符换成百米再乘 100 得到米——和金额用同一个换算函数，负数、太大的数在这里就报到这一格
+        const kmPlain = read.decimal(P.startKm, { required: true, reason: "NOT_A_NUMBER", hint: "必须是数字" });
         let startMeters: number | null = null;
-        if (kmText !== null && kmPlain === null) read.problem(P.startKm, "NOT_A_NUMBER", "必须是数字");
-        else if (kmPlain !== null) {
-          const [whole = "0", fraction = ""] = kmPlain.split(".");
-          if (fraction.length > 1) read.problem(P.startKm, "PRECISION", "起步里程最多 1 位小数（精确到 0.1 公里）");
-          else startMeters = Number(whole) * 1_000 + Number(fraction.padEnd(1, "0")) * 100;
+        if (kmPlain !== null) {
+          const maxKm = PRICE_LIMITS.maxStartMeters / 1_000;
+          const scaled = scaledInteger(kmPlain, 1, { min: 0, max: PRICE_LIMITS.maxStartMeters / PRICE_LIMITS.startMetersStep });
+          if ("value" in scaled) startMeters = scaled.value * PRICE_LIMITS.startMetersStep;
+          else if (scaled.issue === "PRECISION") read.problem(P.startKm, "PRECISION", "起步里程最多 1 位小数（精确到 0.1 公里）");
+          else read.problem(P.startKm, "OUT_OF_RANGE", `起步里程要在 0 到 ${maxKm} 公里之间`);
         }
         if (startPrice !== null && perKm !== null && perMinute !== null && startMinutes !== null && startMeters !== null && !issues.some((issue) => issue.column === P.minPrice)) {
           pricing = { model: "mileage_time", startPriceMinor: startPrice, startMeters, startMinutes, perKmMinor: perKm, perMinuteMinor: perMinute, minPriceMinor: minPrice };
         }
       } else if (model === "charter_package") read.problem(P.model, "MODEL_NOT_ALLOWED", "这个品类不能用包车套餐");
     }
-    const validFrom = read.date(P.validFrom, read.required(P.validFrom));
-    const validTo = read.date(P.validTo, read.text(P.validTo));
+    const validFrom = read.date(P.validFrom, true);
+    const validTo = read.date(P.validTo, false);
     const status = word(P.status, STATUS_WORDS, Object.values(STATUS_NAMES)) ?? "enabled";
     Object.assign(content, { validFrom, validTo, status });
 
@@ -531,7 +570,8 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     if (!match || !target) throw fileInvalid("TOO_MANY_ROWS", issue.message);
     const column = FIELD_COLUMNS[(match[3] as string).split("/")[0] as string] ?? P.id;
     target.action = "error";
-    target.issues.push({ cell: sheet.cell(target.row - 1, column).at, column, reason: issue.reason ?? "INVALID", message: SAVE_MESSAGES[issue.reason ?? ""] ?? issue.message });
+    const message = issue.reason === "OUT_OF_RANGE" ? outOfRangeMessage(column, currency) : (SAVE_MESSAGES[issue.reason ?? ""] ?? issue.message);
+    target.issues.push({ cell: sheet.cell(target.row - 1, column).at, column, reason: issue.reason ?? "INVALID", message });
   }
   const rowOf = new Map<string, PriceImportRow>([...origin.update.map((row): [string, PriceImportRow] => [`id:${row.priceRuleId}`, row]), ...origin.create.map((row): [string, PriceImportRow] => [`ref:row:${row.row}`, row])]);
   for (const conflict of check.conflicts) {
@@ -653,7 +693,12 @@ export interface InventoryImportPreview {
   rows: InventoryImportRow[];
 }
 
-async function inventoryPreview(db: Db, tenantId: string, context: InventoryContext, bytes: Uint8Array): Promise<{ preview: InventoryImportPreview; changes: InventoryChange[] }> {
+/**
+ * 检查一份库存表。`lock`：确认导入时为真——读每一天现在的数和占用数的同时把这些天锁住，直到事务结束。
+ * 这样「检查」和「写入」之间不会再有订单挤进来：确认被拒时一律是 IMPORT_NOT_CLEAN 加最新的检查结果，
+ * 不会检查通过了、写的时候才发现被占用（那样返回的是另一个错误码，页面没法照着显示）。
+ */
+async function inventoryPreview(db: Db, tenantId: string, context: InventoryContext, bytes: Uint8Array, lock: boolean): Promise<{ preview: InventoryImportPreview; changes: InventoryChange[] }> {
   const sheet = new Sheet(sheetRows(bytes, INVENTORY_SHEET), [I.date, I.total]);
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxInventoryRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxInventoryRows} 行，这个文件有 ${dataRows.length} 行`, { max: IMPORT_LIMITS.maxInventoryRows, rows: dataRows.length });
@@ -663,8 +708,8 @@ async function inventoryPreview(db: Db, tenantId: string, context: InventoryCont
   for (const index of dataRows) {
     const issues: CellIssue[] = [];
     const read = rowReader(sheet, index, issues);
-    const date = read.date(I.date, read.required(I.date));
-    const total = read.integer(I.total, read.text(I.total));
+    const date = read.date(I.date, true);
+    const total = read.integer(I.total, false);
     let past = false;
     if (date !== null) {
       const dateIssue = inventoryDateIssue(date, context.today);
@@ -683,7 +728,7 @@ async function inventoryPreview(db: Db, tenantId: string, context: InventoryCont
   const dates = valid.map((row) => row.date as string).sort();
   const first = dates[0];
   const last = dates[dates.length - 1];
-  const current = new Map(first === undefined || last === undefined ? [] : (await listInventoryDays(db, tenantId, context.product.id, first, last)).map((day) => [day.date, day]));
+  const current = new Map(first === undefined || last === undefined ? [] : (await listInventoryDays(db, tenantId, context.product.id, first, last, { lock })).map((day) => [day.date, day]));
   const changes: InventoryChange[] = [];
   for (const row of valid) {
     const day = current.get(row.date as string) ?? null;
@@ -708,7 +753,7 @@ async function inventoryPreview(db: Db, tenantId: string, context: InventoryCont
 
 export function previewInventoryImport(ctx: AppContext, tenantId: string, productId: string, bytes: Uint8Array): Promise<InventoryImportPreview> {
   const now = ctx.now();
-  return readTx(ctx, tenantId, async (db) => (await inventoryPreview(db, tenantId, await loadInventoryContext(db, tenantId, productId, now, { lock: false }), bytes)).preview);
+  return readTx(ctx, tenantId, async (db) => (await inventoryPreview(db, tenantId, await loadInventoryContext(db, tenantId, productId, now, { lock: false }), bytes, false)).preview);
 }
 
 /** 确认导入库存：规则同价格的导入。写入用的是和批量设置同一段代码，审计日志记一条（带每一天的前后值）。 */
@@ -730,7 +775,7 @@ export function importInventory(
     const result = await runIdempotent(db, { tenantId, scope: idempotency.scope, key: idempotency.key, request: { productId, expectedVersion, fileSha256 }, now }, async () => {
       const context = await loadInventoryContext(db, tenantId, productId, now, { lock: true });
       if (context.product.version !== expectedVersion) throw versionConflict(context.product.version);
-      const { preview, changes } = await inventoryPreview(db, tenantId, context, bytes);
+      const { preview, changes } = await inventoryPreview(db, tenantId, context, bytes, true);
       if (!preview.canImport) throw notClean(preview.summary, previewJson(preview));
       const applied = await applyInventoryChanges(db, writer, context, changes, { source: "import", file_sha256: fileSha256 }, now);
       return { status: 200, body: { version: applied.version, changed_days: applied.changed.length, summary: preview.summary } };

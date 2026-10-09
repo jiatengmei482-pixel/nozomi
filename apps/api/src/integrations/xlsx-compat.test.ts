@@ -98,7 +98,7 @@ const EXPECTED = [
   ["东京市区", "20000", "46296", " 普通 ", "12000"],
   ["新宿区", "123.45", "2026-10-02", "서울 / 東京 / 𠮷野家", "0012"],
   ["合并的", "0.30000000000000004", "46298", null, "行内的字"],
-  [null, "文本结果", "1"],
+  [null, "文本结果", "TRUE"],
   [],
   [null, null],
   [],
@@ -174,7 +174,7 @@ test("WPS、LibreOffice、openpyxl 常见的写法：严格模式的命名空间
     { name: "xl/worksheets/sheet1.xml", content: Buffer.from(sheetXml) },
   ]);
   const sheet = readXlsxSheet(bytes, ["库存"]);
-  assert.deepEqual(sheet.rows.map(text), [["日期", "可售单数"], ["2026-10-09", "3"], ["2026-10-10T00:00:00Z", "5.0"], ["#N/A", "0"]]);
+  assert.deepEqual(sheet.rows.map(text), [["日期", "可售单数"], ["2026-10-09", "3"], ["2026-10-10T00:00:00Z", "5.0"], ["#N/A", "FALSE"]]);
   assert.equal(sheetDate("2026-10-10T00:00:00Z"), "2026-10-10", "存成日期类型的单元格（ISO 写法）也认");
 });
 
