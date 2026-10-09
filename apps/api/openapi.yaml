@@ -2267,7 +2267,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求"
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`：这个幂等键已经用于另一个内容不同的请求。
+            `details.created` = `{ id, version }`：这个键上一次建成的那个区域的编号和**当时**的版本号。
+            典型情况是第一次其实成功了、应答没收到，用户改了内容又保存：调用方可以 `GET /tenant/v1/areas/{id}` 取到它，
+            再用 `PUT` 把现在的内容存成对它的修改（它之后可能被改过或删掉，以 `GET` 的结果为准：404 就换一个新的键重新新增）。
           content:
             application/json:
               schema:
@@ -2551,7 +2555,8 @@ components:
       required: true
       description: |
         幂等键：8 到 128 位的字母、数字或 `_ . : -`（用一个 UUID 就行）。同一个供应商、同一个接口、24 小时内，
-        同一个键配同样的内容再来，原样返回第一次的应答，不会重复创建；配了不同的内容返回 422 `IDEMPOTENCY_KEY_REUSED`。
+        同一个键配同样的内容再来，原样返回第一次的应答，不会重复创建；配了不同的内容返回 422 `IDEMPOTENCY_KEY_REUSED`
+        （`details.created` 带上一次建成的那条的 `id` 和当时的 `version`）。
         失败的请求不占用键，修好以后可以带同一个键重试。没带或格式不对返回 400 `VALIDATION_FAILED`（`/idempotency-key`）。
       schema:
         type: string

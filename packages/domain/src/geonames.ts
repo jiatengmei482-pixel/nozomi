@@ -56,7 +56,8 @@ const CITY_FEATURE_CODES: readonly string[] = ["PPL", "PPLA", "PPLA2", "PPLA3", 
 const ALWAYS_IMPORTED_CODES: readonly string[] = ["PPLC", "PPLA"];
 const CITY_COLUMNS = 19;
 const MAX_NAME_LENGTH = 200;
-const DECIMAL_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)$/;
+// 写成「整数部分 + 可选的小数部分」：`\d+\.?\d*` 对一长串数字有很多种拆法，不匹配时回溯次数随长度的平方增长
+const DECIMAL_NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
 /** 手工建的城市和数据源里的城市相距这么近（米）就当作「看起来是同一个」，交给人判断 */
 export const SAME_CITY_DISTANCE_METERS = 5_000;
 

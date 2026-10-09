@@ -306,3 +306,10 @@ test("最近的城市：只要范围以内的，由近到远，最多给几个�
   assert.ok(narita[0] && narita[0].meters > 55_000 && narita[0].meters < 66_000);
   assert.equal(CITY_SUGGESTION_MAX_KM, 80);
 });
+
+test("坐标写成一长串数字再跟一个字母：立刻判成不合格并跳过，不会卡住（数字的正则每个位置只有一种拆法）", () => {
+  const started = performance.now();
+  const selection = selectCities(file([{ id: 990001, lat: `${"1".repeat(200_000)}x` }, { id: 990002, lng: `${"1".repeat(200_000)}.${"1".repeat(200_000)}x` }]), [], all);
+  assert.deepEqual([selection.cities, selection.skipped.map((row) => row.reason)], [[], ["坐标缺失或超出范围（要求十进制数字）", "坐标缺失或超出范围（要求十进制数字）"]]);
+  assert.ok(performance.now() - started < 2_000, `用了 ${Math.round(performance.now() - started)} 毫秒`);
+});

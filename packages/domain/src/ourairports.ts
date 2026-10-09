@@ -27,7 +27,7 @@ export const IMPORTED_AIRPORT_TYPES: readonly string[] = ["large_airport", "medi
 const REQUIRED_COLUMNS = ["id", "type", "name", "latitude_deg", "longitude_deg", "iso_country", "scheduled_service", "iata_code"] as const;
 const MAX_NAME_LENGTH = 200;
 /** 坐标只认普通的十进制写法（可以带正负号、小数、指数）。十六进制、二进制、八进制这些 Number() 也会接受的写法不算。 */
-const DECIMAL_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const DECIMAL_NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
 function parseCoordinate(text: string): number {
   return DECIMAL_NUMBER.test(text) ? Number(text) : Number.NaN;
