@@ -243,7 +243,7 @@ export async function listProducts(
         areas: null,
         vehicleGroups: null,
         dispatchers: null,
-        check: publishCheckSummary(await runPublishCheck(db, tenantId, product, now)),
+        check: publishCheckSummary((await runPublishCheck(db, tenantId, product, now)).items),
       });
     }
     return { items, nextCursor: page.nextCursor, total: page.total };
@@ -417,8 +417,8 @@ export interface ProductPatch extends ProductRelations {
 export async function assertStillPublishable(db: Db, tenantId: string, product: Product, now: Date): Promise<void> {
   if (product.status !== "published") return;
   await lockProductAreas(db, tenantId, product.id);
-  const items = await runPublishCheck(db, tenantId, product, now);
-  if (!canPublish(items)) throw publishCheckFailed(items, "这样修改之后商品就不满足上架的条件了。请调整后再保存，或者先下架再改");
+  const checked = await runPublishCheck(db, tenantId, product, now);
+  if (!canPublish(checked.items)) throw publishCheckFailed(checked, "这样修改之后商品就不满足上架的条件了。请调整后再保存，或者先下架再改");
 }
 
 /** 修改基础信息里创建后能改的部分：区域（含优先级）、车型组、调度人。带了的整体替换，没带的不动。 */
@@ -629,19 +629,35 @@ export interface PublishCheckView {
   items: (Omit<PublishCheckItem, "issues"> & { issues: InputIssue[] })[];
 }
 
-function publishCheckView(items: readonly PublishCheckItem[]): PublishCheckView {
-  return { canPublish: canPublish(items), items: items.map((item) => ({ ...item, issues: ruleIssues(item.issues) })) };
+/** 校验结果，外加「调价规则」一项的原因指的是哪几条规则（按调价规则的顺序）。 */
+interface PublishChecked {
+  items: PublishCheckItem[];
+  adjustRules: { id: string; name: string }[];
 }
 
-function publishCheckFailed(items: readonly PublishCheckItem[], message: string): AppError {
-  const view = publishCheckView(items);
+function publishCheckView(checked: PublishChecked): PublishCheckView {
+  return {
+    canPublish: canPublish(checked.items),
+    items: checked.items.map((item) => ({
+      ...item,
+      issues: ruleIssues(item.issues).map((issue) => {
+        // 「调价规则」一项的每条原因带上是哪一条规则（页面凭它写出名字、链到那一条）
+        const rule = item.key === "adjust_rules" ? checked.adjustRules[Number(issue.path.slice(1))] : undefined;
+        return rule === undefined ? issue : { ...issue, detail: { ...issue.detail, rule_id: rule.id, name: rule.name } };
+      }),
+    })),
+  };
+}
+
+function publishCheckFailed(checked: PublishChecked, message: string): AppError {
+  const view = publishCheckView(checked);
   return new AppError(409, "PUBLISH_CHECK_FAILED", message, {
     items: view.items.map((item) => ({ key: item.key, required: item.required, passed: item.passed, issues: item.issues })),
   });
 }
 
 /** 从库里取出上架校验要看的全部事实，交给 domain 的 publishCheck。 */
-async function runPublishCheck(db: Db, tenantId: string, product: Product, now: Date): Promise<PublishCheckItem[]> {
+async function runPublishCheck(db: Db, tenantId: string, product: Product, now: Date): Promise<PublishChecked> {
   const view = await detail(db, tenantId, product);
   // 价格过没过期按商品所在城市当地的今天算
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
@@ -671,7 +687,7 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
     priceRuleStats: { total: priceRules.length, enabled: priceRules.filter((rule) => rule.status === "enabled").length },
     nonPositiveAdjustRules: adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices).length > 0 ? [index] : [])),
   };
-  return publishCheck(facts);
+  return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })) };
 }
 
 export async function getPublishCheck(ctx: AppContext, tenantId: string, id: string): Promise<PublishCheckView> {
@@ -692,8 +708,8 @@ export async function publishProduct(ctx: AppContext, writer: ProductWriter, id:
     if (!current) throw notFound("商品");
     if (current.status === "published") return detail(db, tenantId, current);
     await lockProductAreas(db, tenantId, id);
-    const items = await runPublishCheck(db, tenantId, current, now);
-    if (!canPublish(items)) throw publishCheckFailed(items, "还有上架条件没有满足");
+    const checked = await runPublishCheck(db, tenantId, current, now);
+    if (!canPublish(checked.items)) throw publishCheckFailed(checked, "还有上架条件没有满足");
     const updated = await updateProductRow(db, tenantId, id, { status: "published", publishedAt: now }, now);
     await audit(db, writer, now, { resource: "product", id, action: "publish", before: { status: current.status }, after: { status: updated.status } });
     return detail(db, tenantId, updated);

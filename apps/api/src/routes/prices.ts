@@ -247,7 +247,12 @@ function adjustRulesJson(view: AdjustRulesView): Json {
 
 const calendarQuerySchema = z.object({
   area_id: id,
-  vehicle_group_id: id,
+  // 一个或几个车型组（逗号分隔，最多 20 个）：对比表一次取一行里的全部
+  vehicle_group_id: z
+    .string()
+    .max(1_000)
+    .transform((value) => [...new Set(value.split(",").map((entry) => entry.toLowerCase()))])
+    .pipe(z.array(uuidSchema).min(1).max(20)),
   direction: z.enum(TRIP_DIRECTIONS).optional(),
   package_hours: z.string().regex(/^\d{1,3}$/, "必须是十进制整数").transform(Number).optional(),
   from: date,
@@ -256,35 +261,42 @@ const calendarQuerySchema = z.object({
 
 const clock = (minute: number): string => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 
+function calendarDaysJson(days: CalendarView["groups"][number]["days"]): Json[] {
+  return days.map((day) => {
+    const rule = day.segments[0]?.priceRule ?? null;
+    return {
+      date: day.date,
+      weekday: weekdayOf(day.date),
+      holiday: day.holiday === null ? null : { name: day.holiday },
+      price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
+      segments: day.segments.map((segment) => ({
+        from: clock(segment.fromMinute),
+        to: clock(segment.toMinute),
+        // 取整后的结算价；没有价格、或调完不大于 0 时为 null，原因在 no_price_reason
+        final: segment.price?.finalMinor ?? null,
+        no_price_reason: segment.noPriceReason,
+        base: segment.price === null ? null : formatExact(segment.price.base),
+        unrounded: segment.price === null ? null : formatExact(segment.price.unrounded),
+        adjusts: (segment.price?.adjusts ?? []).map((entry) => ({
+          rule_id: entry.rule.id,
+          name: entry.rule.name,
+          steps: entry.steps.map((step) => ({ type: step.step.type, value: step.step.value, delta: formatExact(step.delta), after: formatExact(step.after) })),
+        })),
+      })),
+    };
+  });
+}
+
 function calendarJson(view: CalendarView): Json {
   return {
     version: view.version,
     currency: view.currency,
     rounding_unit: view.roundingUnit,
     today: view.today,
-    days: view.days.map((day) => {
-      const rule = day.segments[0]?.priceRule ?? null;
-      return {
-        date: day.date,
-        weekday: weekdayOf(day.date),
-        holiday: day.holiday === null ? null : { name: day.holiday },
-        price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
-        segments: day.segments.map((segment) => ({
-          from: clock(segment.fromMinute),
-          to: clock(segment.toMinute),
-          // 取整后的结算价；没有价格、或调完不大于 0 时为 null，原因在 no_price_reason
-          final: segment.price?.finalMinor ?? null,
-          no_price_reason: segment.noPriceReason,
-          base: segment.price === null ? null : formatExact(segment.price.base),
-          unrounded: segment.price === null ? null : formatExact(segment.price.unrounded),
-          adjusts: (segment.price?.adjusts ?? []).map((entry) => ({
-            rule_id: entry.rule.id,
-            name: entry.rule.name,
-            steps: entry.steps.map((step) => ({ type: step.step.type, value: step.step.value, delta: formatExact(step.delta), after: formatExact(step.after) })),
-          })),
-        })),
-      };
-    }),
+    // 第一个车型组的日历（只给了一个车型组时就是它）
+    days: calendarDaysJson(view.groups[0]?.days ?? []),
+    // 每个车型组各一份，顺序和请求里的一样
+    groups: view.groups.map((group) => ({ vehicle_group_id: group.vehicleGroupId, days: calendarDaysJson(group.days) })),
   };
 }
 
@@ -396,7 +408,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     return calendarJson(
       await getPriceCalendar(ctx, principal.tenantId, productId, {
         areaId: query.area_id,
-        vehicleGroupId: query.vehicle_group_id,
+        vehicleGroupIds: query.vehicle_group_id,
         direction: query.direction ?? null,
         packageHours: query.package_hours ?? null,
         from: query.from,
@@ -407,16 +419,21 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.get("/tenant/v1/price-overview", async (request) => {
     const principal = await authenticate(request, "product.read");
-    const overview = await getPriceOverview(ctx, principal.tenantId);
+    const query = parseInput(z.object({ summary: z.enum(["1", "true"]).optional() }), request.query, "querystring");
+    const overview = await getPriceOverview(ctx, principal.tenantId, query.summary !== undefined);
+    const totals = { products_with_price: overview.productsWithPrice, products_without_price: overview.productsWithoutPrice };
+    // `summary=1`：只要两个数（首页的卡片），不带每个商品的明细
+    if (overview.items === null) return totals;
     return {
-      products_with_price: overview.productsWithPrice,
-      products_without_price: overview.productsWithoutPrice,
+      ...totals,
       items: overview.items.map((item) => ({
         product_id: item.productId,
         code: item.code,
         status: item.status,
         category: item.category,
         title: item.title,
+        city: item.city,
+        coverage: item.coverage,
         price_rule_count: item.priceRuleCount,
         has_active_price: item.activePriceRuleCount > 0,
         active_price_rule_count: item.activePriceRuleCount,

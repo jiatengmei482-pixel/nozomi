@@ -54,6 +54,7 @@ import {
   listAdjustRules,
   listHolidayCountries,
   listHolidays as listHolidayRows,
+  listPriceCoverageInputs,
   listPriceRules,
   listProductPriceOverview,
   setAdjustRuleOrder,
@@ -239,26 +240,27 @@ export async function savePriceRules(
     const groups = new Set(context.vehicleGroupIds);
     const issues: InputIssue[] = [];
     const touched = new Set<string>();
-    const checkRule = (rule: PriceRule, at: string, before: StoredPriceRule | null): void => {
-      issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at));
-      if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格" });
+    // 每条问题的 detail 里带上是哪一条：新增的给请求里的 ref，修改、删除的给 id（页面凭它把出错指回那一行，不用靠下标）
+    const checkRule = (rule: PriceRule, at: string, before: StoredPriceRule | null, who: Record<string, string>): void => {
+      issues.push(...inputIssues(priceRuleIssues(rule, { category: product.category }), at).map((issue) => ({ ...issue, detail: { ...issue.detail, ...who } })));
+      if (!areas.has(rule.areaId) && before?.areaId !== rule.areaId) issues.push({ path: `${at}/area_id`, reason: "AREA_NOT_IN_PRODUCT", message: "只能给这个商品选了的区域设价格", detail: who });
       if (!groups.has(rule.vehicleGroupId) && before?.vehicleGroupId !== rule.vehicleGroupId) {
-        issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格" });
+        issues.push({ path: `${at}/vehicle_group_id`, reason: "VEHICLE_GROUP_NOT_IN_PRODUCT", message: "只能给这个商品选了的车型组设价格", detail: who });
       }
     };
-    for (const [index, entry] of changes.create.entries()) checkRule(entry.rule, prefix("create", index), null);
+    for (const [index, entry] of changes.create.entries()) checkRule(entry.rule, prefix("create", index), null, entry.ref === null ? {} : { ref: entry.ref });
     for (const [index, entry] of changes.update.entries()) {
       const at = prefix("update", index);
       const before = stored.get(entry.id);
-      if (!before) issues.push({ path: `${at}/id`, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
-      else if (touched.has(entry.id)) issues.push({ path: `${at}/id`, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
-      else checkRule(entry.rule, at, before);
+      if (!before) issues.push({ path: `${at}/id`, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的", detail: { id: entry.id } });
+      else if (touched.has(entry.id)) issues.push({ path: `${at}/id`, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次", detail: { id: entry.id } });
+      else checkRule(entry.rule, at, before, { id: entry.id });
       touched.add(entry.id);
     }
     for (const [index, id] of changes.remove.entries()) {
       const at = prefix("delete", index) || "/id";
-      if (!stored.has(id)) issues.push({ path: at, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的" });
-      else if (touched.has(id)) issues.push({ path: at, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次" });
+      if (!stored.has(id)) issues.push({ path: at, reason: "UNKNOWN_PRICE_RULE", message: "这条价格规则不存在，或者不是这个商品的", detail: { id } });
+      else if (touched.has(id)) issues.push({ path: at, reason: "DUPLICATE", message: "同一条价格规则在这次保存里出现了两次", detail: { id } });
       touched.add(id);
     }
     const remaining = context.priceRules.filter((rule) => !touched.has(rule.id));
@@ -500,7 +502,8 @@ export function reorderAdjustRules(ctx: AppContext, writer: ProductWriter, produ
 
 export interface CalendarQuery {
   areaId: string;
-  vehicleGroupId: string;
+  /** 一次可以看几个车型组（对比表）；至少一个，最多 20 个 */
+  vehicleGroupIds: string[];
   direction: TripDirection | null;
   packageHours: number | null;
   from: string;
@@ -519,7 +522,8 @@ export interface CalendarView {
   currency: CurrencyCode | null;
   roundingUnit: number;
   today: string;
-  days: CalendarDay[];
+  /** 每个车型组各一份，顺序和请求里的一样 */
+  groups: { vehicleGroupId: string; days: CalendarDay[] }[];
 }
 
 /**
@@ -553,42 +557,63 @@ export function getPriceCalendar(ctx: AppContext, tenantId: string, productId: s
     const lookup: HolidayLookup = holidayLookup(holidays);
     const local = new Map(holidays.filter((holiday) => holiday.countryCode === context.countryCode).map((holiday) => [holiday.date, holiday.name]));
 
-    const days: CalendarDay[] = [];
-    for (let date = query.from; date <= query.to; date = addDays(date, 1)) {
-      days.push({
-        date,
-        holiday: local.get(date) ?? null,
-        segments: calendarDay({
-          priceRules: context.priceRules,
-          adjustRules: context.adjustRules,
-          query: { areaId: query.areaId, vehicleGroupId: query.vehicleGroupId, direction: query.direction, packageHours: query.packageHours, date },
-          roundingUnit: context.roundingUnit,
-          holidays: lookup,
-        }),
-      });
-    }
-    return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, days };
+    const groups = query.vehicleGroupIds.map((vehicleGroupId) => {
+      const days: CalendarDay[] = [];
+      for (let date = query.from; date <= query.to; date = addDays(date, 1)) {
+        days.push({
+          date,
+          holiday: local.get(date) ?? null,
+          segments: calendarDay({
+            priceRules: context.priceRules,
+            adjustRules: context.adjustRules,
+            query: { areaId: query.areaId, vehicleGroupId, direction: query.direction, packageHours: query.packageHours, date },
+            roundingUnit: context.roundingUnit,
+            holidays: lookup,
+          }),
+        });
+      }
+      return { vehicleGroupId, days };
+    });
+    return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, groups };
   });
 }
 
 // ---- 各商品的价格概况（首页卡片、菜单里的「价格规则」）----
 
+export interface PriceOverviewItem extends ProductPriceOverview {
+  /** 「该有价格的组合」一共几个、几个没有价格（算法同 price-coverage） */
+  coverage: { total: number; missing: number };
+}
+
 export interface PriceOverview {
   /** 只数草稿和已上架的商品：有 / 没有「启用且没过期」的价格 */
   productsWithPrice: number;
   productsWithoutPrice: number;
-  items: ProductPriceOverview[];
+  /** 只要上面两个数时为 null */
+  items: PriceOverviewItem[] | null;
 }
 
 const OVERVIEW_LIMIT = 1_000;
 
-export function getPriceOverview(ctx: AppContext, tenantId: string): Promise<PriceOverview> {
+/**
+ * 各商品的价格概况。`summaryOnly` 时只算首页要的两个数，不取每个商品的明细。
+ * 明细里的缺价概况要用到每个商品选的区域、车型组和全部价格：三样各一条查询取回整个供应商的，在内存里按商品分开算。
+ */
+export function getPriceOverview(ctx: AppContext, tenantId: string, summaryOnly: boolean): Promise<PriceOverview> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
-    const items = await listProductPriceOverview(db, tenantId, now, OVERVIEW_LIMIT);
-    const counted = items.filter((item) => item.status !== "unpublished");
+    const rows = await listProductPriceOverview(db, tenantId, now, OVERVIEW_LIMIT);
+    const counted = rows.filter((item) => item.status !== "unpublished");
     const withPrice = counted.filter((item) => item.activePriceRuleCount > 0).length;
-    return { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice, items };
+    const totals = { productsWithPrice: withPrice, productsWithoutPrice: counted.length - withPrice };
+    if (summaryOnly) return { ...totals, items: null };
+    const shapes = await listPriceCoverageInputs(db, tenantId);
+    const items = rows.map((row): PriceOverviewItem => {
+      const shape = shapes.get(row.productId) ?? { areaIds: [], vehicleGroupIds: [], rules: [] };
+      const coverage = priceCoverage({ category: row.category, areaIds: shape.areaIds, vehicleGroupIds: shape.vehicleGroupIds, rules: shape.rules, today: row.today });
+      return { ...row, coverage: { total: coverage.total, missing: coverage.total - coverage.priced } };
+    });
+    return { ...totals, items };
   });
 }
 

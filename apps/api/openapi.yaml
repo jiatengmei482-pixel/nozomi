@@ -2933,7 +2933,8 @@ paths:
         `basic_info` 基础信息、`service_rules` 服务规则、`price_rules` 价格规则、`content` 商品详情（这四项必须）；`adjust_rules` 调价规则、`inventory` 库存（可选，恒通过）。
         `price_rules`：至少 1 条启用且未过期的价格（结束日期不早于城市当地的今天；以后才生效的也算）。不通过的原因分三种：
         `NO_ACTIVE_PRICE_RULE`（一条都没有）、`ALL_PRICE_RULES_DISABLED`、`ALL_PRICE_RULES_EXPIRED`。缺价的组合不拦（见 `price-coverage`）。
-        `adjust_rules` 不是必须的；有启用中的调价规则会把某条价格调到不大于 0 时在这里指出来（`ADJUST_RESULT_NOT_POSITIVE`，`path` 是它在调价规则列表里的位置），不拦上架。
+        `adjust_rules` 不是必须的；有启用中的调价规则会把某条价格调到不大于 0 时在这里指出来（`ADJUST_RESULT_NOT_POSITIVE`，`path` 是它在调价规则列表里的位置，
+        `detail` 带那条规则的 `rule_id` 和 `name`），不拦上架。
         校验看的是现在的情况：选的区域、车型组、接送点、附加服务后来被停用了，也会在这里指出来。
         判断用的是 `@nozomi/domain` 的 `publishCheck`。
       security:
@@ -3500,9 +3501,12 @@ paths:
       summary: 各商品的价格概况
       description: |
         需要操作 `product.read`。本供应商每个商品（最多 1000 个，最近改过的在前）有没有启用且未过期的价格——「今天」按每个商品所在城市的当地日期各自算。
-        `products_with_price` / `products_without_price` 只数草稿和已上架的商品（首页的「设价格 → 上架」引导用）。
+        `products_with_price` / `products_without_price` 只数草稿和已上架的商品（首页的「设价格 → 上架」引导用）；只要这两个数时加 `summary=1`。
+        每个商品另带所在城市和缺价的概况 `coverage { total, missing }`（算法同 `price-coverage`）。
       security:
         - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/OverviewSummary"
       responses:
         "200":
           description: 价格概况
@@ -3678,9 +3682,16 @@ components:
       name: vehicle_group_id
       in: query
       required: true
+      description: 车型组的编号；可以一次给几个，用逗号分隔（最多 20 个），应答的 `groups` 里每个各一份
       schema:
         type: string
-        format: uuid
+    OverviewSummary:
+      name: summary
+      in: query
+      description: 写 `1`（或 `true`）时只返回两个数，不带 `items`（首页的卡片用）
+      schema:
+        type: string
+        enum: ["1", "true"]
     CalendarDirection:
       name: direction
       in: query
@@ -3862,6 +3873,7 @@ components:
         `AREA_NOT_IN_PRODUCT`、`VEHICLE_GROUP_NOT_IN_PRODUCT`（不是这个商品选的；别的供应商的、不存在的也是这个结果）、`UNKNOWN_PRICE_RULE`、`DUPLICATE`、`TOO_MANY`。
         调价规则另有：`TOO_LONG`、`INVALID_TIME`、`EMPTY_WINDOW`、`INVALID_COUNTRY`、`ZERO_STEP`、`ADJUST_RESULT_NOT_POSITIVE`、`IDS_MISMATCH`。
         前面这些里凡是规则本身的，和 `@nozomi/domain` 的 `priceRuleIssues` / `adjustRuleIssues` 返回的是同一套代码。
+        价格规则的每条问题在 `detail` 里带着是哪一条：新增的是请求里的 `ref`（没给就没有），修改、删除的是 `id`——不用靠 `path` 里的下标去对。
       content:
         application/json:
           schema:
@@ -6191,8 +6203,9 @@ components:
                       type: string
                     detail:
                       type: object
+                      description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`）
                       additionalProperties:
-                        type: number
+                        type: [number, string]
     PricingModel:
       type: string
       enum: [fixed, mileage_time, charter_package]
@@ -6776,7 +6789,7 @@ components:
     PriceCalendar:
       type: object
       additionalProperties: false
-      required: [version, currency, rounding_unit, today, days]
+      required: [version, currency, rounding_unit, today, days, groups]
       properties:
         version:
           type: integer
@@ -6789,113 +6802,131 @@ components:
           format: date
         days:
           type: array
+          description: 第一个车型组的日历（只给了一个车型组时就是它）
+          items:
+            $ref: "#/components/schemas/PriceCalendarDay"
+        groups:
+          type: array
+          description: 每个车型组各一份日历，顺序和请求里的一样（对比表一次取一行里的全部）
           items:
             type: object
             additionalProperties: false
-            required: [date, weekday, holiday, price_rule, segments]
+            required: [vehicle_group_id, days]
             properties:
-              date:
+              vehicle_group_id:
                 type: string
-                format: date
-              weekday:
-                type: integer
-                minimum: 1
-                maximum: 7
-              holiday:
-                description: 商品所在国家这一天的节假日；不是节假日为 null
-                oneOf:
-                  - type: object
-                    additionalProperties: false
-                    required: [name]
-                    properties:
-                      name:
-                        $ref: "#/components/schemas/LocalizedText"
-                  - type: "null"
-              price_rule:
-                description: 这一天命中的价格规则；没有为 null
-                oneOf:
-                  - type: object
-                    additionalProperties: false
-                    required: [id, pricing_model, direction, valid_from, valid_to]
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      pricing_model:
-                        $ref: "#/components/schemas/PricingModel"
-                      direction:
-                        oneOf:
-                          - $ref: "#/components/schemas/PriceDirection"
-                          - type: "null"
-                      valid_from:
-                        type: string
-                        format: date
-                      valid_to:
-                        type: [string, "null"]
-                        format: date
-                  - type: "null"
-              segments:
+                format: uuid
+              days:
                 type: array
-                description: 这一天按时刻切成的几段，每段里结果相同
+                items:
+                  $ref: "#/components/schemas/PriceCalendarDay"
+    PriceCalendarDay:
+      type: object
+      additionalProperties: false
+      required: [date, weekday, holiday, price_rule, segments]
+      properties:
+        date:
+          type: string
+          format: date
+        weekday:
+          type: integer
+          minimum: 1
+          maximum: 7
+        holiday:
+          description: 商品所在国家这一天的节假日；不是节假日为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+            - type: "null"
+        price_rule:
+          description: 这一天命中的价格规则；没有为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, pricing_model, direction, valid_from, valid_to]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                pricing_model:
+                  $ref: "#/components/schemas/PricingModel"
+                direction:
+                  oneOf:
+                    - $ref: "#/components/schemas/PriceDirection"
+                    - type: "null"
+                valid_from:
+                  type: string
+                  format: date
+                valid_to:
+                  type: [string, "null"]
+                  format: date
+            - type: "null"
+        segments:
+          type: array
+          description: 这一天按时刻切成的几段，每段里结果相同
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to, final, no_price_reason, base, unrounded, adjusts]
+            properties:
+              from:
+                type: string
+                description: 这一段的开始（含），`HH:mm`
+              to:
+                type: string
+                description: 这一段的结束（不含），`HH:mm`，最后一段是 `24:00`
+              final:
+                type: [integer, "null"]
+                description: 取整后的结算价（最小货币单位）；没有价格、或调完不大于 0 时为 null
+              no_price_reason:
+                type: [string, "null"]
+                enum: [NO_RULE, NOT_IN_EFFECT, RULE_DISABLED, NOT_POSITIVE, null]
+                description: "NO_RULE：这个组合没有价格规则；NOT_IN_EFFECT：有，但这一天不在生效期；RULE_DISABLED：对得上的那条停用了；NOT_POSITIVE：调价之后不大于 0"
+              base:
+                type: [string, "null"]
+                description: 基础价（精确值）
+              unrounded:
+                type: [string, "null"]
+                description: 全部调价之后、取整之前的精确值
+              adjusts:
+                type: array
+                description: 命中的调价规则，按执行的先后
                 items:
                   type: object
                   additionalProperties: false
-                  required: [from, to, final, no_price_reason, base, unrounded, adjusts]
+                  required: [rule_id, name, steps]
                   properties:
-                    from:
+                    rule_id:
                       type: string
-                      description: 这一段的开始（含），`HH:mm`
-                    to:
+                      format: uuid
+                    name:
                       type: string
-                      description: 这一段的结束（不含），`HH:mm`，最后一段是 `24:00`
-                    final:
-                      type: [integer, "null"]
-                      description: 取整后的结算价（最小货币单位）；没有价格、或调完不大于 0 时为 null
-                    no_price_reason:
-                      type: [string, "null"]
-                      enum: [NO_RULE, NOT_IN_EFFECT, RULE_DISABLED, NOT_POSITIVE, null]
-                      description: "NO_RULE：这个组合没有价格规则；NOT_IN_EFFECT：有，但这一天不在生效期；RULE_DISABLED：对得上的那条停用了；NOT_POSITIVE：调价之后不大于 0"
-                    base:
-                      type: [string, "null"]
-                      description: 基础价（精确值）
-                    unrounded:
-                      type: [string, "null"]
-                      description: 全部调价之后、取整之前的精确值
-                    adjusts:
+                    steps:
                       type: array
-                      description: 命中的调价规则，按执行的先后
                       items:
                         type: object
                         additionalProperties: false
-                        required: [rule_id, name, steps]
+                        required: [type, value, delta, after]
                         properties:
-                          rule_id:
+                          type:
                             type: string
-                            format: uuid
-                          name:
+                            enum: [percent, amount]
+                          value:
+                            type: integer
+                          delta:
                             type: string
-                          steps:
-                            type: array
-                            items:
-                              type: object
-                              additionalProperties: false
-                              required: [type, value, delta, after]
-                              properties:
-                                type:
-                                  type: string
-                                  enum: [percent, amount]
-                                value:
-                                  type: integer
-                                delta:
-                                  type: string
-                                  description: 这一步加（减）了多少（精确值）
-                                after:
-                                  type: string
-                                  description: 这一步之后的数（精确值）
+                            description: 这一步加（减）了多少（精确值）
+                          after:
+                            type: string
+                            description: 这一步之后的数（精确值）
     PriceOverview:
       type: object
       additionalProperties: false
-      required: [products_with_price, products_without_price, items]
+      required: [products_with_price, products_without_price]
       properties:
         products_with_price:
           type: integer
@@ -6903,11 +6934,32 @@ components:
           type: integer
         items:
           type: array
+          description: 每个商品的概况；带了 `summary=1` 时没有这个字段
           items:
             type: object
             additionalProperties: false
-            required: [product_id, code, status, category, title, price_rule_count, has_active_price, active_price_rule_count, enabled_adjust_rule_count]
+            required: [product_id, code, status, category, title, city, coverage, price_rule_count, has_active_price, active_price_rule_count, enabled_adjust_rule_count]
             properties:
+              city:
+                type: object
+                additionalProperties: false
+                required: [id, name]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    $ref: "#/components/schemas/LocalizedName"
+              coverage:
+                type: object
+                additionalProperties: false
+                required: [total, missing]
+                description: 「该有价格的组合」一共几个、几个没有价格
+                properties:
+                  total:
+                    type: integer
+                  missing:
+                    type: integer
               product_id:
                 type: string
                 format: uuid
@@ -6983,7 +7035,9 @@ components:
             $ref: "#/components/schemas/Holiday"
         countries:
           type: array
-          description: 哪些国家有节假日数据
+          description: |
+            哪些国家有节假日数据。每一项是一个对象（不是字符串）：两位国家代码、登记了几天、登记到的最晚一天。
+            调价规则周期「节假日」能选的国家就是这里的 `country_code`；没有登记数据的国家选了也不会生效。
           items:
             type: object
             additionalProperties: false
@@ -6991,6 +7045,8 @@ components:
             properties:
               country_code:
                 type: string
+                pattern: "^[A-Z]{2}$"
+                description: ISO 3166-1 两位大写国家代码，如 `JP`
               count:
                 type: integer
               last_date:

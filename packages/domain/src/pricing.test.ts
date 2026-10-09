@@ -30,8 +30,10 @@ import {
   exactFromMinor,
   findPriceRuleOverlaps,
   formatExact,
+  formatExactMajor,
   holidayLookup,
   priceCoverage,
+  priceDirectionNames,
   priceRuleIsActive,
   priceRuleIssues,
   pricingModelsFor,
@@ -104,6 +106,30 @@ test("精确金额写成字符串：写得尽的原样，写不尽的保留 6 �
   assert.equal(show({ numerator: 1n, denominator: 8n }), "0.125");
   assert.equal(show(exactFromMinor(0)), "0");
   assert.throws(() => exactFromMinor(1.5), RangeError);
+});
+
+test("精确金额换成主单位的写法：按币种的小数位挪小数点，不经过浮点数；日元、韩元和最小货币单位的写法一样", () => {
+  const amount = (numerator: bigint, denominator = 1n): ExactAmount => ({ numerator, denominator });
+  assert.equal(formatExactMajor(amount(4_600_505n, 10n), "CNY"), "4600.505", "460050.5 分");
+  assert.equal(formatExactMajor(amount(460_050n), "CNY"), "4600.5");
+  assert.equal(formatExactMajor(amount(460_000n), "CNY"), "4600");
+  assert.equal(formatExactMajor(amount(5n), "USD"), "0.05");
+  assert.equal(formatExactMajor(amount(-1n, 2n), "USD"), "-0.005");
+  assert.equal(formatExactMajor(amount(0n), "USD"), "0");
+  assert.equal(formatExactMajor(amount(1n, 3n), "USD"), "0.00333333", "写不尽的保留到最小货币单位之后 6 位");
+  assert.equal(formatExactMajor(amount(2_315_775n, 100n), "JPY"), "23157.75");
+  assert.equal(formatExactMajor(amount(23_158n), "KRW"), "23158");
+  for (const value of [amount(46_299n, 2n), amount(1n, 3n), amount(-7n, 4n)]) assert.equal(formatExactMajor(value, "JPY"), formatExact(value));
+  // 很大的数也不丢精度
+  assert.equal(formatExactMajor(amount(9_007_199_254_740_993n, 10n), "USD"), "9007199254740.993");
+});
+
+test("方向的中文名按接送点类型取：机场是接机 / 送机，车站（和车站的出口）是接站 / 送站", () => {
+  assert.deepEqual(priceDirectionNames("airport"), { pickup: "接机", dropoff: "送机", both: "接送通用" });
+  assert.deepEqual(priceDirectionNames("terminal"), { pickup: "接机", dropoff: "送机", both: "接送通用" });
+  assert.deepEqual(priceDirectionNames("station"), { pickup: "接站", dropoff: "送站", both: "接送通用" });
+  assert.deepEqual(priceDirectionNames("exit"), { pickup: "接站", dropoff: "送站", both: "接送通用" });
+  assert.deepEqual(priceDirectionNames(null), { pickup: "接机", dropoff: "送机", both: "接送通用" });
 });
 
 test("基础价 · 固定一口价：P = 基础价（和里程、时长无关）", () => {
