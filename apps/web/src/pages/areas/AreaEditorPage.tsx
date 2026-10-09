@@ -6,7 +6,7 @@ import { AREA_BIZ_TYPES, AREA_BIZ_TYPE_NAMES, AREA_LIMITS, type AreaBizType, typ
 import { Component, type FormEvent, type ReactNode, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type Area, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
+import { type Area, type AreaCreate, type MapConfig, createArea, fetchMapConfig, getArea, listTenantCities, updateArea } from "../../api/areas.ts";
 import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
@@ -109,7 +109,7 @@ export function AreaEditorPage() {
   const [picked, setPicked] = useState<{ lat: number; lng: number; at: number } | null>(null);
   const [fitSignal, setFitSignal] = useState(0);
   const [mapBroken, setMapBroken] = useState(false);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const rootRef = useRef<HTMLDivElement>(null);
   const copier = useCopyText();
   // 提示条里的按钮是出冲突那一刻生成的：它要复制的是点的时候画面上的图形，不是那一刻的
@@ -312,6 +312,30 @@ export function AreaEditorPage() {
     }
   };
 
+  /**
+   * 新增。上一次其实已经建成、只是应答没收到时，后端会说这个幂等键用过了（带着建成的那一条的编号）：
+   * 把现在的内容存成对那一条的修改；那一条已经不在了，就换一个键重新新增。用户不用刷新，图形不会丢。
+   */
+  const createOrAdopt = async (body: AreaCreate): Promise<Area> => {
+    try {
+      return await createArea(token, body, idempotencyKey);
+    } catch (err) {
+      const created = err instanceof ApiError && err.code === "IDEMPOTENCY_KEY_REUSED" ? err.details["created"] : null;
+      const createdId = typeof created === "object" && created !== null ? (created as { id?: unknown }).id : null;
+      if (typeof createdId !== "string") throw err;
+      let existing: Area;
+      try {
+        existing = await getArea(token, createdId);
+      } catch (inner) {
+        if (!(inner instanceof ApiError) || inner.status !== 404) throw inner;
+        const fresh = crypto.randomUUID();
+        setIdempotencyKey(fresh);
+        return createArea(token, body, fresh);
+      }
+      return updateArea(token, existing.id, existing.version, { name: body.name, biz_type: body.biz_type, polygons: body.polygons });
+    }
+  };
+
   const save = async (event?: FormEvent): Promise<void> => {
     event?.preventDefault();
     if (submitting || conflict || blocked !== null) return;
@@ -327,7 +351,7 @@ export function AreaEditorPage() {
     setSubmitting(true);
     try {
       const body = { name: cleanLocalized(name), biz_type: bizType, polygons: toPolygonInputs(editor.shapes) };
-      const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createArea(token, { city_id: cityId ?? "", ...body }, idempotencyKey);
+      const saved = mode === "edit" && area ? await updateArea(token, area.id, area.version, body) : await createOrAdopt({ city_id: cityId ?? "", ...body });
       toast(mode === "edit" ? `已保存「${shortName(displayName(saved.name).text)}」` : `已新增区域「${shortName(displayName(saved.name).text)}」`);
       dropDraft();
       setDiscarded(true);

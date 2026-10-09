@@ -86,6 +86,12 @@
   white-space: nowrap;
 }
 
+.tenant-name {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
 .table__muted {
   color: var(--color-text-secondary);
 }
