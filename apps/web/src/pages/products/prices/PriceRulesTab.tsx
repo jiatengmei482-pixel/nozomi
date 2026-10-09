@@ -5,7 +5,9 @@
  */
 import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
+import { exportPrices } from "../../../api/inventory.ts";
 import { type PriceRuleBatch, type PriceRules, savePriceRules } from "../../../api/prices.ts";
 import { usePortalSession } from "../../../auth/PortalSession.tsx";
 import { Alert } from "../../../components/Alert.tsx";
@@ -44,6 +46,8 @@ import type { ServerIssue } from "../../../lib/product-failure.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
 import { type StepController, StepShell } from "../StepShell.tsx";
 import { type StepProblem, focusAnchor } from "../frame.ts";
+import { useDownload } from "../inventory/useDownload.tsx";
+import { importPath } from "../../../lib/product-paths.ts";
 import type { PricesShared } from "./PricesStep.tsx";
 
 const STATE_LOOK: Readonly<Record<RowState, { icon: IconName; tone: string }>> = {
@@ -84,6 +88,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const defaultModel: PricingModel = models[0] ?? (category === "charter" ? "charter_package" : "fixed");
 
   const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages);
+  const download = useDownload();
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const adopted = useRef(prices);
   // 重新取到了价格（别人先改了之后「载入最新内容」）：换成最新的，没保存的修改重新套上去
@@ -408,7 +413,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   };
 
   return (
-    <StepShell frame={frame} slug="prices" title="③ 价格规则" hideTitle next={{ slug: "content", label: "保存并下一步" }} controller={controller}>
+    <StepShell frame={frame} slug="prices" title="③ 价格规则" hideTitle next={{ slug: "inventory", label: "保存并下一步" }} controller={controller}>
       {({ busy }) => {
         const locked = busy || readOnly;
         const groupsOverlap = overlapGroups();
@@ -418,6 +423,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
               {announce}
             </div>
             <div role="alert" className="step__alerts">
+              {download.notice}
               {rejection && (
                 <div id="price-rejection" tabIndex={-1}>
                   <Alert kind="danger">
@@ -618,6 +624,40 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                     <input type="checkbox" checked={showExpired} onChange={(event) => setShowExpired(event.target.checked)} />
                     <span className="choice__text">{`显示已过期的${hiddenExpired > 0 ? `（${hiddenExpired} 条）` : ""}`}</span>
                   </label>
+                  <span className="price-filters__transfer">
+                    <Dropdown
+                      buttonClassName="button button--secondary button--sm"
+                      buttonContent={
+                        download.busy ? (
+                          "正在准备文件…"
+                        ) : (
+                          <>
+                            导入 / 导出
+                            <Icon name="chevron-down" />
+                          </>
+                        )
+                      }
+                      align="end"
+                    >
+                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy} onClick={() => void download.run((session) => exportPrices(session, product.id, "none"), "price-template.xlsx")}>
+                        <span className="menu-item__text">下载空白模版</span>
+                      </button>
+                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy || prices.items.length === 0} onClick={() => void download.run((session) => exportPrices(session, product.id, "all"), "prices.xlsx")}>
+                        <span className="menu-item__text">
+                          {prices.items.length === 0 ? "导出现有的价格（还没有价格）" : `导出现有的价格（${prices.items.length} 条）`}
+                          {changes.length > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
+                        </span>
+                      </button>
+                      {!readOnly && (
+                        <>
+                          <hr className="menu-divider" />
+                          <Link role="menuitem" className="menu-item" to={importPath(product.id, "prices")}>
+                            <span className="menu-item__text">导入价格…</span>
+                          </Link>
+                        </>
+                      )}
+                    </Dropdown>
+                  </span>
                 </div>
 
                 <div className="price-table__scroll" id="price-table" tabIndex={-1}>

@@ -141,6 +141,8 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
           }
         : { kind: "success", title: "可以上架了", body: "必须的检查都通过了。点下面的「上架」，这个商品就开始参与报价和接单。" };
 
+  // 库存是限量、从今天起却没有一天有库存：不拦上架，但上了架也卖不出去
+  const noStockAhead = check.items.some((item) => item.key === "inventory" && item.issues.some((issue) => issue.reason === "NO_INVENTORY_AHEAD"));
   const row = (item: PublishCheckItemBody): ReactNode => {
     const state = checkItemState(item);
     const look = STATE_LOOK[state];
@@ -149,18 +151,20 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
     // 不是必须的项也可能有要提醒的（调价规则会把价格调到不大于 0）
     const reasons = state === "missing" || (state === "optional" && !item.passed) ? checkReasons(item, checkContext) : [];
     const stepPath = item.key === "adjust_rules" ? pricePath(product.id, "adjust") : step ? productPath(product.id, step) : null;
-    const stateText = state === "passed" ? "已满足" : state === "missing" ? `还差 ${Math.max(1, reasons.length)} 项` : state === "unavailable" ? "功能即将开放" : "不是必须";
+    const heedful = item.key === "inventory" && reasons.length > 0;
+    const stateText = state === "passed" ? "已满足" : state === "missing" ? `还差 ${Math.max(1, reasons.length)} 项` : state === "unavailable" ? "功能即将开放" : heedful ? `有 ${reasons.length} 处要留意` : "不是必须";
+    const optionalNote = item.key === "inventory" ? (frame.inventoryMode === "unlimited" ? "现在是不限量，每天接多少单都可以。想限制每天接多少单时才用设。" : frame.inventoryMode === "limited" ? "现在是限量，按每天设的库存接单。" : (OPTIONAL_NOTES[item.key] ?? "")) : (OPTIONAL_NOTES[item.key] ?? "");
     return (
       <li key={item.key} className="checklist__item" data-check={item.key}>
         <div className="checklist__head">
-          <span className={`checklist__icon checklist__icon--${look.tone}`}>
-            <Icon name={look.icon} />
+          <span className={`checklist__icon checklist__icon--${heedful ? "warning" : look.tone}`}>
+            <Icon name={heedful ? "alert-triangle" : look.icon} />
           </span>
           <span className="checklist__name">
             {itemName}
             <span className="visually-hidden">，</span>
           </span>
-          <span className={`checklist__state checklist__state--${look.tone}`}>{stateText}</span>
+          <span className={`checklist__state checklist__state--${heedful ? "warning" : look.tone}`}>{stateText}</span>
           {state === "missing" && step && (
             <LinkButton size="sm" className="checklist__action" to={productPath(product.id, step)} aria-label={`${readOnly ? "去查看" : "去修改"}：${itemName}`}>
               {readOnly ? "去查看" : "去修改"}
@@ -173,8 +177,8 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
               <li key={reason.text}>
                 <span>{reason.text}</span>
                 {reason.anchor !== null && step && stepPath ? (
-                  <Link className="link checklist__go" to={step === "prices" ? (reason.anchor !== null && reason.anchor.startsWith("adjust/") ? pricePath(product.id, "adjust", reason.anchor.slice("adjust".length)) : stepPath) : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : "去填"}：${reason.text}`}>
-                    {readOnly ? "去查看" : "去填"}
+                  <Link className="link checklist__go" to={step === "prices" ? (reason.anchor !== null && reason.anchor.startsWith("adjust/") ? pricePath(product.id, "adjust", reason.anchor.slice("adjust".length)) : stepPath) : productPath(product.id, step, reason.anchor === "" ? undefined : reason.anchor)} aria-label={`${readOnly ? "去查看" : item.key === "inventory" ? "去设" : "去填"}：${reason.text}`}>
+                    {readOnly ? "去查看" : item.key === "inventory" ? "去设" : "去填"}
                     <Icon name="chevron-right" />
                   </Link>
                 ) : (
@@ -185,7 +189,7 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
           </ul>
         )}
         {state === "unavailable" && <p className="checklist__text">{UNAVAILABLE_NOTES[item.key] ?? "不是出错：这个功能还在开发。开放后在那里配好，这一项就会满足。"}</p>}
-        {state === "optional" && <p className="checklist__text">{`${OPTIONAL_NOTES[item.key] ?? ""}${step ? "" : "功能还在开发。"}`}</p>}
+        {state === "optional" && !heedful && <p className="checklist__text">{`${optionalNote}${step ? "" : "功能还在开发。"}`}</p>}
       </li>
     );
   };
@@ -210,7 +214,10 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
         <div role="status">
           <Alert kind={summary.kind}>
             <strong className="alert__title">{summary.title}</strong>
-            <span>{summary.body}</span>
+            <span>
+              {summary.body}
+              {noStockAhead && !published && " 另外，库存是限量的，但从今天起没有一天有库存，这个商品现在卖不出去（见下面「库存」一项）。"}
+            </span>
           </Alert>
         </div>
         <h3 className="checklist__group">上架前必须满足</h3>
@@ -275,6 +282,14 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
           </li>
           <li>之后修改任何规则，保存后大约 1 分钟生效。</li>
         </ul>
+        {noStockAhead && (
+          <p className="adjust-warning">
+            <Icon name="alert-triangle" />
+            <span>
+              <strong>现在上架也卖不出去</strong>：库存是限量的，从今天起没有一天有库存。可以先去设库存，也可以先上架、之后再设。
+            </span>
+          </p>
+        )}
       </Dialog>
       {actions.dialog}
     </div>

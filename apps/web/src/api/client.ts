@@ -177,3 +177,103 @@ export function resetPassword<P extends Portal>(portal: P, request: SetPasswordR
 export function changePassword(portal: Portal, token: string, request: ChangePasswordRequest): Promise<void> {
   return call(portal, "changePassword", { token, body: request });
 }
+
+// ───────────── 文件：上传 .xlsx、下载导出的文件 ─────────────
+
+export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+/** 上传和下载文件给的时间比普通请求长（文件最大 1 MB，正常几秒内完成）。 */
+export const FILE_TIMEOUT_MS = 30_000;
+
+export interface FileRequestOptions {
+  token: string;
+  headers?: Readonly<Record<string, string>>;
+  /** 用户点了「取消」 */
+  signal?: AbortSignal;
+}
+
+/** 用户自己取消的请求：不算出错。 */
+export class CancelledError extends Error {
+  constructor() {
+    super("cancelled");
+    this.name = "CancelledError";
+  }
+}
+
+async function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<{ response: Response; done(): void; timedOut(): boolean }> {
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, FILE_TIMEOUT_MS);
+  const cancel = (): void => abort.abort();
+  options.signal?.addEventListener("abort", cancel);
+  const done = (): void => {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", cancel);
+  };
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": XLSX_CONTENT_TYPE } : {}), ...options.headers },
+      signal: abort.signal,
+      cache: "no-store",
+      credentials: "omit",
+      ...(body !== null ? { body } : {}),
+    });
+    return { response, done, timedOut: () => timedOut };
+  } catch {
+    done();
+    throw options.signal?.aborted === true && !timedOut ? new CancelledError() : new NetworkError();
+  }
+}
+
+/** 把一个文件原样传上去（请求体就是文件本身），应答是 JSON。令牌只走请求头。 */
+export async function apiUpload<T>(url: string, file: Blob, options: FileRequestOptions): Promise<T> {
+  const { response, done, timedOut } = await fileFetch("POST", url, file, "application/json", options);
+  try {
+    if (!response.ok) throw await toApiError(response);
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw options.signal?.aborted === true && !timedOut() ? new CancelledError() : timedOut() ? new NetworkError() : malformedResponse();
+  } finally {
+    done();
+  }
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  /** 应答头里的文件名；没有时是 null */
+  filename: string | null;
+}
+
+/** `Content-Disposition` 里的文件名：先认 `filename*=UTF-8''…`，再认 `filename="…"`。 */
+export function parseFilename(header: string | null): string | null {
+  if (header === null) return null;
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      return null;
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]+)"/i.exec(header) ?? /filename\s*=\s*([^;]+)/i.exec(header);
+  return plain?.[1]?.trim() ?? null;
+}
+
+/** 取回一个要下载的文件。失败时接口返回的是 JSON 的错误格式；状态是成功、拿到的却不是文件，同样按出错处理。 */
+export async function apiDownload(url: string, options: FileRequestOptions): Promise<DownloadedFile> {
+  const { response, done, timedOut } = await fileFetch("GET", url, null, `${XLSX_CONTENT_TYPE}, application/json`, options);
+  try {
+    if (!response.ok) throw await toApiError(response);
+    if ((response.headers.get("content-type") ?? "").includes("application/json")) throw malformedResponse();
+    return { blob: await response.blob(), filename: parseFilename(response.headers.get("content-disposition")) };
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw timedOut() ? new NetworkError() : malformedResponse();
+  } finally {
+    done();
+  }
+}

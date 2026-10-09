@@ -2404,3 +2404,522 @@
   margin-left: var(--space-1);
   color: var(--color-warning-text);
 }
+
+/* ───── ④ 库存 ───── */
+.menu-divider {
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.menu-item__note {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.price-filters__transfer {
+  margin-left: auto;
+}
+
+.stock-mode {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stock-mode__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.stock-mode__now,
+.stock-mode__effect,
+.stock-mode__fact {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.stock-mode__effect {
+  color: var(--color-text-secondary);
+}
+
+.stock-mode__effect > strong {
+  color: var(--color-text-primary);
+}
+
+.stock-calendar {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stock-calendar > * {
+  min-width: 0;
+}
+
+.stock-calendar__head {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.stock-calendar__head > .card__title {
+  margin: 0;
+}
+
+.stock-calendar__tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.stock-calendar__tools > .button,
+.stock-calendar__tools .button {
+  width: 100%;
+  justify-content: center;
+}
+
+.stock-cell__main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.stock-cell__sub {
+  justify-content: flex-end;
+}
+
+.stock-cell--unlimited .stock-cell__main,
+.stock-cell--closed .stock-cell__main,
+.stock-cell--beyond .stock-cell__main {
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.stock-cell--beyond .stock-cell__main {
+  color: var(--color-text-tertiary);
+}
+
+.stock-cell--sold_out .stock-cell__main {
+  color: var(--color-info-text);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+}
+
+.stock-cell--closed {
+  background: var(--color-bg-subtle);
+}
+
+.stock-cell--unset .stock-cell__main {
+  color: var(--color-warning-text);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+}
+
+.stock-cell--unset:not(.stock-cell--past) {
+  background: var(--color-warning-bg);
+}
+
+.stock-cell--unset:not(.stock-cell--past) .stock-cell__sub {
+  color: var(--color-text-primary);
+}
+
+.stock-cell--unset.stock-cell--past .stock-cell__main {
+  color: var(--color-text-secondary);
+}
+
+.calendar__cell--selected.stock-cell {
+  background: var(--color-bg-selected);
+}
+
+.calendar__cell--locked {
+  cursor: default;
+}
+
+.stock-day__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+p.stock-day__status.stock-cell--unset {
+  background: transparent;
+  color: var(--color-warning-text);
+}
+
+p.stock-day__status.stock-cell--closed {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+p.stock-day__status.stock-cell--sold_out {
+  color: var(--color-info-text);
+}
+
+.stock-day__form {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.stock-day__form > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.stock-day__legend {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.stock-choices__total {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stock-choices__input {
+  width: 96px;
+}
+
+.stock-choices > .field__hint {
+  margin: 0;
+}
+
+.stock-batch__explain {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.stock-batch__readback {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.stock-batch__readback:empty {
+  display: none;
+}
+
+.stock-batch__overwrite {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.stock-batch__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+@media (min-width: 768px) {
+  .stock-mode {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .stock-calendar__head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .stock-calendar__tools {
+    display: flex;
+  }
+
+  .stock-calendar__tools > .button,
+  .stock-calendar__tools .button {
+    width: auto;
+  }
+
+  .stock-cell__main,
+  .stock-cell__sub {
+    justify-content: flex-start;
+  }
+}
+
+/* ───── 导入价格 / 导入库存 ───── */
+.import-page {
+  display: grid;
+  gap: var(--space-4);
+  max-width: var(--layout-reading-max-width);
+}
+
+.import-page > * {
+  min-width: 0;
+}
+
+.import-page__intro,
+.import-steps {
+  margin: 0;
+}
+
+.import-page__focus:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-steps {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-steps__step--current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.import-page__actions {
+  display: grid;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.import-guide {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.import-guide__summary {
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+.import-guide__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.import-drop {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: stretch;
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-style: dashed;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  text-align: center;
+}
+
+.import-drop--over {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-selected);
+}
+
+.import-drop__hint {
+  display: none;
+}
+
+.import-drop__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+
+.import-drop__button {
+  cursor: pointer;
+}
+
+.import-drop__input:focus-visible + .import-drop__button {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-drop__limit {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.import-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.import-file__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-progress {
+  display: block;
+  height: var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+}
+
+.import-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.import-counts__total {
+  white-space: nowrap;
+}
+
+.import-counts__item {
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.import-counts__item--on {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+}
+
+.import-counts__number {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-table__scroll {
+  position: relative;
+  max-height: 60dvh;
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.import-table__scroll:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.import-table {
+  width: 100%;
+}
+
+.import-table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.import-table,
+.import-table tbody,
+.import-table tbody tr,
+.import-table tbody th,
+.import-table tbody td {
+  display: block;
+}
+
+.import-table tbody tr {
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.import-table tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-0-5) 0;
+  border: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.import-table__row {
+  font-family: var(--font-family-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-table__issue {
+  display: block;
+}
+
+.import-table__cell {
+  font-family: var(--font-family-mono);
+  user-select: all;
+}
+
+@media (min-width: 768px) {
+  .import-page__actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .import-drop {
+    justify-items: center;
+  }
+
+  .import-drop__hint {
+    display: inline;
+  }
+
+  .import-table thead {
+    position: sticky;
+    top: 0;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .import-table {
+    display: table;
+  }
+
+  .import-table tbody {
+    display: table-row-group;
+  }
+
+  .import-table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .import-table tbody th,
+  .import-table tbody td {
+    display: table-cell;
+    vertical-align: top;
+  }
+
+  .import-table tbody tr > * {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+  }
+
+  .import-table__mobile {
+    display: none;
+  }
+}

@@ -480,7 +480,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
             </Button>
           </>
         ) : (
-          <LinkButton variant="secondary" to={productPath(product.id, "content")}>
+          <LinkButton variant="secondary" to={productPath(product.id, "inventory")}>
             下一步
           </LinkButton>
         )}

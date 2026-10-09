@@ -75,7 +75,7 @@ export function readAmount(text: string, currency: string | null): AmountResult 
 // ───────────── 上架检查 ─────────────
 
 /** 前端有页面的步骤：上架检查里的项 → 步骤。价格规则、库存上线时在这里接上。 */
-export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", content: "content" };
+export const CHECK_STEP: Readonly<Partial<Record<PublishCheckKey, ProductStepSlug>>> = { basic_info: "basic", service_rules: "service-rules", price_rules: "prices", adjust_rules: "prices", inventory: "inventory", content: "content" };
 
 export function checkItemName(key: string): string {
   return (PUBLISH_CHECK_NAMES as Record<string, string>)[key] ?? "其他检查";
@@ -172,6 +172,8 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
       return false;
     }).length;
     if (unnamed > 0) out.push(one(`有 ${unnamed} 条调价规则会把价格调到不大于 0，这些价格报不出来`, "adjust"));
+  } else if (item.key === "inventory") {
+    if (take(reason("NO_INVENTORY_AHEAD"))) out.push(one("库存是限量的，但从今天起没有一天有库存——上了架也卖不出去。", ""));
   }
   // 没列在上面的：用接口带的中文说明
   const seen = new Set<string>();
