@@ -6,6 +6,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { parse } from "yaml";
 import { XLSX_CONTENT_TYPE, XLSX_LIMITS, type XlsxWriteCell, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { buildZip } from "./testing/zip.ts";
@@ -375,4 +377,35 @@ test("权限：导出要能看（只读可以），预览和导入要能改（�
   assert.equal((await api.app.inject({ method: "POST", url: `/tenant/v1${uploads[0]![0]}`, payload: file, headers: { "content-type": XLSX_CONTENT_TYPE } })).statusCode, 401);
   const texts = [JSON.stringify(seen), JSON.stringify((await download(exports[0] as string)).rows), JSON.stringify(await ok(upload(uploads[2]![0], stock)))];
   for (const text of texts) assert.doesNotMatch(text, /markup|sell_price|selling_price|public_price|channel|对外价|加价比例/i);
+});
+
+test("接口定义对账：库存和导入导出应答的字段和 openapi.yaml 里各 schema 的必有字段一致", async () => {
+  const doc = parse(await readFile(new URL("../openapi.yaml", import.meta.url), "utf8")) as { components: { schemas: Record<string, any> } };
+  const schema = (name: string): any => doc.components.schemas[name];
+  const same = (actual: object, required: string[], label: string): void => assert.deepEqual(Object.keys(actual).sort(), [...required].sort(), label);
+  const id = await product();
+  const view = await ok(call("GET", `/products/${id}/inventory?from=${TODAY}&to=${TODAY}`));
+  same(view, schema("Inventory").required, "Inventory");
+  same(view.days[0], schema("Inventory").properties.days.items.required, "Inventory.days[]");
+  assert.ok(schema("Inventory").properties.days.items.properties.status.enum.includes(view.days[0].status));
+  same(await ok(call("PUT", `/products/${id}/inventory`, { version: 1, body: { mode: "limited" } })), schema("InventoryMode").required, "InventoryMode");
+  const batch = await ok(call("POST", `/products/${id}/inventory/batch-set`, { version: 2, body: { from: TODAY, to: TODAY, total: 2 } }));
+  same(batch, schema("InventoryBatchResult").required, "InventoryBatchResult");
+  const stock = writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], [TODAY, num(4)], ["bad", num(1)]] }]);
+  const stockPreview = await ok(upload(`/products/${id}/inventory/import/preview`, stock));
+  same(stockPreview, schema("InventoryImportPreview").required, "InventoryImportPreview");
+  same(stockPreview.summary, schema("InventoryImportSummary").required, "InventoryImportSummary");
+  same(stockPreview.rows[0], schema("InventoryImportPreview").properties.rows.items.required, "InventoryImportPreview.rows[]");
+  same(stockPreview.rows[1].issues[0], schema("InventoryImportPreview").properties.rows.items.properties.issues.items.required, "issues[]");
+  const good = writeXlsx([{ name: "库存", rows: [["日期", "可售单数"], [TODAY, num(4)]] }]);
+  same(await ok(upload(`/products/${id}/inventory/import?file_sha256=${sha(good)}`, good, { version: stockPreview.version })), schema("InventoryImportResult").required, "InventoryImportResult");
+  const file = sheet([TRANSFER_HEADER, fixedRow(), fixedRow({ 生效开始: "2027-01-01" })]);
+  const pricePreview = await preview(id, file);
+  same(pricePreview, schema("PriceImportPreview").required, "PriceImportPreview");
+  same(pricePreview.summary, schema("ImportSummary").required, "ImportSummary");
+  same(pricePreview.rows[0], schema("PriceImportPreview").properties.rows.items.required, "PriceImportPreview.rows[]");
+  same(pricePreview.rows[0].conflicts_with[0], schema("PriceImportPreview").properties.rows.items.properties.conflicts_with.items.required, "conflicts_with[]");
+  const clean = sheet([TRANSFER_HEADER, fixedRow()]);
+  const imported = await ok(upload(`/products/${id}/price-rules/import?file_sha256=${sha(clean)}`, clean, { version: pricePreview.version }));
+  same(imported, [...schema("PriceRules").required, "summary"], "PriceImportResult");
 });
