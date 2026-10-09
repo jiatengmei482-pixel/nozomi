@@ -8,16 +8,17 @@
 | --- | --- |
 | [`tokens.css`](./tokens.css) | 设计令牌的 CSS 自定义属性，**唯一数值来源** |
 | [`01-tokens.md`](./01-tokens.md) | 令牌说明：颜色（亮、暗）、对比度、字体、字号、间距、圆角、阴影、断点、层级、动效 |
-| [`02-components.md`](./02-components.md) | 组件规范：按钮、表单、表格、分页、状态徽标、提示、对话框、导航、空/加载/错误状态；地图画布、图例与署名、绘制工具条、图形列表与坐标表；步骤导航、检查清单、可排序的已选列表、时间与日期输入、可选规则块 |
+| [`02-components.md`](./02-components.md) | 组件规范：按钮、表单、表格、分页、状态徽标、提示、对话框、导航、空/加载/错误状态；地图画布、图例与署名、绘制工具条、图形列表与坐标表；步骤导航、检查清单、可排序的已选列表、时间与日期输入、可选规则块；金额输入、可编辑表格、覆盖表、月历与日期范围选择、策略步骤编辑器、星期选择 |
 | [`03-layout.md`](./03-layout.md) | 后台框架、内容宽度、栅格、响应式规则、360px 不横向滚动的做法 |
-| [`04-data-display.md`](./04-data-display.md) | 金额、百分比、日期时间、时区、多币种的显示；主数据、区域、商品的显示 |
+| [`04-data-display.md`](./04-data-display.md) | 金额、百分比、日期时间、时区、多币种的显示；主数据、区域、商品、价格的显示 |
 | [`pages/login.md`](./pages/login.md) | 登录页、接受邀请并设置密码页 |
 | [`pages/change-password.md`](./pages/change-password.md) | 修改密码页；用临时密码登录后必须先改密码时的页面和后台框架 |
 | [`pages/platform-home.md`](./pages/platform-home.md) | 运营后台首页（模块入口和数量）；运营后台菜单的分组与顺序 |
 | [`pages/master-data.md`](./pages/master-data.md) | 主数据：城市、地点、车型组、附加服务的列表页和新增 / 编辑页；处理导入的机场 |
 | [`pages/tenant-home.md`](./pages/tenant-home.md) | 供应商后台首页（模块入口、数量、「先建区域」的引导）；供应商后台菜单的分组与顺序 |
 | [`pages/tenant-areas.md`](./pages/tenant-areas.md) | 区域管理：列表、在地图上画营运区和禁行区、坐标表、自测；地图底图的技术约束（地图库、瓦片来源、内容安全策略） |
-| [`pages/tenant-products.md`](./pages/tenant-products.md) | 商品：列表、分步配置（基础信息、服务规则；价格规则、库存、商品详情后续开放）、上架检查与上下架 |
+| [`pages/tenant-products.md`](./pages/tenant-products.md) | 商品：列表、分步配置（基础信息、服务规则、商品详情；库存后续开放）、上架检查与上下架 |
+| [`pages/tenant-prices.md`](./pages/tenant-prices.md) | 商品的第 ③ 步：价格规则（固定一口价 / 里程 + 时长 / 包车套餐、缺价的组合、生效日期重叠）、调价规则（步骤、顺序、试算）、价格日历、取整单位；菜单里的「价格规则」 |
 | [`contrast-check.mjs`](./contrast-check.mjs) | 校验脚本：两段暗色令牌一致、亮暗令牌齐全、对比度达标 |
 
 以后每个有界面的任务，在 `pages/` 下加一篇页面说明，固定写四件事：给谁用、要完成什么、首屏看到什么、空状态和出错时显示什么。
