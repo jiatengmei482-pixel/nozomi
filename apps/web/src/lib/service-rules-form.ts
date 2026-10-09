@@ -3,7 +3,7 @@
  * 这里把一份表单读成「接口的请求体 + @nozomi/domain 的规则对象 + 写错了的地方」。
  * 范围、上限、缺什么都问 @nozomi/domain（serviceRuleIssues / serviceRuleMissing）；这里只多管「字敲得不成样子」和「填了一半」。
  */
-import { type FreeWaitItem, MASTER_DATA_LANGUAGES, type NightChargeUnit, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, freeWaitItems, serviceRuleIssues } from "@nozomi/domain";
+import { DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
 import type { DailyWindowBody, FreeWaitBody, ServiceRulesBody } from "../api/products.ts";
 import { LANGUAGE_NAMES, amountText, readAmount } from "./product-display.ts";
 import { tidyDate, tidyTime } from "./time-input.ts";
@@ -53,6 +53,8 @@ export interface RulesFormContext extends ServiceRuleContext {
   minimums: Record<FreeWaitItem, number | null>;
   /** 平台目录里现在能勾的附加服务（编号 → 名称）；只用来写出错文字 */
   addonNames: Readonly<Record<string, string>>;
+  /** 哪些附加服务可以设「第一个免费」（只有按个计费的）；目录里没有的不在这里，原样保留它的值，由保存去报 */
+  firstFreeAllowed?: Readonly<Record<string, boolean>>;
 }
 
 export interface RulesProblem {
@@ -74,7 +76,7 @@ export function defaultNightUnit(category: ServiceCategory): NightChargeUnit {
 }
 
 /** 接口读到的规则 → 表单。从没保存过的免费等待预先填成「等 平台规定的最少分钟数」（保存这一步时才真的存下来）。 */
-export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums">): RulesForm {
+export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed">): RulesForm {
   const { booking, urgent, night } = body;
   const allDay = booking.service_time?.start === "00:00" && booking.service_time.end === "24:00";
   const wait = (item: FreeWaitItem): WaitField => {
@@ -100,13 +102,14 @@ export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormCon
     nightUnit: night.charge_unit ?? (night.enabled ? null : defaultNightUnit(context.category)),
     nightAmount: night.amount === null ? "" : amountText(night.amount, context.currency),
     wait: { pickup: wait("pickup"), dropoff: wait("dropoff"), general: wait("general") },
-    addons: Object.fromEntries(body.addons.filter((addon) => addon.enabled).map((addon) => [addon.addon_id, { enabled: true, price: amountText(addon.unit_price, context.currency), firstFree: addon.first_free }])),
+    addons: Object.fromEntries(body.addons.filter((addon) => addon.enabled).map((addon) => [addon.addon_id, { enabled: true, price: amountText(addon.unit_price, context.currency), firstFree: addon.first_free && context.firstFreeAllowed?.[addon.addon_id] !== false }])),
     languages: body.driver_languages.map((entry) => ({ language: entry.language, price: amountText(entry.unit_price, context.currency) })),
   };
 }
 
 const INTEGER = /^\d+$/;
-const tidyNumber = (text: string): string => text.trim().replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/,/g, "");
+/** 数字输入框里的字整理成半角、去掉千分位：读回来的话和提交用的是同一个值。 */
+export const tidyNumber = (text: string): string => text.trim().replace(/[０-９]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/,/g, "");
 
 /** 一个时段的两格 → 值；填了一半、认不出来、开始结束相同都算写错。两格都空 = 没填。 */
 function readWindow(start: string, end: string, ids: [string, string], label: string, example: string, sameText: string, problems: RulesProblem[]): DailyWindowBody | null {
@@ -120,7 +123,8 @@ function readWindow(start: string, end: string, ids: [string, string], label: st
     problems.push({ text: `${label}：${sameText}`, target: ids[1] });
     return null;
   }
-  return { start: from, end: to };
+  // 结束在午夜只留一种写法（和后端存的一样）：08:00–24:00 写成 08:00–00:00
+  return normalizeDailyWindow({ start: from, end: to });
 }
 
 const camelWindow = (window: DailyWindowBody | null): { start: string; end: string } | null => (window === null ? null : { start: window.start, end: window.end });
@@ -191,8 +195,8 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
     const quotaText = tidyNumber(form.quota);
     if (quotaText === "0") problems.push({ text: "每日加急库存：要停掉加急，请取消勾选「允许加急预订」", target: "urgent-quota" });
     else if (quotaText !== "") {
-      if (INTEGER.test(quotaText) && Number(quotaText) <= 10_000) quota = Number(quotaText);
-      else problems.push({ text: "每日加急库存：请填 1 到 10,000 之间的整数，或留空表示不限", target: "urgent-quota" });
+      if (INTEGER.test(quotaText) && Number(quotaText) <= PRODUCT_LIMITS.maxUrgentDailyQuota) quota = Number(quotaText);
+      else problems.push({ text: `每日加急库存：请填 1 到 ${PRODUCT_LIMITS.maxUrgentDailyQuota.toLocaleString("en-US")} 之间的整数，或留空表示不限`, target: "urgent-quota" });
     }
     const limit = leadTime ?? PRODUCT_LIMITS.maxLeadTimeHours;
     const seen = new Map<number, number>();
@@ -202,7 +206,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
       if (hoursText === "" && row.amount.trim() === "") return;
       let hours: number | null = null;
       if (hoursText === "") problems.push({ text: `${label}：请填写小时数`, target: `tier-${index}-hours` });
-      else if (!INTEGER.test(hoursText) || Number(hoursText) < 1 || Number(hoursText) > limit) problems.push({ text: `${label}：请填 1 到 ${limit} 之间的整数`, target: `tier-${index}-hours` });
+      else if (!INTEGER.test(hoursText) || Number(hoursText) < 1 || Number(hoursText) > limit) problems.push({ text: limit < 1 ? `${label}：提前预订时长是 0 小时时没有「来不及」的单。请关掉加急，或把提前预订时长改成至少 1 小时` : `${label}：请填 1 到 ${limit} 之间的整数`, target: `tier-${index}-hours` });
       else if (seen.has(Number(hoursText))) problems.push({ text: `第 ${(seen.get(Number(hoursText)) ?? 0) + 1} 档和第 ${index + 1} 档的小时数相同`, target: `tier-${index}-hours` });
       else {
         hours = Number(hoursText);
@@ -247,7 +251,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
       continue;
     }
     const price = amount(field.price, `addon-${id}-price`, label);
-    if (price !== null) addons.push({ addon_id: id, enabled: true, unit_price: price, first_free: field.firstFree && price > 0 });
+    if (price !== null) addons.push({ addon_id: id, enabled: true, unit_price: price, first_free: field.firstFree && price > 0 && context.firstFreeAllowed?.[id] !== false });
   }
 
   // 司机语言
@@ -294,7 +298,7 @@ export function ruleIssueText(issue: Pick<RuleIssue, "path" | "reason" | "detail
   const detail = issue.detail ?? {};
   switch (issue.reason) {
     case "TIER_NOT_WITHIN_LEAD_TIME":
-      return `加急阶梯：请填 1 到 ${detail["lead_time_hours"] ?? "提前预订时长"} 之间的整数`;
+      return typeof detail["lead_time_hours"] === "number" && detail["lead_time_hours"] < 1 ? "加急阶梯：提前预订时长是 0 小时时没有「来不及」的单。请关掉加急，或把提前预订时长改成至少 1 小时" : `加急阶梯：请填 1 到 ${detail["lead_time_hours"] ?? "提前预订时长"} 之间的整数`;
     case "BELOW_PLATFORM_MINIMUM":
       return `免费等待：不能少于平台规定的 ${detail["min"] ?? ""} 分钟`;
     case "OUT_OF_RANGE":
@@ -310,4 +314,4 @@ export function ruleIssueText(issue: Pick<RuleIssue, "path" | "reason" | "detail
   }
 }
 
-export const DRIVER_LANGUAGE_OPTIONS = (["zh", "ja", "en", "ko"] as const).filter((language) => (MASTER_DATA_LANGUAGES as readonly string[]).includes(language)).map((language) => ({ value: language, label: LANGUAGE_NAMES[language] }));
+export const DRIVER_LANGUAGE_OPTIONS = (["zh", "ja", "en", "ko"] as const).filter((language) => DRIVER_LANGUAGES.includes(language)).map((language) => ({ value: language, label: LANGUAGE_NAMES[language] }));

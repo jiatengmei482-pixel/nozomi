@@ -25,6 +25,7 @@ import {
   priceRuleIssues,
 } from "@nozomi/domain";
 import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
+import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
 import { CURRENCY_NAMES, amountText, moneyText, readAmount } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
 
@@ -167,7 +168,10 @@ export function readRow(row: PriceRow, context: PriceContext): RowReading {
   const numbers: Partial<Record<PriceField, number | null>> = {};
   for (const field of MODEL_FIELDS[row.model]) {
     const name = fieldName(field, row.model);
-    const text = halfWidth(row.values[field]).trim().replace(/[,\s¥円元]/g, "").replace(new RegExp(context.currency, "gi"), "");
+    const money = MONEY_FIELDS.includes(field);
+    const read = money ? tidyAmountText(row.values[field], context.currency) : null;
+    // 不是金额的格子（公里、分钟）：只去掉空格和千分位
+    const text = read !== null ? (read.ok ? read.text : read.reason === "empty" ? "" : read.reason === "negative" ? "-" : "?") : halfWidth(row.values[field]).replace(/[,\s]/g, "");
     if (text === "") {
       if (field === "min") numbers[field] = null;
       else problems.push({ field, text: `请填${name}${ZERO_OK.includes(field) && field !== "startKm" && field !== "startMin" ? "，不另收请填 0" : ""}` });
@@ -177,8 +181,8 @@ export function readRow(row: PriceRow, context: PriceContext): RowReading {
       problems.push({ field, text: `${name}不能是负数` });
       continue;
     }
-    if (MONEY_FIELDS.includes(field)) {
-      if (!/^\d+(\.\d+)?$/.test(text)) problems.push({ field, text: "请填数字" });
+    if (money) {
+      if (read !== null && !read.ok) problems.push({ field, text: read.reason === "grouping" ? GROUPING_PROBLEM : read.reason === "other-currency" ? otherCurrencyProblem(context.currency) : "请填数字" });
       else {
         const amount = readAmount(text, context.currency);
         if (!amount.ok) problems.push({ field, text: /小数/.test(amount.message) ? decimalsText(context.currency) : `${name}最多 ${moneyText(PRICE_LIMITS.maxAmountMinor, context.currency)}` });

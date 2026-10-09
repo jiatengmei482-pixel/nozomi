@@ -42,7 +42,11 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const canSetRounding = useTenantCan("brand.manage");
   const [rounding, setRounding] = useState(false);
   const tab: PriceTab = rest[0] === "adjust" ? "adjust" : rest[0] === "calendar" ? "calendar" : "rules";
-  useEffect(() => heading.current?.focus(), []);
+  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => heading.current?.focus());
+    return () => cancelAnimationFrame(frameId);
+  }, []);
   const syncVersion = frame.syncVersion;
   const loadedVersion = prices.state.data?.version ?? null;
   useEffect(() => {

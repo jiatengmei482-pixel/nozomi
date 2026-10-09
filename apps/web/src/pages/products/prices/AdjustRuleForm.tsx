@@ -38,7 +38,7 @@ import {
 } from "../../../lib/adjust-form.ts";
 import { countryName, displayName, shortName } from "../../../lib/master-display.ts";
 import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
-import { moneyText, readAmount } from "../../../lib/product-display.ts";
+import { moneyText, readAmount, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
 import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
@@ -961,7 +961,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
                 <option value="amount">按金额</option>
               </select>
               <span className="affix">
-                {input(`adjust-step-${index}-value`, step.value, (value) => changeStep(index, { value }), { label: `第 ${index + 1} 步的数值`, mode: "decimal", describedBy: `adjust-step-${index}-error` })}
+                {input(`adjust-step-${index}-value`, step.value, (value) => changeStep(index, { value }), { label: `第 ${index + 1} 步的数值`, mode: "decimal", describedBy: `adjust-step-${index}-error`, ...(step.type === "amount" ? { tidy: (raw: string) => tidyAmountDisplay(raw, currency) } : {}) })}
                 <span className="affix__text">{step.type === "percent" ? "%" : currency}</span>
               </span>
               <span className="adjust-steps__tools">

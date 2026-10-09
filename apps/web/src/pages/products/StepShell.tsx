@@ -96,7 +96,8 @@ export function StepShell({
   const [conflict, setConflict] = useState(false);
   const [locked, setLocked] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);
-  const [hint, setHint] = useState<string | null>(null);
+  // 带着锚点来的（上架检查的「去填」）：那个字段下面的提示从第一次渲染起就在，不等焦点落过去以后再出现
+  const [hint, setHint] = useState<string | null>(() => (location.hash.length > 1 ? location.hash.slice(1) : null));
   const heading = useRef<HTMLHeadingElement>(null);
   const created = frame.product === null;
   const status = frame.product?.status ?? "draft";
@@ -130,7 +131,7 @@ export function StepShell({
         return setNotice({ kind: "danger", text: "提交的内容不符合要求，请检查后重试。" });
       case "MASTER_DATA_NOT_READY": {
         const reason = typeof err.details["reason"] === "string" ? err.details["reason"] : "";
-        const placed = controller.placeServerIssues([{ path: reason === "PICKUP_PLACE_DISABLED" ? "/poi_id" : "/city_id", reason: reason === "" ? "CITY_DISABLED" : reason, message: "", detail: {} }]);
+        const placed = controller.placeServerIssues([{ path: reason === "PICKUP_PLACE_DISABLED" || reason === "PICKUP_PLACE_OTHER_CITY" ? "/poi_id" : "/city_id", reason: reason === "" ? "CITY_DISABLED" : reason, message: "", detail: {} }]);
         return placed.length > 0 ? showProblems(placed) : setNotice({ kind: "danger", text: "选的城市或接送点已经被平台停用，请换一个。" });
       }
       case "PUBLISH_CHECK_FAILED": {

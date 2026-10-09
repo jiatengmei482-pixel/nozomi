@@ -15,7 +15,7 @@ import { CONTENT_LANGUAGES, type ContentLanguage, LANGUAGE_NAMES, LANGUAGE_TAGS,
 import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { type StepController, StepShell } from "./StepShell.tsx";
-import type { ProductFrame, StepProblem } from "./frame.ts";
+import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
 
 interface LanguageForm {
   title: string;
@@ -123,9 +123,10 @@ export function ContentStep({ frame, product }: { frame: ProductFrame; product: 
     });
   const gaps = checkReasons({ key: "content", required: true, passed: false, issues: contentMissing(reading.content, category).map((issue) => ({ ...issue, message: "" })) }, { category, brandName: "", cityName: "", placeName: null, station: product.poi?.type === "station" });
 
+  const dirty = JSON.stringify(reading.body) !== baseline;
   const controller: StepController = {
-    dirty: JSON.stringify(reading.body) !== baseline,
-    missing: { count: gaps.length, anchor: gaps[0]?.anchor ?? null },
+    dirty,
+    missing: stepMissing(frame, "content", dirty, { count: gaps.length, anchor: gaps[0]?.anchor ?? null }),
     validate: () => {
       const languages = new Set(problems.map((problem) => problem.target.split("-").find((part) => (CONTENT_LANGUAGES as readonly string[]).includes(part)) as ContentLanguage));
       if (languages.size > 0) setOpen(new Set([...open, ...languages]));

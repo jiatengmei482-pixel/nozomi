@@ -120,7 +120,11 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
   const heading = useRef<HTMLHeadingElement>(null);
   const summaryTitle = useRef<HTMLDivElement>(null);
 
-  useEffect(() => heading.current?.focus(), []);
+  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题
+  useEffect(() => {
+    const frameId = requestAnimationFrame(() => heading.current?.focus());
+    return () => cancelAnimationFrame(frameId);
+  }, []);
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => {
     if (stage === "result" || stage === "done") summaryTitle.current?.focus();

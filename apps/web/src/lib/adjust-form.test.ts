@@ -97,3 +97,10 @@ test("时段读回来的话：跨午夜的算在开始那一天头上", () => {
   assert.equal(slotReadback({ type: "daily" }, { start: "18:00", end: "24:00" }), "每天 18:00–24:00，共 6 小时");
   assert.equal(slotReadback({ type: "daily" }, { start: "18:00", end: "18:00" }), null);
 });
+
+test("百分比的写法：出错文字里写的「1,000%」本身能输入；逗号位置不对的不认", () => {
+  assert.equal(percentTextToBasisPoints("1,000"), 100000);
+  assert.equal(percentTextToBasisPoints("1,000%"), 100000);
+  assert.equal(percentTextToBasisPoints("１，０００％"), 100000);
+  for (const text of ["1,00", "10,00", ",5", "1,0000"]) assert.equal(percentTextToBasisPoints(text), null, text);
+});

@@ -455,7 +455,7 @@ test("调价规则保存：调完不大于 0 不发请求；调得很多再问�
   await screen.findByText("这个商品刚被别人修改过，你的修改还没有保存。");
   assert.equal((screen.getByRole("button", { name: "保存" }) as HTMLButtonElement).disabled, true);
   await actor.click(screen.getByRole("button", { name: "载入最新内容，保留我的修改" }));
-  assert.equal((screen.getByLabelText("第 1 步的数值") as HTMLInputElement).value, "1000");
+  assert.equal((screen.getByLabelText("第 1 步的数值") as HTMLInputElement).value, "1,000", "金额离开输入框后带千分位");
 
   answer = apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/steps", reason: "ADJUST_RESULT_NOT_POSITIVE", message: "x", detail: { count: 2 } }] });
   await actor.click(screen.getByRole("button", { name: "保存" }));

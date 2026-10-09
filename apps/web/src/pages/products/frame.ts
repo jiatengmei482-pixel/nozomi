@@ -1,7 +1,7 @@
 /** 商品分步编辑各步骤和外层框架之间的约定。 */
 import type { InventoryMode } from "@nozomi/domain";
 import type { Product, PublishCheckResult } from "../../api/products.ts";
-import type { CheckContext } from "../../lib/product-display.ts";
+import { type CheckContext, checkReasons } from "../../lib/product-display.ts";
 
 export interface ProductFrame {
   /** 新建页上（还没保存过）是 null */
@@ -41,4 +41,17 @@ export function focusAnchor(id: string): boolean {
   target.scrollIntoView?.({ block: "center" });
   target.focus();
   return true;
+}
+
+/**
+ * 一步底部的「这一步已完成 / 还差 N 项」。和左侧步骤导航用同一个来源——上架检查的结果：
+ * 页面上的内容和保存的一样时（没有未保存的修改），直接用检查结果里这一项的原因条数，两处说的必然一样；
+ * 有未保存的修改时检查结果说的还是旧内容，这时才用页面按现在的内容算的 `local`。
+ */
+export function stepMissing(frame: ProductFrame, key: string, dirty: boolean, local: { count: number; anchor: string | null }): { count: number; anchor: string | null } {
+  const item = dirty || frame.check === null || frame.checkContext === null ? undefined : frame.check.items.find((entry) => entry.key === key);
+  if (item === undefined || frame.checkContext === null) return local;
+  if (item.passed) return { count: 0, anchor: null };
+  const reasons = checkReasons(item, frame.checkContext);
+  return { count: Math.max(1, reasons.length), anchor: reasons.find((reason) => reason.anchor !== null && reason.anchor !== "")?.anchor ?? local.anchor };
 }

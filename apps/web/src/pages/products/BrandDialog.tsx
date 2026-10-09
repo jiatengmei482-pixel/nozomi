@@ -1,8 +1,8 @@
 /** 新建子品牌（docs/design/pages/tenant-products.md 4.2）：名称 + 结算币种。币种创建后不能改，对话框里明确提醒。 */
 import { PRODUCT_LIMITS, hasVisibleText } from "@nozomi/domain";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
-import { type Brand, createBrand } from "../../api/products.ts";
+import { type Brand, alreadyCreatedId, createBrand, listBrands, renameBrand } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
@@ -22,7 +22,7 @@ export function BrandDialog({ onClose, onCreated }: { onClose(): void; onCreated
   const [working, setWorking] = useState(false);
   const [taken, setTaken] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [key] = useState(() => crypto.randomUUID());
+  const key = useRef(crypto.randomUUID());
 
   const trimmed = name.trim();
   const nameErrors = [
@@ -31,6 +31,25 @@ export function BrandDialog({ onClose, onCreated }: { onClose(): void; onCreated
     ...(taken ? ["已经有同名的子品牌，请换一个名字"] : []),
   ];
   const currencyErrors = attempted && currency === "" ? ["请选择结算币种"] : [];
+
+  /**
+   * 新建。上一次其实建成了、只是应答没收到时（后端说这个幂等键已经建成了一条）：接上已经建好的那个子品牌——
+   * 名称改过就改成现在填的；它已经不在了，就换一个幂等键重新新建。币种创建后不能改，所以币种不一样时照实报错。
+   */
+  const create = async (): Promise<Brand> => {
+    try {
+      return await createBrand(token, { name: trimmed, currency }, key.current);
+    } catch (err) {
+      const createdId = alreadyCreatedId(err);
+      if (createdId === null) throw err;
+      const existing = (await listBrands(token)).find((brand) => brand.id === createdId);
+      if (!existing || existing.currency !== currency) {
+        key.current = crypto.randomUUID();
+        return createBrand(token, { name: trimmed, currency }, key.current);
+      }
+      return existing.name === trimmed ? existing : renameBrand(token, existing.id, existing.version, trimmed);
+    }
+  };
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -41,7 +60,7 @@ export function BrandDialog({ onClose, onCreated }: { onClose(): void; onCreated
     if (currency === "") return document.getElementById(`${id}-currency`)?.focus();
     setWorking(true);
     try {
-      const brand = await createBrand(token, { name: trimmed, currency }, key);
+      const brand = await create();
       toast(`已新建子品牌「${brand.name}」`);
       onCreated(brand);
     } catch (err) {

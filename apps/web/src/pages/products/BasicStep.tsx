@@ -8,7 +8,8 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import { type AreaSummary, listTenantCities } from "../../api/areas.ts";
 import type { City, Place, VehicleGroup } from "../../api/master.ts";
-import { type Brand, type Product, type ProductPatch, createProduct, listAllAreas, listBrands, listPickupPlaces, listTenantVehicleGroups, patchProduct } from "../../api/products.ts";
+import { ApiError } from "../../api/client.ts";
+import { type Brand, type Product, type ProductPatch, alreadyCreatedId, createProduct, getProduct, listAllAreas, listBrands, listPickupPlaces, listTenantVehicleGroups, patchProduct } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, IconButton, LinkButton } from "../../components/Button.tsx";
@@ -26,7 +27,7 @@ import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { BrandDialog } from "./BrandDialog.tsx";
 import { type StepController, StepShell } from "./StepShell.tsx";
-import type { ProductFrame, StepProblem } from "./frame.ts";
+import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
 
 const CATEGORY_OPTIONS: readonly { value: ServiceCategory; label: string; hint: string }[] = [
   { value: "airport_transfer", label: PRODUCT_CATEGORY_NAMES.airport_transfer, hint: "机场或车站 ↔ 市内，分接和送。一个商品对应一个机场或车站。" },
@@ -97,7 +98,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
   const [server, setServer] = useState<Record<string, string[]>>({});
   const [announce, setAnnounce] = useState("");
   const [addingBrand, setAddingBrand] = useState(false);
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const idempotencyKey = useRef(crypto.randomUUID());
   const [createdNotice, setCreatedNotice] = useState((location.state as { created?: boolean } | null)?.created === true);
 
   // 别处把商品换了（载入最新内容、下架）而这一步没有未保存的修改：跟着换
@@ -236,11 +237,31 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
     }),
     dispatchers: cleanDispatchers(dispatchers),
   });
+  /**
+   * 新建。上一次保存其实成功了、只是应答没收到时（后端说这个幂等键已经建成了一条），接上已经建好的那个草稿：
+   * 把现在的内容存成对它的修改；那一条已经不在了，就换一个幂等键重新新建。
+   */
+  const create = async (): Promise<Product> => {
+    const draft = { brand_id: chosenBrandId ?? "", city_id: cityId ?? "", category: category ?? "airport_transfer", ...(category === "airport_transfer" ? { poi_id: poiId } : {}), ...body() };
+    try {
+      return await createProduct(token, draft, idempotencyKey.current);
+    } catch (err) {
+      const createdId = alreadyCreatedId(err);
+      if (createdId === null) throw err;
+      let existing: Product;
+      try {
+        existing = await getProduct(token, createdId);
+      } catch (inner) {
+        if (!(inner instanceof ApiError) || inner.status !== 404) throw inner;
+        idempotencyKey.current = crypto.randomUUID();
+        return createProduct(token, draft, idempotencyKey.current);
+      }
+      return patchProduct(token, existing.id, existing.version, body());
+    }
+  };
   const submit = async (): Promise<string> => {
     setServer({});
-    const saved = creating
-      ? await createProduct(token, { brand_id: chosenBrandId ?? "", city_id: cityId ?? "", category: category ?? "airport_transfer", ...(category === "airport_transfer" ? { poi_id: poiId } : {}), ...body() }, idempotencyKey)
-      : await patchProduct(token, product.id, frame.version, body());
+    const saved = creating ? await create() : await patchProduct(token, product.id, frame.version, body());
     const next = fromProduct(saved);
     setInitial(next);
     setAreas(next.areas);
@@ -270,7 +291,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
         put("vehicle-groups", "车型组", text);
       } else if (issue.path.startsWith("/dispatchers")) put("dispatchers", "调度人", issue.reason === "INVALID_PHONE" ? `第 ${index + 1} 个调度人的电话只能是数字，可以带开头的 + 和中间的空格、短横线` : issue.message);
       else if (issue.path.startsWith("/city_id")) put("city", "城市", issue.reason === "CITY_DISABLED" ? "这个城市已经被平台停用，请换一个。" : issue.message);
-      else if (issue.path.startsWith("/poi_id")) put("poi", "接送点", issue.reason === "PICKUP_PLACE_DISABLED" ? "这个接送点已经被平台停用，请换一个。" : issue.message);
+      else if (issue.path.startsWith("/poi_id")) put("poi", "接送点", issue.reason === "PICKUP_PLACE_DISABLED" ? "这个接送点已经被平台停用，请换一个。" : issue.reason === "PICKUP_PLACE_OTHER_CITY" ? "这个接送点已经不在选的城市里了，请重新选。" : issue.message);
       else if (issue.path.startsWith("/brand_id")) put("brand", "子品牌", issue.reason === "BRAND_DISABLED" || issue.reason === "UNKNOWN_BRAND" ? "这个子品牌已停用，请换一个。" : issue.message);
     }
     setServer(errors);
@@ -305,9 +326,10 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
   );
 
   const noBrands = creating && brands.state.status === "ready" && activeBrands.length === 0;
+  const dirty = dirtyFields || (creating && (brandId !== null || cityId !== null || category !== null || poiId !== null));
   const controller: StepController = {
-    dirty: dirtyFields || (creating && (brandId !== null || cityId !== null || category !== null || poiId !== null)),
-    missing: { count: gaps.length, anchor: gaps[0]?.anchor ?? null },
+    dirty,
+    missing: creating ? { count: gaps.length, anchor: gaps[0]?.anchor ?? null } : stepMissing(frame, "basic_info", dirty, { count: gaps.length, anchor: gaps[0]?.anchor ?? null }),
     validate,
     submit,
     placeServerIssues,

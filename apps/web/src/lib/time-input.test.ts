@@ -53,3 +53,11 @@ test("加急阶梯分段：命中够用的最小一档；比最大一档还早�
   ]);
   assert.deepEqual(urgentSegments(24, []), [{ from: 0, to: 24, tier: null }]);
 });
+
+test("某个时区现在的日期：跨日界线时按那个时区算；认不出的时区返回 null", async () => {
+  const { localToday } = await import("./time-input.ts");
+  const instant = new Date("2026-10-08T16:30:00Z");
+  assert.equal(localToday("Asia/Tokyo", instant), "2026-10-09");
+  assert.equal(localToday("America/Los_Angeles", instant), "2026-10-08");
+  assert.equal(localToday("Nowhere/Land", instant), null);
+});

@@ -15,13 +15,13 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { CHARGE_UNIT_NAMES, displayName, timeZoneLabel } from "../../lib/master-display.ts";
-import { checkReasons, moneyText, readAmount } from "../../lib/product-display.ts";
+import { checkReasons, moneyText, readAmount, tidyAmountDisplay } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
-import { DRIVER_LANGUAGE_OPTIONS, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget } from "../../lib/service-rules-form.ts";
-import { crossesMidnight, dateRangeReadback, leadTimeReadback, tidyDate, tidyTime, urgentSegments, windowReadback } from "../../lib/time-input.ts";
+import { DRIVER_LANGUAGE_OPTIONS, type RulesForm, type RulesFormContext, defaultNightUnit, formFromRules, readRulesForm, rulePathTarget, tidyNumber } from "../../lib/service-rules-form.ts";
+import { crossesMidnight, dateRangeReadback, leadTimeReadback, localToday, tidyDate, tidyTime, urgentSegments, windowReadback } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { type StepController, StepShell } from "./StepShell.tsx";
-import type { ProductFrame, StepProblem } from "./frame.ts";
+import { type ProductFrame, type StepProblem, stepMissing } from "./frame.ts";
 
 const NIGHT_UNITS: readonly { value: NightChargeUnit; label: string; hint: string }[] = [
   { value: "per_order", label: "按次", hint: "用车时间在夜间时段里，就加收一次这个金额。接送机一般用这种。" },
@@ -61,6 +61,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
       currency: data?.currency ?? product.brand?.currency ?? null,
       minimums: data?.free_wait_minimums ?? { pickup: null, dropoff: null, general: null },
       addonNames: Object.fromEntries((catalog.state.data ?? []).map((addon) => [addon.id, displayName(addon.name).text])),
+      firstFreeAllowed: Object.fromEntries((catalog.state.data ?? []).map((addon) => [addon.id, addonAllowsFirstFree(addon.charge_unit)])),
     }),
     [category, product.poi, product.brand?.currency, data, catalog.state.data],
   );
@@ -112,11 +113,12 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
   const gaps = checkReasons({ key: "service_rules", required: true, passed: false, issues: serviceRuleMissing(reading.rules, context).map((issue) => ({ ...issue, message: "" })) }, { category, brandName: "", cityName: "", placeName: null, station });
   const neverSavedWait = items.some((item) => data.rules.free_wait[item] === null);
 
+  const dirty = JSON.stringify(reading.body) !== baseline;
   const controller: StepController & { pending: boolean } = {
-    dirty: JSON.stringify(reading.body) !== baseline,
+    dirty,
     // 免费等待是页面替用户填好的建议值：没动过不算「有修改」，但点保存要真的存下来
     pending: neverSavedWait,
-    missing: { count: gaps.length, anchor: gaps[0]?.anchor ?? null },
+    missing: stepMissing(frame, "service_rules", dirty, { count: gaps.length, anchor: gaps[0]?.anchor ?? null }),
     validate: () => reading.problems,
     submit: async () => {
       const saved = await putServiceRules(token, product.id, frame.version, reading.body);
@@ -145,10 +147,14 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
     reload: loaded.reload,
   };
 
-  const leadText = form.leadTime.trim();
+  const leadText = tidyNumber(form.leadTime);
   const lead = /^\d+$/.test(leadText) && Number(leadText) <= PRODUCT_LIMITS.maxLeadTimeHours ? Number(leadText) : null;
   const serviceReadback = form.allDay ? "全天 24 小时" : windowReadback(tidyTime(form.serviceStart) ?? "", tidyTime(form.serviceEnd) ?? "");
   const nightReadback = windowReadback(tidyTime(form.nightStart) ?? "", tidyTime(form.nightEnd) ?? "");
+  // 下单有效期已经过了：不拦保存，只提醒（按城市当地的今天比）
+  const cityToday = product.city ? localToday(product.city.timezone) : null;
+  const saleEnd = form.saleMode === "range" ? tidyDate(form.saleTo) : null;
+  const saleExpired = cityToday !== null && saleEnd !== null && saleEnd < cityToday;
   const saleReadback = form.saleMode === "range" ? dateRangeReadback(tidyDate(form.saleFrom), tidyDate(form.saleTo)) : null;
   const segments = lead !== null && lead > 0 ? urgentSegments(lead, reading.rules.urgent.tiers) : [];
   const applicable = (catalog.state.data ?? []).filter((addon) => (addon.status === "active" && addon.categories.includes(category)) || form.addons[addon.id]?.enabled === true).sort((x, y) => x.code.localeCompare(y.code));
@@ -203,7 +209,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
         );
         const money = (id: string, value: string, onChange: (value: string) => void, label: string, suffix: string) => (
           <span className="affix">
-            {text(id, value, onChange, { label, mode: "decimal" })}
+            {text(id, value, onChange, { label, mode: "decimal", tidy: (raw) => tidyAmountDisplay(raw, context.currency) })}
             <span className="affix__text">{suffix}</span>
           </span>
         );
@@ -252,6 +258,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                     </div>
                   )}
                   <FieldErrors id="sale-period-error" errors={errors("sale-from", "sale-to")} />
+                  {saleExpired && <Warning>{`下单有效期已经过了（到 ${tidyDate(form.saleTo)} 为止），客人现在下不了单。要继续卖，请把结束日期改晚，或改成不限。`}</Warning>}
                   <p className="field__hint" aria-live="polite">
                     {saleReadback ?? (form.saleMode === "range" ? "两格都留空 = 不限。" : "")}
                   </p>

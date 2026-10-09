@@ -2,6 +2,7 @@
  * 商品在界面上怎么写：显示名、状态徽标、币种、金额的输入和显示、「人数 / 行李数」、上架检查每条原因的定稿文字。
  * 规则本身（校验、缺项、上架检查）全在 @nozomi/domain，这里只管文字。
  */
+import { GROUPING_PROBLEM, otherCurrencyProblem, tidyAmountText } from "./amount-input.ts";
 import { CURRENCIES, type CurrencyCode, type LocalizedText, MASTER_DATA_LANGUAGES, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, PRODUCT_STATUS_NAMES, PUBLISH_CHECK_NAMES, type ProductStatus, type PublishCheckKey, type ServiceCategory, formatMajor, isCurrencyCode, parseMajor } from "@nozomi/domain";
 import type { PublishCheckIssue, PublishCheckItemBody, PublishCheckResult } from "../api/products.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -51,16 +52,27 @@ export function moneyText(minor: number, currency: string | null): string {
   return `${currency ?? ""} ${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction !== undefined ? `.${fraction}` : ""}`.trim();
 }
 
+/** 金额输入框失去焦点后整理成的样子：带千分位、不带币种（「¥18,500」「18500円」→「18,500」）。读不出来的原样留着，让人看到自己敲的。 */
+export function tidyAmountDisplay(text: string, currency: string | null): string {
+  if (text.trim() === "") return text;
+  const amount = readAmount(text, currency);
+  return amount.ok ? moneyText(amount.minor, currency).slice((currency ?? "").length).trim() : text;
+}
+
+/** 金额输入框聚焦时的样子：纯数字，方便直接重填。读不出来的原样留着。 */
+export function plainAmountDisplay(text: string, currency: string | null): string {
+  const read = tidyAmountText(text, currency);
+  return read.ok ? read.text : text;
+}
+
 export type AmountResult = { ok: true; minor: number } | { ok: false; message: string };
 
-/** 输入框里的金额 → 最小货币单位整数。认千分位逗号和全角数字；空的由调用方先处理。 */
+/** 输入框里的金额 → 最小货币单位整数。写法怎么认见 amount-input.ts；空的由调用方先处理。 */
 export function readAmount(text: string, currency: string | null): AmountResult {
   const code = currencyOf(currency);
-  const tidy = text
-    .trim()
-    .replace(/[０-９．，]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
-    .replace(/,/g, "");
-  if (!/^\d+(\.\d+)?$/.test(tidy)) return { ok: false, message: "请填金额，只能是数字，不能是负数" };
+  const read = tidyAmountText(text, currency);
+  if (!read.ok) return { ok: false, message: read.reason === "grouping" ? GROUPING_PROBLEM : read.reason === "other-currency" ? otherCurrencyProblem(currency) : "请填金额，只能是数字，不能是负数" };
+  const tidy = read.text;
   const digits = code ? CURRENCIES[code].minorDigits : 0;
   if ((tidy.split(".")[1] ?? "").length > digits) return { ok: false, message: digits === 0 ? `${currency ?? "这种币种"}没有小数，请填整数` : `${currency} 最多 ${digits} 位小数` };
   try {
@@ -135,6 +147,8 @@ export function checkReasons(item: PublishCheckItemBody, context: CheckContext):
     if (take(reason("CITY_DISABLED"))) out.push(one(`城市「${context.cityName}」已被平台停用`, null, "请联系平台运营"));
     if (take(reason("PICKUP_PLACE_MISSING"))) out.push(one("这个商品没有接送点", null, "请联系平台运营"));
     if (take(reason("PICKUP_PLACE_DISABLED"))) out.push(one(`接送点「${context.placeName ?? ""}」已被平台停用`, null, "请联系平台运营"));
+    // 接送点创建后不能改，所以这一条用户自己补不了
+    if (take(reason("PICKUP_PLACE_OTHER_CITY"))) out.push(one(`接送点「${context.placeName ?? ""}」已被平台改到了别的城市，不在「${context.cityName}」了`, null, "请联系平台运营，或在它现在的城市新建一个商品"));
     if (take(reason("NO_AREA"))) out.push(one("还没有选服务区域", "areas"));
     const disabled = new Set(item.issues.filter(reason("AREA_DISABLED", "AREA_CITY_DISABLED")).map((issue) => issue.path)).size;
     if (take(reason("AREA_DISABLED", "AREA_CITY_DISABLED"))) out.push(one(`选的服务区域里有 ${disabled} 个已停用，请重新启用或移除`, "areas"));

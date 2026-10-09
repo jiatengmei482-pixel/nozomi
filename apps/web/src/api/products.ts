@@ -4,7 +4,7 @@
  */
 import type { AreaBizType, FlightScope, LocalizedText, MasterDataStatus, NightChargeUnit, PlaceType, ProductStatus, ServiceCategory, VehicleCombo, VehicleGrade } from "@nozomi/domain";
 import { AREAS_PATH, type AreaSummary, TENANT_BASE, listAll, query } from "./areas.ts";
-import { apiRequest } from "./client.ts";
+import { ApiError, apiRequest } from "./client.ts";
 import type { Addon, MasterPage, Place, VehicleGroup } from "./master.ts";
 
 export const BRANDS_PATH = `${TENANT_BASE}/brands`;
@@ -208,6 +208,22 @@ export function createBrand(token: string, body: { name: string; currency: strin
 
 export function listProducts(token: string, values: ProductListQuery): Promise<MasterPage<ProductSummary>> {
   return apiRequest("GET", query(PRODUCTS_PATH, values), { token });
+}
+
+/** 只能改名称；币种创建后不能改。 */
+export function renameBrand(token: string, id: string, version: number, name: string): Promise<Brand> {
+  return apiRequest("PUT", `${BRANDS_PATH}/${encodeURIComponent(id)}`, { token, body: { name }, headers: ifMatch(version) });
+}
+
+/**
+ * 新增被拒，原因是「这个幂等键上一次已经建成了一条」（422 `IDEMPOTENCY_KEY_REUSED`，ADR 0015）：
+ * 上一次的请求其实成功了、只是应答没收到。返回已经建成的那一条的编号；不是这种情况返回 null。
+ */
+export function alreadyCreatedId(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.code !== "IDEMPOTENCY_KEY_REUSED") return null;
+  const created = err.details["created"];
+  const id = typeof created === "object" && created !== null ? (created as { id?: unknown }).id : null;
+  return typeof id === "string" ? id : null;
 }
 
 export function getProduct(token: string, id: string): Promise<Product> {

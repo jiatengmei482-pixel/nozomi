@@ -365,7 +365,8 @@ test("框架：/products/{id} 换到第一个还没完成的开放步骤；步�
 test("基础信息：保存只带区域、车型组、调度人并带 If-Match；什么都没改时不发请求；已停用的区域和车型组有提醒；可以调顺序", async () => {
   const actor = user();
   const product = productOf({ areas: [{ area_id: AREA_ID, priority: 0, name: { zh: "东京 23 区" }, biz_type: "general", status: "disabled" }, { area_id: AREA2_ID, priority: 1, name: { zh: "成田周边" }, biz_type: "airport_transfer", status: "active" }] });
-  const calls = open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({ product }, (call) => (call.method === "PATCH" && call.path === BASE ? json(200, { ...product, version: 8 }) : null)));
+  // 底部的「还差几项」取自上架检查：检查结果和商品的内容摆成一致的（有一个区域已停用）
+  const calls = open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({ product, check: checkOf({ basic_info: [{ path: "/areas/0", reason: "AREA_DISABLED" }] }) }, (call) => (call.method === "PATCH" && call.path === BASE ? json(200, { ...product, version: 8 }) : null)));
   await screen.findByText(/有 1 个区域已停用。/);
   assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 1 项/);
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
@@ -443,11 +444,14 @@ test("有未保存的修改时换步骤：先问；「不保存」直接走，�
 test("服务规则：时区和币种的说明；免费等待预先填好、没动过也能点保存存下来；填的内容整理后带 If-Match 提交；读回来的话", async () => {
   const actor = user();
   let saved: ServiceRulesBody | null = null;
+  // 底部的「还差几项」取自上架检查：一条都没存过时，检查说服务时间、提前预订时长、两项免费等待都没有；保存以后检查通过
+  const unsaved = checkOf({ service_rules: [{ path: "/booking/service_time", reason: "REQUIRED" }, { path: "/booking/lead_time_hours", reason: "REQUIRED" }, { path: "/free_wait/pickup", reason: "REQUIRED" }, { path: "/free_wait/dropoff", reason: "REQUIRED" }] });
   const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({}, (call) => {
     if (call.method === "PUT" && call.path === `${BASE}/service-rules`) {
       saved = call.body as ServiceRulesBody;
       return json(200, rulesOf(saved, 8));
     }
+    if (call.method === "GET" && call.path === `${BASE}/publish-check`) return json(200, saved === null ? unsaved : checkOf());
     return null;
   }));
   await screen.findByText(/Asia\/Tokyo（UTC\+9）/);
@@ -456,7 +460,8 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   assert.equal((screen.getByLabelText("送机免费等待的分钟数") as HTMLInputElement).value, "15");
   assert.match(document.body.textContent ?? "", /国际航班平台规定最少 90 分钟/);
   assert.doesNotMatch(document.querySelector(".step__summary")?.textContent ?? "", /有未保存的修改/);
-  assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 2 项/);
+  assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 3 项/, "和步骤导航说的一样：免费等待是页面替你填好的建议值，还没存过，也算一项");
+  assert.match(stepText("服务规则"), /还差 3 项/);
 
   await actor.type(screen.getByLabelText("服务时间从"), "22");
   await actor.type(screen.getByLabelText("服务时间到"), "600");
@@ -532,7 +537,7 @@ test("服务规则：后端指出的问题落在对应的输入框上；平台�
 
 test("商品详情：四种语言各一张卡片，没填的收起；接送机缺接机指引算一项；只提交填了的语言；清空一种语言要确认", async () => {
   const actor = user();
-  const calls = open(`/products/${PRODUCT_ID}/content`, "admin", productRoutes({ content: { zh: { title: "羽田机场接送", summary: null, includes: ["高速费"], excludes: [], itinerary: null, pickup_guide: null } } }, (call) => (call.method === "PUT" ? json(200, { version: 8, content: call.body }) : null)));
+  const calls = open(`/products/${PRODUCT_ID}/content`, "admin", productRoutes({ check: checkOf({ content: [{ path: "/zh/pickup_guide", reason: "REQUIRED" }] }), content: { zh: { title: "羽田机场接送", summary: null, includes: ["高速费"], excludes: [], itinerary: null, pickup_guide: null } } }, (call) => (call.method === "PUT" ? json(200, { version: 8, content: call.body }) : null)));
   await screen.findByDisplayValue("羽田机场接送");
   assert.deepEqual([...document.querySelectorAll(".content__status")].map((node) => node.textContent), ["还差接机指引", "没有填", "没有填", "没有填"]);
   assert.match(document.querySelector(".step__summary")?.textContent ?? "", /这一步还差 1 项/);

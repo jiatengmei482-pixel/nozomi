@@ -92,3 +92,13 @@ export function urgentSegments(leadTimeHours: number, tiers: readonly UrgentTier
   }
   return segments.reverse();
 }
+
+/** 某个时区现在的日期（`YYYY-MM-DD`）。认不出的时区返回 null。 */
+export function localToday(timeZone: string, now: Date = new Date()): string | null {
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now).map((part) => [part.type, part.value]));
+    return `${parts["year"]}-${parts["month"]}-${parts["day"]}`;
+  } catch {
+    return null;
+  }
+}

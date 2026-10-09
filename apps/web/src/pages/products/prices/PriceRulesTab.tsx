@@ -41,7 +41,7 @@ import {
   withBlankRows,
   isStationPlace,
 } from "../../../lib/price-form.ts";
-import { comboText, moneyText, readAmount } from "../../../lib/product-display.ts";
+import { comboText, moneyText, plainAmountDisplay, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
 import { type StepController, StepShell } from "../StepShell.tsx";
@@ -734,15 +734,17 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                   // 再聚焦时变回纯数字并全选，方便直接重填。先把输入框里的字换好再全选、然后才记到页面状态里：
                                   // 这样重新渲染时输入框的内容和状态一样，选中的范围不会丢（丢了的话，新敲的数会接在旧数后面）
                                   const input = event.currentTarget;
-                                  const plain = money ? row.values[field].replace(/,/g, "") : row.values[field];
+                                  const plain = money ? plainAmountDisplay(row.values[field], context.currency) : row.values[field];
                                   if (plain !== input.value) input.value = plain;
                                   input.select();
                                   if (plain !== row.values[field]) update(row.key, {}, { [field]: plain });
                                 }}
                                 onBlur={() => {
                                   if (!money) return;
-                                  const amount = readAmount(row.values[field].replace(/,/g, ""), context.currency);
-                                  if (amount.ok && row.values[field].trim() !== "") update(row.key, {}, { [field]: moneyText(amount.minor, context.currency).slice(context.currency.length).trim() });
+                                  // 失去焦点：整理成带千分位、不带币种符号的写法（粘贴进来的「¥18,500」「18500円」也一样）
+                                  if (!money) return;
+                                  const tidy = tidyAmountDisplay(row.values[field], context.currency);
+                                  if (tidy !== row.values[field]) update(row.key, {}, { [field]: tidy });
                                 }}
                               />
                             );

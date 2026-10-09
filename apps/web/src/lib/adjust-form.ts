@@ -56,7 +56,9 @@ export function basisPointsText(bp: number): string {
 
 /** 百分比的写法 → 基点（不带正负号）；最多两位小数，认不出来返回 null。 */
 export function percentTextToBasisPoints(text: string): number | null {
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text.trim().replace(/[０-９．]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/%$/, ""));
+  const tidy = text.trim().replace(/[０-９．，％]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0)).replace(/%$/, "");
+  // 千分位写对了的（1,000）也认：出错文字里就是这么写的
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(tidy) ? tidy.replace(/,/g, "") : tidy);
   return match ? Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0")) : null;
 }
 
