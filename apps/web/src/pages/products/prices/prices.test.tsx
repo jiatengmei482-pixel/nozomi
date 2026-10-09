@@ -793,3 +793,24 @@ test("价格表：基础价不是取整单位的整数倍时，读回来的话�
   const quoted = applyAdjustRules(exactFromMinor(20050), [], 100).finalMinor;
   await waitFor(() => assert.match(document.querySelector(".price-meaning")?.textContent ?? "", new RegExp(`取整单位是 JPY 100，报价时会取整成 ${jpy(quoted)}。`)));
 });
+
+test("价格表的金额格：已经有千分位的数（18,500），键盘进到这一格变回纯数字并全选，直接敲新数是盖掉旧的，不是接在后面；离开后带千分位", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices`, "admin", { prices: pricesOf([priceOf({ base_price: 18500, base: "18500" })]) });
+  const cell = (await screen.findByLabelText(`${ROW} 的基础价`)) as HTMLInputElement;
+  assert.equal(cell.value, "18,500");
+  // 先有值 → 聚焦 → 键入 → 失焦
+  cell.focus();
+  await waitFor(() => assert.equal(cell.value, "18500"));
+  assert.deepEqual([cell.selectionStart, cell.selectionEnd], [0, 5], "聚焦后全选，重新渲染以后选中的范围还在");
+  await actor.keyboard("9000");
+  assert.equal(cell.value, "9000", "新敲的数盖掉旧的");
+  await actor.tab();
+  assert.equal(cell.value, "9,000");
+  assert.match(document.querySelector(".step__summary")?.textContent ?? "", /有 1 条未保存的修改/);
+  // 再进来一次、什么都不敲就离开：数不变，也不算又改了一次
+  await actor.tab({ shift: true });
+  assert.equal(document.activeElement === cell ? cell.value : "9000", "9000");
+  await actor.tab();
+  assert.equal(cell.value, "9,000");
+});

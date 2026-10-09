@@ -731,8 +731,13 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                 value={row.values[field]}
                                 onChange={(event) => update(row.key, {}, { [field]: event.target.value })}
                                 onFocus={(event) => {
-                                  if (money && /,/.test(row.values[field])) update(row.key, {}, { [field]: row.values[field].replace(/,/g, "") });
-                                  event.currentTarget.select();
+                                  // 再聚焦时变回纯数字并全选，方便直接重填。先把输入框里的字换好再全选、然后才记到页面状态里：
+                                  // 这样重新渲染时输入框的内容和状态一样，选中的范围不会丢（丢了的话，新敲的数会接在旧数后面）
+                                  const input = event.currentTarget;
+                                  const plain = money ? row.values[field].replace(/,/g, "") : row.values[field];
+                                  if (plain !== input.value) input.value = plain;
+                                  input.select();
+                                  if (plain !== row.values[field]) update(row.key, {}, { [field]: plain });
                                 }}
                                 onBlur={() => {
                                   if (!money) return;
