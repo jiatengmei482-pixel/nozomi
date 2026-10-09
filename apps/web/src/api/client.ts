@@ -100,37 +100,65 @@ export async function apiRequest<T>(method: string, url: string, options: Reques
   if (options.token !== undefined) headers["authorization"] = `Bearer ${options.token}`;
 
   // 超时覆盖到读完响应体为止：响应头到了、响应体卡住，同样算没拿到应答
-  const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  const sent = await send(method, url, { headers, body: options.body !== undefined ? JSON.stringify(options.body) : null, timeoutMs: REQUEST_TIMEOUT_MS });
   try {
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method,
-        headers,
-        signal: abort.signal,
-        cache: "no-store",
-        credentials: "omit",
-        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-      });
-    } catch {
-      throw new NetworkError();
-    }
-
+    const { response } = sent;
     if (!response.ok) {
       const failure = await toApiError(response);
-      if (abort.signal.aborted) throw new NetworkError();
+      if (sent.aborted()) throw new NetworkError();
       throw failure;
     }
     if (response.status === 204) return undefined as T;
     try {
       return (await response.json()) as T;
     } catch {
-      if (abort.signal.aborted) throw new NetworkError();
+      if (sent.aborted()) throw new NetworkError();
       throw malformedResponse();
     }
   } finally {
+    sent.done();
+  }
+}
+
+interface Sent {
+  response: Response;
+  /** 读完响应体以后调用：停掉超时 */
+  done(): void;
+  /** 请求已经被中止（超时，或用户取消） */
+  aborted(): boolean;
+  timedOut(): boolean;
+}
+
+/**
+ * 唯一发请求的地方：相对路径、不带 Cookie、不走缓存、带超时。连不上、超时抛 NetworkError；用户自己取消抛 CancelledError。
+ */
+async function send(method: string, url: string, init: { headers: Record<string, string>; body: BodyInit | null; timeoutMs: number; signal?: AbortSignal | undefined }): Promise<Sent> {
+  const abort = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, init.timeoutMs);
+  const cancel = (): void => abort.abort();
+  init.signal?.addEventListener("abort", cancel);
+  const done = (): void => {
     clearTimeout(timer);
+    init.signal?.removeEventListener("abort", cancel);
+  };
+  try {
+    const response = await fetch(url, { method, headers: init.headers, signal: abort.signal, cache: "no-store", credentials: "omit", ...(init.body !== null ? { body: init.body } : {}) });
+    return { response, done, aborted: () => abort.signal.aborted, timedOut: () => timedOut };
+  } catch {
+    done();
+    throw init.signal?.aborted === true && !timedOut ? new CancelledError() : new NetworkError();
+  }
+}
+
+/** 用户自己取消的请求：不算出错。 */
+export class CancelledError extends Error {
+  constructor() {
+    super("cancelled");
+    this.name = "CancelledError";
   }
 }
 
@@ -191,41 +219,8 @@ export interface FileRequestOptions {
   signal?: AbortSignal;
 }
 
-/** 用户自己取消的请求：不算出错。 */
-export class CancelledError extends Error {
-  constructor() {
-    super("cancelled");
-    this.name = "CancelledError";
-  }
-}
-
-async function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<{ response: Response; done(): void; timedOut(): boolean }> {
-  const abort = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    abort.abort();
-  }, FILE_TIMEOUT_MS);
-  const cancel = (): void => abort.abort();
-  options.signal?.addEventListener("abort", cancel);
-  const done = (): void => {
-    clearTimeout(timer);
-    options.signal?.removeEventListener("abort", cancel);
-  };
-  try {
-    const response = await fetch(url, {
-      method,
-      headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": XLSX_CONTENT_TYPE } : {}), ...options.headers },
-      signal: abort.signal,
-      cache: "no-store",
-      credentials: "omit",
-      ...(body !== null ? { body } : {}),
-    });
-    return { response, done, timedOut: () => timedOut };
-  } catch {
-    done();
-    throw options.signal?.aborted === true && !timedOut ? new CancelledError() : new NetworkError();
-  }
+function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<Sent> {
+  return send(method, url, { headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": XLSX_CONTENT_TYPE } : {}), ...options.headers }, body, timeoutMs: FILE_TIMEOUT_MS, signal: options.signal });
 }
 
 /** 把一个文件原样传上去（请求体就是文件本身），应答是 JSON。令牌只走请求头。 */
