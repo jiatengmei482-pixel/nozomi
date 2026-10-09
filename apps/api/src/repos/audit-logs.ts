@@ -20,7 +20,10 @@ export type AuditResource =
   | "addon"
   | "area"
   | "brand"
-  | "product";
+  | "product"
+  | "price_rule"
+  | "adjust_rule"
+  | "holiday";
 export type AuditAction =
   | "login"
   | "login_failed"

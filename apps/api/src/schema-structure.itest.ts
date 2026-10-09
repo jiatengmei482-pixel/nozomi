@@ -17,11 +17,12 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 
 /**
  * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
- * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012）。新增平台表时加到这里。
+ * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
   "cities",
+  "holidays",
   "login_throttles",
   "places",
   "platform_roles",
@@ -41,6 +42,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
   [TENANT_DB_ROLE]: {
     // 主数据：租户只读（ADR 0012）
     addons: ["SELECT"],
+    // 调价规则：供应商自己的业务数据，可以真的删除（ADR 0018）
+    adjust_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 区域：供应商自己的业务数据，可以真的删除（ADR 0015）
     area_polygons: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -48,9 +51,13 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 子品牌：不删除（商品引用着它）
     brands: ["INSERT", "SELECT", "UPDATE"],
     cities: ["SELECT"],
+    // 节假日日历：平台维护，租户只读
+    holidays: ["SELECT"],
     // 创建类接口的幂等键：过期的键在再次使用时删除
     idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
+    // 价格规则：可以真的删除（ADR 0018）
+    price_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 商品：草稿可以真的删除；它选的区域、车型组、调度人每次保存整体替换
     product_areas: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 商品编号的流水号
@@ -69,6 +76,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     addons: ["INSERT", "SELECT", "UPDATE"],
     audit_logs: ["INSERT", "SELECT"],
     cities: ["INSERT", "SELECT", "UPDATE"],
+    // 节假日日历：写错了删掉重填，所以平台可以删
+    holidays: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
@@ -206,6 +215,7 @@ test("空库执行完全部迁移：除角色清单和迁移记录外，每张�
     "platform_users", "platform_sessions", "tenants", "tenant_users", "tenant_sessions", "audit_logs", "login_throttles",
     "cities", "places", "vehicle_groups", "addons", "areas", "area_polygons", "idempotency_keys",
     "brands", "products", "product_areas", "product_vehicle_groups", "product_dispatchers",
+    "price_rules", "adjust_rules", "holidays",
   ]) {
     assert.equal(counts[table], 0, `${table} 应当存在且为空`);
   }

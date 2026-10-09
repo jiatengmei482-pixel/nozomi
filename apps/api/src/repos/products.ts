@@ -32,17 +32,19 @@ export interface Brand {
   name: string;
   currency: CurrencyCode;
   status: MasterDataStatus;
+  /** 取整单位（最小货币单位）：这个子品牌下的结算价最后按它四舍五入；1 = 不另外取整 */
+  roundingUnit: number;
   version: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const BRAND_COLUMNS = "id, name, currency, status, version, created_at, updated_at";
+const BRAND_COLUMNS = "id, name, currency, status, rounding_unit, version, created_at, updated_at";
 /** 子品牌名称唯一索引的名字：用来认出「同名」 */
 export const BRAND_NAME_CONSTRAINT = "brands_name_key";
 
 function toBrand(row: Row): Brand {
-  return { id: row["id"], name: row["name"], currency: row["currency"], status: row["status"], version: row["version"], createdAt: row["created_at"], updatedAt: row["updated_at"] };
+  return { id: row["id"], name: row["name"], currency: row["currency"], status: row["status"], roundingUnit: row["rounding_unit"], version: row["version"], createdAt: row["created_at"], updatedAt: row["updated_at"] };
 }
 
 export async function insertBrand(db: Db, tenantId: string, name: string, currency: CurrencyCode, now: Date): Promise<Brand> {

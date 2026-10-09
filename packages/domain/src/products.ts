@@ -384,8 +384,13 @@ export type PublishIssueReason =
   | "VEHICLE_COMBO_NOT_OFFERED"
   | "ADDON_DISABLED"
   | "ADDON_NOT_APPLICABLE"
-  /** 至少要有一条启用且未过期的价格规则 */
+  /** 至少要有一条启用且未过期的价格规则：一条价格规则都没有 */
   | "NO_ACTIVE_PRICE_RULE"
+  /** 有价格规则，但全都停用了 / 启用的全都过期了 */
+  | "ALL_PRICE_RULES_DISABLED"
+  | "ALL_PRICE_RULES_EXPIRED"
+  /** 这条启用中的调价规则单独作用在某条价格上，算下来不大于 0（那个组合在它生效时报不出价） */
+  | "ADJUST_RESULT_NOT_POSITIVE"
   /** 这项功能还没有上线，所以这一项现在一定不满足（或对可选项：没有东西可查） */
   | "FEATURE_NOT_AVAILABLE";
 
@@ -420,14 +425,20 @@ export interface PublishFacts {
   /** 服务规则里选的附加服务现在的情况（和 serviceRules.addons 一一对应）；只看开着的 */
   addons: { enabled: boolean; active: boolean; applicable: boolean }[];
   content: ProductContent;
-  /** 启用且未过期的价格规则条数；价格规则功能还没上线时是 null */
+  /** 启用且未过期的价格规则条数；null = 不知道（前端在没取价格规则时预览其余各项用），这一项按「功能未开放」报 */
   activePriceRuleCount: number | null;
+  /** 价格规则一共几条、启用的几条：给了就能把「没有可用的价格」分成没有 / 都停用了 / 都过期了 */
+  priceRuleStats?: { total: number; enabled: number };
+  /** 启用中的调价规则里，会把某条价格调到不大于 0 的那些（调价规则列表里的下标）；不影响能不能上架 */
+  nonPositiveAdjustRules?: readonly number[];
 }
 
 /**
  * 上架校验（需求文档第 7 节）：逐项给出通过 / 不通过和原因，界面照着显示清单。
- * 四项必须（基础信息、服务规则、价格规则、商品详情），两项可选（调价规则、库存：没有要求，恒通过）。
- * 价格规则功能上线之前（`activePriceRuleCount` 为 null），「价格规则」一项固定不通过——所以商品可以建、可以跑校验，但还上不了架。
+ * 四项必须（基础信息、服务规则、价格规则、商品详情），两项可选（调价规则、库存：不通过也能上架）。
+ * - 价格规则：至少 1 条启用且未过期（结束日期不早于城市当地的今天；以后才开始生效的也算）。缺价的组合不拦。
+ * - 调价规则：可以没有；有启用中的规则会把某条价格调到不大于 0 时指出来（不拦上架）。
+ * - 库存：功能在 M1-05，恒通过。
  */
 export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
   const basic: PublishIssue[] = [];
@@ -458,13 +469,15 @@ export function publishCheck(facts: PublishFacts): PublishCheckItem[] {
     else if (!addon.applicable) rules.push({ path: `/addons/${index}/addon_id`, reason: "ADDON_NOT_APPLICABLE" });
   }
 
-  const price: PublishIssue[] =
-    facts.activePriceRuleCount === null ? [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }] : facts.activePriceRuleCount > 0 ? [] : [{ path: "/", reason: "NO_ACTIVE_PRICE_RULE" }];
+  const stats = facts.priceRuleStats;
+  const noPriceReason: PublishIssueReason = stats === undefined || stats.total === 0 ? "NO_ACTIVE_PRICE_RULE" : stats.enabled === 0 ? "ALL_PRICE_RULES_DISABLED" : "ALL_PRICE_RULES_EXPIRED";
+  const price: PublishIssue[] = facts.activePriceRuleCount === null ? [{ path: "/", reason: "FEATURE_NOT_AVAILABLE" }] : facts.activePriceRuleCount > 0 ? [] : [{ path: "/", reason: noPriceReason }];
+  const adjust: PublishIssue[] = (facts.nonPositiveAdjustRules ?? []).map((index) => ({ path: `/${index}`, reason: "ADJUST_RESULT_NOT_POSITIVE" }));
 
   const content: PublishIssue[] = [...contentMissing(facts.content, facts.category), ...contentIssues(facts.content)];
 
   const item = (key: PublishCheckKey, required: boolean, issues: PublishIssue[]): PublishCheckItem => ({ key, required, passed: issues.length === 0, issues });
-  return [item("basic_info", true, basic), item("service_rules", true, rules), item("price_rules", true, price), item("content", true, content), item("adjust_rules", false, []), item("inventory", false, [])];
+  return [item("basic_info", true, basic), item("service_rules", true, rules), item("price_rules", true, price), item("content", true, content), item("adjust_rules", false, adjust), item("inventory", false, [])];
 }
 
 /** 校验结果能不能上架：必须的每一项都通过。 */

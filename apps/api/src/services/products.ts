@@ -26,16 +26,19 @@ import {
   type ServiceRuleContext,
   type ServiceRules,
   addonAllowsFirstFree,
+  adjustRuleNonPositivePrices,
   areaUsableByCategory,
   canPublish,
   contentIssues,
   emptyServiceRules,
   freeWaitItems,
   hasVisibleText,
+  instantToLocal,
   isCurrencyCode,
   isPhoneNumber,
   isPickupPlaceType,
   minimumFreeWaitMinutes,
+  priceRuleIsActive,
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
@@ -80,6 +83,7 @@ import {
   replaceProductVehicleGroups,
   updateProduct as updateProductRow,
 } from "../repos/products.ts";
+import { listAdjustRules, listPriceRules } from "../repos/prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -96,7 +100,7 @@ function invalid(issues: InputIssue[]): never {
 }
 
 /** 数据库因为死锁、序列化失败放弃事务时自动重做（接口层对仍不成功的返回 409 CONCURRENT_UPDATE）。 */
-async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+export async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await withTenantTx(ctx.pool, tenantId, fn);
@@ -106,7 +110,7 @@ async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Pro
   }
 }
 
-function readTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+export function readTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
   return withTenantTx(ctx.pool, tenantId, fn, { snapshot: true });
 }
 
@@ -195,7 +199,7 @@ export interface ProductView {
   check: PublishCheckSummary | null;
 }
 
-async function detail(db: Db, tenantId: string, product: Product): Promise<ProductView> {
+export async function detail(db: Db, tenantId: string, product: Product): Promise<ProductView> {
   const areas = await listProductAreas(db, tenantId, product.id);
   const vehicleGroups = await listProductVehicleGroups(db, tenantId, product.id);
   const dispatchers = await listProductDispatchers(db, tenantId, product.id);
@@ -220,6 +224,7 @@ export async function listProducts(
   limit: number,
   after: TimeCursor | null,
 ): Promise<{ items: ProductView[]; nextCursor: string | null; total: number }> {
+  const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const page = await listProductRows(db, tenantId, filter, limit, after);
     const brands = await findBrands(db, tenantId, [...new Set(page.items.map((item) => item.brandId))]);
@@ -238,7 +243,7 @@ export async function listProducts(
         areas: null,
         vehicleGroups: null,
         dispatchers: null,
-        check: publishCheckSummary(await runPublishCheck(db, tenantId, product)),
+        check: publishCheckSummary(await runPublishCheck(db, tenantId, product, now)),
       });
     }
     return { items, nextCursor: page.nextCursor, total: page.total };
@@ -409,10 +414,10 @@ export interface ProductPatch extends ProductRelations {
 }
 
 /** 这个商品如果是已上架的，改完之后必须仍然通过上架校验。 */
-async function assertStillPublishable(db: Db, tenantId: string, product: Product): Promise<void> {
+export async function assertStillPublishable(db: Db, tenantId: string, product: Product, now: Date): Promise<void> {
   if (product.status !== "published") return;
   await lockProductAreas(db, tenantId, product.id);
-  const items = await runPublishCheck(db, tenantId, product);
+  const items = await runPublishCheck(db, tenantId, product, now);
   if (!canPublish(items)) throw publishCheckFailed(items, "这样修改之后商品就不满足上架的条件了。请调整后再保存，或者先下架再改");
 }
 
@@ -446,7 +451,7 @@ export async function updateProduct(ctx: AppContext, writer: ProductWriter, id: 
 
     await saveRelations(db, tenantId, id, patch);
     const updated = await updateProductRow(db, tenantId, id, {}, now);
-    await assertStillPublishable(db, tenantId, updated);
+    await assertStillPublishable(db, tenantId, updated, now);
     await audit(db, writer, now, {
       resource: "product",
       id,
@@ -511,7 +516,10 @@ const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
   ADDON_DISABLED: "这个附加服务已被平台停用",
   ADDON_NOT_APPLICABLE: "这个附加服务不适用于这个品类",
   NO_ACTIVE_PRICE_RULE: "至少要有一条启用且未过期的价格规则",
-  FEATURE_NOT_AVAILABLE: "价格规则功能还没有上线，商品暂时不能上架",
+  ALL_PRICE_RULES_DISABLED: "价格规则都停用了：至少要有一条启用且未过期的",
+  ALL_PRICE_RULES_EXPIRED: "启用的价格规则都过期了：至少要有一条启用且未过期的",
+  ADJUST_RESULT_NOT_POSITIVE: "这条调价规则会把某些价格调到不大于 0，它生效时那些组合报不出价",
+  FEATURE_NOT_AVAILABLE: "这项功能还没有上线",
 };
 
 function ruleIssues(issues: readonly (RuleIssue | PublishIssue)[]): InputIssue[] {
@@ -576,7 +584,7 @@ export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id
     if (issues.length > 0) invalid(issues);
     if (isDeepStrictEqual(rules, current.serviceRules)) return serviceRulesView(db, tenantId, current);
     const updated = await updateProductRow(db, tenantId, id, { serviceRules: rules }, now);
-    await assertStillPublishable(db, tenantId, updated);
+    await assertStillPublishable(db, tenantId, updated, now);
     await audit(db, writer, now, {
       resource: "product",
       id,
@@ -608,7 +616,7 @@ export async function putContent(ctx: AppContext, writer: ProductWriter, id: str
     }
     if (isDeepStrictEqual(cleaned, current.content)) return current;
     const updated = await updateProductRow(db, tenantId, id, { content: cleaned }, now);
-    await assertStillPublishable(db, tenantId, updated);
+    await assertStillPublishable(db, tenantId, updated, now);
     await audit(db, writer, now, { resource: "product", id, action: "update", before: { content: current.content as AuditValue }, after: { content: updated.content as AuditValue } });
     return updated;
   });
@@ -632,17 +640,14 @@ function publishCheckFailed(items: readonly PublishCheckItem[], message: string)
   });
 }
 
-/**
- * 启用且未过期的价格规则条数。价格规则是 M1-04 的功能，现在还没有：返回 null，
- * 上架校验的「价格规则」一项因此固定不通过——商品可以建、可以跑校验，但还上不了架。M1-04 把这里换成真的查询。
- */
-async function activePriceRuleCount(): Promise<number | null> {
-  return null;
-}
-
 /** 从库里取出上架校验要看的全部事实，交给 domain 的 publishCheck。 */
-async function runPublishCheck(db: Db, tenantId: string, product: Product): Promise<PublishCheckItem[]> {
+async function runPublishCheck(db: Db, tenantId: string, product: Product, now: Date): Promise<PublishCheckItem[]> {
   const view = await detail(db, tenantId, product);
+  // 价格过没过期按商品所在城市当地的今天算
+  const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
+  const priceRules = await listPriceRules(db, tenantId, product.id);
+  const adjustRules = await listAdjustRules(db, tenantId, product.id);
+  const activePrices = priceRules.filter((rule) => priceRuleIsActive(rule, today));
   const areaCities = await findAreaCities(db, [...new Set((view.areas ?? []).map((area) => area.cityId))]);
   const addons = await findAddonsForProduct(db, product.serviceRules.addons.map((addon) => addon.addonId));
   const facts: PublishFacts = {
@@ -662,16 +667,19 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product): Prom
       return { enabled: chosen.enabled, active: addon?.status === "active", applicable: addon?.categories.includes(product.category) === true };
     }),
     content: product.content,
-    activePriceRuleCount: await activePriceRuleCount(),
+    activePriceRuleCount: priceRules.filter((rule) => priceRuleIsActive(rule, today)).length,
+    priceRuleStats: { total: priceRules.length, enabled: priceRules.filter((rule) => rule.status === "enabled").length },
+    nonPositiveAdjustRules: adjustRules.flatMap((rule, index) => (rule.status === "enabled" && adjustRuleNonPositivePrices(rule, activePrices).length > 0 ? [index] : [])),
   };
   return publishCheck(facts);
 }
 
 export async function getPublishCheck(ctx: AppContext, tenantId: string, id: string): Promise<PublishCheckView> {
+  const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
-    return publishCheckView(await runPublishCheck(db, tenantId, product));
+    return publishCheckView(await runPublishCheck(db, tenantId, product, now));
   });
 }
 
@@ -684,7 +692,7 @@ export async function publishProduct(ctx: AppContext, writer: ProductWriter, id:
     if (!current) throw notFound("商品");
     if (current.status === "published") return detail(db, tenantId, current);
     await lockProductAreas(db, tenantId, id);
-    const items = await runPublishCheck(db, tenantId, current);
+    const items = await runPublishCheck(db, tenantId, current, now);
     if (!canPublish(items)) throw publishCheckFailed(items, "还有上架条件没有满足");
     const updated = await updateProductRow(db, tenantId, id, { status: "published", publishedAt: now }, now);
     await audit(db, writer, now, { resource: "product", id, action: "publish", before: { status: current.status }, after: { status: updated.status } });

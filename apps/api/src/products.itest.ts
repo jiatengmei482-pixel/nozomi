@@ -4,7 +4,8 @@
  * 跨租户的验证在 tenant-isolation.itest.ts；这里是单个供应商视角下的全部规则。
  * 全部经真实接口、真实 PostgreSQL；测试数据都在这里构造，结束时连同 schema 一起删除。
  *
- * 价格规则（M1-04）还没有，所以经接口没法真的上架。需要「已上架的商品」的地方，用迁移账号直接把状态改成已上架来摆数据。
+ * 需要「已上架的商品」的地方都走真实的上架流程（M1-04 起价格规则接上了）：缺什么经接口补什么，再调上架接口。
+ * 价格规则、调价规则本身的规则在 prices.itest.ts。
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -76,10 +77,38 @@ async function completeDraft(): Promise<any> {
   return { ...(await ok(call("GET", `/products/${product.id}`))), version: content.version };
 }
 
-/** 价格规则还没有，接口上不了架：用迁移账号把状态改成已上架。 */
-async function forcePublished(productId: string): Promise<void> {
-  const result = await api.db.owner.query("update products set status = 'published', published_at = now() where id = $1", [productId]);
-  assert.equal(result.rowCount, 1);
+/**
+ * 走真实的上架流程：缺什么经接口补什么（区域、车型组、调度人、服务规则、详情、一条价格），再调上架接口。
+ * 返回上架后的商品（带最新的版本号）。
+ */
+async function publish(productId: string, token: string = tenant.adminToken): Promise<any> {
+  const as = { token };
+  let product = await ok(call("GET", `/products/${productId}`, as));
+  const patch: Record<string, unknown> = {};
+  if (product.areas.length === 0) {
+    api.clock.advance(1_000);
+    const created = await ok(call("POST", "/areas", { ...as, body: { city_id: product.city_id, name: { zh: `上架用的区域 ${(serial += 1)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry: SQUARE }] } }), 201);
+    patch["areas"] = [{ area_id: created.id }];
+  }
+  if (product.vehicle_groups.length === 0) patch["vehicle_groups"] = [{ vehicle_group_id: ids["biz7"], passengers: 6, luggage: 2 }];
+  if (product.dispatchers.length === 0) patch["dispatchers"] = [{ name: "调度小王", phone: "09012345678" }];
+  if (Object.keys(patch).length > 0) product = await ok(call("PATCH", `/products/${productId}`, { ...as, version: product.version, body: patch }));
+  let version: number = product.version;
+  const failing = new Set<string>((await ok(call("GET", `/products/${productId}/publish-check`, as))).items.filter((item: any) => !item.passed).map((item: any) => item.key));
+  if (failing.has("service_rules")) {
+    const freeWait = product.category === "airport_transfer" ? { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } : { general: { mode: "unlimited" } };
+    version = (await ok(call("PUT", `/products/${productId}/service-rules`, { ...as, version, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: freeWait } }))).version;
+  }
+  if (failing.has("content")) version = (await ok(call("PUT", `/products/${productId}/content`, { ...as, version, body: { zh: { title: "上架用的标题", pickup_guide: "到达大厅" } } }))).version;
+  if (failing.has("price_rules")) {
+    const price =
+      product.category === "charter"
+        ? { package_hours: 10, pricing_model: "charter_package", package_km: 300, package_price: 98_000, overtime_per_hour: 5_000, over_km_per_km: 400 }
+        : { ...(product.category === "airport_transfer" ? { direction: "both" } : {}), pricing_model: "fixed", base_price: 20_000 };
+    const body = { area_id: product.areas[0].area_id, vehicle_group_id: product.vehicle_groups[0].vehicle_group_id, valid_from: "2026-01-01", ...price };
+    await ok(api.call("POST", `/tenant/v1/products/${productId}/price-rules`, { token, body, headers: { "if-match": `"${version}"`, "idempotency-key": randomUUID() } }), 201);
+  }
+  return ok(call("POST", `/products/${productId}/publish`, as));
 }
 
 async function audits(resource: string, id: string): Promise<any[]> {
@@ -359,7 +388,7 @@ test("商品详情：各语言的标题、简介、包含 / 不含、行程、�
   assert.deepEqual((await ok(call("GET", `/products?q=${encodeURIComponent("空港送迎")}`))).items.map((item: any) => item.id), [product.id]);
 });
 
-test("上架校验：逐项给出通过 / 不通过和原因；空的草稿四项必须的都不通过；填全之后只剩「价格规则」（功能还没上线）", async () => {
+test("上架校验：逐项给出通过 / 不通过和原因；空的草稿四项必须的都不通过；填全之后只剩「价格规则」，加上一条价格就能上架", async () => {
   const empty = await draft();
   const first = await ok(call("GET", `/products/${empty.id}/publish-check`));
   assert.equal(first.can_publish, false);
@@ -369,7 +398,7 @@ test("上架校验：逐项给出通过 / 不通过和原因；空的草稿四�
   const reasons = (check: any, key: string): string[] => check.items.find((item: any) => item.key === key).issues.map((issue: any) => `${issue.path} ${issue.reason}`);
   assert.deepEqual(reasons(first, "basic_info"), ["/areas NO_AREA", "/vehicle_groups NO_VEHICLE_GROUP", "/dispatchers NO_DISPATCHER"]);
   assert.deepEqual(reasons(first, "service_rules"), ["/booking/service_time REQUIRED", "/booking/lead_time_hours REQUIRED", "/free_wait/pickup REQUIRED", "/free_wait/dropoff REQUIRED"]);
-  assert.deepEqual(reasons(first, "price_rules"), ["/ FEATURE_NOT_AVAILABLE"]);
+  assert.deepEqual(reasons(first, "price_rules"), ["/ NO_ACTIVE_PRICE_RULE"]);
   assert.deepEqual(reasons(first, "content"), ["/title REQUIRED"]);
   assert.ok(first.items.flatMap((item: any) => item.issues).every((issue: any) => typeof issue.message === "string" && issue.message.length > 0), "每条原因都有中文说明");
 
@@ -388,6 +417,14 @@ test("上架校验：逐项给出通过 / 不通过和原因；空的草稿四�
   assert.deepEqual(reasons(await ok(call("GET", `/products/${product.id}/publish-check`)), "content"), ["/ja/pickup_guide REQUIRED"]);
   assert.equal((await call("GET", `/products/${MISSING}/publish-check`)).status, 404);
   assert.equal((await call("POST", `/products/${MISSING}/publish`)).status, 404);
+  // 补上接机指引、加一条价格：全部通过，上架成功，记一条日志
+  const fixedUp = await ok(call("PUT", `/products/${product.id}/content`, { version: product.version + 1, body: { zh: { title: "成田接送", pickup_guide: "3 号门" } } }));
+  const live = await publish(product.id);
+  assert.deepEqual([live.status, live.version, typeof live.published_at], ["published", fixedUp.version + 2, "string"], "加价格、上架各让版本号加一");
+  assert.equal((await ok(call("GET", `/products/${product.id}/publish-check`))).can_publish, true);
+  assert.deepEqual((await audits("product", product.id)).at(-1), { action: "publish", tenant_id: tenant.tenantId, actor_email: "admin@a.test", before: { status: "draft" }, after: { status: "published" } });
+  // 下架：后面的测试要停用它用着的主数据
+  await ok(call("POST", `/products/${product.id}/unpublish`));
 });
 
 test("上架校验看的是现在的情况：选的区域被停用、车型组的组合被平台改掉、附加服务和接送点被平台停用，都会被指出来", async () => {
@@ -412,16 +449,19 @@ test("下架和删除：草稿不能下架、可以删除；已上架的可以�
   const product = await completeDraft();
   const notYet = await call("POST", `/products/${product.id}/unpublish`);
   assert.deepEqual([notYet.status, notYet.body.error.code], [409, "PRODUCT_STATE_INVALID"]);
-  await forcePublished(product.id);
-  assert.deepEqual((await ok(call("POST", `/products/${product.id}/publish`))).status, "published", "已经上架的再上架：原样返回");
+  const live = await publish(product.id);
+  assert.deepEqual([(await ok(call("POST", `/products/${product.id}/publish`))).status, (await ok(call("POST", `/products/${product.id}/publish`))).version], ["published", live.version], "已经上架的再上架：原样返回");
   const blocked = await call("DELETE", `/products/${product.id}`);
   assert.deepEqual([blocked.status, blocked.body.error.code, blocked.body.error.details], [409, "PRODUCT_NOT_DRAFT", { status: "published" }]);
   const down = await ok(call("POST", `/products/${product.id}/unpublish`));
-  assert.deepEqual([down.status, down.version], ["unpublished", product.version + 1]);
+  assert.deepEqual([down.status, down.version], ["unpublished", live.version + 1]);
   assert.deepEqual((await ok(call("POST", `/products/${product.id}/unpublish`))).version, down.version);
   assert.equal((await call("DELETE", `/products/${product.id}`)).body.error.code, "PRODUCT_NOT_DRAFT");
   assert.deepEqual((await audits("product", product.id)).at(-1), { action: "unpublish", tenant_id: tenant.tenantId, actor_email: "admin@a.test", before: { status: "published" }, after: { status: "unpublished" } });
-  // 已下架的再上架同样要过校验
+  // 已下架的再上架同样要过校验：条件还满足就能再上架；把服务规则清空就上不去了
+  assert.equal((await ok(call("POST", `/products/${product.id}/publish`))).status, "published");
+  const again = await ok(call("POST", `/products/${product.id}/unpublish`));
+  await ok(call("PUT", `/products/${product.id}/service-rules`, { version: again.version, body: {} }));
   assert.equal((await call("POST", `/products/${product.id}/publish`)).body.error.code, "PUBLISH_CHECK_FAILED");
 
   const throwaway = await completeDraft();
@@ -438,19 +478,21 @@ test("下架和删除：草稿不能下架、可以删除；已上架的可以�
 
 test("已上架的商品可以直接改，但改完必须仍然满足上架条件，否则这次修改被拒绝、什么都不变", async () => {
   const product = await completeDraft();
-  await forcePublished(product.id);
-  // 价格规则功能没上线时，已上架的商品（只能是摆出来的）任何修改都会因为「价格规则」不通过而被拒——这里核对被拒时带出了全部原因
-  const refused = await call("PATCH", `/products/${product.id}`, { version: product.version, body: { areas: [] } });
+  const live = await publish(product.id);
+  const refused = await call("PATCH", `/products/${product.id}`, { version: live.version, body: { areas: [] } });
   assert.deepEqual([refused.status, refused.body.error.code], [409, "PUBLISH_CHECK_FAILED"]);
   const failing = Object.fromEntries(refused.body.error.details.items.filter((item: any) => !item.passed).map((item: any) => [item.key, item.issues.map((issue: any) => issue.reason)]));
-  assert.deepEqual(failing, { basic_info: ["NO_AREA"], price_rules: ["FEATURE_NOT_AVAILABLE"] });
-  const rules = await call("PUT", `/products/${product.id}/service-rules`, { version: product.version, body: {} });
+  assert.deepEqual(failing, { basic_info: ["NO_AREA"] });
+  const rules = await call("PUT", `/products/${product.id}/service-rules`, { version: live.version, body: {} });
   assert.equal(rules.body.error.code, "PUBLISH_CHECK_FAILED");
-  const content = await call("PUT", `/products/${product.id}/content`, { version: product.version, body: {} });
+  const content = await call("PUT", `/products/${product.id}/content`, { version: live.version, body: {} });
   assert.equal(content.body.error.code, "PUBLISH_CHECK_FAILED");
   const now = await ok(call("GET", `/products/${product.id}`));
-  assert.deepEqual([now.version, now.area_count, now.title], [product.version, 1, { zh: "成田机场接送" }]);
+  assert.deepEqual([now.version, now.area_count, now.title], [live.version, 1, { zh: "成田机场接送" }]);
   assert.equal((await ok(call("GET", `/products/${product.id}/service-rules`))).rules.booking.lead_time_hours, 24);
+  // 改完仍然满足条件的修改照常保存，商品还是已上架
+  const kept = await ok(call("PATCH", `/products/${product.id}`, { version: live.version, body: { dispatchers: [{ name: "换了调度", phone: "0312345678" }] } }));
+  assert.deepEqual([kept.status, kept.version, kept.dispatchers], ["published", live.version + 1, [{ name: "换了调度", phone: "0312345678" }]]);
 });
 
 test("区域被商品使用：应答里带使用数；有商品在用时不能改业务类型；有已上架的商品在用时不能删除、不能停用；草稿在用的区域删了，草稿少掉这个区域", async () => {
@@ -469,7 +511,7 @@ test("区域被商品使用：应答里带使用数；有商品在用时不能�
   assert.deepEqual([locked.status, locked.body.error.code, locked.body.error.details], [409, "FIELD_LOCKED", { fields: ["biz_type"] }]);
   assert.equal((await call("PUT", `/areas/${used.id}`, { version: used.version, body: { name: { zh: "改了名字" }, biz_type: "general", polygons: used.polygons } })).status, 200, "名称和图形照常能改");
 
-  await forcePublished(published.id);
+  await publish(published.id);
   assert.deepEqual((await ok(call("GET", `/areas/${used.id}`))).usage, { product_count: 2, published_product_count: 1 });
   for (const [method, path] of [["DELETE", `/areas/${used.id}`], ["POST", `/areas/${used.id}/disable`]] as const) {
     const res = await call(method, path);
@@ -485,7 +527,7 @@ test("区域被商品使用：应答里带使用数；有商品在用时不能�
 });
 
 test("平台主数据被已上架的商品用着时不能停用（城市、接送点、车型组、开着的附加服务）；只有草稿在用时可以停用，草稿的上架校验会指出来", async () => {
-  // 前面的测试留下了摆成已上架的商品，先清掉，这里的个数才只算本测试的
+  // 前面的测试留下了已上架的商品，先清掉，这里的个数才只算本测试的
   await api.db.owner.query("delete from products");
   const product = await completeDraft();
   // 只有草稿在用：四样都能停用
@@ -493,7 +535,7 @@ test("平台主数据被已上架的商品用着时不能停用（城市、接�
     assert.equal((await platform("POST", `/master/${path}/${ids[key]}/disable`)).status, 200, path);
     assert.equal((await platform("POST", `/master/${path}/${ids[key]}/enable`)).status, 200, path);
   }
-  await forcePublished(product.id);
+  await publish(product.id);
   const expectBlocked = async (path: string, id: string): Promise<void> => {
     const res = await platform("POST", `/master/${path}/${id}/disable`);
     assert.deepEqual([res.status, res.body.error.code, res.body.error.details], [409, "MASTER_DATA_IN_USE", { active_count: 1 }], `${path}：${res.text}`);
@@ -522,7 +564,7 @@ test("城市被已上架的商品用着时不能停用", async () => {
   assert.equal((await platform("POST", `/master/cities/${kyoto.id}/disable`)).status, 200, "只有草稿在用：可以停用");
   assert.deepEqual((await ok(call("GET", `/products/${product.id}/publish-check`))).items[0].issues.map((issue: any) => issue.reason).slice(0, 2), ["CITY_DISABLED", "AREA_CITY_DISABLED"]);
   assert.equal((await platform("POST", `/master/cities/${kyoto.id}/enable`)).status, 200);
-  await forcePublished(product.id);
+  await publish(product.id);
   const blocked = await platform("POST", `/master/cities/${kyoto.id}/disable`);
   assert.deepEqual([blocked.status, blocked.body.error.code, blocked.body.error.details], [409, "MASTER_DATA_IN_USE", { active_count: 1 }]);
 });
@@ -559,9 +601,9 @@ test("地点列表可以一次按多个类型筛（接送点的选项：机场 +
 test("列表：按最近修改从新到旧翻页不重不漏，每页的 total 一样；列表项不带明细只带个数；按关键字、状态、品类、城市、子品牌筛选", async () => {
   await api.db.owner.query("delete from products");
   const a = await completeDraft();
+  await publish(a.id);
   const b = await draft({ category: "charter", poi_id: null });
   const c = await draft({ poi_id: ids["station"] });
-  await forcePublished(a.id);
   api.clock.advance(1_000);
   await ok(call("PUT", `/products/${b.id}/content`, { version: 1, body: { en: { title: "Tokyo Charter 100%" } } }));
   const seen: string[] = [];
@@ -578,10 +620,10 @@ test("列表：按最近修改从新到旧翻页不重不漏，每页的 total �
     "area_count", "brand", "brand_id", "category", "check", "city", "city_id", "code", "created_at", "id", "poi", "poi_id", "published_at", "status", "title", "updated_at", "vehicle_group_count", "version",
   ]);
   assert.deepEqual([item.id, item.status, item.area_count, item.vehicle_group_count, item.title], [a.id, "published", 1, 1, { zh: "成田机场接送" }]);
-  // 上架准备的概况：填全的只差还没开放的价格规则；空草稿另有三项自己能补的没满足
+  // 上架准备的概况：已上架的全部满足；空草稿四项必须的都没满足（都是自己能补的，没有「功能未开放」的了）
   const checks = Object.fromEntries((await ok(call("GET", "/products"))).items.map((entry: any) => [entry.id, entry.check]));
-  assert.deepEqual(checks[a.id], { can_publish: false, failed_required: 0, unavailable_required: 1 });
-  assert.deepEqual(checks[c.id], { can_publish: false, failed_required: 3, unavailable_required: 1 });
+  assert.deepEqual(checks[a.id], { can_publish: true, failed_required: 0, unavailable_required: 0 });
+  assert.deepEqual(checks[c.id], { can_publish: false, failed_required: 4, unavailable_required: 0 });
   const found = async (query: string): Promise<string[]> => {
     const res = await ok(call("GET", `/products?${query}`));
     assert.equal(res.total, res.items.length, query);
@@ -639,8 +681,8 @@ test("首页数量：商品按状态数；没有 product.read 的角色拿到 nu
   const brand = await ok(call("POST", "/brands", { token: fresh.adminToken, body: { name: "新品牌", currency: "JPY" } }), 201);
   const made: any[] = [];
   for (let i = 0; i < 3; i += 1) made.push(await ok(call("POST", "/products", { token: fresh.adminToken, body: { brand_id: brand.id, city_id: ids["tokyo"], category: "charter" } }), 201));
-  await forcePublished(made[0].id);
-  await forcePublished(made[1].id);
+  await publish(made[0].id, fresh.adminToken);
+  await publish(made[1].id, fresh.adminToken);
   await ok(call("POST", `/products/${made[1].id}/unpublish`, { token: fresh.adminToken }));
   assert.deepEqual((await summary(fresh.adminToken)).products, { draft: 1, published: 1, unpublished: 1 });
   assert.deepEqual((await summary((await addTenantUser(api, fresh.adminToken, "finance@fresh.test", "finance")).token)), { areas: null, products: null });
