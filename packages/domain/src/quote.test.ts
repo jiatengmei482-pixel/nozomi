@@ -1,11 +1,23 @@
 /**
  * M2-01 报价引擎：和需求文档《用车报价服务平台》「报价引擎」的 13 步、计价公式、取整规则、时区，以及各轮决策逐项对应。
  * 每条测试的名字里标着它对应的是哪一步 / 哪条公式 / 哪一轮决策。
+ *
+ * 「计价公式」一节的每一条公式在哪条测试里（公式里的每一项各有断言）：
+ * - 固定一口价 P_base = 基础价 ……「计价公式（固定一口价）」
+ * - 里程 + 时长 P_base = max(P_min, P_start + max(0, D − D_start)·p_km + max(0, T − T_start)·p_min) ……「计价公式（里程 + 时长）」两条（第二条逐项）
+ * - 包车套餐 P_base = P_pkg + max(0, H − H_pkg)·p_hour + max(0, D − D_pkg)·p_km ……「计价公式（包车套餐）」两条（第二条逐项）
+ * - 总价 P_total = Adjust(P_base) + F_urgent + F_night + ΣF_addon ……「总价公式 + 取整规则」；Adjust 见「第 7 步 调价」，三项费用见「第 3 步」「第 8 步」
+ * - 对外价 P_sell = P_total·FX·(1 + b)·(1 + m) ……「第 11 步 对外价」「第 11 步 加价比例不得低于渠道下限」「汇率中心：超过 48 小时」
+ *   m 按租户分别设置、比的是对外价 ……「第 10 步 + 《平台运营端》「加价规则」」
+ * - 排序价 R = P_sell·(1 + 0.05·[observation]) ……「第 10 步 观察期租户」
+ * - winner = argmax_{R ≤ (1 + δ)·min R}(score, completed, −R) ……「第 10 步 选中标」「价格带的边界」「区间内的排序」
+ * - 取整规则、时区 ……「总价公式 + 取整规则」「时区」
+ * 基础价三条公式本身的实现在 pricing.ts（`basePrice`），它自己的测试在 pricing.test.ts；这里验的是报价引擎用它算出来的结算价。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Position } from "./areas.ts";
-import type { AdjustRule, PriceRule, Pricing } from "./pricing.ts";
+import { type AdjustRule, type PriceRule, type Pricing, basePrice, formatExact } from "./pricing.ts";
 import { type ServiceRules, emptyServiceRules } from "./products.ts";
 import {
   type ComparisonEntry,
@@ -20,6 +32,7 @@ import {
   type RankCandidate,
   compareQuotes,
   effectiveScoreCenti,
+  fxQuoteUsable,
   quoteCheckPoints,
   quoteExpiresAt,
   quoteProduct,
@@ -258,6 +271,25 @@ test("第 6 步 + 计价公式（里程 + 时长）：P_base = max(P_min, P_star
   assert.deepEqual(outcome(mixed, request({ vehicleGroupIds: [] }), moment({ route: null })), { biz7: "ROUTE_UNAVAILABLE", eco4: 15_000 });
 });
 
+test("计价公式（里程 + 时长）逐项：起步价 P_start、超出起步里程的 max(0, D − D_start)·p_km、超出起步时长的 max(0, T − T_start)·p_min、最低消费 P_min 各自起作用，互不抵消", () => {
+  const metered: Pricing = { model: "mileage_time", startPriceMinor: 3_000, startMeters: 5_000, startMinutes: 20, perKmMinor: 400, perMinuteMinor: 80, minPriceMinor: null };
+  const at = (pricing: Pricing, meters: number, minutes: number): unknown => outcome(product({ priceRules: [price(pricing)] }), request(), moment({ route: { meters, minutes } }));
+  // 没有最低消费时，逐项看：
+  assert.equal(at(metered, 5_000, 20), 3_000, "D = D_start、T = T_start：只有起步价");
+  assert.equal(at(metered, 10_000, 20), 5_000, "只超里程 5 公里：3000 + 5 × 400");
+  assert.equal(at(metered, 5_000, 50), 5_400, "只超时长 30 分钟：3000 + 30 × 80");
+  assert.equal(at(metered, 10_000, 50), 7_400, "两项都超：3000 + 2000 + 2400");
+  // max(0, …)：没用完的起步里程不能拿来抵超出的时长，反过来也一样
+  assert.equal(at(metered, 1_000, 50), 5_400, "里程差 4 公里没用完，不抵时长");
+  assert.equal(at(metered, 10_000, 5), 5_000, "时长差 15 分钟没用完，不抵里程");
+  assert.equal(at(metered, 0, 0), 3_000);
+  // 最低消费 P_min = 6000：低于它的按它收，正好等于、高于它的不变
+  const floored: Pricing = { ...metered, minPriceMinor: 6_000 };
+  assert.deepEqual([at(floored, 10_000, 20), at(floored, 12_500, 20), at(floored, 10_000, 50)], [6_000, 6_000, 7_400], "5000 → 6000；正好 6000；7400 不变");
+  // 最低消费比的是基础价，调价在它之后：6000 的最低消费再 +10% = 6600
+  assert.equal(outcome(product({ priceRules: [price(floored)], adjustRules: [adjust("+10%", [{ type: "percent", value: 1_000 }])] }), request(), moment({ route: { meters: 5_000, minutes: 20 } })), 6_600);
+});
+
 test("第 6 步 + 计价公式（包车套餐）：报价时 H = 套餐时长，P_base = P_pkg（超时、超公里履约后按实际结算）；按套餐时长命中各自的价", () => {
   const pkg = (hours: number, priceMinor: number): PriceRule & { id: string } => price({ model: "charter_package", packageKm: hours * 30, packagePriceMinor: priceMinor, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: hours, validFrom: `2026-01-0${hours === 5 ? 1 : 2}` });
   const charter = product({ category: "charter", pickupPlace: null, priceRules: [pkg(5, 55_000), pkg(10, 98_000)], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
@@ -266,6 +298,22 @@ test("第 6 步 + 计价公式（包车套餐）：报价时 H = 套餐时长，
   assert.equal(offer(charter, day(10)).packageHours, 10);
   // 有没有路线预估都一样：包车套餐不看预估
   assert.equal(outcome(charter, day(10), moment({ route: { meters: 999_000, minutes: 9_999 } })), 98_000);
+});
+
+test("计价公式（包车套餐）逐项：P_pkg、max(0, H − H_pkg)·p_hour、max(0, D − D_pkg)·p_km——报价时 H = H_pkg、D 不超套餐，两项都是 0；同一条价格规则在履约后按实际时长和里程算出超时、超公里", () => {
+  const pricing: Pricing = { model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 };
+  const charter = product({ category: "charter", pickupPlace: null, priceRules: [price(pricing, { direction: null, packageHours: 10 })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
+  const quoted = settlement(charter, request({ category: "charter", direction: null, packageHours: 10, pickup: WEST, dropoff: null }), moment({ route: { meters: 450_000, minutes: 900 } }));
+  // 报价：只有套餐价（路线预估再长也不进报价——超时超公里在履约后按实际结算）
+  assert.deepEqual([quoted.totalMinor, quoted.baseMinor, quoted.exact.base, quoted.usage], [98_000, 98_000, "98000", null]);
+  // 履约后（订单任务用同一个公式）：实际 12 小时、350 公里
+  const actual = (minutes: number, meters: number): string => formatExact(basePrice(pricing, { minutes, meters }, 10));
+  assert.equal(actual(600, 300_000), "98000", "H = H_pkg、D = D_pkg：两项都是 0");
+  assert.equal(actual(720, 300_000), "108000", "只超时 2 小时：+ 2 × 5000");
+  assert.equal(actual(600, 350_000), "118000", "只超 50 公里：+ 50 × 400");
+  assert.equal(actual(720, 350_000), "128000", "两项都超：98000 + 10000 + 20000");
+  assert.equal(actual(480, 200_000), "98000", "max(0, …)：没用完的不退");
+  assert.equal(actual(480, 350_000), "118000", "没用完的时长不抵超出的公里");
 });
 
 test("第 7 步 调价：筛出匹配的规则，按优先级顺序链式执行，后一步以前一步的结果为基数；顺序换了结果不同；停用的、范围不对的不参与", () => {
@@ -391,6 +439,7 @@ test("时区：服务时间、夜间时段、出行日期、加急小时数都�
 });
 
 test("第 11 步 对外价 = 结算价 × 汇率 × (1 + 汇率缓冲) × (1 + 加价比例)，按币种取整；同币种汇率缓冲为 0，跨币种 1.5%（第五轮决策 ⑥）", () => {
+  // 需求文档报价返回示例里的数：结算价 108,900、加价 10%。示例的对外价写的是 119,800——那是渠道的「对外价取整规则」取到百位之后的数，渠道配置在 M2-04
   const same = sellPrice({ settlementMinor: 108_900, settlementCurrency: "JPY", currency: "JPY", markupBp: 1_000, fx: null });
   assert.deepEqual(same, { currency: "JPY", sellMinor: 119_790, markupBp: 1_000, fxBufferBp: 0, fx: null, exact: "119790" });
   // 取整：20,001 × 1.125 = 22501.125 → 22501；恰好一半往大的取：20,004 × 1.125 = 22504.5 → 22505
@@ -408,6 +457,35 @@ test("第 11 步 对外价 = 结算价 × 汇率 × (1 + 汇率缓冲) × (1 + �
     assert.deepEqual(sellPrice({ settlementMinor: 20_000, settlementCurrency: "JPY", currency: "CNY", markupBp: 1_000, fx: bad }), { failure: "FX_RATE_UNAVAILABLE" });
   }
   assert.deepEqual([rateFraction("0.0468"), rateFraction("150"), rateFraction("1.5e2"), rateFraction("")], [{ numerator: 468n, denominator: 10_000n }, { numerator: 150n, denominator: 1n }, null, null]);
+});
+
+test("汇率中心：超过 48 小时没更新的汇率不能用来报价——跨币种的报不出（FX_RATE_UNAVAILABLE），同币种的不受影响；正好 48 小时还能用", () => {
+  const now = new Date("2026-10-07T01:00:00Z");
+  assert.equal(QUOTE_RULES.fxMaxAgeHours, 48);
+  assert.deepEqual(
+    ["2026-10-07T01:00:00Z", "2026-10-05T01:00:00Z", "2026-10-05T00:59:59Z", "2026-10-07T02:00:00Z", "不是时间"].map((asOf) => fxQuoteUsable({ asOf }, now)),
+    [true, true, false, true, false],
+    "刚取的；正好 48 小时；多一秒；比现在还晚一点（两台机器的钟差）；写得不对",
+  );
+  const r = request();
+  const cny = product({ productId: "prd-c", tenantId: "tenant-c", currency: "CNY", priceRules: [price(fixed(90_000))] });
+  const jpy = product({ productId: "prd-a", tenantId: "tenant-a" });
+  const run = (asOf: string) =>
+    compareQuotes({
+      request: r,
+      currency: "JPY",
+      now,
+      entries: [
+        { quote: quoteProduct(cny, r, moment({ now })), productVersion: 1, standing: DEFAULT_TENANT_STANDING, markupBp: () => 1_000, fx: { from: "CNY", to: "JPY", rate: "21.5", asOf } },
+        { quote: quoteProduct(jpy, r, moment({ now })), productVersion: 1, standing: DEFAULT_TENANT_STANDING, markupBp: () => 1_000, fx: null },
+      ],
+    });
+  const fresh = run("2026-10-05T01:00:00Z");
+  assert.deepEqual([fresh.groups[0]?.ranked.map((item) => item.candidate.tenantId), fresh.refused], [["tenant-c", "tenant-a"], []]);
+  // 快照里记着用的汇率和它的取数时间
+  assert.deepEqual(fresh.groups[0]?.snapshot.winner.sell.fx, { from: "CNY", to: "JPY", rate: "21.5", asOf: "2026-10-05T01:00:00Z" });
+  const stale = run("2026-10-05T00:59:59Z");
+  assert.deepEqual([stale.groups[0]?.ranked.map((item) => item.candidate.tenantId), stale.refused], [["tenant-a"], [{ tenantId: "tenant-c", productId: "prd-c", vehicleGroupId: "biz7", reason: "FX_RATE_UNAVAILABLE" }]]);
 });
 
 test("第 11 步 加价比例不得低于渠道下限（默认 10%，第五轮决策 ⑥）：给的比下限低就按下限算；渠道可以把下限设得更高或更低", () => {
@@ -479,6 +557,47 @@ test("每个车型组每个租户只出一个价：同一个租户的几个报�
   const ranked = rankCandidates([candidate("A", 12_000, { tieBreak: "prd-a1" }), candidate("A", 11_000, { tieBreak: "prd-a2" }), candidate("B", 11_500, { tieBreak: "prd-b" })]);
   assert.deepEqual(ranked.map((entry) => [entry.candidate.tenantId, entry.candidate.tieBreak, entry.candidate.sellMinor]), [["A", "prd-a2", 11_000], ["B", "prd-b", 11_500]]);
   assert.deepEqual(rankCandidates([]), []);
+});
+
+test("第 10 步 + 《平台运营端》「加价规则」：加价比例可以按租户分别设置，比的是对外价（结算价 × (1 + 该租户适用的加价比例)）不是结算价；所有租户比例相同时等同于比结算价", () => {
+  const now = new Date("2026-10-07T01:00:00Z");
+  const r = request();
+  const a = product({ productId: "prd-a", tenantId: "tenant-a", priceRules: [price(fixed(20_000))] });
+  const b = product({ productId: "prd-b", tenantId: "tenant-b", priceRules: [price(fixed(19_000))] });
+  const run = (markupA: number, markupB: number, extra: { bandBp?: number; markupFloorBp?: number; standingB?: ComparisonEntry["standing"] } = {}) => {
+    const compared = compareQuotes({
+      request: r,
+      currency: "JPY",
+      now,
+      ...(extra.bandBp === undefined ? {} : { bandBp: extra.bandBp }),
+      ...(extra.markupFloorBp === undefined ? {} : { markupFloorBp: extra.markupFloorBp }),
+      entries: [
+        { quote: quoteProduct(a, r, moment({ now })), productVersion: 1, standing: DEFAULT_TENANT_STANDING, markupBp: () => markupA, fx: null },
+        { quote: quoteProduct(b, r, moment({ now })), productVersion: 1, standing: extra.standingB ?? DEFAULT_TENANT_STANDING, markupBp: () => markupB, fx: null },
+      ],
+    });
+    return compared.groups[0]?.snapshot.candidates.map((item) => [item.tenantId, item.settlementMinor, item.markupBp, item.sellMinor, item.rankPrice, item.inBand]);
+  };
+  // 比例相同（都是 10%）：结算价低的乙对外价也低（20,900 对 22,000，差 5.3%，甲在区间外）——等同于比结算价
+  assert.deepEqual(run(1_000, 1_000), [["tenant-b", 19_000, 1_000, 20_900, "20900", true], ["tenant-a", 20_000, 1_000, 22_000, "22000", false]]);
+  // 乙的专属加价 25%：结算价仍然是乙低，但对外价 19,000 × 1.25 = 23,750 比甲的 22,000 高出 3% 以上 → 甲中标
+  assert.deepEqual(run(1_000, 2_500), [["tenant-a", 20_000, 1_000, 22_000, "22000", true], ["tenant-b", 19_000, 2_500, 23_750, "23750", false]]);
+  // 加价下限（第五轮决策 ⑥）在比价里同样起作用：给乙配的 5% 低于下限 10%，按 10% 算，快照里记实际用的比例
+  assert.deepEqual(run(1_000, 500), run(1_000, 1_000));
+  // 渠道把下限调到 20%：两家都按 20%
+  assert.deepEqual(run(1_000, 1_500, { markupFloorBp: 2_000 })?.map((item) => [item[0], item[2], item[3]]), [["tenant-b", 2_000, 22_800], ["tenant-a", 2_000, 24_000]]);
+  // 观察期（第五轮决策 ②）经过完整的比价：乙对外价 20,900 最低，排序价 × 1.05 = 21,945 仍是最低，照常中标，客人付 20,900（不是 21,945）
+  const observed = run(1_000, 1_000, { standingB: { scoreCenti: null, completedOrders: 0, observation: true } });
+  assert.deepEqual(observed, [["tenant-b", 19_000, 1_000, 20_900, "21945", true], ["tenant-a", 20_000, 1_000, 22_000, "22000", true]]);
+  // 渠道的 δ = 0：甲（22,000）不在区间里
+  assert.deepEqual(run(1_000, 1_000, { bandBp: 0, standingB: { scoreCenti: null, completedOrders: 0, observation: true } })?.map((item) => item[5]), [true, false]);
+});
+
+test("各轮决策里写明的数（常数表）：快照 30 分钟、价格带默认 3% 上限 5%、观察期 +5%、汇率缓冲 1.5%、加价下限 10%、汇率 48 小时、默认评分 4.5 / 不足 20 单", () => {
+  assert.deepEqual(
+    [QUOTE_RULES.snapshotTtlMinutes, QUOTE_RULES.defaultBandBp, QUOTE_RULES.maxBandBp, QUOTE_RULES.observationPenaltyBp, QUOTE_RULES.fxBufferBp, QUOTE_RULES.defaultMarkupFloorBp, QUOTE_RULES.fxMaxAgeHours, QUOTE_RULES.defaultScoreCenti, QUOTE_RULES.minOrdersForScore],
+    [30, 300, 500, 500, 150, 1_000, 48, 450, 20],
+  );
 });
 
 test("第 12 步 报价快照有效期 30 分钟：到点的那一刻就不能用了（错误码 QUOTE_EXPIRED）", () => {

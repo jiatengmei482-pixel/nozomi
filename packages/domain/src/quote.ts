@@ -44,6 +44,8 @@ export const QUOTE_RULES = {
   observationPenaltyBp: 500,
   /** 跨币种的汇率缓冲 1.5%；同币种为 0（第 11 步、第五轮决策 ⑥） */
   fxBufferBp: 150,
+  /** 汇率超过 48 小时没更新就暂停跨币种报价（「汇率中心」：数据源不可用时继续用最近一次有效汇率，超过 48 小时未更新则暂停） */
+  fxMaxAgeHours: 48,
   /** 渠道加价比例的下限，默认 10%（第 11 步、第五轮决策 ⑥） */
   defaultMarkupFloorBp: 1_000,
   /** 加价比例的上限：防止配置写错（10 倍） */
@@ -515,6 +517,15 @@ export interface FxQuote {
   asOf: string;
 }
 
+/**
+ * 这个汇率现在还能不能用来报价（「汇率中心」）：取数时间离现在不超过 48 小时（正好 48 小时还能用）。取数时间写得不对的当作不能用。
+ * 汇率中心自己也该停掉过期的汇率；这里再查一遍，保证不管汇率从哪里来，过期的都进不了报价。
+ */
+export function fxQuoteUsable(fx: Pick<FxQuote, "asOf">, now: Date): boolean {
+  const asOf = new Date(fx.asOf).getTime();
+  return Number.isFinite(asOf) && now.getTime() - asOf <= QUOTE_RULES.fxMaxAgeHours * 3_600_000;
+}
+
 const DECIMAL_RATE = /^(\d{1,12})(?:\.(\d{1,12}))?$/;
 
 /** 十进制写法的汇率 → 精确分数。写法不对、不大于 0 返回 null。 */
@@ -682,7 +693,7 @@ export interface ComparisonEntry {
   standing: TenantStanding;
   /** 这个渠道对这个租户、这个车型组适用的加价比例（基点） */
   markupBp: (vehicleGroupId: string) => number;
-  /** 从这个商品的结算币种换到客人支付币种的汇率；同币种、或没有汇率时为 null */
+  /** 从这个商品的结算币种换到客人支付币种的汇率；同币种、或没有汇率时为 null。超过 48 小时没更新的当作没有 */
   fx: FxQuote | null;
 }
 
@@ -734,7 +745,8 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
         markupBp: entry.markupBp(offer.vehicleGroupId),
         ...(input.markupFloorBp === undefined ? {} : { markupFloorBp: input.markupFloorBp }),
         ...(input.fxBufferBp === undefined ? {} : { fxBufferBp: input.fxBufferBp }),
-        fx: entry.fx,
+        // 超过 48 小时没更新的汇率不用：跨币种的这一个报不出（同币种的不看汇率，不受影响）
+        fx: entry.fx !== null && fxQuoteUsable(entry.fx, input.now) ? entry.fx : null,
       });
       if ("failure" in sell) {
         refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: offer.vehicleGroupId, reason: sell.failure });
