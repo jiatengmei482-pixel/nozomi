@@ -1,6 +1,6 @@
 /**
  * `pnpm config:check`：检查当前环境变量里哪些账号已经配置。
- * 只打印脱敏信息。可以在本地、claude.ai/code 云端会话、CI、Render 上运行。
+ * 只打印脱敏信息。可以在本地、claude.ai/code 云端会话、CI、VPS 上运行。
  */
 import { ConfigError, integrationStatus, loadConfig } from "./index.ts";
 

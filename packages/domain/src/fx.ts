@@ -51,7 +51,10 @@ export function snapshotRate(
   return { from, to, rate: mid * (1 + bufferBasisPoints / 10_000), bufferBasisPoints, asOf: table.asOf };
 }
 
-/** 用快照把最小单位金额从 from 换到 to，结果四舍五入到 to 的最小单位。 */
+/**
+ * 用快照把最小单位金额从 from 换到 to，结果四舍五入到 to 的最小单位。
+ * 汇率是浮点数，所以这里走浮点数的四舍五入：换算结果的绝对值不能超过 10^15 最小货币单位（money.ts 的 `FLOAT_ROUNDING_LIMIT`），超出抛 RangeError。
+ */
 export function convertMinor(minor: number, snapshot: FxSnapshot): number {
   assertMinor(minor);
   const major = minor / 10 ** minorDigits(snapshot.from);

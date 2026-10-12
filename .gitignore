@@ -2,6 +2,8 @@ node_modules/
 dist/
 site/
 coverage/
+playwright-report/
+test-results/
 *.log
 .DS_Store
 
@@ -9,3 +11,6 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# 部署公钥的临时副本，方便复制到 VPS 控制台，不提交
+deploy_key.pub.txt

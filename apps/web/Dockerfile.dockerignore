@@ -1,0 +1,42 @@
+# 前端镜像（apps/web/Dockerfile）专用的构建上下文白名单：默认什么都不进，只放行构建前端需要的文件。
+# 根目录的 .dockerignore 是给 API 镜像用的；BuildKit 发现这个文件时用它代替根目录那份。
+*
+
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.json
+!packages/
+packages/*
+!packages/config/
+packages/config/*
+!packages/config/package.json
+!packages/domain/
+!apps/
+apps/*
+!apps/api/
+apps/api/*
+!apps/api/package.json
+!apps/web/
+apps/web/Dockerfile
+apps/web/Dockerfile.dockerignore
+apps/web/dist
+apps/web/e2e
+apps/web/test
+apps/web/playwright.config.ts
+apps/web/playwright-report
+apps/web/test-results
+!docs/
+docs/*
+!docs/design/
+docs/design/*
+!docs/design/tokens.css
+
+# 放行的目录里再排除：依赖、测试、任何 .env
+**/node_modules
+**/*.test.ts
+**/*.test.tsx
+**/*.itest.ts
+apps/web/src/testing
+**/.env
+**/.env.*

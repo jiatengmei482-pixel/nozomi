@@ -1,4 +1,8 @@
 # 本地开发用的数据库。启动：docker compose up -d
+#
+# 这里建库时的账号 nozomi 是迁移账号（表的所有者），对应 .env 里的 DATABASE_MIGRATION_URL。
+# 服务进程用的应用账号（DATABASE_URL，权限最小）不在这里创建：启动后运行一次 `pnpm db:provision`，
+# 和 CI、服务器上用的是同一条命令（ADR 0010）。
 services:
   db:
     image: postgres:16

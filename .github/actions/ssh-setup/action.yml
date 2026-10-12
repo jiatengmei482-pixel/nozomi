@@ -1,0 +1,90 @@
+# 准备好连接 VPS 的 SSH 配置，之后的步骤用 `ssh -F "$NOZOMI_SSH_DIR/config" vps` 连接。
+#
+# - 严格校验主机身份：只认 VPS_SSH_KNOWN_HOSTS 里登记的主机密钥，对不上就拒绝连接。
+# - 私钥只写进 runner 的临时目录（权限 600）；调用方必须在 job 的最后加一个
+#   `if: always()` 的步骤删除 "$NOZOMI_SSH_DIR"。
+# - 任何输出都不包含密钥；不使用 set -x。
+name: 准备 SSH 连接
+description: 用 GitHub Environment 里的 5 项连接信息生成 SSH 配置，并确认能连上服务器
+
+inputs:
+  host:
+    description: secrets.VPS_HOST
+    required: true
+  port:
+    description: secrets.VPS_SSH_PORT
+    required: true
+  user:
+    description: secrets.VPS_SSH_USER
+    required: true
+  private-key:
+    description: secrets.VPS_SSH_PRIVATE_KEY
+    required: true
+  known-hosts:
+    description: secrets.VPS_SSH_KNOWN_HOSTS
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: 写入 SSH 配置并测试连接
+      shell: bash
+      env:
+        SSH_HOST: ${{ inputs.host }}
+        SSH_PORT: ${{ inputs.port }}
+        SSH_USER: ${{ inputs.user }}
+        SSH_PRIVATE_KEY: ${{ inputs.private-key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.known-hosts }}
+      run: |
+        set -euo pipefail
+        fail() {
+          echo "::error title=连接服务器的配置有问题::$1"
+          exit 1
+        }
+
+        missing=()
+        [[ -n "$SSH_HOST" ]] || missing+=(VPS_HOST)
+        [[ -n "$SSH_PORT" ]] || missing+=(VPS_SSH_PORT)
+        [[ -n "$SSH_USER" ]] || missing+=(VPS_SSH_USER)
+        [[ -n "$SSH_PRIVATE_KEY" ]] || missing+=(VPS_SSH_PRIVATE_KEY)
+        [[ -n "$SSH_KNOWN_HOSTS" ]] || missing+=(VPS_SSH_KNOWN_HOSTS)
+        if ((${#missing[@]} > 0)); then
+          fail "这个环境的 Environment secrets 里还没有填：${missing[*]}。怎么填见 docs/secrets.md。"
+        fi
+        [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || fail "VPS_SSH_PORT 必须是数字（没改过就填 22）。"
+        [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || fail "VPS_SSH_USER 不是合法的 Linux 用户名。"
+        [[ "$SSH_HOST" =~ ^[A-Za-z0-9.:-]+$ ]] || fail "VPS_HOST 只填 IP 或主机名，不带 http://、端口或空格。"
+
+        dir="$RUNNER_TEMP/nozomi-ssh"
+        umask 077
+        mkdir -p "$dir"
+        # 从 Windows 粘贴的内容可能带回车符，去掉；并保证以换行结尾（否则私钥无法解析）。
+        printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' >"$dir/key"
+        printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' >"$dir/known_hosts"
+        cat >"$dir/config" <<CONFIG
+        Host vps
+          HostName $SSH_HOST
+          Port $SSH_PORT
+          User $SSH_USER
+          IdentityFile $dir/key
+          IdentitiesOnly yes
+          StrictHostKeyChecking yes
+          UserKnownHostsFile $dir/known_hosts
+          GlobalKnownHostsFile /dev/null
+          BatchMode yes
+          ConnectTimeout 15
+          ServerAliveInterval 30
+          ServerAliveCountMax 4
+          LogLevel ERROR
+        CONFIG
+        # 不只依赖 umask：目录带默认 ACL 时 umask 不生效，而 ssh 会拒绝使用权限过宽的私钥。
+        chmod 700 "$dir"
+        chmod 600 "$dir/key" "$dir/known_hosts" "$dir/config"
+
+        ssh-keygen -y -f "$dir/key" >/dev/null 2>&1 ||
+          fail "VPS_SSH_PRIVATE_KEY 不是可用的私钥。请粘贴私钥文件的全部内容（从 -----BEGIN 那行到 -----END 那行），并且这把钥匙不能带口令。"
+
+        if ! ssh -F "$dir/config" vps true; then
+          fail "连不上服务器。常见原因：VPS_HOST 或 VPS_SSH_PORT 不对；部署公钥没有加到服务器上 VPS_SSH_USER 这个账号；VPS_SSH_KNOWN_HOSTS 不是这台服务器的（重装系统后需要重新获取）；服务商控制台的防火墙没有放行 SSH 端口。"
+        fi
+        echo "NOZOMI_SSH_DIR=$dir" >>"$GITHUB_ENV"

@@ -1,0 +1,20 @@
+# 白名单：默认什么都不进镜像，只放行运行 API 需要的文件。
+# 这样 .env、.git、文档、部署脚本等永远不会被打进镜像。
+*
+
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!packages/
+!apps/
+apps/*
+!apps/api/
+apps/api/Dockerfile
+
+# 放行的目录里再排除：依赖、测试、任何 .env
+**/node_modules
+**/*.test.ts
+**/*.itest.ts
+apps/api/src/testing
+**/.env
+**/.env.*
