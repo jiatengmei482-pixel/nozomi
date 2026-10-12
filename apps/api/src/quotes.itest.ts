@@ -21,6 +21,8 @@ const MISSING = "99999999-9999-4999-8999-999999999999";
 let route: RouteEstimate | null = null;
 let routeCalls = 0;
 const rates = new Map<string, string>();
+/** 汇率替身给出的取数时间（测试里的现在是 2026-10-07 01:00Z） */
+let fxAsOf = "2026-10-07T00:00:00Z";
 const standings = new Map<string, TenantStanding>();
 
 const platform = (method: HttpMethod, path: string, body?: unknown, token: string = root): Promise<ApiResponse> => api.call(method, `/platform/v1${path}`, { token, ...(body === undefined ? {} : { body }) });
@@ -91,7 +93,7 @@ before(async () => {
           return route;
         },
       },
-      fx: { quote: async (from, to): Promise<FxQuote | null> => (rates.has(`${from}>${to}`) ? { from, to, rate: rates.get(`${from}>${to}`) as string, asOf: "2026-10-07T00:00:00Z" } : null) },
+      fx: { quote: async (from, to): Promise<FxQuote | null> => (rates.has(`${from}>${to}`) ? { from, to, rate: rates.get(`${from}>${to}`) as string, asOf: fxAsOf } : null) },
       standings: { load: async (_db, tenantIds) => new Map(tenantIds.map((tenantId) => [tenantId, standings.get(tenantId) ?? { scoreCenti: null, completedOrders: 0, observation: false }])) },
     },
   });
@@ -233,7 +235,7 @@ test("里程 + 时长的价格要路线预估（M2-02 的接口）：取不到�
   await publish(b, ids["pb"] as string);
 });
 
-test("跨币种（M2-03 的接口）：结算币种和客人支付的币种不同时按汇率换算并加 1.5% 缓冲；没有汇率就报不出，同币种的不受影响", async () => {
+test("跨币种（M2-03 的接口）：结算币种和客人支付的币种不同时按汇率换算并加 1.5% 缓冲；没有汇率、或汇率超过 48 小时没更新就报不出，同币种的不受影响", async () => {
   // 乙的人民币商品：商务 900.00 元
   const cny = await transfer(b, ids["brandBcny"] as string, [ids["bAll"] as string]);
   await addPrice(b, cny, { area_id: ids["bAll"], base_price: 90_000 });
@@ -251,6 +253,11 @@ test("跨币种（M2-03 的接口）：结算币种和客人支付的币种不�
   rates.set("JPY>CNY", "0.0468");
   const inCny = await preview({ vehicle_group_ids: [ids["biz7"]], currency: "CNY" });
   assert.deepEqual(group(inCny).candidates.map((candidate: any) => [candidate.tenant_name, candidate.sell, candidate.fx_buffer_bp]), [["乙车队", 99_000, 0], ["甲车队", 104_504, 150]]);
+  // 汇率超过 48 小时没更新（现在是 10-07 01:00Z）：跨币种的报不出，同币种的照常
+  fxAsOf = "2026-10-05T00:59:59Z";
+  const stale = await preview({ vehicle_group_ids: [ids["biz7"]] });
+  assert.deepEqual([mine(stale), stale.refused.filter((entry: any) => entry.product_id === cny).map((entry: any) => entry.reason), group(stale).candidates.length], [undefined, ["FX_RATE_UNAVAILABLE"], 2]);
+  fxAsOf = "2026-10-07T00:00:00Z";
   rates.clear();
   await ok(call(b, "POST", `/products/${cny}/unpublish`));
 });

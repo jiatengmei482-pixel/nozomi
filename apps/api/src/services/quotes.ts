@@ -152,8 +152,12 @@ export interface PlatformQuotePreview {
   comparison: QuoteComparison;
 }
 
-/** 平台侧试算：所有供应商一起比。 */
-export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput): Promise<PlatformQuotePreview> {
+/**
+ * 平台侧试算：所有供应商一起比。
+ * `fresh`（默认）：不用缓存里的旧目录，现取现算——试算要看的是现在的规则。正式的询价（M2-04）走同一个函数、`fresh: false`：
+ * 候选商品和规则用 30 秒内的缓存，库存、节假日、评分仍然现查。
+ */
+export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput, options: { fresh?: boolean } = {}): Promise<PlatformQuotePreview> {
   const now = ctx.now();
   const request = toRequest(input.category, input);
   const issues: InputIssue[] = [];
@@ -176,7 +180,7 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
       }
       const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
       const filter: QuoteCandidateFilter = { cityId: city.id, category: input.category, poiId: input.placeId, publishedOnly: true };
-      const candidates = await loadQuoteCandidates(db, filter);
+      const candidates = await ctx.quote.catalog.get(`${city.id}|${input.category}|${input.placeId ?? ""}`, () => loadQuoteCandidates(db, filter), { fresh: options.fresh !== false });
       const route = input.assumeRoute !== null || needsRoute(candidates) ? await estimateRoute(ctx, request, place?.location ?? null, departAt, input.assumeRoute) : null;
       const quoted = await quoteCandidates(ctx, db, candidates, request, now, route, false);
 

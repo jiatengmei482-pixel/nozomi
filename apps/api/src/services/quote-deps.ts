@@ -8,13 +8,15 @@
 import { type CurrencyCode, DEFAULT_TENANT_STANDING, type FxQuote, type LatLng, QUOTE_RULES, type RouteEstimate, type ServiceCategory, type TenantStanding } from "@nozomi/domain";
 import type { AppConfig } from "@nozomi/config";
 import type { Db } from "../db/context.ts";
+import type { QuoteCandidate } from "../repos/quotes.ts";
+import { QuoteCatalogCache } from "./quote-catalog.ts";
 
 /** 路线预估：两点之间的预估里程（米）和时长（分钟）。取不到（没有配置、服务不可用、超时）返回 null，不抛错。 */
 export interface RouteEstimator {
   estimate(input: { from: LatLng; to: LatLng; departAt: Date }): Promise<RouteEstimate | null>;
 }
 
-/** 中央汇率：1 个 `from` 的主单位等于多少 `to` 的主单位（不含缓冲）。没有、或超过 48 小时没更新返回 null。 */
+/** 中央汇率：1 个 `from` 的主单位等于多少 `to` 的主单位（不含缓冲）。没有返回 null。超过 48 小时没更新的不该给；给了引擎也不用（domain 的 `fxQuoteUsable`）。 */
 export interface FxRates {
   quote(from: CurrencyCode, to: CurrencyCode, at: Date): Promise<FxQuote | null>;
 }
@@ -37,10 +39,13 @@ export interface QuoteDeps {
   fx: FxRates;
   markup: MarkupRules;
   standings: TenantStandings;
+  /** 候选商品和它们的规则的缓存（进程内，30 秒） */
+  catalog: QuoteCatalogCache<QuoteCandidate[]>;
 }
 
-export function defaultQuoteDeps(config: AppConfig): QuoteDeps {
+export function defaultQuoteDeps(config: AppConfig, now: () => Date = () => new Date()): QuoteDeps {
   return {
+    catalog: new QuoteCatalogCache({ now: () => now().getTime() }),
     routes: { estimate: async () => null },
     fx: { quote: async () => null },
     markup: { floorBp: QUOTE_RULES.defaultMarkupFloorBp, bandBp: QUOTE_RULES.defaultBandBp, markupBp: () => config.quote.defaultMarkupBp },

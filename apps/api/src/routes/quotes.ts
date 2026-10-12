@@ -77,7 +77,7 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   ROUTE_UNAVAILABLE: "价格是「里程 + 时长」，需要路线预估，而现在取不到",
   PRICE_NOT_POSITIVE: "调价、取整之后价格不大于 0",
   PRICE_OVER_LIMIT: "价格超过了结算价的上限",
-  FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率",
+  FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };
 

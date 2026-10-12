@@ -155,7 +155,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       .send(report);
   });
 
-  const context: AppContext = { config, pool, now: deps.now ?? (() => new Date()), quote: { ...defaultQuoteDeps(config), ...deps.quote } };
+  const now = deps.now ?? (() => new Date());
+  const context: AppContext = { config, pool, now, quote: { ...defaultQuoteDeps(config, now), ...deps.quote } };
   registerPlatformRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
