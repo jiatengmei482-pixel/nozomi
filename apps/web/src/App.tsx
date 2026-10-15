@@ -19,6 +19,7 @@ import { ProductListPage } from "./pages/products/ProductListPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
 import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
 import { masterRoutes } from "./pages/master/routes.tsx";
+import { platformRoutes } from "./pages/platform/routes.tsx";
 import { SetPasswordPage } from "./pages/SetPasswordPage.tsx";
 
 function portalRoutes(portal: Portal) {
@@ -38,6 +39,7 @@ function portalRoutes(portal: Portal) {
       >
         <Route path={paths.home} element={portal === "platform" ? <PlatformHomePage /> : <HomePage />} />
         {portal === "platform" && masterRoutes()}
+        {portal === "platform" && platformRoutes()}
         {portal === "tenant" && (
           <>
             <Route path={AREA_LIST_PATH} element={<AreaListPage />} />
