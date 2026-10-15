@@ -144,3 +144,11 @@ test("提示都是中文：无穷大的数字、数组的个数、可辨识联�
   assert.deepEqual(messages({ items: ["a", "b", "c"] }), [{ path: "/items", message: "最多 2 项" }]);
   assert.deepEqual(messages({ shape: { type: "Point" } }), [{ path: "/shape/type", message: "只能是：Polygon、MultiPolygon" }]);
 });
+
+test("提示都是中文：严格结构里多了不认识的字段，列出这些字段名（顶层指到 /，嵌套的指到所在的对象）", () => {
+  const schema = z.object({ point: z.object({ lng: z.number() }).strict() }).strict();
+  assert.deepEqual(failure(() => parseInput(schema, { point: { lng: 1, alt: 3 }, tenant_id: "x", markup_bp: 0 }, "body")).details["issues"], [
+    { path: "/point", message: "不认识的字段：alt（请删掉）" },
+    { path: "/", message: "不认识的字段：tenant_id、markup_bp（请删掉）" },
+  ]);
+});
