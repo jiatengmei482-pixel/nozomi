@@ -46,6 +46,7 @@ export const PLATFORM_ACTIONS = [
   "master_data.read",
   "master_data.manage",
   "quote.preview",
+  "fx.manage",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -61,6 +62,7 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 主数据（城市、地点、车型组、附加服务）是所有岗位都要查的公共资料，每个角色都能看；只有主数据运营（和超级管理员）能改。
  * 报价试算（看各供应商的结算价、对外价和报不出价的原因，M2-01）：运营、招商（看哪里缺运力）、渠道经理、客服用得到；
  * 财务、风控、主数据运营、技术、只读用不到——里面有各供应商的结算价和加价比例。
+ * 汇率中心（M2-03）是主数据的一部分：每个角色都能看（`master_data.read`）；「立即拉取」、确认 / 放弃挂起的汇率（`fx.manage`）只归主数据运营和超级管理员。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
@@ -70,7 +72,7 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   customer_service: ["master_data.read", "quote.preview"],
   finance: ["master_data.read"],
   risk: ["master_data.read"],
-  master_data: ["master_data.read", "master_data.manage"],
+  master_data: ["master_data.read", "master_data.manage", "fx.manage"],
   tech: ["integration.read", "master_data.read"],
   readonly: ["tenant.read", "master_data.read"],
 };

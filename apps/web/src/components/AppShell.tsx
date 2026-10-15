@@ -49,6 +49,7 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
         { to: "/platform/master/places", label: "地点", prefix: true },
         { to: "/platform/master/vehicle-groups", label: "车型组", prefix: true },
         { to: "/platform/master/addons", label: "附加服务", prefix: true },
+        { to: "/platform/master/fx-rates", label: "汇率", prefix: true },
       ],
     });
   }

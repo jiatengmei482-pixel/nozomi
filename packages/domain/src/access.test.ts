@@ -71,7 +71,9 @@ test("主数据：每个平台角色都能看，只有主数据运营和超级�
     assert.equal(platformRoleCan(key, "master_data.read"), true, key);
     assert.equal(platformRoleCan(key, "master_data.manage"), key === "master_data" || key === "super_admin", key);
   }
-  assert.deepEqual(platformPermissions("master_data"), ["master_data.read", "master_data.manage"]);
+  assert.deepEqual(platformPermissions("master_data"), ["master_data.read", "master_data.manage", "fx.manage"]);
+  // 汇率中心（M2-03）：每个角色都能看（master_data.read）；立即拉取、确认 / 放弃挂起的汇率只归主数据运营和超级管理员
+  for (const { key } of PLATFORM_ROLES) assert.equal(platformRoleCan(key, "fx.manage"), key === "master_data" || key === "super_admin", key);
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "master_data.read"), true, key);
   assert.ok(!(TENANT_ACTIONS as readonly string[]).some((action) => action.startsWith("master_data.") && action !== "master_data.read"));
 });

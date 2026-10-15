@@ -61,6 +61,13 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
   // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
   { method: "POST", url: "/platform/v1/quotes/preview", action: "quote.preview", body: {} },
+  // 汇率中心（ADR 0022）：每个角色都能看；立即拉取、确认 / 放弃挂起的一批要 fx.manage（测试环境的汇率源连不上，拉取记为失败）
+  { method: "GET", url: "/platform/v1/fx-rates", action: "master_data.read" },
+  { method: "GET", url: "/platform/v1/fx-rates/history", action: "master_data.read" },
+  { method: "GET", url: "/platform/v1/fx-rates/fetches", action: "master_data.read" },
+  { method: "POST", url: "/platform/v1/fx-rates/fetch", action: "fx.manage" },
+  { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/confirm`, action: "fx.manage" },
+  { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/dismiss`, action: "fx.manage" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
     { method: "GET", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.read" } as const,

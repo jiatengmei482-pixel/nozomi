@@ -162,6 +162,8 @@ const rawSchema = z.object({
 
   FX_SOURCE_URL: z.string().url().default("https://open.er-api.com/v6/latest/USD"),
   FX_BUFFER_PERCENT: z.coerce.number().min(0).max(10).default(1.5),
+  // 服务进程里的汇率定时拉取（ADR 0022）。默认开；集成测试启动的服务进程关掉它（测试不访问外网）
+  FX_AUTO_FETCH: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
 
   // 报价：渠道和加价规则（M2-04）上线之前，试算用的默认加价比例，基点（1000 = 10%，也是需求里渠道加价的默认下限）。不是密钥
   QUOTE_DEFAULT_MARKUP_BP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(1_000)),
@@ -191,7 +193,8 @@ export interface AppConfig {
   googleMapsApiKey: string | null;
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
-  fx: { sourceUrl: string; bufferPercent: number };
+  /** 汇率：数据源地址、跨币种缓冲（百分比）、服务进程是否定时拉取 */
+  fx: { sourceUrl: string; bufferPercent: number; autoFetch: boolean };
   /** 报价的默认参数（渠道和加价规则上线之前用） */
   quote: { defaultMarkupBp: number };
 }
@@ -273,7 +276,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     stripe,
     googleMapsApiKey,
     mapTiles,
-    fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT },
+    fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
   };
 }

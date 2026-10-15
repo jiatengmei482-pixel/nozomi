@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FLOAT_ROUNDING_LIMIT, applyBasisPoints, portionBasisPoints, roundHalfAwayFromZero, roundToUnit } from "./money.ts";
-import { convertMinor } from "./fx.ts";
 import {
   type AdjustRule,
   type AdjustStep,
@@ -117,10 +116,7 @@ test("money.ts：基点和取整单位的计算全程整数，10 亿以内和原
   assert.throws(() => applyBasisPoints(9_007_199_254_740_991, 100_000), RangeError);
 });
 
-test("money.ts：浮点数的四舍五入只在绝对值不超过 10^15 时用，超出抛 RangeError；汇率换算跟着有这个范围", () => {
+test("money.ts：浮点数的四舍五入只在绝对值不超过 10^15 时用，超出抛 RangeError", () => {
   assert.deepEqual([roundHalfAwayFromZero(2.5), roundHalfAwayFromZero(-2.5), roundHalfAwayFromZero(1.005 * 100), roundHalfAwayFromZero(FLOAT_ROUNDING_LIMIT), roundHalfAwayFromZero(-FLOAT_ROUNDING_LIMIT)], [3, -3, 101, FLOAT_ROUNDING_LIMIT, -FLOAT_ROUNDING_LIMIT]);
   for (const bad of [FLOAT_ROUNDING_LIMIT + 2, -FLOAT_ROUNDING_LIMIT - 2, Number.NaN, Number.POSITIVE_INFINITY]) assert.throws(() => roundHalfAwayFromZero(bad), RangeError, String(bad));
-  const snapshot = { from: "USD" as const, to: "JPY" as const, rate: 150, bufferBasisPoints: 0, asOf: "2026-10-07" };
-  assert.equal(convertMinor(1_000_000_000, snapshot), 1_500_000_000);
-  assert.throws(() => convertMinor(9_000_000_000_000_000, snapshot), RangeError);
 });

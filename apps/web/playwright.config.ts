@@ -7,9 +7,11 @@ import { defineConfig, devices } from "@playwright/test";
 /** 默认端口避开开发时常用的 8080 / 5173 / 4173；本机有冲突时用环境变量改。 */
 export const E2E_API_PORT = Number(process.env["E2E_API_PORT"] ?? 18080);
 export const E2E_WEB_PORT = Number(process.env["E2E_WEB_PORT"] ?? 14173);
-/** 本机的假瓦片服务（地图底图）和一个「没有配置底图」的第二个 API 进程；端口跟着上面两个走，不用另外配置。 */
+/** 本机的假瓦片服务（地图底图）、假汇率源和一个「没有配置底图」的第二个 API 进程；端口跟着上面两个走，不用另外配置。 */
 export const E2E_TILE_PORT = E2E_WEB_PORT + 1;
 export const E2E_API_NO_MAP_PORT = E2E_API_PORT + 1;
+/** 本机的假汇率源（测试从不访问真实的汇率源）。 */
+export const E2E_FX_PORT = E2E_API_PORT + 2;
 
 export default defineConfig({
   testDir: "./e2e",

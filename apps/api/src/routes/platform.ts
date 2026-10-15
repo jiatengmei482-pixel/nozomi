@@ -6,12 +6,13 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { integrationStatus } from "@nozomi/config";
-import { PLATFORM_ROLES, type PlatformAction, type PlatformRole, platformPermissions } from "@nozomi/domain";
+import { PLATFORM_ROLES, type PlatformAction, type PlatformRole, fxTableState, platformPermissions } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
+import { latestFetch, latestRateSet } from "../repos/fx.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
 import { type DashboardSummary, type StatusCounts, getDashboardSummary } from "../services/dashboard.ts";
 import {
@@ -88,6 +89,16 @@ function dashboardSummaryJson(summary: DashboardSummary): Record<string, unknown
             },
             vehicle_groups: statusCountsJson(master.vehicleGroups),
             addons: statusCountsJson(master.addons),
+          },
+    fx:
+      summary.fx === null
+        ? null
+        : {
+            state: summary.fx.state,
+            as_of: summary.fx.asOf?.toISOString() ?? null,
+            stale_at: summary.fx.staleAt?.toISOString() ?? null,
+            held: summary.fx.held,
+            last_attempt_status: summary.fx.lastAttemptStatus,
           },
   };
 }
@@ -263,16 +274,30 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get("/platform/v1/integrations", async (request) => {
     const principal = await authenticate(request, "integration.read");
-    await withPlatformTx(ctx.pool, (db) =>
-      insertAuditLog(db, consoleOrigin(platformActor(principal.user), request.ip, ctx.now()), {
+    const now = ctx.now();
+    const fx = await withPlatformTx(ctx.pool, async (db) => {
+      await insertAuditLog(db, consoleOrigin(platformActor(principal.user), request.ip, now), {
         tenantId: null,
         resource: "integration",
         resourceId: null,
         action: "view",
         before: null,
         after: null,
-      }),
-    );
-    return { items: integrationStatus(ctx.config) };
+      });
+      const current = await latestRateSet(db);
+      return { current, last: await latestFetch(db) };
+    });
+    return {
+      items: integrationStatus(ctx.config),
+      // 汇率数据源的运行状态（ADR 0022）：超过 48 小时没更新是 stale，跨币种报价已暂停
+      fx_center: {
+        state: fxTableState(fx.current?.asOf.toISOString() ?? null, now),
+        as_of: fx.current?.asOf.toISOString() ?? null,
+        auto_fetch: ctx.config.fx.autoFetch,
+        last_attempt_status: fx.last?.status ?? null,
+        last_attempt_at: fx.last?.startedAt.toISOString() ?? null,
+        last_error_code: fx.last?.errorCode ?? null,
+      },
+    };
   });
 }

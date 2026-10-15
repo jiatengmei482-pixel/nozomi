@@ -1183,6 +1183,23 @@ test("平台令牌进不了租户接口，租户令牌进不了平台接口", as
   assert.equal((await api.call("GET", `/platform/v1/tenants/${b.tenantId}`, { token: a.adminToken })).status, 401);
 });
 
+test("GET /tenant/v1/fx-rates：汇率是平台数据，两个供应商看到的一样，请求里带别人的 tenant_id 也一样；租户在数据库里只能读汇率，读不到拉取记录、写不了汇率", async () => {
+  cover("GET /tenant/v1/fx-rates");
+  const fetchId = (await api.db.owner.query<{ id: string }>("insert into fx_fetches (started_at, finished_at, trigger, source, status, source_as_of) values (now(), now(), 'schedule', 'fx.test', 'accepted', now()) returning id")).rows[0]?.id;
+  await api.db.owner.query("insert into fx_rates (base, quote, rate, as_of, fetched_at, source, fetch_id) values ('USD', 'JPY', 150.5, now(), now(), 'fx.test', $1), ('USD', 'CNY', 7.2, now(), now(), 'fx.test', $1)", [fetchId]);
+  const fromA = await api.call("GET", `/tenant/v1/fx-rates?base=JPY&tenant_id=${b.tenantId}`, { token: a.adminToken });
+  const fromB = await api.call("GET", "/tenant/v1/fx-rates?base=JPY", { token: b.adminToken });
+  assert.equal(fromA.status, 200, fromA.text);
+  assert.deepEqual(fromA.body, fromB.body);
+  assert.equal(fromA.body.rates.find((item: { currency: string }) => item.currency === "CNY").rate, "0.047840531561");
+  assert.doesNotMatch(fromA.text, /buffer|markup|sell|tenant/i);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select * from fx_fetches")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update fx_rates set rate = 1")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from fx_rates")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into fx_rates (base, quote, rate, as_of, fetched_at, source, fetch_id) values ('USD', 'KRW', 1, now(), now(), 'x', $1)", [fetchId])), deniedByDatabase);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ n: number }>("select count(*)::int as n from fx_rates"))).rows[0]?.n, 2);
+});
+
 test("/tenant/v1 的每个接口都在本文件里做过跨租户验证", () => {
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/tenant/v1/"))
@@ -1200,6 +1217,7 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/brands", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/products", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });

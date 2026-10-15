@@ -2,7 +2,8 @@
  * 端到端测试的环境准备（每次运行一次）：
  * 1. 在数据库里新建一个随机名字的 schema 并用迁移账号执行全部迁移（做法同后端集成测试）；API 进程只用应用账号；
  * 2. 用 `admin:create` 的命令行创建平台超级管理员，密码走标准输入；
- * 3. 起一个本机的假瓦片服务（地图底图；测试从不请求任何真实的底图服务），再起 API 进程和前端
+ * 3. 起一个本机的假瓦片服务（地图底图；测试从不请求任何真实的底图服务）和一个假汇率源（汇率中心定时拉取、立即拉取都指向它，
+ *    给的是「一小时前」的一批，日期跟着今天走），再起 API 进程和前端
  *    （vite preview，把 API 前缀代理给刚起的 API）。API 的底图配置指向假瓦片服务；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
@@ -17,7 +18,9 @@ import { existsSync } from "node:fs";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
-import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
+import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { E2E_FX_RATES } from "./support.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -129,12 +132,15 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   await assertPortFree(E2E_WEB_PORT, "前端", "E2E_WEB_PORT");
   await assertPortFree(E2E_TILE_PORT, "假瓦片服务", "E2E_WEB_PORT");
   await assertPortFree(E2E_API_NO_MAP_PORT, "没有配置底图的 API", "E2E_API_PORT");
+  await assertPortFree(E2E_FX_PORT, "假汇率源", "E2E_API_PORT");
 
   const database = await createMigratedTestDatabase();
   const started: Running[] = [];
   let tileServer: Server | null = null;
+  let fxSource: FakeFxSource | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
+    await fxSource?.close();
     if (tileServer) {
       tileServer.closeAllConnections();
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
@@ -157,6 +163,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     delete apiEnv["DATABASE_MIGRATION_URL"];
     // 底图配置只由下面明确给出，不受运行测试的人自己环境的影响。
     for (const name of Object.keys(apiEnv)) if (name.startsWith("MAP_TILE_")) delete apiEnv[name];
+    // 汇率：两个 API 进程都定时拉（同一个库，只会有一个真的去拉），数据源是本机的假服务器
+    fxSource = await startFakeFxSource(E2E_FX_PORT);
+    fxSource.respond(() => ({ body: fxSourceBody({ asOf: new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000), rates: E2E_FX_RATES }) }));
+    apiEnv["FX_SOURCE_URL"] = fxSource.url;
+    apiEnv["FX_AUTO_FETCH"] = "true";
 
     const adminEmail = `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`;
     const adminPassword = `E2e-${randomBytes(18).toString("base64url")}-9z`;
