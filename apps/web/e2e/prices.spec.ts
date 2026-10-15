@@ -341,12 +341,15 @@ test("价格日历：某一天的结算价和 domain 一致 → 在月历上选�
   await expectAccessible(page, "价格日历");
 
   // 选一段日期（点起点，按住 Shift 点终点）→ 新建调价规则：日期和适用范围已经填好
-  const from = `${month}-10`;
-  const to = `${month}-12`;
+  // 三天都在本月、且包含今天：已经结束的调价规则不再显示在列表里，后面还要找到这条规则
+  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate();
+  const from = `${month}-${String(Math.min(Number(info.today.slice(8)), lastDay - 2)).padStart(2, "0")}`;
+  const middle = addDays(from, 1);
+  const to = addDays(from, 2);
   await dayCell(from).click();
   await dayCell(to).click({ modifiers: ["Shift"] });
   await expect(page.locator(".calendar-bar")).toContainText(`已选 ${from} 至 ${to}，共 3 天`);
-  await expect(dayCell(`${month}-11`)).toHaveAttribute("aria-selected", "true");
+  await expect(dayCell(middle)).toHaveAttribute("aria-selected", "true");
   await page.locator(".calendar-bar").getByRole("link", { name: "新建调价规则" }).click();
   await expect(page).toHaveURL(/\/prices\/adjust\/new$/);
   await expect(page.getByText(`已按你在日历上选的填好了日期和适用范围（${supplier.area.name} · ${world.group.name} · 接机）。`, { exact: false })).toBeVisible();
@@ -363,8 +366,8 @@ test("价格日历：某一天的结算价和 domain 一致 → 在月历上选�
   await expect(page).toHaveURL(/\/prices\/calendar$/);
   const expected = applyAdjustRules(exactFromMinor(20000), [{ steps: [{ type: "percent", value: 1250 }] }], info.rounding_unit).finalMinor ?? 0;
   expect(expected).not.toBe(20000);
-  for (const date of [from, `${month}-11`, to]) await expect(dayCell(date)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(expected)}，上调，命中连休`));
-  await expect(dayCell(addDays(to, 1))).toHaveAttribute("aria-label", /结算价 JPY 20,000$/);
+  for (const date of [from, middle, to]) await expect(dayCell(date)).toHaveAttribute("aria-label", new RegExp(`结算价 ${jpy(expected)}，上调，命中连休`));
+  await expect(dayCell(to < `${month}-${lastDay}` ? addDays(to, 1) : addDays(from, -1))).toHaveAttribute("aria-label", /结算价 JPY 20,000$/);
   await expect(page.locator(".calendar-bar")).toContainText(`已选 ${from} 至 ${to}`);
   await expect(panel).toContainText(`结算价 ${jpy(expected)}`);
   await expect(panel).toContainText("上调 12.5%");
