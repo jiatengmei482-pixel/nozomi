@@ -25,6 +25,9 @@ export type IconName =
   | "alert-circle"
   | "chevron-down"
   | "chevron-right"
+  | "building"
+  | "settings"
+  | "link"
   | "chevron-left"
   | "check"
   | "database"
@@ -96,6 +99,19 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   ),
   "chevron-down": <path d="M6 9l6 6 6-6" />,
   "chevron-right": <path d="M9 6l6 6-6 6" />,
+  building: (
+    <>
+      <path d="M5 21V4.5A1.5 1.5 0 016.5 3h7A1.5 1.5 0 0115 4.5V21M15 9h2.5A1.5 1.5 0 0119 10.5V21M3 21h18" />
+      <path d="M8.5 7.5h3M8.5 11.5h3M8.5 15.5h3" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" />
+    </>
+  ),
+  link: <path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" />,
   "chevron-left": <path d="M15 6l-6 6 6 6" />,
   check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   database: (

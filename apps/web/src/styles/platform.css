@@ -1,0 +1,466 @@
+/* 运营后台「供应商」和「系统设置」（docs/design/pages/platform-tenants.md、platform-settings.md） */
+
+/* ───── 一次性链接 ───── */
+.link-dialog__whom {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.link-dialog__link {
+  width: 100%;
+  min-height: calc(var(--control-height-md) * 2);
+  background: var(--color-bg-subtle);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  resize: none;
+  field-sizing: content;
+}
+
+.link-dialog__actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.link-dialog__failed {
+  margin: 0;
+}
+
+.link-dialog__notes {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.link-dialog__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.link-dialog__confirm-text {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: flex-start;
+  gap: var(--space-1);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+}
+
+.link-dialog__confirm-text > svg {
+  flex: none;
+  margin-top: var(--space-0-5);
+}
+
+@media (min-width: 480px) {
+  .link-dialog__actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+/* ───── 供应商 ───── */
+.tenant-name {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tenant-id {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.tenant-reason {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.tenant-admin-actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.field__counter {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.field__counter--over {
+  color: var(--color-danger-text);
+}
+
+@media (min-width: 480px) {
+  .tenant-admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+
+/* ───── 平台员工 ───── */
+.staff-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.staff-name--new {
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-selected);
+}
+
+.staff-email {
+  overflow-wrap: anywhere;
+}
+
+.role-pending {
+  color: var(--color-text-tertiary);
+}
+
+.menu-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* ───── 窄屏用卡片的列表（供应商、平台员工、审计日志、系统状态）；768px 起是表格 ───── */
+.card-table .table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.card-table .table,
+.card-table .table tbody,
+.card-table .table tbody tr,
+.card-table .table tbody th,
+.card-table .table tbody td {
+  display: block;
+}
+
+.card-table .table tbody tr {
+  padding: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.card-table .table tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-1) 0;
+  border: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.card-table .table-scroll {
+  position: relative;
+}
+
+@media (min-width: 768px) {
+  .card-table .table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .card-table .table {
+    display: table;
+  }
+
+  .card-table .table tbody {
+    display: table-row-group;
+  }
+
+  .card-table .table tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .card-table .table tbody th,
+  .card-table .table tbody td {
+    display: table-cell;
+  }
+
+  .card-table .table tbody tr > * {
+    height: var(--table-row-height);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  .card-table .table tbody tr > .table__cell--wrap {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ───── 审计日志 ───── */
+/* < 768px：条件收进「筛选」面板（按钮和面板用筛选条的样式）；≥ 768px：直接排在表格上方 */
+.audit-filters {
+  display: none;
+  align-items: end;
+  gap: var(--space-2) var(--space-3);
+}
+
+.audit-filters > * {
+  min-width: 0;
+}
+
+.audit-filters__item {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.audit-filters__item > .input {
+  width: 100%;
+  min-width: 0;
+}
+
+.audit-filters__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.audit-filters__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.audit-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.audit-sub {
+  display: block;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.audit-menu {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.audit-raw {
+  margin-left: var(--space-1);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+}
+
+.audit-raw--only {
+  margin-left: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.audit-detail {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.audit-detail > * {
+  min-width: 0;
+}
+
+.audit-diff__scroll {
+  position: relative;
+  max-width: 100%;
+}
+
+.audit-diff {
+  width: 100%;
+}
+
+.audit-diff thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.audit-diff,
+.audit-diff tbody,
+.audit-diff tbody tr,
+.audit-diff tbody th,
+.audit-diff tbody td {
+  display: block;
+}
+
+.audit-diff tbody tr {
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width) solid var(--color-border-default);
+}
+
+.audit-diff tbody tr > * {
+  position: static;
+  height: auto;
+  padding: var(--space-0-5) 0;
+  border: 0;
+  font-weight: var(--font-weight-regular);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.audit-diff tbody th {
+  font-weight: var(--font-weight-medium);
+}
+
+.audit-diff td[data-label]::before {
+  display: inline-block;
+  margin-right: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  content: attr(data-label);
+}
+
+.audit-diff__before {
+  color: var(--color-text-secondary);
+}
+
+.audit-value {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.audit-value--empty {
+  color: var(--color-text-tertiary);
+}
+
+.audit-value__block {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.audit-value__toggle {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.integration-detail {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .audit-filters {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+  }
+
+  .audit-filters__item > .input {
+    width: auto;
+    max-width: 200px;
+  }
+
+  .audit-diff thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .audit-diff {
+    display: table;
+    table-layout: fixed;
+  }
+
+  .audit-diff tbody {
+    display: table-row-group;
+  }
+
+  .audit-diff tbody tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .audit-diff tbody th,
+  .audit-diff tbody td {
+    display: table-cell;
+  }
+
+  .audit-diff tbody tr > * {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border-default);
+  }
+
+  .audit-diff td[data-label]::before {
+    content: none;
+  }
+}
+
+/* 审计日志详情上半部分：对话框里固定两栏（项目 / 内容），窄屏单栏 */
+.audit-detail__list {
+  display: grid;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+
+.audit-detail__list > dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.audit-detail__list > dd {
+  min-width: 0;
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .audit-detail__list {
+    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+  }
+
+  .audit-detail__list > dd {
+    margin: 0;
+  }
+}
