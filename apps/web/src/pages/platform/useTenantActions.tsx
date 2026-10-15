@@ -15,7 +15,7 @@ import { FieldErrors } from "../../components/FormFields.tsx";
 import { type IssuedLink, OneTimeLinkDialog, UNSURE_TEXT } from "../../components/OneTimeLinkDialog.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
-import { REASON_MAX, emailProblem, isUnsure, nameProblem, reasonProblem } from "../../lib/platform-display.ts";
+import { EMAIL_REFUSED_TEXT, REASON_MAX, emailProblem, emailRefused, isUnsure, nameProblem, reasonProblem } from "../../lib/platform-display.ts";
 
 type Action = "suspend" | "resume" | "invite" | "reset";
 
@@ -91,6 +91,9 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
     } catch (err) {
       if (err instanceof ApiError && err.code === "EMAIL_TAKEN") {
         setFieldError("这个邮箱已经有账号了（在这家或别的供应商，并且已经设过密码）。如果他是这家供应商的管理员、只是忘了密码，请用「发密码重置链接」。");
+        document.getElementById("tenant-admin-email")?.focus();
+      } else if (emailRefused(err)) {
+        setFieldError(EMAIL_REFUSED_TEXT);
         document.getElementById("tenant-admin-email")?.focus();
       } else if (err instanceof ApiError && err.code === "ACCOUNT_NOT_ACTIVE") {
         setFieldError("这个账号现在不是在用的状态。还没设过密码的，请用「邀请管理员」重新发邀请；已经被停用的，要先由他们的管理员启用。");

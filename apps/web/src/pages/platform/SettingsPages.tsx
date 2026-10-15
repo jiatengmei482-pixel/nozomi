@@ -5,6 +5,7 @@
  */
 import { type ReactNode, useEffect, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
+import { ApiError } from "../../api/client.ts";
 import { type AuditLog, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -20,6 +21,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, type DiffRow, FIELD_NAMES, RESOURCE_NAMES, SOURCE_NAMES, actionName, auditDiff, foldable, localDate, localDayInstant, localOffsetLabel, localSecond, objectName, resourceName, shortId, shownValue, utcSecond } from "../../lib/audit-display.ts";
+import { failureText } from "../../lib/failure.ts";
 import { tidyDate } from "../../lib/time-input.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -129,6 +131,17 @@ function DiffView({ log }: { log: AuditLog }) {
   );
 }
 
+/** 手机宽度的「筛选」面板里的草稿：两个日期是输入框里的原文。 */
+interface PanelDraft {
+  from: string;
+  to: string;
+  resource: string | null;
+  action: string | null;
+  tenant: string | null;
+}
+
+const DATE_PROBLEM = "这不是一个日期，请按 2026-10-08 的格式填写";
+
 function Mono({ children }: { children: string }) {
   return <code className="audit-raw audit-raw--only">{children}</code>;
 }
@@ -145,6 +158,9 @@ export function AuditLogPage() {
   const [detail, setDetail] = useState<AuditLog | null>(null);
   const [fromText, setFromText] = useState(params.get("from") ?? "");
   const [toText, setToText] = useState(params.get("to") ?? "");
+  /** 手机宽度的「筛选」面板里改的是这份草稿，点「查看结果」才一起写进网址 */
+  const [panel, setPanel] = useState<PanelDraft | null>(null);
+  const [panelDateProblem, setPanelDateProblem] = useState<"from" | "to" | null>(null);
   /** 带进来的操作人邮箱、对象名称（从别的页面、或在表格里点「只看…」时记下）；直接从网址进来时没有 */
   const carried = location.state as { actorEmail?: unknown; resourceName?: unknown } | null;
   const [actorEmail, setActorEmail] = useState<string | null>(typeof carried?.actorEmail === "string" ? carried.actorEmail : null);
@@ -222,10 +238,19 @@ export function AuditLogPage() {
     if (text.trim() !== "" && tidy === null) return;
     setParam({ [name]: tidy });
   };
-  const quick = (days: number): void => {
+  const quickRange = (days: number): { from: string; to: string } => {
     const today = new Date();
     const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
-    setParam({ from: localDate(start), to: localDate(today) });
+    return { from: localDate(start), to: localDate(today) };
+  };
+  const applyPanel = (): void => {
+    if (panel === null) return;
+    const dateOf = (text: string): string | null => (text.trim() === "" ? null : tidyDate(text));
+    const bad = panel.from.trim() !== "" && dateOf(panel.from) === null ? "from" : panel.to.trim() !== "" && dateOf(panel.to) === null ? "to" : null;
+    setPanelDateProblem(bad);
+    if (bad !== null) return void document.getElementById(`audit-panel-${bad}`)?.focus();
+    setParam({ from: dateOf(panel.from), to: dateOf(panel.to), resource: panel.resource, action: panel.action, tenant: panel.tenant, ...(panel.resource !== resource ? { rid: null } : {}) });
+    setPanel(null);
   };
   const objectLabel = (log: AuditLog): string => [resourceName(log.resource).text, objectName(log)].filter((part) => part !== null).join(" ");
 
@@ -351,48 +376,73 @@ export function AuditLogPage() {
       </button>
     </span>
   );
-  const dateInput = (id: string, label: string, value: string, set: (value: string) => void, name: "from" | "to"): ReactNode => (
-    <label className="audit-filters__item" htmlFor={id}>
-      <span className="audit-filters__label">{label}</span>
-      <input className="input input--sm input--mono" id={id} type="text" inputMode="numeric" autoComplete="off" placeholder="不限" value={value} onChange={(event) => set(event.target.value)} onBlur={() => commitDate(name, value)} onKeyDown={(event) => event.key === "Enter" && commitDate(name, value)} />
-    </label>
-  );
-  const select = (id: string, label: string, value: string | null, names: Readonly<Record<string, string>>, name: string): ReactNode => (
-    <label className="audit-filters__item" htmlFor={id}>
-      <span className="audit-filters__label">{label}</span>
-      <select className="input input--sm select" id={id} value={value ?? ""} onChange={(event) => setParam({ [name]: event.target.value === "" ? null : event.target.value, ...(name === "resource" ? { rid: null } : {}) })}>
-        <option value="">全部</option>
-        {value !== null && names[value] === undefined && <option value={value}>{value}</option>}
-        {Object.entries(names).map(([key, text]) => (
-          <option key={key} value={key}>
-            {text}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-  const detailTitle = detail === null ? "" : `${actionName(detail.action).text} · ${objectLabel(detail)}`;
-
-  return shell(
-    <>
-      <p className="page-intro">平台和供应商后台里的每一次登录、新建、修改、停用都记在这里，只能查看，不能修改或删除。密码、链接里的令牌不会被记录。</p>
-      <div role="status">{ignored && <Alert kind="info">网址里有一个筛选条件不对，已经忽略。</Alert>}</div>
-      <div className="audit-filters" role="group" aria-label="筛选">
-        {dateInput("audit-from", "从", fromText, setFromText, "from")}
-        {dateInput("audit-to", "到", toText, setToText, "to")}
+  /** 筛选的控件。`draft` 为 null 是表格上方那一排（一改就查询）；不为 null 是面板里的（改的是草稿）。 */
+  const conditions = (draft: PanelDraft | null): ReactNode => {
+    const prefix = draft === null ? "audit" : "audit-panel";
+    const size = draft === null ? " input--sm" : "";
+    const change = (changes: Partial<PanelDraft>): void => {
+      if (draft !== null) return setPanel({ ...draft, ...changes });
+      setParam({ ...changes, ...("resource" in changes ? { rid: null } : {}) });
+    };
+    const dateInput = (name: "from" | "to", label: string, value: string, set: (value: string) => void): ReactNode => {
+      const wrong = draft !== null && panelDateProblem === name;
+      return (
+        <label className="audit-filters__item" htmlFor={`${prefix}-${name}`}>
+          <span className="audit-filters__label">{label}</span>
+          <input
+            className={`input${size} input--mono`}
+            id={`${prefix}-${name}`}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="不限"
+            aria-invalid={wrong || undefined}
+            aria-describedby={wrong ? `${prefix}-${name}-error` : undefined}
+            value={value}
+            onChange={(event) => set(event.target.value)}
+            {...(draft === null ? { onBlur: () => commitDate(name, value), onKeyDown: (event) => event.key === "Enter" && commitDate(name, value) } : {})}
+          />
+          {wrong && (
+            <span className="field__error" id={`${prefix}-${name}-error`} role="alert">
+              {DATE_PROBLEM}
+            </span>
+          )}
+        </label>
+      );
+    };
+    const select = (name: "resource" | "action", label: string, value: string | null, names: Readonly<Record<string, string>>): ReactNode => (
+      <label className="audit-filters__item" htmlFor={`${prefix}-${name}`}>
+        <span className="audit-filters__label">{label}</span>
+        <select className={`input${size} select`} id={`${prefix}-${name}`} value={value ?? ""} onChange={(event) => change({ [name]: event.target.value === "" ? null : event.target.value })}>
+          <option value="">全部</option>
+          {value !== null && names[value] === undefined && <option value={value}>{value}</option>}
+          {Object.entries(names).map(([key, text]) => (
+            <option key={key} value={key}>
+              {text}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+    return (
+      <>
+        {dateInput("from", "从", draft === null ? fromText : draft.from, draft === null ? setFromText : (value) => change({ from: value }))}
+        {dateInput("to", "到", draft === null ? toText : draft.to, draft === null ? setToText : (value) => change({ to: value }))}
         <span className="audit-filters__quick">
-          <Button variant="text" size="sm" onClick={() => quick(1)}>
-            今天
-          </Button>
-          <Button variant="text" size="sm" onClick={() => quick(7)}>
-            最近 7 天
-          </Button>
-          <Button variant="text" size="sm" onClick={() => quick(30)}>
-            最近 30 天
-          </Button>
+          {(
+            [
+              [1, "今天"],
+              [7, "最近 7 天"],
+              [30, "最近 30 天"],
+            ] as const
+          ).map(([days, text]) => (
+            <Button key={days} variant="text" size="sm" onClick={() => change(quickRange(days))}>
+              {text}
+            </Button>
+          ))}
         </span>
-        {select("audit-resource", "对象类型", resource, RESOURCE_NAMES, "resource")}
-        {select("audit-action", "操作", action, ACTION_NAMES, "action")}
+        {select("resource", "对象类型", draft === null ? resource : draft.resource, RESOURCE_NAMES)}
+        {select("action", "操作", draft === null ? action : draft.action, ACTION_NAMES)}
         {canSeeTenants && (
           <Combobox
             inline
@@ -400,18 +450,66 @@ export function AuditLogPage() {
             clearLabel="全部"
             placeholder="全部"
             options={(tenants.state.data?.items ?? []).map((entry) => ({ value: entry.id, label: entry.name }))}
-            value={tenant}
-            onChange={(value) => setParam({ tenant: value })}
+            value={draft === null ? tenant : draft.tenant}
+            onChange={(value) => change({ tenant: value })}
             loading={tenants.state.data === null && tenants.state.status === "loading"}
             loadFailed={tenants.state.data === null && tenants.state.status === "error"}
           />
         )}
+      </>
+    );
+  };
+  const panelCount = [from, to, resource, action, tenant].filter((value) => value !== null).length;
+  const detailTitle = detail === null ? "" : `${actionName(detail.action).text} · ${objectLabel(detail)}`;
+
+  return shell(
+    <>
+      <p className="page-intro">平台和供应商后台里的每一次登录、新建、修改、停用都记在这里，只能查看，不能修改或删除。密码、链接里的令牌不会被记录。</p>
+      <div role="status">{ignored && <Alert kind="info">网址里有一个筛选条件不对，已经忽略。</Alert>}</div>
+      <div className="filter-bar">
+        <Button
+          className="filter-bar__toggle"
+          aria-haspopup="dialog"
+          onClick={() => {
+            setPanelDateProblem(null);
+            setPanel({ from: from ?? "", to: to ?? "", resource, action, tenant });
+          }}
+        >
+          <Icon name="filter" />
+          {panelCount > 0 ? `筛选 · ${panelCount}` : "筛选"}
+        </Button>
+        <div className="audit-filters" role="group" aria-label="筛选">
+          {conditions(null)}
+        </div>
         {filtered && (
-          <Button variant="text" size="sm" onClick={clearFilters}>
+          <Button variant="text" size="sm" className="filter-bar__clear" onClick={clearFilters}>
             清空筛选
           </Button>
         )}
       </div>
+      <Dialog
+        open={panel !== null}
+        title="筛选"
+        onClose={() => setPanel(null)}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPanelDateProblem(null);
+                setPanel({ from: "", to: "", resource: null, action: null, tenant: null });
+              }}
+            >
+              清空
+            </Button>
+            <Button variant="primary" onClick={applyPanel}>
+              查看结果
+            </Button>
+          </>
+        }
+      >
+        {panel !== null && <div className="filter-bar__panel">{conditions(panel)}</div>}
+      </Dialog>
       {(actor !== null || rid !== null) && (
         <p className="filter-chips">
           {actor !== null &&
@@ -508,20 +606,34 @@ export function AuditLogPage() {
 // ───────────── 系统状态 ─────────────
 
 export function IntegrationsPage() {
-  const { portal, account } = usePortalSession();
+  const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`系统状态 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("integration.read");
   // 不自动刷新：只在进来时和点「重新检查」时请求（每次请求都会写一条审计日志）
   const loaded = useLoad<{ items: IntegrationStatus[] }>("integrations", canRead ? listIntegrations : null);
   const [announce, setAnnounce] = useState("");
   const [rechecking, setRechecking] = useState(false);
+  const [recheckFailed, setRecheckFailed] = useState<string | null>(null);
   const items = loaded.state.data?.items ?? null;
   const missing = (items ?? []).filter((item) => item.state === "missing");
-  useEffect(() => {
-    if (!rechecking || loaded.state.status === "loading") return;
-    setRechecking(false);
-    if (loaded.state.status === "ready") setAnnounce(`已重新检查，${loaded.state.data.items.filter((item) => item.state === "missing").length} 项未配置`);
-  }, [rechecking, loaded.state]);
+  /** 首次加载失败时走列表自己的「重试」；已经有结果以后的「重新检查」在这里请求，等应答回来才换结果、才播报 */
+  const recheck = async (): Promise<void> => {
+    if (rechecking) return;
+    if (loaded.state.data === null) return loaded.reload();
+    setRechecking(true);
+    setAnnounce("");
+    setRecheckFailed(null);
+    try {
+      const fresh = await listIntegrations(token);
+      loaded.set(fresh);
+      setAnnounce(`已重新检查，${fresh.items.filter((item) => item.state === "missing").length} 项未配置`);
+    } catch (err) {
+      if (handleAuthFailure(err)) return;
+      setRecheckFailed(err instanceof ApiError && err.status === 403 ? "你没有权限查看系统状态。需要的话，请联系管理员开通。" : failureText(err, "检查"));
+    } finally {
+      setRechecking(false);
+    }
+  };
 
   const shell = (content: ReactNode, action?: ReactNode): ReactNode => (
     <AppShell pageName="系统状态" trail={TRAIL}>
@@ -545,6 +657,14 @@ export function IntegrationsPage() {
       <div role="status" className="visually-hidden">
         {announce}
       </div>
+      <div role="alert">
+        {recheckFailed !== null && (
+          <Alert kind="danger">
+            <strong className="alert__title">没有检查成功。</strong>
+            <span>{`${recheckFailed}下面是上一次检查的结果。`}</span>
+          </Alert>
+        )}
+      </div>
       {missing.length > 0 && (
         <Alert kind="warning">
           <strong className="alert__title">{`有 ${missing.length} 项还没有配置`}</strong>
@@ -561,11 +681,7 @@ export function IntegrationsPage() {
     <Button
       loading={rechecking}
       loadingText="检查中…"
-      onClick={() => {
-        setRechecking(true);
-        setAnnounce("");
-        loaded.reload();
-      }}
+      onClick={() => void recheck()}
     >
       <Icon name="refresh" />
       重新检查

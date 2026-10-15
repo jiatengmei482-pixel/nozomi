@@ -24,7 +24,7 @@ import { StatusBadge, TENANT_STATUS_BADGES } from "../../components/StatusBadge.
 import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime, shortName } from "../../lib/master-display.ts";
-import { emailProblem, isUnsure, nameProblem } from "../../lib/platform-display.ts";
+import { EMAIL_REFUSED_TEXT, emailProblem, emailRefused, isUnsure, nameProblem } from "../../lib/platform-display.ts";
 import { TENANT_LIST_PATH, TENANT_NEW_PATH, auditLogPath, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
@@ -215,6 +215,7 @@ export function TenantNewPage() {
   const [attempted, setAttempted] = useState(false);
   const [working, setWorking] = useState(false);
   const [taken, setTaken] = useState(false);
+  const [refused, setRefused] = useState(false);
   const [problem, setProblem] = useState<{ title?: string; text: string } | null>(null);
   /** 建成的那一家和这一次应答里的邀请令牌：只在这里，对话框关闭时清掉并换到详情页 */
   const [created, setCreated] = useState<{ tenant: Tenant; issued: IssuedLink } | null>(null);
@@ -234,7 +235,7 @@ export function TenantNewPage() {
   const sameName = name.trim() !== "" && (existing.state.data?.items ?? []).some((tenant) => tenant.name.trim().toLowerCase() === name.trim().toLowerCase());
   const errors = {
     name: attempted ? nameProblem(name, "名称") : null,
-    email: taken ? "这个邮箱已经是某家供应商的账号了，一个邮箱只能属于一家供应商。请换一个邮箱；如果他就是那家供应商的人，请到那家供应商的详情页处理。" : attempted ? emailProblem(email) : null,
+    email: taken ? "这个邮箱已经是某家供应商的账号了，一个邮箱只能属于一家供应商。请换一个邮箱；如果他就是那家供应商的人，请到那家供应商的详情页处理。" : refused ? EMAIL_REFUSED_TEXT : attempted ? emailProblem(email) : null,
     adminName: attempted ? nameProblem(adminName, "姓名") : null,
   };
   const locked = working || created !== null;
@@ -245,6 +246,7 @@ export function TenantNewPage() {
     setAttempted(true);
     setProblem(null);
     setTaken(false);
+    setRefused(false);
     if (nameProblem(name, "名称") !== null) return document.getElementById("tenant-name")?.focus();
     if (emailProblem(email) !== null) return document.getElementById("tenant-email")?.focus();
     if (nameProblem(adminName, "姓名") !== null) return document.getElementById("tenant-admin")?.focus();
@@ -257,6 +259,9 @@ export function TenantNewPage() {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "EMAIL_TAKEN") {
         setTaken(true);
+        document.getElementById("tenant-email")?.focus();
+      } else if (emailRefused(err)) {
+        setRefused(true);
         document.getElementById("tenant-email")?.focus();
       } else if (isUnsure(err)) setProblem({ title: "不确定有没有建成。", text: `请先回到供应商列表看一眼有没有「${name.trim()}」：有的话不要再建一次，到它的详情页点「邀请管理员」重新拿链接；没有再回来重试。` });
       else if (err instanceof ApiError && err.status === 403) setProblem({ text: "你没有权限新建供应商。需要的话，请联系管理员开通。" });
@@ -334,6 +339,7 @@ export function TenantNewPage() {
           (value) => {
             setEmail(value);
             setTaken(false);
+            setRefused(false);
           },
           errors.email,
           "对方用这个邮箱登录。请填他本人在用的邮箱。",

@@ -24,7 +24,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime, shortName } from "../../lib/master-display.ts";
-import { ACCOUNT_STATUS_BADGES, ROLE_DUTIES, emailProblem, isUnsure, nameProblem, roleAbilities, roleNotLiveYet } from "../../lib/platform-display.ts";
+import { ACCOUNT_STATUS_BADGES, EMAIL_REFUSED_TEXT, ROLE_DUTIES, emailProblem, emailRefused, isUnsure, nameProblem, roleAbilities, roleNotLiveYet } from "../../lib/platform-display.ts";
 import { STAFF_LIST_PATH, STAFF_NEW_PATH, auditLogPath } from "../../lib/platform-paths.ts";
 import { roleName } from "../../lib/portal.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -340,6 +340,19 @@ export function StaffListPage() {
       <FilterBar search={<SearchBox label="按姓名或邮箱搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["role", "status"]} active={filtered} onClear={clearFilters}>
         <Filters />
       </FilterBar>
+      <div role="alert">
+        {state.status === "error" && state.data !== null && (
+          <Alert kind="danger">
+            <strong className="alert__title">加载失败</strong>
+            <span>下面是上一次取到的内容，可能已经过时。请检查网络后重试。</span>
+            <span className="alert__actions">
+              <Button variant="text" size="sm" onClick={loaded.reload}>
+                重试
+              </Button>
+            </span>
+          </Alert>
+        )}
+      </div>
       <div className="card-table">
         <DataTable label="平台员工列表" columns={columns} rows={rows} rowKey={(row) => row.id} state={tableState} onRetry={loaded.reload} empty={empty} />
       </div>
@@ -377,6 +390,7 @@ export function StaffNewPage() {
   const [attempted, setAttempted] = useState(false);
   const [working, setWorking] = useState(false);
   const [taken, setTaken] = useState(false);
+  const [refused, setRefused] = useState(false);
   const [problem, setProblem] = useState<{ title?: string; text: string } | null>(null);
   /** 建好的账号和这一次应答里的邀请令牌：只在这里，对话框关闭时清掉并回到列表 */
   const [created, setCreated] = useState<{ id: string; issued: IssuedLink } | null>(null);
@@ -394,7 +408,7 @@ export function StaffNewPage() {
   if (account.status === "ready" && !canManage) return shell(NO_ACCESS);
 
   const locked = working || created !== null;
-  const emailError = taken ? "这个邮箱已经有一个设过密码的平台员工账号了。他忘了密码的话，请在列表里给他「发密码重置链接」；账号被停用了的话，请在列表里「启用」。" : attempted ? emailProblem(email) : null;
+  const emailError = taken ? "这个邮箱已经有一个设过密码的平台员工账号了。他忘了密码的话，请在列表里给他「发密码重置链接」；账号被停用了的话，请在列表里「启用」。" : refused ? EMAIL_REFUSED_TEXT : attempted ? emailProblem(email) : null;
   const nameError = attempted ? nameProblem(name, "姓名") : null;
   const roleError = attempted && role === null ? "请选择角色" : null;
 
@@ -404,6 +418,7 @@ export function StaffNewPage() {
     setAttempted(true);
     setProblem(null);
     setTaken(false);
+    setRefused(false);
     if (emailProblem(email) !== null) return document.getElementById("staff-email")?.focus();
     if (nameProblem(name, "姓名") !== null) return document.getElementById("staff-name")?.focus();
     if (role === null) return document.querySelector<HTMLElement>('input[name="staff-role"]')?.focus();
@@ -416,6 +431,9 @@ export function StaffNewPage() {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "EMAIL_TAKEN") {
         setTaken(true);
+        document.getElementById("staff-email")?.focus();
+      } else if (emailRefused(err)) {
+        setRefused(true);
         document.getElementById("staff-email")?.focus();
       } else if (isUnsure(err)) setProblem({ title: "不确定有没有成功。", text: UNSURE_TEXT });
       else if (err instanceof ApiError && err.status === 403) setProblem({ text: "你没有权限新增员工。需要的话，请联系管理员开通。" });
@@ -456,6 +474,7 @@ export function StaffNewPage() {
             onChange={(event) => {
               setEmail(event.target.value);
               setTaken(false);
+              setRefused(false);
             }}
           />
           <FieldErrors id="staff-email-error" errors={emailError !== null ? [emailError] : []} />

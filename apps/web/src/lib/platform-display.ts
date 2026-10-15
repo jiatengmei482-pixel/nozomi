@@ -70,3 +70,12 @@ export function roleNotLiveYet(role: PlatformRole): boolean {
 export function isUnsure(err: unknown): boolean {
   return err instanceof NetworkError || (err instanceof ApiError && (err.status >= 500 || err.code === "UNKNOWN"));
 }
+
+/** 页面的邮箱格式检查比后端松（「山田@example.com」「a@b.c」这里放过、后端不认）：后端 400 点名邮箱这一项时，出错落在邮箱字段下面。 */
+export const EMAIL_REFUSED_TEXT = "系统不接受这个邮箱地址。请核对有没有写错：@ 前面只能是英文字母、数字和常见符号，@ 后面要是完整的域名（如 example.com）。";
+
+export function emailRefused(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.code !== "VALIDATION_FAILED") return false;
+  const issues = err.details["issues"];
+  return Array.isArray(issues) && issues.some((issue: unknown) => typeof issue === "object" && issue !== null && /(^|\/)email$/.test(String((issue as { path?: unknown }).path ?? "")));
+}

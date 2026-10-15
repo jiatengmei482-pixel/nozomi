@@ -219,9 +219,9 @@
 }
 
 /* ───── 审计日志 ───── */
+/* < 768px：条件收进「筛选」面板（按钮和面板用筛选条的样式）；≥ 768px：直接排在表格上方 */
 .audit-filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: none;
   align-items: end;
   gap: var(--space-2) var(--space-3);
 }
@@ -248,7 +248,6 @@
 .audit-filters__quick {
   display: flex;
   flex-wrap: wrap;
-  grid-column: 1 / -1;
   gap: var(--space-1);
 }
 
@@ -390,16 +389,13 @@
 @media (min-width: 768px) {
   .audit-filters {
     display: flex;
+    flex: 1 1 0;
     flex-wrap: wrap;
   }
 
   .audit-filters__item > .input {
     width: auto;
     max-width: 200px;
-  }
-
-  .audit-filters__quick {
-    grid-column: auto;
   }
 
   .audit-diff thead {

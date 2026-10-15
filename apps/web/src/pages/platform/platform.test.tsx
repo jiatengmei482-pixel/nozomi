@@ -9,7 +9,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
-import type { AuditLog } from "../../api/platform.ts";
+import { ApiError } from "../../api/client.ts";
+import { type AuditLog, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
@@ -554,4 +555,135 @@ test("系统状态：只读；有未配置的项时说清楚密钥只能由负�
   await screen.findByText("已重新检查，1 项未配置");
   assert.equal(count(), 2);
   assert.doesNotMatch(pageText(), /configured|missing|integration/);
+});
+
+test("五个发令牌的接口：应答成功却没有带令牌（缺了、是空的、不是字符串），都按「不知道有没有成功」报出来，只发一次", async () => {
+  const user = { id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "admin", status: "invited", ...stamps };
+  const requests: [string, () => Promise<unknown>, (issued: unknown) => unknown][] = [
+    ["新建供应商", () => createTenant("t", { name: "新车队", admin: { email: "sato@example.com", name: "佐藤 健" } }), (issued) => ({ tenant: tenantOf(), admin_user: user, invite: issued })],
+    ["邀请管理员", () => inviteTenantAdmin("t", TENANT_ID, { email: "sato@example.com", name: "佐藤 健" }), (issued) => ({ user, invite: issued })],
+    ["给管理员发密码重置", () => issueTenantAdminReset("t", TENANT_ID, "sato@example.com"), (issued) => ({ user, reset: issued })],
+    ["新增员工", () => createStaff("t", { email: "sato@example.com", name: "佐藤 健", role: "operations" }), (issued) => ({ user: staffOf(), invite: issued })],
+    ["给员工发密码重置", () => issueStaffReset("t", STAFF_ID), (issued) => ({ user: staffOf(), reset: issued })],
+  ];
+  for (const [what, send, bodyOf] of requests) {
+    for (const issued of [undefined, null, { expires_at: invite.expires_at }, { token: "", expires_at: invite.expires_at }, { token: 42, expires_at: invite.expires_at }]) {
+      const calls = stubApiWith(() => json(201, bodyOf(issued)));
+      await assert.rejects(send, (err: unknown) => err instanceof ApiError && err.code === "UNKNOWN" && err.status >= 500, `${what}：${JSON.stringify(issued)}`);
+      assert.equal(calls.length, 1, `${what} 不重试`);
+    }
+    stubApiWith(() => json(201, bodyOf(invite)));
+    await assert.doesNotReject(send, `${what}：带了令牌的照常交给页面`);
+  }
+});
+
+test("邮箱过了页面的格式检查、却被后端判为不合规：新建供应商、新增员工、邀请管理员都把出错落在邮箱字段下面并把焦点放回去，页面顶上不再只有一句「不符合要求」；改了邮箱提示就消失", async () => {
+  const actor = user();
+  const refusal = (path: string): Response => apiError(400, "VALIDATION_FAILED", "请求参数校验未通过", { location: "body", issues: [{ path, message: "不是合法的邮箱" }] });
+  const refusedText = /^系统不接受这个邮箱地址。/;
+
+  let calls = open("/platform/tenants/new", "operations", {}, (call) => (call.method === "POST" ? refusal("/admin/email") : null));
+  await screen.findByRole("heading", { level: 1, name: "新建供应商" });
+  await actor.type(screen.getByLabelText(/^名称/), "新车队");
+  await actor.type(screen.getByLabelText(/^邮箱/), "山田@example.com");
+  await actor.type(screen.getByLabelText(/^姓名/), "山田太郎");
+  await actor.click(screen.getByRole("button", { name: "新建" }));
+  await waitFor(() => assert.match(document.getElementById("tenant-email-error")?.textContent ?? "", refusedText));
+  assert.equal(screen.getByLabelText(/^邮箱/).getAttribute("aria-invalid"), "true");
+  assertFocused(screen.getByLabelText(/^邮箱/));
+  assert.doesNotMatch(pageText(), /提交的内容不符合要求|请求参数校验未通过|不是合法的邮箱/);
+  assert.equal(writes(calls).length, 1);
+  await actor.type(screen.getByLabelText(/^邮箱/), "x");
+  assert.equal(document.getElementById("tenant-email-error")?.textContent ?? "", "");
+
+  resetBrowser();
+  calls = open("/platform/settings/staff/new", "super_admin", {}, (call) => (call.method === "POST" ? refusal("/email") : null));
+  await screen.findByRole("heading", { level: 1, name: "新增员工" });
+  await actor.type(screen.getByLabelText(/^邮箱/), "a@b.c");
+  await actor.type(screen.getByLabelText(/^姓名/), "佐藤花子");
+  await actor.click(screen.getByRole("radio", { name: /^只读/ }));
+  await actor.click(screen.getByRole("button", { name: "新增" }));
+  await waitFor(() => assert.match(document.getElementById("staff-email-error")?.textContent ?? "", refusedText));
+  assertFocused(screen.getByLabelText(/^邮箱/));
+  assert.doesNotMatch(pageText(), /提交的内容不符合要求/);
+  await actor.type(screen.getByLabelText(/^邮箱/), "x");
+  assert.equal(document.getElementById("staff-email-error")?.textContent ?? "", "");
+
+  resetBrowser();
+  calls = open(`/platform/tenants/${TENANT_ID}`, "operations", {}, (call) => (call.method === "POST" ? refusal("/email") : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 自营车队" });
+  await actor.click(screen.getByRole("button", { name: "邀请管理员" }));
+  const dialog = screen.getByRole("dialog", { name: "邀请管理员" });
+  await actor.type(within(dialog).getByLabelText(/^邮箱/), "山田@example.com");
+  await actor.type(within(dialog).getByLabelText(/^姓名/), "山田太郎");
+  await actor.click(within(dialog).getByRole("button", { name: "邀请" }));
+  await waitFor(() => assert.match(document.getElementById("tenant-admin-email-error")?.textContent ?? "", refusedText));
+  assert.doesNotMatch(dialog.textContent ?? "", /提交的内容不符合要求/);
+  assert.equal(writes(calls).length, 1);
+
+  // 被点名的不是邮箱：仍然是页面顶上的那一句
+  resetBrowser();
+  open("/platform/settings/staff/new", "super_admin", {}, (call) => (call.method === "POST" ? refusal("/name") : null));
+  await screen.findByRole("heading", { level: 1, name: "新增员工" });
+  await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
+  await actor.type(screen.getByLabelText(/^姓名/), "佐藤花子");
+  await actor.click(screen.getByRole("radio", { name: /^只读/ }));
+  await actor.click(screen.getByRole("button", { name: "新增" }));
+  await screen.findByText("提交的内容不符合要求，请检查后重试。");
+  assert.equal(document.getElementById("staff-email-error")?.textContent ?? "", "");
+});
+
+test("审计日志的「筛选」面板（手机宽度用）：面板里改的是草稿，不发请求；日期写错不关面板并指出是哪一个；点「查看结果」才一起生效并关闭；「清空」清掉面板里的条件；直接关掉不生效", async () => {
+  const actor = user();
+  const calls = open("/platform/settings/audit-logs?action=suspend", "super_admin");
+  const requests = (): URL[] => calls.filter((call) => call.path.startsWith("/platform/v1/audit-logs")).map((call) => new URL(call.path, "http://localhost"));
+  await screen.findByText("本页 1 条");
+  const before = requests().length;
+  await actor.click(screen.getByRole("button", { name: "筛选 · 1" }));
+  const panel = screen.getByRole("dialog", { name: "筛选" });
+  const field = (id: string): HTMLInputElement => panel.querySelector(`#audit-panel-${id}`) as HTMLInputElement;
+  assert.equal(field("action").value, "suspend", "面板打开时带着现在生效的条件");
+  await actor.selectOptions(field("resource"), "tenant");
+  await actor.type(field("from"), "2026/10/1");
+  await actor.type(field("to"), "2026-02-31");
+  assert.equal(requests().length, before, "面板里改条件不发请求");
+  await actor.click(within(panel).getByRole("button", { name: "查看结果" }));
+  assert.ok(within(panel).getByText("这不是一个日期，请按 2026-10-08 的格式填写"));
+  assert.equal(field("to").getAttribute("aria-invalid"), "true");
+  assert.equal(field("from").getAttribute("aria-invalid"), null);
+  assertFocused(field("to"));
+  assert.equal(requests().length, before, "日期不对时不生效");
+  await actor.clear(field("to"));
+  await actor.type(field("to"), "20261009");
+  await actor.click(within(panel).getByRole("button", { name: "查看结果" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
+  await waitFor(() => assert.equal(requests().length, before + 1, "一起生效，只发一次"));
+  const sent = requests().at(-1) as URL;
+  assert.deepEqual([sent.searchParams.get("resource"), sent.searchParams.get("action")], ["tenant", "suspend"]);
+  assert.equal(sent.searchParams.get("from"), new Date(2026, 9, 1).toISOString());
+  assert.equal(sent.searchParams.get("to"), new Date(2026, 9, 10).toISOString());
+  await screen.findByRole("button", { name: "筛选 · 4" });
+
+  // 面板里的快捷按钮只填草稿；改了没点「查看结果」就关掉，不生效
+  await actor.click(screen.getByRole("button", { name: "筛选 · 4" }));
+  let again = screen.getByRole("dialog", { name: "筛选" });
+  await actor.click(within(again).getByRole("button", { name: "今天" }));
+  assert.equal((again.querySelector("#audit-panel-from") as HTMLInputElement).value, (again.querySelector("#audit-panel-to") as HTMLInputElement).value);
+  assert.notEqual((again.querySelector("#audit-panel-from") as HTMLInputElement).value, "2026-10-01");
+  await actor.click(within(again).getByRole("button", { name: "关闭" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
+  assert.equal(requests().length, before + 1);
+  assert.ok(screen.getByRole("button", { name: "筛选 · 4" }));
+
+  // 清空：面板里的条件都清掉，点「查看结果」后不带任何条件
+  await actor.click(screen.getByRole("button", { name: "筛选 · 4" }));
+  again = screen.getByRole("dialog", { name: "筛选" });
+  await actor.click(within(again).getByRole("button", { name: "清空" }));
+  assert.equal((again.querySelector("#audit-panel-from") as HTMLInputElement).value, "");
+  assert.equal((again.querySelector("#audit-panel-action") as HTMLSelectElement).value, "");
+  await actor.click(within(again).getByRole("button", { name: "查看结果" }));
+  await waitFor(() => assert.equal(requests().length, before + 2));
+  const cleared = requests().at(-1) as URL;
+  assert.deepEqual(["from", "to", "resource", "action", "tenant_id"].map((name) => cleared.searchParams.get(name)), [null, null, null, null, null]);
+  assert.ok(screen.getByRole("button", { name: "筛选" }));
 });
