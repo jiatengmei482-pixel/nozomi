@@ -1,7 +1,8 @@
 /**
  * 子品牌和商品的数据访问（迁移 0012）。除最后一节外全部在租户事务（withTenantTx）里调用：
  * 每个函数都显式带 tenantId 并写在条件里（ADR 0003 的第一道防线），行级安全是兜底。
- * 最后一节「平台侧」只在平台事务里调用：平台对商品只读，只用来数「有多少已上架的商品在用某条主数据」。
+ * 最后两节「平台侧」只在平台事务里调用，跨租户、只读：数「有多少已上架的商品在用某条主数据」，和运营后台查看供应商的商品（ADR 0021）。
+ * 平台查看一个商品的明细时，先用 `findProductAcrossTenants` 找到它属于哪个租户，再用上面这些带 tenantId 的函数取（条件里照样写着租户编号）。
  */
 import type {
   AddonChargeUnit,
@@ -22,6 +23,8 @@ import type {
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 import { containsPattern } from "./master-data.ts";
+import { activePriceRuleCountSql } from "./prices.ts";
+import type { TenantStatus } from "./tenants.ts";
 
 type Row = Record<string, any>;
 
@@ -198,14 +201,16 @@ export interface ProductListItem extends Product {
   vehicleGroupCount: number;
 }
 
-/** 本租户的商品列表：按最近修改从新到旧（修改时间相同的按编号，顺序稳定），同时数出符合筛选条件的总数。 */
-export async function listProducts(db: Db, tenantId: string, filter: ProductFilter, limit: number, after: TimeCursor | null): Promise<Page<ProductListItem> & { total: number }> {
-  const conditions = ["p.tenant_id = $1"];
-  const params: unknown[] = [tenantId];
-  const where = (sql: string, ...values: unknown[]): void => {
+/** 拼查询条件：`?` 依次换成参数占位符。 */
+function conditionBuilder(conditions: string[], params: unknown[]): (sql: string, ...values: unknown[]) => void {
+  return (sql, ...values) => {
     let used = 0;
     conditions.push(sql.replace(/\?/g, () => `$${params.push(values[used++])}`));
   };
+}
+
+/** 商品列表的筛选条件（租户侧和运营后台共用）。商品的别名是 `p`。 */
+function addProductFilter(where: (sql: string, ...values: unknown[]) => void, filter: ProductFilter): void {
   if (filter.status !== undefined) where("p.status = ?", filter.status);
   if (filter.category !== undefined) where("p.category = ?", filter.category);
   if (filter.cityId !== undefined) where("p.city_id = ?", filter.cityId);
@@ -219,6 +224,14 @@ export async function listProducts(db: Db, tenantId: string, filter: ProductFilt
       pattern,
     );
   }
+}
+
+/** 本租户的商品列表：按最近修改从新到旧（修改时间相同的按编号，顺序稳定），同时数出符合筛选条件的总数。 */
+export async function listProducts(db: Db, tenantId: string, filter: ProductFilter, limit: number, after: TimeCursor | null): Promise<Page<ProductListItem> & { total: number }> {
+  const conditions = ["p.tenant_id = $1"];
+  const params: unknown[] = [tenantId];
+  const where = conditionBuilder(conditions, params);
+  addProductFilter(where, filter);
   const total = await db.query<{ n: number }>(`select count(*)::int as n from products p where ${conditions.join(" and ")}`, [...params]);
   if (after !== null) where("(p.updated_at, p.id) < (?::timestamptz, ?::uuid)", after.t, after.id);
   params.push(limit + 1);
@@ -466,3 +479,71 @@ export async function countPublishedProductsUsing(db: Db, reference: MasterRefer
   const result = await db.query<{ n: number }>(`select count(*)::int as n from products p where p.status = 'published' and ${condition[reference]}`, [id]);
   return result.rows[0]?.n ?? 0;
 }
+
+// ---- 平台侧：运营后台查看供应商的商品（M1-12，ADR 0021；只在平台事务里调用，跨租户、只读） ----
+
+export interface PlatformProductFilter extends ProductFilter {
+  tenantId?: string | undefined;
+  /** true：只看有「可以卖的价格」的；false：只看没有的 */
+  hasActivePrice?: boolean | undefined;
+}
+
+export interface PlatformProductListItem extends ProductListItem {
+  tenantId: string;
+  tenant: { id: string; name: string; status: TenantStatus };
+  /** 「可以卖的价格」有几条（启用、没过期、区域和车型组是商品现在选着的；和上架校验同一个判断） */
+  activePriceRuleCount: number;
+}
+
+/**
+ * 所有供应商的商品：按最近修改从新到旧（修改时间相同的按编号），同时数出符合筛选条件的总数。
+ * 「可以卖的价格」按每个商品所在城市当地的今天算（`now` 是现在这一刻）。
+ */
+export async function listProductsAcrossTenants(db: Db, filter: PlatformProductFilter, now: Date, limit: number, after: TimeCursor | null): Promise<Page<PlatformProductListItem> & { total: number }> {
+  const conditions: string[] = ["true"];
+  const params: unknown[] = [now];
+  const active = activePriceRuleCountSql("$1");
+  const where = conditionBuilder(conditions, params);
+  if (filter.tenantId !== undefined) where("p.tenant_id = ?", filter.tenantId);
+  addProductFilter(where, filter);
+  if (filter.hasActivePrice !== undefined) conditions.push(`${active} ${filter.hasActivePrice ? ">" : "="} 0`);
+  const from = "products p join tenants t on t.id = p.tenant_id join cities c on c.id = p.city_id";
+  // $1（现在）只在按价格筛选时出现在条件里；没出现时数据库推断不出它的类型，所以数总数时显式写一次
+  const total = await db.query<{ n: number }>(`select count(*)::int as n from ${from} where $1::timestamptz is not null and ${conditions.join(" and ")}`, [...params]);
+  if (after !== null) where("(p.updated_at, p.id) < (?::timestamptz, ?::uuid)", after.t, after.id);
+  params.push(limit + 1);
+  const result = await db.query<Row & { cursor_time: string }>(
+    `select ${PRODUCT_COLUMNS.split(", ").map((column) => `p.${column}`).join(", ")}, p.tenant_id, p.updated_at::text as cursor_time,
+            t.name as tenant_name, t.status as tenant_status,
+            (select count(*)::int from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id) as area_count,
+            (select count(*)::int from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id) as vehicle_group_count,
+            ${active} as active_price_rule_count
+       from ${from}
+      where ${conditions.join(" and ")}
+      order by p.updated_at desc, p.id desc
+      limit $${params.length}`,
+    params,
+  );
+  const page = toPage(
+    result.rows,
+    limit,
+    (row): PlatformProductListItem => ({
+      ...toProduct(row),
+      areaCount: row["area_count"],
+      vehicleGroupCount: row["vehicle_group_count"],
+      tenantId: row["tenant_id"],
+      tenant: { id: row["tenant_id"], name: row["tenant_name"], status: row["tenant_status"] },
+      activePriceRuleCount: row["active_price_rule_count"],
+    }),
+    (row) => ({ t: row.cursor_time, id: row["id"] as string }),
+  );
+  return { ...page, total: total.rows[0]?.n ?? 0 };
+}
+
+/** 按编号找一个商品，连同它属于哪个租户。找不到为 null。 */
+export async function findProductAcrossTenants(db: Db, id: string): Promise<{ tenantId: string; product: Product } | null> {
+  const result = await db.query<Row>(`select tenant_id, ${PRODUCT_COLUMNS} from products where id = $1`, [id]);
+  const row = result.rows[0];
+  return row ? { tenantId: row["tenant_id"], product: toProduct(row) } : null;
+}
+

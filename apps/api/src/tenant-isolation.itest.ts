@@ -770,7 +770,7 @@ test("商品的其余接口：读不到、改不了、删不了、上不了架�
   assert.deepEqual((await api.call("GET", `/tenant/v1/areas/${seeded.areas.a.id}`, { token: a.adminToken })).body.usage, { product_count: 1, published_product_count: 0 });
 });
 
-test("子品牌和商品的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下；平台角色对报价用到的表只读、读不到调度人", async () => {
+test("子品牌和商品的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下；平台角色对这几张表只读（调度人自 M1-12 起也可读）、不能写", async () => {
   const seeded = await seedProducts();
   const before = await productRows();
   for (const table of ["brands", "products", "product_areas", "product_dispatchers"]) {
@@ -799,18 +799,18 @@ test("子品牌和商品的隔离（数据库层面）：租户事务里只看�
     withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into product_areas (tenant_id, product_id, area_id, priority) values ($1, $2, $3, 9)", [a.tenantId, seeded.a.product.id, seeded.areas.b.id])),
     { code: "23503" },
   );
-  // 平台角色：商品和它选的车型组只读（停用主数据前数已上架的商品用），其余三张表碰不到
+  // 平台角色：商品和它选的车型组只读（停用主数据前数已上架的商品用、运营后台查看商品），不能写
   const platformSees = await withPlatformTx(api.db.pool, (db) => db.query<{ n: number }>("select count(*)::int as n from products"));
   assert.equal(platformSees.rows[0]?.n, 2);
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update products set status = 'published'")), deniedByDatabase);
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from product_vehicle_groups")), deniedByDatabase);
-  // 子品牌、商品选的区域：平台只读（报价用，ADR 0020），不能写；调度人平台读不到
-  for (const table of ["brands", "product_areas"]) {
+  // 子品牌、商品选的区域（报价用，ADR 0020）、调度人（运营后台查看商品，ADR 0021）：平台只读，不能写
+  for (const table of ["brands", "product_areas", "product_dispatchers"]) {
     assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`))).rowCount ?? 0) > 0, table);
     await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`delete from ${table}`)), deniedByDatabase, table);
     await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update ${table} set tenant_id = tenant_id`)), deniedByDatabase, table);
   }
-  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from product_dispatchers")), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("insert into product_dispatchers (tenant_id, product_id, position, name, phone) values ($1, $2, 9, '平台的人', '0312345678')", [b.tenantId, theirs])), deniedByDatabase);
   assert.deepEqual(await productRows(), before);
 });
 
