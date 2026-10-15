@@ -817,6 +817,7 @@ paths:
         - 中标：每个车型组只出一个价。排序价 = 对外价（观察期的供应商 × 1.05）；排序价不超过最低排序价 × (1 + `band_bp`) 的在同价区间里（`in_band`），
           区间内评分高者 → 已完成订单数多者 → 排序价低者中标。同一个供应商的几个商品只留排序价最低的。客人付的是中标者自己的对外价。
         - 「里程 + 时长」的价格要路线预估：取不到时那个车型组报不出（`ROUTE_UNAVAILABLE`）。可以用 `assume_route` 给一个假定的里程和时长来试算。
+        - 路线预估、汇率服务超时（默认 2 秒）或出错时不让整次试算失败：用得到路线的报 `ROUTE_UNAVAILABLE`，跨币种的报 `FX_RATE_UNAVAILABLE`，其余照常。
         金额都是最小货币单位的整数；`exact`、`rank_price`、`sell_exact` 是取整之前的精确值（十进制写法的字符串）。
       security:
         - platformToken: []
@@ -837,6 +838,12 @@ paths:
           description: |
             `VALIDATION_FAILED`：请求写得不对。`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
             `REQUIRED`、`NOT_APPLICABLE`（这个品类不填这一项）、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：城市（`details.reason` = `CITY_DISABLED`）或机场 / 车站（`PLACE_DISABLED`）已被平台停用，现在不报价"
           content:
             application/json:
               schema:
@@ -4852,8 +4859,8 @@ components:
         exact:
           type: object
           additionalProperties: false
-          required: [base, adjusted, night, total]
-          description: 取整之前的精确值（十进制写法）
+          required: [base, adjusted, night, addons, total]
+          description: 取整之前的精确值（十进制写法）。`total` = `adjusted` + 加急 + `night` + `addons` + 司机语言，按 `rounding_unit` 取整一次就是结算价
           properties:
             base:
               type: string
@@ -4861,6 +4868,9 @@ components:
               type: string
             night:
               type: string
+            addons:
+              type: string
+              description: 附加服务合计的精确值（按时长计费不足一小时按比例，不先取整）
             total:
               type: string
         adjusts:
@@ -4918,7 +4928,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [addon_id, charge_unit, quantity, charged_quantity, first_free, unit_price, amount]
+            required: [addon_id, charge_unit, quantity, charged_quantity, first_free, unit_price, amount, amount_exact]
             properties:
               addon_id:
                 type: string
@@ -4937,6 +4947,10 @@ components:
                 type: integer
               amount:
                 type: integer
+                description: 这一项四舍五入到最小货币单位（展示用）；结算价用的是 `amount_exact`
+              amount_exact:
+                type: string
+                description: 这一项取整之前的精确值（十进制写法）
         driver_language_code:
           type: [string, "null"]
         usage:

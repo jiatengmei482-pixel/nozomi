@@ -97,7 +97,7 @@ function settlementJson(settlement: SettlementBreakdown): Json {
     adjusts: settlement.adjusts.map((entry) => ({ rule_id: entry.ruleId, name: entry.name, steps: entry.steps })),
     urgent_tier: settlement.urgentTier === null ? null : { within_hours: settlement.urgentTier.withinHours, surcharge: settlement.urgentTier.surchargeMinor },
     night_detail: settlement.night === null ? null : { charge_unit: settlement.night.chargeUnit, overlap_minutes: settlement.night.overlapMinutes },
-    addon_items: settlement.addons.map((addon) => ({ addon_id: addon.addonId, charge_unit: addon.chargeUnit, quantity: addon.quantity, charged_quantity: addon.chargedQuantity, first_free: addon.firstFree, unit_price: addon.unitPriceMinor, amount: addon.amountMinor })),
+    addon_items: settlement.addons.map((addon) => ({ addon_id: addon.addonId, charge_unit: addon.chargeUnit, quantity: addon.quantity, charged_quantity: addon.chargedQuantity, first_free: addon.firstFree, unit_price: addon.unitPriceMinor, amount: addon.amountMinor, amount_exact: addon.amountExact })),
     driver_language_code: settlement.driverLanguage,
     usage: settlement.usage,
     free_wait: {
@@ -118,7 +118,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/platform/v1/quotes/preview", async (request) => {
     await platform(request, "quote.preview");
     const input = parseInput(platformPreviewSchema, request.body, "body");
-    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency });
+    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency }, { log: request.log });
     const byProduct = new Map(preview.candidates.map((candidate) => [candidate.product.productId, candidate]));
     const who = (productId: string): Json => {
       const candidate = byProduct.get(productId);
@@ -161,7 +161,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await tenant(request, "product.read");
     const productId = resourceId(request.params, "商品");
     const input = parseInput(tenantPreviewSchema, request.body, "body");
-    const { candidate, quote, route } = await previewTenantQuote(ctx, principal.tenantId, productId, previewInput(input));
+    const { candidate, quote, route } = await previewTenantQuote(ctx, principal.tenantId, productId, previewInput(input), { log: request.log });
     return {
       product_id: candidate.product.productId,
       code: candidate.code,

@@ -197,7 +197,7 @@ test("QA 租户侧试算的入参异常：同样 400 指到哪一项；不收币
   }
 });
 
-test("QA 入参里多了不认识的字段：400 的说明应当是中文（现在是 zod 的英文原文）", { todo: "缺陷 #5" }, async () => {
+test("QA 入参里多了不认识的字段：400 的说明应当是中文（现在是 zod 的英文原文）", async () => {
   for (const body of [ask({ dropoff: { lng: 139.2, lat: 35.5, alt: 3 } }), ask({ tenant_id: b.tenantId })]) {
     const res = await platform("POST", "/quotes/preview", body);
     assert.equal(res.status, 400, res.text);
@@ -314,7 +314,7 @@ test("QA 路线服务慢（300 毫秒后取不到）：里程 + 时长的报 ROU
   }
 });
 
-test("QA 路线服务出错（抛异常，如连接超时）：不应让整次比价 500——里程 + 时长的报 ROUTE_UNAVAILABLE，一口价照常中标", { todo: "缺陷 #4" }, async () => {
+test("QA 路线服务出错（抛异常，如连接超时）：不应让整次比价 500——里程 + 时长的报 ROUTE_UNAVAILABLE，一口价照常中标", async () => {
   const metered = await meteredProduct();
   try {
     routeMode = "throw";
@@ -330,7 +330,7 @@ test("QA 路线服务出错（抛异常，如连接超时）：不应让整次�
   }
 });
 
-test("QA 汇率服务出错（抛异常）：不应让整次比价 500——跨币种的报 FX_RATE_UNAVAILABLE，同币种的照常中标", { todo: "缺陷 #4" }, async () => {
+test("QA 汇率服务出错（抛异常）：不应让整次比价 500——跨币种的报 FX_RATE_UNAVAILABLE，同币种的照常中标", async () => {
   const cny = await transfer(a, ids["brandAcny"] as string, ids["areaA"] as string, { base_price: 90_000 });
   await publish(a, cny);
   try {

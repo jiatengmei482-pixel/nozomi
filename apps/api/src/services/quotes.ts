@@ -11,6 +11,8 @@ import {
   type ComparisonEntry,
   type CurrencyCode,
   type LatLng,
+  type HolidayLookup,
+  type InventoryDay,
   type ProductQuote,
   type QuoteComparison,
   type QuoteRequest,
@@ -84,16 +86,56 @@ function toRequest(category: ServiceCategory, input: QuotePreviewInput): QuoteRe
 }
 
 /**
- * 这次用车的路线预估（报价引擎第 6 步）：只有里程 + 时长的价格、按小时的夜间费、按时长的附加服务用得到。
- * 接送机：机场 / 车站那一端用接送点的坐标。包车不估（按套餐时长）。两端的坐标不全、或路线服务取不到，返回 null。
+ * 报价时外部调用（路线预估、汇率）出了错的日志。只记依赖名和异常：异常经 Fastify 的 `err` 序列化器脱敏（logging.ts），
+ * 不会把密钥、连接串写进日志。路由传 `request.log`；不传就不记。
  */
-async function estimateRoute(ctx: AppContext, request: QuoteRequest, placeLocation: LatLng | null, departAt: Date, assumeRoute: RouteEstimate | null): Promise<RouteEstimate | null> {
+export interface QuoteLog {
+  warn(entry: { err: unknown; dependency: QuoteDependency }, message: string): void;
+}
+type QuoteDependency = "route" | "fx";
+const SILENT: QuoteLog = { warn: () => undefined };
+
+/** 外部调用超过了 `QuoteDeps.externalTimeoutMs` 还没有结果。 */
+export class QuoteDependencyTimeout extends Error {
+  readonly code = "QUOTE_DEPENDENCY_TIMEOUT";
+  constructor(message: string) {
+    super(message);
+    this.name = "QuoteDependencyTimeout";
+  }
+}
+
+/**
+ * 调一次外部服务（路线预估、汇率）：限时（`ctx.quote.externalTimeoutMs`），超时或抛异常都记一条日志、当作「取不到」（null）——
+ * 一个外部服务出问题只让用得到它的商品报不出（`ROUTE_UNAVAILABLE` / `FX_RATE_UNAVAILABLE`），不让整次比价失败。
+ */
+async function callExternal<T>(ctx: AppContext, log: QuoteLog, dependency: QuoteDependency, run: () => Promise<T | null>): Promise<T | null> {
+  const timeoutMs = ctx.quote.externalTimeoutMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new QuoteDependencyTimeout(`${dependency === "route" ? "路线预估" : "汇率"}超过 ${timeoutMs} 毫秒没有结果`)), timeoutMs);
+    });
+    return await Promise.race([run(), timeout]);
+  } catch (err) {
+    log.warn({ err, dependency }, dependency === "route" ? "路线预估取不到，用得到它的商品报 ROUTE_UNAVAILABLE" : "汇率取不到，跨币种的报价报 FX_RATE_UNAVAILABLE");
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 这次用车的路线预估（报价引擎第 6 步）：只有里程 + 时长的价格、按小时的夜间费、按时长的附加服务用得到。
+ * 接送机：机场 / 车站那一端用接送点的坐标。包车不估（按套餐时长）。两端的坐标不全、或路线服务取不到（含超时、出错），返回 null。
+ * 在数据库事务之外调用：不占着连接等外部服务。
+ */
+async function estimateRoute(ctx: AppContext, log: QuoteLog, request: QuoteRequest, placeLocation: LatLng | null, departAt: Date, assumeRoute: RouteEstimate | null): Promise<RouteEstimate | null> {
   if (assumeRoute !== null) return assumeRoute;
   if (request.category === "charter") return null;
   const from = request.category === "airport_transfer" && request.direction === "pickup" ? placeLocation : request.pickup;
   const to = request.category === "airport_transfer" && request.direction === "dropoff" ? placeLocation : request.dropoff;
   if (from === null || to === null) return null;
-  return ctx.quote.routes.estimate({ from, to, departAt });
+  return callExternal(ctx, log, "route", () => ctx.quote.routes.estimate({ from, to, departAt }));
 }
 
 /** 这批商品有没有哪个用得到路线预估（用不到就不去调路线服务）。 */
@@ -109,8 +151,14 @@ interface Quoted {
   quote: ProductQuote;
 }
 
-/** 给一批候选商品各报一次价（库存、节假日一次取回）。 */
-async function quoteCandidates(ctx: AppContext, db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean): Promise<Quoted[]> {
+/** 报价要从库里现查的事实（不进目录缓存）：用车那一天的库存、节假日。 */
+interface QuoteFacts {
+  inventory: Map<string, InventoryDay>;
+  holidays: HolidayLookup;
+}
+
+/** 给一批候选商品取库存、节假日（各一次查询）。在事务里调用。 */
+async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest): Promise<QuoteFacts> {
   // 用车那一天（各商品所在城市的当地日期；同一批商品同城，时区一样）
   const dated = candidates.flatMap((candidate) => {
     const instant = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone);
@@ -122,11 +170,15 @@ async function quoteCandidates(ctx: AppContext, db: Db, candidates: readonly Quo
   const dates = dated.map((entry) => entry.date).sort();
   const first = dates[0];
   const holidays = countries.length === 0 || first === undefined ? [] : await listHolidays(db, { countryCodes: countries, from: addDays(first, -1), to: dates[dates.length - 1] as string }, 5_000);
-  const lookup = holidayLookup(holidays);
+  return { inventory, holidays: holidayLookup(holidays) };
+}
+
+/** 给一批候选商品各报一次价（纯计算）。 */
+function quoteCandidates(candidates: readonly QuoteCandidate[], facts: QuoteFacts, request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean): Quoted[] {
   return candidates.map((candidate) => ({
     candidate,
     // 每日加急库存的已用量要等有了订单（M3-01）才数得出来：现在按 0 算
-    quote: quoteProduct(candidate.product, request, { now, holidays: lookup, route, inventoryDay: inventory.get(candidate.product.productId) ?? null, urgentUsed: 0 }, { forOwner }),
+    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: 0 }, { forOwner }),
   }));
 }
 
@@ -157,8 +209,9 @@ export interface PlatformQuotePreview {
  * `fresh`（默认）：不用缓存里的旧目录，现取现算——试算要看的是现在的规则。正式的询价（M2-04）走同一个函数、`fresh: false`：
  * 候选商品和规则用 30 秒内的缓存，库存、节假日、评分仍然现查。
  */
-export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput, options: { fresh?: boolean } = {}): Promise<PlatformQuotePreview> {
+export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuoteInput, options: { fresh?: boolean; log?: QuoteLog } = {}): Promise<PlatformQuotePreview> {
   const now = ctx.now();
+  const log = options.log ?? SILENT;
   const request = toRequest(input.category, input);
   const issues: InputIssue[] = [];
   if (!isCurrencyCode(input.currency)) issues.push({ path: "/currency", reason: "UNSUPPORTED_CURRENCY", message: "不支持这个币种" });
@@ -169,7 +222,8 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   assertRequest(request, input.assumeRoute);
   const currency = input.currency as CurrencyCode;
 
-  return withPlatformTx(
+  // 先在一个只读事务里把库里的东西一次取齐；路线预估、汇率这些外部调用放在事务之外，不占着连接等
+  const loaded = await withPlatformTx(
     ctx.pool,
     async (db) => {
       const city = await findQuoteCity(db, input.cityId);
@@ -178,30 +232,36 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
       if (input.placeId !== null && (!place || !isPickupPlaceType(place.type as never) || place.cityId !== city.id)) {
         throw validationFailed("body", [{ path: "/place_id", reason: "UNKNOWN_PLACE", message: "接送点不存在、不是机场或车站，或者不在这个城市" }]);
       }
-      const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
+      // 停用的城市、接送点不报价：明说原因，而不是返回 0 个候选让人猜
+      if (!city.active) throw masterDataNotReady("CITY_DISABLED", "这个城市已被平台停用，现在不报价");
+      if (place !== null && !place.active) throw masterDataNotReady("PLACE_DISABLED", "这个机场或车站已被平台停用，现在不报价");
       const filter: QuoteCandidateFilter = { cityId: city.id, category: input.category, poiId: input.placeId, publishedOnly: true };
       const candidates = await ctx.quote.catalog.get(`${city.id}|${input.category}|${input.placeId ?? ""}`, () => loadQuoteCandidates(db, filter), { fresh: options.fresh !== false });
-      const route = input.assumeRoute !== null || needsRoute(candidates) ? await estimateRoute(ctx, request, place?.location ?? null, departAt, input.assumeRoute) : null;
-      const quoted = await quoteCandidates(ctx, db, candidates, request, now, route, false);
-
+      const facts = await loadQuoteFacts(db, candidates, request);
       const standings = await ctx.quote.standings.load(db, [...new Set(candidates.map((candidate) => candidate.product.tenantId))]);
-      const rates = new Map<string, Awaited<ReturnType<typeof ctx.quote.fx.quote>>>();
-      for (const { candidate } of quoted) {
-        const from = candidate.product.currency;
-        if (from !== currency && !rates.has(from)) rates.set(from, await ctx.quote.fx.quote(from, currency, now));
-      }
-      const entries = quoted.map(({ candidate, quote }): ComparisonEntry => ({
-        quote,
-        productVersion: candidate.version,
-        standing: standings.get(candidate.product.tenantId) ?? { scoreCenti: null, completedOrders: 0, observation: false },
-        markupBp: (vehicleGroupId) => ctx.quote.markup.markupBp({ tenantId: candidate.product.tenantId, cityId: candidate.cityId, category: input.category, vehicleGroupId }),
-        fx: rates.get(candidate.product.currency) ?? null,
-      }));
-      const comparison = compareQuotes({ request, currency, entries, now, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, fxBufferBp: Math.round(ctx.config.fx.bufferPercent * 100) });
-      return { currency, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, route, candidates, comparison };
+      return { city, place, candidates, facts, standings };
     },
     { snapshot: true },
   );
+  const { city, place, candidates, facts, standings } = loaded;
+
+  const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
+  const currencies = [...new Set(candidates.map((candidate) => candidate.product.currency).filter((from) => from !== currency))];
+  const [route, fxQuotes] = await Promise.all([
+    input.assumeRoute !== null || needsRoute(candidates) ? estimateRoute(ctx, log, request, place?.location ?? null, departAt, input.assumeRoute) : Promise.resolve(null),
+    Promise.all(currencies.map(async (from) => [from, await callExternal(ctx, log, "fx", () => ctx.quote.fx.quote(from, currency, now))] as const)),
+  ]);
+  const rates = new Map(fxQuotes);
+  const quoted = quoteCandidates(candidates, facts, request, now, route, false);
+  const entries = quoted.map(({ candidate, quote }): ComparisonEntry => ({
+    quote,
+    productVersion: candidate.version,
+    standing: standings.get(candidate.product.tenantId) ?? { scoreCenti: null, completedOrders: 0, observation: false },
+    markupBp: (vehicleGroupId) => ctx.quote.markup.markupBp({ tenantId: candidate.product.tenantId, cityId: candidate.cityId, category: input.category, vehicleGroupId }),
+    fx: rates.get(candidate.product.currency) ?? null,
+  }));
+  const comparison = compareQuotes({ request, currency, entries, now, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, fxBufferBp: Math.round(ctx.config.fx.bufferPercent * 100) });
+  return { currency, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, route, candidates, comparison };
 }
 
 // ---- 租户侧试算 ----
@@ -213,9 +273,10 @@ export interface TenantQuotePreview {
 }
 
 /** 租户侧试算：供应商自己的一个商品（任何状态）。只算结算价。别的供应商的商品当作不存在（404）。 */
-export async function previewTenantQuote(ctx: AppContext, tenantId: string, productId: string, input: QuotePreviewInput): Promise<TenantQuotePreview> {
+export async function previewTenantQuote(ctx: AppContext, tenantId: string, productId: string, input: QuotePreviewInput, options: { log?: QuoteLog } = {}): Promise<TenantQuotePreview> {
   const now = ctx.now();
-  return withTenantTx(
+  // 库里的东西在租户事务里取齐；路线预估在事务之外
+  const { request, candidates, facts } = await withTenantTx(
     ctx.pool,
     tenantId,
     async (db) => {
@@ -225,14 +286,15 @@ export async function previewTenantQuote(ctx: AppContext, tenantId: string, prod
       const request = toRequest(row.category, input);
       assertRequest(request, input.assumeRoute);
       const candidates = await loadQuoteCandidates(db, { cityId: row.city_id, category: row.category, poiId: row.poi_id, productId, publishedOnly: false });
-      const candidate = candidates[0];
       // 城市或接送点被平台停用了：这个商品现在报不了价
-      if (!candidate) throw masterDataNotReady("CITY_OR_PLACE_DISABLED", "这个商品所在的城市或它的接送点已被平台停用，现在报不了价");
-      const departAt = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone) as Date;
-      const route = input.assumeRoute !== null || needsRoute(candidates) ? await estimateRoute(ctx, request, candidate.pickupPlaceLocation, departAt, input.assumeRoute) : null;
-      const [quoted] = await quoteCandidates(ctx, db, candidates, request, now, route, true);
-      return { candidate, quote: (quoted as Quoted).quote, route };
+      if (candidates.length === 0) throw masterDataNotReady("CITY_OR_PLACE_DISABLED", "这个商品所在的城市或它的接送点已被平台停用，现在报不了价");
+      return { request, candidates, facts: await loadQuoteFacts(db, candidates, request) };
     },
     { snapshot: true },
   );
+  const candidate = candidates[0] as QuoteCandidate;
+  const departAt = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone) as Date;
+  const route = input.assumeRoute !== null || needsRoute(candidates) ? await estimateRoute(ctx, options.log ?? SILENT, request, candidate.pickupPlaceLocation, departAt, input.assumeRoute) : null;
+  const [quoted] = quoteCandidates(candidates, facts, request, now, route, true);
+  return { candidate, quote: (quoted as Quoted).quote, route };
 }
