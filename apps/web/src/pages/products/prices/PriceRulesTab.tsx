@@ -626,40 +626,42 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                     <input type="checkbox" checked={showExpired} onChange={(event) => setShowExpired(event.target.checked)} />
                     <span className="choice__text">{`显示已过期的${hiddenExpired > 0 ? `（${hiddenExpired} 条）` : ""}`}</span>
                   </label>
-                  <span className="price-filters__transfer">
-                    <Dropdown
-                      buttonClassName="button button--secondary button--sm"
-                      buttonContent={
-                        download.busy ? (
-                          "正在准备文件…"
-                        ) : (
+                  {frame.source.canExportPrices && (
+                    <span className="price-filters__transfer">
+                      <Dropdown
+                        buttonClassName="button button--secondary button--sm"
+                        buttonContent={
+                          download.busy ? (
+                            "正在准备文件…"
+                          ) : (
+                            <>
+                              导入 / 导出
+                              <Icon name="chevron-down" />
+                            </>
+                          )
+                        }
+                        align="end"
+                      >
+                        <button type="button" role="menuitem" className="menu-item" disabled={download.busy} onClick={() => void download.run((session) => exportPrices(session, product.id, "none"), "price-template.xlsx")}>
+                          <span className="menu-item__text">下载空白模版</span>
+                        </button>
+                        <button type="button" role="menuitem" className="menu-item" disabled={download.busy || prices.items.length === 0} onClick={() => void download.run((session) => exportPrices(session, product.id, "all"), "prices.xlsx")}>
+                          <span className="menu-item__text">
+                            {prices.items.length === 0 ? "导出现有的价格（还没有价格）" : `导出现有的价格（${prices.items.length} 条）`}
+                            {changes.length > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
+                          </span>
+                        </button>
+                        {!readOnly && (
                           <>
-                            导入 / 导出
-                            <Icon name="chevron-down" />
+                            <hr className="menu-divider" />
+                            <Link role="menuitem" className="menu-item" to={importPath(product.id, "prices")}>
+                              <span className="menu-item__text">导入价格…</span>
+                            </Link>
                           </>
-                        )
-                      }
-                      align="end"
-                    >
-                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy} onClick={() => void download.run((session) => exportPrices(session, product.id, "none"), "price-template.xlsx")}>
-                        <span className="menu-item__text">下载空白模版</span>
-                      </button>
-                      <button type="button" role="menuitem" className="menu-item" disabled={download.busy || prices.items.length === 0} onClick={() => void download.run((session) => exportPrices(session, product.id, "all"), "prices.xlsx")}>
-                        <span className="menu-item__text">
-                          {prices.items.length === 0 ? "导出现有的价格（还没有价格）" : `导出现有的价格（${prices.items.length} 条）`}
-                          {changes.length > 0 && <span className="menu-item__note">不含你没保存的修改</span>}
-                        </span>
-                      </button>
-                      {!readOnly && (
-                        <>
-                          <hr className="menu-divider" />
-                          <Link role="menuitem" className="menu-item" to={importPath(product.id, "prices")}>
-                            <span className="menu-item__text">导入价格…</span>
-                          </Link>
-                        </>
-                      )}
-                    </Dropdown>
-                  </span>
+                        )}
+                      </Dropdown>
+                    </span>
+                  )}
                 </div>
 
                 <div className="price-table__scroll" id="price-table" tabIndex={-1}>

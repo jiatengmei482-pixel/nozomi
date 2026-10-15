@@ -50,6 +50,7 @@ function open(path: string, role: string, world: World = {}, routes: Route = () 
     if (at.startsWith("/platform/v1/tenants/")) return apiError(404, "NOT_FOUND", "没有");
     if (at === "/platform/v1/staff") return json(200, { items: world.staff ?? [meOf(role), staffOf()], next_cursor: null });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
+    if (at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }] });
     return null;
   });
@@ -82,7 +83,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "主数据", "城市", "地点", "车型组", "附加服务", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "主数据", "城市", "地点", "车型组", "附加服务", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);

@@ -464,3 +464,143 @@
     margin: 0;
   }
 }
+
+/* ───── 商品（只读查看，docs/design/pages/platform-products.md） ───── */
+.page > .filter-chips + .table-wrap {
+  margin-top: var(--space-3);
+}
+
+/* 供应商详情页的「商品」一栏：标题行 + 筛选条 + 表格 + 翻页 */
+.tenant-products {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tenant-products > .card__title-row {
+  margin-bottom: 0;
+}
+
+/* ───── 报价试算 ───── */
+.quote-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--layout-form-max-width);
+}
+
+.quote-form > .card__title {
+  margin-bottom: 0;
+}
+
+.quote-form > [role="alert"]:empty {
+  display: none;
+}
+
+.quote-form__time {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+@media (min-width: 480px) {
+  .quote-form__time {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.quote-form__date .input,
+.quote-form__clock .input {
+  font-variant-numeric: tabular-nums;
+}
+
+.quote-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.quote-result__title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.quote-result__summary {
+  color: var(--color-text-secondary);
+}
+
+.quote-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.quote-group > .card__title {
+  margin-bottom: 0;
+}
+
+.quote-group__winner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.quote-group__winner > .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-success-text);
+}
+
+.quote-table td,
+.quote-table th {
+  white-space: nowrap;
+}
+
+.quote-table .table__cell--wrap {
+  white-space: normal;
+}
+
+.quote-table__detail > td {
+  background: var(--color-bg-subtle);
+  white-space: normal;
+}
+
+.quote-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.quote-detail__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-0-5);
+}
+
+@media (min-width: 768px) {
+  .quote-detail__item {
+    grid-template-columns: minmax(0, 12em) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+}
+
+.quote-detail dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.quote-detail dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.quote-detail__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}

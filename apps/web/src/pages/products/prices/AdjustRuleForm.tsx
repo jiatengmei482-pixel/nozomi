@@ -7,7 +7,7 @@ import { type ExactAmount, PRICE_LIMITS, type PriceRule, addDays, adjustRuleCove
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
-import { type AdjustRuleBody, type AdjustRuleInput, type Holidays, createAdjustRule, getHolidays, updateAdjustRule } from "../../../api/prices.ts";
+import { type AdjustRuleBody, type AdjustRuleInput, type Holidays, createAdjustRule, updateAdjustRule } from "../../../api/prices.ts";
 import { usePortalSession } from "../../../auth/PortalSession.tsx";
 import { Alert } from "../../../components/Alert.tsx";
 import { Button, IconButton, LinkButton } from "../../../components/Button.tsx";
@@ -40,7 +40,6 @@ import { countryName, displayName, shortName } from "../../../lib/master-display
 import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
 import { moneyText, readAmount, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
-import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyDate, tidyTime } from "../../../lib/time-input.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { useLoad } from "../../../lib/use-load.ts";
@@ -82,6 +81,7 @@ interface Trial {
 
 export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleId: string | null }) {
   const { frame, product, prices, adjusts } = shared;
+  const { price: pricePath } = frame.source.paths;
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const navigate = useNavigate();
@@ -146,7 +146,7 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
   const holidayFrom = (form && form.cycle !== "dates" ? tidyDate(form.from) : null) ?? prices.today;
   const holidayStart = holidayFrom < prices.today ? prices.today : holidayFrom;
   const holidayTo = (form && form.to.trim() !== "" ? tidyDate(form.to) : null) ?? addDays(holidayStart, 365);
-  const holidays = useLoad<Holidays>(`holidays:${holidayStart}:${holidayTo}`, form?.cycle === "holidays" || form === null ? (session) => getHolidays(session, { from: holidayStart, to: holidayTo >= holidayStart ? holidayTo : holidayStart }) : null);
+  const holidays = useLoad<Holidays>(`holidays:${holidayStart}:${holidayTo}`, form?.cycle === "holidays" || form === null ? (session) => frame.source.holidays(session, { from: holidayStart, to: holidayTo >= holidayStart ? holidayTo : holidayStart }) : null);
 
   const dirty = form !== null && JSON.stringify(form) !== initial;
   useLeaveGuard(dirty && !saving && !readOnly, setLeaving);

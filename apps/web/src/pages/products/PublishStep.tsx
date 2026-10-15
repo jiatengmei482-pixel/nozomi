@@ -5,7 +5,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, getServiceRules, setProductPublished } from "../../api/products.ts";
+import { type Product, type ProductServiceRules, type PublishCheckItemBody, type PublishCheckResult, setProductPublished } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
@@ -16,7 +16,6 @@ import { useToast } from "../../components/Toast.tsx";
 import { shortName } from "../../lib/master-display.ts";
 import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
-import { pricePath, productPath } from "../../lib/product-paths.ts";
 import { localToday } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import type { ProductFrame } from "./frame.ts";
@@ -33,7 +32,8 @@ const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;
-  const rules = useLoad<ProductServiceRules>(`publish-service-rules:${product.id}:${frame.version}`, (token) => getServiceRules(token, product.id));
+  const { step: productPath, price: pricePath } = frame.source.paths;
+  const rules = useLoad<ProductServiceRules>(`publish-service-rules:${product.id}:${frame.version}`, (token) => frame.source.serviceRules(token, product.id));
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const navigate = useNavigate();
@@ -146,7 +146,7 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
               </>
             ),
           }
-        : { kind: "success", title: "可以上架了", body: "必须的检查都通过了。点下面的「上架」，这个商品就开始参与报价和接单。" };
+        : { kind: "success", title: "可以上架了", body: readOnly ? "必须的检查都通过了。" : "必须的检查都通过了。点下面的「上架」，这个商品就开始参与报价和接单。" };
 
   // 库存是限量、从今天起却没有一天有库存：不拦上架，但上了架也卖不出去
   const noStockAhead = check.items.some((item) => item.key === "inventory" && item.issues.some((issue) => issue.reason === "NO_INVENTORY_AHEAD"));

@@ -42,7 +42,8 @@ export type IconName =
   | "undo"
   | "redo"
   | "target"
-  | "minus";
+  | "minus"
+  | "calculator";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   eye: (
@@ -164,6 +165,12 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   "arrow-down": <path d="M12 5v14M6 13l6 6 6-6" />,
   refresh: <path d="M20 11a8 8 0 0 0-14.5-4M4 4v4h4M4 13a8 8 0 0 0 14.5 4M20 20v-4h-4" />,
   package: <path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5v-9zM3.5 7.5L12 12l8.5-4.5M12 12v9" />,
+  calculator: (
+    <>
+      <rect x="5" y="3" width="14" height="18" rx="2" />
+      <path d="M8.5 7h7M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18h.01M12 18h3.5" />
+    </>
+  ),
 };
 
 export function Icon({ name, className }: { name: IconName; className?: string }) {
