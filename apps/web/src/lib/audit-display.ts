@@ -202,11 +202,11 @@ export function localOffsetLabel(at: Date = new Date()): string {
 export function localDayInstant(date: string, endExclusive: boolean): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return null;
-  const at = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + (endExclusive ? 1 : 0));
-  if (Number.isNaN(at.getTime())) return null;
-  // 2026-02-31 这样的日期会被挪到下个月：不认
-  if (!endExclusive && (at.getMonth() !== Number(match[2]) - 1 || at.getDate() !== Number(match[3]))) return null;
-  return at.toISOString();
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const start = new Date(year, month - 1, day);
+  // 2026-02-31 这样的日期会被挪到下个月：不认（「到」这一头也先按当天核对，再往后挪一天）
+  if (Number.isNaN(start.getTime()) || start.getMonth() !== month - 1 || start.getDate() !== day) return null;
+  return (endExclusive ? new Date(year, month - 1, day + 1) : start).toISOString();
 }
 
 export function localDate(at: Date): string {

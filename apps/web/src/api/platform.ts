@@ -7,7 +7,7 @@
  */
 import type { PlatformRole } from "@nozomi/domain";
 import { query } from "./areas.ts";
-import { apiRequest } from "./client.ts";
+import { ApiError, apiRequest } from "./client.ts";
 import type { PlatformUser, Tenant, TenantUser } from "./types.ts";
 
 export const PLATFORM_BASE = "/platform/v1";
@@ -25,6 +25,17 @@ export interface OneTimeToken {
 export interface Page<T> {
   items: T[];
   next_cursor: string | null;
+}
+
+/**
+ * 发令牌的接口应答成功、却没有带令牌：按「不知道有没有成功」处理（和服务器出错同一类），
+ * 页面不会把一条用不了的链接交出去。
+ */
+async function withToken<T, K extends keyof T>(request: Promise<T>, field: K): Promise<T> {
+  const result = await request;
+  const issued = (result as { [key in K]?: { token?: unknown } | null })?.[field];
+  if (typeof issued?.token !== "string" || issued.token === "") throw new ApiError(502, "UNKNOWN", "", {}, null);
+  return result;
 }
 
 const one = (base: string, id: string): string => `${base}/${encodeURIComponent(id)}`;
@@ -62,7 +73,7 @@ export interface TenantCreate {
 }
 
 export function createTenant(token: string, body: TenantCreate): Promise<{ tenant: Tenant; admin_user: TenantUser; invite: OneTimeToken }> {
-  return apiRequest("POST", TENANTS_PATH, { token, body });
+  return withToken(apiRequest("POST", TENANTS_PATH, { token, body }), "invite");
 }
 
 export function suspendTenant(token: string, id: string, reason: string): Promise<Tenant> {
@@ -74,11 +85,11 @@ export function resumeTenant(token: string, id: string): Promise<Tenant> {
 }
 
 export function inviteTenantAdmin(token: string, id: string, body: { email: string; name: string }): Promise<{ user: TenantUser; invite: OneTimeToken }> {
-  return apiRequest("POST", `${one(TENANTS_PATH, id)}/admin-invites`, { token, body });
+  return withToken(apiRequest("POST", `${one(TENANTS_PATH, id)}/admin-invites`, { token, body }), "invite");
 }
 
 export function issueTenantAdminReset(token: string, id: string, email: string): Promise<{ user: TenantUser; reset: OneTimeToken }> {
-  return apiRequest("POST", `${one(TENANTS_PATH, id)}/admin-password-resets`, { token, body: { email } });
+  return withToken(apiRequest("POST", `${one(TENANTS_PATH, id)}/admin-password-resets`, { token, body: { email } }), "reset");
 }
 
 // ───────────── 平台员工 ─────────────
@@ -94,7 +105,7 @@ export interface StaffCreate {
 }
 
 export function createStaff(token: string, body: StaffCreate): Promise<{ user: PlatformUser; invite: OneTimeToken }> {
-  return apiRequest("POST", STAFF_PATH, { token, body });
+  return withToken(apiRequest("POST", STAFF_PATH, { token, body }), "invite");
 }
 
 export function setStaffEnabled(token: string, id: string, action: "enable" | "disable"): Promise<PlatformUser> {
@@ -102,7 +113,7 @@ export function setStaffEnabled(token: string, id: string, action: "enable" | "d
 }
 
 export function issueStaffReset(token: string, id: string): Promise<{ user: PlatformUser; reset: OneTimeToken }> {
-  return apiRequest("POST", `${one(STAFF_PATH, id)}/password-reset`, { token });
+  return withToken(apiRequest("POST", `${one(STAFF_PATH, id)}/password-reset`, { token }), "reset");
 }
 
 // ───────────── 审计日志 ─────────────

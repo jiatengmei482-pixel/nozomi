@@ -40,6 +40,18 @@ export function Dialog({ open, title, subtitle, size = "confirm", busy = false, 
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
     };
   }, [open]);
+  const locked = busy || sealed;
+  // 浏览器只让页面拦下头一次 Esc（cancel 事件），连按第二次就直接把 <dialog> 关掉。
+  // 不该关的时候（等结果、只能用按钮关）：Esc 在按键这一步就拦下；万一还是被浏览器关了，马上重新打开。
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!open || !locked || !dialog) return;
+    const reopen = (): void => {
+      if (dialog.isConnected && !dialog.open) dialog.showModal();
+    };
+    dialog.addEventListener("close", reopen);
+    return () => dialog.removeEventListener("close", reopen);
+  }, [open, locked]);
   if (!open) return null;
   return (
     <dialog
@@ -47,12 +59,15 @@ export function Dialog({ open, title, subtitle, size = "confirm", busy = false, 
       className={`dialog dialog--${size}`}
       aria-labelledby={titleId}
       aria-describedby={describedBy}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && locked) event.preventDefault();
+      }}
       onCancel={(event) => {
         event.preventDefault();
-        if (!busy && !sealed) onClose();
+        if (!locked) onClose();
       }}
       onClick={(event) => {
-        if (event.target === ref.current && dismissOnBackdrop && !busy && !sealed) onClose();
+        if (event.target === ref.current && dismissOnBackdrop && !locked) onClose();
       }}
     >
       <div className="dialog__panel">
