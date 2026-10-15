@@ -88,6 +88,8 @@ tags:
     description: 平台维护的各国节假日日历（调价规则的「节假日」周期用）
   - name: 区域
     description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
+  - name: 报价
+    description: 报价引擎的试算（平台侧：所有供应商一起比；租户侧：自己的一个商品，只有结算价）。正式的询价接口 `/sales/v1/quotes` 和渠道一起做（M2-04）
 paths:
   /health:
     get:
@@ -797,6 +799,55 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/IntegrationStatusDetail"
+  /platform/v1/quotes/preview:
+    post:
+      tags: [报价]
+      operationId: previewPlatformQuote
+      summary: 报价试算（所有供应商一起比）
+      description: |
+        需要操作 `quote.preview`（超级管理员、运营、招商、渠道经理、客服）。按一次用车请求把所有供应商的商品放在一起算，
+        返回每个车型组的中标和全部候选（结算价、对外价、加价比例、排序依据、明细），以及每个没报出价的商品 / 车型组的原因——
+        用来排查「为什么没报出价」「为什么是这家中标」。只读：不生成可以下单的报价，不写库、不留审计日志。
+        - 找商品：这个城市、这个品类（接送机还要同一个机场 / 车站）里已上架的商品。被暂停的供应商的商品在 `refused` 里（`TENANT_SUSPENDED`）。
+        - 区域校验：接送机只看非机场一端（接机看 `dropoff`，送机看 `pickup`），点对点两端都看，包车只看 `pickup`；禁行优先。
+          一个点落在同一个供应商多个区域、或点对点起终点在不同区域时，每个区域都算，取最低。
+        - 结算价 = 调价后的价 + 加急费 + 夜间费 + 附加服务，最后按子品牌的取整单位取整一次；明细各项之和等于结算价，尾差在 `adjust` 里。
+        - 对外价 = 结算价 × 汇率 × (1 + 汇率缓冲) × (1 + 加价比例)，按币种取整。结算币种和 `currency` 不同时要有汇率（缓冲 1.5%），没有、或汇率超过 48 小时没更新就报不出（`FX_RATE_UNAVAILABLE`）。
+          加价比例现在是配置里的默认值（渠道和加价规则在 M2-04），不低于下限 `markup_floor_bp`。
+        - 中标：每个车型组只出一个价。排序价 = 对外价（观察期的供应商 × 1.05）；排序价不超过最低排序价 × (1 + `band_bp`) 的在同价区间里（`in_band`），
+          区间内评分高者 → 已完成订单数多者 → 排序价低者中标。同一个供应商的几个商品只留排序价最低的。客人付的是中标者自己的对外价。
+        - 「里程 + 时长」的价格要路线预估：取不到时那个车型组报不出（`ROUTE_UNAVAILABLE`）。可以用 `assume_route` 给一个假定的里程和时长来试算。
+        - 路线预估、汇率服务超时（默认 2 秒）或出错时不让整次试算失败：用得到路线的报 `ROUTE_UNAVAILABLE`，跨币种的报 `FX_RATE_UNAVAILABLE`，其余照常。
+        金额都是最小货币单位的整数；`exact`、`rank_price`、`sell_exact` 是取整之前的精确值（十进制写法的字符串）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformQuotePreviewRequest"
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformQuotePreview"
+        "400":
+          description: |
+            `VALIDATION_FAILED`：请求写得不对。`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
+            `REQUIRED`、`NOT_APPLICABLE`（这个品类不填这一项）、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：城市（`details.reason` = `CITY_DISABLED`）或机场 / 车站（`PLACE_DISABLED`）已被平台停用，现在不报价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/master/cities:
     get:
       tags: [主数据]
@@ -2962,6 +3013,48 @@ paths:
                 $ref: "#/components/schemas/PublishCheck"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/products/{id}/quote-preview:
+    post:
+      tags: [报价]
+      operationId: previewProductQuote
+      summary: 试算自己的一个商品（只有结算价）
+      description: |
+        需要操作 `product.read`。按一次用车请求试算这个商品的结算价和完整的计算过程；商品不用上架（草稿、已下架的也能试算），
+        供应商被暂停时也能试算。品类、城市、接送点取商品自己的，请求里不用给。只读，不写任何东西。
+        算法和平台比价用的是同一套（`@nozomi/domain` 的 `quoteProduct`）：服务规则 → 区域校验 → 每个车型组命中价格规则 → 基础价 → 调价 → 加急、夜间、附加服务 → 库存。
+        商品层面就报不出时 `refusal` 给出原因（`offers` 为空）；否则每个车型组在 `offers` 里有一个价，或在 `refused` 里有一个原因。
+        **应答里只有供应商自己的结算价**：没有对外价、加价比例、别的供应商的任何信息。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotePreviewRequest"
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantQuotePreview"
+        "400":
+          description: "`VALIDATION_FAILED`：请求写得不对（`reason`：`REQUIRED`、`NOT_APPLICABLE`、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：商品所在的城市或它的接送点已被平台停用，现在报不了价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/products/{id}/publish:
     post:
       tags: [商品]
@@ -4568,9 +4661,539 @@ components:
       type: string
       enum: [admin, pricing, dispatch, finance, readonly]
       description: 租户角色：管理员、商品价格、调度、财务、只读
+    QuoteRefusalReason:
+      type: string
+      description: |
+        报不出价的原因。商品层面的：`PRODUCT_NOT_PUBLISHED`、`TENANT_SUSPENDED`、`BRAND_DISABLED`、`SERVICE_RULES_INCOMPLETE`、`INVALID_SERVICE_TIME`、
+        `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
+        `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。车型组层面的：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
+        `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
+        只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
+      enum: [PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT]
+    QuoteRouteEstimate:
+      type: object
+      additionalProperties: false
+      required: [meters, minutes]
+      description: 路线的里程（米）和时长（分钟）
+      properties:
+        meters:
+          type: integer
+          minimum: 0
+          maximum: 5000000
+        minutes:
+          type: integer
+          minimum: 0
+          maximum: 10080
+    QuotePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [service_time, passengers]
+      description: 一次用车请求（租户侧试算：品类、城市、接送点取商品自己的）
+      properties:
+        pickup:
+          description: 上车点。送机、点对点、包车必填；接机不用给（上车点是商品的机场 / 车站）
+          oneOf:
+            - $ref: "#/components/schemas/Point"
+            - type: "null"
+        dropoff:
+          description: 下车点。接机、点对点必填
+          oneOf:
+            - $ref: "#/components/schemas/Point"
+            - type: "null"
+        direction:
+          type: [string, "null"]
+          enum: [pickup, dropoff, null]
+          description: 接送机必填：pickup = 接机 / 接站，dropoff = 送机 / 送站；其他品类不填
+        package_hours:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 72
+          description: 包车必填：套餐时长（小时）；其他品类不填
+        service_time:
+          type: string
+          description: 用车时间，商品所在城市的当地时间 `YYYY-MM-DDTHH:mm`
+          examples: ["2026-10-20T10:00"]
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+        addons:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 20
+                default: 1
+                description: 按个计费的附加服务要几个；其他计费方式不看
+        driver_language:
+          type: [string, "null"]
+          description: 要的司机语言（如 zh）；不要求不填
+        vehicle_group_ids:
+          type: array
+          maxItems: 30
+          description: 只看这些车型组；空 = 商品选的全部
+          items:
+            type: string
+            format: uuid
+        assume_route:
+          description: 假定的路线里程和时长：给了就不去估路线（路线服务还没接上、或想看某个里程下的价时用）
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteEstimate"
+            - type: "null"
+    PlatformQuotePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [city_id, category, currency, service_time, passengers]
+      description: 一次用车请求（平台侧试算）。各字段的含义同 `QuotePreviewRequest`，另加城市、品类、接送点和客人支付的币种
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机必填：机场或车站（主数据的地点）；其他品类不填
+        currency:
+          type: string
+          description: 客人支付的币种（对外价和比价都换算到这个币种）
+          examples: [JPY]
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/Point"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/Point"
+            - type: "null"
+        direction:
+          type: [string, "null"]
+          enum: [pickup, dropoff, null]
+        package_hours:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 72
+        service_time:
+          type: string
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+        addons:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 20
+                default: 1
+        driver_language:
+          type: [string, "null"]
+        vehicle_group_ids:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            format: uuid
+        assume_route:
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteEstimate"
+            - type: "null"
+    QuoteSettlement:
+      type: object
+      additionalProperties: false
+      description: |
+        一个车型组的结算价和明细（子品牌币种的最小货币单位整数）。`total` = `base` + `adjust` + `urgent` + `night` + `addons` + `driver_language`，
+        取整只在最后按 `rounding_unit` 做一次，尾差在 `adjust` 里。这里只有供应商自己的结算价。
+      required: [currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, free_wait]
+      properties:
+        currency:
+          type: string
+        rounding_unit:
+          type: integer
+        total:
+          type: integer
+          description: 结算价
+        base:
+          type: integer
+          description: 基础价（四舍五入到最小货币单位）
+        adjust:
+          type: integer
+          description: 调价合计，含取整的尾差
+        urgent:
+          type: integer
+        night:
+          type: integer
+        addons:
+          type: integer
+        driver_language:
+          type: integer
+        exact:
+          type: object
+          additionalProperties: false
+          required: [base, adjusted, night, addons, total]
+          description: 取整之前的精确值（十进制写法）。`total` = `adjusted` + 加急 + `night` + `addons` + 司机语言，按 `rounding_unit` 取整一次就是结算价
+          properties:
+            base:
+              type: string
+            adjusted:
+              type: string
+            night:
+              type: string
+            addons:
+              type: string
+              description: 附加服务合计的精确值（按时长计费不足一小时按比例，不先取整）
+            total:
+              type: string
+        adjusts:
+          type: array
+          description: 命中的调价规则和每一步（按执行顺序）
+          items:
+            type: object
+            additionalProperties: false
+            required: [rule_id, name, steps]
+            properties:
+              rule_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              steps:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [type, value, delta, after]
+                  properties:
+                    type:
+                      type: string
+                      enum: [percent, amount]
+                    value:
+                      type: integer
+                    delta:
+                      type: string
+                    after:
+                      type: string
+        urgent_tier:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [within_hours, surcharge]
+          description: 走加急时命中的那一档
+          properties:
+            within_hours:
+              type: integer
+            surcharge:
+              type: integer
+        night_detail:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [charge_unit, overlap_minutes]
+          description: 收了夜间费时怎么来的：按次，或与夜间时段重叠的分钟数
+          properties:
+            charge_unit:
+              type: string
+              enum: [per_order, per_hour]
+            overlap_minutes:
+              type: [integer, "null"]
+        addon_items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, charge_unit, quantity, charged_quantity, first_free, unit_price, amount, amount_exact]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              charge_unit:
+                type: string
+                enum: [per_order, per_item, per_person, per_duration]
+              quantity:
+                type: integer
+              charged_quantity:
+                type: string
+                description: 实际计费的数量（按个：个数，首个免费时减 1；按人：人数；按时长：小时数；按次：1）
+              first_free:
+                type: boolean
+              unit_price:
+                type: integer
+              amount:
+                type: integer
+                description: 这一项四舍五入到最小货币单位（展示用）；结算价用的是 `amount_exact`
+              amount_exact:
+                type: string
+                description: 这一项取整之前的精确值（十进制写法）
+        driver_language_code:
+          type: [string, "null"]
+        usage:
+          description: 「里程 + 时长」的价格用到的路线预估；别的计价方式为 null
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteEstimate"
+            - type: "null"
+        free_wait:
+          type: object
+          additionalProperties: false
+          required: [item, mode, minutes, platform_minimum_minutes]
+          description: 这个方向 / 品类的免费等待
+          properties:
+            item:
+              type: string
+              enum: [pickup, dropoff, general]
+            mode:
+              type: [string, "null"]
+              enum: [unlimited, limited, null]
+            minutes:
+              type: [integer, "null"]
+            platform_minimum_minutes:
+              type: integer
+    QuoteOffer:
+      type: object
+      additionalProperties: false
+      required: [vehicle_group_id, package_hours, area_id, price_rule_id, settlement]
+      properties:
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        area_id:
+          type: string
+          format: uuid
+          description: 用的是哪个区域的价（几个区域都能接时取最低的）
+        price_rule_id:
+          type: string
+          format: uuid
+        settlement:
+          $ref: "#/components/schemas/QuoteSettlement"
+    TenantQuotePreview:
+      type: object
+      additionalProperties: false
+      required: [product_id, code, status, version, currency, rounding_unit, route, refusal, service_date, urgent, offers, refused]
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        version:
+          type: integer
+        currency:
+          type: string
+        rounding_unit:
+          type: integer
+        route:
+          description: 这次试算用到的路线预估；没用到、或取不到为 null
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteEstimate"
+            - type: "null"
+        refusal:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [reason, message]
+          description: 商品层面就报不出时的原因（对所有车型组都一样）
+          properties:
+            reason:
+              $ref: "#/components/schemas/QuoteRefusalReason"
+            message:
+              type: string
+        service_date:
+          type: [string, "null"]
+          format: date
+          description: 用车那一天（城市当地日期）
+        urgent:
+          type: boolean
+          description: 是不是走的加急
+        offers:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuoteOffer"
+        refused:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [vehicle_group_id, reason, message]
+            properties:
+              vehicle_group_id:
+                type: string
+                format: uuid
+              reason:
+                $ref: "#/components/schemas/QuoteRefusalReason"
+              message:
+                type: string
+    PlatformQuotePreview:
+      type: object
+      additionalProperties: false
+      required: [currency, band_bp, markup_floor_bp, route, candidate_count, groups, refused]
+      properties:
+        currency:
+          type: string
+        band_bp:
+          type: integer
+          description: 价格带 δ（基点，300 = 3%）
+        markup_floor_bp:
+          type: integer
+          description: 加价比例的下限（基点）
+        route:
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteEstimate"
+            - type: "null"
+        candidate_count:
+          type: integer
+          description: 找到了几个候选商品
+        groups:
+          type: array
+          description: 每个车型组一组（按车型组编号排）；一个候选都没有的车型组不在这里
+          items:
+            type: object
+            additionalProperties: false
+            required: [vehicle_group_id, package_hours, created_at, expires_at, winner, candidates]
+            properties:
+              vehicle_group_id:
+                type: string
+                format: uuid
+              package_hours:
+                type: [integer, "null"]
+              created_at:
+                type: string
+                format: date-time
+              expires_at:
+                type: string
+                format: date-time
+                description: 这样一份报价的有效期（30 分钟）；试算不生成可以下单的报价，这里只是照着算出来
+              winner:
+                type: object
+                additionalProperties: false
+                required: [tenant_id, tenant_name, product_id, product_code, sell, settlement, settlement_currency]
+                properties:
+                  tenant_id:
+                    type: [string, "null"]
+                  tenant_name:
+                    type: [string, "null"]
+                  product_id:
+                    type: string
+                    format: uuid
+                  product_code:
+                    type: [string, "null"]
+                  sell:
+                    type: integer
+                    description: 对外价（`currency` 的最小货币单位）
+                  settlement:
+                    type: integer
+                  settlement_currency:
+                    type: string
+              candidates:
+                type: array
+                description: 全部候选，按名次；第一个是中标的
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, fx_buffer_bp, fx, offer]
+                  properties:
+                    position:
+                      type: integer
+                    in_band:
+                      type: boolean
+                    rank_price:
+                      type: string
+                      description: 排序价（观察期的供应商 = 对外价 × 1.05），只用于比较
+                    tenant_id:
+                      type: [string, "null"]
+                    tenant_name:
+                      type: [string, "null"]
+                    product_id:
+                      type: string
+                      format: uuid
+                    product_code:
+                      type: [string, "null"]
+                    product_version:
+                      type: integer
+                    observation:
+                      type: boolean
+                    score_centi:
+                      type: integer
+                      description: 评分 × 100（完成不足 20 单、还没有评分的是默认的 450）
+                    completed_orders:
+                      type: integer
+                    sell:
+                      type: integer
+                    sell_exact:
+                      type: string
+                    markup_bp:
+                      type: integer
+                    fx_buffer_bp:
+                      type: integer
+                    fx:
+                      type: [object, "null"]
+                      additionalProperties: false
+                      required: [from, to, rate, as_of]
+                      properties:
+                        from:
+                          type: string
+                        to:
+                          type: string
+                        rate:
+                          type: string
+                        as_of:
+                          type: string
+                    offer:
+                      $ref: "#/components/schemas/QuoteOffer"
+        refused:
+          type: array
+          description: 没能参加比价的：商品层面的（`vehicle_group_id` 为 null）和某个车型组的
+          items:
+            type: object
+            additionalProperties: false
+            required: [tenant_id, tenant_name, product_id, product_code, vehicle_group_id, reason, message]
+            properties:
+              tenant_id:
+                type: [string, "null"]
+              tenant_name:
+                type: [string, "null"]
+              product_id:
+                type: string
+                format: uuid
+              product_code:
+                type: [string, "null"]
+              vehicle_group_id:
+                type: [string, "null"]
+              reason:
+                $ref: "#/components/schemas/QuoteRefusalReason"
+              message:
+                type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]

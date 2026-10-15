@@ -162,6 +162,9 @@ const rawSchema = z.object({
 
   FX_SOURCE_URL: z.string().url().default("https://open.er-api.com/v6/latest/USD"),
   FX_BUFFER_PERCENT: z.coerce.number().min(0).max(10).default(1.5),
+
+  // 报价：渠道和加价规则（M2-04）上线之前，试算用的默认加价比例，基点（1000 = 10%，也是需求里渠道加价的默认下限）。不是密钥
+  QUOTE_DEFAULT_MARKUP_BP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(1_000)),
 });
 
 export type RawEnv = z.input<typeof rawSchema>;
@@ -189,6 +192,8 @@ export interface AppConfig {
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
   fx: { sourceUrl: string; bufferPercent: number };
+  /** 报价的默认参数（渠道和加价规则上线之前用） */
+  quote: { defaultMarkupBp: number };
 }
 
 export class ConfigError extends Error {
@@ -269,6 +274,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     googleMapsApiKey,
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT },
+    quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
   };
 }
 

@@ -76,13 +76,21 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
   [PLATFORM_DB_ROLE]: {
     // 主数据：平台可读、可新增、可修改，不能删（只停用）
     addons: ["INSERT", "SELECT", "UPDATE"],
+    // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
+    adjust_rules: ["SELECT"],
+    area_polygons: ["SELECT"],
+    areas: ["SELECT"],
     audit_logs: ["INSERT", "SELECT"],
+    brands: ["SELECT"],
     cities: ["INSERT", "SELECT", "UPDATE"],
     // 节假日日历：写错了删掉重填，所以平台可以删
     holidays: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    inventory_days: ["SELECT"],
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
+    price_rules: ["SELECT"],
+    product_areas: ["SELECT"],
     // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016）
     product_vehicle_groups: ["SELECT"],
     products: ["SELECT"],
@@ -115,6 +123,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "audit_logs.audit_logs_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "products.products_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  // 报价用到的租户表：平台只读（ADR 0020）
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "inventory_days"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],

@@ -116,6 +116,17 @@ function times(a: ExactAmount, numerator: bigint, denominator: bigint = 1n): Exa
   return exact(a.numerator * numerator, a.denominator * denominator);
 }
 
+/** 两个精确的金额相加。 */
+export function addExact(a: ExactAmount, b: ExactAmount): ExactAmount {
+  return plus(a, b);
+}
+
+/** 精确的金额乘以一个分数 numerator / denominator。 */
+export function scaleExact(amount: ExactAmount, numerator: bigint, denominator: bigint = 1n): ExactAmount {
+  if (denominator === 0n) throw new RangeError("分母不能为 0");
+  return times(amount, numerator, denominator);
+}
+
 export function compareExact(a: ExactAmount, b: ExactAmount): number {
   const difference = a.numerator * b.denominator - b.numerator * a.denominator;
   return difference < 0n ? -1 : difference > 0n ? 1 : 0;

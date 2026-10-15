@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.ts";
+import type { QuoteDeps } from "../services/quote-deps.ts";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
@@ -61,6 +62,8 @@ export interface TenantFixture {
 export interface TestApiOptions {
   /** 在测试配置之上追加或覆盖的环境变量（如地图底图的配置） */
   env?: Record<string, string>;
+  /** 报价引擎的外部依赖的替身（路线预估、汇率、加价规则、评分） */
+  quote?: Partial<QuoteDeps>;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -80,6 +83,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     pool: db.pool,
     migrationFiles,
     now: clock.now,
+    ...(options.quote === undefined ? {} : { quote: options.quote }),
     logDestination: { write: (line) => void (logs += line) },
   });
 

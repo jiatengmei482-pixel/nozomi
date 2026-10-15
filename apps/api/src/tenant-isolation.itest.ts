@@ -630,8 +630,12 @@ test("区域的隔离（数据库层面）：租户事务里不带任何条件�
     { code: "42501" },
   );
   // 没有设置租户（登录前的角色、平台角色）一行都碰不到：这三张表没有给它们任何权限
-  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from areas")), deniedByDatabase);
-  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from area_polygons")), deniedByDatabase);
+  // 平台角色：区域和图形只读（报价要把所有供应商的放在一起算，ADR 0020），不能写
+  for (const table of ["areas", "area_polygons"]) {
+    assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`))).rowCount ?? 0) > 0, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`delete from ${table}`)), deniedByDatabase, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update ${table} set tenant_id = tenant_id`)), deniedByDatabase, table);
+  }
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from idempotency_keys")), deniedByDatabase);
   assert.deepEqual(await areaRows(), before);
 });
@@ -766,7 +770,7 @@ test("商品的其余接口：读不到、改不了、删不了、上不了架�
   assert.deepEqual((await api.call("GET", `/tenant/v1/areas/${seeded.areas.a.id}`, { token: a.adminToken })).body.usage, { product_count: 1, published_product_count: 0 });
 });
 
-test("子品牌和商品的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下；平台角色只能读商品和它选的车型组", async () => {
+test("子品牌和商品的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下；平台角色对报价用到的表只读、读不到调度人", async () => {
   const seeded = await seedProducts();
   const before = await productRows();
   for (const table of ["brands", "products", "product_areas", "product_dispatchers"]) {
@@ -800,7 +804,13 @@ test("子品牌和商品的隔离（数据库层面）：租户事务里只看�
   assert.equal(platformSees.rows[0]?.n, 2);
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update products set status = 'published'")), deniedByDatabase);
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from product_vehicle_groups")), deniedByDatabase);
-  for (const table of ["brands", "product_areas", "product_dispatchers"]) await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`)), deniedByDatabase, table);
+  // 子品牌、商品选的区域：平台只读（报价用，ADR 0020），不能写；调度人平台读不到
+  for (const table of ["brands", "product_areas"]) {
+    assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`))).rowCount ?? 0) > 0, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`delete from ${table}`)), deniedByDatabase, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update ${table} set tenant_id = tenant_id`)), deniedByDatabase, table);
+  }
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from product_dispatchers")), deniedByDatabase);
   assert.deepEqual(await productRows(), before);
 });
 
@@ -966,7 +976,7 @@ test("PUT /tenant/v1/brands/{id}/rounding-unit：改不了别的供应商的子�
   await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from holidays")), deniedByDatabase);
 });
 
-test("价格和调价的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品和区域上；平台角色碰不到这两张表", async () => {
+test("价格和调价的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品和区域上；平台角色对这两张表只读", async () => {
   const seeded = await seedPrices();
   const before = await priceRows();
   for (const table of ["price_rules", "adjust_rules"]) {
@@ -998,7 +1008,12 @@ test("价格和调价的隔离（数据库层面）：租户事务里只看得�
     ),
     { code: "42501" },
   );
-  for (const table of ["price_rules", "adjust_rules"]) await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`)), deniedByDatabase, table);
+  // 平台角色：价格和调价只读（报价用，ADR 0020），不能写
+  for (const table of ["price_rules", "adjust_rules"]) {
+    assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query(`select 1 from ${table}`))).rowCount ?? 0) > 0, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`delete from ${table}`)), deniedByDatabase, table);
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update ${table} set status = 'disabled'`)), deniedByDatabase, table);
+  }
   assert.deepEqual(await priceRows(), before);
 });
 
@@ -1064,6 +1079,23 @@ test("库存：看不到、改不了别的供应商商品的库存（404，和�
   assert.deepEqual(mine.body.days.map((day: any) => day.total), [3]);
 });
 
+test("试算：试算不了别的供应商的商品（404，和不存在一样）；自己的商品试算出来的只有自己的结算价", async () => {
+  cover("POST /tenant/v1/products/:id/quote-preview");
+  const seeded = await seedInventory();
+  const body = { pickup: { lng: 139.7, lat: 35.6 }, dropoff: { lng: 139.7, lat: 35.6 }, service_time: "2026-11-20T10:00", passengers: 2, tenant_id: b.tenantId };
+  const send = (productId: string, token: string, payload: unknown = body): Promise<ApiResponse> => api.call("POST", `/tenant/v1/products/${productId}/quote-preview`, { token, body: payload });
+  // 请求体里的 tenant_id 不认（不认识的字段：400），不会因此看到对方的商品
+  assert.equal((await send(seeded.b.productId, a.adminToken)).status, 400);
+  const { tenant_id: _ignored, ...clean } = body;
+  const foreign = await send(seeded.b.productId, a.adminToken, clean);
+  assert.equal(foreign.status, 404, foreign.text);
+  assert.equal(foreign.text, (await send(NO_SUCH_ID, a.adminToken, clean)).text);
+  const own = await send(seeded.a.productId, a.adminToken, clean);
+  assert.equal(own.status, 200, own.text);
+  assert.equal(own.body.product_id, seeded.a.productId);
+  assert.doesNotMatch(own.text, new RegExp(`${b.tenantId}|${seeded.b.productId}|sell|markup`));
+});
+
 test("导入导出：导不出、预览不了、导入不了别的供应商的商品；往自己的商品里导入带着对方价格编号的文件，那一行和编号不存在一样被拒", async () => {
   for (const route of ["GET /tenant/v1/products/:id/price-rules/export", "POST /tenant/v1/products/:id/price-rules/import/preview", "POST /tenant/v1/products/:id/price-rules/import", "GET /tenant/v1/products/:id/inventory/export", "POST /tenant/v1/products/:id/inventory/import/preview", "POST /tenant/v1/products/:id/inventory/import"]) cover(route);
   const seeded = await seedInventory();
@@ -1109,7 +1141,7 @@ test("导入导出：导不出、预览不了、导入不了别的供应商的�
   assert.deepEqual({ prices: await priceRows(), inventory: await inventoryRows() }, before);
 });
 
-test("库存的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品上；平台角色碰不到", async () => {
+test("库存的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品上；平台角色只读", async () => {
   const seeded = await seedInventory();
   const before = await inventoryRows();
   const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>("select distinct tenant_id from inventory_days"));
@@ -1126,7 +1158,10 @@ test("库存的隔离（数据库层面）：租户事务里只看得到、改�
   await assert.rejects(insert(b.tenantId, seeded.b.productId), { code: "42501" }, "写进别人名下");
   await assert.rejects(insert(a.tenantId, seeded.b.productId), { code: "23503" }, "自己的租户编号 + 别人的商品");
   await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update inventory_days set tenant_id = $1 where product_id = $2", [b.tenantId, seeded.a.productId])), { code: "42501" });
-  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("select 1 from inventory_days")), deniedByDatabase);
+  // 平台角色：库存只读（报价用，ADR 0020），不能写
+  assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query("select 1 from inventory_days"))).rowCount ?? 0) > 0);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update inventory_days set total = 99")), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from inventory_days")), deniedByDatabase);
   assert.deepEqual(await inventoryRows(), before);
 });
 
