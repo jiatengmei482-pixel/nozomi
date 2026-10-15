@@ -2,6 +2,7 @@
  * 运营后台首页（docs/design/pages/platform-home.md）：各模块的入口、数量和需要处理的提醒。
  * 数量全部来自 `dashboard/summary`；入口不等数量，数量加载失败时入口照常可用。
  */
+import { TENANT_LIST_PATH } from "../lib/platform-paths.ts";
 import { useEffect, useRef, useState } from "react";
 import { type DashboardSummary, fetchDashboardSummary } from "../api/master.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
@@ -83,7 +84,7 @@ export function PlatformHomePage() {
               运营
             </h2>
             <div className="entry-grid">
-              <EntryCard title="供应商" counts={tenants ? { status: "ready", counts: [{ value: tenants.active, label: "正常" }, { value: tenants.suspended, label: "已暂停" }] } : pending} />
+              <EntryCard title="供应商" to={TENANT_LIST_PATH} counts={tenants ? { status: "ready", counts: [{ value: tenants.active, label: "正常" }, { value: tenants.suspended, label: "已暂停" }] } : pending} />
             </div>
           </section>
         )}

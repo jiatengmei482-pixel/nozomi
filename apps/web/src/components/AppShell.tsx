@@ -32,6 +32,8 @@ interface NavGroup {
   label: string;
   icon: IconName;
   children: readonly NavLeaf[];
+  /** 偶尔才用的分组默认收起（当前页在里面时照常展开） */
+  collapsedByDefault?: boolean;
 }
 
 type NavEntry = NavLeaf | NavGroup;
@@ -39,6 +41,7 @@ type NavEntry = NavLeaf | NavGroup;
 /** 菜单只列已经做出来、当前角色有权限看的页面（docs/design/pages/platform-home.md 第 2 节）。 */
 function navEntries(portal: Portal, home: string, role: string | null): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
     entries.push({
       key: "master",
@@ -51,6 +54,15 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
         { to: "/platform/master/addons", label: "附加服务", prefix: true },
       ],
     });
+  }
+  if (portal === "platform" && role !== null && isPlatformRole(role)) {
+    // 系统设置：各子项各看各的权限；一项都看不到时整个分组不显示
+    const children = [
+      ...(platformRoleCan(role, "staff.read") ? [{ to: "/platform/settings/staff", label: "平台员工", prefix: true }] : []),
+      ...(platformRoleCan(role, "audit_log.read") ? [{ to: "/platform/settings/audit-logs", label: "审计日志", prefix: true }] : []),
+      ...(platformRoleCan(role, "integration.read") ? [{ to: "/platform/settings/integrations", label: "系统状态", prefix: true }] : []),
+    ];
+    if (children.length > 0) entries.push({ key: "settings", label: "系统设置", icon: "settings", children, collapsedByDefault: true });
   }
   if (portal === "tenant" && role !== null && isTenantRole(role)) {
     const children = [
@@ -68,6 +80,8 @@ function isCurrent(leaf: NavLeaf, pathname: string): boolean {
 
 /** 用户收起了哪些分组：只记在内存里（本次打开期间有效）。 */
 const collapsedGroups = new Set<string>();
+/** 默认收起的分组里，用户展开了哪些。 */
+const expandedGroups = new Set<string>();
 
 function NavLeafLink({ leaf, onNavigate }: { leaf: NavLeaf; onNavigate?: (() => void) | undefined }) {
   const { pathname } = useLocation();
@@ -82,10 +96,15 @@ function NavLeafLink({ leaf, onNavigate }: { leaf: NavLeaf; onNavigate?: (() => 
 function NavGroupItem({ group, onNavigate }: { group: NavGroup; onNavigate?: (() => void) | undefined }) {
   const { pathname } = useLocation();
   const containsCurrent = group.children.some((leaf) => isCurrent(leaf, pathname));
-  const [collapsed, setCollapsed] = useState(() => collapsedGroups.has(group.key) && !containsCurrent);
+  const [collapsed, setCollapsed] = useState(() => (group.collapsedByDefault ? !expandedGroups.has(group.key) : collapsedGroups.has(group.key)) && !containsCurrent);
   const toggle = (): void => {
-    if (collapsed) collapsedGroups.delete(group.key);
-    else collapsedGroups.add(group.key);
+    if (collapsed) {
+      collapsedGroups.delete(group.key);
+      expandedGroups.add(group.key);
+    } else {
+      collapsedGroups.add(group.key);
+      expandedGroups.delete(group.key);
+    }
     setCollapsed(!collapsed);
   };
   return (

@@ -322,9 +322,9 @@ test("首页：数量与接口一致、入口能进到各列表；只读角色�
   await expect(card("车型组").locator("dl")).toHaveText(line(summary.master_data.vehicle_groups));
   await expect(card("附加服务").locator("dl")).toHaveText(line(summary.master_data.addons));
   await expect(card("供应商").locator("dl")).toHaveText(`正常${format(summary.tenants.active)}已暂停${format(summary.tenants.suspended)}`);
-  await expect(card("供应商").getByRole("link")).toHaveCount(0);
+  await expect(card("供应商").getByRole("link", { name: "供应商", exact: true })).toHaveAttribute("href", "/platform/tenants");
   await expect(page.getByText("当前登录")).toHaveCount(0);
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "城市", "地点", "车型组", "附加服务"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "供应商", "城市", "地点", "车型组", "附加服务"]);
 
   for (const [title, path, heading] of [
     ["城市", "/platform/master/cities", "城市"],
