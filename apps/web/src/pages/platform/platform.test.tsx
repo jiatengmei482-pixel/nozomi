@@ -424,6 +424,41 @@ test("平台员工列表：自己那一行不能停用、不能给自己发重�
   assert.doesNotMatch(pageText(), /LAST_ADMIN_REQUIRED|ACCOUNT_NOT_ACTIVATED|ACCOUNT_NOT_ACTIVE|super_admin|invited/);
 });
 
+test("停用、启用员工成功：确认后只发一次、不带请求体；那一行换成应答里的状态，菜单跟着变；有提示", async () => {
+  const actor = user();
+  const disabled = staffOf({ status: "disabled" });
+  const calls = open("/platform/settings/staff", "super_admin", {}, (call) => {
+    if (call.method !== "POST") return null;
+    return json(200, call.path.endsWith("/disable") ? disabled : staffOf());
+  });
+  const row = (): HTMLElement => screen.getByText("sato@example.com").closest("tr") as HTMLElement;
+  await screen.findByText("sato@example.com");
+  assert.match(row().textContent ?? "", /在用/);
+
+  await actor.click(within(row()).getByRole("button", { name: /的更多操作$/ }));
+  await actor.click(screen.getByRole("menuitem", { name: "停用" }));
+  const disable = screen.getByRole("dialog", { name: "停用「佐藤 健」？" });
+  await actor.click(within(disable).getByRole("button", { name: "停用" }));
+  await screen.findByText("已停用「佐藤 健」");
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "停用「佐藤 健」？" })));
+  assert.match(row().textContent ?? "", /已停用/);
+  await actor.click(within(row()).getByRole("button", { name: /的更多操作$/ }));
+  assert.deepEqual(screen.getAllByRole("menuitem").map((entry) => entry.textContent), ["启用", "看他的操作记录", "看这个账号的变更记录"]);
+
+  await actor.click(screen.getByRole("menuitem", { name: "启用" }));
+  const enable = screen.getByRole("dialog", { name: "启用「佐藤 健」？" });
+  await actor.click(within(enable).getByRole("button", { name: "启用" }));
+  await screen.findByText("已启用「佐藤 健」");
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "启用「佐藤 健」？" })));
+  assert.match(row().textContent ?? "", /在用/);
+  assert.doesNotMatch(row().textContent ?? "", /已停用/);
+
+  assert.deepEqual(writes(calls).map((call) => [call.method, call.path, call.body]), [
+    ["POST", `/platform/v1/staff/${STAFF_ID}/disable`, undefined],
+    ["POST", `/platform/v1/staff/${STAFF_ID}/enable`, undefined],
+  ]);
+});
+
 test("新增员工：十个角色各有说明，「现在能做的」按权限现算；没选角色不能交；邮箱已被占用；重新邀请时邮箱只读；成功后链接是运营后台的", async () => {
   const actor = user();
   let answer: Response = apiError(409, "EMAIL_TAKEN", "taken");
