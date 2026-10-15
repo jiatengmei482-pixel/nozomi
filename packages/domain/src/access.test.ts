@@ -52,15 +52,18 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read"]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview"]);
   }
   assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read"]);
   assert.equal(platformRoleCan("readonly", "tenant.create"), false);
   assert.equal(platformRoleCan("operations", "integration.read"), false);
-  for (const role of ["channel_manager", "customer_service", "finance", "risk"] as const) {
+  for (const role of ["finance", "risk"] as const) {
     assert.deepEqual(platformPermissions(role), ["master_data.read"]);
   }
+  // 报价试算（M2-01）：运营、招商、渠道经理、客服；里面有各供应商的结算价和加价比例，财务、风控、主数据、技术、只读不给
+  for (const role of ["channel_manager", "customer_service"] as const) assert.deepEqual(platformPermissions(role), ["master_data.read", "quote.preview"]);
+  for (const role of ["finance", "risk", "master_data", "tech", "readonly"] as const) assert.equal(platformRoleCan(role, "quote.preview"), false);
 });
 
 test("主数据：每个平台角色都能看，只有主数据运营和超级管理员能改；租户每个角色都能看，没有「改主数据」这个操作", () => {

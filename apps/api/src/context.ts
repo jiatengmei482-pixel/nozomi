@@ -4,9 +4,12 @@
  */
 import type { AppConfig } from "@nozomi/config";
 import type { Pool } from "./db/pool.ts";
+import type { QuoteDeps } from "./services/quote-deps.ts";
 
 export interface AppContext {
   config: AppConfig;
   pool: Pool;
   now: () => Date;
+  /** 报价引擎用到的外部依赖（路线预估、汇率、加价规则、评分）；见 services/quote-deps.ts */
+  quote: QuoteDeps;
 }

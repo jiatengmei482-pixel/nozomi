@@ -10,6 +10,7 @@ import { CITY, listMaster } from "./services/master-data.ts";
 import { importAirports } from "./services/airport-import.ts";
 import { testConfig } from "./testing/fixtures.ts";
 import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { defaultQuoteDeps } from "./services/quote-deps.ts";
 
 let api: TestApi;
 let root: string;
@@ -416,7 +417,7 @@ test("列表接口真的用了快照：在取这一页和数总数之间插入�
   };
   let page;
   try {
-    page = await listMaster({ config: testConfig(api.db.url), pool, now: api.clock.now }, { kind: "platform" }, CITY, {}, 200, { by: "created", after: null });
+    page = await listMaster({ config: testConfig(api.db.url), pool, now: api.clock.now, quote: defaultQuoteDeps(testConfig(api.db.url)) }, { kind: "platform" }, CITY, {}, 200, { by: "created", after: null });
   } finally {
     (pool as any).connect = realConnect;
   }

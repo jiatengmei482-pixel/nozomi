@@ -10,11 +10,13 @@ import { type Pool, driverErrorCode } from "./db/pool.ts";
 import type { MigrationFile } from "./db/migration-plan.ts";
 import { errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
 import type { AppContext } from "./context.ts";
+import { type QuoteDeps, defaultQuoteDeps } from "./services/quote-deps.ts";
 import { checkHealth } from "./health.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
 import { registerAreaRoutes } from "./routes/areas.ts";
 import { registerMasterDataRoutes } from "./routes/master-data.ts";
 import { registerImportExportRoutes } from "./routes/import-export.ts";
+import { registerQuoteRoutes } from "./routes/quotes.ts";
 import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
@@ -34,6 +36,8 @@ export interface AppDeps {
   healthTimeoutMs?: number;
   /** 时钟；默认系统时间。测试用它验证会话过期、限速窗口、邀请过期 */
   now?: () => Date;
+  /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用「还没有」的默认实现 */
+  quote?: Partial<QuoteDeps>;
 }
 
 export interface RegisteredRoute {
@@ -151,7 +155,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       .send(report);
   });
 
-  const context: AppContext = { config, pool, now: deps.now ?? (() => new Date()) };
+  const now = deps.now ?? (() => new Date());
+  const context: AppContext = { config, pool, now, quote: { ...defaultQuoteDeps(config, now), ...deps.quote } };
   registerPlatformRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
@@ -160,6 +165,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerPriceRoutes(app, context);
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
+  registerQuoteRoutes(app, context);
 
   return app;
 }

@@ -59,6 +59,8 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/resume`, action: "tenant.change_status" },
   { method: "GET", url: "/platform/v1/audit-logs", action: "audit_log.read" },
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
+  // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
+  { method: "POST", url: "/platform/v1/quotes/preview", action: "quote.preview", body: {} },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
     { method: "GET", url: `/platform/v1/master/${path}/${MISSING}`, action: "master_data.read" } as const,

@@ -31,6 +31,8 @@ const errorMap: z.ZodErrorMap = (issue, context) => {
       return { message: `只能是：${String(issue.expected)}` };
     case z.ZodIssueCode.invalid_string:
       return { message: issue.validation === "email" ? "不是合法的邮箱" : "格式不正确" };
+    case z.ZodIssueCode.unrecognized_keys:
+      return { message: `不认识的字段：${issue.keys.join("、")}（请删掉）` };
     default:
       return { message: context.defaultError };
   }
