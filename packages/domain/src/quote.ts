@@ -46,6 +46,8 @@ export const QUOTE_RULES = {
   fxBufferBp: 150,
   /** 汇率超过 48 小时没更新就暂停跨币种报价（「汇率中心」：数据源不可用时继续用最近一次有效汇率，超过 48 小时未更新则暂停） */
   fxMaxAgeHours: 48,
+  /** 汇率的取数时间最多可以比现在晚几分钟（两台机器的钟差）；晚得更多的不用 */
+  fxClockSkewMinutes: 5,
   /** 渠道加价比例的下限，默认 10%（第 11 步、第五轮决策 ⑥） */
   defaultMarkupFloorBp: 1_000,
   /** 加价比例的上限：防止配置写错（10 倍） */
@@ -211,7 +213,7 @@ export const QUOTE_REFUSALS = [
   "PRICE_RULE_DISABLED",
   /** 里程 + 时长的价格需要路线预估，而现在取不到 */
   "ROUTE_UNAVAILABLE",
-  /** 调价、取整之后不大于 0 */
+  /** 调价之后的精确值不大于 0（ADR 0018：这样的价格不报），或加上各项费用、取整之后的结算价不大于 0 */
   "PRICE_NOT_POSITIVE",
   /** 结算价超过了上限 */
   "PRICE_OVER_LIMIT",
@@ -229,7 +231,10 @@ export interface AddonCharge {
   chargedQuantity: string;
   firstFree: boolean;
   unitPriceMinor: number;
+  /** 这一项四舍五入到最小货币单位的金额（展示用）。参与结算价的是精确值 `amountExact`，只在最后和别的项合在一起取整一次 */
   amountMinor: number;
+  /** 取整之前的精确值（十进制写法）：按时长计费不足一小时按比例时可以带小数 */
+  amountExact: string;
 }
 
 /**
@@ -249,8 +254,8 @@ export interface SettlementBreakdown {
   nightMinor: number;
   addonsMinor: number;
   driverLanguageMinor: number;
-  /** 取整之前的精确值（十进制写法），对账、复算用 */
-  exact: { base: string; adjusted: string; night: string; total: string };
+  /** 取整之前的精确值（十进制写法），对账、复算用；`addons` 是附加服务合计的精确值 */
+  exact: { base: string; adjusted: string; night: string; addons: string; total: string };
   /** 命中的调价规则和每一步（按执行顺序）；`delta`、`after` 是这一步加了多少、之后是多少（精确值的十进制写法） */
   adjusts: { ruleId: string; name: string; steps: { type: "percent" | "amount"; value: number; delta: string; after: string }[] }[];
   /** 走加急时命中的那一档 */
@@ -283,21 +288,27 @@ export type ProductQuote =
 const ZERO: ExactAmount = { numerator: 0n, denominator: 1n };
 const roundMinor = (amount: ExactAmount): number => roundFractionToUnit(amount.numerator, amount.denominator, 1);
 
-/** 第 4 步：这个商品的哪些区域能接这次用车；一个都没有时说明原因。 */
+/**
+ * 第 4 步：这个商品的哪些区域能接这次用车；一个都没有时说明原因。
+ * - 每一个要校验的点都得落在某个区域的营运区里、且不在那个区域的禁行区里（禁行区只管它所在的区域，ADR 0015）；
+ * - 要校验的点里只要有一个落在某个区域的禁行区里，这个区域就不参与这一单的报价——点对点时即使另一端在它的营运区里也一样（ADR 0020）。
+ */
 function serviceAreas(product: QuoteProduct, request: QuoteRequest): { areaIds: string[] } | { reason: "OUT_OF_SERVICE_AREA" | "IN_FORBIDDEN_AREA" } {
   const usable = new Set<string>();
+  const forbidden = new Set<string>();
   for (const point of quoteCheckPoints(request)) {
     const position = request[point];
     if (position === null) return { reason: "OUT_OF_SERVICE_AREA" };
-    // 禁行优先，只在禁行区所在的那个区域里管用：这个区域不接，别的区域的营运区包着它照样可以接（ADR 0015）
     const located = product.areas.filter((area) => area.active).map((area) => ({ areaId: area.areaId, result: locatePoint(area.shapes, position).result }));
     const operating = located.filter((entry) => entry.result === "operate");
     // 每一个要校验的点都得有区域能接（点对点：起点和终点都要在营运区）
     if (operating.length === 0) return { reason: located.some((entry) => entry.result === "forbid") ? "IN_FORBIDDEN_AREA" : "OUT_OF_SERVICE_AREA" };
     // 一个点落在多个区域：每个都算；点对点起终点在不同区域：两端的区域都算（取最低在后面做）
     for (const entry of operating) usable.add(entry.areaId);
+    for (const entry of located) if (entry.result === "forbid") forbidden.add(entry.areaId);
   }
-  return { areaIds: product.areas.flatMap((area) => (usable.has(area.areaId) ? [area.areaId] : [])) };
+  const areaIds = product.areas.flatMap((area) => (usable.has(area.areaId) && !forbidden.has(area.areaId) ? [area.areaId] : []));
+  return areaIds.length === 0 ? { reason: "IN_FORBIDDEN_AREA" } : { areaIds };
 }
 
 /** 一段用车有多长（分钟）：包车是套餐时长；其他品类用路线预估，取不到为 null。 */
@@ -325,9 +336,13 @@ function nightFee(rules: ServiceRules, startMinute: number, durationMinutes: num
   return { fee: scaleExact(exactFromMinor(night.amountMinor), BigInt(minutes), 60n), detail: { chargeUnit: "per_hour", overlapMinutes: minutes } };
 }
 
-/** 附加服务（第 8 步；「服务规则」：每项开关 + 单价，0 = 免费提供，座椅类可设首个免费）。要的东西商品不提供返回 null。 */
-function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinutes: number | null): AddonCharge[] | null {
+/**
+ * 附加服务（第 8 步；「服务规则」：每项开关 + 单价，0 = 免费提供，座椅类可设首个免费）。要的东西商品不提供返回 null。
+ * `total` 是合计的精确值：按时长计费不足一小时按比例，不先取整——和夜间费一样，只在最后合进结算价时取整一次。
+ */
+function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinutes: number | null): { charges: AddonCharge[]; total: ExactAmount } | null {
   const charges: AddonCharge[] = [];
+  let total = ZERO;
   for (const wanted of request.addons) {
     const offered = product.serviceRules.addons.find((addon) => addon.addonId === wanted.addonId);
     const catalog = product.addonCatalog.find((addon) => addon.addonId === wanted.addonId);
@@ -352,9 +367,10 @@ function addonCharges(product: QuoteProduct, request: QuoteRequest, durationMinu
       amount = unit;
       chargedQuantity = "1";
     }
-    charges.push({ addonId: wanted.addonId, chargeUnit: catalog.chargeUnit, quantity: wanted.quantity, chargedQuantity, firstFree, unitPriceMinor: offered.unitPriceMinor, amountMinor: roundMinor(amount) });
+    total = addExact(total, amount);
+    charges.push({ addonId: wanted.addonId, chargeUnit: catalog.chargeUnit, quantity: wanted.quantity, chargedQuantity, firstFree, unitPriceMinor: offered.unitPriceMinor, amountMinor: roundMinor(amount), amountExact: formatExact(amount) });
   }
-  return charges;
+  return { charges, total };
 }
 
 /**
@@ -397,10 +413,11 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   if (language === undefined) return refuse("DRIVER_LANGUAGE_NOT_OFFERED");
   const urgentMinor = window.urgentTier?.surchargeMinor ?? 0;
   const night = nightFee(product.serviceRules, local.minuteOfDay, durationMinutes);
+  // 明细里的夜间费、附加服务是各自四舍五入到最小货币单位的数；结算价用的是它们的精确值（尾差计入调价项）
   const nightMinor = roundMinor(night.fee);
-  const addonsMinor = addons.reduce((sum, addon) => sum + addon.amountMinor, 0);
+  const addonsMinor = roundMinor(addons.total);
   const driverLanguageMinor = language?.unitPriceMinor ?? 0;
-  const extras = addExact(night.fee, exactFromMinor(urgentMinor + addonsMinor + driverLanguageMinor));
+  const extras = addExact(addExact(night.fee, addons.total), exactFromMinor(urgentMinor + driverLanguageMinor));
 
   // 第 9 步：有限库存时当日剩余 > 0
   if (!hasInventory(product.inventoryMode, moment.inventoryDay)) return refuse("SOLD_OUT");
@@ -412,7 +429,8 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
 
   const offers: VehicleOffer[] = [];
   const refused: { vehicleGroupId: string; reason: QuoteRefusal }[] = [];
-  const wanted = request.vehicleGroupIds.length === 0 ? product.vehicleGroups.map((group) => group.vehicleGroupId) : [...request.vehicleGroupIds];
+  // 请求里同一个车型组写了几次只算一次：一个车型组只出一个价
+  const wanted = request.vehicleGroupIds.length === 0 ? product.vehicleGroups.map((group) => group.vehicleGroupId) : [...new Set(request.vehicleGroupIds)];
   for (const vehicleGroupId of wanted) {
     const group = product.vehicleGroups.find((entry) => entry.vehicleGroupId === vehicleGroupId);
     if (group === undefined) {
@@ -450,8 +468,14 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
         reasons.push("ROUTE_UNAVAILABLE");
         continue;
       }
-      if (priced.price.finalMinor === null) {
-        reasons.push(priced.noPriceReason === "OVER_LIMIT" ? "PRICE_OVER_LIMIT" : "PRICE_NOT_POSITIVE");
+      // 调价后超过上限，或调价后的精确值不大于 0（ADR 0018：调完不大于 0 的价格不报，不靠加急、夜间、附加服务把它补成正数）。
+      // 调价后的价单独取整会变成 0、但精确值大于 0 的照常往下算：只看最后合在一起取整的结算价（ADR 0020）
+      if (priced.noPriceReason === "OVER_LIMIT") {
+        reasons.push("PRICE_OVER_LIMIT");
+        continue;
+      }
+      if (compareExact(priced.price.unrounded, ZERO) <= 0) {
+        reasons.push("PRICE_NOT_POSITIVE");
         continue;
       }
       // 总价 = 调价后的价 + 加急 + 夜间 + 附加服务，最后按取整单位取整一次
@@ -483,11 +507,11 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
           nightMinor,
           addonsMinor,
           driverLanguageMinor,
-          exact: { base: formatExact(priced.price.base), adjusted: formatExact(priced.price.unrounded), night: formatExact(night.fee), total: formatExact(exactTotal) },
+          exact: { base: formatExact(priced.price.base), adjusted: formatExact(priced.price.unrounded), night: formatExact(night.fee), addons: formatExact(addons.total), total: formatExact(exactTotal) },
           adjusts: priced.price.adjusts.map((entry) => ({ ruleId: entry.rule.id, name: entry.rule.name, steps: entry.steps.map((step) => ({ type: step.step.type, value: step.step.value, delta: formatExact(step.delta), after: formatExact(step.after) })) })),
           urgentTier: window.urgentTier,
           night: night.detail,
-          addons,
+          addons: addons.charges,
           driverLanguage: request.driverLanguage,
           usage: priced.priceRule.pricing.model === "mileage_time" ? moment.route : null,
           freeWait,
@@ -519,11 +543,15 @@ export interface FxQuote {
 
 /**
  * 这个汇率现在还能不能用来报价（「汇率中心」）：取数时间离现在不超过 48 小时（正好 48 小时还能用）。取数时间写得不对的当作不能用。
+ * 取数时间比现在晚：几分钟以内是两台机器的钟差，照常用；晚得更多（超过 `fxClockSkewMinutes`）说明数据源或时钟出了错，当作不能用——
+ * 否则一个写错成明年的取数时间会让这个汇率永远不过期。
  * 汇率中心自己也该停掉过期的汇率；这里再查一遍，保证不管汇率从哪里来，过期的都进不了报价。
  */
 export function fxQuoteUsable(fx: Pick<FxQuote, "asOf">, now: Date): boolean {
   const asOf = new Date(fx.asOf).getTime();
-  return Number.isFinite(asOf) && now.getTime() - asOf <= QUOTE_RULES.fxMaxAgeHours * 3_600_000;
+  if (!Number.isFinite(asOf)) return false;
+  const age = now.getTime() - asOf;
+  return age <= QUOTE_RULES.fxMaxAgeHours * 3_600_000 && age >= -QUOTE_RULES.fxClockSkewMinutes * 60_000;
 }
 
 const DECIMAL_RATE = /^(\d{1,12})(?:\.(\d{1,12}))?$/;

@@ -249,15 +249,16 @@ test("QA 对照实现：随机 400 组（一口价 × 链式调价 × 按小时�
     const overlap = referenceOverlap(nightStart, nightEnd, startHour * 60 + startMin, routeMinutes);
     const night: Q = [BigInt(nightAmount * overlap), 60n];
     const seat = BigInt(seatUnit * Math.max(0, seatQty - (seatFirstFree ? 1 : 0)));
-    const guide = qRound(norm([BigInt(guideUnit * routeMinutes), 60n]));
-    const fixedExtras = BigInt(urgent ? urgentSurcharge : 0) + seat + guide + BigInt(languageFee);
-    const total = qAdd(qAdd(adjusted, night), [fixedExtras, 1n]);
+    // 按时长的附加服务不足一小时按比例，精确值参与总价（只在最后取整一次，缺陷 #1）；明细里的附加服务是合计四舍五入到最小货币单位
+    const guide: Q = norm([BigInt(guideUnit * routeMinutes), 60n]);
+    const fixedExtras = BigInt(urgent ? urgentSurcharge : 0) + seat + BigInt(languageFee);
+    const total = qAdd(qAdd(qAdd(adjusted, night), guide), [fixedExtras, 1n]);
     if (total[0] <= 0n || qRound(total, BigInt(unit)) <= 0n) continue;
     const label = `#${i} base=${base} steps=${JSON.stringify(steps)} unit=${unit} night=${nightAmount}@${hh(nightStart)}-${hh(nightEnd)} start=${serviceLocal} minutes=${routeMinutes}`;
     assert.equal(s.totalMinor, Number(qRound(total, BigInt(unit))), label);
     assert.equal(s.nightMinor, Number(qRound(night)), label);
     assert.equal(s.urgentMinor, urgent ? urgentSurcharge : 0, label);
-    assert.equal(s.addonsMinor, Number(seat + guide), label);
+    assert.equal(s.addonsMinor, Number(seat + qRound(guide)), label);
     assert.equal(s.baseMinor, base, label);
     assert.equal(sumOf(s), s.totalMinor, `${label}：明细之和`);
     for (const key of ["totalMinor", "baseMinor", "adjustMinor", "urgentMinor", "nightMinor", "addonsMinor", "driverLanguageMinor"] as const) assert.ok(Number.isSafeInteger(s[key]), `${label} ${key}`);

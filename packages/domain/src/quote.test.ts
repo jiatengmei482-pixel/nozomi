@@ -329,6 +329,11 @@ test("第 7 步 调价：筛出匹配的规则，按优先级顺序链式执行�
   assert.deepEqual([outcome(product({ adjustRules: [night] }), request({ serviceLocal: "2026-10-24T05:59" })), outcome(product({ adjustRules: [night] }), request({ serviceLocal: "2026-10-24T06:00" }))], [22_000, 20_000]);
   // 调完不大于 0、超过上限：不报
   assert.equal(outcome(product({ adjustRules: [adjust("减太多", [{ type: "amount", value: -20_000 }])] })), "PRICE_NOT_POSITIVE");
+  // 调完不大于 0 的，加急、夜间、附加服务再多也不报（ADR 0018 / 0020）；调完大于 0、只是单独取整会变成 0 的照常报（只看最后合在一起取整的结算价）
+  const withNight = (amount: number): QuoteProduct =>
+    product({ roundingUnit: 100, adjustRules: [adjust("立减", [{ type: "amount", value: amount }])], serviceRules: rules({ night: { enabled: true, window: { start: "22:00", end: "06:00" }, amountMinor: 3_000, chargeUnit: "per_order" } }) });
+  const lateNight = request({ serviceLocal: "2026-10-20T23:00" });
+  assert.deepEqual([outcome(withNight(-20_000), lateNight), outcome(withNight(-20_001), lateNight), outcome(withNight(-19_960), lateNight)], ["PRICE_NOT_POSITIVE", "PRICE_NOT_POSITIVE", 3_000]);
   assert.equal(outcome(product({ adjustRules: [adjust("乘太多", Array.from({ length: 10 }, () => ({ type: "percent" as const, value: 100_000 })))] })), "PRICE_OVER_LIMIT");
 });
 
@@ -377,10 +382,13 @@ test("第 8 步 附加服务（「服务规则」：每项开关 + 单价，0 = 
   assert.equal(outcome(p, want(["guide", 1])), 23_000);
   const detailed = settlement(p, want(["seat", 3], ["sign", 1]));
   assert.deepEqual(detailed.addons, [
-    { addonId: "seat", chargeUnit: "per_item", quantity: 3, chargedQuantity: "2", firstFree: true, unitPriceMinor: 1_000, amountMinor: 2_000 },
-    { addonId: "sign", chargeUnit: "per_order", quantity: 1, chargedQuantity: "1", firstFree: false, unitPriceMinor: 500, amountMinor: 500 },
+    { addonId: "seat", chargeUnit: "per_item", quantity: 3, chargedQuantity: "2", firstFree: true, unitPriceMinor: 1_000, amountMinor: 2_000, amountExact: "2000" },
+    { addonId: "sign", chargeUnit: "per_order", quantity: 1, chargedQuantity: "1", firstFree: false, unitPriceMinor: 500, amountMinor: 500, amountExact: "500" },
   ]);
-  assert.deepEqual([detailed.totalMinor, detailed.addonsMinor], [22_500, 2_500]);
+  assert.deepEqual([detailed.totalMinor, detailed.addonsMinor, detailed.exact.addons], [22_500, 2_500, "2500"]);
+  // 按时长按比例算出来不是整数时不先取整（只在最后取整一次）：单价 1001、1 分钟 = 16.683…（十进制写法保留 6 位），精确值合进结算价，明细里四舍五入
+  const odd = settlement({ ...p, serviceRules: { ...p.serviceRules, addons: p.serviceRules.addons.map((addon) => (addon.addonId === "guide" ? { ...addon, unitPriceMinor: 1_001 } : addon)) } }, want(["guide", 1]), moment({ route: { meters: 1, minutes: 1 } }));
+  assert.deepEqual([odd.addons[0]?.amountExact, odd.addons[0]?.amountMinor, odd.addonsMinor, odd.exact.addons, odd.exact.total, odd.totalMinor], ["16.683333", 17, 17, "16.683333", "20016.683333", 20_017]);
   // 商品不提供的：没选、关着、被平台停用 / 不适用
   for (const addonId of ["unknown", "off", "gone"]) assert.equal(outcome(p, want([addonId, 1])), "ADDON_NOT_OFFERED", addonId);
   // 司机语言
@@ -463,9 +471,9 @@ test("汇率中心：超过 48 小时没更新的汇率不能用来报价——�
   const now = new Date("2026-10-07T01:00:00Z");
   assert.equal(QUOTE_RULES.fxMaxAgeHours, 48);
   assert.deepEqual(
-    ["2026-10-07T01:00:00Z", "2026-10-05T01:00:00Z", "2026-10-05T00:59:59Z", "2026-10-07T02:00:00Z", "不是时间"].map((asOf) => fxQuoteUsable({ asOf }, now)),
-    [true, true, false, true, false],
-    "刚取的；正好 48 小时；多一秒；比现在还晚一点（两台机器的钟差）；写得不对",
+    ["2026-10-07T01:00:00Z", "2026-10-05T01:00:00Z", "2026-10-05T00:59:59Z", "2026-10-07T01:05:00Z", "2026-10-07T01:05:01Z", "2027-10-07T01:00:00Z", "不是时间"].map((asOf) => fxQuoteUsable({ asOf }, now)),
+    [true, true, false, true, false, false, false],
+    "刚取的；正好 48 小时；多一秒；比现在晚 5 分钟（两台机器的钟差）；晚 5 分 1 秒；晚一年（数据源或时钟出错）；写得不对",
   );
   const r = request();
   const cny = product({ productId: "prd-c", tenantId: "tenant-c", currency: "CNY", priceRules: [price(fixed(90_000))] });

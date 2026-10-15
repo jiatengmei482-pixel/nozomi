@@ -128,7 +128,7 @@ test("QA 加急、夜间、附加服务、司机语言不参与调价：调价 +
   assert.deepEqual([s.totalMinor, s.baseMinor, s.adjustMinor, s.urgentMinor, s.nightMinor, s.addonsMinor, s.driverLanguageMinor], [21_500, 10_000, 5_000, 1_000, 2_000, 500, 3_000]);
 });
 
-test("QA 只在最后取整一次：按时长计费的附加服务不足一小时时也不能先取整到最小货币单位", { todo: "缺陷 #1" }, () => {
+test("QA 只在最后取整一次：按时长计费的附加服务不足一小时时也不能先取整到最小货币单位", () => {
   const p = product({
     priceRules: [price(fixed(1_001))],
     adjustRules: [adjust("-60%", [{ type: "percent", value: -6_000 }])],
@@ -140,7 +140,7 @@ test("QA 只在最后取整一次：按时长计费的附加服务不足一小�
   assert.equal(s.totalMinor, 484, `实际 ${s.totalMinor}，exact.total = ${s.exact.total}`);
 });
 
-test("QA 调价后单独取整为 0、但加上夜间费后结算价为正：不应因为中间取整报 PRICE_NOT_POSITIVE", { todo: "缺陷 #2" }, () => {
+test("QA 调价后单独取整为 0、但加上夜间费后结算价为正：不应因为中间取整报 PRICE_NOT_POSITIVE", () => {
   const p = product({
     roundingUnit: 100,
     priceRules: [price(fixed(100))],
@@ -309,7 +309,7 @@ test("QA 区域：点对点起点落在禁行区（没有别的区域能接）�
   assert.equal(outcome(product(), request({ direction: "dropoff", pickup: FORBIDDEN, dropoff: WEST })), "IN_FORBIDDEN_AREA");
 });
 
-test("QA 区域：点对点终点在 A2 的禁行区里（由 A3 接）、起点只在 A2——A2 的价不应被用来报这一单（禁行区只管它所在的区域，但这一单正是进了 A2 的禁行区）", { todo: "缺陷 #3" }, () => {
+test("QA 区域：点对点终点在 A2 的禁行区里（由 A3 接）、起点只在 A2——A2 的价不应被用来报这一单（禁行区只管它所在的区域，但这一单正是进了 A2 的禁行区）", () => {
   const p = p2pProduct({ areas: [AREA_1, AREA_2, AREA_3], priceRules: [price(fixed(8_000), { areaId: "a2", direction: null }), price(fixed(12_000), { areaId: "a3", direction: null })] });
   const quoted = settled(p, p2pRequest(EAST, FORBIDDEN));
   assert.deepEqual([quoted.areaId, quoted.settlement.totalMinor], ["a3", 12_000]);
