@@ -434,3 +434,25 @@ test("数据源地址带查询串（付费档的密钥位置）：库、拉取�
     { urlSuffix: "?apikey=qa-placeholder-not-a-key" },
   );
 });
+
+test("缺陷复现：挂起待确认的一批（数据源时间较新）不应被之后到来的、时间更早的一批作废", async () => {
+  // 场景：数据源（或它前面的缓存节点）先给了最新的一批 T2（日元 +5%，挂起），随后又给了较早的一批 T1（T0 < T1 < T2，变动很小）。
+  // ADR 0022：「有了更新的一批之后，旧的挂起批次自动作废」——T1 比挂起的 T2 旧，不是「更新的一批」，T2 应当继续等人确认。
+  await withEnv(async (env) => {
+    const t0 = env.ago(3 * HOUR);
+    const t1 = env.ago(2 * HOUR);
+    const t2 = env.ago(HOUR);
+    env.serve(t0);
+    assert.equal((await ok(env.fetchNow())).fetch.status, "accepted");
+    env.serve(t2, { ...RATES, JPY: "157.5" });
+    const held = (await ok(env.fetchNow())).fetch;
+    assert.equal(held.status, "held");
+    env.serve(t1, { ...RATES, JPY: "150.5" });
+    const older = (await ok(env.fetchNow())).fetch;
+    assert.equal(older.status, "accepted", "T1 比现在用的 T0 新，可以生效");
+    const row = (await env.sql("select status, decided_by, error_detail from fx_fetches where id = $1", [held.id]))[0];
+    assert.equal(row.status, "held", `较新的挂起批次被较早的一批作废了：${JSON.stringify(row)}`);
+    const confirm = await env.api.call("POST", `/platform/v1/fx-rates/fetches/${held.id}/confirm`, { token: env.root });
+    assert.equal(confirm.status, 200, `运营正要确认的那批已经不能确认：${confirm.text}`);
+  });
+});
