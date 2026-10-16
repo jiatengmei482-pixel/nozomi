@@ -4,6 +4,7 @@
 .link-dialog__whom {
   margin: 0;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .link-dialog__link {
@@ -13,6 +14,7 @@
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+  word-break: break-all;
   resize: none;
   field-sizing: content;
 }
@@ -33,6 +35,7 @@
   padding-left: var(--space-5);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .link-dialog__confirm {
@@ -70,6 +73,7 @@
   display: -webkit-box;
   overflow: hidden;
   overflow-wrap: anywhere;
+  word-break: break-all;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -80,11 +84,13 @@
   align-items: center;
   gap: var(--space-1);
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .tenant-reason {
   display: block;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .tenant-admin-actions {
@@ -118,6 +124,7 @@
   align-items: center;
   gap: var(--space-1);
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .staff-name--new {
@@ -127,6 +134,7 @@
 
 .staff-email {
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .role-pending {
@@ -169,6 +177,7 @@
   border: 0;
   white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .card-table .table-scroll {
@@ -269,6 +278,7 @@
   font: inherit;
   text-align: left;
   overflow-wrap: anywhere;
+  word-break: break-all;
   cursor: pointer;
 }
 
@@ -332,6 +342,7 @@
   font-weight: var(--font-weight-regular);
   white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-all;
   vertical-align: top;
 }
 
@@ -355,6 +366,7 @@
   display: inline-block;
   max-width: 100%;
   overflow-wrap: anywhere;
+  word-break: break-all;
   user-select: text;
 }
 
@@ -371,6 +383,7 @@
   font-size: var(--font-size-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .audit-value__toggle {
@@ -384,6 +397,7 @@
 
 .integration-detail {
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 @media (min-width: 768px) {
@@ -453,6 +467,7 @@
   min-width: 0;
   margin: 0 0 var(--space-2);
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 @media (min-width: 768px) {
@@ -545,6 +560,7 @@
   align-items: flex-start;
   gap: var(--space-2);
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .quote-group__winner > .icon {
@@ -597,6 +613,7 @@
   color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .quote-detail__lines {

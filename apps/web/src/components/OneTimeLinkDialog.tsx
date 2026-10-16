@@ -112,7 +112,7 @@ export function OneTimeLinkDialog({ issued, onClose }: { issued: IssuedLink; onC
       <textarea
         ref={box}
         className="input textarea link-dialog__link"
-        rows={3}
+        rows={4}
         readOnly
         aria-label={label}
         autoComplete="off"
