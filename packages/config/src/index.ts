@@ -35,6 +35,33 @@ export function databaseUserOf(url: string): string | null {
   return user === "" ? null : user;
 }
 
+/** 汇率缓冲的上限：10%（1000 基点） */
+const FX_BUFFER_MAX_BP = 1_000;
+
+/**
+ * 把十进制写的百分比（如 `1.5`、`1.005`）精确换成基点整数（规则 3：百分比用基点，不经过浮点数）：
+ * 在字符串上取整数部分和前两位小数，第三位小数起按统一的四舍五入（远离零）进位，`1.005` → 101 基点。
+ * 只认非负的普通十进制写法（不认正负号、指数、千分位）；不认时返回 null。
+ */
+export function percentToBasisPoints(text: string): number | null {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(text.trim());
+  if (match === null) return null;
+  const whole = BigInt(match[1] as string);
+  const fraction = (match[2] ?? "").padEnd(3, "0");
+  let bp = whole * 100n + BigInt(fraction.slice(0, 2));
+  if (Number(fraction[2]) >= 5) bp += 1n;
+  return bp > BigInt(Number.MAX_SAFE_INTEGER) ? null : Number(bp);
+}
+
+/** 基点整数写成百分比文本（展示用）：150 → `1.5`，101 → `1.01`，200 → `2`。 */
+export function basisPointsToPercentText(bp: number): string {
+  const sign = bp < 0 ? "-" : "";
+  const abs = Math.abs(bp);
+  const rest = abs % 100;
+  const fraction = String(rest).padStart(2, "0").replace(/0+$/, "");
+  return `${sign}${(abs - rest) / 100}${fraction === "" ? "" : `.${fraction}`}`;
+}
+
 const SAME_DATABASE_ACCOUNT =
   "DATABASE_URL 和 DATABASE_MIGRATION_URL 不能是同一个数据库账号：服务进程必须用权限最小的应用账号，迁移账号只给 pnpm db:migrate 用（docs/secrets.md）";
 
@@ -161,7 +188,21 @@ const rawSchema = z.object({
   MAP_TILE_SIZE: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().refine((size) => size === 256 || size === 512, "只能是 256 或 512").default(256)),
 
   FX_SOURCE_URL: z.string().url().default("https://open.er-api.com/v6/latest/USD"),
-  FX_BUFFER_PERCENT: z.coerce.number().min(0).max(10).default(1.5),
+  // 跨币种的汇率缓冲，百分比（默认 1.5）。按十进制精确换成基点整数，不经过浮点数（ADR 0022「汇率缓冲」）
+  FX_BUFFER_PERCENT: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z
+      .string()
+      .default("1.5")
+      .transform((value, ctx) => {
+        const bp = percentToBasisPoints(value);
+        if (bp === null || bp > FX_BUFFER_MAX_BP) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "只能是 0 ~ 10 之间的十进制数（百分比，如 1.5）" });
+          return z.NEVER;
+        }
+        return bp;
+      }),
+  ),
   // 服务进程里的汇率定时拉取（ADR 0022）。默认开；集成测试启动的服务进程关掉它（测试不访问外网）
   FX_AUTO_FETCH: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
 
@@ -193,8 +234,8 @@ export interface AppConfig {
   googleMapsApiKey: string | null;
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
-  /** 汇率：数据源地址、跨币种缓冲（百分比）、服务进程是否定时拉取 */
-  fx: { sourceUrl: string; bufferPercent: number; autoFetch: boolean };
+  /** 汇率：数据源地址、跨币种缓冲（基点整数，150 = 1.5%）、服务进程是否定时拉取 */
+  fx: { sourceUrl: string; bufferBp: number; autoFetch: boolean };
   /** 报价的默认参数（渠道和加价规则上线之前用） */
   quote: { defaultMarkupBp: number };
 }
@@ -276,7 +317,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     stripe,
     googleMapsApiKey,
     mapTiles,
-    fx: { sourceUrl: env.FX_SOURCE_URL, bufferPercent: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
+    fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
   };
 }
@@ -332,7 +373,7 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
     config.googleMapsApiKey
       ? { key: "googleMaps", label: "谷歌地图", state: "configured", detail: mask(config.googleMapsApiKey) }
       : { key: "googleMaps", label: "谷歌地图", state: "missing", detail: "未配置，里程 + 时长报价不可用" },
-    { key: "fx", label: "汇率数据源", state: "configured", detail: `${new URL(config.fx.sourceUrl).host} · 缓冲 ${config.fx.bufferPercent}%` },
+    { key: "fx", label: "汇率数据源", state: "configured", detail: `${new URL(config.fx.sourceUrl).host} · 缓冲 ${basisPointsToPercentText(config.fx.bufferBp)}%` },
   ];
 }
 

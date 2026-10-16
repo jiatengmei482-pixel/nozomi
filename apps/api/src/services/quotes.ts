@@ -260,7 +260,7 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
     markupBp: (vehicleGroupId) => ctx.quote.markup.markupBp({ tenantId: candidate.product.tenantId, cityId: candidate.cityId, category: input.category, vehicleGroupId }),
     fx: rates.get(candidate.product.currency) ?? null,
   }));
-  const comparison = compareQuotes({ request, currency, entries, now, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, fxBufferBp: Math.round(ctx.config.fx.bufferPercent * 100) });
+  const comparison = compareQuotes({ request, currency, entries, now, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, fxBufferBp: ctx.config.fx.bufferBp });
   return { currency, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, route, candidates, comparison };
 }
 
