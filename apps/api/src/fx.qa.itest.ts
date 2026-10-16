@@ -15,6 +15,8 @@ import { buildApp } from "./app.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { type ApiResponse, type HttpMethod, type TestApi, TEST_PASSWORD, addTenantUser, createTestApi } from "./testing/api.ts";
 import { testEnv } from "./testing/fixtures.ts";
+import type { Pool, PoolClient } from "./db/pool.ts";
+import { FxCenter } from "./services/fx-center.ts";
 import { type FakeFxReply, type FakeFxSource, fxSourceBody, startFakeFxSource } from "./testing/fx-source.ts";
 
 const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
@@ -454,5 +456,57 @@ test("缺陷复现：挂起待确认的一批（数据源时间较新）不应�
     assert.equal(row.status, "held", `较新的挂起批次被较早的一批作废了：${JSON.stringify(row)}`);
     const confirm = await env.api.call("POST", `/platform/v1/fx-rates/fetches/${held.id}/confirm`, { token: env.root });
     assert.equal(confirm.status, 200, `运营正要确认的那批已经不能确认：${confirm.text}`);
+  });
+});
+
+test("缺陷复现：确认挂起的一批时，本进程里正在加载的旧汇率不应在作废之后又写回缓存（之后 30 秒报价仍用旧汇率）", async () => {
+  // ADR 0022：「本进程里拉到新的、确认了挂起的立即作废」。如果确认提交之前已经有一次缓存加载读到了旧的一批、
+  // 在确认作废缓存之后才返回，它会把旧的一批重新写进缓存，本进程之后 30 秒的报价仍用确认前的汇率。
+  await withEnv(async (env) => {
+    const t0 = env.ago(2 * HOUR);
+    const t1 = env.ago(HOUR);
+    env.serve(t0);
+    await ok(env.fetchNow());
+    env.serve(t1, { ...RATES, JPY: "157.5" });
+    const held = (await ok(env.fetchNow())).fetch;
+    assert.equal(held.status, "held");
+
+    // 测试用的连接池外壳：第一次读「现在用的那批」时，查询照常执行（读到旧的一批），但等测试放行才把结果交回去
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let armed = true;
+    let reached = false;
+    const real = env.api.db.pool;
+    const gated = {
+      connect: async (): Promise<PoolClient> => {
+        const client = await real.connect();
+        if (!armed) return client;
+        armed = false;
+        const original = client.query.bind(client) as (...args: unknown[]) => Promise<unknown>;
+        (client as unknown as { query: unknown }).query = async (...args: unknown[]) => {
+          const result = await original(...args);
+          const text = typeof args[0] === "string" ? args[0] : (args[0] as { text?: string } | undefined)?.text;
+          if (text?.includes("from fx_rates where as_of = (select max(as_of) from fx_rates)")) {
+            delete (client as unknown as { query?: unknown }).query;
+            reached = true;
+            await gate;
+          }
+          return result;
+        };
+        return client;
+      },
+    } as unknown as Pool;
+    const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    const center = new FxCenter({ pool: gated, now: env.api.clock.now, config: loadConfig({ ...testEnv(env.api.db.url), FX_SOURCE_URL: env.source.url }).fx, log: silent });
+    const loading = center.currentTable();
+    while (!reached) await new Promise((resolve) => setTimeout(resolve, 10));
+    const user = (await env.sql("select id::text as id, email, name, role, status from platform_users where email = 'root@platform.test'"))[0];
+    await center.confirm(held.id, { kind: "staff", user: { ...user, mustChangePassword: false, createdAt: new Date(), updatedAt: new Date() }, ip: "127.0.0.1" });
+    release();
+    await loading;
+    const quote = await center.rates.quote("CNY", "JPY", env.api.clock.now());
+    assert.equal(quote?.asOf, t1.toISOString(), `确认之后本进程的报价仍用确认前的汇率（取数时间 ${quote?.asOf}）`);
   });
 });
