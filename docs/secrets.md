@@ -85,7 +85,7 @@
 
 **什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境必须全部填好**，否则程序拒绝启动。
 
-不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、程序前面有几层反向代理（由 `EDGE_MODE` 自动决定）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源有默认值。
+不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、程序前面有几层反向代理（由 `EDGE_MODE` 自动决定）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源（`FX_SOURCE_URL`）和跨币种汇率缓冲（`FX_BUFFER_PERCENT`，百分比，默认 1.5，程序按十进制精确换成基点）有默认值。
 
 ### 本地 `.env` 里的数据库两行
 
