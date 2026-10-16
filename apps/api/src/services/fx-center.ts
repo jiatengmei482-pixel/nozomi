@@ -87,6 +87,8 @@ export class FxCenter {
   private readonly log: FxLog;
   private cached: { table: FxTable | null; loadedAt: number } | null = null;
   private loading: Promise<FxTable | null> | null = null;
+  /** 缓存的代次：每次作废加一。作废之前开始的加载（旧代次）读到的可能是旧的一批，结果不写回缓存，也不交给作废之后的调用 */
+  private generation = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private ticking: Promise<void> | null = null;
   private stopped = true;
@@ -113,22 +115,26 @@ export class FxCenter {
     const nowMs = Date.now();
     if (this.cached !== null && nowMs - this.cached.loadedAt < CACHE_TTL_MS) return this.cached.table;
     if (this.loading === null) {
-      this.loading = withPlatformTx(this.pool, latestRateSet)
+      const generation = this.generation;
+      const loading: Promise<FxTable | null> = withPlatformTx(this.pool, latestRateSet)
         .then((set) => {
           const table = set === null ? null : tableOf(set);
-          this.cached = { table, loadedAt: Date.now() };
+          if (generation === this.generation) this.cached = { table, loadedAt: Date.now() };
           return table;
         })
         .finally(() => {
-          this.loading = null;
+          if (this.loading === loading) this.loading = null;
         });
+      this.loading = loading;
     }
     return this.loading;
   }
 
-  /** 本进程里汇率变了（拉到新的一批、确认了挂起的一批）：下次报价重新取。 */
+  /** 本进程里汇率变了（拉到新的一批、确认了挂起的一批）：下次报价重新取；正在进行的加载作废，结果不写回缓存。 */
   invalidate(): void {
+    this.generation += 1;
     this.cached = null;
+    this.loading = null;
   }
 
   /**
@@ -214,8 +220,10 @@ export class FxCenter {
     const pending = await pendingHeldFetches(db, current?.asOf ?? null);
     if (pending.some((held) => held.sourceAsOf?.getTime() === asOf.getTime())) return { status: "unchanged", ...base, errorDetail: "和挂起待确认的那批相同" };
     const jumps = current === null ? [] : findRateJumps(current.rates, doc.rates);
-    // 有了更新的一批：之前挂起、还没处理的那些不再能确认
-    for (const held of pending) await decideHeld(db, held.id, "dismissed", null, now, "被更新的一批取代");
+    // 有了更新的一批：数据源时间早于它的挂起批次不再能确认；比它新的挂起批次照旧等人确认（ADR 0022）
+    for (const held of pending) {
+      if (held.sourceAsOf !== null && held.sourceAsOf.getTime() < asOf.getTime()) await decideHeld(db, held.id, "dismissed", null, now, "被更新的一批取代");
+    }
     if (jumps.length > 0) return { status: "held", ...base, heldRates: doc.rates, jumps, errorCode: "FX_RATE_JUMP", errorDetail: `${jumps.map((jump) => jump.currency).join("、")} 变动超过 ${FX_RULES.jumpThresholdBp / 100}%，等待人工确认` };
     await insertRateSet(db, { base: doc.base, asOf, fetchedAt: now, source: this.sourceHost, fetchId: id, rates: doc.rates });
     return { status: "accepted", ...base };
