@@ -83,7 +83,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "主数据", "城市", "地点", "车型组", "附加服务", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
@@ -516,7 +516,7 @@ test("审计日志：每一行读得出谁、做了什么、对什么；不认�
   const logs = [
     logOf(),
     logOf({ id: "6", action: "login_failed", actor: { type: "anonymous", id: null, email: null }, resource: "tenant_user", resource_id: null, tenant_id: null, before: null, after: { email: "a@example.com", reason: "WRONG_PASSWORD" } }),
-    logOf({ id: "5", action: "bulk_import", resource: "price_rule", resource_id: "pr-1", before: null, after: null, source: "api" }),
+    logOf({ id: "5", action: "bulk_import", resource: "settlement", resource_id: "pr-1", before: null, after: null, source: "api" }),
     logOf({ id: "4", action: "update", resource: "area", resource_id: "area-1", before: { name: { zh: "东京 23 区" }, status: "active", polygons: Array.from({ length: 12 }, (_, index) => [139 + index, 35]) }, after: { name: { zh: "东京 23 区" }, status: "disabled", polygons: Array.from({ length: 13 }, (_, index) => [139 + index, 35]) } }),
   ];
   const calls = open(`/platform/settings/audit-logs?tenant=${TENANT_ID}&from=2026-10-01&to=2026-10-09`, "super_admin", { logs });
@@ -529,7 +529,7 @@ test("审计日志：每一行读得出谁、做了什么、对什么；不认�
   });
   assert.match(rows[0] ?? "", /kato@example\.com操作人 kato@example\.com平台员工暂停供应商对象 供应商7b1c2d3e…后台详情/);
   assert.match(rows[1] ?? "", /—没有登录的访问者登录失败供应商的账号 a@example\.com后台详情/);
-  assert.match(rows[2] ?? "", /bulk_importprice_rule对象 price_rulepr-1接口详情/);
+  assert.match(rows[2] ?? "", /bulk_importsettlement对象 settlementpr-1接口详情/);
   const request = new URL(calls.filter((call) => call.path.includes("/audit-logs")).at(-1)?.path ?? "", "http://localhost");
   assert.deepEqual([request.searchParams.get("tenant_id"), request.searchParams.get("limit")], [TENANT_ID, "50"]);
   assert.equal(new Date(request.searchParams.get("to") ?? "").getTime() - new Date(request.searchParams.get("from") ?? "").getTime(), 9 * 24 * 3600 * 1000, "「到 10-09」是 10-10 零点之前");
