@@ -91,10 +91,10 @@
           "title": "测试环境上线（自有 VPS）",
           "role": "backend",
           "status": "blocked",
-          "blockedBy": "测试环境已上线（手工部署）。剩两条要等你：PR 合并到 main 后才能验证自动部署；Stripe Webhook 要等你提供 Stripe 账号",
+          "blockedBy": "只剩 Stripe Webhook 指向测试环境一条，要等你提供 Stripe 账号。main 合并后自动部署已在 2026-10-12、10-15 实际验证成功",
           "acceptance": ["main 合并后自动部署到测试环境", "测试环境网址可访问 /health", "Stripe Webhook 端点指向测试环境", "部署失败自动回退到上一个版本", "数据库每日备份；正式上线前补 WAL 归档以支持恢复到任意时间点"],
           "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/2 、https://github.com/jiatengmei482-pixel/nozomi/pull/5 ；https://nozomi.moveglobal.io/health 可访问；自动回退和备份恢复在 CI 部署冒烟里每次实跑",
-          "updated": "2026-10-07"
+          "updated": "2026-10-15"
         },
         {
           "id": "M0-11",
@@ -118,10 +118,10 @@
           "id": "M0-09",
           "title": "地基验收",
           "role": "acceptance",
-          "status": "todo",
+          "status": "done",
           "acceptance": ["在测试环境上真实走通：创建平台管理员 → 登录 → 创建租户 → 租户登录", "验收报告写入 docs/acceptance/M0.md"],
-          "evidence": "",
-          "updated": "2026-10-07"
+          "evidence": "docs/acceptance/M0.md：测试环境上走通命令行建平台管理员 → 强制改密 → 登录 → 建租户 → 邀请链接设密码 → 租户登录",
+          "updated": "2026-10-15"
         },
         {
           "id": "M0-10",
@@ -189,7 +189,7 @@
       "name": "报价引擎与销售接口",
       "goal": "/sales/v1 询价：多租户比价、3% 价格带、汇率缓冲、报价快照",
       "tasks": [
-        { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "todo", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "done", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/20 ；单元 981、前端组件 241、集成 764 个通过；packages/domain/src/quote.test.ts 文件头有需求公式与测试的逐项对照表；测试角色发现的缺陷已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-15" },
         { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "todo", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "todo", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "todo", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "", "updated": "2026-10-07" },
@@ -337,7 +337,17 @@
     {
       "date": "2026-10-15",
       "by": "Claude",
+      "summary": "M2-01 待验收：报价引擎——单个商品的结算价和明细（只在最后取整一次）、报不出价的原因、对外价（汇率缓冲 1.5%、加价不低于 10%、汇率超过 48 小时不用）、多供应商比价（3% 同价区间、观察期 ×1.05、评分 → 单量 → 价格）、30 分钟报价快照；运营侧和供应商侧两个试算接口（供应商侧不返回对外价和加价比例）。路线预估、汇率、渠道加价先留接口，分别在 M2-02、M2-03、M2-04 接上。测试角色发现的缺陷已修复（按时长的附加服务先取整、点对点一端进禁行区仍用该区域的价、外部服务出错让整次试算失败等）。待负责人确认的三点记在任务里，已按推荐执行。"
+    },
+    {
+      "date": "2026-10-15",
+      "by": "Claude",
       "summary": "M1-10 待验收：运营后台的供应商（列表、新建、详情、暂停 / 恢复、邀请管理员、发起密码重置）、平台员工（列表、新增、停用 / 启用、发起密码重置）、审计日志、系统状态页面，首页供应商卡片可点进列表。测试角色发现的 10 个界面缺陷已修复（连按 Esc 会关掉一次性链接对话框、后端没回令牌时给出坏链接、审计日志不认不存在的日期、手机宽度筛选收进面板等）。"
+    },
+    {
+      "date": "2026-10-15",
+      "by": "Claude",
+      "summary": "M0-09 地基验收、M2-01 报价引擎验收通过（负责人授权由我们按验收标准自行验收）。在测试环境上走通了建平台管理员 → 登录 → 建供应商 → 供应商登录；用负责人在东京的接机商品试算，结算价 15,000、对外价 16,500，加急等结果与公式一致。验收用的临时账号和租户已停用 / 暂停。发现的小问题：已用过的邀请链接再打开仍显示设密码表单（提交时才被拒），以及测试环境还没有汇率数据（M2-03 完成前跨币种报不出价）。"
     }
   ]
 }
