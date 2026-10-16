@@ -597,7 +597,8 @@ export interface ServiceRulesView {
   freeWaitMinimums: Record<FreeWaitItem, number | null>;
 }
 
-async function serviceRulesView(db: Db, tenantId: string, product: Product): Promise<ServiceRulesView> {
+/** 服务规则连同币种和平台规定的免等最低值。租户事务、平台事务（运营后台查看商品）都用它。 */
+export async function serviceRulesView(db: Db, tenantId: string, product: Product): Promise<ServiceRulesView> {
   const context = await ruleContext(db, product);
   const applicable = freeWaitItems(product.category);
   const minimum = (item: FreeWaitItem): number | null => (applicable.includes(item) ? minimumFreeWaitMinutes(product.category, item, context.pickupPlace) : null);
@@ -788,12 +789,17 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   return { items: publishCheck(facts), adjustRules: adjustRules.map((rule) => ({ id: rule.id, name: rule.name })), stacks };
 }
 
+/** 一个商品完整的上架校验结果（含调价规则叠加的检查）。租户的 publish-check 和运营后台查看商品用的是同一个。 */
+export async function publishCheckOf(db: Db, tenantId: string, product: Product, now: Date): Promise<PublishCheckView> {
+  return publishCheckView(await runPublishCheck(db, tenantId, product, now));
+}
+
 export async function getPublishCheck(ctx: AppContext, tenantId: string, id: string): Promise<PublishCheckView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
-    return publishCheckView(await runPublishCheck(db, tenantId, product, now));
+    return publishCheckOf(db, tenantId, product, now);
   });
 }
 

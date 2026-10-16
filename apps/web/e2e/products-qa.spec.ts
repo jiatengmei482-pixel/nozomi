@@ -265,8 +265,7 @@ test("服务区域的排序：上移 / 下移按钮和 Alt+方向键都能调，
   // 移掉中间一个再保存：剩下的顺序不变
   await page.getByRole("button", { name: "移除 丙区" }).click();
   await page.getByRole("button", { name: "保存草稿" }).click();
-  await expect(toast(page, "已保存").last()).toBeVisible();
-  expect((await getJson<{ areas: { area_id: string }[] }>(request, supplier.headers, `/tenant/v1/products/${product.id}`)).areas.map((area) => area.area_id)).toEqual([supplier.area.id, second.id]);
+  await expect.poll(async () => (await getJson<{ areas: { area_id: string }[] }>(request, supplier.headers, `/tenant/v1/products/${product.id}`)).areas.map((area) => area.area_id)).toEqual([supplier.area.id, second.id]);
 });
 
 test("时段输入经真实后端：跨午夜显示「次日」并读回来；到 00:00 是「次日 00:00」；全天存成 00:00–24:00、重新打开还是勾着的；取消全天恢复原来填的；各种写法失去焦点时整理", async ({ page, request }) => {
@@ -329,8 +328,8 @@ test("时段输入经真实后端：跨午夜显示「次日」并读回来；�
   await expect(from).toHaveAttribute("readonly", "");
   await expect(window.locator(".readback")).toHaveText("全天 24 小时");
   await page.getByRole("button", { name: "保存草稿" }).click();
-  await expect(toast(page, "已保存").last()).toBeVisible();
-  expect(await stored()).toMatchObject({ booking: { service_time: { start: "00:00", end: "24:00" } } });
+  // 上一次保存的「已保存」可能还没消失，不能拿它判断这一次存好了：直接等后端读回新值
+  await expect.poll(stored).toMatchObject({ booking: { service_time: { start: "00:00", end: "24:00" } } });
   await page.reload();
   await expect(page.getByRole("checkbox", { name: "全天 24 小时" })).toBeChecked();
   await expect(page.getByLabel("服务时间到")).toHaveValue("24:00");

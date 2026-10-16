@@ -4,7 +4,7 @@
  */
 import { PRODUCT_LIMITS, type ProductContent, contentIssues, contentMissing } from "@nozomi/domain";
 import { useEffect, useMemo, useState } from "react";
-import { type Product, type ProductContentBody, type ProductContentResponse, getProductContent, putProductContent } from "../../api/products.ts";
+import { type Product, type ProductContentBody, type ProductContentResponse, putProductContent } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Button, IconButton } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
@@ -58,7 +58,7 @@ function readContent(form: ContentForm, category: Product["category"]): { body: 
 export function ContentStep({ frame, product }: { frame: ProductFrame; product: Product }) {
   const { readOnly } = frame;
   const { token } = usePortalSession();
-  const loaded = useLoad<ProductContentResponse>(`product-content:${product.id}`, (authToken) => getProductContent(authToken, product.id));
+  const loaded = useLoad<ProductContentResponse>(`product-content:${product.id}`, (authToken) => frame.source.content(authToken, product.id));
   const data = loaded.state.data;
   const category = product.category;
   const guideName = product.poi?.type === "station" ? "接站指引" : "接机指引";

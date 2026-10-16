@@ -164,7 +164,7 @@ export interface PriceRulesView {
   coverage: PriceCoverage;
 }
 
-function priceRulesView(context: PricingContext, product: Product, items: StoredPriceRule[]): PriceRulesView {
+export function priceRulesView(context: PricingContext, product: Product, items: StoredPriceRule[]): PriceRulesView {
   return {
     version: product.version,
     currency: context.currency,
@@ -388,12 +388,13 @@ export interface AdjustRulesView {
   items: StoredAdjustRule[];
 }
 
+export function adjustRulesView(context: PricingContext): AdjustRulesView {
+  return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, items: context.adjustRules };
+}
+
 export function getAdjustRules(ctx: AppContext, tenantId: string, productId: string): Promise<AdjustRulesView> {
   const now = ctx.now();
-  return readTx(ctx, tenantId, async (db) => {
-    const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
-    return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, items: context.adjustRules };
-  });
+  return readTx(ctx, tenantId, async (db) => adjustRulesView(await loadPricingContext(db, tenantId, productId, now, { lock: false })));
 }
 
 function adjustAudit(rule: AdjustRule): AuditValues {

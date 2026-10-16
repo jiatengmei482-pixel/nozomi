@@ -88,6 +88,8 @@ tags:
     description: 平台维护的各国节假日日历（调价规则的「节假日」周期用）
   - name: 区域
     description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
+  - name: 供应商商品（平台）
+    description: 运营后台只读地查看所有供应商的商品（列表、详情、上架校验）。平台没有修改供应商商品的接口
   - name: 报价
     description: 报价引擎的试算（平台侧：所有供应商一起比；租户侧：自己的一个商品，只有结算价）。正式的询价接口 `/sales/v1/quotes` 和渠道一起做（M2-04）
 paths:
@@ -848,6 +850,113 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/products:
+    get:
+      tags: [供应商商品（平台）]
+      operationId: listPlatformProducts
+      summary: 所有供应商的商品列表（只读）
+      description: |
+        需要操作 `product.read`（超级管理员、运营、招商、渠道经理、客服、风控、只读）。所有供应商的商品，按最近修改从新到旧（修改时间相同的按编号，顺序稳定）。
+        `total` 是符合筛选条件的总数。列表项的字段和 `GET /tenant/v1/products` 的列表项相同（没有上架校验的概况 `check`），
+        另带所属供应商 `tenant` 和「有没有可以卖的价格」`has_active_price`。只读：不写库、不写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: q
+          in: query
+          description: 关键字：商品编号，或任意一种语言的商品名（标题）里包含它（不区分大小写；`%`、`_` 按字面匹配）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: tenant_id
+          in: query
+          description: 只看这个供应商的商品
+          schema:
+            type: string
+            format: uuid
+        - name: city_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: category
+          in: query
+          schema:
+            $ref: "#/components/schemas/ServiceCategory"
+        - name: status
+          in: query
+          description: 按状态筛选（`draft` 草稿、`published` 已上架、`unpublished` 已下架）；不带或 `all` 表示全部
+          schema:
+            type: string
+            enum: [draft, published, unpublished, all]
+            default: all
+        - name: brand_id
+          in: query
+          description: 只看这个子品牌的商品
+          schema:
+            type: string
+            format: uuid
+        - name: has_active_price
+          in: query
+          description: "`true` 只看有可以卖的价格的，`false` 只看没有的（如「已上架却报不出价」：`status=published&has_active_price=false`）"
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: 一页商品
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformProductSummary"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+        "400":
+          description: "`VALIDATION_FAILED`：查询参数写得不对（如 `tenant_id` 不是编号、`status` 不在清单里、游标无效）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/products/{id}:
+    get:
+      tags: [供应商商品（平台）]
+      operationId: getPlatformProduct
+      summary: 一个商品的只读详情
+      description: |
+        需要操作 `product.read`。一个商品的全部内容，和供应商自己在租户后台看到的是同一份（各部分的结构与租户侧对应接口相同）：
+        - `product`：基础信息（子品牌、城市、品类、接送点、区域、车型组、调度人、状态、上架时间、版本号），同 `GET /tenant/v1/products/{id}`
+        - `service_rules`：同 `GET /tenant/v1/products/{id}/service-rules`
+        - `content`：商品详情（各语言），同 `GET /tenant/v1/products/{id}/content` 的 `content`
+        - `price_rules`、`adjust_rules`：价格规则和调价规则，同租户侧的两个接口；金额是供应商的结算价（子品牌币种的最小货币单位）
+        - `inventory`：库存模式、从今天起还有几天有可售库存
+        - `publish_check`：上架校验的逐项结果（现在的情况），同 `GET /tenant/v1/products/{id}/publish-check`
+        平台可以看结算价；这里没有对外价和加价比例。只读：不写库、不写审计日志。不存在的编号 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 商品的只读详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformProductDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/master/cities:
     get:
       tags: [主数据]
@@ -5193,7 +5302,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
@@ -7293,6 +7402,125 @@ components:
                       description: 原因的补充信息：数字（上限、最低值），或指明是哪一条（如调价规则的 `rule_id`、`name`）
                       additionalProperties:
                         type: [number, string]
+    ProductTenantRef:
+      type: object
+      additionalProperties: false
+      description: 商品所属的供应商
+      required: [id, name, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended]
+          description: "`suspended`：供应商被暂停，它的商品不参加比价"
+    PlatformProductSummary:
+      type: object
+      additionalProperties: false
+      description: 运营后台商品列表的一项：`ProductSummary` 去掉 `check`，加上所属供应商和价格情况
+      required: [id, code, status, category, title, brand_id, brand, city_id, city, poi_id, poi, area_count, vehicle_group_count, version, published_at, created_at, updated_at, tenant_id, tenant, has_active_price, active_price_rule_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: 商品编号，全平台唯一
+        status:
+          $ref: "#/components/schemas/ProductStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        title:
+          description: 各语言的商品名（来自商品详情）；还没填时是空对象
+          allOf:
+            - $ref: "#/components/schemas/LocalizedText"
+        brand_id:
+          type: string
+          format: uuid
+        brand:
+          description: 子品牌（名称、结算币种）
+          oneOf:
+            - $ref: "#/components/schemas/ProductBrandRef"
+            - type: "null"
+        city_id:
+          type: string
+          format: uuid
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCityRef"
+            - type: "null"
+        poi_id:
+          type: [string, "null"]
+          format: uuid
+        poi:
+          description: 接送点（机场或车站）；只有接送机商品有
+          oneOf:
+            - $ref: "#/components/schemas/ProductPlaceRef"
+            - type: "null"
+        area_count:
+          type: integer
+          minimum: 0
+        vehicle_group_count:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 1
+        published_at:
+          type: [string, "null"]
+          format: date-time
+          description: 最近一次上架的时间；没上过架为 null
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tenant_id:
+          type: string
+          format: uuid
+        tenant:
+          $ref: "#/components/schemas/ProductTenantRef"
+        has_active_price:
+          type: boolean
+          description: 有没有「可以卖的价格」：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的。和上架校验「价格规则」一项同一个判断
+        active_price_rule_count:
+          type: integer
+          minimum: 0
+          description: 可以卖的价格有几条
+    PlatformProductDetail:
+      type: object
+      additionalProperties: false
+      required: [tenant, product, service_rules, content, price_rules, adjust_rules, inventory, publish_check]
+      properties:
+        tenant:
+          $ref: "#/components/schemas/ProductTenantRef"
+        product:
+          $ref: "#/components/schemas/Product"
+        service_rules:
+          $ref: "#/components/schemas/ProductServiceRules"
+        content:
+          $ref: "#/components/schemas/ProductContent"
+        price_rules:
+          $ref: "#/components/schemas/PriceRules"
+        adjust_rules:
+          $ref: "#/components/schemas/AdjustRules"
+        inventory:
+          type: object
+          additionalProperties: false
+          required: [mode, sellable_days_ahead]
+          properties:
+            mode:
+              $ref: "#/components/schemas/InventoryModeName"
+            sellable_days_ahead:
+              type: integer
+              minimum: 0
+              description: 从商品所在城市当地的今天起，还有剩余库存的日子有几天（限量时有意义；不限量时也照数，通常是 0）
+        publish_check:
+          $ref: "#/components/schemas/PublishCheck"
     PricingModel:
       type: string
       enum: [fixed, mileage_time, charter_package]

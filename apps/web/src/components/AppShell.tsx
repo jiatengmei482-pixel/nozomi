@@ -42,6 +42,8 @@ type NavEntry = NavLeaf | NavGroup;
 function navEntries(portal: Portal, home: string, role: string | null): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
     entries.push({
       key: "master",

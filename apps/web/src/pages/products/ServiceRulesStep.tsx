@@ -6,7 +6,7 @@
 import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Addon } from "../../api/master.ts";
-import { type Product, type ProductServiceRules, getServiceRules, listTenantAddons, putServiceRules } from "../../api/products.ts";
+import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, IconButton } from "../../components/Button.tsx";
@@ -47,8 +47,8 @@ const Star = () => (
 export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; product: Product }) {
   const { readOnly } = frame;
   const { token } = usePortalSession();
-  const loaded = useLoad<ProductServiceRules>(`service-rules:${product.id}`, (authToken) => getServiceRules(authToken, product.id));
-  const catalog = useLoad<Addon[]>("tenant-addons", listTenantAddons);
+  const loaded = useLoad<ProductServiceRules>(`service-rules:${product.id}`, (authToken) => frame.source.serviceRules(authToken, product.id));
+  const catalog = useLoad<Addon[]>(`${frame.source.portal}-addons`, frame.source.addons);
   const data = loaded.state.data;
   const category = product.category;
   const station = product.poi?.type === "station";

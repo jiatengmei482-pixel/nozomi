@@ -5,7 +5,7 @@
 import { CURRENCIES, isCurrencyCode } from "@nozomi/domain";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { type AdjustRules, type PriceRules, getAdjustRules, getPriceRules } from "../../../api/prices.ts";
+import type { AdjustRules, PriceRules } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
 import { Button, LinkButton } from "../../../components/Button.tsx";
 import { Icon } from "../../../components/Icon.tsx";
@@ -14,7 +14,7 @@ import { displayName } from "../../../lib/master-display.ts";
 import { tableCoverage, isStationPlace } from "../../../lib/price-form.ts";
 import { rowFromRule } from "../../../lib/price-form.ts";
 import { CURRENCY_NAMES, moneyText } from "../../../lib/product-display.ts";
-import { type PriceTab, pricePath, productPath } from "../../../lib/product-paths.ts";
+import type { PriceTab } from "../../../lib/product-paths.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import { useTenantCan } from "../../../lib/use-master-access.ts";
 import type { ProductFrame } from "../frame.ts";
@@ -36,12 +36,13 @@ export interface PricesShared {
 }
 
 export function PricesStep({ frame, product, rest }: { frame: ProductFrame; product: Product; rest: readonly string[] }) {
-  const prices = useLoad<PriceRules>(`price-rules:${product.id}`, (token) => getPriceRules(token, product.id));
-  const adjusts = useLoad<AdjustRules>(`adjust-rules:${product.id}`, (token) => getAdjustRules(token, product.id));
+  const prices = useLoad<PriceRules>(`price-rules:${product.id}`, (token) => frame.source.priceRules(token, product.id));
+  const adjusts = useLoad<AdjustRules>(`adjust-rules:${product.id}`, (token) => frame.source.adjustRules(token, product.id));
+  const { step: productPath, price: pricePath } = frame.source.paths;
   const heading = useRef<HTMLHeadingElement>(null);
-  const canSetRounding = useTenantCan("brand.manage");
+  const canSetRounding = useTenantCan("brand.manage") && !frame.readOnly;
   const [rounding, setRounding] = useState(false);
-  const tab: PriceTab = rest[0] === "adjust" ? "adjust" : rest[0] === "calendar" ? "calendar" : "rules";
+  const tab: PriceTab = rest[0] === "adjust" ? "adjust" : rest[0] === "calendar" && frame.source.priceTabs.includes("calendar") ? "calendar" : "rules";
   // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题
   useEffect(() => {
     const frameId = requestAnimationFrame(() => heading.current?.focus());
@@ -60,7 +61,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const missing = data ? tableCoverage(data.items.map((item) => rowFromRule(item, currency)), { category: product.category, currency, today: data.today, station }, product.areas.map((area) => area.area_id), product.vehicle_groups.map((group) => group.vehicle_group_id)).missing : 0;
   const enabledAdjusts = (adjusts.state.data?.items ?? []).filter((rule) => rule.status === "enabled" && !rule.ended).length;
 
-  const tabs: { key: PriceTab; name: string; extra?: ReactNode }[] = [
+  const allTabs: { key: PriceTab; name: string; extra?: ReactNode }[] = [
     {
       key: "rules",
       name: "价格规则",
@@ -78,6 +79,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
     { key: "adjust", name: "调价规则", ...(enabledAdjusts > 0 ? { extra: <span className="price-tabs__count">{enabledAdjusts}</span> } : {}) },
     { key: "calendar", name: "价格日历" },
   ];
+  const tabs = allTabs.filter((entry) => frame.source.priceTabs.includes(entry.key));
 
   let body: ReactNode;
   if (data === null) {

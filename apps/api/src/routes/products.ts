@@ -142,7 +142,7 @@ function toServiceRules(input: z.output<typeof serviceRulesSchema>): ServiceRule
   };
 }
 
-function serviceRulesJson(view: ServiceRulesView): Json {
+export function serviceRulesJson(view: ServiceRulesView): Json {
   const rules = view.product.serviceRules;
   return {
     version: view.product.version,
@@ -189,7 +189,7 @@ function toContent(input: z.output<typeof contentSchema>): ProductContent {
   return content;
 }
 
-function contentJson(content: ProductContent): Json {
+export function contentJson(content: ProductContent): Json {
   const json: Json = {};
   for (const language of MASTER_DATA_LANGUAGES) {
     const text: ProductContentText | undefined = content[language];
@@ -245,7 +245,7 @@ export function productJson(view: ProductView): Json {
   };
 }
 
-function publishCheckJson(view: PublishCheckView): Json {
+export function publishCheckJson(view: PublishCheckView): Json {
   return { can_publish: view.canPublish, items: view.items.map((item) => ({ key: item.key, required: item.required, passed: item.passed, issues: item.issues })) };
 }
 

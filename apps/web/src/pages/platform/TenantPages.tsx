@@ -25,11 +25,12 @@ import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime, shortName } from "../../lib/master-display.ts";
 import { EMAIL_REFUSED_TEXT, emailProblem, emailRefused, isUnsure, nameProblem } from "../../lib/platform-display.ts";
-import { TENANT_LIST_PATH, TENANT_NEW_PATH, auditLogPath, tenantPath } from "../../lib/platform-paths.ts";
+import { TENANT_LIST_PATH, TENANT_NEW_PATH, auditLogPath, platformProductListPath, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { PlatformProductTable } from "./ProductPages.tsx";
 import { useTenantActions } from "./useTenantActions.tsx";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -426,6 +427,7 @@ export function TenantDetailPage() {
   const canCreate = usePlatformCan("tenant.create");
   const canChangeStatus = usePlatformCan("tenant.change_status");
   const canAudit = usePlatformCan("audit_log.read");
+  const canReadProducts = usePlatformCan("product.read");
   const valid = UUID_PATTERN.test(id);
   const loaded = useLoad<Tenant>(`platform-tenant:${id}`, canRead && valid ? (token) => getTenant(token, id) : null);
   const tenant = loaded.state.data;
@@ -556,6 +558,20 @@ export function TenantDetailPage() {
         <p>供应商自己的其他账号（调度、财务等）由他们的管理员在供应商后台里管理。</p>
         {canCreate && <p className="page-intro">之前的邀请链接没有交到对方手里、或已经过期：点「邀请管理员」，填同一个邮箱，会发出一条新的链接，旧的作废。</p>}
       </section>
+      {canReadProducts && (
+        <section className="tenant-products" aria-labelledby="tenant-products-title">
+          <div className="card__title-row">
+            <h2 className="card__title" id="tenant-products-title">
+              商品
+            </h2>
+            <Link className="link" to={platformProductListPath({ tenant: tenant.id })}>
+              在商品列表里看
+              <Icon name="chevron-right" />
+            </Link>
+          </div>
+          <PlatformProductTable fixedTenant={tenant} />
+        </section>
+      )}
       {canAudit && (
         <p>
           <Link className="link" to={auditLogPath({ tenant: tenant.id })}>

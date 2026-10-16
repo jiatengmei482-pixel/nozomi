@@ -16,6 +16,7 @@
 | [`pages/platform-home.md`](./pages/platform-home.md) | 运营后台首页（模块入口和数量）；运营后台菜单的分组与顺序 |
 | [`pages/platform-tenants.md`](./pages/platform-tenants.md) | 运营后台的供应商管理：列表、新建、详情、暂停 / 恢复、邀请管理员、发密码重置；**一次性链接（邀请、重置）怎么交付** |
 | [`pages/platform-settings.md`](./pages/platform-settings.md) | 运营后台的系统设置：平台员工（新增、角色说明、停用 / 启用、发密码重置）、审计日志（筛选、改前改后）、系统状态 |
+| [`pages/platform-products.md`](./pages/platform-products.md) | 运营后台只读查看供应商的商品：列表（按供应商、城市、品类、状态、可用价格、子品牌筛）、详情（复用供应商后台各步骤的只读模式）、首页的商品卡片、供应商详情里的「商品」；报价试算 |
 | [`pages/master-data.md`](./pages/master-data.md) | 主数据：城市、地点、车型组、附加服务的列表页和新增 / 编辑页；处理导入的机场 |
 | [`pages/tenant-home.md`](./pages/tenant-home.md) | 供应商后台首页（模块入口、数量、「先建区域」的引导）；供应商后台菜单的分组与顺序 |
 | [`pages/tenant-areas.md`](./pages/tenant-areas.md) | 区域管理：列表、在地图上画营运区和禁行区、坐标表、自测；地图底图的技术约束（地图库、瓦片来源、内容安全策略） |

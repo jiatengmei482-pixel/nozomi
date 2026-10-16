@@ -46,6 +46,7 @@ export const PLATFORM_ACTIONS = [
   "master_data.read",
   "master_data.manage",
   "quote.preview",
+  "product.read",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -61,18 +62,21 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 主数据（城市、地点、车型组、附加服务）是所有岗位都要查的公共资料，每个角色都能看；只有主数据运营（和超级管理员）能改。
  * 报价试算（看各供应商的结算价、对外价和报不出价的原因，M2-01）：运营、招商（看哪里缺运力）、渠道经理、客服用得到；
  * 财务、风控、主数据运营、技术、只读用不到——里面有各供应商的结算价和加价比例。
+ * 查看供应商的商品（只读，M1-12，ADR 0021）：运营、招商（租户详情页的「商品和价格概览」）、渠道经理（决定渠道卖哪些供应商）、
+ * 客服（处理订单时查服务规则、调度人）、风控（价格异常）、只读。里面有结算价，没有对外价和加价比例。
+ * 财务、主数据运营、技术用不到（财务看账单，主数据运营停用主数据时只需要「几个已上架商品在用」的数量，已经有了）。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview"],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview"],
-  channel_manager: ["master_data.read", "quote.preview"],
-  customer_service: ["master_data.read", "quote.preview"],
+  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read"],
+  channel_manager: ["master_data.read", "quote.preview", "product.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read"],
   finance: ["master_data.read"],
-  risk: ["master_data.read"],
+  risk: ["master_data.read", "product.read"],
   master_data: ["master_data.read", "master_data.manage"],
   tech: ["integration.read", "master_data.read"],
-  readonly: ["tenant.read", "master_data.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read"],
 };
 
 /**

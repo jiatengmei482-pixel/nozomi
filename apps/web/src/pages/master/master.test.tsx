@@ -65,6 +65,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     const custom = routes(call);
     if (custom !== null) return custom;
     if (call.url.pathname === "/platform/v1/auth/me") return me(role);
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, summary(97));
     if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo, osaka]);
     return null;

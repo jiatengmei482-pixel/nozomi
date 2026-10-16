@@ -91,7 +91,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     platform_users: ["INSERT", "SELECT", "UPDATE"],
     price_rules: ["SELECT"],
     product_areas: ["SELECT"],
-    // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016）
+    // 调度人对平台只读：运营后台只读查看商品、上架校验数调度人（ADR 0021）
+    product_dispatchers: ["SELECT"],
+    // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016），运营后台查看商品（ADR 0021）
     product_vehicle_groups: ["SELECT"],
     products: ["SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
@@ -124,7 +126,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "products.products_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "product_vehicle_groups.product_vehicle_groups_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   // 报价用到的租户表：平台只读（ADR 0020）
-  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "inventory_days"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  // 调度人：运营后台只读查看商品（ADR 0021）
+  ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],
