@@ -337,6 +337,16 @@ test("报价试算的角色：只有超级管理员、运营、招商、渠道�
   assert.equal((await api.call("POST", "/platform/v1/quotes/preview", { token: a.adminToken, body })).status, 401);
 });
 
+test("报价试算的用车时间按城市当地时间：夏令时开始那天不存在的 02:30、结束那天重复的 01:30、午夜 00:00 都不会 500（要么照常试算，要么 400 说清楚）", async () => {
+  const body = (serviceTime: string): unknown => ({ category: "point_to_point", city_id: ids["la"], pickup: { lat: 34.05, lng: -118.24 }, dropoff: { lat: 33.94, lng: -118.4 }, service_time: serviceTime, passengers: 1, luggage: 0, currency: "USD" });
+  for (const serviceTime of ["2027-03-14T02:30", "2026-11-01T01:30", "2026-10-20T00:00", "2026-10-20T23:59", "2026-10-20T24:00", "2026-02-29T10:00"]) {
+    const res = await api.call("POST", "/platform/v1/quotes/preview", { token: root, body: body(serviceTime) });
+    assert.ok(res.status === 200 || res.status === 400, `${serviceTime}: ${res.status} ${res.text}`);
+    if (res.status === 400) assert.equal(res.body.error.code, "VALIDATION_FAILED", serviceTime);
+    if (serviceTime.endsWith("24:00") || serviceTime.startsWith("2026-02-29")) assert.equal(res.status, 400, `${serviceTime} 不是一个时刻`);
+  }
+});
+
 test("可用价格按商品所在城市当地的今天：同一刻东京已是 10-08、洛杉矶还是 10-07，有效期到 10-07 的价格东京算过期、洛杉矶算可用；跨午夜前后各看一次", async () => {
   const tokyo = await product(a, { brandId: ids["brandA"] as string, cityId: ids["tokyo"] as string, areaId: ids["aTokyo"] as string, title: "时区东京" });
   const la = await product(a, { brandId: ids["brandAUsd"] as string, cityId: ids["la"] as string, areaId: ids["aLa"] as string, title: "时区洛杉矶" });
