@@ -23,6 +23,7 @@ import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
 import { registerPlatformRoutes } from "./routes/platform.ts";
+import { registerPlatformProductRoutes } from "./routes/platform-products.ts";
 import { registerTenantRoutes } from "./routes/tenant.ts";
 
 export interface AppDeps {
@@ -179,6 +180,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerImportExportRoutes(app, context);
   registerQuoteRoutes(app, context);
   registerFxRoutes(app, context);
+  registerPlatformProductRoutes(app, context);
 
   return app;
 }

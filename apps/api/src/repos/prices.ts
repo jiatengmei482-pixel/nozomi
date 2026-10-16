@@ -225,6 +225,19 @@ export interface ProductPriceOverview {
   enabledAdjustRuleCount: number;
 }
 
+/**
+ * 「可以卖的价格」有几条（SQL 片段）：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的。
+ * 和 domain 的 `sellablePriceRules` 同一个判断；要求查询里商品的别名是 `p`、它的城市是 `c`，`now` 是现在这一刻的参数占位符。
+ * 价格概况（租户）和运营后台的商品列表用的都是它。
+ */
+export function activePriceRuleCountSql(now: string): string {
+  return `(select count(*)::int from price_rules r
+              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
+                and (r.valid_to is null or r.valid_to >= (${now}::timestamptz at time zone c.timezone)::date)
+                and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
+                and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id))`;
+}
+
 /** 本租户每个商品的价格概况，按最近修改从新到旧。「今天」按每个商品所在城市的时区各自算。 */
 export async function listProductPriceOverview(db: Db, tenantId: string, now: Date, limit: number): Promise<ProductPriceOverview[]> {
   const result = await db.query<Row>(
@@ -236,11 +249,7 @@ export async function listProductPriceOverview(db: Db, tenantId: string, now: Da
                 where d.tenant_id = p.tenant_id and d.product_id = p.id and d.vehicle_group_id is null
                   and d.day >= ($2::timestamptz at time zone c.timezone)::date and d.total - d.held - d.sold > 0)) as no_inventory_ahead,
             (select count(*)::int from price_rules r where r.tenant_id = p.tenant_id and r.product_id = p.id) as price_rule_count,
-            (select count(*)::int from price_rules r
-              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
-                and (r.valid_to is null or r.valid_to >= ($2::timestamptz at time zone c.timezone)::date)
-                and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
-                and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)) as active_price_rule_count,
+            ${activePriceRuleCountSql("$2")} as active_price_rule_count,
             (select count(*)::int from adjust_rules a where a.tenant_id = p.tenant_id and a.product_id = p.id and a.status = 'enabled') as enabled_adjust_rule_count
        from products p join cities c on c.id = p.city_id
       where p.tenant_id = $1

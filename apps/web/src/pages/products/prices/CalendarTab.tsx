@@ -16,7 +16,6 @@ import { stepText } from "../../../lib/adjust-form.ts";
 import { displayName, shortName } from "../../../lib/master-display.ts";
 import { TREND_NAMES, addMonths, cellView, clampMonth, daysInRange, exactTextMoney, isWholeText, monthDates, monthOf, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, sameDayIn, segmentAt, spokenDate, weekdayName } from "../../../lib/price-calendar.ts";
 import { moneyText } from "../../../lib/product-display.ts";
-import { pricePath } from "../../../lib/product-paths.ts";
 import { tidyTime } from "../../../lib/time-input.ts";
 import { useLoad } from "../../../lib/use-load.ts";
 import type { PricesShared } from "./PricesStep.tsx";
@@ -37,6 +36,7 @@ const isNarrow = (): boolean => typeof window.matchMedia === "function" && windo
 
 export function CalendarTab({ shared }: { shared: PricesShared }) {
   const { frame, product, prices, adjusts } = shared;
+  const { price: pricePath } = frame.source.paths;
   const readOnly = frame.readOnly;
   const currency = prices.currency;
   const location = useLocation();

@@ -9,7 +9,7 @@ import { Link, useLocation } from "react-router";
 import { type AreaSummary, listTenantCities } from "../../api/areas.ts";
 import type { City, Place, VehicleGroup } from "../../api/master.ts";
 import { ApiError } from "../../api/client.ts";
-import { type Brand, type Product, type ProductPatch, alreadyCreatedId, createProduct, getProduct, listAllAreas, listBrands, listPickupPlaces, listTenantVehicleGroups, patchProduct } from "../../api/products.ts";
+import { type Brand, type Product, type ProductPatch, alreadyCreatedId, createProduct, getProduct, listAllAreas, listBrands, listPickupPlaces, patchProduct } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, IconButton, LinkButton } from "../../components/Button.tsx";
@@ -22,7 +22,6 @@ import { AREA_LIST_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-path
 import { PLACE_TYPE_NAMES, countryLabel, displayName, vehicleGradeName } from "../../lib/master-display.ts";
 import { checkReasons, comboText } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
-import { productPath } from "../../lib/product-paths.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { BrandDialog } from "./BrandDialog.tsx";
@@ -77,7 +76,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
   const brands = useLoad<Brand[]>("tenant-brands", creating ? listBrands : null);
   const cities = useLoad<City[]>("tenant-cities-active", creating ? (authToken) => listTenantCities(authToken) : null);
   const allAreas = useLoad<AreaSummary[]>("tenant-areas-all", canReadAreas ? (authToken) => listAllAreas(authToken) : null);
-  const groups = useLoad<VehicleGroup[]>("tenant-vehicle-groups", listTenantVehicleGroups);
+  const groups = useLoad<VehicleGroup[]>(`${frame.source.portal}-vehicle-groups`, frame.source.vehicleGroups);
 
   const [brandId, setBrandId] = useState<string | null>(null);
   const [cityId, setCityId] = useState<string | null>(product?.city_id ?? null);
@@ -367,7 +366,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
               <Alert kind="info">
                 <span>{`这个商品还没有名字。名字在第 ⑤ 步「商品详情」里填，现在列表里先显示成「未命名的${PRODUCT_CATEGORY_NAMES[product.category]}商品」。`}</span>
                 <span className="alert__actions">
-                  <LinkButton variant="text" size="sm" to={productPath(product.id, "content", "title")}>
+                  <LinkButton variant="text" size="sm" to={frame.source.paths.step(product.id, "content", "title")}>
                     去填标题
                   </LinkButton>
                   <Button variant="text" size="sm" onClick={() => setCreatedNotice(false)}>

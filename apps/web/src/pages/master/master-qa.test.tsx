@@ -63,6 +63,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     const custom = routes(call);
     if (custom !== null) return custom;
     if (call.url.pathname === "/platform/v1/auth/me") return me(role);
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, emptySummary);
     if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo]);
     return null;
@@ -91,13 +92,13 @@ async function assignCurrent(user: ReturnType<typeof userEvent.setup>): Promise<
 
 /* ───────────── 首页 ───────────── */
 
-test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，卡片不隐藏、没有提醒行；供应商卡片不是链接", async () => {
+test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，卡片不隐藏、没有提醒行；六张卡片都是链接", async () => {
   open("/platform", "super_admin");
-  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 10));
-  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "城市", "地点", "车型组", "附加服务", "汇率"]);
-  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 10 }, () => "0"));
+  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 11));
+  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 11 }, () => "0"));
   assert.equal(main().querySelectorAll(".entry-card__reminder").length, 0);
-  assert.equal(main().querySelectorAll("a.entry-card__title").length, 5, "供应商还没有页面，不是链接");
+  assert.equal(main().querySelectorAll("a.entry-card__title").length, 7, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率");
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 

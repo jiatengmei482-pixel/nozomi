@@ -21,7 +21,6 @@ import { displayName } from "../../../lib/master-display.ts";
 import { type PriceContext, activePriceRules, directionName, isStationPlace } from "../../../lib/price-form.ts";
 import { moneyText } from "../../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../lib/product-failure.ts";
-import { pricePath, productPath } from "../../../lib/product-paths.ts";
 import { useLeaveGuard } from "../../../lib/use-leave-guard.ts";
 import { focusAnchor } from "../frame.ts";
 import type { PricesShared } from "./PricesStep.tsx";
@@ -54,6 +53,7 @@ export const TOO_LARGE_TEXT = "按适用范围内的价格算，调完超过了�
 
 export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; loadStatus: string }) {
   const { frame, product, prices, adjusts } = shared;
+  const { step: productPath, price: pricePath } = frame.source.paths;
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const navigate = useNavigate();
@@ -476,7 +476,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
         </section>
       )}
       <div className="form-bar step__bar">
-        <span className="form-bar__note step__summary">{moved ? "顺序有未保存的修改" : published ? "已上架，启用、停用和删除约 1 分钟生效" : ""}</span>
+        <span className="form-bar__note step__summary">{moved ? "顺序有未保存的修改" : published && !readOnly ? "已上架，启用、停用和删除约 1 分钟生效" : ""}</span>
         {moved ? (
           <>
             <Button variant="secondary" disabled={working !== null} onClick={() => setOrder(null)}>

@@ -241,7 +241,7 @@ function adjustRuleJson(rule: StoredAdjustRule, today: string): Json {
   };
 }
 
-function adjustRulesJson(view: AdjustRulesView): Json {
+export function adjustRulesJson(view: AdjustRulesView): Json {
   return { version: view.version, currency: view.currency, rounding_unit: view.roundingUnit, today: view.today, items: view.items.map((rule) => adjustRuleJson(rule, view.today)) };
 }
 

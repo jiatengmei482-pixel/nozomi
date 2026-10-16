@@ -3,9 +3,11 @@
  * 数量全部来自 `dashboard/summary`；入口不等数量，数量加载失败时入口照常可用。
  * 汇率超过 48 小时没更新（跨币种报价已暂停）时，页面顶部一条危险提示条（M2-03）。
  */
-import { useEffect, useRef, useState } from "react";
+import { TENANT_LIST_PATH, platformProductListPath } from "../lib/platform-paths.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { type DashboardSummary, fetchDashboardSummary } from "../api/master.ts";
+import { countPlatformProducts } from "../api/platform-products.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
 import { Alert } from "../components/Alert.tsx";
 import { AppShell, Page } from "../components/AppShell.tsx";
@@ -13,10 +15,9 @@ import { Button } from "../components/Button.tsx";
 import { EntryCard, type EntryCounts, type EntryReminder } from "../components/EntryCard.tsx";
 import { StateBlock } from "../components/States.tsx";
 import { masterListPath, masterNewPath, pendingAirportsPath, placeListPath } from "../lib/master-paths.ts";
-import { formatCount } from "../lib/master-display.ts";
+import { formatCount, formatLocalDateTime } from "../lib/master-display.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
 import { FX_PATH } from "../lib/fx-display.ts";
-import { formatLocalDateTime } from "../lib/master-display.ts";
 import { useLoad } from "../lib/use-load.ts";
 import { usePlatformCan } from "../lib/use-master-access.ts";
 
@@ -33,7 +34,18 @@ export function PlatformHomePage() {
   const canSeeMaster = usePlatformCan("master_data.read");
   const canManageMaster = usePlatformCan("master_data.manage");
   const canSeeTenants = usePlatformCan("tenant.read");
-  const { state, reload } = useLoad<DashboardSummary>("summary", fetchDashboardSummary);
+  const canSeeProducts = usePlatformCan("product.read");
+  const { state, reload: reloadSummary } = useLoad<DashboardSummary>("summary", fetchDashboardSummary);
+  // 商品的两个数：已上架的、其中报不出价的（ADR 0021：用列表接口的 total，不在首页数量接口里）
+  const products = useLoad<{ published: number; unpriced: number }>(
+    "home-products",
+    canSeeProducts ? (token) => Promise.all([countPlatformProducts(token, { status: "published" }), countPlatformProducts(token, { status: "published", has_active_price: "false" })]).then(([published, unpriced]) => ({ published, unpriced })) : null,
+  );
+  const reloadProducts = products.reload;
+  const reload = useCallback(() => {
+    reloadSummary();
+    reloadProducts();
+  }, [reloadSummary, reloadProducts]);
   const requestedAt = useRef(Date.now());
   const [announce, setAnnounce] = useState("");
 
@@ -53,6 +65,9 @@ export function PlatformHomePage() {
   // 之前成功过、这次失败：保留上一次的数字，不打扰
   const failed = summary === null && (state.status === "error" || state.status === "forbidden" || state.status === "not-found");
   const pending: EntryCounts = failed ? { status: "failed" } : { status: "loading" };
+  const productCounts = products.state.data;
+  const productsFailed = canSeeProducts && productCounts === null && (products.state.status === "error" || products.state.status === "forbidden" || products.state.status === "not-found");
+  const productReminders: EntryReminder[] = productCounts && productCounts.unpriced > 0 ? [{ text: `${formatCount(productCounts.unpriced)} 个已上架的商品报不出价`, to: platformProductListPath({ status: "published", priced: "no" }) }] : [];
   const showMaster = summary !== null ? summary.master_data !== null : canSeeMaster;
   const showTenants = summary !== null ? summary.tenants !== null : canSeeTenants;
   const master = summary?.master_data ?? null;
@@ -77,7 +92,7 @@ export function PlatformHomePage() {
           {announce}
         </span>
         <div role="alert">
-          {failed && (
+          {(failed || productsFailed) && (
             <Alert kind="danger">
               <strong className="alert__title">数量没有加载出来</strong>
               <span>入口可以照常使用。请检查网络后重试。</span>
@@ -94,14 +109,15 @@ export function PlatformHomePage() {
             <Link to={FX_PATH}>去汇率页处理</Link>
           </Alert>
         )}
-        {!showMaster && !showTenants && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
-        {showTenants && (
+        {!showMaster && !showTenants && !canSeeProducts && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
+        {(showTenants || canSeeProducts) && (
           <section className="home-section" aria-labelledby="home-operations">
             <h2 className="home-section__title" id="home-operations">
               运营
             </h2>
             <div className="entry-grid">
-              <EntryCard title="供应商" counts={tenants ? { status: "ready", counts: [{ value: tenants.active, label: "正常" }, { value: tenants.suspended, label: "已暂停" }] } : pending} />
+              {showTenants && <EntryCard title="供应商" to={TENANT_LIST_PATH} counts={tenants ? { status: "ready", counts: [{ value: tenants.active, label: "正常" }, { value: tenants.suspended, label: "已暂停" }] } : pending} />}
+              {canSeeProducts && <EntryCard title="商品" to={platformProductListPath({ status: "published" })} counts={productCounts ? { status: "ready", counts: [{ value: productCounts.published, label: "已上架" }] } : productsFailed ? { status: "failed" } : { status: "loading" }} reminders={productReminders} />}
             </div>
           </section>
         )}

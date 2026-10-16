@@ -2,6 +2,7 @@
 import type { InventoryMode } from "@nozomi/domain";
 import type { Product, PublishCheckResult } from "../../api/products.ts";
 import { type CheckContext, checkReasons } from "../../lib/product-display.ts";
+import type { ProductSource } from "./source.ts";
 
 export interface ProductFrame {
   /** 新建页上（还没保存过）是 null */
@@ -9,6 +10,8 @@ export interface ProductFrame {
   /** 整个商品只有一个版本号，各步共用；每次保存成功后更新 */
   version: number;
   readOnly: boolean;
+  /** 各步骤的数据从哪来、链接指向哪（供应商后台，或运营后台的只读查看） */
+  source: ProductSource;
   /** 上架检查的结果；没取到是 null */
   check: PublishCheckResult | null;
   checkContext: CheckContext | null;
