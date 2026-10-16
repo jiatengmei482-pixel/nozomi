@@ -173,7 +173,7 @@ test("只读详情：从地址直接打开「导入价格」「导入库存」�
   }
 });
 
-test("【缺陷】只读详情里从地址打开「导入价格」「新建调价规则」时，说明应该是运营后台只能查看——而不是「需要修改商品的权限，请联系你们的管理员开通」（运营后台谁也开通不了）", async () => {
+test("只读详情里从地址打开「导入价格」「新建调价规则」时，说明是运营后台只能查看，而不是「需要修改商品的权限，请联系你们的管理员开通」（运营后台谁也开通不了）", async () => {
   for (const rest of ["prices/import", "prices/adjust/new"]) {
     open(`/platform/products/${PRODUCT_ID}/${rest}`, "super_admin");
     await screen.findByRole("navigation", { name: "配置步骤" });

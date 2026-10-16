@@ -489,7 +489,7 @@ export function PlatformProductDetailPage() {
           detail.tenant.name
         )}
       </span>
-      {product.brand && <span>{`子品牌 ${product.brand.name}（${product.brand.currency}）`}</span>}
+      {product.brand && <span className="product-meta__brand">{`子品牌 ${product.brand.name}（${product.brand.currency}）`}</span>}
       <span>{`版本 ${product.version}`}</span>
       {product.published_at !== null && <span>{`上架时间 ${formatLocalDateTime(product.published_at)}`}</span>}
       <span>{`最近修改 ${formatLocalDateTime(product.updated_at)}`}</span>

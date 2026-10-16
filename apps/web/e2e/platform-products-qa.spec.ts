@@ -251,7 +251,7 @@ test("关键字里的 %、_、引号在真实后端按字面查：输进搜索�
   }
 });
 
-test("【缺陷】子品牌名是一长串不带空格的英文（50 字以内，接口允许）时，商品详情标题下的「子品牌 …」在 320px 宽把内容区撑出横向滚动", async ({ page, request }) => {
+test("子品牌名是一长串不带空格的英文（50 字以内，接口允许）时，商品详情标题下的「子品牌 …」在 320px 宽会折行，不把内容区撑出横向滚动", async ({ page, request }) => {
   test.setTimeout(120_000);
   const world = await createWorld(request);
   const supplier = await supplierNamed(request, world, `长品牌 ${randomLetters(4)}`, `Premium${"Transfer".repeat(5)}`.slice(0, 50));

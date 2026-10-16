@@ -265,7 +265,7 @@ export function ImportPage({ kind, frame, product }: { kind: Kind; frame: Produc
   if (frame.readOnly) {
     return (
       <section className="card">
-        <StateBlock tone="neutral" title="你没有权限查看这里" description="导入需要修改商品的权限。需要的话，请联系你们的管理员开通。" action={<LinkButton to={back}>{`回到${backName}`}</LinkButton>} />
+        <StateBlock tone="neutral" title={frame.source.portal === "platform" ? "运营后台不能导入" : "你没有权限查看这里"} description={frame.source.portal === "platform" ? "运营后台只能查看供应商的商品，不能修改。要改的话，请联系供应商在供应商后台导入。" : "导入需要修改商品的权限。需要的话，请联系你们的管理员开通。"} action={<LinkButton to={back}>{`回到${backName}`}</LinkButton>} />
       </section>
     );
   }
