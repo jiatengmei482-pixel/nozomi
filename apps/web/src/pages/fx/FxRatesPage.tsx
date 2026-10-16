@@ -288,7 +288,7 @@ export function FxRatesPage() {
               <h2 className="card__title" id="fx-cross-title">
                 常用币种互换
               </h2>
-              <p className="fx-hint">每行是「1 个该行币种 = 多少个该列币种」。报价时跨币种另加 1.5% 缓冲，这里是中央汇率，不含缓冲。</p>
+              <p className="fx-hint">每行是「1 个该行币种 = 多少个该列币种」。这里是中央汇率，不含缓冲；报价时跨币种另加汇率缓冲（比例见「系统状态」里的汇率数据源）。</p>
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="币种互换表">
                   <table className="table fx-matrix">

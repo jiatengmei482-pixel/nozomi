@@ -55,8 +55,11 @@ for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     await signIn(page);
     await openFxPage(page);
-    await page.getByRole("button", { name: "立即拉取" }).click();
-    await expect(page.getByText(/^(汇率已更新|数据源还没有更新，汇率不变)$/)).toBeVisible();
+    // 别的用例可能正在对同一个后端拉取（后端按设计回 409「正在拉取」）：等它拉完再点
+    await expect(async () => {
+      await page.getByRole("button", { name: "立即拉取" }).click();
+      await expect(page.getByText(/^(汇率已更新|数据源还没有更新，汇率不变)$/)).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 45_000 });
     await expect(page.getByRole("img", { name: /近 30 天/ })).toBeVisible();
     await expectAccessible(page, `汇率页（${scheme}）`);
 
