@@ -119,7 +119,7 @@ export function issueStaffReset(token: string, id: string): Promise<{ user: Plat
 // ───────────── 审计日志 ─────────────
 
 export type AuditActorType = "platform_user" | "tenant_user" | "system" | "anonymous";
-export type AuditSource = "console" | "api" | "cli";
+export type AuditSource = "console" | "api" | "cli" | "job";
 
 export interface AuditLog {
   id: string;
