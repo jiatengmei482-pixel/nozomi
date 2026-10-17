@@ -17,6 +17,8 @@ export const AUTH_ENDPOINTS = {
   me: { method: "GET", path: "/auth/me" },
   acceptInvite: { method: "POST", path: "/auth/accept-invite" },
   resetPassword: { method: "POST", path: "/auth/reset-password" },
+  checkInvite: { method: "POST", path: "/auth/check-invite" },
+  checkResetToken: { method: "POST", path: "/auth/check-reset-token" },
   changePassword: { method: "POST", path: "/auth/change-password" },
 } as const;
 
@@ -200,6 +202,16 @@ export function acceptInvite<P extends Portal>(portal: P, request: SetPasswordRe
 
 export function resetPassword<P extends Portal>(portal: P, request: SetPasswordRequest): Promise<{ user: PortalTypes[P]["user"] }> {
   return call(portal, "resetPassword", { body: request });
+}
+
+/** 只核对邀请令牌还能不能用（不消费）。能用时什么也不返回；失效时抛 `INVITE_INVALID`。 */
+export function checkInvite(portal: Portal, token: string): Promise<void> {
+  return call(portal, "checkInvite", { body: { token } });
+}
+
+/** 只核对重置令牌还能不能用（不消费）。能用时什么也不返回；失效时抛 `RESET_TOKEN_INVALID`。 */
+export function checkResetToken(portal: Portal, token: string): Promise<void> {
+  return call(portal, "checkResetToken", { body: { token } });
 }
 
 export function changePassword(portal: Portal, token: string, request: ChangePasswordRequest): Promise<void> {
