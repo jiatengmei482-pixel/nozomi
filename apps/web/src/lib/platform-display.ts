@@ -58,6 +58,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "quote.preview": "报价试算",
   "master_data.read": "看主数据",
   "master_data.manage": "维护主数据",
+  "fx.manage": "管理汇率（立即拉取、确认或放弃变动过大的汇率）",
   "staff.read": "看平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",
