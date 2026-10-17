@@ -54,6 +54,9 @@ export function roleAbilities(role: PlatformRole): string[] {
   else if (can.has("tenant.read")) out.push("看供应商");
   if (can.has("master_data.manage")) out.push("维护主数据");
   else if (can.has("master_data.read")) out.push("看主数据");
+  if (can.has("channel.manage")) out.push("管理渠道和加价规则（改加价、暂停渠道要另一位同事审核）");
+  else if (can.has("channel.read")) out.push("看渠道");
+  if (can.has("channel.review")) out.push("审核渠道的改动");
   if (can.has("staff.manage")) out.push("管理平台员工");
   if (can.has("audit_log.read")) out.push("看审计日志");
   if (can.has("integration.read")) out.push("看系统状态");

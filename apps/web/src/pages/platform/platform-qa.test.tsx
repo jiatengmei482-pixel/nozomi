@@ -43,7 +43,7 @@ function open(path: string | { pathname: string; search?: string; state?: unknow
     if (call.method !== "GET") return null;
     const at = call.url.pathname;
     if (at === "/platform/v1/auth/me") return json(200, { user: meOf(role), permissions: [], must_change_password: world.mustChange ?? false });
-    if (at === "/platform/v1/dashboard/summary") return json(200, { tenants: ["super_admin", "operations", "tenant_onboarding", "readonly"].includes(role) ? { total: 2, active: 1, suspended: 1 } : null, master_data: null });
+    if (at === "/platform/v1/dashboard/summary") return json(200, { tenants: ["super_admin", "operations", "tenant_onboarding", "channel_manager", "readonly"].includes(role) ? { total: 2, active: 1, suspended: 1 } : null, master_data: null });
     if (at === "/platform/v1/tenants") return json(200, { items: world.tenants ?? [tenantOf()], next_cursor: null });
     const found = (world.tenants ?? [tenantOf()]).find((tenant) => at === `/platform/v1/tenants/${tenant.id}`);
     if (found) return json(200, found);

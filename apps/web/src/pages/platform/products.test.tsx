@@ -501,6 +501,7 @@ test("报价试算：没填的当场指出，焦点到第一处；接机只要�
     passengers: 2,
     luggage: 0,
     assume_route: null,
+    channel_id: null,
   });
 });
 

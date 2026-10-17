@@ -65,6 +65,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (call.url.pathname === "/platform/v1/auth/me") return me(role);
     if (call.method === "GET" && call.url.pathname === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, emptySummary);
+    if (call.method === "GET" && (call.url.pathname === "/platform/v1/channels" || call.url.pathname === "/platform/v1/approvals")) return json(200, { items: [], next_cursor: null, total: 0 });
     if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo]);
     return null;
   });
@@ -94,16 +95,17 @@ async function assignCurrent(user: ReturnType<typeof userEvent.setup>): Promise<
 
 test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，卡片不隐藏、没有提醒行；六张卡片都是链接", async () => {
   open("/platform", "super_admin");
-  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 11));
-  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "城市", "地点", "车型组", "附加服务", "汇率"]);
-  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 11 }, () => "0"));
+  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 14));
+  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "渠道", "待审核", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 14 }, () => "0"));
   assert.equal(main().querySelectorAll(".entry-card__reminder").length, 0);
-  assert.equal(main().querySelectorAll("a.entry-card__title").length, 7, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率");
+  assert.equal(main().querySelectorAll("a.entry-card__title").length, 9, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率；M2-04 加了渠道和待审核");
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 
 test("首页：接口说两个模块都不能看时，显示「这里暂时没有你可以使用的模块」，不留空白页", async () => {
-  open("/platform", "finance", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, { tenants: null, master_data: null }) : null));
+  // 主数据运营：接口说主数据也不能看时，一个模块都没有（财务、只读等从 M2-04 起还能看渠道）
+  open("/platform", "master_data", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, { tenants: null, master_data: null }) : null));
   assert.ok(await screen.findByText("这里暂时没有你可以使用的模块"));
   assert.equal(main().querySelectorAll(".entry-card").length, 0);
 });

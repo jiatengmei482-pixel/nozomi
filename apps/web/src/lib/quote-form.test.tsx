@@ -22,7 +22,7 @@ test("包车：套餐时长必填；日期、时刻整理成城市当地时间�
   assert.equal(missing.errors.packageHours, "套餐时长要填 1 到 72 之间的整数（小时）");
   const reading = readQuoteForm(filled({ category: "charter", pickup: { lat: "35.6895", lng: "139.6917" }, packageHours: "10" }));
   assert.deepEqual(reading.errors, {});
-  assert.deepEqual(reading.body, { city_id: CITY, category: "charter", place_id: null, currency: "JPY", pickup: { lat: 35.6895, lng: 139.6917 }, dropoff: null, direction: null, package_hours: 10, service_time: "2026-10-20T09:30", passengers: 2, luggage: 0, assume_route: null });
+  assert.deepEqual(reading.body, { city_id: CITY, category: "charter", place_id: null, currency: "JPY", pickup: { lat: 35.6895, lng: 139.6917 }, dropoff: null, direction: null, package_hours: 10, service_time: "2026-10-20T09:30", passengers: 2, luggage: 0, assume_route: null, channel_id: null });
 });
 
 test("接送机：接送点和方向必填；接送点只在接送机时带上", () => {

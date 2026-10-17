@@ -83,7 +83,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "渠道", "待审核", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
@@ -468,12 +468,12 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(screen.getAllByRole("radio").length, 10);
   assert.ok(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked), "没有默认值");
   const hintOf = (name: RegExp): string => document.getElementById(screen.getByRole("radio", { name }).getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、看主数据。");
-  assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、看主数据。");
-  assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看系统状态。");
+  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、看主数据、看渠道。");
+  assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、看主数据、看渠道。");
+  assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看渠道、看系统状态。");
   assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据。");
-  assert.match(hintOf(/^财务/), /现在能做的：看主数据。 他负责的模块还没有上线，现在登录后只能看主数据。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、维护主数据、管理平台员工、看审计日志、看系统状态。$/);
+  assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道。$/);
+  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、维护主数据、管理渠道和加价规则（改加价、暂停渠道要另一位同事审核）、审核渠道的改动、管理平台员工、看审计日志、看系统状态。$/);
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));
