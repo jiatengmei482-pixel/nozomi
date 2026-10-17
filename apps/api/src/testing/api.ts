@@ -5,7 +5,11 @@
 import assert from "node:assert/strict";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.ts";
-import type { QuoteDeps } from "../services/quote-deps.ts";
+import type { AppContext } from "../context.ts";
+import type { Pool } from "../db/pool.ts";
+import { FxCenter } from "../services/fx-center.ts";
+import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
+import type { AppConfig } from "@nozomi/config";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
@@ -161,4 +165,11 @@ export async function addTenantUser(
   const loggedIn = await api.call("POST", "/tenant/v1/auth/login", { body: { email, password: TEST_PASSWORD } });
   assert.equal(loggedIn.status, 200, loggedIn.text);
   return { id: invited.body.user.id as string, token: loggedIn.body.access_token as string };
+}
+
+/** 不经过 buildApp、直接调服务函数的测试用的上下文：真实的汇率中心（不启动定时任务、不记日志）和默认的报价依赖。 */
+export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
+  const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
+  const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
+  return { config, pool, now, fx, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote } };
 }

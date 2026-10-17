@@ -134,6 +134,12 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/products"],
       ["GET", `/platform/v1/products/${ids.userId}`],
       ["POST", "/platform/v1/quotes/preview", { city_id: ids.userId, category: "charter", currency: "JPY", package_hours: 10, pickup: { lng: 139.7, lat: 35.6 }, service_time: "2027-01-01T10:00", passengers: 2 }],
+      ["GET", "/platform/v1/fx-rates"],
+      ["GET", "/platform/v1/fx-rates/history"],
+      ["GET", "/platform/v1/fx-rates/fetches"],
+      ["POST", "/platform/v1/fx-rates/fetch"],
+      ["POST", `/platform/v1/fx-rates/fetches/${ids.userId}/confirm`],
+      ["POST", `/platform/v1/fx-rates/fetches/${ids.userId}/dismiss`],
       ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
         ["GET", `/platform/v1/master/${resource}`],
         ["POST", `/platform/v1/master/${resource}`, {}],
@@ -207,6 +213,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/holidays"],
     ["GET", "/tenant/v1/map/config"],
     ["GET", "/tenant/v1/dashboard/summary"],
+    ["GET", "/tenant/v1/fx-rates"],
   ];
 }
 

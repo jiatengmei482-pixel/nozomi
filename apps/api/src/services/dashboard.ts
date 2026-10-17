@@ -4,10 +4,11 @@
  * 任何已登录的平台员工都能调；但每个模块只给有权看这个模块的角色（没有 `tenant.read` 的角色拿到的租户一组是 null），
  * 首页不会成为绕过权限看数量的口子。全部在一个事务里数，各组数字是同一时刻的。
  */
-import { type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformRole, platformRoleCan } from "@nozomi/domain";
+import { type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformRole, fxStaleAt, fxTableState, platformRoleCan } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { countAirportsWithoutCity, countMasterByStatus, countPlacesByTypeAndStatus, countTenantsByStatus } from "../repos/dashboard.ts";
+import { latestFetch, latestRateSet, pendingHeldFetches } from "../repos/fx.ts";
 
 export interface StatusCounts {
   total: number;
@@ -22,6 +23,15 @@ export interface DashboardSummary {
     places: StatusCounts & { byType: Record<PlaceType, StatusCounts>; airportsWithoutCity: number };
     vehicleGroups: StatusCounts;
     addons: StatusCounts;
+  } | null;
+  /** 汇率中心（M2-03）：过期、挂起待确认要在首页醒目提醒。和主数据同一个权限 */
+  fx: {
+    state: FxTableState;
+    asOf: Date | null;
+    staleAt: Date | null;
+    /** 有挂起、等人确认的一批 */
+    held: boolean;
+    lastAttemptStatus: FxFetchStatus | null;
   } | null;
 }
 
@@ -54,6 +64,19 @@ export function getDashboardSummary(ctx: AppContext, role: PlatformRole): Promis
         addons: statusCounts(await countMasterByStatus(db, "addons")),
       };
     }
-    return { tenants, masterData };
+    let fx: DashboardSummary["fx"] = null;
+    if (platformRoleCan(role, "master_data.read")) {
+      const current = await latestRateSet(db);
+      const asOf = current?.asOf.toISOString() ?? null;
+      const last = await latestFetch(db);
+      fx = {
+        state: fxTableState(asOf, ctx.now()),
+        asOf: current?.asOf ?? null,
+        staleAt: asOf === null ? null : fxStaleAt(asOf),
+        held: (await pendingHeldFetches(db, current?.asOf ?? null)).length > 0,
+        lastAttemptStatus: last?.status ?? null,
+      };
+    }
+    return { tenants, masterData, fx };
   });
 }

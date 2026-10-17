@@ -18,6 +18,12 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   area: "区域",
   brand: "子品牌",
   product: "商品",
+  price_rule: "价格规则",
+  adjust_rule: "调价规则",
+  holiday: "节假日",
+  inventory: "库存",
+  fx_fetch: "汇率拉取",
+  fx_rate: "汇率",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -40,10 +46,15 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   request_password_reset: "发出密码重置",
   reset_password: "重设密码",
   view: "查看",
+  fetch: "立即拉取",
+  hold: "挂起待确认",
+  confirm: "确认生效",
+  dismiss: "放弃",
+  stale: "过期告警",
 };
 
-export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（服务器上的命令）", anonymous: "没有登录的访问者" };
-export const SOURCE_NAMES: Readonly<Record<AuditSource, string>> = { console: "后台", api: "接口", cli: "命令行" };
+export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };
+export const SOURCE_NAMES: Readonly<Record<AuditSource, string>> = { console: "后台", api: "接口", cli: "命令行", job: "定时任务" };
 
 /** 认识的写中文；不认识的原样返回（由页面用等宽字体显示）。 */
 export function resourceName(resource: string): { text: string; known: boolean } {

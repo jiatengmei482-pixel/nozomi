@@ -14,9 +14,8 @@ import { randomUUID } from "node:crypto";
 import type { AppContext } from "./context.ts";
 import type { QuoteCandidate } from "./repos/quotes.ts";
 import { QuoteCatalogCache } from "./services/quote-catalog.ts";
-import { defaultQuoteDeps } from "./services/quote-deps.ts";
 import { previewPlatformQuote } from "./services/quotes.ts";
-import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
 import { testConfig } from "./testing/fixtures.ts";
 
 let api: TestApi;
@@ -180,7 +179,7 @@ test(`基准：${SUPPLIERS} 个供应商 × 每个 18 条价格、5 条调价、
   // 目录在缓存里（正式询价的常态）：直接调同一个服务函数，不走缓存旁路
   const config = testConfig(api.db.url);
   const catalog = new CountingCatalog({ now: () => api.clock.now().getTime() });
-  const ctx: AppContext = { config, pool: api.db.pool, now: api.clock.now, quote: { ...defaultQuoteDeps(config, api.clock.now), catalog } };
+  const ctx: AppContext = testContext(config, api.db.pool, api.clock.now, { catalog });
   const input = { cityId: ids["tokyo"] as string, category: "airport_transfer" as const, placeId: ids["narita"] as string, currency: "JPY", pickup: null, dropoff: body.dropoff, direction: "pickup" as const, packageHours: null, serviceLocal: body.service_time, passengers: 2, luggage: 1, addons: [], driverLanguage: null, vehicleGroupIds: [], assumeRoute: null };
   await previewPlatformQuote(ctx, input, { fresh: false });
   const cached: number[] = [];

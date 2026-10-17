@@ -5,6 +5,7 @@
  * - 启动时自检数据库账号（ADR 0010）：连上的账号是超级用户、表的所有者或能绕过行级安全时拒绝启动并说明原因，
  *   所有环境都一样。数据库此刻连不上时照常启动（/health 如实报告 503），自检推迟到每条连接第一次使用之前。
  * - 不在启动时自动执行迁移：迁移是单独的一步（`pnpm db:migrate`），/health 会报告是否执行完。
+ * - 启动后台定时任务（汇率按数据源的频率拉取、过期告警，ADR 0022）；`FX_AUTO_FETCH=false` 时只做过期告警。关闭时先停定时任务。
  * - 收到 SIGTERM / SIGINT 时优雅关闭：先停止接收新请求并等在途请求结束，再关闭连接池，然后退出。
  * - 出现没有任何代码接住的异常时不假装没事：按脱敏规则记一条日志，走同样的优雅关闭，以退出码 1 结束，
  *   由进程管理器（Docker 的重启策略）拉起新进程。已知会发生的故障（如事务中途连接被断开）在各自的位置处理，
@@ -32,7 +33,7 @@ async function main(): Promise<void> {
   const pool = createPool(config.databaseUrl, {
     onIdleError: ({ code }) => app.log.warn({ code }, "数据库空闲连接出错，下次查询时会重连"),
   });
-  const app = buildApp({ config, pool, migrationFiles });
+  const app = buildApp({ config, pool, migrationFiles, jobs: true });
 
   try {
     const identity = await assertLeastPrivilege(pool, DB_IDENTITY_CHECK_TIMEOUT_MS);

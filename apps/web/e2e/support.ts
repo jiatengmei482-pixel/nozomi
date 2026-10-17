@@ -9,6 +9,9 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
 
+/** 假汇率源给的汇率（global-setup 起的本机假服务器；端到端测试里现场给的数，不是业务数据）。 */
+export const E2E_FX_RATES = { JPY: "150.5", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
+
 export const VIEWPORTS = {
   phone360: { width: 360, height: 740 },
   phone400: { width: 400, height: 800 },

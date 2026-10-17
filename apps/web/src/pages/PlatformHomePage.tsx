@@ -1,9 +1,11 @@
 /**
  * 运营后台首页（docs/design/pages/platform-home.md）：各模块的入口、数量和需要处理的提醒。
  * 数量全部来自 `dashboard/summary`；入口不等数量，数量加载失败时入口照常可用。
+ * 汇率超过 48 小时没更新（跨币种报价已暂停）时，页面顶部一条危险提示条（M2-03）。
  */
 import { TENANT_LIST_PATH, platformProductListPath } from "../lib/platform-paths.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { type DashboardSummary, fetchDashboardSummary } from "../api/master.ts";
 import { countPlatformProducts } from "../api/platform-products.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
@@ -13,8 +15,9 @@ import { Button } from "../components/Button.tsx";
 import { EntryCard, type EntryCounts, type EntryReminder } from "../components/EntryCard.tsx";
 import { StateBlock } from "../components/States.tsx";
 import { masterListPath, masterNewPath, pendingAirportsPath, placeListPath } from "../lib/master-paths.ts";
-import { formatCount } from "../lib/master-display.ts";
+import { formatCount, formatLocalDateTime } from "../lib/master-display.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
+import { FX_PATH } from "../lib/fx-display.ts";
 import { useLoad } from "../lib/use-load.ts";
 import { usePlatformCan } from "../lib/use-master-access.ts";
 
@@ -74,6 +77,13 @@ export function PlatformHomePage() {
   const waiting = master?.places.airports_without_city ?? 0;
   const placeReminders: EntryReminder[] = waiting > 0 ? [{ text: `${formatCount(waiting)} 个机场待指定城市`, to: canManageMaster ? pendingAirportsPath() : placeListPath("airport", { city: "none" }) }] : [];
   const cityReminders: EntryReminder[] = master && master.cities.active === 0 && waiting > 0 && canManageMaster ? [{ text: "先新增城市，才能给机场指定城市", to: masterNewPath("cities") }] : [];
+  // 汇率（M2-03）：过期是故障，页面顶部醒目提醒；没有汇率、挂起待确认写在卡片的提醒行上
+  const fx = summary?.fx ?? null;
+  const fxCounts: EntryCounts = fx === null ? pending : { status: "text", text: fx.as_of === null ? "还没有汇率" : `更新于 ${formatLocalDateTime(fx.as_of)}` };
+  const fxReminders: EntryReminder[] = [
+    ...(fx?.state === "none" ? [{ text: "还没有汇率，跨币种报价都报不出", to: FX_PATH }] : []),
+    ...(fx?.held ? [{ text: "有一批汇率变动超过 3%，待确认", to: FX_PATH }] : []),
+  ];
 
   return (
     <AppShell pageName="首页">
@@ -92,6 +102,13 @@ export function PlatformHomePage() {
             </Alert>
           )}
         </div>
+        {fx?.state === "stale" && (
+          <Alert kind="danger">
+            <strong className="alert__title">汇率超过 48 小时没有更新，跨币种报价已暂停</strong>
+            <span>现在这批汇率是 {fx.as_of === null ? "—" : formatLocalDateTime(fx.as_of)} 的。</span>
+            <Link to={FX_PATH}>去汇率页处理</Link>
+          </Alert>
+        )}
         {!showMaster && !showTenants && !canSeeProducts && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
         {(showTenants || canSeeProducts) && (
           <section className="home-section" aria-labelledby="home-operations">
@@ -114,6 +131,7 @@ export function PlatformHomePage() {
               <EntryCard title="地点" to={masterListPath("places")} counts={placeCounts ? statusCounts(placeCounts) : pending} reminders={placeReminders} />
               <EntryCard title="车型组" to={masterListPath("vehicle-groups")} counts={master ? statusCounts(master.vehicle_groups) : pending} />
               <EntryCard title="附加服务" to={masterListPath("addons")} counts={master ? statusCounts(master.addons) : pending} />
+              <EntryCard title="汇率" to={FX_PATH} counts={fxCounts} reminders={fxReminders} />
             </div>
           </section>
         )}

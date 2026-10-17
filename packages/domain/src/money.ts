@@ -41,7 +41,7 @@ export const FLOAT_ROUNDING_LIMIT = 1_000_000_000_000_000;
 
 /**
  * 四舍五入到整数，0.5 远离零。先修正浮点表示误差（如 1.005*100 = 100.49999…）。
- * **只给本来就是浮点数的输入用**（汇率换算：汇率是浮点数）。适用范围：绝对值不超过 `FLOAT_ROUNDING_LIMIT`，超出就抛 RangeError，不给出一个可能错的数。
+ * **只给本来就是浮点数的输入用**（现在的业务代码里没有这样的输入：汇率也是十进制字符串、走精确分数，见 fx.ts）。适用范围：绝对值不超过 `FLOAT_ROUNDING_LIMIT`，超出就抛 RangeError，不给出一个可能错的数。
  * 金额和基点、取整单位之间的计算不要用它：用下面基于整数的函数，计价路径用 `roundFractionHalfAwayFromZero` / `roundFractionToUnit`。
  */
 export function roundHalfAwayFromZero(value: number): number {

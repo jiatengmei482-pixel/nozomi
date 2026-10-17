@@ -12,11 +12,13 @@ import { errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts"
 import type { AppContext } from "./context.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "./services/quote-deps.ts";
 import { checkHealth } from "./health.ts";
+import { FxCenter } from "./services/fx-center.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
 import { registerAreaRoutes } from "./routes/areas.ts";
 import { registerMasterDataRoutes } from "./routes/master-data.ts";
 import { registerImportExportRoutes } from "./routes/import-export.ts";
 import { registerQuoteRoutes } from "./routes/quotes.ts";
+import { registerFxRoutes } from "./routes/fx.ts";
 import { registerInventoryRoutes } from "./routes/inventory.ts";
 import { registerPriceRoutes } from "./routes/prices.ts";
 import { registerProductRoutes } from "./routes/products.ts";
@@ -37,8 +39,10 @@ export interface AppDeps {
   healthTimeoutMs?: number;
   /** 时钟；默认系统时间。测试用它验证会话过期、限速窗口、邀请过期 */
   now?: () => Date;
-  /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用「还没有」的默认实现 */
+  /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用默认实现（汇率是汇率中心） */
   quote?: Partial<QuoteDeps>;
+  /** 是否启动后台定时任务（汇率定时拉取和过期告警）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick` */
+  jobs?: boolean;
 }
 
 export interface RegisteredRoute {
@@ -50,6 +54,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** 已注册的全部路由，用于和 OpenAPI 定义对账 */
     registeredRoutes: RegisteredRoute[];
+    /** 汇率中心：定时任务的入口（服务进程用 `jobs` 启动它；测试直接调 `tick`、`fetch`） */
+    fxCenter: FxCenter;
   }
 }
 
@@ -157,7 +163,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   const now = deps.now ?? (() => new Date());
-  const context: AppContext = { config, pool, now, quote: { ...defaultQuoteDeps(config, now), ...deps.quote } };
+  const fx = new FxCenter({ pool, now, config: config.fx, log: app.log });
+  app.decorate("fxCenter", fx);
+  const context: AppContext = { config, pool, now, fx, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote } };
+  if (deps.jobs) {
+    fx.start();
+    app.addHook("onClose", () => fx.stop());
+  }
   registerPlatformRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
@@ -167,6 +179,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerInventoryRoutes(app, context);
   registerImportExportRoutes(app, context);
   registerQuoteRoutes(app, context);
+  registerFxRoutes(app, context);
   registerPlatformProductRoutes(app, context);
 
   return app;

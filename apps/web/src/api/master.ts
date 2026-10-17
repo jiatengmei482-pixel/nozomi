@@ -3,6 +3,7 @@
  * 类型手写，与 `apps/api/openapi.yaml` 对账（`master.contract.test.ts`）。
  * 四类主数据的接口形状相同：列表（游标分页 + 总数）、单条、新增、修改（If-Match 带版本号）、停用、启用。
  */
+import type { DashboardFx } from "./fx.ts";
 import type {
   AddonChargeUnit,
   FlightScope,
@@ -150,6 +151,8 @@ export interface DashboardSummary {
     vehicle_groups: StatusCounts;
     addons: StatusCounts;
   } | null;
+  /** 汇率中心（过期、挂起待确认要在首页提醒）；当前角色不能看主数据时为 null */
+  fx: DashboardFx | null;
 }
 
 /** 四类主数据各自的类型。 */

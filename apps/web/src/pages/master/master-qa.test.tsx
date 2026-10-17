@@ -49,6 +49,7 @@ const emptySummary: DashboardSummary = {
     vehicle_groups: counts(0, 0),
     addons: counts(0, 0),
   },
+  fx: { state: "fresh", as_of: "2026-10-01T00:02:31.000Z", stale_at: "2026-10-03T00:02:31.001Z", held: false, last_attempt_status: "accepted" },
 };
 
 const me = (role: string) => json(200, { user: { id: "p1", email: "staff@platform.example", name: "测试员工", role, status: "active", ...stamps }, permissions: [], must_change_password: false });
@@ -94,10 +95,10 @@ async function assignCurrent(user: ReturnType<typeof userEvent.setup>): Promise<
 test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，卡片不隐藏、没有提醒行；六张卡片都是链接", async () => {
   open("/platform", "super_admin");
   await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 11));
-  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "城市", "地点", "车型组", "附加服务"]);
+  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "城市", "地点", "车型组", "附加服务", "汇率"]);
   assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 11 }, () => "0"));
   assert.equal(main().querySelectorAll(".entry-card__reminder").length, 0);
-  assert.equal(main().querySelectorAll("a.entry-card__title").length, 6, "M1-10 起供应商卡片也是链接；M1-12 加了商品");
+  assert.equal(main().querySelectorAll("a.entry-card__title").length, 7, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率");
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 

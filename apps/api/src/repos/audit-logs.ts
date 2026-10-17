@@ -8,7 +8,7 @@ import type { Db } from "../db/context.ts";
 import { type Page, type SequenceCursor, toPage } from "../pagination.ts";
 
 export type AuditActorType = "platform_user" | "tenant_user" | "system" | "anonymous";
-export type AuditSource = "console" | "api" | "cli";
+export type AuditSource = "console" | "api" | "cli" | "job";
 export type AuditResource =
   | "platform_user"
   | "tenant"
@@ -24,7 +24,9 @@ export type AuditResource =
   | "price_rule"
   | "adjust_rule"
   | "holiday"
-  | "inventory";
+  | "inventory"
+  | "fx_fetch"
+  | "fx_rate";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -44,7 +46,12 @@ export type AuditAction =
   | "reset_password"
   | "suspend"
   | "resume"
-  | "view";
+  | "view"
+  | "fetch"
+  | "hold"
+  | "confirm"
+  | "dismiss"
+  | "stale";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

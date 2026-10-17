@@ -962,7 +962,7 @@ test("审计日志里出现后端后来才加的东西：不认识的对象类�
   const actor = user();
   const logs = [
     logOf({ id: "1", resource: "price_plan", action: "bulk_adjust", source: "webhook" as AuditLog["source"], actor: { type: "service_account" as AuditLog["actor"]["type"], id: uuidOf(1), email: "bot@example.com" }, before: null, after: { rounding_unit: 100, items: [{ id: 1 }] } }),
-    logOf({ id: "2", resource: "inventory", action: "import", occurred_at: "不是时间", actor: { type: "system", id: null, email: null }, source: "cli", ip: null, tenant_id: null, resource_id: null, before: null, after: null }),
+    logOf({ id: "2", resource: "inventory_snapshot", action: "import", occurred_at: "不是时间", actor: { type: "system", id: null, email: null }, source: "cli", ip: null, tenant_id: null, resource_id: null, before: null, after: null }),
     logOf({ id: "3", resource: "city", action: "update", before: { name: { zh: 123, en: null } as unknown as string }, after: { name: { zh: ["x"], ja: { a: 1 } } as unknown as string } }),
     logOf({ id: "4", resource: "product", action: "publish", before: { name: [] as unknown as string, title: {} as unknown as string }, after: { name: 42 as unknown as string, code: "   " } }),
     logOf({ id: "5", resource: "tenant", action: "update", before: [] as unknown as Record<string, unknown>, after: "text" as unknown as Record<string, unknown> }),
@@ -972,7 +972,7 @@ test("审计日志里出现后端后来才加的东西：不认识的对象类�
   const rows = [...document.querySelectorAll(".card-table tbody tr")].map((row) => row.textContent ?? "");
   assert.equal(rows.length, 5);
   assert.match(rows[0] ?? "", /bot@example\.com.*service_account.*bulk_adjust.*price_plan.*webhook/);
-  assert.match(rows[1] ?? "", /^—.*—系统（服务器上的命令）import.*inventory.*命令行/);
+  assert.match(rows[1] ?? "", /^—.*—系统（命令行或定时任务）import.*inventory_snapshot.*命令行/);
   assertAbsent(screen.queryByText("页面出了点问题"));
   // 两个下拉里带着网址里那个不认识的值，原样显示
   assert.equal((document.getElementById("audit-resource") as HTMLSelectElement).value, "price_plan");

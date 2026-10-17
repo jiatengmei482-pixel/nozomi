@@ -88,6 +88,8 @@ tags:
     description: 平台维护的各国节假日日历（调价规则的「节假日」周期用）
   - name: 区域
     description: 供应商自己的区域（营运区 + 禁行区）、自测、地图底图配置、首页数量
+  - name: 汇率
+    description: 汇率中心（ADR 0022）：看板、近 N 天曲线、拉取记录、立即拉取、确认 / 放弃变动过大而挂起的一批
   - name: 供应商商品（平台）
     description: 运营后台只读地查看所有供应商的商品（列表、详情、上架校验）。平台没有修改供应商商品的接口
   - name: 报价
@@ -784,7 +786,7 @@ paths:
       summary: 各集成的配置状态（含脱敏详情）
       description: |
         需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
-        多给一段脱敏说明（打码后的数据库地址、只露首尾的密钥），永远不含密钥原文。每次查看都写审计日志。
+        多给一段脱敏说明（打码后的数据库地址、只露首尾的密钥），永远不含密钥原文；另给汇率数据源的运行状态（`fx_center`）。每次查看都写审计日志。
       security:
         - platformToken: []
       responses:
@@ -795,12 +797,33 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [items, fx_center]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/IntegrationStatusDetail"
+                  fx_center:
+                    type: object
+                    description: 汇率数据源的运行状态（ADR 0022）。`state` 是 `stale` 时超过 48 小时没更新，跨币种报价已暂停
+                    additionalProperties: false
+                    required: [state, as_of, auto_fetch, last_attempt_status, last_attempt_at, last_error_code]
+                    properties:
+                      state:
+                        $ref: "#/components/schemas/FxTableState"
+                      as_of:
+                        type: [string, "null"]
+                        format: date-time
+                      auto_fetch:
+                        type: boolean
+                      last_attempt_status:
+                        type: [string, "null"]
+                        enum: [running, accepted, unchanged, held, confirmed, dismissed, rejected, failed, null]
+                      last_attempt_at:
+                        type: [string, "null"]
+                        format: date-time
+                      last_error_code:
+                        type: [string, "null"]
   /platform/v1/quotes/preview:
     post:
       tags: [报价]
@@ -4281,6 +4304,191 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "428":
           $ref: "#/components/responses/VersionRequired"
+  /platform/v1/fx-rates:
+    get:
+      tags: [汇率]
+      operationId: getFxOverview
+      summary: 汇率看板：当前汇率、交叉汇率、数据源状态、挂起待确认的一批
+      description: |
+        需要操作 `master_data.read`（每个平台角色都能看）。汇率一律是十进制字符串。
+        - `rates`：1 个 `base` = 多少个各币种；`cross`：平台币种两两之间。交叉汇率先用精确分数算，再四舍五入到 12 位小数——和报价快照里记的完全一样。
+        - `state`：`none` 还没有汇率；`fresh` 能用；`stale` 超过 48 小时没更新，跨币种报价已暂停（`FX_RATE_UNAVAILABLE`）。
+        - `source_status`：最近一次拉取的结果和原因、最近一次成功的时间、下一次定时拉取的时间（没开定时拉取为 null）。
+        - `held`：变动超过 3% 被挂起、等人确认的一批（最新的一个）；没有为 null。
+        数据源不可用时继续用最近一次有效汇率。不写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/FxBase"
+      responses:
+        "200":
+          description: 看板
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxOverview"
+  /platform/v1/fx-rates/history:
+    get:
+      tags: [汇率]
+      operationId: getFxHistory
+      summary: 近 N 天的汇率曲线
+      description: |
+        需要操作 `master_data.read`。每批汇率一个点（数据源每天更新一次，30 天约 30 个点），换算成「1 个 `base` = ? 个该币种」。
+        `days` 默认 30，最多 365。按每批汇率的时间（`as_of`）取。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/FxBase"
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+      responses:
+        "200":
+          description: 每个币种一条曲线
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxHistory"
+  /platform/v1/fx-rates/fetches:
+    get:
+      tags: [汇率]
+      operationId: listFxFetches
+      summary: 最近的拉取记录
+      description: 需要操作 `master_data.read`。新的在前，每次拉取（定时、手动）一条：结果、原因、数据源的时间。
+      security:
+        - platformToken: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: 拉取记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FxFetch"
+  /platform/v1/fx-rates/fetch:
+    post:
+      tags: [汇率]
+      operationId: fetchFxRatesNow
+      summary: 立即拉取
+      description: |
+        需要操作 `fx.manage`（主数据运营、超级管理员）。不管到没到定时拉取的时间，马上向数据源拉一次（只试 1 次、最多等 8 秒），返回这次拉取的记录。
+        拉取本身的成败在 `fetch.status` 里，接口照常 200：`accepted` 已生效；`unchanged` 数据源还没更新；`held` 有币种变动超过 3%，等人确认；
+        `rejected` 内容不对（`error_code` 是 `FX_SOURCE_NOT_JSON` / `FX_SOURCE_ERROR_RESULT` / `FX_SOURCE_WRONG_BASE` / `FX_SOURCE_BAD_TIME` /
+        `FX_SOURCE_MISSING_CURRENCY` / `FX_SOURCE_BAD_RATE` / `FX_SOURCE_OLDER`）；`failed` 没取到（`FX_SOURCE_TIMEOUT` / `FX_SOURCE_UNAVAILABLE` / `FX_SOURCE_BAD_RESPONSE`）。
+        没拉到时继续用最近一次有效汇率。写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 这次拉取的记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxFetchResult"
+        "409":
+          description: "`FX_FETCH_IN_PROGRESS`：正在拉（定时任务或别人），`details.started_at` 是开始时间"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/fx-rates/fetches/{id}/confirm:
+    post:
+      tags: [汇率]
+      operationId: confirmFxFetch
+      summary: 确认挂起的一批汇率（立即生效）
+      description: |
+        需要操作 `fx.manage`。变动超过 3% 被挂起的一批，人工核对后确认：写入汇率，立即用于报价。写审计日志。
+        只有比现在用的那批新的才能确认；有了更新的一批之后，数据源时间早于它的挂起批次自动作废（`dismissed`）；数据源时间比它晚的挂起批次不受影响，仍可确认。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/FxFetchId"
+      responses:
+        "200":
+          description: 确认后的拉取记录（`status` 是 `confirmed`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxFetchResult"
+        "404":
+          description: 拉取记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`FX_FETCH_NOT_HELD`：这次拉取没有挂起待确认的汇率（`details.status` 是它现在的状态）；`FX_HELD_OUTDATED`：这批已经比现在用的旧"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/fx-rates/fetches/{id}/dismiss:
+    post:
+      tags: [汇率]
+      operationId: dismissFxFetch
+      summary: 放弃挂起的一批汇率
+      description: 需要操作 `fx.manage`。不生效，继续用现在的汇率（它照常会在 48 小时后过期）。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/FxFetchId"
+      responses:
+        "200":
+          description: 放弃后的拉取记录（`status` 是 `dismissed`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxFetchResult"
+        "404":
+          description: 拉取记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`FX_FETCH_NOT_HELD`：这次拉取没有挂起待确认的汇率"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/fx-rates:
+    get:
+      tags: [租户主数据]
+      operationId: getTenantFxRates
+      summary: 当前汇率（只读）
+      description: |
+        需要操作 `master_data.read`（每个租户角色）。平台的中央汇率：1 个 `base` = 多少个各币种，十进制字符串。
+        只有汇率本身，没有汇率缓冲、加价比例、对外价这类平台参数。和租户无关，每个租户看到的一样。
+        `state` 是 `stale` 时跨币种报价已暂停。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/FxBase"
+      responses:
+        "200":
+          description: 当前汇率
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FxTenantRates"
 components:
   securitySchemes:
     platformToken:
@@ -4294,6 +4502,21 @@ components:
       bearerFormat: JWT
       description: 租户用户登录后拿到的访问令牌；租户编号只从这里取
   parameters:
+    FxBase:
+      name: base
+      in: query
+      description: 以哪个币种为基准显示（1 个 base = ? 个各币种）；默认 USD
+      schema:
+        type: string
+        enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+        default: USD
+    FxFetchId:
+      name: id
+      in: path
+      required: true
+      description: 拉取记录的编号（数字字符串）。写法不对按不存在处理（404）
+      schema:
+        type: string
     FileSha256:
       name: file_sha256
       in: query
@@ -4631,6 +4854,264 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    FxCurrency:
+      type: string
+      enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
+    FxRateText:
+      type: string
+      pattern: '^(0|[1-9]\d{0,11})(\.\d{0,11}[1-9])?$'
+      description: 十进制写法的汇率（最多 12 位小数），不是 JSON 数字
+    FxTableState:
+      type: string
+      enum: [none, fresh, stale]
+      description: "none：还没有汇率；fresh：能用；stale：超过 48 小时没更新，跨币种报价已暂停"
+    FxRateItem:
+      type: object
+      additionalProperties: false
+      required: [currency, rate]
+      properties:
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        rate:
+          description: 1 个 base = rate 个该币种；还没有汇率时为 null
+          oneOf:
+            - $ref: "#/components/schemas/FxRateText"
+            - type: "null"
+    FxStaffRef:
+      type: [object, "null"]
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    FxFetch:
+      type: object
+      additionalProperties: false
+      required: [id, started_at, finished_at, trigger, triggered_by, source, status, error_code, error_detail, source_as_of, source_next_update_at, held_rates, jumps, decided_by, decided_at]
+      properties:
+        id:
+          type: string
+          pattern: '^[1-9]\d*$'
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        trigger:
+          type: string
+          enum: [schedule, manual]
+          description: "schedule：定时任务；manual：有人点了「立即拉取」"
+        triggered_by:
+          $ref: "#/components/schemas/FxStaffRef"
+        source:
+          type: string
+          description: 数据源的主机名
+        status:
+          type: string
+          enum: [running, accepted, unchanged, held, confirmed, dismissed, rejected, failed]
+          description: |
+            running 正在拉；accepted 拉到新的一批、已生效；unchanged 和现在用的（或挂起的）是同一批；held 有币种变动超过 3%，等人确认；
+            confirmed 挂起的这批已确认生效；dismissed 挂起的这批被放弃（或被更新的一批取代）；rejected 内容不对，没入库；failed 没取到
+        error_code:
+          type: [string, "null"]
+          description: rejected / failed 的原因；held 是 `FX_RATE_JUMP`；中途中断的是 `FX_FETCH_ABANDONED`
+        error_detail:
+          type: [string, "null"]
+        source_as_of:
+          type: [string, "null"]
+          format: date-time
+          description: 数据源说的这批汇率的时间
+        source_next_update_at:
+          type: [string, "null"]
+          format: date-time
+        held_rates:
+          type: [array, "null"]
+          description: 挂起的那批汇率（1 USD = ?）；只有挂起过的有
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, rate]
+            properties:
+              currency:
+                $ref: "#/components/schemas/FxCurrency"
+              rate:
+                type: string
+        jumps:
+          type: [array, "null"]
+          description: 变动超过 3% 的币种（和当时用的那批比）
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, previous, next, change_bp]
+            properties:
+              currency:
+                $ref: "#/components/schemas/FxCurrency"
+              previous:
+                type: string
+              next:
+                type: string
+              change_bp:
+                type: integer
+                description: 变动幅度（基点，带正负号，四舍五入，只给人看）
+        decided_by:
+          $ref: "#/components/schemas/FxStaffRef"
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+    FxFetchResult:
+      type: object
+      additionalProperties: false
+      required: [fetch]
+      properties:
+        fetch:
+          $ref: "#/components/schemas/FxFetch"
+    FxOverview:
+      type: object
+      additionalProperties: false
+      required: [base, state, as_of, fetched_at, stale_at, max_age_hours, jump_threshold_bp, source, rates, cross, source_status, held]
+      properties:
+        base:
+          $ref: "#/components/schemas/FxCurrency"
+        state:
+          $ref: "#/components/schemas/FxTableState"
+        as_of:
+          type: [string, "null"]
+          format: date-time
+          description: 现在用的这批汇率的时间（数据源的更新时间）；报价快照里的「取数时间」就是它
+        fetched_at:
+          type: [string, "null"]
+          format: date-time
+          description: 我们拉到这批的时间
+        stale_at:
+          type: [string, "null"]
+          format: date-time
+          description: 这批从什么时候起不能再用（as_of + 48 小时之后）
+        max_age_hours:
+          type: integer
+        jump_threshold_bp:
+          type: integer
+        source:
+          type: [string, "null"]
+          description: 这批汇率的数据源（主机名）
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FxRateItem"
+        cross:
+          type: array
+          description: 平台币种两两之间：1 个 from = rate 个 to
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to, rate]
+            properties:
+              from:
+                $ref: "#/components/schemas/FxCurrency"
+              to:
+                $ref: "#/components/schemas/FxCurrency"
+              rate:
+                oneOf:
+                  - $ref: "#/components/schemas/FxRateText"
+                  - type: "null"
+        source_status:
+          type: object
+          additionalProperties: false
+          required: [host, auto_fetch, last_attempt, last_success_at, next_fetch_at]
+          properties:
+            host:
+              type: string
+              description: 配置的数据源（主机名）
+            auto_fetch:
+              type: boolean
+              description: 服务进程是否定时拉取（配置 `FX_AUTO_FETCH`）
+            last_attempt:
+              oneOf:
+                - $ref: "#/components/schemas/FxFetch"
+                - type: "null"
+            last_success_at:
+              type: [string, "null"]
+              format: date-time
+            next_fetch_at:
+              type: [string, "null"]
+              format: date-time
+        held:
+          oneOf:
+            - $ref: "#/components/schemas/FxFetch"
+            - type: "null"
+    FxHistory:
+      type: object
+      additionalProperties: false
+      required: [base, from, to, series]
+      properties:
+        base:
+          $ref: "#/components/schemas/FxCurrency"
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        series:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, points]
+            properties:
+              currency:
+                $ref: "#/components/schemas/FxCurrency"
+              points:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [as_of, rate]
+                  properties:
+                    as_of:
+                      type: string
+                      format: date-time
+                    rate:
+                      $ref: "#/components/schemas/FxRateText"
+    FxTenantRates:
+      type: object
+      additionalProperties: false
+      required: [base, state, as_of, rates]
+      properties:
+        base:
+          $ref: "#/components/schemas/FxCurrency"
+        state:
+          $ref: "#/components/schemas/FxTableState"
+        as_of:
+          type: [string, "null"]
+          format: date-time
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FxRateItem"
+    DashboardFx:
+      type: [object, "null"]
+      description: 汇率中心；当前角色没有 `master_data.read` 时为 null
+      additionalProperties: false
+      required: [state, as_of, stale_at, held, last_attempt_status]
+      properties:
+        state:
+          $ref: "#/components/schemas/FxTableState"
+        as_of:
+          type: [string, "null"]
+          format: date-time
+        stale_at:
+          type: [string, "null"]
+          format: date-time
+        held:
+          type: boolean
+          description: 有变动超过 3%、等人确认的一批
+        last_attempt_status:
+          type: [string, "null"]
+          enum: [running, accepted, unchanged, held, confirmed, dismissed, rejected, failed, null]
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -5302,7 +5783,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
@@ -5515,11 +5996,11 @@ components:
           description: 来源地址；命令行操作为 null
         source:
           type: string
-          enum: [console, api, cli]
-          description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行"
+          enum: [console, api, cli, job]
+          description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate]
         resource_id:
           type: [string, "null"]
         action:
@@ -5544,6 +6025,11 @@ components:
             - suspend
             - resume
             - view
+            - fetch
+            - hold
+            - confirm
+            - dismiss
+            - stale
         before:
           type: [object, "null"]
           additionalProperties: true
@@ -6218,7 +6704,7 @@ components:
     DashboardSummary:
       type: object
       additionalProperties: false
-      required: [tenants, master_data]
+      required: [tenants, master_data, fx]
       properties:
         tenants:
           type: [object, "null"]
@@ -6281,6 +6767,8 @@ components:
               $ref: "#/components/schemas/StatusCounts"
             addons:
               $ref: "#/components/schemas/StatusCounts"
+        fx:
+          $ref: "#/components/schemas/DashboardFx"
     AreaBizType:
       type: string
       enum: [general, airport_transfer, point_to_point, charter]

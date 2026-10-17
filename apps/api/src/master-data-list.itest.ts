@@ -9,8 +9,7 @@ import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { CITY, listMaster } from "./services/master-data.ts";
 import { importAirports } from "./services/airport-import.ts";
 import { testConfig } from "./testing/fixtures.ts";
-import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
-import { defaultQuoteDeps } from "./services/quote-deps.ts";
+import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -56,6 +55,8 @@ test("首页统计：空库里全是 0，五种地点类型都列出来；只有
       vehicle_groups: EMPTY,
       addons: EMPTY,
     },
+    // 汇率中心（M2-03）：空库里还没有汇率
+    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null },
   });
 });
 
@@ -111,6 +112,7 @@ test("首页统计：数量跟着数据变——租户按状态，主数据按�
       vehicle_groups: { total: 1, active: 1, disabled: 0 },
       addons: { total: 2, active: 1, disabled: 1 },
     },
+    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null },
   });
   assert.doesNotMatch(res.text, /甲车队|HND|东京|admin@/, "只有数量，没有任何明细");
 });
@@ -417,7 +419,7 @@ test("列表接口真的用了快照：在取这一页和数总数之间插入�
   };
   let page;
   try {
-    page = await listMaster({ config: testConfig(api.db.url), pool, now: api.clock.now, quote: defaultQuoteDeps(testConfig(api.db.url)) }, { kind: "platform" }, CITY, {}, 200, { by: "created", after: null });
+    page = await listMaster(testContext(testConfig(api.db.url), pool, api.clock.now), { kind: "platform" }, CITY, {}, 200, { by: "created", after: null });
   } finally {
     (pool as any).connect = realConnect;
   }

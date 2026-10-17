@@ -147,7 +147,7 @@ test("枚举值与 @nozomi/domain 一致", () => {
 test("首页统计：路径和各层字段", () => {
   const summary = ref(body(op("get", DASHBOARD_SUMMARY_PATH), "200")) ?? "";
   const schema = schemas[summary];
-  assert.deepEqual(Object.keys(schema?.properties ?? {}).sort(), ["master_data", "tenants"]);
+  assert.deepEqual(Object.keys(schema?.properties ?? {}).sort(), ["fx", "master_data", "tenants"]);
   const unwrap = (value: Schema | undefined): Schema | undefined => (value?.oneOf ?? value?.anyOf)?.find((candidate) => candidate.type !== "null") ?? value;
   const tenants = unwrap(schema?.properties?.["tenants"]);
   assert.deepEqual(Object.keys(tenants?.properties ?? {}).sort(), ["active", "suspended", "total"]);

@@ -32,6 +32,9 @@ export function testEnv(databaseUrl: string): Record<string, string> {
     STRIPE_PUBLISHABLE_KEY: FAKE_SECRETS.stripePublishableKey,
     STRIPE_WEBHOOK_SECRET: FAKE_SECRETS.stripeWebhookSecret,
     GOOGLE_MAPS_API_KEY: FAKE_SECRETS.googleMapsApiKey,
+    // 测试不访问外网：汇率源指向本机一个连不上的端口，测试启动的服务进程也不定时拉（汇率中心的测试用本机的假数据源）
+    FX_SOURCE_URL: "http://127.0.0.1:1/v6/latest/USD",
+    FX_AUTO_FETCH: "false",
   };
 }
 

@@ -121,7 +121,8 @@ test("首页统计的权限裁剪：十个平台角色各调一次——有 tena
   for (const { key } of PLATFORM_ROLES) {
     const res = await get("/platform/v1/dashboard/summary", roleTokens.get(key) as string);
     assert.equal(res.status, 200, `${key}: ${res.text}`);
-    assert.deepEqual(Object.keys(res.body).sort(), ["master_data", "tenants"], key);
+    assert.deepEqual(Object.keys(res.body).sort(), ["fx", "master_data", "tenants"], key);
+    assert.deepEqual(Object.keys(res.body.fx).sort(), ["as_of", "held", "last_attempt_status", "stale_at", "state"], key);
     assert.equal(res.body.tenants !== null, platformRoleCan(key, "tenant.read"), `${key} 的供应商数量`);
     if (res.body.tenants !== null) assert.deepEqual(Object.keys(res.body.tenants).sort(), ["active", "suspended", "total"], key);
     assert.deepEqual(Object.keys(res.body.master_data).sort(), ["addons", "cities", "places", "vehicle_groups"], key);

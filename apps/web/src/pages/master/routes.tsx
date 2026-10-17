@@ -1,10 +1,12 @@
-/** 运营后台主数据的路由（地址见 lib/master-paths.ts）：每类是「列表 / new / :id」，另有「处理导入的机场」。 */
+/** 运营后台主数据的路由（地址见 lib/master-paths.ts）：每类是「列表 / new / :id」，另有「处理导入的机场」和「汇率」（M2-03）。 */
 import { Route } from "react-router";
 import { PENDING_AIRPORTS_PATH, masterListPath, masterNewPath } from "../../lib/master-paths.ts";
 import { cityFormModel } from "./CityForm.tsx";
 import { MasterFormPage } from "./MasterForm.tsx";
 import { addonFormModel, vehicleGroupFormModel } from "./OtherForms.tsx";
 import { PendingAirportsPage } from "./PendingAirportsPage.tsx";
+import { FX_PATH } from "../../lib/fx-display.ts";
+import { FxRatesPage } from "../fx/FxRatesPage.tsx";
 import { placeFormModel } from "./PlaceForm.tsx";
 import { AddonListPage, CityListPage, PlaceListPage, VehicleGroupListPage } from "./lists.tsx";
 
@@ -24,6 +26,7 @@ export function masterRoutes() {
       <Route path={masterListPath("addons")} element={<AddonListPage />} />
       <Route path={masterNewPath("addons")} element={<MasterFormPage key="addon-new" model={addonFormModel} />} />
       <Route path={`${masterListPath("addons")}/:id`} element={<MasterFormPage key="addon-edit" model={addonFormModel} />} />
+      <Route path={FX_PATH} element={<FxRatesPage />} />
     </>
   );
 }
