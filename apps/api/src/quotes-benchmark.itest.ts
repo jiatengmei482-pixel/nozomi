@@ -180,7 +180,7 @@ test(`基准：${SUPPLIERS} 个供应商 × 每个 18 条价格、5 条调价、
   const config = testConfig(api.db.url);
   const catalog = new CountingCatalog({ now: () => api.clock.now().getTime() });
   const ctx: AppContext = testContext(config, api.db.pool, api.clock.now, { catalog });
-  const input = { cityId: ids["tokyo"] as string, category: "airport_transfer" as const, placeId: ids["narita"] as string, currency: "JPY", pickup: null, dropoff: body.dropoff, direction: "pickup" as const, packageHours: null, serviceLocal: body.service_time, passengers: 2, luggage: 1, addons: [], driverLanguage: null, vehicleGroupIds: [], assumeRoute: null };
+  const input = { cityId: ids["tokyo"] as string, category: "airport_transfer" as const, placeId: ids["narita"] as string, currency: "JPY", pickup: null, dropoff: body.dropoff, direction: "pickup" as const, packageHours: null, serviceLocal: body.service_time, passengers: 2, luggage: 1, addons: [], driverLanguage: null, vehicleGroupIds: [], assumeRoute: null, channelId: null };
   await previewPlatformQuote(ctx, input, { fresh: false });
   const cached: number[] = [];
   for (let round = 0; round < 30; round += 1) {

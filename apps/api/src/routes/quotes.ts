@@ -10,7 +10,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
 import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
-import { type QuotePreviewInput, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
+import { type QuotePreviewInput, markupKey, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { bearerToken } from "../auth/token.ts";
 import { parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -33,7 +33,9 @@ const previewShape = {
   assume_route: z.object({ meters: z.number().int(), minutes: z.number().int() }).strict().nullable().default(null),
 };
 const tenantPreviewSchema = z.object(previewShape).strict();
-const platformPreviewSchema = z.object({ ...previewShape, city_id: uuidSchema, category: z.enum(SERVICE_CATEGORIES), place_id: uuidSchema.nullable().default(null), currency: z.string().max(3) }).strict();
+const platformPreviewSchema = z
+  .object({ ...previewShape, city_id: uuidSchema, category: z.enum(SERVICE_CATEGORIES), place_id: uuidSchema.nullable().default(null), currency: z.string().max(3), channel_id: uuidSchema.nullable().default(null) })
+  .strict();
 
 function previewInput(input: z.output<typeof tenantPreviewSchema>): QuotePreviewInput {
   return {
@@ -118,8 +120,8 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
   app.post("/platform/v1/quotes/preview", async (request) => {
     await platform(request, "quote.preview");
     const input = parseInput(platformPreviewSchema, request.body, "body");
-    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency }, { log: request.log });
-    const byProduct = new Map(preview.candidates.map((candidate) => [candidate.product.productId, candidate]));
+    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency, channelId: input.channel_id }, { log: request.log });
+    const byProduct = new Map([...preview.candidates, ...preview.excluded].map((candidate) => [candidate.product.productId, candidate]));
     const who = (productId: string): Json => {
       const candidate = byProduct.get(productId);
       return { tenant_id: candidate?.product.tenantId ?? null, tenant_name: candidate?.tenantName ?? null, product_id: productId, product_code: candidate?.code ?? null };
@@ -128,6 +130,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
       currency: preview.currency,
       band_bp: preview.bandBp,
       markup_floor_bp: preview.markupFloorBp,
+      channel: preview.channel === null ? null : { id: preview.channel.id, name: preview.channel.name, status: preview.channel.status, min_margin: preview.channel.pricing.minMarginMinor, settle_currency: preview.channel.settleCurrency, rounding_unit: preview.channel.pricing.sellRounding[preview.currency] ?? 1 },
       route: preview.route,
       candidate_count: preview.candidates.length,
       groups: preview.comparison.groups.map((group) => ({
@@ -148,12 +151,16 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
           sell: candidate.sell.sellMinor,
           sell_exact: candidate.sell.exact,
           markup_bp: candidate.sell.markupBp,
+          markup_level: preview.markups.get(markupKey(candidate.productId, candidate.offer.vehicleGroupId))?.level ?? null,
+          markup_rule_id: preview.markups.get(markupKey(candidate.productId, candidate.offer.vehicleGroupId))?.ruleId ?? null,
+          min_margin_applied: candidate.sell.channel?.minMarginApplied ?? false,
           fx_buffer_bp: candidate.sell.fxBufferBp,
           fx: candidate.sell.fx === null ? null : { from: candidate.sell.fx.from, to: candidate.sell.fx.to, rate: candidate.sell.fx.rate, as_of: candidate.sell.fx.asOf },
           offer: offerJson(candidate.offer),
         })),
       })),
       refused: preview.comparison.refused.map((entry) => ({ ...who(entry.productId), vehicle_group_id: entry.vehicleGroupId, reason: entry.reason, message: REFUSAL_MESSAGES[entry.reason] })),
+      excluded: preview.excluded.map((candidate) => who(candidate.product.productId)),
     };
   });
 

@@ -10,6 +10,8 @@
 import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 export type TokenAudience = "platform" | "tenant";
+/** 签名密钥按受众派生；`sales` 是渠道调用 `/sales/v1` 的令牌（M2-04，ADR 0023），内容和会话令牌不同，见 `SalesTokenClaims` */
+type SigningAudience = TokenAudience | "sales";
 
 export interface AccessTokenClaims {
   /** 受众：平台令牌还是租户令牌 */
@@ -29,18 +31,22 @@ export interface AccessTokenClaims {
 const HEADER = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
 const MAX_TOKEN_LENGTH = 2_048;
 
-function signingKey(secret: string, audience: TokenAudience): Buffer {
+function signingKey(secret: string, audience: SigningAudience): Buffer {
   return Buffer.from(hkdfSync("sha256", secret, Buffer.alloc(0), `nozomi/access-token/${audience}/v1`, 32));
 }
 
-function signature(secret: string, audience: TokenAudience, signingInput: string): Buffer {
+function signature(secret: string, audience: SigningAudience, signingInput: string): Buffer {
   return createHmac("sha256", signingKey(secret, audience)).update(signingInput).digest();
 }
 
-export function signAccessToken(secret: string, claims: AccessTokenClaims): string {
+function sign(secret: string, audience: SigningAudience, claims: object): string {
   const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
   const signingInput = `${HEADER}.${payload}`;
-  return `${signingInput}.${signature(secret, claims.aud, signingInput).toString("base64url")}`;
+  return `${signingInput}.${signature(secret, audience, signingInput).toString("base64url")}`;
+}
+
+export function signAccessToken(secret: string, claims: AccessTokenClaims): string {
+  return sign(secret, claims.aud, claims);
 }
 
 function isClaims(value: unknown): value is AccessTokenClaims {
@@ -67,6 +73,15 @@ export function verifyAccessToken(
   token: string,
   now: Date,
 ): AccessTokenClaims | null {
+  const claims = verifySigned(secret, audience, token);
+  if (!isClaims(claims) || claims.aud !== audience) return null;
+  if (audience === "tenant" ? claims.tid === null : claims.tid !== null) return null;
+  if (claims.exp * 1000 <= now.getTime()) return null;
+  return claims;
+}
+
+/** 验签并取出内容；签名不对、写法不规范、内容不是 JSON 都返回 null。 */
+function verifySigned(secret: string, audience: SigningAudience, token: string): unknown {
   if (token.length > MAX_TOKEN_LENGTH) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -78,14 +93,42 @@ export function verifyAccessToken(
   // 只接受签发时的那一种写法：宽松的解码会让「加补位、换字母表、改末位无效比特」的变体也通过，
   // 那样同一个会话就有多个合法的令牌串了
   if (actual.toString("base64url") !== signatureText) return null;
-  let claims: unknown;
   try {
-    claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
   } catch {
     return null;
   }
-  if (!isClaims(claims) || claims.aud !== audience) return null;
-  if (audience === "tenant" ? claims.tid === null : claims.tid !== null) return null;
+}
+
+/**
+ * 渠道的访问令牌（OAuth 2.0 Client Credentials 换来的 Bearer Token，有效 2 小时；ADR 0023）。
+ * 只是凭证：每个请求都回数据库核对客户端没被吊销、渠道没被暂停、令牌的密钥代次还有效。
+ */
+export interface SalesTokenClaims {
+  aud: "sales";
+  /** API 客户端的内部编号 */
+  sub: string;
+  /** 渠道编号 */
+  cid: string;
+  /** 换令牌时用的是第几代密钥 */
+  gen: number;
+  iat: number;
+  exp: number;
+}
+
+function isSalesClaims(value: unknown): value is SalesTokenClaims {
+  if (typeof value !== "object" || value === null) return false;
+  const claims = value as Record<string, unknown>;
+  return claims["aud"] === "sales" && typeof claims["sub"] === "string" && typeof claims["cid"] === "string" && Number.isInteger(claims["gen"]) && Number.isInteger(claims["iat"]) && Number.isInteger(claims["exp"]);
+}
+
+export function signSalesToken(secret: string, claims: SalesTokenClaims): string {
+  return sign(secret, "sales", claims);
+}
+
+export function verifySalesToken(secret: string, token: string, now: Date): SalesTokenClaims | null {
+  const claims = verifySigned(secret, "sales", token);
+  if (!isSalesClaims(claims)) return null;
   if (claims.exp * 1000 <= now.getTime()) return null;
   return claims;
 }
