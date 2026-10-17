@@ -627,3 +627,49 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* ───── 渠道、待审核（ADR 0023） ───── */
+.channel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.channel-rounding {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-2);
+}
+
+.channel-approvals {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.channel-approvals > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.secret-box {
+  width: 100%;
+  background: var(--color-bg-subtle);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  resize: none;
+}
+
+.approval-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

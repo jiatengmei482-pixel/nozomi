@@ -79,7 +79,7 @@ const ROLE_EXPECTATIONS: Readonly<Record<string, { tenants: "manage" | "read" | 
   super_admin: { tenants: "manage", staff: true, audit: true, integrations: true },
   operations: { tenants: "manage", staff: false, audit: false, integrations: false },
   tenant_onboarding: { tenants: "manage", staff: false, audit: false, integrations: false },
-  channel_manager: { tenants: "none", staff: false, audit: false, integrations: false },
+  channel_manager: { tenants: "read", staff: false, audit: false, integrations: false },
   customer_service: { tenants: "none", staff: false, audit: false, integrations: false },
   finance: { tenants: "none", staff: false, audit: false, integrations: false },
   risk: { tenants: "none", staff: false, audit: false, integrations: false },

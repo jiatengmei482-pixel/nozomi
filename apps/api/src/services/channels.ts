@@ -25,7 +25,7 @@ import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import type { Approval } from "../repos/approvals.ts";
-import { type AuditOrigin, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
+import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   type Channel,
   type ChannelFilter,

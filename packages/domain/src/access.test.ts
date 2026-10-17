@@ -91,6 +91,8 @@ test("渠道（M2-04，ADR 0023）：除主数据运营外都能看；新建、�
     assert.equal(platformRoleCan(key, "channel.manage"), key === "channel_manager" || key === "super_admin", key);
     assert.equal(platformRoleCan(key, "channel.review"), key === "channel_manager" || key === "super_admin", key);
   }
+  // 渠道经理要选「卖哪些供应商」：能看供应商名单，不能建、不能暂停
+  assert.deepEqual(["tenant.read", "tenant.create", "tenant.change_status"].map((action) => platformRoleCan("channel_manager", action as never)), [true, false, false]);
 });
 
 test("租户：操作日志只有管理员能看", () => {
