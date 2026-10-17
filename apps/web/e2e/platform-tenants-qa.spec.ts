@@ -124,16 +124,13 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   return { page, password };
 }
 
-/** 这条链接已经用不了：打开、填密码、提交后说链接已失效。 */
+/** 这条链接已经用不了：一打开就说链接已失效，不显示设密码的表单（M1-13）。 */
 async function expectDeadLink(browser: Browser, link: string, kind: "邀请" | "重置"): Promise<void> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  const password = newPassword();
   await page.goto(link);
-  await page.getByLabel("新密码").fill(password);
-  await page.getByLabel("再输入一次").fill(password);
-  await page.getByRole("button", { name: /^设置(新)?密码并继续$/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: `${kind}链接已失效` })).toBeVisible();
+  await expect(page.getByLabel("新密码")).toHaveCount(0);
   await context.close();
 }
 
