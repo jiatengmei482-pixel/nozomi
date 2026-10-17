@@ -13,6 +13,11 @@ export interface Column<T> {
   align?: "end";
   /** 允许折成两行的长文字列 */
   wrap?: boolean;
+  /**
+   * 手机上表格改成卡片（外面包 `.card-table`）时，在值前面写出列名，如「创建时间：…」。
+   * 卡片里有几个看不出含义的值（两个日期）时用；桌面上不显示，读屏照旧从表头读列名。
+   */
+  cardLabel?: boolean;
 }
 
 export type TableState = "loading" | "error" | "forbidden" | "ready";
@@ -53,13 +58,23 @@ export function DataTable<T>({ label, columns, rows, rowKey, state, refreshing =
                 <tr key={rowKey(row)}>
                   {columns.map((column, index) => {
                     const className = [column.align === "end" ? "table__cell--end" : "", column.wrap ? "table__cell--wrap" : ""].filter(Boolean).join(" ") || undefined;
+                    const content = (
+                      <>
+                        {column.cardLabel && (
+                          <span className="table__card-label" aria-hidden="true">
+                            {column.header}：
+                          </span>
+                        )}
+                        {column.cell(row)}
+                      </>
+                    );
                     return index === 0 ? (
                       <th key={column.key} scope="row" className={className}>
-                        {column.cell(row)}
+                        {content}
                       </th>
                     ) : (
                       <td key={column.key} className={className}>
-                        {column.cell(row)}
+                        {content}
                       </td>
                     );
                   })}

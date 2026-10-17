@@ -288,7 +288,7 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   const staffName = `运营 ${random()}`;
   await page.getByRole("link", { name: "新增员工" }).click();
   await expect(page.getByRole("radio")).toHaveCount(10);
-  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、看主数据。").first()).toBeVisible();
+  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据。").first()).toBeVisible();
   await expect(page.getByText("他负责的模块还没有上线，现在登录后只能看主数据。").first()).toBeVisible();
   await page.getByLabel(/^邮箱/).fill(email);
   await page.getByLabel(/^姓名/).fill(staffName);

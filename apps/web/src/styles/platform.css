@@ -78,13 +78,23 @@
   -webkit-line-clamp: 2;
 }
 
+/* 编号可在任意位置折行，复制按钮始终紧跟在编号右边（不能用 .copy-button 默认的绝对定位，那是给输入框用的） */
 .tenant-id {
-  display: inline-flex;
-  flex-wrap: wrap;
+  display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+}
+
+.tenant-id > .product-code {
+  min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-all;
+}
+
+.tenant-id > .copy-button {
+  position: relative;
+  height: var(--control-height-md);
 }
 
 .tenant-reason {
@@ -184,6 +194,17 @@
   position: relative;
 }
 
+/* 卡片里「标签：值」的标签（DataTable 的 cardLabel）；不是卡片的表格和 ≥ 768px 都不显示 */
+.table__card-label {
+  display: none;
+}
+
+.card-table .table__card-label {
+  display: inline;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 @media (min-width: 768px) {
   .card-table .table thead {
     position: static;
@@ -224,6 +245,10 @@
   .card-table .table tbody tr > .table__cell--wrap {
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  .card-table .table__card-label {
+    display: none;
   }
 }
 

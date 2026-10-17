@@ -196,7 +196,7 @@ export function StaffListPage() {
     { key: "email", header: "邮箱", wrap: true, cell: (row) => <span className="staff-email">{row.email}</span> },
     { key: "role", header: "角色", cell: (row) => <span className="tag">{roleLabel(row.role)}</span> },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...ACCOUNT_STATUS_BADGES[row.status]} /> },
-    { key: "created", header: "创建时间", cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
+    { key: "created", header: "创建时间", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
     {
       key: "actions",
       header: "操作",

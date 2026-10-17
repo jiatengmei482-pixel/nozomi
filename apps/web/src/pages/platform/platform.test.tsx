@@ -468,12 +468,12 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(screen.getAllByRole("radio").length, 10);
   assert.ok(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked), "没有默认值");
   const hintOf = (name: RegExp): string => document.getElementById(screen.getByRole("radio", { name }).getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、看主数据。");
-  assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、看主数据。");
+  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据。");
+  assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、查看供应商的商品和价格、看主数据。");
   assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看系统状态。");
   assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据。");
   assert.match(hintOf(/^财务/), /现在能做的：看主数据。 他负责的模块还没有上线，现在登录后只能看主数据。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、维护主数据、管理平台员工、看审计日志、看系统状态。$/);
+  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理平台员工、看审计日志、看系统状态。$/);
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));
@@ -722,4 +722,99 @@ test("审计日志的「筛选」面板（手机宽度用）：面板里改的�
   const cleared = requests().at(-1) as URL;
   assert.deepEqual(["from", "to", "resource", "action", "tenant_id"].map((name) => cleared.searchParams.get(name)), [null, null, null, null, null]);
   assert.ok(screen.getByRole("button", { name: "筛选" }));
+});
+
+// ───────────── 验收发现的界面小问题（M1-13） ─────────────
+
+test("供应商列表：手机卡片里两个日期前面写明「创建时间」「最近修改」（只给眼睛看，读屏照旧读表头）", async () => {
+  open("/platform/tenants", "super_admin");
+  const row = (await screen.findByRole("link", { name: "NOZOMI 自营车队" })).closest("tr") as HTMLElement;
+  const labels = [...row.querySelectorAll(".table__card-label")];
+  assert.deepEqual(labels.map((node) => node.textContent), ["创建时间：", "最近修改："]);
+  assert.ok(labels.every((node) => node.getAttribute("aria-hidden") === "true"));
+  const cells = [...row.querySelectorAll("td")];
+  assert.match(cells[1]?.textContent ?? "", /^创建时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.match(cells[2]?.textContent ?? "", /^最近修改：\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.deepEqual([...document.querySelectorAll("thead th")].map((node) => node.textContent), ["供应商", "状态", "创建时间", "最近修改", "操作"]);
+});
+
+test("供应商详情：「复制供应商编号」紧跟在编号后面，和编号在同一个 <dd> 里", async () => {
+  open(`/platform/tenants/${TENANT_ID}`, "super_admin");
+  const copy = await screen.findByRole("button", { name: "复制供应商编号" });
+  const holder = copy.parentElement as HTMLElement;
+  assert.equal(holder.tagName, "DD");
+  assert.equal(holder.previousElementSibling?.textContent, "供应商编号");
+  assert.equal(copy.previousElementSibling?.textContent, TENANT_ID);
+  assert.ok(holder.classList.contains("tenant-id"));
+});
+
+test("审计日志：「从」填了不存在的日期（2026-13-40）时在输入框下说明，不悄悄忽略，也不发请求；改对后提示消失并生效", async () => {
+  const actor = user();
+  const calls = open("/platform/settings/audit-logs", "super_admin");
+  const requests = (): URL[] => calls.filter((call) => call.path.startsWith("/platform/v1/audit-logs")).map((call) => new URL(call.path, "http://localhost"));
+  await screen.findByText("本页 1 条");
+  const before = requests().length;
+  const from = document.getElementById("audit-from") as HTMLInputElement;
+  await actor.type(from, "2026-13-40{Enter}");
+  const error = await screen.findByText("这不是一个日期，请按 2026-10-08 的格式填写");
+  assert.equal(from.getAttribute("aria-invalid"), "true");
+  assert.equal(from.getAttribute("aria-describedby"), error.id);
+  assert.equal(from.value, "2026-13-40", "保留填的原文");
+  assert.equal(requests().length, before);
+  await actor.clear(from);
+  await actor.type(from, "2026-10-01");
+  assertAbsent(screen.queryByText("这不是一个日期，请按 2026-10-08 的格式填写"));
+  await actor.tab();
+  await waitFor(() => assert.equal(requests().at(-1)?.searchParams.get("from"), new Date(2026, 9, 1).toISOString()));
+  assert.equal(from.getAttribute("aria-invalid"), null);
+});
+
+test("审计日志：「从」晚于「到」时说日期填反了，标红「到」，不去查；点「对调两个日期」后正常查询", async () => {
+  const actor = user();
+  const calls = open("/platform/settings/audit-logs?from=2026-10-09&to=2026-10-01", "super_admin");
+  const requests = (): URL[] => calls.filter((call) => call.path.startsWith("/platform/v1/audit-logs")).map((call) => new URL(call.path, "http://localhost"));
+  assert.ok(await screen.findByText("日期填反了"));
+  assert.ok(screen.getByText("「从」2026-10-09 晚于「到」2026-10-01，这样一条记录也查不到。请改一下其中一个日期，或把两个日期对调。"));
+  assertAbsent(screen.queryByText("没有符合条件的记录"));
+  const to = document.getElementById("audit-to") as HTMLInputElement;
+  assert.equal(to.getAttribute("aria-invalid"), "true");
+  assert.equal(document.getElementById(to.getAttribute("aria-describedby") ?? "")?.textContent, "结束日期不能早于开始日期，请改一下「从」或「到」");
+  assert.equal((document.getElementById("audit-from") as HTMLInputElement).getAttribute("aria-invalid"), null);
+  assert.equal(requests().length, 0, "填反了不发请求");
+  await actor.click(screen.getByRole("button", { name: "对调两个日期" }));
+  await waitFor(() => assert.equal(requests().length, 1));
+  assert.equal(requests()[0]?.searchParams.get("from"), new Date(2026, 9, 1).toISOString());
+  assert.equal(requests()[0]?.searchParams.get("to"), new Date(2026, 9, 10).toISOString());
+  await screen.findByText("本页 1 条");
+  assert.equal(to.getAttribute("aria-invalid"), null);
+  assert.equal(to.value, "2026-10-09");
+
+  // 同一天不算填反
+  resetBrowser();
+  const same = open("/platform/settings/audit-logs?from=2026-10-09&to=2026-10-09", "super_admin");
+  await screen.findByText("本页 1 条");
+  assert.equal(same.filter((call) => call.path.startsWith("/platform/v1/audit-logs")).length, 1);
+});
+
+test("审计日志的「筛选」面板：「从」晚于「到」时不关面板，标红「到」并说明；改对后才生效", async () => {
+  const actor = user();
+  const calls = open("/platform/settings/audit-logs", "super_admin");
+  const requests = (): URL[] => calls.filter((call) => call.path.startsWith("/platform/v1/audit-logs")).map((call) => new URL(call.path, "http://localhost"));
+  await screen.findByText("本页 1 条");
+  const before = requests().length;
+  await actor.click(screen.getByRole("button", { name: "筛选" }));
+  const panel = screen.getByRole("dialog", { name: "筛选" });
+  const field = (id: string): HTMLInputElement => panel.querySelector(`#audit-panel-${id}`) as HTMLInputElement;
+  await actor.type(field("from"), "2026-10-09");
+  await actor.type(field("to"), "2026-10-01");
+  await actor.click(within(panel).getByRole("button", { name: "查看结果" }));
+  assert.ok(within(panel).getByText("结束日期不能早于开始日期，请改一下「从」或「到」"));
+  assert.equal(field("to").getAttribute("aria-invalid"), "true");
+  assertFocused(field("to"));
+  assert.equal(requests().length, before);
+  await actor.clear(field("to"));
+  await actor.type(field("to"), "2026-10-10");
+  await actor.click(within(panel).getByRole("button", { name: "查看结果" }));
+  await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
+  await waitFor(() => assert.equal(requests().length, before + 1));
 });
