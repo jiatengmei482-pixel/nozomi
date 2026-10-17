@@ -106,3 +106,17 @@ export function chartModel(points: readonly { as_of: string; rate: string }[], w
     last: (points[points.length - 1] as { as_of: string }).as_of,
   };
 }
+
+/** 最近一次拉取失败的原因（接口的错误码 → 人话；系统状态页用，M1-14）。不认识的码不显示原文。 */
+export function fxErrorText(code: string | null): string | null {
+  if (code === null) return null;
+  const known: Readonly<Record<string, string>> = {
+    FX_SOURCE_TIMEOUT: "数据源在时限内没有应答",
+    FX_SOURCE_UNAVAILABLE: "连不上数据源，或数据源暂时出错",
+    FX_SOURCE_BAD_RESPONSE: "数据源返回的内容不对，没有采用",
+    FX_SOURCE_OLDER: "数据源给的汇率比现在这批还旧，没有采用",
+    FX_RATE_JUMP: "这批汇率变动超过 3%，已挂起，等人确认",
+    FX_FETCH_ABANDONED: "上一次拉取中途断了",
+  };
+  return known[code] ?? "原因见汇率页的「最近的拉取记录」";
+}

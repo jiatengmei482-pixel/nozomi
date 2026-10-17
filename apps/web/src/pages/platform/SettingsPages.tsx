@@ -4,9 +4,9 @@
  * 系统状态不自动刷新：每次请求都会写一条审计日志。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type AuditLog, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
+import { type AuditLog, type FxCenterStatus, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
@@ -22,6 +22,8 @@ import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, type DiffRow, FIELD_NAMES, RESOURCE_NAMES, SOURCE_NAMES, actionName, auditDiff, foldable, localDate, localDayInstant, localOffsetLabel, localSecond, objectName, resourceName, shortId, shownValue, utcSecond } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
+import { FX_FETCH_BADGES, FX_PATH, FX_STATE_BADGES, fxErrorText } from "../../lib/fx-display.ts";
+import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { tidyDate } from "../../lib/time-input.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -646,16 +648,67 @@ export function AuditLogPage() {
 
 // ───────────── 系统状态 ─────────────
 
+const when = (iso: string | null): string => (iso === null ? "—" : formatLocalDateTime(iso));
+
+/** 汇率数据源在运行得怎么样（接口的 `fx_center`；M1-14）：是否过期、这批汇率的时间、最近一次拉取。 */
+function FxCenterCard({ fx }: { fx: FxCenterStatus }) {
+  const reason = fx.last_attempt_status === "failed" || fx.last_attempt_status === "rejected" ? fxErrorText(fx.last_error_code) : null;
+  return (
+    <section className="card" aria-labelledby="integrations-fx-title">
+      <div className="card__header">
+        <h2 className="card__title" id="integrations-fx-title">
+          汇率数据
+        </h2>
+        <StatusBadge {...FX_STATE_BADGES[fx.state]} />
+      </div>
+      <dl className="details">
+        <div className="details__item">
+          <dt>是否过期</dt>
+          <dd>{fx.state === "fresh" ? "没有过期，跨币种报价照常" : fx.state === "stale" ? "已过期（超过 48 小时没有更新），跨币种报价已暂停" : "还没有汇率，跨币种报价都报不出"}</dd>
+        </div>
+        <div className="details__item">
+          <dt>这批汇率的时间（数据源给的）</dt>
+          <dd>{when(fx.as_of)}</dd>
+        </div>
+        <div className="details__item">
+          <dt>最近一次拉取</dt>
+          <dd>
+            {fx.last_attempt_status === null ? (
+              "还没有拉过"
+            ) : (
+              <span className="fx-attempt">
+                <span>{when(fx.last_attempt_at)}</span>
+                <StatusBadge {...FX_FETCH_BADGES[fx.last_attempt_status]} />
+                {reason !== null && <span className="fx-attempt__detail">{reason}</span>}
+              </span>
+            )}
+          </dd>
+        </div>
+        <div className="details__item">
+          <dt>定时拉取</dt>
+          <dd>{fx.auto_fetch ? "已打开（每天自动拉取）" : "没有打开，只能在汇率页手动拉取"}</dd>
+        </div>
+      </dl>
+      <p>
+        <Link className="link" to={FX_PATH}>
+          看汇率和拉取记录
+        </Link>
+      </p>
+    </section>
+  );
+}
+
 export function IntegrationsPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`系统状态 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("integration.read");
   // 不自动刷新：只在进来时和点「重新检查」时请求（每次请求都会写一条审计日志）
-  const loaded = useLoad<{ items: IntegrationStatus[] }>("integrations", canRead ? listIntegrations : null);
+  const loaded = useLoad<{ items: IntegrationStatus[]; fx_center: FxCenterStatus }>("integrations", canRead ? listIntegrations : null);
   const [announce, setAnnounce] = useState("");
   const [rechecking, setRechecking] = useState(false);
   const [recheckFailed, setRecheckFailed] = useState<string | null>(null);
   const items = loaded.state.data?.items ?? null;
+  const fx = loaded.state.data?.fx_center ?? null;
   const missing = (items ?? []).filter((item) => item.state === "missing");
   /** 首次加载失败时走列表自己的「重试」；已经有结果以后的「重新检查」在这里请求，等应答回来才换结果、才播报 */
   const recheck = async (): Promise<void> => {
@@ -715,9 +768,17 @@ export function IntegrationsPage() {
           </span>
         </Alert>
       )}
+      {fx?.state === "stale" && (
+        <Alert kind="danger">
+          <strong className="alert__title">汇率超过 48 小时没有更新，跨币种报价已暂停</strong>
+          <span>{`现在这批汇率是 ${when(fx.as_of)} 的。请到汇率页检查数据源，或立即拉取一次。`}</span>
+          <Link to={FX_PATH}>去汇率页处理</Link>
+        </Alert>
+      )}
       <div className="card-table">
         <DataTable label="系统状态" columns={columns} rows={items ?? []} rowKey={(row) => row.key} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={loaded.reload} empty={<StateBlock tone="neutral" title="没有可以检查的项目" />} />
       </div>
+      {fx !== null && <FxCenterCard fx={fx} />}
     </>,
     <Button
       loading={rechecking}
