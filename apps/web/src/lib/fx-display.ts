@@ -1,8 +1,8 @@
 /**
- * 汇率页、首页的显示规则（ADR 0022）。汇率是十进制字符串：显示时只在字符串上截短，不经过浮点数；
+ * 汇率页、首页的显示规则（ADR 0022）。汇率是十进制字符串：显示时在字符串上四舍五入，不经过浮点数；
  * 只有曲线的坐标（点画在哪）用数字，那不是算钱。
  */
-import type { CurrencyCode, FxFetchStatus, FxTableState } from "@nozomi/domain";
+import { type CurrencyCode, type FxFetchStatus, type FxTableState, formatRate, rateToFraction } from "@nozomi/domain";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import type { FxFetch } from "../api/fx.ts";
 
@@ -46,19 +46,21 @@ export function fetchTriggerText(fetch: Pick<FxFetch, "trigger" | "triggered_by"
 }
 
 /**
- * 汇率的显示写法：≥ 1 的最多保留 4 位小数；< 1 的保留 6 位有效数字。只截短、不进位（完整的值在悬停提示里）。
- * 例：`20.833333333333` → `20.8333`，`0.000714030703` → `0.000714030`，`150` → `150`。
+ * 汇率的显示写法：≥ 1 的四舍五入到 4 位小数；< 1 的四舍五入到 6 位有效数字；末尾的 0 去掉（M1-14：原来是截短，最后一位可能小 1）。
+ * 在十进制字符串上算（@nozomi/domain 的 formatRate，0.5 远离零），不经过浮点数。完整的值在悬停提示里，页面上也可以切成「显示完整数值」。
+ * 例：`20.833333333333` → `20.8333`，`1334.892169` → `1334.8922`，`0.000714030703` → `0.000714031`，`150` → `150`。
  */
 export function rateText(rate: string | null): string {
   if (rate === null) return "—";
-  const [whole = "0", fraction = ""] = rate.split(".");
-  if (whole !== "0") {
-    const kept = fraction.slice(0, 4).replace(/0+$/, "");
-    return kept === "" ? whole : `${whole}.${kept}`;
+  let fraction: ReturnType<typeof rateToFraction>;
+  try {
+    fraction = rateToFraction(rate);
+  } catch {
+    return rate;
   }
-  const leading = /^0*/.exec(fraction)?.[0].length ?? 0;
-  const kept = fraction.slice(0, leading + 6);
-  return `0.${kept}`;
+  const [whole = "0", decimals = ""] = rate.split(".");
+  const places = whole !== "0" ? 4 : (/^0*/.exec(decimals)?.[0].length ?? 0) + 6;
+  return formatRate(fraction, places) ?? rate;
 }
 
 /** 变动幅度（基点，带正负号）→ `+4.00%`、`−3.01%`。 */
