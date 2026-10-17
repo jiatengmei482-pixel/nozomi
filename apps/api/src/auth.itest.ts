@@ -149,7 +149,7 @@ for (const entry of ["platform", "tenant"] as const) {
   });
 }
 
-test("除登录、接受邀请、凭令牌重置密码外，/platform/v1 和 /tenant/v1 的每个接口不带令牌都是 401", async () => {
+test("除登录、接受邀请、凭令牌重置密码、核对邀请 / 重置令牌外，/platform/v1 和 /tenant/v1 的每个接口不带令牌都是 401", async () => {
   const routes = api.app.registeredRoutes.filter(
     (r) => r.method !== "HEAD" && (r.path.startsWith("/platform/v1/") || r.path.startsWith("/tenant/v1/")),
   );
@@ -163,9 +163,13 @@ test("除登录、接受邀请、凭令牌重置密码外，/platform/v1 和 /te
   }
   assert.deepEqual(open.sort(), [
     "POST /platform/v1/auth/accept-invite",
+    "POST /platform/v1/auth/check-invite",
+    "POST /platform/v1/auth/check-reset-token",
     "POST /platform/v1/auth/login",
     "POST /platform/v1/auth/reset-password",
     "POST /tenant/v1/auth/accept-invite",
+    "POST /tenant/v1/auth/check-invite",
+    "POST /tenant/v1/auth/check-reset-token",
     "POST /tenant/v1/auth/login",
     "POST /tenant/v1/auth/reset-password",
   ]);
