@@ -127,3 +127,15 @@ export function roundFractionToUnit(numerator: bigint, denominator: bigint, unit
   if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
   return safeMinor(roundFractionHalfAwayFromZero(numerator, denominator * BigInt(unitMinor)) * BigInt(unitMinor));
 }
+
+/**
+ * 精确的正分数金额向上取整到取整单位（渠道的对外价取整，ADR 0023：只往上取，保证实际加价不低于下限）。全程整数运算。
+ * 不是正数时抛 RangeError（对外价一定是正的）。
+ */
+export function ceilFractionToUnit(numerator: bigint, denominator: bigint, unitMinor: number): number {
+  if (!Number.isSafeInteger(unitMinor) || unitMinor <= 0) throw new RangeError(`取整单位必须是正整数：${unitMinor}`);
+  if (denominator <= 0n || numerator <= 0n) throw new RangeError("向上取整只用于正的金额");
+  const unit = denominator * BigInt(unitMinor);
+  const units = (numerator + unit - 1n) / unit;
+  return safeMinor(units * BigInt(unitMinor));
+}
