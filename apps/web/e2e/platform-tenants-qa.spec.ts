@@ -124,16 +124,13 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   return { page, password };
 }
 
-/** 这条链接已经用不了：打开、填密码、提交后说链接已失效。 */
+/** 这条链接已经用不了：一打开就说链接已失效，不显示设密码的表单（M1-13）。 */
 async function expectDeadLink(browser: Browser, link: string, kind: "邀请" | "重置"): Promise<void> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  const password = newPassword();
   await page.goto(link);
-  await page.getByLabel("新密码").fill(password);
-  await page.getByLabel("再输入一次").fill(password);
-  await page.getByRole("button", { name: /^设置(新)?密码并继续$/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: `${kind}链接已失效` })).toBeVisible();
+  await expect(page.getByLabel("新密码")).toHaveCount(0);
   await context.close();
 }
 
@@ -1001,11 +998,15 @@ test("审计日志连真实后端：游标翻页不重不漏、从新到旧；�
   await expect(table.getByRole("columnheader", { name: /^时间（你的本地时区，UTC[+-]\d{1,2}(:\d{2})?）$/ })).toBeVisible();
 
   // 不认识的对象类型、乱写的对象编号：筛不到，不报错
-  for (const search of [`resource=price_plan`, `resource=tenant&rid=${encodeURIComponent("不是编号'; DROP TABLE audit_logs;--")}`, `action=bulk_adjust`, `from=2026-10-09&to=2026-10-01`]) {
+  for (const search of [`resource=price_plan`, `resource=tenant&rid=${encodeURIComponent("不是编号'; DROP TABLE audit_logs;--")}`, `action=bulk_adjust`]) {
     await page.goto(`/platform/settings/audit-logs?${search}`);
     await expect(page.getByText("没有符合条件的记录"), search).toBeVisible();
     await expect(page.getByText("加载失败")).toHaveCount(0);
   }
+  // 「从」晚于「到」不再只说「没有符合条件的记录」，而是说日期填反了（M1-13）
+  await page.goto("/platform/settings/audit-logs?from=2026-10-09&to=2026-10-01");
+  await expect(page.getByText("日期填反了")).toBeVisible();
+  await expect(page.getByText("加载失败")).toHaveCount(0);
   await page.goto("/platform/settings/audit-logs?resource=price_plan");
   await expect(page.locator("#audit-resource")).toHaveValue("price_plan");
 

@@ -10,7 +10,7 @@ import { userEvent } from "@testing-library/user-event";
 import { Outlet, Route } from "react-router";
 import { PortalSession } from "../auth/PortalSession.tsx";
 import { sessionStore } from "../auth/session-store.ts";
-import { FAR_FUTURE, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, renderAt, resetBrowser, signIn, stubApi } from "../testing/harness.tsx";
+import { type ApiCall, FAR_FUTURE, apiError, assertAbsent, assertFocused, currentLocation, deferred, json, renderAt, resetBrowser, signIn, stubApi } from "../testing/harness.tsx";
 import { ChangePasswordPage } from "./ChangePasswordPage.tsx";
 import { HomePage } from "./HomePage.tsx";
 import { LoginPage } from "./LoginPage.tsx";
@@ -243,6 +243,24 @@ async function submitNewPassword(button: string): Promise<void> {
   await user.click(screen.getByRole("button", { name: button }));
 }
 
+/** 设密码页打开时先核对链接：这几条测的是提交之后的事，核对一律回「还能用」。 */
+function stubSetPassword(routes: Parameters<typeof stubApi>[0]): ApiCall[] {
+  const valid = (): Response => new Response(null, { status: 204 });
+  return stubApi({
+    "POST /tenant/v1/auth/check-invite": valid,
+    "POST /platform/v1/auth/check-reset-token": valid,
+    ...routes,
+  });
+}
+
+/** 除打开页面时核对链接之外的请求。 */
+const sent = (calls: readonly ApiCall[]): ApiCall[] => calls.filter((call) => !call.path.includes("/auth/check-"));
+
+async function openSetPassword(location: { pathname: string; hash: string }): Promise<void> {
+  renderAt(location, SET_PASSWORD_ROUTES);
+  await screen.findByLabelText("新密码");
+}
+
 test("设置密码：401 / 403 / 409 / 429 / 500 / 非 JSON / 断网 都显示在表单顶部的危险提示条里，保留两个密码框的内容，不误判成「链接已失效」", async () => {
   const cases: [() => Response, string][] = [
     [() => apiError(401, "UNAUTHENTICATED", "请先登录"), "请先登录"],
@@ -258,8 +276,8 @@ test("设置密码：401 / 403 / 409 / 429 / 500 / 非 JSON / 断网 都显示�
     [offline, "网络连接失败，请检查网络后重试。"],
   ];
   for (const [responder, text] of cases) {
-    stubApi({ "POST /tenant/v1/auth/accept-invite": responder });
-    renderAt({ pathname: "/accept-invite", hash: "#token=nzi_abc" }, SET_PASSWORD_ROUTES);
+    stubSetPassword({ "POST /tenant/v1/auth/accept-invite": responder });
+    await openSetPassword({ pathname: "/accept-invite", hash: "#token=nzi_abc" });
     await submitNewPassword("设置密码并继续");
     const alert = await screen.findByText(text);
     assert.ok(alert.closest('[role="alert"]'), text);
@@ -274,8 +292,8 @@ test("设置密码：401 / 403 / 409 / 429 / 500 / 非 JSON / 断网 都显示�
 });
 
 test("设置密码：重设密码页收到「邀请失效」的错误码、邀请页收到「重置失效」的错误码，都不当成本页的链接失效", async () => {
-  stubApi({ "POST /platform/v1/auth/reset-password": () => apiError(400, "INVITE_INVALID", "邀请已失效") });
-  renderAt({ pathname: "/platform/reset-password", hash: "#token=nzr_abc" }, SET_PASSWORD_ROUTES);
+  stubSetPassword({ "POST /platform/v1/auth/reset-password": () => apiError(400, "INVITE_INVALID", "邀请已失效") });
+  await openSetPassword({ pathname: "/platform/reset-password", hash: "#token=nzr_abc" });
   await submitNewPassword("设置新密码并继续");
   assert.ok(await screen.findByRole("alert"));
   await waitFor(() => assert.notEqual(screen.getByRole("alert").textContent, ""));
@@ -285,9 +303,9 @@ test("设置密码：重设密码页收到「邀请失效」的错误码、邀�
 
 test("设置密码：提交中再点、再按 Enter 都不会再发请求；提交中密码框只读", async () => {
   const pending = deferred();
-  const calls = stubApi({ "POST /tenant/v1/auth/accept-invite": () => pending.promise });
+  const calls = stubSetPassword({ "POST /tenant/v1/auth/accept-invite": () => pending.promise });
   const user = userEvent.setup();
-  renderAt({ pathname: "/accept-invite", hash: "#token=nzi_abc" }, SET_PASSWORD_ROUTES);
+  await openSetPassword({ pathname: "/accept-invite", hash: "#token=nzi_abc" });
   await submitNewPassword("设置密码并继续");
   const busy = await screen.findByRole("button", { name: "正在设置…" });
   assert.equal(busy.getAttribute("aria-busy"), "true");
@@ -295,35 +313,35 @@ test("设置密码：提交中再点、再按 Enter 都不会再发请求；提�
   assert.equal((screen.getByLabelText("再输入一次") as HTMLInputElement).readOnly, true);
   await user.click(busy);
   fireEvent.submit(busy.closest("form") as HTMLFormElement);
-  assert.equal(calls.length, 1);
+  assert.equal(sent(calls).length, 1);
   pending.resolve(json(200, { user: { email: "new@example.com" } }));
   await waitFor(() => assert.equal(currentLocation()?.path, "/login"));
 });
 
 test("设置密码：提交的密码一个字符都不动（首尾空格、中文、表情都原样），令牌原样", async () => {
-  const calls = stubApi({ "POST /tenant/v1/auth/accept-invite": () => json(200, { user: { email: "new@example.com" } }) });
+  const calls = stubSetPassword({ "POST /tenant/v1/auth/accept-invite": () => json(200, { user: { email: "new@example.com" } }) });
   const password = "  密码 Pw-2026 😀 ";
   const token = "nzi_AbC-dEf_0123456789";
-  renderAt({ pathname: "/accept-invite", hash: `#token=${token}` }, SET_PASSWORD_ROUTES);
+  await openSetPassword({ pathname: "/accept-invite", hash: `#token=${token}` });
   fireEvent.change(screen.getByLabelText("新密码"), { target: { value: password } });
   fireEvent.change(screen.getByLabelText("再输入一次"), { target: { value: password } });
   await userEvent.setup().click(screen.getByRole("button", { name: "设置密码并继续" }));
-  await waitFor(() => assert.equal(calls.length, 1));
-  assert.deepEqual(calls[0]?.body, { token, password });
+  await waitFor(() => assert.equal(sent(calls).length, 1));
+  assert.deepEqual(sent(calls)[0]?.body, { token, password });
 });
 
 test("设置密码：两次输入只差首尾空格或大小写也算不一致", async () => {
-  const calls = stubApi({});
   for (const confirmation of [`${GOOD_PASSWORD} `, ` ${GOOD_PASSWORD}`, GOOD_PASSWORD.toLowerCase()]) {
-    renderAt({ pathname: "/accept-invite", hash: "#token=nzi_abc" }, SET_PASSWORD_ROUTES);
+    const calls = stubSetPassword({});
+    await openSetPassword({ pathname: "/accept-invite", hash: "#token=nzi_abc" });
     fireEvent.change(screen.getByLabelText("新密码"), { target: { value: GOOD_PASSWORD } });
     fireEvent.change(screen.getByLabelText("再输入一次"), { target: { value: confirmation } });
     await userEvent.setup().click(screen.getByRole("button", { name: "设置密码并继续" }));
     assert.ok(screen.getByText("两次输入的密码不一致"), JSON.stringify(confirmation));
     assertFocused(screen.getByLabelText("再输入一次"));
+    assert.equal(sent(calls).length, 0);
     resetBrowser();
   }
-  assert.equal(calls.length, 0);
 });
 
 test("令牌只认 # 后面的 token：放在 ? 后面的不读（那样会进服务器日志）；后端发的令牌字符集原样取出", () => {
@@ -486,14 +504,14 @@ test("后端返回的姓名、邮箱、供应商名称里带 HTML 时只当文�
 
 test("后端返回的错误说明里带 HTML 时也只当文字显示（提示条、字段下的说明）", async () => {
   const payload = '<img src=x onerror="globalThis.__xss=2">请重试';
-  stubApi({ "POST /tenant/v1/auth/accept-invite": () => apiError(409, "CONFLICT", payload) });
-  renderAt({ pathname: "/accept-invite", hash: "#token=nzi_abc" }, SET_PASSWORD_ROUTES);
+  stubSetPassword({ "POST /tenant/v1/auth/accept-invite": () => apiError(409, "CONFLICT", payload) });
+  await openSetPassword({ pathname: "/accept-invite", hash: "#token=nzi_abc" });
   await submitNewPassword("设置密码并继续");
   assert.equal((await screen.findByRole("alert")).textContent, payload);
   resetBrowser();
 
-  stubApi({ "POST /tenant/v1/auth/accept-invite": () => apiError(400, "WEAK_PASSWORD", "密码强度不够", { issues: [{ code: "X", message: payload }] }) });
-  renderAt({ pathname: "/accept-invite", hash: "#token=nzi_abc" }, SET_PASSWORD_ROUTES);
+  stubSetPassword({ "POST /tenant/v1/auth/accept-invite": () => apiError(400, "WEAK_PASSWORD", "密码强度不够", { issues: [{ code: "X", message: payload }] }) });
+  await openSetPassword({ pathname: "/accept-invite", hash: "#token=nzi_abc" });
   await submitNewPassword("设置密码并继续");
   assert.ok(await screen.findByText(payload));
   assert.equal(document.querySelectorAll("img").length, 0);

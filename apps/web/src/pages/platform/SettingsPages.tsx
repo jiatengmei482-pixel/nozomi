@@ -3,7 +3,7 @@
  * 审计日志只能看；筛选以接口实际支持的为准（操作人、某一个对象只能从别的页面带进来）。
  * 系统状态不自动刷新：每次请求都会写一条审计日志。
  */
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type AuditLog, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
@@ -141,6 +141,10 @@ interface PanelDraft {
 }
 
 const DATE_PROBLEM = "这不是一个日期，请按 2026-10-08 的格式填写";
+const DATE_REVERSED = "结束日期不能早于开始日期，请改一下「从」或「到」";
+
+/** 日期输入哪里不对：某一格不是日期；或两格都对、「到」早于「从」（标红「到」）。 */
+type DateProblem = "from" | "to" | "reversed";
 
 function Mono({ children }: { children: string }) {
   return <code className="audit-raw audit-raw--only">{children}</code>;
@@ -160,7 +164,9 @@ export function AuditLogPage() {
   const [toText, setToText] = useState(params.get("to") ?? "");
   /** 手机宽度的「筛选」面板里改的是这份草稿，点「查看结果」才一起写进网址 */
   const [panel, setPanel] = useState<PanelDraft | null>(null);
-  const [panelDateProblem, setPanelDateProblem] = useState<"from" | "to" | null>(null);
+  const [panelDateProblem, setPanelDateProblem] = useState<DateProblem | null>(null);
+  /** 表格上方那一排里没能生效的日期（填的不是日期）：留着原文，标红并说明 */
+  const [inlineDateProblem, setInlineDateProblem] = useState<"from" | "to" | null>(null);
   /** 带进来的操作人邮箱、对象名称（从别的页面、或在表格里点「只看…」时记下）；直接从网址进来时没有 */
   const carried = location.state as { actorEmail?: unknown; resourceName?: unknown } | null;
   const [actorEmail, setActorEmail] = useState<string | null>(typeof carried?.actorEmail === "string" ? carried.actorEmail : null);
@@ -184,18 +190,23 @@ export function AuditLogPage() {
   const rid = resource === null ? null : pick("rid", (value) => value.length <= 100);
   const sizeParam = Number(params.get("size"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
+  /** 「从」晚于「到」：一条记录也不可能符合，不去查，直接说日期填反了 */
+  const reversed = from !== null && to !== null && from > to;
   const filterKey = JSON.stringify([from, to, resource, action, tenant, actor, rid, pageSize]);
   const [paging, setPaging] = useState<{ key: string; stack: (string | null)[] }>({ key: filterKey, stack: [null] });
   const stack = paging.key === filterKey ? paging.stack : [null];
   const cursor = stack[stack.length - 1] ?? null;
+  // 网址里的日期变了就把两格换成网址里的值；但正挂着「不是日期」提示的那一格保留用户填的原文，提示和框里的字才对得上
+  const dateProblem = useRef(inlineDateProblem);
+  dateProblem.current = inlineDateProblem;
   useEffect(() => {
-    setFromText(from ?? "");
-    setToText(to ?? "");
+    if (dateProblem.current !== "from") setFromText(from ?? "");
+    if (dateProblem.current !== "to") setToText(to ?? "");
   }, [from, to]);
 
   const loaded = useLoad<ApiPage<AuditLog>>(
     `audit-logs:${filterKey}:${cursor}`,
-    canRead
+    canRead && !reversed
       ? (token) =>
           listAuditLogs(token, {
             ...(actor !== null ? { actor_id: actor } : {}),
@@ -229,15 +240,20 @@ export function AuditLogPage() {
   const tenantName = (id: string | null): string | null => (id === null ? null : (tenants.state.data?.items.find((entry) => entry.id === id)?.name ?? null));
   const filtered = from !== null || to !== null || resource !== null || action !== null || tenant !== null || actor !== null || rid !== null;
   const clearFilters = (): void => {
+    setInlineDateProblem(null);
+    setFromText("");
+    setToText("");
     setActorEmail(null);
     setTargetName(null);
     setParam({ from: null, to: null, resource: null, action: null, tenant: null, actor: null, rid: null });
   };
   const commitDate = (name: "from" | "to", text: string): void => {
     const tidy = text.trim() === "" ? null : tidyDate(text);
-    if (text.trim() !== "" && tidy === null) return;
+    if (text.trim() !== "" && tidy === null) return setInlineDateProblem(name);
+    if (inlineDateProblem === name) setInlineDateProblem(null);
     setParam({ [name]: tidy });
   };
+  const swapDates = (): void => setParam({ from: to, to: from });
   const quickRange = (days: number): { from: string; to: string } => {
     const today = new Date();
     const start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
@@ -246,10 +262,12 @@ export function AuditLogPage() {
   const applyPanel = (): void => {
     if (panel === null) return;
     const dateOf = (text: string): string | null => (text.trim() === "" ? null : tidyDate(text));
-    const bad = panel.from.trim() !== "" && dateOf(panel.from) === null ? "from" : panel.to.trim() !== "" && dateOf(panel.to) === null ? "to" : null;
+    const [nextFrom, nextTo] = [dateOf(panel.from), dateOf(panel.to)];
+    const bad: DateProblem | null =
+      panel.from.trim() !== "" && nextFrom === null ? "from" : panel.to.trim() !== "" && nextTo === null ? "to" : nextFrom !== null && nextTo !== null && nextFrom > nextTo ? "reversed" : null;
     setPanelDateProblem(bad);
-    if (bad !== null) return void document.getElementById(`audit-panel-${bad}`)?.focus();
-    setParam({ from: dateOf(panel.from), to: dateOf(panel.to), resource: panel.resource, action: panel.action, tenant: panel.tenant, ...(panel.resource !== resource ? { rid: null } : {}) });
+    if (bad !== null) return void document.getElementById(`audit-panel-${bad === "reversed" ? "to" : bad}`)?.focus();
+    setParam({ from: nextFrom, to: nextTo, resource: panel.resource, action: panel.action, tenant: panel.tenant, ...(panel.resource !== resource ? { rid: null } : {}) });
     setPanel(null);
   };
   const objectLabel = (log: AuditLog): string => [resourceName(log.resource).text, objectName(log)].filter((part) => part !== null).join(" ");
@@ -353,8 +371,19 @@ export function AuditLogPage() {
   ];
 
   const state = loaded.state;
-  const tableState: TableState = !canRead ? "loading" : state.status === "ready" ? "ready" : state.status === "forbidden" ? "forbidden" : state.status === "loading" ? "loading" : "error";
-  const empty = filtered ? (
+  const tableState: TableState = !canRead ? "loading" : reversed ? "ready" : state.status === "ready" ? "ready" : state.status === "forbidden" ? "forbidden" : state.status === "loading" ? "loading" : "error";
+  const empty = reversed ? (
+    <StateBlock
+      tone="neutral"
+      title="日期填反了"
+      description={`「从」${from} 晚于「到」${to}，这样一条记录也查不到。请改一下其中一个日期，或把两个日期对调。`}
+      action={
+        <Button variant="secondary" onClick={swapDates}>
+          对调两个日期
+        </Button>
+      }
+    />
+  ) : filtered ? (
     <StateBlock
       tone="neutral"
       title="没有符合条件的记录"
@@ -382,10 +411,18 @@ export function AuditLogPage() {
     const size = draft === null ? " input--sm" : "";
     const change = (changes: Partial<PanelDraft>): void => {
       if (draft !== null) return setPanel({ ...draft, ...changes });
+      if ("from" in changes || "to" in changes) {
+        // 网址可能没变（比如点了和当前范围相同的快捷范围），上面的同步不会触发：这里直接把框里的字换成新值
+        setInlineDateProblem(null);
+        if ("from" in changes) setFromText(changes.from ?? "");
+        if ("to" in changes) setToText(changes.to ?? "");
+      }
       setParam({ ...changes, ...("resource" in changes ? { rid: null } : {}) });
     };
     const dateInput = (name: "from" | "to", label: string, value: string, set: (value: string) => void): ReactNode => {
-      const wrong = draft !== null && panelDateProblem === name;
+      const problem: DateProblem | null = draft !== null ? panelDateProblem : inlineDateProblem ?? (reversed ? "reversed" : null);
+      const wrong = problem === name || (problem === "reversed" && name === "to");
+      const message = problem === "reversed" ? DATE_REVERSED : DATE_PROBLEM;
       return (
         <label className="audit-filters__item" htmlFor={`${prefix}-${name}`}>
           <span className="audit-filters__label">{label}</span>
@@ -399,12 +436,16 @@ export function AuditLogPage() {
             aria-invalid={wrong || undefined}
             aria-describedby={wrong ? `${prefix}-${name}-error` : undefined}
             value={value}
-            onChange={(event) => set(event.target.value)}
+            onChange={(event) => {
+              set(event.target.value);
+              // 出过错后实时重新校验：改对了（或清空了）就收起提示，离开输入框时再生效
+              if (draft === null && inlineDateProblem === name && (event.target.value.trim() === "" || tidyDate(event.target.value) !== null)) setInlineDateProblem(null);
+            }}
             {...(draft === null ? { onBlur: () => commitDate(name, value), onKeyDown: (event) => event.key === "Enter" && commitDate(name, value) } : {})}
           />
           {wrong && (
             <span className="field__error" id={`${prefix}-${name}-error`} role="alert">
-              {DATE_PROBLEM}
+              {message}
             </span>
           )}
         </label>

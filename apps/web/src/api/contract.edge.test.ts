@@ -99,8 +99,8 @@ test("auth/me 的 permissions 是字符串枚举的数组；错误体的 code、
   assert.deepEqual(spec.components.schemas["ErrorResponse"]?.required, ["error"]);
 });
 
-test("请求体和响应体都是 application/json；登录、接受邀请、重设密码不需要令牌，其余三个接口需要本后台的 Bearer 令牌", () => {
-  const publicEndpoints: readonly AuthEndpoint[] = ["login", "acceptInvite", "resetPassword"];
+test("请求体和响应体都是 application/json；登录、接受邀请、重设密码、核对令牌不需要令牌，其余三个接口需要本后台的 Bearer 令牌", () => {
+  const publicEndpoints: readonly AuthEndpoint[] = ["login", "acceptInvite", "resetPassword", "checkInvite", "checkResetToken"];
   for (const portal of PORTAL_KEYS) {
     for (const endpoint of Object.keys(AUTH_ENDPOINTS) as AuthEndpoint[]) {
       const op = operation(portal, endpoint);
@@ -127,7 +127,7 @@ test("401 是所有需要登录的接口共有的应答（写在文档总说明�
   const text = await readFile(new URL("../../../api/openapi.yaml", import.meta.url), "utf8");
   assert.match(text, /401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效/, "前端靠 401 判断登录失效并回登录页");
   for (const portal of PORTAL_KEYS) {
-    for (const endpoint of ["acceptInvite", "resetPassword", "changePassword"] as const) {
+    for (const endpoint of ["acceptInvite", "resetPassword", "changePassword", "checkInvite", "checkResetToken"] as const) {
       assert.ok(operation(portal, endpoint).responses["400"], `${portal} ${endpoint} 没有声明 400`);
     }
     const login = operation(portal, "login").responses;

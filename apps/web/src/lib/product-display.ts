@@ -122,6 +122,20 @@ export interface CheckContext {
   station: boolean;
 }
 
+/**
+ * 运营后台只读查看时，「不归用户补」的那句换成运营人员该看的说法：
+ * 写给供应商的「请联系你们的管理员 / 请联系平台运营」在运营后台说不通（M1-13）。
+ */
+const PLATFORM_NOTES: Readonly<Record<string, string>> = {
+  请联系你们的管理员: "供应商的管理员可以在供应商后台重新启用",
+  请联系平台运营: "需要平台在主数据里处理",
+  "请联系平台运营，或在它现在的城市新建一个商品": "需要平台在主数据里处理，或由供应商在它现在的城市新建一个商品",
+};
+
+export function noteForPortal(note: string, portal: "tenant" | "platform"): string {
+  return portal === "platform" ? (PLATFORM_NOTES[note] ?? note) : note;
+}
+
 function one(text: string, anchor: string | null, note?: string): CheckReason {
   return { text, anchor, ...(note ? { note } : {}) };
 }

@@ -20,6 +20,8 @@ import {
   acceptPlatformInvite,
   authenticatePlatform,
   changePlatformPassword,
+  checkPlatformInvite,
+  checkPlatformResetToken,
   platformLogin,
   platformLogout,
   resetPlatformPassword,
@@ -44,6 +46,7 @@ import {
   personNameSchema,
   resetPasswordSchema,
   resourceId,
+  tokenCheckSchema,
   uuidSchema,
 } from "../validation.ts";
 import { auditLogJson, inviteJson, pageJson, platformUserJson, tenantJson, tenantUserJson } from "./serialize.ts";
@@ -141,6 +144,18 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post("/platform/v1/auth/accept-invite", async (request) => {
     const input = parseInput(acceptInviteSchema, request.body, "body");
     return { user: platformUserJson(await acceptPlatformInvite(ctx, input, request.ip)) };
+  });
+
+  app.post("/platform/v1/auth/check-invite", async (request, reply) => {
+    const input = parseInput(tokenCheckSchema, request.body, "body");
+    await checkPlatformInvite(ctx, input.token);
+    return reply.code(204).send();
+  });
+
+  app.post("/platform/v1/auth/check-reset-token", async (request, reply) => {
+    const input = parseInput(tokenCheckSchema, request.body, "body");
+    await checkPlatformResetToken(ctx, input.token);
+    return reply.code(204).send();
   });
 
   app.post("/platform/v1/auth/change-password", async (request, reply) => {

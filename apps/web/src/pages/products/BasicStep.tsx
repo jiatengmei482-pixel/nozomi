@@ -65,6 +65,8 @@ function Warning({ children }: { children: ReactNode }) {
 }
 
 export function BasicStep({ frame }: { frame: ProductFrame }) {
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { product, readOnly } = frame;
   const creating = product === null;
   const { token } = usePortalSession();
@@ -381,7 +383,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
               </h3>
               {!creating ? (
                 <>
-                  <p className="field__hint">这几项创建后不能修改。要换，请新建一个商品。</p>
+                  <p className="field__hint">{frame.source.portal === "platform" ? "这几项是供应商创建商品时选定的，创建后不能修改。" : "这几项创建后不能修改。要换，请新建一个商品。"}</p>
                   <dl className="details">
                     <div className="details__item">
                       <dt>子品牌</dt>
@@ -708,7 +710,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                   )}
                   {cityId !== null && category !== null && (
                     <p className="field__hint">
-                      {`只能选「${cityName}」下、业务类型是「${categoryName}」或「通用」的启用中的区域。上下移动可以调整顺序，排在前面的优先。`}
+                      {onPlatform ? "供应商给这个商品选的区域，排在前面的优先。" : `只能选「${cityName}」下、业务类型是「${categoryName}」或「通用」的启用中的区域。上下移动可以调整顺序，排在前面的优先。`}
                       <strong>现在报价时，一个位置落在好几个区域里的话，每个区域都会算一遍价，取最低的；顺序目前只影响价格规则等页面里区域的排列顺序。</strong>
                     </p>
                   )}
@@ -839,7 +841,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                       <strong>上架前要在这里移除。</strong>
                     </Warning>
                   )}
-                  <p className="field__hint">选你能提供的车型。每个车型组选一个「人数 / 行李数」组合：客人的人数或行李数超过这个组合时，这个车型不报价。</p>
+                  <p className="field__hint">{onPlatform ? "供应商能提供的车型，每个车型组带一个「人数 / 行李数」组合：客人的人数或行李数超过这个组合时，这个车型不报价。" : "选你能提供的车型。每个车型组选一个「人数 / 行李数」组合：客人的人数或行李数超过这个组合时，这个车型不报价。"}</p>
                 </fieldset>
 
                 <fieldset className="field fieldset" id="dispatchers">
@@ -896,7 +898,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                   <FieldErrors id="dispatchers-error" errors={server["dispatchers"] ?? []} />
                   {missingHint("dispatchers", cleanDispatchers(dispatchers).length > 0)}
                   {duplicate > 0 && <Warning>{`第 ${duplicate + 1} 个调度人的电话和第 ${phones.indexOf(phones[duplicate] ?? "") + 1} 个相同。`}</Warning>}
-                  <p className="field__hint">接到订单后联系谁。姓名和电话会随订单一起发给平台客服和你们的调度系统。电话建议带国家区号。</p>
+                  <p className="field__hint">{onPlatform ? "接到订单后联系谁。姓名和电话会随订单一起发给平台客服和供应商的调度系统。" : "接到订单后联系谁。姓名和电话会随订单一起发给平台客服和你们的调度系统。电话建议带国家区号。"}</p>
                 </fieldset>
               </div>
             </section>

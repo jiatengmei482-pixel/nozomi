@@ -96,7 +96,7 @@ test("邀请令牌、访问令牌、密码：不进任何请求的网址和 Refe
       expect(new URL(url).pathname, "访问令牌只发给本后台的接口").toMatch(/^\/tenant\/v1\//);
     }
     const body = sent.postData() ?? "";
-    if (body.includes(tenant.inviteToken)) expect(new URL(url).pathname).toBe("/tenant/v1/auth/accept-invite");
+    if (body.includes(tenant.inviteToken)) expect(new URL(url).pathname, "邀请令牌只发给核对和接受邀请这两个接口").toMatch(/^\/tenant\/v1\/auth\/(check-invite|accept-invite)$/);
     if (body.includes(password)) expect(new URL(url).pathname).toMatch(/^\/tenant\/v1\/auth\/(accept-invite|login)$/);
   }
   expect(withBearer, "auth/me 和 logout 应该带着令牌").toBeGreaterThanOrEqual(2);

@@ -46,6 +46,8 @@ const Star = () => (
 
 export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; product: Product }) {
   const { readOnly } = frame;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { token } = usePortalSession();
   const loaded = useLoad<ProductServiceRules>(`service-rules:${product.id}`, (authToken) => frame.source.serviceRules(authToken, product.id));
   const catalog = useLoad<Addon[]>(`${frame.source.portal}-addons`, frame.source.addons);
@@ -178,7 +180,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
         <Alert kind="info">
           <span>
             这一页的时间都按<strong>{`${product.city ? displayName(product.city.name).text : ""}当地时间`}</strong>
-            {product.city ? `（${timeZoneLabel(product.city.timezone)}）` : ""}填写和计算。金额都是结算价，币种 <strong>{currency}</strong>。
+            {product.city ? `（${timeZoneLabel(product.city.timezone)}）` : ""}{onPlatform ? "显示和计算" : "填写和计算"}。金额都是结算价，币种 <strong>{currency}</strong>。
           </span>
         </Alert>
       }
@@ -295,7 +297,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                   <FieldErrors id="lead-time-error" errors={errors("lead-time-input")} />
                   {lead !== null && leadTimeReadback(lead) !== null && <p className="field__hint readback">{leadTimeReadback(lead)}</p>}
                   {missingHint("lead-time")}
-                  <p className="field__hint">至少提前多久下单。例如填 24：用车前 24 小时以内就不能订了（开了加急预订的除外）。0 = 随时可以订。</p>
+                  <p className="field__hint">{onPlatform ? "至少提前多久下单。例如 24：" : "至少提前多久下单。例如填 24："}用车前 24 小时以内就不能订了（开了加急预订的除外）。0 = 随时可以订。</p>
                 </div>
 
                 <div className="field">
@@ -304,7 +306,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                   </label>
                   <textarea className="input textarea" id="note" rows={3} readOnly={locked} aria-invalid={bad("note")} value={form.note} onChange={(event) => set({ note: event.target.value })} />
                   <FieldErrors id="note-error" errors={errors("note")} />
-                  <p className="field__hint">预订规则的补充说明，给自己人看的备忘。</p>
+                  <p className="field__hint">{onPlatform ? "预订规则的补充说明，是供应商给自己人写的备忘。" : "预订规则的补充说明，给自己人看的备忘。"}</p>
                 </div>
               </div>
             </section>
@@ -333,7 +335,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                         <span className="affix__text">单 / 天</span>
                       </span>
                       <FieldErrors id="urgent-quota-error" errors={errors("urgent-quota")} />
-                      <p className="field__hint">留空 = 不限。加急单最容易来不及派车，建议填一个你们一天接得住的数。</p>
+                      <p className="field__hint">{onPlatform ? "空着 = 不限。" : "留空 = 不限。加急单最容易来不及派车，建议填一个你们一天接得住的数。"}</p>
                     </div>
                     <fieldset className="field fieldset">
                       <legend className="field__label">
@@ -383,7 +385,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                                       <span>
                                         {`${range}：`}
                                         <strong>不接</strong>
-                                        {`（不在任何一档里）。要接这一段，请加一档「提前不足 ${lead} 小时」`}
+                                        {onPlatform ? "（不在任何一档里）。" : `（不在任何一档里）。要接这一段，请加一档「提前不足 ${lead} 小时」`}
                                       </span>
                                     </li>
                                   );
@@ -408,7 +410,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                   <input type="checkbox" id="night-toggle" checked={form.night} disabled={locked} aria-expanded={form.night} aria-controls="night-body" onChange={(event) => set({ night: event.target.checked, nightUnit: form.nightUnit ?? defaultNightUnit(category) })} />
                   <span className="choice__text">收夜间加价</span>
                 </label>
-                <p className="field__hint">用车时间落在夜间时段里时，在结算价上另加一笔。不勾 = 不收。</p>
+                <p className="field__hint">{onPlatform ? "用车时间落在夜间时段里时，在结算价上另加一笔。" : "用车时间落在夜间时段里时，在结算价上另加一笔。不勾 = 不收。"}</p>
                 {!form.night && data.rules.night.enabled && <p className="field__hint field__hint--info">保存后，这里填的内容会清除。</p>}
                 {missingHint("night")}
                 {form.night && (
@@ -459,7 +461,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 免费等待
               </h3>
               <div className="form">
-                <p className="field__hint">司机到了以后免费等客人多久。平台规定了最少要等多久，你可以设得更长，不能更短。</p>
+                <p className="field__hint">司机到了以后免费等客人多久。{onPlatform ? "平台规定了最少要等多久，供应商可以设得更长，不能更短。" : "平台规定了最少要等多久，你可以设得更长，不能更短。"}</p>
                 {neverSavedWait && !readOnly && <p className="field__hint field__hint--info">下面是按平台规定的最少时间替你填好的，确认后点保存才会存下来。</p>}
                 {items.map((item) => {
                   const field = form.wait[item];
@@ -491,7 +493,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                       <FieldErrors id={`wait-${item}-error`} errors={errors(`wait-${item}-minutes`)} />
                       <p className="field__hint">
                         {waitHelp(item)}
-                        {item === "pickup" && !station && category === "airport_transfer" && minimum !== null && minimum < 90 && <strong>国际航班平台规定最少 90 分钟：你设的不到 90 时，国际航班按 90 分钟算。</strong>}
+                        {item === "pickup" && !station && category === "airport_transfer" && minimum !== null && minimum < 90 && <strong>{onPlatform ? "国际航班平台规定最少 90 分钟：这里不到 90 时，国际航班按 90 分钟算。" : "国际航班平台规定最少 90 分钟：你设的不到 90 时，国际航班按 90 分钟算。"}</strong>}
                       </p>
                     </fieldset>
                   );
@@ -507,7 +509,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 </h3>
                 <span className="tag">平台统一 · 不能修改</span>
               </div>
-              <p>客人付款前不知道订单会给哪家供应商，所以取消规则由平台按品类和车型级别统一规定，所有供应商相同，这里不用设置。</p>
+              <p>客人付款前不知道订单会给哪家供应商，所以取消规则由平台按品类和车型级别统一规定，{onPlatform ? "所有供应商相同。" : "所有供应商相同，这里不用设置。"}</p>
             </section>
 
             <section className="card" id="addons" aria-labelledby="rules-addons-title">
@@ -515,7 +517,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 附加服务
               </h3>
               <div className="form">
-                <p className="field__hint">客人下单时可以加选的服务，从平台的目录里选你能提供的。单价是结算价；填 0 = 免费提供。</p>
+                <p className="field__hint">{onPlatform ? "客人下单时可以加选的服务，是供应商从平台的目录里选的。单价是结算价；0 = 免费提供。" : "客人下单时可以加选的服务，从平台的目录里选你能提供的。单价是结算价；填 0 = 免费提供。"}</p>
                 {catalog.state.data === null ? (
                   catalog.state.status === "loading" ? (
                     <p className="field__hint">正在加载附加服务…</p>
@@ -580,22 +582,29 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
 
                 <fieldset className="field fieldset addon-languages">
                   <legend className="field__label">司机语言</legend>
-                  <p className="field__hint">客人可以指定司机会说的语言。把你们能提供的语言加上并填单价；填 0 = 这种语言免费提供。一行都不加 = 不提供指定语言。</p>
+                  <p className="field__hint">{onPlatform ? "客人可以指定司机会说的语言。单价 0 = 这种语言免费提供；一行都没有 = 不提供指定语言。" : "客人可以指定司机会说的语言。把你们能提供的语言加上并填单价；填 0 = 这种语言免费提供。一行都不加 = 不提供指定语言。"}</p>
                   {form.languages.map((row, index) => {
                     const change = (changes: Partial<RulesForm["languages"][number]>): void => set({ languages: form.languages.map((entry, at) => (at === index ? { ...entry, ...changes } : entry)) });
                     return (
                       <div key={index} className="prow prow--pair">
-                        <label className="prow__cell">
-                          <span className="prow__label">语言</span>
-                          <select className="input select" id={`language-${index}-select`} aria-label={`第 ${index + 1} 行：语言`} aria-invalid={bad(`language-${index}-select`)} disabled={locked} value={row.language} onChange={(event) => change({ language: event.target.value })}>
-                            <option value="">请选择</option>
-                            {DRIVER_LANGUAGE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        {readOnly ? (
+                          <div className="prow__cell">
+                            <span className="prow__label">语言</span>
+                            <span id={`language-${index}-select`}>{DRIVER_LANGUAGE_OPTIONS.find((option) => option.value === row.language)?.label ?? (row.language === "" ? "—" : row.language)}</span>
+                          </div>
+                        ) : (
+                          <label className="prow__cell">
+                            <span className="prow__label">语言</span>
+                            <select className="input select" id={`language-${index}-select`} aria-label={`第 ${index + 1} 行：语言`} aria-invalid={bad(`language-${index}-select`)} disabled={locked} value={row.language} onChange={(event) => change({ language: event.target.value })}>
+                              <option value="">请选择</option>
+                              {DRIVER_LANGUAGE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                         <label className="prow__cell">
                           <span className="prow__label">{`单价（${currency}）`}</span>
                           {text(`language-${index}-price`, row.price, (value) => change({ price: value }), { label: `第 ${index + 1} 行：单价`, mode: "decimal" })}
@@ -626,7 +635,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 <span className="tag">平台统一 · 不能修改</span>
               </div>
               <p>
-                超时、超公里等服务后才知道的费用，由你们在服务结束后 24 小时内在订单里提交，平台从客人下单时保存的支付方式里线上补款；客人有 48 小时可以提出异议。<strong>平台的订单不收现金。</strong>
+                {`超时、超公里等服务后才知道的费用，由${onPlatform ? "供应商" : "你们"}在服务结束后`} 24 小时内在订单里提交，平台从客人下单时保存的支付方式里线上补款；客人有 48 小时可以提出异议。<strong>平台的订单不收现金。</strong>
               </p>
             </section>
           </>
