@@ -1165,6 +1165,11 @@ a.entry-card__title:focus-visible {
   line-height: var(--line-height-tight);
 }
 
+.entry-card__text {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
 .entry-card__reminder {
   position: relative;
   display: flex;

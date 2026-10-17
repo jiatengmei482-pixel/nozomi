@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask } from "./index.ts";
+import { ConfigError, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask, percentToBasisPoints } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -257,4 +257,45 @@ test("瓦片地址的来源：协议 + 主机 + 端口，就是放进内容安�
   const local = { ...OSM, MAP_TILE_URL_TEMPLATE: "http://127.0.0.1:4999/{z}/{x}/{y}.png" };
   assert.equal(loadConfig({ ...base, APP_ENV: "ci", ...local }).mapTiles?.urlTemplate, local.MAP_TILE_URL_TEMPLATE);
   assert.match(issuesOf({ ...base, APP_ENV: "staging", ...local }).join("\n"), /MAP_TILE_URL_TEMPLATE/);
+});
+
+test("FX_BUFFER_PERCENT：按十进制精确换成基点整数，统一四舍五入（远离零），不经过浮点数", () => {
+  assert.equal(loadConfig(base).fx.bufferBp, 150, "默认 1.5%");
+  assert.equal(loadConfig({ ...base, FX_BUFFER_PERCENT: "" }).fx.bufferBp, 150, "空字符串视为未填写");
+  const cases: [string, number][] = [
+    ["1.5", 150],
+    ["1.005", 101],
+    ["1.0049", 100],
+    ["1.015", 102],
+    ["0.285", 29],
+    ["2", 200],
+    ["0", 0],
+    ["10", 1000],
+    ["10.004", 1000],
+    [" 1.25 ", 125],
+    ["01.50", 150],
+  ];
+  for (const [text, bp] of cases) {
+    assert.equal(percentToBasisPoints(text), bp, text);
+    assert.equal(loadConfig({ ...base, FX_BUFFER_PERCENT: text }).fx.bufferBp, bp, text);
+  }
+});
+
+test("FX_BUFFER_PERCENT：负数、超过 10%、指数写法、千分位、非数字都报错", () => {
+  for (const value of ["-1", "10.005", "11", "1e0", "1,5", "1.", ".5", "abc", "+1"]) {
+    assert.ok(issuesOf({ ...base, FX_BUFFER_PERCENT: value }).some((i) => i.startsWith("FX_BUFFER_PERCENT")), value);
+  }
+  assert.equal(percentToBasisPoints("1e0"), null);
+  assert.equal(percentToBasisPoints("-0.5"), null);
+});
+
+test("集成状态里的缓冲按基点原样写回百分比，不出现浮点误差", () => {
+  assert.equal(basisPointsToPercentText(150), "1.5");
+  assert.equal(basisPointsToPercentText(101), "1.01");
+  assert.equal(basisPointsToPercentText(200), "2");
+  assert.equal(basisPointsToPercentText(7), "0.07");
+  assert.equal(basisPointsToPercentText(0), "0");
+  const detail = (env: Record<string, string>) => integrationStatus(loadConfig({ ...base, ...env })).find((s) => s.key === "fx")?.detail;
+  assert.match(detail({}) ?? "", /缓冲 1\.5%$/);
+  assert.match(detail({ FX_BUFFER_PERCENT: "1.005" }) ?? "", /缓冲 1\.01%$/);
 });

@@ -17,7 +17,8 @@ export interface EntryReminder {
   to: string;
 }
 
-export type EntryCounts = { status: "loading" } | { status: "failed" } | { status: "ready"; counts: readonly EntryCount[] };
+/** 数量行：加载中、没加载出来、几组数量；没有数量可数的模块（如汇率）写一句状态 */
+export type EntryCounts = { status: "loading" } | { status: "failed" } | { status: "ready"; counts: readonly EntryCount[] } | { status: "text"; text: string };
 
 export interface EntryCardProps {
   title: string;
@@ -51,6 +52,7 @@ export function EntryCard({ title, to, counts, reminders = [] }: EntryCardProps)
             <span className="visually-hidden">数量没有加载出来</span>
           </span>
         )}
+        {counts.status === "text" && <span className="entry-card__text">{counts.text}</span>}
         {counts.status === "ready" && (
           <dl className="entry-card__counts">
             {counts.counts.map((count) => (

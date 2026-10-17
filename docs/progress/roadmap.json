@@ -209,8 +209,17 @@
       "tasks": [
         { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "done", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/20 ；单元 981、前端组件 241、集成 764 个通过；packages/domain/src/quote.test.ts 文件头有需求公式与测试的逐项对照表；测试角色发现的缺陷已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-15" },
         { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "todo", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "todo", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "review", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/25 ；单元 1059、前端组件 356、集成 808、相关端到端 97 个通过；测试角色发现的 2 个缺陷和汇率缓冲用浮点数换算的问题已修复", "updated": "2026-10-17" },
         { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "todo", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "", "updated": "2026-10-07" },
+        {
+          "id": "M2-06",
+          "title": "汇率人工锁定（双人复核）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["极端行情时可临时锁定某个汇率，一人提交、另一人批准后生效", "锁定期间报价用锁定值，快照里记明是锁定汇率；解锁同样双人复核", "全部操作留审计"],
+          "evidence": "",
+          "updated": "2026-10-17"
+        },
         { "id": "M2-05", "title": "M2 验收", "role": "acceptance", "status": "todo", "acceptance": ["两个真实租户报价，官网询价得到正确中标结果"], "evidence": "", "updated": "2026-10-07" }
       ]
     },
@@ -381,6 +390,11 @@
       "date": "2026-10-16",
       "by": "Claude",
       "summary": "M1-12 验收通过：负责人租户「NOZOMI 自营车队」上架的成田机场接送机商品已出现在运营后台「商品」里（已上架、可用价格 JPY 15,000），详情只读、供应商详情能点进、首页卡片数字一致；报价试算得出中标（结算价 15,000、对外价 16,500）和报不出价的原因。验收发现的 3 个低严重度界面问题并入 M1-13。"
+    },
+    {
+      "date": "2026-10-17",
+      "by": "Claude",
+      "summary": "M2-03 待验收：汇率中心——每天从免费源（open.er-api.com，USD 基准）自动拉取，任意两种币种用精确的交叉汇率；数据源出错时沿用上一次有效汇率，单次变动超过 3% 的一批先挂起等人确认；超过 48 小时未更新时暂停跨币种报价，运营后台首页醒目提醒并记审计。报价快照记下所用汇率和取数时间。运营后台新增「汇率」页（当前汇率、互换表、近 30 天走势、拉取记录、立即拉取）。人工锁定汇率需要双人复核，拆为 M2-06，排在 M2-04（建双人复核机制）之后。"
     }
   ]
 }

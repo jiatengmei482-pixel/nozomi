@@ -4,7 +4,9 @@ import { actionName, auditDiff, foldable, localDayInstant, objectName, resourceN
 
 test("对象类型和操作：认识的写中文，不认识的原样（页面用等宽字体显示）", () => {
   assert.deepEqual(resourceName("tenant"), { text: "供应商", known: true });
-  assert.deepEqual(resourceName("price_rule"), { text: "price_rule", known: false });
+  assert.deepEqual(resourceName("price_rule"), { text: "价格规则", known: true });
+  assert.deepEqual(resourceName("fx_fetch"), { text: "汇率拉取", known: true });
+  assert.deepEqual(resourceName("settlement"), { text: "settlement", known: false });
   assert.deepEqual(actionName("request_password_reset"), { text: "发出密码重置", known: true });
   assert.deepEqual(actionName("archive"), { text: "archive", known: false });
 });

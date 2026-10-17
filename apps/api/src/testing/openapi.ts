@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
+import type { ApiResponse } from "./api.ts";
 
 export type Schema = Record<string, any>;
 
@@ -100,4 +101,22 @@ export function assertMatchesOperation(method: string, template: string, status:
   assert.ok(response, `${method} ${template} 的定义里没有状态码 ${status}`);
   const schema = deref(response)["content"]?.["application/json"]?.["schema"];
   if (schema !== undefined) assert.deepEqual(violations(schema, body), [], `${method} ${template} ${status} 的应答不符合定义`);
+}
+
+/**
+ * 核对一次集成测试里的应答（`template` 是定义里的路径写法，如 `/platform/v1/fx-rates/fetches/{id}/confirm`）：
+ * 400、401、403 是所有需要登录的接口共有的，按 `ErrorResponse` 核对；其余状态码必须写在这个接口的定义里，并且必须写了返回结构。
+ */
+export function assertMatchesOpenApi(method: string, template: string, res: ApiResponse): void {
+  const operation = openApiDoc.paths[template]?.[method.toLowerCase()];
+  assert.ok(operation, `openapi.yaml 里没有 ${method} ${template}`);
+  if ([400, 401, 403].includes(res.status)) {
+    assert.deepEqual(violations(openApiDoc.components.schemas["ErrorResponse"] as Schema, res.body), [], res.text);
+    return;
+  }
+  const documented = operation.responses[String(res.status)];
+  assert.ok(documented, `${method} ${template} 实际返回了 ${res.status}（${res.body?.error?.code ?? ""}），定义里没有写这个状态码`);
+  const schema = deref(documented)["content"]?.["application/json"]?.["schema"];
+  assert.ok(schema, `${method} ${template} 的 ${res.status} 在定义里没有写返回结构`);
+  assert.deepEqual(violations(schema, res.body), [], `${method} ${template} 的 ${res.status} 应答不符合定义：${res.text.slice(0, 400)}`);
 }
