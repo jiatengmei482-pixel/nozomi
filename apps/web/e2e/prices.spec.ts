@@ -294,8 +294,11 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   // 同一个组合再加一段日期，和原来那条重叠：当场标出，保存不了
   await page.getByRole("button", { name: `${p2pRow} 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "再加一段日期" }).click();
-  const added = page.getByLabel(`${p2pRow} 的生效日期从`).first();
+  // 新行在原来那条下面（M1-14）；原来那条一直有效，所以开始日期留空、焦点在它上面
+  const added = page.getByLabel(`${p2pRow} 的生效日期从`).last();
+  await expect(page.getByLabel(`${p2pRow} 的生效日期从`).first()).toHaveValue(String(p2pSaved.items[0]?.["valid_from"]));
   await expect(added).toHaveValue("");
+  await expect(added).toBeFocused();
   await added.fill(p2pSaved.today);
   await expect(page.getByText("有 2 条价格的生效日期重叠，保存前要改。")).toBeVisible();
   await expect(page.locator(".price-table tbody tr").filter({ hasText: "和 1 条价格的日期重叠" })).toHaveCount(2);
@@ -303,6 +306,11 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   await expect(page.getByRole("button", { name: /^生效日期重叠——/ })).toBeVisible();
   await page.getByRole("button", { name: /^生效日期重叠——/ }).click();
   await expect(page.locator(":focus")).toHaveAttribute("aria-label", `${p2pRow} 的生效日期从`);
+  // 没保存的新行可以删掉（M1-14）
+  await page.getByRole("button", { name: `${p2pRow} 的更多操作` }).last().click();
+  await page.getByRole("menuitem", { name: "删除这一行" }).click();
+  await expect(page.getByLabel(`${p2pRow} 的生效日期从`)).toHaveCount(1);
+  await expect(page.getByText("有 2 条价格的生效日期重叠，保存前要改。")).toHaveCount(0);
   // 后端对同样的内容也拒绝，并说出是和哪一条重叠
   const existing = p2pSaved.items[0] as Record<string, unknown>;
   const { id: existingId, base: _base, created_at: _created, updated_at: _updated, ...input } = existing;

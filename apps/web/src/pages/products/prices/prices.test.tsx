@@ -968,3 +968,72 @@ test("M1-14 价格日历：手机上打开本月时今天那一行滚到屏幕�
   await waitFor(() => assert.ok(dayCell("2026-12-01")));
   assert.deepEqual(other, []);
 });
+
+// ───────────── M1-14：价格表「再加一段日期」 ─────────────
+
+const fromCells = (): HTMLInputElement[] => screen.getAllByLabelText(`${ROW} 的生效日期从`) as HTMLInputElement[];
+
+test("M1-14 再加一段日期：上一段有结束日期时，新行在下面、从结束的次日开始，焦点落在新行；没保存的新行可以删除", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices`, "admin", { prices: pricesOf([priceOf({ valid_to: "2026-12-31" })]) });
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  await actor.click(screen.getByRole("button", { name: `${ROW} 的更多操作` }));
+  await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2027-01-01"]));
+  await waitFor(() => assertFocused(fromCells()[1] as HTMLElement));
+  assert.equal((screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement).value, "20,000", "价格的数照抄");
+  assert.match(pageText(), /已在下面加了一行，从 2027-01-01 开始/);
+
+  // 新行：「删除这一行」；原来那条：「删除」
+  const menus = screen.getAllByRole("button", { name: `${ROW} 的更多操作` });
+  await actor.click(menus[0] as HTMLElement);
+  assert.ok(screen.getByRole("menuitem", { name: "删除" }));
+  assertAbsent(screen.queryByRole("menuitem", { name: "删除这一行" }));
+  await actor.keyboard("{Escape}");
+  await actor.click(menus[1] as HTMLElement);
+  assertAbsent(screen.queryByRole("menuitem", { name: "清空这一行" }));
+  await actor.click(screen.getByRole("menuitem", { name: "删除这一行" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01"]));
+  await waitFor(() => assertFocused(fromCells()[0] as HTMLElement));
+  assert.match(pageText(), /已删除这一行：东京 23 区 · 商务七座 · 接送通用/);
+  assert.match(pageText(), /2 个组合里 2 个有价格/, "删完没有未保存的修改");
+});
+
+test("M1-14 再加一段日期：上一段一直有效时开始日期留空并说明；填好后一键把上一段的结束日期改成前一天；改日期、保存被拒，行的顺序都不变", async () => {
+  const actor = user();
+  let answer: Response = apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/create/0/base_price", reason: "OUT_OF_RANGE", message: "基础价太大了" }] });
+  const calls = open(`/products/${PRODUCT_ID}/prices`, "admin", {}, (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? answer : null));
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  await actor.click(screen.getByRole("button", { name: `${ROW} 的更多操作` }));
+  await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", ""]));
+  await waitFor(() => assertFocused(fromCells()[1] as HTMLElement));
+  await waitFor(() => assert.match(document.querySelector(".price-meaning")?.textContent ?? "", /新加的一段，请填从哪天开始。上一段「2026-10-01 起一直有效」没有结束日期：填好开始日期后，这里会出现按钮，一键把上一段的结束日期改成前一天。/));
+
+  // 填一个比原来那条还早的日期：行不跳到上面去
+  await actor.type(fromCells()[1] as HTMLElement, "2026-12-20");
+  await screen.findByText("有 2 条价格的生效日期重叠，保存前要改。");
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  await actor.click(screen.getByRole("button", { name: "把那一条的结束日期改成 2026-12-19" }));
+  await waitFor(() => assertAbsent(screen.queryByText("有 2 条价格的生效日期重叠，保存前要改。")));
+  assert.equal((screen.getAllByLabelText(`${ROW} 的生效日期到`)[0] as HTMLInputElement).value, "2026-12-19");
+  await actor.clear(fromCells()[1] as HTMLElement);
+  await actor.type(fromCells()[1] as HTMLElement, "2026-12-20");
+  const newPrice = screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement;
+  await actor.clear(newPrice);
+  await actor.type(newPrice, "25000");
+  await actor.tab();
+
+  // 保存被拒：顺序不变，填的都在
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByRole("button", { name: `${ROW}：基础价太大了` });
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  // 焦点落在出错的那一格（聚焦时显示成纯数字）
+  assert.deepEqual(screen.getAllByLabelText(`${ROW} 的基础价`).map((cell) => (cell as HTMLInputElement).value.replace(",", "")), ["20000", "25000"]);
+  answer = apiError(409, "PRICE_RULE_CONFLICT", "overlap", { conflicts: [{ id: PRICE_ID, valid_from: "2026-10-01", valid_to: "2026-12-19", with: [{ id: "other", valid_from: "2026-11-01", valid_to: null }] }] });
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText(/所以这一批都没有保存/);
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  const batch = writes(calls).at(-1)?.body as { create: Record<string, unknown>[]; update: Record<string, unknown>[] };
+  assert.deepEqual([batch.create[0]?.["valid_from"], batch.create[0]?.["base_price"], batch.update[0]?.["valid_to"]], ["2026-12-20", 25000, "2026-12-19"]);
+});
