@@ -585,17 +585,24 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                     const change = (changes: Partial<RulesForm["languages"][number]>): void => set({ languages: form.languages.map((entry, at) => (at === index ? { ...entry, ...changes } : entry)) });
                     return (
                       <div key={index} className="prow prow--pair">
-                        <label className="prow__cell">
-                          <span className="prow__label">语言</span>
-                          <select className="input select" id={`language-${index}-select`} aria-label={`第 ${index + 1} 行：语言`} aria-invalid={bad(`language-${index}-select`)} disabled={locked} value={row.language} onChange={(event) => change({ language: event.target.value })}>
-                            <option value="">请选择</option>
-                            {DRIVER_LANGUAGE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        {readOnly ? (
+                          <div className="prow__cell">
+                            <span className="prow__label">语言</span>
+                            <span id={`language-${index}-select`}>{DRIVER_LANGUAGE_OPTIONS.find((option) => option.value === row.language)?.label ?? (row.language === "" ? "—" : row.language)}</span>
+                          </div>
+                        ) : (
+                          <label className="prow__cell">
+                            <span className="prow__label">语言</span>
+                            <select className="input select" id={`language-${index}-select`} aria-label={`第 ${index + 1} 行：语言`} aria-invalid={bad(`language-${index}-select`)} disabled={locked} value={row.language} onChange={(event) => change({ language: event.target.value })}>
+                              <option value="">请选择</option>
+                              {DRIVER_LANGUAGE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
                         <label className="prow__cell">
                           <span className="prow__label">{`单价（${currency}）`}</span>
                           {text(`language-${index}-price`, row.price, (value) => change({ price: value }), { label: `第 ${index + 1} 行：单价`, mode: "decimal" })}

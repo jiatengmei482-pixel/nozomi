@@ -381,7 +381,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
               </h3>
               {!creating ? (
                 <>
-                  <p className="field__hint">这几项创建后不能修改。要换，请新建一个商品。</p>
+                  <p className="field__hint">{frame.source.portal === "platform" ? "这几项是供应商创建商品时选定的，创建后不能修改。" : "这几项创建后不能修改。要换，请新建一个商品。"}</p>
                   <dl className="details">
                     <div className="details__item">
                       <dt>子品牌</dt>

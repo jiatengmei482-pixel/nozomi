@@ -718,6 +718,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                           const firstOrphan = orphan && (index === 0 || !isOrphan(visible[index - 1] as PriceRow));
                           const firstOfArea = index === 0 || visible[index - 1]?.areaId !== row.areaId || firstOrphan;
                           const rowLocked = locked || row.deleted || orphan;
+                          /** 只读查看、已删除待保存、已不在商品里的行：方向和计价方式显示成文字，不用灰掉的下拉（禁用态的字对比度不够，规范 02-components 第 2 节） */
+                          const choicesAsText = readOnly || row.deleted || orphan;
                           const flag = ["error", "overlap"].includes(state.state) ? " price-table__row--error" : ["new", "changed"].includes(state.state) ? " price-table__row--unsaved" : "";
                           const cell = (field: PriceField): ReactNode => {
                             if (!MODEL_FIELDS[row.model].includes(field)) return <span className="table__muted">—</span>;
@@ -797,25 +799,33 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               </td>
                               {category === "airport_transfer" && (
                                 <td>
-                                  <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
-                                    {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
-                                      <option key={direction} value={direction}>
-                                        {directionName(direction, station)}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {choicesAsText ? (
+                                    <span id={cellId(row.key, "direction")}>{directionName(row.direction ?? "both", station)}</span>
+                                  ) : (
+                                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
+                                      {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
+                                        <option key={direction} value={direction}>
+                                          {directionName(direction, station)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </td>
                               )}
                               {category === "charter" && <td>{`${row.packageHours ?? ""} 小时`}</td>}
                               {models.length > 1 && (
                                 <td>
-                                  <select className="input input--sm select" aria-label={`${label} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
-                                    {models.map((model) => (
-                                      <option key={model} value={model}>
-                                        {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {choicesAsText ? (
+                                    <span>{row.model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[row.model]}</span>
+                                  ) : (
+                                    <select className="input input--sm select" aria-label={`${label} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
+                                      {models.map((model) => (
+                                        <option key={model} value={model}>
+                                          {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </td>
                               )}
                               {valueFields.map((field) => (

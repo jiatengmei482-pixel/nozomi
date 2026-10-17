@@ -555,3 +555,33 @@ test("报价试算的权限：只读、风控没有 quote.preview——直接打
     resetBrowser();
   }
 });
+
+// ───────────── 验收发现的界面小问题（M1-13） ─────────────
+
+test("商品详情的基础信息：不出现只对供应商有意义的话（「要换，请新建一个商品」），改说是供应商创建时选定的", async () => {
+  open(`/platform/products/${PRODUCT_ID}`, "customer_service");
+  await screen.findByRole("heading", { level: 2, name: "① 基础信息" });
+  assert.ok(screen.getByText("这几项是供应商创建商品时选定的，创建后不能修改。"));
+  assert.doesNotMatch(document.body.textContent ?? "", /新建一个商品/);
+});
+
+test("只读的价格表：方向、计价方式显示成文字，不是灰掉的下拉框（禁用态的字对比度不够）；服务规则里的司机语言同样", async () => {
+  const detail = detailOf();
+  const withLanguage = detailOf({
+    service_rules: { ...detail.service_rules, rules: { ...detail.service_rules.rules, driver_languages: [{ language: "ja", unit_price: 0 }] } },
+    price_rules: { ...detail.price_rules, items: [priceOf(), priceOf({ id: "99999999-9999-4999-8999-999999999999", direction: "pickup", pricing_model: "mileage_time", base_price: null, start_price: 3000, start_meters: 2000, start_minutes: 10, per_km: 400, per_minute: 50, min_price: 5000, base: "3000" })] },
+  });
+  open(`/platform/products/${PRODUCT_ID}/prices`, "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/products/${PRODUCT_ID}` ? json(200, withLanguage) : null));
+  await screen.findByRole("heading", { level: 2, name: "③ 价格规则" });
+  await waitFor(() => assert.ok(document.querySelectorAll(".price-table tbody tr").length >= 2));
+  assert.equal(document.querySelectorAll(".price-table select").length, 0, "价格表里没有下拉框");
+  assert.equal(document.querySelectorAll(".price-table [disabled]").length, 0, "价格表里没有禁用的控件");
+  const text = document.querySelector(".price-table")?.textContent ?? "";
+  for (const word of ["接送通用", "接机", "一口价", "里程 + 时长"]) assert.ok(text.includes(word), `价格表里应有「${word}」：${text}`);
+
+  await user().click(within(screen.getByRole("navigation", { name: "配置步骤" })).getByRole("link", { name: /服务规则/ }));
+  await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
+  const languages = (await screen.findByText("司机语言")).closest("fieldset") as HTMLElement;
+  assert.equal(languages.querySelectorAll("select").length, 0);
+  assert.match(languages.textContent ?? "", /日语/);
+});
