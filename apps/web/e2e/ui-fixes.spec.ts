@@ -183,6 +183,11 @@ test("运营后台看商品：基础信息里没有「要换，请新建一个�
   await expect(page.getByRole("heading", { level: 2, name: "① 基础信息" })).toBeVisible();
   await expect(page.getByText("这几项是供应商创建商品时选定的，创建后不能修改。")).toBeVisible();
   await expect(page.getByText(/新建一个商品/)).toHaveCount(0);
+  await expect(page.getByText("供应商给这个商品选的区域，排在前面的优先。")).toBeVisible();
+  await expect(page.getByText(/上下移动可以调整顺序/)).toHaveCount(0);
+  await page.goto(`/platform/products/${product.id}/service-rules`);
+  await expect(page.getByText("平台规定了最少要等多久，供应商可以设得更长，不能更短。")).toBeVisible();
+  await expect(page.getByText(/你可以设得更长|这里不用设置/)).toHaveCount(0);
 
   await page.goto(`/platform/products/${product.id}/prices`);
   const table = page.locator(".price-table");

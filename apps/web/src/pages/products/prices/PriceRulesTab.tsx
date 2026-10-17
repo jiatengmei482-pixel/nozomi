@@ -77,6 +77,8 @@ interface Rejection {
 export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const { frame, product, prices } = shared;
   const { readOnly } = frame;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { token } = usePortalSession();
   const category = product.category;
   const station = isStationPlace(product.poi?.type);
@@ -529,7 +531,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                       {coverageOpen ? "收起覆盖表" : "展开覆盖表"}
                     </Button>
                   </div>
-                  <p className="field__hint">{coverage.priced === 0 ? "在下面的表格里填。每一行是一个组合，填上价格、点保存就行。" : coverage.missing > 0 ? "没有价格的组合，客人询价时报不出价。" : ""}</p>
+                  <p className="field__hint">{coverage.priced === 0 ? (onPlatform ? "供应商还没有给任何组合设价格。" : "在下面的表格里填。每一行是一个组合，填上价格、点保存就行。") : coverage.missing > 0 ? "没有价格的组合，客人询价时报不出价。" : ""}</p>
                   {coverageOpen && (
                     <div id="coverage-table">
                       {viewOptions.length > 0 && (

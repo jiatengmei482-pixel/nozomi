@@ -57,6 +57,8 @@ function readContent(form: ContentForm, category: Product["category"]): { body: 
 
 export function ContentStep({ frame, product }: { frame: ProductFrame; product: Product }) {
   const { readOnly } = frame;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { token } = usePortalSession();
   const loaded = useLoad<ProductContentResponse>(`product-content:${product.id}`, (authToken) => frame.source.content(authToken, product.id));
   const data = loaded.state.data;
@@ -152,7 +154,7 @@ export function ContentStep({ frame, product }: { frame: ProductFrame; product: 
   };
 
   return (
-    <StepShell frame={frame} slug="content" title="⑤ 商品详情" next={{ slug: "publish", label: "保存并看上架检查" }} controller={controller} intro={<p className="step__intro">这里的内容会显示给客人。至少要有一种语言填了标题；客人用哪种语言看这个商品，就看到哪种语言的内容。使用条款、取消政策、附加费用这些文字以后由平台的模版按你设的规则自动生成，不用在这里写。</p>}>
+    <StepShell frame={frame} slug="content" title="⑤ 商品详情" next={{ slug: "publish", label: "保存并看上架检查" }} controller={controller} intro={<p className="step__intro">{onPlatform ? "这里的内容会显示给客人：客人用哪种语言看这个商品，就看到哪种语言的内容。使用条款、取消政策、附加费用这些文字以后由平台的模版按服务规则自动生成。" : "这里的内容会显示给客人。至少要有一种语言填了标题；客人用哪种语言看这个商品，就看到哪种语言的内容。使用条款、取消政策、附加费用这些文字以后由平台的模版按你设的规则自动生成，不用在这里写。"}</p>}>
       {({ busy, attempted, hint }) => {
         const locked = busy || readOnly;
         const errors = (target: string): string[] => [...(attempted ? problems.filter((problem) => problem.target === target).map((problem) => problem.text) : []), ...(server[target] ?? [])];
@@ -260,11 +262,11 @@ export function ContentStep({ frame, product }: { frame: ProductFrame; product: 
                             <span>上架前至少一种语言要填标题。</span>
                           </p>
                         )}
-                        <p className="field__hint">商品的名字，也是你们在后台列表里看到的名字。例如「羽田机场接送」「东京市内包车」。</p>
+                        <p className="field__hint">{onPlatform ? "商品的名字，客人和后台列表里看到的都是它。" : "商品的名字，也是你们在后台列表里看到的名字。例如「羽田机场接送」「东京市内包车」。"}</p>
                       </div>
                       {area(`summary-${language}`, "简介（选填）", text.summary, (summary) => change({ summary }), "")}
-                      {list("includes", "包含", "价格里已经包含的，一条写一项。例如「高速费」「停车费」「举牌接机」。")}
-                      {list("excludes", "不含", "价格里不包含、可能另收的，一条写一项。")}
+                      {list("includes", "包含", onPlatform ? "价格里已经包含的。" : "价格里已经包含的，一条写一项。例如「高速费」「停车费」「举牌接机」。")}
+                      {list("excludes", "不含", onPlatform ? "价格里不包含、可能另收的。" : "价格里不包含、可能另收的，一条写一项。")}
                       {category === "charter" && area(`itinerary-${language}`, "行程路线（选填）", text.itinerary, (itinerary) => change({ itinerary }), "推荐的行程或可以去的范围。")}
                       {category === "airport_transfer" && area(`pickup-guide-${language}`, guideName, text.pickupGuide, (pickupGuide) => change({ pickupGuide }), "客人到达后怎么找到司机：在哪个出口、司机举什么牌、找不到时打哪个电话。", true)}
                       {!readOnly && (

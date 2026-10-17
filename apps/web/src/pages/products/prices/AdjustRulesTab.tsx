@@ -59,6 +59,8 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
   const navigate = useNavigate();
   const location = useLocation();
   const readOnly = frame.readOnly;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const published = product.status === "published";
   const station = isStationPlace(product.poi?.type);
   const currency = prices.currency;
@@ -268,7 +270,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
   const intro = (
     <div className="adjust-intro">
       <p className="adjust-intro__text">
-        调价规则可以不设。设了以后，命中的日子会在基础价上再调一次。
+        {onPlatform ? "调价规则不是必须的。命中的日子会在基础价上再调一次。" : "调价规则可以不设。设了以后，命中的日子会在基础价上再调一次。"}
         <br />
         同一天命中好几条时，从上到下依次算：后一条在前一条算完的结果上接着算。
       </p>
@@ -411,7 +413,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
           <StateBlock
             tone="neutral"
             title="还没有调价规则"
-            description="调价规则可以不设：不设的话，每天都按价格规则里的基础价报价。节假日、旺季、周末、夜里想调高或调低时再来建。"
+            description={onPlatform ? "这个商品没有调价规则，每天都按价格规则里的基础价报价。" : "调价规则可以不设：不设的话，每天都按价格规则里的基础价报价。节假日、旺季、周末、夜里想调高或调低时再来建。"}
             action={
               readOnly ? undefined : (
                 <>

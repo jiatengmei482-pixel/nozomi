@@ -585,3 +585,56 @@ test("只读的价格表：方向、计价方式显示成文字，不是灰掉�
   assert.equal(languages.querySelectorAll("select").length, 0);
   assert.match(languages.textContent ?? "", /日语/);
 });
+
+test("只读详情的每一步、每个页签：说明文字不对供应商说「你 / 你们」，不教怎么填、怎么改（如「上下移动可以调整顺序」「填上价格、点保存」）；上架检查里「不归用户补」的那句换成运营该看的", async () => {
+  const detail = detailOf();
+  const rich = detailOf({
+    service_rules: {
+      ...detail.service_rules,
+      rules: {
+        ...detail.service_rules.rules,
+        driver_languages: [{ language: "ja", unit_price: 0 }],
+        urgent: { enabled: true, daily_quota: 3, tiers: [{ within_hours: 12, surcharge: 1000 }] },
+        night: { enabled: true, window: { start: "22:00", end: "06:00" }, amount: 1000, charge_unit: "per_order" },
+      } as typeof detail.service_rules.rules,
+    },
+    price_rules: { ...detail.price_rules, items: [], coverage: { total: 1, priced: 0, missing: 1 } },
+    adjust_rules: { ...detail.adjust_rules, items: [] },
+    publish_check: { can_publish: false, items: [item("basic_info", [{ path: "/brand_id", reason: "BRAND_DISABLED" }, { path: "/city_id", reason: "CITY_DISABLED" }]), item("service_rules"), item("price_rules", [{ path: "/price_rules", reason: "NO_ACTIVE_PRICE_RULE" }]), item("content"), item("adjust_rules", [], false), item("inventory", [], false)] },
+  });
+  open(`/platform/products/${PRODUCT_ID}`, "super_admin", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/products/${PRODUCT_ID}` ? json(200, rich) : null));
+  const EDITING = /上下移动|填上价格|点保存|一条写一项|这里不用设置|不勾 = 不收|你可以|你们|你设|你能|留空 =|例如填|请加一档|再来建|修改任何一步|请联系平台运营|请联系你们的管理员|填写和计算/;
+  const seen: string[] = [];
+  const check = async (what: string, ready: () => Promise<unknown>): Promise<void> => {
+    await ready();
+    await waitFor(() => assert.ok(!screen.queryByText("加载中")));
+    const main = screen.getByRole("main");
+    // 页面顶部那句「运营后台只能查看…请联系供应商」是写给运营的，不算
+    const text = [...main.querySelectorAll("p, li, .field__hint, .step__intro, .state-block__description, .checklist__note, .alert")]
+      .filter((node) => !node.closest(".product-readonly-note") && !(node.textContent ?? "").startsWith("这是供应商"))
+      .map((node) => node.textContent ?? "")
+      .join("\n");
+    seen.push(text);
+    const hit = EDITING.exec(text);
+    assert.equal(hit, null, `${what}：出现了写给供应商的编辑说明「${hit?.[0]}」\n${text}`);
+  };
+  const steps = (): HTMLElement => screen.getByRole("navigation", { name: "配置步骤" });
+  await check("基础信息", () => screen.findByRole("heading", { level: 2, name: "① 基础信息" }));
+  await user().click(within(steps()).getByRole("link", { name: /服务规则/ }));
+  await check("服务规则", () => screen.findByRole("heading", { level: 2, name: "② 服务规则" }));
+  await user().click(within(steps()).getByRole("link", { name: /价格规则/ }));
+  await check("价格规则", () => screen.findByText("供应商还没有给任何组合设价格。"));
+  await user().click(screen.getByRole("link", { name: /^调价规则/ }));
+  await check("调价规则", () => screen.findByText("这个商品没有调价规则，每天都按价格规则里的基础价报价。"));
+  await user().click(within(steps()).getByRole("link", { name: /库存/ }));
+  await check("库存", () => screen.findByRole("heading", { level: 2, name: "④ 库存" }));
+  await user().click(within(steps()).getByRole("link", { name: /商品详情/ }));
+  await check("商品详情", () => screen.findByRole("heading", { level: 2, name: "⑤ 商品详情" }));
+  await user().click(within(steps()).getByRole("link", { name: /上架检查/ }));
+  await check("上架检查", () => screen.findByText("供应商的管理员可以在供应商后台重新启用"));
+  assert.ok(screen.getByText("需要平台在主数据里处理"));
+  const all = seen.join("\n");
+  for (const expected of ["供应商给这个商品选的区域，排在前面的优先。", "平台规定了最少要等多久，供应商可以设得更长，不能更短。", "由供应商在服务结束后", "商品的名字，客人和后台列表里看到的都是它。"]) {
+    assert.ok(all.includes(expected), `应有「${expected}」`);
+  }
+});
