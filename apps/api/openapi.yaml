@@ -93,7 +93,15 @@ tags:
   - name: 供应商商品（平台）
     description: 运营后台只读地查看所有供应商的商品（列表、详情、上架校验）。平台没有修改供应商商品的接口
   - name: 报价
-    description: 报价引擎的试算（平台侧：所有供应商一起比；租户侧：自己的一个商品，只有结算价）。正式的询价接口 `/sales/v1/quotes` 和渠道一起做（M2-04）
+    description: 报价引擎的试算（平台侧：所有供应商一起比，可以选渠道按它的规则算；租户侧：自己的一个商品，只有结算价）
+  - name: 渠道
+    description: 渠道账户（ADR 0023）：基本配置、授权范围、定价参数、加价规则（五级匹配）、API 客户端与密钥、询价日志。定价、加价规则、暂停走双人复核
+  - name: 双人复核
+    description: 敏感操作的双人复核（ADR 0023）：待审核队列、批准（改动随即生效）、驳回、撤回。发起人不能审核自己发起的
+  - name: 销售端
+    description: |
+      `/sales/v1`：渠道调用的销售端接口。OAuth 2.0 Client Credentials 换令牌；询价每个渠道每秒 50 次，其他每秒 10 次（超限 429 + `Retry-After`）。
+      应答里没有中标租户、结算价、加价比例。
 paths:
   /health:
     get:
@@ -838,7 +846,8 @@ paths:
           一个点落在同一个供应商多个区域、或点对点起终点在不同区域时，每个区域都算，取最低。
         - 结算价 = 调价后的价 + 加急费 + 夜间费 + 附加服务，最后按子品牌的取整单位取整一次；明细各项之和等于结算价，尾差在 `adjust` 里。
         - 对外价 = 结算价 × 汇率 × (1 + 汇率缓冲) × (1 + 加价比例)，按币种取整。结算币种和 `currency` 不同时要有汇率（缓冲 1.5%），没有、或汇率超过 48 小时没更新就报不出（`FX_RATE_UNAVAILABLE`）。
-          加价比例现在是配置里的默认值（渠道和加价规则在 M2-04），不低于下限 `markup_floor_bp`。
+          带 `channel_id` 时加价比例按渠道的五级规则匹配，下限、价格带、最低毛利、对外价取整用渠道的；城市或品类不在渠道的授权范围里 422 `CHANNEL_SCOPE_DENIED`，渠道不卖的租户在 `excluded` 里。
+          不带时用配置里的默认加价比例、10% 下限、3% 价格带。
         - 中标：每个车型组只出一个价。排序价 = 对外价（观察期的供应商 × 1.05）；排序价不超过最低排序价 × (1 + `band_bp`) 的在同价区间里（`in_band`），
           区间内评分高者 → 已完成订单数多者 → 排序价低者中标。同一个供应商的几个商品只留排序价最低的。客人付的是中标者自己的对外价。
         - 「里程 + 时长」的价格要路线预估：取不到时那个车型组报不出（`ROUTE_UNAVAILABLE`）。可以用 `assume_route` 给一个假定的里程和时长来试算。
@@ -862,13 +871,19 @@ paths:
         "400":
           description: |
             `VALIDATION_FAILED`：请求写得不对。`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
-            `REQUIRED`、`NOT_APPLICABLE`（这个品类不填这一项）、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`。
+            `REQUIRED`、`NOT_APPLICABLE`（这个品类不填这一项）、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`、`UNKNOWN_CHANNEL`。
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: "`MASTER_DATA_NOT_READY`：城市（`details.reason` = `CITY_DISABLED`）或机场 / 车站（`PLACE_DISABLED`）已被平台停用，现在不报价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`：城市或品类不在所选渠道的授权范围里（`details.reason`）"
           content:
             application/json:
               schema:
@@ -4489,6 +4504,743 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FxTenantRates"
+  /platform/v1/channels:
+    get:
+      tags: [渠道]
+      operationId: listChannels
+      summary: 渠道列表
+      description: 需要操作 `channel.read`（除主数据运营外的每个平台角色）。按创建时间从旧到新，带 `total`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ChannelStatus"
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ChannelType"
+        - name: q
+          in: query
+          description: 按名称或公司模糊查找
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        "200":
+          description: 一页渠道
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelList"
+    post:
+      tags: [渠道]
+      operationId: createChannel
+      summary: 新建渠道
+      description: |
+        需要操作 `channel.manage`（渠道经理、超级管理员）。新建的渠道状态是「测试」（`testing`）：可以发 API 密钥联调，`/sales/v1` 能调用。
+        定价参数在新建时直接定（默认加价 10%、下限 10%、价格带 3%）；之后再改要走双人复核（`pricing-changes`）。
+        加价下限不能低于平台下限 10%，默认加价不能低于下限。写审计日志。没有预置任何渠道：第一个渠道（自营官网）也在这里建。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelCreateRequest"
+      responses:
+        "201":
+          description: 建好的渠道
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelDetail"
+        "400":
+          $ref: "#/components/responses/ChannelInvalid"
+        "409":
+          description: "`CHANNEL_NAME_TAKEN`：已经有同名的渠道"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}:
+    get:
+      tags: [渠道]
+      operationId: getChannel
+      summary: 渠道详情（基本配置、授权范围、定价参数、加价规则）
+      description: 需要操作 `channel.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 渠道详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [渠道]
+      operationId: updateChannel
+      summary: 改渠道的基本信息和授权范围（直接生效）
+      description: |
+        需要操作 `channel.manage`。只改给了的字段；`scope` 给了就整体替换。定价参数和状态不在这里改（定价走 `pricing-changes`，暂停走 `pause`，启用走 `activate`）。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelPatchRequest"
+      responses:
+        "200":
+          description: 改好的渠道
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelDetail"
+        "400":
+          $ref: "#/components/responses/ChannelInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本号不是最新的；`CHANNEL_NAME_TAKEN`：同名"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/channels/{id}/activate:
+    post:
+      tags: [渠道]
+      operationId: activateChannel
+      summary: 启用渠道（直接生效）
+      description: 需要操作 `channel.manage`。测试 → 启用、暂停 → 启用。写审计日志。停用（暂停）要双人复核，见 `pause`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 启用后的渠道
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANNEL_STATUS_UNCHANGED`：已经是启用状态"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/pause:
+    post:
+      tags: [渠道]
+      operationId: requestChannelPause
+      summary: 发起暂停渠道（双人复核）
+      description: |
+        需要操作 `channel.manage`。不直接生效：返回 202 和一条待审核的复核记录；另一个有 `channel.review` 的人批准后渠道才暂停（`/sales/v1` 随即全部拒绝，403 `CHANNEL_PAUSED`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalNoteRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANNEL_STATUS_UNCHANGED`：已经是暂停状态"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/pricing-changes:
+    post:
+      tags: [渠道]
+      operationId: requestChannelPricingChange
+      summary: 发起修改定价参数（双人复核）
+      description: |
+        需要操作 `channel.manage`。默认加价比例、加价下限、价格带 δ、最低毛利金额、对外价取整一起提交（不给的按默认值）；不直接生效，返回 202 和待审核的复核记录。
+        - 下限不能低于平台下限 10%，默认加价不能低于下限，价格带 0–5%（`VALIDATION_FAILED`，原因 `BELOW_PLATFORM_FLOOR` / `BELOW_FLOOR` / `OUT_OF_RANGE`）；
+        - 和现在一样的不发起（`UNCHANGED`）；
+        - 调高下限时，还在用的加价规则有低于新下限的，先要把它们改掉（409 `RULES_BELOW_FLOOR`，`details.rule_ids`）。
+        批准时按那一刻的数据再校验一次；发起之后定价参数或加价规则被别的复核改过，批准返回 409 `APPROVAL_STALE`。
+        「生效前试算对近 30 天订单的毛利影响」要等有了订单（M3），本期没有。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelPricingChangeRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          $ref: "#/components/responses/ChannelInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RULES_BELOW_FLOOR`：有还在用的加价规则低于新的下限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/markup-rules:
+    get:
+      tags: [渠道]
+      operationId: listMarkupRules
+      summary: 渠道的加价规则表
+      description: 需要操作 `channel.read`。按级别（1 最具体 → 5 全渠道）、维度、日期排好；不含已删除的。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 加价规则
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkupRuleList"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [渠道]
+      operationId: requestMarkupRuleCreate
+      summary: 发起新增加价规则（双人复核）
+      description: |
+        需要操作 `channel.manage`。不直接生效：返回 202 和待审核的复核记录。五级匹配（命中第一条即停）：
+        1 租户 × 城市 × 品类 × 车型组；2 租户；3 城市 × 品类 × 车型组；4 城市 × 品类；5 全渠道（必须带日期范围，用于促销期；不带日期的全渠道比例就是渠道的默认加价比例）。
+        日期范围是用车日期（城市当地），两端都含；同一级里在日期范围内的规则优先于不带日期的。
+        **低于渠道下限的拦截**（`VALIDATION_FAILED`，原因 `BELOW_FLOOR`，`detail.floor_bp`）；同一组维度上不带日期的只能一条、带日期的不能重叠（409 `MARKUP_RULE_CONFLICT`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          $ref: "#/components/responses/MarkupRuleInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MARKUP_RULE_CONFLICT`：和已有的规则冲突（`details.rule_ids`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/markup-rules/{ruleId}:
+    put:
+      tags: [渠道]
+      operationId: requestMarkupRuleUpdate
+      summary: 发起修改加价规则（双人复核）
+      description: 需要操作 `channel.manage`。整条替换；校验同新增。不直接生效：返回 202。批准时规则的版本变了返回 409 `APPROVAL_STALE`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          $ref: "#/components/responses/MarkupRuleInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：规则的版本号不是最新的；`MARKUP_RULE_CONFLICT`：和别的规则冲突"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [渠道]
+      operationId: requestMarkupRuleDelete
+      summary: 发起删除加价规则（双人复核）
+      description: 需要操作 `channel.manage`。不直接生效：返回 202。批准后规则不再参与匹配（库里留着，报价快照引用的编号始终查得到）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/RuleId"
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：规则的版本号不是最新的"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/channels/{id}/api-clients:
+    get:
+      tags: [渠道]
+      operationId: listChannelApiClients
+      summary: 渠道的 API 客户端
+      description: 需要操作 `channel.read`。只有 `client_id`、名称和密钥的后 4 位；密钥原文只在新建、轮换时出现一次。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: API 客户端
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiClient"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [渠道]
+      operationId: createChannelApiClient
+      summary: 新建 API 客户端（发密钥）
+      description: |
+        需要操作 `channel.manage`。返回 `client_id` 和 `client_secret`：**密钥原文只在这一次应答里出现**，库里只存它的 SHA-256，丢了只能轮换。写审计日志（没有密钥原文）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: 给人看的名字，如「官网正式环境」
+      responses:
+        "201":
+          $ref: "#/components/responses/ApiClientSecret"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/channels/{id}/api-clients/{clientId}/rotate:
+    post:
+      tags: [渠道]
+      operationId: rotateChannelApiClient
+      summary: 轮换密钥
+      description: |
+        需要操作 `channel.manage`。发一个新密钥（只显示这一次）。旧密钥默认还能用 24 小时（`previous_valid_until`），让渠道有时间换上；
+        `immediate: true`（密钥泄露时）旧密钥和用它换来的令牌立即失效。宽限期过后，用旧密钥换来的令牌也失效。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ApiClientId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                immediate:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          $ref: "#/components/responses/ApiClientSecret"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`API_CLIENT_REVOKED`：已经吊销"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/api-clients/{clientId}/revoke:
+    post:
+      tags: [渠道]
+      operationId: revokeChannelApiClient
+      summary: 吊销 API 客户端
+      description: 需要操作 `channel.manage`。这个客户端和它换来的令牌立即失效，不能恢复。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ApiClientId"
+      responses:
+        "200":
+          description: 吊销后的客户端
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [api_client]
+                properties:
+                  api_client:
+                    $ref: "#/components/schemas/ApiClient"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`API_CLIENT_REVOKED`：已经吊销了"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/quote-logs:
+    get:
+      tags: [渠道]
+      operationId: listChannelQuoteLogs
+      summary: 渠道的询价日志
+      description: 需要操作 `channel.read`。按时间从新到旧。每次 `/sales/v1/quotes` 一条：请求、候选数、报出的报价和中标租户。全部候选的排序依据和没报出价的原因存在库里（`quote_logs.bids` / `rejects`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页询价日志
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteLogList"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/approvals:
+    get:
+      tags: [双人复核]
+      operationId: listApprovals
+      summary: 双人复核记录（待审核队列）
+      description: |
+        需要操作 `approval.read`。默认只列待审核的（`status=pending`），按发起时间从新到旧，带 `total`；只列自己看得到的那几类（现在都是渠道的，要有 `channel.read`）。
+        每条带 `can`：当前账号能不能批准、驳回、撤回（发起人不能审核自己发起的；没有审核权限的不能批准、驳回）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, withdrawn, all]
+            default: pending
+        - name: resource_id
+          in: query
+          description: 只看某个对象的（如某个渠道）
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页复核记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalList"
+  /platform/v1/approvals/{id}:
+    get:
+      tags: [双人复核]
+      operationId: getApproval
+      summary: 一条复核记录
+      description: 需要操作 `approval.read`；看不到的那一类当作不存在（404）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApprovalResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/approvals/{id}/approve:
+    post:
+      tags: [双人复核]
+      operationId: approveApproval
+      summary: 批准（改动随即生效）
+      description: |
+        要能看这一类（`approval.read` + 这一类的查看权限），还要有这一类的审核权限（渠道的是 `channel.review`：渠道经理、超级管理员），否则 403。
+        **发起人不能批准自己发起的**（409 `APPROVAL_SELF_REVIEW`）。改动在批准的同一个事务里生效；按那一刻的数据校验不通过（下限已调高、和别的规则冲突、
+        发起之后对象被改过 `APPROVAL_STALE`）时什么都不改，记录仍是待审核，可以驳回。写审计日志（复核记录和被改的对象各一条）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApprovalResult"
+        "400":
+          description: "`VALIDATION_FAILED`：按批准那一刻的数据，这个改动不合规则了（如加价比例低于现在的下限）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: |
+            `APPROVAL_SELF_REVIEW`：发起人不能审核自己发起的；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：发起之后对象被改过；
+            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`：按现在的数据不能生效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/approvals/{id}/reject:
+    post:
+      tags: [双人复核]
+      operationId: rejectApproval
+      summary: 驳回
+      description: 权限同批准；发起人不能驳回自己发起的（409 `APPROVAL_SELF_REVIEW`），自己不要了用撤回。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApprovalResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`APPROVAL_SELF_REVIEW`、`APPROVAL_NOT_PENDING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/approvals/{id}/withdraw:
+    post:
+      tags: [双人复核]
+      operationId: withdrawApproval
+      summary: 撤回（只有发起人）
+      description: 发起人撤回自己发起、还没有结论的复核。别人撤回 409 `APPROVAL_NOT_REQUESTER`。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApprovalResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`APPROVAL_NOT_REQUESTER`、`APPROVAL_NOT_PENDING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/oauth/token:
+    post:
+      tags: [销售端]
+      operationId: issueSalesToken
+      summary: 换访问令牌（OAuth 2.0 Client Credentials）
+      description: |
+        用平台发的 `client_id` + `client_secret` 换一个 2 小时的访问令牌，之后的 `/sales/v1` 请求带 `Authorization: Bearer <令牌>`。
+        请求体可以是 JSON，也可以是表单（`application/x-www-form-urlencoded`）。不需要登录。
+        密钥不对、客户端不存在或已吊销，都是同一个 401 `INVALID_CLIENT`；渠道被暂停是 403 `CHANNEL_PAUSED`（密钥正确时才说）。
+        每个来源地址每秒最多 10 次，超了 429 `RATE_LIMITED` + `Retry-After`。
+        令牌里带着渠道编号，`/sales/v1` 的渠道只从令牌取。客户端被吊销、渠道被暂停、密钥轮换的宽限期过了，已经发出的令牌随即失效。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesTokenRequest"
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SalesTokenRequest"
+      responses:
+        "200":
+          description: 访问令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [access_token, token_type, expires_in, channel_id]
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    enum: [Bearer]
+                  expires_in:
+                    type: integer
+                    description: 有效秒数（7200）
+                  channel_id:
+                    type: string
+                    format: uuid
+        "401":
+          description: "`INVALID_CLIENT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`CHANNEL_PAUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /sales/v1/quotes:
+    post:
+      tags: [销售端]
+      operationId: createSalesQuotes
+      summary: 询价
+      description: |
+        渠道身份只来自访问令牌（请求里不接受 `channel_id`、`tenant_id`）。只比这个渠道授权的租户、城市、品类：城市或品类不在授权范围里 422 `CHANNEL_SCOPE_DENIED`（`details.reason` 是 `CITY_NOT_AUTHORIZED` / `CATEGORY_NOT_AUTHORIZED`）。
+        每个车型组（包车按套餐）只返回中标的一个价，每个带 `quote_id`，有效期 30 分钟，下单以它为准。加价按渠道的规则（五级匹配、下限、最低毛利、对外价取整、价格带 δ）。
+        **应答里没有中标租户、结算价、加价比例**（付款前不显示中标租户）。没报出价的车型组在 `unavailable` 里，只给面向客人的原因。
+        每个渠道每秒最多 50 次，超了 429 `RATE_LIMITED` + `Retry-After`。每次询价记一条询价日志（平台内部）。
+        金额是 `{ amount, currency }`，`amount` 是主单位的十进制字符串（日元 `"119800"`、人民币 `"1234.56"`）。
+      security:
+        - salesToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesQuoteRequest"
+      responses:
+        "200":
+          description: 报价
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesQuoteResult"
+        "400":
+          description: |
+            `VALIDATION_FAILED`：请求写得不对，原因同平台侧试算（`REQUIRED`、`NOT_APPLICABLE`、`OUT_OF_RANGE`、`INVALID_SERVICE_TIME`、`DUPLICATE`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_CITY`、`UNKNOWN_PLACE`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ChannelPaused"
+        "409":
+          description: "`MASTER_DATA_NOT_READY`：城市或机场 / 车站已被平台停用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`：城市或品类不在渠道的授权范围里"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /sales/v1/quotes/{id}:
+    get:
+      tags: [销售端]
+      operationId: getSalesQuote
+      summary: 查报价（下单前确认仍有效）
+      description: 只查得到本渠道的报价（别的渠道的和不存在一样 404）。过了有效期 410 `QUOTE_EXPIRED`（`details.expires_at`）。每个渠道每秒最多 10 次。
+      security:
+        - salesToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "`quote_id`，如 `QT20261006A8F3K2X9Q1`"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 报价
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [quote]
+                properties:
+                  quote:
+                    $ref: "#/components/schemas/SalesQuote"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ChannelPaused"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "410":
+          description: "`QUOTE_EXPIRED`：报价已过有效期，请重新询价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 components:
   securitySchemes:
     platformToken:
@@ -4501,7 +5253,20 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 租户用户登录后拿到的访问令牌；租户编号只从这里取
+    salesToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 渠道用 `POST /sales/v1/oauth/token`（client_id + client_secret）换来的访问令牌，2 小时有效；渠道编号只从这里取
   parameters:
+    ApiClientId:
+      name: clientId
+      in: path
+      required: true
+      description: API 客户端的内部编号（`id`，不是 `client_id`）
+      schema:
+        type: string
+        format: uuid
     FxBase:
       name: base
       in: query
@@ -4736,6 +5501,82 @@ components:
       schema:
         $ref: "#/components/schemas/VehicleGrade"
   responses:
+    ChannelInvalid:
+      description: |
+        `VALIDATION_FAILED`：`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
+        `BELOW_PLATFORM_FLOOR`（加价下限低于平台下限 10%）、`BELOW_FLOOR`（默认加价低于下限）、`OUT_OF_RANGE`、`UNSUPPORTED_CURRENCY`、`UNCHANGED`（和现在一样，不用发起）、
+        授权范围的 `REQUIRED`、`NOT_APPLICABLE`、`UNKNOWN_TENANT`、`UNKNOWN_CITY`（`detail.id`）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    MarkupRuleInvalid:
+      description: |
+        `VALIDATION_FAILED`：`details.issues[]` 的 `reason`（和 `@nozomi/domain` 的 `markupRuleIssues` 同一套）：`UNSUPPORTED_COMBINATION`（维度组合不是五级之一）、
+        `BELOW_FLOOR`（低于渠道下限，`detail.floor_bp`）、`OUT_OF_RANGE`、`INVALID_DATE`、`DATE_ORDER`、`DATES_REQUIRED`（全渠道的规则必须带日期）；
+        另有 `UNKNOWN_TENANT`、`UNKNOWN_CITY`、`UNKNOWN_VEHICLE_GROUP`、`UNCHANGED`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ApprovalRequested:
+      description: 已发起，等另一个人审核；改动还没有生效
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [approval]
+            properties:
+              approval:
+                $ref: "#/components/schemas/Approval"
+    ApprovalResult:
+      description: 复核记录
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [approval]
+            properties:
+              approval:
+                $ref: "#/components/schemas/Approval"
+    ApiClientSecret:
+      description: API 客户端和密钥原文（**只在这一次应答里出现**）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [api_client, client_secret]
+            properties:
+              api_client:
+                $ref: "#/components/schemas/ApiClient"
+              client_secret:
+                type: string
+    RateLimited:
+      description: "`RATE_LIMITED`：超过限流，`details.retry_after_seconds` 和响应头 `Retry-After` 是还要等的秒数"
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: 还要等多少秒
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    SalesUnauthenticated:
+      description: "`UNAUTHENTICATED`：没带令牌、令牌无效或过期、客户端已吊销、密钥轮换的宽限期已过"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ChannelPaused:
+      description: "`CHANNEL_PAUSED`：渠道已被平台暂停"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     InventoryInvalid:
       description: |
         `VALIDATION_FAILED`：`details.issues[]` 每条有 `path`、`message`、`reason`。库存的原因代码（和 `@nozomi/domain` 的 `inventoryBatchIssues` 是同一套）：
@@ -4854,6 +5695,793 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    ChannelType:
+      type: string
+      enum: [own, api, ota, offline]
+      description: 自营 / API 分销商 / OTA（连接器）/ 线下代理
+    ChannelStatus:
+      type: string
+      enum: [testing, active, paused]
+      description: 测试（可以调接口联调）/ 启用 / 暂停（`/sales/v1` 一律拒绝）
+    NamedRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: [string, "null"]
+    SellRounding:
+      type: object
+      description: "对外价取整：键是客人支付的币种，值是取整单位（最小货币单位），如 `{\"JPY\": 100}`；对外价向上取整到这个单位。没写的币种不取整"
+      additionalProperties:
+        type: integer
+        minimum: 1
+        maximum: 1000000
+    ChannelScopeRequest:
+      type: object
+      additionalProperties: false
+      description: 授权范围
+      properties:
+        tenant_scope:
+          type: string
+          enum: [all, allow, deny]
+          default: all
+          description: 可卖的租户：全部 / 只卖名单里的 / 名单里的不卖
+        tenant_ids:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+          default: []
+        city_ids:
+          type: [array, "null"]
+          maxItems: 500
+          description: 可卖的城市；null = 全部城市
+          items:
+            type: string
+            format: uuid
+        categories:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
+          description: 可卖的品类；不给 = 三个都卖
+    ChannelPricingFields:
+      type: object
+      additionalProperties: false
+      description: 定价参数（基点整数；金额是渠道结算币种的最小货币单位）
+      properties:
+        default_markup_bp:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 1000
+          description: 渠道默认加价比例（没有命中任何加价规则时用）；不能低于下限
+        markup_floor_bp:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 1000
+          description: 加价下限；不能低于平台下限 1000（10%）
+        band_bp:
+          type: integer
+          minimum: 0
+          maximum: 500
+          default: 300
+          description: 价格带 δ（0–5%）
+        min_margin:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 最低毛利金额（渠道结算币种的最小货币单位）；加价部分不足它时补到它。0 = 不设
+        sell_rounding:
+          $ref: "#/components/schemas/SellRounding"
+    ChannelCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [name, type, settle_currency]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          $ref: "#/components/schemas/ChannelType"
+        company:
+          type: [string, "null"]
+          maxLength: 200
+        contact_name:
+          type: [string, "null"]
+          maxLength: 100
+        contact_email:
+          type: [string, "null"]
+          maxLength: 254
+        contact_phone:
+          type: [string, "null"]
+          maxLength: 50
+        contract_ref:
+          type: [string, "null"]
+          maxLength: 100
+          description: 合同编号
+        notes:
+          type: [string, "null"]
+          maxLength: 1000
+        settle_currency:
+          $ref: "#/components/schemas/FxCurrency"
+        payment_mode:
+          type: string
+          enum: [prepaid, credit]
+          default: prepaid
+          description: 预付款 / 信用额度（本期只存配置，下单时才用）
+        credit_limit:
+          type: [integer, "null"]
+          minimum: 0
+          description: 额度（结算币种的最小货币单位；本期只存配置）
+        show_tenant_after_pay:
+          type: boolean
+          default: true
+          description: 付款后是否给渠道展示中标租户名
+        scope:
+          $ref: "#/components/schemas/ChannelScopeRequest"
+        pricing:
+          $ref: "#/components/schemas/ChannelPricingFields"
+    ChannelPatchRequest:
+      type: object
+      additionalProperties: false
+      description: 只改给了的字段；`scope` 给了就整体替换。定价参数和状态不在这里改
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          $ref: "#/components/schemas/ChannelType"
+        company:
+          type: [string, "null"]
+        contact_name:
+          type: [string, "null"]
+        contact_email:
+          type: [string, "null"]
+        contact_phone:
+          type: [string, "null"]
+        contract_ref:
+          type: [string, "null"]
+        notes:
+          type: [string, "null"]
+        settle_currency:
+          $ref: "#/components/schemas/FxCurrency"
+        payment_mode:
+          type: string
+          enum: [prepaid, credit]
+        credit_limit:
+          type: [integer, "null"]
+          minimum: 0
+        show_tenant_after_pay:
+          type: boolean
+        scope:
+          $ref: "#/components/schemas/ChannelScopeRequest"
+    ChannelPricingChangeRequest:
+      type: object
+      additionalProperties: false
+      description: 发起修改定价参数：几项一起提交（不给的按默认值）
+      properties:
+        default_markup_bp:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 1000
+          description: 渠道默认加价比例（没有命中任何加价规则时用）；不能低于下限
+        markup_floor_bp:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 1000
+          description: 加价下限；不能低于平台下限 1000（10%）
+        band_bp:
+          type: integer
+          minimum: 0
+          maximum: 500
+          default: 300
+          description: 价格带 δ（0–5%）
+        min_margin:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 最低毛利金额（渠道结算币种的最小货币单位）；加价部分不足它时补到它。0 = 不设
+        sell_rounding:
+          $ref: "#/components/schemas/SellRounding"
+        request_note:
+          type: [string, "null"]
+          maxLength: 500
+          description: 发起说明（给审核人看）
+    Channel:
+      type: object
+      additionalProperties: false
+      required: [id, name, type, status, company, contact_name, contact_email, contact_phone, contract_ref, notes, settle_currency, payment_mode, credit_limit, show_tenant_after_pay, scope, pricing, version, pricing_version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ChannelType"
+        status:
+          $ref: "#/components/schemas/ChannelStatus"
+        company:
+          type: [string, "null"]
+        contact_name:
+          type: [string, "null"]
+        contact_email:
+          type: [string, "null"]
+        contact_phone:
+          type: [string, "null"]
+        contract_ref:
+          type: [string, "null"]
+        notes:
+          type: [string, "null"]
+        settle_currency:
+          $ref: "#/components/schemas/FxCurrency"
+        payment_mode:
+          type: string
+          enum: [prepaid, credit]
+        credit_limit:
+          type: [integer, "null"]
+        show_tenant_after_pay:
+          type: boolean
+        scope:
+          type: object
+          additionalProperties: false
+          required: [tenant_scope, tenants, cities, categories]
+          properties:
+            tenant_scope:
+              type: string
+              enum: [all, allow, deny]
+            tenants:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamedRef"
+            cities:
+              type: [array, "null"]
+              description: null = 全部城市
+              items:
+                $ref: "#/components/schemas/NamedRef"
+            categories:
+              type: array
+              items:
+                $ref: "#/components/schemas/ServiceCategory"
+        pricing:
+          type: object
+          additionalProperties: false
+          required: [default_markup_bp, markup_floor_bp, band_bp, min_margin, sell_rounding]
+          properties:
+            default_markup_bp:
+              type: integer
+            markup_floor_bp:
+              type: integer
+            band_bp:
+              type: integer
+            min_margin:
+              type: integer
+            sell_rounding:
+              $ref: "#/components/schemas/SellRounding"
+        version:
+          type: integer
+          description: 任何改动都加一（`If-Match` 用）
+        pricing_version:
+          type: integer
+          description: 定价参数、加价规则、状态改了才加一
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ChannelList:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+        next_cursor:
+          type: [string, "null"]
+        total:
+          type: integer
+    MarkupRule:
+      type: object
+      additionalProperties: false
+      required: [id, level, tenant, city, category, vehicle_group, markup_bp, valid_from, valid_to, note, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        level:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: 1 租户 × 城市 × 品类 × 车型组；2 租户；3 城市 × 品类 × 车型组；4 城市 × 品类；5 全渠道（带日期）
+        tenant:
+          oneOf:
+            - $ref: "#/components/schemas/NamedRef"
+            - type: "null"
+        city:
+          oneOf:
+            - $ref: "#/components/schemas/NamedRef"
+            - type: "null"
+        category:
+          oneOf:
+            - $ref: "#/components/schemas/ServiceCategory"
+            - type: "null"
+        vehicle_group:
+          oneOf:
+            - $ref: "#/components/schemas/NamedRef"
+            - type: "null"
+        markup_bp:
+          type: integer
+        valid_from:
+          type: [string, "null"]
+          format: date
+        valid_to:
+          type: [string, "null"]
+          format: date
+        note:
+          type: [string, "null"]
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MarkupRuleList:
+      type: object
+      additionalProperties: false
+      required: [channel_id, default_markup_bp, markup_floor_bp, items]
+      properties:
+        channel_id:
+          type: string
+          format: uuid
+        default_markup_bp:
+          type: integer
+        markup_floor_bp:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarkupRule"
+    MarkupRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [markup_bp]
+      description: 维度组合只能是五级之一（见 `MarkupRule.level`）；不填的维度写 null
+      properties:
+        tenant_id:
+          type: [string, "null"]
+          format: uuid
+        city_id:
+          type: [string, "null"]
+          format: uuid
+        category:
+          oneOf:
+            - $ref: "#/components/schemas/ServiceCategory"
+            - type: "null"
+        vehicle_group_id:
+          type: [string, "null"]
+          format: uuid
+        markup_bp:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: 加价比例（基点）；不能低于渠道下限
+        valid_from:
+          type: [string, "null"]
+          format: date
+          description: 用车日期（城市当地）的开始，含
+        valid_to:
+          type: [string, "null"]
+          format: date
+          description: 用车日期的结束，含
+        note:
+          type: [string, "null"]
+          maxLength: 200
+        request_note:
+          type: [string, "null"]
+          maxLength: 500
+          description: 发起说明（给审核人看）
+    ChannelDetail:
+      type: object
+      additionalProperties: false
+      required: [channel, markup_rules]
+      properties:
+        channel:
+          $ref: "#/components/schemas/Channel"
+        markup_rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarkupRule"
+    ApiClient:
+      type: object
+      additionalProperties: false
+      required: [id, client_id, name, secret_last4, secret_generation, previous_valid_until, status, created_at, rotated_at, revoked_at, last_used_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        client_id:
+          type: string
+          description: 公开的客户端编号
+        name:
+          type: string
+        secret_last4:
+          type: string
+          description: 当前密钥的后 4 位
+        secret_generation:
+          type: integer
+          description: 第几代密钥（每轮换一次加一）
+        previous_valid_until:
+          type: [string, "null"]
+          format: date-time
+          description: 轮换后旧密钥还能用到什么时候；没有为 null
+        status:
+          type: string
+          enum: [active, revoked]
+        created_at:
+          type: string
+          format: date-time
+        rotated_at:
+          type: [string, "null"]
+          format: date-time
+        revoked_at:
+          type: [string, "null"]
+          format: date-time
+        last_used_at:
+          type: [string, "null"]
+          format: date-time
+          description: 最近一次换令牌的时间
+    Person:
+      type: object
+      additionalProperties: false
+      required: [id, name, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+    Approval:
+      type: object
+      additionalProperties: false
+      required: [id, kind, resource, resource_id, summary, payload, before, base_version, status, requested_by, requested_at, request_note, decided_by, decided_at, decision_note, can]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete]
+          description: 哪一类操作（以后会加：汇率人工锁定、结算条款、退款……）
+        resource:
+          type: string
+          description: 改的是什么（如 `channel`）
+        resource_id:
+          type: string
+        summary:
+          type: string
+          description: 一句话说明
+        payload:
+          type: object
+          additionalProperties: true
+          description: 要改成什么
+        before:
+          type: [object, "null"]
+          additionalProperties: true
+          description: 发起时是什么
+        base_version:
+          type: [integer, "null"]
+        status:
+          type: string
+          enum: [pending, approved, rejected, withdrawn]
+        requested_by:
+          $ref: "#/components/schemas/Person"
+        requested_at:
+          type: string
+          format: date-time
+        request_note:
+          type: [string, "null"]
+        decided_by:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decision_note:
+          type: [string, "null"]
+        can:
+          type: object
+          additionalProperties: false
+          required: [approve, reject, withdraw]
+          description: 当前账号能做什么
+          properties:
+            approve:
+              type: boolean
+            reject:
+              type: boolean
+            withdraw:
+              type: boolean
+    ApprovalList:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+        next_cursor:
+          type: [string, "null"]
+        total:
+          type: integer
+    ApprovalNoteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        request_note:
+          type: [string, "null"]
+          maxLength: 500
+    ApprovalDecisionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        note:
+          type: [string, "null"]
+          maxLength: 500
+    QuoteLogList:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, created_at, client_id, currency, city_id, category, candidate_count, quote_count, reject_count, duration_ms, request, quotes]
+            properties:
+              id:
+                type: string
+                format: uuid
+              created_at:
+                type: string
+                format: date-time
+              client_id:
+                type: string
+              currency:
+                type: string
+              city_id:
+                type: string
+                format: uuid
+              category:
+                $ref: "#/components/schemas/ServiceCategory"
+              candidate_count:
+                type: integer
+              quote_count:
+                type: integer
+              reject_count:
+                type: integer
+              duration_ms:
+                type: integer
+              request:
+                type: object
+                additionalProperties: true
+              quotes:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [quote_id, vehicle_group_id, winner_tenant_id]
+                  properties:
+                    quote_id:
+                      type: string
+                    vehicle_group_id:
+                      type: string
+                      format: uuid
+                    winner_tenant_id:
+                      type: string
+                      format: uuid
+        next_cursor:
+          type: [string, "null"]
+    SalesTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type, client_id, client_secret]
+      properties:
+        grant_type:
+          type: string
+          enum: [client_credentials]
+        client_id:
+          type: string
+        client_secret:
+          type: string
+    SalesPoint:
+      description: 坐标，或主数据里的地点编号（用地点的坐标）
+      oneOf:
+        - $ref: "#/components/schemas/Point"
+        - type: object
+          additionalProperties: false
+          required: [place_id]
+          properties:
+            place_id:
+              type: string
+              format: uuid
+    SalesQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [city_id, category, service_time, passengers, currency]
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机必填：机场或车站
+        direction:
+          type: [string, "null"]
+          enum: [pickup, dropoff, null]
+          description: 接送机必填：pickup = 接机，dropoff = 送机
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/SalesPoint"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/SalesPoint"
+            - type: "null"
+        service_time:
+          type: string
+          format: date-time
+          description: 用车时间，带时区偏移的 ISO 8601（如 `2026-10-20T08:00:00+09:00`）；按城市的时区换成当地时间
+        package_hours:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 72
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+        addons:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+                minimum: 1
+                maximum: 20
+                default: 1
+        driver_language:
+          type: [string, "null"]
+        vehicle_group_ids:
+          type: array
+          maxItems: 30
+          items:
+            type: string
+            format: uuid
+        currency:
+          type: string
+          description: 客人支付的币种
+    SalesMoney:
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          pattern: "^\\d+(\\.\\d+)?$"
+          description: 主单位的十进制字符串
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+    SalesQuote:
+      type: object
+      additionalProperties: false
+      required: [quote_id, created_at, expires_at, vehicle_group_id, package_hours, service_date, urgent, price, free_wait_minutes]
+      description: 一个车型组的报价。没有中标租户、结算价、加价比例
+      properties:
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: 有效期（30 分钟），到点的那一刻失效
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        service_date:
+          type: string
+          format: date
+          description: 用车日期（城市当地）
+        urgent:
+          type: boolean
+          description: 是否走了加急（离用车不够提前预订时长、按加急报的价）
+        price:
+          type: object
+          additionalProperties: false
+          required: [total, fx]
+          properties:
+            total:
+              $ref: "#/components/schemas/SalesMoney"
+            fx:
+              type: [object, "null"]
+              additionalProperties: false
+              required: [rate, as_of]
+              description: 跨币种时换算用的中央汇率和取数时间；同币种为 null
+              properties:
+                rate:
+                  type: string
+                as_of:
+                  type: string
+        free_wait_minutes:
+          type: [integer, "null"]
+          description: 免费等待分钟数；不限时或没有为 null
+    SalesQuoteResult:
+      type: object
+      additionalProperties: false
+      required: [quotes, unavailable]
+      properties:
+        quotes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesQuote"
+        unavailable:
+          type: array
+          description: |
+            没报出价的车型组（请求里指定了车型组时逐个列；没指定、又一个都没报出时一条 `vehicle_group_id` 为 null 的）。原因只有面向客人的几种：
+            `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
+            `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`NOT_AVAILABLE`（其他）
+          items:
+            type: object
+            additionalProperties: false
+            required: [vehicle_group_id, reasons]
+            properties:
+              vehicle_group_id:
+                type: [string, "null"]
+                format: uuid
+              reasons:
+                type: array
+                items:
+                  type: string
+                  enum: [NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NOT_AVAILABLE]
     FxCurrency:
       type: string
       enum: [JPY, KRW, CNY, USD, HKD, TWD, THB]
@@ -5363,6 +6991,10 @@ components:
           type: string
           description: 客人支付的币种（对外价和比价都换算到这个币种）
           examples: [JPY]
+        channel_id:
+          type: [string, "null"]
+          format: uuid
+          description: 按哪个渠道的规则试算（授权范围、五级加价规则、下限、价格带、最低毛利、对外价取整）；不给 = 平台默认参数（默认加价、10% 下限、3% 价格带）
         pickup:
           oneOf:
             - $ref: "#/components/schemas/Point"
@@ -5644,10 +7276,48 @@ components:
     PlatformQuotePreview:
       type: object
       additionalProperties: false
-      required: [currency, band_bp, markup_floor_bp, route, candidate_count, groups, refused]
+      required: [currency, band_bp, markup_floor_bp, channel, route, candidate_count, groups, refused, excluded]
       properties:
         currency:
           type: string
+        channel:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [id, name, status, min_margin, settle_currency, rounding_unit]
+          description: 按哪个渠道试算的；平台默认参数时为 null
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            status:
+              $ref: "#/components/schemas/ChannelStatus"
+            min_margin:
+              type: integer
+              description: 最低毛利金额（`settle_currency` 的最小货币单位）
+            settle_currency:
+              type: string
+            rounding_unit:
+              type: integer
+              description: 这次的客人支付币种的对外价取整单位（1 = 不取整）
+        excluded:
+          type: array
+          description: 渠道不卖的租户的商品（没参加比价）
+          items:
+            type: object
+            additionalProperties: false
+            required: [tenant_id, tenant_name, product_id, product_code]
+            properties:
+              tenant_id:
+                type: [string, "null"]
+              tenant_name:
+                type: [string, "null"]
+              product_id:
+                type: string
+                format: uuid
+              product_code:
+                type: [string, "null"]
         band_bp:
           type: integer
           description: 价格带 δ（基点，300 = 3%）
@@ -5708,7 +7378,7 @@ components:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, fx_buffer_bp, fx, offer]
+                  required: [position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, markup_level, markup_rule_id, min_margin_applied, fx_buffer_bp, fx, offer]
                   properties:
                     position:
                       type: integer
@@ -5741,6 +7411,19 @@ components:
                       type: string
                     markup_bp:
                       type: integer
+                      description: 实际用的加价比例（不低于下限）
+                    markup_level:
+                      type: [integer, "null"]
+                      minimum: 1
+                      maximum: 5
+                      description: 按渠道试算时命中的是第几级（5 = 渠道默认或全渠道促销）；平台默认参数时为 null
+                    markup_rule_id:
+                      type: [string, "null"]
+                      format: uuid
+                      description: 命中的加价规则；用的是渠道默认加价比例时为 null
+                    min_margin_applied:
+                      type: boolean
+                      description: 加价部分不足渠道的最低毛利、被补到了最低毛利
                     fx_buffer_bp:
                       type: integer
                     fx:
@@ -5783,7 +7466,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, channel.read, channel.manage, channel.review, approval.read]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
