@@ -3,7 +3,7 @@
  * 审计日志只能看；筛选以接口实际支持的为准（操作人、某一个对象只能从别的页面带进来）。
  * 系统状态不自动刷新：每次请求都会写一条审计日志。
  */
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type AuditLog, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
@@ -196,9 +196,12 @@ export function AuditLogPage() {
   const [paging, setPaging] = useState<{ key: string; stack: (string | null)[] }>({ key: filterKey, stack: [null] });
   const stack = paging.key === filterKey ? paging.stack : [null];
   const cursor = stack[stack.length - 1] ?? null;
+  // 网址里的日期变了就把两格换成网址里的值；但正挂着「不是日期」提示的那一格保留用户填的原文，提示和框里的字才对得上
+  const dateProblem = useRef(inlineDateProblem);
+  dateProblem.current = inlineDateProblem;
   useEffect(() => {
-    setFromText(from ?? "");
-    setToText(to ?? "");
+    if (dateProblem.current !== "from") setFromText(from ?? "");
+    if (dateProblem.current !== "to") setToText(to ?? "");
   }, [from, to]);
 
   const loaded = useLoad<ApiPage<AuditLog>>(
@@ -408,7 +411,12 @@ export function AuditLogPage() {
     const size = draft === null ? " input--sm" : "";
     const change = (changes: Partial<PanelDraft>): void => {
       if (draft !== null) return setPanel({ ...draft, ...changes });
-      if ("from" in changes || "to" in changes) setInlineDateProblem(null);
+      if ("from" in changes || "to" in changes) {
+        // 网址可能没变（比如点了和当前范围相同的快捷范围），上面的同步不会触发：这里直接把框里的字换成新值
+        setInlineDateProblem(null);
+        if ("from" in changes) setFromText(changes.from ?? "");
+        if ("to" in changes) setToText(changes.to ?? "");
+      }
       setParam({ ...changes, ...("resource" in changes ? { rid: null } : {}) });
     };
     const dateInput = (name: "from" | "to", label: string, value: string, set: (value: string) => void): ReactNode => {

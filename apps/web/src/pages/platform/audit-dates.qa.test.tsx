@@ -96,7 +96,7 @@ test("2 月 29 日：闰年的认、平年的说「不是日期」", async () =>
   assert.equal(errorOf(from), null);
 });
 
-test("【缺陷】「从」填错（提示还在）以后去改「到」：「从」不会变回旧值却还挂着「不是日期」的提示，显示、提示和实际查询保持一致", async () => {
+test("「从」填错（提示还在）以后去改「到」：「从」不会变回旧值却还挂着「不是日期」的提示，显示、提示和实际查询保持一致", async () => {
   const actor = userEvent.setup();
   const requests = open("/platform/settings/audit-logs?from=2026-10-01");
   await screen.findByText("本页 1 条");
@@ -112,7 +112,7 @@ test("【缺陷】「从」填错（提示还在）以后去改「到」：「�
   assertFromConsistent(requests().at(-1));
 });
 
-test("【缺陷】「从」填错（提示还在）以后点和当前范围相同的快捷范围：不会留下一个没生效、也没提示的日期", async () => {
+test("「从」填错（提示还在）以后点和当前范围相同的快捷范围：不会留下一个没生效、也没提示的日期", async () => {
   const actor = userEvent.setup();
   const today = new Date();
   const weekAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
