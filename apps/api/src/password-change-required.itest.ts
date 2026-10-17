@@ -96,16 +96,22 @@ function isPublic(method: string, fastifyPath: string): boolean {
  * 用给定的令牌把全部已注册的路由各调一遍（路径参数填一个随机编号，不带请求体），
  * 返回每个接口有没有被 `PASSWORD_CHANGE_REQUIRED` 拦下。退出登录放在最后调。
  */
-async function walkRoutes(tokens: Record<Entry, string>): Promise<{ blocked: string[]; passed: string[]; responses: Map<string, ApiResponse> }> {
+async function walkRoutes(tokens: Record<Entry, string>): Promise<{ blocked: string[]; passed: string[]; responses: Map<string, ApiResponse>; salesRoutes: string[] }> {
   const routes = api.app.registeredRoutes
     .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS")
     .sort((a, b) => Number(a.path.endsWith("/auth/logout")) - Number(b.path.endsWith("/auth/logout")));
   const blocked: string[] = [];
   const passed: string[] = [];
   const responses = new Map<string, ApiResponse>();
+  const salesRoutes: string[] = [];
   for (const route of routes) {
     const key = `${route.method} ${route.path}`;
     if (isPublic(route.method, route.path)) continue;
+    // 销售端（/sales/v1）用的是渠道的 API 客户端换来的令牌，没有「临时密码」这回事；平台、租户的令牌在那里一律 401（sales.itest.ts）
+    if (route.path.startsWith("/sales/v1/")) {
+      salesRoutes.push(key);
+      continue;
+    }
     const entry: Entry | null = route.path.startsWith("/platform/v1/")
       ? "platform"
       : route.path.startsWith("/tenant/v1/")
@@ -123,7 +129,7 @@ async function walkRoutes(tokens: Record<Entry, string>): Promise<{ blocked: str
       passed.push(key);
     }
   }
-  return { blocked, passed, responses };
+  return { blocked, passed, responses, salesRoutes };
 }
 
 test("遍历全部已注册的路由：必须先改密码的账号，除查看自己、改密码、退出外，每个需要登录的接口都是 403 PASSWORD_CHANGE_REQUIRED（平台和租户两侧；新增接口默认被拦）", async () => {
@@ -136,7 +142,7 @@ test("遍历全部已注册的路由：必须先改密码的账号，除查看�
   };
 
   const tenantsBefore = (await api.db.owner.query("select count(*)::int as n from tenants")).rows[0].n;
-  const { blocked, passed, responses } = await walkRoutes(tokens);
+  const { blocked, passed, responses, salesRoutes } = await walkRoutes(tokens);
 
   const expectedPassed = (["platform", "tenant"] as const)
     .flatMap((entry) => SELF_SERVICE.map((item) => item.replace(" ", ` /${entry}/v1/`)))
@@ -155,7 +161,7 @@ test("遍历全部已注册的路由：必须先改密码的账号，除查看�
   // 每一个已注册的路由要么不需要登录、要么放行、要么被拦，没有漏网的
   const all = api.app.registeredRoutes.filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS");
   const publicRoutes = all.filter((route) => isPublic(route.method, route.path));
-  assert.equal(blocked.length + passed.length + publicRoutes.length, all.length);
+  assert.equal(blocked.length + passed.length + publicRoutes.length + salesRoutes.length, all.length);
   assert.equal((await api.db.owner.query("select count(*)::int as n from tenants")).rows[0].n, tenantsBefore);
 });
 

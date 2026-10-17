@@ -140,6 +140,27 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", "/platform/v1/fx-rates/fetch"],
       ["POST", `/platform/v1/fx-rates/fetches/${ids.userId}/confirm`],
       ["POST", `/platform/v1/fx-rates/fetches/${ids.userId}/dismiss`],
+      ["GET", "/platform/v1/channels"],
+      ["POST", "/platform/v1/channels", { name: "不该出现的渠道", type: "own", settle_currency: "JPY" }],
+      ["GET", `/platform/v1/channels/${ids.userId}`],
+      ["PATCH", `/platform/v1/channels/${ids.userId}`, { notes: "不该生效" }],
+      ["POST", `/platform/v1/channels/${ids.userId}/activate`],
+      ["POST", `/platform/v1/channels/${ids.userId}/pause`, {}],
+      ["POST", `/platform/v1/channels/${ids.userId}/pricing-changes`, { default_markup_bp: 1_200 }],
+      ["GET", `/platform/v1/channels/${ids.userId}/markup-rules`],
+      ["POST", `/platform/v1/channels/${ids.userId}/markup-rules`, { tenant_id: ids.tenantId, markup_bp: 1_500 }],
+      ["PUT", `/platform/v1/channels/${ids.userId}/markup-rules/${ids.userId}`, { tenant_id: ids.tenantId, markup_bp: 1_500 }],
+      ["DELETE", `/platform/v1/channels/${ids.userId}/markup-rules/${ids.userId}`],
+      ["GET", `/platform/v1/channels/${ids.userId}/api-clients`],
+      ["POST", `/platform/v1/channels/${ids.userId}/api-clients`, { name: "不该出现" }],
+      ["POST", `/platform/v1/channels/${ids.userId}/api-clients/${ids.userId}/rotate`, {}],
+      ["POST", `/platform/v1/channels/${ids.userId}/api-clients/${ids.userId}/revoke`],
+      ["GET", `/platform/v1/channels/${ids.userId}/quote-logs`],
+      ["GET", "/platform/v1/approvals"],
+      ["GET", `/platform/v1/approvals/${ids.userId}`],
+      ["POST", `/platform/v1/approvals/${ids.userId}/approve`, {}],
+      ["POST", `/platform/v1/approvals/${ids.userId}/reject`, {}],
+      ["POST", `/platform/v1/approvals/${ids.userId}/withdraw`, {}],
       ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
         ["GET", `/platform/v1/master/${resource}`],
         ["POST", `/platform/v1/master/${resource}`, {}],
@@ -224,7 +245,8 @@ function assertBlocked(res: ApiResponse, label: string): void {
 
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health")
+    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），不在这份清单里
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();
