@@ -209,7 +209,7 @@
       "tasks": [
         { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "done", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/20 ；单元 981、前端组件 241、集成 764 个通过；packages/domain/src/quote.test.ts 文件头有需求公式与测试的逐项对照表；测试角色发现的缺陷已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-15" },
         { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "todo", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "review", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "PR_LINK ；单元 1059、前端组件 356、集成 808、相关端到端 97 个通过；测试角色发现的 2 个缺陷和汇率缓冲用浮点数换算的问题已修复", "updated": "2026-10-17" },
+        { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "review", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/25 ；单元 1059、前端组件 356、集成 808、相关端到端 97 个通过；测试角色发现的 2 个缺陷和汇率缓冲用浮点数换算的问题已修复", "updated": "2026-10-17" },
         { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "todo", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "", "updated": "2026-10-07" },
         {
           "id": "M2-06",
