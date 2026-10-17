@@ -7683,7 +7683,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, channel, markup_rule, api_client, approval]
         resource_id:
           type: [string, "null"]
         action:
@@ -7713,6 +7713,14 @@ components:
             - confirm
             - dismiss
             - stale
+            - request
+            - approve
+            - reject
+            - withdraw
+            - rotate
+            - revoke
+            - activate
+            - pause
         before:
           type: [object, "null"]
           additionalProperties: true
