@@ -36,13 +36,14 @@ export function lastSettableDate(today: string): string {
 }
 
 /** 月历的一格。`day` 为 null 表示接口没有给这一天（超出可设范围）。 */
-export function inventoryCellView(day: InventoryDayBody | null): InventoryCellView {
+/** `past`：已经过去的日子。过去的「没设」只写「没设」，不写「卖不出去」、不用警告（不可能再卖了，提醒只是干扰；M1-14）。 */
+export function inventoryCellView(day: InventoryDayBody | null, past = false): InventoryCellView {
   if (day === null) return { kind: "beyond", main: "—", sub: "", spoken: "超出可以设库存的范围" };
   if (day.status === "unlimited") {
     const preset = day.total === null ? "" : day.total === 0 ? "已设停售，限量时生效" : `已设 ${count(day.total)}，限量时生效`;
     return { kind: "unlimited", main: "不限量", sub: preset, spoken: preset === "" ? "不限量" : `不限量，${preset}` };
   }
-  if (day.status === "unset") return { kind: "unset", main: "没设", sub: "卖不出去", spoken: "没设，卖不出去" };
+  if (day.status === "unset") return past ? { kind: "unset", main: "没设", sub: "", spoken: "没设" } : { kind: "unset", main: "没设", sub: "卖不出去", spoken: "没设，卖不出去" };
   if (day.status === "closed") return { kind: "closed", main: "停售", sub: "", spoken: "停售" };
   const detail = [`共 ${count(day.total ?? 0)} 单`, day.sold > 0 ? `已售 ${count(day.sold)} 单` : "", day.held > 0 ? `待付款 ${count(day.held)} 单` : ""].filter((part) => part !== "").join("，");
   if (day.status === "sold_out") return { kind: "sold_out", main: "已订满", sub: occupancyText(day), spoken: `已订满，${detail}` };

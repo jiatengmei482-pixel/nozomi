@@ -2033,6 +2033,10 @@
   color: var(--color-danger-text);
 }
 
+.calendar__flag--past {
+  color: var(--color-text-secondary);
+}
+
 .calendar__skeleton {
   display: inline-block;
   width: var(--space-16);
@@ -2101,8 +2105,13 @@
   font-weight: var(--font-weight-bold);
 }
 
-.calendar-detail__final--none {
+.calendar-detail__final--none,
+.calendar-detail__final--past {
   font-size: var(--font-size-lg);
+}
+
+.calendar-detail__final--past {
+  color: var(--color-text-secondary);
 }
 
 .calendar-detail__final-label {
@@ -2552,6 +2561,7 @@ p.stock-day__status.stock-cell--unset {
   color: var(--color-warning-text);
 }
 
+p.stock-day__status.stock-cell--unset.stock-cell--past,
 p.stock-day__status.stock-cell--closed {
   background: transparent;
   color: var(--color-text-secondary);

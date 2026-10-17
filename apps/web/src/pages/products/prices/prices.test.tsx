@@ -11,7 +11,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
 import type { AdjustRuleBody, AdjustRules, CalendarDay, CalendarSegment, PriceCalendar, PriceOverviewItem, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, narrowScreen, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -548,13 +548,13 @@ const boosted = segmentOf({ final: 24000, unrounded: "24000", adjusts: [{ rule_i
 test("价格日历：每一格读得出日期、结算价、被哪条规则调过；没有价格、分时段有文字；明细逐步列出接口给的数；换方向重新取", async () => {
   const actor = user();
   const night = segmentOf({ from: "22:00", final: 26400, unrounded: "26400", adjusts: [...boosted.adjusts, { rule_id: RULE2_ID, name: "周末夜间", steps: [{ type: "percent", value: 1000, delta: "2400", after: "26400" }] }] });
-  const special = { "2026-10-01": [boosted], "2026-10-03": [{ ...boosted, to: "22:00" }, night], "2026-10-05": [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })], "2026-10-06": [segmentOf({ final: null, no_price_reason: "RULE_DISABLED" })] };
+  const special = { "2026-10-01": [boosted], "2026-10-03": [{ ...boosted, to: "22:00" }, night], "2026-10-12": [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })], "2026-10-13": [segmentOf({ final: null, no_price_reason: "RULE_DISABLED" })] };
   const calls = open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", { adjusts: adjustsOf([adjustOf(), weekend]), calendar: (query) => calendarOf(query, query.get("direction") === "pickup" ? special : {}, { "2026-10-01": "国庆节" }) });
   await waitFor(() => assert.match(dayLabel("2026-10-01"), /^10 月 1 日周四，国庆节，结算价 JPY 24,000，上调，命中国庆旺季$/));
   assert.equal(screen.getByRole("heading", { level: 3, name: "2026 年 10 月" }).getAttribute("aria-live"), "polite");
   assert.match(dayLabel("2026-10-03"), /结算价 JPY 24,000，上调，命中国庆旺季，分时段$/);
-  assert.match(dayLabel("2026-10-05"), /^10 月 5 日周一，没有价格$/);
-  assert.match(dayLabel("2026-10-06"), /没有价格，已停用$/);
+  assert.match(dayLabel("2026-10-12"), /^10 月 12 日周一，没有价格$/);
+  assert.match(dayLabel("2026-10-13"), /没有价格，已停用$/);
   assert.match(dayLabel("2026-10-08"), /今天，结算价 JPY 20,000$/);
   assert.equal(dayCell("2026-10-08").getAttribute("aria-current"), "date");
   assert.equal(document.querySelectorAll('.calendar [role="gridcell"][data-date]').length, 31);
@@ -581,7 +581,7 @@ test("价格日历：每一格读得出日期、结算价、被哪条规则调�
   assert.equal(calls.filter((call) => call.path.includes("/price-calendar")).length, before);
 
   // 没有价格的那一天：说明原因和去处
-  await actor.click(dayCell("2026-10-05"));
+  await actor.click(dayCell("2026-10-12"));
   await waitFor(() => assert.match(panel.textContent ?? "", /这一天没有价格.*这个组合还没有价格，客人询价时报不出价。去填价格/));
 
   await actor.selectOptions(screen.getByLabelText("方向"), "dropoff");
@@ -887,4 +887,84 @@ test("这一轮补上的：价格表里已经不在商品里的区域的价格�
   open("/", "admin", { overview: [lost, overviewOf({ product_id: "p3", has_active_price: false })], summary: { products: { draft: 1, published: 1, unpublished: 0 } } });
   await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" });
   assertAbsent(screen.queryByRole("link", { name: /个商品还没有设价格/ }));
+});
+
+// ───────────── M1-14：价格日历里过去的日子、选中一天、手机上直接看到今天 ─────────────
+
+test("M1-14 价格日历：过去没有价格的日子只写文字，不用警告色和图标；明细说已经过去、不用补；今天以后的照常警告", async () => {
+  const actor = user();
+  const none = [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NOT_IN_EFFECT" })];
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", { calendar: (query) => calendarOf(query, { "2026-10-02": none, "2026-10-03": none, "2026-10-12": none }) });
+  await waitFor(() => assert.match(dayLabel("2026-10-02"), /没有价格$/));
+  const past = dayCell("2026-10-02");
+  assert.ok(!past.className.includes("calendar__cell--none"), "过去的不用 bg-subtle 底");
+  assert.ok(past.className.includes("calendar__cell--past"));
+  assert.equal(past.querySelector("svg"), null, "过去的没有三角图标");
+  assert.ok(past.querySelector(".calendar__flag--past"));
+  assert.match(past.textContent ?? "", /没有价格/);
+  const ahead = dayCell("2026-10-12");
+  assert.ok(ahead.className.includes("calendar__cell--none"));
+  assert.ok(ahead.querySelector(".calendar__flag svg"), "今天以后的照常带三角");
+
+  const panel = document.querySelector(".calendar-layout > .calendar-detail") as HTMLElement;
+  await actor.click(past);
+  await waitFor(() => assert.match(panel.textContent ?? "", /2026-10-02 周五这一天没有价格.*这一天已经过去了，不会再有客人订这一天，不用补价格。/));
+  assertAbsent(within(panel).queryByRole("link", { name: "去改生效日期" }));
+  await actor.click(ahead);
+  await waitFor(() => assert.match(panel.textContent ?? "", /这个组合的价格在这一天不生效/));
+  assert.ok(within(panel).getByRole("link", { name: "去改生效日期" }));
+});
+
+test("M1-14 价格日历：整个月都已经过去时不提示「这个月没有价格」；本月只看今天以后的", async () => {
+  const none = [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })];
+  const allNone = (query: URLSearchParams): PriceCalendar => {
+    const special: Record<string, CalendarSegment[]> = {};
+    for (let date = query.get("from") ?? ""; date <= (query.get("to") ?? ""); date = addDays(date, 1)) special[date] = none;
+    return calendarOf(query, special);
+  };
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-09`, "admin", { calendar: allNone });
+  await waitFor(() => assert.match(dayLabel("2026-09-15"), /没有价格$/));
+  assert.doesNotMatch(pageText(), /这个月没有价格/);
+
+  resetBrowser();
+  // 本月：今天以前有价、今天起都没有 → 提示
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", {
+    calendar: (query) => {
+      const special: Record<string, CalendarSegment[]> = {};
+      for (let date = TODAY; date <= (query.get("to") ?? ""); date = addDays(date, 1)) special[date] = none;
+      return calendarOf(query, special);
+    },
+  });
+  await waitFor(() => assert.match(dayLabel(TODAY), /没有价格$/));
+  await screen.findByText(/这个月没有价格。/);
+});
+
+test("M1-14 价格日历：选中一天不写「起止」；选一段时两头写「起」「止」", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin");
+  await waitFor(() => assert.match(dayLabel("2026-10-10"), /结算价/));
+  await actor.click(dayCell("2026-10-10"));
+  await waitFor(() => assert.match(document.querySelector(".calendar-bar")?.textContent ?? "", /已选 2026-10-10，共 1 天/));
+  assert.equal(dayCell("2026-10-10").querySelector(".calendar__mark"), null);
+  assert.match(dayLabel("2026-10-10"), /，已选$/);
+  assert.doesNotMatch(pageText(), /起止/);
+  await actor.keyboard("{Shift>}");
+  await actor.click(dayCell("2026-10-12"));
+  await actor.keyboard("{/Shift}");
+  await waitFor(() => assert.equal(dayCell("2026-10-12").querySelector(".calendar__mark")?.textContent, "止"));
+  assert.equal(dayCell("2026-10-10").querySelector(".calendar__mark")?.textContent, "起");
+});
+
+test("M1-14 价格日历：手机上打开本月时今天那一行滚到屏幕中间；别的月份不滚", async () => {
+  const scrolled = narrowScreen();
+  open(`/products/${PRODUCT_ID}/prices/calendar`, "admin");
+  await waitFor(() => assert.ok(dayCell(TODAY)));
+  await waitFor(() => assert.deepEqual(scrolled, [`calendar-day-${TODAY}`]));
+  assert.ok(dayCell("2026-10-01"), "过去的日子照常列着");
+
+  resetBrowser();
+  const other = narrowScreen();
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-12`, "admin");
+  await waitFor(() => assert.ok(dayCell("2026-12-01")));
+  assert.deepEqual(other, []);
 });

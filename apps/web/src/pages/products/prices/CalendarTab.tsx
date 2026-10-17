@@ -14,10 +14,11 @@ import { Icon } from "../../../components/Icon.tsx";
 import { StateBlock } from "../../../components/States.tsx";
 import { stepText } from "../../../lib/adjust-form.ts";
 import { displayName, shortName } from "../../../lib/master-display.ts";
-import { TREND_NAMES, addMonths, cellView, clampMonth, daysInRange, exactTextMoney, isWholeText, monthDates, monthOf, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, sameDayIn, segmentAt, spokenDate, weekdayName } from "../../../lib/price-calendar.ts";
+import { TREND_NAMES, addMonths, cellView, clampMonth, daysInRange, exactTextMoney, isWholeText, monthDates, monthOf, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, rangeMark, sameDayIn, segmentAt, spokenDate, weekdayName } from "../../../lib/price-calendar.ts";
 import { moneyText } from "../../../lib/product-display.ts";
 import { tidyTime } from "../../../lib/time-input.ts";
 import { useLoad } from "../../../lib/use-load.ts";
+import { isNarrowScreen as isNarrow, useScrollToToday } from "../../../lib/use-scroll-to-today.ts";
 import type { PricesShared } from "./PricesStep.tsx";
 
 /** 从日历去新建调价规则时带过去的内容（表单预先填好；保存或取消后回到日历）。 */
@@ -31,8 +32,6 @@ export interface CalendarHandoff {
   /** 回日历的地址（原来的组合和月份） */
   back: string;
 }
-
-const isNarrow = (): boolean => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
 
 export function CalendarTab({ shared }: { shared: PricesShared }) {
   const { frame, product, prices, adjusts } = shared;
@@ -117,6 +116,7 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
   const shownDate = picked !== null && monthOf(picked) === month ? picked : monthOf(today) === month ? today : (dates[0] as string);
   const shownDay = byDate.get(shownDate) ?? null;
   const slotted = (adjusts?.items ?? []).some((rule) => rule.time_slot !== null);
+  useScrollToToday(monthOf(today) === month ? `calendar-day-${today}` : null);
 
   useEffect(() => {
     const stop = (): void => {
@@ -233,7 +233,9 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
 
   const priceRuleOf = (day: CalendarDay) => prices.items.find((item) => item.id === day.price_rule?.id) ?? null;
   const mileage = (data?.days ?? []).some((day) => day.price_rule?.pricing_model === "mileage_time");
-  const allEmpty = data !== null && !stale && data.days.length > 0 && data.days.every((day) => day.segments.every((segment) => segment.final === null && segment.no_price_reason !== "NOT_POSITIVE" && segment.no_price_reason !== "OVER_LIMIT"));
+  /** 只看今天和以后：整个月都已经过去时不提醒 */
+  const ahead = (data?.days ?? []).filter((day) => day.date >= today);
+  const allEmpty = data !== null && !stale && ahead.length > 0 && ahead.every((day) => day.segments.every((segment) => segment.final === null && segment.no_price_reason !== "NOT_POSITIVE" && segment.no_price_reason !== "OVER_LIMIT"));
   const rulesLink = (hash = ""): string => `${pricePath(product.id)}${hash}`;
 
   const detail = (day: CalendarDay | null, headingId: string): ReactNode => {
@@ -248,7 +250,13 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
           <time dateTime={day.date}>{day.date}</time> {weekdayName(day.date)}
           {day.holiday && ` · ${displayName(day.holiday.name).text}`}
         </h4>
-        {segment === null || segment.final === null ? (
+        {(segment === null || segment.final === null) && day.date < today ? (
+          <>
+            <p className="calendar-detail__final calendar-detail__final--past">{unpriceable ? "这一天算不出价" : "这一天没有价格"}</p>
+            <p className="calendar-detail__combo">{`${time} 用车 · ${comboName}`}</p>
+            <p>这一天已经过去了，不会再有客人订这一天，不用补价格。</p>
+          </>
+        ) : segment === null || segment.final === null ? (
           <>
             <p className="calendar-detail__final calendar-detail__final--none">{unpriceable ? "这一天算不出价" : "这一天没有价格"}</p>
             <p className="calendar-detail__combo">{`${time} 用车 · ${comboName}`}</p>
@@ -354,7 +362,9 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
     const view = day ? cellView(day, time) : null;
     const isToday = date === today;
     const inRange = selection !== null && date >= selection.from && date <= selection.to;
-    const mark = selection === null ? null : selection.from === date && selection.to === date ? "起止" : selection.from === date ? "起" : selection.to === date ? "止" : null;
+    const mark = rangeMark(selection, date);
+    /** 已经过去的日子没有价格：只写文字，不用警告色（不可能再卖，提醒只是干扰；M1-14） */
+    const past = date < today;
     const holiday = day?.holiday ? displayName(day.holiday.name).text : null;
     const from = day?.price_rule?.pricing_model === "mileage_time" ? " 起" : "";
     const spoken =
@@ -362,8 +372,8 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
         ? `${spokenDate(date)}，${loaded.state.status === "error" ? "没有加载出来" : "加载中"}`
         : `${spokenDate(date)}，${holiday ? `${holiday}，` : ""}${isToday ? "今天，" : ""}${
             view.kind === "price" ? `结算价 ${moneyText(view.final ?? 0, currency)}${from}${view.trend ? `，${TREND_NAMES[view.trend]}` : ""}${view.rules.length > 0 ? `，命中${view.rules[0]}${view.rules.length > 1 ? `等 ${view.rules.length} 条规则` : ""}` : ""}${view.split ? "，分时段" : ""}` : view.kind === "bad" ? "算不出价" : `没有价格${view.disabled ? "，已停用" : ""}`
-          }${mark ? `，选中的${mark === "起止" ? "起止" : mark === "起" ? "起点" : "终点"}` : inRange ? "，已选" : ""}`;
-    const classes = ["calendar__cell", inRange ? "calendar__cell--selected" : "", view && view.kind !== "price" ? "calendar__cell--none" : "", date < today ? "calendar__cell--past" : "", isToday ? "calendar__cell--today" : "", date === shownDate ? "calendar__cell--shown" : ""].filter((name) => name !== "").join(" ");
+          }${mark ? `，选中的${mark === "起" ? "起点" : "终点"}` : inRange ? "，已选" : ""}`;
+    const classes = ["calendar__cell", inRange ? "calendar__cell--selected" : "", view && view.kind !== "price" && !past ? "calendar__cell--none" : "", past ? "calendar__cell--past" : "", isToday ? "calendar__cell--today" : "", date === shownDate ? "calendar__cell--shown" : ""].filter((name) => name !== "").join(" ");
     return (
       <div
         key={date}
@@ -404,6 +414,8 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
               {moneyText(view.final ?? 0, currency).slice(currency.length).trim()}
               {from}
             </>
+          ) : past ? (
+            <span className="calendar__flag calendar__flag--past">{view.kind === "bad" ? "算不出价" : "没有价格"}</span>
           ) : (
             <span className={view.kind === "bad" ? "calendar__flag calendar__flag--bad" : "calendar__flag"}>
               <Icon name={view.kind === "bad" ? "alert-circle" : "alert-triangle"} />
