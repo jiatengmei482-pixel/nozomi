@@ -160,3 +160,17 @@ export function shortName(text: string): string {
   const characters = [...text];
   return characters.length > 20 ? `${characters.slice(0, 20).join("")}…` : text;
 }
+
+/**
+ * 选接送点时输入的字一个都没匹配上（M1-14）。从 OurAirports 导入的机场一开始只有英语名，
+ * 用中文（汉字、假名）找不到它们：说清楚可以改用英文名或三字代码，以及中文名要请平台运营补。
+ */
+export function pickupNoMatchText(query: string, places: readonly { code: string; name: LocalizedText }[]): string {
+  const cjk = /[぀-ヿ㐀-鿿]/.test(query);
+  const englishOnly = places.filter((place) => !hasText(place.name.zh) && !hasText(place.name.ja));
+  if (!cjk || englishOnly.length === 0) return `没有名称或三字代码里带「${query}」的接送点。`;
+  const example = englishOnly[0] as { code: string; name: LocalizedText };
+  return `没有名称里带「${query}」的接送点。有 ${englishOnly.length} 个机场或车站目前只有英文名（例如 ${example.code} ${displayName(example.name).text}），请输入英文名或三字代码查找；要用中文名搜，请联系平台运营在「主数据 → 地点」里补上中文名。`;
+}
+
+const hasText = (value: string | undefined): boolean => value !== undefined && value.trim() !== "";
