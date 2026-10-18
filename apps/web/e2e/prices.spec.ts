@@ -307,7 +307,8 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   await page.getByRole("button", { name: /^生效日期重叠——/ }).click();
   await expect(page.locator(":focus")).toHaveAttribute("aria-label", `${p2pRow} 的生效日期从`);
   // 没保存的新行可以删掉（M1-14）
-  await page.getByRole("button", { name: `${p2pRow} 的更多操作` }).last().click();
+  // 同一组合有两段时，「更多操作」的名字带上第几段和日期（M1-16）
+  await page.getByRole("button", { name: `${p2pRow}（第 2 段，共 2 段，${p2pSaved.today} 起） 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "删除这一行" }).click();
   await expect(page.getByLabel(`${p2pRow} 的生效日期从`)).toHaveCount(1);
   await expect(page.getByText("有 2 条价格的生效日期重叠，保存前要改。")).toHaveCount(0);

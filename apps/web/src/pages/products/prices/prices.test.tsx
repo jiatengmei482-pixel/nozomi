@@ -987,7 +987,7 @@ test("M1-14 再加一段日期：上一段有结束日期时，新行在下面�
   // 新行：「删除这一行」；原来那条：「删除」
   // 同一组合有两段时，「更多操作」的名字带上日期，读屏分得清是哪一段（M1-16）
   assertAbsent(screen.queryByRole("button", { name: `${ROW} 的更多操作` }));
-  const menus = [screen.getByRole("button", { name: `${ROW}（2026-10-01 起，到 2026-12-31） 的更多操作` }), screen.getByRole("button", { name: `${ROW}（2027-01-01 起） 的更多操作` })];
+  const menus = [screen.getByRole("button", { name: `${ROW}（第 1 段，共 2 段，2026-10-01 起，到 2026-12-31） 的更多操作` }), screen.getByRole("button", { name: `${ROW}（第 2 段，共 2 段，2027-01-01 起） 的更多操作` })];
   await actor.click(menus[0] as HTMLElement);
   assert.ok(screen.getByRole("menuitem", { name: "删除" }));
   assertAbsent(screen.queryByRole("menuitem", { name: "删除这一行" }));
