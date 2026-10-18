@@ -18,7 +18,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 /**
  * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
  * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022），
- * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到）。新增平台表时加到这里。
+ * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到），
+ * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -33,6 +34,9 @@ const PLATFORM_TABLES = [
   "holidays",
   "login_throttles",
   "markup_rules",
+  "order_payments",
+  "order_sales",
+  "payment_events",
   "places",
   "platform_roles",
   "platform_sessions",
@@ -71,6 +75,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     inventory_days: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 创建类接口的幂等键：过期的键在再次使用时删除
     idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 订单和状态流水：租户只读（派车等在 M3-02 加）；没付款的单接口层再过滤掉（ADR 0026）
+    order_events: ["SELECT"],
+    orders: ["SELECT"],
     places: ["SELECT"],
     // 价格规则：可以真的删除（ADR 0018）
     price_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -109,9 +116,16 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     fx_rates: ["INSERT", "SELECT"],
     // 节假日日历：写错了删掉重填，所以平台可以删
     holidays: ["DELETE", "INSERT", "SELECT", "UPDATE"],
-    inventory_days: ["SELECT"],
+    // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）；不删
+    inventory_days: ["SELECT", "UPDATE"],
     // 加价规则：软删除，只增改
     markup_rules: ["INSERT", "SELECT", "UPDATE"],
+    // 订单（ADR 0026）：销售端下单、支付回调、超时取消都在平台事务里；状态流水只追加；订单的销售端一侧只追加；收款、支付通知要改状态；都不删
+    order_events: ["INSERT", "SELECT"],
+    order_payments: ["INSERT", "SELECT", "UPDATE"],
+    order_sales: ["INSERT", "SELECT"],
+    orders: ["INSERT", "SELECT", "UPDATE"],
+    payment_events: ["INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
@@ -122,8 +136,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016），运营后台查看商品（ADR 0021）
     product_vehicle_groups: ["SELECT"],
     products: ["SELECT"],
-    // 询价日志、报价快照：只追加
-    quote_logs: ["INSERT", "SELECT"],
+    // 询价日志：追加，下单后改「有没有下单」（ADR 0026）；报价快照：只追加
+    quote_logs: ["INSERT", "SELECT", "UPDATE"],
     quotes: ["INSERT", "SELECT"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
@@ -159,6 +173,11 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 报价用到的租户表：平台只读（ADR 0020）
   // 调度人：运营后台只读查看商品（ADR 0021）
   ...Object.fromEntries(["brands", "areas", "area_polygons", "product_areas", "price_rules", "adjust_rules", "inventory_days", "product_dispatchers"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
+  "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
+  "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],
@@ -177,6 +196,9 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 订单号全平台唯一；超时未付款的自动取消跨租户扫到期的单（ADR 0026）
+  "orders_order_no_key",
+  "orders_payment_due_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
   "tenant_users_email_key",
