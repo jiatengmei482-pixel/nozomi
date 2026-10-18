@@ -69,5 +69,5 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
   for (const role of ["readonly", "risk"] as const) {
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
-  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动"]);
+  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单"]);
 });

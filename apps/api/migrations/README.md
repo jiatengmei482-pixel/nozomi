@@ -44,6 +44,7 @@
 | `0016_quote_platform_read.sql` | 报价引擎：平台角色对报价用到的租户表（`brands`、`areas`、`area_polygons`、`product_areas`、`price_rules`、`adjust_rules`、`inventory_days`）只读——比价要把所有供应商的商品放在一起算（ADR 0020）。只调整权限和行级安全策略，不建表、不含任何数据 |
 | `0017_product_dispatchers_platform_read.sql` | 运营后台查看供应商的商品：平台角色对调度人 `product_dispatchers` 只读（商品用到的其余租户表在 0013、0016 已经可读），平台由此能只读看到商品的全部内容和上架校验（ADR 0021）。只调整权限和行级安全策略，不建表、不含任何数据 |
 | `0018_fx_rates.sql` | 汇率中心：拉取记录 `fx_fetches`（每次拉取的结果、原因、挂起待确认的那批）和汇率 `fx_rates`（1 USD = rate 单位该币种，`numeric` 存十进制原值，保留全部历史）。两张平台表：平台可写（拉取记录可改状态、汇率只追加），租户只读汇率（ADR 0022）。不含任何数据 |
+| `0024_orders.sql` | 下单与付款（ADR 0026）：订单 `orders` 和状态流水 `order_events`（租户表：带 `tenant_id`、行级安全，租户只读，平台读写）；订单的销售端一侧 `order_sales`（渠道、对外价、加价比例、汇率快照、幂等键）、收款 `order_payments`（Stripe 的付款 / 客户 / 支付方式编号和状态）、支付通知 `payment_events`（事件编号唯一，只处理一次）三张平台表，租户角色没有任何权限；平台角色对 `inventory_days` 加「改」（预占、扣减、释放）、对 `quote_logs` 加「改」（已下单）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，其余由平台在后台录入。

@@ -499,3 +499,43 @@ test("规则 4：租户端订单接口的应答里逐层没有渠道、对外价
   }
   assert.ok(detail.text.includes("19800"), "结算价租户能看");
 });
+
+test("每日加急库存：两单同时抢最后一个加急名额只成一单；用完之后询价报不出；待支付的单超时取消后名额回来", async () => {
+  // 乙的商品开加急：提前 24 小时以内加收 3,000，每天限 1 单
+  const product = await ok(api.call("GET", `/tenant/v1/products/${m.ids.pb}`, { token: m.b.adminToken }));
+  await ok(
+    api.call("PUT", `/tenant/v1/products/${m.ids.pb}/service-rules`, {
+      token: m.b.adminToken,
+      headers: { "if-match": `"${product.version}"` },
+      body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, urgent: { enabled: true, daily_quota: 1, tiers: [{ within_hours: 24, surcharge: 3_000 }] }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } },
+    }),
+  );
+  // 6 小时后用车（东京时间，取整点）：只有乙能加急
+  const at = new Date(Math.ceil((api.clock.now().getTime() + 6 * 3_600_000) / 3_600_000) * 3_600_000);
+  const serviceTime = `${new Date(at.getTime() + 9 * 3_600_000).toISOString().slice(0, 16)}:00+09:00`;
+  const urgentQuote = async (): Promise<ApiResponse> => {
+    const who = await salesToken();
+    api.clock.advance(1_000);
+    return api.call("POST", "/sales/v1/quotes", { token: who, body: ask({ service_time: serviceTime, vehicle_group_ids: [m.ids.biz7] }) });
+  };
+  const quotes = [(await urgentQuote()).body.quotes[0], (await urgentQuote()).body.quotes[0]];
+  // (19,800 + 3,000) × 1.1 = 25,080
+  assert.deepEqual(quotes.map((q) => [q.urgent, q.price.total.amount]), [[true, "25080"], [true, "25080"]]);
+  const who = await salesToken();
+  api.clock.advance(1_000);
+  const results = await Promise.all(quotes.map((q) => api.call("POST", "/sales/v1/orders", { token: who, body: { quote_id: q.quote_id, ...details() }, headers: { "idempotency-key": randomUUID() } })));
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 409], results.map((r) => r.text).join("\n"));
+  const lost = results.find((r) => r.status === 409) as ApiResponse;
+  assert.deepEqual([lost.body.error.code, lost.body.error.details.reason], ["SOLD_OUT", "URGENT_SOLD_OUT"]);
+  const won = (results.find((r) => r.status === 201) as ApiResponse).body.order;
+  assert.equal((await row("select urgent from orders where id = $1", [won.id])).urgent, true);
+  // 名额用完：乙报 URGENT_SOLD_OUT，甲提前量不够——这个车型组报不出
+  const full = await urgentQuote();
+  assert.equal(full.body.quotes.length, 0);
+  assert.deepEqual([...full.body.unavailable[0].reasons].sort(), ["LEAD_TIME_TOO_SHORT", "SOLD_OUT"]);
+  // 没付款，超时取消：名额回来
+  api.clock.advance(30 * 60_000);
+  await api.app.orderJobs.tick();
+  assert.equal((await row("select status from orders where id = $1", [won.id])).status, "cancelled");
+  assert.equal((await urgentQuote()).body.quotes.length, 1);
+});
