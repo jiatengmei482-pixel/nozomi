@@ -1,7 +1,7 @@
 /**
  * 运营后台「汇率」页（M2-03，ADR 0022）：数据源状态、当前汇率、常用币种互换、近 30 天走势、拉取记录；
  * 有 `fx.manage` 的角色（主数据运营、超级管理员）可以立即拉取、确认 / 放弃变动过大而挂起的一批。
- * 汇率是十进制字符串，页面只截短显示（完整值在悬停提示里），不拿它算钱。
+ * 汇率是十进制字符串，页面四舍五入显示（完整值在悬停提示里，也可以切成「显示完整数值」——手机上没有悬停），不拿它算钱。
  */
 import { useState } from "react";
 import type { CurrencyCode } from "@nozomi/domain";
@@ -39,8 +39,20 @@ function fetchNotice(fetch: FxFetch): Notice {
   }
 }
 
-function RateCell({ rate }: { rate: string | null }) {
-  return <span title={rate ?? undefined}>{rateText(rate)}</span>;
+function RateCell({ rate, full }: { rate: string | null; full: boolean }) {
+  return <span title={rate ?? undefined}>{full ? (rate ?? "—") : rateText(rate)}</span>;
+}
+
+/** 表格上方的一句「怎么显示的」+ 切换完整数值（两张表共用一个开关）。 */
+function RoundingNote({ full, onToggle }: { full: boolean; onToggle(): void }) {
+  return (
+    <div className="fx-rounding">
+      <p className="fx-hint fx-rounding__text">{full ? "现在显示的是完整数值（报价用的就是它）。" : "表里是四舍五入后的值：1 以上保留 4 位小数，不到 1 保留 6 位有效数字。"}</p>
+      <Button size="sm" aria-pressed={full} onClick={onToggle}>
+        {full ? "显示四舍五入后的" : "显示完整数值"}
+      </Button>
+    </div>
+  );
 }
 
 export function FxRatesPage() {
@@ -49,6 +61,7 @@ export function FxRatesPage() {
   const canManage = usePlatformCan("fx.manage");
   const [base, setBase] = useState<CurrencyCode>("USD");
   const [chartCurrency, setChartCurrency] = useState<CurrencyCode>("JPY");
+  const [full, setFull] = useState(false);
   const overview = useLoad<FxOverview>(`fx-${base}`, (current) => fetchFxOverview(current, base));
   const history = useLoad<FxHistory>(`fx-history-${base}`, (current) => fetchFxHistory(current, base));
   const fetches = useLoad<{ items: FxFetch[] }>("fx-fetches", (current) => fetchFxFetches(current));
@@ -256,6 +269,7 @@ export function FxRatesPage() {
                 </h2>
                 <SelectField label="基准币种" inline value={base} options={CURRENCY_OPTIONS} onChange={(value) => setBase(value)} />
               </div>
+              <RoundingNote full={full} onToggle={() => setFull(!full)} />
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="当前汇率表">
                   <table className="table">
@@ -274,7 +288,7 @@ export function FxRatesPage() {
                             {code} {CURRENCY_NAMES[code]}
                           </th>
                           <td className="table__cell--end fx-mono">
-                            <RateCell rate={data.rates.find((item) => item.currency === code)?.rate ?? null} />
+                            <RateCell full={full} rate={data.rates.find((item) => item.currency === code)?.rate ?? null} />
                           </td>
                         </tr>
                       ))}
@@ -289,6 +303,7 @@ export function FxRatesPage() {
                 常用币种互换
               </h2>
               <p className="fx-hint">每行是「1 个该行币种 = 多少个该列币种」。这里是中央汇率，不含缓冲；报价时跨币种另加汇率缓冲（比例见「系统状态」里的汇率数据源）。</p>
+              <RoundingNote full={full} onToggle={() => setFull(!full)} />
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="币种互换表">
                   <table className="table fx-matrix">
@@ -308,7 +323,7 @@ export function FxRatesPage() {
                           <th scope="row">{from}</th>
                           {FX_DISPLAY_ORDER.map((to) => (
                             <td key={to} className="table__cell--end fx-mono">
-                              {from === to ? "1" : <RateCell rate={data.cross.find((item) => item.from === from && item.to === to)?.rate ?? null} />}
+                              {from === to ? "1" : <RateCell full={full} rate={data.cross.find((item) => item.from === from && item.to === to)?.rate ?? null} />}
                             </td>
                           ))}
                         </tr>

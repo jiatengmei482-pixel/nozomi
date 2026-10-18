@@ -10,7 +10,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import { ApiError } from "../../api/client.ts";
-import { type AuditLog, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
+import { type AuditLog, type FxCenterStatus, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
@@ -28,6 +28,9 @@ const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: ST
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
 const logOf = (changes: Partial<AuditLog> = {}): AuditLog => ({ id: "7", occurred_at: "2026-10-09T02:02:37.000Z", tenant_id: TENANT_ID, actor: { type: "platform_user", id: ME_ID, email: "kato@example.com" }, ip: "203.0.113.9", source: "console", resource: "tenant", resource_id: TENANT_ID, action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质到期，等补件" }, ...changes });
 const invite = { token: TOKEN, expires_at: "2026-10-16T05:30:00.000Z" };
+
+/** 汇率数据源正常：这批汇率是东京时间 2026-10-17 09:02 的，定时拉取在 18:24 拉过、已更新 */
+const FX_FRESH: FxCenterStatus = { state: "fresh", as_of: "2026-10-17T00:02:32.000Z", auto_fetch: true, last_attempt_status: "accepted", last_attempt_at: "2026-10-17T09:24:00.000Z", last_error_code: null };
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 interface World {
@@ -51,7 +54,7 @@ function open(path: string, role: string, world: World = {}, routes: Route = () 
     if (at === "/platform/v1/staff") return json(200, { items: world.staff ?? [meOf(role), staffOf()], next_cursor: null });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
     if (at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
-    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }] });
+    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }], fx_center: FX_FRESH });
     return null;
   });
   render(
@@ -817,4 +820,33 @@ test("审计日志的「筛选」面板：「从」晚于「到」时不关面�
   await actor.click(within(panel).getByRole("button", { name: "查看结果" }));
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
   await waitFor(() => assert.equal(requests().length, before + 1));
+});
+
+test("M1-14 系统状态：显示汇率是否过期和这批汇率的时间、最近一次拉取；过期时顶部危险提示条，失败原因说人话；能去汇率页", async () => {
+  const integrations = (fx: FxCenterStatus): Route => (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/integrations" ? json(200, { items: [{ key: "fx", label: "汇率数据源", state: "configured", detail: "open.er-api.com · 缓冲 1.5%" }], fx_center: fx }) : null);
+  const time = (iso: string): string => {
+    const at = new Date(iso);
+    const pad = (value: number): string => String(value).padStart(2, "0");
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  };
+  open("/platform/settings/integrations", "tech", {}, integrations(FX_FRESH));
+  const card = (await screen.findByRole("heading", { level: 2, name: "汇率数据" })).closest("section") as HTMLElement;
+  assert.match(card.textContent ?? "", new RegExp(`汇率数据正常是否过期没有过期，跨币种报价照常这批汇率的时间（数据源给的）${time(FX_FRESH.as_of as string)}最近一次拉取${time(FX_FRESH.last_attempt_at as string)}已更新定时拉取已打开（每天自动拉取）`));
+  assert.equal(within(card).getByRole("link", { name: "看汇率和拉取记录" }).getAttribute("href"), "/platform/master/fx-rates");
+  assertAbsent(screen.queryByText("汇率超过 48 小时没有更新，跨币种报价已暂停"));
+
+  resetBrowser();
+  open("/platform/settings/integrations", "super_admin", {}, integrations({ ...FX_FRESH, state: "stale", last_attempt_status: "failed", last_error_code: "FX_SOURCE_UNAVAILABLE", auto_fetch: false }));
+  await screen.findByText("汇率超过 48 小时没有更新，跨币种报价已暂停");
+  assert.match(pageText(), new RegExp(`现在这批汇率是 ${time(FX_FRESH.as_of as string)} 的。请到汇率页检查数据源，或立即拉取一次。去汇率页处理`));
+  const stale = screen.getByRole("heading", { level: 2, name: "汇率数据" }).closest("section") as HTMLElement;
+  assert.match(stale.textContent ?? "", /已过期是否过期已过期（超过 48 小时没有更新），跨币种报价已暂停/);
+  assert.match(stale.textContent ?? "", /没有拉到连不上数据源，或数据源暂时出错/);
+  assert.match(stale.textContent ?? "", /没有打开，只能在汇率页手动拉取/);
+  assert.doesNotMatch(pageText(), /FX_SOURCE_UNAVAILABLE|stale|fresh/);
+
+  resetBrowser();
+  open("/platform/settings/integrations", "tech", {}, integrations({ state: "none", as_of: null, auto_fetch: true, last_attempt_status: null, last_attempt_at: null, last_error_code: null }));
+  const none = (await screen.findByRole("heading", { level: 2, name: "汇率数据" })).closest("section") as HTMLElement;
+  assert.match(none.textContent ?? "", /还没有汇率是否过期还没有汇率，跨币种报价都报不出这批汇率的时间（数据源给的）—最近一次拉取还没有拉过/);
 });

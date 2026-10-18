@@ -5,7 +5,7 @@
  * 五个发令牌的接口（新建供应商、邀请管理员、给管理员发密码重置、新增员工、给员工发密码重置）：
  * 令牌只在这一次应答里出现。这里只把应答原样交给调用的页面，不缓存、不打日志、不自动重试（重试一次就多发一个令牌、让上一个作废）。
  */
-import type { PlatformRole } from "@nozomi/domain";
+import type { FxFetchStatus, FxTableState, PlatformRole } from "@nozomi/domain";
 import { query } from "./areas.ts";
 import { ApiError, apiRequest } from "./client.ts";
 import type { PlatformUser, Tenant, TenantUser } from "./types.ts";
@@ -164,7 +164,18 @@ export interface IntegrationStatus {
   detail: string;
 }
 
-export function listIntegrations(token: string): Promise<{ items: IntegrationStatus[] }> {
+/** 汇率数据源的运行状态（`GET /integrations` 的 `fx_center`，ADR 0022）：`stale` = 超过 48 小时没更新，跨币种报价已暂停。 */
+export interface FxCenterStatus {
+  state: FxTableState;
+  /** 现在这批汇率的时间（数据源给的，不是拉到的时间）；还没有汇率是 null */
+  as_of: string | null;
+  auto_fetch: boolean;
+  last_attempt_status: FxFetchStatus | null;
+  last_attempt_at: string | null;
+  last_error_code: string | null;
+}
+
+export function listIntegrations(token: string): Promise<{ items: IntegrationStatus[]; fx_center: FxCenterStatus }> {
   return apiRequest("GET", INTEGRATIONS_PATH, { token });
 }
 
