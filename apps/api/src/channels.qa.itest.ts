@@ -10,7 +10,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { PLATFORM_ROLES, type PlatformRole } from "@nozomi/domain";
-import { withPlatformTx } from "./db/context.ts";
+import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { type Market, approvedBy, buildMarket, newChannel, ok, ruleRequest } from "./testing/market.ts";
@@ -186,6 +186,15 @@ test("平台角色删不掉复核记录、报价、询价日志（只增改结�
   for (const table of ["quotes", "quote_logs"]) {
     await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update ${table} set created_at = created_at`)), deniedByDatabase, `${table} 不能改`);
   }
+});
+
+test("租户数据库角色对九张新表连写也不行（插入、改、删全部被数据库拒绝）", async () => {
+  const tables = ["channels", "channel_tenants", "channel_cities", "markup_rules", "approvals", "channel_api_clients", "quote_logs", "quotes", "sales_rate_limits"];
+  for (const table of tables) {
+    await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query(`delete from ${table}`)), deniedByDatabase, `${table} 删`);
+    await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query(`update ${table} set ${table === "sales_rate_limits" ? "attempt_count = 0" : table === "channel_tenants" || table === "channel_cities" ? "channel_id = channel_id" : "id = id"}`)), deniedByDatabase, `${table} 改`);
+  }
+  await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query("insert into sales_rate_limits (bucket, window_started_at, attempt_count) values ('x', now(), 0)")), deniedByDatabase, "插入");
 });
 
 test("接口的精确边界：下限 9.99% 拦、10% 可以；默认加价 = 下限可以、少 1 个基点拦；价格带 5% 可以、5.01% 拦；规则 = 下限可以、少 1 个基点拦", async () => {
