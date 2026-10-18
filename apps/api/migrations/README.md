@@ -44,6 +44,10 @@
 | `0016_quote_platform_read.sql` | 报价引擎：平台角色对报价用到的租户表（`brands`、`areas`、`area_polygons`、`product_areas`、`price_rules`、`adjust_rules`、`inventory_days`）只读——比价要把所有供应商的商品放在一起算（ADR 0020）。只调整权限和行级安全策略，不建表、不含任何数据 |
 | `0017_product_dispatchers_platform_read.sql` | 运营后台查看供应商的商品：平台角色对调度人 `product_dispatchers` 只读（商品用到的其余租户表在 0013、0016 已经可读），平台由此能只读看到商品的全部内容和上架校验（ADR 0021）。只调整权限和行级安全策略，不建表、不含任何数据 |
 | `0018_fx_rates.sql` | 汇率中心：拉取记录 `fx_fetches`（每次拉取的结果、原因、挂起待确认的那批）和汇率 `fx_rates`（1 USD = rate 单位该币种，`numeric` 存十进制原值，保留全部历史）。两张平台表：平台可写（拉取记录可改状态、汇率只追加），租户只读汇率（ADR 0022）。不含任何数据 |
+| `0019_channels.sql` | 渠道、授权范围、加价规则、敏感操作双人复核（M2-04，ADR 0023）；全是平台表，租户角色没有任何权限，不含任何数据 |
+| `0020_sales_quotes.sql` | 渠道的 API 客户端与密钥（只存哈希）、正式询价的报价快照 `quotes`、询价日志、`/sales/v1` 的限流计数（M2-04）；全是平台表 |
+| `0021_api_client_retired_secrets.sql` | API 客户端每一代旧密钥各自保留 24 小时宽限（M2-04 测试发现的缺陷）；只有哈希，没有原文 |
+| `0022_place_name_sources.sql` | 地点表加 `name_sources`：每种语言的名称是哪次导入填的（数据源、编号、当时的文字），机场的中文名、日文名从 GeoNames 导入时用来认出「平台改过 / 删掉了」（ADR 0024）。只加列，不含任何数据。0019、0020 由 M2-04 使用 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
-迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，其余由平台在后台录入。
+迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
