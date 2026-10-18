@@ -151,6 +151,14 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const isOrphan = (row: PriceRow): boolean => !areaIds.includes(row.areaId) || !groupIds.includes(row.vehicleGroupId);
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
   const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
+  /** 同一组合有多段日期时给「更多操作」的名字加上「第几段」和日期，读屏分得清是哪一段（日期可能相同或没填，所以一定带序号） */
+  const segmentSuffix = (row: PriceRow): string => {
+    const label = rowLabel(row);
+    const segments = sorted.filter((other) => rowLabel(other) === label);
+    if (segments.length < 2) return "";
+    const dates = row.from.trim() === "" ? "未填开始日期" : `${row.from} 起${row.to.trim() === "" ? "" : `，到 ${row.to}`}`;
+    return `（第 ${segments.indexOf(row) + 1} 段，共 ${segments.length} 段，${dates}）`;
+  };
 
   /** 表格按区域、车型组（包车再按套餐）分在一起；同一组里保持 rows 的先后（见 arrange），不按正在改的日期重排 */
   const order = (row: PriceRow): string => {
@@ -864,7 +872,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               </td>
                               {!readOnly && (
                                 <td>
-                                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label} 的更多操作`} align="end">
+                                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label}${segmentSuffix(row)} 的更多操作`} align="end">
                                     <button
                                       type="button"
                                       role="menuitem"

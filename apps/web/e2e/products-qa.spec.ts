@@ -93,13 +93,18 @@ const toast = (page: Page, text: string): Locator => page.locator(".toast").filt
 const step = (page: Page, name: string): Locator => page.getByRole("navigation", { name: "配置步骤" }).locator(".step-nav__item").filter({ hasText: name });
 const productIdOf = (page: Page): string => /\/products\/([0-9a-f-]{36})/.exec(page.url())?.[1] ?? "";
 
-/** 一直按 Tab，直到焦点到了这个元素上（只用键盘能不能走到它）。 */
+/**
+ * 一直按 Tab，直到焦点到了这个元素上（只用键盘能不能走到它）。
+ * 上限放宽到 300：服务规则页会列出全部启用的附加服务，那是全局主数据，并行的别的用例会不断新建，
+ * 页面上的停靠点数取决于执行顺序（原来的 80 在 CI 上偶尔不够）。
+ */
+const MAX_TABS = 300;
 async function tabTo(page: Page, target: Locator, what: string): Promise<void> {
-  for (let presses = 0; presses < 80; presses += 1) {
+  for (let presses = 0; presses < MAX_TABS; presses += 1) {
     if (await target.evaluate((node) => node === document.activeElement).catch(() => false)) return;
     await page.keyboard.press("Tab");
   }
-  throw new Error(`按了 80 次 Tab 也没有走到：${what}`);
+  throw new Error(`按了 ${MAX_TABS} 次 Tab 也没有走到：${what}`);
 }
 
 test("只用键盘建完一个商品：新建 → 选城市、品类、接送点 → 加区域、加车型组并选组合 → 调度人 → 保存 → 服务规则 → 商品详情 → 上架检查；全程不碰鼠标", async ({ page, request }) => {

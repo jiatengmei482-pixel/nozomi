@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GEONAMES } from "@nozomi/domain";
 import { buildZip } from "../testing/zip.ts";
-import { GeoNamesError, downloadCities, downloadCityNames, geonamesText } from "./geonames.ts";
+import { GeoNamesError, downloadCities, downloadCityNames, downloadCountryPlaces, downloadPlaceNames, geonamesText } from "./geonames.ts";
 
 function fakeFetch(steps: (Response | Error)[]): { fetch: typeof fetch; calls: string[] } {
   const calls: string[] = [];
@@ -42,6 +42,21 @@ test("下载某个国家的名称文件：地址和压缩包里的文件名都�
   const { fetch, calls } = fakeFetch([new Response(buildZip([{ name: "readme.txt", content: Buffer.from("x") }, { name: "JP.txt", content: Buffer.from(names) }]))]);
   assert.equal(await downloadCityNames("JP", { fetch, ...fast }), names);
   assert.deepEqual(calls, ["https://download.geonames.org/export/dump/alternatenames/JP.zip"]);
+});
+
+test("机场名称导入用的两个文件：国家的全部地理名称记录 <国家码>.zip、各语言名称 alternatenames/<国家码>.zip", async () => {
+  const places = "6300307\tNarita International Airport\n";
+  const names = "1889593\t6300307\tiata\tNRT\n";
+  const country = fakeFetch([new Response(buildZip([{ name: "readme.txt", content: Buffer.from("x") }, { name: "JP.txt", content: Buffer.from(places) }]))]);
+  assert.equal(await downloadCountryPlaces("JP", { fetch: country.fetch, ...fast }), places);
+  assert.deepEqual(country.calls, ["https://download.geonames.org/export/dump/JP.zip"]);
+  const alternate = fakeFetch([new Response(buildZip([{ name: "JP.txt", content: Buffer.from(names) }]))]);
+  assert.equal(await downloadPlaceNames("JP", { fetch: alternate.fetch, ...fast }), names);
+  assert.deepEqual(alternate.calls, ["https://download.geonames.org/export/dump/alternatenames/JP.zip"]);
+  const wrong = fakeFetch([new Response(buildZip([{ name: "KR.txt", content: Buffer.from(places) }]))]);
+  assert.equal(await codeOf(downloadCountryPlaces("JP", { fetch: wrong.fetch, ...fast })), "GEONAMES_BAD_RESPONSE", "压缩包里没有 JP.txt");
+  const gone = fakeFetch([new Response("nope", { status: 404 })]);
+  assert.equal(await codeOf(downloadPlaceNames("JP", { fetch: gone.fetch, ...fast })), "GEONAMES_BAD_RESPONSE");
 });
 
 test("暂时不可用会重试；一直不可用、被拒绝、超时各有错误码", async () => {

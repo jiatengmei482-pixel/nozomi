@@ -51,6 +51,7 @@ pnpm admin:create --email <邮箱> --name <姓名>   # 创建平台超级管理�
 pnpm admin:reset-password --email <邮箱>         # 给超级管理员重设密码
 pnpm masterdata:import-airports --country JP,KR  # 从 OurAirports（公有领域）导入机场，可重复运行；--all-countries / --file <csv> / --dry-run
 pnpm masterdata:import-cities --country JP,KR    # 从 GeoNames（CC BY 4.0）导入主要城市，可重复运行；--min-population <n> / --activate / --dry-run / --file
+pnpm masterdata:import-airport-names --country JP,KR  # 从 GeoNames（CC BY 4.0）给机场填空着的中文名、日文名，可重复运行，先导入机场；--file <JP.zip> --names-file <alternatenames/JP.zip> / --dry-run
 pnpm check             # 类型检查 + 单元测试 + 集成测试 + 进度文件校验，提交前必须通过（需要本地数据库在运行）
 pnpm test              # 只跑单元测试（不需要数据库）
 pnpm test:integration  # 只跑集成测试（连真实 PostgreSQL）
