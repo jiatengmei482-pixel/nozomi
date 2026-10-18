@@ -129,7 +129,7 @@ export function PlatformHomePage() {
             <Link to={FX_PATH}>去汇率页处理</Link>
           </Alert>
         )}
-        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
+        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && !canSeeApprovals && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
         {(showTenants || canSeeProducts || canSeeChannels || canSeeApprovals) && (
           <section className="home-section" aria-labelledby="home-operations">
             <h2 className="home-section__title" id="home-operations">

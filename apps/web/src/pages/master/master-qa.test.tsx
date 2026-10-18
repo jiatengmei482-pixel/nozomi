@@ -103,11 +103,11 @@ test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 
-test("首页：接口说两个模块都不能看时，显示「这里暂时没有你可以使用的模块」，不留空白页", async () => {
-  // 主数据运营：接口说主数据也不能看时，一个模块都没有（财务、只读等从 M2-04 起还能看渠道）
+test("首页：接口说两个模块都不能看时，不留空白页——主数据运营从 M2-06 起还有「待审核」（审核汇率锁定）", async () => {
+  // 主数据运营：接口说主数据也不能看时，只剩「待审核」一张卡片（财务、只读等从 M2-04 起还能看渠道）
   open("/platform", "master_data", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, { tenants: null, master_data: null }) : null));
-  assert.ok(await screen.findByText("这里暂时没有你可以使用的模块"));
-  assert.equal(main().querySelectorAll(".entry-card").length, 0);
+  await waitFor(() => assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["待审核"]));
+  assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 
 test("首页：启用的城市是 0、又有待指定城市的机场时，城市卡片提醒先新增城市（只给能修改的人）", async () => {

@@ -138,13 +138,13 @@ test("菜单：首页 + 主数据分组（城市、地点、车型组、附加�
   open(`/platform/master/cities/${TOKYO_ID}`, "master_data", (call) => (call.url.pathname === `/platform/v1/master/cities/${TOKYO_ID}` ? json(200, tokyo) : null));
   await screen.findByDisplayValue("东京");
   const nav = document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]') as HTMLElement;
-  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页", "待审核", "城市", "地点", "车型组", "附加服务", "汇率"]);
   assert.equal(within(nav).getByRole("link", { name: "城市" }).getAttribute("aria-current"), "page");
   const toggle = within(nav).getByRole("button", { name: "主数据" });
   assert.equal(toggle.getAttribute("aria-expanded"), "true");
   await userEvent.setup().click(toggle);
   assert.equal(toggle.getAttribute("aria-expanded"), "false");
-  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页"]);
+  assert.deepEqual(within(nav).getAllByRole("link").map((link) => link.textContent), ["首页", "待审核"]);
   await userEvent.setup().click(toggle);
   assert.equal(document.querySelector('nav[aria-label="当前位置"]')?.textContent, "主数据 / 城市 / 东京");
 });
