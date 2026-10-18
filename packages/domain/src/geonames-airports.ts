@@ -52,9 +52,8 @@ export function looksTraditionalChinese(text: string): boolean {
   return false;
 }
 
-/** 日文、中文名里至少要有汉字或假名，而且不能有拉丁字母：数据源里标成 ja 的有不少是罗马字（「Kansai Kokusai Kūkō」）。 */
+/** 日文名里至少要有汉字或假名、中文名里至少要有汉字：数据源里标成 ja 的有不少是罗马字（「Kansai Kokusai Kūkō」）。 */
 function isCjkName(language: AirportNameLanguage, text: string): boolean {
-  if (/\p{Script=Latin}/u.test(text)) return false;
   return language === "ja" ? /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(text) : /\p{Script=Han}/u.test(text);
 }
 

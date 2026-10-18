@@ -96,7 +96,7 @@ test("首选名：「首选的简称」>「简称」>「首选」> 其余；都�
   assert.equal(ja([{ nameId: 9_000_002, id: 990020, tag: "ja", name: "後の名前" }, { nameId: 9_000_001, id: 990020, tag: "ja", name: "先の名前" }]), "先の名前");
 });
 
-test("日文名必须有汉字或假名：数据源里标成 ja 的罗马字不要", () => {
+test("日文名必须有汉字或假名、中文名必须有汉字：数据源里标成 ja 的罗马字不要", () => {
   const selection = select([{ id: 990030 }], [
     { id: 990030, tag: "iata", name: "QCC" },
     { nameId: 1, id: 990030, tag: "ja", name: "Tesuto Kokusai Kūkō" },
@@ -105,6 +105,8 @@ test("日文名必须有汉字或假名：数据源里标成 ja 的罗马字不�
   assert.equal(selection.airports[0]?.names.ja, "テスト国際空港");
   const romanOnly = select([{ id: 990031 }], [{ id: 990031, tag: "iata", name: "QCD" }, { id: 990031, tag: "ja", name: "Tesuto Kūkō" }]);
   assert.deepEqual(romanOnly.airports[0]?.names, {});
+  const mixed = select([{ id: 990032 }], [{ id: 990032, tag: "iata", name: "QCE" }, { id: 990032, tag: "ja", name: "テストT2空港" }, { id: 990032, tag: "zh-CN", name: "Test 2" }]);
+  assert.deepEqual(mixed.airports[0]?.names, { ja: "テストT2空港" }, "夹着字母、数字的照样取；中文名里没有汉字的不要");
 });
 
 test("中文：zh-CN > zh-Hans > zh-SG > zh；繁体（zh-Hant / zh-TW / zh-HK，或者标成 zh 却是繁体字）不要", () => {
