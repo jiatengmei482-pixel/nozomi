@@ -229,7 +229,7 @@
         { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "blocked",
           "blockedBy": "要等你注册谷歌地图（Google Maps Platform）并开通 Routes API，把密钥填进测试环境的设置（见 docs/secrets.md）。在那之前，按里程 + 时长计价的商品报不出价，一口价和包车套餐不受影响", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-18" },
         { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "done", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/25 ；单元 1059、前端组件 356、集成 808、相关端到端 97 个通过；测试角色发现的 2 个缺陷和汇率缓冲用浮点数换算的问题已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-17" },
-        { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "review", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "PR_LINK ；单元 1111、前端组件 412、集成 914 个通过；租户端每个 GET 接口逐层扫描不含对外价、加价比例、渠道信息，租户数据库角色读不到渠道相关的 9 张表；测试角色发现的 2 个缺陷已修复", "updated": "2026-10-18" },
+        { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "review", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/31 ；单元 1111、前端组件 412、集成 914 个通过；租户端每个 GET 接口逐层扫描不含对外价、加价比例、渠道信息，租户数据库角色读不到渠道相关的 9 张表；测试角色发现的 2 个缺陷已修复", "updated": "2026-10-18" },
         {
           "id": "M2-06",
           "title": "汇率人工锁定（双人复核）",
