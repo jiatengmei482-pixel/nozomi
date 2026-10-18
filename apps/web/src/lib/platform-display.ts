@@ -60,7 +60,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "master_data.manage": "维护主数据",
   "fx.manage": "管理汇率（立即拉取、确认或放弃变动过大的汇率）",
   "channel.read": "看渠道",
-  "channel.manage": "管理渠道和加价规则（改加价、暂停渠道要另一位同事审核）",
+  "channel.manage": "管理渠道和加价规则（改加价、停用渠道要另一位同事审核）",
   "channel.review": "审核渠道的改动",
   "approval.read": "看待审核的改动",
   "staff.read": "看平台员工",
