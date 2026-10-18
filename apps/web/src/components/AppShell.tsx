@@ -44,6 +44,8 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
     entries.push({
       key: "master",

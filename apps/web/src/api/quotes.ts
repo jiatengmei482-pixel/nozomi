@@ -36,6 +36,8 @@ export interface PlatformQuotePreviewRequest {
   passengers: number;
   luggage: number;
   assume_route: QuoteRoute | null;
+  /** 按哪个渠道的规则试算；null = 平台默认参数 */
+  channel_id: string | null;
 }
 
 export interface QuoteSettlement {
@@ -81,6 +83,11 @@ export interface QuoteCandidate {
   sell: number;
   sell_exact: string;
   markup_bp: number;
+  /** 按渠道试算时命中的是第几级（5 = 渠道默认或全渠道促销）；平台默认参数时为 null */
+  markup_level: number | null;
+  markup_rule_id: string | null;
+  /** 加价部分不足渠道的最低毛利、被补到了最低毛利 */
+  min_margin_applied: boolean;
   fx_buffer_bp: number;
   fx: { from: string; to: string; rate: string; as_of: string } | null;
   offer: QuoteOffer;
@@ -107,10 +114,21 @@ export interface QuoteRefusal {
   message: string;
 }
 
+export interface QuoteExcluded {
+  tenant_id: string | null;
+  tenant_name: string | null;
+  product_id: string;
+  product_code: string | null;
+}
+
 export interface PlatformQuotePreview {
   currency: string;
   band_bp: number;
   markup_floor_bp: number;
+  /** 按哪个渠道试算的；平台默认参数时为 null */
+  channel: { id: string; name: string; status: "testing" | "active" | "paused"; min_margin: number; settle_currency: string; rounding_unit: number } | null;
+  /** 渠道不卖的供应商的商品（没参加比价） */
+  excluded: QuoteExcluded[];
   route: QuoteRoute | null;
   candidate_count: number;
   groups: QuoteGroup[];
@@ -128,11 +146,13 @@ export function listQuotePlaces(token: string, cityId: string): Promise<Place[]>
 
 /** 对账用：字段名清单。 */
 export const QUOTE_SCHEMA_FIELDS = {
-  PlatformQuotePreviewRequest: ["city_id", "category", "place_id", "currency", "pickup", "dropoff", "direction", "package_hours", "service_time", "passengers", "luggage", "assume_route"],
-  PlatformQuotePreview: ["currency", "band_bp", "markup_floor_bp", "route", "candidate_count", "groups", "refused"],
+  PlatformQuotePreviewRequest: ["city_id", "category", "place_id", "currency", "pickup", "dropoff", "direction", "package_hours", "service_time", "passengers", "luggage", "assume_route", "channel_id"],
+  PlatformQuotePreview: ["currency", "band_bp", "markup_floor_bp", "channel", "excluded", "route", "candidate_count", "groups", "refused"],
+  QuoteChannel: ["id", "name", "status", "min_margin", "settle_currency", "rounding_unit"],
+  QuoteExcluded: ["tenant_id", "tenant_name", "product_id", "product_code"],
   QuoteGroup: ["vehicle_group_id", "package_hours", "created_at", "expires_at", "winner", "candidates"],
   QuoteWinner: ["tenant_id", "tenant_name", "product_id", "product_code", "sell", "settlement", "settlement_currency"],
-  QuoteCandidate: ["position", "in_band", "rank_price", "tenant_id", "tenant_name", "product_id", "product_code", "product_version", "observation", "score_centi", "completed_orders", "sell", "sell_exact", "markup_bp", "fx_buffer_bp", "fx", "offer"],
+  QuoteCandidate: ["position", "in_band", "rank_price", "tenant_id", "tenant_name", "product_id", "product_code", "product_version", "observation", "score_centi", "completed_orders", "sell", "sell_exact", "markup_bp", "markup_level", "markup_rule_id", "min_margin_applied", "fx_buffer_bp", "fx", "offer"],
   QuoteRefusal: ["tenant_id", "tenant_name", "product_id", "product_code", "vehicle_group_id", "reason", "message"],
   QuoteOffer: ["vehicle_group_id", "package_hours", "area_id", "price_rule_id", "settlement"],
   QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "free_wait"],
@@ -140,6 +160,8 @@ export const QUOTE_SCHEMA_FIELDS = {
 } as const satisfies {
   PlatformQuotePreviewRequest: readonly (keyof PlatformQuotePreviewRequest)[];
   PlatformQuotePreview: readonly (keyof PlatformQuotePreview)[];
+  QuoteChannel: readonly (keyof NonNullable<PlatformQuotePreview["channel"]>)[];
+  QuoteExcluded: readonly (keyof QuoteExcluded)[];
   QuoteGroup: readonly (keyof QuoteGroup)[];
   QuoteWinner: readonly (keyof QuoteGroup["winner"])[];
   QuoteCandidate: readonly (keyof QuoteCandidate)[];
@@ -149,4 +171,4 @@ export const QUOTE_SCHEMA_FIELDS = {
   QuoteRoute: readonly (keyof QuoteRoute)[];
 };
 /** 页面专门处理的错误码。 */
-export const QUOTE_ERROR_CODES = ["VALIDATION_FAILED", "MASTER_DATA_NOT_READY"] as const;
+export const QUOTE_ERROR_CODES = ["VALIDATION_FAILED", "MASTER_DATA_NOT_READY", "CHANNEL_SCOPE_DENIED"] as const;

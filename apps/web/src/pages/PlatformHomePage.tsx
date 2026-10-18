@@ -7,6 +7,7 @@ import { TENANT_LIST_PATH, platformProductListPath } from "../lib/platform-paths
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { type DashboardSummary, fetchDashboardSummary } from "../api/master.ts";
+import { countChannels, countPendingApprovals } from "../api/channels.ts";
 import { countPlatformProducts } from "../api/platform-products.ts";
 import { usePortalSession } from "../auth/PortalSession.tsx";
 import { Alert } from "../components/Alert.tsx";
@@ -18,6 +19,7 @@ import { masterListPath, masterNewPath, pendingAirportsPath, placeListPath } fro
 import { formatCount, formatLocalDateTime } from "../lib/master-display.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
 import { FX_PATH } from "../lib/fx-display.ts";
+import { APPROVALS_PAGE_PATH, CHANNELS_PAGE_PATH } from "../lib/channel-display.ts";
 import { useLoad } from "../lib/use-load.ts";
 import { usePlatformCan } from "../lib/use-master-access.ts";
 
@@ -35,6 +37,8 @@ export function PlatformHomePage() {
   const canManageMaster = usePlatformCan("master_data.manage");
   const canSeeTenants = usePlatformCan("tenant.read");
   const canSeeProducts = usePlatformCan("product.read");
+  const canSeeChannels = usePlatformCan("channel.read");
+  const canSeeApprovals = usePlatformCan("approval.read");
   const { state, reload: reloadSummary } = useLoad<DashboardSummary>("summary", fetchDashboardSummary);
   // 商品的两个数：已上架的、其中报不出价的（ADR 0021：用列表接口的 total，不在首页数量接口里）
   const products = useLoad<{ published: number; unpriced: number }>(
@@ -42,10 +46,17 @@ export function PlatformHomePage() {
     canSeeProducts ? (token) => Promise.all([countPlatformProducts(token, { status: "published" }), countPlatformProducts(token, { status: "published", has_active_price: "false" })]).then(([published, unpriced]) => ({ published, unpriced })) : null,
   );
   const reloadProducts = products.reload;
+  // 渠道和待审核（ADR 0023）：同样用列表接口的 total；没取到只影响这两张卡片
+  const channels = useLoad<{ total: number; active: number }>("home-channels", canSeeChannels ? countChannels : null);
+  const approvals = useLoad<number>("home-approvals", canSeeApprovals ? countPendingApprovals : null);
+  const reloadChannels = channels.reload;
+  const reloadApprovals = approvals.reload;
   const reload = useCallback(() => {
     reloadSummary();
     reloadProducts();
-  }, [reloadSummary, reloadProducts]);
+    reloadChannels();
+    reloadApprovals();
+  }, [reloadSummary, reloadProducts, reloadChannels, reloadApprovals]);
   const requestedAt = useRef(Date.now());
   const [announce, setAnnounce] = useState("");
 
@@ -68,6 +79,10 @@ export function PlatformHomePage() {
   const productCounts = products.state.data;
   const productsFailed = canSeeProducts && productCounts === null && (products.state.status === "error" || products.state.status === "forbidden" || products.state.status === "not-found");
   const productReminders: EntryReminder[] = productCounts && productCounts.unpriced > 0 ? [{ text: `${formatCount(productCounts.unpriced)} 个已上架的商品报不出价`, to: platformProductListPath({ status: "published", priced: "no" }) }] : [];
+  const cardCounts = <T,>(loaded: { state: { status: string; data: T | null } }, counts: (data: T) => EntryCounts): EntryCounts => (loaded.state.data !== null ? counts(loaded.state.data) : loaded.state.status === "loading" ? { status: "loading" } : { status: "failed" });
+  const channelCounts = cardCounts(channels, (data) => ({ status: "ready", counts: [{ value: data.total, label: "全部" }, { value: data.active, label: "启用" }] }));
+  const approvalCounts = cardCounts(approvals, (pendingCount) => ({ status: "ready", counts: [{ value: pendingCount, label: "待审核" }] }));
+  const approvalReminders: EntryReminder[] = (approvals.state.data ?? 0) > 0 ? [{ text: `${formatCount(approvals.state.data ?? 0)} 条改动等你或同事审核`, to: APPROVALS_PAGE_PATH }] : [];
   const showMaster = summary !== null ? summary.master_data !== null : canSeeMaster;
   const showTenants = summary !== null ? summary.tenants !== null : canSeeTenants;
   const master = summary?.master_data ?? null;
@@ -109,8 +124,8 @@ export function PlatformHomePage() {
             <Link to={FX_PATH}>去汇率页处理</Link>
           </Alert>
         )}
-        {!showMaster && !showTenants && !canSeeProducts && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
-        {(showTenants || canSeeProducts) && (
+        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
+        {(showTenants || canSeeProducts || canSeeChannels || canSeeApprovals) && (
           <section className="home-section" aria-labelledby="home-operations">
             <h2 className="home-section__title" id="home-operations">
               运营
@@ -118,6 +133,8 @@ export function PlatformHomePage() {
             <div className="entry-grid">
               {showTenants && <EntryCard title="供应商" to={TENANT_LIST_PATH} counts={tenants ? { status: "ready", counts: [{ value: tenants.active, label: "正常" }, { value: tenants.suspended, label: "已暂停" }] } : pending} />}
               {canSeeProducts && <EntryCard title="商品" to={platformProductListPath({ status: "published" })} counts={productCounts ? { status: "ready", counts: [{ value: productCounts.published, label: "已上架" }] } : productsFailed ? { status: "failed" } : { status: "loading" }} reminders={productReminders} />}
+              {canSeeChannels && <EntryCard title="渠道" to={CHANNELS_PAGE_PATH} counts={channelCounts} />}
+              {canSeeApprovals && <EntryCard title="待审核" to={APPROVALS_PAGE_PATH} counts={approvalCounts} reminders={approvalReminders} />}
             </div>
           </section>
         )}

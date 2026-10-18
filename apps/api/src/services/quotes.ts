@@ -5,7 +5,11 @@
  *   以及每个没报出价的商品 / 车型组的原因——供运营排查「为什么没报出价」。不生成可以下单的报价，不写库。
  * - 租户侧试算（`previewTenantQuote`）：供应商对自己的一个商品（没上架的也可以）试算，只有结算价和明细。
  *   这条路径上根本不算对外价、不取加价比例，也不读别的供应商的数据（租户事务 + 行级安全）。
- * - 正式的询价接口 `/sales/v1/quotes`（按渠道鉴权、生成 quote_id、落快照、询价日志）在 M2-04 和渠道一起做，走的是这里同一套函数。
+ * - 正式的询价接口 `/sales/v1/quotes`（M2-04，services/sales-quotes.ts）走的是这里同一个函数（`previewPlatformQuote` 带渠道、`fresh: false`）。
+ *
+ * 带渠道时（M2-04，ADR 0023）：城市、品类不在渠道的授权范围里直接拒绝（`CHANNEL_SCOPE_DENIED`）；不卖的租户不参加比价（单独列出）；
+ * 加价比例按渠道的五级规则匹配（`resolveMarkup`，用车日期按城市当地），下限、价格带、最低毛利、对外价取整用渠道的。
+ * 不带渠道（只有运营后台的试算）：用平台默认的参数（`ctx.quote.markup`：配置的默认加价比例、10% 下限、3% 价格带），没有最低毛利和取整。
  */
 import {
   type ComparisonEntry,
@@ -19,8 +23,13 @@ import {
   type RouteEstimate,
   type ServiceCategory,
   type TripDirection,
+  type ChannelSellRules,
+  type MarkupMatch,
   addDays,
+  channelScopeRefusal,
+  channelSellsTenant,
   compareQuotes,
+  resolveMarkup,
   holidayLookup,
   instantToLocal,
   isCurrencyCode,
@@ -31,7 +40,9 @@ import {
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
+import { type Channel, type StoredMarkupRule, findChannel, listMarkupRules } from "../repos/channels.ts";
 import { listHolidays } from "../repos/prices.ts";
+import { AppError } from "../errors.ts";
 import { type QuoteCandidate, type QuoteCandidateFilter, findQuoteCity, findQuotePlace, loadInventoryOnDay, loadQuoteCandidates } from "../repos/quotes.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { masterDataNotReady, notFound } from "./errors.ts";
@@ -191,6 +202,13 @@ export interface PlatformQuoteInput extends QuotePreviewInput {
   placeId: string | null;
   /** 客人支付的币种 */
   currency: string;
+  /** 按哪个渠道的规则报价；null = 平台默认参数（只有运营后台的试算） */
+  channelId: string | null;
+}
+
+/** 城市或品类不在渠道的授权范围里。 */
+export function channelScopeDenied(reason: string): AppError {
+  return new AppError(422, "CHANNEL_SCOPE_DENIED", reason === "CITY_NOT_AUTHORIZED" ? "这个渠道没有被授权卖这个城市" : "这个渠道没有被授权卖这个品类", { reason });
 }
 
 export interface PlatformQuotePreview {
@@ -199,10 +217,18 @@ export interface PlatformQuotePreview {
   markupFloorBp: number;
   /** 这次试算用到的路线预估；没用到、或取不到为 null */
   route: RouteEstimate | null;
-  /** 找到了几个候选商品（已上架、同城市同品类同接送点） */
+  /** 找到了几个候选商品（已上架、同城市同品类同接送点；带渠道时只算渠道卖的租户） */
   candidates: QuoteCandidate[];
   comparison: QuoteComparison;
+  /** 按渠道报价时的渠道；平台默认参数时为 null */
+  channel: Channel | null;
+  /** 渠道不卖这些租户：它们的商品没参加比价 */
+  excluded: QuoteCandidate[];
+  /** 每个报出价的「商品 | 车型组」用的是哪条加价规则（第几级） */
+  markups: Map<string, MarkupMatch>;
 }
+
+export const markupKey = (productId: string, vehicleGroupId: string): string => `${productId}|${vehicleGroupId}`;
 
 /**
  * 平台侧试算：所有供应商一起比。
@@ -236,32 +262,62 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
       if (!city.active) throw masterDataNotReady("CITY_DISABLED", "这个城市已被平台停用，现在不报价");
       if (place !== null && !place.active) throw masterDataNotReady("PLACE_DISABLED", "这个机场或车站已被平台停用，现在不报价");
       const filter: QuoteCandidateFilter = { cityId: city.id, category: input.category, poiId: input.placeId, publishedOnly: true };
-      const candidates = await ctx.quote.catalog.get(`${city.id}|${input.category}|${input.placeId ?? ""}`, () => loadQuoteCandidates(db, filter), { fresh: options.fresh !== false });
+      let channel: { channel: Channel; rules: StoredMarkupRule[] } | null = null;
+      if (input.channelId !== null) {
+        const found = await findChannel(db, input.channelId);
+        if (!found) throw validationFailed("body", [{ path: "/channel_id", reason: "UNKNOWN_CHANNEL", message: "渠道不存在" }]);
+        const refusal = channelScopeRefusal(found.scope, city.id, input.category);
+        if (refusal !== null) throw channelScopeDenied(refusal);
+        channel = { channel: found, rules: await listMarkupRules(db, found.id) };
+      }
+      const all = await ctx.quote.catalog.get(`${city.id}|${input.category}|${input.placeId ?? ""}`, () => loadQuoteCandidates(db, filter), { fresh: options.fresh !== false });
+      const sold = (candidate: QuoteCandidate): boolean => channel === null || channelSellsTenant(channel.channel.scope, candidate.product.tenantId);
+      const candidates = all.filter(sold);
       const facts = await loadQuoteFacts(db, candidates, request);
       const standings = await ctx.quote.standings.load(db, [...new Set(candidates.map((candidate) => candidate.product.tenantId))]);
-      return { city, place, candidates, facts, standings };
+      return { city, place, candidates, excluded: all.filter((candidate) => !sold(candidate)), facts, standings, channel };
     },
     { snapshot: true },
   );
-  const { city, place, candidates, facts, standings } = loaded;
+  const { city, place, candidates, excluded, facts, standings, channel } = loaded;
+  const pricing = channel?.channel.pricing ?? null;
+  const bandBp = pricing?.bandBp ?? ctx.quote.markup.bandBp;
+  const markupFloorBp = pricing?.markupFloorBp ?? ctx.quote.markup.floorBp;
+  // 最低毛利是渠道结算币种的金额：客人付别的币种时要汇率
+  const marginCurrency = channel !== null && pricing !== null && pricing.minMarginMinor > 0 && channel.channel.settleCurrency !== currency ? channel.channel.settleCurrency : null;
 
   const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
-  const currencies = [...new Set(candidates.map((candidate) => candidate.product.currency).filter((from) => from !== currency))];
+  const currencies = [...new Set([...candidates.map((candidate) => candidate.product.currency), ...(marginCurrency === null ? [] : [marginCurrency])].filter((from) => from !== currency))];
   const [route, fxQuotes] = await Promise.all([
     input.assumeRoute !== null || needsRoute(candidates) ? estimateRoute(ctx, log, request, place?.location ?? null, departAt, input.assumeRoute) : Promise.resolve(null),
     Promise.all(currencies.map(async (from) => [from, await callExternal(ctx, log, "fx", () => ctx.quote.fx.quote(from, currency, now))] as const)),
   ]);
   const rates = new Map(fxQuotes);
   const quoted = quoteCandidates(candidates, facts, request, now, route, false);
+  const markups = new Map<string, MarkupMatch>();
   const entries = quoted.map(({ candidate, quote }): ComparisonEntry => ({
     quote,
     productVersion: candidate.version,
     standing: standings.get(candidate.product.tenantId) ?? { scoreCenti: null, completedOrders: 0, observation: false },
-    markupBp: (vehicleGroupId) => ctx.quote.markup.markupBp({ tenantId: candidate.product.tenantId, cityId: candidate.cityId, category: input.category, vehicleGroupId }),
+    markupBp: (vehicleGroupId) => {
+      const query = { tenantId: candidate.product.tenantId, cityId: candidate.cityId, category: input.category, vehicleGroupId };
+      if (channel === null) return ctx.quote.markup.markupBp(query);
+      // 只有报出了价的商品才会问加价比例；用车日期是城市当地的日期
+      const match = resolveMarkup({ defaultMarkupBp: channel.channel.pricing.defaultMarkupBp, rules: channel.rules }, { ...query, serviceDate: quote.ok ? quote.serviceDate : request.serviceLocal.slice(0, 10) });
+      markups.set(markupKey(candidate.product.productId, vehicleGroupId), match);
+      return match.markupBp;
+    },
     fx: rates.get(candidate.product.currency) ?? null,
   }));
-  const comparison = compareQuotes({ request, currency, entries, now, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, fxBufferBp: ctx.config.fx.bufferBp });
-  return { currency, bandBp: ctx.quote.markup.bandBp, markupFloorBp: ctx.quote.markup.floorBp, route, candidates, comparison };
+  const sellRules: ChannelSellRules | undefined =
+    channel === null
+      ? undefined
+      : {
+          roundingUnit: channel.channel.pricing.sellRounding[currency] ?? 1,
+          minMargin: channel.channel.pricing.minMarginMinor === 0 ? null : { minor: channel.channel.pricing.minMarginMinor, currency: channel.channel.settleCurrency, fx: marginCurrency === null ? null : (rates.get(marginCurrency) ?? null) },
+        };
+  const comparison = compareQuotes({ request, currency, entries, now, bandBp, markupFloorBp, fxBufferBp: ctx.config.fx.bufferBp, ...(sellRules === undefined ? {} : { channel: sellRules }) });
+  return { currency, bandBp, markupFloorBp, route, candidates, comparison, channel: channel?.channel ?? null, excluded, markups };
 }
 
 // ---- 租户侧试算 ----

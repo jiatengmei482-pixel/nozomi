@@ -26,7 +26,11 @@ export type AuditResource =
   | "holiday"
   | "inventory"
   | "fx_fetch"
-  | "fx_rate";
+  | "fx_rate"
+  | "channel"
+  | "markup_rule"
+  | "api_client"
+  | "approval";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -51,7 +55,15 @@ export type AuditAction =
   | "hold"
   | "confirm"
   | "dismiss"
-  | "stale";
+  | "stale"
+  | "request"
+  | "approve"
+  | "reject"
+  | "withdraw"
+  | "rotate"
+  | "revoke"
+  | "activate"
+  | "pause";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

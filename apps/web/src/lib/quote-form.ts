@@ -26,6 +26,8 @@ export interface QuoteForm {
   currency: string;
   routeKm: string;
   routeMinutes: string;
+  /** 按哪个渠道的规则试算；null = 平台默认参数 */
+  channelId: string | null;
 }
 
 export type QuoteField = "city" | "category" | "place" | "direction" | "pickup.lat" | "pickup.lng" | "dropoff.lat" | "dropoff.lng" | "packageHours" | "date" | "time" | "passengers" | "luggage" | "currency" | "routeKm" | "routeMinutes";
@@ -33,7 +35,7 @@ export type QuoteField = "city" | "category" | "place" | "direction" | "pickup.l
 export const EMPTY_POINT: CoordinateValue = { lat: "", lng: "" };
 
 export function emptyQuoteForm(): QuoteForm {
-  return { cityId: null, category: null, placeId: null, direction: null, pickup: EMPTY_POINT, dropoff: EMPTY_POINT, packageHours: "", date: "", time: "", passengers: "", luggage: "", currency: "", routeKm: "", routeMinutes: "" };
+  return { cityId: null, category: null, placeId: null, direction: null, pickup: EMPTY_POINT, dropoff: EMPTY_POINT, packageHours: "", date: "", time: "", passengers: "", luggage: "", currency: "", routeKm: "", routeMinutes: "", channelId: null };
 }
 
 /** 这个品类、这个方向要填哪几个点。品类还没选时一个都不用。 */
@@ -114,6 +116,7 @@ export function readQuoteForm(form: QuoteForm): QuoteReading {
       passengers,
       luggage,
       assume_route: meters !== null && minutes !== null ? { meters, minutes } : null,
+      channel_id: form.channelId,
     },
   };
 }

@@ -12,7 +12,7 @@ import { type AreaPolygonShape, locatePoint } from "./areas.ts";
 import type { LatLng } from "./geo.ts";
 import { type InventoryDay, type InventoryMode, hasInventory } from "./inventory.ts";
 import type { AddonChargeUnit, FlightScope, PlaceType, ServiceCategory } from "./master-data.ts";
-import { type CurrencyCode, minorDigits, roundFractionToUnit } from "./money.ts";
+import { type CurrencyCode, ceilFractionToUnit, minorDigits, roundFractionToUnit } from "./money.ts";
 import {
   type AdjustRule,
   type ExactAmount,
@@ -576,6 +576,29 @@ export interface SellPrice {
   fx: FxQuote | null;
   /** 取整之前的精确值（十进制写法） */
   exact: string;
+  /** 按渠道的对外价规则（最低毛利金额、取整）算的时候才有（M2-04） */
+  channel?: ChannelSellDetail;
+}
+
+/**
+ * 渠道的对外价规则（M2-04，ADR 0023）：
+ * - 最低毛利金额：加价部分（对外价 − 结算价 × 汇率 × (1 + 缓冲)）不足它时补到它。它是渠道结算币种的金额，客人支付别的币种时按中央汇率（不加缓冲）换过去；
+ *   要换却没有可用的汇率时报不出（`FX_RATE_UNAVAILABLE`）——不能在不知道够不够最低毛利的情况下卖。
+ * - 取整：客人支付币种的取整单位大于 1 时，对外价**向上**取整到这个单位（只往上取：往下会让实际加价低于下限）；等于 1 时和没有渠道规则一样四舍五入到最小单位。
+ */
+export interface ChannelSellRules {
+  minMargin: { minor: number; currency: CurrencyCode; fx: FxQuote | null } | null;
+  roundingUnit: number;
+}
+
+export interface ChannelSellDetail {
+  roundingUnit: number;
+  /** 换到客人支付币种后的最低毛利金额（四舍五入到最小单位，只用于显示）；没设为 0 */
+  minMarginMinor: number;
+  /** 这一单的加价部分不足最低毛利、被补到了最低毛利 */
+  minMarginApplied: boolean;
+  /** 最低毛利换币种用的汇率；同币种或没设为 null */
+  minMarginFx: FxQuote | null;
 }
 
 export type SellPriceFailure = "FX_RATE_UNAVAILABLE" | "SELL_PRICE_OVER_LIMIT";
@@ -585,7 +608,7 @@ export type SellPriceFailure = "FX_RATE_UNAVAILABLE" | "SELL_PRICE_OVER_LIMIT";
  * - 客人支付币种和结算币种相同：汇率 1、缓冲 0；不同：要给汇率（`fx`），缓冲 1.5%。没有汇率时报不出价。
  * - 加价比例不得低于渠道下限（默认 10%）：给的比下限低就按下限算。
  */
-export function sellPrice(input: { settlementMinor: number; settlementCurrency: CurrencyCode; currency: CurrencyCode; markupBp: number; markupFloorBp?: number; fxBufferBp?: number; fx: FxQuote | null }): SellPrice | { failure: SellPriceFailure } {
+export function sellPrice(input: { settlementMinor: number; settlementCurrency: CurrencyCode; currency: CurrencyCode; markupBp: number; markupFloorBp?: number; fxBufferBp?: number; fx: FxQuote | null; channel?: ChannelSellRules }): SellPrice | { failure: SellPriceFailure } {
   const bufferBp = input.fxBufferBp ?? QUOTE_RULES.fxBufferBp;
   if (!Number.isInteger(bufferBp) || bufferBp < 0 || bufferBp > 1_000) throw new RangeError(`汇率缓冲必须是 0 到 1000 的整数基点：${bufferBp}`);
   const floor = input.markupFloorBp ?? QUOTE_RULES.defaultMarkupFloorBp;
@@ -602,9 +625,35 @@ export function sellPrice(input: { settlementMinor: number; settlementCurrency: 
     amount = scaleExact(scaleExact(amount, rate.numerator, rate.denominator), 10n ** BigInt(minorDigits(input.currency)), 10n ** BigInt(minorDigits(input.settlementCurrency)));
     amount = scaleExact(amount, BigInt(10_000 + bufferBp), 10_000n);
   }
+  const base = amount;
   amount = scaleExact(amount, BigInt(10_000 + markupBp), 10_000n);
+  const rules = input.channel;
+  let detail: ChannelSellDetail | undefined;
+  if (rules !== undefined) {
+    if (!Number.isSafeInteger(rules.roundingUnit) || rules.roundingUnit < 1) throw new RangeError(`对外价的取整单位必须是正整数：${rules.roundingUnit}`);
+    const margin = rules.minMargin === null || rules.minMargin.minor === 0 ? null : minMarginIn(rules.minMargin, input.currency);
+    if (margin === "FX_RATE_UNAVAILABLE") return { failure: "FX_RATE_UNAVAILABLE" };
+    let applied = false;
+    if (margin !== null && compareExact(addExact(amount, scaleExact(base, -1n)), margin.amount) < 0) {
+      amount = addExact(base, margin.amount);
+      applied = true;
+    }
+    detail = { roundingUnit: rules.roundingUnit, minMarginMinor: margin === null ? 0 : roundMinor(margin.amount), minMarginApplied: applied, minMarginFx: margin?.fx ?? null };
+  }
   if (amount.numerator > BigInt(QUOTE_RULES.maxSellMinor) * amount.denominator) return { failure: "SELL_PRICE_OVER_LIMIT" };
-  return { currency: input.currency, sellMinor: roundMinor(amount), markupBp, fxBufferBp: sameCurrency ? 0 : bufferBp, fx, exact: formatExact(amount) };
+  const sellMinor = detail !== undefined && detail.roundingUnit > 1 ? ceilFractionToUnit(amount.numerator, amount.denominator, detail.roundingUnit) : roundMinor(amount);
+  return { currency: input.currency, sellMinor, markupBp, fxBufferBp: sameCurrency ? 0 : bufferBp, fx, exact: formatExact(amount), ...(detail === undefined ? {} : { channel: detail }) };
+}
+
+/** 最低毛利金额换到客人支付的币种（精确值，不加缓冲）。要换却没有对得上的汇率返回 `FX_RATE_UNAVAILABLE`。 */
+function minMarginIn(minMargin: NonNullable<ChannelSellRules["minMargin"]>, currency: CurrencyCode): { amount: ExactAmount; fx: FxQuote | null } | "FX_RATE_UNAVAILABLE" {
+  if (!Number.isSafeInteger(minMargin.minor) || minMargin.minor < 0) throw new RangeError(`最低毛利金额必须是非负整数（最小货币单位）：${minMargin.minor}`);
+  const amount = exactFromMinor(minMargin.minor);
+  if (minMargin.currency === currency) return { amount, fx: null };
+  const fx = minMargin.fx;
+  const rate = fx !== null && fx.from === minMargin.currency && fx.to === currency ? rateFraction(fx.rate) : null;
+  if (rate === null) return "FX_RATE_UNAVAILABLE";
+  return { amount: scaleExact(scaleExact(amount, rate.numerator, rate.denominator), 10n ** BigInt(minorDigits(currency)), 10n ** BigInt(minorDigits(minMargin.currency))), fx };
 }
 
 // ---- 选中标（第 10 步）----
@@ -754,8 +803,11 @@ export interface QuoteComparison {
  * 把各个商品的报价放在一起比（第 10–12 步）：每个报价算出对外价（各自的加价比例、汇率），换到客人支付的币种后，
  * 按车型组分组选中标，每组生成一份快照。同一个租户的几个商品在同一个车型组里只留排序价最低的那个。
  */
-export function compareQuotes(input: { request: QuoteRequest; currency: CurrencyCode; entries: readonly ComparisonEntry[]; now: Date; bandBp?: number; markupFloorBp?: number; fxBufferBp?: number }): QuoteComparison {
+export function compareQuotes(input: { request: QuoteRequest; currency: CurrencyCode; entries: readonly ComparisonEntry[]; now: Date; bandBp?: number; markupFloorBp?: number; fxBufferBp?: number; channel?: ChannelSellRules }): QuoteComparison {
   const bandBp = input.bandBp ?? QUOTE_RULES.defaultBandBp;
+  // 渠道的最低毛利要换币种时，汇率同样不能超过 48 小时没更新
+  const channel: ChannelSellRules | undefined =
+    input.channel === undefined || input.channel.minMargin === null || input.channel.minMargin.fx === null || fxQuoteUsable(input.channel.minMargin.fx, input.now) ? input.channel : { ...input.channel, minMargin: { ...input.channel.minMargin, fx: null } };
   const refused: QuoteComparison["refused"] = [];
   const byGroup = new Map<string, ComparedOffer[]>();
   for (const entry of input.entries) {
@@ -775,6 +827,7 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
         ...(input.fxBufferBp === undefined ? {} : { fxBufferBp: input.fxBufferBp }),
         // 超过 48 小时没更新的汇率不用：跨币种的这一个报不出（同币种的不看汇率，不受影响）
         fx: entry.fx !== null && fxQuoteUsable(entry.fx, input.now) ? entry.fx : null,
+        ...(channel === undefined ? {} : { channel }),
       });
       if ("failure" in sell) {
         refused.push({ tenantId: quote.tenantId, productId: quote.productId, vehicleGroupId: offer.vehicleGroupId, reason: sell.failure });

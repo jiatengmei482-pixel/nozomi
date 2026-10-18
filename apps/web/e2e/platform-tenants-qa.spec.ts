@@ -667,7 +667,7 @@ const ROLE_EXPECTATIONS: Readonly<Record<string, { label: string; tenants: "mana
   super_admin: { label: "超级管理员", tenants: "manage", staff: true, audit: true, integrations: true },
   operations: { label: "运营", tenants: "manage", staff: false, audit: false, integrations: false },
   tenant_onboarding: { label: "招商", tenants: "manage", staff: false, audit: false, integrations: false },
-  channel_manager: { label: "渠道经理", tenants: "none", staff: false, audit: false, integrations: false },
+  channel_manager: { label: "渠道经理", tenants: "read", staff: false, audit: false, integrations: false },
   customer_service: { label: "客服", tenants: "none", staff: false, audit: false, integrations: false },
   finance: { label: "财务", tenants: "none", staff: false, audit: false, integrations: false },
   risk: { label: "风控", tenants: "none", staff: false, audit: false, integrations: false },
