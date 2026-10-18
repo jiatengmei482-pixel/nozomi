@@ -4878,8 +4878,9 @@ paths:
       operationId: rotateChannelApiClient
       summary: 轮换密钥
       description: |
-        需要操作 `channel.manage`。发一个新密钥（只显示这一次）。旧密钥默认还能用 24 小时（`previous_valid_until`），让渠道有时间换上；
-        `immediate: true`（密钥泄露时）旧密钥和用它换来的令牌立即失效。宽限期过后，用旧密钥换来的令牌也失效。写审计日志。
+        需要操作 `channel.manage`。发一个新密钥（只显示这一次）。被换下的那一代默认还能用 24 小时，让渠道有时间换上；
+        宽限期里再轮换，之前那几代各自从被换下的时刻起算 24 小时，不会被顶掉；同时最多保留 5 代，再多就作废最早的一代。
+        `immediate: true`（密钥泄露时）所有旧代和用它们换来的令牌立即失效。宽限期过后，用旧密钥换来的令牌也失效。写审计日志。
       security:
         - platformToken: []
       parameters:
@@ -6130,7 +6131,7 @@ components:
         previous_valid_until:
           type: [string, "null"]
           format: date-time
-          description: 轮换后旧密钥还能用到什么时候；没有为 null
+          description: 还在宽限期里的旧密钥里最晚的那个失效时刻（每一代各自 24 小时，最多 5 代）；没有为 null
         status:
           type: string
           enum: [active, revoked]

@@ -12,7 +12,7 @@ import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { signSalesToken, verifySalesToken } from "../auth/token.ts";
 import { AppError } from "../errors.ts";
-import { hashClientSecret, sameSecretHash } from "./channel-clients.ts";
+import { type RetiredSecret, hashClientSecret, sameSecretHash, usableRetired } from "./channel-clients.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 
 /** 访问令牌有效期：2 小时 */
@@ -43,13 +43,12 @@ interface ClientRow {
   channel_id: string;
   secret_hash: string;
   secret_generation: number;
-  previous_secret_hash: string | null;
-  previous_valid_until: Date | null;
+  retired_secrets: RetiredSecret[];
   status: "active" | "revoked";
   channel_status: "testing" | "active" | "paused";
 }
 
-const CLIENT_SELECT = `select k.id, k.client_id, k.channel_id, k.secret_hash, k.secret_generation, k.previous_secret_hash, k.previous_valid_until, k.status, c.status as channel_status
+const CLIENT_SELECT = `select k.id, k.client_id, k.channel_id, k.secret_hash, k.secret_generation, k.retired_secrets, k.status, c.status as channel_status
   from channel_api_clients k join channels c on c.id = k.channel_id`;
 
 /** 来源地址不进限流表原文（和登录限速一样只存哈希）。 */
@@ -72,12 +71,13 @@ export async function issueSalesToken(ctx: AppContext, input: { clientId: string
     const hash = hashClientSecret(input.clientSecret);
     if (!row || row.status !== "active") throw invalidClient();
     const current = sameSecretHash(hash, row.secret_hash);
-    const previous = !current && row.previous_secret_hash !== null && row.previous_valid_until !== null && row.previous_valid_until.getTime() > now.getTime() && sameSecretHash(hash, row.previous_secret_hash);
-    if (!current && !previous) throw invalidClient();
+    // 每一代旧密钥各自的宽限期（ADR 0023）：还没过期的哪一代对上了，令牌就记那一代
+    const retired = current ? undefined : usableRetired(row.retired_secrets, now).find((entry) => sameSecretHash(hash, entry.hash));
+    if (!current && retired === undefined) throw invalidClient();
     if (row.channel_status === "paused") throw channelPaused();
     await db.query("update channel_api_clients set last_used_at = $2 where id = $1", [row.id, now]);
     const iat = Math.floor(now.getTime() / 1000);
-    const accessToken = signSalesToken(ctx.config.authJwtSecret, { aud: "sales", sub: row.id, cid: row.channel_id, gen: current ? row.secret_generation : row.secret_generation - 1, iat, exp: iat + SALES_TOKEN_TTL_SECONDS });
+    const accessToken = signSalesToken(ctx.config.authJwtSecret, { aud: "sales", sub: row.id, cid: row.channel_id, gen: current ? row.secret_generation : (retired as RetiredSecret).generation, iat, exp: iat + SALES_TOKEN_TTL_SECONDS });
     return { accessToken, expiresIn: SALES_TOKEN_TTL_SECONDS, channelId: row.channel_id };
   });
 }
@@ -93,7 +93,7 @@ export async function authenticateSales(ctx: AppContext, token: string | null, s
     const result = await db.query<ClientRow>(`${CLIENT_SELECT} where k.id = $1`, [claims.sub]);
     const row = result.rows[0];
     if (!row || row.status !== "active" || row.channel_id !== claims.cid) throw invalidToken();
-    const generationValid = claims.gen === row.secret_generation || (claims.gen === row.secret_generation - 1 && row.previous_valid_until !== null && row.previous_valid_until.getTime() > now.getTime());
+    const generationValid = claims.gen === row.secret_generation || usableRetired(row.retired_secrets, now).some((entry) => entry.generation === claims.gen);
     if (!generationValid) throw invalidToken();
     if (row.channel_status === "paused") throw channelPaused();
     const decision = await takeRateSlot(db, row.channel_id, scope, now);

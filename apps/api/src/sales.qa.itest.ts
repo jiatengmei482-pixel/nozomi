@@ -303,7 +303,7 @@ test("日志、库里没有密钥原文和访问令牌：换令牌失败（表�
   assert.ok(!buckets.some((bucket) => bucket.includes("192.0.2.201")), "限流表里有来源地址原文");
 });
 
-test("缺陷复现：宽限期里再轮换一次（没选「立即作废」），渠道还在用的最早那把密钥和它换的令牌立即失效", async () => {
+test("宽限期里再轮换一次（没选「立即作废」）：渠道还在用的最早那把密钥和它换的令牌照常可用，各代各自从被换下起算 24 小时", async () => {
   const channel = await newChannel(api, m.staff.cm1.token, { name: "QA 连续轮换" });
   const creds = await salesCredentials(api, m, channel.id, "198.51.100.115");
   const rotateUrl = `/platform/v1/channels/${channel.id}/api-clients/${creds.id}/rotate`;
