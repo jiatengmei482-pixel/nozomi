@@ -303,6 +303,20 @@ test("日志、库里没有密钥原文和访问令牌：换令牌失败（表�
   assert.ok(!buckets.some((bucket) => bucket.includes("192.0.2.201")), "限流表里有来源地址原文");
 });
 
+test("缺陷复现：宽限期里再轮换一次（没选「立即作废」），渠道还在用的最早那把密钥和它换的令牌立即失效", async () => {
+  const channel = await newChannel(api, m.staff.cm1.token, { name: "QA 连续轮换" });
+  const creds = await salesCredentials(api, m, channel.id, "198.51.100.115");
+  const rotateUrl = `/platform/v1/channels/${channel.id}/api-clients/${creds.id}/rotate`;
+  api.clock.advance(1_000);
+  await ok(api.call("POST", rotateUrl, { token: m.staff.cm1.token, body: {} }));
+  // 运营没保存好第一次轮换出来的新密钥，又轮换一次（同样没选「立即作废」）；渠道这时还在用最早那把
+  api.clock.advance(60_000);
+  await ok(api.call("POST", rotateUrl, { token: m.staff.cm1.token, body: {} }));
+  const token = await probe(creds.token);
+  const exchanged = await exchange(creds.clientId, creds.secret, "198.51.100.115");
+  assert.deepEqual([token.status, exchanged.status], [404, 200], "页面写着「旧密钥默认还能用 24 小时」：第一次轮换后才过 1 分钟，渠道还在用的密钥不该被作废");
+});
+
 test("轮换的 24 小时宽限期两端：到点前 1 毫秒旧密钥能换令牌、轮换前的旧令牌能用；到点那一刻起旧密钥 401、旧令牌 401，新密钥照常", async () => {
   const channel = await newChannel(api, m.staff.cm1.token, { name: "QA 宽限期两端" });
   const creds = await salesCredentials(api, m, channel.id, "198.51.100.114");
