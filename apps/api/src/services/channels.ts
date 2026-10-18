@@ -292,13 +292,17 @@ async function assertNoRuleBelowFloor(db: Db, channelId: string, floorBp: number
   if (below.length > 0) throw rulesBelowFloorError(below.map((rule) => rule.id), floorBp);
 }
 
-/** 发起修改定价参数。和现在一样的不发起（400）；不合规则的、会让现有规则低于新下限的，发起时就拦下。 */
-export async function requestPricingChange(ctx: AppContext, principal: PlatformPrincipal, channelId: string, pricing: ChannelPricing, note: string | null, ip: string): Promise<Approval> {
-  assertPricing(pricing);
+/**
+ * 发起修改定价参数：只给要改的几项，没给的保持现在的值（合并）。合并后和现在一样的不发起（400）；
+ * 不合规则的、会让现有规则低于新下限的，发起时就拦下。
+ */
+export async function requestPricingChange(ctx: AppContext, principal: PlatformPrincipal, channelId: string, change: Partial<ChannelPricing>, note: string | null, ip: string): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {
     const channel = await loadChannel(db, channelId);
+    const pricing: ChannelPricing = { ...channel.pricing, ...change };
+    assertPricing(pricing);
     if (samePricing(channel.pricing, pricing)) throw validationFailed("body", [{ path: "/", reason: "UNCHANGED", message: "和现在的定价参数一样，不用发起" }]);
     await assertNoRuleBelowFloor(db, channelId, pricing.markupFloorBp, now);
     const changes = [

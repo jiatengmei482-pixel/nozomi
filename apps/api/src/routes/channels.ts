@@ -83,7 +83,17 @@ const patchSchema = z
     scope: scopeSchema.optional(),
   })
   .strict();
-const pricingChangeSchema = z.object({ ...pricingShape, request_note: noteSchema }).strict();
+/** 发起修改定价参数：只给要改的那几项，没给的保持现在的值（合并）；`sell_rounding` 给了就整体替换 */
+const pricingChangeSchema = z
+  .object({
+    default_markup_bp: bp.optional(),
+    markup_floor_bp: bp.optional(),
+    band_bp: z.number().int().min(0).max(CHANNEL_RULES.maxBandBp).optional(),
+    min_margin: money.optional(),
+    sell_rounding: z.record(z.enum(CURRENCY_CODES), z.number().int().min(1).max(CHANNEL_RULES.maxRoundingUnit)).optional(),
+    request_note: noteSchema,
+  })
+  .strict();
 const noteOnlySchema = z.object({ request_note: noteSchema }).strict();
 const decisionSchema = z.object({ note: noteSchema }).strict();
 const ruleSchema = z
@@ -331,7 +341,13 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
       ctx,
       principal,
       channelId,
-      { defaultMarkupBp: input.default_markup_bp, markupFloorBp: input.markup_floor_bp, bandBp: input.band_bp, minMarginMinor: input.min_margin, sellRounding: input.sell_rounding },
+      {
+        ...(input.default_markup_bp === undefined ? {} : { defaultMarkupBp: input.default_markup_bp }),
+        ...(input.markup_floor_bp === undefined ? {} : { markupFloorBp: input.markup_floor_bp }),
+        ...(input.band_bp === undefined ? {} : { bandBp: input.band_bp }),
+        ...(input.min_margin === undefined ? {} : { minMarginMinor: input.min_margin }),
+        ...(input.sell_rounding === undefined ? {} : { sellRounding: input.sell_rounding }),
+      },
       input.request_note,
       request.ip,
     );

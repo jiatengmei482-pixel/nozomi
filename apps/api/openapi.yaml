@@ -4680,7 +4680,7 @@ paths:
       operationId: requestChannelPricingChange
       summary: 发起修改定价参数（双人复核）
       description: |
-        需要操作 `channel.manage`。默认加价比例、加价下限、价格带 δ、最低毛利金额、对外价取整一起提交（不给的按默认值）；不直接生效，返回 202 和待审核的复核记录。
+        需要操作 `channel.manage`。默认加价比例、加价下限、价格带 δ、最低毛利金额、对外价取整：只给要改的那几项，没给的保持现在的值（合并后再校验）；不直接生效，返回 202 和待审核的复核记录。
         - 下限不能低于平台下限 10%，默认加价不能低于下限，价格带 0–5%（`VALIDATION_FAILED`，原因 `BELOW_PLATFORM_FLOOR` / `BELOW_FLOOR` / `OUT_OF_RANGE`）；
         - 和现在一样的不发起（`UNCHANGED`）；
         - 调高下限时，还在用的加价规则有低于新下限的，先要把它们改掉（409 `RULES_BELOW_FLOOR`，`details.rule_ids`）。
@@ -5869,30 +5869,26 @@ components:
     ChannelPricingChangeRequest:
       type: object
       additionalProperties: false
-      description: 发起修改定价参数：几项一起提交（不给的按默认值）
+      description: 发起修改定价参数：只给要改的那几项，没给的保持现在的值（合并）；`sell_rounding` 给了就整体替换
       properties:
         default_markup_bp:
           type: integer
           minimum: 0
           maximum: 100000
-          default: 1000
           description: 渠道默认加价比例（没有命中任何加价规则时用）；不能低于下限
         markup_floor_bp:
           type: integer
           minimum: 0
           maximum: 100000
-          default: 1000
           description: 加价下限；不能低于平台下限 1000（10%）
         band_bp:
           type: integer
           minimum: 0
           maximum: 500
-          default: 300
           description: 价格带 δ（0–5%）
         min_margin:
           type: integer
           minimum: 0
-          default: 0
           description: 最低毛利金额（渠道结算币种的最小货币单位）；加价部分不足它时补到它。0 = 不设
         sell_rounding:
           $ref: "#/components/schemas/SellRounding"

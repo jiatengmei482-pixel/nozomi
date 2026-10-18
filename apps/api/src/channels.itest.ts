@@ -256,6 +256,24 @@ test("最低毛利和对外价取整（按渠道）：加价不足最低毛利�
   assert.equal(candidateOf(body, m.ids.eco4, m.a.tenantId).sell, 15_000);
 });
 
+test("改定价参数只给一项：没给的保持现在的值（合并），不会被重置成默认值；合并后不合规则的照样拦", async () => {
+  const channel = await newChannel(api, m.staff.cm1.token, { name: "合并定价参数", pricing: { markup_floor_bp: 1_200, default_markup_bp: 1_300, band_bp: 200, min_margin: 300, sell_rounding: { JPY: 100 } } });
+  const requested = await checked("POST", `/platform/v1/channels/${channel.id}/pricing-changes`, "/platform/v1/channels/{id}/pricing-changes", { token: m.staff.cm1.token, body: { band_bp: 400 } });
+  assert.equal(requested.status, 202, requested.text);
+  assert.deepEqual(requested.body.approval.payload, { default_markup_bp: 1_300, markup_floor_bp: 1_200, band_bp: 400, min_margin_minor: 300, sell_rounding: { JPY: 100 } });
+  assert.match(requested.body.approval.summary, /价格带 2% → 4%$/);
+  await ok(api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/approve`, { token: m.staff.cm2.token, body: {} }));
+  const after = await ok(api.call("GET", `/platform/v1/channels/${channel.id}`, { token: m.root }));
+  assert.deepEqual(after.channel.pricing, { default_markup_bp: 1_300, markup_floor_bp: 1_200, band_bp: 400, min_margin: 300, sell_rounding: { JPY: 100 } });
+  // 只调高下限、超过了现在的默认加价：合并后默认加价低于下限，拦下
+  const tooHigh = await checked("POST", `/platform/v1/channels/${channel.id}/pricing-changes`, "/platform/v1/channels/{id}/pricing-changes", { token: m.staff.cm1.token, body: { markup_floor_bp: 1_400 } });
+  assert.deepEqual([tooHigh.status, tooHigh.body.error.details.issues.map((i: any) => [i.path, i.reason])], [400, [["/default_markup_bp", "BELOW_FLOOR"]]]);
+  // 给了 sell_rounding 就整体替换
+  const rounding = await ok(api.call("POST", `/platform/v1/channels/${channel.id}/pricing-changes`, { token: m.staff.cm1.token, body: { sell_rounding: {} } }), 202);
+  assert.deepEqual(rounding.approval.payload.sell_rounding, {});
+  assert.equal(rounding.approval.payload.band_bp, 400);
+});
+
 test("基本信息和授权范围：直接改（If-Match）；名单里的租户、城市要存在；全部租户时不能带名单；启用直接生效，暂停要复核", async () => {
   const channel = await newChannel(api, m.staff.cm1.token, { name: "改基本信息" });
   const url = `/platform/v1/channels/${channel.id}`;
@@ -353,3 +371,4 @@ test("轮换：旧密钥默认还能用 24 小时，宽限期里用旧密钥换�
   const other = await newChannel(api, manager, { name: "别的渠道" });
   assert.equal((await api.call("POST", `/platform/v1/channels/${other.id}/api-clients/${creds.id}/rotate`, { token: manager, body: {} })).status, 404);
 });
+
