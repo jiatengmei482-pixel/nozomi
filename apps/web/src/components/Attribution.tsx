@@ -1,5 +1,5 @@
 /**
- * 公开数据源的署名。GeoNames 的许可（CC BY 4.0）要求使用时注明来源并链过去，凡是展示城市的页面都要带这一行；
+ * 公开数据源的署名。GeoNames 的许可（CC BY 4.0）要求使用时注明来源并链过去，凡是展示城市或机场中文、日文名称的页面都要带这一行；
  * OurAirports 是公有领域，注明来源是为了让人知道数据从哪来。
  */
 import { ExternalLink } from "./ExternalLink.tsx";
@@ -9,7 +9,7 @@ export type DataSource = "geonames" | "ourairports";
 export function Attribution({ source }: { source: DataSource }) {
   return source === "geonames" ? (
     <p className="page__attribution">
-      城市数据来自 <ExternalLink to="geonames">GeoNames</ExternalLink>（geonames.org），<ExternalLink to="ccBy4">CC BY 4.0</ExternalLink>
+      城市数据和机场的中文、日文名称来自 <ExternalLink to="geonames">GeoNames</ExternalLink>（geonames.org），<ExternalLink to="ccBy4">CC BY 4.0</ExternalLink>
     </p>
   ) : (
     <p className="page__attribution">

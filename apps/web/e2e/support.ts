@@ -2,7 +2,7 @@
  * 端到端测试的公用步骤。测试数据全部经真实 API 创建在本次运行的临时 schema 里，运行结束随 schema 一起删除。
  */
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -236,6 +236,47 @@ export async function importAirports(country: string, airports: readonly SampleA
       } catch (err) {
         const busy = err instanceof Error && /IMPORT_ALREADY_RUNNING|IMPORT_CODE_CONFLICT/.test(err.message);
         if (!busy || attempt >= 20) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 150 + Math.floor(Math.random() * 250)));
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export interface SampleAirportNames {
+  iata: string;
+  lat: number;
+  lng: number;
+  /** GeoNames alternateNames 的「语言标签 → 名称」，例如 { ja: "成田国際空港", zh: "成田国际机场" } */
+  names: Record<string, string>;
+}
+
+/**
+ * 用真实的导入命令 `masterdata-import-airport-names.ts --file --names-file` 给已经导入的机场填中文名、日文名（M1-15）。
+ * 两个文件（GeoNames 的国家文件和 alternateNames 文件）都在这里按测试给的内容现场构造，不联网。
+ */
+export async function importAirportNames(country: string, airports: readonly SampleAirportNames[]): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "nozomi-e2e-airport-names-"));
+  try {
+    const places: string[] = [];
+    const names: string[] = [];
+    for (const airport of airports) {
+      const geonameId = 90_000_000 + randomBytes(3).readUIntBE(0, 3);
+      places.push([geonameId, `Sample ${airport.iata}`, `Sample ${airport.iata}`, "", airport.lat, airport.lng, "S", "AIRP", country, "", "01", "", "", "", 0, "", 0, "Asia/Tokyo", "2026-01-01"].join("\t"));
+      for (const [tag, name] of [["iata", airport.iata], ...Object.entries(airport.names)]) names.push([90_000_000 + names.length, geonameId, tag, name, "", "", "", "", "", ""].join("\t"));
+    }
+    await writeFile(join(dir, `${country}.txt`), `${places.join("\n")}\n`, "utf8");
+    const namesDir = join(dir, "alternatenames");
+    await mkdir(namesDir);
+    await writeFile(join(namesDir, `${country}.txt`), `${names.join("\n")}\n`, "utf8");
+    // 导入命令同一时间只允许跑一个；并行的用例撞上时等一下再来
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await runCli("masterdata-import-airport-names.ts", ["--country", country, "--file", join(dir, `${country}.txt`), "--names-file", join(namesDir, `${country}.txt`)]);
+        break;
+      } catch (err) {
+        if (!(err instanceof Error && /IMPORT_ALREADY_RUNNING/.test(err.message)) || attempt >= 20) throw err;
         await new Promise((resolve) => setTimeout(resolve, 150 + Math.floor(Math.random() * 250)));
       }
     }

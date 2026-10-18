@@ -55,7 +55,8 @@ info:
       字段格式都对、但内容不合规则（编码格式、时区、坐标范围、引用的城市不存在等）同样返回 400 `VALIDATION_FAILED`，
       `details.issues` 指出字段。机场数据来自 OurAirports（https://ourairports.com/data/，公有领域），
       用命令 `pnpm masterdata:import-airports` 导入；
-      城市数据来自 GeoNames（https://www.geonames.org/，CC BY 4.0，须注明来源），用命令 `pnpm masterdata:import-cities` 导入。
+      城市数据来自 GeoNames（https://www.geonames.org/，CC BY 4.0，须注明来源），用命令 `pnpm masterdata:import-cities` 导入；
+      机场的中文名、日文名同样来自 GeoNames（CC BY 4.0，须注明来源），用命令 `pnpm masterdata:import-airport-names` 填入。
 servers:
   - url: http://localhost:8080
     description: 本地开发

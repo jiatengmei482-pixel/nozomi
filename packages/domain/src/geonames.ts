@@ -44,6 +44,11 @@ export function geonamesNamesFile(countryCode: string): { url: string; entry: st
   return { url: `${DUMP}/alternatenames/${countryCode}.zip`, entry: `${countryCode}.txt` };
 }
 
+/** 某个国家的全部地理名称记录（geoname 表，19 列，和城市文件同一种格式）的下载地址和 zip 里的文件名。机场名称导入用它认出哪些记录是机场。 */
+export function geonamesCountryFile(countryCode: string): { url: string; entry: string } {
+  return { url: `${DUMP}/${countryCode}.zip`, entry: `${countryCode}.txt` };
+}
+
 /**
  * 默认的导入范围：人口 30 万以上的城市，外加首都和一级行政区（都道府县、道 / 广域市）的首府。
  * 按 2026-10-08 的文件，去掉区和市内的街区之后日本 84 个、韩国 35 个——是「会有接送需求的城市」的量级，而不是几千个町村。
