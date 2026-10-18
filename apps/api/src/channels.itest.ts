@@ -372,3 +372,13 @@ test("轮换：旧密钥默认还能用 24 小时，宽限期里用旧密钥换�
   assert.equal((await api.call("POST", `/platform/v1/channels/${other.id}/api-clients/${creds.id}/rotate`, { token: manager, body: {} })).status, 404);
 });
 
+
+test("按渠道试算：能试算又能看渠道的才行（运营、渠道经理）；不能试算的 403 quote.preview（只读、主数据运营）", async () => {
+  const relogin = async (email: string): Promise<string> => (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+  const channel = await newChannel(api, await relogin(m.staff.cm1.email), { name: "试算权限" });
+  for (const [who, expected] of [[m.staff.operations, 200], [m.staff.cm1, 200], [m.staff.readonly, 403], [m.staff.masterData, 403]] as const) {
+    const res = await checked("POST", "/platform/v1/quotes/preview", "/platform/v1/quotes/preview", { token: await relogin(who.email), body: previewAsk({ channel_id: channel.id }) });
+    assert.equal(res.status, expected, `${who.email}：${res.text.slice(0, 200)}`);
+    if (expected === 403) assert.equal(res.body.error.details.required, "quote.preview");
+  }
+});
