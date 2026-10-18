@@ -6,6 +6,7 @@
 import { CURRENCIES, PRODUCT_CATEGORY_NAMES, SERVICE_CATEGORIES, type ServiceCategory } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import { type Channel, listAllChannels } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
 import { type Place, type VehicleGroup, listAllMaster } from "../../api/master.ts";
 import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, listQuotePlaces, previewPlatformQuote } from "../../api/quotes.ts";
@@ -115,7 +116,7 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
   lines.push({ label: "结算价", value: <strong>{moneyText(settlement.total, own)}</strong> });
   if (settlement.usage) lines.push({ label: "按多少路程算", value: `${metersToKmText(settlement.usage.meters)} 公里、${durationText(settlement.usage.minutes)}` });
   lines.push({ label: "换算成客人支付的币种", value: candidate.fx === null ? `同币种（${own}），不用换算` : `1 ${candidate.fx.from} = ${candidate.fx.rate} ${candidate.fx.to}（汇率时间 ${formatLocalDateTime(candidate.fx.as_of)}），汇率缓冲 ${basisPointsText(candidate.fx_buffer_bp)}%` });
-  lines.push({ label: "对外价", value: `${moneyText(candidate.sell, currency)}（结算价${candidate.fx === null ? "" : "换算后"}加 ${basisPointsText(candidate.markup_bp)}%，取整前 ${exactTextMoney(candidate.sell_exact, currency)}）` });
+  lines.push({ label: "对外价", value: `${moneyText(candidate.sell, currency)}（结算价${candidate.fx === null ? "" : "换算后"}加 ${basisPointsText(candidate.markup_bp)}%${candidate.min_margin_applied ? "，加价不足渠道的最低毛利、补到了最低毛利" : ""}，取整前 ${exactTextMoney(candidate.sell_exact, currency)}）` });
   const wait = settlement.free_wait;
   lines.push({ label: "免费等待", value: wait.mode === "unlimited" ? "不限时" : wait.mode === "limited" ? `${wait.minutes ?? 0} 分钟（平台规定最少 ${wait.platform_minimum_minutes} 分钟）` : "没有设" });
   return (
@@ -130,7 +131,7 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
   );
 }
 
-function CandidateRows({ candidate, currency }: { candidate: QuoteCandidate; currency: string }) {
+function CandidateRows({ candidate, currency, showLevel }: { candidate: QuoteCandidate; currency: string; showLevel: boolean }) {
   const [open, setOpen] = useState(false);
   const detailId = `quote-detail-${candidate.product_id}-${candidate.offer.vehicle_group_id}-${candidate.offer.package_hours ?? 0}`;
   const who = candidate.tenant_name ?? "（供应商名称没有取到）";
@@ -156,6 +157,7 @@ function CandidateRows({ candidate, currency }: { candidate: QuoteCandidate; cur
         <td className="table__cell--end">{moneyText(candidate.offer.settlement.total, candidate.offer.settlement.currency)}</td>
         <td className="table__cell--end">{moneyText(candidate.sell, currency)}</td>
         <td className="table__cell--end">{`${basisPointsText(candidate.markup_bp)}%`}</td>
+        {showLevel && <td>{candidate.markup_level === null ? "—" : `第 ${candidate.markup_level} 级${candidate.markup_rule_id === null ? "（默认）" : ""}`}</td>}
         <td className="table__cell--end">{exactTextMoney(candidate.rank_price, currency)}</td>
         <td>{candidate.in_band ? "在" : "不在"}</td>
         <td>
@@ -165,13 +167,13 @@ function CandidateRows({ candidate, currency }: { candidate: QuoteCandidate; cur
         </td>
       </tr>
       <tr id={detailId} className="quote-table__detail" hidden={!open}>
-        <td colSpan={8}>{open && <SettlementDetail candidate={candidate} currency={currency} />}</td>
+        <td colSpan={showLevel ? 9 : 8}>{open && <SettlementDetail candidate={candidate} currency={currency} />}</td>
       </tr>
     </>
   );
 }
 
-function GroupCard({ group, groupName, currency, bandBp }: { group: QuoteGroup; groupName: string; currency: string; bandBp: number }) {
+function GroupCard({ group, groupName, currency, bandBp, showLevel }: { group: QuoteGroup; groupName: string; currency: string; bandBp: number; showLevel: boolean }) {
   const title = `${groupName}${group.package_hours !== null ? ` · ${group.package_hours} 小时套餐` : ""}`;
   const headingId = `quote-group-${group.vehicle_group_id}-${group.package_hours ?? 0}`;
   return (
@@ -202,6 +204,7 @@ function GroupCard({ group, groupName, currency, bandBp }: { group: QuoteGroup; 
                 <th scope="col" className="table__cell--end">
                   加价比例
                 </th>
+                {showLevel && <th scope="col">命中的加价规则</th>}
                 <th scope="col" className="table__cell--end">
                   排序价
                 </th>
@@ -211,7 +214,7 @@ function GroupCard({ group, groupName, currency, bandBp }: { group: QuoteGroup; 
             </thead>
             <tbody>
               {group.candidates.map((candidate) => (
-                <CandidateRows key={`${candidate.product_id}-${candidate.position}`} candidate={candidate} currency={currency} />
+                <CandidateRows key={`${candidate.product_id}-${candidate.position}`} candidate={candidate} currency={currency} showLevel={showLevel} />
               ))}
             </tbody>
           </table>
@@ -253,6 +256,12 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
             {result.route ? ` 用的路程：${metersToKmText(result.route.meters)} 公里、${durationText(result.route.minutes)}。` : ""}
             {` 加价比例不低于 ${basisPointsText(result.markup_floor_bp)}%。`}
           </p>
+          <p className="quote-result__summary">
+            {result.channel === null
+              ? "按平台默认参数试算（没有选渠道）：默认加价比例、10% 下限、3% 价格带，没有最低毛利和对外价取整。"
+              : `按渠道「${result.channel.name}」的规则试算：加价比例按它的加价规则匹配，价格带 ${basisPointsText(result.band_bp)}%${result.channel.min_margin > 0 ? `，最低毛利 ${moneyText(result.channel.min_margin, result.channel.settle_currency)}` : ""}${result.channel.rounding_unit > 1 ? `，对外价向上取整到 ${moneyText(result.channel.rounding_unit, result.currency)}` : ""}。`}
+            {result.excluded.length > 0 ? ` 渠道不卖的 ${result.excluded.length} 个商品没参加比价（见最下面）。` : ""}
+          </p>
           {result.groups.length === 0 && (
             <Alert kind="warning">
               <strong className="alert__title">一个车型组都没有报出价。</strong>
@@ -260,9 +269,22 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
             </Alert>
           )}
           {result.groups.map((group) => (
-            <GroupCard key={`${group.vehicle_group_id}-${group.package_hours ?? 0}`} group={group} groupName={groupName(group.vehicle_group_id)} currency={result.currency} bandBp={result.band_bp} />
+            <GroupCard key={`${group.vehicle_group_id}-${group.package_hours ?? 0}`} group={group} groupName={groupName(group.vehicle_group_id)} currency={result.currency} bandBp={result.band_bp} showLevel={result.channel !== null} />
           ))}
         </>
+      )}
+      {result.excluded.length > 0 && (
+        <section className="card" aria-labelledby="quote-excluded-title">
+          <h3 className="card__title" id="quote-excluded-title">{`渠道不卖的（${result.excluded.length}）`}</h3>
+          <ul className="channel-approvals">
+            {result.excluded.map((entry) => (
+              <li key={entry.product_id}>
+                <span>{entry.tenant_name ?? "（供应商名称没有取到）"}</span>
+                <span className="product-code">{entry.product_code ?? "—"}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {result.refused.length > 0 && (
         <section className="card" aria-labelledby="quote-refused-title">
@@ -306,6 +328,8 @@ export function QuotePreviewPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`报价试算 · NOZOMI ${portal.name}`);
   const canPreview = usePlatformCan("quote.preview");
+  const canSeeChannels = usePlatformCan("channel.read");
+  const channels = useLoad<{ items: Channel[]; truncated: boolean }>("quote-channels", canPreview && canSeeChannels ? listAllChannels : null);
   const cities = useAllCities();
   const groups = useLoad<VehicleGroup[]>("quote-vehicle-groups", canPreview ? (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }) : null);
   const [form, setForm] = useState<QuoteForm>(emptyQuoteForm);
@@ -365,6 +389,8 @@ export function QuotePreviewPage() {
         const placeDisabled = err.details["reason"] === "PLACE_DISABLED";
         setServer(placeDisabled ? { place: "这个机场或车站已被平台停用，现在不报价。请换一个，或先到主数据里启用它。" } : { city: "这个城市已被平台停用，现在不报价。请换一个，或先到主数据里启用它。" });
         requestAnimationFrame(() => focusField(placeDisabled ? "place" : "city"));
+      } else if (err instanceof ApiError && err.code === "CHANNEL_SCOPE_DENIED") {
+        setNotice(err.details["reason"] === "CITY_NOT_AUTHORIZED" ? "选的渠道没有被授权卖这个城市。换一个渠道，或先在渠道的授权范围里加上这个城市。" : "选的渠道没有被授权卖这个品类。换一个渠道，或先在渠道的授权范围里加上这个品类。");
       } else if (err instanceof ApiError && err.status === 403) setNotice("你没有权限做报价试算。需要的话，请联系管理员开通。");
       else setNotice(`试算没有成功。${saveFailureText(err, "试算", true)}`);
     } finally {
@@ -510,6 +536,24 @@ export function QuotePreviewPage() {
               对外价和比价都换算到这个币种；和商品的结算币种不同时要有汇率。
             </p>
           </div>
+          {canSeeChannels && (
+            <div className="field" id="quote-channel">
+              <label className="field__label" htmlFor="quote-channel-select">
+                按哪个渠道的规则（选填）
+              </label>
+              <select id="quote-channel-select" className="input select" value={form.channelId ?? ""} aria-describedby="quote-channel-hint" onChange={(event) => change({ channelId: event.target.value === "" ? null : event.target.value })}>
+                <option value="">不选：平台默认参数</option>
+                {(channels.state.data?.items ?? []).map((channel) => (
+                  <option key={channel.id} value={channel.id}>
+                    {channel.name}
+                  </option>
+                ))}
+              </select>
+              <p className="field__hint" id="quote-channel-hint">
+                选了渠道：只比它授权卖的供应商，加价比例按它的加价规则，价格带、最低毛利、对外价取整也用它的。
+              </p>
+            </div>
+          )}
           <fieldset className="field fieldset form-grid__wide" id="quote-route">
             <legend className="field__label">假定的里程和时长（选填）</legend>
             <div className="quote-form__time">

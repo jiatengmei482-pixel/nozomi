@@ -48,6 +48,10 @@ export const PLATFORM_ACTIONS = [
   "quote.preview",
   "product.read",
   "fx.manage",
+  "channel.read",
+  "channel.manage",
+  "channel.review",
+  "approval.read",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -67,18 +71,23 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 查看供应商的商品（只读，M1-12，ADR 0021）：运营、招商（租户详情页的「商品和价格概览」）、渠道经理（决定渠道卖哪些供应商）、
  * 客服（处理订单时查服务规则、调度人）、风控（价格异常）、只读。里面有结算价，没有对外价和加价比例。
  * 财务、主数据运营、技术用不到（财务看账单，主数据运营停用主数据时只需要「几个已上架商品在用」的数量，已经有了）。
+ * 渠道（M2-04，ADR 0023）：菜单表的「渠道管理」归渠道经理。看（`channel.read`）：除主数据运营外每个角色——运营、招商看渠道卖哪些供应商，
+ * 客服处理订单要知道是哪个渠道，财务对账，风控看价格，技术管连接器和接口日志，只读能看。里面有加价比例，但这是平台内部的配置（规则 4 只限制 `/tenant/v1`）。
+ * 改（`channel.manage`：新建、改基本配置和授权范围、发 API 密钥、**发起**加价和停用的复核）和审核（`channel.review`）：渠道经理和超级管理员。
+ * 渠道经理另有 `tenant.read`（只读）：设置渠道卖哪些供应商、按供应商设加价规则，要看得到供应商名单。
+ * 待审核队列（`approval.read`）：能看到的只是自己看得到的那几类（现在都是渠道的，所以给有 `channel.read` 的角色）。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read"],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read"],
-  channel_manager: ["master_data.read", "quote.preview", "product.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read"],
-  finance: ["master_data.read"],
-  risk: ["master_data.read", "product.read"],
+  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  finance: ["master_data.read", "channel.read", "approval.read"],
+  risk: ["master_data.read", "product.read", "channel.read", "approval.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage"],
-  tech: ["integration.read", "master_data.read"],
-  readonly: ["tenant.read", "master_data.read", "product.read"],
+  tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read"],
 };
 
 /**

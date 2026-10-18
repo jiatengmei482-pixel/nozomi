@@ -198,7 +198,8 @@ test("SQL 注入式的输入：登录、邀请、筛选、路径编号都不会�
 });
 
 test("每个带 {id} 的接口：编号不是 UUID（字母、SQL 片段、带花括号、空字节）都是统一格式的 404，超长的是 414", async () => {
-  const routes = api.app.registeredRoutes.filter((route) => route.path.includes(":id") && route.method !== "HEAD");
+  // 销售端（/sales/v1）用渠道的访问令牌，编号也不是 UUID（quote_id）：在 sales.itest.ts 里单独测
+  const routes = api.app.registeredRoutes.filter((route) => route.path.includes(":id") && route.method !== "HEAD" && !route.path.startsWith("/sales/"));
   assert.ok(routes.length >= 8, "应当找得到带 {id} 的接口");
   const badIds = ["abc", "123", "1%20or%201=1", `{${SOME_ID}}`, `${SOME_ID}0`, SOME_ID.replaceAll("-", ""), "a".repeat(300), "%00", "null", "undefined", "..%2F..%2Fetc"];
   for (const route of routes) {

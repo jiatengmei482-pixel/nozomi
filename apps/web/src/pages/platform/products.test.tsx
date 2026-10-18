@@ -422,6 +422,9 @@ const candidateOf = (position: number, tenantName: string, code: string, total: 
   sell: total + total / 10,
   sell_exact: String(total + total / 10),
   markup_bp: 1000,
+  markup_level: null,
+  markup_rule_id: null,
+  min_margin_applied: false,
   fx_buffer_bp: 0,
   fx: null,
   offer: { vehicle_group_id: GROUP_ID, package_hours: null, area_id: AREA_ID, price_rule_id: PRICE_ID, settlement: settlementOf(total) },
@@ -430,6 +433,8 @@ const candidateOf = (position: number, tenantName: string, code: string, total: 
 const previewOf = (changes: Partial<PlatformQuotePreview> = {}): PlatformQuotePreview => ({
   currency: "JPY",
   band_bp: 300,
+  channel: null,
+  excluded: [],
   markup_floor_bp: 1000,
   route: null,
   candidate_count: 3,
@@ -496,6 +501,7 @@ test("报价试算：没填的当场指出，焦点到第一处；接机只要�
     passengers: 2,
     luggage: 0,
     assume_route: null,
+    channel_id: null,
   });
 });
 

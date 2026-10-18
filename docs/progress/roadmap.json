@@ -226,9 +226,10 @@
       "goal": "/sales/v1 询价：多租户比价、3% 价格带、汇率缓冲、报价快照",
       "tasks": [
         { "id": "M2-01", "title": "报价引擎（第五轮规则）", "role": "backend", "status": "done", "acceptance": ["与需求文档的计价公式逐项对应的单元测试"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/20 ；单元 981、前端组件 241、集成 764 个通过；packages/domain/src/quote.test.ts 文件头有需求公式与测试的逐项对照表；测试角色发现的缺陷已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-15" },
-        { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "todo", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-02", "title": "谷歌地图路线预估与缓存", "role": "backend", "status": "blocked",
+          "blockedBy": "要等你注册谷歌地图（Google Maps Platform）并开通 Routes API，把密钥填进测试环境的设置（见 docs/secrets.md）。在那之前，按里程 + 时长计价的商品报不出价，一口价和包车套餐不受影响", "acceptance": ["真实调用 Routes API，失败有降级提示"], "evidence": "", "updated": "2026-10-18" },
         { "id": "M2-03", "title": "汇率中心（免费源、每日更新、告警）", "role": "backend", "status": "done", "acceptance": ["汇率过期告警", "快照写入报价"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/25 ；单元 1059、前端组件 356、集成 808、相关端到端 97 个通过；测试角色发现的 2 个缺陷和汇率缓冲用浮点数换算的问题已修复；验收报告 docs/acceptance/M2.md", "updated": "2026-10-17" },
-        { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "todo", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M2-04", "title": "渠道与加价规则（最低加价 10%，双人复核）", "role": "backend", "status": "review", "acceptance": ["租户端任何接口不返回对外价和加价比例"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/31 ；单元 1111、前端组件 412、集成 914 个通过；租户端每个 GET 接口逐层扫描不含对外价、加价比例、渠道信息，租户数据库角色读不到渠道相关的 9 张表；测试角色发现的 2 个缺陷已修复", "updated": "2026-10-18" },
         {
           "id": "M2-06",
           "title": "汇率人工锁定（双人复核）",
@@ -251,6 +252,15 @@
         { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "todo", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "todo", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-05", "title": "官网下单页与订单页", "role": "frontend", "status": "todo", "acceptance": ["客人可点「我已落地」"], "evidence": "", "updated": "2026-10-07" },
+        {
+          "id": "M3-07",
+          "title": "加价规则生效前试算近 30 天的毛利影响",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["发起加价规则或渠道定价参数的修改时，可以看到按近 30 天询价和订单重算的毛利变化", "审核人在批准前能看到同样的试算结果"],
+          "evidence": "",
+          "updated": "2026-10-18"
+        },
         { "id": "M3-06", "title": "M3 验收", "role": "acceptance", "status": "todo", "acceptance": ["完整走通一单接机，含延误和 no-show 场景"], "evidence": "", "updated": "2026-10-07" }
       ]
     },
@@ -433,6 +443,11 @@
       "date": "2026-10-18",
       "by": "Claude",
       "summary": "M1-14 待验收：日历里过去的日子不再显示成警告、手机上打开就定位到今天；价格表「再加一段日期」接在下面、开始日期预填、可删除、保存失败不乱序；手机底部操作栏最多两行；接送点用中文搜不到时给出说明（导入的机场只有英文名，中文名的导入拆为 M1-15）；系统状态显示汇率是否过期和更新时间；汇率页数字四舍五入、可显示完整值。"
+    },
+    {
+      "date": "2026-10-18",
+      "by": "Claude",
+      "summary": "M2-04 待验收：渠道账户（类型、结算币种、授权的供应商 / 城市 / 品类、价格带、加价下限、最低毛利、对外价取整）、渠道调用接口的密钥（只显示一次、轮换有 24 小时宽限）、五级加价规则（可带促销日期，低于 10% 一律拦截）、通用的双人复核（发起人不能自己审核）、正式询价接口 /sales/v1/quotes（只返回对外价，不显示中标供应商、结算价和加价比例，30 分钟有效）；运营后台新增「渠道」「待审核」。测试角色发现的 2 个缺陷已修复。M2-02 因缺谷歌地图密钥标为受阻；生效前试算近 30 天毛利要有订单数据，拆为 M3-07。"
     }
   ]
 }
