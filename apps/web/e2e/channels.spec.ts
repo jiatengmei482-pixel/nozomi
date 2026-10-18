@@ -149,7 +149,8 @@ test("渠道经理甲建渠道、加加价规则（自己批不了）→ 渠道�
   for (const hidden of [supplierA.tenant.tenantName, supplierB.tenant.tenantName, supplierA.tenant.tenantId, "20000", "markup", "settlement"]) expect(text, `应答里不能有 ${hidden}`).not.toContain(hidden);
   expect((await request.get(`/sales/v1/quotes/${body.quotes[0]?.quote_id}`, { headers: auth })).status()).toBe(200);
   await page.reload();
-  await expect(page.getByRole("region", { name: "最近的询价", exact: true })).toBeVisible();
+  // 卡片和里面的表格是两个区域：卡片叫「最近的询价」，表格叫「最近的询价列表」（有询价记录才出现）
+  await expect(page.getByRole("region", { name: "最近的询价列表", exact: true })).toBeVisible();
 
   // 报价试算：选这个渠道，A 家命中第 2 级、B 家用渠道默认
   await menu(page).getByRole("link", { name: "报价试算" }).click();
