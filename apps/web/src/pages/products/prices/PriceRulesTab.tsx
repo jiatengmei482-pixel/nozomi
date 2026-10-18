@@ -864,7 +864,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               </td>
                               {!readOnly && (
                                 <td>
-                                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label} 的更多操作`} align="end">
+                                  <Dropdown buttonClassName="icon-button" buttonContent={<Icon name="more" />} label={`${label}${visible.filter((other) => other.areaId === row.areaId && other.vehicleGroupId === row.vehicleGroupId && rowLabel(other) === label).length > 1 ? `（${row.from.trim() === "" ? "未填开始日期" : row.from} 起${row.to.trim() === "" ? "" : `，到 ${row.to}`}）` : ""} 的更多操作`} align="end">
                                     <button
                                       type="button"
                                       role="menuitem"

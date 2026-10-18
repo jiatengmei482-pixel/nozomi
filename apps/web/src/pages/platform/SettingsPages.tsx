@@ -761,9 +761,9 @@ export function IntegrationsPage() {
       </div>
       {missing.length > 0 && (
         <Alert kind="warning">
-          <strong className="alert__title">{`有 ${missing.length} 项还没有配置`}</strong>
+          <strong className="alert__title">{`有 ${missing.length} 项还没有配置：`}</strong>
           <span>
-            {`：${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；`}
+            {`${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；`}
             <strong>密钥只能由负责人本人填进各平台的设置页面，不要发在聊天里。</strong>
           </span>
         </Alert>
