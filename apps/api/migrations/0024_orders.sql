@@ -172,7 +172,8 @@ create table order_payments (
   constraint order_payments_kind_check check (kind in ('order')),
   constraint order_payments_provider_check check (provider in ('stripe')),
   constraint order_payments_status_check check (status in ('creating', 'requires_payment', 'processing', 'succeeded', 'canceled')),
-  constraint order_payments_intent check ((status = 'creating') = (intent_id is null)),
+  -- 还没在支付服务建好付款（creating）就没有付款编号；建付款之前订单就被取消了的，没有编号、状态是已取消
+  constraint order_payments_intent check ((status <> 'creating' or intent_id is null) and (status in ('creating', 'canceled') or intent_id is not null)),
   constraint order_payments_amounts check (amount_minor > 0 and refunded_minor >= 0 and refunded_minor <= amount_minor),
   constraint order_payments_succeeded_at check ((status = 'succeeded') = (succeeded_at is not null))
 );

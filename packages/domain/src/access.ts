@@ -52,11 +52,12 @@ export const PLATFORM_ACTIONS = [
   "channel.manage",
   "channel.review",
   "approval.read",
+  "order.read",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
 
-export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage"] as const;
+export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage", "order.read"] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
 
@@ -76,18 +77,20 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 改（`channel.manage`：新建、改基本配置和授权范围、发 API 密钥、**发起**加价和停用的复核）和审核（`channel.review`）：渠道经理和超级管理员。
  * 渠道经理另有 `tenant.read`（只读）：设置渠道卖哪些供应商、按供应商设加价规则，要看得到供应商名单。
  * 待审核队列（`approval.read`）：能看到的只是自己看得到的那几类（现在都是渠道的，所以给有 `channel.read` 的角色）。
+ * 订单（只读，M3-01，ADR 0026）：运营（每天处理订单和异常）、客服（处理订单、工单）、财务（对账）、风控（看下单风险）、只读。
+ * 里面有乘客的姓名、电话、邮箱：招商、渠道经理、主数据运营、技术用不到，不给。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read"],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
-  finance: ["master_data.read", "channel.read", "approval.read"],
-  risk: ["master_data.read", "product.read", "channel.read", "approval.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read"],
+  risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
-  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
 };
 
 /**
@@ -95,13 +98,14 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 平台主数据每个角色都能看（配置区域和商品、派车、对账都要引用它），谁都不能改。
  * 区域、商品（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
  * 子品牌决定商品的币种，新建和改名只归管理员；能看商品的角色都能看子品牌（`product.read`）。
+ * 订单（只读，M3-01，ADR 0026）：管理员、调度（派车要看订单）、财务（对账）、只读；商品价格用不到。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
   pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
-  dispatch: ["master_data.read"],
-  finance: ["master_data.read"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read"],
+  dispatch: ["master_data.read", "order.read"],
+  finance: ["master_data.read", "order.read"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {
