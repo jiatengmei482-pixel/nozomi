@@ -350,3 +350,58 @@ test("创建后锁定的四项在编辑页是只读的文字、没有任何输�
   assert.deepEqual([...charter.querySelectorAll("dt")].map((node) => node.textContent), ["子品牌", "品类", "城市"]);
   assert.equal(within(charter).queryByText("接送点"), null);
 });
+
+// ───────────── 测试角色补充（M1-13）：运营后台只读改了说法，供应商后台编辑时的说明一字不变 ─────────────
+
+const allText = (): string => document.body.textContent ?? "";
+function assertSays(where: string, phrases: readonly string[]): void {
+  const text = allText();
+  for (const phrase of phrases) assert.ok(text.includes(phrase), `${where}：供应商后台应仍有「${phrase}」`);
+}
+
+test("M1-13 回归：供应商后台基础信息、服务规则、商品详情、上架检查的编辑说明仍是写给供应商的原话；司机语言仍是可选的下拉框", async () => {
+  const rules = rulesOf({
+    ...completeRules,
+    urgent: { enabled: true, daily_quota: null, tiers: [{ within_hours: 12, surcharge: 1000 }] },
+    night: { enabled: true, window: { start: "22:00", end: "06:00" }, amount: 1000, charge_unit: "per_order" },
+    driver_languages: [{ language: "ja", unit_price: 0 }],
+  } as Partial<ServiceRulesBody>);
+  const world: World = { rules, product: productOf({ status: "published", published_at: stamps.updated_at }) };
+
+  open(`/products/${PRODUCT_ID}/basic`, world);
+  await screen.findByRole("heading", { level: 2, name: "① 基础信息" });
+  await waitFor(() => assert.ok(allText().includes("上下移动可以调整顺序")));
+  assertSays("基础信息", ["这几项创建后不能修改。要换，请新建一个商品。", "上下移动可以调整顺序，排在前面的优先。", "选你能提供的车型。", "你们的调度系统。电话建议带国家区号。"]);
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/service-rules`, world);
+  await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
+  await waitFor(() => assert.ok(allText().includes("例如填 24")));
+  assertSays("服务规则", [
+    "至少提前多久下单。例如填 24：",
+    "给自己人看的备忘。",
+    "留空 = 不限。加急单最容易来不及派车，建议填一个你们一天接得住的数。",
+    "不勾 = 不收。",
+    "你可以设得更长，不能更短。",
+    "所有供应商相同，这里不用设置。",
+    "从平台的目录里选你能提供的。单价是结算价；填 0 = 免费提供。",
+    "把你们能提供的语言加上并填单价",
+    "由你们在服务结束后",
+  ]);
+  const language = screen.getByRole("combobox", { name: "第 1 行：语言" }) as HTMLSelectElement;
+  assert.equal(language.tagName, "SELECT");
+  assert.equal(language.disabled, false);
+  assert.equal(language.value, "ja");
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/content`, world);
+  await screen.findByRole("heading", { level: 2, name: "⑤ 商品详情" });
+  await waitFor(() => assert.ok(allText().includes("至少要有一种语言填了标题")));
+  assertSays("商品详情", ["至少要有一种语言填了标题", "按你设的规则自动生成，不用在这里写。", "也是你们在后台列表里看到的名字。例如「羽田机场接送」", "一条写一项。例如「高速费」"]);
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/publish`, { ...world, check: checkOf({ content: [{ path: "/title", reason: "REQUIRED" }] }) });
+  await waitFor(() => assert.ok(allText().includes("已上架，但有")));
+  assertSays("上架检查", ["这些问题会让这个商品报不出价，请尽快修改。"]);
+  assert.doesNotMatch(allText(), /请联系供应商|供应商修改后/);
+});

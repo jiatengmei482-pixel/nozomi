@@ -5,7 +5,8 @@
  * 每一格显示什么由使用它的页面给（库存日历、以后别的按天看的页面）。
  */
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { monthOf, monthWeeks, moveDay, orderedRange, spokenDate, weekdayName } from "../lib/price-calendar.ts";
+import { monthOf, monthWeeks, moveDay, orderedRange, rangeMark, spokenDate, weekdayName } from "../lib/price-calendar.ts";
+import { useScrollToToday } from "../lib/use-scroll-to-today.ts";
 
 export interface DaySelection {
   /** 选中的一段（两头都算）；没有选是 null */
@@ -101,6 +102,7 @@ export function MonthGrid({ idPrefix, label, month, today, selection, busy = fal
   const dragged = useRef(false);
   const weeks = monthWeeks(month);
   const range = selection.range !== null && monthOf(selection.range.from) === month && monthOf(selection.range.to) === month ? selection.range : null;
+  useScrollToToday(monthOf(today) === month ? `${idPrefix}-${today}` : null);
 
   useEffect(() => {
     const stop = (): void => {
@@ -188,8 +190,8 @@ export function MonthGrid({ idPrefix, label, month, today, selection, busy = fal
     const reason = locked(date);
     const isToday = date === today;
     const inRange = range !== null && date >= range.from && date <= range.to;
-    const mark = range === null ? null : range.from === date && range.to === date ? "起止" : range.from === date ? "起" : range.to === date ? "止" : null;
-    const spoken = `${spokenDate(date)}，${isToday ? "今天，" : ""}${view.spoken}${reason !== null ? `，${reason}` : ""}${mark ? `，选中的${mark === "起止" ? "起止" : mark === "起" ? "起点" : "终点"}` : inRange ? "，已选" : ""}`;
+    const mark = rangeMark(range, date);
+    const spoken = `${spokenDate(date)}，${isToday ? "今天，" : ""}${view.spoken}${reason !== null ? `，${reason}` : ""}${mark ? `，选中的${mark === "起" ? "起点" : "终点"}` : inRange ? "，已选" : ""}`;
     const classes = ["calendar__cell", inRange ? "calendar__cell--selected" : "", date < today ? "calendar__cell--past" : "", isToday ? "calendar__cell--today" : "", date === selection.picked ? "calendar__cell--shown" : "", reason !== null ? "calendar__cell--locked" : "", view.className ?? ""].filter((name) => name !== "").join(" ");
     return (
       <div

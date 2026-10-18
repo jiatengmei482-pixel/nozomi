@@ -5,17 +5,18 @@
  * 令牌放在网址的 # 后面（/accept-invite#token=…）：# 后面的内容不会发给服务器，
  * 不进访问日志，也不会随 Referer 带出去。
  *
- * 后端没有「只核对令牌、不设置密码」的接口，所以进页面时不知道是哪个邮箱、令牌是否还有效；
- * 令牌失效要到提交时才知道。
+ * 进页面先调「只核对令牌、不消费」的接口（auth/check-invite、auth/check-reset-token）：
+ * 已用过、已作废、已过期的链接直接显示「已失效」，不显示表单；核对时网络不通显示「加载失败」和「重试」。
+ * 这个接口不返回邮箱，所以页面上不显示是哪个账号。页面开着期间链接失效的，提交时照样换成「已失效」。
  */
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { ApiError, acceptInvite, resetPassword } from "../api/client.ts";
+import { ApiError, acceptInvite, checkInvite, checkResetToken, resetPassword } from "../api/client.ts";
 import type { LoginLocationState } from "../auth/PortalSession.tsx";
 import { AlertSlot, type Notice } from "../components/Alert.tsx";
 import { AuthLayout } from "../components/AuthLayout.tsx";
 import { Button, LinkButton } from "../components/Button.tsx";
-import { StateBlock } from "../components/States.tsx";
+import { Skeleton, StateBlock } from "../components/States.tsx";
 import { PasswordField } from "../components/TextField.tsx";
 import { failureText, weakPasswordMessages } from "../lib/failure.ts";
 import { PORTALS, type Portal } from "../lib/portal.ts";
@@ -54,6 +55,9 @@ export function tokenFromHash(hash: string): string | null {
   return token !== null && token !== "" && token.length <= TOKEN_MAX_LENGTH ? token : null;
 }
 
+/** 打开页面时核对链接的结果。 */
+type LinkCheck = "checking" | "valid" | "invalid" | "failed";
+
 export function SetPasswordPage({ portal, kind }: { portal: Portal; kind: SetPasswordKind }) {
   const config = PORTALS[portal];
   const copy = COPY[kind];
@@ -69,12 +73,32 @@ export function SetPasswordPage({ portal, kind }: { portal: Portal; kind: SetPas
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [rejected, setRejected] = useState(false);
+  const [check, setCheck] = useState<LinkCheck>("checking");
+  const [checkAttempt, setCheckAttempt] = useState(0);
 
   const guard = usePressGuard();
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
 
-  if (token === null || rejected) {
+  useEffect(() => {
+    if (token === null) return;
+    let current = true;
+    setCheck("checking");
+    (kind === "invite" ? checkInvite(portal, token) : checkResetToken(portal, token)).then(
+      () => {
+        if (current) setCheck("valid");
+      },
+      (err: unknown) => {
+        if (!current) return;
+        setCheck(err instanceof ApiError && err.code === copy.invalidCode ? "invalid" : "failed");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [portal, kind, token, copy.invalidCode, checkAttempt]);
+
+  if (token === null || rejected || check === "invalid") {
     return (
       <AuthLayout>
         <StateBlock
@@ -85,6 +109,31 @@ export function SetPasswordPage({ portal, kind }: { portal: Portal; kind: SetPas
             <LinkButton to={config.paths.login} variant="secondary" size="lg">
               去登录
             </LinkButton>
+          }
+        />
+      </AuthLayout>
+    );
+  }
+
+  if (check === "checking") {
+    return (
+      <AuthLayout>
+        <Skeleton lines={["medium", "control", "control"]} label="正在核对链接" />
+      </AuthLayout>
+    );
+  }
+
+  if (check === "failed") {
+    return (
+      <AuthLayout>
+        <StateBlock
+          headingLevel="h1"
+          title="加载失败"
+          description="请检查网络后重试。"
+          action={
+            <Button variant="secondary" size="lg" onClick={() => setCheckAttempt((attempt) => attempt + 1)}>
+              重试
+            </Button>
           }
         />
       </AuthLayout>

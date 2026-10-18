@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, devices, expect, test } from "@playwright/test";
-import { VIEWPORTS, adminCredentials, createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { VIEWPORTS, adminCredentials, createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, issueTenantAdminReset, loginAs, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
 /** 页面底色的两套取值，直接从令牌文件读，不在测试里另抄一份。 */
 function pageBackground(): { light: string; dark: string } {
@@ -87,9 +87,15 @@ for (const [name, viewport] of Object.entries({ ...VIEWPORTS, zoomed200: { width
     await expect(page.getByText("密码至少 12 个字符")).toBeVisible();
     await check("接受邀请页字段出错");
 
-    await page.goto("/platform/reset-password#token=not-a-real-token");
+    const active = await createActiveTenant(request);
+    const resetToken = await issueTenantAdminReset(request, active.tenantId, active.adminEmail);
+    await page.goto(`/reset-password#token=${resetToken}`);
     await expect(page.getByRole("button", { name: "设置新密码并继续" })).toBeVisible();
     await check("重设密码页表单");
+
+    await page.goto("/platform/reset-password#token=not-a-real-token");
+    await expect(page.getByRole("heading", { name: "重置链接已失效" })).toBeVisible();
+    await check("不存在的重置链接");
 
     await page.goto("/accept-invite");
     await expect(page.getByRole("heading", { name: "邀请链接已失效" })).toBeVisible();

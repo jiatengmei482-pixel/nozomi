@@ -178,18 +178,39 @@ export interface AcceptInviteInput {
   password: string;
 }
 
+/** 邀请令牌还能不能用：账号还没激活、令牌没过期。平台、租户两边共用这个判断。 */
+export function inviteUsable(record: { user: { status: string }; inviteExpiresAt: Date | null }, now: Date): boolean {
+  return record.user.status === "invited" && record.inviteExpiresAt !== null && record.inviteExpiresAt.getTime() > now.getTime();
+}
+
+/** 重置令牌还能不能用：账号在用、令牌没过期。平台、租户两边共用这个判断。 */
+export function resetTokenUsable(record: { user: { status: string }; resetExpiresAt: Date | null }, now: Date): boolean {
+  return record.user.status === "active" && record.resetExpiresAt !== null && record.resetExpiresAt.getTime() > now.getTime();
+}
+
+/**
+ * 只核对邀请令牌还能不能用：不设置密码、不消费令牌、不写审计。设密码页打开时先调它，
+ * 失效的链接直接显示「已失效」，不让人白填一次表单。
+ * 能用时什么也不返回（不透露是哪个账号）；不存在、已用过、已过期抛同一个错误，和接受邀请时一样。
+ */
+export async function checkPlatformInvite(ctx: AppContext, token: string): Promise<void> {
+  const now = ctx.now();
+  const invited = await withPlatformTx(ctx.pool, (db) => findPlatformUserByInviteToken(db, hashInviteToken(token)));
+  if (!invited || !inviteUsable(invited, now)) throw inviteInvalid();
+}
+
+/** 只核对重置令牌还能不能用，规则同 `checkPlatformInvite`。 */
+export async function checkPlatformResetToken(ctx: AppContext, token: string): Promise<void> {
+  const now = ctx.now();
+  const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByResetToken(db, hashResetToken(token)));
+  if (!found || !resetTokenUsable(found, now)) throw resetTokenInvalid();
+}
+
 export async function acceptPlatformInvite(ctx: AppContext, input: AcceptInviteInput, ip: string): Promise<PlatformUser> {
   const now = ctx.now();
   const tokenHash = hashInviteToken(input.token);
   const invited = await withPlatformTx(ctx.pool, (db) => findPlatformUserByInviteToken(db, tokenHash));
-  if (
-    !invited ||
-    invited.user.status !== "invited" ||
-    invited.inviteExpiresAt === null ||
-    invited.inviteExpiresAt.getTime() <= now.getTime()
-  ) {
-    throw inviteInvalid();
-  }
+  if (!invited || !inviteUsable(invited, now)) throw inviteInvalid();
   const issues = checkPasswordStrength(input.password, invited.user.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);
@@ -270,14 +291,7 @@ export async function resetPlatformPassword(ctx: AppContext, input: ResetPasswor
   const now = ctx.now();
   const tokenHash = hashResetToken(input.token);
   const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByResetToken(db, tokenHash));
-  if (
-    !found ||
-    found.user.status !== "active" ||
-    found.resetExpiresAt === null ||
-    found.resetExpiresAt.getTime() <= now.getTime()
-  ) {
-    throw resetTokenInvalid();
-  }
+  if (!found || !resetTokenUsable(found, now)) throw resetTokenInvalid();
   const issues = checkPasswordStrength(input.password, found.user.email);
   if (issues.length > 0) throw weakPassword(issues);
   const passwordHash = await hashPassword(input.password);

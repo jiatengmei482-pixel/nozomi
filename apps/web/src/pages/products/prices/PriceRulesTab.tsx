@@ -40,6 +40,8 @@ import {
   validitySentence,
   withBlankRows,
   isStationPlace,
+  isExtraSegment,
+  nextSegment,
 } from "../../../lib/price-form.ts";
 import { comboText, moneyText, plainAmountDisplay, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
@@ -77,6 +79,8 @@ interface Rejection {
 export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const { frame, product, prices } = shared;
   const { readOnly } = frame;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { token } = usePortalSession();
   const category = product.category;
   const station = isStationPlace(product.poi?.type);
@@ -87,7 +91,15 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const models = prices.available_models;
   const defaultModel: PricingModel = models[0] ?? (category === "charter" ? "charter_package" : "fixed");
 
-  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages);
+  /** 每个组合内按方向 / 套餐、开始日期排好。只在打开、保存成功、重新读取时排一次：编辑中（改日期、加一段、保存被拒）行的位置不变 */
+  const arrange = (list: PriceRow[]): PriceRow[] => {
+    const rank = (row: PriceRow): string => {
+      const variant = row.direction !== null ? String(["both", "pickup", "dropoff"].indexOf(row.direction)) : String(row.packageHours ?? 0).padStart(3, "0");
+      return `${variant}|${row.from}|${row.key}`;
+    };
+    return [...list].sort((x, y) => rank(x).localeCompare(rank(y)));
+  };
+  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => arrange(withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages));
   const download = useDownload();
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const adopted = useRef(prices);
@@ -106,7 +118,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         if (latest) Object.assign(latest, { direction: old.direction, model: old.model, values: old.values, from: old.from, to: old.to, enabled: old.enabled, deleted: old.deleted });
         else if (change !== "deleted") extra.push({ ...old, id: null, origin: null, key: old.id === null ? old.key : `re-${old.key}` });
       }
-      return withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel);
+      return arrange(withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel));
     });
     setRejection(null);
     setConflictKeys(new Set());
@@ -140,11 +152,11 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
   const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
 
+  /** 表格按区域、车型组（包车再按套餐）分在一起；同一组里保持 rows 的先后（见 arrange），不按正在改的日期重排 */
   const order = (row: PriceRow): string => {
     const area = String(areaIds.indexOf(row.areaId) < 0 ? 9999 : areaIds.indexOf(row.areaId)).padStart(4, "0");
     const group = String(groupIds.indexOf(row.vehicleGroupId) < 0 ? 9999 : groupIds.indexOf(row.vehicleGroupId)).padStart(4, "0");
-    const variant = row.direction !== null ? String(["both", "pickup", "dropoff"].indexOf(row.direction)) : String(row.packageHours ?? 0).padStart(3, "0");
-    return `${area}|${group}|${variant}|${row.from}|${row.key}`;
+    return `${area}|${group}|${String(row.packageHours ?? 0).padStart(3, "0")}`;
   };
   const sorted = useMemo(() => [...rows].sort((x, y) => order(x).localeCompare(order(y))), [rows, areaIds, groupIds]);
   const stateOf = (row: PriceRow): { state: RowState; text: string } => {
@@ -353,6 +365,9 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       );
     };
     if (!reading || reading.blank) return `${label}——还没有价格。客人询价这个组合时报不出价。`;
+    const openEnded = focusedRow.id === null && focusedRow.from.trim() === "" ? nextSegment(rows, focusedRow, context).openEnded : null;
+    const openRule = openEnded === null ? null : (readings.get(openEnded.key)?.rule ?? null);
+    if (openRule !== null) return `${label}——新加的一段，请填从哪天开始。上一段「${openRule.validFrom} 起一直有效」没有结束日期：填好开始日期后，这里会出现按钮，一键把上一段的结束日期改成前一天。`;
     const overlapWith = (overlaps.get(focusedRow.key) ?? []).map((key) => rows.find((row) => row.key === key)).filter((row): row is PriceRow => row !== undefined);
     return (
       <>
@@ -529,7 +544,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                       {coverageOpen ? "收起覆盖表" : "展开覆盖表"}
                     </Button>
                   </div>
-                  <p className="field__hint">{coverage.priced === 0 ? "在下面的表格里填。每一行是一个组合，填上价格、点保存就行。" : coverage.missing > 0 ? "没有价格的组合，客人询价时报不出价。" : ""}</p>
+                  <p className="field__hint">{coverage.priced === 0 ? (onPlatform ? "供应商还没有给任何组合设价格。" : "在下面的表格里填。每一行是一个组合，填上价格、点保存就行。") : coverage.missing > 0 ? "没有价格的组合，客人询价时报不出价。" : ""}</p>
                   {coverageOpen && (
                     <div id="coverage-table">
                       {viewOptions.length > 0 && (
@@ -718,6 +733,8 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                           const firstOrphan = orphan && (index === 0 || !isOrphan(visible[index - 1] as PriceRow));
                           const firstOfArea = index === 0 || visible[index - 1]?.areaId !== row.areaId || firstOrphan;
                           const rowLocked = locked || row.deleted || orphan;
+                          /** 只读查看、已删除待保存、已不在商品里的行：方向和计价方式显示成文字，不用灰掉的下拉（禁用态的字对比度不够，规范 02-components 第 2 节） */
+                          const choicesAsText = readOnly || row.deleted || orphan;
                           const flag = ["error", "overlap"].includes(state.state) ? " price-table__row--error" : ["new", "changed"].includes(state.state) ? " price-table__row--unsaved" : "";
                           const cell = (field: PriceField): ReactNode => {
                             if (!MODEL_FIELDS[row.model].includes(field)) return <span className="table__muted">—</span>;
@@ -797,25 +814,33 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               </td>
                               {category === "airport_transfer" && (
                                 <td>
-                                  <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
-                                    {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
-                                      <option key={direction} value={direction}>
-                                        {directionName(direction, station)}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {choicesAsText ? (
+                                    <span id={cellId(row.key, "direction")}>{directionName(row.direction ?? "both", station)}</span>
+                                  ) : (
+                                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
+                                      {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
+                                        <option key={direction} value={direction}>
+                                          {directionName(direction, station)}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </td>
                               )}
                               {category === "charter" && <td>{`${row.packageHours ?? ""} 小时`}</td>}
                               {models.length > 1 && (
                                 <td>
-                                  <select className="input input--sm select" aria-label={`${label} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
-                                    {models.map((model) => (
-                                      <option key={model} value={model}>
-                                        {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {choicesAsText ? (
+                                    <span>{row.model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[row.model]}</span>
+                                  ) : (
+                                    <select className="input input--sm select" aria-label={`${label} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
+                                      {models.map((model) => (
+                                        <option key={model} value={model}>
+                                          {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
                                 </td>
                               )}
                               {valueFields.map((field) => (
@@ -846,15 +871,35 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                       className="menu-item"
                                       disabled={busy || reading.blank || orphan}
                                       onClick={() => {
-                                        const next = reading.rule?.validTo ? addDays(reading.rule.validTo, 1) : "";
-                                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: next, enabled: row.enabled };
-                                        setRows((current) => [...current, added]);
+                                        const segment = nextSegment(rows, row, context);
+                                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: segment.from, enabled: row.enabled };
+                                        setRows((current) => {
+                                          const at = current.findIndex((entry) => entry.key === segment.after);
+                                          return at < 0 ? [...current, added] : [...current.slice(0, at + 1), added, ...current.slice(at + 1)];
+                                        });
+                                        setAnnounce(segment.from === "" ? "已在下面加了一行。上一段没有结束日期，请填这一段从哪天开始。" : `已在下面加了一行，从 ${segment.from} 开始`);
                                         requestAnimationFrame(() => focusAnchor(cellId(added.key, "from")));
                                       }}
                                     >
                                       <span className="menu-item__text">再加一段日期</span>
                                     </button>
-                                    {row.id === null ? (
+                                    {row.id === null && isExtraSegment(rows, row) ? (
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        className="menu-item menu-item--danger"
+                                        disabled={busy}
+                                        onClick={() => {
+                                          const index = visible.findIndex((entry) => entry.key === row.key);
+                                          const neighbour = visible[index - 1] ?? visible[index + 1];
+                                          setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages));
+                                          setAnnounce(`已删除这一行：${label}`);
+                                          if (neighbour) requestAnimationFrame(() => focusAnchor(cellId(neighbour.key, "from")));
+                                        }}
+                                      >
+                                        <span className="menu-item__text">删除这一行</span>
+                                      </button>
+                                    ) : row.id === null ? (
                                       <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy || reading.blank} onClick={() => setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages))}>
                                         <span className="menu-item__text">清空这一行</span>
                                       </button>

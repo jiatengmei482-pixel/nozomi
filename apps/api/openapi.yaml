@@ -237,6 +237,55 @@ paths:
                     $ref: "#/components/schemas/PlatformUser"
         "400":
           $ref: "#/components/responses/InviteRejected"
+  /platform/v1/auth/check-invite:
+    post:
+      tags: [平台登录]
+      operationId: checkPlatformInvite
+      summary: 平台员工只核对邀请令牌还能不能用
+      description: |
+        设密码页打开时先调它：令牌能用返回 204，什么也不返回（不透露账号、邮箱、角色）；
+        不存在、已用过、已过期返回和 `auth/accept-invite` 相同的 400 `INVITE_INVALID`。
+        不设置密码、不消费令牌、不写审计日志。和 `auth/accept-invite` 一样不限速：令牌是 256 位随机数，猜不中。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenCheckRequest"
+      responses:
+        "204":
+          description: 令牌还能用
+        "400":
+          description: "`INVITE_INVALID`：邀请令牌不存在、已用过或已过期；`VALIDATION_FAILED`：没带令牌或令牌超长"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/auth/check-reset-token:
+    post:
+      tags: [平台登录]
+      operationId: checkPlatformResetToken
+      summary: 平台员工只核对重置令牌还能不能用
+      description: |
+        规则同 `auth/check-invite`：能用返回 204、没有内容；不存在、已用过、已过期、账号已停用
+        返回和 `auth/reset-password` 相同的 400 `RESET_TOKEN_INVALID`。不消费令牌、不写审计日志、不限速。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenCheckRequest"
+      responses:
+        "204":
+          description: 令牌还能用
+        "400":
+          description: "`RESET_TOKEN_INVALID`：重置令牌不存在、已用过、已过期，或账号已停用；`VALIDATION_FAILED`：没带令牌或令牌超长"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/auth/change-password:
     post:
       tags: [平台登录]
@@ -1844,6 +1893,55 @@ paths:
                     $ref: "#/components/schemas/TenantUser"
         "400":
           $ref: "#/components/responses/InviteRejected"
+  /tenant/v1/auth/check-invite:
+    post:
+      tags: [租户登录]
+      operationId: checkTenantInvite
+      summary: 租户用户只核对邀请令牌还能不能用
+      description: |
+        设密码页打开时先调它：令牌能用返回 204，什么也不返回（不透露账号、邮箱、租户）；
+        不存在、已用过、已过期返回和 `auth/accept-invite` 相同的 400 `INVITE_INVALID`。
+        不设置密码、不消费令牌、不写审计日志。和 `auth/accept-invite` 一样不限速：令牌是 256 位随机数，猜不中。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenCheckRequest"
+      responses:
+        "204":
+          description: 令牌还能用
+        "400":
+          description: "`INVITE_INVALID`：邀请令牌不存在、已用过或已过期；`VALIDATION_FAILED`：没带令牌或令牌超长"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/auth/check-reset-token:
+    post:
+      tags: [租户登录]
+      operationId: checkTenantResetToken
+      summary: 租户用户只核对重置令牌还能不能用
+      description: |
+        规则同 `auth/check-invite`：能用返回 204、没有内容；不存在、已用过、已过期、账号已停用
+        返回和 `auth/reset-password` 相同的 400 `RESET_TOKEN_INVALID`。不消费令牌、不写审计日志、不限速。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenCheckRequest"
+      responses:
+        "204":
+          description: 令牌还能用
+        "400":
+          description: "`RESET_TOKEN_INVALID`：重置令牌不存在、已用过、已过期，或账号已停用；`VALIDATION_FAILED`：没带令牌或令牌超长"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/auth/change-password:
     post:
       tags: [租户登录]
@@ -7478,6 +7576,15 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
+    TokenCheckRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          maxLength: 200
+          description: 一次性邀请令牌或重置令牌
     AcceptInviteRequest:
       type: object
       additionalProperties: false

@@ -120,8 +120,8 @@ export function TenantListPage() {
       ),
     },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...TENANT_STATUS_BADGES[row.status]} /> },
-    { key: "created", header: "创建时间", cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
-    { key: "updated", header: "最近修改", cell: (row) => <span className="table__muted">{formatLocalDateTime(row.updated_at)}</span> },
+    { key: "created", header: "创建时间", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
+    { key: "updated", header: "最近修改", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.updated_at)}</span> },
     {
       key: "actions",
       header: "操作",

@@ -16,6 +16,20 @@
   font-size: var(--font-size-sm);
 }
 
+.fx-rounding {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.fx-rounding__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
 .fx-attempt {
   display: flex;
   flex-wrap: wrap;

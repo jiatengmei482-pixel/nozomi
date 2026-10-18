@@ -177,6 +177,36 @@ test("POST /tenant/v1/auth/accept-invite：激活的是令牌对应的那个账�
   assert.equal((await userRow(invited.body.user.id))["tenant_id"], a.tenantId);
 });
 
+test("POST /tenant/v1/auth/check-invite：只认令牌本身——甲的有效邀请照常通过，请求体里带乙的 tenant_id 不改变结果；乙那边用过的邀请也查不出来，核对不消费令牌", async () => {
+  cover("POST /tenant/v1/auth/check-invite");
+  const invited = await api.call("POST", "/tenant/v1/users", { token: a.adminToken, body: { email: "check-invitee@a.test", name: "核对邀请", role: "readonly" } });
+  assert.equal(invited.status, 201, invited.text);
+  const token = invited.body.invite.token as string;
+  const withOther = await api.call("POST", "/tenant/v1/auth/check-invite", { body: { token, tenant_id: b.tenantId } });
+  assert.equal(withOther.status, 204, withOther.text);
+  assert.equal(withOther.text, "", "不返回账号、租户");
+  const bogus = await api.call("POST", "/tenant/v1/auth/check-invite", { body: { token: `${token}x` } });
+  assert.equal(bogus.status, 400);
+  assert.equal(bogus.body.error.code, "INVITE_INVALID");
+  assert.equal((await userRow(invited.body.user.id))["status"], "invited", "核对后账号仍是待激活");
+});
+
+test("POST /tenant/v1/auth/check-reset-token：把甲的令牌里的租户换成乙，核对不过；甲的原令牌照常通过，核对后仍能用", async () => {
+  cover("POST /tenant/v1/auth/check-reset-token");
+  const target = await addTenantUser(api, a.adminToken, "check-reset@a.test", "readonly");
+  const issued = await api.call("POST", `/tenant/v1/users/${target.id}/password-reset`, { token: a.adminToken });
+  assert.equal(issued.status, 201, issued.text);
+  const token = issued.body.reset.token as string;
+  const swapped = `nzr_${b.tenantId.replaceAll("-", "")}.${token.split(".")[1]}`;
+  const forged = await api.call("POST", "/tenant/v1/auth/check-reset-token", { body: { token: swapped } });
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.error.code, "RESET_TOKEN_INVALID");
+  const ok = await api.call("POST", "/tenant/v1/auth/check-reset-token", { body: { token, tenant_id: b.tenantId } });
+  assert.equal(ok.status, 204, ok.text);
+  const used = await api.call("POST", "/tenant/v1/auth/reset-password", { body: { token, password: "Fresh-Harbor-2027" } });
+  assert.equal(used.status, 200, used.text);
+});
+
 test("POST /tenant/v1/auth/logout：只结束自己的会话，别的租户的会话不受影响", async () => {
   cover("POST /tenant/v1/auth/logout");
   const extra = await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } });
@@ -1169,7 +1199,7 @@ test("平台令牌进不了租户接口，租户令牌进不了平台接口", as
   for (const route of api.app.registeredRoutes) {
     if (route.method === "HEAD") continue;
     const url = route.path.replace(":id", b.tenantId);
-    const isPublic = /\/auth\/(login|accept-invite|reset-password)$/.test(route.path);
+    const isPublic = /\/auth\/(login|accept-invite|reset-password|check-invite|check-reset-token)$/.test(route.path);
     if (route.path.startsWith("/tenant/v1/") && !isPublic) {
       const res = await api.call(route.method as "GET", url, { token: platformToken, body: {} });
       assert.equal(res.status, 401, `平台令牌访问 ${route.method} ${route.path}`);

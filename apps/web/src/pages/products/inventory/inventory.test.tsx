@@ -11,7 +11,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
 import type { Inventory, InventoryDayBody, InventoryImportPreview, PriceImportPreview } from "../../../api/inventory.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, narrowScreen, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -129,7 +129,7 @@ test("月历的每一格：有库存、已订满、停售、没设、预先设�
   assert.match(dayLabel("2026-10-11"), /没设，卖不出去$/);
   assert.match(dayLabel("2026-10-02"), /还剩 4 单，共 4 单，已经过去，只能看$/);
   assert.equal(dayCell("2026-10-02").getAttribute("aria-disabled"), "true");
-  assert.match(dayLabel("2026-10-03"), /没设，卖不出去，已经过去，只能看$/);
+  assert.match(dayLabel("2026-10-03"), /^10 月 3 日周六，没设，已经过去，只能看$/);
   assert.ok(dayCell("2026-10-11").className.includes("stock-cell--unset") && !dayCell("2026-10-11").className.includes("stock-cell--past"));
   assert.ok(dayCell("2026-10-03").className.includes("stock-cell--past"), "过去的没设不用警告底色");
   await user().click(dayCell("2026-10-02"));
@@ -622,4 +622,60 @@ test("导入：文件打不开时，固定的那句话后面接上后端说的�
   answer = apiError(400, "IMPORT_FILE_INVALID", "not a zip", { reason: "CORRUPT" });
   await actor.upload(document.getElementById("import-file") as HTMLInputElement, xlsx());
   await screen.findByText("这个文件打不开，可能已经损坏。请在 Excel 里重新保存一份再传。");
+});
+
+// ───────────── M1-14：过去的日子、选中一天、手机上直接看到今天 ─────────────
+
+test("M1-14 过去的「没设」只写「没设」，没有三角、没有「卖不出去」；今天以后的照常提醒", async () => {
+  open(`/products/${PRODUCT_ID}${MONTH}`, "admin", { inventory: (query) => inventoryOf(query, "limited", { "2026-10-08": { total: 5 } }) });
+  await waitFor(() => assert.match(dayLabel("2026-10-08"), /今天，还剩 5 单/));
+  const past = dayCell("2026-10-03");
+  assert.equal(past.textContent, "3周六没设", "过去的没设：日期 + 「没设」，没有第三行");
+  assert.equal(past.querySelector("svg"), null, "过去的没设没有三角图标");
+  const ahead = dayCell("2026-10-09");
+  assert.match(ahead.textContent ?? "", /没设卖不出去/);
+  assert.ok(ahead.querySelector("svg"), "今天以后的没设照常带三角");
+  assert.match(dayLabel("2026-10-09"), /^10 月 9 日周五，没设，卖不出去$/);
+  // 本月提醒只数今天以后没设的
+  assert.match(pageText(), /这个月有 23 天没设库存，这些天卖不出去。/);
+});
+
+test("M1-14 选中一天：格子里不再写「起止」，读屏读「已选」；选一段时两头照常写「起」「止」", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}${MONTH}`, "admin", { inventory: (query) => inventoryOf(query, "limited", { "2026-10-12": { total: 2 } }) });
+  await waitFor(() => assert.match(dayLabel("2026-10-12"), /还剩 2 单/));
+  await actor.click(dayCell("2026-10-12"));
+  await waitFor(() => assert.match(panel().textContent ?? "", /2026-10-12/));
+  assert.ok(dayCell("2026-10-12").className.includes("calendar__cell--selected"));
+  assert.doesNotMatch(dayCell("2026-10-12").textContent ?? "", /起|止/);
+  assert.equal(dayCell("2026-10-12").querySelector(".calendar__mark"), null);
+  assert.match(dayLabel("2026-10-12"), /，已选$/);
+  assert.doesNotMatch(pageText(), /起止/);
+  await actor.keyboard("{Shift>}");
+  await actor.click(dayCell("2026-10-14"));
+  await actor.keyboard("{/Shift}");
+  await waitFor(() => assert.equal(dayCell("2026-10-14").querySelector(".calendar__mark")?.textContent, "止"));
+  assert.equal(dayCell("2026-10-12").querySelector(".calendar__mark")?.textContent, "起");
+  assert.match(dayLabel("2026-10-12"), /选中的起点$/);
+});
+
+test("M1-14 手机上打开本月：今天那一行滚到屏幕中间；看别的月份、今天已经在屏幕上半部分时不滚", async () => {
+  const scrolled = narrowScreen();
+  open(`/products/${PRODUCT_ID}/inventory`, "admin", { inventory: (query) => inventoryOf(query, "limited") });
+  await waitFor(() => assert.ok(dayCell(TODAY)));
+  await waitFor(() => assert.deepEqual(scrolled, [`inventory-day-${TODAY}`]));
+  // 过去的日子照常列着（往上划就能看到）
+  assert.ok(dayCell("2026-10-01"));
+
+  resetBrowser();
+  const other = narrowScreen();
+  open(`/products/${PRODUCT_ID}/inventory?month=2026-11`, "admin", { inventory: (query) => inventoryOf(query, "limited") });
+  await waitFor(() => assert.ok(dayCell("2026-11-01")));
+  assert.deepEqual(other, [], "不是本月不滚");
+
+  resetBrowser();
+  const visible = narrowScreen(100);
+  open(`/products/${PRODUCT_ID}${MONTH}`, "admin", { inventory: (query) => inventoryOf(query, "limited") });
+  await waitFor(() => assert.ok(dayCell(TODAY)));
+  assert.deepEqual(visible, [], "今天已经在屏幕上半部分");
 });

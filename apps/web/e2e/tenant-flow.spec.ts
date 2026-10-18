@@ -77,13 +77,9 @@ test("接受邀请 → 登录 → 首页 → 修改密码 → 退出 → 用新�
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
 });
 
-test("邀请链接只能用一次：再打开同一个链接提交，显示「邀请链接已失效」", async ({ page, request }) => {
+test("邀请链接只能用一次：再打开同一个链接，一打开就显示「邀请链接已失效」，不显示表单", async ({ page, request }) => {
   const tenant = await createActiveTenant(request);
-  const password = newPassword();
   await page.goto(`/accept-invite#token=${tenant.inviteToken}`);
-  await page.getByLabel("新密码").fill(password);
-  await page.getByLabel("再输入一次").fill(password);
-  await page.getByRole("button", { name: "设置密码并继续" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "邀请链接已失效" })).toBeVisible();
   await expect(page.getByLabel("新密码")).toHaveCount(0);
   await page.getByRole("link", { name: "去登录" }).click();
@@ -155,9 +151,6 @@ test("凭重置令牌设置新密码：旧密码作废，用新密码登录；�
 
   await page.evaluate(() => sessionStorage.clear());
   await page.goto(`/reset-password#token=${resetToken}`);
-  await page.getByLabel("新密码").fill(newPassword());
-  const again = await page.getByLabel("新密码").inputValue();
-  await page.getByLabel("再输入一次").fill(again);
-  await page.getByRole("button", { name: "设置新密码并继续" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "重置链接已失效" })).toBeVisible();
+  await expect(page.getByLabel("新密码"), "用过的重置链接一打开就失效，不显示表单").toHaveCount(0);
 });

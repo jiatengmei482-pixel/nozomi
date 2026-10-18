@@ -29,6 +29,8 @@ export interface ComboboxProps {
   hint?: string;
   /** 一个选项都没有时面板里的话 */
   emptyText?: string;
+  /** 有选项、但输入的字一个都没匹配上时面板里的话（默认「没有匹配的选项」）；用来告诉人还可以怎么找 */
+  noMatchText?(query: string): string;
   loading?: boolean;
   loadFailed?: boolean;
   required?: boolean;
@@ -48,7 +50,7 @@ function matches(option: ComboboxOption, query: string): boolean {
   return `${option.label} ${option.detail ?? ""} ${option.keywords ?? ""}`.toLowerCase().includes(needle);
 }
 
-export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText = "没有匹配的选项", loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref }: ComboboxProps) {
+export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText = "没有匹配的选项", noMatchText, loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref }: ComboboxProps) {
   const id = useId();
   const listId = `${id}-list`;
   const errorId = `${id}-error`;
@@ -205,7 +207,7 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
         <ul id={listId} role="listbox" aria-label={label} className="combobox__panel" hidden={!open} onPointerDown={(event) => event.preventDefault()}>
           {loading && <li className="combobox__note">加载中…</li>}
           {loadFailed && <li className="combobox__note">加载失败</li>}
-          {!loading && !loadFailed && visible.length === 0 && <li className="combobox__note">{options.length === 0 ? emptyText : "没有匹配的选项"}</li>}
+          {!loading && !loadFailed && visible.length === 0 && <li className="combobox__note">{options.length === 0 ? emptyText : (noMatchText?.((query ?? "").trim()) ?? "没有匹配的选项")}</li>}
           {!loading &&
             visible.map((option, index) => {
               const heading = option.group !== undefined && option.group !== lastGroup ? option.group : null;

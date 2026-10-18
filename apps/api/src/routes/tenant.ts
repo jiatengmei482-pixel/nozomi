@@ -16,6 +16,8 @@ import {
   acceptTenantInvite,
   authenticateTenant,
   changeTenantPassword,
+  checkTenantInvite,
+  checkTenantResetToken,
   listOwnAuditLogs,
   resetTenantPassword,
   tenantLogin,
@@ -33,6 +35,7 @@ import {
   personNameSchema,
   resetPasswordSchema,
   resourceId,
+  tokenCheckSchema,
 } from "../validation.ts";
 import { inviteJson, pageJson, tenantAuditLogJson, tenantJson, tenantUserJson } from "./serialize.ts";
 
@@ -90,6 +93,18 @@ export function registerTenantRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.post("/tenant/v1/auth/accept-invite", async (request) => {
     const input = parseInput(acceptInviteSchema, request.body, "body");
     return { user: tenantUserJson(await acceptTenantInvite(ctx, input, request.ip)) };
+  });
+
+  app.post("/tenant/v1/auth/check-invite", async (request, reply) => {
+    const input = parseInput(tokenCheckSchema, request.body, "body");
+    await checkTenantInvite(ctx, input.token);
+    return reply.code(204).send();
+  });
+
+  app.post("/tenant/v1/auth/check-reset-token", async (request, reply) => {
+    const input = parseInput(tokenCheckSchema, request.body, "body");
+    await checkTenantResetToken(ctx, input.token);
+    return reply.code(204).send();
   });
 
   app.post("/tenant/v1/auth/change-password", async (request, reply) => {

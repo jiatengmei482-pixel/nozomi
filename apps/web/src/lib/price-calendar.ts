@@ -64,6 +64,15 @@ export function orderedRange(a: string, b: string): { from: string; to: string }
   return a <= b ? { from: a, to: b } : { from: b, to: a };
 }
 
+/**
+ * 选中的一段日期两头的文字标记（02-components.md 第 32 节）：起点「起」、终点「止」。
+ * 只选了一天时不标（M1-14：「起止」两个字看不懂；选中的底色和选择条已经说清楚了）。
+ */
+export function rangeMark(range: { from: string; to: string } | null, date: string): "起" | "止" | null {
+  if (range === null || range.from === range.to) return null;
+  return range.from === date ? "起" : range.to === date ? "止" : null;
+}
+
 export function daysInRange(from: string, to: string): number {
   let count = 0;
   for (let date = from; date <= to; date = addDays(date, 1)) count += 1;

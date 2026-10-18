@@ -1,5 +1,5 @@
 /** 运营后台「供应商、平台员工」各页面共用的文字和校验（docs/design/pages/platform-tenants.md、platform-settings.md）。 */
-import { type AccountStatus, type PlatformRole, platformPermissions } from "@nozomi/domain";
+import { type AccountStatus, type PlatformAction, type PlatformRole, platformPermissions } from "@nozomi/domain";
 import { ApiError, NetworkError } from "../api/client.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
@@ -46,20 +46,58 @@ export const ROLE_DUTIES: Readonly<Record<PlatformRole, string>> = {
   readonly: "只能看，不能改。",
 };
 
-/** 「现在能做的」：按 @nozomi/domain 的 platformPermissions 现算出来，换成人话。以后给角色加了权限，这里不用改。 */
+/**
+ * 每个操作在「现在能做的」里怎么说。键是 @nozomi/domain 的全部 PlatformAction：
+ * 以后加了新操作，这里不写说法就编译不过，说明不会再和实际权限脱节。
+ */
+export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> = {
+  "tenant.read": "看供应商",
+  "tenant.create": "新建供应商、邀请管理员",
+  "tenant.change_status": "暂停和恢复供应商",
+  "product.read": "查看供应商的商品和价格",
+  "quote.preview": "报价试算",
+  "master_data.read": "看主数据",
+  "master_data.manage": "维护主数据",
+  "fx.manage": "管理汇率（立即拉取、确认或放弃变动过大的汇率）",
+  "channel.read": "看渠道",
+  "channel.manage": "管理渠道和加价规则（改加价、暂停渠道要另一位同事审核）",
+  "channel.review": "审核渠道的改动",
+  "approval.read": "看待审核的改动",
+  "staff.read": "看平台员工",
+  "staff.manage": "管理平台员工",
+  "audit_log.read": "看审计日志",
+  "integration.read": "看系统状态",
+};
+
+/** 有了前者就不用再说后者（能管理当然能看）。 */
+const SUPERSEDES: Readonly<Partial<Record<PlatformAction, readonly PlatformAction[]>>> = {
+  "staff.manage": ["staff.read"],
+  "master_data.manage": ["master_data.read"],
+  "tenant.create": ["tenant.read"],
+  "tenant.change_status": ["tenant.read"],
+  "channel.manage": ["channel.read"],
+  "channel.review": ["approval.read"],
+};
+
+const TENANT_MANAGE_PHRASE = "管理供应商（新建、邀请管理员、暂停和恢复）";
+
+/**
+ * 「现在能做的」：按 @nozomi/domain 的 platformPermissions 现算出来，换成人话，顺序同上面这张表。
+ * 每一项权限都会说到（或被「能管理」的那一项包含），不会漏。
+ */
 export function roleAbilities(role: PlatformRole): string[] {
-  const can = new Set<string>(platformPermissions(role));
+  const can = new Set<PlatformAction>(platformPermissions(role));
+  const covered = new Set<PlatformAction>([...can].flatMap((action) => SUPERSEDES[action] ?? []));
+  const managesTenants = can.has("tenant.create") && can.has("tenant.change_status");
   const out: string[] = [];
-  if (can.has("tenant.create") && can.has("tenant.change_status")) out.push("管理供应商（新建、邀请管理员、暂停和恢复）");
-  else if (can.has("tenant.read")) out.push("看供应商");
-  if (can.has("master_data.manage")) out.push("维护主数据");
-  else if (can.has("master_data.read")) out.push("看主数据");
-  if (can.has("channel.manage")) out.push("管理渠道和加价规则（改加价、暂停渠道要另一位同事审核）");
-  else if (can.has("channel.read")) out.push("看渠道");
-  if (can.has("channel.review")) out.push("审核渠道的改动");
-  if (can.has("staff.manage")) out.push("管理平台员工");
-  if (can.has("audit_log.read")) out.push("看审计日志");
-  if (can.has("integration.read")) out.push("看系统状态");
+  for (const action of Object.keys(PLATFORM_ACTION_PHRASES) as PlatformAction[]) {
+    if (!can.has(action) || covered.has(action)) continue;
+    if (managesTenants && (action === "tenant.create" || action === "tenant.change_status")) {
+      if (!out.includes(TENANT_MANAGE_PHRASE)) out.push(TENANT_MANAGE_PHRASE);
+      continue;
+    }
+    out.push(PLATFORM_ACTION_PHRASES[action]);
+  }
   return out;
 }
 

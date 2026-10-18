@@ -14,7 +14,7 @@ import { Icon, type IconName } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { shortName } from "../../lib/master-display.ts";
-import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, productName, quoteNames } from "../../lib/product-display.ts";
+import { CHECK_STEP, type CheckItemState, checkItemName, checkItemState, checkOverview, checkReasons, noteForPortal, productName, quoteNames } from "../../lib/product-display.ts";
 import { PRODUCT_FORBIDDEN_TEXT, saveFailureText } from "../../lib/product-failure.ts";
 import { localToday } from "../../lib/time-input.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -32,6 +32,8 @@ const OPTIONAL_NOTES: Readonly<Record<string, string>> = { adjust_rules: "节假
 
 export function PublishStep({ frame, product, onReload, checkStatus }: { frame: ProductFrame; product: Product; onReload(): void; checkStatus: string }) {
   const { readOnly, checkContext } = frame;
+  /** 运营后台只读查看：说明文字不对供应商说「你」，不教怎么填（M1-13） */
+  const onPlatform = frame.source.portal === "platform";
   const { step: productPath, price: pricePath } = frame.source.paths;
   const rules = useLoad<ProductServiceRules>(`publish-service-rules:${product.id}:${frame.version}`, (token) => frame.source.serviceRules(token, product.id));
   const { token, handleAuthFailure } = usePortalSession();
@@ -131,8 +133,8 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
   const waiting = quoteNames(overview.unavailable);
   const summary: { kind: "warning" | "info" | "success"; title: string; body: ReactNode } = published
     ? failedCount > 0
-      ? { kind: "warning", title: `已上架，但有 ${failedCount} 项需要处理`, body: "这些问题会让这个商品报不出价，请尽快修改。" }
-      : { kind: "success", title: "已上架", body: "这个商品正在参与报价和接单。修改任何一步，保存后大约 1 分钟生效。" }
+      ? { kind: "warning", title: `已上架，但有 ${failedCount} 项需要处理`, body: onPlatform ? "这些问题会让这个商品报不出价，请联系供应商尽快修改。" : "这些问题会让这个商品报不出价，请尽快修改。" }
+      : { kind: "success", title: "已上架", body: onPlatform ? "这个商品正在参与报价和接单。供应商修改后大约 1 分钟生效。" : "这个商品正在参与报价和接单。修改任何一步，保存后大约 1 分钟生效。" }
     : failedCount > 0
       ? { kind: "warning", title: `还不能上架：还有 ${failedCount} 项要补`, body: `下面标了「${readOnly ? "去查看" : "去修改"}」的就是要补的。${overview.unavailable.length > 0 ? `另外，${waiting}功能还没有开放，见下面的说明。` : ""}` }
       : overview.unavailable.length > 0
@@ -198,7 +200,7 @@ export function PublishStep({ frame, product, onReload, checkStatus }: { frame: 
                     ))}
                   </span>
                 ) : (
-                  reason.note && <span className="checklist__note">{reason.note}</span>
+                  reason.note && <span className="checklist__note">{noteForPortal(reason.note, frame.source.portal)}</span>
                 )}
               </li>
             ))}

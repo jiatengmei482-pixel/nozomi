@@ -47,13 +47,13 @@ import { PRODUCT_FORBIDDEN_TEXT, saveFailureText, serverIssues } from "../../../
 import { importPath, productPath } from "../../../lib/product-paths.ts";
 import { tidyDate } from "../../../lib/time-input.ts";
 import { useLoad } from "../../../lib/use-load.ts";
+import { isNarrowScreen as isNarrow } from "../../../lib/use-scroll-to-today.ts";
 import { focusAnchor } from "../frame.ts";
 import type { ProductFrame } from "../frame.ts";
 import { useDownload } from "./useDownload.tsx";
 
 /** 只用来给第一次请求定月份（网址里没有月份时）；页面上的「今天」一律用接口给的。 */
 const requestMonth = (): string => new Date().toISOString().slice(0, 7);
-const isNarrow = (): boolean => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
 const CELL_ICONS: Readonly<Record<string, IconName | null>> = { unlimited: null, open: null, sold_out: "check-circle", closed: "minus", unset: "alert-triangle", beyond: null };
 const count = (value: number): string => value.toLocaleString("en-US");
 
@@ -214,9 +214,9 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
   const cell = (date: string) => {
     const day = byDate.get(date) ?? null;
     if (day === null && date <= last) return { spoken: loaded.state.status === "error" ? "没有加载出来" : "加载中", content: <span className="calendar__price" aria-hidden="true"><span className="calendar__skeleton" /></span> };
-    const view = inventoryCellView(date > last ? null : day);
-    const icon = CELL_ICONS[view.kind] ?? null;
     const past = date < today;
+    const view = inventoryCellView(date > last ? null : day, past);
+    const icon = past && view.kind === "unset" ? null : (CELL_ICONS[view.kind] ?? null);
     return {
       spoken: view.spoken,
       className: `stock-cell stock-cell--${view.kind}${past ? " stock-cell--past" : ""}`,
@@ -513,10 +513,10 @@ function DayPanel({ headingId, date, day, mode, today, last, readOnly, onSave }:
   const [value, setValue] = useState(start.value);
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const view = inventoryCellView(date > last ? null : day);
-  const icon = CELL_ICONS[view.kind] ?? null;
-  const occupied = day ? day.sold + day.held : 0;
   const past = date < today;
+  const view = inventoryCellView(date > last ? null : day, past);
+  const icon = past && view.kind === "unset" ? null : (CELL_ICONS[view.kind] ?? null);
+  const occupied = day ? day.sold + day.held : 0;
   const beyond = date > last;
 
   const save = async (): Promise<void> => {
@@ -544,9 +544,9 @@ function DayPanel({ headingId, date, day, mode, today, last, readOnly, onSave }:
         <p className="calendar-detail__loading">加载中…</p>
       ) : (
         <>
-          <p className={`stock-day__status stock-cell--${view.kind}`}>
+          <p className={`stock-day__status stock-cell--${view.kind}${past ? " stock-cell--past" : ""}`}>
             {icon && <Icon name={icon} />}
-            {view.kind === "open" ? `还剩 ${count(day?.remaining ?? 0)} 单` : view.kind === "unset" ? "没设，卖不出去" : view.kind === "beyond" ? "超出可以设库存的范围" : view.main}
+            {view.kind === "open" ? `还剩 ${count(day?.remaining ?? 0)} 单` : view.kind === "unset" ? (past ? "没设" : "没设，卖不出去") : view.kind === "beyond" ? "超出可以设库存的范围" : view.main}
           </p>
           {day !== null && !beyond && (
             <p className="calendar-detail__combo">{day.total === null ? (mode === "unlimited" ? "现在是不限量，这一天没有预先设数。" : "限量时，没有设库存的日子不接单。") : `${occupancyText({ total: day.total, sold: day.sold, held: day.held }, " 单")}${day.sold === 0 && day.held === 0 ? " · 已售 0 单 · 待付款 0 单" : ""}${mode === "unlimited" ? "。现在是不限量，这个数不起作用" : ""}`}</p>
