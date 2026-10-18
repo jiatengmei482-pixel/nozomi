@@ -326,8 +326,9 @@ test("到期时间的时区写法：+09:00 和 Z 是同一时刻；正好 30 分
   assert.deepEqual(await issues(tokyo(now + 30 * 60_000)), []);
   assert.deepEqual(await issues(tokyo(now + 30 * 60_000 - 1)), ["EXPIRES_TOO_SOON"]);
   assert.deepEqual(await issues(tokyo(now + 72 * HOUR)), []);
-  assert.deepEqual(await issues(tokyo(now + 72 * HOUR + 1)), ["EXPIRES_TOO_LATE"]);
-  assert.deepEqual(await issues(new Date(now + 72 * HOUR + 1).toISOString()), ["EXPIRES_TOO_LATE"]);
+  // 「最长 72 小时」另外容许 5 分钟钟差（M2-06 测试发现：浏览器时钟比服务器快时选「72 小时」被拒）
+  assert.deepEqual(await issues(tokyo(now + 72 * HOUR + 5 * 60_000 + 1)), ["EXPIRES_TOO_LATE"]);
+  assert.deepEqual(await issues(new Date(now + 72 * HOUR + 5 * 60_000 + 1).toISOString()), ["EXPIRES_TOO_LATE"]);
   // 不带时区的时间不收（含义不明）
   assert.equal((await requestLock(who("master_data").token, { currency: "THB", rate: "36.05", expires_at: "2026-10-08T10:00:00" })).status, 400);
 });

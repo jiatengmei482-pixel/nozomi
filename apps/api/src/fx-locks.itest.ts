@@ -94,7 +94,7 @@ test("发起锁定：只认十进制字符串、不能锁 USD、到期时间 30 
   // JSON 数字：解析时已经是浮点数了，不收
   assert.equal((await requestLock(m.staff.masterData.token, { rate: 151.2 })).status, 400);
   assert.deepEqual(await issues({ expires_at: later(29 * 60_000) }), ["EXPIRES_TOO_SOON"]);
-  assert.deepEqual(await issues({ expires_at: later(72 * HOUR + 1_000) }), ["EXPIRES_TOO_LATE"]);
+  assert.deepEqual(await issues({ expires_at: later(72 * HOUR + 5 * 60_000 + 1_000) }), ["EXPIRES_TOO_LATE"]);
   const deviation = await requestLock(m.staff.masterData.token, { rate: "160" });
   assert.deepEqual(deviation.body.error.details.issues, [{ path: "/reason", reason: "REASON_REQUIRED", message: deviation.body.error.details.issues[0].message, detail: { change_bp: 667, central_rate: "150", reason_above_bp: 300 } }]);
   assert.deepEqual(await issues({ rate: "1500", reason: "数量级写错" }), ["DEVIATION_TOO_LARGE"]);

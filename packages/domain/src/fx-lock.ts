@@ -14,6 +14,11 @@ import type { FxLockLeg, FxQuote } from "./quote.ts";
 export const FX_LOCK_RULES = {
   /** 锁定最长多久（从发起算起；批准时到期时间不变） */
   maxHours: 72,
+  /**
+   * 「最长 72 小时」容许的钟差（分钟）：到期时刻由浏览器按本机时钟算好再提交，本机比服务器快一点时
+   * 选「72 小时」也不该被拒。和汇率取数时间的钟差（FX_RULES 的 5 分钟）同一个口径。
+   */
+  maxHoursClockSkewMinutes: 5,
   /** 发起时到期时间离现在至少多久（太短的锁定来不及有人审核就到期了） */
   minMinutes: 30,
   /** 和中央汇率偏离超过它（严格大于）时必须写原因：和「单次变动超过 3% 挂起」同一个口径 */
@@ -136,7 +141,7 @@ export function fxLockRequestIssues(input: FxLockRequestInput, central: string, 
   if (rate === null) issues.push({ path: "/rate", reason: "INVALID_RATE", detail: { max_integer_digits: FX_LOCK_RULES.maxIntegerDigits, max_fraction_digits: FX_LOCK_RULES.maxFractionDigits } });
   const untilMs = input.expiresAt.getTime() - now.getTime();
   if (!Number.isFinite(untilMs) || untilMs < FX_LOCK_RULES.minMinutes * 60_000) issues.push({ path: "/expires_at", reason: "EXPIRES_TOO_SOON", detail: { min_minutes: FX_LOCK_RULES.minMinutes } });
-  else if (untilMs > FX_LOCK_RULES.maxHours * 3_600_000) issues.push({ path: "/expires_at", reason: "EXPIRES_TOO_LATE", detail: { max_hours: FX_LOCK_RULES.maxHours } });
+  else if (untilMs > FX_LOCK_RULES.maxHours * 3_600_000 + FX_LOCK_RULES.maxHoursClockSkewMinutes * 60_000) issues.push({ path: "/expires_at", reason: "EXPIRES_TOO_LATE", detail: { max_hours: FX_LOCK_RULES.maxHours } });
   const deviation = rate === null ? null : lockDeviation(central, rate);
   if (deviation !== null) {
     const detail = { change_bp: deviation.changeBp, central_rate: central };

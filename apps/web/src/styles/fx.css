@@ -167,6 +167,8 @@
 }
 
 .fx-locked-mark {
+  /* 里面给读屏用的隐藏文字是绝对定位的：要以这里为准，不然会跑出表格的滚动区、把手机宽度的页面撑宽 */
+  position: relative;
   margin-left: var(--space-1);
   color: var(--color-info-text);
   font-weight: var(--font-weight-medium);

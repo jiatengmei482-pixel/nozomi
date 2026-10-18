@@ -65,7 +65,10 @@ test("发起时的到期时间：离现在至少 30 分钟、最多 72 小时，
   assert.deepEqual(issues(at(FX_LOCK_RULES.minMinutes * 60_000 - 1)), ["EXPIRES_TOO_SOON"]);
   assert.deepEqual(issues(at(-1)), ["EXPIRES_TOO_SOON"]);
   assert.deepEqual(issues(at(hours(FX_LOCK_RULES.maxHours))), []);
-  assert.deepEqual(issues(at(hours(FX_LOCK_RULES.maxHours) + 1)), ["EXPIRES_TOO_LATE"]);
+  // 容许 5 分钟钟差：浏览器按本机时钟算的「72 小时后」比服务器快一点也收
+  const skew = FX_LOCK_RULES.maxHoursClockSkewMinutes * 60_000;
+  assert.deepEqual(issues(at(hours(FX_LOCK_RULES.maxHours) + skew)), []);
+  assert.deepEqual(issues(at(hours(FX_LOCK_RULES.maxHours) + skew + 1)), ["EXPIRES_TOO_LATE"]);
   assert.deepEqual(issues(new Date(Number.NaN)), ["EXPIRES_TOO_SOON"]);
 });
 
