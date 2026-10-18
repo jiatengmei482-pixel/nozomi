@@ -162,7 +162,7 @@ export async function insertOrderEvent(db: Db, order: Pick<Order, "tenantId" | "
 }
 
 export async function listOrderEvents(db: Db, tenantId: string, orderId: string): Promise<OrderEvent[]> {
-  const result = await db.query<Row>("select from_status, to_status, actor, reason, occurred_at from order_events where tenant_id = $1 and order_id = $2 order by occurred_at, id", [tenantId, orderId]);
+  const result = await db.query<Row>("select from_status, to_status, actor, reason, occurred_at from order_events where tenant_id = $1 and order_id = $2 order by occurred_at, seq", [tenantId, orderId]);
   return result.rows.map((row) => ({ fromStatus: row["from_status"], toStatus: row["to_status"], actor: row["actor"], reason: row["reason"], occurredAt: row["occurred_at"] }));
 }
 

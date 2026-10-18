@@ -312,9 +312,9 @@ export async function createSalesOrder(ctx: AppContext, principal: SalesPrincipa
   try {
     placed = await placeOrder(ctx, principal, input, hash);
   } catch (err) {
-    // 同一个键同时来了两次：后到的那次在唯一约束上等前一次提交，然后按「用过的键」再走一遍
-    if (isUniqueViolation(err, "order_sales_idempotency_key")) placed = await placeOrder(ctx, principal, input, hash);
-    else if (isUniqueViolation(err, "order_sales_quote_id_key")) throw new AppError(409, "QUOTE_ALREADY_ORDERED", "这个报价已经下过单了，一个报价只能下一单；要再订一辆请重新询价");
+    // 同时来了两次（同一个键，或同一个报价）：后到的那次在唯一约束上等前一次提交、整体回滚，再走一遍——
+    // 同一个键就按「用过的键」返回那张单，换了键就是「这个报价已经下过单了」
+    if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash);
     else throw err;
   }
   const intent = await ensurePayment(ctx, provider, placed.orderId, log);

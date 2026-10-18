@@ -92,6 +92,8 @@ grant select, insert, update on orders to nozomi_platform;
 create table order_events (
   tenant_id uuid not null references tenants (id),
   id uuid not null default gen_random_uuid(),
+  -- 写入的先后（同一时刻的几条按它排）
+  seq bigint generated always as identity,
   order_id uuid not null,
   -- 新建时为空
   from_status text,
@@ -105,7 +107,7 @@ create table order_events (
   constraint order_events_actor_check check (actor in ('channel', 'payment', 'system', 'platform_user'))
 );
 
-create index order_events_order_idx on order_events (tenant_id, order_id, occurred_at, id);
+create index order_events_order_idx on order_events (tenant_id, order_id, occurred_at, seq);
 
 alter table order_events enable row level security;
 create policy order_events_same_tenant on order_events for select to nozomi_app using (tenant_id = app_tenant_id());
