@@ -83,7 +83,7 @@ test("双人复核：改定价参数要另一个人批准才生效；发起人�
   const notMine = await checked("POST", `/platform/v1/approvals/${approval.id}/withdraw`, "/platform/v1/approvals/{id}/withdraw", { token: m.staff.cm2.token, body: {} });
   assert.deepEqual([notMine.status, notMine.body.error.code], [409, "APPROVAL_NOT_REQUESTER"]);
   // 主数据运营看不到这一类：404
-  assert.equal((await api.call("GET", `/platform/v1/approvals/${approval.id}`, { token: m.staff.masterData.token })).status, 403);
+  assert.equal((await api.call("GET", `/platform/v1/approvals/${approval.id}`, { token: m.staff.masterData.token })).status, 404);
   // 另一位渠道经理批准：生效
   const cm2View = await checked("GET", `/platform/v1/approvals/${approval.id}`, "/platform/v1/approvals/{id}", { token: m.staff.cm2.token });
   assert.deepEqual(cm2View.body.approval.can, { approve: true, reject: true, withdraw: false });

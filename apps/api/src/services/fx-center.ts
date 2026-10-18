@@ -12,12 +12,15 @@ import {
   type CurrencyCode,
   FX_CURRENCIES,
   FX_RULES,
+  type FxLock,
   type FxQuote,
   type FxTable,
   type FxTableState,
   findRateJumps,
   fxFetchAbandoned,
   fxQuoteFromTable,
+  fxQuoteUsable,
+  fxQuoteWithLocks,
   fxStaleAt,
   fxTableState,
   nextFxFetchAt,
@@ -44,6 +47,7 @@ import {
   lockFxFetching,
   pendingHeldFetches,
 } from "../repos/fx.ts";
+import { type StoredFxLock, activeFxLocks, endFxLock, lockFxLocking, overdueFxLocks } from "../repos/fx-locks.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 
 /** 服务日志（Fastify 的日志对象满足它）。异常走统一的脱敏序列化；这里只记错误码、时间这类字段，不记数据源地址。 */
@@ -72,6 +76,17 @@ function tableOf(set: RateSet): FxTable {
   return { base: set.base, asOf: set.asOf.toISOString(), rates: set.rates };
 }
 
+/** 库里的锁定 → 报价用的那几项。 */
+export function fxLockOf(lock: StoredFxLock): FxLock {
+  return { id: lock.id, currency: lock.currency, rate: lock.rate, expiresAt: lock.expiresAt.toISOString() };
+}
+
+/** 报价用的汇率：现在用的那批，加上生效中的人工锁定（M2-06）。 */
+export interface FxState {
+  table: FxTable | null;
+  locks: FxLock[];
+}
+
 export interface FxCenterOptions {
   pool: Pool;
   now: () => Date;
@@ -85,8 +100,8 @@ export class FxCenter {
   private readonly now: () => Date;
   private readonly config: AppConfig["fx"];
   private readonly log: FxLog;
-  private cached: { table: FxTable | null; loadedAt: number } | null = null;
-  private loading: Promise<FxTable | null> | null = null;
+  private cached: { state: FxState; loadedAt: number } | null = null;
+  private loading: Promise<FxState> | null = null;
   /** 缓存的代次：每次作废加一。作废之前开始的加载（旧代次）读到的可能是旧的一批，结果不写回缓存，也不交给作废之后的调用 */
   private generation = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -101,26 +116,35 @@ export class FxCenter {
     this.sourceHost = fxSourceHost(options.config.sourceUrl);
   }
 
-  /** 给报价引擎的中央汇率（ADR 0020 留的接口）：没有汇率、或超过 48 小时没更新返回 null（跨币种暂停）。 */
+  /**
+   * 给报价引擎的中央汇率（ADR 0020 留的接口）：没有汇率、或超过 48 小时没更新返回 null（跨币种暂停）。
+   * 有人工锁定（M2-06，ADR 0025）时锁定的一边用锁定值（`lock` 里记着），锁定的一边不受 48 小时约束；到期那一刻起不再用。
+   */
   readonly rates = {
     quote: async (from: CurrencyCode, to: CurrencyCode, at: Date): Promise<FxQuote | null> => {
-      const table = await this.currentTable();
-      if (table === null || fxTableState(table.asOf, at) !== "fresh") return null;
-      return fxQuoteFromTable(table, from, to);
+      const { table, locks } = await this.currentState();
+      if (table === null) return null;
+      const quote = fxQuoteWithLocks(table, locks, from, to, at);
+      return quote !== null && fxQuoteUsable(quote, at) ? quote : null;
     },
   };
 
   /** 现在用的那批汇率（缓存 30 秒）。 */
   async currentTable(): Promise<FxTable | null> {
+    return (await this.currentState()).table;
+  }
+
+  /** 现在用的那批汇率和生效中的锁定（一起缓存 30 秒；锁定是否到期在用的时候按报价时刻判断）。 */
+  async currentState(): Promise<FxState> {
     const nowMs = Date.now();
-    if (this.cached !== null && nowMs - this.cached.loadedAt < CACHE_TTL_MS) return this.cached.table;
+    if (this.cached !== null && nowMs - this.cached.loadedAt < CACHE_TTL_MS) return this.cached.state;
     if (this.loading === null) {
       const generation = this.generation;
-      const loading: Promise<FxTable | null> = withPlatformTx(this.pool, latestRateSet)
-        .then((set) => {
-          const table = set === null ? null : tableOf(set);
-          if (generation === this.generation) this.cached = { table, loadedAt: Date.now() };
-          return table;
+      const loading: Promise<FxState> = withPlatformTx(this.pool, async (db) => ({ set: await latestRateSet(db), locks: await activeFxLocks(db, this.now()) }))
+        .then(({ set, locks }) => {
+          const state: FxState = { table: set === null ? null : tableOf(set), locks: locks.map(fxLockOf) };
+          if (generation === this.generation) this.cached = { state, loadedAt: Date.now() };
+          return state;
         })
         .finally(() => {
           if (this.loading === loading) this.loading = null;
@@ -130,7 +154,7 @@ export class FxCenter {
     return this.loading;
   }
 
-  /** 本进程里汇率变了（拉到新的一批、确认了挂起的一批）：下次报价重新取；正在进行的加载作废，结果不写回缓存。 */
+  /** 本进程里汇率变了（拉到新的一批、确认了挂起的一批、锁定或解锁生效、锁定到期）：下次报价重新取；正在进行的加载作废，结果不写回缓存。 */
   invalidate(): void {
     this.generation += 1;
     this.cached = null;
@@ -290,10 +314,33 @@ export class FxCenter {
     return result.state;
   }
 
-  /** 定时任务的一步：到时间就拉，然后检查是否过期。 */
+  /**
+   * 人工锁定到期（M2-06）：到期的锁定改成 expired，每一条记一条审计（`fx_lock` / `expire`，操作者「系统」，入口 `job`）和服务日志（`fx.lock_expired`）。
+   * 到期那一刻起报价已经不用它（按报价时刻判断），这里只是把状态和记录补上。几个服务进程同时检查也只记一次（同一把锁）。
+   */
+  async expireLocks(): Promise<StoredFxLock[]> {
+    const expired = await withPlatformTx(this.pool, async (db) => {
+      await lockFxLocking(db);
+      const now = this.now();
+      const due = await overdueFxLocks(db, now);
+      for (const lock of due) {
+        await endFxLock(db, lock.id, { status: "expired", at: now, approvalId: null, by: null });
+        await insertAuditLog(db, origin({ kind: "job" }, now), { tenantId: null, resource: "fx_lock", resourceId: lock.id, action: "expire", before: { status: "active" }, after: { status: "expired", currency: lock.currency, rate: lock.rate, expires_at: lock.expiresAt.toISOString() } });
+      }
+      return due;
+    });
+    if (expired.length > 0) {
+      this.invalidate();
+      for (const lock of expired) this.log.warn({ event: "fx.lock_expired", fxLockId: lock.id, currency: lock.currency, expiresAt: lock.expiresAt.toISOString() }, "人工锁定的汇率已到期，恢复使用数据源的汇率");
+    }
+    return expired;
+  }
+
+  /** 定时任务的一步：到时间就拉，然后检查是否过期、锁定是否到期。 */
   async tick(): Promise<void> {
     if (this.config.autoFetch) await this.fetch("schedule", { kind: "job" });
     await this.checkStale();
+    await this.expireLocks();
   }
 
   /** 启动定时任务（服务进程里调用；测试直接调 `tick`）。 */
@@ -334,16 +381,20 @@ export interface FxOverview {
   fetchedAt: Date | null;
   staleAt: Date | null;
   source: string | null;
-  /** 1 个 base = ? 个各币种（12 位小数）；表里没有的为 null */
-  rates: { currency: CurrencyCode; rate: string | null }[];
-  /** 平台币种两两之间：1 个 from = ? 个 to */
-  cross: { from: CurrencyCode; to: CurrencyCode; rate: string | null }[];
+  /** 1 个 base = ? 个各币种（12 位小数）：报价用的值（有锁定的用锁定值）；`central` 是数据源的中央汇率；表里没有的为 null */
+  rates: { currency: CurrencyCode; rate: string | null; central: string | null; locked: boolean }[];
+  /** 平台币种两两之间：1 个 from = ? 个 to（报价用的值） */
+  cross: { from: CurrencyCode; to: CurrencyCode; rate: string | null; locked: boolean }[];
 }
 
-export async function fxOverview(db: Db, base: CurrencyCode, now: Date): Promise<FxOverview> {
+/**
+ * 看板的汇率。`locks` 是生效中的锁定（平台看板传进来；租户的汇率接口不传——租户看的是数据源的中央汇率，ADR 0025）。
+ */
+export async function fxOverview(db: Db, base: CurrencyCode, now: Date, locks: readonly FxLock[] = []): Promise<FxOverview> {
   const set = await latestRateSet(db);
   const table = set === null ? null : tableOf(set);
-  const rate = (from: CurrencyCode, to: CurrencyCode): string | null => (table === null ? null : (fxQuoteFromTable(table, from, to)?.rate ?? null));
+  const effective = (from: CurrencyCode, to: CurrencyCode): FxQuote | null => (table === null ? null : fxQuoteWithLocks(table, locks, from, to, now));
+  const central = (from: CurrencyCode, to: CurrencyCode): string | null => (table === null ? null : (fxQuoteFromTable(table, from, to)?.rate ?? null));
   return {
     base,
     state: fxTableState(table?.asOf ?? null, now),
@@ -351,8 +402,16 @@ export async function fxOverview(db: Db, base: CurrencyCode, now: Date): Promise
     fetchedAt: set?.fetchedAt ?? null,
     staleAt: table === null ? null : fxStaleAt(table.asOf),
     source: set?.source ?? null,
-    rates: FX_CURRENCIES.filter((currency) => currency !== base).map((currency) => ({ currency, rate: rate(base, currency) })),
-    cross: FX_CURRENCIES.flatMap((from) => FX_CURRENCIES.filter((to) => to !== from).map((to) => ({ from, to, rate: rate(from, to) }))),
+    rates: FX_CURRENCIES.filter((currency) => currency !== base).map((currency) => {
+      const quote = effective(base, currency);
+      return { currency, rate: quote?.rate ?? null, central: central(base, currency), locked: quote?.lock !== undefined };
+    }),
+    cross: FX_CURRENCIES.flatMap((from) =>
+      FX_CURRENCIES.filter((to) => to !== from).map((to) => {
+        const quote = effective(from, to);
+        return { from, to, rate: quote?.rate ?? null, locked: quote?.lock !== undefined };
+      }),
+    ),
   };
 }
 

@@ -133,13 +133,13 @@ test("立即拉取：汇率按数据源的数字原文入库（150.000 → 150�
   assert.deepEqual(stored.rows.map((row: any) => [row.quote, row.rate]), [["CNY", "7.2"], ["HKD", "7.8"], ["JPY", "150"], ["KRW", "1400"], ["THB", "36"], ["TWD", "32"]]);
   const board = await overview("base=JPY");
   assert.deepEqual([board.state, board.as_of, board.base, board.source, board.stale_at], ["fresh", T0.toISOString(), "JPY", new URL(source.url).host, "2026-10-09T00:00:00.001Z"]);
-  assert.deepEqual(board.rates.find((item: any) => item.currency === "CNY"), { currency: "CNY", rate: "0.048" });
-  assert.deepEqual(board.cross.find((item: any) => item.from === "CNY" && item.to === "JPY"), { from: "CNY", to: "JPY", rate: "20.833333333333" });
+  assert.deepEqual(board.rates.find((item: any) => item.currency === "CNY"), { currency: "CNY", rate: "0.048", central_rate: "0.048", locked: false });
+  assert.deepEqual(board.cross.find((item: any) => item.from === "CNY" && item.to === "JPY"), { from: "CNY", to: "JPY", rate: "20.833333333333", locked: false });
   assert.equal(board.cross.length, 7 * 6);
   // 报价：人民币的商品换成日元，快照里记着汇率中心给的汇率和取数时间
   const quote = await preview();
   const candidate = quote.groups[0].candidates[0];
-  assert.deepEqual([candidate.product_id, candidate.fx, candidate.fx_buffer_bp], [ids["cny"], { from: "CNY", to: "JPY", rate: "20.833333333333", as_of: T0.toISOString() }, 150]);
+  assert.deepEqual([candidate.product_id, candidate.fx, candidate.fx_buffer_bp], [ids["cny"], { from: "CNY", to: "JPY", rate: "20.833333333333", as_of: T0.toISOString(), lock: null }, 150]);
   const expected = sellPrice({ settlementMinor: 90_000, settlementCurrency: "CNY", currency: "JPY", markupBp: 1_000, fx: fxQuoteFromTable({ base: "USD", asOf: T0.toISOString(), rates: { JPY: "150", CNY: "7.2" } }, "CNY", "JPY") });
   assert.ok("sellMinor" in expected);
   assert.equal(candidate.sell, expected.sellMinor);
@@ -192,7 +192,7 @@ test("变动超过 3%：整批挂起、告警，不生效；首页提醒；有�
   assert.deepEqual([board.as_of, board.held?.id], [T0.toISOString(), held.id], "现在用的还是旧的那批");
   assert.equal((await preview()).groups[0].candidates[0].fx.as_of, T0.toISOString());
   const summary = await ok(api.call("GET", "/platform/v1/dashboard/summary", { token: readonlyToken }));
-  assert.deepEqual(summary.fx, { state: "fresh", as_of: T0.toISOString(), stale_at: "2026-10-09T00:00:00.001Z", held: true, last_attempt_status: "held" });
+  assert.deepEqual(summary.fx, { state: "fresh", as_of: T0.toISOString(), stale_at: "2026-10-09T00:00:00.001Z", held: true, last_attempt_status: "held", locks: [] });
   // 数据源还是这一批：不重复挂起
   assert.equal((await ok(fetchNow())).fetch.status, "unchanged");
   // 只读角色不能确认
