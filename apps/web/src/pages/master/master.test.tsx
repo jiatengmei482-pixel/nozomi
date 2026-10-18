@@ -51,7 +51,7 @@ const summary = (waiting: number): DashboardSummary => ({
     vehicle_groups: counts(8, 0),
     addons: counts(6, 1),
   },
-  fx: { state: "fresh", as_of: "2026-10-01T00:02:31.000Z", stale_at: "2026-10-03T00:02:31.001Z", held: false, last_attempt_status: "accepted" },
+  fx: { state: "fresh", as_of: "2026-10-01T00:02:31.000Z", stale_at: "2026-10-03T00:02:31.001Z", held: false, last_attempt_status: "accepted", locks: [] },
 });
 
 const me = (role: string) => json(200, { user: { id: "p1", email: "staff@platform.example", name: "测试员工", role, status: "active", ...stamps }, permissions: [], must_change_password: false });
