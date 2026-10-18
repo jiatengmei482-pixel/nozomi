@@ -164,7 +164,9 @@ for (const portal of PORTALS) {
       assert.equal(rejected.status, 400);
       assert.ok(!rejected.text.includes(token), "超长被拒时不回显令牌");
       assert.ok(!api.logs().includes(token), "日志里没有令牌原文");
-      const secret = token.split(/[._]/).at(-1)!;
+      // 随机部分 = 去掉固定前缀后的 base64url（它自己也可能含「_」，不能按「_」切，否则会切出两三个字符、碰巧出现在日志里）
+      const secret = token.slice(token.lastIndexOf(".") + 1).replace(/^[a-z]+_/, "");
+      assert.ok(secret.length >= 40, `随机部分应有 43 个字符：${secret.length}`);
       assert.ok(!api.logs().includes(secret), "日志里也没有令牌的随机部分");
     });
 
