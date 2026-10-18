@@ -26,6 +26,7 @@ pnpm admin:reset-password --email 你的邮箱         # 超级管理员忘了�
 # 上面两条命令都可以在末尾加 --temporary-password：不用输入密码，命令生成一个只显示一次的临时密码，第一次登录后必须修改
 pnpm masterdata:import-airports --country JP,KR   # 从 OurAirports（公有领域）导入机场；可反复运行；加 --dry-run 只看不写
 pnpm masterdata:import-cities --country JP,KR     # 从 GeoNames（CC BY 4.0）导入主要城市；可反复运行；--activate 直接启用，--dry-run 只看不写
+pnpm masterdata:import-airport-names --country JP,KR  # 从 GeoNames（CC BY 4.0）给机场填空着的中文名、日文名；可反复运行；--dry-run 只看不写
 pnpm dev               # 启动后端，http://localhost:8080/health 查看数据库、迁移状态，以及各账号是否已配置
 
 pnpm check             # 提交前必须通过：类型检查 + 单元测试 + 集成测试 + 进度文件校验（需要本地数据库在运行）
@@ -55,8 +56,9 @@ pnpm progress:build    # 生成进度页到 site/index.html
 系统里没有任何预置的城市、机场、车型（[ADR 0012](docs/adr/0012-master-data.md)）。
 
 - 机场：`pnpm masterdata:import-airports --country JP,KR` 从公开数据源 [OurAirports](https://ourairports.com/data/)（公有领域，对方不保证准确）导入所选国家里有定期航班的大中型机场的三字码、英文名、坐标。`--all-countries` 导入全部国家；`--file <路径>` 读已经下载好的 `airports.csv` 而不联网；`--dry-run` 只显示将要做什么。可以反复运行：只新增没有的、更新变了的，平台改过的和手工录入的不覆盖。
-- 导入的机场是停用的、没有所属城市。平台在后台先建城市，再给机场指定城市、补上中文和日文名称，然后启用。
+- 导入的机场是停用的、没有所属城市。平台在后台先建城市，再给机场指定城市、核对（或补上）中文和日文名称，然后启用。
 - 城市：`pnpm masterdata:import-cities --country JP,KR` 从公开数据源 [GeoNames](https://www.geonames.org/)（CC BY 4.0，使用时须注明来源；对方不保证准确）导入所选国家里人口 30 万以上的城市和各级首府的多语言名称、时区、中心坐标（[ADR 0014](docs/adr/0014-city-import.md)）。`--min-population <人口>` 调范围；`--activate` 让新导入的城市直接启用（不带则是停用，等平台复核）；`--file <cities15000.zip> --names-file <JP.zip> --names-file <KR.zip>` 读已经下载好的文件而不联网；`--dry-run` 只显示将要做什么。可以反复运行，平台改过的不覆盖，和手工建的城市看起来相同的不合并也不重复创建。
+- 机场的中文名、日文名：`pnpm masterdata:import-airport-names --country JP,KR` 从 [GeoNames](https://www.geonames.org/)（CC BY 4.0，使用时须注明来源；对方不保证准确）按三字码给库里的机场填上（[ADR 0024](docs/adr/0024-airport-names-from-geonames.md)）。中文只取简体，数据源里只有繁体的留空并在输出里列出；只填空着的语言，平台改过或删掉的不覆盖、不补回；`--file <JP.zip> --names-file <alternatenames/JP.zip>` 读已经下载好的文件而不联网；`--dry-run` 只显示将要做什么。要先导入机场。
 - 处理导入的机场时，后台会按距离建议最近的启用中的城市（只是建议，要人确认）。
 - 车站、地标、航站楼、车型组、附加服务，以及人口少但有接送需求的城市，没有可靠的公开来源，由平台在后台录入（`/platform/v1/master/*`）。租户只能看（`/tenant/v1/master/*`）。
 - 主数据不删除，只停用；每次改动都有审计日志。

@@ -52,16 +52,17 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read"]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"]);
   }
-  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read"]);
-  assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read"]);
+  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read"]);
+  assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
   assert.equal(platformRoleCan("readonly", "tenant.create"), false);
   assert.equal(platformRoleCan("operations", "integration.read"), false);
-  assert.deepEqual(platformPermissions("finance"), ["master_data.read"]);
-  assert.deepEqual(platformPermissions("risk"), ["master_data.read", "product.read"]);
+  assert.deepEqual(platformPermissions("finance"), ["master_data.read", "channel.read", "approval.read"]);
+  assert.deepEqual(platformPermissions("risk"), ["master_data.read", "product.read", "channel.read", "approval.read"]);
   // 报价试算（M2-01）：运营、招商、渠道经理、客服；里面有各供应商的结算价和加价比例，财务、风控、主数据、技术、只读不给
-  for (const role of ["channel_manager", "customer_service"] as const) assert.deepEqual(platformPermissions(role), ["master_data.read", "quote.preview", "product.read"]);
+  assert.deepEqual(platformPermissions("customer_service"), ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"]);
+  for (const role of ["channel_manager", "customer_service"] as const) assert.equal(platformRoleCan(role, "quote.preview"), true);
   for (const role of ["finance", "risk", "master_data", "tech", "readonly"] as const) assert.equal(platformRoleCan(role, "quote.preview"), false);
 });
 
@@ -81,6 +82,17 @@ test("主数据：每个平台角色都能看，只有主数据运营和超级�
   for (const { key } of PLATFORM_ROLES) assert.equal(platformRoleCan(key, "fx.manage"), key === "master_data" || key === "super_admin", key);
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "master_data.read"), true, key);
   assert.ok(!(TENANT_ACTIONS as readonly string[]).some((action) => action.startsWith("master_data.") && action !== "master_data.read"));
+});
+
+test("渠道（M2-04，ADR 0023）：除主数据运营外都能看；新建、修改、发起复核和审核只归渠道经理和超级管理员；待审核队列跟着能看渠道的角色", () => {
+  for (const { key } of PLATFORM_ROLES) {
+    assert.equal(platformRoleCan(key, "channel.read"), key !== "master_data", key);
+    assert.equal(platformRoleCan(key, "approval.read"), key !== "master_data", key);
+    assert.equal(platformRoleCan(key, "channel.manage"), key === "channel_manager" || key === "super_admin", key);
+    assert.equal(platformRoleCan(key, "channel.review"), key === "channel_manager" || key === "super_admin", key);
+  }
+  // 渠道经理要选「卖哪些供应商」：能看供应商名单，不能建、不能暂停
+  assert.deepEqual(["tenant.read", "tenant.create", "tenant.change_status"].map((action) => platformRoleCan("channel_manager", action as never)), [true, false, false]);
 });
 
 test("租户：操作日志只有管理员能看", () => {

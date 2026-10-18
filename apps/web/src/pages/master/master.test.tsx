@@ -112,7 +112,9 @@ test("首页：只读角色的提醒行去筛好的列表，没有「先新增�
   assert.equal(reminder.getAttribute("href"), "/platform/master/places?city=none");
   assertAbsent(screen.queryByText("先新增城市，才能给机场指定城市"));
   assertAbsent(screen.queryByText("供应商"));
-  assertAbsent(screen.queryByText("运营", { selector: "h2" }));
+  // 「运营」分区里只有财务能看的渠道和待审核（M2-04），没有供应商卡片
+  const operations = screen.getByText("运营", { selector: "h2" }).closest("section") as HTMLElement;
+  assert.deepEqual([...operations.querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["渠道", "待审核"]);
 });
 
 test("首页：数量加载失败——入口照常可用，数量显示「—」，提示条可以重试", async () => {
@@ -812,7 +814,7 @@ test("城市建议：从列表行内「指定城市」进来、那个机场不�
 });
 
 const attributions = (): string[] => [...document.querySelectorAll(".page__attribution")].map((line) => (line.textContent ?? "").replace("（在新标签页打开）", "").replace("（在新标签页打开）", ""));
-const GEONAMES_LINE = "城市数据来自 GeoNames（geonames.org），CC BY 4.0";
+const GEONAMES_LINE = "城市数据和机场的中文、日文名称来自 GeoNames（geonames.org），CC BY 4.0";
 const OURAIRPORTS_LINE = "机场数据来自 OurAirports（ourairports.com），公有领域";
 
 test("数据来源署名：展示城市的页面都有 GeoNames 那一行并链过去；机场相关的页面另有 OurAirports；外链在新标签页打开且不带来源", async () => {

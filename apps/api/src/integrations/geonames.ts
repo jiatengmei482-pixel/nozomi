@@ -1,10 +1,10 @@
 /**
  * 外部服务：GeoNames 的公开数据文件下载（城市主数据的来源，见 @nozomi/domain 的 geonames.ts；许可 CC BY 4.0）。
  *
- * 两个动作：下载城市文件、下载某个国家的各语言名称文件。下载到的是 zip，这里解出里面的文本并按 UTF-8 严格解码。
+ * 三个动作：下载城市文件、下载某个国家的各语言名称文件、下载某个国家的全部地理名称记录（机场名称导入用它认出机场）。下载到的是 zip，这里解出里面的文本并按 UTF-8 严格解码。
  * 有总时限、有限次数的重试、清楚的错误码（下载的共用部分在 public-file.ts）；不需要任何密钥。单元测试里用替身 `fetch`，不联网。
  */
-import { GEONAMES, decodeUtf8Strict, geonamesNamesFile } from "@nozomi/domain";
+import { GEONAMES, decodeUtf8Strict, geonamesCountryFile, geonamesNamesFile } from "@nozomi/domain";
 import { type DownloadOptions, PublicFileError, downloadPublicFile } from "./public-file.ts";
 import { ZipError, isZip, unzipEntry } from "./zip.ts";
 
@@ -61,4 +61,16 @@ export function downloadCities(options: DownloadOptions = {}): Promise<string> {
 export function downloadCityNames(countryCode: string, options: DownloadOptions = {}): Promise<string> {
   const { url, entry } = geonamesNamesFile(countryCode);
   return download(url, entry, `${countryCode} 的城市名称数据`, options);
+}
+
+/** 下载某个国家的全部地理名称记录（<国家码>.zip），返回解压后的文本。机场名称导入用它认出哪些记录是机场。 */
+export function downloadCountryPlaces(countryCode: string, options: DownloadOptions = {}): Promise<string> {
+  const { url, entry } = geonamesCountryFile(countryCode);
+  return download(url, entry, `${countryCode} 的地理名称数据`, options);
+}
+
+/** 下载某个国家的各语言名称文件给机场名称导入用（和城市用的是同一个文件，只是提示文字不同）。 */
+export function downloadPlaceNames(countryCode: string, options: DownloadOptions = {}): Promise<string> {
+  const { url, entry } = geonamesNamesFile(countryCode);
+  return download(url, entry, `${countryCode} 的各语言名称数据`, options);
 }

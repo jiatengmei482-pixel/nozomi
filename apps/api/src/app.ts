@@ -25,6 +25,8 @@ import { registerProductRoutes } from "./routes/products.ts";
 import { registerPlatformRoutes } from "./routes/platform.ts";
 import { registerPlatformProductRoutes } from "./routes/platform-products.ts";
 import { registerTenantRoutes } from "./routes/tenant.ts";
+import { registerChannelRoutes } from "./routes/channels.ts";
+import { registerSalesRoutes } from "./routes/sales.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -146,7 +148,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // 带令牌或账号数据的响应不允许被任何缓存保存
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
-    if (path.startsWith("/platform/") || path.startsWith("/tenant/")) reply.header("cache-control", "no-store");
+    if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/")) reply.header("cache-control", "no-store");
   });
 
   app.get("/health", async (_request, reply) => {
@@ -181,6 +183,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerQuoteRoutes(app, context);
   registerFxRoutes(app, context);
   registerPlatformProductRoutes(app, context);
+  registerChannelRoutes(app, context);
+  registerSalesRoutes(app, context);
 
   return app;
 }

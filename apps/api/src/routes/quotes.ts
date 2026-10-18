@@ -5,14 +5,15 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type ComparisonRefusal, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type ComparisonRefusal, type PlatformRole, platformRoleCan, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
 import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
-import { type QuotePreviewInput, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
+import { type QuotePreviewInput, markupKey, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { bearerToken } from "../auth/token.ts";
+import { forbidden } from "../services/errors.ts";
 import { parseInput, resourceId, uuidSchema } from "../validation.ts";
 
 type Json = Record<string, unknown>;
@@ -33,7 +34,9 @@ const previewShape = {
   assume_route: z.object({ meters: z.number().int(), minutes: z.number().int() }).strict().nullable().default(null),
 };
 const tenantPreviewSchema = z.object(previewShape).strict();
-const platformPreviewSchema = z.object({ ...previewShape, city_id: uuidSchema, category: z.enum(SERVICE_CATEGORIES), place_id: uuidSchema.nullable().default(null), currency: z.string().max(3) }).strict();
+const platformPreviewSchema = z
+  .object({ ...previewShape, city_id: uuidSchema, category: z.enum(SERVICE_CATEGORIES), place_id: uuidSchema.nullable().default(null), currency: z.string().max(3), channel_id: uuidSchema.nullable().default(null) })
+  .strict();
 
 function previewInput(input: z.output<typeof tenantPreviewSchema>): QuotePreviewInput {
   return {
@@ -111,15 +114,24 @@ function settlementJson(settlement: SettlementBreakdown): Json {
 
 const offerJson = (offer: VehicleOffer): Json => ({ vehicle_group_id: offer.vehicleGroupId, package_hours: offer.packageHours, area_id: offer.areaId, price_rule_id: offer.priceRuleId, settlement: settlementJson(offer.settlement) });
 
+/**
+ * 按渠道试算会看到渠道的加价规则：除了 `quote.preview`，另要能看渠道（`channel.read`），否则 403。
+ * 显式检查，不依赖「有试算权限的角色恰好都能看渠道」。
+ */
+export function assertChannelPreviewAllowed(role: PlatformRole, channelId: string | null): void {
+  if (channelId !== null && !platformRoleCan(role, "channel.read")) throw forbidden("channel.read");
+}
+
 export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void {
   const platform = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
   const tenant = (request: FastifyRequest, action: TenantAction): Promise<TenantPrincipal> => authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
 
   app.post("/platform/v1/quotes/preview", async (request) => {
-    await platform(request, "quote.preview");
+    const principal = await platform(request, "quote.preview");
     const input = parseInput(platformPreviewSchema, request.body, "body");
-    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency }, { log: request.log });
-    const byProduct = new Map(preview.candidates.map((candidate) => [candidate.product.productId, candidate]));
+    assertChannelPreviewAllowed(principal.user.role, input.channel_id);
+    const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency, channelId: input.channel_id }, { log: request.log });
+    const byProduct = new Map([...preview.candidates, ...preview.excluded].map((candidate) => [candidate.product.productId, candidate]));
     const who = (productId: string): Json => {
       const candidate = byProduct.get(productId);
       return { tenant_id: candidate?.product.tenantId ?? null, tenant_name: candidate?.tenantName ?? null, product_id: productId, product_code: candidate?.code ?? null };
@@ -128,6 +140,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
       currency: preview.currency,
       band_bp: preview.bandBp,
       markup_floor_bp: preview.markupFloorBp,
+      channel: preview.channel === null ? null : { id: preview.channel.id, name: preview.channel.name, status: preview.channel.status, min_margin: preview.channel.pricing.minMarginMinor, settle_currency: preview.channel.settleCurrency, rounding_unit: preview.channel.pricing.sellRounding[preview.currency] ?? 1 },
       route: preview.route,
       candidate_count: preview.candidates.length,
       groups: preview.comparison.groups.map((group) => ({
@@ -148,12 +161,16 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
           sell: candidate.sell.sellMinor,
           sell_exact: candidate.sell.exact,
           markup_bp: candidate.sell.markupBp,
+          markup_level: preview.markups.get(markupKey(candidate.productId, candidate.offer.vehicleGroupId))?.level ?? null,
+          markup_rule_id: preview.markups.get(markupKey(candidate.productId, candidate.offer.vehicleGroupId))?.ruleId ?? null,
+          min_margin_applied: candidate.sell.channel?.minMarginApplied ?? false,
           fx_buffer_bp: candidate.sell.fxBufferBp,
           fx: candidate.sell.fx === null ? null : { from: candidate.sell.fx.from, to: candidate.sell.fx.to, rate: candidate.sell.fx.rate, as_of: candidate.sell.fx.asOf },
           offer: offerJson(candidate.offer),
         })),
       })),
       refused: preview.comparison.refused.map((entry) => ({ ...who(entry.productId), vehicle_group_id: entry.vehicleGroupId, reason: entry.reason, message: REFUSAL_MESSAGES[entry.reason] })),
+      excluded: preview.excluded.map((candidate) => who(candidate.product.productId)),
     };
   });
 
