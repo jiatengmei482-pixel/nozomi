@@ -102,6 +102,7 @@ function dashboardSummaryJson(summary: DashboardSummary): Record<string, unknown
             stale_at: summary.fx.staleAt?.toISOString() ?? null,
             held: summary.fx.held,
             last_attempt_status: summary.fx.lastAttemptStatus,
+            locks: summary.fx.locks.map((lock) => ({ currency: lock.currency, rate: lock.rate, expires_at: lock.expiresAt.toISOString() })),
           },
   };
 }

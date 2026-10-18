@@ -98,6 +98,8 @@ export function PlatformHomePage() {
   const fxReminders: EntryReminder[] = [
     ...(fx?.state === "none" ? [{ text: "还没有汇率，跨币种报价都报不出", to: FX_PATH }] : []),
     ...(fx?.held ? [{ text: "有一批汇率变动超过 3%，待确认", to: FX_PATH }] : []),
+    // 人工锁定（M2-06）：哪些币种锁定到什么时候
+    ...(fx !== null && fx.locks.length > 0 ? [{ text: `人工锁定中：${fx.locks.map((lock) => `${lock.currency}（到 ${formatLocalDateTime(lock.expires_at)}）`).join("、")}`, to: FX_PATH }] : []),
   ];
 
   return (
@@ -120,11 +122,14 @@ export function PlatformHomePage() {
         {fx?.state === "stale" && (
           <Alert kind="danger">
             <strong className="alert__title">汇率超过 48 小时没有更新，跨币种报价已暂停</strong>
-            <span>现在这批汇率是 {fx.as_of === null ? "—" : formatLocalDateTime(fx.as_of)} 的。</span>
+            <span>
+              现在这批汇率是 {fx.as_of === null ? "—" : formatLocalDateTime(fx.as_of)} 的。
+              {fx.locks.length > 0 ? `人工锁定的币种（${fx.locks.map((lock) => lock.currency).join("、")}）和美元之间照常报价。` : ""}
+            </span>
             <Link to={FX_PATH}>去汇率页处理</Link>
           </Alert>
         )}
-        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
+        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && !canSeeApprovals && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
         {(showTenants || canSeeProducts || canSeeChannels || canSeeApprovals) && (
           <section className="home-section" aria-labelledby="home-operations">
             <h2 className="home-section__title" id="home-operations">

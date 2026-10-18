@@ -6,7 +6,7 @@
  * - 审核（`decideApproval`）：锁住这条记录；发起人不能批准、驳回自己发起的（数据库也有约束）；批准时在**同一个事务里**调这一类的 `apply` 让改动生效——
  *   生效失败（发起之后对象被别人改过、现在已经不合规则）整个事务回滚，记录仍是待审核，审核人看到原因后可以驳回。
  * - 撤回：只有发起人自己能撤回待审核的。
- * 以后的汇率人工锁定、结算条款、退款超过阈值、停用租户都按这里登记一类即可。
+ * 汇率人工锁定（M2-06）按这里登记了两类；以后的结算条款、退款超过阈值、停用租户同样登记一类即可。
  */
 import { type ApprovalDecision, type ApprovalStatus, type PlatformAction, approvalDecisionRefusal, approvalStatusAfter, platformRoleCan } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -31,6 +31,8 @@ export interface ApprovalKind {
    * 自己写被改对象的审计日志。
    */
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
+  /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
+  afterApply?(ctx: AppContext, approval: Approval): void;
 }
 
 export type ApprovalKinds = ReadonlyMap<string, ApprovalKind>;
@@ -105,7 +107,7 @@ export async function getApproval(ctx: AppContext, kinds: ApprovalKinds, princip
 export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, id: string, decision: ApprovalDecision, note: string | null, ip: string): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
-  return withPlatformTx(ctx.pool, async (db) => {
+  const decided = await withPlatformTx(ctx.pool, async (db) => {
     const approval = await findApproval(db, id, { lock: true });
     const kind = approval === null ? undefined : kinds.get(approval.kind);
     if (!approval || !kind || !platformRoleCan(principal.user.role, kind.readAction)) throw notFound("复核记录");
@@ -116,8 +118,10 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
     const status: ApprovalStatus = approvalStatusAfter(decision);
     await setApprovalDecision(db, id, { status, decidedBy: decision === "withdraw" ? null : principal.user.id, note, now });
     await insertAuditLog(db, origin, { tenantId: null, resource: "approval", resourceId: id, action: decision, before: { status: approval.status }, after: { status, kind: approval.kind, resource_id: approval.resourceId, note } });
-    return (await findApproval(db, id)) as Approval;
+    return { approval: (await findApproval(db, id)) as Approval, kind };
   });
+  if (decision === "approve") decided.kind.afterApply?.(ctx, decided.approval);
+  return decided.approval;
 }
 
 /** 发起之后对象被别人改过（版本对不上）：不能照旧生效。 */

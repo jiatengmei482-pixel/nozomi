@@ -365,7 +365,7 @@ const candidateOf = (position: number, changes: Partial<QuoteCandidate> = {}): Q
   markup_rule_id: null,
   min_margin_applied: false,
   fx_buffer_bp: 150,
-  fx: { from: "JPY", to: "USD", rate: "0.0067", as_of: "2026-10-15T00:00:00.000Z" },
+  fx: { from: "JPY", to: "USD", rate: "0.0067", as_of: "2026-10-15T00:00:00.000Z", lock: null },
   offer: { vehicle_group_id: GROUP_ID, package_hours: null, area_id: AREA_ID, price_rule_id: PRICE_ID, settlement: settlementOf(18000, "JPY", -2000) },
   ...changes,
 });

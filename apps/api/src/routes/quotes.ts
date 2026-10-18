@@ -5,7 +5,7 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type ComparisonRefusal, type PlatformRole, platformRoleCan, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type ComparisonRefusal, type FxQuote, type PlatformRole, platformRoleCan, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
@@ -17,6 +17,17 @@ import { forbidden } from "../services/errors.ts";
 import { parseInput, resourceId, uuidSchema } from "../validation.ts";
 
 type Json = Record<string, unknown>;
+
+/** 报价用的汇率；有人工锁定时 `lock` 里写明哪一边锁定、锁定值和到期时间（M2-06，ADR 0025），没有为 null。 */
+function fxJson(fx: FxQuote): Json {
+  return {
+    from: fx.from,
+    to: fx.to,
+    rate: fx.rate,
+    as_of: fx.asOf,
+    lock: fx.lock === undefined ? null : { legs: fx.lock.legs.map((leg) => ({ currency: leg.currency, rate: leg.rate, lock_id: leg.lockId, expires_at: leg.expiresAt })), uses_source: fx.lock.usesSource },
+  };
+}
 
 const pointSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict();
 
@@ -165,7 +176,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
           markup_rule_id: preview.markups.get(markupKey(candidate.productId, candidate.offer.vehicleGroupId))?.ruleId ?? null,
           min_margin_applied: candidate.sell.channel?.minMarginApplied ?? false,
           fx_buffer_bp: candidate.sell.fxBufferBp,
-          fx: candidate.sell.fx === null ? null : { from: candidate.sell.fx.from, to: candidate.sell.fx.to, rate: candidate.sell.fx.rate, as_of: candidate.sell.fx.asOf },
+          fx: candidate.sell.fx === null ? null : fxJson(candidate.sell.fx),
           offer: offerJson(candidate.offer),
         })),
       })),
