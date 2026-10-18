@@ -812,7 +812,7 @@ test("城市建议：从列表行内「指定城市」进来、那个机场不�
 });
 
 const attributions = (): string[] => [...document.querySelectorAll(".page__attribution")].map((line) => (line.textContent ?? "").replace("（在新标签页打开）", "").replace("（在新标签页打开）", ""));
-const GEONAMES_LINE = "城市数据来自 GeoNames（geonames.org），CC BY 4.0";
+const GEONAMES_LINE = "城市数据和机场的中文、日文名称来自 GeoNames（geonames.org），CC BY 4.0";
 const OURAIRPORTS_LINE = "机场数据来自 OurAirports（ourairports.com），公有领域";
 
 test("数据来源署名：展示城市的页面都有 GeoNames 那一行并链过去；机场相关的页面另有 OurAirports；外链在新标签页打开且不带来源", async () => {

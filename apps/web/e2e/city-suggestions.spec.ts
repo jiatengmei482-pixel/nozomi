@@ -99,7 +99,7 @@ test("流水线页预填建议的城市并列出候选：连续按 Enter 处理�
   const geonames = page.locator(".page__attribution").getByRole("link", { name: /^GeoNames/ });
   await expect(geonames).toHaveAttribute("href", "https://www.geonames.org/");
   await expect(geonames).toHaveAttribute("rel", "noopener noreferrer");
-  await expect(page.locator(".page__attribution").filter({ hasText: "城市数据来自" })).toContainText("CC BY 4.0");
+  await expect(page.locator(".page__attribution").filter({ hasText: "城市数据和机场的中文、日文名称来自" })).toContainText("CC BY 4.0");
 });
 
 test("列表的编码列永远是单行（三字码不会被挤成一个字母一行），名称很长时名称列自己折行", async ({ page, request }) => {
