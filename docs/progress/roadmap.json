@@ -213,7 +213,7 @@
           "role": "backend",
           "status": "review",
           "acceptance": ["从 GeoNames 各语言名称文件（CC BY 4.0）按三字代码导入机场的中文名和日文名，可重复运行，只填空着的语言、不覆盖人工修改", "导入后供应商后台输入「成田」能找到成田机场", "数据来源署名"],
-          "evidence": "PR_LINK ；单元 1087、前端组件 387、集成 869 个通过；真实数据试跑（日本，dry-run）：82 个机场全部对上，71 个可填名称，成田得到「成田国际机场 / 成田国際空港」",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/32 ；单元 1087、前端组件 387、集成 869 个通过；真实数据试跑（日本，dry-run）：82 个机场全部对上，71 个可填名称，成田得到「成田国际机场 / 成田国際空港」",
           "updated": "2026-10-18"
         },
         { "id": "M1-06", "title": "租户后台页面", "role": "frontend", "status": "done", "acceptance": ["区域、商品、价格、库存全部可在界面上操作"], "evidence": "区域、商品、价格、库存全部在供应商后台界面上操作走通（页面随 M1-02～M1-05 一起完成）；验收报告 docs/acceptance/M1.md", "updated": "2026-10-17" },
