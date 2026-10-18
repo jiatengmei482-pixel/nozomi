@@ -250,9 +250,16 @@ export function conflictingMarkupRules(rules: readonly MarkupRule[], rule: Omit<
 }
 
 /**
- * 把渠道的下限调高到 `floorBp` 时，会低于新下限的规则（结束日期早于 `today` 的已经用不上了，不算）。
+ * 把渠道的下限调高到 `floorBp` 时，会低于新下限的规则（结束日期早于「它的今天」的已经用不上了，不算）。
+ * 「今天」按规则的用车日期口径——规则所在城市的当地日期，由调用方按规则给（`todayOf`）。
  * 调高下限之前要先把它们改掉：否则规则表上写着 8%、实际按 12% 算，运营看到的和客人付的对不上。
  */
-export function rulesBelowFloor(rules: readonly MarkupRule[], floorBp: number, today: string): MarkupRule[] {
-  return rules.filter((rule) => rule.markupBp < floorBp && (rule.validTo === null || rule.validTo >= today));
+export function rulesBelowFloor(rules: readonly MarkupRule[], floorBp: number, todayOf: (rule: MarkupRule) => string): MarkupRule[] {
+  return rules.filter((rule) => rule.markupBp < floorBp && (rule.validTo === null || rule.validTo >= todayOf(rule)));
 }
+
+/**
+ * 没有城市的规则（第 2 级「供应商」、第 5 级「全渠道」）在哪个城市都可能用到：它要在世界上最晚的时区（UTC−12）也过了结束日期才算结束。
+ * 宁可多挡一会儿调高下限，也不让一条还在某个城市生效的低比例规则漏过去。
+ */
+export const LATEST_TIME_ZONE = "Etc/GMT+12";

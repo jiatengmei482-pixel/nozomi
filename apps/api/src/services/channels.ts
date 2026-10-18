@@ -18,6 +18,8 @@ import {
   markupLevelOf,
   markupRuleIssues,
   rulesBelowFloor,
+  LATEST_TIME_ZONE,
+  instantToLocal,
   samePricing,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -277,8 +279,16 @@ function rulesBelowFloorError(ruleIds: readonly string[], floorBp: number): AppE
   return new AppError(409, "RULES_BELOW_FLOOR", `有 ${ruleIds.length} 条还在用的加价规则低于新的下限 ${percent(floorBp)}，请先把它们改到下限以上再调高下限`, { rule_ids: [...ruleIds], floor_bp: floorBp });
 }
 
+/**
+ * 调高下限时还在用的、低于新下限的规则。「还在用」按规则所在城市的当地日期判断（用车日期的口径，和匹配时一致）；
+ * 没有城市的规则按世界上最晚的时区（UTC−12）判断——它在哪个城市都可能用到（ADR 0023）。发起和批准都走这里。
+ */
 async function assertNoRuleBelowFloor(db: Db, channelId: string, floorBp: number, now: Date): Promise<void> {
-  const below = rulesBelowFloor(await listMarkupRules(db, channelId), floorBp, now.toISOString().slice(0, 10));
+  const rules = await listMarkupRules(db, channelId);
+  const cityIds = [...new Set(rules.flatMap((rule) => (rule.cityId === null ? [] : [rule.cityId])))];
+  const zones = cityIds.length === 0 ? new Map<string, string>() : new Map((await db.query<{ id: string; timezone: string }>("select id::text, timezone from cities where id = any($1::uuid[])", [cityIds])).rows.map((row) => [row.id, row.timezone]));
+  const todayOf = (rule: { cityId: string | null }): string => instantToLocal(now, rule.cityId === null ? LATEST_TIME_ZONE : (zones.get(rule.cityId) ?? LATEST_TIME_ZONE)).date;
+  const below = rulesBelowFloor(rules, floorBp, todayOf);
   if (below.length > 0) throw rulesBelowFloorError(below.map((rule) => rule.id), floorBp);
 }
 

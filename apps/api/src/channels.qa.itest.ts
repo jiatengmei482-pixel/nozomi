@@ -238,7 +238,7 @@ test("调高下限：已经结束的规则不挡、今天结束的还挡（按�
   assert.deepEqual([blocked.status, blocked.body.error.code], [409, "RULES_BELOW_FLOOR"]);
 });
 
-test("缺陷复现：调高下限时「规则结束了没有」按 UTC 日期判断——东京已经是 10-08 凌晨，10-07 结束的东京规则仍挡住调高下限", async () => {
+test("调高下限时「规则结束了没有」按规则所在城市的当地日期判断：东京已经是 10-08 凌晨，10-07 结束的东京规则不再挡住调高下限", async () => {
   const channel = await newChannel(api, m.staff.cm1.token, { name: "QA 下限与当地日期" });
   await approvedBy(api, m, ruleRequest(api, m, channel.id, { city_id: m.ids.tokyo, category: "airport_transfer", markup_bp: 1_100, valid_from: "2026-10-01", valid_to: "2026-10-07" }));
   // 测试时钟 2026-10-07T01:00Z；拨到 2026-10-07T16:00Z = 东京 10-08 01:00：这条规则在东京已经结束
@@ -246,4 +246,25 @@ test("缺陷复现：调高下限时「规则结束了没有」按 UTC 日期判
   const manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
   const raise = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
   assert.equal(raise.status, 202, `东京已经过了规则的结束日期，不该挡：${raise.text}`);
+});
+
+test("调高下限时没有城市的规则（按供应商、全渠道）要在最晚的时区（UTC−12）也过了结束日期才算结束", async () => {
+  // 前面的用例拨过时钟：先把时钟拨到 2026-10-08T00:00Z，重新登录两位渠道经理
+  api.clock.advance(new Date("2026-10-08T00:00:00Z").getTime() - api.clock.now().getTime());
+  const login = async (email: string): Promise<string> => (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+  const requester = await login(m.staff.cm1.email);
+  const reviewer = await login(m.staff.cm2.email);
+  const channel = await newChannel(api, requester, { name: "QA 下限与无城市规则" });
+  const requested = await ok(api.call("POST", `/platform/v1/channels/${channel.id}/markup-rules`, { token: requester, body: { tenant_id: m.a.tenantId, markup_bp: 1_100, valid_from: "2026-10-01", valid_to: "2026-10-07" } }), 202);
+  await ok(api.call("POST", `/platform/v1/approvals/${requested.approval.id}/approve`, { token: reviewer, body: {} }));
+  // 拨到 2026-10-08T11:00Z：UTC−12 还是 10-07 23:00，这条规则在某些地方还在用
+  api.clock.advance(11 * 3_600_000);
+  let manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
+  const early = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
+  assert.deepEqual([early.status, early.body.error?.code], [409, "RULES_BELOW_FLOOR"]);
+  // 再过 2 小时：UTC−12 也到了 10-08，规则在哪里都结束了
+  api.clock.advance(2 * 3_600_000);
+  manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
+  const late = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
+  assert.equal(late.status, 202, late.text);
 });

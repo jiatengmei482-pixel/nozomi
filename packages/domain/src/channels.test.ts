@@ -130,7 +130,7 @@ test("冲突：同一组维度上不带日期的最多一条，带日期的不�
 test("调高下限：列出还用得上、又低于新下限的规则（已经结束的不算）", () => {
   const ended = rule("old", { tenantId: OTHER_T }, 1_000, "2026-01-01", "2026-10-16");
   const today = rule("today", { tenantId: T }, 1_000, "2026-10-01", "2026-10-17");
-  assert.deepEqual(rulesBelowFloor([ended, today, L1, L4], 1_150, "2026-10-17").map((r) => r.id), ["today", "r4"]);
+  assert.deepEqual(rulesBelowFloor([ended, today, L1, L4], 1_150, () => "2026-10-17").map((r) => r.id), ["today", "r4"]);
 });
 
 test("渠道定价参数：下限不低于平台下限 10%，默认加价不低于下限，价格带 0–5%，取整单位是正整数、币种要支持", () => {
@@ -156,4 +156,12 @@ test("授权范围：全部 / 白名单 / 黑名单；城市不限或指定；�
   assert.equal(channelScopeRefusal({ cityIds: null, categories: ["charter"] }, OSA, "charter"), null);
   assert.equal(channelScopeRefusal({ cityIds: [TYO], categories: ["charter"] }, OSA, "charter"), "CITY_NOT_AUTHORIZED");
   assert.equal(channelScopeRefusal({ cityIds: [TYO], categories: ["charter"] }, TYO, "airport_transfer"), "CATEGORY_NOT_AUTHORIZED");
+});
+
+test("调高下限：每条规则按它自己的「今天」判断结束了没有（调用方按城市当地日期给）", () => {
+  const tokyoRule = rule("tyo", { cityId: TYO, category: "airport_transfer" }, 1_000, "2026-10-01", "2026-10-07");
+  const osakaRule = rule("osa", { cityId: OSA, category: "airport_transfer" }, 1_000, "2026-10-01", "2026-10-08");
+  const todayOf = (r: MarkupRule): string => (r.cityId === TYO ? "2026-10-08" : "2026-10-08");
+  assert.deepEqual(rulesBelowFloor([tokyoRule, osakaRule], 1_100, todayOf).map((r) => r.id), ["osa"]);
+  assert.deepEqual(rulesBelowFloor([tokyoRule], 1_100, () => "2026-10-07").map((r) => r.id), ["tyo"], "结束那一天当天还算在用");
 });
