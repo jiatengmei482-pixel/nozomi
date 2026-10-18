@@ -27,6 +27,11 @@ import { registerPlatformProductRoutes } from "./routes/platform-products.ts";
 import { registerTenantRoutes } from "./routes/tenant.ts";
 import { registerChannelRoutes } from "./routes/channels.ts";
 import { registerSalesRoutes } from "./routes/sales.ts";
+import { registerOrderRoutes } from "./routes/orders.ts";
+import { registerWebhookRoutes } from "./routes/webhooks.ts";
+import type { PaymentProvider } from "./integrations/payments.ts";
+import { StripePaymentProvider } from "./integrations/stripe.ts";
+import { OrderJobs } from "./services/order-jobs.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -43,7 +48,12 @@ export interface AppDeps {
   now?: () => Date;
   /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用默认实现（汇率是汇率中心） */
   quote?: Partial<QuoteDeps>;
-  /** 是否启动后台定时任务（汇率定时拉取和过期告警）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick` */
+  /**
+   * 收款服务（ADR 0026）。不给：配置了 Stripe 就用 Stripe，没配置为 null（不能下单）。
+   * 测试给替身（testing/payments.ts），不连 Stripe；给 null 模拟没配置。
+   */
+  payments?: PaymentProvider | null;
+  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
 
@@ -58,6 +68,8 @@ declare module "fastify" {
     registeredRoutes: RegisteredRoute[];
     /** 汇率中心：定时任务的入口（服务进程用 `jobs` 启动它；测试直接调 `tick`、`fetch`） */
     fxCenter: FxCenter;
+    /** 订单的定时任务：待支付超时取消（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    orderJobs: OrderJobs;
   }
 }
 
@@ -167,10 +179,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const now = deps.now ?? (() => new Date());
   const fx = new FxCenter({ pool, now, config: config.fx, log: app.log });
   app.decorate("fxCenter", fx);
-  const context: AppContext = { config, pool, now, fx, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote } };
+  const payments = deps.payments !== undefined ? deps.payments : config.stripe === null ? null : new StripePaymentProvider(config.stripe);
+  const context: AppContext = { config, pool, now, fx, payments, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote } };
+  const orderJobs = new OrderJobs(context, app.log);
+  app.decorate("orderJobs", orderJobs);
   if (deps.jobs) {
     fx.start();
+    orderJobs.start();
     app.addHook("onClose", () => fx.stop());
+    app.addHook("onClose", () => orderJobs.stop());
   }
   registerPlatformRoutes(app, context);
   registerTenantRoutes(app, context);
@@ -185,6 +202,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerPlatformProductRoutes(app, context);
   registerChannelRoutes(app, context);
   registerSalesRoutes(app, context);
+  registerOrderRoutes(app, context);
+  registerWebhookRoutes(app, context);
 
   return app;
 }

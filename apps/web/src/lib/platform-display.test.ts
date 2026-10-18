@@ -20,6 +20,7 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "channel.manage": "管理渠道",
   "channel.review": "审核渠道",
   "approval.read": "审核",
+  "order.read": "订单",
   "staff.read": "平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
@@ -38,6 +39,7 @@ const NEVER_WITHOUT: Readonly<Partial<Record<PlatformAction, string>>> = {
   "channel.manage": "管理渠道",
   "channel.review": "审核渠道",
   "approval.read": "审核",
+  "order.read": "订单",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
   "integration.read": "系统状态",
@@ -67,5 +69,5 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
   for (const role of ["readonly", "risk"] as const) {
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
-  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动"]);
+  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单"]);
 });

@@ -99,6 +99,10 @@ tags:
     description: 渠道账户（ADR 0023）：基本配置、授权范围、定价参数、加价规则（五级匹配）、API 客户端与密钥、询价日志。定价、加价规则、暂停走双人复核
   - name: 双人复核
     description: 敏感操作的双人复核（ADR 0023）：待审核队列、批准（改动随即生效）、驳回、撤回。发起人不能审核自己发起的
+  - name: 订单
+    description: 订单（ADR 0026）：供应商看自己付过款的订单（没有渠道、对外价、加价比例）；运营后台看全部订单（只读）。派车在 M3-02，订单中心在 M4-02
+  - name: 收款
+    description: 收款服务（Stripe）的通知：签名校验、事件只处理一次、付款成功自动确认订单
   - name: 销售端
     description: |
       `/sales/v1`：渠道调用的销售端接口。OAuth 2.0 Client Credentials 换令牌；询价每个渠道每秒 50 次，其他每秒 10 次（超限 429 + `Retry-After`）。
@@ -5341,6 +5345,445 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /sales/v1/orders:
+    post:
+      tags: [销售端]
+      operationId: createSalesOrder
+      summary: 下单（用 quote_id）
+      description: |
+        必须带请求头 `Idempotency-Key`：同一个渠道里同一个键 + 同样的内容返回同一张订单（应答头 `Idempotent-Replayed: true`），内容不同 422 `IDEMPOTENCY_KEY_REUSED`。
+        金额以报价快照为准，不重新报价。报价要是本渠道的（别的渠道的当作不存在）、在有效期里（过期 410 `QUOTE_EXPIRED`）、没下过单（409 `QUOTE_ALREADY_ORDERED`）。
+        商品被下架或供应商被暂停 409 `QUOTE_NO_LONGER_AVAILABLE`；限量商品这一天订满、加急名额用完 409 `SOLD_OUT`（`details.reason` 是 `SOLD_OUT` / `URGENT_SOLD_OUT`）。
+        下单即预占库存（并发下单不会超卖），订单是待支付，30 分钟内要付款，超时自动取消、释放库存。
+        应答里的 `payment.client_secret` 交给客人的浏览器，用 Stripe.js 确认付款（会保存支付方式，用于服务后加收）；付款成功后平台收到 Stripe 的通知，订单自动确认（租户不能拒单）。
+        Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。收款服务出错 502 / 504（`PAYMENT_PROVIDER_*`，`details` 里有订单号），用同一个 `Idempotency-Key` 重试即可，不会重复下单。
+        每个渠道每秒最多 10 次。
+      security:
+        - salesToken: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: "8 到 128 位的字母、数字或 `_` `.` `:` `-`（例如一个 UUID）"
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesOrderRequest"
+      responses:
+        "201":
+          description: 订单（待支付）和付款信息
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, payment]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  payment:
+                    $ref: "#/components/schemas/SalesOrderPayment"
+        "400":
+          description: |
+            `VALIDATION_FAILED`：请求写得不对。`details.issues[].reason`：`UNKNOWN_QUOTE`（报价不存在或不是本渠道的）、`REQUIRED`、`NOT_APPLICABLE`、`INVALID_PHONE`、`INVALID_FLIGHT_NO`、`TOO_LONG`、`INVALID_FORMAT`、`CONSENT_REQUIRED`（没同意保存支付方式）；
+            没带 `Idempotency-Key`（`details.location` 是 `headers`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ChannelPaused"
+        "409":
+          description: "`QUOTE_ALREADY_ORDERED`、`QUOTE_NO_LONGER_AVAILABLE`、`SOLD_OUT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "410":
+          description: "`QUOTE_EXPIRED`：报价已过有效期，请重新询价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`：这个键已经用于内容不同的另一次下单"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: "`PAYMENT_PROVIDER_UNAVAILABLE` / `PAYMENT_PROVIDER_RATE_LIMITED` / `PAYMENT_PROVIDER_REJECTED` / `PAYMENT_PROVIDER_AUTH_FAILED`：收款服务出错，付款没建好。`details.retryable` 为 true 时用同一个 `Idempotency-Key` 重试"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: "`PAYMENT_NOT_CONFIGURED`：Stripe 还没有配置，不能收款，所以不能下单（/health 里 Stripe 显示「未配置」）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "504":
+          description: "`PAYMENT_PROVIDER_TIMEOUT`：收款服务超时，付款没建好，用同一个 `Idempotency-Key` 重试"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/orders/{id}:
+    get:
+      tags: [销售端]
+      operationId: getSalesOrder
+      summary: 查订单
+      description: 只查得到本渠道的订单（别的渠道的和不存在一样 404）。付款成功后、渠道设置了「付款后展示中标租户名」时才有 `winning_tenant`。每个渠道每秒最多 10 次。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ChannelPaused"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /webhooks/stripe:
+    post:
+      tags: [收款]
+      operationId: receiveStripeWebhook
+      summary: Stripe 的通知（Webhook）
+      description: |
+        Stripe 调用，不需要登录：用请求头 `Stripe-Signature`（`t=时间戳,v1=签名`，HMAC-SHA256，密钥是 `STRIPE_WEBHOOK_SECRET`）验证是 Stripe 发来的，对原始请求体校验；时间戳和现在相差超过 5 分钟拒绝（防重放）。
+        同一个事件编号只处理一次（重复的回 200、`duplicate: true`）。处理：`payment_intent.succeeded`（核对金额币种 → 自动确认订单、库存转已售、记下保存的支付方式）、
+        `payment_intent.payment_failed`（记失败原因，订单仍待支付）、`payment_intent.processing` / `requires_action`、`payment_intent.canceled`（取消待支付的单、释放库存）、
+        `charge.refunded`（记已退金额）、`charge.dispute.created`（标记拒付）；其余类型记下不处理。测试 / 正式模式和本环境不一致的不处理。
+        处理出错 500，Stripe 会按它的节奏重发。
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe 的事件对象（原样）
+      responses:
+        "200":
+          description: 收到了
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [received, duplicate, result]
+                properties:
+                  received:
+                    type: boolean
+                    enum: [true]
+                  duplicate:
+                    type: boolean
+                    description: 这个事件以前收到过，这次什么都没做
+                  result:
+                    description: "`applied` 改了订单或付款；`ignored` 不处理的类型；`unmatched` 对不上平台的付款；`mismatch` 金额或币种和订单对不上（没确认）；`livemode_mismatch` 测试 / 正式模式不一致；重复的为 null"
+                    oneOf:
+                      - type: string
+                        enum: [applied, ignored, unmatched, mismatch, livemode_mismatch]
+                      - type: "null"
+        "400":
+          description: "`WEBHOOK_SIGNATURE_INVALID`（`details.reason`：`SIGNATURE_MISSING`、`SIGNATURE_MALFORMED`、`SIGNATURE_NO_V1`、`SIGNATURE_TIMESTAMP_OUT_OF_TOLERANCE`、`SIGNATURE_MISMATCH`）；`WEBHOOK_PAYLOAD_INVALID`：签名对但内容看不懂"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: 请求体超过 256 KB
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "`PAYMENT_NOT_CONFIGURED`：这个环境没有配置 Stripe"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders:
+    get:
+      tags: [订单]
+      operationId: listTenantOrders
+      summary: 本租户的订单列表
+      description: |
+        需要操作 `order.read`（管理员、调度、财务、只读）。只有付过款（确认过）的单，按用车时间从早到晚。
+        **没有渠道、对外价、加价比例、汇率**（规则 4）。派车、履约回传在 M3-02。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/OrderStatus"
+        - name: from
+          in: query
+          description: 用车日期（当地）不早于这一天
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: 用车日期（当地）不晚于这一天
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: 一页订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantOrder"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+        "400":
+          description: "`VALIDATION_FAILED`：查询参数写得不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}:
+    get:
+      tags: [订单]
+      operationId: getTenantOrder
+      summary: 本租户的一张订单
+      description: 需要操作 `order.read`。别的租户的订单、还没付款的订单都是 404。含状态流水。没有渠道、对外价、加价比例、汇率。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 订单和状态流水
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, events]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/TenantOrder"
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderEvent"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/orders:
+    get:
+      tags: [订单]
+      operationId: listPlatformOrders
+      summary: 全部订单（运营后台，只读）
+      description: |
+        需要操作 `order.read`（超级管理员、运营、客服、财务、风控、只读）。跨租户、跨渠道，按下单时间从新到旧；含中标租户、渠道、对外价、结算价、加价比例、付款状态。
+        完整的订单中心（更多筛选、异常队列、人工介入）在 M4-02。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/OrderStatus"
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: channel_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          description: 平台订单号或渠道订单号（完全一致）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        "200":
+          description: 一页订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformOrder"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+        "400":
+          description: "`VALIDATION_FAILED`：查询参数写得不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}:
+    get:
+      tags: [订单]
+      operationId: getPlatformOrder
+      summary: 一张订单的详情（运营后台，只读）
+      description: 需要操作 `order.read`。订单、状态流水、收到的支付通知、下单用的报价快照（全部参与比价的租户和排序依据）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 订单详情
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, events, payment_events, quote]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/PlatformOrder"
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderEvent"
+                  payment_events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, type, result, event_created_at, received_at, detail]
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        result:
+                          type: string
+                          enum: [processing, applied, ignored, unmatched, mismatch, livemode_mismatch]
+                        event_created_at:
+                          type: string
+                          format: date-time
+                        received_at:
+                          type: string
+                          format: date-time
+                        detail:
+                          type: [object, "null"]
+                  quote:
+                    type: object
+                    additionalProperties: false
+                    required: [quote_id, created_at, expires_at, band_bp, markup, candidates]
+                    properties:
+                      quote_id:
+                        type: string
+                      created_at:
+                        type: string
+                        format: date-time
+                      expires_at:
+                        type: string
+                        format: date-time
+                      band_bp:
+                        type: integer
+                      markup:
+                        type: object
+                        additionalProperties: false
+                        required: [markup_bp, level, rule_id]
+                        properties:
+                          markup_bp:
+                            type: integer
+                          level:
+                            type: integer
+                          rule_id:
+                            type: [string, "null"]
+                            format: uuid
+                      candidates:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required: [tenant_id, product_id, product_version, settlement, sell, markup_bp, observation, score_centi, completed_orders, rank_price, in_band, position]
+                          properties:
+                            tenant_id:
+                              type: string
+                              format: uuid
+                            product_id:
+                              type: string
+                              format: uuid
+                            product_version:
+                              type: integer
+                            settlement:
+                              $ref: "#/components/schemas/SalesMoney"
+                            sell:
+                              $ref: "#/components/schemas/SalesMoney"
+                            markup_bp:
+                              type: integer
+                            observation:
+                              type: boolean
+                            score_centi:
+                              type: integer
+                            completed_orders:
+                              type: integer
+                            rank_price:
+                              type: string
+                            in_band:
+                              type: boolean
+                            position:
+                              type: integer
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
 components:
   securitySchemes:
     platformToken:
@@ -7562,10 +8005,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, channel.read, channel.manage, channel.review, approval.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, channel.read, channel.manage, channel.review, approval.read, order.read]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -11086,3 +11529,628 @@ components:
             `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
         message:
           type: string
+    OrderStatus:
+      type: string
+      enum: [pending_payment, confirmed, assigned, in_service, completed, cancelled, rescue_pending]
+      description: |
+        `pending_payment` 待支付（30 分钟内付款，超时自动取消）→ `confirmed` 已确认（付款成功即自动确认，租户不能拒单）→ `assigned` 已派车 → `in_service` 服务中 → `completed` 已完成；
+        服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中。M3-01 只有待支付、已确认、已取消三种会出现（ADR 0026）。
+    OrderCancelReason:
+      type: string
+      enum: [PAYMENT_TIMEOUT, PAYMENT_CANCELED]
+      description: "`PAYMENT_TIMEOUT` 超时未支付，系统自动取消；`PAYMENT_CANCELED` 付款被取消"
+    PaymentStatus:
+      type: string
+      enum: [creating, requires_payment, processing, succeeded, canceled]
+      description: "`creating` 还没在收款服务建好付款；`requires_payment` 等客人付款（含 3DS 验证中、卡被拒后换卡重付）；`processing` 处理中；`succeeded` 已付款；`canceled` 付款已取消"
+    OrderPoint:
+      type: object
+      additionalProperties: false
+      required: [lng, lat, address]
+      properties:
+        lng:
+          type: number
+        lat:
+          type: number
+        address:
+          type: string
+          description: 客人填的地址或酒店名
+    OrderPassenger:
+      type: object
+      additionalProperties: false
+      required: [name, phone, email]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+          description: 国际格式（E.164），如 `+819012345678`
+        email:
+          type: string
+    OrderMessaging:
+      type: object
+      additionalProperties: false
+      required: [app, handle]
+      properties:
+        app:
+          type: string
+          enum: [whatsapp, line, wechat, kakaotalk]
+        handle:
+          type: string
+    OrderEvent:
+      type: object
+      additionalProperties: false
+      required: [from_status, to_status, actor, reason, occurred_at]
+      properties:
+        from_status:
+          oneOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        to_status:
+          $ref: "#/components/schemas/OrderStatus"
+        actor:
+          type: string
+          enum: [channel, payment, system, platform_user]
+          description: "`channel` 渠道下单；`payment` 收款服务的通知；`system` 定时任务（超时取消、超时检查时发现已付款）；`platform_user` 运营（M4-02）"
+        reason:
+          type: [string, "null"]
+        occurred_at:
+          type: string
+          format: date-time
+    OrderSettlement:
+      type: object
+      additionalProperties: false
+      description: 结算价和明细（中标租户的结算币种），来自报价快照；各项之和等于 `total`
+      required: [total, base, adjust, urgent, night, addons, driver_language]
+      properties:
+        total:
+          $ref: "#/components/schemas/SalesMoney"
+        base:
+          $ref: "#/components/schemas/SalesMoney"
+        adjust:
+          $ref: "#/components/schemas/SalesMoney"
+        urgent:
+          $ref: "#/components/schemas/SalesMoney"
+        night:
+          $ref: "#/components/schemas/SalesMoney"
+        addons:
+          $ref: "#/components/schemas/SalesMoney"
+        driver_language:
+          $ref: "#/components/schemas/SalesMoney"
+    SalesOrder:
+      type: object
+      additionalProperties: false
+      description: |
+        渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+          pattern: "^NZ\\d{8}[0-9A-HJ-NP-Z]{8}$"
+          description: 订单号：NZ + 下单日期（UTC）+ 8 位随机字符
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city_id:
+          type: string
+          format: uuid
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机的机场 / 车站；其他品类为 null
+        direction:
+          oneOf:
+            - $ref: "#/components/schemas/TripDirection"
+            - type: "null"
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        service_time:
+          type: string
+          format: date-time
+          description: 用车时刻（UTC）
+        service_local:
+          type: string
+          description: 城市当地的用车时间 `YYYY-MM-DDTHH:mm`
+        timezone:
+          type: string
+          description: 城市的时区名，如 `Asia/Tokyo`
+        service_date:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+          description: 是不是走了加急
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        addons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, quantity]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+        driver_language:
+          type: [string, "null"]
+        flight_no:
+          type: [string, "null"]
+          description: 航班号（去掉空格、大写），接机必填
+        passenger:
+          $ref: "#/components/schemas/OrderPassenger"
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+        free_wait_minutes:
+          type: [integer, "null"]
+          description: 免费等待分钟数；不限为 null
+        created_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+          description: 付款成功、自动确认的时间
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        cancel_reason:
+          oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+        channel_order_no:
+          type: [string, "null"]
+        price:
+          type: object
+          additionalProperties: false
+          required: [total, fx]
+          properties:
+            total:
+              $ref: "#/components/schemas/SalesMoney"
+            fx:
+              description: 跨币种时报价快照里的中央汇率和取数时间；同币种为 null
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [rate, as_of]
+                  properties:
+                    rate:
+                      type: string
+                    as_of:
+                      type: string
+                      format: date-time
+                - type: "null"
+        payment_status:
+          $ref: "#/components/schemas/PaymentStatus"
+        payment_due_at:
+          type: string
+          format: date-time
+          description: 最晚付款时间（下单后 30 分钟）；到点没付款自动取消、释放库存
+        winning_tenant:
+          description: 中标租户：付款成功后才有（第二轮决策「只在支付成功后显示」）
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+            - type: "null"
+    TenantOrder:
+      type: object
+      additionalProperties: false
+      description: |
+        供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+          pattern: "^NZ\\d{8}[0-9A-HJ-NP-Z]{8}$"
+          description: 订单号：NZ + 下单日期（UTC）+ 8 位随机字符
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city_id:
+          type: string
+          format: uuid
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机的机场 / 车站；其他品类为 null
+        direction:
+          oneOf:
+            - $ref: "#/components/schemas/TripDirection"
+            - type: "null"
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        service_time:
+          type: string
+          format: date-time
+          description: 用车时刻（UTC）
+        service_local:
+          type: string
+          description: 城市当地的用车时间 `YYYY-MM-DDTHH:mm`
+        timezone:
+          type: string
+          description: 城市的时区名，如 `Asia/Tokyo`
+        service_date:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+          description: 是不是走了加急
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        addons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, quantity]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+        driver_language:
+          type: [string, "null"]
+        flight_no:
+          type: [string, "null"]
+          description: 航班号（去掉空格、大写），接机必填
+        passenger:
+          $ref: "#/components/schemas/OrderPassenger"
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+        free_wait_minutes:
+          type: [integer, "null"]
+          description: 免费等待分钟数；不限为 null
+        created_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+          description: 付款成功、自动确认的时间
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        cancel_reason:
+          oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+        product_id:
+          type: string
+          format: uuid
+        product_version:
+          type: integer
+          description: 下单时商品的版本号（报价快照里的）
+        settlement:
+          $ref: "#/components/schemas/OrderSettlement"
+        version:
+          type: integer
+    PlatformOrder:
+      type: object
+      additionalProperties: false
+      description: |
+        运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+          pattern: "^NZ\\d{8}[0-9A-HJ-NP-Z]{8}$"
+          description: 订单号：NZ + 下单日期（UTC）+ 8 位随机字符
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city_id:
+          type: string
+          format: uuid
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机的机场 / 车站；其他品类为 null
+        direction:
+          oneOf:
+            - $ref: "#/components/schemas/TripDirection"
+            - type: "null"
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        service_time:
+          type: string
+          format: date-time
+          description: 用车时刻（UTC）
+        service_local:
+          type: string
+          description: 城市当地的用车时间 `YYYY-MM-DDTHH:mm`
+        timezone:
+          type: string
+          description: 城市的时区名，如 `Asia/Tokyo`
+        service_date:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+          description: 是不是走了加急
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        addons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, quantity]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+        driver_language:
+          type: [string, "null"]
+        flight_no:
+          type: [string, "null"]
+          description: 航班号（去掉空格、大写），接机必填
+        passenger:
+          $ref: "#/components/schemas/OrderPassenger"
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+        free_wait_minutes:
+          type: [integer, "null"]
+          description: 免费等待分钟数；不限为 null
+        created_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+          description: 付款成功、自动确认的时间
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        cancel_reason:
+          oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+        tenant:
+          $ref: "#/components/schemas/OrderPartyRef"
+        channel:
+          $ref: "#/components/schemas/OrderPartyRef"
+        quote_id:
+          type: string
+        channel_order_no:
+          type: [string, "null"]
+        product_id:
+          type: string
+          format: uuid
+        product_version:
+          type: integer
+        sell:
+          $ref: "#/components/schemas/SalesMoney"
+        settlement:
+          $ref: "#/components/schemas/OrderSettlement"
+        markup_bp:
+          type: integer
+          description: 实际用的加价比例（基点）
+        fx:
+          description: 跨币种时报价快照里的汇率；同币种为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [from, to, rate, as_of]
+              properties:
+                from:
+                  type: string
+                to:
+                  type: string
+                rate:
+                  type: string
+                as_of:
+                  type: string
+                  format: date-time
+            - type: "null"
+        fx_buffer_bp:
+          type: integer
+        payment_due_at:
+          type: string
+          format: date-time
+        payment:
+          oneOf:
+            - $ref: "#/components/schemas/PlatformOrderPayment"
+            - type: "null"
+        version:
+          type: integer
+    OrderPartyRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    PlatformOrderPayment:
+      type: object
+      additionalProperties: false
+      required: [provider, status, amount, intent_id, customer_id, payment_method_saved, refunded, disputed, paid_after_cancel, last_error, save_consent_at, succeeded_at]
+      properties:
+        provider:
+          type: string
+          enum: [stripe]
+        status:
+          $ref: "#/components/schemas/PaymentStatus"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        intent_id:
+          type: [string, "null"]
+          description: Stripe PaymentIntent 的编号
+        customer_id:
+          type: [string, "null"]
+          description: Stripe Customer 的编号（保存的支付方式挂在它上面）
+        payment_method_saved:
+          type: boolean
+          description: 付款成功后支付方式已保存（服务后加收用）
+        refunded:
+          $ref: "#/components/schemas/SalesMoney"
+        disputed:
+          type: boolean
+          description: 客人提出了拒付
+        paid_after_cancel:
+          type: boolean
+          description: 订单已取消钱却到了，需要财务核实退款
+        last_error:
+          description: 最近一次付款失败的原因
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [code, decline_code, message]
+              properties:
+                code:
+                  type: [string, "null"]
+                decline_code:
+                  type: [string, "null"]
+                message:
+                  type: [string, "null"]
+            - type: "null"
+        save_consent_at:
+          type: string
+          format: date-time
+          description: 客人同意保存支付方式的时间
+        succeeded_at:
+          type: [string, "null"]
+          format: date-time
+    SalesOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [quote_id, passenger, save_payment_method]
+      properties:
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+          description: 本渠道、还在有效期里、还没下过单的报价
+        passenger:
+          type: object
+          additionalProperties: false
+          required: [name, phone, email]
+          properties:
+            name:
+              type: string
+              maxLength: 100
+            phone:
+              type: string
+              description: 带国家码的国际格式，如 `+81 90-1234-5678`（空格、连字符会去掉）
+            email:
+              type: string
+              description: 确认邮件和订单页链接发到这里
+        flight_no:
+          type: [string, "null"]
+          description: 航班号，如 `NH211`。接机（机场）必填；送机选填；接送站、点对点、包车不填
+        pickup_address:
+          type: [string, "null"]
+          maxLength: 300
+          description: 上车点的地址或酒店名：报价时上车点给了坐标（不是机场 / 车站那一端）就必填，否则不填
+        dropoff_address:
+          type: [string, "null"]
+          maxLength: 300
+          description: 下车点的地址或酒店名：规则同上
+        messaging:
+          description: 选填：司机和客服联系客人用的即时通讯
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+          maxLength: 500
+        channel_order_no:
+          type: [string, "null"]
+          maxLength: 64
+          description: 渠道自己的订单号（可打印的 ASCII）
+        save_payment_method:
+          type: boolean
+          description: 客人勾选了「同意保存支付方式，用于服务后的超时、超公里等费用」。必须为 true 才能下单（第五轮决策 ⑤）
+    SalesOrderPayment:
+      type: object
+      additionalProperties: false
+      required: [provider, status, client_secret, publishable_key]
+      description: 前端用 Stripe.js 确认付款要的东西
+      properties:
+        provider:
+          type: string
+          enum: [stripe]
+        status:
+          $ref: "#/components/schemas/PaymentStatus"
+        client_secret:
+          type: [string, "null"]
+          description: Stripe PaymentIntent 的 client_secret，只交给客人的浏览器（`stripe.confirmPayment`）；订单已不在待支付时为 null。不要存、不要写日志
+        publishable_key:
+          type: string
+          description: Stripe 的公开密钥（pk_…），前端初始化 Stripe.js 用
