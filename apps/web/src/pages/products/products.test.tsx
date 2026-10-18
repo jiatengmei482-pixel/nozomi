@@ -703,3 +703,18 @@ test("M1-14 接送点：平台补了中文名的机场用中文找得到（输�
   await actor.type(poi, "xyz");
   await waitFor(() => assert.equal(listbox.textContent, "没有名称或三字代码里带「xyz」的接送点。"));
 });
+
+test("基础信息页注明城市、接送点名称的数据来源（许可条件，ADR 0014、0024）：新建时只有 GeoNames；接送机商品另有 OurAirports", async () => {
+  open("/products/new", "admin");
+  await screen.findByText("先选城市和品类，这里会列出可以用的区域。");
+  const lines = [...document.querySelectorAll(".page__attribution")].map((node) => node.textContent ?? "");
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] as string, /^城市数据和机场的中文、日文名称来自 GeoNames/);
+  assert.match(lines[0] as string, /CC BY 4\.0/);
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}));
+  await screen.findByRole("heading", { level: 1, name: "羽田机场接送" });
+  await waitFor(() => assert.equal(document.querySelectorAll(".page__attribution").length, 2));
+  assert.match(document.body.textContent ?? "", /机场数据来自 OurAirports.*公有领域/);
+});

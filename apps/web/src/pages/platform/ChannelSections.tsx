@@ -584,7 +584,7 @@ function QuoteLogsCard({ channelId }: { channelId: string }) {
         <p className="table__muted">这个渠道还没有通过销售端接口询过价。</p>
       ) : (
         <div className="table-wrap">
-          <div className="table-scroll" tabIndex={0} role="region" aria-label="最近的询价">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="最近的询价列表">
             <table className="table">
               <thead>
                 <tr>
