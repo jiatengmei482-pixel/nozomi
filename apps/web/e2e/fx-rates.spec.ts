@@ -24,7 +24,11 @@ test("汇率页：立即拉取后看到当前汇率、互换表、走势和拉�
   await expect(rates.getByRole("row", { name: /JPY 日元/ })).toContainText(E2E_FX_RATES.JPY);
   // 1 CNY = 150.5 / 7.2 = 20.902777… 日元
   const matrix = page.getByRole("region", { name: "币种互换表" });
-  await expect(matrix.getByRole("row", { name: /^CNY/ }).getByTitle("20.902777777778")).toHaveText("20.9027");
+  // 四舍五入显示（M1-14），点「显示完整数值」看完整值
+  await expect(matrix.getByRole("row", { name: /^CNY/ }).getByTitle("20.902777777778")).toHaveText("20.9028");
+  await page.getByRole("button", { name: "显示完整数值" }).first().click();
+  await expect(matrix.getByRole("row", { name: /^CNY/ }).getByTitle("20.902777777778")).toHaveText("20.902777777778");
+  await page.getByRole("button", { name: "显示四舍五入后的" }).first().click();
   await expect(page.getByRole("img", { name: /近 30 天 1 USD 兑 日元/ })).toBeVisible();
   await expect(page.getByRole("region", { name: "拉取记录表" }).getByText("手动（端到端测试管理员）").first()).toBeVisible();
 

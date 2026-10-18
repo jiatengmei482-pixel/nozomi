@@ -674,3 +674,32 @@ test("上架检查页：下单有效期已经过了时有一句提醒（不拦�
   await new Promise((resolve) => setTimeout(resolve, 50));
   assertAbsent(document.querySelector('[data-remind="sale-expired"]'));
 });
+
+// ───────────── M1-14：接送点用中文找 ─────────────
+
+test("M1-14 接送点：平台补了中文名的机场用中文找得到（输入「成田」）；只有英文名的用中文找不到时，说清楚改用英文名或三字代码、中文名找平台补", async () => {
+  const actor = user();
+  const narita = { ...haneda, id: "23232323-2323-4323-8323-232323232323", code: "NRT", name: { en: "Narita International Airport", zh: "成田国际机场" } } as Place;
+  const hanedaEn = { ...haneda, name: { en: "Tokyo Haneda International Airport" } } as Place;
+  open("/products/new", "admin", (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/master/places" ? page([hanedaEn, narita]) : null));
+  const cityBox = await screen.findByRole("combobox", { name: /城市/ });
+  await actor.click(cityBox);
+  await actor.click(await screen.findByRole("option", { name: /东京/ }));
+  await actor.click(screen.getByRole("radio", { name: /^接送机/ }));
+  const poi = await screen.findByRole("combobox", { name: /接送点/ });
+  assert.equal(poi.getAttribute("placeholder"), "输入名称或三字代码查找");
+  await actor.type(poi, "成田");
+  await actor.click(await screen.findByRole("option", { name: /成田国际机场/ }));
+  assert.equal((poi as HTMLInputElement).value, "成田国际机场");
+
+  await actor.clear(poi);
+  await actor.type(poi, "羽田");
+  const listbox = screen.getByRole("listbox", { name: /接送点/ });
+  await waitFor(() => assert.equal(listbox.textContent, "没有名称里带「羽田」的接送点。有 1 个机场或车站目前只有英文名（例如 HND Tokyo Haneda International Airport），请输入英文名或三字代码查找；要用中文名搜，请联系平台运营在「主数据 → 地点」里补上中文名。"));
+  await actor.clear(poi);
+  await actor.type(poi, "hnd");
+  await screen.findByRole("option", { name: /Tokyo Haneda International Airport/ });
+  await actor.clear(poi);
+  await actor.type(poi, "xyz");
+  await waitFor(() => assert.equal(listbox.textContent, "没有名称或三字代码里带「xyz」的接送点。"));
+});

@@ -32,8 +32,16 @@ export interface ThrottleDecision {
 
 /** 本次尝试（已计入 counter）是否放行。 */
 export function evaluateThrottle(counter: ThrottleCounter, maxAttempts: number, now: Date): ThrottleDecision {
+  return evaluateFixedWindow(counter, maxAttempts, LOGIN_THROTTLE_WINDOW_MS, now);
+}
+
+/**
+ * 固定时间窗的通用判断（登录限速和 `/sales/v1` 的限流共用，ADR 0023）：本次（已计入 counter）是第几次，超过 `maxAttempts` 就拦下，
+ * 等待时间是到窗口结束的秒数（至少 1 秒）。
+ */
+export function evaluateFixedWindow(counter: ThrottleCounter, maxAttempts: number, windowMs: number, now: Date): ThrottleDecision {
   if (counter.attemptCount <= maxAttempts) return { allowed: true, retryAfterSeconds: 0 };
-  const windowEndsAt = counter.windowStartedAt.getTime() + LOGIN_THROTTLE_WINDOW_MS;
+  const windowEndsAt = counter.windowStartedAt.getTime() + windowMs;
   return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((windowEndsAt - now.getTime()) / 1000)) };
 }
 

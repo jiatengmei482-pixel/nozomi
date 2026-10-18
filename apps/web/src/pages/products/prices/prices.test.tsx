@@ -11,7 +11,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
 import type { AdjustRuleBody, AdjustRules, CalendarDay, CalendarSegment, PriceCalendar, PriceOverviewItem, PriceRuleBody, PriceRules } from "../../../api/prices.ts";
 import type { Product, PublishCheckItemBody, PublishCheckResult } from "../../../api/products.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, narrowScreen, resetBrowser, signIn, stubApiWith } from "../../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -548,13 +548,13 @@ const boosted = segmentOf({ final: 24000, unrounded: "24000", adjusts: [{ rule_i
 test("价格日历：每一格读得出日期、结算价、被哪条规则调过；没有价格、分时段有文字；明细逐步列出接口给的数；换方向重新取", async () => {
   const actor = user();
   const night = segmentOf({ from: "22:00", final: 26400, unrounded: "26400", adjusts: [...boosted.adjusts, { rule_id: RULE2_ID, name: "周末夜间", steps: [{ type: "percent", value: 1000, delta: "2400", after: "26400" }] }] });
-  const special = { "2026-10-01": [boosted], "2026-10-03": [{ ...boosted, to: "22:00" }, night], "2026-10-05": [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })], "2026-10-06": [segmentOf({ final: null, no_price_reason: "RULE_DISABLED" })] };
+  const special = { "2026-10-01": [boosted], "2026-10-03": [{ ...boosted, to: "22:00" }, night], "2026-10-12": [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })], "2026-10-13": [segmentOf({ final: null, no_price_reason: "RULE_DISABLED" })] };
   const calls = open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", { adjusts: adjustsOf([adjustOf(), weekend]), calendar: (query) => calendarOf(query, query.get("direction") === "pickup" ? special : {}, { "2026-10-01": "国庆节" }) });
   await waitFor(() => assert.match(dayLabel("2026-10-01"), /^10 月 1 日周四，国庆节，结算价 JPY 24,000，上调，命中国庆旺季$/));
   assert.equal(screen.getByRole("heading", { level: 3, name: "2026 年 10 月" }).getAttribute("aria-live"), "polite");
   assert.match(dayLabel("2026-10-03"), /结算价 JPY 24,000，上调，命中国庆旺季，分时段$/);
-  assert.match(dayLabel("2026-10-05"), /^10 月 5 日周一，没有价格$/);
-  assert.match(dayLabel("2026-10-06"), /没有价格，已停用$/);
+  assert.match(dayLabel("2026-10-12"), /^10 月 12 日周一，没有价格$/);
+  assert.match(dayLabel("2026-10-13"), /没有价格，已停用$/);
   assert.match(dayLabel("2026-10-08"), /今天，结算价 JPY 20,000$/);
   assert.equal(dayCell("2026-10-08").getAttribute("aria-current"), "date");
   assert.equal(document.querySelectorAll('.calendar [role="gridcell"][data-date]').length, 31);
@@ -581,7 +581,7 @@ test("价格日历：每一格读得出日期、结算价、被哪条规则调�
   assert.equal(calls.filter((call) => call.path.includes("/price-calendar")).length, before);
 
   // 没有价格的那一天：说明原因和去处
-  await actor.click(dayCell("2026-10-05"));
+  await actor.click(dayCell("2026-10-12"));
   await waitFor(() => assert.match(panel.textContent ?? "", /这一天没有价格.*这个组合还没有价格，客人询价时报不出价。去填价格/));
 
   await actor.selectOptions(screen.getByLabelText("方向"), "dropoff");
@@ -887,4 +887,153 @@ test("这一轮补上的：价格表里已经不在商品里的区域的价格�
   open("/", "admin", { overview: [lost, overviewOf({ product_id: "p3", has_active_price: false })], summary: { products: { draft: 1, published: 1, unpublished: 0 } } });
   await screen.findByRole("link", { name: "1 个已上架的商品已经没有可用的价格" });
   assertAbsent(screen.queryByRole("link", { name: /个商品还没有设价格/ }));
+});
+
+// ───────────── M1-14：价格日历里过去的日子、选中一天、手机上直接看到今天 ─────────────
+
+test("M1-14 价格日历：过去没有价格的日子只写文字，不用警告色和图标；明细说已经过去、不用补；今天以后的照常警告", async () => {
+  const actor = user();
+  const none = [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NOT_IN_EFFECT" })];
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", { calendar: (query) => calendarOf(query, { "2026-10-02": none, "2026-10-03": none, "2026-10-12": none }) });
+  await waitFor(() => assert.match(dayLabel("2026-10-02"), /没有价格$/));
+  const past = dayCell("2026-10-02");
+  assert.ok(!past.className.includes("calendar__cell--none"), "过去的不用 bg-subtle 底");
+  assert.ok(past.className.includes("calendar__cell--past"));
+  assert.equal(past.querySelector("svg"), null, "过去的没有三角图标");
+  assert.ok(past.querySelector(".calendar__flag--past"));
+  assert.match(past.textContent ?? "", /没有价格/);
+  const ahead = dayCell("2026-10-12");
+  assert.ok(ahead.className.includes("calendar__cell--none"));
+  assert.ok(ahead.querySelector(".calendar__flag svg"), "今天以后的照常带三角");
+
+  const panel = document.querySelector(".calendar-layout > .calendar-detail") as HTMLElement;
+  await actor.click(past);
+  await waitFor(() => assert.match(panel.textContent ?? "", /2026-10-02 周五这一天没有价格.*这一天已经过去了，不会再有客人订这一天，不用补价格。/));
+  assertAbsent(within(panel).queryByRole("link", { name: "去改生效日期" }));
+  await actor.click(ahead);
+  await waitFor(() => assert.match(panel.textContent ?? "", /这个组合的价格在这一天不生效/));
+  assert.ok(within(panel).getByRole("link", { name: "去改生效日期" }));
+});
+
+test("M1-14 价格日历：整个月都已经过去时不提示「这个月没有价格」；本月只看今天以后的", async () => {
+  const none = [segmentOf({ final: null, base: null, unrounded: null, no_price_reason: "NO_RULE" })];
+  const allNone = (query: URLSearchParams): PriceCalendar => {
+    const special: Record<string, CalendarSegment[]> = {};
+    for (let date = query.get("from") ?? ""; date <= (query.get("to") ?? ""); date = addDays(date, 1)) special[date] = none;
+    return calendarOf(query, special);
+  };
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-09`, "admin", { calendar: allNone });
+  await waitFor(() => assert.match(dayLabel("2026-09-15"), /没有价格$/));
+  assert.doesNotMatch(pageText(), /这个月没有价格/);
+
+  resetBrowser();
+  // 本月：今天以前有价、今天起都没有 → 提示
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin", {
+    calendar: (query) => {
+      const special: Record<string, CalendarSegment[]> = {};
+      for (let date = TODAY; date <= (query.get("to") ?? ""); date = addDays(date, 1)) special[date] = none;
+      return calendarOf(query, special);
+    },
+  });
+  await waitFor(() => assert.match(dayLabel(TODAY), /没有价格$/));
+  await screen.findByText(/这个月没有价格。/);
+});
+
+test("M1-14 价格日历：选中一天不写「起止」；选一段时两头写「起」「止」", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-10`, "admin");
+  await waitFor(() => assert.match(dayLabel("2026-10-10"), /结算价/));
+  await actor.click(dayCell("2026-10-10"));
+  await waitFor(() => assert.match(document.querySelector(".calendar-bar")?.textContent ?? "", /已选 2026-10-10，共 1 天/));
+  assert.equal(dayCell("2026-10-10").querySelector(".calendar__mark"), null);
+  assert.match(dayLabel("2026-10-10"), /，已选$/);
+  assert.doesNotMatch(pageText(), /起止/);
+  await actor.keyboard("{Shift>}");
+  await actor.click(dayCell("2026-10-12"));
+  await actor.keyboard("{/Shift}");
+  await waitFor(() => assert.equal(dayCell("2026-10-12").querySelector(".calendar__mark")?.textContent, "止"));
+  assert.equal(dayCell("2026-10-10").querySelector(".calendar__mark")?.textContent, "起");
+});
+
+test("M1-14 价格日历：手机上打开本月时今天那一行滚到屏幕中间；别的月份不滚", async () => {
+  const scrolled = narrowScreen();
+  open(`/products/${PRODUCT_ID}/prices/calendar`, "admin");
+  await waitFor(() => assert.ok(dayCell(TODAY)));
+  await waitFor(() => assert.deepEqual(scrolled, [`calendar-day-${TODAY}`]));
+  assert.ok(dayCell("2026-10-01"), "过去的日子照常列着");
+
+  resetBrowser();
+  const other = narrowScreen();
+  open(`/products/${PRODUCT_ID}/prices/calendar?month=2026-12`, "admin");
+  await waitFor(() => assert.ok(dayCell("2026-12-01")));
+  assert.deepEqual(other, []);
+});
+
+// ───────────── M1-14：价格表「再加一段日期」 ─────────────
+
+const fromCells = (): HTMLInputElement[] => screen.getAllByLabelText(`${ROW} 的生效日期从`) as HTMLInputElement[];
+
+test("M1-14 再加一段日期：上一段有结束日期时，新行在下面、从结束的次日开始，焦点落在新行；没保存的新行可以删除", async () => {
+  const actor = user();
+  open(`/products/${PRODUCT_ID}/prices`, "admin", { prices: pricesOf([priceOf({ valid_to: "2026-12-31" })]) });
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  await actor.click(screen.getByRole("button", { name: `${ROW} 的更多操作` }));
+  await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2027-01-01"]));
+  await waitFor(() => assertFocused(fromCells()[1] as HTMLElement));
+  assert.equal((screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement).value, "20,000", "价格的数照抄");
+  assert.match(pageText(), /已在下面加了一行，从 2027-01-01 开始/);
+
+  // 新行：「删除这一行」；原来那条：「删除」
+  const menus = screen.getAllByRole("button", { name: `${ROW} 的更多操作` });
+  await actor.click(menus[0] as HTMLElement);
+  assert.ok(screen.getByRole("menuitem", { name: "删除" }));
+  assertAbsent(screen.queryByRole("menuitem", { name: "删除这一行" }));
+  await actor.keyboard("{Escape}");
+  await actor.click(menus[1] as HTMLElement);
+  assertAbsent(screen.queryByRole("menuitem", { name: "清空这一行" }));
+  await actor.click(screen.getByRole("menuitem", { name: "删除这一行" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01"]));
+  await waitFor(() => assertFocused(fromCells()[0] as HTMLElement));
+  assert.match(pageText(), /已删除这一行：东京 23 区 · 商务七座 · 接送通用/);
+  assert.match(pageText(), /2 个组合里 2 个有价格/, "删完没有未保存的修改");
+});
+
+test("M1-14 再加一段日期：上一段一直有效时开始日期留空并说明；填好后一键把上一段的结束日期改成前一天；改日期、保存被拒，行的顺序都不变", async () => {
+  const actor = user();
+  let answer: Response = apiError(400, "VALIDATION_FAILED", "bad", { issues: [{ path: "/create/0/base_price", reason: "OUT_OF_RANGE", message: "基础价太大了" }] });
+  const calls = open(`/products/${PRODUCT_ID}/prices`, "admin", {}, (call) => (call.method === "POST" && call.url.pathname === `${BASE}/price-rules/batch` ? answer : null));
+  await screen.findByLabelText(`${ROW} 的基础价`);
+  await actor.click(screen.getByRole("button", { name: `${ROW} 的更多操作` }));
+  await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
+  await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", ""]));
+  await waitFor(() => assertFocused(fromCells()[1] as HTMLElement));
+  await waitFor(() => assert.match(document.querySelector(".price-meaning")?.textContent ?? "", /新加的一段，请填从哪天开始。上一段「2026-10-01 起一直有效」没有结束日期：填好开始日期后，这里会出现按钮，一键把上一段的结束日期改成前一天。/));
+
+  // 填一个比原来那条还早的日期：行不跳到上面去
+  await actor.type(fromCells()[1] as HTMLElement, "2026-12-20");
+  await screen.findByText("有 2 条价格的生效日期重叠，保存前要改。");
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  await actor.click(screen.getByRole("button", { name: "把那一条的结束日期改成 2026-12-19" }));
+  await waitFor(() => assertAbsent(screen.queryByText("有 2 条价格的生效日期重叠，保存前要改。")));
+  assert.equal((screen.getAllByLabelText(`${ROW} 的生效日期到`)[0] as HTMLInputElement).value, "2026-12-19");
+  await actor.clear(fromCells()[1] as HTMLElement);
+  await actor.type(fromCells()[1] as HTMLElement, "2026-12-20");
+  const newPrice = screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement;
+  await actor.clear(newPrice);
+  await actor.type(newPrice, "25000");
+  await actor.tab();
+
+  // 保存被拒：顺序不变，填的都在
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByRole("button", { name: `${ROW}：基础价太大了` });
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  // 焦点落在出错的那一格（聚焦时显示成纯数字）
+  assert.deepEqual(screen.getAllByLabelText(`${ROW} 的基础价`).map((cell) => (cell as HTMLInputElement).value.replace(",", "")), ["20000", "25000"]);
+  answer = apiError(409, "PRICE_RULE_CONFLICT", "overlap", { conflicts: [{ id: PRICE_ID, valid_from: "2026-10-01", valid_to: "2026-12-19", with: [{ id: "other", valid_from: "2026-11-01", valid_to: null }] }] });
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText(/所以这一批都没有保存/);
+  assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
+  const batch = writes(calls).at(-1)?.body as { create: Record<string, unknown>[]; update: Record<string, unknown>[] };
+  assert.deepEqual([batch.create[0]?.["valid_from"], batch.create[0]?.["base_price"], batch.update[0]?.["valid_to"]], ["2026-12-20", 25000, "2026-12-19"]);
 });

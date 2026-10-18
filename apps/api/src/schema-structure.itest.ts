@@ -17,19 +17,29 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 
 /**
  * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
- * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022）。新增平台表时加到这里。
+ * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022），
+ * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
+  "approvals",
+  "channel_api_clients",
+  "channel_cities",
+  "channel_tenants",
+  "channels",
   "cities",
   "fx_fetches",
   "fx_rates",
   "holidays",
   "login_throttles",
+  "markup_rules",
   "places",
   "platform_roles",
   "platform_sessions",
   "platform_users",
+  "quote_logs",
+  "quotes",
+  "sales_rate_limits",
   "schema_migrations",
   "tenant_roles",
   "vehicle_groups",
@@ -82,10 +92,17 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     addons: ["INSERT", "SELECT", "UPDATE"],
     // 报价用到的租户表对平台只读：比价要把所有供应商的商品放在一起算（ADR 0020）
     adjust_rules: ["SELECT"],
+    // 双人复核（ADR 0023）：发起、写结论；不删
+    approvals: ["INSERT", "SELECT", "UPDATE"],
     area_polygons: ["SELECT"],
     areas: ["SELECT"],
     audit_logs: ["INSERT", "SELECT"],
     brands: ["SELECT"],
+    // 渠道（ADR 0023）：渠道和 API 客户端只增改不删（停用、吊销）；授权名单整体替换，所以能删
+    channel_api_clients: ["INSERT", "SELECT", "UPDATE"],
+    channel_cities: ["DELETE", "INSERT", "SELECT"],
+    channel_tenants: ["DELETE", "INSERT", "SELECT"],
+    channels: ["INSERT", "SELECT", "UPDATE"],
     cities: ["INSERT", "SELECT", "UPDATE"],
     // 汇率中心（ADR 0022）：拉取记录要改状态（结束、确认、放弃）；汇率只追加，保留全部历史
     fx_fetches: ["INSERT", "SELECT", "UPDATE"],
@@ -93,6 +110,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 节假日日历：写错了删掉重填，所以平台可以删
     holidays: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     inventory_days: ["SELECT"],
+    // 加价规则：软删除，只增改
+    markup_rules: ["INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
@@ -103,6 +122,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 商品对平台只读：停用主数据之前数「有多少已上架的商品在用」（ADR 0016），运营后台查看商品（ADR 0021）
     product_vehicle_groups: ["SELECT"],
     products: ["SELECT"],
+    // 询价日志、报价快照：只追加
+    quote_logs: ["INSERT", "SELECT"],
+    quotes: ["INSERT", "SELECT"],
+    // /sales/v1 的限流计数
+    sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["INSERT", "SELECT", "UPDATE"],
     vehicle_groups: ["INSERT", "SELECT", "UPDATE"],

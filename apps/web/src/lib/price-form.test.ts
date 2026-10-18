@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PriceRuleBody } from "../api/prices.ts";
-import { type PriceContext, type PriceRow, blankRow, buildBatch, kmTextToMeters, lowestText, metersToKmText, pricingSentence, readRow, rowChange, rowFromRule, rowOverlaps, rowState, tableCoverage, validitySentence, withBlankRows } from "./price-form.ts";
+import { type PriceContext, type PriceRow, blankRow, buildBatch, isExtraSegment, kmTextToMeters, lowestText, metersToKmText, nextSegment, pricingSentence, readRow, rowChange, rowFromRule, rowOverlaps, rowState, tableCoverage, validitySentence, withBlankRows } from "./price-form.ts";
 
 const A1 = "area-1";
 const A2 = "area-2";
@@ -122,4 +122,29 @@ test("读回来的话：三种计价方式；0 写成人话；里程 + 时长的
   assert.equal(validitySentence({ validFrom: "2026-10-10", validTo: "2027-03-31", status: "disabled" }), "2026-10-10 至 2027-03-31 有效。现在是停用的，不会用来报价。");
   assert.equal(lowestText({ model: "fixed", basePriceMinor: 460050 }, "USD"), "4,600.50");
   assert.equal(lowestText({ model: "mileage_time", startPriceMinor: 8000, startMeters: 0, startMinutes: 0, perKmMinor: 1, perMinuteMinor: 1, minPriceMinor: 9000 }, "JPY", true), "JPY 9,000 起");
+});
+
+test("M1-14 再加一段日期：接在这个组合最后一行后面；从「结束得最晚的那一段」的次日开始；有一直有效的就留空", () => {
+  const first = rowFromRule(fixed("p1", { valid_to: "2026-12-31" }), "JPY");
+  const second = rowFromRule(fixed("p2", { valid_from: "2027-01-01", valid_to: "2027-03-31" }), "JPY");
+  const pickup = rowFromRule(fixed("p3", { direction: "pickup", valid_to: "2027-12-31" }), "JPY");
+  const other = rowFromRule(fixed("p4", { area_id: A2, valid_to: "2028-01-01" }), "JPY");
+  // 点的是前一段：照样接在后一段后面，从后一段结束的次日开始；别的方向、别的区域不算
+  assert.deepEqual(nextSegment([first, pickup, second, other], first, airport), { from: "2027-04-01", after: "p2", openEnded: null });
+  const open = rowFromRule(fixed("p5", { valid_from: "2027-04-01" }), "JPY");
+  assert.deepEqual(nextSegment([first, second, open], first, airport), { from: "", after: "p5", openEnded: open });
+  // 将删除的不算
+  assert.deepEqual(nextSegment([first, second, { ...open, deleted: true }], first, airport).from, "2027-04-01");
+  // 读不出来的行（日期写错）不当「上一段」
+  assert.equal(nextSegment([first, edit(second, { to: "abc" })], first, airport).from, "2027-01-01");
+});
+
+test("M1-14 没保存的新行：这个组合另外还有行时可以整行删（删除这一行），只有它一行时是清空", () => {
+  const saved = rowFromRule(fixed("p1"), "JPY");
+  const added = blankRow({ areaId: A1, vehicleGroupId: G1, direction: "both", packageHours: null }, "fixed", airport.today, { base: "21000" });
+  const lonely = blankRow({ areaId: A2, vehicleGroupId: G1, direction: "both", packageHours: null }, "fixed", airport.today);
+  assert.equal(isExtraSegment([saved, added, lonely], added), true);
+  assert.equal(isExtraSegment([saved, added, lonely], lonely), false);
+  assert.equal(isExtraSegment([saved, added], saved), false, "已保存的走「删除 / 撤销删除」");
+  assert.equal(isExtraSegment([{ ...saved, deleted: true }, added], added), false, "另一行是将删除的，不算");
 });

@@ -40,6 +40,8 @@ import {
   validitySentence,
   withBlankRows,
   isStationPlace,
+  isExtraSegment,
+  nextSegment,
 } from "../../../lib/price-form.ts";
 import { comboText, moneyText, plainAmountDisplay, tidyAmountDisplay } from "../../../lib/product-display.ts";
 import type { ServerIssue } from "../../../lib/product-failure.ts";
@@ -89,7 +91,15 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const models = prices.available_models;
   const defaultModel: PricingModel = models[0] ?? (category === "charter" ? "charter_package" : "fixed");
 
-  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages);
+  /** 每个组合内按方向 / 套餐、开始日期排好。只在打开、保存成功、重新读取时排一次：编辑中（改日期、加一段、保存被拒）行的位置不变 */
+  const arrange = (list: PriceRow[]): PriceRow[] => {
+    const rank = (row: PriceRow): string => {
+      const variant = row.direction !== null ? String(["both", "pickup", "dropoff"].indexOf(row.direction)) : String(row.packageHours ?? 0).padStart(3, "0");
+      return `${variant}|${row.from}|${row.key}`;
+    };
+    return [...list].sort((x, y) => rank(x).localeCompare(rank(y)));
+  };
+  const fresh = (data: PriceRules, extraPackages: readonly number[] = []): PriceRow[] => arrange(withBlankRows(data.items.map((item) => rowFromRule(item, data.currency)), context, areaIds, groupIds, defaultModel, extraPackages));
   const download = useDownload();
   const [rows, setRows] = useState<PriceRow[]>(() => fresh(prices));
   const adopted = useRef(prices);
@@ -108,7 +118,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
         if (latest) Object.assign(latest, { direction: old.direction, model: old.model, values: old.values, from: old.from, to: old.to, enabled: old.enabled, deleted: old.deleted });
         else if (change !== "deleted") extra.push({ ...old, id: null, origin: null, key: old.id === null ? old.key : `re-${old.key}` });
       }
-      return withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel);
+      return arrange(withBlankRows([...base, ...extra], context, areaIds, groupIds, defaultModel));
     });
     setRejection(null);
     setConflictKeys(new Set());
@@ -142,11 +152,11 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
   const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
 
+  /** 表格按区域、车型组（包车再按套餐）分在一起；同一组里保持 rows 的先后（见 arrange），不按正在改的日期重排 */
   const order = (row: PriceRow): string => {
     const area = String(areaIds.indexOf(row.areaId) < 0 ? 9999 : areaIds.indexOf(row.areaId)).padStart(4, "0");
     const group = String(groupIds.indexOf(row.vehicleGroupId) < 0 ? 9999 : groupIds.indexOf(row.vehicleGroupId)).padStart(4, "0");
-    const variant = row.direction !== null ? String(["both", "pickup", "dropoff"].indexOf(row.direction)) : String(row.packageHours ?? 0).padStart(3, "0");
-    return `${area}|${group}|${variant}|${row.from}|${row.key}`;
+    return `${area}|${group}|${String(row.packageHours ?? 0).padStart(3, "0")}`;
   };
   const sorted = useMemo(() => [...rows].sort((x, y) => order(x).localeCompare(order(y))), [rows, areaIds, groupIds]);
   const stateOf = (row: PriceRow): { state: RowState; text: string } => {
@@ -355,6 +365,9 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
       );
     };
     if (!reading || reading.blank) return `${label}——还没有价格。客人询价这个组合时报不出价。`;
+    const openEnded = focusedRow.id === null && focusedRow.from.trim() === "" ? nextSegment(rows, focusedRow, context).openEnded : null;
+    const openRule = openEnded === null ? null : (readings.get(openEnded.key)?.rule ?? null);
+    if (openRule !== null) return `${label}——新加的一段，请填从哪天开始。上一段「${openRule.validFrom} 起一直有效」没有结束日期：填好开始日期后，这里会出现按钮，一键把上一段的结束日期改成前一天。`;
     const overlapWith = (overlaps.get(focusedRow.key) ?? []).map((key) => rows.find((row) => row.key === key)).filter((row): row is PriceRow => row !== undefined);
     return (
       <>
@@ -858,15 +871,35 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                       className="menu-item"
                                       disabled={busy || reading.blank || orphan}
                                       onClick={() => {
-                                        const next = reading.rule?.validTo ? addDays(reading.rule.validTo, 1) : "";
-                                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: next, enabled: row.enabled };
-                                        setRows((current) => [...current, added]);
+                                        const segment = nextSegment(rows, row, context);
+                                        const added: PriceRow = { ...blankRow({ areaId: row.areaId, vehicleGroupId: row.vehicleGroupId, direction: row.direction, packageHours: row.packageHours }, row.model, context.today, row.values), from: segment.from, enabled: row.enabled };
+                                        setRows((current) => {
+                                          const at = current.findIndex((entry) => entry.key === segment.after);
+                                          return at < 0 ? [...current, added] : [...current.slice(0, at + 1), added, ...current.slice(at + 1)];
+                                        });
+                                        setAnnounce(segment.from === "" ? "已在下面加了一行。上一段没有结束日期，请填这一段从哪天开始。" : `已在下面加了一行，从 ${segment.from} 开始`);
                                         requestAnimationFrame(() => focusAnchor(cellId(added.key, "from")));
                                       }}
                                     >
                                       <span className="menu-item__text">再加一段日期</span>
                                     </button>
-                                    {row.id === null ? (
+                                    {row.id === null && isExtraSegment(rows, row) ? (
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        className="menu-item menu-item--danger"
+                                        disabled={busy}
+                                        onClick={() => {
+                                          const index = visible.findIndex((entry) => entry.key === row.key);
+                                          const neighbour = visible[index - 1] ?? visible[index + 1];
+                                          setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages));
+                                          setAnnounce(`已删除这一行：${label}`);
+                                          if (neighbour) requestAnimationFrame(() => focusAnchor(cellId(neighbour.key, "from")));
+                                        }}
+                                      >
+                                        <span className="menu-item__text">删除这一行</span>
+                                      </button>
+                                    ) : row.id === null ? (
                                       <button type="button" role="menuitem" className="menu-item menu-item--danger" disabled={busy || reading.blank} onClick={() => setRows((current) => withBlankRows(current.filter((entry) => entry.key !== row.key), context, areaIds, groupIds, defaultModel, coverage.packages))}>
                                         <span className="menu-item__text">清空这一行</span>
                                       </button>

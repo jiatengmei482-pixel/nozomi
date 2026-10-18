@@ -344,6 +344,33 @@ export function withBlankRows(rows: readonly PriceRow[], context: PriceContext, 
   return [...rows, ...added];
 }
 
+/** 同一个组合（区域、车型组、方向、套餐都相同）的另一行。 */
+function sameCombo(a: PriceRow, b: PriceRow): boolean {
+  return a.areaId === b.areaId && a.vehicleGroupId === b.vehicleGroupId && a.direction === b.direction && a.packageHours === b.packageHours;
+}
+
+/**
+ * 「再加一段日期」（tenant-prices.md 3.6）：新的一行接在这个组合最后一行的下面；开始日期预先填「上一段」结束的次日。
+ * 「上一段」是这个组合里结束得最晚的那一条（不一定是点的那一行）。它没有结束日期（一直有效）时开始日期留空：
+ * 猜一个日期一定和它重叠，不如让人自己填；填好后「这一行的意思」里有按钮把上一段的结束日期改成前一天。
+ */
+export function nextSegment(rows: readonly PriceRow[], source: PriceRow, context: PriceContext): { from: string; after: string; openEnded: PriceRow | null } {
+  const siblings = rows.filter((row) => !row.deleted && sameCombo(row, source));
+  const rules = siblings.flatMap((row) => {
+    const rule = readRow(row, context).rule;
+    return rule ? [{ row, rule }] : [];
+  });
+  const openEnded = rules.find((entry) => entry.rule.validTo === null)?.row ?? null;
+  const latestEnd = rules.reduce<string | null>((latest, entry) => (entry.rule.validTo !== null && (latest === null || entry.rule.validTo > latest) ? entry.rule.validTo : latest), null);
+  const after = siblings.at(-1)?.key ?? source.key;
+  return { from: openEnded === null && latestEnd !== null ? addDays(latestEnd, 1) : "", after, openEnded };
+}
+
+/** 还没保存的一行，这个组合里另外还有行：可以整行删掉（不是「清空」——删了这个组合也不会缺一行）。 */
+export function isExtraSegment(rows: readonly PriceRow[], row: PriceRow): boolean {
+  return row.id === null && rows.some((other) => other.key !== row.key && !other.deleted && sameCombo(other, row));
+}
+
 export type RowState = "error" | "overlap" | "deleted" | "new" | "changed" | "blank" | "disabled" | "expired" | "upcoming" | "expiring" | "active";
 
 /** 这一行现在怎么样（3.7）：从上往下取第一个符合的。 */

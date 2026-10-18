@@ -41,7 +41,7 @@ const props = (schema: Schema | undefined): string[] => Object.keys(schema?.prop
 const sorted = (values: readonly string[]): string[] => [...values].sort();
 const preview = spec.paths[QUOTE_PREVIEW_PATH]?.["post"] as Operation;
 
-test("试算接口：路径、请求体、应答、被拒的两种（400 字段不对、409 城市或接送点停用）", () => {
+test("试算接口：路径、请求体、应答、被拒的三种（400 字段不对、409 城市或接送点停用、422 不在渠道的授权范围）", () => {
   assert.ok(preview, `openapi.yaml 里没有 POST ${QUOTE_PREVIEW_PATH}`);
   assert.equal(preview.requestBody?.required, true);
   assert.equal(ref(preview.requestBody?.content?.["application/json"]?.schema), "PlatformQuotePreviewRequest");
@@ -50,6 +50,7 @@ test("试算接口：路径、请求体、应答、被拒的两种（400 字段�
   assert.match(preview.responses["409"]?.description ?? "", /MASTER_DATA_NOT_READY/);
   assert.match(preview.responses["409"]?.description ?? "", /CITY_DISABLED/);
   assert.match(preview.responses["409"]?.description ?? "", /PLACE_DISABLED/);
+  assert.match(preview.responses["422"]?.description ?? "", /CHANNEL_SCOPE_DENIED/);
   for (const code of QUOTE_ERROR_CODES) assert.ok(text.includes(code), `openapi.yaml 里没有错误码 ${code}`);
 });
 
@@ -83,6 +84,8 @@ test("应答：每个车型组的中标、全部候选、报不出价的商品�
   assert.deepEqual(sorted(settlement?.required ?? []), sorted(QUOTE_SCHEMA_FIELDS.QuoteSettlement));
   assert.deepEqual(props(settlement?.properties?.["exact"]), ["addons", "adjusted", "base", "night", "total"]);
   assert.deepEqual(props(settlement?.properties?.["free_wait"]), ["item", "minutes", "mode", "platform_minimum_minutes"]);
+  assert.deepEqual(props(result?.properties?.["channel"]), sorted(QUOTE_SCHEMA_FIELDS.QuoteChannel));
+  assert.deepEqual(props(result?.properties?.["excluded"]?.items), sorted(QUOTE_SCHEMA_FIELDS.QuoteExcluded));
   const refused = result?.properties?.["refused"]?.items;
   assert.deepEqual(props(refused), sorted(QUOTE_SCHEMA_FIELDS.QuoteRefusal));
   assert.deepEqual(sorted(refused?.required ?? []), sorted(QUOTE_SCHEMA_FIELDS.QuoteRefusal));

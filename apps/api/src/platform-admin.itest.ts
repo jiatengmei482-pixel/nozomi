@@ -36,6 +36,8 @@ after(() => api.close());
 
 /** 每个需要权限的平台接口，和它要求的操作。用不存在的编号调用：有权限时得到 404 / 校验错误，没权限时一定是 403。 */
 const MISSING = "99999999-9999-4999-8999-999999999999";
+/** 路径里第二个编号（加价规则、API 客户端） */
+const MISSING_CHILD = "88888888-8888-4888-8888-888888888888";
 const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
 const ANY_STAFF = ["GET /platform/v1/dashboard/summary"];
@@ -68,6 +70,28 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: "/platform/v1/fx-rates/fetch", action: "fx.manage" },
   { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/confirm`, action: "fx.manage" },
   { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/dismiss`, action: "fx.manage" },
+  // 渠道（ADR 0023）：看 channel.read，改和发起复核 channel.manage；复核队列 approval.read（批准、驳回另要这一类的审核权限，在 channels.itest.ts）
+  { method: "GET", url: "/platform/v1/channels", action: "channel.read" },
+  { method: "POST", url: "/platform/v1/channels", action: "channel.manage", body: {} },
+  { method: "GET", url: `/platform/v1/channels/${MISSING}`, action: "channel.read" },
+  { method: "PATCH", url: `/platform/v1/channels/${MISSING}`, action: "channel.manage", body: {} },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/activate`, action: "channel.manage" },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/pause`, action: "channel.manage", body: {} },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/pricing-changes`, action: "channel.manage", body: {} },
+  { method: "GET", url: `/platform/v1/channels/${MISSING}/markup-rules`, action: "channel.read" },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/markup-rules`, action: "channel.manage", body: {} },
+  { method: "PUT", url: `/platform/v1/channels/${MISSING}/markup-rules/${MISSING_CHILD}`, action: "channel.manage", body: {} },
+  { method: "DELETE", url: `/platform/v1/channels/${MISSING}/markup-rules/${MISSING_CHILD}`, action: "channel.manage" },
+  { method: "GET", url: `/platform/v1/channels/${MISSING}/api-clients`, action: "channel.read" },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/api-clients`, action: "channel.manage", body: {} },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/api-clients/${MISSING_CHILD}/rotate`, action: "channel.manage", body: {} },
+  { method: "POST", url: `/platform/v1/channels/${MISSING}/api-clients/${MISSING_CHILD}/revoke`, action: "channel.manage" },
+  { method: "GET", url: `/platform/v1/channels/${MISSING}/quote-logs`, action: "channel.read" },
+  { method: "GET", url: "/platform/v1/approvals", action: "approval.read" },
+  { method: "GET", url: `/platform/v1/approvals/${MISSING}`, action: "approval.read" },
+  { method: "POST", url: `/platform/v1/approvals/${MISSING}/approve`, action: "approval.read", body: {} },
+  { method: "POST", url: `/platform/v1/approvals/${MISSING}/reject`, action: "approval.read", body: {} },
+  { method: "POST", url: `/platform/v1/approvals/${MISSING}/withdraw`, action: "approval.read", body: {} },
   // 查看供应商的商品（只读，ADR 0021）
   { method: "GET", url: "/platform/v1/products", action: "product.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
@@ -102,12 +126,17 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 });
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
-  assert.deepEqual([...new Set(PROTECTED.map((r) => r.action))].sort(), [...PLATFORM_ACTIONS].sort());
+  // channel.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts 逐个角色验证）
+  const perKind: PlatformAction[] = ["channel.review"];
+  assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
-  const tested = [...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`), ...ANY_STAFF].sort();
+  const tested = [
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...ANY_STAFF,
+  ].sort();
   assert.deepEqual(tested, registered);
 });
 

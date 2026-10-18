@@ -24,6 +24,10 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   inventory: "库存",
   fx_fetch: "汇率拉取",
   fx_rate: "汇率",
+  channel: "渠道",
+  markup_rule: "加价规则",
+  api_client: "API 客户端",
+  approval: "双人复核",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -51,6 +55,14 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   confirm: "确认生效",
   dismiss: "放弃",
   stale: "过期告警",
+  request: "发起复核",
+  approve: "批准",
+  reject: "驳回",
+  withdraw: "撤回",
+  rotate: "轮换密钥",
+  revoke: "吊销",
+  activate: "启用",
+  pause: "暂停",
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };

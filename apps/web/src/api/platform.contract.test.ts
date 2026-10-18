@@ -6,7 +6,7 @@ import { parse } from "yaml";
 import { PLATFORM_ROLES } from "@nozomi/domain";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, RESOURCE_NAMES, SOURCE_NAMES } from "../lib/audit-display.ts";
 import { ACCOUNT_STATUS_BADGES } from "../lib/platform-display.ts";
-import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, INTEGRATIONS_PATH, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
+import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, type FxCenterStatus, INTEGRATIONS_PATH, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
 
 interface Schema {
   $ref?: string;
@@ -104,6 +104,11 @@ test("审计日志和系统状态：筛选参数、枚举都对得上；对象�
   assert.deepEqual(log?.properties?.["actor"]?.required, ["type", "id", "email"]);
   assert.equal(ref(response(op("get", INTEGRATIONS_PATH), "200")?.properties?.["items"]?.items), "IntegrationStatusDetail");
   assert.deepEqual(schemas["IntegrationStatusDetail"]?.properties?.["state"]?.enum, ["configured", "missing"]);
+  // 汇率数据源的运行状态（M1-14 起系统状态页显示）：字段和手写的 FxCenterStatus 一样
+  const fx = response(op("get", INTEGRATIONS_PATH), "200")?.properties?.["fx_center"];
+  const fields: (keyof FxCenterStatus)[] = ["state", "as_of", "auto_fetch", "last_attempt_status", "last_attempt_at", "last_error_code"];
+  assert.deepEqual(Object.keys(fx?.properties ?? {}).sort(), [...fields].sort());
+  assert.deepEqual([...(fx?.required ?? [])].sort(), [...fields].sort());
 });
 
 test("手写类型的字段与同名 schema 完全一致；页面处理的错误码都写在 openapi.yaml 里", () => {

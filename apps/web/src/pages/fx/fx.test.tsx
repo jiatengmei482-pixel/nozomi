@@ -101,7 +101,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
 }
 const main = (): HTMLElement => document.querySelector("main") as HTMLElement;
 
-test("汇率页：数据源状态、当前汇率（相对选的基准）、常用币种互换、走势、拉取记录；汇率按字符串截短显示，完整值在悬停提示里", async () => {
+test("汇率页：数据源状态、当前汇率（相对选的基准）、常用币种互换、走势、拉取记录；汇率按字符串四舍五入显示，完整值在悬停提示里", async () => {
   const calls = open("/platform/master/fx-rates", "readonly");
   await within(main()).findByRole("heading", { level: 2, name: "数据源" });
   assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "汇率");
@@ -196,4 +196,32 @@ test("首页：主数据里有「汇率」卡片（更新时间）；过期时�
   resetBrowser();
   open("/platform", "readonly", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, summary({ state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null })) : null));
   assert.ok(await within(main()).findByRole("link", { name: "还没有汇率，跨币种报价都报不出" }));
+});
+
+test("M1-14 汇率页：数字是四舍五入的（不是截短）；点「显示完整数值」两张表都换成完整值（手机上没有悬停也看得到），再点换回来", async () => {
+  const actor = userEvent.setup();
+  open("/platform/master/fx-rates", "readonly", (call) =>
+    call.url.pathname === "/platform/v1/fx-rates"
+      ? json(200, overview({ rates: [...overview().rates.filter((item) => item.currency !== "KRW"), { currency: "KRW", rate: "1334.892169" }], cross: [{ from: "CNY", to: "HKD", rate: "1.171597" }, { from: "JPY", to: "USD", rate: "0.006329340458" }] }))
+      : null,
+  );
+  const rates = await within(main()).findByRole("region", { name: "当前汇率表" });
+  const krw = within(rates).getByRole("rowheader", { name: "KRW 韩元" }).closest("tr") as HTMLElement;
+  assert.equal(within(krw).getByTitle("1334.892169").textContent, "1334.8922", "截短会显示 1334.8921");
+  const matrix = within(main()).getByRole("region", { name: "币种互换表" });
+  assert.equal(within(matrix).getByTitle("1.171597").textContent, "1.1716");
+  assert.equal(within(matrix).getByTitle("0.006329340458").textContent, "0.00632934");
+  assert.match(main().textContent ?? "", /表里是四舍五入后的值：1 以上保留 4 位小数，不到 1 保留 6 位有效数字。/);
+
+  const toggles = within(main()).getAllByRole("button", { name: "显示完整数值" });
+  assert.equal(toggles.length, 2, "两张表各有一个，作用一样");
+  assert.equal(toggles[0]?.getAttribute("aria-pressed"), "false");
+  await actor.click(toggles[1] as HTMLElement);
+  assert.equal(within(krw).getByTitle("1334.892169").textContent, "1334.892169");
+  assert.equal(within(matrix).getByTitle("0.006329340458").textContent, "0.006329340458");
+  assert.match(main().textContent ?? "", /现在显示的是完整数值（报价用的就是它）。/);
+  const back = within(main()).getAllByRole("button", { name: "显示四舍五入后的" });
+  assert.equal(back[0]?.getAttribute("aria-pressed"), "true");
+  await actor.click(back[0] as HTMLElement);
+  assert.equal(within(krw).getByTitle("1334.892169").textContent, "1334.8922");
 });
