@@ -222,7 +222,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["系统状态页顶部「有 N 项还没有配置」的冒号不换行到下一行开头", "价格表同一组合有多段日期时，每行「更多操作」按钮的读屏名称能区分是哪一段"],
-          "evidence": "PR_LINK ；相关组件测试 97 个通过（价格表两段日期时「更多操作」名字带日期的断言、系统状态提示标题）",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/33 ；相关组件测试 97 个通过（价格表两段日期时「更多操作」名字带日期的断言、系统状态提示标题）",
           "updated": "2026-10-18"
         },
         { "id": "M1-06", "title": "租户后台页面", "role": "frontend", "status": "done", "acceptance": ["区域、商品、价格、库存全部可在界面上操作"], "evidence": "区域、商品、价格、库存全部在供应商后台界面上操作走通（页面随 M1-02～M1-05 一起完成）；验收报告 docs/acceptance/M1.md", "updated": "2026-10-17" },
