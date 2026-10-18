@@ -14,6 +14,7 @@ import type {
   GeoJsonPolygon,
   LocalizedText,
   MasterDataStatus,
+  NameSources,
   PlaceCategory,
   PlaceType,
   ServiceCategory,
@@ -65,6 +66,8 @@ export interface Place extends Versioned {
   sourceOverridden: boolean;
   /** 数据源给的「所属 / 服务的城市名」（建议城市时用）；手工录入的为 null */
   municipality: string | null;
+  /** 每种语言的名称是哪次导入填的（机场的中文名、日文名从 GeoNames 导入，ADR 0024）；不出现在接口的应答里 */
+  nameSources: NameSources;
 }
 
 export interface VehicleGroup extends Versioned {
@@ -161,8 +164,9 @@ export const PLACES: MasterTable<Place> = {
     "source_synced_at",
     "source_overridden",
     "municipality",
+    "name_sources",
   ],
-  jsonColumns: ["name"],
+  jsonColumns: ["name", "name_sources"],
   codeConstraint: "places_code_key",
   toItem: (row) => ({
     ...versioned(row),
@@ -181,6 +185,7 @@ export const PLACES: MasterTable<Place> = {
     sourceSyncedAt: row["source_synced_at"],
     sourceOverridden: row["source_overridden"],
     municipality: row["municipality"],
+    nameSources: row["name_sources"],
   }),
 };
 
@@ -321,7 +326,7 @@ export async function findPlaceParentId(db: Db, placeId: string): Promise<string
  * 抢某一种导入的锁（事务结束自动释放）：同一个库、同一个 schema 里同一时间只允许一次同类导入。
  * 抢不到立即返回 false，不排队。
  */
-async function tryLockImport(db: Db, kind: "import-airports" | "import-cities"): Promise<boolean> {
+async function tryLockImport(db: Db, kind: "import-airports" | "import-cities" | "import-airport-names"): Promise<boolean> {
   const result = await db.query<{ locked: boolean }>(
     "select pg_try_advisory_xact_lock(hashtextextended(current_database() || '.' || current_schema() || '.masterdata.' || $1, 0)) as locked",
     [kind],
@@ -357,6 +362,10 @@ export function tryLockAirportImport(db: Db): Promise<boolean> {
 
 export function tryLockCityImport(db: Db): Promise<boolean> {
   return tryLockImport(db, "import-cities");
+}
+
+export function tryLockAirportNameImport(db: Db): Promise<boolean> {
+  return tryLockImport(db, "import-airport-names");
 }
 
 /** 按编号取一行。`lock` 为真时锁住这一行直到事务结束（修改前用；租户事务没有这个权限，只能传 false）。 */
