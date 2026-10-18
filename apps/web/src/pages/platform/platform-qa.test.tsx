@@ -1160,7 +1160,7 @@ test("系统状态：停留一段时间、窗口获得焦点、标签页切回�
   document.dispatchEvent(new Event("visibilitychange"));
   await settle(1200);
   assert.equal(count(), 1, "不自动刷新、不轮询");
-  const alert = screen.getByText("有 2 项还没有配置").closest(".alert") as HTMLElement;
+  const alert = screen.getByText("有 2 项还没有配置：").closest(".alert") as HTMLElement;
   assert.match(alert.textContent ?? "", /：Stripe 支付、谷歌地图。用到它们的功能现在不能用。/);
   assert.ok(!(alert.textContent ?? "").includes("sk_live"), "提示条里不带说明的内容");
   assert.match(screen.getByText("谷歌地图").closest("tr")?.textContent ?? "", /未配置—$/);
