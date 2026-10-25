@@ -31,6 +31,16 @@ export const CONTENT_LANGUAGES = ["zh", "ja", "en", "ko"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
 export const LANGUAGE_TAGS: Readonly<Record<ContentLanguage, string>> = { zh: "zh-Hans", ja: "ja", en: "en", ko: "ko" };
 
+/**
+ * 子品牌显示成「名称（币种）」。名称本身已经以「（JPY）」或「(JPY)」结尾时（有人起名就带上了币种）不再补一遍，
+ * 不会出现「测试（JPY）（JPY）」（M1-18）。
+ */
+export function brandLabel(brand: { name: string; currency: string }): string {
+  const name = brand.name.trim();
+  const tail = new RegExp(`[（(]\\s*${brand.currency}\\s*[）)]$`, "i");
+  return tail.test(name) ? name : `${name}（${brand.currency}）`;
+}
+
 export function comboText(passengers: number, luggage: number): string {
   return `${passengers} 人 ${luggage} 件`;
 }

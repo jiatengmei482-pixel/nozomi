@@ -22,7 +22,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_LIST_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { PLACE_TYPE_NAMES, countryLabel, displayName, pickupNoMatchText, vehicleGradeName } from "../../lib/master-display.ts";
 import { placeQueryMatches } from "../../lib/place-search.ts";
-import { checkReasons, comboText } from "../../lib/product-display.ts";
+import { brandLabel, checkReasons, comboText } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -389,7 +389,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                   <dl className="details">
                     <div className="details__item">
                       <dt>子品牌</dt>
-                      <dd>{product.brand ? `${product.brand.name}（${product.brand.currency}）` : "—"}</dd>
+                      <dd>{product.brand ? brandLabel(product.brand) : "—"}</dd>
                     </div>
                     <div className="details__item">
                       <dt>品类</dt>
@@ -463,7 +463,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                           )}
                         </div>
                         {onlyBrand ? (
-                          <p className="field__static" id="brand-select">{`${onlyBrand.name}（${onlyBrand.currency}）`}</p>
+                          <p className="field__static" id="brand-select">{brandLabel(onlyBrand)}</p>
                         ) : (
                           <select
                             className="input select"
@@ -480,7 +480,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                           >
                             <option value="">请选择</option>
                             {activeBrands.map((brand) => (
-                              <option key={brand.id} value={brand.id}>{`${brand.name}（${brand.currency}）`}</option>
+                              <option key={brand.id} value={brand.id}>{brandLabel(brand)}</option>
                             ))}
                           </select>
                         )}

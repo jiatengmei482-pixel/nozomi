@@ -664,3 +664,25 @@ test("数据来源署名（M1-18）：商品列表、商品详情的每一步、
   await screen.findByRole("heading", { level: 2, name: "用车请求" });
   assert.deepEqual(lines(), both);
 });
+
+test("子品牌名自己带了币种时不重复（M1-18）：列表的子品牌列、筛选标签、详情标题行都只有一个「（JPY）」", async () => {
+  const named = { id: BRAND_ID, name: "测试（JPY）", currency: "JPY", status: "active" as const };
+  open(`/platform/products?brand=${BRAND_ID}`, "super_admin", (call) => {
+    if (call.method !== "GET") return null;
+    if (call.url.pathname === "/platform/v1/products") return page([rowOf({ brand: named })]);
+    if (call.url.pathname === `/platform/v1/products/${PRODUCT_ID}`) return json(200, { ...detailOf(), product: { ...detailOf().product, brand: named } });
+    return null;
+  });
+  const row = (await screen.findByRole("link", { name: "羽田机场接送" })).closest("tr") as HTMLElement;
+  assert.ok(within(row).getByRole("link", { name: "只看子品牌「测试（JPY）」的商品" }));
+  assert.match(row.textContent ?? "", /测试（JPY）/);
+  assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
+  assert.ok(screen.getByText("子品牌：测试（JPY）"));
+  resetBrowser();
+
+  open(`/platform/products/${PRODUCT_ID}/basic`, "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/products/${PRODUCT_ID}` ? json(200, { ...detailOf(), product: { ...detailOf().product, brand: named } }) : null));
+  await screen.findByRole("heading", { level: 2, name: "① 基础信息" });
+  assert.match(document.querySelector(".page__meta")?.textContent ?? "", /子品牌 测试（JPY）/);
+  await waitFor(() => assert.match(document.body.textContent ?? "", /测试（JPY）/));
+  assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
+});
