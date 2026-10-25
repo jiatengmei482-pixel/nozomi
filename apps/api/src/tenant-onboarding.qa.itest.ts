@@ -311,7 +311,7 @@ test("合同复核：两条新版本同时待审，先批的生效，后批的 A
   assert.deepEqual(contracts.map((contract: any) => [contract.version, contract.settle_currency]), [[1, "JPY"], [2, "USD"]]);
 });
 
-test("缺陷复现：合同新版本发起时生效日期是今天，第二天才批准——生效日期已在过去（追溯修改结算条款），批准仍然成功", async () => {
+test("合同新版本发起时生效日期是今天，第二天才批准——生效日期已在过去，批准 409 CONTRACT_VALID_FROM_PASSED（不追溯修改结算条款），复核仍待审核、可以驳回", async () => {
   const t = await onboarded("追溯合同车队", "active");
   const requested = await api.call("POST", `/platform/v1/tenants/${t.tenantId}/contracts`, { token: await bd(), body: { valid_from: today(), settle_currency: "JPY" } });
   assert.equal(requested.status, 202, requested.text);
@@ -322,6 +322,9 @@ test("缺陷复现：合同新版本发起时生效日期是今天，第二天�
   // 期望：ADR 0028「生效日期不早于今天（不追溯）」在批准时也成立——要么拒绝（409），要么写入的生效日期不早于批准当天
   const retroactive = approved.status === 200 && contracts.some((contract: any) => contract.valid_from < today());
   assert.ok(!retroactive, `批准于 ${today()}，写入的合同生效日期 ${requestedFor} 已在过去：${approved.status} ${JSON.stringify(contracts.map((contract: any) => contract.valid_from))}`);
+  assert.deepEqual([approved.status, approved.body.error?.code], [409, "CONTRACT_VALID_FROM_PASSED"], approved.text);
+  const rejected = await api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/reject`, { token: await ops(), body: { note: "生效日期已过，重新发起" } });
+  assert.equal(rejected.status, 200, rejected.text);
 });
 
 // ---- 文件 ----

@@ -606,9 +606,13 @@ export const TENANT_CONTRACT: ApprovalKind = {
     const contracts = await listContracts(db, tenantId);
     const latest = contracts.at(-1) ?? null;
     if ((latest?.version ?? 0) !== approval.baseVersion) throw approvalStale(latest?.version ?? 0);
+    const validFrom = payload["valid_from"] as string;
+    const today = tenantToday(origin.occurredAt);
+    // 不追溯：发起时不早于今天，批准时可能已经过了午夜（ADR 0028「合同」）
+    if (validFrom < today) throw validFromPassed(validFrom, today);
     const contract = await insertContract(db, {
       tenantId,
-      validFrom: payload["valid_from"] as string,
+      validFrom,
       settleCurrency: payload["settle_currency"] as string,
       settleCycle: CONTRACT_TERMS.settleCycle,
       paymentDay: CONTRACT_TERMS.paymentDay,
@@ -627,6 +631,10 @@ export const TENANT_APPROVAL_KINDS: readonly ApprovalKind[] = [TENANT_SUSPEND, T
 
 function approverActor(origin: AuditOrigin): ChangeActor {
   return { type: "platform_user", id: origin.actor.id, origin };
+}
+
+function validFromPassed(validFrom: string, today: string): AppError {
+  return new AppError(409, "CONTRACT_VALID_FROM_PASSED", `合同生效日期 ${validFrom} 已早于今天（${today}），不能追溯修改结算条款：请驳回或撤回后按新的生效日期重新发起`, { valid_from: validFrom, today });
 }
 
 function openOrders(count: number): AppError {

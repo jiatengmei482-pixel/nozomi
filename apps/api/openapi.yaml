@@ -1024,6 +1024,7 @@ paths:
       description: |
         需要操作 `tenant.review`。「修改租户结算条款」是敏感操作：返回 202 和复核记录（`kind` = `tenant.contract`），另一位有 `tenant.approve` 的同事批准后写入。
         生效日期不早于今天、晚于已有的最后一个版本；结算币种是平台支持的币种；月结、次月 20 日付款、平台不收服务费和保证金是固定条款。
+        批准时按批准当天（东京日期）再核对一次：生效日期已早于批准当天的，批准返回 409 `CONTRACT_VALID_FROM_PASSED`（不追溯修改结算条款），复核仍是待审核，驳回或撤回后按新的生效日期重新发起。
         可以附上合同扫描件（先 `POST /platform/v1/tenants/{id}/files`）。电子签不在本期。
       security:
         - platformToken: []
@@ -5941,7 +5942,7 @@ paths:
         "409":
           description: |
             `APPROVAL_SELF_REVIEW`：发起人不能审核自己发起的；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：发起之后对象被改过；
-            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`、`FX_RATE_UNAVAILABLE`、`TENANT_STATE_INVALID`、`TENANT_HAS_OPEN_ORDERS`：按现在的数据不能生效
+            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`、`FX_RATE_UNAVAILABLE`、`TENANT_STATE_INVALID`、`TENANT_HAS_OPEN_ORDERS`、`CONTRACT_VALID_FROM_PASSED`（合同生效日期已早于批准当天）：按现在的数据不能生效
           content:
             application/json:
               schema:
