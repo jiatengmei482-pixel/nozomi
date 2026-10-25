@@ -72,3 +72,28 @@
   color: var(--color-text-disabled);
   pointer-events: none;
 }
+
+/* 运营后台订单列表的查找框（M3-03）：输入框和按钮排在一行，按钮和输入框底边对齐 */
+.order-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* 取消政策的编辑（M3-03）：每档两个输入框和「删掉」排在一行，窄屏时换行 */
+.policy-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.policy-tier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-4);
+}

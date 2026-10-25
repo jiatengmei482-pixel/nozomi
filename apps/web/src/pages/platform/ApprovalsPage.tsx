@@ -53,6 +53,8 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "批准后这条规则立即删除：之后的询价改按下一级的规则或默认加价比例算。",
   "fx_lock.create": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
   "fx_lock.release": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
+  "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
+  "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
 };
 
 /** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */

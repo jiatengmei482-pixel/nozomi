@@ -137,24 +137,25 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
 
   app.get("/sales/v1/orders/:id/cancel-fee", async (request) => {
     const principal = await channel(request.headers.authorization);
+    const orderId = resourceId(request.params, "订单");
     const query = parseInput(salesFeeQuerySchema, request.query, "querystring");
-    const found = await previewCancellation(ctx, { channelId: principal.channelId }, resourceId(request.params, "订单"), query.reason, false);
+    const found = await previewCancellation(ctx, { channelId: principal.channelId }, orderId, query.reason, false);
     return feeJson(found.quote, "sales");
   });
 
   app.post("/sales/v1/orders/:id/cancel", async (request) => {
     const principal = await channel(request.headers.authorization);
-    const input = parseInput(salesCancelSchema, request.body ?? {}, "body");
     const orderId = resourceId(request.params, "订单");
+    const input = parseInput(salesCancelSchema, request.body ?? {}, "body");
     const result = await cancelForChannel(ctx, principal.channelId, orderId, input.reason, request.log);
     return { order: await salesView(principal.channelId, orderId), replayed: result.kind === "cancelled" && result.replayed };
   });
 
   app.patch("/sales/v1/orders/:id", async (request) => {
     const principal = await channel(request.headers.authorization);
+    const orderId = resourceId(request.params, "订单");
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(changeSchema, request.body ?? {}, "body");
-    const orderId = resourceId(request.params, "订单");
     const result = await changeForChannel(ctx, principal.channelId, orderId, version, toChangeInput(input), request.log);
     const order = await salesView(principal.channelId, orderId);
     return { order, change: (order["changes"] as Json[]).find((change) => change["id"] === result.change.id) ?? null };
@@ -162,9 +163,9 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
 
   app.post("/sales/v1/orders/:id/extra-charges/:chargeId/dispute", async (request) => {
     const principal = await channel(request.headers.authorization);
-    const input = parseInput(disputeSchema, request.body, "body");
     const orderId = resourceId(request.params, "订单");
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
+    const input = parseInput(disputeSchema, request.body, "body");
     await disputeExtraCharge(ctx, principal.channelId, orderId, chargeId, input.reason);
     const order = await salesView(principal.channelId, orderId);
     return { order, extra_charge: (order["extra_charges"] as Json[]).find((charge) => charge["id"] === chargeId) ?? null };
@@ -182,32 +183,36 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     for (const type of EVIDENCE_FILE_RULES.contentTypes) scoped.addContentTypeParser(type, { parseAs: "buffer", bodyLimit: EVIDENCE_FILE_RULES.maxBytes }, (_request, body, done) => done(null, body));
     scoped.post("/tenant/v1/orders/:id/files", async (request, reply) => {
       const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.extra_charge" });
+      const orderId = resourceId(request.params, "订单");
       parseInput(fileQuerySchema, request.query, "querystring");
       const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
-      const file = await uploadReceipt(ctx, principal, resourceId(request.params, "订单"), request.headers["content-type"], body);
+      const file = await uploadReceipt(ctx, principal, orderId, request.headers["content-type"], body);
       return reply.code(201).send({ file: fileJson(file) });
     });
   });
 
   app.post("/tenant/v1/orders/:id/extra-charges", async (request, reply) => {
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.extra_charge" });
+    const orderId = resourceId(request.params, "订单");
     const input = parseInput(extraChargeSchema, request.body, "body");
-    const charge = await submitExtraCharge(ctx, principal, resourceId(request.params, "订单"), { type: input.type, amountMinor: input.amount, description: input.description, fileIds: input.file_ids.map((id) => id.toLowerCase()) }, request.ip);
+    const charge = await submitExtraCharge(ctx, principal, orderId, { type: input.type, amountMinor: input.amount, description: input.description, fileIds: input.file_ids.map((id) => id.toLowerCase()) }, request.ip);
     return reply.code(201).send({ extra_charge: extraChargeJson(charge) });
   });
 
   app.post("/tenant/v1/orders/:id/extra-charges/:chargeId/withdraw", async (request) => {
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.extra_charge" });
+    const orderId = resourceId(request.params, "订单");
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
-    return { extra_charge: extraChargeJson(await withdrawExtraChargeForTenant(ctx, principal, resourceId(request.params, "订单"), chargeId, request.ip)) };
+    return { extra_charge: extraChargeJson(await withdrawExtraChargeForTenant(ctx, principal, orderId, chargeId, request.ip)) };
   });
 
   for (const decision of ["confirm", "reject"] as const) {
     app.post(`/tenant/v1/orders/:id/changes/:changeId/${decision}`, async (request) => {
       const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.dispatch" });
-      const input = parseInput(changeDecisionSchema, request.body ?? {}, "body");
+      const orderId = resourceId(request.params, "订单");
       const changeId = resourceId({ id: (request.params as { changeId?: unknown }).changeId }, "改单");
-      const result = await decideChangeForTenant(ctx, principal, resourceId(request.params, "订单"), changeId, decision, input.note, request.ip, request.log);
+      const input = parseInput(changeDecisionSchema, request.body ?? {}, "body");
+      const result = await decideChangeForTenant(ctx, principal, orderId, changeId, decision, input.note, request.ip, request.log);
       if (result.expired) throw new AppError(409, "CHANGE_CONFIRMATION_EXPIRED", "已经过了 30 分钟的确认时间，这次改期按没确认处理（客人可以免费取消）", { change: changeJson(result.change) });
       return { change: changeJson(result.change) };
     });
@@ -229,45 +234,51 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
 
   app.get("/platform/v1/orders/:id/cancel-fee", async (request) => {
     await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const orderId = resourceId(request.params, "订单");
     const query = parseInput(platformFeeQuerySchema, request.query, "querystring");
-    const found = await previewCancellation(ctx, "platform", resourceId(request.params, "订单"), query.reason, query.waive_fee === "true");
+    const found = await previewCancellation(ctx, "platform", orderId, query.reason, query.waive_fee === "true");
     return feeJson(found.quote, "platform");
   });
 
   app.post("/platform/v1/orders/:id/cancel", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
+    const orderId = resourceId(request.params, "订单");
     const input = parseInput(platformCancelSchema, request.body, "body");
-    const result = await cancelForPlatform(ctx, principal, resourceId(request.params, "订单"), { reason: input.reason, waiveFee: input.waive_fee, note: input.note }, request.ip, request.log);
+    const result = await cancelForPlatform(ctx, principal, orderId, { reason: input.reason, waiveFee: input.waive_fee, note: input.note }, request.ip, request.log);
     if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
     return { order_id: result.orderId, replayed: result.replayed };
   });
 
   app.patch("/platform/v1/orders/:id", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
+    const orderId = resourceId(request.params, "订单");
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(changeSchema, request.body ?? {}, "body");
-    const result = await changeForPlatform(ctx, principal, resourceId(request.params, "订单"), version, toChangeInput(input), request.ip, request.log);
+    const result = await changeForPlatform(ctx, principal, orderId, version, toChangeInput(input), request.ip, request.log);
     return { change: changeJson(result.change) };
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/decide", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
-    const input = parseInput(decideSchema, request.body, "body");
+    const orderId = resourceId(request.params, "订单");
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
-    const charge = await decideExtraCharge(ctx, principal, resourceId(request.params, "订单"), chargeId, { decision: input.decision, approvedMinor: input.approved_amount, note: input.note }, request.ip, request.log);
+    const input = parseInput(decideSchema, request.body, "body");
+    const charge = await decideExtraCharge(ctx, principal, orderId, chargeId, { decision: input.decision, approvedMinor: input.approved_amount, note: input.note }, request.ip, request.log);
     return { extra_charge: extraChargeJson(charge) };
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/retry", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "payment.manage" });
+    const orderId = resourceId(request.params, "订单");
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
-    return { extra_charge: extraChargeJson(await retryExtraCharge(ctx, principal, resourceId(request.params, "订单"), chargeId, request.ip, request.log)) };
+    return { extra_charge: extraChargeJson(await retryExtraCharge(ctx, principal, orderId, chargeId, request.ip, request.log)) };
   });
 
   app.post("/platform/v1/orders/:id/refunds/:refundId/retry", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "payment.manage" });
+    const orderId = resourceId(request.params, "订单");
     const refundId = resourceId({ id: (request.params as { refundId?: unknown }).refundId }, "退款");
-    const { outcome, refund } = await retryRefund(ctx, principal, resourceId(request.params, "订单"), refundId, request.ip, request.log);
+    const { outcome, refund } = await retryRefund(ctx, principal, orderId, refundId, request.ip, request.log);
     return { outcome, refund: refund === null ? null : { id: refund.id, status: refund.status, amount: salesMoney(refund.amountMinor, refund.currency), last_error: refund.lastError } };
   });
 }

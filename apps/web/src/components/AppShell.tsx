@@ -46,6 +46,9 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "order.read")) entries.push({ to: "/platform/orders", label: "订单", icon: "package", prefix: true });
+  // 取消政策（M3-03）：管订单的人和审核政策的人用得到（主数据运营虽然看得到政策，菜单里不放）
+  if (portal === "platform" && role !== null && isPlatformRole(role) && (platformRoleCan(role, "order.read") || platformRoleCan(role, "cancellation_policy.review"))) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
     entries.push({
