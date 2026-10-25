@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CurrencyCode, FxQuote, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection } from "@nozomi/domain";
+import type { CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -16,6 +16,32 @@ export interface OrderPoint {
   lng: number;
   lat: number;
   address: string;
+}
+
+/** 派车和履约（M3-02，ADR 0027）。时间都是系统收到的时间。 */
+export interface OrderDispatch {
+  /** 派车截止时间：付款确认时算好 */
+  dueAt: Date | null;
+  /** 系统发现「过了截止时间还没派车」的时间 */
+  overdueAt: Date | null;
+  /** 系统发现「用车前 1 小时仍未出发」的时间 */
+  departureOverdueAt: Date | null;
+  driverId: string | null;
+  vehicleId: string | null;
+  assignedAt: Date | null;
+  departedAt: Date | null;
+  arrivedAt: Date | null;
+  arrivalDistanceM: number | null;
+  pickedUpAt: Date | null;
+  completedAt: Date | null;
+  actualMinutes: number | null;
+  actualKm: number | null;
+  leaveRequestedAt: Date | null;
+  guestLandedAt: Date | null;
+  driverLandedAt: Date | null;
+  driverLandedFileId: string | null;
+  landedAt: Date | null;
+  landedSource: LandingSource | null;
 }
 
 /** 订单本身（租户也能看的部分）。 */
@@ -59,12 +85,15 @@ export interface Order {
   version: number;
   createdAt: Date;
   updatedAt: Date;
+  dispatch: OrderDispatch;
 }
 
 const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.city_id, o.place_id, o.direction, o.product_id, o.product_version, o.vehicle_group_id, o.package_hours,
   o.service_at, o.service_local, o.timezone, o.service_date::text as service_date, o.urgent, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
   o.passenger, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
-  o.cancel_reason, o.version, o.created_at, o.updated_at`;
+  o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
+  o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
+  o.driver_landed_file_id, o.landed_at, o.landed_source`;
 
 function toOrder(row: Row): Order {
   return {
@@ -107,10 +136,31 @@ function toOrder(row: Row): Order {
     version: row["version"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
+    dispatch: {
+      dueAt: row["dispatch_due_at"],
+      overdueAt: row["dispatch_overdue_at"],
+      departureOverdueAt: row["departure_overdue_at"],
+      driverId: row["driver_id"],
+      vehicleId: row["vehicle_id"],
+      assignedAt: row["assigned_at"],
+      departedAt: row["departed_at"],
+      arrivedAt: row["arrived_at"],
+      arrivalDistanceM: row["arrival_distance_m"],
+      pickedUpAt: row["picked_up_at"],
+      completedAt: row["completed_at"],
+      actualMinutes: row["actual_minutes"],
+      actualKm: row["actual_km"],
+      leaveRequestedAt: row["leave_requested_at"],
+      guestLandedAt: row["guest_landed_at"],
+      driverLandedAt: row["driver_landed_at"],
+      driverLandedFileId: row["driver_landed_file_id"],
+      landedAt: row["landed_at"],
+      landedSource: row["landed_source"],
+    },
   };
 }
 
-export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "version" | "updatedAt">;
+export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
   await db.query(
@@ -137,15 +187,21 @@ export async function findOrderForPlatform(db: Db, orderId: string, options: { l
   return row === undefined ? null : toOrder(row);
 }
 
-export async function updateOrderStatus(db: Db, order: Pick<Order, "tenantId" | "id">, change: { status: OrderStatus; confirmedAt?: Date; cancelledAt?: Date; cancelReason?: OrderCancelReason }, now: Date): Promise<void> {
+export async function updateOrderStatus(
+  db: Db,
+  order: Pick<Order, "tenantId" | "id">,
+  change: { status: OrderStatus; confirmedAt?: Date; cancelledAt?: Date; cancelReason?: OrderCancelReason; dispatchDueAt?: Date },
+  now: Date,
+): Promise<void> {
   await db.query(
-    `update orders set status = $3, confirmed_at = coalesce($4, confirmed_at), cancelled_at = coalesce($5, cancelled_at), cancel_reason = coalesce($6, cancel_reason), version = version + 1, updated_at = $7
+    `update orders set status = $3, confirmed_at = coalesce($4, confirmed_at), cancelled_at = coalesce($5, cancelled_at), cancel_reason = coalesce($6, cancel_reason),
+            dispatch_due_at = coalesce($8, dispatch_due_at), version = version + 1, updated_at = $7
       where tenant_id = $1 and id = $2`,
-    [order.tenantId, order.id, change.status, change.confirmedAt ?? null, change.cancelledAt ?? null, change.cancelReason ?? null, now],
+    [order.tenantId, order.id, change.status, change.confirmedAt ?? null, change.cancelledAt ?? null, change.cancelReason ?? null, now, change.dispatchDueAt ?? null],
   );
 }
 
-export type OrderEventActor = "channel" | "payment" | "system" | "platform_user";
+export type OrderEventActor = "channel" | "payment" | "system" | "platform_user" | "tenant_user" | "driver" | "guest";
 
 export interface OrderEvent {
   fromStatus: OrderStatus | null;
@@ -153,17 +209,19 @@ export interface OrderEvent {
   actor: OrderEventActor;
   reason: string | null;
   occurredAt: Date;
+  /** 补充信息（派车 / 改派的司机和车辆编号、操作人）：没有乘客信息和金额 */
+  detail?: Record<string, unknown> | null;
 }
 
 export async function insertOrderEvent(db: Db, order: Pick<Order, "tenantId" | "id">, event: OrderEvent): Promise<void> {
-  await db.query("insert into order_events (tenant_id, order_id, from_status, to_status, actor, reason, occurred_at) values ($1, $2, $3, $4, $5, $6, $7)", [
-    order.tenantId, order.id, event.fromStatus, event.toStatus, event.actor, event.reason, event.occurredAt,
+  await db.query("insert into order_events (tenant_id, order_id, from_status, to_status, actor, reason, occurred_at, detail) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)", [
+    order.tenantId, order.id, event.fromStatus, event.toStatus, event.actor, event.reason, event.occurredAt, json(event.detail ?? null),
   ]);
 }
 
 export async function listOrderEvents(db: Db, tenantId: string, orderId: string): Promise<OrderEvent[]> {
-  const result = await db.query<Row>("select from_status, to_status, actor, reason, occurred_at from order_events where tenant_id = $1 and order_id = $2 order by occurred_at, seq", [tenantId, orderId]);
-  return result.rows.map((row) => ({ fromStatus: row["from_status"], toStatus: row["to_status"], actor: row["actor"], reason: row["reason"], occurredAt: row["occurred_at"] }));
+  const result = await db.query<Row>("select from_status, to_status, actor, reason, occurred_at, detail from order_events where tenant_id = $1 and order_id = $2 order by occurred_at, seq", [tenantId, orderId]);
+  return result.rows.map((row) => ({ fromStatus: row["from_status"], toStatus: row["to_status"], actor: row["actor"], reason: row["reason"], occurredAt: row["occurred_at"], detail: row["detail"] }));
 }
 
 // ---- 库存 ----
@@ -434,16 +492,21 @@ export interface TenantOrderFilter {
   status: OrderStatus | null;
   from: string | null;
   to: string | null;
+  /** unassigned：已确认、还没派车；overdue：过了派车截止时间还没派车（M3-02） */
+  dispatch: "unassigned" | "overdue" | null;
+  /** 判断「过了截止时间」用的当前时间 */
+  now: Date;
 }
 
 /** 租户的订单列表：只有付过款的，按用车时间从早到晚。 */
 export async function listTenantOrders(db: Db, tenantId: string, filter: TenantOrderFilter, limit: number, after: TimeCursor | null): Promise<Page<Order> & { total: number }> {
-  const where = `o.tenant_id = $1 and o.confirmed_at is not null and ($2::text is null or o.status = $2) and ($3::date is null or o.service_date >= $3) and ($4::date is null or o.service_date <= $4)`;
-  const params = [tenantId, filter.status, filter.from, filter.to];
+  const where = `o.tenant_id = $1 and o.confirmed_at is not null and ($2::text is null or o.status = $2) and ($3::date is null or o.service_date >= $3) and ($4::date is null or o.service_date <= $4)
+    and ($5::text is null or (o.status = 'confirmed' and ($5 = 'unassigned' or o.dispatch_due_at <= $6)))`;
+  const params = [tenantId, filter.status, filter.from, filter.to, filter.dispatch, filter.now];
   const result = await db.query<Row>(
     `select ${ORDER_COLUMNS}, o.service_at::text as cursor_time from orders o
-      where ${where} and ($5::timestamptz is null or (o.service_at, o.id) > ($5::timestamptz, $6::uuid))
-      order by o.service_at, o.id limit $7`,
+      where ${where} and ($7::timestamptz is null or (o.service_at, o.id) > ($7::timestamptz, $8::uuid))
+      order by o.service_at, o.id limit $9`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o where ${where}`, params);
@@ -451,8 +514,8 @@ export async function listTenantOrders(db: Db, tenantId: string, filter: TenantO
 }
 
 /** 租户自己的一张订单（付过款的）；别的租户的、没付款的都当作不存在。 */
-export async function findTenantOrder(db: Db, tenantId: string, orderId: string): Promise<Order | null> {
-  const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.tenant_id = $1 and o.id = $2 and o.confirmed_at is not null`, [tenantId, orderId]);
+export async function findTenantOrder(db: Db, tenantId: string, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
+  const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.tenant_id = $1 and o.id = $2 and o.confirmed_at is not null ${options.lock ? "for update" : ""}`, [tenantId, orderId]);
   const row = result.rows[0];
   return row === undefined ? null : toOrder(row);
 }

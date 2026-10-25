@@ -88,7 +88,7 @@ test("数据库故障时仍给出集成状态（只有已配置 / 未配置，�
     migrationFiles: [],
     timeoutMs: 20,
   });
-  assert.deepEqual(report.integrations.map((i) => i.key), ["database", "auth", "stripe", "googleMaps", "fx"]);
+  assert.deepEqual(report.integrations.map((i) => i.key), ["database", "auth", "dataEncryption", "stripe", "googleMaps", "fx"]);
   for (const item of report.integrations) assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
   assert.deepEqual(leakedSecrets(JSON.stringify(report)), []);
   assert.equal(report.env, "ci");

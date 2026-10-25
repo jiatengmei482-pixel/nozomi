@@ -5,6 +5,8 @@
 import type { AppConfig } from "@nozomi/config";
 import type { Pool } from "./db/pool.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
+import type { SecretBox } from "./integrations/secret-box.ts";
+import type { WebhookSender } from "./integrations/webhook-sender.ts";
 import type { FxCenter } from "./services/fx-center.ts";
 import type { QuoteDeps } from "./services/quote-deps.ts";
 
@@ -18,4 +20,8 @@ export interface AppContext {
   fx: FxCenter;
   /** 收款服务（Stripe，ADR 0026）；Stripe 没配置时为 null：不能下单，/health 和 config:check 显示「未配置」 */
   payments: PaymentProvider | null;
+  /** 数据加密（供应商的 Webhook 签名密钥，ADR 0027）；没配置 DATA_ENCRYPTION_KEY 时为 null：供应商不能设置 Webhook */
+  secretBox: SecretBox | null;
+  /** 推送给供应商的 Webhook 的发送器（防 SSRF、超时、不跟随重定向，ADR 0027） */
+  webhookSender: WebhookSender;
 }

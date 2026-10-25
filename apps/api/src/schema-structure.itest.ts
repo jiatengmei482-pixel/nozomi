@@ -76,9 +76,24 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     inventory_days: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 创建类接口的幂等键：过期的键在再次使用时删除
     idempotency_keys: ["DELETE", "INSERT", "SELECT", "UPDATE"],
-    // 订单和状态流水：租户只读（派车等在 M3-02 加）；没付款的单接口层再过滤掉（ADR 0026）
-    order_events: ["SELECT"],
-    orders: ["SELECT"],
+    // 订单和状态流水（ADR 0026）：没付款的单接口层再过滤掉。派车、履约回传（M3-02，ADR 0027）：订单只能改派车和履约的列（触发器按语句检查），状态流水只追加
+    order_events: ["INSERT", "SELECT"],
+    orders: ["SELECT", "UPDATE"],
+    // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
+    order_assignments: ["INSERT", "SELECT"],
+    order_contacts: ["INSERT", "SELECT"],
+    order_files: ["INSERT", "SELECT"],
+    order_locations: ["INSERT", "SELECT"],
+    order_no_show_claims: ["INSERT", "SELECT"],
+    // 司机链接：吊销要改（ADR 0027）
+    driver_links: ["INSERT", "SELECT", "UPDATE"],
+    // 司机、车辆：不删，停用（ADR 0027）
+    drivers: ["INSERT", "SELECT", "UPDATE"],
+    vehicles: ["INSERT", "SELECT", "UPDATE"],
+    // Webhook（ADR 0027）：订阅可以删；投递排队、手动重推；尝试记录只追加
+    tenant_webhooks: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    webhook_attempts: ["INSERT", "SELECT"],
+    webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
     // 价格规则：可以真的删除（ADR 0018）
     price_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -129,6 +144,18 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_sales: ["INSERT", "SELECT"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
+    // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、照片、联系记录、定位、no-show 申请
+    drivers: ["SELECT"],
+    order_assignments: ["SELECT"],
+    order_contacts: ["SELECT"],
+    order_files: ["SELECT"],
+    order_locations: ["SELECT"],
+    order_no_show_claims: ["SELECT"],
+    vehicles: ["SELECT"],
+    // Webhook（ADR 0027）：推送任务读订阅（含加密的密钥）、投递并记结果，付款确认时排队，运营后台查看和手动重推
+    tenant_webhooks: ["SELECT"],
+    webhook_attempts: ["INSERT", "SELECT"],
+    webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
     platform_sessions: ["DELETE", "INSERT", "SELECT"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
@@ -179,6 +206,11 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 订单：销售端下单、支付回调、超时取消、运营后台查看（ADR 0026）
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 派车和履约、Webhook 订阅：运营后台只读查看，推送任务读订阅（ADR 0027）
+  ...Object.fromEntries(["drivers", "vehicles", "order_assignments", "order_files", "order_contacts", "order_locations", "order_no_show_claims", "tenant_webhooks"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
+  "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
@@ -199,6 +231,9 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 超时未派车、用车前 1 小时仍未出发的提醒跨租户扫（ADR 0027）
+  "orders_departure_due_idx",
+  "orders_dispatch_due_idx",
   // 订单号全平台唯一；超时未付款的自动取消跨租户扫到期的单（ADR 0026）
   "orders_order_no_key",
   "orders_payment_due_idx",
@@ -206,6 +241,9 @@ const INDEX_EXCEPTIONS = [
   "products_code_key",
   "tenant_users_email_key",
   "tenant_users_invite_token_key",
+  // 推送任务跨租户取到期的投递、运营后台跨租户看最终失败的投递（ADR 0027）
+  "webhook_deliveries_due_idx",
+  "webhook_deliveries_failed_idx",
 ];
 
 let db: TestDatabase;

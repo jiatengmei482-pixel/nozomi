@@ -15,12 +15,15 @@
  */
 import { randomInt, randomUUID } from "node:crypto";
 import {
+  DISPATCH_RULES,
   ORDER_NO_ALPHABET,
   type OrderCancelReason,
   type OrderDetailsInput,
   type OrderDetailsIssueReason,
   type OrderStatus,
   type PaymentStatus,
+  dispatchDeadline,
+  landingReportIssue,
   localDateTimeToInstant,
   normalizeFlightNo,
   normalizePhone,
@@ -61,9 +64,13 @@ import {
 } from "../repos/orders.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { requestHash } from "./idempotency.ts";
-import { idempotencyKeyReused } from "./errors.ts";
+import { idempotencyKeyReused, notFound } from "./errors.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { QuoteExpired, type StoredQuoteSnapshot } from "./sales-quotes.ts";
+import { enqueueTenantEvent } from "./tenant-webhooks.ts";
+import { type Driver, type Vehicle, findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
+import { orderLandingApplies } from "./order-views.ts";
+import { landingAlreadyReported, landingChange } from "./driver-trip.ts";
 
 /** 记日志用：Fastify 的 `request.log` / `app.log` 都满足。 */
 export interface OrderLog {
@@ -121,6 +128,11 @@ export interface SalesOrderView {
   payment: OrderPayment | null;
   /** 付款成功后、渠道设置了「付款后展示中标租户名」时才有 */
   winningTenant: { name: string } | null;
+  /** 派的司机和车辆（M3-02）；还没派车为 null。司机电话只在用车前 24 小时起给（需求「9. 司机管理」：只展示给客人姓名、照片、语言、联系电话（用车前 24 小时起）） */
+  driver: Driver | null;
+  vehicle: Vehicle | null;
+  /** 现在是不是已经到了可以给客人司机电话的时候 */
+  driverPhoneVisible: boolean;
 }
 
 function orderNoRandom(): string {
@@ -351,10 +363,36 @@ export async function getSalesOrderView(ctx: AppContext, channelId: string, orde
         const row = (await db.query<{ name: string; show: boolean }>("select t.name, c.show_tenant_after_pay as show from tenants t, channels c where t.id = $1 and c.id = $2", [order.tenantId, channelId])).rows[0];
         if (row?.show) winningTenant = { name: row.name };
       }
-      return { order, sale, payment, winningTenant };
+      const driver = order.dispatch.driverId === null ? null : ((await findDriversByIds(db, order.tenantId, [order.dispatch.driverId])).get(order.dispatch.driverId) ?? null);
+      const vehicle = order.dispatch.vehicleId === null ? null : ((await findVehiclesByIds(db, order.tenantId, [order.dispatch.vehicleId])).get(order.dispatch.vehicleId) ?? null);
+      const driverPhoneVisible = ctx.now().getTime() >= order.serviceAt.getTime() - DISPATCH_RULES.deadlineHoursBeforeService * 3_600_000;
+      return { order, sale, payment, winningTenant, driver, vehicle, driverPhoneVisible };
     },
     { snapshot: true },
   );
+}
+
+/** 客人在订单页点「我已落地」的状态：付了款、还没接到客人之前都可以点；接机才有。 */
+const GUEST_LANDING_STATUSES = new Set(["confirmed", "assigned", "departed", "arrived"]);
+
+/**
+ * 客人「我已落地」（`POST /sales/v1/orders/{id}/landed`，第五轮决策 ③：客人确认优先）：只认本渠道的单；时间用系统收到的时间；提交后不能改。
+ * 写入后按规则重新取定这一单的落地时间（司机也填了且不一致时取较晚者）。官网的订单页（M3-05）调这个接口。
+ */
+export async function reportGuestLanding(ctx: AppContext, channelId: string, orderId: string): Promise<SalesOrderView> {
+  const now = ctx.now();
+  await withPlatformTx(ctx.pool, async (db) => {
+    const sale = await findSale(db, orderId);
+    const order = sale === null || sale.channelId !== channelId ? null : await findOrderForPlatform(db, orderId, { lock: true });
+    if (order === null) throw notFound("订单");
+    if (!orderLandingApplies(order)) throw new AppError(409, "LANDING_NOT_APPLICABLE", "这一单不是接机，不需要确认落地");
+    if (!GUEST_LANDING_STATUSES.has(order.status)) throw new AppError(409, "ORDER_STATE_INVALID", "订单当前的状态不允许这个操作", { status: order.status, action: "landed" });
+    if (order.dispatch.guestLandedAt !== null) throw landingAlreadyReported();
+    if (landingReportIssue(now, order.serviceAt, now) !== null) throw new AppError(409, "LANDING_TOO_EARLY", "离计划到达还早，落地后再点「我已落地」");
+    const settled = landingChange(order, { guestLandedAt: now, driverLandedAt: order.dispatch.driverLandedAt, driverHasPhoto: order.dispatch.driverLandedFileId !== null });
+    await db.query("update orders set guest_landed_at = $3, landed_at = $4, landed_source = $5, version = version + 1, updated_at = $3 where tenant_id = $1 and id = $2", [order.tenantId, order.id, now, settled.landedAt, settled.landedSource]);
+  });
+  return (await getSalesOrderView(ctx, channelId, orderId)) as SalesOrderView;
 }
 
 // ---- 付款成功 / 取消：通知和超时检查共用 ----
@@ -378,9 +416,11 @@ export async function confirmPaidOrder(db: Db, payment: OrderPayment, paid: Prov
     log.error({ orderId: order.id, orderNo: order.orderNo }, "订单已经取消，钱却到了（取消付款和付款同时发生）：需要财务核实并退款");
     return "paid_after_cancel";
   }
-  await updateOrderStatus(db, order, { status: "confirmed", confirmedAt: now }, now);
+  await updateOrderStatus(db, order, { status: "confirmed", confirmedAt: now, dispatchDueAt: dispatchDeadline(now, order.serviceAt) }, now);
   if (order.inventoryHeld) await sellHeldInventory(db, order.tenantId, order.productId, order.serviceDate, now);
   await insertOrderEvent(db, order, { fromStatus: "pending_payment", toStatus: "confirmed", actor, reason: "PAYMENT_SUCCEEDED", occurredAt: now });
+  // 推单给中标租户（需求「下单转单：通过 Webhook 推送到租户调度系统」）：和确认在同一个事务里排队，确认了就一定会推（ADR 0027）
+  await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.confirmed", orderId: order.id, data: {} }, now);
   return "confirmed";
 }
 

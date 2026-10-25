@@ -31,7 +31,13 @@ export type AuditResource =
   | "channel"
   | "markup_rule"
   | "api_client"
-  | "approval";
+  | "approval"
+  | "driver"
+  | "vehicle"
+  | "order"
+  | "driver_link"
+  | "tenant_webhook"
+  | "webhook_delivery";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -67,7 +73,12 @@ export type AuditAction =
   | "pause"
   | "lock"
   | "unlock"
-  | "expire";
+  | "expire"
+  | "assign"
+  | "reassign"
+  | "issue"
+  | "retry"
+  | "test";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

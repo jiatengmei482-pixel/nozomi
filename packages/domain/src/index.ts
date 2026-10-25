@@ -23,3 +23,6 @@ export * from "./channels.ts";
 export * from "./approvals.ts";
 export * from "./fx-lock.ts";
 export * from "./orders.ts";
+export * from "./dispatch.ts";
+export * from "./fulfilment.ts";
+export * from "./webhooks.ts";

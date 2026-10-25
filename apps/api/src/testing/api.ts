@@ -10,12 +10,32 @@ import type { Pool } from "../db/pool.ts";
 import { FxCenter } from "../services/fx-center.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
+import { SecretBox } from "../integrations/secret-box.ts";
+import { HttpsWebhookSender, type WebhookSender } from "../integrations/webhook-sender.ts";
 import type { AppConfig } from "@nozomi/config";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
 import { loadConfig } from "@nozomi/config";
 import { testConfig, testEnv } from "./fixtures.ts";
+
+/** 测试里的 Webhook 接收地址用的主机名：经接口保存时它是合格的 https 地址；测试的发送器把它换成本机的假接收方。 */
+export const LOCAL_WEBHOOK_HOST = "hooks.nozomi.test";
+
+/**
+ * 测试用的发送器：把 `https://hooks.nozomi.test:<端口>` 换成 `http://127.0.0.1:<端口>`（本机的假接收方没有证书），交给真实的发送器
+ * （打开 `allowLocalTargets` 只放行 http 和回环地址，其余防 SSRF 的检查照旧；那些检查本身在 webhook-sender.test.ts 里测）。
+ */
+export function localWebhookSender(): WebhookSender {
+  const real = new HttpsWebhookSender({ allowLocalTargets: true });
+  const prefix = `https://${LOCAL_WEBHOOK_HOST}:`;
+  return {
+    send: async (request) => {
+      const result = await real.send({ ...request, url: request.url.startsWith(prefix) ? `http://127.0.0.1:${request.url.slice(prefix.length)}` : request.url });
+      return request.url.startsWith(prefix) ? { ...result, targetHost: new URL(request.url).host } : result;
+    },
+  };
+}
 
 /** 测试里统一使用的密码：满足强度规则，且不含任何测试邮箱的邮箱名。 */
 export const TEST_PASSWORD = "Quiet-Harbor-2026";
@@ -71,6 +91,8 @@ export interface TestApiOptions {
   quote?: Partial<QuoteDeps>;
   /** 收款服务的替身（testing/payments.ts）；null = 没配置 Stripe。不给时：测试配置里的 Stripe 密钥是假的，下单会去连 Stripe，所以下单的测试都要给 */
   payments?: PaymentProvider | null;
+  /** 推送给供应商的发送器；不给时用 `localWebhookSender`（推到本机的假接收方） */
+  webhookSender?: WebhookSender;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -92,6 +114,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     now: clock.now,
     ...(options.quote === undefined ? {} : { quote: options.quote }),
     ...(options.payments === undefined ? {} : { payments: options.payments }),
+    webhookSender: options.webhookSender ?? localWebhookSender(),
     logDestination: { write: (line) => void (logs += line) },
   });
 
@@ -175,5 +198,14 @@ export async function addTenantUser(
 export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
-  return { config, pool, now, fx, payments: null, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote } };
+  return {
+    config,
+    pool,
+    now,
+    fx,
+    payments: null,
+    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote },
+    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+    webhookSender: localWebhookSender(),
+  };
 }
