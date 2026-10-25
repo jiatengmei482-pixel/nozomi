@@ -19,7 +19,7 @@ import { parseInput, resourceId, uuidSchema } from "../validation.ts";
 type Json = Record<string, unknown>;
 
 /** 报价用的汇率；有人工锁定时 `lock` 里写明哪一边锁定、锁定值和到期时间（M2-06，ADR 0025），没有为 null。 */
-function fxJson(fx: FxQuote): Json {
+export function fxJson(fx: FxQuote): Json {
   return {
     from: fx.from,
     to: fx.to,

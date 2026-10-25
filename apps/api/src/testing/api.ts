@@ -9,6 +9,7 @@ import type { AppContext } from "../context.ts";
 import type { Pool } from "../db/pool.ts";
 import { FxCenter } from "../services/fx-center.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
+import type { PaymentProvider } from "../integrations/payments.ts";
 import type { AppConfig } from "@nozomi/config";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
@@ -68,6 +69,8 @@ export interface TestApiOptions {
   env?: Record<string, string>;
   /** 报价引擎的外部依赖的替身（路线预估、汇率、加价规则、评分） */
   quote?: Partial<QuoteDeps>;
+  /** 收款服务的替身（testing/payments.ts）；null = 没配置 Stripe。不给时：测试配置里的 Stripe 密钥是假的，下单会去连 Stripe，所以下单的测试都要给 */
+  payments?: PaymentProvider | null;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -88,6 +91,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     migrationFiles,
     now: clock.now,
     ...(options.quote === undefined ? {} : { quote: options.quote }),
+    ...(options.payments === undefined ? {} : { payments: options.payments }),
     logDestination: { write: (line) => void (logs += line) },
   });
 
@@ -171,5 +175,5 @@ export async function addTenantUser(
 export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
-  return { config, pool, now, fx, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote } };
+  return { config, pool, now, fx, payments: null, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote } };
 }

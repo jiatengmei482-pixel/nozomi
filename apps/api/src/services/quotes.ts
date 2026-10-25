@@ -44,6 +44,7 @@ import { type Channel, type StoredMarkupRule, findChannel, listMarkupRules } fro
 import { listHolidays } from "../repos/prices.ts";
 import { AppError } from "../errors.ts";
 import { type QuoteCandidate, type QuoteCandidateFilter, findQuoteCity, findQuotePlace, loadInventoryOnDay, loadQuoteCandidates } from "../repos/quotes.ts";
+import { countUrgentOrders } from "../repos/orders.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { masterDataNotReady, notFound } from "./errors.ts";
 
@@ -162,13 +163,14 @@ interface Quoted {
   quote: ProductQuote;
 }
 
-/** 报价要从库里现查的事实（不进目录缓存）：用车那一天的库存、节假日。 */
+/** 报价要从库里现查的事实（不进目录缓存）：用车那一天的库存、已经用掉的加急库存（按商品）、节假日。 */
 interface QuoteFacts {
   inventory: Map<string, InventoryDay>;
+  urgentUsed: Map<string, number>;
   holidays: HolidayLookup;
 }
 
-/** 给一批候选商品取库存、节假日（各一次查询）。在事务里调用。 */
+/** 给一批候选商品取库存、加急库存的已用量、节假日（各一次查询）。在事务里调用。 */
 async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest): Promise<QuoteFacts> {
   // 用车那一天（各商品所在城市的当地日期；同一批商品同城，时区一样）
   const dated = candidates.flatMap((candidate) => {
@@ -176,20 +178,23 @@ async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], req
     return instant === null ? [] : [{ candidate, date: instantToLocal(instant, candidate.product.timeZone).date }];
   });
   const inventory = await loadInventoryOnDay(db, dated.filter(({ candidate }) => candidate.product.inventoryMode === "limited").map(({ candidate, date }) => ({ tenantId: candidate.product.tenantId, productId: candidate.product.productId, date })));
+  // 每日加急库存（M3-01）：这一天走加急、没取消的单数。只数设了每日加急库存的商品
+  const quota = dated.filter(({ candidate }) => candidate.product.serviceRules.urgent.enabled && candidate.product.serviceRules.urgent.dailyQuota !== null);
+  const counted = await countUrgentOrders(db, quota.map(({ candidate, date }) => ({ tenantId: candidate.product.tenantId, productId: candidate.product.productId, date })));
+  const urgentUsed = new Map(quota.map(({ candidate, date }) => [candidate.product.productId, counted.get(`${candidate.product.productId}|${date}`) ?? 0]));
   // 节假日：调价规则里提到的国家；跨午夜的时段算在开始那天头上，所以多取前一天
   const countries = [...new Set(candidates.flatMap(({ product }) => product.adjustRules.flatMap((rule) => (rule.cycle.type === "holidays" ? rule.cycle.countries : []))))];
   const dates = dated.map((entry) => entry.date).sort();
   const first = dates[0];
   const holidays = countries.length === 0 || first === undefined ? [] : await listHolidays(db, { countryCodes: countries, from: addDays(first, -1), to: dates[dates.length - 1] as string }, 5_000);
-  return { inventory, holidays: holidayLookup(holidays) };
+  return { inventory, urgentUsed, holidays: holidayLookup(holidays) };
 }
 
 /** 给一批候选商品各报一次价（纯计算）。 */
 function quoteCandidates(candidates: readonly QuoteCandidate[], facts: QuoteFacts, request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean): Quoted[] {
   return candidates.map((candidate) => ({
     candidate,
-    // 每日加急库存的已用量要等有了订单（M3-01）才数得出来：现在按 0 算
-    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: 0 }, { forOwner }),
+    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: facts.urgentUsed.get(candidate.product.productId) ?? 0 }, { forOwner }),
   }));
 }
 
