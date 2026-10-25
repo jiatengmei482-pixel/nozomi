@@ -94,7 +94,7 @@ test("/health：数据库连不上时返回 503，内容仍是完整结构，且
   assert.equal(body.status, "degraded");
   assert.deepEqual(body.database, { state: "down", latencyMs: null, errorCode: "DB_UNREACHABLE" });
   assert.equal(body.migrations.state, "unknown");
-  assert.equal(body.integrations.length, 5);
+  assert.equal(body.integrations.length, 6);
   assert.equal(res.headers["cache-control"], "no-store");
   assert.deepEqual(leakedSecrets(res.body), []);
   assert.ok(!res.body.includes("ECONNREFUSED"));

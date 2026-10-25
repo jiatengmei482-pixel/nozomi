@@ -32,6 +32,7 @@ import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider } from "./integrations/stripe.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
+import { SecretBox } from "./integrations/secret-box.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -180,7 +181,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const fx = new FxCenter({ pool, now, config: config.fx, log: app.log });
   app.decorate("fxCenter", fx);
   const payments = deps.payments !== undefined ? deps.payments : config.stripe === null ? null : new StripePaymentProvider(config.stripe);
-  const context: AppContext = { config, pool, now, fx, payments, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote } };
+  const context: AppContext = {
+    config,
+    pool,
+    now,
+    fx,
+    payments,
+    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote },
+    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+  };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);
   if (deps.jobs) {

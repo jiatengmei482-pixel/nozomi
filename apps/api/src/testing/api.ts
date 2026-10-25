@@ -10,6 +10,7 @@ import type { Pool } from "../db/pool.ts";
 import { FxCenter } from "../services/fx-center.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
+import { SecretBox } from "../integrations/secret-box.ts";
 import type { AppConfig } from "@nozomi/config";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
@@ -175,5 +176,13 @@ export async function addTenantUser(
 export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
-  return { config, pool, now, fx, payments: null, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote } };
+  return {
+    config,
+    pool,
+    now,
+    fx,
+    payments: null,
+    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote },
+    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+  };
 }

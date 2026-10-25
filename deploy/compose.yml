@@ -61,6 +61,8 @@ services:
       # 这里不能出现 POSTGRES_PASSWORD（迁移账号的密码）：服务进程发现自己连的是所有者或超级用户会拒绝启动。
       DATABASE_URL: postgres://nozomi_api:${POSTGRES_APP_PASSWORD:?缺少 POSTGRES_APP_PASSWORD，请重新部署或重新运行服务器初始化}@db:5432/nozomi
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?缺少 AUTH_JWT_SECRET，请先运行服务器初始化}
+      # 数据加密密钥（ADR 0030）：由初始化脚本或部署脚本自动生成，不要修改
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?缺少 DATA_ENCRYPTION_KEY，请重新部署或重新运行服务器初始化}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

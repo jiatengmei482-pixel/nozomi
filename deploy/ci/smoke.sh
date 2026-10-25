@@ -502,6 +502,7 @@ fi
 
 step "5. 数据库的两个账号：api 容器用的是最小权限的应用账号"
 grep -Eq '^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$' "$root_dir/.env" || fail "部署时应自动生成 POSTGRES_APP_PASSWORD 并写入 .env"
+grep -Eq '^DATA_ENCRYPTION_KEY=[0-9a-f]{64}$' "$root_dir/.env" || fail "部署时应自动生成 DATA_ENCRYPTION_KEY 并写入 .env"
 [[ "$(stat -c '%a' "$root_dir/.env")" == "600" ]] || fail ".env 的权限应为 600"
 [[ "$(grep -c '^POSTGRES_PASSWORD=ci-placeholder-not-a-real-password$' "$root_dir/.env")" == "1" ]] || fail "补应用账号密码时不应改动 POSTGRES_PASSWORD"
 app_password_digest="$(grep '^POSTGRES_APP_PASSWORD=' "$root_dir/.env" | sha256sum)"
