@@ -74,6 +74,12 @@ test("渠道经理甲建渠道、加加价规则（自己批不了）→ 渠道�
   await page.getByRole("link", { name: /新建渠道/ }).first().click();
   await page.getByRole("textbox", { name: "名称" }).fill(channelName);
   await page.getByRole("radio", { name: /^自营/ }).check();
+  // 可卖的品类默认一个都不选（M1-18）：不选就提交，在品类下面说明
+  const categories = page.getByRole("group", { name: /^可卖的品类/ });
+  await expect(categories.getByRole("checkbox", { checked: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await expect(categories.getByText("请至少选一个品类")).toBeVisible();
+  for (const name of ["接送机", "点对点", "包车"]) await categories.getByRole("checkbox", { name }).check();
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: channelName })).toBeVisible();
   await expect(page.locator(".page__meta")).toContainText("测试");

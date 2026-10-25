@@ -146,10 +146,16 @@ test("新建渠道：没填类型、下限低于 10% 当场拦下不发请求；
   await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
   await actor.clear(screen.getByRole("textbox", { name: "加价下限（%）" }));
   await actor.type(screen.getByRole("textbox", { name: "加价下限（%）" }), "9.5");
+  const categories = screen.getByRole("group", { name: /^可卖的品类/ });
+  assert.deepEqual(within(categories).getAllByRole("checkbox").map((box) => (box as HTMLInputElement).checked), [false, false, false], "M1-18：可卖的品类默认一个都不选");
   await actor.click(screen.getByRole("button", { name: "新建" }));
   assert.ok(await screen.findByText("请选择渠道类型"));
   assert.ok(screen.getByText("加价下限不能低于平台下限 10%"));
+  assert.ok(within(categories).getByText("请至少选一个品类"), "一个品类都没选，提交时在品类下面说明");
   assert.deepEqual(posts(calls), []);
+  await actor.click(within(categories).getByRole("checkbox", { name: "接送机" }));
+  await actor.click(within(categories).getByRole("checkbox", { name: "包车" }));
+  assert.equal(within(categories).queryByText("请至少选一个品类"), null);
   await actor.click(screen.getByRole("radio", { name: /^自营/ }));
   await actor.clear(screen.getByRole("textbox", { name: "加价下限（%）" }));
   await actor.type(screen.getByRole("textbox", { name: "加价下限（%）" }), "11");
@@ -161,7 +167,7 @@ test("新建渠道：没填类型、下限低于 10% 当场拦下不发请求；
   await actor.click(screen.getByRole("button", { name: "新建" }));
   await waitFor(() => assert.equal(posts(calls).length, 1));
   const body = posts(calls)[0]?.body as Record<string, any>;
-  assert.deepEqual([body["type"], body["pricing"], body["scope"]], ["own", { default_markup_bp: 1250, markup_floor_bp: 1100, band_bp: 300, min_margin: 500, sell_rounding: {} }, { tenant_scope: "allow", tenant_ids: [TENANT_ID], city_ids: null, categories: ["airport_transfer", "point_to_point", "charter"] }]);
+  assert.deepEqual([body["type"], body["pricing"], body["scope"]], ["own", { default_markup_bp: 1250, markup_floor_bp: 1100, band_bp: 300, min_margin: 500, sell_rounding: {} }, { tenant_scope: "allow", tenant_ids: [TENANT_ID], city_ids: null, categories: ["airport_transfer", "charter"] }]);
 });
 
 test("渠道详情：加价规则低于下限当场拦下；提交后发起复核（不改页面上的数），提示等另一位同事批准", async () => {
@@ -290,6 +296,7 @@ test("M1-17 新建渠道「只卖选中的城市」：城市按国家分组、�
   await actor.keyboard("{Escape}");
   await actor.click(within(chips).getByRole("button", { name: "去掉 札幌" }));
   await waitFor(() => assert.equal(document.activeElement, screen.getByRole("button", { name: "去掉 东京" }), "焦点移到下一个标签"));
+  await actor.click(within(screen.getByRole("group", { name: /^可卖的品类/ })).getByRole("checkbox", { name: "点对点" }));
   await actor.click(screen.getByRole("button", { name: "新建" }));
   await waitFor(() => assert.equal(posts(calls).length, 1));
   assert.deepEqual((posts(calls)[0]?.body as Record<string, any>)["scope"]["city_ids"], [CITY_ID]);

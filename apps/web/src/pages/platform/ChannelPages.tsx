@@ -164,7 +164,7 @@ interface ChannelFormValue {
 }
 
 function emptyForm(): ChannelFormValue {
-  return { name: "", type: null, settleCurrency: "JPY", company: "", contactName: "", contactEmail: "", contactPhone: "", contractRef: "", notes: "", paymentMode: "prepaid", creditLimit: "", showTenantAfterPay: true, tenantScope: "all", tenantIds: [], allCities: true, cityIds: [], categories: [...SERVICE_CATEGORIES], defaultMarkup: "10", floor: "10", band: "3", minMargin: "" };
+  return { name: "", type: null, settleCurrency: "JPY", company: "", contactName: "", contactEmail: "", contactPhone: "", contractRef: "", notes: "", paymentMode: "prepaid", creditLimit: "", showTenantAfterPay: true, tenantScope: "all", tenantIds: [], allCities: true, cityIds: [], categories: [], defaultMarkup: "10", floor: "10", band: "3", minMargin: "" };
 }
 
 function formOf(channel: Channel): ChannelFormValue {
