@@ -123,6 +123,13 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
 - `auth/me` 的 `permissions` 按角色现查（自建角色按勾选），两步验证完成之前为空；多了 `data_scope`、`second_factor`（状态、绑定时间、剩余恢复码数）。
 - 角色键：内置角色的键不变；自建角色是 `custom_` + 16 位十六进制（数据库约束），所以 `PlatformUser.role` 从枚举放宽成字符串。
 
+### 运营后台页面（docs/design/pages/platform-security.md）
+
+- 登录的第二步不改地址：两步验证完成之前，运营后台的任何地址都显示绑定 / 输入动态码的页面，完成后就是原来要去的页面；任何接口返回 403 `MFA_REQUIRED` 也回到这一页。
+- 个人页「账号安全」（换手机、重新生成恢复码）、平台员工详情（改姓名、角色、IP 白名单，发起重置两步验证）、角色管理（菜单 × 操作的勾选表、数据范围、IP 白名单）。
+- 前端判断显示什么：内置角色按 `@nozomi/domain` 的权限表（和后端同一份），自建角色按 `auth/me` 的 `permissions`。真正的检查都在后端。
+- **新增运行时依赖 `qrcode-generator@2.0.4`**（MIT，无子依赖，版本写死）：把 `otpauth://` 链接画成二维码（页面上画成 SVG，颜色用设计令牌）。二维码编码（Reed–Solomon 纠错、掩码选择）自己写容易出错又难测（没有解码器可以对照），而这个库只做这一件事。扫不了时页面上同时有密钥原文可以手输。
+
 ### 审计
 
 新动作：`mfa_enroll_start`、`mfa_enroll`、`mfa_verify`（方式；用恢复码时记剩余几个）、`mfa_failed`（哪一步、原因）、`mfa_recovery_codes`、`mfa_reset`（复核编号和发起人，或命令行）、`clear_ip_allowlist`（命令行，记清掉之前的名单）；对象 `platform_role` 的 `create` / `update` / `delete`；改员工角色记 `change_role`、改姓名或名单记 `update`（只记变了的字段的前后值）；`login_failed` 多一个原因 `ip_not_allowed`。审计里没有密钥、动态码、恢复码原文。

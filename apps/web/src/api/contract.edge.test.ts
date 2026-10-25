@@ -63,11 +63,12 @@ const PORTAL_KEYS: readonly Portal[] = ["tenant", "platform"];
 
 /** 前端手写类型里每个字段的类型（apps/web/src/api/types.ts）。枚举的取值由 contract.test.ts 核对，这里只认「是枚举」。 */
 const EXPECTED_SHAPES: Record<keyof typeof SCHEMA_FIELDS, Record<string, string | RegExp>> = {
-  PlatformUser: { id: "string", email: "string", name: "string", role: /^enum\(/, status: /^enum\(/, created_at: "string(date-time)", updated_at: "string(date-time)" },
+  // 平台员工的角色可以是自建角色（ADR 0030）：是字符串（按格式校验），不是枚举
+  PlatformUser: { id: "string", email: "string", name: "string", role: "string", role_name: "string", status: /^enum\(/, created_at: "string(date-time)", updated_at: "string(date-time)" },
   TenantUser: { id: "string", email: "string", name: "string", role: /^enum\(/, status: /^enum\(/, created_at: "string(date-time)", updated_at: "string(date-time)" },
   Tenant: { id: "string", name: "string", status: "enum(active|suspended)", created_at: "string(date-time)", updated_at: "string(date-time)" },
   LoginRequest: { email: "string", password: "string" },
-  PlatformLoginResponse: { access_token: "string", token_type: "enum(Bearer)", expires_at: "string(date-time)", user: "ref(PlatformUser)", must_change_password: "boolean" },
+  PlatformLoginResponse: { access_token: "string", token_type: "enum(Bearer)", expires_at: "string(date-time)", user: "ref(PlatformUser)", must_change_password: "boolean", second_factor: "object" },
   TenantLoginResponse: { access_token: "string", token_type: "enum(Bearer)", expires_at: "string(date-time)", user: "ref(TenantUser)", tenant: "ref(Tenant)", must_change_password: "boolean" },
   AcceptInviteRequest: { token: "string", password: "string" },
   ResetPasswordRequest: { token: "string", password: "string" },

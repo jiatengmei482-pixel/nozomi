@@ -124,7 +124,7 @@ export interface Person {
   email: string;
 }
 
-export type ApprovalKind = "channel.pricing" | "channel.pause" | "markup_rule.create" | "markup_rule.update" | "markup_rule.delete" | "fx_lock.create" | "fx_lock.release";
+export type ApprovalKind = "channel.pricing" | "channel.pause" | "markup_rule.create" | "markup_rule.update" | "markup_rule.delete" | "fx_lock.create" | "fx_lock.release" | "platform_role.update" | "staff.mfa_reset";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "withdrawn";
 
 export interface Approval {

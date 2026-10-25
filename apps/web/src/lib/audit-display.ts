@@ -29,6 +29,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   markup_rule: "加价规则",
   api_client: "API 客户端",
   approval: "双人复核",
+  platform_role: "角色",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -67,6 +68,13 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   lock: "锁定生效",
   unlock: "解除锁定",
   expire: "到期失效",
+  mfa_enroll_start: "开始绑定两步验证",
+  mfa_enroll: "绑定两步验证",
+  mfa_verify: "通过两步验证",
+  mfa_failed: "两步验证失败",
+  mfa_recovery_codes: "重新生成恢复码",
+  mfa_reset: "重置两步验证",
+  clear_ip_allowlist: "清空 IP 白名单",
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };

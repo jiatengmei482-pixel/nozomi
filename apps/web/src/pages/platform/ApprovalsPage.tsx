@@ -17,6 +17,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
+import { rolePath, staffPath } from "../../lib/platform-paths.ts";
 import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, approvalSummaryText, belowFloorRuleLines, channelPath, isFxApproval } from "../../lib/channel-display.ts";
 import { CURRENCY_NAMES, FX_PATH } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
@@ -53,6 +54,8 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "批准后这条规则立即删除：之后的询价改按下一级的规则或默认加价比例算。",
   "fx_lock.create": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
   "fx_lock.release": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
+  "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
+  "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
 };
 
 /** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */
@@ -77,6 +80,22 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           币种：
           <Link className="link" to={FX_PATH}>
             {`${approval.resource_id} ${CURRENCY_NAMES[approval.resource_id as keyof typeof CURRENCY_NAMES] ?? ""}`.trim()}（去汇率页）
+          </Link>
+        </p>
+      )}
+      {approval.kind === "platform_role.update" && (
+        <p>
+          角色：
+          <Link className="link" to={rolePath(approval.resource_id)}>
+            {typeof approval.before?.["name"] === "string" ? approval.before["name"] : "查看角色"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "staff.mfa_reset" && (
+        <p>
+          员工：
+          <Link className="link" to={staffPath(approval.resource_id)}>
+            {typeof approval.payload["email"] === "string" ? approval.payload["email"] : "查看员工"}
           </Link>
         </p>
       )}
@@ -209,7 +228,7 @@ export function ApprovalsPage() {
   const items = loaded.state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
+      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率、修改角色、重置别人的两步验证，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="显示" value={status} options={[{ value: "pending", label: "待审核" }, { value: "all", label: "全部（含历史）" }]} onChange={(value) => setParams(value === "all" ? { status: "all" } : {}, { replace: true })} />
       </div>

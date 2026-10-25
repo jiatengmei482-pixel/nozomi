@@ -2,7 +2,7 @@
  * 渠道、加价规则、双人复核在页面上的写法（ADR 0023）：类型和状态的名字、徽标、五级的说明、复核的类别和改了什么。
  * 百分比一律以基点整数进出接口；页面上写成「12.5%」。
  */
-import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
+import { CHANNEL_RULES, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { City } from "../api/master.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
@@ -43,6 +43,8 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "删除加价规则",
   "fx_lock.create": "锁定汇率",
   "fx_lock.release": "解除汇率锁定",
+  "platform_role.update": "修改角色",
+  "staff.mfa_reset": "重置两步验证",
 };
 
 /** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
@@ -139,9 +141,37 @@ function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | nul
   ];
 }
 
+/** 修改角色的复核里「改了什么」（ADR 0030）：名字、说明、勾选的权限、数据范围、IP 白名单，只列变了的。 */
+function roleChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const list = (value: unknown, empty: string): string => (Array.isArray(value) ? (value.length === 0 ? empty : value.map((item) => grantText(String(item))).join("、")) : empty);
+  const scope = (value: unknown): string => (value === null || value === undefined ? "不限" : Array.isArray(value) ? (value.length === 0 ? "一个都不看" : `${value.length} 个`) : "—");
+  const text = (value: unknown): string => (typeof value === "string" && value !== "" ? value : "—");
+  const fields: { key: string; label: string; format: (value: unknown) => string }[] = [
+    { key: "name", label: "名字", format: text },
+    { key: "description", label: "说明", format: text },
+    { key: "grants", label: "权限", format: (value) => list(value, "（没有勾选）") },
+    { key: "scope_city_ids", label: "数据范围：城市", format: scope },
+    { key: "scope_channel_ids", label: "数据范围：渠道", format: scope },
+    { key: "ip_allowlist", label: "IP 白名单", format: (value) => (Array.isArray(value) ? (value.length === 0 ? "不限制" : value.join("、")) : "—") },
+  ];
+  return fields
+    .map((field) => ({ label: field.label, before: before === null ? "—" : field.format(before[field.key]), after: field.format(after[field.key]) }))
+    .filter((line) => before === null || line.before !== line.after);
+}
+
+/** 「菜单:操作」的说法，如 `channels:edit` → 「渠道 · 编辑」。 */
+export function grantText(grant: string): string {
+  const [menuKey, operationKey] = grant.split(":");
+  const menu = PLATFORM_MENUS.find((entry) => entry.key === menuKey);
+  const operation = MENU_OPERATIONS.find((entry) => entry.key === operationKey);
+  return menu && operation ? `${menu.name} · ${operation.name}` : grant;
+}
+
 /** 复核记录里「改了什么」：逐项列出改之前和改之后（只列变了的）。 */
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
+  if (kind === "platform_role.update") return roleChanges(before, after);
+  if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */
