@@ -133,6 +133,8 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/integrations"],
       ["GET", "/platform/v1/products"],
       ["GET", `/platform/v1/products/${ids.userId}`],
+      ["GET", "/platform/v1/orders"],
+      ["GET", `/platform/v1/orders/${ids.userId}`],
       ["POST", "/platform/v1/quotes/preview", { city_id: ids.userId, category: "charter", currency: "JPY", package_hours: 10, pickup: { lng: 139.7, lat: 35.6 }, service_time: "2027-01-01T10:00", passengers: 2 }],
       ["GET", "/platform/v1/fx-rates"],
       ["GET", "/platform/v1/fx-rates/history"],
@@ -235,6 +237,8 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/map/config"],
     ["GET", "/tenant/v1/dashboard/summary"],
     ["GET", "/tenant/v1/fx-rates"],
+    ["GET", "/tenant/v1/orders"],
+    ["GET", `/tenant/v1/orders/${ids.userId}`],
   ];
 }
 
@@ -245,8 +249,8 @@ function assertBlocked(res: ApiResponse, label: string): void {
 
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
-    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），不在这份清单里
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/"))
+    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，都不在这份清单里
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();

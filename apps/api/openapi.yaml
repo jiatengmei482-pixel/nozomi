@@ -5472,6 +5472,8 @@ paths:
       tags: [收款]
       operationId: receiveStripeWebhook
       summary: Stripe 的通知（Webhook）
+      # 不用登录令牌：靠 Stripe-Signature 的签名证明来源（见下）
+      security: []
       description: |
         Stripe 调用，不需要登录：用请求头 `Stripe-Signature`（`t=时间戳,v1=签名`，HMAC-SHA256，密钥是 `STRIPE_WEBHOOK_SECRET`）验证是 Stripe 发来的，对原始请求体校验；时间戳和现在相差超过 5 分钟拒绝（防重放）。
         同一个事件编号只处理一次（重复的回 200、`duplicate: true`）。处理：`payment_intent.succeeded`（核对金额币种 → 自动确认订单、库存转已售、记下保存的支付方式）、

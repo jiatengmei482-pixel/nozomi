@@ -92,6 +92,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/approvals/${MISSING}/approve`, action: "approval.read", body: {} },
   { method: "POST", url: `/platform/v1/approvals/${MISSING}/reject`, action: "approval.read", body: {} },
   { method: "POST", url: `/platform/v1/approvals/${MISSING}/withdraw`, action: "approval.read", body: {} },
+  // 订单（只读，ADR 0026）：跨租户跨渠道的运营后台视图
+  { method: "GET", url: "/platform/v1/orders", action: "order.read" },
+  { method: "GET", url: `/platform/v1/orders/${MISSING}`, action: "order.read" },
   // 查看供应商的商品（只读，ADR 0021）
   { method: "GET", url: "/platform/v1/products", action: "product.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },

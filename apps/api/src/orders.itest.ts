@@ -14,6 +14,7 @@ import { loadConfig } from "@nozomi/config";
 import { buildApp } from "./app.ts";
 import { withTenantTx } from "./db/context.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 import { type ApiResponse, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { testEnv } from "./testing/fixtures.ts";
@@ -510,6 +511,8 @@ test("每日加急库存：两单同时抢最后一个加急名额只成一单�
       body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, urgent: { enabled: true, daily_quota: 1, tiers: [{ within_hours: 24, surcharge: 3_000 }] }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } },
     }),
   );
+  // 询价用的商品目录有 30 秒缓存（ADR 0020，改规则 1 分钟内生效）：等它过期，新的服务规则才进询价
+  api.clock.advance(QUOTE_CATALOG_TTL_MS);
   // 6 小时后用车（东京时间，取整点）：只有乙能加急
   const at = new Date(Math.ceil((api.clock.now().getTime() + 6 * 3_600_000) / 3_600_000) * 3_600_000);
   const serviceTime = `${new Date(at.getTime() + 9 * 3_600_000).toISOString().slice(0, 16)}:00+09:00`;

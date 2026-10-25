@@ -212,3 +212,25 @@ grant update on inventory_days to nozomi_platform;
 
 -- 询价日志的「有没有下单」（0020 留给订单任务写的那一列）
 grant update on quote_logs to nozomi_platform;
+
+-- 上面两项「改」是表级授权（本项目不用列级授权，结构测试检查）。平台角色只该改订单要改的列：
+-- 每日库存只改预占数、已售数（总量、所属商品、日期仍然只有供应商能改），询价日志只改「有没有下单」（其余内容仍然只追加）。
+-- 其他列出现在平台角色的 update 语句里就拒绝（按语句检查，一行都没改到也拒绝），错误码和没有权限一样（42501）。
+create function reject_platform_column_update() returns trigger
+  language plpgsql
+  as $$
+begin
+  if current_user = 'nozomi_platform' then
+    raise exception '平台角色不能改 % 的这一列', tg_table_name using errcode = 'insufficient_privilege';
+  end if;
+  return null;
+end
+$$;
+
+create trigger inventory_days_platform_columns
+  before update of tenant_id, id, product_id, day, vehicle_group_id, total, created_at on inventory_days
+  for each statement execute function reject_platform_column_update();
+
+create trigger quote_logs_platform_columns
+  before update of id, channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms on quote_logs
+  for each statement execute function reject_platform_column_update();
