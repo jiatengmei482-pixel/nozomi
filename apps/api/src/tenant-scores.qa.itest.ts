@@ -298,3 +298,35 @@ test("试运营上限按东京日期：东京 23:59 已满 10 单，询价和下
   assert.equal(await bOrdersToday(), 2);
   await api.db.owner.query("update tenants set status = 'active' where id = $1", [m.b.tenantId]);
 });
+
+test("缺陷复现（「跌破」口径）：评分自动暂停、人工恢复后分数从没回升到 3.50 以上，只是完成单数短暂掉到 20 单以下（比价用默认 4.50），回到 20 单时又被自动暂停", async () => {
+  await reset();
+  await api.app.tenantJobs.tick();
+  const next = tenantDate(new Date(api.clock.now().getTime() + DAY));
+  const boundary = tenantDayStart(new Date(0), new Date(Date.parse(`${next}T00:00:00Z`) - 89 * DAY).toISOString().slice(0, 10));
+  const bad = { dispatchOnTime: false, arrivalOnTime: false, rating: 1 };
+  // 1 单在明天窗口的第一天（后天就出窗口），19 单是现在的
+  const leaving = await seedOrders(m.a, m.ids.pa, 1, { at: boundary });
+  await perform(m.a, leaving, { ...bad, at: boundary });
+  const recent = await seedOrders(m.a, m.ids.pa, 19);
+  await perform(m.a, recent, bad);
+  moveToNextTokyoDay();
+  await api.app.tenantJobs.tick();
+  let tenant = await tenantOf(m.a);
+  assert.deepEqual([tenant.status, tenant.suspension_reasons, tenant.score.raw_score_centi], ["suspended", ["score_below_red_line"], 170]);
+  // 运营人工恢复（分数没回升）
+  await ok(api.call("POST", `/platform/v1/tenants/${m.a.tenantId}/resume`, { token: await root(), body: {} }));
+  // 后天：那 1 单出窗口，剩 19 单 → 比价用默认 4.50（按数据仍是 1.70）
+  moveToNextTokyoDay();
+  await api.app.tenantJobs.tick();
+  tenant = await tenantOf(m.a);
+  assert.deepEqual([tenant.status, tenant.score.completed_orders, tenant.score.score_centi, tenant.score.raw_score_centi], ["active", 19, 450, 170]);
+  // 又完成 1 单（同样差）→ 20 单、1.70：按数据的分从没回到 3.50 以上
+  const another = await seedOrders(m.a, m.ids.pa, 1);
+  await perform(m.a, another, bad);
+  moveToNextTokyoDay();
+  await api.app.tenantJobs.tick();
+  tenant = await tenantOf(m.a);
+  // 期望：ADR 0028「运营人工恢复以后分数还没回升，第二天不会马上又被暂停；回升到 3.5 以上再跌破会再暂停」——默认分 4.50 不是回升
+  assert.deepEqual([tenant.status, tenant.suspension_reasons], ["active", []], "默认分被当成了「上一次不低于 3.5」，没有回升也被再次自动暂停");
+});
