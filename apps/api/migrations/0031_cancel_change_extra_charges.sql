@@ -275,6 +275,8 @@ create table order_refunds (
   status text not null,
   -- 收款服务里的退款编号（Stripe Refund）
   provider_refund_id text unique,
+  -- 财务手动重试一笔失败的退款：新建一笔（新的幂等键；收款服务对同一个幂等键只会返回那笔失败的），指回失败的那一笔。一笔失败的只能重试一次
+  retry_of uuid unique references order_refunds (id),
   attempts integer not null default 0,
   -- 下一次什么时候发；正在发时是租约到期的时间（进程中途退出时别的实例接着发，同一个幂等键不会退两次）
   next_attempt_at timestamptz,

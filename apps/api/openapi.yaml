@@ -6322,7 +6322,7 @@ paths:
       tags: [订单]
       operationId: retryPlatformRefund
       summary: 重试失败的退款
-      description: 需要操作 `payment.manage`。马上发一次（同一笔退款记录、同一个幂等键）。写审计日志。
+      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。写审计日志。
       security:
         - platformToken: []
       parameters:
@@ -15052,7 +15052,7 @@ components:
     OrderRefund:
       type: object
       additionalProperties: false
-      required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at]
+      required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at]
       properties:
         id: {type: string, format: uuid}
         payment_id: {type: string, format: uuid}

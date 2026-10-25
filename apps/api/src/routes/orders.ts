@@ -119,6 +119,7 @@ export function refundJson(refund: OrderRefund): Json {
     amount: salesMoney(refund.amountMinor, refund.currency),
     status: refund.status,
     provider_refund_id: refund.providerRefundId,
+    retry_of: refund.retryOf,
     attempts: refund.attempts,
     next_attempt_at: refund.status === "pending" ? (refund.nextAttemptAt?.toISOString() ?? null) : null,
     last_error: refund.lastError,

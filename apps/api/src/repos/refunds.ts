@@ -20,6 +20,8 @@ export interface OrderRefund {
   currency: CurrencyCode;
   status: RefundStatus;
   providerRefundId: string | null;
+  /** 手动重试时：重试的是哪一笔失败的退款 */
+  retryOf: string | null;
   attempts: number;
   nextAttemptAt: Date | null;
   lastError: { code: string | null; message: string | null } | null;
@@ -29,7 +31,7 @@ export interface OrderRefund {
   updatedAt: Date;
 }
 
-const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, provider_refund_id, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at, updated_at";
+const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at, updated_at";
 
 function toRefund(row: Row): OrderRefund {
   return {
@@ -43,6 +45,7 @@ function toRefund(row: Row): OrderRefund {
     currency: row["currency"],
     status: row["status"],
     providerRefundId: row["provider_refund_id"],
+    retryOf: row["retry_of"],
     attempts: row["attempts"],
     nextAttemptAt: row["next_attempt_at"],
     lastError: row["last_error"],
@@ -53,11 +56,11 @@ function toRefund(row: Row): OrderRefund {
   };
 }
 
-export async function insertRefund(db: Db, refund: { orderId: string; supplierTenantId: string; paymentId: string; purpose: RefundPurpose; changeId: string | null; amountMinor: number; currency: CurrencyCode; now: Date }): Promise<OrderRefund> {
+export async function insertRefund(db: Db, refund: { orderId: string; supplierTenantId: string; paymentId: string; purpose: RefundPurpose; changeId: string | null; amountMinor: number; currency: CurrencyCode; now: Date; retryOf?: string }): Promise<OrderRefund> {
   const result = await db.query<Row>(
-    `insert into order_refunds (order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, next_attempt_at, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $8) returning ${COLUMNS}`,
-    [refund.orderId, refund.supplierTenantId, refund.paymentId, refund.purpose, refund.changeId, refund.amountMinor, refund.currency, refund.now],
+    `insert into order_refunds (order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, next_attempt_at, created_at, updated_at, retry_of)
+     values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $8, $9) returning ${COLUMNS}`,
+    [refund.orderId, refund.supplierTenantId, refund.paymentId, refund.purpose, refund.changeId, refund.amountMinor, refund.currency, refund.now, refund.retryOf ?? null],
   );
   return toRefund(result.rows[0] as Row);
 }

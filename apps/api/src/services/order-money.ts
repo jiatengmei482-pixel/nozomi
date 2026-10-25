@@ -4,6 +4,7 @@
  * 退款：
  * - 在业务事务里（取消、改单生效、改期被拒）按「从最近收的那一笔开始退」拆成几笔，每笔一行 `order_refunds`（等着发）；
  * - 事务提交之后马上发一次（`processRefunds`），没发成的由订单定时任务按 1、5、30、120、360 分钟重试，5 次后记为失败、等财务处理（`payment.manage` 可以手动重试）；
+ * - 财务手动重试失败的那一笔：新建一笔（新的幂等键），指回失败的那一笔；
  * - 发的时候先在一个短事务里「租下」（正在发，租约 2 分钟），收款服务的调用在事务之外，再一个短事务记结果。
  *   幂等键是退款记录的编号：进程中途退出、租约到期后别的实例再发一次，收款服务返回的是同一笔，不会退两次。
  * - 收款服务说「处理中」（有的支付方式要几天）：保持正在发，等通知（refund.updated）；租约到期时再问一次（同一个幂等键，返回现在的状态）。
@@ -13,7 +14,7 @@
  */
 import { REFUND_RULES, allocateRefund, nextRefundAttemptAt } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type Db, withPlatformTx } from "../db/context.ts";
+import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { type OffSessionChargeResult, PaymentProviderError } from "../integrations/payments.ts";
 import { type Order, type OrderPayment, findOrderForPlatform, findPaymentById, listOrderPayments, updateOrderPayment } from "../repos/orders.ts";
 import { type OrderRefund, type RefundPurpose, findRefund, insertRefund, listDueRefunds, refundedByPayment, syncPaymentRefunded, updateRefund } from "../repos/refunds.ts";
@@ -55,15 +56,15 @@ export type RefundOutcome = "succeeded" | "processing" | "failed" | "retry" | "s
  * 发一笔退款。只处理「等着发」和租约到期的「正在发」；别的（别的实例正在发、已经有结果）什么都不做（`skipped`）。
  * `manual`：财务手动重试失败的那一笔（次数重新算）。
  */
-export async function processRefund(ctx: AppContext, refundId: string, log: OrderLog, options: { manual?: boolean } = {}): Promise<RefundOutcome> {
+export async function processRefund(ctx: AppContext, refundId: string, log: OrderLog): Promise<RefundOutcome> {
   const provider = ctx.payments;
   const now = ctx.now();
   const claimed = await withPlatformTx(ctx.pool, async (db) => {
     const refund = await findRefund(db, refundId, { lock: true });
     if (refund === null) return null;
-    const due = refund.status === "pending" || (refund.status === "processing" && refund.nextAttemptAt !== null && refund.nextAttemptAt.getTime() <= now.getTime()) || (options.manual === true && refund.status === "failed");
+    const due = refund.status === "pending" || (refund.status === "processing" && refund.nextAttemptAt !== null && refund.nextAttemptAt.getTime() <= now.getTime());
     if (!due) return null;
-    const attempts = options.manual === true && refund.status === "failed" ? 1 : refund.attempts + 1;
+    const attempts = refund.attempts + 1;
     await updateRefund(db, refund.id, { status: "processing", attempts, nextAttemptAt: new Date(now.getTime() + REFUND_RULES.leaseSeconds * 1_000), failedAt: null }, now);
     const payment = (await findPaymentById(db, refund.paymentId)) as OrderPayment;
     const order = (await findOrderForPlatform(db, refund.orderId)) as Order;
@@ -119,18 +120,28 @@ export async function processRefunds(ctx: AppContext, refunds: readonly OrderRef
   }
 }
 
-/** 财务手动重试一笔失败的退款（`payment.manage`）：次数重新算，马上发一次。写审计日志。 */
+/**
+ * 财务手动重试一笔失败的退款（`payment.manage`）：新建一笔同样金额的退款（新的幂等键——收款服务对同一个幂等键只会返回那笔失败的），马上发一次。
+ * 一笔失败的只能重试一次（数据库唯一约束 `retry_of`）；再失败的，重试新的那一笔。写审计日志。
+ */
 export async function retryRefund(ctx: AppContext, principal: PlatformPrincipal, orderId: string, refundId: string, ip: string, log: OrderLog): Promise<{ outcome: RefundOutcome; refund: OrderRefund }> {
   const now = ctx.now();
-  await withPlatformTx(ctx.pool, async (db) => {
-    const refund = await findRefund(db, refundId, { lock: true });
-    if (refund === null || refund.orderId !== orderId) throw notFound("退款");
-    if (refund.status !== "failed") throw new AppError(409, "REFUND_STATE_INVALID", "只有失败的退款能重试", { status: refund.status });
-    await updateRefund(db, refund.id, { status: "pending", attempts: 0, nextAttemptAt: now, failedAt: null }, now);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "refund", resourceId: refund.id, action: "retry", before: { status: "failed", last_error: refund.lastError }, after: { status: "pending", order_id: orderId } });
-  });
-  const outcome = await processRefund(ctx, refundId, log);
-  return { outcome, refund: (await withPlatformTx(ctx.pool, (db) => findRefund(db, refundId))) as OrderRefund };
+  let created: OrderRefund;
+  try {
+    created = await withPlatformTx(ctx.pool, async (db) => {
+      const refund = await findRefund(db, refundId, { lock: true });
+      if (refund === null || refund.orderId !== orderId) throw notFound("退款");
+      if (refund.status !== "failed") throw new AppError(409, "REFUND_STATE_INVALID", "只有失败的退款能重试", { status: refund.status });
+      const retry = await insertRefund(db, { orderId, supplierTenantId: refund.supplierTenantId, paymentId: refund.paymentId, purpose: refund.purpose, changeId: refund.changeId, amountMinor: refund.amountMinor, currency: refund.currency, now, retryOf: refund.id });
+      await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "refund", resourceId: refund.id, action: "retry", before: { status: "failed", last_error: refund.lastError }, after: { order_id: orderId, retry_refund_id: retry.id, amount_minor: refund.amountMinor, currency: refund.currency } });
+      return retry;
+    });
+  } catch (err) {
+    if (isUniqueViolation(err, "order_refunds_retry_of_key")) throw new AppError(409, "REFUND_STATE_INVALID", "这一笔已经重试过了，请看重试的那一笔", { status: "failed" });
+    throw err;
+  }
+  const outcome = await processRefund(ctx, created.id, log);
+  return { outcome, refund: (await withPlatformTx(ctx.pool, (db) => findRefund(db, created.id))) as OrderRefund };
 }
 
 /** 定时任务：到时候该发的退款。 */
