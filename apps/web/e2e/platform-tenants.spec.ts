@@ -433,7 +433,8 @@ for (const scheme of ["light", "dark"] as const) {
     await check("一次性链接对话框（没复制就关的确认）");
     await page.getByRole("dialog").getByRole("button", { name: "仍然关闭" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await page.goto("/platform/settings/staff");
+    // 员工列表分页：并行的用例建了很多员工，新建的不一定在第一页，按邮箱搜
+    await page.goto(`/platform/settings/staff?q=${encodeURIComponent(viewerEmail)}`);
     await expect(page.getByRole("row").filter({ hasText: viewerEmail })).toBeVisible();
     await check("平台员工");
     await page.goto(`/platform/settings/audit-logs?tenant=${tenantId}`);
