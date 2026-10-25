@@ -32,11 +32,12 @@ const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里"
 type Decision = "approve" | "reject" | "withdraw";
 const DECISION_NAMES: Readonly<Record<Decision, string>> = { approve: "批准", reject: "驳回", withdraw: "撤回" };
 
-function decisionFailure(err: unknown): string {
+export function decisionFailure(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "APPROVAL_SELF_REVIEW") return "发起人不能审核自己发起的改动，请让另一位有审核权限的同事处理。";
     if (err.code === "APPROVAL_NOT_PENDING") return "这条已经有结论了（可能刚被别人处理），刷新看看。";
     if (err.code === "APPROVAL_STALE") return "发起之后，要改的对象已经被别的改动改过了，不能照旧生效。请驳回，让发起人按现在的内容重新发起。";
+    if (err.code === "CONTRACT_VALID_FROM_PASSED") return "这份合同的生效日期已经过了，批准会让结算条款追溯生效。请驳回，让发起人按新的生效日期重新发起。";
     if (err.code === "VALIDATION_FAILED") return `按现在的数据，这个改动不合规则了：${serverIssues(err).map((issue) => issue.message).join("；") || err.message}。请驳回。`;
     if (["MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "FX_RATE_UNAVAILABLE", "TENANT_STATE_INVALID", "TENANT_HAS_OPEN_ORDERS"].includes(err.code)) return `按现在的数据不能生效：${err.message}。请驳回。`;
     if (err.status === 403) return "你没有审核这一类改动的权限。";
