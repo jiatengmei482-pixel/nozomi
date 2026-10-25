@@ -388,36 +388,40 @@ export function PlatformOrderDetailPage() {
           ))}
         </ul>
         {detail.refunds.length > 0 && (
-          <table className="table">
-            <caption className="visually-hidden">退款</caption>
-            <thead>
-              <tr>
-                <th scope="col">退款</th>
-                <th scope="col">金额</th>
-                <th scope="col">状态</th>
-                <th scope="col">说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.refunds.map((refund) => (
-                <tr key={refund.id}>
-                  <th scope="row">{`${refund.purpose === "cancellation" ? "取消" : "改单差价"}${refund.retry_of ? "（重试）" : ""}`}</th>
-                  <td>{moneyText(refund.amount)}</td>
-                  <td>
-                    <StatusBadge {...REFUND_STATUS_BADGES[refund.status]} />
-                  </td>
-                  <td>
-                    {refund.last_error?.code ?? ""}
-                    {refund.status === "failed" && canPayment && !detail.refunds.some((entry) => entry.retry_of === refund.id) && (
-                      <Button variant="text" size="sm" onClick={() => void act(() => retryRefund(token, order.id, refund.id), "已重新发起退款", "重试退款")}>
-                        重试退款
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <div className="table-scroll" tabIndex={0} role="region" aria-label="退款表">
+              <table className="table">
+                <caption className="visually-hidden">退款</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">退款</th>
+                    <th scope="col">金额</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.refunds.map((refund) => (
+                    <tr key={refund.id}>
+                      <th scope="row">{`${refund.purpose === "cancellation" ? "取消" : "改单差价"}${refund.retry_of ? "（重试）" : ""}`}</th>
+                      <td>{moneyText(refund.amount)}</td>
+                      <td>
+                        <StatusBadge {...REFUND_STATUS_BADGES[refund.status]} />
+                      </td>
+                      <td>
+                        {refund.last_error?.code ?? ""}
+                        {refund.status === "failed" && canPayment && !detail.refunds.some((entry) => entry.retry_of === refund.id) && (
+                          <Button variant="text" size="sm" onClick={() => void act(() => retryRefund(token, order.id, refund.id), "已重新发起退款", "重试退款")}>
+                            重试退款
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </section>
 
@@ -444,43 +448,47 @@ export function PlatformOrderDetailPage() {
       {detail.extra_charges.length > 0 && (
         <section className="card">
           <h2 className="card__title">事后加收</h2>
-          <table className="table">
-            <caption className="visually-hidden">事后加收</caption>
-            <thead>
-              <tr>
-                <th scope="col">类型</th>
-                <th scope="col">供应商报的 / 客人付</th>
-                <th scope="col">状态</th>
-                <th scope="col">异议期到</th>
-                <th scope="col">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.extra_charges.map((charge) => (
-                <tr key={charge.id}>
-                  <th scope="row">{extraTypeName(charge.type)}</th>
-                  <td>{`${moneyText(charge.approved_amount ?? charge.amount)} / ${moneyText(charge.customer_amount)}`}</td>
-                  <td>
-                    <StatusBadge {...EXTRA_STATUS_BADGES[charge.status]} />
-                    {charge.review_reasons.length > 0 && <span className="table__muted">{` ${charge.review_reasons.map((reason) => REVIEW_REASON_NAMES[reason] ?? reason).join("、")}`}</span>}
-                  </td>
-                  <td>{formatInZone(charge.dispute_until, zone)}</td>
-                  <td>
-                    {canManage && (charge.status === "review" || charge.status === "disputed") && (
-                      <Button variant="text" size="sm" onClick={() => setDialog({ decide: charge })}>
-                        审核
-                      </Button>
-                    )}
-                    {canPayment && charge.status === "charge_failed" && (
-                      <Button variant="text" size="sm" onClick={() => void act(() => retryExtraCharge(token, order.id, charge.id), "已重新扣款", "重试扣款")}>
-                        重试扣款
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <div className="table-scroll" tabIndex={0} role="region" aria-label="事后加收表">
+              <table className="table">
+                <caption className="visually-hidden">事后加收</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">类型</th>
+                    <th scope="col">供应商报的 / 客人付</th>
+                    <th scope="col">状态</th>
+                    <th scope="col">异议期到</th>
+                    <th scope="col">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.extra_charges.map((charge) => (
+                    <tr key={charge.id}>
+                      <th scope="row">{extraTypeName(charge.type)}</th>
+                      <td>{`${moneyText(charge.approved_amount ?? charge.amount)} / ${moneyText(charge.customer_amount)}`}</td>
+                      <td>
+                        <StatusBadge {...EXTRA_STATUS_BADGES[charge.status]} />
+                        {charge.review_reasons.length > 0 && <span className="table__muted">{` ${charge.review_reasons.map((reason) => REVIEW_REASON_NAMES[reason] ?? reason).join("、")}`}</span>}
+                      </td>
+                      <td>{formatInZone(charge.dispute_until, zone)}</td>
+                      <td>
+                        {canManage && (charge.status === "review" || charge.status === "disputed") && (
+                          <Button variant="text" size="sm" onClick={() => setDialog({ decide: charge })}>
+                            审核
+                          </Button>
+                        )}
+                        {canPayment && charge.status === "charge_failed" && (
+                          <Button variant="text" size="sm" onClick={() => void act(() => retryExtraCharge(token, order.id, charge.id), "已重新扣款", "重试扣款")}>
+                            重试扣款
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
           <p className="field__hint">提交后 48 小时是客人的异议期，期间不扣款；之后没有异议、不超过对外价 50%、有凭证的自动从客人保存的卡上扣，其余在这里审核。</p>
         </section>
       )}
