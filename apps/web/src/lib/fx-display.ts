@@ -4,7 +4,7 @@
  */
 import { type CurrencyCode, type FxFetchStatus, type FxTableState, formatRate, rateToFraction } from "@nozomi/domain";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
-import type { FxFetch } from "../api/fx.ts";
+import type { FxFetch, FxLockStatus } from "../api/fx.ts";
 
 export const FX_PATH = "/platform/master/fx-rates";
 
@@ -37,6 +37,14 @@ export const FX_FETCH_BADGES: Readonly<Record<FxFetchStatus, BadgeSpec>> = {
   dismissed: { tone: "neutral", label: "已放弃" },
   rejected: { tone: "danger", label: "内容不对，未采用" },
   failed: { tone: "danger", label: "没有拉到" },
+};
+
+/** 人工锁定的状态（M2-06）。 */
+export const FX_LOCK_BADGES: Readonly<Record<FxLockStatus, BadgeSpec>> = {
+  active: { tone: "info", label: "生效中" },
+  released: { tone: "neutral", label: "已解锁" },
+  replaced: { tone: "neutral", label: "已被取代" },
+  expired: { tone: "neutral", label: "已到期" },
 };
 
 /** 拉取的方式：定时 / 手动（谁） */

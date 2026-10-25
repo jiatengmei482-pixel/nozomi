@@ -247,7 +247,7 @@ test("跨币种（M2-03 的接口）：结算币种和客人支付的币种不�
   rates.set("CNY>JPY", "21.5");
   const converted = await preview({ vehicle_group_ids: [ids["biz7"]] });
   const entry = mine(converted);
-  assert.deepEqual([entry.sell, entry.sell_exact, entry.fx_buffer_bp, entry.fx, entry.offer.settlement.currency, entry.offer.settlement.total], [21_604, "21604.275", 150, { from: "CNY", to: "JPY", rate: "21.5", as_of: "2026-10-07T00:00:00Z" }, "CNY", 90_000]);
+  assert.deepEqual([entry.sell, entry.sell_exact, entry.fx_buffer_bp, entry.fx, entry.offer.settlement.currency, entry.offer.settlement.total], [21_604, "21604.275", 150, { from: "CNY", to: "JPY", rate: "21.5", as_of: "2026-10-07T00:00:00Z", lock: null }, "CNY", 90_000]);
   assert.deepEqual(group(converted).candidates.map((candidate: any) => [candidate.tenant_name, candidate.sell]), [["乙车队", 21_604], ["甲车队", 22_000]]);
   // 客人付人民币：日元的商品换成人民币（要有日元 → 人民币的汇率），人民币的商品同币种、没有缓冲
   rates.set("JPY>CNY", "0.0468");
