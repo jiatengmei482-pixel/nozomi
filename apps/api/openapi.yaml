@@ -6813,7 +6813,7 @@ components:
         last_used_at:
           type: [string, "null"]
           format: date-time
-          description: 最近一次换令牌的时间
+          description: 最近一次使用的时间：换令牌，或用令牌调用 `/sales/v1` 的任何接口（通过了鉴权的）。按分钟节流，离上次记的不到 1 分钟不更新，所以最多晚 1 分钟（ADR 0023 补充）
     Person:
       type: object
       additionalProperties: false
