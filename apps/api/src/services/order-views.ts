@@ -4,7 +4,7 @@
  * 规则 4：这里没有渠道、对外价、加价比例、汇率——`Order` 里本来就没有这些（在平台表 order_sales），这里也只逐个字段列出订单表里的内容。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口和推送里。
  */
-import { type LandingResult, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, vehicleIsNew } from "@nozomi/domain";
+import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, vehicleIsNew } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { Order } from "../repos/orders.ts";
 import { salesMoney } from "./sales-quotes.ts";
@@ -134,7 +134,7 @@ export function fulfilmentJson(order: Order): Json {
     departed_at: iso(dispatch.departedAt),
     arrived_at: iso(dispatch.arrivedAt),
     arrival_distance_m: dispatch.arrivalDistanceM,
-    arrival_within_range: dispatch.arrivalDistanceM === null ? null : dispatch.arrivalDistanceM <= 300,
+    arrival_within_range: dispatch.arrivalDistanceM === null ? null : dispatch.arrivalDistanceM <= NO_SHOW_RULES.maxArrivalDistanceMeters,
     picked_up_at: iso(dispatch.pickedUpAt),
     completed_at: iso(dispatch.completedAt),
     actual_minutes: dispatch.actualMinutes,

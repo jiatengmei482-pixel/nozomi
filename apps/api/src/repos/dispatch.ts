@@ -124,6 +124,12 @@ export async function insertAssignment(db: Db, tenantId: string, assignment: Omi
   return toAssignment(result.rows[0] as Row);
 }
 
+/** 这一单最近一次派车的记录编号；没派过为 null。 */
+export async function latestAssignmentId(db: Db, tenantId: string, orderId: string): Promise<string | null> {
+  const result = await db.query<Row>("select id from order_assignments where tenant_id = $1 and order_id = $2 order by seq desc limit 1", [tenantId, orderId]);
+  return (result.rows[0]?.["id"] as string | undefined) ?? null;
+}
+
 export async function listAssignments(db: Db, tenantId: string, orderId: string): Promise<Assignment[]> {
   const result = await db.query<Row>("select * from order_assignments where tenant_id = $1 and order_id = $2 order by seq", [tenantId, orderId]);
   return result.rows.map(toAssignment);
