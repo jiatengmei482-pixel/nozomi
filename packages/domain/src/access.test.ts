@@ -77,22 +77,33 @@ test("主数据：每个平台角色都能看，只有主数据运营和超级�
     assert.equal(platformRoleCan(key, "master_data.read"), true, key);
     assert.equal(platformRoleCan(key, "master_data.manage"), key === "master_data" || key === "super_admin", key);
   }
-  assert.deepEqual(platformPermissions("master_data"), ["master_data.read", "master_data.manage", "fx.manage"]);
+  assert.deepEqual(platformPermissions("master_data"), ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"]);
   // 汇率中心（M2-03）：每个角色都能看（master_data.read）；立即拉取、确认 / 放弃挂起的汇率只归主数据运营和超级管理员
   for (const { key } of PLATFORM_ROLES) assert.equal(platformRoleCan(key, "fx.manage"), key === "master_data" || key === "super_admin", key);
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "master_data.read"), true, key);
   assert.ok(!(TENANT_ACTIONS as readonly string[]).some((action) => action.startsWith("master_data.") && action !== "master_data.read"));
 });
 
-test("渠道（M2-04，ADR 0023）：除主数据运营外都能看；新建、修改、发起复核和审核只归渠道经理和超级管理员；待审核队列跟着能看渠道的角色", () => {
+test("渠道（M2-04，ADR 0023）：除主数据运营外都能看；新建、修改、发起复核和审核只归渠道经理和超级管理员；待审核队列每个角色都能进（只列自己看得到的那几类）", () => {
   for (const { key } of PLATFORM_ROLES) {
     assert.equal(platformRoleCan(key, "channel.read"), key !== "master_data", key);
-    assert.equal(platformRoleCan(key, "approval.read"), key !== "master_data", key);
+    assert.equal(platformRoleCan(key, "approval.read"), true, key);
     assert.equal(platformRoleCan(key, "channel.manage"), key === "channel_manager" || key === "super_admin", key);
     assert.equal(platformRoleCan(key, "channel.review"), key === "channel_manager" || key === "super_admin", key);
   }
   // 渠道经理要选「卖哪些供应商」：能看供应商名单，不能建、不能暂停
   assert.deepEqual(["tenant.read", "tenant.create", "tenant.change_status"].map((action) => platformRoleCan("channel_manager", action as never)), [true, false, false]);
+});
+
+test("汇率人工锁定（M2-06，ADR 0025）：发起沿用 fx.manage，审核 fx.review 只归主数据运营和超级管理员；主数据运营能进待审核队列", () => {
+  for (const { key } of PLATFORM_ROLES) {
+    const fxPeople = key === "master_data" || key === "super_admin";
+    assert.equal(platformRoleCan(key, "fx.manage"), fxPeople, key);
+    assert.equal(platformRoleCan(key, "fx.review"), fxPeople, key);
+  }
+  assert.equal(platformRoleCan("master_data", "approval.read"), true);
+  assert.equal(platformRoleCan("master_data", "channel.review"), false, "不能审渠道的复核");
+  assert.equal(platformRoleCan("channel_manager", "fx.review"), false, "渠道经理不能审汇率锁定");
 });
 
 test("租户：操作日志只有管理员能看", () => {

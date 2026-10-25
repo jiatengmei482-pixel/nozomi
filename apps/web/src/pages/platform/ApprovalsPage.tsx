@@ -17,7 +17,8 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, channelPath } from "../../lib/channel-display.ts";
+import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, channelPath, isFxApproval } from "../../lib/channel-display.ts";
+import { CURRENCY_NAMES, FX_PATH } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
@@ -35,7 +36,7 @@ function decisionFailure(err: unknown): string {
     if (err.code === "APPROVAL_NOT_PENDING") return "这条已经有结论了（可能刚被别人处理），刷新看看。";
     if (err.code === "APPROVAL_STALE") return "发起之后，要改的对象已经被别的改动改过了，不能照旧生效。请驳回，让发起人按现在的内容重新发起。";
     if (err.code === "VALIDATION_FAILED") return `按现在的数据，这个改动不合规则了：${serverIssues(err).map((issue) => issue.message).join("；") || err.message}。请驳回。`;
-    if (["MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED"].includes(err.code)) return `按现在的数据不能生效：${err.message}。请驳回。`;
+    if (["MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "FX_RATE_UNAVAILABLE"].includes(err.code)) return `按现在的数据不能生效：${err.message}。请驳回。`;
     if (err.status === 403) return "你没有审核这一类改动的权限。";
   }
   return failureText(err, "提交");
@@ -53,6 +54,14 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
         <StatusBadge {...APPROVAL_STATUS_BADGES[approval.status]} />
       </div>
       <p>{approval.summary}</p>
+      {isFxApproval(approval.kind) && (
+        <p>
+          币种：
+          <Link className="link" to={FX_PATH}>
+            {`${approval.resource_id} ${CURRENCY_NAMES[approval.resource_id as keyof typeof CURRENCY_NAMES] ?? ""}`.trim()}（去汇率页）
+          </Link>
+        </p>
+      )}
       {channel !== null && (
         <p>
           渠道：
@@ -170,7 +179,7 @@ export function ApprovalsPage() {
   const items = loaded.state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。</p>
+      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="显示" value={status} options={[{ value: "pending", label: "待审核" }, { value: "all", label: "全部（含历史）" }]} onChange={(value) => setParams(value === "all" ? { status: "all" } : {}, { replace: true })} />
       </div>
@@ -181,7 +190,7 @@ export function ApprovalsPage() {
           <Skeleton lines={["long", "long", "long"]} />
         )
       ) : items.length === 0 ? (
-        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="渠道经理发起修改加价、加价规则或暂停渠道后，会出现在这里。" />
+        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="渠道经理发起修改加价、加价规则或暂停渠道，主数据运营发起锁定或解锁汇率后，会出现在这里。" />
       ) : (
         <>
           <p className="table__muted">{`共 ${loaded.state.data.total} 条${loaded.state.data.total > items.length ? `，这里显示最近的 ${items.length} 条` : ""}`}</p>
@@ -218,7 +227,7 @@ export function ApprovalsPage() {
         >
           <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
           <p>{deciding.approval.summary}</p>
-          {deciding.decision === "approve" && <p>批准后改动立即生效：之后的询价就按新的规则算。</p>}
+          {deciding.decision === "approve" && <p>{isFxApproval(deciding.approval.kind) ? "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。" : "批准后改动立即生效：之后的询价就按新的规则算。"}</p>}
           <TextField label="说明（选填）" autoComplete="off" value={note} onChange={(event) => setNote(event.target.value)} />
         </Dialog>
       )}

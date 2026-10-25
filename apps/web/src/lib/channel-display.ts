@@ -6,7 +6,8 @@ import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
 import type { ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
-import { SERVICE_CATEGORY_NAMES } from "./master-display.ts";
+import { changeText } from "./fx-display.ts";
+import { SERVICE_CATEGORY_NAMES, formatLocalDateTime } from "./master-display.ts";
 import { moneyText } from "./product-display.ts";
 
 export const CHANNELS_PAGE_PATH = "/platform/channels";
@@ -38,7 +39,14 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.create": "新增加价规则",
   "markup_rule.update": "修改加价规则",
   "markup_rule.delete": "删除加价规则",
+  "fx_lock.create": "锁定汇率",
+  "fx_lock.release": "解除汇率锁定",
 };
+
+/** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
+export function isFxApproval(kind: ApprovalKind): boolean {
+  return kind === "fx_lock.create" || kind === "fx_lock.release";
+}
 
 export const APPROVAL_STATUS_BADGES: Readonly<Record<ApprovalStatus, BadgeSpec>> = {
   pending: { tone: "warning", label: "待审核" },
@@ -101,8 +109,29 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
   ];
 }
 
+/** 汇率锁定的复核里「改了什么」：锁定值、到期时间、和发起时中央汇率的偏离。 */
+function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : "";
+  const central = typeof after["central_rate"] === "string" ? after["central_rate"] : null;
+  const rate = (value: unknown): string | null => (typeof value === "string" ? `1 USD = ${value} ${currency}` : null);
+  const time = (value: unknown): string => (typeof value === "string" ? formatLocalDateTime(value) : "—");
+  const notLocked = `未锁定（中央汇率 ${central === null ? "—" : `1 USD = ${central} ${currency}`}）`;
+  if (kind === "fx_lock.release") {
+    return [
+      { label: "锁定值", before: rate(before?.["rate"]) ?? "—", after: `解除，恢复用中央汇率（发起时 ${central ?? "—"}）` },
+      { label: "到期时间", before: time(before?.["expires_at"]), after: "—" },
+    ];
+  }
+  return [
+    { label: "锁定值", before: rate(before?.["rate"]) ?? notLocked, after: rate(after["rate"]) ?? "—" },
+    { label: "到期时间", before: time(before?.["expires_at"]), after: time(after["expires_at"]) },
+    { label: "和发起时中央汇率的偏离", before: "—", after: typeof after["deviation_bp"] === "number" ? changeText(after["deviation_bp"]) : "—" },
+  ];
+}
+
 /** 复核记录里「改了什么」：逐项列出改之前和改之后（只列变了的）。 */
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
+  if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   const rounding = (value: unknown): string => {

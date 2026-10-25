@@ -48,6 +48,7 @@ export const PLATFORM_ACTIONS = [
   "quote.preview",
   "product.read",
   "fx.manage",
+  "fx.review",
   "channel.read",
   "channel.manage",
   "channel.review",
@@ -76,7 +77,10 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 客服处理订单要知道是哪个渠道，财务对账，风控看价格，技术管连接器和接口日志，只读能看。里面有加价比例，但这是平台内部的配置（规则 4 只限制 `/tenant/v1`）。
  * 改（`channel.manage`：新建、改基本配置和授权范围、发 API 密钥、**发起**加价和停用的复核）和审核（`channel.review`）：渠道经理和超级管理员。
  * 渠道经理另有 `tenant.read`（只读）：设置渠道卖哪些供应商、按供应商设加价规则，要看得到供应商名单。
- * 待审核队列（`approval.read`）：能看到的只是自己看得到的那几类（现在都是渠道的，所以给有 `channel.read` 的角色）。
+ * 待审核队列（`approval.read`）：能看到的只是自己看得到的那几类（渠道的给有 `channel.read` 的角色）。
+ * 汇率人工锁定（M2-06，ADR 0025）：发起锁定 / 解锁沿用 `fx.manage`；审核（`fx.review`）给主数据运营和超级管理员——两位主数据运营互审，只有一位时由超级管理员审；
+ * 发起人不能审自己发起的（复核机制本身保证）。锁定的复核每个能看汇率的角色都能在队列里看到（和汇率页一样，`master_data.read`），
+ * 所以主数据运营也有了 `approval.read`。
  * 订单（只读，M3-01，ADR 0026）：运营（每天处理订单和异常）、客服（处理订单、工单）、财务（对账）、风控（看下单风险）、只读。
  * 里面有乘客的姓名、电话、邮箱：招商、渠道经理、主数据运营、技术用不到，不给。
  */
@@ -88,7 +92,7 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
-  master_data: ["master_data.read", "master_data.manage", "fx.manage"],
+  master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
   readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
 };

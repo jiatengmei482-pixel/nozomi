@@ -4,10 +4,11 @@
  * 任何已登录的平台员工都能调；但每个模块只给有权看这个模块的角色（没有 `tenant.read` 的角色拿到的租户一组是 null），
  * 首页不会成为绕过权限看数量的口子。全部在一个事务里数，各组数字是同一时刻的。
  */
-import { type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformRole, fxStaleAt, fxTableState, platformRoleCan } from "@nozomi/domain";
+import { type CurrencyCode, type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformRole, fxStaleAt, fxTableState, platformRoleCan } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { countAirportsWithoutCity, countMasterByStatus, countPlacesByTypeAndStatus, countTenantsByStatus } from "../repos/dashboard.ts";
+import { activeFxLocks } from "../repos/fx-locks.ts";
 import { latestFetch, latestRateSet, pendingHeldFetches } from "../repos/fx.ts";
 
 export interface StatusCounts {
@@ -32,6 +33,8 @@ export interface DashboardSummary {
     /** 有挂起、等人确认的一批 */
     held: boolean;
     lastAttemptStatus: FxFetchStatus | null;
+    /** 生效中的人工锁定（M2-06）：首页卡片上提示哪些币种锁定到什么时候 */
+    locks: { currency: CurrencyCode; rate: string; expiresAt: Date }[];
   } | null;
 }
 
@@ -75,6 +78,7 @@ export function getDashboardSummary(ctx: AppContext, role: PlatformRole): Promis
         staleAt: asOf === null ? null : fxStaleAt(asOf),
         held: (await pendingHeldFetches(db, current?.asOf ?? null)).length > 0,
         lastAttemptStatus: last?.status ?? null,
+        locks: (await activeFxLocks(db, ctx.now())).map((lock) => ({ currency: lock.currency, rate: lock.rate, expiresAt: lock.expiresAt })),
       };
     }
     return { tenants, masterData, fx };

@@ -41,19 +41,22 @@ const overview = (overrides: Partial<FxOverview> = {}): FxOverview => ({
   jump_threshold_bp: 300,
   source: "open.er-api.com",
   rates: [
-    { currency: "JPY", rate: "151.21" },
-    { currency: "KRW", rate: "1422.53" },
-    { currency: "CNY", rate: "7.1234" },
-    { currency: "HKD", rate: "7.7731" },
-    { currency: "TWD", rate: "32.115" },
-    { currency: "THB", rate: "36.21" },
+    { currency: "JPY", rate: "151.21", central_rate: "151.21", locked: false },
+    { currency: "KRW", rate: "1422.53", central_rate: "1422.53", locked: false },
+    { currency: "CNY", rate: "7.1234", central_rate: "7.1234", locked: false },
+    { currency: "HKD", rate: "7.7731", central_rate: "7.7731", locked: false },
+    { currency: "TWD", rate: "32.115", central_rate: "32.115", locked: false },
+    { currency: "THB", rate: "36.21", central_rate: "36.21", locked: false },
   ],
   cross: [
-    { from: "CNY", to: "JPY", rate: "21.227223511244" },
-    { from: "JPY", to: "USD", rate: "0.006613319225" },
+    { from: "CNY", to: "JPY", rate: "21.227223511244", locked: false },
+    { from: "JPY", to: "USD", rate: "0.006613319225", locked: false },
   ],
   source_status: { host: "open.er-api.com", auto_fetch: true, last_attempt: fetchRecord(), last_success_at: "2026-10-14T00:10:01.000Z", next_fetch_at: "2026-10-14T12:10:01.000Z" },
   held: null,
+  locks: [],
+  pending_locks: [],
+  lock_rules: { max_hours: 72, min_minutes: 30, reason_above_bp: 300, max_deviation_bp: 2000 },
   ...overrides,
 });
 const history: FxHistory = {
@@ -89,7 +92,8 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (call.url.pathname === "/platform/v1/fx-rates") return json(200, overview({ base: (call.url.searchParams.get("base") ?? "USD") as FxOverview["base"] }));
     if (call.url.pathname === "/platform/v1/fx-rates/history") return json(200, history);
     if (call.url.pathname === "/platform/v1/fx-rates/fetches") return json(200, { items: [fetchRecord(), fetchRecord({ id: "6", status: "failed", error_code: "FX_SOURCE_UNAVAILABLE", error_detail: "汇率源暂时不可用（HTTP 503）" })] });
-    if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, summary({ state: "fresh", as_of: AS_OF, stale_at: "2026-10-16T00:02:31.001Z", held: false, last_attempt_status: "accepted" }));
+    if (call.url.pathname === "/platform/v1/fx-rates/locks") return json(200, { items: [] });
+    if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, summary({ state: "fresh", as_of: AS_OF, stale_at: "2026-10-16T00:02:31.001Z", held: false, last_attempt_status: "accepted", locks: [] }));
     return null;
   });
   render(
@@ -188,13 +192,13 @@ test("首页：主数据里有「汇率」卡片（更新时间）；过期时�
   await waitFor(() => assert.match(card.textContent ?? "", /更新于/));
   assert.equal(within(main()).queryByText("汇率超过 48 小时没有更新，跨币种报价已暂停"), null);
   resetBrowser();
-  open("/platform", "readonly", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, summary({ state: "stale", as_of: AS_OF, stale_at: "2026-10-16T00:02:31.001Z", held: true, last_attempt_status: "failed" })) : null));
+  open("/platform", "readonly", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, summary({ state: "stale", as_of: AS_OF, stale_at: "2026-10-16T00:02:31.001Z", held: true, last_attempt_status: "failed", locks: [] })) : null));
   const alert = (await within(main()).findByText("汇率超过 48 小时没有更新，跨币种报价已暂停")).closest(".alert") as HTMLElement;
   assert.ok(alert.classList.contains("alert--danger"));
   assert.equal(within(alert).getByRole("link", { name: "去汇率页处理" }).getAttribute("href"), "/platform/master/fx-rates");
   assert.ok(within(main()).getByRole("link", { name: "有一批汇率变动超过 3%，待确认" }));
   resetBrowser();
-  open("/platform", "readonly", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, summary({ state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null })) : null));
+  open("/platform", "readonly", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, summary({ state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null, locks: [] })) : null));
   assert.ok(await within(main()).findByRole("link", { name: "还没有汇率，跨币种报价都报不出" }));
 });
 
@@ -202,7 +206,7 @@ test("M1-14 汇率页：数字是四舍五入的（不是截短）；点「显�
   const actor = userEvent.setup();
   open("/platform/master/fx-rates", "readonly", (call) =>
     call.url.pathname === "/platform/v1/fx-rates"
-      ? json(200, overview({ rates: [...overview().rates.filter((item) => item.currency !== "KRW"), { currency: "KRW", rate: "1334.892169" }], cross: [{ from: "CNY", to: "HKD", rate: "1.171597" }, { from: "JPY", to: "USD", rate: "0.006329340458" }] }))
+      ? json(200, overview({ rates: [...overview().rates.filter((item) => item.currency !== "KRW"), { currency: "KRW", rate: "1334.892169", central_rate: "1334.892169", locked: false }], cross: [{ from: "CNY", to: "HKD", rate: "1.171597", locked: false }, { from: "JPY", to: "USD", rate: "0.006329340458", locked: false }] }))
       : null,
   );
   const rates = await within(main()).findByRole("region", { name: "当前汇率表" });

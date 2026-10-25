@@ -70,6 +70,10 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: "/platform/v1/fx-rates/fetch", action: "fx.manage" },
   { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/confirm`, action: "fx.manage" },
   { method: "POST", url: `/platform/v1/fx-rates/fetches/${MISSING}/dismiss`, action: "fx.manage" },
+  // 汇率人工锁定（ADR 0025）：看锁定记录 master_data.read；发起锁定、解锁 fx.manage（审核 fx.review 按复核的类别检查，在 fx-locks.itest.ts）
+  { method: "GET", url: "/platform/v1/fx-rates/locks", action: "master_data.read" },
+  { method: "POST", url: "/platform/v1/fx-rates/locks", action: "fx.manage", body: {} },
+  { method: "POST", url: `/platform/v1/fx-rates/locks/${MISSING}/release`, action: "fx.manage", body: {} },
   // 渠道（ADR 0023）：看 channel.read，改和发起复核 channel.manage；复核队列 approval.read（批准、驳回另要这一类的审核权限，在 channels.itest.ts）
   { method: "GET", url: "/platform/v1/channels", action: "channel.read" },
   { method: "POST", url: "/platform/v1/channels", action: "channel.manage", body: {} },
@@ -129,8 +133,8 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 });
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
-  // channel.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts 逐个角色验证）
-  const perKind: PlatformAction[] = ["channel.review"];
+  // channel.review、fx.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts 逐个角色验证）
+  const perKind: PlatformAction[] = ["channel.review", "fx.review"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))

@@ -110,7 +110,7 @@ const user = () => userEvent.setup();
 const menuLabels = (): string[] => [...new Set([...document.querySelectorAll('nav[aria-label="主菜单"] .nav-item')].map((node) => node.textContent ?? ""))];
 const posts = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.method !== "GET");
 
-test("菜单和首页：渠道经理、只读都有「渠道」「待审核」和两张卡片（待审核数来自列表的 total）；主数据运营没有，也不去取", async () => {
+test("菜单和首页：渠道经理、只读都有「渠道」「待审核」和两张卡片（待审核数来自列表的 total）；主数据运营没有「渠道」、也不去取渠道，但有「待审核」（审核汇率锁定，M2-06）", async () => {
   for (const role of ["channel_manager", "readonly"]) {
     resetBrowser();
     open("/platform", role);
@@ -121,8 +121,9 @@ test("菜单和首页：渠道经理、只读都有「渠道」「待审核」�
   resetBrowser();
   const calls = open("/platform", "master_data");
   await waitFor(() => assert.ok(menuLabels().includes("主数据")));
-  assert.ok(!menuLabels().includes("渠道") && !menuLabels().includes("待审核"));
-  assert.deepEqual(calls.filter((call) => /channels|approvals/.test(call.path)), []);
+  await waitFor(() => assert.ok(menuLabels().includes("待审核")));
+  assert.ok(!menuLabels().includes("渠道"));
+  assert.deepEqual(calls.filter((call) => /channels/.test(call.path)), []);
 });
 
 test("渠道列表：渠道经理有「新建渠道」，只读没有并提示只能看；主数据运营打开是没有权限", async () => {

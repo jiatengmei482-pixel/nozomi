@@ -23,6 +23,9 @@ test("前端用到的汇率接口都在 openapi.yaml 里", () => {
     ["post", `${FX_BASE}/fetch`],
     ["post", `${FX_BASE}/fetches/{id}/confirm`],
     ["post", `${FX_BASE}/fetches/{id}/dismiss`],
+    ["get", `${FX_BASE}/locks`],
+    ["post", `${FX_BASE}/locks`],
+    ["post", `${FX_BASE}/locks/{id}/release`],
   ];
   for (const [method, path] of expected) assert.ok(spec.paths[path]?.[method], `${method.toUpperCase()} ${path}`);
 });
@@ -39,6 +42,7 @@ test("枚举与 @nozomi/domain 一致：币种、拉取结果、汇率状态", (
   assert.deepEqual(schemas["FxCurrency"]?.enum, [...FX_CURRENCIES]);
   assert.deepEqual(schemas["FxFetch"]?.properties?.["status"]?.enum, [...FX_FETCH_STATUSES]);
   assert.deepEqual(schemas["FxTableState"]?.enum, ["none", "fresh", "stale"]);
+  assert.deepEqual(schemas["FxLock"]?.properties?.["status"]?.enum, ["active", "released", "replaced", "expired"]);
 });
 
 test("前端按错误码处理的汇率错误都写在 openapi.yaml 里", () => {

@@ -48,7 +48,8 @@
 | `0020_sales_quotes.sql` | 渠道的 API 客户端与密钥（只存哈希）、正式询价的报价快照 `quotes`、询价日志、`/sales/v1` 的限流计数（M2-04）；全是平台表 |
 | `0021_api_client_retired_secrets.sql` | API 客户端每一代旧密钥各自保留 24 小时宽限（M2-04 测试发现的缺陷）；只有哈希，没有原文 |
 | `0022_place_name_sources.sql` | 地点表加 `name_sources`：每种语言的名称是哪次导入填的（数据源、编号、当时的文字），机场的中文名、日文名从 GeoNames 导入时用来认出「平台改过 / 删掉了」（ADR 0024）。只加列，不含任何数据。0019、0020 由 M2-04 使用 |
-| `0024_orders.sql` | 下单与付款（ADR 0026）：订单 `orders` 和状态流水 `order_events`（租户表：带 `tenant_id`、行级安全，租户只读，平台读写）；订单的销售端一侧 `order_sales`（渠道、对外价、加价比例、汇率快照、幂等键）、收款 `order_payments`（Stripe 的付款 / 客户 / 支付方式编号和状态）、支付通知 `payment_events`（事件编号唯一，只处理一次）三张平台表，租户角色没有任何权限；平台角色对 `inventory_days` 加「改」（预占、扣减、释放）、对 `quote_logs` 加「改」（已下单）。不含任何数据 |
+| `0023_fx_locks.sql` | 汇率人工锁定：`fx_locks`（按币种锁「1 USD = rate」，`numeric` 存十进制原值；到期时间必填、最长 72 小时；发起人、批准人、解锁或取代的复核；同一币种最多一条生效中的）。平台表：平台可写（只增改、不删），租户没有任何权限（ADR 0025）。不含任何数据 |
+| `0024_orders.sql` | 下单与付款（ADR 0026）：订单 `orders` 和状态流水 `order_events`（租户表：带 `tenant_id`、行级安全，租户只读，平台读写）；订单的销售端一侧 `order_sales`（渠道、对外价、加价比例、汇率快照、幂等键）、收款 `order_payments`（Stripe 的付款 / 客户 / 支付方式编号和状态）、支付通知 `payment_events`（事件编号唯一，只处理一次）三张平台表，租户角色没有任何权限；平台角色对 `inventory_days` 加「改」（预占、扣减、释放）、对 `quote_logs` 加「改」（已下单），语句级触发器只许平台改这几列。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
