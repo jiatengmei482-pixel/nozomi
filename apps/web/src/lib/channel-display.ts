@@ -97,7 +97,7 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
     { label: "加价下限", value: percentText(pricing.markup_floor_bp) },
     { label: "价格带 δ", value: percentText(pricing.band_bp) },
     { label: "最低毛利", value: pricing.min_margin === 0 ? "不设" : moneyText(pricing.min_margin, settleCurrency) },
-    { label: "对外价取整", value: rounding.length === 0 ? "不取整（四舍五入到最小单位）" : rounding.map(([currency, unit]) => `${currency} 向上取整到 ${moneyText(unit, currency)}`).join("；") },
+    { label: "对外价取整", value: rounding.length === 0 ? "不取整（四舍五入到最小单位）" : rounding.map(([currency, unit]) => `向上取整到 ${moneyText(unit, currency)}`).join("；") },
   ];
 }
 
@@ -105,9 +105,10 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
+  /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */
   const rounding = (value: unknown): string => {
     const entries = typeof value === "object" && value !== null ? Object.entries(value as Record<string, number>) : [];
-    return entries.length === 0 ? "不取整" : entries.map(([currency, unit]) => `${currency} ${moneyText(unit, currency)}`).join("；");
+    return entries.length === 0 ? "不取整" : entries.map(([currency, unit]) => `向上取整到 ${moneyText(unit, currency)}`).join("；");
   };
   const text = (value: unknown): string => (value === null || value === undefined || value === "" ? "不限" : String(value));
   const fields: { key: string; label: string; format: (value: unknown) => string }[] =

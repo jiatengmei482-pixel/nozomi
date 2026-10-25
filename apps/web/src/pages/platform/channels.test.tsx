@@ -249,3 +249,14 @@ test("报价试算：能看渠道的角色可以选渠道，请求体带 channel
   open("/platform/quote-preview", "customer_service");
   assert.ok(await screen.findByRole("combobox", { name: /按哪个渠道的规则/ }));
 });
+
+// ───────────── M1-17：验收发现的小问题 ─────────────
+
+test("M1-17 待审核：改对外价取整时「改之后」只写一遍币种（向上取整到 JPY 100）", async () => {
+  const rounding = approvalOf({ summary: "改对外价取整", payload: { ...approvalOf().before, sell_rounding: { JPY: 100 } } });
+  open("/platform/approvals", "channel_manager", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/approvals" ? page([rounding]) : null));
+  const card = (await screen.findByText("改对外价取整", { selector: "p" })).closest("section") as HTMLElement;
+  const row = within(card).getByRole("rowheader", { name: "对外价取整" }).closest("tr") as HTMLElement;
+  assert.deepEqual([...row.querySelectorAll("td")].map((cell) => cell.textContent), ["不取整", "向上取整到 JPY 100"]);
+  assert.doesNotMatch(document.body.textContent ?? "", /JPY JPY/);
+});
