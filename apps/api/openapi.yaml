@@ -5656,7 +5656,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`"
+          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`（新的用车时间已经过了）。写法不对（电话、邮箱、航班号）是 400 `VALIDATION_FAILED`"
           content:
             application/json:
               schema:
@@ -5956,7 +5956,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`EXTRA_CHARGE_INVALID`（`details.reason`：`TYPE_NOT_ALLOWED`、`RECEIPT_REQUIRED`、`AMOUNT_INVALID`、`AMOUNT_OVER_LIMIT`）；`VALIDATION_FAILED`（凭证不是这一单的票据）"
+          description: "`EXTRA_CHARGE_INVALID`（`details.reason`：`TYPE_NOT_ALLOWED`、`RECEIPT_REQUIRED`、`AMOUNT_INVALID`、`AMOUNT_OVER_LIMIT`）。凭证不是这一单的票据是 400 `VALIDATION_FAILED`"
           content:
             application/json:
               schema:
@@ -6138,7 +6138,7 @@ paths:
       responses:
         "202":
           $ref: "#/components/responses/ApprovalRequested"
-        "422":
+        "400":
           description: "`VALIDATION_FAILED`（`details.issues[].reason`：`MISSING_RULE`、`DUPLICATE_RULE`、`TIER_COUNT`、`HOURS_INVALID`、`HOURS_NOT_DESCENDING`、`LAST_TIER_NOT_ZERO`、`FEE_INVALID`、`FEE_DECREASING`、`UNCHANGED`）"
           content:
             application/json:
@@ -6771,7 +6771,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`"
+          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`（新的用车时间已经过了）。写法不对（电话、邮箱、航班号）是 400 `VALIDATION_FAILED`"
           content:
             application/json:
               schema:

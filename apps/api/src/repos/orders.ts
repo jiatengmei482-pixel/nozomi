@@ -462,7 +462,7 @@ export async function insertOffSessionPayment(
 
 /** 一张单的全部收款（下单付款、改期补差价、事后加收），按建的先后。 */
 export async function listOrderPayments(db: Db, orderId: string, options: { lock?: boolean } = {}): Promise<OrderPayment[]> {
-  const result = await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = $1 order by p.created_at, p.id ${options.lock ? "for update" : ""}`, [orderId]);
+  const result = await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = $1 order by p.created_at, (p.kind <> 'order'), p.id ${options.lock ? "for update" : ""}`, [orderId]);
   return result.rows.map(toPayment);
 }
 

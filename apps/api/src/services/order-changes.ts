@@ -351,6 +351,8 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
         requestedAt: now,
         decidedAt: null,
       };
+      // 马上生效的改单：生效时间就是现在（applyChange 里再记一次同一个时间）
+      if (base.status === "applied") base.decidedAt = now;
       let saved: ReturnType<typeof savedPaymentMethod> = null;
       if (diff.kind === "charge") {
         saved = savedPaymentMethod(await findOrderPayment(db, order.id));
