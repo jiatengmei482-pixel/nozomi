@@ -71,7 +71,7 @@
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
-| `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe` → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
+| `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 7 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created` → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
 | `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
 
 同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：

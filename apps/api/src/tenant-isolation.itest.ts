@@ -1171,7 +1171,7 @@ test("导入导出：导不出、预览不了、导入不了别的供应商的�
   assert.deepEqual({ prices: await priceRows(), inventory: await inventoryRows() }, before);
 });
 
-test("库存的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品上；平台角色只读", async () => {
+test("库存的隔离（数据库层面）：租户事务里只看得到、改得到、删得到自己的行，写不进别人名下，也接不到别人的商品上；平台角色只能改预占数和已售数", async () => {
   const seeded = await seedInventory();
   const before = await inventoryRows();
   const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ tenant_id: string }>("select distinct tenant_id from inventory_days"));
@@ -1188,11 +1188,59 @@ test("库存的隔离（数据库层面）：租户事务里只看得到、改�
   await assert.rejects(insert(b.tenantId, seeded.b.productId), { code: "42501" }, "写进别人名下");
   await assert.rejects(insert(a.tenantId, seeded.b.productId), { code: "23503" }, "自己的租户编号 + 别人的商品");
   await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update inventory_days set tenant_id = $1 where product_id = $2", [b.tenantId, seeded.a.productId])), { code: "42501" });
-  // 平台角色：库存只读（报价用，ADR 0020），不能写
+  // 平台角色：库存能读（报价用，ADR 0020）；只能改预占数、已售数（下单预占、付款扣减、超时释放，ADR 0026），总量和所属改不了，删不掉
   assert.ok(((await withPlatformTx(api.db.pool, (db) => db.query("select 1 from inventory_days"))).rowCount ?? 0) > 0);
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update inventory_days set total = 99")), deniedByDatabase);
+  for (const column of ["tenant_id", "product_id", "day", "vehicle_group_id", "created_at"]) {
+    await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query(`update inventory_days set ${column} = ${column}`)), deniedByDatabase, column);
+  }
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("delete from inventory_days")), deniedByDatabase);
   assert.deepEqual(await inventoryRows(), before);
+});
+
+/** 两个供应商各有一张已确认的点对点订单（下单和付款的全流程在 orders.itest.ts；这里只要数据库里有两边的单）。 */
+async function seedOrders(): Promise<{ a: string; b: string }> {
+  const seeded = await seedPrices();
+  const city = (await api.db.owner.query<{ city_id: string }>("select city_id from products where id = $1", [seeded.a.productId])).rows[0]!.city_id;
+  const ids = { a: randomUUID(), b: randomUUID() };
+  const settlement = JSON.stringify({ currency: "JPY", roundingUnit: 1, totalMinor: 11_000, baseMinor: 11_000, adjustMinor: 0, urgentMinor: 0, nightMinor: 0, addonsMinor: 0, driverLanguageMinor: 0 });
+  for (const [name, fixture, side, orderNo] of [["a", a, seeded.a, "NZ20261007AAAAAAAA"], ["b", b, seeded.b, "NZ20261007BBBBBBBB"]] as const) {
+    await api.db.owner.query(
+      `insert into orders (tenant_id, id, order_no, status, category, city_id, product_id, product_version, vehicle_group_id, service_at, service_local, timezone, service_date,
+                           urgent, passengers, luggage, pickup, dropoff, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held,
+                           payment_due_at, confirmed_at, created_at, updated_at)
+       values ($1, $2, $3, 'confirmed', 'point_to_point', $4, $5, 1, $6, '2026-11-01T01:00:00Z', '2026-11-01T10:00', 'Asia/Tokyo', '2026-11-01',
+               false, 1, 0, $7::jsonb, $7::jsonb, '[]'::jsonb, $8::jsonb, 11000, 'JPY', $9::jsonb, false,
+               '2026-10-07T01:00:00Z', '2026-10-07T00:10:00Z', '2026-10-07T00:00:00Z', '2026-10-07T00:10:00Z')
+       on conflict do nothing`,
+      [fixture.tenantId, ids[name], orderNo, city, side.productId, seeded.vehicleGroupId, JSON.stringify({ lng: 139.7, lat: 35.6, address: `${name} 的地址` }), JSON.stringify({ name: `乘客 ${name}`, phone: "+81 90-1234-5678", email: `${name}@guest.test` }), settlement],
+    );
+  }
+  return ids;
+}
+
+test("订单：只列出自己的单，带别人的 tenant_id 也一样；看不到别的供应商的单（404，和不存在一样）；数据库里读不到、改不了别人的单", async () => {
+  cover("GET /tenant/v1/orders");
+  cover("GET /tenant/v1/orders/:id");
+  const ids = await seedOrders();
+  for (const query of ["", `?tenant_id=${b.tenantId}`]) {
+    const list = await api.call("GET", `/tenant/v1/orders${query}`, { token: a.adminToken });
+    assert.equal(list.status, 200, list.text);
+    assert.deepEqual(list.body.items.map((item: { id: string }) => item.id), [ids.a], query);
+    assert.ok(!list.text.includes(ids.b) && !list.text.includes("b@guest.test"), query);
+  }
+  assert.equal((await api.call("GET", `/tenant/v1/orders/${ids.a}`, { token: a.adminToken })).status, 200);
+  const foreign = await api.call("GET", `/tenant/v1/orders/${ids.b}?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.equal(foreign.status, 404, foreign.text);
+  assert.equal(foreign.text, (await api.call("GET", `/tenant/v1/orders/${NO_SUCH_ID}`, { token: a.adminToken })).text);
+  assert.equal((await api.call("GET", `/tenant/v1/orders/${ids.b}`, { token: bDispatcher.token })).status, 200, "乙自己的调度看得到");
+  const seen = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ id: string }>("select id from orders"));
+  assert.deepEqual(seen.rows.map((row) => row.id), [ids.a]);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from order_events where tenant_id = $1", [b.tenantId]))).rowCount, 0);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update orders set notes = 'x' where id = $1", [ids.b])), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from orders where id = $1", [ids.b])), deniedByDatabase);
+  const status = await api.db.owner.query<{ status: string; notes: string | null }>("select status, notes from orders where id = $1", [ids.b]);
+  assert.deepEqual(status.rows[0], { status: "confirmed", notes: null });
 });
 
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
@@ -1248,6 +1296,7 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/products", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/orders", { token: a.adminToken }),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });

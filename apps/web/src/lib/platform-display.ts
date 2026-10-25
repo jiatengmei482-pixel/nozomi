@@ -64,6 +64,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "channel.manage": "管理渠道和加价规则（改加价、停用渠道要另一位同事审核）",
   "channel.review": "审核渠道的改动",
   "approval.read": "看待审核的改动",
+  "order.read": "看订单",
   "staff.read": "看平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",

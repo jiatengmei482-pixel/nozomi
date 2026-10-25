@@ -265,7 +265,8 @@
       "name": "订单、支付与履约",
       "goal": "官网下单 → Stripe 付款 → 自动确认 → Webhook 推送 → 派车 → 司机 H5 → 完成",
       "tasks": [
-        { "id": "M3-01", "title": "下单与 Stripe 付款（保存支付方式）", "role": "backend", "status": "todo", "acceptance": ["Stripe 测试卡真实付款成功", "Webhook 签名校验"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-01", "title": "下单与 Stripe 付款（保存支付方式）", "role": "backend", "status": "blocked",
+          "blockedBy": "只差「Stripe 测试卡真实付款成功」一条：要等你注册 Stripe 并把测试密钥（sk_test_、pk_test_、Webhook 签名密钥）填进测试环境的设置（见 docs/secrets.md）。下单、订单状态、库存预占、待支付超时、支付通知的签名校验与幂等都已完成并合并", "acceptance": ["Stripe 测试卡真实付款成功", "Webhook 签名校验"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/35 ；单元 1182、前端组件 419、集成 981 个通过；Webhook 签名校验按 Stripe 算法实现并完整测试；测试角色发现的 3 个缺陷已修复", "updated": "2026-10-25" },
         { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "todo", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "todo", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "todo", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "", "updated": "2026-10-07" },
@@ -491,6 +492,11 @@
       "date": "2026-10-18",
       "by": "Claude",
       "summary": "M2-06 待验收：汇率人工锁定——按币种锁定相对 USD 的汇率，必须填到期时间（30 分钟到 72 小时），一人提交、另一人批准后生效，解锁同样复核；锁定期间报价用锁定值、快照记明是锁定汇率，数据源新拉到的汇率照常入库但不用于该币种；到期自动恢复并记审计。运营后台汇率页显示锁定状态和发起锁定 / 解锁，待审核队列可审。测试角色发现的 2 个缺陷已修复（本机时钟偏快时选 72 小时被拒；手机宽度页面被撑宽）。"
+    },
+    {
+      "date": "2026-10-25",
+      "by": "Claude",
+      "summary": "M3-01 除真实付款外完成：渠道用 quote_id 下单（金额以报价快照为准、不重新报价，库存预占防超卖、加急名额也防超卖），待支付 30 分钟超时自动取消并释放库存，付款成功后自动确认（供应商不能拒单）；付款接口按 Stripe（保存支付方式以便事后加收）实现，测试里用替身；支付通知按 Stripe 算法校验签名、同一事件只处理一次；供应商只能看自己的订单、看不到对外价和加价比例；运营后台有订单只读列表和详情。测试角色发现的 3 个缺陷已修复（超时取消时 Stripe 那笔付款可能没取消等）。真实测试卡付款要等负责人提供 Stripe 测试密钥，任务标为受阻。"
     }
   ]
 }
