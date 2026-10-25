@@ -704,6 +704,36 @@ test("M1-14 接送点：平台补了中文名的机场用中文找得到（输�
   await waitFor(() => assert.equal(listbox.textContent, "没有名称或三字代码里带「xyz」的接送点。"));
 });
 
+test("M1-17 接送点：「成田机场」「成田空港」「narita airport」也能找到成田国际机场（去掉机场、空港、国际等通用词再按字找）；只输「机场」按包含找", async () => {
+  const actor = user();
+  const narita = { ...haneda, id: "23232323-2323-4323-8323-232323232323", code: "NRT", name: { en: "Narita International Airport", zh: "成田国际机场", ja: "成田国際空港" } } as Place;
+  const hanedaJa = { ...haneda, name: { en: "Tokyo Haneda International Airport", ja: "東京国際空港" } } as Place;
+  open("/products/new", "admin", (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/master/places" ? page([hanedaJa, narita]) : null));
+  await actor.click(await screen.findByRole("combobox", { name: /城市/ }));
+  await actor.click(await screen.findByRole("option", { name: /东京/ }));
+  await actor.click(screen.getByRole("radio", { name: /^接送机/ }));
+  const poi = await screen.findByRole("combobox", { name: /接送点/ });
+  const shown = (): string[] => within(screen.getByRole("listbox", { name: /接送点/ })).queryAllByRole("option").map((option) => option.textContent ?? "");
+  for (const query of ["成田机场", "成田空港", "narita airport", "成田 国际 机场"]) {
+    await actor.clear(poi);
+    await actor.type(poi, query);
+    await waitFor(() => assert.deepEqual(shown().map((text) => text.startsWith("成田国际机场")), [true], query));
+  }
+  await actor.clear(poi);
+  await actor.type(poi, "东京机场");
+  await waitFor(() => assert.equal(shown().length, 0, "中文名里没有「东京」的机场不会因为「机场」两个字被匹配"));
+  await actor.clear(poi);
+  await actor.type(poi, "東京空港");
+  await waitFor(() => assert.deepEqual(shown().map((text) => text.includes("HND")), [true], "羽田的日文名「東京国際空港」"));
+  await actor.clear(poi);
+  await actor.type(poi, "机场");
+  await waitFor(() => assert.equal(shown().length, 2, "选项右侧写着「机场」，两个都列出"));
+  await actor.click(screen.getAllByRole("option")[1] as HTMLElement);
+  await actor.clear(poi);
+  await actor.type(poi, "成田机场{Enter}");
+  assert.equal((poi as HTMLInputElement).value, "成田国际机场");
+});
+
 test("基础信息页注明城市、接送点名称的数据来源（许可条件，ADR 0014、0024）：新建时只有 GeoNames；接送机商品另有 OurAirports", async () => {
   open("/products/new", "admin");
   await screen.findByText("先选城市和品类，这里会列出可以用的区域。");
