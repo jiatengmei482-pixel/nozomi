@@ -69,6 +69,9 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",
   "integration.read": "看系统状态",
+  "role.read": "看角色",
+  "role.manage": "新建角色、发起角色的修改（要另一位超级管理员审核）",
+  "role.review": "审核角色的修改",
 };
 
 /**
@@ -77,6 +80,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
  */
 const SUPERSEDES: Readonly<Partial<Record<PlatformAction, readonly PlatformAction[]>>> = {
   "staff.manage": ["staff.read"],
+  "role.manage": ["role.read"],
   "master_data.manage": ["master_data.read"],
   "tenant.create": ["tenant.read"],
   "tenant.change_status": ["tenant.read"],

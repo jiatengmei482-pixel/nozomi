@@ -26,6 +26,9 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
   "integration.read": "系统状态",
+  "role.read": "角色",
+  "role.manage": "新建角色",
+  "role.review": "审核角色",
 };
 
 /** 没有这项权限时，说明里绝不能出现的字眼（「供应商」「主数据」「平台员工」会出现在别的说法里，不在此列）。 */
@@ -45,6 +48,9 @@ const NEVER_WITHOUT: Readonly<Partial<Record<PlatformAction, string>>> = {
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
   "integration.read": "系统状态",
+  "role.read": "角色",
+  "role.manage": "新建角色",
+  "role.review": "审核角色",
 };
 
 test("每个操作都有说法（表的键就是 domain 的全部 PlatformAction）", () => {

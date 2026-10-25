@@ -24,7 +24,7 @@ test("换了主密钥、换了归属（搬到别人的行里）、改过任何�
   for (let i = 1; i < parts.length; i += 1) {
     const changed = [...parts];
     const segment = changed[i] as string;
-    changed[i] = `${segment.slice(0, -1)}${segment.endsWith("A") ? "B" : "A"}`;
+    changed[i] = `${segment.startsWith("A") ? "B" : "A"}${segment.slice(1)}`;
     assert.throws(() => box.open("platform-totp-secret", "user-1", changed.join(".")), SecretBoxError, `第 ${i} 段被改`);
   }
   for (const bad of ["", "v1", "v2.a.b.c", "v1.a.b", "v1.AAAA.AAAA.AAAA.extra"]) {
