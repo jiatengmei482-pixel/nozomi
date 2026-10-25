@@ -295,8 +295,10 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   await page.getByRole("button", { name: `${p2pRow} 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "再加一段日期" }).click();
   // 新行在原来那条下面（M1-14）；原来那条一直有效，所以开始日期留空、焦点在它上面
-  const added = page.getByLabel(`${p2pRow} 的生效日期从`).last();
-  await expect(page.getByLabel(`${p2pRow} 的生效日期从`).first()).toHaveValue(String(p2pSaved.items[0]?.["valid_from"]));
+  // 两段的输入框读屏名字带「第几段，共几段」（M1-17）
+  const added = page.getByLabel(`${p2pRow}（第 2 段，共 2 段） 的生效日期从`, { exact: true });
+  await expect(page.getByLabel(`${p2pRow}（第 1 段，共 2 段） 的生效日期从`, { exact: true })).toHaveValue(String(p2pSaved.items[0]?.["valid_from"]));
+  await expect(page.getByLabel(`${p2pRow}（第 2 段，共 2 段） 的起步价`, { exact: true })).toBeVisible();
   await expect(added).toHaveValue("");
   await expect(added).toBeFocused();
   await added.fill(p2pSaved.today);
@@ -305,12 +307,12 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByRole("button", { name: /^生效日期重叠——/ })).toBeVisible();
   await page.getByRole("button", { name: /^生效日期重叠——/ }).click();
-  await expect(page.locator(":focus")).toHaveAttribute("aria-label", `${p2pRow} 的生效日期从`);
+  await expect(page.locator(":focus")).toHaveAttribute("aria-label", new RegExp(`^${p2pRow.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}（第 [12] 段，共 2 段） 的生效日期从$`));
   // 没保存的新行可以删掉（M1-14）
   // 同一组合有两段时，「更多操作」的名字带上第几段和日期（M1-16）
   await page.getByRole("button", { name: `${p2pRow}（第 2 段，共 2 段，${p2pSaved.today} 起） 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "删除这一行" }).click();
-  await expect(page.getByLabel(`${p2pRow} 的生效日期从`)).toHaveCount(1);
+  await expect(page.getByLabel(`${p2pRow} 的生效日期从`, { exact: true })).toHaveCount(1);
   await expect(page.getByText("有 2 条价格的生效日期重叠，保存前要改。")).toHaveCount(0);
   // 后端对同样的内容也拒绝，并说出是和哪一条重叠
   const existing = p2pSaved.items[0] as Record<string, unknown>;

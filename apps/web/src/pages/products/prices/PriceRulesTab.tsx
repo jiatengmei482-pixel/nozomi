@@ -151,10 +151,21 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
   const isOrphan = (row: PriceRow): boolean => !areaIds.includes(row.areaId) || !groupIds.includes(row.vehicleGroupId);
   const variantName = (row: Pick<PriceRow, "direction" | "packageHours">): string => (row.direction !== null ? directionName(row.direction, station) : row.packageHours !== null ? `${row.packageHours} 小时` : "");
   const rowLabel = (row: PriceRow): string => [areaName(row.areaId), groupName(row.vehicleGroupId), variantName(row)].filter((part) => part !== "").join(" · ");
-  /** 同一组合有多段日期时给「更多操作」的名字加上「第几段」和日期，读屏分得清是哪一段（日期可能相同或没填，所以一定带序号） */
-  const segmentSuffix = (row: PriceRow): string => {
+  const segmentsOf = (row: PriceRow): PriceRow[] => {
     const label = rowLabel(row);
-    const segments = sorted.filter((other) => rowLabel(other) === label);
+    return sorted.filter((other) => rowLabel(other) === label);
+  };
+  /**
+   * 同一组合有多段日期时，这一行各个输入框（价格、日期、启用、方向、计价方式）的名字都加上「第几段，共几段」，读屏分得清是哪一段（M1-17）。
+   * 输入框的名字里不带日期：日期就是正在改的内容，名字跟着打字变来变去反而难听懂。
+   */
+  const segmentOrdinal = (row: PriceRow): string => {
+    const segments = segmentsOf(row);
+    return segments.length < 2 ? "" : `（第 ${segments.indexOf(row) + 1} 段，共 ${segments.length} 段）`;
+  };
+  /** 「更多操作」的名字另外带上日期（日期可能相同或没填，所以一定带序号） */
+  const segmentSuffix = (row: PriceRow): string => {
+    const segments = segmentsOf(row);
     if (segments.length < 2) return "";
     const dates = row.from.trim() === "" ? "未填开始日期" : `${row.from} 起${row.to.trim() === "" ? "" : `，到 ${row.to}`}`;
     return `（第 ${segments.indexOf(row) + 1} 段，共 ${segments.length} 段，${dates}）`;
@@ -734,6 +745,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                           const state = stateOf(row);
                           const look = STATE_LOOK[state.state];
                           const label = rowLabel(row);
+                          const ordinal = segmentOrdinal(row);
                           const bad = (field: RowField): true | undefined => (reading.problems.some((problem) => problem.field === field) || ((field === "from" || field === "to") && state.state === "overlap") ? true : undefined);
                           const group = product.vehicle_groups.find((entry) => entry.vehicle_group_id === row.vehicleGroupId);
                           const area = product.areas.find((entry) => entry.area_id === row.areaId);
@@ -755,7 +767,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                 type="text"
                                 inputMode={money ? "decimal" : "numeric"}
                                 autoComplete="off"
-                                aria-label={`${label} 的${fieldName(field, row.model)}`}
+                                aria-label={`${label}${ordinal} 的${fieldName(field, row.model)}`}
                                 aria-invalid={bad(field)}
                                 readOnly={rowLocked}
                                 placeholder={field === "min" ? "不设" : undefined}
@@ -788,7 +800,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               type="text"
                               inputMode="numeric"
                               autoComplete="off"
-                              aria-label={`${label} 的生效日期${field === "from" ? "从" : "到"}`}
+                              aria-label={`${label}${ordinal} 的生效日期${field === "from" ? "从" : "到"}`}
                               aria-invalid={bad(field)}
                               placeholder={field === "to" ? "一直有效" : "2026-01-31"}
                               readOnly={rowLocked}
@@ -825,7 +837,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                   {choicesAsText ? (
                                     <span id={cellId(row.key, "direction")}>{directionName(row.direction ?? "both", station)}</span>
                                   ) : (
-                                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
+                                    <select className="input input--sm select" id={cellId(row.key, "direction")} aria-label={`${label}${ordinal} 的方向`} disabled={rowLocked} value={row.direction ?? "both"} onChange={(event) => update(row.key, { direction: event.target.value as PriceDirection })}>
                                       {(["both", "pickup", "dropoff"] as const).filter((direction) => (PRICE_DIRECTIONS as readonly string[]).includes(direction)).map((direction) => (
                                         <option key={direction} value={direction}>
                                           {directionName(direction, station)}
@@ -841,7 +853,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                                   {choicesAsText ? (
                                     <span>{row.model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[row.model]}</span>
                                   ) : (
-                                    <select className="input input--sm select" aria-label={`${label} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
+                                    <select className="input input--sm select" aria-label={`${label}${ordinal} 的计价方式`} disabled={rowLocked} value={row.model} onChange={(event) => update(row.key, { model: event.target.value as PricingModel })}>
                                       {models.map((model) => (
                                         <option key={model} value={model}>
                                           {model === "fixed" ? "一口价" : PRICING_MODEL_NAMES[model]}
@@ -858,7 +870,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               ))}
                               <td>{date("from")}</td>
                               <td>{date("to")}</td>
-                              <td>{readOnly ? (reading.blank ? "—" : row.enabled ? "启用" : "已停用") : <input type="checkbox" aria-label={`启用这条价格：${label}`} checked={row.enabled} disabled={rowLocked} onChange={(event) => update(row.key, { enabled: event.target.checked })} />}</td>
+                              <td>{readOnly ? (reading.blank ? "—" : row.enabled ? "启用" : "已停用") : <input type="checkbox" aria-label={`启用这条价格：${label}${ordinal}`} checked={row.enabled} disabled={rowLocked} onChange={(event) => update(row.key, { enabled: event.target.checked })} />}</td>
                               <td>
                                 <span className={`price-state price-state--${look.tone}`}>
                                   <Icon name={look.icon} />
