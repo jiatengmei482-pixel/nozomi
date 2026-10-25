@@ -35,7 +35,7 @@ test("提交：只有已完成的单、服务结束 24 小时内（正好 24 小
   assert.equal(extraChargeSubmitDeadline(completedAt).toISOString(), "2026-11-02T10:00:00.000Z");
   assert.equal(extraChargeSubmitRefusal(item, order(), new Date(completedAt.getTime() + 24 * HOUR)), null);
   assert.equal(extraChargeSubmitRefusal(item, order(), new Date(completedAt.getTime() + 24 * HOUR + 1)), "SUBMIT_WINDOW_CLOSED");
-  for (const status of ["assigned", "in_service", "cancelled", "no_show"]) assert.equal(extraChargeSubmitRefusal(item, order({ status }), completedAt), "ORDER_NOT_COMPLETED", status);
+  for (const status of ["assigned", "in_service", "cancelled", "no_show"] as const) assert.equal(extraChargeSubmitRefusal(item, order({ status }), completedAt), "ORDER_NOT_COMPLETED", status);
   assert.equal(extraChargeSubmitRefusal(item, order({ completedAt: null }), completedAt), "ORDER_NOT_COMPLETED");
 });
 

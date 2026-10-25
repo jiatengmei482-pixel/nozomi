@@ -164,14 +164,14 @@ interface Quoted {
 }
 
 /** 报价要从库里现查的事实（不进目录缓存）：用车那一天的库存、已经用掉的加急库存（按商品）、节假日。 */
-interface QuoteFacts {
+export interface QuoteFacts {
   inventory: Map<string, InventoryDay>;
   urgentUsed: Map<string, number>;
   holidays: HolidayLookup;
 }
 
 /** 给一批候选商品取库存、加急库存的已用量、节假日（各一次查询）。在事务里调用。 */
-async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest): Promise<QuoteFacts> {
+export async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest): Promise<QuoteFacts> {
   // 用车那一天（各商品所在城市的当地日期；同一批商品同城，时区一样）
   const dated = candidates.flatMap((candidate) => {
     const instant = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone);

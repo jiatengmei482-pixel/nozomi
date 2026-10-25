@@ -8,12 +8,28 @@
  * - 错误码：`PAYMENT_PROVIDER_TIMEOUT` / `_UNAVAILABLE` / `_RATE_LIMITED` / `_AUTH_FAILED` / `_REJECTED`。原始异常不往外抛（里面可能有请求原文），
  *   只留 Stripe 的错误代码和请求编号进日志。
  * - Webhook：签名用 stripe-signature.ts 自己的实现校验（与官方库的算法一致，有不连网络的单元测试），再把事件整理成 `PaymentWebhookEvent`。
+ * - 离线扣款（M3-03，ADR 0029）：改期补差价、事后加收。PaymentIntent 挂在下单时的 Customer 上、用保存的 PaymentMethod，`off_session: true` + `confirm: true`；
+ *   幂等键 `nozomi-charge-<收款记录编号>`。卡被拒、要客人验证（Stripe 的 card_error）不算出错：返回 `declined`，带拒绝代码。
+ * - 退款（M3-03）：`refunds.create`（对着一笔 PaymentIntent、指定金额），幂等键 `nozomi-refund-<退款记录编号>`。
  * API 版本固定为这一版官方库对应的版本（`Stripe.API_VERSION`），不跟着 Stripe 账户的默认版本走：升级官方库时一起升级、一起测。
  */
 import Stripe from "stripe";
 import { PAYMENT_INTENT_STATUSES, type PaymentIntentStatus } from "@nozomi/domain";
 import type { StripeConfig } from "@nozomi/config";
-import { type CreateOrderPaymentInput, type PaymentProvider, PaymentProviderError, type PaymentWebhookEvent, type PaymentWebhookObject, PaymentWebhookPayloadError, type ProviderPayment, type ProviderPaymentError } from "./payments.ts";
+import {
+  type CreateOrderPaymentInput,
+  type OffSessionChargeInput,
+  type OffSessionChargeResult,
+  type PaymentProvider,
+  PaymentProviderError,
+  type PaymentWebhookEvent,
+  type PaymentWebhookObject,
+  PaymentWebhookPayloadError,
+  type ProviderPayment,
+  type ProviderPaymentError,
+  type ProviderRefund,
+  type RefundInput,
+} from "./payments.ts";
 import { verifyStripeSignature } from "./stripe-signature.ts";
 
 /** 每次请求最多等多久（毫秒） */
@@ -65,9 +81,28 @@ function lastErrorOf(intent: Json): ProviderPaymentError | null {
   return { code: text(error["code"]), declineCode: text(error["decline_code"]), message: text(error["message"]) };
 }
 
+const REFUND_STATUSES = new Set(["pending", "succeeded", "failed", "canceled", "requires_action"]);
+
+/** Refund（API 应答或通知里的对象）→ `ProviderRefund`。 */
+export function refundFromObject(refund: Json): ProviderRefund {
+  const id = text(refund["id"]);
+  if (id === null || refund["object"] !== "refund") throw new PaymentWebhookPayloadError("不是一个 Refund");
+  const status = text(refund["status"]);
+  if (status === null || !REFUND_STATUSES.has(status)) throw new PaymentWebhookPayloadError(`Refund 的状态看不懂：${String(refund["status"])}`);
+  return {
+    refundId: id,
+    intentId: idOf(refund["payment_intent"]),
+    status: status as ProviderRefund["status"],
+    amountMinor: integer(refund["amount"], "amount"),
+    currency: (text(refund["currency"]) ?? "").toUpperCase(),
+    failureReason: text(refund["failure_reason"]),
+  };
+}
+
 /** 通知里的 `data.object` 按事件类型整理。看不懂的类型归为 `other`（照样记下、不处理）。 */
 function webhookObject(type: string, object: Json): PaymentWebhookObject {
   if (type.startsWith("payment_intent.")) return { kind: "payment_intent", payment: paymentFromIntent(object), lastError: lastErrorOf(object) };
+  if (type.startsWith("refund.") || type === "charge.refund.updated") return { kind: "refund", refund: refundFromObject(object) };
   if (type.startsWith("charge.dispute.")) {
     const id = text(object["id"]);
     if (id === null) throw new PaymentWebhookPayloadError("争议缺编号");
@@ -189,6 +224,46 @@ export class StripePaymentProvider implements PaymentProvider {
       if (err instanceof Stripe.errors.StripeError && err.code === "payment_intent_unexpected_state") return this.retrievePayment(intentId);
       throw toProviderError(err);
     }
+  }
+
+  async chargeSavedPaymentMethod(input: OffSessionChargeInput): Promise<OffSessionChargeResult> {
+    try {
+      const intent = (await this.#client.paymentIntents.create(
+        {
+          amount: input.amountMinor,
+          currency: input.currency.toLowerCase(),
+          customer: input.customerId,
+          payment_method: input.paymentMethodId,
+          off_session: true,
+          confirm: true,
+          description: input.description,
+          metadata: { order_id: input.orderId, order_no: input.orderNo, purpose: input.purpose, payment_id: input.paymentId },
+        },
+        { idempotencyKey: `nozomi-charge-${input.paymentId}` },
+      )) as unknown as Json;
+      const payment = paymentFromIntent(intent);
+      if (payment.status === "succeeded") return { outcome: "succeeded", payment };
+      if (payment.status === "processing" || payment.status === "requires_capture") return { outcome: "processing", payment };
+      const error = lastErrorOf(intent);
+      return { outcome: "declined", intentId: payment.intentId, error: error ?? { code: payment.status === "requires_action" ? "authentication_required" : "card_declined", declineCode: null, message: null } };
+    } catch (err) {
+      // 卡被拒、要客人验证：Stripe 以 card_error 回应，PaymentIntent 已经建了（编号在异常里）
+      if (err instanceof Stripe.errors.StripeCardError) {
+        const intentId = idOf((err as unknown as { payment_intent?: unknown }).payment_intent);
+        return { outcome: "declined", intentId, error: { code: err.code ?? "card_declined", declineCode: err.decline_code === "" ? null : (err.decline_code ?? null), message: null } };
+      }
+      throw toProviderError(err);
+    }
+  }
+
+  async refundPayment(input: RefundInput): Promise<ProviderRefund> {
+    const refund = await this.#call(() =>
+      this.#client.refunds.create(
+        { payment_intent: input.intentId, amount: input.amountMinor, reason: "requested_by_customer", metadata: { order_id: input.orderId, order_no: input.orderNo, refund_id: input.refundId } },
+        { idempotencyKey: `nozomi-refund-${input.refundId}` },
+      ),
+    );
+    return refundFromObject(refund as unknown as Json);
   }
 
   parseWebhook(rawBody: Buffer, signature: string | undefined, now: Date): PaymentWebhookEvent {

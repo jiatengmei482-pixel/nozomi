@@ -194,7 +194,8 @@ create table order_extra_charges (
 create index order_extra_charges_order_idx on order_extra_charges (tenant_id, order_id, seq);
 -- 异议期到了的、等扣款的：定时任务跨租户扫（不以 tenant_id 开头的例外）
 create index order_extra_charges_window_idx on order_extra_charges (dispute_until) where status = 'in_window';
-create index order_extra_charges_charge_due_idx on order_extra_charges (next_charge_at) where status = 'approved';
+-- 「正在扣」的租约到期（进程中途退出）也从这里取
+create index order_extra_charges_charge_due_idx on order_extra_charges (next_charge_at) where status in ('approved', 'charging');
 -- 运营后台跨租户看待审核的（同上）
 create index order_extra_charges_review_idx on order_extra_charges (submitted_at) where status in ('review', 'disputed', 'charge_failed');
 

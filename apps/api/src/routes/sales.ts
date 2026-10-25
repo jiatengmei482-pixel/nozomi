@@ -19,7 +19,12 @@ import { authenticateSales, issueSalesToken } from "../services/sales-auth.ts";
 import { type SalesPoint, type SalesQuote, createSalesQuotes, getSalesQuote, salesMoney } from "../services/sales-quotes.ts";
 import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView, reportGuestLanding } from "../services/orders.ts";
 import { dateTimeSchema, idempotencyKey, parseInput, resourceId, uuidSchema } from "../validation.ts";
-import { landingJson, orderTripJson } from "../services/order-views.ts";
+import { cancelPolicyJson, landingJson, orderTripJson } from "../services/order-views.ts";
+import { disputeOpen, portionBasisPoints, priceDifference } from "@nozomi/domain";
+import type { OrderChange } from "../repos/order-changes.ts";
+import type { ExtraCharge } from "../repos/extra-charges.ts";
+import type { OrderRefund } from "../repos/refunds.ts";
+import { customerAmountOf } from "../services/extra-charges.ts";
 
 const tokenSchema = z.object({ grant_type: z.literal("client_credentials"), client_id: z.string().min(1).max(100), client_secret: z.string().min(1).max(200) }).strict();
 
@@ -84,7 +89,61 @@ function quoteJson(quote: SalesQuote): Record<string, unknown> {
   };
 }
 
-function salesOrderJson(view: SalesOrderView): Record<string, unknown> {
+/** 退款的总状态：没有退款 null；有在处理的 pending；有失败的 failed；都退好了 succeeded。 */
+export function refundStatusOf(refunds: readonly OrderRefund[]): "pending" | "succeeded" | "failed" | null {
+  if (refunds.length === 0) return null;
+  if (refunds.some((refund) => refund.status === "failed")) return "failed";
+  return refunds.every((refund) => refund.status === "succeeded") ? "succeeded" : "pending";
+}
+
+/** 渠道看到的取消结果：扣了多少、退多少、退款到哪一步（客人支付币种）。没有供应商应得的部分。 */
+function salesCancellationJson(view: SalesOrderView): Record<string, unknown> | null {
+  const { order, sale } = view;
+  if (order.status !== "cancelled") return null;
+  const refunds = view.refunds.filter((refund) => refund.purpose === "cancellation");
+  const feeBp = order.cancelFeeBp;
+  return {
+    reason: order.cancelReason,
+    fee_bp: feeBp,
+    fee: feeBp === null ? null : salesMoney(portionBasisPoints(sale.sellMinor, feeBp), sale.currency),
+    refund: salesMoney(refunds.reduce((sum, refund) => sum + refund.amountMinor, 0), sale.currency),
+    refund_status: refundStatusOf(refunds),
+  };
+}
+
+function salesChangeJson(change: OrderChange, view: SalesOrderView): Record<string, unknown> {
+  const sale = view.changeSales.get(change.id) ?? null;
+  const diff = sale === null ? null : priceDifference(sale.sellBeforeMinor, sale.sellAfterMinor);
+  return {
+    id: change.id,
+    status: change.status,
+    fields: Object.keys(change.after).filter((field) => field !== "service_local"),
+    before: change.before,
+    after: change.after,
+    price_difference: diff === null || sale === null ? null : { kind: diff.kind, amount: salesMoney(diff.amountMinor, sale.currency) },
+    confirm_due_at: change.status === "pending_confirmation" ? (change.confirmDueAt?.toISOString() ?? null) : null,
+    requested_at: change.requestedAt.toISOString(),
+    decided_at: change.decidedAt?.toISOString() ?? null,
+  };
+}
+
+/** 渠道看到的事后加收：客人要付的金额（客人支付币种）、类型、说明、异议期。没有供应商报的结算金额。 */
+function salesExtraChargeJson(charge: ExtraCharge, view: SalesOrderView, now: Date): Record<string, unknown> {
+  return {
+    id: charge.id,
+    type: charge.type,
+    amount: salesMoney(customerAmountOf(charge, view.sale), view.sale.currency),
+    description: charge.description,
+    status: charge.status,
+    submitted_at: charge.submittedAt.toISOString(),
+    dispute_until: charge.disputeUntil.toISOString(),
+    dispute_open: charge.status === "in_window" && disputeOpen(charge.disputeUntil, now),
+    disputed_at: charge.disputedAt?.toISOString() ?? null,
+    charged_at: charge.chargedAt?.toISOString() ?? null,
+  };
+}
+
+export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, unknown> {
   const { order, sale, payment } = view;
   return {
     ...orderTripJson(order),
@@ -98,6 +157,12 @@ function salesOrderJson(view: SalesOrderView): Record<string, unknown> {
     driver: view.driver === null ? null : { name: view.driver.name, languages: view.driver.languages, phone: view.driverPhoneVisible ? view.driver.phone : null },
     vehicle: view.vehicle === null ? null : { plate: view.vehicle.plate, model: view.vehicle.model, color: view.vehicle.color, vehicle_group_id: view.vehicle.vehicleGroupId },
     landing: landingJson(order),
+    cancel_policy: cancelPolicyJson(order),
+    cancellation: salesCancellationJson(view),
+    free_cancel_available: view.freeCancelAvailable,
+    changes: view.changes.map((change) => salesChangeJson(change, view)),
+    extra_charges: view.extraCharges.filter((charge) => charge.status !== "withdrawn").map((charge) => salesExtraChargeJson(charge, view, now)),
+    version: order.version,
   };
 }
 
@@ -171,20 +236,20 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
       request.log,
     );
     if (created.replayed) reply.header("idempotent-replayed", "true");
-    return reply.code(201).send({ order: salesOrderJson(created.view), payment: paymentJson(created.payment) });
+    return reply.code(201).send({ order: salesOrderJson(created.view, ctx.now()), payment: paymentJson(created.payment) });
   });
 
   app.get("/sales/v1/orders/:id", async (request) => {
     const principal = await channel(request, "other");
     const view = await getSalesOrderView(ctx, principal.channelId, resourceId(request.params, "订单"));
     if (view === null) throw new AppError(404, "NOT_FOUND", "订单不存在");
-    return { order: salesOrderJson(view) };
+    return { order: salesOrderJson(view, ctx.now()) };
   });
 
   app.post("/sales/v1/orders/:id/landed", async (request) => {
     const principal = await channel(request, "other");
     const view = await reportGuestLanding(ctx, principal.channelId, resourceId(request.params, "订单"));
-    return { order: salesOrderJson(view) };
+    return { order: salesOrderJson(view, ctx.now()) };
   });
 
   app.get("/sales/v1/quotes/:id", async (request) => {

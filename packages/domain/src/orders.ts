@@ -107,9 +107,10 @@ export function paymentOverdue(dueAt: Date, now: Date): boolean {
 /**
  * 平台记的付款状态（一单一笔）：
  * `creating` 已建单、还没在支付服务那边建好付款；`requires_payment` 等客人付款（含 3DS 验证中）；`processing` 支付服务处理中；
- * `succeeded` 已付款；`canceled` 付款已取消（超时、客人放弃）。
+ * `succeeded` 已付款；`canceled` 付款已取消（超时、客人放弃）；
+ * `failed` 用保存的支付方式离线扣款没扣到（卡被拒、要客人验证；M3-03 的改期补差价和事后加收才有，下单的付款被拒后客人可以换卡重付，仍是 `requires_payment`）。
  */
-export const PAYMENT_STATUSES = ["creating", "requires_payment", "processing", "succeeded", "canceled"] as const;
+export const PAYMENT_STATUSES = ["creating", "requires_payment", "processing", "succeeded", "canceled", "failed"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 /** Stripe PaymentIntent 的状态（https://docs.stripe.com/payments/paymentintents/lifecycle）。 */

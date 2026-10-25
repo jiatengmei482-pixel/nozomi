@@ -12,6 +12,8 @@
  *   - `payment_intent.canceled`：待支付的单取消、释放库存；
  *   - `charge.refunded`：核对币种（对不上记 mismatch、不记退款），记下已退金额（退款流程在 M3-03）；
  *   - `charge.dispute.created`：标记拒付（支付异常，异常队列在 M4-02）；
+ *   - M3-03（ADR 0029）：改期补差价、事后加收的离线扣款也会收到 `payment_intent.*`：只更新那一笔收款记录（加收的「正在扣」按结果记为已扣 / 扣款失败），不碰订单的确认；
+ *     `refund.updated` / `refund.failed` / `charge.refund.updated`：平台发起的退款有了结果（处理中的那种），记为退好了 / 失败；`charge.refunded` 记在对应的那一笔收款上；
  *   - 其余类型：记一条「不处理」，回 200。对不上平台付款的（别的系统在同一个 Stripe 账户上建的付款）：记「对不上」，回 200。
  * 付款状态只往前走：先到的「成功」不会被晚到的「失败」「处理中」改回去。
  */
@@ -20,7 +22,9 @@ import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { type PaymentWebhookEvent, PaymentWebhookPayloadError } from "../integrations/payments.ts";
 import { StripeSignatureError } from "../integrations/stripe-signature.ts";
-import { type OrderPayment, type PaymentEventResult, claimPaymentEvent, findOrderForPlatform, findOrderPayment, findPaymentByIntent, finishPaymentEvent, updateOrderPayment } from "../repos/orders.ts";
+import { type OrderPayment, type PaymentEventResult, claimPaymentEvent, findOrderForPlatform, findOrderPayment, findPaymentById, findPaymentByIntent, finishPaymentEvent, updateOrderPayment } from "../repos/orders.ts";
+import { findRefundByProviderId, syncPaymentRefunded, updateRefund } from "../repos/refunds.ts";
+import { settleExtraChargeFromWebhook } from "./extra-charges.ts";
 import { type OrderLog, cancelPendingOrder, confirmPaidOrder, requirePayments } from "./orders.ts";
 
 export interface WebhookOutcome {
@@ -49,7 +53,9 @@ export async function handlePaymentWebhook(ctx: AppContext, rawBody: Buffer, sig
   }
 
   const outcome = await withPlatformTx(ctx.pool, async (db): Promise<WebhookOutcome> => {
-    const objectId = event.object.kind === "payment_intent" ? event.object.payment.intentId : event.object.kind === "charge" ? event.object.chargeId : event.object.kind === "dispute" ? event.object.disputeId : event.object.objectId;
+    const object0 = event.object;
+    const objectId =
+      object0.kind === "payment_intent" ? object0.payment.intentId : object0.kind === "charge" ? object0.chargeId : object0.kind === "dispute" ? object0.disputeId : object0.kind === "refund" ? object0.refund.refundId : object0.objectId;
     const claimed = await claimPaymentEvent(db, { id: event.id, type: event.type, livemode: event.livemode, objectId, createdAt: event.createdAt, receivedAt: now });
     if (!claimed) return { eventId: event.id, type: event.type, duplicate: true, result: null };
     const finish = async (result: Exclude<PaymentEventResult, "processing">, orderId: string | null, detail: Record<string, unknown> | null = null): Promise<WebhookOutcome> => {
@@ -59,14 +65,43 @@ export async function handlePaymentWebhook(ctx: AppContext, rawBody: Buffer, sig
     if (event.livemode !== provider.livemode) return finish("livemode_mismatch", null);
 
     const object = event.object;
-    const intentId = object.kind === "payment_intent" ? object.payment.intentId : object.kind === "charge" || object.kind === "dispute" ? object.intentId : null;
-    const handled = ["payment_intent.succeeded", "payment_intent.payment_failed", "payment_intent.processing", "payment_intent.requires_action", "payment_intent.canceled", "charge.refunded", "charge.dispute.created"];
+    const handled = ["payment_intent.succeeded", "payment_intent.payment_failed", "payment_intent.processing", "payment_intent.requires_action", "payment_intent.canceled", "charge.refunded", "charge.dispute.created", "refund.updated", "refund.failed", "charge.refund.updated"];
     if (!handled.includes(event.type) || object.kind === "other") return finish("ignored", null);
+    if (object.kind === "refund") {
+      // 平台发起的退款有了结果：只认平台记过的退款编号
+      const refund = await findRefundByProviderId(db, object.refund.refundId);
+      if (refund === null) return finish("unmatched", null, { refund_id: object.refund.refundId });
+      await findOrderForPlatform(db, refund.orderId, { lock: true });
+      const locked = await findRefundByProviderId(db, object.refund.refundId, { lock: true });
+      const status = object.refund.status;
+      if (locked !== null && locked.status === "processing" && (status === "succeeded" || status === "failed" || status === "canceled")) {
+        if (status === "succeeded") {
+          await updateRefund(db, locked.id, { status: "succeeded", nextAttemptAt: null, lastError: null, succeededAt: now }, now);
+          await syncPaymentRefunded(db, locked.paymentId, now);
+        } else {
+          await updateRefund(db, locked.id, { status: "failed", nextAttemptAt: null, lastError: { code: object.refund.failureReason ?? status, message: "收款服务说这笔退款失败了" }, failedAt: now }, now);
+          log.error({ event: "refund.failed", refundId: locked.id, orderId: locked.orderId, reason: object.refund.failureReason }, "退款失败：需要财务核实（支付异常）");
+        }
+      }
+      return finish("applied", refund.orderId, { refund_id: object.refund.refundId, status });
+    }
+    const intentId = object.kind === "payment_intent" ? object.payment.intentId : object.intentId;
     const found = intentId === null ? null : await findPaymentByIntent(db, intentId);
     if (found === null) return finish("unmatched", null, { intent_id: intentId });
     // 加锁的顺序和超时取消一样：先订单、后收款记录（两边同时处理同一张单时不会死锁）
     await findOrderForPlatform(db, found.orderId, { lock: true });
-    const payment = (await findOrderPayment(db, found.orderId, { lock: true })) as OrderPayment;
+    const payment = (found.kind === "order" ? await findOrderPayment(db, found.orderId, { lock: true }) : await findPaymentById(db, found.id, { lock: true })) as OrderPayment;
+
+    if (object.kind === "payment_intent" && payment.kind !== "order") {
+      // 改期补差价、事后加收的离线扣款：只记这一笔的结果（订单本身已经确认过）
+      const succeeded = event.type === "payment_intent.succeeded";
+      const failed = event.type === "payment_intent.payment_failed" || event.type === "payment_intent.canceled";
+      if (payment.status !== "succeeded" && payment.status !== "failed" && (succeeded || failed)) {
+        await updateOrderPayment(db, payment.id, { status: succeeded ? "succeeded" : "failed", ...(succeeded ? { succeededAt: now } : {}), ...(object.lastError === null ? {} : { lastError: { code: object.lastError.code, decline_code: object.lastError.declineCode, message: object.lastError.message } }) }, now);
+        if (payment.kind === "extra_charge") await settleExtraChargeFromWebhook(db, payment, succeeded, now);
+      }
+      return finish("applied", payment.orderId, { kind: payment.kind });
+    }
 
     if (object.kind === "payment_intent") {
       const paid = object.payment;

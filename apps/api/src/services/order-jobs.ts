@@ -18,6 +18,11 @@
  * - 用车前 1 小时仍未「已出发」：同样记下时间，日志 `order.departure_overdue`。
  * 每张单各提醒一次（记下了时间就不再提醒）；一条条件更新完成「找出来 + 记下」，多个实例同时跑也只提醒一次。
  * 邮件、LINE 等通知渠道在通知中心任务里接；用车前 6 小时仍未派车的救援改派在 M3-04。
+ *
+ * 还有钱的事（M3-03，ADR 0029，`money()`）：
+ * - 退款：到时候该发的（等着发的、收款服务出错后等重试的、租约到期的）发一次；
+ * - 改单：供应商 30 分钟没确认的改期记为超时（补收的差价退回，客人可以免费取消）；补差价卡住的（收款服务出错、进程中途退出）接着扣；
+ * - 事后加收：48 小时异议期到了的，不用审核的自动扣款、要审核的转待审核；审核通过的、等重试的扣款。
  */
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -25,6 +30,9 @@ import { PaymentProviderError, type ProviderPayment } from "../integrations/paym
 import { findOrderForPlatform, findOrderPayment, listOverduePendingOrders } from "../repos/orders.ts";
 import { DISPATCH_RULES } from "@nozomi/domain";
 import { type OrderLog, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
+import { processDueRefunds } from "./order-money.ts";
+import { sweepOrderChanges } from "./order-changes.ts";
+import { sweepExtraCharges } from "./extra-charges.ts";
 
 const FIRST_TICK_MS = 5_000;
 const TICK_INTERVAL_MS = 60_000;
@@ -37,6 +45,12 @@ export interface OrderSweepResult {
   confirmed: number;
   /** 还在处理中、或收款服务出错，留给下一轮 */
   deferred: number;
+}
+
+export interface MoneyResult {
+  refunds: Awaited<ReturnType<typeof processDueRefunds>>;
+  changes: Awaited<ReturnType<typeof sweepOrderChanges>>;
+  extraCharges: Awaited<ReturnType<typeof sweepExtraCharges>>;
 }
 
 export interface ReminderResult {
@@ -92,6 +106,14 @@ export class OrderJobs {
     return { dispatchOverdue: dispatch.length, departureOverdue: departure.length };
   }
 
+  /** 退款、改单超时、事后加收（M3-03）。 */
+  async money(): Promise<MoneyResult> {
+    const changes = await sweepOrderChanges(this.ctx, this.log);
+    const extraCharges = await sweepExtraCharges(this.ctx, this.log);
+    const refunds = await processDueRefunds(this.ctx, this.log);
+    return { refunds, changes, extraCharges };
+  }
+
   private async expire(orderId: string): Promise<keyof OrderSweepResult> {
     // 锁住订单再读收款记录：还没建付款的就在这个事务里取消；建好了的拿到最新的付款编号，先去收款服务取消
     const first = await withPlatformTx(this.ctx.pool, async (db): Promise<{ outcome: keyof OrderSweepResult } | { intentId: string }> => {
@@ -134,6 +156,7 @@ export class OrderJobs {
     const run = (): void => {
       this.ticking = this.tick()
         .then(() => this.remind())
+        .then(() => this.money())
         .catch((err: unknown) => this.log.warn({ err }, "订单定时任务这一轮出错，下一轮再试"))
         .finally(() => {
           this.ticking = null;
