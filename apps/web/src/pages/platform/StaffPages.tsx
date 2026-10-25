@@ -394,7 +394,8 @@ export function StaffNewPage() {
   const { roles } = useRoleOptions();
   const customRoles = (roles ?? []).filter((entry) => !entry.builtin);
   const given = (location.state as Partial<ReinviteState> | null)?.reinvite;
-  const reinvite = given && typeof given.email === "string" && typeof given.name === "string" && typeof given.role === "string" ? given : null;
+  // 角色只认内置角色的键或自建角色的键的格式（`custom_` + 16 位十六进制）；别的当作普通的新增
+  const reinvite = given && typeof given.email === "string" && typeof given.name === "string" && typeof given.role === "string" && (ROLE_KEYS.includes(given.role) || /^custom_[0-9a-f]{16}$/.test(given.role)) ? given : null;
   const title = reinvite ? `重新邀请 ${reinvite.name}` : "新增员工";
   useDocumentTitle(`${reinvite ? "重新邀请" : "新增员工"} · NOZOMI ${portal.name}`);
   const [email, setEmail] = useState(reinvite?.email ?? "");

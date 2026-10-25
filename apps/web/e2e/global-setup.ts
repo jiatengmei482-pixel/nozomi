@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES } from "./support.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -124,6 +125,22 @@ function runAdminCreate(env: NodeJS.ProcessEnv, email: string, name: string, pas
   });
 }
 
+/** 经接口给管理员绑定两步验证，返回密钥（Base32）。 */
+async function enrollAdmin(apiOrigin: string, email: string, password: string): Promise<string> {
+  const post = async (path: string, body: unknown, token?: string): Promise<Record<string, unknown>> => {
+    const response = await fetch(`${apiOrigin}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(`${path} 失败：HTTP ${response.status} ${await response.text()}`);
+    return (await response.json()) as Record<string, unknown>;
+  };
+  const login = await post("/platform/v1/auth/login", { email, password });
+  const token = login["access_token"] as string;
+  const started = await post("/platform/v1/auth/mfa/enrollment", {}, token);
+  const secret = started["secret"] as string;
+  const { code } = await nextCode(secret);
+  await post("/platform/v1/auth/mfa/enrollment/confirm", { code }, token);
+  return secret;
+}
+
 export default async function globalSetup(): Promise<() => Promise<void>> {
   if (!existsSync(`${WEB_ROOT}dist/index.html`)) {
     throw new Error("没有找到前端构建产物 apps/web/dist。请用 pnpm test:e2e 运行（它会先构建）。");
@@ -157,6 +174,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       PUBLIC_BASE_URL: apiOrigin,
       DATABASE_URL: database.url,
       AUTH_JWT_SECRET: randomBytes(48).toString("base64url"),
+      // 平台员工的两步验证密钥加密存储要用它（ADR 0030）；本次运行临时生成
+      DATA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       TRUST_PROXY_HOPS: "0",
     };
     // 服务进程只拿应用账号（ADR 0010），迁移账号不交给它。
@@ -199,6 +218,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
+    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码
+    process.env["E2E_ADMIN_TOTP_SECRET"] = await enrollAdmin(apiOrigin, adminEmail, adminPassword);
     process.env["E2E_DATABASE_URL"] = database.url;
   } catch (err) {
     await teardown();

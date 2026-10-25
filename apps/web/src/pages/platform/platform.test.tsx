@@ -53,6 +53,7 @@ function open(path: string, role: string, world: World = {}, routes: Route = () 
     if (found) return json(200, found);
     if (at.startsWith("/platform/v1/tenants/")) return apiError(404, "NOT_FOUND", "没有");
     if (at === "/platform/v1/staff") return json(200, { items: world.staff ?? [meOf(role), staffOf()], next_cursor: null });
+    if (at === "/platform/v1/roles") return json(200, { items: [] });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
     if (at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }], fx_center: FX_FRESH });
@@ -91,7 +92,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
-  assert.deepEqual(menuLabels().slice(-4), ["系统设置", "平台员工", "审计日志", "系统状态"]);
+  assert.deepEqual(menuLabels().slice(-5), ["系统设置", "平台员工", "角色", "审计日志", "系统状态"]);
 
   resetBrowser();
   open("/platform", "operations");
@@ -370,7 +371,7 @@ test("平台员工列表：自己那一行不能停用、不能给自己发重�
   let answer: Response = apiError(409, "LAST_ADMIN_REQUIRED", "last");
   const calls = open("/platform/settings/staff", "super_admin", { staff }, (call) => (call.method === "POST" ? answer.clone() : null));
   const mine = (await screen.findByText("kato@example.com")).closest("tr") as HTMLElement;
-  assert.match(mine.textContent ?? "", /加藤 美咲你kato@example\.com超级管理员在用/);
+  assert.match(mine.textContent ?? "", /加藤 美咲你kato@example\.com超级管理员(已绑定|还没绑定)在用/);
   await actor.click(within(mine).getByRole("button", { name: /的更多操作$/ }));
   assert.ok(screen.getByText("这是你自己的账号。"));
   assert.deepEqual(screen.getAllByRole("menuitem").map((entry) => entry.textContent), ["看他的操作记录", "看这个账号的变更记录"]);
@@ -478,7 +479,7 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、看待审核的改动。");
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
   assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道、看待审核的改动、看订单。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、管理平台员工、看审计日志、看系统状态。$/);
+  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、管理平台员工、看审计日志、看系统状态、新建角色、发起角色的修改（要另一位超级管理员审核）、审核角色的修改。$/);
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));

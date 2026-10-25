@@ -5,7 +5,7 @@
  */
 import { type Browser, type ConsoleMessage, type Page, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, snapshot, uniqueEmail } from "./support.ts";
+import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -387,8 +387,7 @@ for (const scheme of ["light", "dark"] as const) {
     test.setTimeout(240_000);
     await page.emulateMedia({ colorScheme: scheme });
     const admin = adminCredentials();
-    const login = await request.post("/platform/v1/auth/login", { data: admin });
-    const headers = { authorization: `Bearer ${((await login.json()) as { access_token: string }).access_token}` };
+    const headers = await platformAdminHeaders(request);
     const tenantName = `很长很长的供应商名字`.repeat(6).slice(0, 90) + random();
     const created = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: uniqueEmail("m110-a11y"), name: "名字很长的管理员".repeat(8) } } });
     expect(created.status(), await created.text()).toBe(201);

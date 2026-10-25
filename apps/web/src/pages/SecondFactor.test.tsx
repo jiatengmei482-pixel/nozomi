@@ -70,7 +70,7 @@ test("绑定过的账号：输完密码不进要去的页面，先输动态码�
   });
   renderAt({ pathname: "/platform/login", state: { from: "/platform/target" } }, ROUTES);
   await passwordLogin();
-  assert.equal((await screen.findByRole("heading", { level: 1 })).textContent, "两步验证");
+  assert.ok(await screen.findByRole("heading", { level: 1, name: "两步验证" }));
   assertAbsent(screen.queryByText("要去的页面"));
   const actor = userEvent.setup();
   const input = screen.getByLabelText("动态码") as HTMLInputElement;
@@ -125,7 +125,7 @@ test("没绑定过的账号：先绑定——二维码和密钥、输一次动�
   });
   renderAt({ pathname: "/platform/login", state: { from: "/platform/target" } }, ROUTES);
   await passwordLogin();
-  assert.equal((await screen.findByRole("heading", { level: 1 })).textContent, "绑定两步验证");
+  assert.ok(await screen.findByRole("heading", { level: 1, name: "绑定两步验证" }));
   assert.ok(await screen.findByRole("img", { name: "绑定两步验证的二维码" }));
   assert.ok(screen.getByText("JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP"));
   const actor = userEvent.setup();
@@ -147,7 +147,7 @@ test("已经在里面的页面上，接口返回 403 MFA_REQUIRED：回到两步
   renderAt("/platform/target", ROUTES);
   const actor = userEvent.setup();
   await actor.click(await screen.findByRole("button", { name: "调别的接口" }));
-  assert.equal((await screen.findByRole("heading", { level: 1 })).textContent, "两步验证");
+  assert.ok(await screen.findByRole("heading", { level: 1, name: "两步验证" }));
 });
 
 test("账号安全：显示绑定时间和剩余恢复码；重新生成恢复码要先输入现在的动态码，新的一组只显示一次", async () => {

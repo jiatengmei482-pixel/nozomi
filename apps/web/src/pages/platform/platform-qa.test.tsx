@@ -50,6 +50,7 @@ function open(path: string | { pathname: string; search?: string; state?: unknow
     if (found) return json(200, found);
     if (at.startsWith("/platform/v1/tenants/")) return apiError(404, "NOT_FOUND", "没有");
     if (at === "/platform/v1/staff") return json(200, { items: world.staff ?? [meOf(role), staffOf()], next_cursor: null });
+    if (at === "/platform/v1/roles") return json(200, { items: [] });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
     if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:•••@db:5432/nozomi" }, { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" }] });
     return null;
