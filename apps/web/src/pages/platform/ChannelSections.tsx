@@ -43,7 +43,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
+import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, relatedPending, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { SERVICE_CATEGORY_NAMES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, moneyText, readAmount } from "../../lib/product-display.ts";
@@ -83,6 +83,27 @@ export function BelowFloorAlert({ message, lines, then }: { message: string; lin
         </ul>
       )}
       <span>{then}</span>
+    </Alert>
+  );
+}
+
+/**
+ * 发起前提醒：同一渠道上已经有会和这次互相「过时」的待审核改动（M1-17）。对话框打开时取一次这个渠道待审核的改动；
+ * 取不到就不提醒（不挡发起，批准时后端照样会核对版本）。
+ */
+function PendingNotice({ channelId, target }: { channelId: string; target: Parameters<typeof relatedPending>[0] }) {
+  const loaded = useLoad(`channel-pending:${channelId}`, (token) => listApprovals(token, { status: "pending", resource_id: channelId, limit: 100 }));
+  const related = relatedPending(target, loaded.state.data?.items ?? []);
+  if (related.length === 0) return null;
+  return (
+    <Alert kind="warning">
+      <strong className="alert__title">{`这个渠道已经有 ${related.length} 条待审核的定价改动：`}</strong>
+      <ul className="alert__list">
+        {related.map((approval) => (
+          <li key={approval.id}>{`${approval.summary}（${approval.requested_by.name}，${formatLocalDateTime(approval.requested_at)} 发起）`}</li>
+        ))}
+      </ul>
+      <span>它们和这次的改动谁先被批准，另外的就会过时，只能驳回后按现在的数重新发起。要改的是同一处的话，建议先到「待审核」撤回旧的，或等它处理完再发起。</span>
     </Alert>
   );
 }
@@ -201,6 +222,7 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
     }>
       <form id="rule-form" className="form" noValidate onSubmit={(event) => void submit(event)}>
         <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        <PendingNotice channelId={channelId} target={{ kind: "rule", ruleId: rule?.id ?? null }} />
         <p className="page-intro">从具体到通用匹配，命中第一级就停。提交后要另一位同事批准才生效。</p>
         <RadioGroup legend="按什么设" name="rule-level" options={([1, 2, 3, 4, 5] as const).map((level) => ({ value: String(level), label: `第 ${level} 级：${MARKUP_LEVEL_NAMES[level]}` }))} value={String(form.level)} onChange={(value: string) => change({ level: Number(value) as MarkupRule["level"] })} />
         {dims.tenant && <SelectField label="供应商" value={form.tenantId} options={tenantOptions} onChange={(value) => change({ tenantId: value })} />}
@@ -304,6 +326,7 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
     }>
       <form id="pricing-form" className="form" noValidate onSubmit={(event) => void submit(event)}>
         <div role="alert">{typeof problem === "string" ? <Alert kind="danger">{problem}</Alert> : problem}</div>
+        <PendingNotice channelId={channel.id} target={{ kind: "pricing" }} />
         <p className="page-intro">改加价比例是敏感操作：提交后要另一位同事批准才生效。调高下限时，还在用的加价规则不能低于新的下限。</p>
         <TextField label="默认加价比例（%）" inputMode="decimal" autoComplete="off" value={markup} errors={shown(errors.markup)} onChange={(event) => setMarkup(event.target.value)} />
         <TextField label="加价下限（%）" inputMode="decimal" autoComplete="off" value={floor} errors={shown(errors.floor)} hint={`不能低于平台下限 ${PLATFORM_FLOOR_TEXT}。`} onChange={(event) => setFloor(event.target.value)} />
@@ -791,7 +814,12 @@ export function ChannelDetailSections({ detail, onChanged, onReplace }: { detail
       {dialog?.kind === "delete" && (
         <NoteDialog
           title="申请删除加价规则"
-          intro={<p>{`「${ruleScopeText(dialog.rule)} = ${percentText(dialog.rule.markup_bp)}」。提交后要另一位同事批准才删除；删除后这些情况改按下一级的规则或默认加价比例。`}</p>}
+          intro={
+            <>
+              <PendingNotice channelId={channel.id} target={{ kind: "rule", ruleId: dialog.rule.id }} />
+              <p>{`「${ruleScopeText(dialog.rule)} = ${percentText(dialog.rule.markup_bp)}」。提交后要另一位同事批准才删除；删除后这些情况改按下一级的规则或默认加价比例。`}</p>
+            </>
+          }
           confirmLabel="提交审核"
           danger
           onClose={() => setDialog(null)}

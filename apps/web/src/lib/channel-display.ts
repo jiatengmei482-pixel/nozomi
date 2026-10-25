@@ -3,7 +3,7 @@
  * 百分比一律以基点整数进出接口；页面上写成「12.5%」。
  */
 import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
-import type { ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
+import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { City } from "../api/master.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -161,5 +161,20 @@ export function belowFloorRuleLines(details: Readonly<Record<string, unknown>>, 
   return ids.map((id) => {
     const rule = rules.find((entry) => entry.id === id);
     return rule ? `第 ${rule.level} 级 · ${ruleScopeText(rule)} = ${percentText(rule.markup_bp)}（用车日期 ${ruleDatesText(rule)}）` : "有一条规则这里还没有显示（可能刚被改过），刷新页面后再看";
+  });
+}
+
+/**
+ * 发起定价改动前，同一渠道上已经挂着、会和这次互相「过时」的待审核改动（M1-17，ADR 0023）：
+ * 定价参数的复核核对渠道的 pricing_version（定价参数、加价规则、状态任何一个变了都加一），规则的修改、删除核对规则自己的版本。
+ * - 改定价参数：这个渠道上所有待审核的改动都相关（谁先批准，另一边就过时）；
+ * - 新增、修改、删除规则：待审核的定价参数改动相关（这次批准后它过时）；修改、删除时再加上同一条规则的修改、删除。
+ */
+export function relatedPending(target: { kind: "pricing" } | { kind: "rule"; ruleId: string | null }, pending: readonly Approval[]): Approval[] {
+  return pending.filter((approval) => {
+    if (approval.status !== "pending") return false;
+    if (target.kind === "pricing") return true;
+    if (approval.kind === "channel.pricing") return true;
+    return target.ruleId !== null && (approval.kind === "markup_rule.update" || approval.kind === "markup_rule.delete") && approval.payload["rule_id"] === target.ruleId;
   });
 }
