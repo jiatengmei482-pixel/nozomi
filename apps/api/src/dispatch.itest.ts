@@ -12,6 +12,8 @@ import { TEST_PASSWORD, type TestApi, addTenantUser, createTestApi } from "./tes
 import { type Market, buildMarket, ok } from "./testing/market.ts";
 import { assign, newDriver, newVehicle, orderVersion, seedOrder } from "./testing/dispatch.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
+import { deniedByDatabase } from "./testing/db.ts";
+import { withTenantTx } from "./db/context.ts";
 
 let api: TestApi;
 let m: Market;
@@ -35,7 +37,7 @@ test("派车：派给符合要求的司机和车辆，订单变成已派车；�
   const vehicle = await newVehicle(api, m.a, m.ids.biz7);
   const res = await assign(api, m.a, order.id, driver.id, vehicle.id);
   assert.equal(res.status, 200, res.text);
-  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/assign", res as never);
+  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/assign", res);
   assert.equal(res.body.order.status, "assigned");
   assert.equal(res.body.change, false);
   assert.deepEqual([res.body.order.dispatch.driver.id, res.body.order.dispatch.vehicle.plate], [driver.id, vehicle.plate]);
@@ -100,7 +102,7 @@ test("不符合订单要求的拒绝并逐项说明：驾照过期、不会客�
   const eco = await newVehicle(api, m.a, m.ids.eco4, { seats: 4 });
   const res = await assign(api, m.a, order.id, badDriver.id, eco.id);
   assert.equal(res.status, 422, res.text);
-  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/assign", res as never);
+  assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/assign", res);
   assert.deepEqual(res.body.error.details.issues.map((issue: any) => issue.code), ["DRIVER_LICENSE_EXPIRED", "DRIVER_LANGUAGE_MISSING", "VEHICLE_GROUP_DOWNGRADE", "VEHICLE_SEATS_TOO_FEW"]);
   const repair = await newVehicle(api, m.a, m.ids.biz7, { status: "maintenance", plate_type: "private" });
   const good = await newDriver(api, m.a, { languages: ["zh"] });
@@ -243,4 +245,20 @@ test("付款时距用车不足 24 小时：截止时间是付款后 2 小时", a
   const body = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await relogin(m.a.adminEmail) }));
   assert.equal(body.order.dispatch.due_at, new Date(now.getTime() + 2 * 3_600_000).toISOString());
   assert.equal(body.order.dispatch.escalation_at, new Date(now.getTime() + 4 * 3_600_000).toISOString(), "用车前 6 小时");
+});
+
+test("数据库兜底（ADR 0027）：供应商的事务里状态只能在履约的范围里变——取消、复活已取消的单、改回已确认都被数据库拒绝", async () => {
+  const order = await seedOrder(api, m, "a", { serviceAt: new Date("2026-11-05T01:00:00Z") });
+  const cancelled = await seedOrder(api, m, "a", { serviceAt: new Date("2026-11-05T05:00:00Z") });
+  await api.db.owner.query("update orders set status = 'cancelled', cancelled_at = now(), cancel_reason = 'PAYMENT_CANCELED' where id = $1", [cancelled.id]);
+  const asTenant = (sql: string, id: string) => withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query(sql, [id]));
+  for (const [sql, id] of [
+    ["update orders set status = 'cancelled', cancelled_at = now(), cancel_reason = 'PAYMENT_CANCELED' where id = $1", order.id],
+    ["update orders set status = 'assigned' where id = $1", cancelled.id],
+    ["update orders set status = 'no_show' where id = $1", order.id],
+    ["update orders set status = 'pending_payment' where id = $1", order.id],
+  ] as const) {
+    await assert.rejects(asTenant(sql, id), deniedByDatabase, sql);
+  }
+  assert.equal((await asTenant("update orders set status = 'assigned' where id = $1 and false", order.id)).rowCount, 0);
 });

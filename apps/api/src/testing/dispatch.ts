@@ -6,7 +6,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { type IncomingHttpHeaders, type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { ORDER_NO_ALPHABET, dispatchDeadline } from "@nozomi/domain";
-import { LOCAL_WEBHOOK_HOST, type TenantFixture, type TestApi } from "./api.ts";
+import { type ApiResponse, LOCAL_WEBHOOK_HOST, type TenantFixture, type TestApi } from "./api.ts";
 import { type Market, ok } from "./market.ts";
 
 export interface SeedOrderOptions {
@@ -103,7 +103,7 @@ export async function orderVersion(api: TestApi, who: TenantFixture, orderId: st
   return (await ok(api.call("GET", `/tenant/v1/orders/${orderId}`, { token: who.adminToken }))).order.version;
 }
 
-export async function assign(api: TestApi, who: { adminToken: string } | { token: string }, orderId: string, driverId: string, vehicleId: string, options: { version?: number; confirmConflicts?: boolean } = {}): Promise<{ status: number; body: any; text: string }> {
+export async function assign(api: TestApi, who: { adminToken: string } | { token: string }, orderId: string, driverId: string, vehicleId: string, options: { version?: number; confirmConflicts?: boolean } = {}): Promise<ApiResponse> {
   const token = "adminToken" in who ? who.adminToken : who.token;
   const version = options.version ?? (await ok(api.call("GET", `/tenant/v1/orders/${orderId}`, { token }))).order.version;
   return api.call("POST", `/tenant/v1/orders/${orderId}/assign`, { token, headers: { "if-match": `"${version}"` }, body: { driver_id: driverId, vehicle_id: vehicleId, ...(options.confirmConflicts ? { confirm_conflicts: true } : {}) } });

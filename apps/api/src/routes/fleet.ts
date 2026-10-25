@@ -24,8 +24,8 @@ const driverBase = {
   driving_years: z.number().int().nullable().default(null),
   gold: z.boolean().default(false),
 };
-const createDriverSchema = z.object({ ...driverBase, status: z.enum(DRIVER_STATUSES).default("active") }).strict();
-const updateDriverSchema = z.object({ ...driverBase, status: z.enum(DRIVER_STATUSES) }).strict();
+const createDriverSchema = z.object({ ...driverBase, status: z.enum(DRIVER_STATUSES).default("active") });
+const updateDriverSchema = z.object({ ...driverBase, status: z.enum(DRIVER_STATUSES) });
 
 const vehicleBase = {
   plate: z.string().max(40),
@@ -38,8 +38,8 @@ const vehicleBase = {
   insurance_expires_on: dateSchema,
   inspection_expires_on: dateSchema,
 };
-const createVehicleSchema = z.object({ ...vehicleBase, status: z.enum(VEHICLE_STATUSES).default("available") }).strict();
-const updateVehicleSchema = z.object({ ...vehicleBase, status: z.enum(VEHICLE_STATUSES) }).strict();
+const createVehicleSchema = z.object({ ...vehicleBase, status: z.enum(VEHICLE_STATUSES).default("available") });
+const updateVehicleSchema = z.object({ ...vehicleBase, status: z.enum(VEHICLE_STATUSES) });
 
 const driverListSchema = pageQuerySchema.extend({ status: z.enum(DRIVER_STATUSES).optional(), q: z.string().trim().min(1).max(50).optional() });
 const vehicleListSchema = pageQuerySchema.extend({ status: z.enum(VEHICLE_STATUSES).optional(), q: z.string().trim().min(1).max(50).optional() });

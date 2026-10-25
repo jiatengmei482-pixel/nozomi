@@ -87,6 +87,25 @@ create trigger orders_tenant_columns
   on orders
   for each statement execute function reject_tenant_column_update();
 
+-- 状态也只能在履约的范围里变：从「已确认 / 已派车 / 司机已出发 / 司机已到达 / 服务中」改成「已派车 / 司机已出发 / 司机已到达 / 服务中 / 已完成 / 客人未出现（待审核）」。
+-- 确认、取消、救援、no-show 的审核结果只有平台能写（具体的先后顺序由应用按 @nozomi/domain 的状态机检查，这里兜住「供应商自己把单取消或复活」）
+create function guard_tenant_status_change() returns trigger
+  language plpgsql
+  as $$
+begin
+  if current_user = 'nozomi_app' and new.status is distinct from old.status
+     and not (old.status in ('confirmed', 'assigned', 'departed', 'arrived', 'in_service')
+              and new.status in ('assigned', 'departed', 'arrived', 'in_service', 'completed', 'no_show_claimed')) then
+    raise exception '供应商不能把订单从 % 改成 %', old.status, new.status using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end
+$$;
+
+create trigger orders_tenant_status
+  before update of status on orders
+  for each row execute function guard_tenant_status_change();
+
 -- ---- 状态流水：供应商和司机也会让状态变化 ----
 
 alter table order_events drop constraint order_events_actor_check;
@@ -169,6 +188,9 @@ create policy driver_links_same_tenant on driver_links to nozomi_app
   using (tenant_id = app_tenant_id())
   with check (tenant_id = app_tenant_id());
 grant select, insert, update on driver_links to nozomi_app;
+-- 运营后台订单详情看司机链接的状态（不含令牌：库里本来就只有哈希）
+create policy driver_links_platform_read on driver_links for select to nozomi_platform using (true);
+grant select on driver_links to nozomi_platform;
 
 -- ---- 照片：到达屏、举牌、联系记录的截图（数据模型 order_evidence 的文件部分）。存在库里（ADR 0027：随数据库备份、多实例共用） ----
 

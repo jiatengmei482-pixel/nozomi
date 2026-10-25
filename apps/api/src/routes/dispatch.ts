@@ -20,17 +20,16 @@ import { authenticateTenant } from "../services/tenant-auth.ts";
 import { ifMatchVersion, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { fleetDriverJson, fleetVehicleJson } from "./fleet.ts";
 
-export const locationSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90), accuracy_m: z.number().int().min(0).max(100_000).nullable().default(null) }).strict();
+export const locationSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90), accuracy_m: z.number().int().min(0).max(100_000).nullable().default(null) });
 
-const assignSchema = z.object({ driver_id: uuidSchema, vehicle_id: uuidSchema, confirm_conflicts: z.boolean().default(false) }).strict();
+const assignSchema = z.object({ driver_id: uuidSchema, vehicle_id: uuidSchema, confirm_conflicts: z.boolean().default(false) });
 
 export const fulfilmentSchema = z
   .object({
     type: z.enum(FULFILMENT_EVENTS),
     location: locationSchema.nullable().default(null),
-    actual: z.object({ minutes: z.number().int().min(0).max(10_080).nullable().default(null), km: z.number().int().min(0).max(5_000).nullable().default(null) }).strict().nullable().default(null),
-  })
-  .strict();
+    actual: z.object({ minutes: z.number().int().min(0).max(10_080).nullable().default(null), km: z.number().int().min(0).max(5_000).nullable().default(null) }).nullable().default(null),
+  });
 
 export function toLocation(input: z.output<typeof locationSchema> | null): { lng: number; lat: number; accuracyM: number | null } | null {
   return input === null ? null : { lng: input.lng, lat: input.lat, accuracyM: input.accuracy_m };
@@ -87,8 +86,8 @@ export function registerDispatchRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.post("/tenant/v1/orders/:id/events", async (request) => {
     const principal = await authenticate(request);
-    const input = parseInput(fulfilmentSchema, request.body, "body");
     const id = resourceId(request.params, "订单");
+    const input = parseInput(fulfilmentSchema, request.body, "body");
     await reportTenantFulfilment(ctx, { principal, ip: request.ip }, id, { type: input.type, location: toLocation(input.location), actual: input.actual });
     const found = await getOrderForTenant(ctx, principal.tenantId, id);
     return { order: tenantOrderJson(found.order, found.facts, ctx.now()) };

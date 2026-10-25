@@ -26,8 +26,8 @@ export const LOCAL_WEBHOOK_HOST = "hooks.nozomi.test";
  * 测试用的发送器：把 `https://hooks.nozomi.test:<端口>` 换成 `http://127.0.0.1:<端口>`（本机的假接收方没有证书），交给真实的发送器
  * （打开 `allowLocalTargets` 只放行 http 和回环地址，其余防 SSRF 的检查照旧；那些检查本身在 webhook-sender.test.ts 里测）。
  */
-export function localWebhookSender(): WebhookSender {
-  const real = new HttpsWebhookSender({ allowLocalTargets: true });
+export function localWebhookSender(options: { timeoutMs?: number } = {}): WebhookSender {
+  const real = new HttpsWebhookSender({ allowLocalTargets: true, ...options });
   const prefix = `https://${LOCAL_WEBHOOK_HOST}:`;
   return {
     send: async (request) => {

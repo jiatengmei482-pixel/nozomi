@@ -146,6 +146,7 @@ check_common() {
   [[ "$(in_container "$name" "grep '^POSTGRES_PASSWORD=' $env_file | cut -d= -f2 | sha256sum")" != "$(in_container "$name" "grep '^POSTGRES_APP_PASSWORD=' $env_file | cut -d= -f2 | sha256sum")" ]] ||
     fail "迁移账号和应用账号的密码不应相同"
   in_container "$name" "grep -Eq '^AUTH_JWT_SECRET=[0-9a-f]{96}$' $env_file" || fail "AUTH_JWT_SECRET 应为 96 位十六进制"
+  in_container "$name" "grep -Eq '^DATA_ENCRYPTION_KEY=[0-9a-f]{64}$' $env_file" || fail "DATA_ENCRYPTION_KEY 应为 64 位十六进制"
   in_container "$name" "grep -q '^STRIPE_SECRET_KEY=$' $env_file" || fail "应给 Stripe 密钥留好空位"
   in_container "$name" 'id -nG nozomi | grep -qw docker' || fail "nozomi 应属于 docker 组"
   [[ "$(in_container "$name" 'getent passwd nozomi | cut -d: -f7')" == "/bin/bash" ]] || fail "nozomi 的登录 shell 应为 bash"

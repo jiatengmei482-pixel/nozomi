@@ -144,7 +144,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_sales: ["INSERT", "SELECT"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
-    // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、照片、联系记录、定位、no-show 申请
+    // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
+    driver_links: ["SELECT"],
     drivers: ["SELECT"],
     order_assignments: ["SELECT"],
     order_contacts: ["SELECT"],
@@ -207,7 +208,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "orders.orders_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_events.order_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 派车和履约、Webhook 订阅：运营后台只读查看，推送任务读订阅（ADR 0027）
-  ...Object.fromEntries(["drivers", "vehicles", "order_assignments", "order_files", "order_contacts", "order_locations", "order_no_show_claims", "tenant_webhooks"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
+  ...Object.fromEntries(["drivers", "vehicles", "order_assignments", "driver_links", "order_files", "order_contacts", "order_locations", "order_no_show_claims", "tenant_webhooks"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },

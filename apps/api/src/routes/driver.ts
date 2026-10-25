@@ -16,11 +16,11 @@ import { dateTimeSchema, parseInput, resourceId, uuidSchema } from "../validatio
 import { fileJson, sendFile } from "./orders.ts";
 import { fulfilmentSchema, locationSchema, toLocation } from "./dispatch.ts";
 
-const fileQuerySchema = z.object({ kind: z.enum(["arrival_screen", "signboard", "contact_screenshot"]) }).strict();
-const landingSchema = z.object({ landed_at: dateTimeSchema, file_id: uuidSchema }).strict();
-const contactSchema = z.object({ method: z.enum(["phone", "messaging"]), note: z.string().trim().max(200).nullable().default(null), file_id: uuidSchema.nullable().default(null) }).strict();
-const locationBodySchema = z.object({ location: locationSchema.nullable().default(null) }).strict();
-const pingSchema = z.object({ location: locationSchema }).strict();
+const fileQuerySchema = z.object({ kind: z.enum(["arrival_screen", "signboard", "contact_screenshot"]) });
+const landingSchema = z.object({ landed_at: dateTimeSchema, file_id: uuidSchema });
+const contactSchema = z.object({ method: z.enum(["phone", "messaging"]), note: z.string().trim().max(200).nullable().default(null), file_id: uuidSchema.nullable().default(null) });
+const locationBodySchema = z.object({ location: locationSchema.nullable().default(null) });
+const pingSchema = z.object({ location: locationSchema });
 
 const iso = (date: Date | null): string | null => date?.toISOString() ?? null;
 
@@ -115,7 +115,10 @@ export function registerDriverRoutes(app: FastifyInstance, ctx: AppContext): voi
     return tripJson(await submitNoShow(ctx, token(request), toLocation(input.location)));
   });
 
-  app.get("/driver/v1/trip/files/:id", async (request, reply) => sendFile(reply, await readDriverFile(ctx, token(request), resourceId(request.params, "照片"))));
+  app.get("/driver/v1/trip/files/:id", async (request, reply) => {
+    const id = resourceId(request.params, "照片");
+    return sendFile(reply, await readDriverFile(ctx, token(request), id));
+  });
 
   // 照片按原始字节上传：只在这一个接口上认图片类型，上限 5 MB（再大 413）
   app.register(async (scoped) => {

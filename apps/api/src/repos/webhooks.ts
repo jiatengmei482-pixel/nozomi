@@ -170,8 +170,8 @@ export interface AttemptOutcome {
 /** 记一次尝试的结果并决定下一步：成功 / 排下一次重试 / 最终失败。 */
 export async function finishDeliveryAttempt(db: Db, delivery: Pick<WebhookDelivery, "tenantId" | "id">, outcome: AttemptOutcome, next: { status: DeliveryStatus; nextAttemptAt: Date | null }): Promise<WebhookDelivery> {
   const result = await db.query<Row>(
-    `update webhook_deliveries d set status = $3, attempts = attempts + 1, next_attempt_at = $4, last_attempt_at = $5, last_status_code = $6, last_error_code = $7, last_duration_ms = $8,
-            succeeded_at = case when $3 = 'succeeded' then $5 else null end, failed_at = case when $3 = 'failed' then $5 else null end
+    `update webhook_deliveries d set status = $3::text, attempts = attempts + 1, next_attempt_at = $4::timestamptz, last_attempt_at = $5::timestamptz, last_status_code = $6, last_error_code = $7,
+            last_duration_ms = $8, succeeded_at = case when $3::text = 'succeeded' then $5::timestamptz end, failed_at = case when $3::text = 'failed' then $5::timestamptz end
       where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
     [delivery.tenantId, delivery.id, next.status, next.nextAttemptAt, outcome.at, outcome.statusCode, outcome.errorCode, outcome.durationMs],
   );

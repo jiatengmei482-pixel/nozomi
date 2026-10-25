@@ -471,11 +471,11 @@ test("租户隔离：租户 A 读不到、改不了租户 B 的订单（接口 4
   const sneaky = await tenantCall(m.a.adminToken, `/tenant/v1/orders?tenant_id=${m.b.tenantId}`, "/tenant/v1/orders");
   assert.equal(sneaky.status, 200);
   assert.ok(!sneaky.body.items.some((item: any) => item.id === order.id), "查询参数里的 tenant_id 被忽略");
-  // 数据库层面：A 的租户事务读不到 B 的单，也改不了任何订单（租户角色没有改的权限）；订单的销售端一侧、收款、通知一张都碰不到
+  // 数据库层面：A 的租户事务读不到 B 的单，也改不了别人的单；B 自己也只能改派车和履约的那几列、只能在履约的范围里改状态（M3-02，ADR 0027）；订单的销售端一侧、收款、通知一张都碰不到
   const seen = await withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query("select id from orders where id = $1", [order.id]));
   assert.equal(seen.rowCount, 0);
   await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query("update orders set notes = 'x' where id = $1", [order.id])), deniedByDatabase);
-  await assert.rejects(withTenantTx(api.db.pool, m.b.tenantId, (db) => db.query("update orders set status = 'cancelled' where id = $1", [order.id])), deniedByDatabase, "B 自己也不能直接改");
+  await assert.rejects(withTenantTx(api.db.pool, m.b.tenantId, (db) => db.query("update orders set status = 'cancelled' where id = $1", [order.id])), deniedByDatabase, "B 自己也不能直接取消（取消只有平台能写）");
   await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query("insert into order_events (tenant_id, order_id, to_status, actor, occurred_at) values ($1, $2, 'cancelled', 'system', now())", [m.b.tenantId, order.id])), deniedByDatabase);
   for (const table of ["order_sales", "order_payments", "payment_events"]) {
     await assert.rejects(withTenantTx(api.db.pool, m.b.tenantId, (db) => db.query(`select * from ${table}`)), deniedByDatabase, table);

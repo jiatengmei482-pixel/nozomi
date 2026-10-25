@@ -35,8 +35,7 @@ const settingsSchema = z
     url: z.string().max(WEBHOOK_RULES.maxUrlLength + 100),
     events: z.array(z.enum(TENANT_WEBHOOK_EVENTS)).min(1).max(TENANT_WEBHOOK_EVENTS.length),
     status: z.enum(["active", "paused"]).default("active"),
-  })
-  .strict();
+  });
 
 const deliveryListSchema = pageQuerySchema.extend({ status: z.enum(["pending", "succeeded", "failed"]).optional(), order_id: uuidSchema.transform((value) => value.toLowerCase()).optional() });
 const platformDeliveryListSchema = deliveryListSchema.extend({ tenant_id: uuidSchema.transform((value) => value.toLowerCase()).optional() });
