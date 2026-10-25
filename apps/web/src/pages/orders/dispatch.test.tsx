@@ -252,7 +252,7 @@ test("Webhook：新建时签名密钥只在对话框里出现一次；只认 htt
   assert.ok(await screen.findByText(/失败后按 1 分钟、5 分钟、30 分钟、2 小时、6 小时、1 天 重试，共 7 次/));
   await actor.type(screen.getByLabelText("接收地址"), "http://dispatch.example.com/hook");
   await actor.click(screen.getByRole("button", { name: "保存并生成签名密钥" }));
-  assert.ok(screen.getByText("只接受 https:// 开头的地址"));
+  assert.ok(screen.getByText("只接受 https 开头的地址"));
   await actor.clear(screen.getByLabelText("接收地址"));
   await actor.type(screen.getByLabelText("接收地址"), "https://dispatch.example.com/hook");
   await actor.click(screen.getByRole("button", { name: "保存并生成签名密钥" }));
@@ -309,7 +309,8 @@ test("司机页面：令牌从 # 后面取、放在请求头里；有客人、�
   assert.equal(calls[0]?.headers["authorization"], `Bearer ${LINK_TOKEN}`);
   assert.ok(screen.getByText("航班 NH211"));
   assert.equal(screen.getByRole("link", { name: "+819012345678" }).getAttribute("href"), "tel:+819012345678");
-  assert.match(screen.getByRole("link", { name: "导航到上车点" }).getAttribute("href") ?? "", /destination=35\.7686,140\.3887/);
+  assert.equal(screen.getByRole("link", { name: "导航到上车点" }).getAttribute("href"), "geo:35.7686,140.3887?q=35.7686,140.3887");
+  assert.ok(screen.getByText("上车点坐标：35.768600, 140.388700"));
   assert.doesNotMatch(document.body.textContent ?? "", /JPY|价格|结算|对外价|¥/);
   assert.ok(!(document.body.textContent ?? "").includes(LINK_TOKEN), "令牌不显示在页面上");
   await user().click(screen.getByRole("button", { name: "我出发了" }));

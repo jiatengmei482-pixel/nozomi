@@ -60,8 +60,9 @@ function currentLocation(): Promise<ReportedLocation | null> {
   });
 }
 
-function mapLink(point: { lng: number; lat: number }): string {
-  return `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}`;
+/** 导航：`geo:` 链接交给手机自带的地图应用（不链到站外网页：本站只允许 lib/external-links.ts 里登记的外链）。 */
+export function mapLink(point: { lng: number; lat: number }): string {
+  return `geo:${point.lat},${point.lng}?q=${point.lat},${point.lng}`;
 }
 
 function errorText(err: unknown): string {
@@ -230,9 +231,12 @@ export function DriverTripPage() {
         <p>{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
         <p>{`下车：${order.dropoff?.address ?? placeName ?? "—"}`}</p>
         {order.pickup_point !== null && (
-          <a className="button button--secondary button--block" href={mapLink(order.pickup_point)} target="_blank" rel="noopener noreferrer">
-            导航到上车点
-          </a>
+          <>
+            <a className="button button--secondary button--block" href={mapLink(order.pickup_point)}>
+              导航到上车点
+            </a>
+            <p className="field__hint">{`上车点坐标：${order.pickup_point.lat.toFixed(6)}, ${order.pickup_point.lng.toFixed(6)}`}</p>
+          </>
         )}
         <p>{`免费等待：${order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}，从 ${formatInZone(trip.free_wait.start, zone)} 起${trip.free_wait.end ? `，到 ${formatInZone(trip.free_wait.end, zone)}` : ""}`}</p>
         {trip.vehicle && <p>{`车辆：${trip.vehicle.plate} · ${trip.vehicle.model}`}</p>}

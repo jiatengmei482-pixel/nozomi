@@ -4,7 +4,7 @@
  *   看：`webhook.read`（管理员、调度、只读）；改、重推、测试：`webhook.manage`（管理员）。
  * - 运营后台「推送记录」：跨供应商看投递（默认只看最终失败的），手动重推（`order.resend`：运营、客服）。
  */
-import type { TenantWebhookEvent } from "@nozomi/domain";
+import { type TenantWebhookEvent, type WebhookUrlIssue, webhookUrlIssue } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -43,6 +43,16 @@ import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, useTenantCan } from "../../lib/use-master-access.ts";
 
 const DEFAULT_EVENTS: readonly TenantWebhookEvent[] = ["order.confirmed", "order.assigned", "order.status_changed", "order.changed", "order.cancelled"];
+
+/** 接收地址的问题（和后端同一个校验 @nozomi/domain 的 webhookUrlIssue；保存时后端还会再查一次）。 */
+const URL_ISSUE_TEXT: Readonly<Record<WebhookUrlIssue, string>> = {
+  INVALID_URL: "不是合法的网址",
+  TOO_LONG: "网址太长了（最多 2048 个字符）",
+  NOT_HTTPS: "只接受 https 开头的地址",
+  HAS_CREDENTIALS: "网址里不能带账号和密码",
+  HAS_FRAGMENT: "网址里不能带 #",
+  FORBIDDEN_HOST: "不能推送到内网、本机或云服务器的元数据地址，请填公网可以访问的地址",
+};
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系你们的管理员开通。" />;
 
@@ -142,7 +152,8 @@ export function WebhookSettingsPage() {
 
   const save = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
-    if (!/^https:\/\//.test(url.trim())) return setErrors(["只接受 https:// 开头的地址"]);
+    const issue = webhookUrlIssue(url.trim());
+    if (issue !== null) return setErrors([URL_ISSUE_TEXT[issue]]);
     if (events.length === 0) return setProblem("至少订阅一个事件");
     setErrors([]);
     setProblem(null);
@@ -178,7 +189,7 @@ export function WebhookSettingsPage() {
         <h2 className="card__title">接收地址</h2>
         <form className="form" noValidate onSubmit={(event) => void save(event)}>
           {problem !== null && <Alert kind="danger">{problem}</Alert>}
-          <TextField label="接收地址" type="url" value={url} placeholder="https://dispatch.example.com/nozomi" readOnly={!canManage} errors={errors} hint="只接受公网可以访问的 https 地址；不跟随重定向；5 秒内要回 2xx。" onChange={(event) => setUrl(event.target.value)} />
+          <TextField label="接收地址" type="url" value={url} readOnly={!canManage} errors={errors} hint="你们调度系统接收推送的地址：只接受公网可以访问的 https 地址；不跟随重定向；5 秒内要回 2xx。" onChange={(event) => setUrl(event.target.value)} />
           <CheckboxGroup legend="订阅的事件" name="webhook-events" readOnly={!canManage} options={(data?.events ?? []).map((entry) => ({ value: entry.event, label: entry.name }))} value={events} onChange={setEvents} />
           <CheckboxGroup legend="暂停" name="webhook-paused" readOnly={!canManage} options={[{ value: "paused", label: "暂停推送（暂停期间新事件不排队）" }]} value={paused ? ["paused"] : []} onChange={(value) => setPaused(value.includes("paused"))} />
           {current !== null && <p className="field__hint">{`签名密钥末 4 位：${current.secret_hint}（${formatLocalDateTime(current.secret_created_at)} 生成）`}</p>}
