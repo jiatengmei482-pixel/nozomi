@@ -13,6 +13,7 @@ import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { type Column, DataTable, type TableState } from "../../components/DataTable.tsx";
 import { FilterBar, SearchBox, useFilterParam } from "../../components/FilterBar.tsx";
@@ -380,23 +381,26 @@ export function ChannelNewPage() {
   );
   if (account.status === "ready" && !canManage) return shell(NO_ACCESS);
   return shell(
-    <ChannelForm
-      initial={emptyForm()}
-      withPricing
-      submitLabel="新建"
-      cancelTo={CHANNELS_PAGE_PATH}
-      onSubmit={async (body) => {
-        try {
-          const created = await createChannel(token, body);
-          toast(`已新建渠道「${created.channel.name}」，状态是「测试」`);
-          void navigate(channelPath(created.channel.id), { replace: true });
-          return null;
-        } catch (err) {
-          if (handleAuthFailure(err)) return null;
-          throw err;
-        }
-      }}
-    />,
+    <>
+      <ChannelForm
+        initial={emptyForm()}
+        withPricing
+        submitLabel="新建"
+        cancelTo={CHANNELS_PAGE_PATH}
+        onSubmit={async (body) => {
+          try {
+            const created = await createChannel(token, body);
+            toast(`已新建渠道「${created.channel.name}」，状态是「测试」`);
+            void navigate(channelPath(created.channel.id), { replace: true });
+            return null;
+          } catch (err) {
+            if (handleAuthFailure(err)) return null;
+            throw err;
+          }
+        }}
+      />
+      <Attributions sources={placeSources(false)} />
+    </>,
   );
 }
 
@@ -443,6 +447,7 @@ export function ChannelEditPage() {
           }
         }}
       />
+      <Attributions sources={placeSources(false)} />
     </>,
   );
 }
@@ -468,5 +473,12 @@ export function ChannelDetailPage() {
   if (!valid || loaded.state.status === "not-found") return shell(<section className="card"><StateBlock tone="neutral" title="找不到这个渠道" description="链接可能有误。" action={<LinkButton variant="primary" to={CHANNELS_PAGE_PATH}>回到渠道列表</LinkButton>} /></section>);
   if (!detail) return shell(<section className="card">{loaded.state.status === "error" || loaded.state.status === "forbidden" ? <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={loaded.reload}>重试</Button>} /> : <Skeleton lines={["medium", "long", "long", "short"]} />}</section>);
   const channel = detail.channel;
-  return shell(<ChannelDetailSections detail={detail} onChanged={loaded.reload} onReplace={loaded.set} />, channel.name, <StatusBadge {...CHANNEL_STATUS_BADGES[channel.status]} />);
+  return shell(
+    <>
+      <ChannelDetailSections detail={detail} onChanged={loaded.reload} onReplace={loaded.set} />
+      <Attributions sources={placeSources(false)} />
+    </>,
+    channel.name,
+    <StatusBadge {...CHANNEL_STATUS_BADGES[channel.status]} />,
+  );
 }

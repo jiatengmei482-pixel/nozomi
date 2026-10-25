@@ -417,3 +417,21 @@ test("M1-17 同一渠道已有待审核的定价改动时再发起：改定价�
   await waitFor(() => assert.ok(calls.filter((call) => call.path.includes("status=pending")).length >= 3));
   assert.equal(within(dialog).queryByText(/待审核的定价改动/), null, "只有另一条新增规则挂着时不提醒");
 });
+
+test("数据来源署名（M1-18）：新建渠道、编辑授权范围、渠道详情都展示城市名称，都注明 GeoNames", async () => {
+  const lines = (): string[] => [...document.querySelectorAll(".page__attribution")].map((node) => (node.textContent ?? "").replace(/（在新标签页打开）/g, ""));
+  const geonames = ["城市数据和机场的中文、日文名称来自 GeoNames（geonames.org），CC BY 4.0"];
+  open("/platform/channels/new", "channel_manager");
+  await screen.findByRole("heading", { level: 1, name: "新建渠道" });
+  assert.deepEqual(lines(), geonames);
+  resetBrowser();
+
+  open(`/platform/channels/${CHANNEL_ID}/edit`, "channel_manager");
+  await screen.findByRole("button", { name: "保存" });
+  assert.deepEqual(lines(), geonames);
+  resetBrowser();
+
+  open(`/platform/channels/${CHANNEL_ID}`, "channel_manager");
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  assert.deepEqual(lines(), geonames);
+});

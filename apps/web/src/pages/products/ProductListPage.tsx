@@ -7,6 +7,7 @@ import type { City, MasterPage } from "../../api/master.ts";
 import { type Brand, type ProductSummary, listBrands, listProducts } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
@@ -318,6 +319,7 @@ export function ProductListPage() {
           if (next) goToPage([...stack, next]);
         }}
       />
+      <Attributions sources={placeSources(true)} />
       {actions.dialog}
     </>,
     canManage ? newButton : undefined,

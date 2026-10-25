@@ -11,6 +11,7 @@ import type { City } from "../../api/master.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, type AlertKind } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
@@ -718,6 +719,8 @@ export function AreaEditorPage() {
         )}
       </div>
 
+      {/* 城市名称来自 GeoNames，按许可要注明来源（ADR 0014） */}
+      <Attributions sources={placeSources(false)} />
       {readOnly && (
         <div>
           <LinkButton to={backTo}>回到列表</LinkButton>

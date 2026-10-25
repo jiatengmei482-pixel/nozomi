@@ -12,6 +12,7 @@ import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
@@ -300,6 +301,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
           if (next) goToPage([...stack, next]);
         }}
       />
+      <Attributions sources={placeSources(true)} />
     </>
   );
 }
@@ -512,6 +514,7 @@ export function PlatformProductDetailPage() {
         </Alert>
       ))}
       <ProductSteps frame={frame} current={slug} rest={rest} checkStatus={loaded.state.status} onReloadCheck={loaded.reload} inventory={<InventorySummary detail={detail} listPath={listPath} listState={listState} />} />
+      {slug !== "basic" && <Attributions sources={placeSources(product.category === "airport_transfer")} />}
     </div>,
     meta,
   );

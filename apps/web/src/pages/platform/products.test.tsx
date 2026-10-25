@@ -644,3 +644,23 @@ test("只读详情的每一步、每个页签：说明文字不对供应商说�
     assert.ok(all.includes(expected), `应有「${expected}」`);
   }
 });
+
+test("数据来源署名（M1-18）：商品列表、商品详情的每一步、报价试算都展示城市和机场名称，都注明 OurAirports 和 GeoNames", async () => {
+  const lines = (): string[] => [...document.querySelectorAll(".page__attribution")].map((node) => (node.textContent ?? "").replace(/（在新标签页打开）/g, ""));
+  const both = ["机场数据来自 OurAirports（ourairports.com），公有领域", "城市数据和机场的中文、日文名称来自 GeoNames（geonames.org），CC BY 4.0"];
+  open("/platform/products", "super_admin");
+  await screen.findByRole("link", { name: "羽田机场接送" });
+  assert.deepEqual(lines(), both);
+  resetBrowser();
+
+  for (const slug of ["basic", "service-rules"]) {
+    open(`/platform/products/${PRODUCT_ID}/${slug}`, "customer_service");
+    await screen.findByRole("heading", { level: 2, name: slug === "basic" ? "① 基础信息" : "② 服务规则" });
+    await waitFor(() => assert.deepEqual(lines(), both, `「${slug}」这一步只有一份署名`));
+    resetBrowser();
+  }
+
+  open("/platform/quote-preview", "operations");
+  await screen.findByRole("heading", { level: 2, name: "用车请求" });
+  assert.deepEqual(lines(), both);
+});

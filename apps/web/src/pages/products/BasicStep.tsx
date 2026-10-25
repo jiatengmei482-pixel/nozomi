@@ -12,7 +12,7 @@ import { ApiError } from "../../api/client.ts";
 import { type Brand, type Product, type ProductPatch, alreadyCreatedId, createProduct, getProduct, listAllAreas, listBrands, listPickupPlaces, patchProduct } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
-import { Attributions } from "../../components/Attribution.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, IconButton, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { FieldErrors, RadioGroup, StaticField } from "../../components/FormFields.tsx";
@@ -907,7 +907,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
               </div>
             </section>
             {/* 城市和接送点的名称来自公开数据，按许可要注明来源（ADR 0014、0024） */}
-            <Attributions sources={category === "airport_transfer" ? ["ourairports", "geonames"] : ["geonames"]} />
+            <Attributions sources={placeSources(category === "airport_transfer")} />
             {addingBrand && (
               <BrandDialog
                 onClose={() => setAddingBrand(false)}
