@@ -7,7 +7,7 @@
 import { randomInt } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
-import { CENTER, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
+import { CENTER, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { adminCredentials, loginAs } from "./support.ts";
 
 /** 写入一张已确认的接机单：用车时间是今天起第 3 天东京 10:00。返回订单号。 */
@@ -58,6 +58,7 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   await driverDialog.getByLabel("驾照到期日").fill("2035-01-01");
   await driverDialog.getByRole("button", { name: "保存" }).click();
   await expect(page.getByRole("rowheader", { name: "佐藤一郎" })).toBeVisible();
+  await expectAccessible(page, "司机列表");
 
   // 车辆
   await page.getByRole("link", { name: "车辆" }).click();
@@ -78,6 +79,7 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   const row = page.getByRole("row").filter({ hasText: orderNo });
   await expect(row).toContainText("未派车");
   await expect(row).toContainText("20,000 JPY");
+  await expectAccessible(page, "订单列表");
   await row.getByRole("link", { name: orderNo }).click();
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   await page.getByRole("button", { name: "派车", exact: true }).click();
@@ -90,6 +92,7 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   expect(link).toMatch(/\/driver#nzd_[0-9a-f]{32}\.[A-Za-z0-9_-]{43}$/);
   await linkDialog.getByRole("button", { name: "我已发给司机" }).click();
   await expect(page.getByText("佐藤一郎 · +819011112222")).toBeVisible();
+  await expectAccessible(page, "订单详情");
 
   // 司机在手机上打开链接：给定位权限，先在市区
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ["geolocation"], geolocation: { latitude: 35.7, longitude: 139.75 }, locale: "zh-CN" });
@@ -98,6 +101,7 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   await expect(driverPage.getByText("王小明 · 2 人 1 件行李")).toBeVisible();
   await expect(driverPage.getByText("航班 NH211")).toBeVisible();
   expect(await driverPage.locator("body").innerText()).not.toMatch(/JPY|20,000|结算|对外价|价格/);
+  await expectAccessible(driverPage, "司机页面");
   await driverPage.getByRole("button", { name: "我出发了" }).click();
   await expect(driverPage.getByRole("button", { name: "已到达上车点" })).toBeVisible();
   await phone.setGeolocation({ latitude: CENTER_AIRPORT.lat, longitude: CENTER_AIRPORT.lng });
@@ -120,6 +124,7 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   expect(secret).toMatch(/^nzwh_[A-Za-z0-9_-]{43}$/);
   await secretDialog.getByRole("button", { name: "我已保存" }).click();
   await expect(page.getByText(`签名密钥末 4 位：${secret.slice(-4)}`, { exact: false })).toBeVisible();
+  await expectAccessible(page, "Webhook 设置");
   expect(await page.locator("body").innerText()).not.toContain(secret);
 
   // 运营后台：推送记录

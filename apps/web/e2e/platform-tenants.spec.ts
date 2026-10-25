@@ -288,7 +288,7 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   const staffName = `运营 ${random()}`;
   await page.getByRole("link", { name: "新增员工" }).click();
   await expect(page.getByRole("radio")).toHaveCount(10);
-  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单。").first()).toBeVisible();
+  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook。").first()).toBeVisible();
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
   await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单。").first()).toBeVisible();
   await page.getByLabel(/^邮箱/).fill(email);
