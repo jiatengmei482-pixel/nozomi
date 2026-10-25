@@ -78,15 +78,6 @@ export function orderStatusIsFinal(status: OrderStatus): boolean {
   return TRANSITIONS[status].length === 0;
 }
 
-/** 订单为什么被取消。M3-01 只有付款前的两种；客人、平台、租户原因的取消在 M3-03 / M3-04 加。 */
-export const ORDER_CANCEL_REASONS = ["PAYMENT_TIMEOUT", "PAYMENT_CANCELED"] as const;
-export type OrderCancelReason = (typeof ORDER_CANCEL_REASONS)[number];
-
-export const ORDER_CANCEL_REASON_NAMES: Readonly<Record<OrderCancelReason, string>> = {
-  PAYMENT_TIMEOUT: "超时未支付，系统自动取消",
-  PAYMENT_CANCELED: "付款被取消",
-};
-
 /**
  * 租户看不看得到这一单：只有付过款（确认过）的才看得到。待支付、没付款就取消的单对租户不存在——
  * 需求「支付后可见乘客姓名、电话、航班号」，而且没付款的单不需要租户做任何事。
