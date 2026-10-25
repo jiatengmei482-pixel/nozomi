@@ -224,11 +224,11 @@ test("待审核：发起人只能撤回、看不到批准和驳回；别人能�
   });
   const mineCard = (await screen.findByText("我发起的那条")).closest("section") as HTMLElement;
   assert.deepEqual(within(mineCard).queryAllByRole("button", { name: /批准|驳回/ }), []);
-  assert.ok(within(mineCard).getByRole("button", { name: "撤回" }));
+  assert.ok(within(mineCard).getByRole("button", { name: /^撤回：我发起的那条（/ }));
   assert.ok(within(mineCard).getByText(/要等另一位有审核权限的同事处理/));
   const otherCard = screen.getByText("「NOZOMI 官网」改定价参数：默认加价 10% → 12%", { selector: "p" }).closest("section") as HTMLElement;
   assert.ok(within(otherCard).getByText("12%", { selector: "strong" }), "改之后的值");
-  await actor.click(within(otherCard).getByRole("button", { name: "批准" }));
+  await actor.click(within(otherCard).getByRole("button", { name: /^批准：/ }));
   const dialog = await screen.findByRole("dialog", { name: /^批准/ });
   await actor.type(within(dialog).getByRole("textbox", { name: "说明（选填）" }), "同意");
   await actor.click(within(dialog).getByRole("button", { name: "批准" }));
@@ -332,4 +332,46 @@ test("M1-17 加价规则的城市：只列渠道授权的城市（按名称排�
   const all = await screen.findByRole("dialog", { name: "新增加价规则" });
   await actor.click(within(all).getByRole("combobox", { name: /城市/ }));
   await waitFor(() => assert.deepEqual(optionNames(within(all).getByRole("listbox", { name: "城市" })), ["Seoul", "大阪", "东京", "札幌"], "停用的名古屋不列"));
+});
+
+test("M1-17 申请调高下限被拦（RULES_BELOW_FLOOR）：列出是哪几条规则、怎么办", async () => {
+  const actor = user();
+  const calls = open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", (call) => (call.method === "POST" && call.url.pathname.endsWith("/pricing-changes") ? apiError(409, "RULES_BELOW_FLOOR", "有 1 条还在用的加价规则低于新的下限 16%，请先把它们改到下限以上再调高下限", { rule_ids: [RULE_ID], floor_bp: 1600 }) : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: "申请修改定价参数" }));
+  const dialog = await screen.findByRole("dialog", { name: "申请修改定价参数" });
+  for (const name of ["加价下限（%）", "默认加价比例（%）"]) {
+    await actor.clear(within(dialog).getByRole("textbox", { name }));
+    await actor.type(within(dialog).getByRole("textbox", { name }), "16");
+  }
+  await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
+  const alert = await within(dialog).findByText(/有 1 条还在用的加价规则低于新的下限 16%/);
+  const box = alert.closest(".alert") as HTMLElement;
+  assert.deepEqual(within(box).getAllByRole("listitem").map((item) => item.textContent), ["第 2 级 · NOZOMI 自营车队 = 15%（用车日期 不限）"]);
+  assert.match(box.textContent ?? "", /在「加价规则」里把这几条「修改」到新的下限以上/);
+  assert.equal(posts(calls).length, 1);
+});
+
+test("M1-17 批准「暂停渠道」的确认说明讲暂停的后果；批准调高下限被拦时列出挡住的规则", async () => {
+  const actor = user();
+  const pause = approvalOf({ id: "a2a2a2a2-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "channel.pause", summary: "暂停「NOZOMI 官网」", payload: { status: "paused" }, before: { status: "testing" } });
+  const floor = approvalOf({ summary: "「NOZOMI 官网」改定价参数：下限 10% → 16%" });
+  open("/platform/approvals", "channel_manager", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/approvals") return page([pause, floor]);
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/approvals/${APPROVAL_ID}/approve`) return apiError(409, "RULES_BELOW_FLOOR", "有 1 条还在用的加价规则低于新的下限 16%，请先把它们改到下限以上再调高下限", { rule_ids: [RULE_ID], floor_bp: 1600 });
+    return null;
+  });
+  await actor.click(await screen.findByRole("button", { name: /^批准：暂停「NOZOMI 官网」/ }));
+  const paused = await screen.findByRole("dialog", { name: "批准：暂停渠道" });
+  assert.match(paused.textContent ?? "", /批准后渠道立即暂停：它调用销售端接口（询价等）一律被拒绝/);
+  assert.doesNotMatch(paused.textContent ?? "", /按新的规则算/);
+  await actor.click(within(paused).getByRole("button", { name: "取消" }));
+
+  await actor.click(screen.getByRole("button", { name: /^批准：「NOZOMI 官网」改定价参数：下限 10% → 16%/ }));
+  const dialog = await screen.findByRole("dialog", { name: "批准：改定价参数" });
+  assert.match(dialog.textContent ?? "", /之后的询价按新的定价参数算/);
+  await actor.click(within(dialog).getByRole("button", { name: "批准" }));
+  const box = (await within(dialog).findByText(/按现在的数据不能生效：有 1 条还在用的加价规则低于新的下限 16%/)).closest(".alert") as HTMLElement;
+  assert.deepEqual(within(box).getAllByRole("listitem").map((item) => item.textContent), ["第 2 级 · NOZOMI 自营车队 = 15%（用车日期 不限）"]);
+  assert.match(box.textContent ?? "", /请驳回/);
 });

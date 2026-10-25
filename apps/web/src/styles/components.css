@@ -719,3 +719,8 @@
   padding: 0;
   list-style: none;
 }
+
+.alert__list {
+  margin: var(--space-1) 0;
+  padding-left: var(--space-5);
+}

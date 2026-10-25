@@ -5,7 +5,7 @@
  */
 import { type ReactNode, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { type Approval, type Channel, decideApproval, listAllChannels, listApprovals } from "../../api/channels.ts";
+import { type Approval, type ApprovalKind, type Channel, decideApproval, getChannel, listAllChannels, listApprovals } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
@@ -17,13 +17,14 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, channelPath } from "../../lib/channel-display.ts";
+import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, belowFloorRuleLines, channelPath } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { BelowFloorAlert } from "./ChannelSections.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 type Decision = "approve" | "reject" | "withdraw";
@@ -39,6 +40,20 @@ function decisionFailure(err: unknown): string {
     if (err.status === 403) return "你没有审核这一类改动的权限。";
   }
   return failureText(err, "提交");
+}
+
+/** 批准的确认框里「批准后会怎样」，按改动的类别写（M1-17：暂停渠道不是「按新的规则算」）。 */
+const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
+  "channel.pricing": "批准后立即生效：之后的询价按新的定价参数算。这个渠道上其他还在等审核的改动会过时，只能驳回后重新发起。",
+  "channel.pause": "批准后渠道立即暂停：它调用销售端接口（询价等）一律被拒绝。要恢复，到渠道详情点「启用」。",
+  "markup_rule.create": "批准后立即生效：之后的询价按新加的这条规则算。",
+  "markup_rule.update": "批准后立即生效：之后的询价按改过的这条规则算。",
+  "markup_rule.delete": "批准后这条规则立即删除：之后的询价改按下一级的规则或默认加价比例算。",
+};
+
+/** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */
+function decisionLabel(decision: Decision, approval: Approval): string {
+  return `${DECISION_NAMES[decision]}：${approval.summary}（${formatLocalDateTime(approval.requested_at)} 发起）`;
 }
 
 function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; channel: Channel | null; onDecide(approval: Approval, decision: Decision): void }) {
@@ -108,16 +123,20 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
       {approval.status === "pending" && (
         <div className="approval-card__actions">
           {approval.can.approve && (
-            <Button variant="primary" onClick={() => onDecide(approval, "approve")}>
+            <Button variant="primary" aria-label={decisionLabel("approve", approval)} onClick={() => onDecide(approval, "approve")}>
               批准
             </Button>
           )}
           {approval.can.reject && (
-            <Button variant="secondary" className="button--danger-text" onClick={() => onDecide(approval, "reject")}>
+            <Button variant="secondary" className="button--danger-text" aria-label={decisionLabel("reject", approval)} onClick={() => onDecide(approval, "reject")}>
               驳回
             </Button>
           )}
-          {approval.can.withdraw && <Button onClick={() => onDecide(approval, "withdraw")}>撤回</Button>}
+          {approval.can.withdraw && (
+            <Button aria-label={decisionLabel("withdraw", approval)} onClick={() => onDecide(approval, "withdraw")}>
+              撤回
+            </Button>
+          )}
           {!approval.can.approve && approval.can.withdraw && <span className="table__muted">这是你发起的，要等另一位有审核权限的同事处理。</span>}
           {!approval.can.approve && !approval.can.withdraw && <span className="table__muted">你可以查看，但没有审核这一类改动的权限。</span>}
         </div>
@@ -141,7 +160,7 @@ export function ApprovalsPage() {
   const [deciding, setDeciding] = useState<{ approval: Approval; decision: Decision } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<ReactNode>(null);
 
   const shell = (content: ReactNode): ReactNode => (
     <AppShell pageName="待审核">
@@ -150,6 +169,14 @@ export function ApprovalsPage() {
   );
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
 
+  /** 调高下限批不了：取一次渠道现在的规则，写出是哪几条挡住了；取不到就只写接口的原话 */
+  const belowFloorProblem = async (err: ApiError, approval: Approval): Promise<ReactNode> => {
+    const rules = await getChannel(token, approval.resource_id).then(
+      (detail) => detail.markup_rules,
+      () => null,
+    );
+    return <BelowFloorAlert message={`按现在的数据不能生效：${err.message}`} lines={rules === null ? [] : belowFloorRuleLines(err.details, rules)} then="请驳回；等这几条规则改到新的下限以上之后，让发起人重新发起。" />;
+  };
   const confirm = async (): Promise<void> => {
     if (deciding === null) return;
     setBusy(true);
@@ -161,7 +188,7 @@ export function ApprovalsPage() {
       setRound(round + 1);
     } catch (err) {
       if (handleAuthFailure(err)) return;
-      setProblem(decisionFailure(err));
+      setProblem(err instanceof ApiError && err.code === "RULES_BELOW_FLOOR" ? await belowFloorProblem(err, deciding.approval) : decisionFailure(err));
     } finally {
       setBusy(false);
     }
@@ -216,9 +243,9 @@ export function ApprovalsPage() {
             </>
           }
         >
-          <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+          <div role="alert">{typeof problem === "string" ? <Alert kind="danger">{problem}</Alert> : problem}</div>
           <p>{deciding.approval.summary}</p>
-          {deciding.decision === "approve" && <p>批准后改动立即生效：之后的询价就按新的规则算。</p>}
+          {deciding.decision === "approve" && <p>{APPROVE_EFFECTS[deciding.approval.kind]}</p>}
           <TextField label="说明（选填）" autoComplete="off" value={note} onChange={(event) => setNote(event.target.value)} />
         </Dialog>
       )}

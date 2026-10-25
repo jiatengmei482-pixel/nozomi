@@ -151,3 +151,15 @@ export function cityChoices(cities: readonly City[]): ComboboxOption[] {
     .sort((a, b) => NAME_ORDER.compare(a.country, b.country) || NAME_ORDER.compare(a.name, b.name) || a.city.code.localeCompare(b.city.code))
     .map(({ city, name, country }) => ({ value: city.id, label: city.status === "active" ? name : `${name}（已停用）`, detail: city.code, group: country, keywords: `${Object.values(city.name).join(" ")} ${country}` }));
 }
+
+/**
+ * 调高下限被拦（409 RULES_BELOW_FLOOR，`details.rule_ids`）时，把挡住的规则一条条写出来（M1-17）：
+ * 「第 2 级 · NOZOMI 车队 = 12%（用车日期 不限）」。规则表里找不到的（刚被别人改过、删了）写明刷新后再看。
+ */
+export function belowFloorRuleLines(details: Readonly<Record<string, unknown>>, rules: readonly MarkupRule[]): string[] {
+  const ids = Array.isArray(details["rule_ids"]) ? details["rule_ids"].filter((id): id is string => typeof id === "string") : [];
+  return ids.map((id) => {
+    const rule = rules.find((entry) => entry.id === id);
+    return rule ? `第 ${rule.level} 级 · ${ruleScopeText(rule)} = ${percentText(rule.markup_bp)}（用车日期 ${ruleDatesText(rule)}）` : "有一条规则这里还没有显示（可能刚被改过），刷新页面后再看";
+  });
+}

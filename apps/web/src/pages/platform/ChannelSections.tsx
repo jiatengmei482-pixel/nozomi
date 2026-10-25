@@ -43,7 +43,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
+import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { SERVICE_CATEGORY_NAMES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, moneyText, readAmount } from "../../lib/product-display.ts";
@@ -68,6 +68,23 @@ function requestFailure(err: unknown, what: string): string {
     if (err.status === 403) return "你没有权限做这个操作。需要的话，请联系管理员开通。";
   }
   return failureText(err, what);
+}
+
+/** 调高下限被拦时：说清楚是哪几条规则、怎么办（M1-17）。 */
+export function BelowFloorAlert({ message, lines, then }: { message: string; lines: readonly string[]; then: string }) {
+  return (
+    <Alert kind="danger">
+      <strong className="alert__title">{`${message}。`}</strong>
+      {lines.length > 0 && (
+        <ul className="alert__list">
+          {lines.map((line, index) => (
+            <li key={`${index}-${line}`}>{line}</li>
+          ))}
+        </ul>
+      )}
+      <span>{then}</span>
+    </Alert>
+  );
 }
 
 // ───────────── 加价规则的表单 ─────────────
@@ -233,7 +250,7 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
   const [rounding, setRounding] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(channel.pricing.sell_rounding).map(([currency, unit]) => [currency, amountText(unit, currency)])));
   const [note, setNote] = useState("");
   const [attempted, setAttempted] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<ReactNode>(null);
   const [busy, setBusy] = useState(false);
   const floorBp = readPercent(floor);
   const markupBp = readPercent(markup);
@@ -267,7 +284,13 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
       onDone();
     } catch (err) {
       if (handleAuthFailure(err)) return;
-      setProblem(requestFailure(err, "提交"));
+      setProblem(
+        err instanceof ApiError && err.code === "RULES_BELOW_FLOOR" ? (
+          <BelowFloorAlert message={err.message} lines={belowFloorRuleLines(err.details, detail.markup_rules)} then="在「加价规则」里把这几条「修改」到新的下限以上（同样要同事批准），批准后再来调高下限；或者把下限改低一点。" />
+        ) : (
+          requestFailure(err, "提交")
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -280,7 +303,7 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
       </>
     }>
       <form id="pricing-form" className="form" noValidate onSubmit={(event) => void submit(event)}>
-        <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        <div role="alert">{typeof problem === "string" ? <Alert kind="danger">{problem}</Alert> : problem}</div>
         <p className="page-intro">改加价比例是敏感操作：提交后要另一位同事批准才生效。调高下限时，还在用的加价规则不能低于新的下限。</p>
         <TextField label="默认加价比例（%）" inputMode="decimal" autoComplete="off" value={markup} errors={shown(errors.markup)} onChange={(event) => setMarkup(event.target.value)} />
         <TextField label="加价下限（%）" inputMode="decimal" autoComplete="off" value={floor} errors={shown(errors.floor)} hint={`不能低于平台下限 ${PLATFORM_FLOOR_TEXT}。`} onChange={(event) => setFloor(event.target.value)} />
