@@ -108,7 +108,7 @@ test("评分在 4.00 / 3.50 阈值附近：精确值正好 .5 的进位、差一
     const result = computeTenantScore(input);
     const expected = roundHalfUp(exact);
     assert.equal(result.scoreCenti, expected, JSON.stringify(input));
-    const decision = evaluateTenantStanding({ status: "active", suspensionReasons: [], previousScoreCenti: 450, scoreCenti: result.scoreCenti, isDefaultScore: result.isDefault, previousNoShows: 0, noShows: 0, documentsValid: true });
+    const decision = evaluateTenantStanding({ status: "active", suspensionReasons: [], previousDataScoreCenti: 450, scoreCenti: result.scoreCenti, isDefaultScore: result.isDefault, previousNoShows: 0, noShows: 0, documentsValid: true });
     assert.equal(decision.observation.includes("score_below_threshold"), expected < 400, JSON.stringify(input));
     assert.equal(decision.suspend.includes("score_below_red_line"), expected < 350, JSON.stringify(input));
   }
@@ -122,15 +122,15 @@ test("评分正好落在 x.xx5 的显式样本：3.995 → 4.00（不观察）�
   const exact = exactScoreCenti({ ...base, ratings: { sum: 199, count: 80 } }) as [bigint, bigint];
   assert.equal(exact[0] * 2n, exact[1] * 799n, "精确值正好 399.5");
   assert.equal(at3995.rawScoreCenti, 400);
-  assert.equal(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousScoreCenti: 450, scoreCenti: at3995.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).observation.length, 0);
+  assert.equal(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousDataScoreCenti: 450, scoreCenti: at3995.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).observation.length, 0);
   // 3.495：r = 1.2375 = 99 / 80
   const at3495 = computeTenantScore({ ...base, ratings: { sum: 99, count: 80 } });
   assert.equal(at3495.rawScoreCenti, 350);
-  assert.deepEqual(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousScoreCenti: 450, scoreCenti: at3495.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).suspend, []);
+  assert.deepEqual(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousDataScoreCenti: 450, scoreCenti: at3495.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).suspend, []);
   // 略低于 3.995：r = 1989 / 800 = 2.48625 → 3.9945 → 3.99
   const below = computeTenantScore({ ...base, ratings: { sum: 1989, count: 800 } });
   assert.equal(below.rawScoreCenti, 399);
-  assert.deepEqual(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousScoreCenti: 450, scoreCenti: below.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).observation, ["score_below_threshold"]);
+  assert.deepEqual(evaluateTenantStanding({ status: "active", suspensionReasons: [], previousDataScoreCenti: 450, scoreCenti: below.scoreCenti, isDefaultScore: false, previousNoShows: 0, noShows: 0, documentsValid: true }).observation, ["score_below_threshold"]);
   // 浮点直算会算错的样本：派车 19/50、其余满分，精确值 4.225 → 4.23；双精度直算再 Math.round 得 4.22
   const floatTrap = { completedOrders: 50, dispatch: { onTime: 19, total: 50 }, arrival: { onTime: 50, total: 50 }, ratings: { sum: 250, count: 50 }, upheldComplaints: 0, failures: 0 };
   assert.equal(Math.round((0.25 * 5 * (19 / 50) + 0.25 * 5 + 0.2 * 5 + 0.2 * 5 + 0.1 * 5) * 100), 422, "浮点确实会算错");
@@ -146,7 +146,7 @@ test("每日判断的不变量（随机状态）：不重复加已有的暂停�
     const input: StandingInput = {
       status,
       suspensionReasons,
-      previousScoreCenti: rand() < 0.2 ? null : Math.floor(rand() * 501),
+      previousDataScoreCenti: rand() < 0.2 ? null : Math.floor(rand() * 501),
       scoreCenti: Math.floor(rand() * 501),
       isDefaultScore: rand() < 0.3,
       previousNoShows: rand() < 0.2 ? null : Math.floor(rand() * 5),

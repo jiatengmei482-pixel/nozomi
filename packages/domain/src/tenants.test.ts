@@ -299,7 +299,7 @@ test("评分窗口：90 天（今天往前 89 天起）；司机未到 30 天；
 const standing = (extra: Partial<StandingInput> = {}): StandingInput => ({
   status: "active",
   suspensionReasons: [],
-  previousScoreCenti: 450,
+  previousDataScoreCenti: 450,
   scoreCenti: 450,
   isDefaultScore: false,
   previousNoShows: 0,
@@ -318,17 +318,17 @@ test("观察期：评分低于 4.00 进入（3.99 进、4.00 不进）；默认�
 });
 
 test("自动暂停：评分跌破 3.50（3.49 暂停、3.50 不暂停）；上一次已经低于 3.50（运营恢复后还没回升）不再触发；回升后再跌破又触发；第一次算就低于也触发", () => {
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 360, scoreCenti: 349 })).suspend, ["score_below_red_line"]);
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 360, scoreCenti: 350 })).suspend, []);
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 340, scoreCenti: 330 })).suspend, []);
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 350, scoreCenti: 349 })).suspend, ["score_below_red_line"]);
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: null, scoreCenti: 300 })).suspend, ["score_below_red_line"]);
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 450, scoreCenti: 300, isDefaultScore: true })).suspend, [], "默认分不触发");
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 360, scoreCenti: 349 })).suspend, ["score_below_red_line"]);
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 360, scoreCenti: 350 })).suspend, []);
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 340, scoreCenti: 330 })).suspend, []);
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 350, scoreCenti: 349 })).suspend, ["score_below_red_line"]);
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: null, scoreCenti: 300 })).suspend, ["score_below_red_line"]);
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 450, scoreCenti: 300, isDefaultScore: true })).suspend, [], "默认分不触发");
   // 低于 3.5 同时也低于 4.0：观察和暂停一起
-  assert.deepEqual(evaluateTenantStanding(standing({ previousScoreCenti: 420, scoreCenti: 340 })), { observation: ["score_below_threshold"], suspend: ["score_below_red_line"], clearDocumentExpired: false });
+  assert.deepEqual(evaluateTenantStanding(standing({ previousDataScoreCenti: 420, scoreCenti: 340 })), { observation: ["score_below_threshold"], suspend: ["score_below_red_line"], clearDocumentExpired: false });
   // 已经因为别的原因暂停：加上这个原因
-  assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["manual"], previousScoreCenti: 360, scoreCenti: 340 })).suspend, ["score_below_red_line"]);
-  assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["score_below_red_line"], previousScoreCenti: 360, scoreCenti: 340 })).suspend, [], "已有这个原因不重复加");
+  assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["manual"], previousDataScoreCenti: 360, scoreCenti: 340 })).suspend, ["score_below_red_line"]);
+  assert.deepEqual(evaluateTenantStanding(standing({ status: "suspended", suspensionReasons: ["score_below_red_line"], previousDataScoreCenti: 360, scoreCenti: 340 })).suspend, [], "已有这个原因不重复加");
 });
 
 test("司机未到：近 30 天 2 次进入观察期、3 次自动暂停（达到 3 次的那一天触发，之后一直 ≥ 3 不重复触发）", () => {

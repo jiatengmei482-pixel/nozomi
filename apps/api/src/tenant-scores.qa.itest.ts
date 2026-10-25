@@ -299,7 +299,7 @@ test("试运营上限按东京日期：东京 23:59 已满 10 单，询价和下
   await api.db.owner.query("update tenants set status = 'active' where id = $1", [m.b.tenantId]);
 });
 
-test("缺陷复现（「跌破」口径）：评分自动暂停、人工恢复后分数从没回升到 3.50 以上，只是完成单数短暂掉到 20 单以下（比价用默认 4.50），回到 20 单时又被自动暂停", async () => {
+test("「跌破」口径：评分自动暂停、人工恢复后分数从没回升到 3.50 以上，只是完成单数短暂掉到 20 单以下（比价用默认 4.50），回到 20 单时不会再被自动暂停", async () => {
   await reset();
   await api.app.tenantJobs.tick();
   const next = tenantDate(new Date(api.clock.now().getTime() + DAY));

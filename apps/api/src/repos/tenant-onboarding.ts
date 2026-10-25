@@ -448,6 +448,15 @@ export async function upsertScoreDay(db: Db, tenantId: string, day: ScoreDay): P
   );
 }
 
+/** 某一天以前最近一次按数据算出的分（不是默认分的那一天的比价用分）；从来没有过为 null（「跌破」口径，ADR 0028）。 */
+export async function findLastDataScore(db: Db, tenantId: string, before: string): Promise<number | null> {
+  const result = await db.query<{ score_centi: number }>(
+    "select score_centi from tenant_score_daily where tenant_id = $1 and score_date < $2::date and not is_default order by score_date desc limit 1",
+    [tenantId, before],
+  );
+  return result.rows[0]?.score_centi ?? null;
+}
+
 /** 一段日期里的每日评分（评分趋势），日期从早到晚。 */
 export async function listScoreDays(db: Db, tenantId: string, from: string, to: string): Promise<ScoreDay[]> {
   const result = await db.query<Row>(`select ${SCORE_COLUMNS} from tenant_score_daily where tenant_id = $1 and score_date between $2::date and $3::date order by score_date`, [tenantId, from, to]);

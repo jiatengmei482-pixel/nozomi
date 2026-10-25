@@ -561,8 +561,11 @@ function componentValue(key: ScoreComponent, input: ScoreInput, completed: numbe
 export interface StandingInput {
   status: TenantStatus;
   suspensionReasons: readonly SuspensionReason[];
-  /** 上一次算出来的比价用分（没有算过为 null） */
-  previousScoreCenti: number | null;
+  /**
+   * 上一次**按数据算出的**分：今天以前最近一天不是默认分（完成满 20 单）的比价用分；从来没有过为 null。
+   * 中间是默认分的日子跳过——默认 4.5 不是「回升」（ADR 0028「跌破」口径）。
+   */
+  previousDataScoreCenti: number | null;
   scoreCenti: number;
   /** 这次的分是不是默认分（完成不足 20 单）：默认分不触发观察、暂停 */
   isDefaultScore: boolean;
@@ -587,7 +590,7 @@ export interface StandingDecision {
  * - 观察期：评分（非默认分）低于 4.0，或近 30 天司机未到 ≥ 2 次。原因都没有了自动退出。只看试运营、正式、暂停中的供应商。
  * - 自动暂停：试运营 / 正式（已暂停的再加原因）——
  *   · 必交资质有过期的（到期当天）；
- *   · 评分**跌破** 3.5：上一次不低于 3.5（或第一次算）、这一次低于 3.5。运营人工恢复以后分数还没回升，第二天不会马上又被暂停；回升到 3.5 以上再跌破才会；
+ *   · 评分**跌破** 3.5：上一次按数据算出的分不低于 3.5（或从来没有按数据算过）、这一次低于 3.5；默认分的日子不算「上一次」。运营人工恢复以后分数还没回升，第二天不会马上又被暂停；回升到 3.5 以上再跌破才会；
  *   · 近 30 天司机未到**达到** 3 次：上一次不到 3 次、这一次 ≥ 3 次（同样的道理）。
  * - 只因资质过期而暂停的，资质恢复有效后由调用方自动恢复（`clearDocumentExpired`）。
  */
@@ -600,7 +603,7 @@ export function evaluateTenantStanding(input: StandingInput): StandingDecision {
   const suspend: SuspensionReason[] = [];
   const has = (reason: SuspensionReason): boolean => input.suspensionReasons.includes(reason);
   if (!input.documentsValid && !has("document_expired")) suspend.push("document_expired");
-  const crossedScore = !input.isDefaultScore && input.scoreCenti < TENANT_RULES.suspendBelowCenti && (input.previousScoreCenti === null || input.previousScoreCenti >= TENANT_RULES.suspendBelowCenti);
+  const crossedScore = !input.isDefaultScore && input.scoreCenti < TENANT_RULES.suspendBelowCenti && (input.previousDataScoreCenti === null || input.previousDataScoreCenti >= TENANT_RULES.suspendBelowCenti);
   if (crossedScore && !has("score_below_red_line")) suspend.push("score_below_red_line");
   const crossedNoShows = input.noShows >= TENANT_RULES.noShowSuspendCount && (input.previousNoShows === null || input.previousNoShows < TENANT_RULES.noShowSuspendCount);
   if (crossedNoShows && !has("driver_no_show")) suspend.push("driver_no_show");

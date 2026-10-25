@@ -9,7 +9,7 @@
 import { computeTenantScore, documentRequirements, evaluateTenantStanding, expiryReminderDue, noShowWindowStart, tenantDayStart, requiredDocumentsExpired, scoreWindowStart, trialPromotionDue, TENANT_RULES, daysUntilExpiry } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
-import { findProfile, insertNotice, listDocuments, loadScoreInput, loadTrialProgress, markDocumentReminder, upsertScoreDay } from "../repos/tenant-onboarding.ts";
+import { findLastDataScore, findProfile, insertNotice, listDocuments, loadScoreInput, loadTrialProgress, markDocumentReminder, upsertScoreDay } from "../repos/tenant-onboarding.ts";
 import { type Tenant, listTenantsToEvaluate, lockTenantToEvaluate, saveTenantEvaluation, tenantState } from "../repos/tenants.ts";
 import { applyTenantChange, systemChangeActor, tenantToday, withObservation, withSuspension, withoutSuspension } from "./tenant-onboarding.ts";
 
@@ -105,6 +105,7 @@ function startOf(date: string): Date {
  * 2. 评分：近 90 天的输入 → `computeTenantScore`，写进每日评分（评分趋势）；
  * 3. 试运营满 30 天 / 20 单、无重大投诉 → 正式；
  * 4. `evaluateTenantStanding`：观察期的原因、要加的暂停原因（资质过期、评分跌破 3.5、司机未到达到 3 次）、资质恢复有效后去掉「资质过期」；
+ *    「跌破」比的是上一次按数据算出的分（跳过默认分的日子），不是主体上存的上一次比价用分。
  * 5. 记下评分结果和「今天做过了」。
  */
 export async function evaluateTenant(db: Db, tenant: Tenant, now: Date, today: string): Promise<Tenant> {
@@ -148,7 +149,7 @@ export async function evaluateTenant(db: Db, tenant: Tenant, now: Date, today: s
   const decision = evaluateTenantStanding({
     status: current.status,
     suspensionReasons: current.suspensionReasons,
-    previousScoreCenti: current.score.scoreOn === null ? null : current.score.scoreCenti,
+    previousDataScoreCenti: await findLastDataScore(db, current.id, today),
     scoreCenti: score.scoreCenti,
     isDefaultScore: score.isDefault,
     previousNoShows: current.score.scoreOn === null ? null : current.score.noShows,
