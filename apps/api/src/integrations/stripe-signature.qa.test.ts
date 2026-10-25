@@ -38,11 +38,11 @@ const officialAccepts = (body: string, header: string): boolean => {
 };
 
 /**
- * 缺陷（低）：签名比较按「十六进制解码后的字节」比，奇数长度的十六进制解码时最后半个字节被丢掉，于是「正确签名 + 1 个十六进制字符」也被接受。
+ * 防回归（曾经的缺陷，已修）：签名比较按「十六进制解码后的字节」比，奇数长度的十六进制解码时最后半个字节被丢掉，于是「正确签名 + 1 个十六进制字符」也被接受。
  * 官方库按字符串原样比较，会拒绝。没有安全影响（要先有正确签名），但和 ADR 写的「与官方库互相核对、算法一致」不符。
  * 原因：integrations/stripe-signature.ts `sameHex` 没有检查两边的十六进制长度一样。
  */
-test("缺陷复现：签名后面多一个十六进制字符应当拒绝（和官方库一致）", () => {
+test("签名后面多一个十六进制字符：拒绝（和官方库一致）", () => {
   const signature = computeStripeSignature(payload, t, secret);
   for (const extra of ["0", "f", "a"]) {
     const header = `t=${t},v1=${signature}${extra}`;

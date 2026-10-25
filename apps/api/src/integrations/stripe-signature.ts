@@ -67,8 +67,9 @@ export function computeStripeSignature(payload: Buffer | string, timestamp: numb
     .digest("hex");
 }
 
+/** 先比十六进制字符串的长度（且必须全是十六进制字符），再按字节定长比较：奇数长度在解码时会丢掉最后半个字节，不先比长度会把「正确签名 + 1 个字符」当成对的。 */
 function sameHex(expected: string, actual: string): boolean {
-  if (!/^[0-9a-f]+$/i.test(actual)) return false;
+  if (actual.length !== expected.length || !/^[0-9a-f]+$/i.test(actual)) return false;
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(actual.toLowerCase(), "hex");
   return a.length === b.length && timingSafeEqual(a, b);

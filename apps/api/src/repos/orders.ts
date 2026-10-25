@@ -421,13 +421,10 @@ export async function listPaymentEvents(db: Db, orderId: string): Promise<Paymen
 // ---- 超时检查 ----
 
 /** 到了付款期限还没付的单（跨租户），最早到期的在前。 */
-export async function listOverduePendingOrders(db: Db, now: Date, limit: number): Promise<{ orderId: string; intentId: string | null }[]> {
-  const result = await db.query<Row>(
-    `select o.id, p.intent_id from orders o left join order_payments p on p.order_id = o.id and p.kind = 'order'
-      where o.status = 'pending_payment' and o.payment_due_at <= $1 order by o.payment_due_at, o.id limit $2`,
-    [now, limit],
-  );
-  return result.rows.map((row) => ({ orderId: row["id"], intentId: row["intent_id"] }));
+/** 到了付款期限还待支付的单（只给编号：付款编号要在锁住订单之后重新读，列出之后到处理之间可能刚建好付款）。 */
+export async function listOverduePendingOrders(db: Db, now: Date, limit: number): Promise<string[]> {
+  const result = await db.query<Row>("select o.id from orders o where o.status = 'pending_payment' and o.payment_due_at <= $1 order by o.payment_due_at, o.id limit $2", [now, limit]);
+  return result.rows.map((row) => row["id"] as string);
 }
 
 // ---- 列表 ----

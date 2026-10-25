@@ -4,8 +4,9 @@
  * 和汇率中心一样跑在 API 进程里（ADR 0022「定时任务和多实例」）：启动后 5 秒第一次，之后每 60 秒一轮（上一轮结束才排下一轮，`unref` 不拖住进程退出）。
  * 只有服务进程（`buildApp({ jobs: true })`）启动它；测试直接调 `tick()`。
  *
- * 每一轮：找出到了付款期限（下单后 30 分钟）还没付款的单，一张一张处理：
- * - 还没在收款服务建好付款的：直接取消；
+ * 每一轮：找出到了付款期限（下单后 30 分钟）还没付款的单，一张一张处理。处理每一张时先锁住订单、**重新读收款记录**
+ * （列出之后到处理之间，渠道可能刚用同一个 Idempotency-Key 重试、建好了付款），再决定：
+ * - 还没在收款服务建好付款的：在同一个事务里直接取消（下单第 3 步锁住订单后看到已取消，会把它刚建的付款取消掉）；
  * - 建好了的：先在收款服务**取消这笔付款**（事务之外），再看结果——
  *   已取消 → 取消订单、释放库存；其实已经付了（客人在最后一刻付款、通知还没到）→ 按付款成功确认订单；还在处理中 → 这一轮不动，等通知或下一轮；
  *   收款服务出错 → 这一轮跳过，下一轮再试。
@@ -15,7 +16,7 @@
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { PaymentProviderError, type ProviderPayment } from "../integrations/payments.ts";
-import { findOrderPayment, listOverduePendingOrders } from "../repos/orders.ts";
+import { findOrderForPlatform, findOrderPayment, listOverduePendingOrders } from "../repos/orders.ts";
 import { type OrderLog, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
 
 const FIRST_TICK_MS = 5_000;
@@ -48,16 +49,28 @@ export class OrderJobs {
     const now = this.ctx.now();
     const due = await withPlatformTx(this.ctx.pool, (db) => listOverduePendingOrders(db, now, BATCH));
     const result: OrderSweepResult = { cancelled: 0, confirmed: 0, deferred: 0 };
-    for (const entry of due) {
-      const outcome = await this.expire(entry.orderId, entry.intentId);
+    for (const orderId of due) {
+      const outcome = await this.expire(orderId);
       result[outcome] += 1;
     }
     return result;
   }
 
-  private async expire(orderId: string, intentId: string | null): Promise<keyof OrderSweepResult> {
+  private async expire(orderId: string): Promise<keyof OrderSweepResult> {
+    // 锁住订单再读收款记录：还没建付款的就在这个事务里取消；建好了的拿到最新的付款编号，先去收款服务取消
+    const first = await withPlatformTx(this.ctx.pool, async (db): Promise<{ outcome: keyof OrderSweepResult } | { intentId: string }> => {
+      const order = await findOrderForPlatform(db, orderId, { lock: true });
+      if (order === null || order.status !== "pending_payment") return { outcome: "deferred" };
+      const record = await findOrderPayment(db, orderId, { lock: true });
+      if (record === null || record.intentId === null || this.ctx.payments === null) {
+        return { outcome: (await cancelPendingOrder(db, orderId, "PAYMENT_TIMEOUT", "system", this.ctx.now())) ? "cancelled" : "deferred" };
+      }
+      return { intentId: record.intentId };
+    });
+    if ("outcome" in first) return first.outcome;
+    const intentId = first.intentId;
     let payment: ProviderPayment | null = null;
-    if (intentId !== null && this.ctx.payments !== null) {
+    if (this.ctx.payments !== null) {
       try {
         payment = await this.ctx.payments.cancelPayment(intentId);
       } catch (err) {

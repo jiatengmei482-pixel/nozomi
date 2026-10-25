@@ -7,7 +7,8 @@
  *    建订单（待支付，30 分钟内付款）、销售端一侧（渠道、对外价、加价比例、汇率快照）、收款记录（待建）、状态流水、询价日志记「已下单」。
  *    金额全部来自报价快照，不重新报价。
  * 2. 事务之外：在收款服务（Stripe）建付款——Customer + PaymentIntent（保存支付方式，用于服务后加收）。以订单为准的幂等键，重试不会建出第二笔。
- * 3. 一个平台事务：记下付款编号。这时订单如果已经不是待支付（超时被取消了），把刚建的付款取消掉。
+ * 3. 一个平台事务：锁住订单记下付款编号。这时订单如果已经不是待支付（超时被取消了），收款记录保持「已取消」，把刚建的付款取消掉。
+ * 过了付款期限（渠道很晚才用同一个键重试）不再建付款、不给付款凭据：还没建付款的单就地取消。
  * 第 2 步失败：订单留在待支付、收款记录还是「待建」，应答 502 / 504 并带上订单号；渠道用同一个 Idempotency-Key 重试就会接着建付款。没人重试的由超时检查取消、释放库存。
  *
  * 付款结果只认收款服务的通知（services/payment-webhooks.ts）和超时检查（services/order-jobs.ts）主动去查，两条路都走这里的 `confirmPaidOrder` / `cancelPendingOrder`。
@@ -28,6 +29,7 @@ import {
   orderNumber,
   paymentDeadline,
   paymentMatchesOrder,
+  paymentOverdue,
   paymentStatusOf,
   quoteSnapshotValid,
 } from "@nozomi/domain";
@@ -273,6 +275,11 @@ async function ensurePayment(ctx: AppContext, provider: PaymentProvider, orderId
   const order = loaded.order as Order;
   const payment = loaded.payment as OrderPayment;
   if (order.status !== "pending_payment") return null;
+  // 过了付款期限：不再建付款、也不再给付款凭据（客人不能再付）。还没建付款的就地取消；建好了的由超时检查先在收款服务取消再取消订单
+  if (paymentOverdue(order.paymentDueAt, ctx.now())) {
+    if (payment.intentId === null) await withPlatformTx(ctx.pool, (db) => cancelPendingOrder(db, orderId, "PAYMENT_TIMEOUT", "system", ctx.now()));
+    return null;
+  }
   try {
     if (payment.intentId !== null) return await provider.retrievePayment(payment.intentId);
     const created = await provider.createOrderPayment({
@@ -286,8 +293,10 @@ async function ensurePayment(ctx: AppContext, provider: PaymentProvider, orderId
     const stillPending = await withPlatformTx(ctx.pool, async (db) => {
       const current = (await findOrderForPlatform(db, orderId, { lock: true })) as Order;
       const record = (await findOrderPayment(db, orderId, { lock: true })) as OrderPayment;
-      if (record.intentId === null) await updateOrderPayment(db, record.id, { intentId: created.intentId, customerId: created.customerId, status: paymentStatusOf(created.status) }, ctx.now());
-      return current.status === "pending_payment";
+      const pending = current.status === "pending_payment" && record.status !== "canceled";
+      // 建付款的这段时间里订单被取消了：只记下付款编号（排查用），收款记录保持「已取消」，不改回「等客人付款」
+      if (record.intentId === null) await updateOrderPayment(db, record.id, { intentId: created.intentId, customerId: created.customerId, ...(pending ? { status: paymentStatusOf(created.status) } : {}) }, ctx.now());
+      return pending;
     });
     if (!stillPending) {
       // 建付款的这段时间里订单被超时取消了：刚建的付款也取消，客人付不了一张已经取消的单

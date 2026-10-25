@@ -10,7 +10,7 @@
  *   - `payment_intent.payment_failed`：记下失败原因，订单留在待支付（付款期限内客人可以换一张卡再付）；
  *   - `payment_intent.processing`、`payment_intent.requires_action`：更新付款状态；
  *   - `payment_intent.canceled`：待支付的单取消、释放库存；
- *   - `charge.refunded`：记下已退金额（退款流程在 M3-03）；
+ *   - `charge.refunded`：核对币种（对不上记 mismatch、不记退款），记下已退金额（退款流程在 M3-03）；
  *   - `charge.dispute.created`：标记拒付（支付异常，异常队列在 M4-02）；
  *   - 其余类型：记一条「不处理」，回 200。对不上平台付款的（别的系统在同一个 Stripe 账户上建的付款）：记「对不上」，回 200。
  * 付款状态只往前走：先到的「成功」不会被晚到的「失败」「处理中」改回去。
@@ -94,6 +94,11 @@ export async function handlePaymentWebhook(ctx: AppContext, rawBody: Buffer, sig
       }
     }
     if (object.kind === "charge") {
+      // 币种和这笔付款对不上：不记退款，由财务核实（和付款成功对不上时一样记 mismatch）
+      if (payment.currency.toUpperCase() !== object.currency.toUpperCase()) {
+        log.error({ orderId: payment.orderId, expected: payment.currency, actual: object.currency }, "退款通知的币种和这笔付款对不上，没有记退款");
+        return finish("mismatch", payment.orderId, { amount_refunded: object.amountRefundedMinor, currency: object.currency, expected_currency: payment.currency });
+      }
       // 已退金额只增不减：同一笔的几次退款通知先后乱了也不会少记
       await updateOrderPayment(db, payment.id, { refundedMinor: Math.min(payment.amountMinor, Math.max(payment.refundedMinor, object.amountRefundedMinor)) }, now);
       return finish("applied", payment.orderId, { amount_refunded: object.amountRefundedMinor, currency: object.currency });

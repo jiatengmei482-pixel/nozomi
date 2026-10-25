@@ -378,12 +378,12 @@ test("日期边界：东京时间 0:30 用车（UTC 还是前一天）按当地�
 });
 
 /**
- * 缺陷：下单第 2 步（在收款服务建付款）进行中，超时检查先把单取消了（这时还没有付款编号，直接取消、收款记录标成已取消）；
+ * 防回归（曾经的缺陷，已修）：下单第 2 步（在收款服务建付款）进行中，超时检查先把单取消了（这时还没有付款编号，直接取消、收款记录标成已取消）；
  * 第 3 步记下付款编号时把收款状态覆盖成了 `requires_payment`。结果：订单已取消，收款记录却是「等客人付款」，运营后台看到的付款状态不对；
  * 第 3 步紧接着去收款服务取消这笔付款，如果那次取消失败，就一直停在「等客人付款」。
  * 原因：services/orders.ts `ensurePayment` 第 3 步只看 `record.intentId === null` 就写 `status: paymentStatusOf(created.status)`，没看订单 / 收款记录已经是取消。
  */
-test("缺陷复现：建付款进行中订单被超时取消，收款记录应当仍是已取消（不被第 3 步改回「等客人付款」）", async () => {
+test("建付款进行中订单被超时取消：收款记录仍是已取消（不被第 3 步改回「等客人付款」），刚建的付款在收款服务被取消", async () => {
   const quote = await quoteFor(m.ids.biz7);
   pay.beforeCreateReturns = async () => {
     api.clock.advance(31 * 60_000);
@@ -398,13 +398,13 @@ test("缺陷复现：建付款进行中订单被超时取消，收款记录应�
 });
 
 /**
- * 缺陷：超时检查一轮先列出到期的单（含当时的付款编号），再一张张处理；处理前一张时要调收款服务，可能要几秒到几十秒。
+ * 防回归（曾经的缺陷，已修）：超时检查一轮先列出到期的单（含当时的付款编号），再一张张处理；处理前一张时要调收款服务，可能要几秒到几十秒。
  * 这期间渠道用同一个 Idempotency-Key 重试一张「第一次建付款失败」的到期单：接口给它建了付款、返回 client_secret（订单已过付款期限却还能拿到付款凭据）。
  * 轮到这张单时，超时检查拿的还是列表里的旧值（没有付款编号），直接取消订单——没有先去收款服务取消那笔付款。
  * 结果：订单已取消，Stripe 那笔 PaymentIntent 仍然可以付，客人付了就是「取消后到账」，要人工退款。ADR 0026 写的「先取消付款再取消订单，保证不会出现订单取消了客人却还能付款」不成立。
  * 原因：services/order-jobs.ts `expire` 用的是 `listOverduePendingOrders` 时的 intentId，没有在锁住订单后重新读；services/orders.ts `ensurePayment` 不看付款期限。
  */
-test("缺陷复现：超时检查列表之后、处理之前这张单刚建好付款——应当先在收款服务取消这笔付款，客人不能再付", async () => {
+test("超时检查列表之后、处理之前渠道重试这张到期单：不再建付款、不给付款凭据，订单取消，收款服务里没有能付的付款", async () => {
   const earlier = await newOrder();
   const quote = await quoteFor(m.ids.biz7);
   const key = randomUUID();
@@ -622,6 +622,12 @@ test("下单的畸形入参：都是 4xx，不是 500，都不建单", async () 
     const res = await placeOrder({ quote_id: q, ...details() }, key);
     assert.deepEqual([res.status, res.body.error.details.location], [400, "headers"], key);
   }
+  // 请求体不是 JSON：415，和 openapi 登记的一致
+  const who = await salesToken();
+  const plain = await api.app.inject({ method: "POST", url: "/sales/v1/orders", headers: { authorization: `Bearer ${who}`, "content-type": "application/xml", "idempotency-key": randomUUID() }, payload: JSON.stringify({ quote_id: q, ...details() }) });
+  assert.equal(plain.statusCode, 415, plain.body);
+  assertMatchesOperation("POST", "/sales/v1/orders", plain.statusCode, plain.json());
+  assert.equal(plain.json().error.code, "UNSUPPORTED_MEDIA_TYPE");
   assert.equal((await row("select count(*)::int as n from orders")).n, before, "一张单都没建");
   assert.equal((await placeOrder({ quote_id: q, ...details() })).status, 201, "报价还能用");
 });

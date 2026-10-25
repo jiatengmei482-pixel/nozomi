@@ -339,7 +339,7 @@ test("通知的签名：密钥不对、没有签名头、过了 5 分钟的重�
   assert.equal((await row("select count(*)::int as n from payment_events where object_id = $1", [intent])).n, 1);
 });
 
-test("通知的各种事件：失败记原因、单仍待支付；成功后晚到的失败不改回去；金额不符不确认；退款、拒付记下；未知类型、对不上的付款、测试 / 正式模式不一致都只记录", async () => {
+test("通知的各种事件：失败记原因、单仍待支付；成功后晚到的失败不改回去；金额不符不确认；退款、拒付记下（退款币种对不上不记）；未知类型、对不上的付款、测试 / 正式模式不一致都只记录", async () => {
   const order = await newOrder();
   const intent = intentOf(order.id);
   pay.decline(intent);
@@ -363,6 +363,9 @@ test("通知的各种事件：失败记原因、单仍待支付；成功后晚�
   const charge = { id: "ch_fake_1", object: "charge", payment_intent: intent, amount: 21_780, amount_refunded: 5_000, currency: "jpy", refunded: false };
   assert.equal((await notify("charge.refunded", charge)).body.result, "applied");
   assert.equal((await notify("charge.refunded", { ...charge, amount_refunded: 3_000 })).body.result, "applied", "乱序的旧通知");
+  // 币种对不上的退款通知：不记退款（已退金额不变），记 mismatch
+  assert.equal((await notify("charge.refunded", { ...charge, id: "ch_fake_usd", amount_refunded: 9_000, currency: "usd" })).body.result, "mismatch");
+  assert.equal(Number((await row("select refunded_minor from order_payments where order_id = $1", [order.id])).refunded_minor), 5_000);
   assert.equal((await notify("charge.dispute.created", { id: "dp_fake_1", object: "dispute", payment_intent: intent, amount: 21_780, currency: "jpy", reason: "fraudulent", status: "needs_response" })).body.result, "applied");
   const detail = await platformCall(m.staff.operations.token, `/platform/v1/orders/${order.id}`, "/platform/v1/orders/{id}");
   assert.deepEqual([detail.body.order.payment.refunded, detail.body.order.payment.disputed], [{ amount: "5000", currency: "JPY" }, true]);
