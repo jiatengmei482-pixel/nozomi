@@ -112,6 +112,14 @@ async function walkRoutes(tokens: Record<Entry, string>): Promise<{ blocked: str
       salesRoutes.push(key);
       continue;
     }
+    // 司机 H5（/driver/v1）用的是派车时生成的司机链接令牌，司机没有账号，也就没有「临时密码」这回事；平台、租户的令牌在那里一律 401（M3-02）
+    if (route.path.startsWith("/driver/v1/")) {
+      const res = await api.call(route.method as HttpMethod, route.path.replace(/:[A-Za-z_]+/g, randomUUID()), { token: tokens.tenant });
+      assert.ok(res.status === 401 || res.status === 404, `${key}：${res.status}`);
+      assert.notEqual(res.body?.error?.code, CODE, key);
+      salesRoutes.push(key);
+      continue;
+    }
     const entry: Entry | null = route.path.startsWith("/platform/v1/")
       ? "platform"
       : route.path.startsWith("/tenant/v1/")

@@ -9,8 +9,9 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { EVIDENCE_FILE_RULES, NO_SHOW_ITEM_NAMES, ORDER_STATUS_NAMES, freeWaitEnded } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
+import { tenantIdOfDriverToken } from "../auth/driver-token.ts";
 import type { AppContext } from "../context.ts";
-import { type TripView, addDriverContact, getTrip, readDriverFile, reportDriverEvent, reportDriverLanding, reportDriverLocation, requestLeave, submitNoShow, uploadDriverFile } from "../services/driver-trip.ts";
+import { type TripView, addDriverContact, driverLinkInvalid, getTrip, readDriverFile, reportDriverEvent, reportDriverLanding, reportDriverLocation, requestLeave, submitNoShow, uploadDriverFile } from "../services/driver-trip.ts";
 import { landingJson } from "../services/order-views.ts";
 import { dateTimeSchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { fileJson, sendFile } from "./orders.ts";
@@ -80,39 +81,50 @@ function tripJson(view: TripView): Record<string, unknown> {
 }
 
 export function registerDriverRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const token = (request: FastifyRequest): string | null => bearerToken(request.headers.authorization);
+  /** 先看令牌的格式再看请求体：拿着不是司机链接的令牌来，先得到 401，不会先拿到请求体的校验结果。完整核对（存在、吊销、过期）在 services/driver-trip.ts。 */
+  const token = (request: FastifyRequest): string => {
+    const value = bearerToken(request.headers.authorization);
+    if (value === null || tenantIdOfDriverToken(value) === null) throw driverLinkInvalid();
+    return value;
+  };
 
   app.get("/driver/v1/trip", async (request) => tripJson(await getTrip(ctx, token(request))));
 
   app.post("/driver/v1/trip/events", async (request) => {
+    const driverToken = token(request);
     const input = parseInput(fulfilmentSchema, request.body, "body");
-    return tripJson(await reportDriverEvent(ctx, token(request), { type: input.type, location: toLocation(input.location), actual: input.actual }));
+    return tripJson(await reportDriverEvent(ctx, driverToken, { type: input.type, location: toLocation(input.location), actual: input.actual }));
   });
 
   app.post("/driver/v1/trip/locations", async (request, reply) => {
+    const driverToken = token(request);
     const input = parseInput(pingSchema, request.body, "body");
-    await reportDriverLocation(ctx, token(request), toLocation(input.location) as NonNullable<ReturnType<typeof toLocation>>);
+    await reportDriverLocation(ctx, driverToken, toLocation(input.location) as NonNullable<ReturnType<typeof toLocation>>);
     return reply.code(204).send();
   });
 
   app.post("/driver/v1/trip/landing", async (request) => {
+    const driverToken = token(request);
     const input = parseInput(landingSchema, request.body, "body");
-    return tripJson(await reportDriverLanding(ctx, token(request), { landedAt: input.landed_at, fileId: input.file_id.toLowerCase() }));
+    return tripJson(await reportDriverLanding(ctx, driverToken, { landedAt: input.landed_at, fileId: input.file_id.toLowerCase() }));
   });
 
   app.post("/driver/v1/trip/contacts", async (request) => {
+    const driverToken = token(request);
     const input = parseInput(contactSchema, request.body, "body");
-    return tripJson(await addDriverContact(ctx, token(request), { method: input.method, note: input.note === "" ? null : input.note, fileId: input.file_id?.toLowerCase() ?? null }));
+    return tripJson(await addDriverContact(ctx, driverToken, { method: input.method, note: input.note === "" ? null : input.note, fileId: input.file_id?.toLowerCase() ?? null }));
   });
 
   app.post("/driver/v1/trip/request-leave", async (request) => {
+    const driverToken = token(request);
     const input = parseInput(locationBodySchema, request.body ?? {}, "body");
-    return tripJson(await requestLeave(ctx, token(request), toLocation(input.location)));
+    return tripJson(await requestLeave(ctx, driverToken, toLocation(input.location)));
   });
 
   app.post("/driver/v1/trip/no-show", async (request) => {
+    const driverToken = token(request);
     const input = parseInput(locationBodySchema, request.body ?? {}, "body");
-    return tripJson(await submitNoShow(ctx, token(request), toLocation(input.location)));
+    return tripJson(await submitNoShow(ctx, driverToken, toLocation(input.location)));
   });
 
   app.get("/driver/v1/trip/files/:id", async (request, reply) => {
@@ -124,9 +136,10 @@ export function registerDriverRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.register(async (scoped) => {
     for (const type of EVIDENCE_FILE_RULES.contentTypes) scoped.addContentTypeParser(type, { parseAs: "buffer", bodyLimit: EVIDENCE_FILE_RULES.maxBytes }, (_request, body, done) => done(null, body));
     scoped.post("/driver/v1/trip/files", async (request, reply) => {
+      const driverToken = token(request);
       const query = parseInput(fileQuerySchema, request.query, "querystring");
       const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
-      const file = await uploadDriverFile(ctx, token(request), query.kind, request.headers["content-type"], body);
+      const file = await uploadDriverFile(ctx, driverToken, query.kind, request.headers["content-type"], body);
       return reply.code(201).send({ file: fileJson(file) });
     });
   });
