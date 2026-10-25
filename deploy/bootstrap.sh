@@ -307,8 +307,8 @@ ensure_env_file() {
       cat >"$file" <<'HEADER'
 # NOZOMI 运行所需的密钥。每一项的说明见仓库 docs/secrets.md。
 # 格式：一行一个「变量名=值」，值不加引号，等号两边不留空格。
-# POSTGRES_PASSWORD、POSTGRES_APP_PASSWORD 和 AUTH_JWT_SECRET 是自动生成的，不要修改：
-# 数据库已经用这个密码建好，改了会连不上。
+# POSTGRES_PASSWORD、POSTGRES_APP_PASSWORD、AUTH_JWT_SECRET 和 DATA_ENCRYPTION_KEY 是自动生成的，不要修改：
+# 数据库已经用这个密码建好，改了会连不上；DATA_ENCRYPTION_KEY 改了，库里加密保存的密钥就解不开了。
 HEADER
     )
   fi
@@ -316,6 +316,7 @@ HEADER
   ensure_generated_secret "$file" POSTGRES_PASSWORD 24
   ensure_generated_secret "$file" POSTGRES_APP_PASSWORD 24
   ensure_generated_secret "$file" AUTH_JWT_SECRET 48
+  ensure_generated_secret "$file" DATA_ENCRYPTION_KEY 32
   for key in STRIPE_SECRET_KEY STRIPE_PUBLISHABLE_KEY STRIPE_WEBHOOK_SECRET GOOGLE_MAPS_API_KEY MAP_TILE_URL_TEMPLATE MAP_TILE_ATTRIBUTION; do
     ensure_placeholder "$file" "$key"
   done

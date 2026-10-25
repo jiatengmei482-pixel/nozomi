@@ -107,6 +107,16 @@ tags:
     description: |
       `/sales/v1`：渠道调用的销售端接口。OAuth 2.0 Client Credentials 换令牌；询价每个渠道每秒 50 次，其他每秒 10 次（超限 429 + `Retry-After`）。
       应答里没有中标租户、结算价、加价比例。
+  - name: 派车
+    description: |
+      派车（ADR 0027）：司机、车辆的管理；给订单派司机和车辆、改派（校验车型组、座位、语言、证件，提示同一时段的冲突）；司机链接；调度系统回传履约状态；订单的照片
+  - name: 司机 H5
+    description: |
+      `/driver/v1`：司机凭链接（不需要账号）看这一单（没有任何价格）、回传出发 / 到达 / 接到 / 完成、填实际落地时间（附到达屏）、记联系客人、申请离开、提交 no-show（5 项证据）
+  - name: Webhook
+    description: |
+      推送给供应商（ADR 0027）：供应商设置接收地址和订阅的事件，平台签名（HMAC-SHA256，`X-Timestamp` + `X-Signature: v1=…`，5 分钟防重放）后推送，
+      失败按 1–5–30 分钟、2–6–24 小时重试，最终失败可在供应商后台和运营后台看到并手动重推。出站请求防 SSRF。
 paths:
   /health:
     get:
@@ -5690,6 +5700,12 @@ paths:
           schema:
             type: string
             format: date
+        - name: dispatch
+          in: query
+          description: "`unassigned` 已确认、还没派车；`overdue` 过了派车截止时间还没派车（M3-02）"
+          schema:
+            type: string
+            enum: [unassigned, overdue]
       responses:
         "200":
           description: 一页订单
@@ -5733,7 +5749,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events]
+                required: [order, events, records]
                 properties:
                   order:
                     $ref: "#/components/schemas/TenantOrder"
@@ -5741,6 +5757,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/OrderEvent"
+                  records:
+                    $ref: "#/components/schemas/OrderRecords"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/orders:
@@ -5820,7 +5838,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events, payment_events, quote]
+                required: [order, events, records, webhook_deliveries, payment_events, quote]
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
@@ -5828,6 +5846,13 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/OrderEvent"
+                  records:
+                    $ref: "#/components/schemas/OrderRecords"
+                  webhook_deliveries:
+                    type: array
+                    description: 这一单推给供应商的全部 Webhook 投递（ADR 0027）
+                    items:
+                      $ref: "#/components/schemas/WebhookDelivery"
                   payment_events:
                     type: array
                     items:
@@ -5912,6 +5937,1357 @@ paths:
                               type: integer
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/drivers:
+    get:
+      tags: [派车]
+      operationId: listDrivers
+      summary: 司机列表
+      description: 需要操作 `fleet.read`（管理员、调度、只读）。本供应商的司机，按登记时间从新到旧。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/DriverStatus"
+        - name: q
+          in: query
+          description: 姓名（不区分大小写）或电话里包含它
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+      responses:
+        "200":
+          description: 一页司机
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Driver"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+    post:
+      tags: [派车]
+      operationId: createDriver
+      summary: 新增司机
+      description: |
+        需要操作 `fleet.manage`（管理员、调度）。电话要带国家码（客人来自不同国家），去掉空格和连字符后存；同一个供应商里一个电话只能登记一位司机（409 `DRIVER_PHONE_TAKEN`）。
+        会说的语言至少一种，只能是主数据里的语言代码（ja、zh、en、ko）。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DriverInput"
+      responses:
+        "201":
+          description: 新增的司机
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "409":
+          description: "`DRIVER_PHONE_TAKEN`：已经有一位司机登记了这个电话"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/drivers/{id}:
+    get:
+      tags: [派车]
+      operationId: getDriver
+      summary: 一位司机
+      description: 需要操作 `fleet.read`。别的供应商的司机是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 司机
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [派车]
+      operationId: updateDriver
+      summary: 修改司机（含停用、恢复在职）
+      description: 需要操作 `fleet.manage`。整体替换；必须用 `If-Match` 带版本号。内容没变不加版本、不写日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/DriverInput"
+                - required: [status]
+      responses:
+        "200":
+          description: 修改后的司机
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本不是最新的；`DRIVER_PHONE_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [派车]
+      operationId: disableDriver
+      summary: 停用司机（删除 = 停用）
+      description: 需要操作 `fleet.manage`。已经派了单的不受影响（需要改派由调度决定）；已停用的再停用什么都不变。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的司机
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/vehicles:
+    get:
+      tags: [派车]
+      operationId: listVehicles
+      summary: 车辆列表
+      description: 需要操作 `fleet.read`。本供应商的车辆，按登记时间从新到旧。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/VehicleStatus"
+        - name: q
+          in: query
+          description: 车牌或车型里包含它
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+      responses:
+        "200":
+          description: 一页车辆
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Vehicle"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+    post:
+      tags: [派车]
+      operationId: createVehicle
+      summary: 新增车辆
+      description: |
+        需要操作 `fleet.manage`。车型组必须是主数据里启用中的；非营业牌照（`plate_type: private`）的车不能设为可用（`reason: PLATE_NOT_BUSINESS`，需求「非营业牌照车辆不能启用」）；
+        同一个供应商里车牌不能重复（409 `VEHICLE_PLATE_TAKEN`，空格不同算同一个）。里程小于 5 万公里自动标记为新车。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleInput"
+      responses:
+        "201":
+          description: 新增的车辆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "409":
+          description: "`VEHICLE_PLATE_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/vehicles/{id}:
+    get:
+      tags: [派车]
+      operationId: getVehicle
+      summary: 一辆车
+      description: 需要操作 `fleet.read`。别的供应商的车辆是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 车辆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    put:
+      tags: [派车]
+      operationId: updateVehicle
+      summary: 修改车辆（含维修、停用、恢复可用）
+      description: 需要操作 `fleet.manage`。整体替换；必须用 `If-Match` 带版本号。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/VehicleInput"
+                - required: [status]
+      responses:
+        "200":
+          description: 修改后的车辆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`；`VEHICLE_PLATE_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+    delete:
+      tags: [派车]
+      operationId: disableVehicle
+      summary: 停用车辆（删除 = 停用）
+      description: 需要操作 `fleet.manage`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 停用后的车辆
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/assignable:
+    get:
+      tags: [派车]
+      operationId: listAssignable
+      summary: 这一单可以派的司机和车辆
+      description: |
+        需要操作 `order.dispatch`（管理员、调度）。在职的司机、可用的车辆，各自带上不符合订单要求的原因（`issues`，有原因的不能派）和
+        同一时段已有的单（`conflicts`，有冲突的确认后可以派）。`assignable` 为 true 表示没有不符合的原因。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 可派的司机和车辆
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order_id, drivers, vehicles]
+                properties:
+                  order_id:
+                    type: string
+                    format: uuid
+                  drivers:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [driver, assignable, issues, conflicts]
+                      properties:
+                        driver:
+                          $ref: "#/components/schemas/Driver"
+                        assignable:
+                          type: boolean
+                        issues:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/AssignmentIssue"
+                        conflicts:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/AssignmentConflict"
+                  vehicles:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [vehicle, assignable, issues, conflicts]
+                      properties:
+                        vehicle:
+                          $ref: "#/components/schemas/Vehicle"
+                        assignable:
+                          type: boolean
+                        issues:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/AssignmentIssue"
+                        conflicts:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/AssignmentConflict"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/assign:
+    post:
+      tags: [派车]
+      operationId: assignOrder
+      summary: 派车 / 改派
+      description: |
+        需要操作 `order.dispatch`（管理员、调度）。必须用 `If-Match` 带订单的版本号：两个人同时派同一张单，后到的 409 `VERSION_CONFLICT`。
+        - 已确认的单：第一次派车；已派车、司机已出发（还没到达）的单：改派（出发后改派回到「已派车」）。其他状态 409 `ORDER_STATE_INVALID`。
+        - 不符合订单要求（司机停用、驾照 / 保险 / 车检在用车日前过期、非营业牌照、车辆维修或停用、车型组降级、座位少、不会客人要求的语言）：422 `ASSIGNMENT_MISMATCH`，
+          `details.issues[]` 逐项列出（`code`、`message`）。
+        - 同一时段这位司机或这辆车已有别的单：409 `ASSIGNMENT_CONFLICT`，`details.conflicts[]` 列出那几单；确认没问题的带 `confirm_conflicts: true` 再派。
+        - 成功：记派车记录、状态流水、审计日志；旧的司机链接立即作废，发一个新的（`driver_link.token` **只在这一次应答里出现**，把 `driver_link.path` 加上本站域名发给司机）；
+          给本供应商的 Webhook 排一条 `order.assigned`（改派带 `change: true`）。同一位司机、同一辆车再派一次什么都不变（`change` 和 `driver_link` 为 null）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [driver_id, vehicle_id]
+              properties:
+                driver_id:
+                  type: string
+                  format: uuid
+                vehicle_id:
+                  type: string
+                  format: uuid
+                confirm_conflicts:
+                  type: boolean
+                  default: false
+                  description: 已经知道同一时段有别的单，仍然要派
+      responses:
+        "200":
+          description: 派车后的订单和司机链接
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, change, driver_link]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/TenantOrder"
+                  change:
+                    type: [boolean, "null"]
+                    description: 是不是改派；什么都没变为 null
+                  driver_link:
+                    oneOf:
+                      - $ref: "#/components/schemas/IssuedDriverLink"
+                      - type: "null"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`VERSION_CONFLICT`、`ASSIGNMENT_CONFLICT`（`details.conflicts[]`：`resource`、`resource_id`、`order_id`、`order_no`、`service_time`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`ASSIGNMENT_MISMATCH`：`details.issues[]` 每条有 `code`、`message`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /tenant/v1/orders/{id}/driver-link:
+    post:
+      tags: [派车]
+      operationId: reissueDriverLink
+      summary: 重新生成司机链接
+      description: 需要操作 `order.dispatch`。旧链接立即作废；新令牌只在这一次应答里出现。用车结束超过 24 小时 409 `DRIVER_LINK_EXPIRED`；没派车 409 `ORDER_STATE_INVALID`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 新的司机链接
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [driver_link]
+                properties:
+                  driver_link:
+                    $ref: "#/components/schemas/IssuedDriverLink"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`DRIVER_LINK_EXPIRED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [派车]
+      operationId: revokeDriverLink
+      summary: 吊销司机链接
+      description: 需要操作 `order.dispatch`。立即作废（司机换了手机、链接发错了人）；之后可以重新生成。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: 已吊销
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/events:
+    post:
+      tags: [派车]
+      operationId: reportFulfilment
+      summary: 回传履约状态（调度系统）
+      description: |
+        需要操作 `order.dispatch`。`departed` 已出发 → `arrived` 已到达 → `picked_up` 接到客人（服务中）→ `completed` 已完成，不能跳步、不能重复（409 `ORDER_STATE_INVALID`）。
+        时间用系统收到的时间；带了定位就记一条，「已到达」时还算出距上车点多少米。包车完成时必须填实际时长和里程。和司机 H5 是同一套规则；每次状态变化都给 Webhook 排一条 `order.status_changed`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FulfilmentEventInput"
+      responses:
+        "200":
+          description: 回传后的订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/TenantOrder"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`：`details.status`、`details.action`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/files/{fileId}:
+    get:
+      tags: [派车]
+      operationId: getTenantOrderFile
+      summary: 订单的一张照片（到达屏、举牌、联系截图）
+      description: 需要操作 `order.read`。原样返回图片（`Content-Type` 是上传时按文件内容判断出的格式）。别的供应商的、不存在的都是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FileId"
+      responses:
+        "200":
+          description: 图片
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/webhooks:
+    get:
+      tags: [Webhook]
+      operationId: getTenantWebhook
+      summary: Webhook 设置
+      description: |
+        需要操作 `webhook.read`（管理员、调度、只读）。没有设置时 `webhook` 为 null。签名密钥只显示末 4 位。
+        `encryption_configured` 为 false 表示平台还没配置数据加密密钥，现在不能设置。`events` 是可以订阅的事件，`rules` 是超时、重试的规则。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 设置
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [webhook, encryption_configured, events, rules]
+                properties:
+                  webhook:
+                    oneOf:
+                      - $ref: "#/components/schemas/TenantWebhook"
+                      - type: "null"
+                  encryption_configured:
+                    type: boolean
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [event, name]
+                      properties:
+                        event:
+                          $ref: "#/components/schemas/TenantWebhookEvent"
+                        name:
+                          type: string
+                  rules:
+                    $ref: "#/components/schemas/WebhookRules"
+    put:
+      tags: [Webhook]
+      operationId: saveTenantWebhook
+      summary: 设置接收地址和订阅的事件
+      description: |
+        需要操作 `webhook.manage`（管理员）。还没有设置时新建（201），同时生成签名密钥，**原文只在这一次应答的 `secret` 里出现**；已有时修改（200，必须带 `If-Match`，`secret` 为 null）。
+        地址只认 `https://`，不能带账号密码和 `#`，不能是内网 / 本机 / 云服务器元数据地址（`details.issues[].reason`：`NOT_HTTPS`、`HAS_CREDENTIALS`、`HAS_FRAGMENT`、`FORBIDDEN_HOST`、`INVALID_URL`、`TOO_LONG`）；
+        真正发送前还会解析域名、逐个检查解析到的地址。`status: paused` 时新事件不排队。平台没配置数据加密密钥时 503 `WEBHOOK_ENCRYPTION_NOT_CONFIGURED`。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          description: 已有设置时必填：当前的版本号
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url, events]
+              properties:
+                url:
+                  type: string
+                  maxLength: 2048
+                events:
+                  type: array
+                  minItems: 1
+                  items:
+                    $ref: "#/components/schemas/TenantWebhookEvent"
+                status:
+                  type: string
+                  enum: [active, paused]
+                  default: active
+      responses:
+        "200":
+          description: 修改后的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantWebhookSaved"
+        "201":
+          description: 新建的设置和签名密钥（只出现这一次）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantWebhookSaved"
+        "409":
+          description: "`VERSION_CONFLICT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+        "503":
+          description: "`WEBHOOK_ENCRYPTION_NOT_CONFIGURED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [Webhook]
+      operationId: deleteTenantWebhook
+      summary: 删除 Webhook 设置
+      description: 需要操作 `webhook.manage`。之后的事件不再排队；已经在排队的，推送任务取到时直接记为失败（`WEBHOOK_NOT_CONFIGURED`）。
+      security:
+        - tenantToken: []
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/webhooks/rotate-secret:
+    post:
+      tags: [Webhook]
+      operationId: rotateTenantWebhookSecret
+      summary: 换一把新的签名密钥
+      description: 需要操作 `webhook.manage`。旧的立即作废，之后的推送都用新的签；新密钥只在这一次应答里出现。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 新的签名密钥
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantWebhookSaved"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          description: "`WEBHOOK_ENCRYPTION_NOT_CONFIGURED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/webhooks/test:
+    post:
+      tags: [Webhook]
+      operationId: sendTenantWebhookTest
+      summary: 发送测试事件
+      description: 需要操作 `webhook.manage`。马上发一条 `webhook.test`（签名和正式事件一样），结果直接返回并记一条投递（不重试）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 这次发送的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [delivery, attempt]
+                properties:
+                  delivery:
+                    $ref: "#/components/schemas/WebhookDelivery"
+                  attempt:
+                    $ref: "#/components/schemas/WebhookAttempt"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          description: "`WEBHOOK_ENCRYPTION_NOT_CONFIGURED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/webhooks/deliveries:
+    get:
+      tags: [Webhook]
+      operationId: listTenantWebhookDeliveries
+      summary: 投递记录
+      description: 需要操作 `webhook.read`。从新到旧；`status=failed` 是重试用完仍失败、等人工重推的。不含请求体原文（里面有乘客信息）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/WebhookDeliveryStatus"
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页投递记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookDelivery"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+  /tenant/v1/webhooks/deliveries/{id}:
+    get:
+      tags: [Webhook]
+      operationId: getTenantWebhookDelivery
+      summary: 一条投递和每一次尝试
+      description: 需要操作 `webhook.read`。每次尝试的时间、耗时、状态码、失败原因、请求体的大小和指纹（不存原文）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 投递和尝试
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [delivery, attempts]
+                properties:
+                  delivery:
+                    $ref: "#/components/schemas/WebhookDelivery"
+                  attempts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookAttempt"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/webhooks/deliveries/{id}/retry:
+    post:
+      tags: [Webhook]
+      operationId: retryTenantWebhookDelivery
+      summary: 手动重推
+      description: |
+        需要操作 `webhook.manage`。最终失败的、等待重试中的都可以：马上投一次（同一个 `event_id`），结果在应答里。
+        推送任务正在发这一条（租约中）时什么都不做，`result` 为 `in_flight`，不写审计日志，发完的结果在推送记录里。
+        已成功的 409 `WEBHOOK_DELIVERY_SUCCEEDED`；测试事件 409 `WEBHOOK_TEST_NOT_RETRIABLE`。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 重推之后的投递
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [delivery, result]
+                properties:
+                  delivery:
+                    $ref: "#/components/schemas/WebhookDelivery"
+                  result:
+                    $ref: "#/components/schemas/WebhookRetryResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`WEBHOOK_DELIVERY_SUCCEEDED`、`WEBHOOK_TEST_NOT_RETRIABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/files/{fileId}:
+    get:
+      tags: [订单]
+      operationId: getPlatformOrderFile
+      summary: 订单的一张照片（运营后台）
+      description: 需要操作 `order.read`。原样返回图片。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FileId"
+      responses:
+        "200":
+          description: 图片
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/webhook-deliveries:
+    get:
+      tags: [Webhook]
+      operationId: listPlatformWebhookDeliveries
+      summary: 推给供应商的全部投递（运营后台）
+      description: 需要操作 `order.read`。跨供应商，从新到旧；`status=failed` 是重试用完仍失败的（异常，等人工重推）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/WebhookDeliveryStatus"
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页投递记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformWebhookDelivery"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+  /platform/v1/webhook-deliveries/{id}:
+    get:
+      tags: [Webhook]
+      operationId: getPlatformWebhookDelivery
+      summary: 一条投递和每一次尝试（运营后台）
+      description: 需要操作 `order.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 投递和尝试
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [delivery, attempts]
+                properties:
+                  delivery:
+                    $ref: "#/components/schemas/PlatformWebhookDeliveryDetail"
+                  attempts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WebhookAttempt"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/webhook-deliveries/{id}/retry:
+    post:
+      tags: [Webhook]
+      operationId: retryPlatformWebhookDelivery
+      summary: 手动重推（运营后台）
+      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 重推之后的投递
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [delivery, result]
+                properties:
+                  delivery:
+                    $ref: "#/components/schemas/WebhookDelivery"
+                  result:
+                    $ref: "#/components/schemas/WebhookRetryResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`WEBHOOK_DELIVERY_SUCCEEDED`、`WEBHOOK_TEST_NOT_RETRIABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/orders/{id}/landed:
+    post:
+      tags: [销售端]
+      operationId: reportGuestLanded
+      summary: 客人「我已落地」
+      description: |
+        第五轮决策 ③：落地时间以客人确认优先。只认本渠道的单、只有接机（从机场接人）的单（否则 409 `LANDING_NOT_APPLICABLE`）；时间用系统收到的时间；**提交后不能改**（409 `LANDING_ALREADY_REPORTED`）；
+        离计划到达还早 3 小时以上 409 `LANDING_TOO_EARLY`；接到客人之后、已结束的单 409 `ORDER_STATE_INVALID`。
+        写入后按规则重新取定这一单的落地时间（司机也填了、两者不一致时取较晚者），应答的 `landing` 里是结果。官网的订单页（M3-05）调这个接口。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 订单（含落地时间）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`LANDING_NOT_APPLICABLE`、`LANDING_ALREADY_REPORTED`、`LANDING_TOO_EARLY`、`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /driver/v1/trip:
+    get:
+      tags: [司机 H5]
+      operationId: getDriverTrip
+      summary: 司机看这一单
+      description: |
+        司机凭派车时生成的链接里的令牌（`Authorization: Bearer nzd_…`）。令牌不存在、被吊销（改派、重新生成、手动吊销）、过期（用车结束后 24 小时），一律 401 `DRIVER_LINK_INVALID`。
+        **没有任何价格**。有乘客姓名和电话、航班号、上下车点、时间、附加服务、备注、调度的电话；履约时间点、落地时间、免费等待、联系记录、照片、no-show 的 5 项证据核对。
+      security:
+        - driverLink: []
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+  /driver/v1/trip/events:
+    post:
+      tags: [司机 H5]
+      operationId: reportDriverEvent
+      summary: 出发 / 到达 / 接到客人 / 完成
+      description: 和 `POST /tenant/v1/orders/{id}/events` 同一套规则（不能跳步，包车完成时要填实际时长和里程）。点按钮时带上手机的定位。
+      security:
+        - driverLink: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FulfilmentEventInput"
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/locations:
+    post:
+      tags: [司机 H5]
+      operationId: reportDriverLocation
+      summary: 定时上报定位
+      description: 出发后到完成前，H5 每分钟上报一次（需求「自动上报定位」）。其他状态 409 `ORDER_STATE_INVALID`。
+      security:
+        - driverLink: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [location]
+              properties:
+                location:
+                  $ref: "#/components/schemas/ReportedLocation"
+      responses:
+        "204":
+          description: 已记录
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/landing:
+    post:
+      tags: [司机 H5]
+      operationId: reportDriverLanding
+      summary: 填写实际落地时间
+      description: |
+        只有接机单（409 `LANDING_NOT_APPLICABLE`）。必须先上传一张到达屏照片（`kind=arrival_screen`），把它的编号填进 `file_id`（需求「填写时必须拍到达屏」）；
+        **提交后不能改**（409 `LANDING_ALREADY_REPORTED`）。时间不能晚于现在（5 分钟误差）、不能比计划到达早 3 小时以上（`reason`：`IN_FUTURE`、`TOO_EARLY`）。
+        写入后按规则重新取定这一单的落地时间：客人确认优先；客人和司机都有且不一致时取较晚者。
+      security:
+        - driverLink: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [landed_at, file_id]
+              properties:
+                landed_at:
+                  type: string
+                  format: date-time
+                file_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`LANDING_NOT_APPLICABLE`、`LANDING_ALREADY_REPORTED`、`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/contacts:
+    post:
+      tags: [司机 H5]
+      operationId: addDriverContact
+      summary: 记一次联系客人
+      description: no-show 第 2 项（免费等待内至少 3 次）。只在司机到达后；时间用系统收到的时间；截图选填（先上传 `kind=contact_screenshot`）。
+      security:
+        - driverLink: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [method]
+              properties:
+                method:
+                  type: string
+                  enum: [phone, messaging]
+                note:
+                  type: [string, "null"]
+                  maxLength: 200
+                file_id:
+                  type: [string, "null"]
+                  format: uuid
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/request-leave:
+    post:
+      tags: [司机 H5]
+      operationId: requestDriverLeave
+      summary: 申请离开
+      description: |
+        no-show 第 4 项。只在司机到达后、免费等待结束后（409 `FREE_WAIT_NOT_ENDED`，`details.free_wait_ends_at`；无限免等的单不能申请），只能申请一次（409 `LEAVE_ALREADY_REQUESTED`）。
+        客服 10 分钟内没处理视为同意（客服的处理在 M4-02）。
+      security:
+        - driverLink: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OptionalLocationInput"
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`FREE_WAIT_NOT_ENDED`、`LEAVE_ALREADY_REQUESTED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/no-show:
+    post:
+      tags: [司机 H5]
+      operationId: submitDriverNoShow
+      summary: 提交客人未出现（no-show）
+      description: |
+        5 项证据都满足才能提交（第五轮决策 ③）：1. 免费等待开始前点了「已到达」、定位距上车点 ≤ 300 米；2. 免费等待内至少 3 次联系记录；3. 到达后拍的举牌照片（`kind=signboard`，系统时间）；
+        4. 免费等待结束后申请离开、已过 10 分钟；5. 用车后 24 小时内。不满足 422 `NO_SHOW_EVIDENCE_INCOMPLETE`（`details.missing[]`、`details.checklist[]`）。
+        提交后订单变成 `no_show_claimed`（客人未出现，待平台审核；审核在 M4-02），给 Webhook 排一条 `order.status_changed`。
+      security:
+        - driverLink: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OptionalLocationInput"
+      responses:
+        "200":
+          description: 这一单
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverTrip"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`NO_SHOW_EVIDENCE_INCOMPLETE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/files:
+    post:
+      tags: [司机 H5]
+      operationId: uploadDriverFile
+      summary: 上传照片
+      description: |
+        请求体就是图片的原始字节，`Content-Type` 写图片的类型（JPEG、PNG、WebP、HEIC），最大 5 MB（413）。按文件开头的字节判断格式：不是这四种、和声明的类型不一致都是 415 `UNSUPPORTED_MEDIA_TYPE`。
+        照片的时间是系统收到的时间（不认手机时钟）。订单结束后不能再传（409）。
+      security:
+        - driverLink: []
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/OrderFileKind"
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+          image/heic:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: 上传的照片
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [file]
+                properties:
+                  file:
+                    $ref: "#/components/schemas/OrderFile"
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: "`FILE_TOO_LARGE` / `PAYLOAD_TOO_LARGE`：超过 5 MB"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: "`UNSUPPORTED_MEDIA_TYPE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /driver/v1/trip/files/{id}:
+    get:
+      tags: [司机 H5]
+      operationId: getDriverFile
+      summary: 看自己上传的照片
+      security:
+        - driverLink: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 图片
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/DriverLinkInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+webhooks:
+  tenantOrderEvent:
+    post:
+      tags: [Webhook]
+      operationId: tenantOrderEventWebhook
+      summary: 平台推给供应商调度系统的事件（供应商实现这个接收地址）
+      description: |
+        平台向供应商在 `PUT /tenant/v1/webhooks` 里设置的地址发 POST（ADR 0027）。接收方要做的：
+        1. 用保存的签名密钥算 `HMAC-SHA256(密钥, "<X-Timestamp>.<请求体原文>")` 的十六进制，和 `X-Signature` 的 `v1=` 后面定长比较；
+        2. `X-Timestamp` 和自己的时钟相差超过 300 秒的拒绝（防重放）；
+        3. 同一个 `X-Event-Id`（= 请求体的 `event_id`）只处理一次——重试、手动重推、偶尔的重复投递都是同一个编号；
+        4. 5 秒内回 2xx。非 2xx、超时、重定向都算失败，按 1 分钟、5 分钟、30 分钟、2 小时、6 小时、24 小时重试，共 7 次。
+        `data.order` 是发送时订单的当前内容（和 `GET /tenant/v1/orders/{id}` 的 `order` 一样，没有对外价和加价比例）。
+      parameters:
+        - name: X-Event-Id
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Event-Type
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Timestamp
+          in: header
+          required: true
+          description: 发送时的 Unix 时间（秒）
+          schema:
+            type: string
+        - name: X-Signature
+          in: header
+          required: true
+          description: "`v1=<HMAC-SHA256 的十六进制>`"
+          schema:
+            type: string
+        - name: X-Delivery-Attempt
+          in: header
+          required: true
+          description: 第几次尝试（从 1 开始）
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [event_id, type, created_at, tenant_id, data]
+              properties:
+                event_id:
+                  type: string
+                type:
+                  type: string
+                  enum: [order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test]
+                created_at:
+                  type: string
+                  format: date-time
+                  description: 事件发生（排队）的时间
+                tenant_id:
+                  type: string
+                  format: uuid
+                data:
+                  type: object
+                  description: "`order`（订单的当前内容，TenantOrder）+ 事件自己的信息：`order.assigned` 的 `change`；`order.status_changed` 的 `from_status`、`to_status`；测试事件只有 `message`"
+                  properties:
+                    order:
+                      $ref: "#/components/schemas/TenantOrder"
+      responses:
+        "200":
+          description: 收到（任意 2xx 都算成功）
 components:
   securitySchemes:
     platformToken:
@@ -5929,6 +7305,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 渠道用 `POST /sales/v1/oauth/token`（client_id + client_secret）换来的访问令牌，2 小时有效；渠道编号只从这里取
+    driverLink:
+      type: http
+      scheme: bearer
+      description: 司机链接里的令牌（`nzd_…`，派车时生成、只出现一次）：司机不需要账号；用车结束后 24 小时、改派、重新生成、吊销后失效
   parameters:
     ApiClientId:
       name: clientId
@@ -6053,6 +7433,14 @@ components:
       name: id
       in: path
       required: true
+      schema:
+        type: string
+        format: uuid
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      description: 照片的编号
       schema:
         type: string
         format: uuid
@@ -6355,6 +7743,12 @@ components:
         服务规则和商品详情：`INVALID_DATE`、`DATE_RANGE_REVERSED`、`INVALID_TIME`、`EMPTY_WINDOW`、`OUT_OF_RANGE`、`NOT_INTEGER`、`TOO_MANY`、`TOO_LONG`、`DUPLICATE`、
         `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
         这些代码和 `@nozomi/domain` 的 `serviceRuleIssues` / `contentIssues` 返回的是同一套。子品牌的币种不支持时是 `UNSUPPORTED_CURRENCY`。
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DriverLinkInvalid:
+      description: "`DRIVER_LINK_INVALID`：令牌不存在、被吊销（改派、重新生成、手动吊销）或已过期（用车结束后 24 小时），一律同一个错误"
       content:
         application/json:
           schema:
@@ -7616,7 +9010,7 @@ components:
       properties:
         key:
           type: string
-          enum: [database, auth, stripe, googleMaps, fx]
+          enum: [database, auth, dataEncryption, stripe, googleMaps, fx]
         label:
           type: string
         state:
@@ -7630,7 +9024,7 @@ components:
       properties:
         key:
           type: string
-          enum: [database, auth, stripe, googleMaps, fx]
+          enum: [database, auth, dataEncryption, stripe, googleMaps, fx]
         label:
           type: string
         state:
@@ -8275,10 +9669,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, fleet.read, fleet.manage, webhook.read, webhook.manage]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -11801,10 +13195,11 @@ components:
           type: string
     OrderStatus:
       type: string
-      enum: [pending_payment, confirmed, assigned, in_service, completed, cancelled, rescue_pending]
+      enum: [pending_payment, confirmed, assigned, departed, arrived, in_service, completed, no_show_claimed, no_show, cancelled, rescue_pending]
       description: |
-        `pending_payment` 待支付（30 分钟内付款，超时自动取消）→ `confirmed` 已确认（付款成功即自动确认，租户不能拒单）→ `assigned` 已派车 → `in_service` 服务中 → `completed` 已完成；
-        服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中。M3-01 只有待支付、已确认、已取消三种会出现（ADR 0026）。
+        `pending_payment` 待支付（30 分钟内付款，超时自动取消）→ `confirmed` 已确认（付款成功即自动确认，租户不能拒单）→ `assigned` 已派车 → `departed` 司机已出发 →
+        `arrived` 司机已到达 → `in_service` 服务中（接到客人）→ `completed` 已完成；司机到达后客人没出现、证据齐全时 → `no_show_claimed` 客人未出现（待审核）→ `no_show`（审核在 M4-02）；
+        服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中（M3-04）。不能跳步（ADR 0026、ADR 0027）。
     OrderCancelReason:
       type: string
       enum: [PAYMENT_TIMEOUT, PAYMENT_CANCELED]
@@ -11860,8 +13255,8 @@ components:
           $ref: "#/components/schemas/OrderStatus"
         actor:
           type: string
-          enum: [channel, payment, system, platform_user]
-          description: "`channel` 渠道下单；`payment` 收款服务的通知；`system` 定时任务（超时取消、超时检查时发现已付款）；`platform_user` 运营（M4-02）"
+          enum: [channel, payment, system, platform_user, tenant_user, driver, guest]
+          description: "`channel` 渠道下单；`payment` 收款服务的通知；`system` 定时任务（超时取消、超时检查时发现已付款）；`platform_user` 运营（M4-02）；`tenant_user` 供应商派车、调度系统回传；`driver` 司机 H5；`guest` 客人"
         reason:
           type: [string, "null"]
         occurred_at:
@@ -11892,7 +13287,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing]
       properties:
         id:
           type: string
@@ -12032,12 +13427,47 @@ components:
                 name:
                   type: string
             - type: "null"
+        driver:
+          description: 派的司机（M3-02）：只给客人看得到的——姓名、语言、电话（用车前 24 小时起才有，之前为 null）。还没派车为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name, languages, phone]
+              properties:
+                name:
+                  type: string
+                languages:
+                  type: array
+                  items:
+                    type: string
+                phone:
+                  type: [string, "null"]
+            - type: "null"
+        vehicle:
+          description: 派的车辆：车牌、车型、颜色
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [plate, model, color, vehicle_group_id]
+              properties:
+                plate:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
+                vehicle_group_id:
+                  type: string
+                  format: uuid
+            - type: "null"
+        landing:
+          $ref: "#/components/schemas/OrderLanding"
     TenantOrder:
       type: object
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, version]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, version]
       properties:
         id:
           type: string
@@ -12144,6 +13574,12 @@ components:
           description: 下单时商品的版本号（报价快照里的）
         settlement:
           $ref: "#/components/schemas/OrderSettlement"
+        dispatch:
+          $ref: "#/components/schemas/OrderDispatch"
+        fulfilment:
+          $ref: "#/components/schemas/OrderFulfilment"
+        landing:
+          $ref: "#/components/schemas/OrderLanding"
         version:
           type: integer
     PlatformOrder:
@@ -12151,7 +13587,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, version]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, version]
       properties:
         id:
           type: string
@@ -12250,6 +13686,12 @@ components:
           oneOf:
             - $ref: "#/components/schemas/OrderCancelReason"
             - type: "null"
+        dispatch:
+          $ref: "#/components/schemas/OrderDispatch"
+        fulfilment:
+          $ref: "#/components/schemas/OrderFulfilment"
+        landing:
+          $ref: "#/components/schemas/OrderLanding"
         tenant:
           $ref: "#/components/schemas/OrderPartyRef"
         channel:
@@ -12450,3 +13892,1022 @@ components:
         publishable_key:
           type: string
           description: Stripe 的公开密钥（pk_…），前端初始化 Stripe.js 用
+    DriverStatus:
+      type: string
+      enum: [active, disabled]
+      description: "`active` 在职 / `disabled` 停用"
+    VehicleStatus:
+      type: string
+      enum: [available, maintenance, disabled]
+      description: "`available` 可用 / `maintenance` 维修 / `disabled` 停用"
+    ExpiryState:
+      type: string
+      enum: [valid, expiring, expired]
+      description: 证件到期状态（按今天，UTC）：`expiring` 30 天内到期（提醒）；`expired` 已过期。能不能派单按用车日判断
+    DriverInput:
+      type: object
+      additionalProperties: false
+      required: [name, phone, languages, license_expires_on]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        phone:
+          type: string
+          description: 带国家码的国际格式，如 `+81 90-1234-5678`
+        languages:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [ja, zh, en, ko]
+        license_expires_on:
+          type: string
+          format: date
+        driving_years:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 70
+        gold:
+          type: boolean
+          default: false
+          description: 金牌司机（驾龄 10 年以上、从业 5 年以上、连续 3 年无主动责任事故，按平台标准审核）
+        status:
+          $ref: "#/components/schemas/DriverStatus"
+    Driver:
+      type: object
+      additionalProperties: false
+      required: [id, name, phone, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        phone:
+          type: string
+          description: 国际格式（去掉空格和连字符）
+        languages:
+          type: array
+          items:
+            type: string
+        license_expires_on:
+          type: string
+          format: date
+        license_state:
+          $ref: "#/components/schemas/ExpiryState"
+        driving_years:
+          type: [integer, "null"]
+        gold:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/DriverStatus"
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    VehicleInput:
+      type: object
+      additionalProperties: false
+      required: [plate, vehicle_group_id, model, seats, mileage_km, plate_type, insurance_expires_on, inspection_expires_on]
+      properties:
+        plate:
+          type: string
+          maxLength: 20
+        vehicle_group_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+          maxLength: 100
+          description: 品牌车型，如「丰田埃尔法」
+        color:
+          type: string
+          maxLength: 30
+        seats:
+          type: integer
+          minimum: 2
+          maximum: 60
+        mileage_km:
+          type: integer
+          minimum: 0
+        plate_type:
+          type: string
+          enum: [business, private]
+          description: "`business` 营业牌照（日本的绿牌）；`private` 非营业牌照：不能设为可用、不能被派单"
+        insurance_expires_on:
+          type: string
+          format: date
+        inspection_expires_on:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/VehicleStatus"
+    Vehicle:
+      type: object
+      additionalProperties: false
+      required: [id, plate, vehicle_group_id, model, color, seats, mileage_km, is_new, plate_type, insurance_expires_on, insurance_state, inspection_expires_on, inspection_state, status, version, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        plate:
+          type: string
+        vehicle_group_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+        color:
+          type: string
+        seats:
+          type: integer
+        mileage_km:
+          type: integer
+        is_new:
+          type: boolean
+          description: 里程小于 5 万公里
+        plate_type:
+          type: string
+          enum: [business, private]
+        insurance_expires_on:
+          type: string
+          format: date
+        insurance_state:
+          $ref: "#/components/schemas/ExpiryState"
+        inspection_expires_on:
+          type: string
+          format: date
+        inspection_state:
+          $ref: "#/components/schemas/ExpiryState"
+        status:
+          $ref: "#/components/schemas/VehicleStatus"
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AssignmentIssue:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [DRIVER_DISABLED, DRIVER_LICENSE_EXPIRED, DRIVER_LANGUAGE_MISSING, VEHICLE_NOT_AVAILABLE, VEHICLE_NOT_BUSINESS_PLATE, VEHICLE_INSURANCE_EXPIRED, VEHICLE_INSPECTION_EXPIRED, VEHICLE_GROUP_DOWNGRADE, VEHICLE_SEATS_TOO_FEW]
+        message:
+          type: string
+    AssignmentConflict:
+      type: object
+      additionalProperties: false
+      required: [resource, resource_id, order_id, order_no, service_time]
+      description: 同一时段这位司机 / 这辆车已有的单（每单按用车时间前后各 1 小时、服务 2 小时或套餐时长算）
+      properties:
+        resource:
+          type: string
+          enum: [driver, vehicle]
+        resource_id:
+          type: string
+          format: uuid
+        order_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        service_time:
+          type: string
+          format: date-time
+    IssuedDriverLink:
+      type: object
+      additionalProperties: false
+      required: [token, path, created_at, expires_at]
+      description: 司机链接：**令牌只在这一次应答里出现**，库里只存它的 SHA-256。把本站域名加上 `path` 发给司机（令牌在 `#` 后面，不会发给服务器、不进访问日志）
+      properties:
+        token:
+          type: string
+          pattern: "^nzd_[0-9a-f]{32}\\.[A-Za-z0-9_-]{43}$"
+        path:
+          type: string
+          description: "`/driver#<令牌>`"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: 用车结束后 24 小时
+    ReportedLocation:
+      type: object
+      additionalProperties: false
+      required: [lng, lat]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        accuracy_m:
+          type: [integer, "null"]
+          description: 手机报的精度（米）
+    OptionalLocationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/ReportedLocation"
+            - type: "null"
+    FulfilmentEventInput:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [departed, arrived, picked_up, completed]
+          description: "`departed` 已出发；`arrived` 已到达上车点；`picked_up` 接到客人（订单变成服务中）；`completed` 已完成"
+        location:
+          oneOf:
+            - $ref: "#/components/schemas/ReportedLocation"
+            - type: "null"
+        actual:
+          description: 完成时的实际时长（分钟）和里程（公里）：包车必填
+          oneOf:
+            - type: object
+              additionalProperties: false
+              properties:
+                minutes:
+                  type: [integer, "null"]
+                km:
+                  type: [integer, "null"]
+            - type: "null"
+    OrderDispatch:
+      type: object
+      additionalProperties: false
+      required: [due_at, overdue, overdue_at, escalation_at, departure_due_at, departure_overdue_at, assigned_at, driver, vehicle]
+      description: 派车：截止时间（用车前 24 小时；付款时已不足 24 小时的，付款后 2 小时）、有没有超时、派的司机和车辆
+      properties:
+        due_at:
+          type: [string, "null"]
+          format: date-time
+        overdue:
+          type: boolean
+          description: 已确认、还没派车、过了截止时间（列表里标红）
+        overdue_at:
+          type: [string, "null"]
+          format: date-time
+          description: 系统发现超时未派车的时间
+        escalation_at:
+          type: [string, "null"]
+          format: date-time
+          description: 用车前 6 小时：仍未派车升级告警（救援改派在 M3-04）
+        departure_due_at:
+          type: [string, "null"]
+          format: date-time
+          description: 用车前 1 小时：仍未出发提醒
+        departure_overdue_at:
+          type: [string, "null"]
+          format: date-time
+        assigned_at:
+          type: [string, "null"]
+          format: date-time
+        driver:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, name, phone, languages, gold]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                phone:
+                  type: string
+                languages:
+                  type: array
+                  items:
+                    type: string
+                gold:
+                  type: boolean
+            - type: "null"
+        vehicle:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, plate, vehicle_group_id, model, color, seats, is_new]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                plate:
+                  type: string
+                vehicle_group_id:
+                  type: string
+                  format: uuid
+                model:
+                  type: string
+                color:
+                  type: string
+                seats:
+                  type: integer
+                is_new:
+                  type: boolean
+            - type: "null"
+    OrderFulfilment:
+      type: object
+      additionalProperties: false
+      required: [departed_at, arrived_at, arrival_distance_m, arrival_within_range, picked_up_at, completed_at, actual_minutes, actual_km, leave_requested_at]
+      description: 履约的时间点（系统收到的时间）
+      properties:
+        departed_at:
+          type: [string, "null"]
+          format: date-time
+        arrived_at:
+          type: [string, "null"]
+          format: date-time
+        arrival_distance_m:
+          type: [integer, "null"]
+          description: 「已到达」时的定位距上车点多少米
+        arrival_within_range:
+          type: [boolean, "null"]
+          description: 距上车点 ≤ 300 米（no-show 第 1 项）
+        picked_up_at:
+          type: [string, "null"]
+          format: date-time
+        completed_at:
+          type: [string, "null"]
+          format: date-time
+        actual_minutes:
+          type: [integer, "null"]
+        actual_km:
+          type: [integer, "null"]
+        leave_requested_at:
+          type: [string, "null"]
+          format: date-time
+    OrderLanding:
+      description: |
+        实际落地时间（只有接机单，其他为 null）。取证规则（第五轮决策 ③）：客人「我已落地」优先；没有则取司机填写的（必须附到达屏照片）；都没有取计划到达时间（用车时间）；
+        客人和司机都有且不一致时取较晚者；各自提交后不能改。延误 6 小时内顺延不加收。
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [scheduled_at, guest_reported_at, driver_reported_at, driver_photo_file_id, landed_at, source, disagreement, delay_minutes, within_delay_allowance]
+          properties:
+            scheduled_at:
+              type: string
+              format: date-time
+            guest_reported_at:
+              type: [string, "null"]
+              format: date-time
+            driver_reported_at:
+              type: [string, "null"]
+              format: date-time
+            driver_photo_file_id:
+              type: [string, "null"]
+              format: uuid
+            landed_at:
+              type: string
+              format: date-time
+            source:
+              type: string
+              enum: [guest, driver, scheduled]
+            disagreement:
+              type: boolean
+            delay_minutes:
+              type: integer
+            within_delay_allowance:
+              type: boolean
+        - type: "null"
+    OrderFileKind:
+      type: string
+      enum: [arrival_screen, signboard, contact_screenshot]
+      description: "`arrival_screen` 到达屏（落地时间的证据）；`signboard` 举牌照片（no-show 第 3 项）；`contact_screenshot` 联系客人的截图"
+    OrderFile:
+      type: object
+      additionalProperties: false
+      required: [id, kind, content_type, byte_size, uploaded_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/OrderFileKind"
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, image/heic]
+        byte_size:
+          type: integer
+        uploaded_at:
+          type: string
+          format: date-time
+          description: 系统收到的时间（照片上的「系统时间」）
+    NoShowChecklistItem:
+      type: object
+      additionalProperties: false
+      required: [item, ok]
+      properties:
+        item:
+          type: string
+          enum: [arrived_on_time_nearby, contact_attempts, signboard_photo, leave_consented, submitted_in_time]
+        ok:
+          type: boolean
+        name:
+          type: string
+    OrderRecords:
+      type: object
+      additionalProperties: false
+      required: [assignments, driver_link, files, contacts, locations, no_show_claim]
+      description: 派车和履约的记录
+      properties:
+        assignments:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, driver_id, vehicle_id, is_change, conflict_confirmed, assigned_at]
+            properties:
+              id:
+                type: string
+                format: uuid
+              driver_id:
+                type: string
+                format: uuid
+              vehicle_id:
+                type: string
+                format: uuid
+              is_change:
+                type: boolean
+              conflict_confirmed:
+                type: boolean
+              assigned_at:
+                type: string
+                format: date-time
+        driver_link:
+          description: 当前的司机链接（没有令牌；令牌只在派车 / 重新生成时出现一次）
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, status, created_at, expires_at, last_used_at]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+                  enum: [active, expired]
+                created_at:
+                  type: string
+                  format: date-time
+                expires_at:
+                  type: string
+                  format: date-time
+                last_used_at:
+                  type: [string, "null"]
+                  format: date-time
+            - type: "null"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderFile"
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderContact"
+        locations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, lng, lat, accuracy_m, recorded_at]
+            properties:
+              kind:
+                type: string
+                enum: [departed, arrived, picked_up, completed, leave_requested, no_show, ping]
+              lng:
+                type: number
+              lat:
+                type: number
+              accuracy_m:
+                type: [integer, "null"]
+              recorded_at:
+                type: string
+                format: date-time
+        no_show_claim:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [status, submitted_at, free_wait_start, free_wait_end, checklist]
+              properties:
+                status:
+                  type: string
+                  enum: [pending_review]
+                submitted_at:
+                  type: string
+                  format: date-time
+                free_wait_start:
+                  type: string
+                  format: date-time
+                free_wait_end:
+                  type: string
+                  format: date-time
+                checklist:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/NoShowChecklistItem"
+            - type: "null"
+    OrderContact:
+      type: object
+      additionalProperties: false
+      required: [id, method, note, file_id, occurred_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        method:
+          type: string
+          enum: [phone, messaging]
+        note:
+          type: [string, "null"]
+        file_id:
+          type: [string, "null"]
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+    DriverTrip:
+      type: object
+      additionalProperties: false
+      description: 司机 H5 看到的这一单。**没有任何价格**
+      required: [order, driver, vehicle, dispatchers, fulfilment, landing, free_wait, contacts, files, no_show, link, server_time]
+      properties:
+        order:
+          type: object
+          additionalProperties: false
+          required: [order_no, status, status_name, category, direction, service_time, service_local, timezone, package_hours, passengers, luggage, flight_no, passenger, messaging, notes, place, pickup, dropoff, pickup_point, addons, driver_language, free_wait_minutes]
+          properties:
+            order_no:
+              type: string
+            status:
+              $ref: "#/components/schemas/OrderStatus"
+            status_name:
+              type: string
+            category:
+              $ref: "#/components/schemas/ServiceCategory"
+            direction:
+              oneOf:
+                - $ref: "#/components/schemas/TripDirection"
+                - type: "null"
+            service_time:
+              type: string
+              format: date-time
+            service_local:
+              type: string
+            timezone:
+              type: string
+            package_hours:
+              type: [integer, "null"]
+            passengers:
+              type: integer
+            luggage:
+              type: integer
+            flight_no:
+              type: [string, "null"]
+            passenger:
+              type: object
+              additionalProperties: false
+              required: [name, phone]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+            messaging:
+              oneOf:
+                - $ref: "#/components/schemas/OrderMessaging"
+                - type: "null"
+            notes:
+              type: [string, "null"]
+            place:
+              description: 接送机的机场 / 车站
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [name, code, lng, lat]
+                  properties:
+                    name:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    code:
+                      type: [string, "null"]
+                    lng:
+                      type: number
+                    lat:
+                      type: number
+                - type: "null"
+            pickup:
+              oneOf:
+                - $ref: "#/components/schemas/OrderPoint"
+                - type: "null"
+            dropoff:
+              oneOf:
+                - $ref: "#/components/schemas/OrderPoint"
+                - type: "null"
+            pickup_point:
+              description: 上车点的坐标（一键导航）：接机是机场，其他是客人填的上车点
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [lng, lat]
+                  properties:
+                    lng:
+                      type: number
+                    lat:
+                      type: number
+                - type: "null"
+            addons:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [addon_id, quantity, name]
+                properties:
+                  addon_id:
+                    type: string
+                    format: uuid
+                  quantity:
+                    type: integer
+                  name:
+                    type: [object, "null"]
+                    additionalProperties:
+                      type: string
+            driver_language:
+              type: [string, "null"]
+            free_wait_minutes:
+              type: [integer, "null"]
+        driver:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+            - type: "null"
+        vehicle:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [plate, model, color]
+              properties:
+                plate:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
+            - type: "null"
+        dispatchers:
+          type: array
+          description: 调度人（姓名、电话）
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, phone]
+            properties:
+              name:
+                type: string
+              phone:
+                type: string
+        fulfilment:
+          type: object
+          additionalProperties: false
+          required: [departed_at, arrived_at, arrival_distance_m, picked_up_at, completed_at, leave_requested_at]
+          properties:
+            departed_at:
+              type: [string, "null"]
+              format: date-time
+            arrived_at:
+              type: [string, "null"]
+              format: date-time
+            arrival_distance_m:
+              type: [integer, "null"]
+            picked_up_at:
+              type: [string, "null"]
+              format: date-time
+            completed_at:
+              type: [string, "null"]
+              format: date-time
+            leave_requested_at:
+              type: [string, "null"]
+              format: date-time
+        landing:
+          $ref: "#/components/schemas/OrderLanding"
+        free_wait:
+          type: object
+          additionalProperties: false
+          required: [start, end, ended]
+          properties:
+            start:
+              type: string
+              format: date-time
+            end:
+              type: [string, "null"]
+              format: date-time
+              description: 无限免等为 null
+            ended:
+              type: boolean
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderContact"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderFile"
+        no_show:
+          type: object
+          additionalProperties: false
+          required: [checklist, complete, leave_consent_at, submitted_at]
+          properties:
+            checklist:
+              type: array
+              items:
+                $ref: "#/components/schemas/NoShowChecklistItem"
+            complete:
+              type: boolean
+            leave_consent_at:
+              type: [string, "null"]
+              format: date-time
+            submitted_at:
+              type: [string, "null"]
+              format: date-time
+        link:
+          type: object
+          additionalProperties: false
+          required: [expires_at]
+          properties:
+            expires_at:
+              type: string
+              format: date-time
+        server_time:
+          type: string
+          format: date-time
+    TenantWebhookEvent:
+      type: string
+      enum: [order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away]
+      description: |
+        `order.confirmed` 新订单（付款后自动确认）；`order.assigned` 派车和改派（改派 `data.change = true`）；`order.status_changed` 出发、到达、接到客人、完成、客人未出现（`data.from_status`、`data.to_status`）；
+        `order.changed` 改单、`order.cancelled` 取消（M3-03 发出）；`rescue.offered`、`order.rescued_away` 救援（M3-04 发出）。
+    TenantWebhook:
+      type: object
+      additionalProperties: false
+      required: [url, events, status, secret_hint, secret_created_at, version, created_at, updated_at]
+      properties:
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantWebhookEvent"
+        status:
+          type: string
+          enum: [active, paused]
+        secret_hint:
+          type: string
+          description: 签名密钥的末 4 位
+        secret_created_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TenantWebhookSaved:
+      type: object
+      additionalProperties: false
+      required: [webhook, secret]
+      properties:
+        webhook:
+          $ref: "#/components/schemas/TenantWebhook"
+        secret:
+          type: [string, "null"]
+          pattern: "^nzwh_[A-Za-z0-9_-]{43}$"
+          description: 签名密钥原文：**只在新建和换密钥的这一次应答里出现**，请马上保存到调度系统里；修改设置时为 null
+    WebhookRules:
+      type: object
+      additionalProperties: false
+      required: [timeout_ms, max_attempts, retry_delays_seconds, signature_tolerance_seconds]
+      description: 推送的规则：5 秒内未返回 2xx 算失败；失败后按 1 分钟、5 分钟、30 分钟、2 小时、6 小时、24 小时重试，共 7 次；接收方应拒绝时间戳相差超过 5 分钟的请求
+      properties:
+        timeout_ms:
+          type: integer
+        max_attempts:
+          type: integer
+        retry_delays_seconds:
+          type: array
+          items:
+            type: integer
+        signature_tolerance_seconds:
+          type: integer
+    WebhookDeliveryStatus:
+      type: string
+      enum: [pending, succeeded, failed]
+      description: "`pending` 等待投递（含等待重试）；`succeeded` 对方回了 2xx；`failed` 重试用完仍失败（异常：供应商后台和运营后台都看得到，可以手动重推）"
+    WebhookRetryResult:
+      type: string
+      enum: [sent, in_flight, not_configured]
+      description: |
+        手动重推的结果。`sent`：发了一次（成败看 `delivery.status`）；`in_flight`：推送任务正在发这一条（租约中），这次什么都没做；
+        `not_configured`：供应商的 Webhook 设置已删除或暂停，没发，记为最终失败。
+    WebhookDelivery:
+      type: object
+      additionalProperties: false
+      description: 一条推送（一个事件推给一个供应商）。请求体在发送时按订单的当前内容现生成，库里不存（里面有乘客信息）
+      required: [id, event_id, event_type, order_id, data, status, attempts, next_attempt_at, last_attempt_at, last_status_code, last_error_code, last_duration_ms, succeeded_at, failed_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          pattern: "^evt_[0-9a-z]{24}$"
+          description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
+        event_type:
+          type: string
+          enum: [order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test]
+        order_id:
+          type: [string, "null"]
+          format: uuid
+        data:
+          type: object
+          description: 事件自己的少量信息（改派的 `change`、状态从什么到什么）；不含乘客信息和金额
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_status_code:
+          type: [integer, "null"]
+        last_error_code:
+          type: [string, "null"]
+          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+        last_duration_ms:
+          type: [integer, "null"]
+        succeeded_at:
+          type: [string, "null"]
+          format: date-time
+        failed_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    PlatformWebhookDelivery:
+      type: object
+      additionalProperties: false
+      description: 运营后台看到的一条推送：多了供应商
+      required: [id, event_id, event_type, order_id, data, status, attempts, next_attempt_at, last_attempt_at, last_status_code, last_error_code, last_duration_ms, succeeded_at, failed_at, created_at, tenant]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          pattern: "^evt_[0-9a-z]{24}$"
+          description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
+        event_type:
+          type: string
+          enum: [order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test]
+        order_id:
+          type: [string, "null"]
+          format: uuid
+        data:
+          type: object
+          description: 事件自己的少量信息（改派的 `change`、状态从什么到什么）；不含乘客信息和金额
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_status_code:
+          type: [integer, "null"]
+        last_error_code:
+          type: [string, "null"]
+          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+        last_duration_ms:
+          type: [integer, "null"]
+        succeeded_at:
+          type: [string, "null"]
+          format: date-time
+        failed_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        tenant:
+          $ref: "#/components/schemas/OrderPartyRef"
+    PlatformWebhookDeliveryDetail:
+      type: object
+      additionalProperties: false
+      required: [id, event_id, event_type, order_id, data, status, attempts, next_attempt_at, last_attempt_at, last_status_code, last_error_code, last_duration_ms, succeeded_at, failed_at, created_at, tenant_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          pattern: "^evt_[0-9a-z]{24}$"
+          description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
+        event_type:
+          type: string
+          enum: [order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test]
+        order_id:
+          type: [string, "null"]
+          format: uuid
+        data:
+          type: object
+          description: 事件自己的少量信息（改派的 `change`、状态从什么到什么）；不含乘客信息和金额
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempts:
+          type: integer
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_status_code:
+          type: [integer, "null"]
+        last_error_code:
+          type: [string, "null"]
+          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+        last_duration_ms:
+          type: [integer, "null"]
+        succeeded_at:
+          type: [string, "null"]
+          format: date-time
+        failed_at:
+          type: [string, "null"]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        tenant_id:
+          type: string
+          format: uuid
+    WebhookAttempt:
+      type: object
+      additionalProperties: false
+      required: [attempt_no, trigger, started_at, duration_ms, status_code, error_code, target_host, request_bytes, request_sha256]
+      description: 一次尝试：不存请求体和应答的原文，只存大小和指纹
+      properties:
+        attempt_no:
+          type: integer
+        trigger:
+          type: string
+          enum: [schedule, manual, test]
+        started_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        status_code:
+          type: [integer, "null"]
+        error_code:
+          type: [string, "null"]
+        target_host:
+          type: string
+          description: 目标主机（不含路径和查询串）
+        request_bytes:
+          type: integer
+        request_sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"

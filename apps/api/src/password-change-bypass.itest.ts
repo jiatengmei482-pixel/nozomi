@@ -135,6 +135,10 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", `/platform/v1/products/${ids.userId}`],
       ["GET", "/platform/v1/orders"],
       ["GET", `/platform/v1/orders/${ids.userId}`],
+      ["GET", `/platform/v1/orders/${ids.userId}/files/${ids.userId}`],
+      ["GET", "/platform/v1/webhook-deliveries"],
+      ["GET", `/platform/v1/webhook-deliveries/${ids.userId}`],
+      ["POST", `/platform/v1/webhook-deliveries/${ids.userId}/retry`],
       ["POST", "/platform/v1/quotes/preview", { city_id: ids.userId, category: "charter", currency: "JPY", package_hours: 10, pickup: { lng: 139.7, lat: 35.6 }, service_time: "2027-01-01T10:00", passengers: 2 }],
       ["GET", "/platform/v1/fx-rates"],
       ["GET", "/platform/v1/fx-rates/history"],
@@ -242,6 +246,30 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/fx-rates"],
     ["GET", "/tenant/v1/orders"],
     ["GET", `/tenant/v1/orders/${ids.userId}`],
+    ["GET", `/tenant/v1/orders/${ids.userId}/assignable`],
+    ["POST", `/tenant/v1/orders/${ids.userId}/assign`, { driver_id: ids.userId, vehicle_id: ids.userId }],
+    ["POST", `/tenant/v1/orders/${ids.userId}/driver-link`],
+    ["DELETE", `/tenant/v1/orders/${ids.userId}/driver-link`],
+    ["POST", `/tenant/v1/orders/${ids.userId}/events`, { type: "depart" }],
+    ["GET", `/tenant/v1/orders/${ids.userId}/files/${ids.userId}`],
+    ["GET", "/tenant/v1/drivers"],
+    ["POST", "/tenant/v1/drivers", { name: "不该出现", phone: "+819000000000" }],
+    ["GET", `/tenant/v1/drivers/${ids.userId}`],
+    ["PUT", `/tenant/v1/drivers/${ids.userId}`, { name: "被改了" }],
+    ["DELETE", `/tenant/v1/drivers/${ids.userId}`],
+    ["GET", "/tenant/v1/vehicles"],
+    ["POST", "/tenant/v1/vehicles", { plate: "不该出现", vehicle_group_id: ids.userId }],
+    ["GET", `/tenant/v1/vehicles/${ids.userId}`],
+    ["PUT", `/tenant/v1/vehicles/${ids.userId}`, { plate: "被改了" }],
+    ["DELETE", `/tenant/v1/vehicles/${ids.userId}`],
+    ["GET", "/tenant/v1/webhooks"],
+    ["PUT", "/tenant/v1/webhooks", { url: "https://bypass.example.com/hook" }],
+    ["DELETE", "/tenant/v1/webhooks"],
+    ["POST", "/tenant/v1/webhooks/rotate-secret"],
+    ["POST", "/tenant/v1/webhooks/test"],
+    ["GET", "/tenant/v1/webhooks/deliveries"],
+    ["GET", `/tenant/v1/webhooks/deliveries/${ids.userId}`],
+    ["POST", `/tenant/v1/webhooks/deliveries/${ids.userId}/retry`],
   ];
 }
 
@@ -253,7 +281,7 @@ function assertBlocked(res: ApiResponse, label: string): void {
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
     // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，都不在这份清单里
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/"))
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();

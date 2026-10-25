@@ -5,7 +5,8 @@
  * - `POST /sales/v1/quotes`：询价。渠道只来自令牌；只比渠道授权的租户、城市、品类；每个渠道每秒 50 次。
  * - `GET /sales/v1/quotes/{quote_id}`：下单前确认报价仍有效（过期 410 `QUOTE_EXPIRED`）；只查得到本渠道的。每个渠道每秒 10 次。
  * - `POST /sales/v1/orders`：用 quote_id 下单（M3-01，ADR 0026），必须带 Idempotency-Key；应答里有给前端确认付款用的 Stripe client_secret。每个渠道每秒 10 次。
- * - `GET /sales/v1/orders/{id}`：查本渠道的订单；付款成功后（渠道设置了展示时）才有中标租户名。
+ * - `GET /sales/v1/orders/{id}`：查本渠道的订单；付款成功后（渠道设置了展示时）才有中标租户名；派车后有司机和车辆（M3-02）。
+ * - `POST /sales/v1/orders/{id}/landed`：客人「我已落地」（M3-02，ADR 0027；官网订单页在 M3-05）。时间用系统收到的时间，提交后不能改。
  * 应答里没有结算价、加价比例；付款前没有中标租户。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -16,9 +17,9 @@ import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
 import { authenticateSales, issueSalesToken } from "../services/sales-auth.ts";
 import { type SalesPoint, type SalesQuote, createSalesQuotes, getSalesQuote, salesMoney } from "../services/sales-quotes.ts";
-import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView } from "../services/orders.ts";
+import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView, reportGuestLanding } from "../services/orders.ts";
 import { dateTimeSchema, idempotencyKey, parseInput, resourceId, uuidSchema } from "../validation.ts";
-import { orderTripJson } from "./orders.ts";
+import { landingJson, orderTripJson } from "../services/order-views.ts";
 
 const tokenSchema = z.object({ grant_type: z.literal("client_credentials"), client_id: z.string().min(1).max(100), client_secret: z.string().min(1).max(200) }).strict();
 
@@ -93,6 +94,10 @@ function salesOrderJson(view: SalesOrderView): Record<string, unknown> {
     payment_status: payment?.status ?? "creating",
     payment_due_at: order.paymentDueAt.toISOString(),
     winning_tenant: view.winningTenant,
+    // 派的司机和车辆（M3-02）：只给客人看得到的——姓名、语言、电话（用车前 24 小时起）、车牌、车型、颜色
+    driver: view.driver === null ? null : { name: view.driver.name, languages: view.driver.languages, phone: view.driverPhoneVisible ? view.driver.phone : null },
+    vehicle: view.vehicle === null ? null : { plate: view.vehicle.plate, model: view.vehicle.model, color: view.vehicle.color, vehicle_group_id: view.vehicle.vehicleGroupId },
+    landing: landingJson(order),
   };
 }
 
@@ -173,6 +178,12 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await channel(request, "other");
     const view = await getSalesOrderView(ctx, principal.channelId, resourceId(request.params, "订单"));
     if (view === null) throw new AppError(404, "NOT_FOUND", "订单不存在");
+    return { order: salesOrderJson(view) };
+  });
+
+  app.post("/sales/v1/orders/:id/landed", async (request) => {
+    const principal = await channel(request, "other");
+    const view = await reportGuestLanding(ctx, principal.channelId, resourceId(request.params, "订单"));
     return { order: salesOrderJson(view) };
   });
 

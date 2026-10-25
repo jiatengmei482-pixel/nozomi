@@ -32,6 +32,13 @@ import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider } from "./integrations/stripe.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
+import { WebhookJobs } from "./services/webhook-jobs.ts";
+import { SecretBox } from "./integrations/secret-box.ts";
+import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
+import { registerFleetRoutes } from "./routes/fleet.ts";
+import { registerDispatchRoutes } from "./routes/dispatch.ts";
+import { registerDriverRoutes } from "./routes/driver.ts";
+import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -53,7 +60,12 @@ export interface AppDeps {
    * 测试给替身（testing/payments.ts），不连 Stripe；给 null 模拟没配置。
    */
   payments?: PaymentProvider | null;
-  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
+  /**
+   * 推送给供应商的 Webhook 的发送器（ADR 0027）。不给：真实的 HTTPS 发送器（防 SSRF：只连公网地址）。
+   * 集成测试给一个打开了 `allowLocalTargets` 的发送器，推到本机的假服务器。
+   */
+  webhookSender?: WebhookSender;
+  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
 
@@ -68,8 +80,10 @@ declare module "fastify" {
     registeredRoutes: RegisteredRoute[];
     /** 汇率中心：定时任务的入口（服务进程用 `jobs` 启动它；测试直接调 `tick`、`fetch`） */
     fxCenter: FxCenter;
-    /** 订单的定时任务：待支付超时取消（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    /** 订单的定时任务：待支付超时取消、超时未派车和未出发的提醒（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     orderJobs: OrderJobs;
+    /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    webhookJobs: WebhookJobs;
   }
 }
 
@@ -160,7 +174,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // 带令牌或账号数据的响应不允许被任何缓存保存
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
-    if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/")) reply.header("cache-control", "no-store");
+    if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/")) reply.header("cache-control", "no-store");
   });
 
   app.get("/health", async (_request, reply) => {
@@ -180,14 +194,27 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const fx = new FxCenter({ pool, now, config: config.fx, log: app.log });
   app.decorate("fxCenter", fx);
   const payments = deps.payments !== undefined ? deps.payments : config.stripe === null ? null : new StripePaymentProvider(config.stripe);
-  const context: AppContext = { config, pool, now, fx, payments, quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote } };
+  const context: AppContext = {
+    config,
+    pool,
+    now,
+    fx,
+    payments,
+    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote },
+    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+    webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
+  };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);
+  const webhookJobs = new WebhookJobs(context, app.log);
+  app.decorate("webhookJobs", webhookJobs);
   if (deps.jobs) {
     fx.start();
     orderJobs.start();
+    webhookJobs.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
+    app.addHook("onClose", () => webhookJobs.stop());
   }
   registerPlatformRoutes(app, context);
   registerTenantRoutes(app, context);
@@ -204,6 +231,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerSalesRoutes(app, context);
   registerOrderRoutes(app, context);
   registerWebhookRoutes(app, context);
+  registerFleetRoutes(app, context);
+  registerDispatchRoutes(app, context);
+  registerDriverRoutes(app, context);
+  registerTenantWebhookRoutes(app, context);
 
   return app;
 }

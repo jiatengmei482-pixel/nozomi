@@ -69,6 +69,7 @@
 | `POSTGRES_PASSWORD` | 数据库「迁移账号」的密码：只在更新数据库结构、备份和恢复时用，程序平时运行不用它，也拿不到它 | **自动生成，不用管。** 不要修改或删除：数据库是用它建的，改了就连不上 |
 | `POSTGRES_APP_PASSWORD` | 数据库「应用账号」的密码：程序平时运行用的账号，权限最小（不能改数据库结构，不能改、删操作日志） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除 |
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
+| `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥在数据库里是用它加密保存的（ADR 0027） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开，每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥 |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 7 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created` → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
@@ -113,7 +114,7 @@
 ## 规则
 
 1. 测试环境只用 Stripe 测试密钥（`sk_test_`），代码会拒绝在非正式环境使用正式密钥。
-2. 每个环境的 `AUTH_JWT_SECRET`、`POSTGRES_PASSWORD`、`POSTGRES_APP_PASSWORD` 都不一样；`AUTH_JWT_SECRET` 泄露后立即更换，所有人需要重新登录。数据库的两个密码怀疑泄露时告诉 Claude 更换。
+2. 每个环境的 `AUTH_JWT_SECRET`、`DATA_ENCRYPTION_KEY`、`POSTGRES_PASSWORD`、`POSTGRES_APP_PASSWORD` 都不一样；`AUTH_JWT_SECRET` 泄露后立即更换，所有人需要重新登录。数据库的两个密码怀疑泄露时告诉 Claude 更换。
 3. 谷歌地图密钥必须在 Google Cloud 里限制 API 范围，并设置每日用量上限。
 4. 部署用的 SSH 私钥只用于部署，只存在 GitHub 的 Environment secrets 里；怀疑泄露时从 VPS 的 `authorized_keys` 里删掉对应公钥，再生成一把新的。
 5. VPS 上的 `.env` 文件权限保持 `600`，不要复制到别处，不要提交到仓库。

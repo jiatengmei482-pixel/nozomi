@@ -171,6 +171,9 @@ const rawSchema = z.object({
     databaseUrlSchema("DATABASE_MIGRATION_URL").optional(),
   ),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
+  // 数据加密密钥（ADR 0027）：加密库里需要还原原文的密钥（供应商的 Webhook 签名密钥）。服务器上由初始化 / 部署脚本自动生成；
+  // 只有 production 必须配置，其他环境不配时供应商不能设置 Webhook（接口 503，/health 和 config:check 显示「未配置」）
+  DATA_ENCRYPTION_KEY: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
   STRIPE_PUBLISHABLE_KEY: optionalString,
@@ -230,6 +233,8 @@ export interface AppConfig {
   /** 迁移账号的连接串；服务进程的环境里没有它时为 null */
   databaseMigrationUrl: string | null;
   authJwtSecret: string;
+  /** 数据加密密钥（ADR 0027）；没有配置时为 null：供应商不能设置 Webhook */
+  dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
   /** 地图底图；这个环境没有配置时为 null */
@@ -297,6 +302,12 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (!googleMapsApiKey && env.APP_ENV === "production") {
     issues.push("production 环境必须配置 GOOGLE_MAPS_API_KEY");
   }
+  const dataEncryptionKey = env.DATA_ENCRYPTION_KEY ?? null;
+  if (dataEncryptionKey === null && env.APP_ENV === "production") {
+    issues.push("production 环境必须配置 DATA_ENCRYPTION_KEY（服务器初始化 / 部署脚本会自动生成）");
+  }
+  if (dataEncryptionKey !== null && dataEncryptionKey.length < 32) issues.push("DATA_ENCRYPTION_KEY 至少 32 个字符");
+  if (dataEncryptionKey !== null && dataEncryptionKey === env.AUTH_JWT_SECRET) issues.push("DATA_ENCRYPTION_KEY 不能和 AUTH_JWT_SECRET 相同：两把密钥各管一件事，一把泄露不连累另一把");
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
   }
@@ -314,6 +325,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databaseUrl: env.DATABASE_URL,
     databaseMigrationUrl,
     authJwtSecret: env.AUTH_JWT_SECRET,
+    dataEncryptionKey,
     stripe,
     googleMapsApiKey,
     mapTiles,
@@ -356,7 +368,7 @@ export function loadMigrationConfig(source: Record<string, string | undefined> =
 export type IntegrationState = "configured" | "missing";
 
 export interface IntegrationStatus {
-  key: "database" | "auth" | "stripe" | "googleMaps" | "fx";
+  key: "database" | "auth" | "dataEncryption" | "stripe" | "googleMaps" | "fx";
   label: string;
   state: IntegrationState;
   detail: string;
@@ -367,6 +379,9 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
   return [
     { key: "database", label: "数据库", state: "configured", detail: maskUrl(config.databaseUrl) },
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
+    config.dataEncryptionKey
+      ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
+      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook" },
     config.stripe
       ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${config.stripe.mode === "live" ? "正式" : "测试"}模式 · ${mask(config.stripe.secretKey)}` }
       : { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" },

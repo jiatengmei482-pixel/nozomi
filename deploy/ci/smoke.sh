@@ -273,7 +273,7 @@ check_frontend() {
 
   # 接口前缀仍然到 API：前缀本身、带查询串、带下级路径。API 对不存在的路径返回统一格式的 JSON 错误。
   [[ "$(status_of "/health?probe=1")" == "200" ]] || fail "$label：/health 带查询串应仍由 API 返回 200"
-  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
+  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
     body="$(request --max-time 10 "$base_url$path")"
     [[ "$body" == '{"error":{"code":'* ]] || fail "$label：$path 应由 API 回答（统一格式的 JSON 错误），实际是：${body:0:120}"
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
@@ -502,6 +502,7 @@ fi
 
 step "5. 数据库的两个账号：api 容器用的是最小权限的应用账号"
 grep -Eq '^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$' "$root_dir/.env" || fail "部署时应自动生成 POSTGRES_APP_PASSWORD 并写入 .env"
+grep -Eq '^DATA_ENCRYPTION_KEY=[0-9a-f]{64}$' "$root_dir/.env" || fail "部署时应自动生成 DATA_ENCRYPTION_KEY 并写入 .env"
 [[ "$(stat -c '%a' "$root_dir/.env")" == "600" ]] || fail ".env 的权限应为 600"
 [[ "$(grep -c '^POSTGRES_PASSWORD=ci-placeholder-not-a-real-password$' "$root_dir/.env")" == "1" ]] || fail "补应用账号密码时不应改动 POSTGRES_PASSWORD"
 app_password_digest="$(grep '^POSTGRES_APP_PASSWORD=' "$root_dir/.env" | sha256sum)"

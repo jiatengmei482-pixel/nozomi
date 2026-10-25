@@ -1208,10 +1208,10 @@ async function seedOrders(): Promise<{ a: string; b: string }> {
     await api.db.owner.query(
       `insert into orders (tenant_id, id, order_no, status, category, city_id, product_id, product_version, vehicle_group_id, service_at, service_local, timezone, service_date,
                            urgent, passengers, luggage, pickup, dropoff, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held,
-                           payment_due_at, confirmed_at, created_at, updated_at)
+                           payment_due_at, confirmed_at, dispatch_due_at, created_at, updated_at)
        values ($1, $2, $3, 'confirmed', 'point_to_point', $4, $5, 1, $6, '2026-11-01T01:00:00Z', '2026-11-01T10:00', 'Asia/Tokyo', '2026-11-01',
                false, 1, 0, $7::jsonb, $7::jsonb, '[]'::jsonb, $8::jsonb, 11000, 'JPY', $9::jsonb, false,
-               '2026-10-07T01:00:00Z', '2026-10-07T00:10:00Z', '2026-10-07T00:00:00Z', '2026-10-07T00:10:00Z')
+               '2026-10-07T01:00:00Z', '2026-10-07T00:10:00Z', '2026-10-31T01:00:00Z', '2026-10-07T00:00:00Z', '2026-10-07T00:10:00Z')
        on conflict do nothing`,
       [fixture.tenantId, ids[name], orderNo, city, side.productId, seeded.vehicleGroupId, JSON.stringify({ lng: 139.7, lat: 35.6, address: `${name} 的地址` }), JSON.stringify({ name: `乘客 ${name}`, phone: "+81 90-1234-5678", email: `${name}@guest.test` }), settlement],
     );
@@ -1241,6 +1241,141 @@ test("订单：只列出自己的单，带别人的 tenant_id 也一样；看不
   await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from orders where id = $1", [ids.b])), deniedByDatabase);
   const status = await api.db.owner.query<{ status: string; notes: string | null }>("select status, notes from orders where id = $1", [ids.b]);
   assert.deepEqual(status.rows[0], { status: "confirmed", notes: null });
+});
+
+/** 两边的已确认订单（seedOrders 写入的，按订单号找回来）。 */
+async function orderIds(): Promise<{ a: string; b: string }> {
+  await seedOrders();
+  const rows = await api.db.owner.query<{ id: string; order_no: string }>("select id, order_no from orders where order_no in ('NZ20261007AAAAAAAA', 'NZ20261007BBBBBBBB')");
+  const byNo = new Map(rows.rows.map((row) => [row.order_no, row.id]));
+  return { a: byNo.get("NZ20261007AAAAAAAA") as string, b: byNo.get("NZ20261007BBBBBBBB") as string };
+}
+
+async function fleetRows(): Promise<unknown> {
+  return { drivers: (await api.db.owner.query("select * from drivers order by id")).rows, vehicles: (await api.db.owner.query("select * from vehicles order by id")).rows };
+}
+
+interface FleetSide {
+  driverId: string;
+  vehicleId: string;
+}
+const fleet: Partial<Record<"a" | "b", FleetSide>> = {};
+
+/** 两边各一位司机、一辆车（经真实接口；同一个幂等键、同一个电话和车牌在两个供应商之间互不相干）。 */
+async function seedFleet(): Promise<{ a: FleetSide; b: FleetSide; vehicleGroupId: string }> {
+  const seeded = await seedPrices();
+  const seats = (await api.db.owner.query<{ seats: number }>("select seats from vehicle_groups where id = $1", [seeded.vehicleGroupId])).rows[0]!.seats;
+  for (const [name, fixture] of [["a", a], ["b", b]] as const) {
+    if (fleet[name] !== undefined) continue;
+    const headers = { "idempotency-key": "shared-key-fleet-0001" };
+    const driver = await api.call("POST", "/tenant/v1/drivers", { token: fixture.adminToken, headers, body: { name: `司机 ${name}`, phone: "+81 90-0000-1111", languages: ["ja"], license_expires_on: "2030-01-01", tenant_id: name === "a" ? b.tenantId : a.tenantId } });
+    assert.equal(driver.status, 201, driver.text);
+    const vehicle = await api.call("POST", "/tenant/v1/vehicles", { token: fixture.adminToken, headers, body: { plate: "品川 300 あ 00-01", vehicle_group_id: seeded.vehicleGroupId, model: "埃尔法", seats, mileage_km: 100, plate_type: "business", insurance_expires_on: "2030-01-01", inspection_expires_on: "2030-01-01", tenant_id: name === "a" ? b.tenantId : a.tenantId } });
+    assert.equal(vehicle.status, 201, vehicle.text);
+    fleet[name] = { driverId: driver.body.id, vehicleId: vehicle.body.id };
+  }
+  return { a: fleet.a as FleetSide, b: fleet.b as FleetSide, vehicleGroupId: seeded.vehicleGroupId };
+}
+
+test("司机和车辆：建在令牌所属的供应商名下（请求体的 tenant_id 不生效）；只列出自己的；看不到、改不了、停用不了别人的（404，和不存在一样，对方原样不动）", async () => {
+  for (const route of ["GET /tenant/v1/drivers", "POST /tenant/v1/drivers", "GET /tenant/v1/drivers/:id", "PUT /tenant/v1/drivers/:id", "DELETE /tenant/v1/drivers/:id", "GET /tenant/v1/vehicles", "POST /tenant/v1/vehicles", "GET /tenant/v1/vehicles/:id", "PUT /tenant/v1/vehicles/:id", "DELETE /tenant/v1/vehicles/:id"]) cover(route);
+  const seeded = await seedFleet();
+  const owners = await api.db.owner.query<{ id: string; tenant_id: string }>("select id, tenant_id from drivers union all select id, tenant_id from vehicles");
+  const ownerOf = new Map(owners.rows.map((row) => [row.id, row.tenant_id]));
+  assert.deepEqual([ownerOf.get(seeded.a.driverId), ownerOf.get(seeded.b.vehicleId)], [a.tenantId, b.tenantId]);
+  for (const path of ["drivers", "vehicles"]) {
+    const list = await api.call("GET", `/tenant/v1/${path}?tenant_id=${b.tenantId}`, { token: a.adminToken });
+    assert.equal(list.status, 200);
+    assert.deepEqual(list.body.items.map((item: { id: string }) => item.id), [path === "drivers" ? seeded.a.driverId : seeded.a.vehicleId]);
+  }
+  const before = await fleetRows();
+  for (const [path, id] of [["drivers", seeded.b.driverId], ["vehicles", seeded.b.vehicleId]] as const) {
+    const body = path === "drivers" ? { name: "被甲改了", phone: "+819000001111", languages: ["ja"], license_expires_on: "2030-01-01", status: "disabled" } : { plate: "x", vehicle_group_id: seeded.vehicleGroupId, model: "x", seats: 7, mileage_km: 1, plate_type: "business", insurance_expires_on: "2030-01-01", inspection_expires_on: "2030-01-01", status: "disabled" };
+    for (const [method, extra] of [["GET", {}], ["PUT", { headers: { "if-match": '"1"' }, body }], ["DELETE", {}]] as const) {
+      const foreign = await api.call(method, `/tenant/v1/${path}/${id}`, { token: a.adminToken, ...extra });
+      const missing = await api.call(method, `/tenant/v1/${path}/${NO_SUCH_ID}`, { token: a.adminToken, ...extra });
+      assert.equal(foreign.status, 404, `${method} ${path}`);
+      assert.equal(foreign.text, missing.text);
+    }
+  }
+  assert.deepEqual(await fleetRows(), before);
+  const seen = await withTenantTx(api.db.pool, a.tenantId, async (db) => [(await db.query("select id from drivers")).rows.length, (await db.query("select id from vehicles")).rows.length, (await db.query("update drivers set name = 'x' where id = $1", [seeded.b.driverId])).rowCount]);
+  assert.deepEqual(seen, [1, 1, 0], "数据库层面也只看得到、改得到自己的");
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("delete from drivers where id = $1", [seeded.a.driverId])), deniedByDatabase, "司机不能删，只能停用");
+});
+
+test("派车：别的供应商的单看不到可派资源、派不了、生成 / 吊销不了链接、回传不了状态、看不到照片；自己的单也派不了别人的司机和车辆", async () => {
+  for (const route of ["GET /tenant/v1/orders/:id/assignable", "POST /tenant/v1/orders/:id/assign", "POST /tenant/v1/orders/:id/driver-link", "DELETE /tenant/v1/orders/:id/driver-link", "POST /tenant/v1/orders/:id/events", "GET /tenant/v1/orders/:id/files/:fileId"]) cover(route);
+  const seeded = await seedFleet();
+  const ids = await orderIds();
+  const version = async (who: TenantFixture, id: string): Promise<number> => (await api.call("GET", `/tenant/v1/orders/${id}`, { token: who.adminToken })).body.order.version;
+  // 乙给自己的单派车，司机上传一张照片
+  const bAssigned = await api.call("POST", `/tenant/v1/orders/${ids.b}/assign`, { token: b.adminToken, headers: { "if-match": `"${await version(b, ids.b)}"` }, body: { driver_id: seeded.b.driverId, vehicle_id: seeded.b.vehicleId } });
+  assert.equal(bAssigned.status, 200, bAssigned.text);
+  const photo = await api.app.inject({ method: "POST", url: "/driver/v1/trip/files?kind=signboard", headers: { authorization: `Bearer ${bAssigned.body.driver_link.token}`, "content-type": "image/jpeg" }, payload: Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(32)]) });
+  assert.equal(photo.statusCode, 201, photo.body);
+  const fileId = photo.json().file.id as string;
+  const bBefore = (await api.db.owner.query("select status, driver_id, vehicle_id, version from orders where id = $1", [ids.b])).rows[0];
+  const attempts = [
+    ["GET", `/tenant/v1/orders/${ids.b}/assignable`, {}],
+    ["POST", `/tenant/v1/orders/${ids.b}/assign`, { headers: { "if-match": `"${bBefore.version}"` }, body: { driver_id: seeded.a.driverId, vehicle_id: seeded.a.vehicleId, tenant_id: b.tenantId } }],
+    ["POST", `/tenant/v1/orders/${ids.b}/driver-link`, {}],
+    ["DELETE", `/tenant/v1/orders/${ids.b}/driver-link`, {}],
+    ["POST", `/tenant/v1/orders/${ids.b}/events`, { body: { type: "departed" } }],
+    ["GET", `/tenant/v1/orders/${ids.b}/files/${fileId}`, {}],
+  ] as const;
+  for (const [method, url, extra] of attempts) {
+    const foreign = await api.call(method, url, { token: a.adminToken, ...extra });
+    const missing = await api.call(method, url.replace(ids.b, NO_SUCH_ID), { token: a.adminToken, ...extra });
+    assert.equal(foreign.status, 404, `${method} ${url}`);
+    assert.equal(foreign.text, missing.text, `${method} ${url}`);
+  }
+  assert.equal((await api.call("GET", `/tenant/v1/orders/${ids.a}/files/${fileId}`, { token: a.adminToken })).status, 404, "把乙的照片编号挂到自己的单上也看不到");
+  assert.deepEqual((await api.db.owner.query("select status, driver_id, vehicle_id, version from orders where id = $1", [ids.b])).rows[0], bBefore, "乙的单原样不动");
+  assert.equal((await api.call("GET", "/driver/v1/trip", { token: bAssigned.body.driver_link.token })).status, 200, "乙的司机链接照常能用");
+  // 甲给自己的单派乙的司机和车辆：和不存在一样被拒
+  const mixed = await api.call("POST", `/tenant/v1/orders/${ids.a}/assign`, { token: a.adminToken, headers: { "if-match": `"${await version(a, ids.a)}"` }, body: { driver_id: seeded.b.driverId, vehicle_id: seeded.b.vehicleId } });
+  assert.deepEqual([mixed.status, mixed.body.error.details.issues.map((issue: { path: string }) => issue.path)], [400, ["/driver_id", "/vehicle_id"]]);
+  // 数据库层面：甲的租户事务改不了乙的单，也写不进乙名下的派车记录、照片、链接；自己的单也只能改派车和履约的列
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update orders set status = 'cancelled' where id = $1", [ids.b]))).rowCount, 0);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update orders set settlement_minor = 1 where id = $1", [ids.a])), deniedByDatabase, "结算价只有平台能改");
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update orders set passenger = '{}'::jsonb where id = $1", [ids.a])), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update orders set guest_landed_at = now() where id = $1", [ids.a])), deniedByDatabase, "客人确认的落地时间只能从渠道接口来");
+  await assert.rejects(
+    withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into order_assignments (tenant_id, order_id, driver_id, vehicle_id, is_change, assigned_at, actor_type) values ($1, $2, $3, $4, false, now(), 'tenant_user')", [b.tenantId, ids.b, seeded.b.driverId, seeded.b.vehicleId])),
+    deniedByDatabase,
+  );
+  for (const table of ["order_assignments", "driver_links", "order_files", "order_contacts", "order_locations", "order_no_show_claims"]) {
+    assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query(`select 1 from ${table} where tenant_id = $1`, [b.tenantId]))).rowCount, 0, table);
+  }
+});
+
+test("Webhook：设置、密钥、测试事件、投递记录、重推都只对令牌所属的供应商；看不到、重推不了别人的投递（404，和不存在一样）", async () => {
+  for (const route of ["GET /tenant/v1/webhooks", "PUT /tenant/v1/webhooks", "DELETE /tenant/v1/webhooks", "POST /tenant/v1/webhooks/rotate-secret", "POST /tenant/v1/webhooks/test", "GET /tenant/v1/webhooks/deliveries", "GET /tenant/v1/webhooks/deliveries/:id", "POST /tenant/v1/webhooks/deliveries/:id/retry"]) cover(route);
+  const bSaved = await api.call("PUT", "/tenant/v1/webhooks", { token: b.adminToken, body: { url: "https://dispatch.b.example.com/hook", events: ["order.assigned"], tenant_id: a.tenantId } });
+  assert.equal(bSaved.status, 201, bSaved.text);
+  const bRow = (await api.db.owner.query<{ tenant_id: string }>("select tenant_id from tenant_webhooks")).rows;
+  assert.deepEqual(bRow.map((row) => row.tenant_id), [b.tenantId], "请求体的 tenant_id 不生效");
+  const delivery = (await api.db.owner.query<{ id: string }>("insert into webhook_deliveries (tenant_id, event_id, event_type, status, failed_at, created_at) values ($1, 'evt_isolation000000000000000', 'order.assigned', 'failed', now(), now()) returning id", [b.tenantId])).rows[0]!.id;
+  assert.equal((await api.call("GET", "/tenant/v1/webhooks", { token: a.adminToken })).body.webhook, null, "甲看不到乙的设置");
+  assert.equal((await api.call("POST", "/tenant/v1/webhooks/rotate-secret", { token: a.adminToken })).status, 404);
+  assert.equal((await api.call("POST", "/tenant/v1/webhooks/test", { token: a.adminToken })).status, 404);
+  assert.equal((await api.call("DELETE", "/tenant/v1/webhooks", { token: a.adminToken })).status, 404);
+  assert.deepEqual((await api.call("GET", `/tenant/v1/webhooks/deliveries?tenant_id=${b.tenantId}`, { token: a.adminToken })).body.items, []);
+  for (const [method, url] of [["GET", `/tenant/v1/webhooks/deliveries/${delivery}`], ["POST", `/tenant/v1/webhooks/deliveries/${delivery}/retry`]] as const) {
+    const foreign = await api.call(method, url, { token: a.adminToken });
+    assert.equal(foreign.status, 404);
+    assert.equal(foreign.text, (await api.call(method, url.replace(delivery, NO_SUCH_ID), { token: a.adminToken })).text);
+  }
+  const aSaved = await api.call("PUT", "/tenant/v1/webhooks", { token: a.adminToken, body: { url: "https://dispatch.a.example.com/hook", events: ["order.confirmed"] } });
+  assert.equal(aSaved.status, 201, "甲建自己的，不碰乙的");
+  assert.notEqual(aSaved.body.secret, bSaved.body.secret);
+  const rows = (await api.db.owner.query<{ tenant_id: string; url: string; status: string }>("select w.tenant_id, w.url, d.status from tenant_webhooks w left join webhook_deliveries d on d.tenant_id = w.tenant_id order by w.url")).rows;
+  assert.deepEqual(rows, [{ tenant_id: a.tenantId, url: "https://dispatch.a.example.com/hook", status: null }, { tenant_id: b.tenantId, url: "https://dispatch.b.example.com/hook", status: "failed" }]);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from tenant_webhooks where tenant_id = $1 union all select 1 from webhook_deliveries where tenant_id = $1", [b.tenantId]))).rowCount, 0);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into webhook_deliveries (tenant_id, event_id, event_type, status, next_attempt_at, created_at) values ($1, 'evt_isolation111111111111111', 'order.assigned', 'pending', now(), now())", [b.tenantId])), deniedByDatabase);
+  // 乙的密钥：甲的租户事务里连密文都读不到
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select secret_ciphertext from tenant_webhooks"))).rows.length, 1);
 });
 
 test("平台令牌进不了租户接口，租户令牌进不了平台接口", async () => {
@@ -1297,6 +1432,11 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/orders", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/drivers", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/vehicles", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/webhooks", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/webhooks/deliveries", { token: a.adminToken }),
+    ...(await Promise.all((await api.call("GET", "/tenant/v1/orders", { token: a.adminToken })).body.items.map((item: { id: string }) => api.call("GET", `/tenant/v1/orders/${item.id}`, { token: a.adminToken })))),
   ];
   for (const res of responses) assert.doesNotMatch(res.text, /markup|sell_price|selling_price|public_price|对外价|加价/i);
 });

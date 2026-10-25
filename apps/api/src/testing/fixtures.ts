@@ -8,6 +8,7 @@ import { type AppConfig, loadConfig } from "@nozomi/config";
 export const FAKE_SECRETS = {
   databasePassword: "fake-db-password-Zq7",
   authJwtSecret: "fake-jwt-secret-for-tests-only-0123456789abcdef",
+  dataEncryptionKey: "fake-data-encryption-key-for-tests-0123456789",
   stripeSecretKey: "sk_test_FAKEfakeFAKEfake0000",
   stripePublishableKey: "pk_test_FAKEfakeFAKEfake0000",
   stripeWebhookSecret: "whsec_FAKEfakeFAKEfake0000",
@@ -28,6 +29,7 @@ export function testEnv(databaseUrl: string): Record<string, string> {
     APP_ENV: "ci",
     DATABASE_URL: databaseUrl,
     AUTH_JWT_SECRET: FAKE_SECRETS.authJwtSecret,
+    DATA_ENCRYPTION_KEY: FAKE_SECRETS.dataEncryptionKey,
     STRIPE_SECRET_KEY: FAKE_SECRETS.stripeSecretKey,
     STRIPE_PUBLISHABLE_KEY: FAKE_SECRETS.stripePublishableKey,
     STRIPE_WEBHOOK_SECRET: FAKE_SECRETS.stripeWebhookSecret,
