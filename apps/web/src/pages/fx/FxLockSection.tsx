@@ -18,7 +18,7 @@ import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES } from "../../lib/channel-display.ts";
-import { DEFAULT_LOCK_HOURS, FX_LOCKABLE_CURRENCIES, LOCK_DURATION_HOURS, checkLockDraft, lockExpiresAt, lockServerErrors } from "../../lib/fx-lock-form.ts";
+import { FX_LOCKABLE_CURRENCIES, LOCK_DURATION_HOURS, LOCK_HOURS_MESSAGE, checkLockDraft, lockExpiresAt, lockHoursOf, lockServerErrors } from "../../lib/fx-lock-form.ts";
 import { CURRENCY_NAMES, FX_LOCK_BADGES, changeText, rateText } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
@@ -134,7 +134,8 @@ function LockDialog({ data, initialCurrency, onClose, onDone }: { data: FxOvervi
   const { token, handleAuthFailure } = usePortalSession();
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [rate, setRate] = useState("");
-  const [hours, setHours] = useState(DEFAULT_LOCK_HOURS);
+  const [hoursText, setHoursText] = useState("");
+  const [attempted, setAttempted] = useState(false);
   const [reason, setReason] = useState("");
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -147,13 +148,15 @@ function LockDialog({ data, initialCurrency, onClose, onDone }: { data: FxOvervi
   const check = checkLockDraft({ rate, reason }, central, touched);
   const rateErrors = [...check.errors.rate, ...(server?.rate ?? [])];
   const reasonErrors = [...check.errors.reason, ...(server?.reason ?? [])];
-  const expiresAt = lockExpiresAt(new Date(), hours);
+  const hours = lockHoursOf(hoursText);
+  const hoursErrors = attempted && hours === null ? [LOCK_HOURS_MESSAGE] : [];
 
   const submit = async (): Promise<void> => {
     setTouched(true);
+    setAttempted(true);
     setServer(null);
     const final = checkLockDraft({ rate, reason }, central, true);
-    if (final.rate === null || final.errors.rate.length > 0 || final.errors.reason.length > 0) return;
+    if (final.rate === null || final.errors.rate.length > 0 || final.errors.reason.length > 0 || hours === null) return;
     setBusy(true);
     try {
       await requestFxLock(token, { currency, rate: final.rate, expires_at: lockExpiresAt(new Date(), hours), reason: reason.trim() === "" ? null : reason.trim() });
@@ -212,8 +215,15 @@ function LockDialog({ data, initialCurrency, onClose, onDone }: { data: FxOvervi
         }}
         onBlur={() => setTouched(true)}
       />
-      <SelectField label="锁定多久" value={String(hours)} options={LOCK_DURATION_HOURS.map((value) => ({ value: String(value), label: `${value} 小时` }))} onChange={(value) => setHours(Number(value))} />
-      <p className="fx-hint">{`到 ${formatLocalDateTime(expiresAt)} 自动失效（从提交时算起；批准得晚，剩下的时间就短）。`}</p>
+      <SelectField
+        label="锁定多久"
+        placeholder="请选择"
+        value={hoursText}
+        options={LOCK_DURATION_HOURS.map((value) => ({ value: String(value), label: `${value} 小时` }))}
+        errors={hoursErrors}
+        onChange={setHoursText}
+      />
+      <p className="fx-hint">{hours === null ? `最长 ${data.lock_rules.max_hours} 小时。选好后这里显示到期时间。` : `到 ${formatLocalDateTime(lockExpiresAt(new Date(), hours))} 自动失效（从提交时算起；批准得晚，剩下的时间就短）。`}</p>
       <TextField
         label={check.deviation?.needsReason ? "原因（必填）" : "原因"}
         autoComplete="off"
