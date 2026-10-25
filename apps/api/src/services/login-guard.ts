@@ -1,6 +1,7 @@
 /**
  * 登录防暴力破解：验证密码之前先占用一次尝试；超过限制直接拒绝——不再验证密码（不做哈希计算）、不写审计。
- * 规则在 @nozomi/domain 的 login-throttle.ts。「已登录用户改密码时核对当前密码」也走这里，用自己的一组计数。
+ * 规则在 @nozomi/domain 的 login-throttle.ts。「已登录用户改密码时核对当前密码」也走这里，用自己的一组计数；
+ * 平台员工输入两步验证的动态码 / 恢复码（ADR 0030）也走这里，又是单独的一组（`platform-mfa`）。
  */
 import { createHash } from "node:crypto";
 import {
@@ -21,7 +22,7 @@ import {
 import { tooManyLoginAttempts } from "./errors.ts";
 
 /** 哪一个验证密码的入口：各入口的计数互不影响。 */
-export type PasswordCheckEntry = "platform" | "tenant" | "platform-change-password" | "tenant-change-password";
+export type PasswordCheckEntry = "platform" | "tenant" | "platform-change-password" | "tenant-change-password" | "platform-mfa";
 
 function throttleKey(...parts: string[]): string {
   return createHash("sha256").update(parts.join("\n"), "utf8").digest("hex");

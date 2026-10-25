@@ -39,6 +39,14 @@ info:
       - 401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效
       - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作
       - 403 `PASSWORD_CHANGE_REQUIRED`：这个账号正在用临时密码，必须先修改密码（见下一条）
+      - 403 `MFA_REQUIRED`（只有平台接口）：这个会话还没完成两步验证（见下一条）
+      - 403 `IP_NOT_ALLOWED`（只有平台接口）：来源地址不在这个账号的 IP 白名单里
+    - 平台员工的两步验证（ADR 0030）：密码正确只是第一步。登录应答里的 `second_factor.status` 是
+      `enrollment_required`（还没绑定验证器：`auth/mfa/enrollment` → `auth/mfa/enrollment/confirm`）或
+      `verify_required`（输入动态码或恢复码：`auth/mfa/verify`）。完成之前这个会话只能调 `auth/me`、`auth/logout` 和这三个两步验证接口，
+      其余一律 403 `MFA_REQUIRED`（`details.status` 是上面两种之一；先于必须修改密码、角色权限和参数校验判断，新增的接口默认也在此列）；
+      完成之后同一个令牌恢复正常。待验证的会话 15 分钟后失效。修改密码也要先完成两步验证。
+      判断顺序：401 → 403 `IP_NOT_ALLOWED` → 403 `MFA_REQUIRED` → 403 `PASSWORD_CHANGE_REQUIRED` → 403 `FORBIDDEN` → 参数校验。
     - 临时密码与强制修改密码：平台超级管理员可以在服务器上用命令行生成一次性显示的随机临时密码
       （`pnpm admin:create --temporary-password`、`pnpm admin:reset-password --temporary-password`）。
       用临时密码登录照常成功，但登录应答和 `auth/me` 里的 `must_change_password` 为 `true`。
@@ -64,9 +72,11 @@ tags:
   - name: 运维
     description: 健康检查等不属于任何业务域的接口
   - name: 平台登录
-    description: 平台员工的登录、退出、接受邀请
+    description: 平台员工的登录（密码 + 两步验证）、退出、接受邀请
   - name: 平台账号
-    description: 平台员工账号管理（只有超级管理员）
+    description: 平台员工账号管理（只有超级管理员）：邀请、停用、改角色和 IP 白名单、重置两步验证
+  - name: 角色
+    description: 平台角色（ADR 0030）：内置角色是只读模板；自建角色按「菜单 × 操作」勾选，可加数据范围和 IP 白名单；修改走双人复核
   - name: 租户管理
     description: 平台侧创建、查看、暂停租户
   - name: 平台系统
@@ -149,6 +159,8 @@ paths:
         15 分钟内：同一邮箱 + 同一来源地址最多尝试 5 次，同一邮箱最多 20 次，同一来源地址（不分邮箱）最多失败 50 次；
         超过返回 429。登录成功后邮箱维度的计数清零。被 429 拦下的请求不验证密码、不写审计日志。
         登录成功和失败都写审计日志。
+        密码正确之后还要做两步验证（`second_factor.status`，ADR 0030）；在那之前令牌只能用于两步验证、查看自己和退出。
+        账号设了 IP 白名单而来源地址不在里面时（只在密码正确时才说）返回 403 `IP_NOT_ALLOWED`，并写一条原因为 `ip_not_allowed` 的登录失败审计。
       security: []
       requestBody:
         required: true
@@ -170,7 +182,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用；`IP_NOT_ALLOWED`：密码正确，但来源地址不在这个账号的 IP 白名单里"
           content:
             application/json:
               schema:
@@ -203,7 +215,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [user, permissions, must_change_password]
+                required: [user, permissions, data_scope, must_change_password, second_factor]
                 properties:
                   user:
                     $ref: "#/components/schemas/PlatformUser"
@@ -211,8 +223,217 @@ paths:
                     $ref: "#/components/schemas/MustChangePassword"
                   permissions:
                     type: array
+                    description: 当前角色（含自建角色）的操作清单，每个请求按数据库现查；两步验证完成之前为空
                     items:
                       $ref: "#/components/schemas/PlatformAction"
+                  data_scope:
+                    $ref: "#/components/schemas/DataScopeIds"
+                  second_factor:
+                    type: object
+                    additionalProperties: false
+                    required: [status, enabled_at, recovery_codes_remaining]
+                    properties:
+                      status:
+                        $ref: "#/components/schemas/SecondFactorStatus"
+                      enabled_at:
+                        type: [string, "null"]
+                        format: date-time
+                        description: 绑定验证器的时间；还没绑定为 null
+                      recovery_codes_remaining:
+                        type: [integer, "null"]
+                        description: 还剩几个没用的恢复码；两步验证完成之前为 null
+  /platform/v1/auth/mfa/verify:
+    post:
+      tags: [平台登录]
+      operationId: verifyPlatformSecondFactor
+      summary: 登录的第二步：输入动态码或恢复码
+      description: |
+        会话还没完成两步验证、账号已经绑定过验证器时用。`code`（验证器上的 6 位动态码）和 `recovery_code` 二选一。
+        动态码按 RFC 6238（30 秒一个、前后各容忍一个时间窗）；**同一时间窗的码只能用一次**（`MFA_CODE_REUSED`），用了较晚的之后较早的也不再收。
+        恢复码只能用一次。通过后会话延长到令牌的过期时间（登录起 8 小时），同一个令牌恢复正常。
+        和登录一样限速（单独一组计数：同一账号同一来源地址 15 分钟 5 次、同一账号 20 次），超过 429，被拦下的不验证、不写审计。
+        成功和失败都写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 已通过两步验证
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaVerified"
+        "400":
+          description: "`MFA_CODE_INVALID`：动态码或恢复码不对；`MFA_CODE_REUSED`：这个动态码所在的时间窗已经用过"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_NOT_ENROLLED`：账号还没绑定（先绑定）；`MFA_ALREADY_VERIFIED`：这个会话已经通过了"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/enrollment:
+    post:
+      tags: [平台登录]
+      operationId: startPlatformMfaEnrollment
+      summary: 开始绑定验证器（第一次绑定，或换手机）
+      description: |
+        生成一个新密钥，返回密钥原文（Base32）和 `otpauth://` 链接（页面显示成二维码）——**只在这一次应答里出现**，库里是加密的。
+        15 分钟内用 `auth/mfa/enrollment/confirm` 输入一次它算出的动态码才生效；再次调用会覆盖之前没确认的那个。
+        - 第一次绑定（会话待验证、账号没绑定过）：请求体可以为空；
+        - 换手机（会话已完成两步验证）：要带现在的动态码或一个恢复码（`MFA_CODE_REQUIRED`），确认之前旧的照常可用；
+        - 会话待验证而账号已经绑定过：409 `MFA_ALREADY_ENROLLED`（先输入动态码登录）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 新密钥（待确认）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [secret, otpauth_uri, expires_at]
+                properties:
+                  secret:
+                    type: string
+                    description: Base32 的密钥原文（32 个字符），给不能扫码的验证器手输
+                  otpauth_uri:
+                    type: string
+                    description: "`otpauth://totp/…` 链接（HMAC-SHA1、6 位、30 秒）"
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: 这之前要确认
+        "400":
+          description: "`MFA_CODE_REQUIRED`：换手机要先输入现在的动态码或恢复码；`MFA_CODE_INVALID`、`MFA_CODE_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_ALREADY_ENROLLED`：会话还没验证，账号已经绑定过"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/enrollment/confirm:
+    post:
+      tags: [平台登录]
+      operationId: confirmPlatformMfaEnrollment
+      summary: 确认绑定：输入新密钥算出的动态码
+      description: |
+        通过后新密钥生效（换手机时旧的同时作废），生成 10 个一次性恢复码——**只在这一次应答里出现**，库里只存哈希；
+        这个会话算完成了两步验证；这个账号的其他会话全部失效。限速同 `auth/mfa/verify`。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  maxLength: 20
+      responses:
+        "200":
+          description: 已绑定
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/MfaVerified"
+                  - type: object
+                    required: [recovery_codes]
+                    properties:
+                      recovery_codes:
+                        type: array
+                        minItems: 10
+                        maxItems: 10
+                        items:
+                          type: string
+                          pattern: "^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$"
+                        description: 一次性恢复码原文，只显示这一次
+        "400":
+          description: "`MFA_CODE_INVALID`：动态码不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_ENROLLMENT_NOT_STARTED`：没有开始绑定，或已超过 15 分钟；`MFA_ALREADY_ENROLLED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/recovery-codes:
+    post:
+      tags: [平台登录]
+      operationId: regeneratePlatformRecoveryCodes
+      summary: 重新生成恢复码
+      description: 要输入现在的动态码或一个恢复码。旧的一组整组作废；新的 10 个只在这一次应答里出现。限速同 `auth/mfa/verify`。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 新的一组恢复码
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [recovery_codes]
+                properties:
+                  recovery_codes:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: "`MFA_CODE_INVALID`、`MFA_CODE_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
   /platform/v1/auth/accept-invite:
     post:
       tags: [平台登录]
@@ -301,6 +522,7 @@ paths:
         账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
         成功后标记清除，当前令牌可以继续访问其他接口。
         核对当前密码和登录一样限速（同一账号同一来源地址 15 分钟 5 次），超过返回 429。
+        要先完成两步验证（否则 403 `MFA_REQUIRED`）：只知道密码的人不能改掉密码把本人锁在门外。
       security:
         - platformToken: []
       requestBody:
@@ -370,7 +592,7 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/PlatformUser"
+                      $ref: "#/components/schemas/StaffMember"
                   next_cursor:
                     type: [string, "null"]
     post:
@@ -397,7 +619,7 @@ paths:
                 name:
                   $ref: "#/components/schemas/PersonName"
                 role:
-                  $ref: "#/components/schemas/PlatformRole"
+                  $ref: "#/components/schemas/RoleKey"
       responses:
         "201":
           description: 已创建，带一次性邀请令牌
@@ -414,6 +636,245 @@ paths:
                     $ref: "#/components/schemas/Invite"
         "409":
           description: "`EMAIL_TAKEN`：这个邮箱已经有激活过的账号"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}:
+    get:
+      tags: [平台账号]
+      operationId: getPlatformStaff
+      summary: 平台员工详情（含 IP 白名单、两步验证是否已绑定）
+      description: 需要操作 `staff.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 员工
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [平台账号]
+      operationId: updatePlatformStaff
+      summary: 改平台员工的姓名、角色、IP 白名单
+      description: |
+        需要操作 `staff.manage`（超级管理员），直接生效，写审计（只记变了的字段；改角色记 `change_role`）。至少给一项。
+        - `role`：内置角色或自建角色的键；不存在 400 `VALIDATION_FAILED`（`reason` 为 `UNKNOWN_ROLE`）。不能改自己的角色（409 `OWN_ROLE_UNCHANGEABLE`）；
+          最后一个在用的超级管理员不能改成别的角色（409 `LAST_ADMIN_REQUIRED`）。权限每个请求现查，改了立即生效。
+        - `ip_allowlist`：整份替换；CIDR，IPv4 / IPv6，只写地址 = 单个地址；空数组 = 不限制（这时按角色的名单）。
+          写错的逐条报出（400 `IP_ALLOWLIST_INVALID`，`details.issues[]` 有 `index`、`value`、`reason`：`INVALID`、`HOST_BITS_SET`（带 `suggestion`）、`DUPLICATE`）。
+          改自己的名单时当前地址必须在里面（409 `IP_ALLOWLIST_EXCLUDES_CURRENT`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/RoleKey"
+                ip_allowlist:
+                  $ref: "#/components/schemas/IpAllowlist"
+      responses:
+        "200":
+          description: 改后的员工
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffDetail"
+        "400":
+          description: "`IP_ALLOWLIST_INVALID`；`VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`OWN_ROLE_UNCHANGEABLE`、`LAST_ADMIN_REQUIRED`、`IP_ALLOWLIST_EXCLUDES_CURRENT`（`details.current_ip`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/mfa-reset:
+    post:
+      tags: [平台账号]
+      operationId: requestPlatformStaffMfaReset
+      summary: 发起重置员工的两步验证（双人复核）
+      description: |
+        需要操作 `staff.manage`。发起一条 `staff.mfa_reset` 复核，由另一位超级管理员批准（对方本人不能批准，409 `MFA_RESET_SELF`）。
+        批准后对方的密钥、恢复码作废，全部会话失效；下次登录（密码不变）重新绑定。
+        不能对自己发起（换手机在个人页更换）；对方还没绑定时 409 `MFA_NOT_ENROLLED`。
+        只有一位超级管理员时，在服务器上用 `pnpm admin:reset-2fa --email …`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                request_note:
+                  type: string
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MFA_RESET_SELF`、`MFA_NOT_ENROLLED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles:
+    get:
+      tags: [角色]
+      operationId: listPlatformRoles
+      summary: 全部角色（内置角色在前，自建角色在后）
+      description: |
+        需要操作 `role.read`（超级管理员）。内置角色是只读模板，权限以代码为准，`grants` 是按菜单表换算出的勾选；
+        自建角色的 `grants` 是存的勾选。菜单表见 `@nozomi/domain` 的 `PLATFORM_MENUS`（ADR 0030）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 角色
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RoleView"
+    post:
+      tags: [角色]
+      operationId: createPlatformRole
+      summary: 新建自建角色
+      description: |
+        需要操作 `role.manage`。直接生效（新角色还没人用）。写审计。
+        `grants` 是「菜单:操作」，勾了编辑 / 审核要也勾查看；平台账号的编辑、角色的编辑和审核只归超级管理员，勾不了（400 `ROLE_GRANTS_INVALID`，`details.issues[]` 的 `reason`：
+        `UNKNOWN_GRANT`、`SUPER_ADMIN_ONLY`、`VIEW_REQUIRED`、`DUPLICATE`）。名字和已有角色（含内置）重复 409 `ROLE_NAME_TAKEN`。
+        `data_scope`：城市、渠道，null = 不限制；不存在的编号 400 `ROLE_SCOPE_INVALID`。`ip_allowlist` 同员工的。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleInput"
+      responses:
+        "201":
+          description: 新角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleView"
+        "400":
+          $ref: "#/components/responses/RoleInvalid"
+        "409":
+          description: "`ROLE_NAME_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles/{key}:
+    get:
+      tags: [角色]
+      operationId: getPlatformRole
+      summary: 一个角色
+      description: 需要操作 `role.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      responses:
+        "200":
+          description: 角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleView"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    delete:
+      tags: [角色]
+      operationId: deletePlatformRole
+      summary: 删除自建角色
+      description: 需要操作 `role.manage`。还有账号（含待激活、已停用）用它时 409 `ROLE_IN_USE`（`details.staff_count`）；内置角色 409 `ROLE_BUILTIN_READONLY`。直接生效，写审计。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ROLE_IN_USE`、`ROLE_BUILTIN_READONLY`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles/{key}/changes:
+    post:
+      tags: [角色]
+      operationId: requestPlatformRoleChange
+      summary: 发起修改自建角色（双人复核）
+      description: |
+        需要操作 `role.manage`。给改完之后的完整内容（不是增量），发起一条 `platform_role.update` 复核，由另一位超级管理员（`role.review`）批准后生效；
+        批准时按那一刻的数据再校验并核对版本（发起后角色被改过 409 `APPROVAL_STALE`）。和现在一样的不发起（400 `VALIDATION_FAILED`，`reason` 为 `UNCHANGED`）。
+        内置角色 409 `ROLE_BUILTIN_READONLY`。校验规则同新建。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RoleInput"
+                - type: object
+                  properties:
+                    request_note:
+                      type: string
+                      maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          $ref: "#/components/responses/RoleInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ROLE_BUILTIN_READONLY`、`ROLE_NAME_TAKEN`"
           content:
             application/json:
               schema:
@@ -5930,6 +6391,12 @@ components:
       bearerFormat: JWT
       description: 渠道用 `POST /sales/v1/oauth/token`（client_id + client_secret）换来的访问令牌，2 小时有效；渠道编号只从这里取
   parameters:
+    RoleKeyPath:
+      name: key
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/RoleKey"
     ApiClientId:
       name: clientId
       in: path
@@ -6172,6 +6639,18 @@ components:
       schema:
         $ref: "#/components/schemas/VehicleGrade"
   responses:
+    MfaUnavailable:
+      description: "`MFA_ENCRYPTION_NOT_CONFIGURED`：平台没有配置数据加密密钥；`MFA_SECRET_UNAVAILABLE`：库里的密钥解不开（加密密钥被换过），请超级管理员重置"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RoleInvalid:
+      description: "`ROLE_GRANTS_INVALID`、`ROLE_SCOPE_INVALID`（`details.missing_city_ids`、`missing_channel_ids`）、`IP_ALLOWLIST_INVALID`、`VALIDATION_FAILED`"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     ChannelInvalid:
       description: |
         `VALIDATION_FAILED`：`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
@@ -6836,8 +7315,8 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release]
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；以后会加：结算条款、退款……）
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, platform_role.update, staff.mfa_reset]
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；以后会加：结算条款、退款……）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -7656,7 +8135,212 @@ components:
     PlatformRole:
       type: string
       enum: [super_admin, operations, tenant_onboarding, channel_manager, customer_service, finance, risk, master_data, tech, readonly]
-      description: 平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
+      description: 内置的平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
+    RoleKey:
+      type: string
+      pattern: "^([a-z_]{2,40}|custom_[0-9a-f]{16})$"
+      description: 角色键：内置角色（`PlatformRole`）或自建角色（`custom_` + 16 位十六进制）
+    SecondFactorStatus:
+      type: string
+      enum: [enrollment_required, verify_required, verified]
+      description: "会话的两步验证状态：还没绑定，先绑定；绑定过，输入动态码；已通过"
+    MfaFactorRequest:
+      type: object
+      additionalProperties: false
+      description: 动态码和恢复码二选一（都不给或都给 400 `VALIDATION_FAILED`；开始绑定时第一次绑定可以都不给）
+      properties:
+        code:
+          type: string
+          maxLength: 20
+          description: 验证器上的 6 位动态码（可以带空格）
+        recovery_code:
+          type: string
+          maxLength: 40
+          description: 一次性恢复码（不分大小写，可以不带连字符）
+    MfaVerified:
+      type: object
+      additionalProperties: false
+      required: [user, must_change_password, second_factor]
+      properties:
+        user:
+          $ref: "#/components/schemas/PlatformUser"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+        recovery_codes:
+          type: array
+          items:
+            type: string
+        second_factor:
+          type: object
+          additionalProperties: false
+          required: [status, method, recovery_codes_remaining]
+          properties:
+            status:
+              type: string
+              enum: [verified]
+            method:
+              type: string
+              enum: [totp, recovery_code, enrollment]
+            recovery_codes_remaining:
+              type: integer
+    IpAllowlist:
+      type: array
+      maxItems: 50
+      items:
+        type: string
+        maxLength: 64
+      description: IP 白名单：CIDR（IPv4 / IPv6，只写地址 = 单个地址；IPv4 映射的 IPv6 写法当作 IPv4）；返回的是规范写法；空 = 不限制
+    DataScopeIds:
+      type: object
+      additionalProperties: false
+      required: [city_ids, channel_ids]
+      description: 数据范围：null = 不限制；数组 = 只看这几个（ADR 0030）
+      properties:
+        city_ids:
+          type: [array, "null"]
+          items:
+            type: string
+            format: uuid
+        channel_ids:
+          type: [array, "null"]
+          items:
+            type: string
+            format: uuid
+    StaffMember:
+      type: object
+      additionalProperties: false
+      required: [id, email, name, role, role_name, status, created_at, updated_at, mfa_enabled, mfa_enabled_at, ip_allowlist]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        mfa_enabled:
+          type: boolean
+          description: 是否已绑定两步验证
+        mfa_enabled_at:
+          type: [string, "null"]
+          format: date-time
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+    StaffDetail:
+      allOf:
+        - $ref: "#/components/schemas/StaffMember"
+      type: object
+      required: [role_ip_allowlist, recovery_codes_remaining]
+      properties:
+        role_ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+        recovery_codes_remaining:
+          type: [integer, "null"]
+          description: 还剩几个恢复码；没绑定为 null
+    RoleInput:
+      type: object
+      additionalProperties: false
+      required: [name, grants]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: [string, "null"]
+          maxLength: 500
+        grants:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: 「菜单:操作」，如 `channels:edit`
+        data_scope:
+          type: object
+          additionalProperties: false
+          required: [city_ids, channel_ids]
+          properties:
+            city_ids:
+              type: [array, "null"]
+              items:
+                type: string
+                format: uuid
+            channel_ids:
+              type: [array, "null"]
+              items:
+                type: string
+                format: uuid
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+    RoleView:
+      type: object
+      additionalProperties: false
+      required: [key, name, builtin, description, grants, permissions, data_scope, ip_allowlist, version, staff_count, created_at, updated_at]
+      properties:
+        key:
+          $ref: "#/components/schemas/RoleKey"
+        name:
+          type: string
+        builtin:
+          type: boolean
+          description: 内置角色（只读模板）
+        description:
+          type: [string, "null"]
+        grants:
+          type: array
+          items:
+            type: string
+          description: 勾选的「菜单:操作」（内置角色由代码里的权限换算）
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAction"
+        data_scope:
+          type: object
+          additionalProperties: false
+          required: [city_ids, channel_ids, cities, channels]
+          properties:
+            city_ids:
+              type: [array, "null"]
+              items:
+                type: string
+            channel_ids:
+              type: [array, "null"]
+              items:
+                type: string
+            cities:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamedRef"
+            channels:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamedRef"
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+        version:
+          type: integer
+        staff_count:
+          type: integer
+          description: 用这个角色的账号数（含待激活、已停用）
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     TenantRole:
       type: string
       enum: [admin, pricing, dispatch, finance, readonly]
@@ -8275,7 +8959,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, role.read, role.manage, role.review]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read]
@@ -8358,7 +9042,7 @@ components:
     PlatformUser:
       type: object
       additionalProperties: false
-      required: [id, email, name, role, status, created_at, updated_at]
+      required: [id, email, name, role, role_name, status, created_at, updated_at]
       properties:
         id:
           type: string
@@ -8368,7 +9052,10 @@ components:
         name:
           type: string
         role:
-          $ref: "#/components/schemas/PlatformRole"
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+          description: 角色的名字（自建角色的名字前端不认识）
         status:
           $ref: "#/components/schemas/AccountStatus"
         created_at:
@@ -8422,7 +9109,7 @@ components:
     PlatformLoginResponse:
       type: object
       additionalProperties: false
-      required: [access_token, token_type, expires_at, user, must_change_password]
+      required: [access_token, token_type, expires_at, user, must_change_password, second_factor]
       properties:
         access_token:
           type: string
@@ -8432,11 +9119,20 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: 令牌过期时间（登录后 8 小时）
+          description: 令牌过期时间（登录后 8 小时）；两步验证没在 15 分钟内完成，会话先失效
         user:
           $ref: "#/components/schemas/PlatformUser"
         must_change_password:
           $ref: "#/components/schemas/MustChangePassword"
+        second_factor:
+          type: object
+          additionalProperties: false
+          required: [status]
+          description: 密码对了之后的第二步（ADR 0030）
+          properties:
+            status:
+              type: string
+              enum: [enrollment_required, verify_required]
     TenantLoginResponse:
       type: object
       additionalProperties: false
@@ -8501,7 +9197,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval, platform_role]
         resource_id:
           type: [string, "null"]
         action:
@@ -8539,6 +9235,16 @@ components:
             - revoke
             - activate
             - pause
+            - lock
+            - unlock
+            - expire
+            - mfa_enroll_start
+            - mfa_enroll
+            - mfa_verify
+            - mfa_failed
+            - mfa_recovery_codes
+            - mfa_reset
+            - clear_ip_allowlist
         before:
           type: [object, "null"]
           additionalProperties: true

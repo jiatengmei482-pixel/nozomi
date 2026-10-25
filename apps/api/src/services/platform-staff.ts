@@ -1,5 +1,5 @@
-/** 平台员工账号管理：创建（发邀请）、停用、启用；以及命令行创建超级管理员。 */
-import { type PlatformRole, checkPasswordStrength, checkStatusChange, removesLastKeyRoleHolder } from "@nozomi/domain";
+/** 平台员工账号管理：创建（发邀请）、停用、启用、改角色和 IP 白名单、重置两步验证；以及命令行创建超级管理员。 */
+import { checkPasswordStrength, checkStatusChange, effectiveAllowlist, ipAllowed, normalizeAllowlist, removesLastKeyRoleHolder } from "@nozomi/domain";
 import { newInvite } from "../auth/invite-token.ts";
 import { newPlatformResetToken } from "../auth/reset-token.ts";
 import { hashPassword, sameStoredPassword } from "../auth/password.ts";
@@ -34,6 +34,25 @@ import {
   weakPassword,
 } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
+import type { Approval } from "../repos/approvals.ts";
+import { findPlatformRole } from "../repos/platform-roles.ts";
+import { type ApprovalKind, requestApproval } from "./approvals.ts";
+import { clearStaffMfa } from "./platform-mfa.ts";
+import { type Db } from "../db/context.ts";
+import {
+  clearPlatformUserAllowlist,
+  countUnusedRecoveryCodes,
+  findPlatformUser,
+  updatePlatformUserProfile,
+} from "../repos/platform-users.ts";
+import {
+  ipAllowlistExcludesCurrent,
+  ipAllowlistInvalid,
+  mfaNotEnrolled,
+  mfaResetSelf,
+  ownRoleUnchangeable,
+  roleNotFound,
+} from "./errors.ts";
 
 export function listStaff(ctx: AppContext, limit: number, after: TimeCursor | null): Promise<Page<PlatformUser>> {
   return withPlatformTx(ctx.pool, (db) => listPlatformUsers(db, limit, after));
@@ -42,7 +61,12 @@ export function listStaff(ctx: AppContext, limit: number, after: TimeCursor | nu
 export interface StaffInput {
   email: string;
   name: string;
-  role: PlatformRole;
+  /** 内置角色或自建角色的键 */
+  role: string;
+}
+
+async function assertRoleExists(db: Db, role: string): Promise<void> {
+  if (!(await findPlatformRole(db, role))) throw roleNotFound();
 }
 
 export interface IssuedInvite {
@@ -66,6 +90,7 @@ export async function inviteStaff(
   const fields = { ...input, inviteTokenHash: invite.tokenHash, inviteExpiresAt: invite.expiresAt };
   try {
     const user = await withPlatformTx(ctx.pool, async (db) => {
+      await assertRoleExists(db, input.role);
       // 锁住已有的这一行：和「本人正在接受邀请」排好先后，不会两边各做一半
       const existing = await findPlatformUserByEmail(db, input.email, { lock: true });
       if (existing && existing.passwordHash !== null) throw emailTaken();
@@ -251,5 +276,122 @@ export async function resetSuperAdminPassword(
       },
     );
     return locked.user;
+  });
+}
+
+// ---- 员工详情、改角色和 IP 白名单、重置两步验证（M4-05，ADR 0030） ----
+
+export interface StaffDetail {
+  user: PlatformUser;
+  recoveryCodesRemaining: number;
+  /** 角色的 IP 白名单（员工自己的为空时生效） */
+  roleIpAllowlist: string[];
+}
+
+export async function getStaffMember(ctx: AppContext, userId: string): Promise<StaffDetail> {
+  return withPlatformTx(ctx.pool, async (db) => {
+    const found = await findPlatformUser(db, userId);
+    if (!found) throw notFound("账号");
+    return { user: found.user, recoveryCodesRemaining: await countUnusedRecoveryCodes(db, userId), roleIpAllowlist: found.roleIpAllowlist };
+  });
+}
+
+export interface StaffChange {
+  name?: string | undefined;
+  role?: string | undefined;
+  ipAllowlist?: readonly string[] | undefined;
+}
+
+/**
+ * 改一个员工的姓名、角色、IP 白名单（超级管理员，直接生效，写审计）。
+ * - 不能改自己的角色（自己给自己升权限、或者把唯一的超级管理员改没了）；
+ * - 最后一个在用的超级管理员不能改成别的角色；
+ * - 改自己的 IP 白名单时，改完之后当前的地址必须还在名单里（不把自己锁在门外）。
+ * 改角色不用让会话失效：权限每个请求从数据库现查，立即生效。
+ */
+export async function updateStaff(ctx: AppContext, principal: PlatformPrincipal, userId: string, change: StaffChange, ip: string): Promise<StaffDetail> {
+  const now = ctx.now();
+  const allowlist = change.ipAllowlist === undefined ? null : normalizeAllowlist(change.ipAllowlist);
+  if (allowlist !== null && allowlist.issues.length > 0) throw ipAllowlistInvalid(allowlist.issues);
+  return withPlatformTx(ctx.pool, async (db) => {
+    const activeSuperAdmins = await countActiveSuperAdminsForUpdate(db);
+    const target = await lockPlatformUser(db, userId);
+    if (!target) throw notFound("账号");
+    const before = target.user;
+    const next = { name: change.name ?? before.name, role: change.role ?? before.role, ipAllowlist: allowlist?.cidrs ?? before.ipAllowlist };
+    if (next.role !== before.role) {
+      if (userId === principal.user.id) throw ownRoleUnchangeable();
+      await assertRoleExists(db, next.role);
+      if (removesLastKeyRoleHolder("super_admin", activeSuperAdmins, before, { role: next.role, status: before.status })) throw lastAdminRequired("超级管理员");
+    }
+    if (userId === principal.user.id) {
+      const roleList = next.role === before.role ? target.roleIpAllowlist : ((await findPlatformRole(db, next.role))?.ipAllowlist ?? []);
+      if (!ipAllowed(ip, effectiveAllowlist(next.ipAllowlist, roleList))) throw ipAllowlistExcludesCurrent(ip);
+    }
+    const changedBefore: Record<string, string | string[]> = {};
+    const changedAfter: Record<string, string | string[]> = {};
+    if (next.name !== before.name) [changedBefore["name"], changedAfter["name"]] = [before.name, next.name];
+    if (next.role !== before.role) [changedBefore["role"], changedAfter["role"]] = [before.role, next.role];
+    if (JSON.stringify(next.ipAllowlist) !== JSON.stringify(before.ipAllowlist)) [changedBefore["ip_allowlist"], changedAfter["ip_allowlist"]] = [before.ipAllowlist, [...next.ipAllowlist]];
+    const user = Object.keys(changedAfter).length === 0 ? before : await updatePlatformUserProfile(db, userId, next, now);
+    if (Object.keys(changedAfter).length > 0) {
+      await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "platform_user", resourceId: userId, action: next.role !== before.role ? "change_role" : "update", before: changedBefore, after: changedAfter });
+    }
+    const roleIpAllowlist = (await findPlatformRole(db, user.role))?.ipAllowlist ?? [];
+    return { user, recoveryCodesRemaining: await countUnusedRecoveryCodes(db, userId), roleIpAllowlist };
+  });
+}
+
+/**
+ * 重置别人的两步验证（双人复核，`staff.mfa_reset`）：批准后对方的密钥、恢复码作废，全部会话失效，下次登录重新绑定。
+ * 用于对方换了手机又没有恢复码。发起人、审核人都不能是对方本人；只有一位超级管理员时用命令行 `pnpm admin:reset-2fa`。
+ */
+export const STAFF_MFA_RESET: ApprovalKind = {
+  kind: "staff.mfa_reset",
+  resource: "platform_user",
+  readAction: "staff.read",
+  requestAction: "staff.manage",
+  reviewAction: "staff.manage",
+  async apply(db, approval, origin) {
+    if (origin.actor.id === approval.resourceId) throw mfaResetSelf();
+    const target = await lockPlatformUser(db, approval.resourceId);
+    if (!target) throw notFound("账号");
+    if (target.totpSecret === null) throw mfaNotEnrolled();
+    await clearStaffMfa(db, target.user.id, origin, { approval_id: approval.id, requested_by: approval.requestedBy.email }, origin.occurredAt);
+  },
+};
+
+export const STAFF_APPROVAL_KINDS: readonly ApprovalKind[] = [STAFF_MFA_RESET];
+
+export async function requestStaffMfaReset(ctx: AppContext, principal: PlatformPrincipal, userId: string, note: string | null, ip: string): Promise<Approval> {
+  const now = ctx.now();
+  if (userId === principal.user.id) throw mfaResetSelf();
+  return withPlatformTx(ctx.pool, async (db) => {
+    const target = await findPlatformUser(db, userId);
+    if (!target) throw notFound("账号");
+    if (target.totpSecret === null) throw mfaNotEnrolled();
+    return requestApproval(db, consoleOrigin(platformActor(principal.user), ip, now), principal, {
+      kind: STAFF_MFA_RESET,
+      resourceId: userId,
+      summary: `重置「${target.user.name}」（${target.user.email}）的两步验证`,
+      payload: { email: target.user.email },
+      before: null,
+      baseVersion: null,
+      note,
+    });
+  });
+}
+
+/**
+ * 命令行 `pnpm admin:clear-ip-allowlist --email …`：员工被自己的 IP 白名单挡在门外（比如办公室换了出口地址）时清空它。
+ * 只清员工自己的名单；他的角色另有名单时仍按角色的（超级管理员是内置角色，没有角色名单）。审计记为「系统 / 命令行」。
+ */
+export async function clearStaffAllowlistFromCli(pool: Pool, email: string, now: Date): Promise<PlatformUser> {
+  return withPlatformTx(pool, async (db) => {
+    const found = await findPlatformUserByEmail(db, email, { lock: true });
+    if (!found || found.user.status !== "active") throw new AppError(404, "NOT_FOUND", "没有这个邮箱的在用平台员工");
+    await clearPlatformUserAllowlist(db, found.user.id, now);
+    await insertAuditLog(db, { occurredAt: now, actor: { type: "system", id: null, email: null }, ip: null, source: "cli" }, { tenantId: null, resource: "platform_user", resourceId: found.user.id, action: "clear_ip_allowlist", before: { ip_allowlist: found.user.ipAllowlist }, after: { ip_allowlist: [] } });
+    return found.user;
   });
 }

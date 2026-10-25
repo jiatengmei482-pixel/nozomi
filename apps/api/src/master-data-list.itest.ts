@@ -39,7 +39,7 @@ before(async () => {
   assert.equal(invited.status, 201, invited.text);
   const accepted = await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
   assert.equal(accepted.status, 200, accepted.text);
-  const login = await api.call("POST", "/platform/v1/auth/login", { body: { email: "finance@platform.test", password: TEST_PASSWORD } });
+  const login = await api.platformLogin({ body: { email: "finance@platform.test", password: TEST_PASSWORD } });
   finance = login.body.access_token as string;
 });
 after(() => api.close());

@@ -94,7 +94,7 @@ before(async () => {
     const invited = await api.call("POST", "/platform/v1/staff", { token: root, body: { email: `${key}@fx.test`, name: key, role } });
     assert.equal(invited.status, 201, invited.text);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: "Quiet-Harbor-2026" } }));
-    const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: `${key}@fx.test`, password: "Quiet-Harbor-2026" } }));
+    const login = await ok(api.platformLogin({ body: { email: `${key}@fx.test`, password: "Quiet-Harbor-2026" } }));
     if (key === "readonly") readonlyToken = login.access_token;
     else masterToken = login.access_token;
   }

@@ -92,7 +92,7 @@ before(async () => {
     assert.equal(invited.status, 201, invited.text);
     const accepted = await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
     assert.equal(accepted.status, 200, accepted.text);
-    const login = await api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD }, ip: `10.8.0.${roleTokens.size + 1}` });
+    const login = await api.platformLogin({ body: { email, password: TEST_PASSWORD }, ip: `10.8.0.${roleTokens.size + 1}` });
     assert.equal(login.status, 200, login.text);
     roleTokens.set(key, login.body.access_token as string);
   }
@@ -315,7 +315,7 @@ test("启用时指定城市——权限：只有主数据运营和超级管理�
 
 test("启用时指定城市——必须先改密码的账号被挡在外面（列表、首页统计、启用都是），什么都没写", async () => {
   await createSuperAdmin(api.db.pool, { email: "temp@platform.test", name: "临时密码超管", password: "Tmp7k-Qw3zR-9vBn2-XyLp4", temporaryPassword: true }, api.clock.now());
-  const login = await api.call("POST", "/platform/v1/auth/login", { body: { email: "temp@platform.test", password: "Tmp7k-Qw3zR-9vBn2-XyLp4" }, ip: "10.9.0.1" });
+  const login = await api.platformLogin({ body: { email: "temp@platform.test", password: "Tmp7k-Qw3zR-9vBn2-XyLp4" }, ip: "10.9.0.1" });
   assert.equal(login.status, 200, login.text);
   assert.equal(login.body.must_change_password, true);
   const token = login.body.access_token as string;

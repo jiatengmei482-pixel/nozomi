@@ -8,7 +8,7 @@
  * - 撤回：只有发起人自己能撤回待审核的。
  * 汇率人工锁定（M2-06）按这里登记了两类；以后的结算条款、退款超过阈值、停用租户同样登记一类即可。
  */
-import { type ApprovalDecision, type ApprovalStatus, type PlatformAction, approvalDecisionRefusal, approvalStatusAfter, platformRoleCan } from "@nozomi/domain";
+import { type ApprovalDecision, type ApprovalStatus, type PlatformAction, approvalDecisionRefusal, approvalStatusAfter, scopeAllowsChannel } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -17,7 +17,7 @@ import { type Approval, type ApprovalFilter, findApproval, insertApproval, listA
 import { type AuditOrigin, type AuditResource, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { forbidden, notFound } from "./errors.ts";
-import type { PlatformPrincipal } from "./platform-auth.ts";
+import { type PlatformPrincipal, principalCan } from "./platform-auth.ts";
 
 export interface ApprovalKind {
   kind: string;
@@ -31,6 +31,8 @@ export interface ApprovalKind {
    * 自己写被改对象的审计日志。
    */
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
+  /** 对象编号（`resource_id`）是渠道编号：限定了渠道范围的人只看得到范围内的（ADR 0030）。可选 */
+  channelScoped?: boolean;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
   afterApply?(ctx: AppContext, approval: Approval): void;
 }
@@ -59,7 +61,7 @@ export interface ApprovalRequest {
 
 /** 在调用方的事务里发起一条复核。权限由调用方的接口检查（`kind.requestAction`）。 */
 export async function requestApproval(db: Db, origin: AuditOrigin, principal: PlatformPrincipal, request: ApprovalRequest): Promise<Approval> {
-  if (!platformRoleCan(principal.user.role, request.kind.requestAction)) throw forbidden(request.kind.requestAction);
+  if (!principalCan(principal, request.kind.requestAction)) throw forbidden(request.kind.requestAction);
   const id = await insertApproval(db, {
     kind: request.kind.kind,
     resource: request.kind.resource,
@@ -78,25 +80,33 @@ export async function requestApproval(db: Db, origin: AuditOrigin, principal: Pl
 
 /** 这个人能看到哪几类复核。 */
 export function visibleKinds(kinds: ApprovalKinds, principal: PlatformPrincipal): string[] {
-  return [...kinds.values()].filter((kind) => platformRoleCan(principal.user.role, kind.readAction)).map((kind) => kind.kind);
+  return [...kinds.values()].filter((kind) => principalCan(principal, kind.readAction)).map((kind) => kind.kind);
 }
 
 /** 这个人对这条复核能做什么（给前端决定显示哪些按钮）。 */
 export function approvalAbilities(kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): { approve: boolean; reject: boolean; withdraw: boolean } {
   const kind = kinds.get(approval.kind);
-  const canReview = kind !== undefined && platformRoleCan(principal.user.role, kind.reviewAction);
+  const canReview = kind !== undefined && principalCan(principal, kind.reviewAction);
   const can = (decision: ApprovalDecision): boolean => approvalDecisionRefusal({ status: approval.status, requestedBy: approval.requestedBy.id }, principal.user.id, decision) === null;
   return { approve: canReview && can("approve"), reject: canReview && can("reject"), withdraw: can("withdraw") };
 }
 
-export function listApprovalsFor(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, filter: Omit<ApprovalFilter, "kinds">, limit: number, after: TimeCursor | null): Promise<Page<Approval> & { total: number }> {
-  return withPlatformTx(ctx.pool, (db) => listApprovals(db, { ...filter, kinds: visibleKinds(kinds, principal) }, limit, after), { snapshot: true });
+export function listApprovalsFor(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, filter: Omit<ApprovalFilter, "kinds" | "channelScopedKinds" | "channelIds">, limit: number, after: TimeCursor | null): Promise<Page<Approval> & { total: number }> {
+  const channelScopedKinds = [...kinds.values()].filter((kind) => kind.channelScoped === true).map((kind) => kind.kind);
+  return withPlatformTx(ctx.pool, (db) => listApprovals(db, { ...filter, kinds: visibleKinds(kinds, principal), channelScopedKinds, channelIds: principal.grant.scope.channelIds }, limit, after), { snapshot: true });
+}
+
+/** 这个人看不看得到这一条：这一类有看的权限，而且（渠道类的）渠道在他的数据范围里。 */
+function canSee(kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): boolean {
+  const kind = kinds.get(approval.kind);
+  if (!kind || !principalCan(principal, kind.readAction)) return false;
+  return kind.channelScoped !== true || scopeAllowsChannel(principal.grant.scope, approval.resourceId);
 }
 
 export async function getApproval(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, id: string): Promise<Approval> {
   const approval = await withPlatformTx(ctx.pool, (db) => findApproval(db, id));
-  // 看不到的那几类当作不存在
-  if (!approval || !visibleKinds(kinds, principal).includes(approval.kind)) throw notFound("复核记录");
+  // 看不到的那几类、数据范围外的，当作不存在
+  if (!approval || !canSee(kinds, principal, approval)) throw notFound("复核记录");
   return approval;
 }
 
@@ -110,8 +120,8 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
   const decided = await withPlatformTx(ctx.pool, async (db) => {
     const approval = await findApproval(db, id, { lock: true });
     const kind = approval === null ? undefined : kinds.get(approval.kind);
-    if (!approval || !kind || !platformRoleCan(principal.user.role, kind.readAction)) throw notFound("复核记录");
-    if (decision !== "withdraw" && !platformRoleCan(principal.user.role, kind.reviewAction)) throw forbidden(kind.reviewAction);
+    if (!approval || !kind || !canSee(kinds, principal, approval)) throw notFound("复核记录");
+    if (decision !== "withdraw" && !principalCan(principal, kind.reviewAction)) throw forbidden(kind.reviewAction);
     const refusal = approvalDecisionRefusal({ status: approval.status, requestedBy: approval.requestedBy.id }, principal.user.id, decision);
     if (refusal !== null) throw new AppError(409, refusal, REFUSAL_MESSAGES[refusal], { status: approval.status });
     if (decision === "approve") await kind.apply(db, approval, origin);

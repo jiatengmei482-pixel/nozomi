@@ -33,6 +33,7 @@ import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider } from "./integrations/stripe.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
+import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -199,6 +200,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => orderJobs.stop());
   }
   registerPlatformRoutes(app, context);
+  registerPlatformSecurityRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
   registerAreaRoutes(app, context);

@@ -17,6 +17,7 @@ import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
 import { loadConfig } from "@nozomi/config";
 import { testConfig, testEnv } from "./fixtures.ts";
+import { totpAt } from "./totp.ts";
 
 /** 测试里统一使用的密码：满足强度规则，且不含任何测试邮箱的邮箱名。 */
 export const TEST_PASSWORD = "Quiet-Harbor-2026";
@@ -51,8 +52,18 @@ export interface TestApi {
   /** 截到的全部日志行 */
   logs: () => string;
   call(method: HttpMethod, url: string, options?: CallOptions): Promise<ApiResponse>;
-  /** 用命令行同样的流程建一个超级管理员并登录，返回令牌 */
+  /** 用命令行同样的流程建一个超级管理员并登录（含两步验证），返回令牌 */
   superAdminToken(email?: string): Promise<string>;
+  /**
+   * 平台员工登录并完成两步验证（ADR 0030）：参数和 `call("POST", "/platform/v1/auth/login", …)` 一样。
+   * 密码登录不是 200 时原样返回（测登录失败、限速的用例照旧）；是 200 时接着做第二步——
+   * 没绑定过就绑定（记下密钥，同一个测试库里以后都用它），绑定过就输入当前时间窗的动态码。返回的令牌已经完成两步验证。
+   * 测试的时钟是停住的，同一个人在同一个时间窗里会登录好几次：这里（只在测试代码里）先把「上次用过的时间窗」清掉再输入，
+   * 生产逻辑的防重放不放宽（有专门的测试）。
+   */
+  platformLogin(options: CallOptions): Promise<ApiResponse>;
+  /** 这个员工在本测试库里绑定的两步验证密钥（Base32）；没经 `platformLogin` 绑定过为 undefined */
+  totpSecret(email: string): string | undefined;
   /** 平台创建租户 → 管理员接受邀请 → 登录，返回租户信息和管理员令牌 */
   tenantWithAdmin(platformToken: string, name: string, adminEmail: string): Promise<TenantFixture>;
   close(): Promise<void>;
@@ -86,6 +97,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     },
   };
   let logs = "";
+  const totpSecrets = new Map<string, string>();
   const app = buildApp({
     config: options.env === undefined ? testConfig(db.url) : loadConfig({ ...testEnv(db.url), ...options.env }),
     pool: db.pool,
@@ -95,6 +107,29 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     ...(options.payments === undefined ? {} : { payments: options.payments }),
     logDestination: { write: (line) => void (logs += line) },
   });
+
+  const platformLogin = async (options: CallOptions): Promise<ApiResponse> => {
+    const res = await call("POST", "/platform/v1/auth/login", options);
+    if (res.status !== 200) return res;
+    const email = String((options.body as { email?: unknown } | undefined)?.email ?? "").trim().toLowerCase();
+    const token = res.body.access_token as string;
+    const extra = { token, ...(options.ip === undefined ? {} : { ip: options.ip }), ...(options.headers === undefined ? {} : { headers: options.headers }) };
+    if (res.body.second_factor?.status === "enrollment_required") {
+      const started = await call("POST", "/platform/v1/auth/mfa/enrollment", { ...extra, body: {} });
+      assert.equal(started.status, 200, started.text);
+      const secret = started.body.secret as string;
+      const confirmed = await call("POST", "/platform/v1/auth/mfa/enrollment/confirm", { ...extra, body: { code: totpAt(secret, clock.now()) } });
+      assert.equal(confirmed.status, 200, confirmed.text);
+      totpSecrets.set(email, secret);
+      return res;
+    }
+    const secret = totpSecrets.get(email);
+    assert.ok(secret, `${email} 绑定过两步验证，但不是经 platformLogin 绑定的，测试不知道它的密钥`);
+    await db.owner.query("update platform_users set totp_last_step = null where email = $1", [email]);
+    const verified = await call("POST", "/platform/v1/auth/mfa/verify", { ...extra, body: { code: totpAt(secret, clock.now()) } });
+    assert.equal(verified.status, 200, verified.text);
+    return res;
+  };
 
   const call: TestApi["call"] = async (method, url, options = {}) => {
     const res = await app.inject({
@@ -114,7 +149,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
   };
 
   const login = async (prefix: "platform" | "tenant", email: string): Promise<ApiResponse> => {
-    const res = await call("POST", `/${prefix}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } });
+    const res = prefix === "platform" ? await platformLogin({ body: { email, password: TEST_PASSWORD } }) : await call("POST", `/${prefix}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } });
     assert.equal(res.status, 200, res.text);
     return res;
   };
@@ -125,6 +160,8 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     clock,
     logs: () => logs,
     call,
+    platformLogin,
+    totpSecret: (email) => totpSecrets.get(email.toLowerCase()),
     async superAdminToken(email = "root@platform.test") {
       await createSuperAdmin(db.pool, { email, name: "平台超管", password: TEST_PASSWORD }, clock.now());
       return (await login("platform", email)).body.access_token as string;

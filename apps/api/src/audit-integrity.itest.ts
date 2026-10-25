@@ -90,7 +90,7 @@ test("审计日志写入失败时，每一类敏感操作都整体回滚：返�
     await attempt("平台：创建账号", api.call("POST", "/platform/v1/staff", { ...asPlatform, body: { email: "new@platform.test", name: "新员工", role: "readonly" } }));
     await attempt("平台：停用账号", api.call("POST", `/platform/v1/staff/${pendingStaff.body.user.id}/disable`, asPlatform));
     await attempt("平台：接受邀请", api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: pendingStaff.body.invite.token, password: TEST_PASSWORD } }));
-    await attempt("平台：登录成功", api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }));
+    await attempt("平台：登录成功", api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } }));
     await attempt("平台：查看集成详情", api.call("GET", "/platform/v1/integrations", asPlatform));
   } finally {
     await api.db.owner.query("drop trigger itest_audit_down on audit_logs");

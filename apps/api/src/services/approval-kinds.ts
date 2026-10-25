@@ -4,5 +4,7 @@
 import { type ApprovalKinds, approvalKinds } from "./approvals.ts";
 import { CHANNEL_APPROVAL_KINDS } from "./channels.ts";
 import { FX_APPROVAL_KINDS } from "./fx-locks.ts";
+import { PLATFORM_ROLE_APPROVAL_KINDS } from "./platform-roles.ts";
+import { STAFF_APPROVAL_KINDS } from "./platform-staff.ts";
 
-export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([...CHANNEL_APPROVAL_KINDS, ...FX_APPROVAL_KINDS]);
+export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([...CHANNEL_APPROVAL_KINDS, ...FX_APPROVAL_KINDS, ...PLATFORM_ROLE_APPROVAL_KINDS, ...STAFF_APPROVAL_KINDS]);

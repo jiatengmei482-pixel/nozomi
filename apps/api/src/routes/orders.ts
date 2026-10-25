@@ -14,7 +14,7 @@ import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } from "../repos/orders.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
@@ -150,15 +150,16 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   app.get("/platform/v1/orders", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(platformListSchema, request.query, "querystring");
-    const page = await listOrdersForPlatform(ctx, { status: query.status ?? null, tenantId: query.tenant_id ?? null, channelId: query.channel_id ?? null, q: query.q ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const scope = principal.grant.scope;
+    const page = await listOrdersForPlatform(ctx, { status: query.status ?? null, tenantId: query.tenant_id ?? null, channelId: query.channel_id ?? null, q: query.q ?? null, scopeCityIds: scope.cityIds, scopeChannelIds: scope.channelIds }, query.limit, decodeTimeCursor(query.cursor ?? null));
     return { items: page.items.map(platformOrderJson), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/orders/:id", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
-    const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"));
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"), principal.grant.scope);
     return {
       order: platformOrderJson(found),
       events: found.events.map(eventJson),

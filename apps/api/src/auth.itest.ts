@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { INVITE_TTL_MS } from "./auth/invite-token.ts";
 import { SESSION_TTL_MS } from "./auth/session.ts";
-import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type CallOptions, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 
 let api: TestApi;
 let platformToken: string;
@@ -26,11 +26,13 @@ const freshIp = (): string => `10.1.${Math.floor(ipCounter / 250)}.${(ipCounter+
 for (const entry of ["platform", "tenant"] as const) {
   const knownEmail = entry === "platform" ? "root@platform.test" : "admin@a.test";
   const loginUrl = `/${entry}/v1/auth/login`;
+  // 平台员工密码对了之后还要做两步验证（ADR 0030）：测试辅助函数把第二步做完，这里的用例照旧只关心密码这一步
+  const signIn = (options: CallOptions): Promise<ApiResponse> => (entry === "platform" ? api.platformLogin(options) : signIn(options));
 
   test(`${entry} 登录：邮箱不存在和密码错误，状态码和响应体完全一样`, async () => {
     const ip = freshIp();
-    const unknown = await api.call("POST", loginUrl, { ip, body: { email: `nobody-${entry}@x.test`, password: TEST_PASSWORD } });
-    const wrong = await api.call("POST", loginUrl, { ip, body: { email: knownEmail, password: "Wrong-Password-000" } });
+    const unknown = await signIn({ ip, body: { email: `nobody-${entry}@x.test`, password: TEST_PASSWORD } });
+    const wrong = await signIn({ ip, body: { email: knownEmail, password: "Wrong-Password-000" } });
     assert.equal(unknown.status, 401);
     assert.equal(unknown.body.error.code, "INVALID_CREDENTIALS");
     assert.equal(wrong.status, 401);
@@ -38,7 +40,7 @@ for (const entry of ["platform", "tenant"] as const) {
   });
 
   test(`${entry} 登录：参数不合法返回 400，不计入限速、不写审计`, async () => {
-    const res = await api.call("POST", loginUrl, { ip: freshIp(), body: { email: "不是邮箱", password: TEST_PASSWORD } });
+    const res = await signIn({ ip: freshIp(), body: { email: "不是邮箱", password: TEST_PASSWORD } });
     assert.equal(res.status, 400);
     assert.equal(res.body.error.code, "VALIDATION_FAILED");
     assert.ok(!res.text.includes(TEST_PASSWORD));
@@ -54,21 +56,21 @@ for (const entry of ["platform", "tenant"] as const) {
       await addTenantUser(api, tenant.adminToken, email, "readonly");
     }
     for (let i = 0; i < 5; i++) {
-      const res = await api.call("POST", loginUrl, { ip, body: { email, password: "Wrong-Password-000" } });
+      const res = await signIn({ ip, body: { email, password: "Wrong-Password-000" } });
       assert.equal(res.status, 401, `第 ${i + 1} 次`);
     }
     api.clock.advance(MINUTE);
-    const blocked = await api.call("POST", loginUrl, { ip, body: { email, password: TEST_PASSWORD } });
+    const blocked = await signIn({ ip, body: { email, password: TEST_PASSWORD } });
     assert.equal(blocked.status, 429);
     assert.equal(blocked.body.error.code, "TOO_MANY_LOGIN_ATTEMPTS");
     assert.equal(blocked.body.error.details.retry_after_seconds, 14 * 60);
     assert.equal(blocked.headers["retry-after"], String(14 * 60));
 
-    const otherIp = await api.call("POST", loginUrl, { ip: freshIp(), body: { email, password: TEST_PASSWORD } });
+    const otherIp = await signIn({ ip: freshIp(), body: { email, password: TEST_PASSWORD } });
     assert.equal(otherIp.status, 200, "换一个来源地址（真正的用户）不受这个地址的失败影响");
 
     api.clock.advance(14 * MINUTE);
-    const recovered = await api.call("POST", loginUrl, { ip, body: { email, password: TEST_PASSWORD } });
+    const recovered = await signIn({ ip, body: { email, password: TEST_PASSWORD } });
     assert.equal(recovered.status, 200, "窗口结束后恢复");
   });
 
@@ -76,37 +78,37 @@ for (const entry of ["platform", "tenant"] as const) {
     const ip = freshIp();
     const email = `ghost-${entry}@nowhere.test`;
     for (let i = 0; i < 5; i++) {
-      assert.equal((await api.call("POST", loginUrl, { ip, body: { email, password: "Wrong-Password-000" } })).status, 401);
+      assert.equal((await signIn({ ip, body: { email, password: "Wrong-Password-000" } })).status, 401);
     }
-    assert.equal((await api.call("POST", loginUrl, { ip, body: { email, password: "Wrong-Password-000" } })).status, 429);
+    assert.equal((await signIn({ ip, body: { email, password: "Wrong-Password-000" } })).status, 429);
   });
 
   test(`${entry} 登录限速：登录成功后计数清零`, async () => {
     const ip = freshIp();
     for (let round = 0; round < 2; round++) {
       for (let i = 0; i < 4; i++) {
-        assert.equal((await api.call("POST", loginUrl, { ip, body: { email: knownEmail, password: "Wrong-Password-000" } })).status, 401);
+        assert.equal((await signIn({ ip, body: { email: knownEmail, password: "Wrong-Password-000" } })).status, 401);
       }
-      assert.equal((await api.call("POST", loginUrl, { ip, body: { email: knownEmail, password: TEST_PASSWORD } })).status, 200);
+      assert.equal((await signIn({ ip, body: { email: knownEmail, password: TEST_PASSWORD } })).status, 200);
     }
   });
 
   test(`${entry} 登录限速：换着地址猜同一个邮箱，总共 20 次后全部拦下`, async () => {
     const email = `spray-${entry}@nowhere.test`;
     for (let i = 0; i < 20; i++) {
-      const res = await api.call("POST", loginUrl, { ip: freshIp(), body: { email, password: "Wrong-Password-000" } });
+      const res = await signIn({ ip: freshIp(), body: { email, password: "Wrong-Password-000" } });
       assert.equal(res.status, 401, `第 ${i + 1} 次`);
     }
-    assert.equal((await api.call("POST", loginUrl, { ip: freshIp(), body: { email, password: "Wrong-Password-000" } })).status, 429);
+    assert.equal((await signIn({ ip: freshIp(), body: { email, password: "Wrong-Password-000" } })).status, 429);
     api.clock.advance(15 * MINUTE);
-    assert.equal((await api.call("POST", loginUrl, { ip: freshIp(), body: { email, password: "Wrong-Password-000" } })).status, 401);
+    assert.equal((await signIn({ ip: freshIp(), body: { email, password: "Wrong-Password-000" } })).status, 401);
   });
 
   test(`${entry} 登录限速：并发的猜测请求绕不过计数（同一地址同时发 12 个，最多 5 个真正验证了密码）`, async () => {
     const ip = freshIp();
     const email = `burst-${entry}@nowhere.test`;
     const results = await Promise.all(
-      Array.from({ length: 12 }, () => api.call("POST", loginUrl, { ip, body: { email, password: "Wrong-Password-000" } })),
+      Array.from({ length: 12 }, () => signIn({ ip, body: { email, password: "Wrong-Password-000" } })),
     );
     const statuses = results.map((r) => r.status);
     assert.equal(statuses.filter((s) => s === 401).length, 5, JSON.stringify(statuses));
@@ -114,7 +116,7 @@ for (const entry of ["platform", "tenant"] as const) {
   });
 
   test(`${entry} 会话：8 小时内有效，满 8 小时失效`, async () => {
-    const login = await api.call("POST", loginUrl, { ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
+    const login = await signIn({ ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
     assert.equal(login.status, 200);
     assert.equal(new Date(login.body.expires_at).getTime() - api.clock.now().getTime(), SESSION_TTL_MS);
     const token = login.body.access_token as string;
@@ -125,13 +127,13 @@ for (const entry of ["platform", "tenant"] as const) {
     assert.equal(expired.status, 401);
     assert.equal(expired.body.error.code, "UNAUTHENTICATED");
     // 后面的测试还要用 before 里登录的令牌：它们也过期了，重新登录
-    platformToken = (await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
+    platformToken = (await api.platformLogin({ ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
     tenant.adminToken = (await api.call("POST", "/tenant/v1/auth/login", { ip: freshIp(), body: { email: "admin@a.test", password: TEST_PASSWORD } })).body.access_token;
   });
 
   test(`${entry} 退出登录：这个令牌立即失效，同一账号的其他会话不受影响`, async () => {
-    const first = await api.call("POST", loginUrl, { ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
-    const second = await api.call("POST", loginUrl, { ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
+    const first = await signIn({ ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
+    const second = await signIn({ ip: freshIp(), body: { email: knownEmail, password: TEST_PASSWORD } });
     assert.notEqual(first.body.access_token, second.body.access_token);
     assert.equal((await api.call("POST", `/${entry}/v1/auth/logout`, { token: first.body.access_token })).status, 204);
     assert.equal((await api.call("GET", `/${entry}/v1/auth/me`, { token: first.body.access_token })).status, 401);
@@ -179,7 +181,7 @@ test("停用平台账号：已登录的令牌立即失效；密码正确也登�
   const email = "ops@platform.test";
   const invited = await api.call("POST", "/platform/v1/staff", { token: platformToken, body: { email, name: "运营", role: "operations" } });
   await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
-  const login = await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email, password: TEST_PASSWORD } });
+  const login = await api.platformLogin({ ip: freshIp(), body: { email, password: TEST_PASSWORD } });
   const token = login.body.access_token as string;
   assert.equal((await api.call("GET", "/platform/v1/tenants", { token })).status, 200);
 
@@ -189,15 +191,15 @@ test("停用平台账号：已登录的令牌立即失效；密码正确也登�
   assert.equal((await api.call("GET", "/platform/v1/tenants", { token })).status, 401, "旧令牌应立即失效");
 
   const ip = freshIp();
-  const relogin = await api.call("POST", "/platform/v1/auth/login", { ip, body: { email, password: TEST_PASSWORD } });
+  const relogin = await api.platformLogin({ ip, body: { email, password: TEST_PASSWORD } });
   assert.equal(relogin.status, 403);
   assert.equal(relogin.body.error.code, "ACCOUNT_DISABLED");
-  const wrong = await api.call("POST", "/platform/v1/auth/login", { ip, body: { email, password: "Wrong-Password-000" } });
+  const wrong = await api.platformLogin({ ip, body: { email, password: "Wrong-Password-000" } });
   assert.equal(wrong.status, 401, "密码错误时不透露账号已停用");
 
   await api.call("POST", `/platform/v1/staff/${invited.body.user.id}/enable`, { token: platformToken });
   assert.equal((await api.call("GET", "/platform/v1/tenants", { token })).status, 401, "启用后旧令牌也不会复活");
-  assert.equal((await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email, password: TEST_PASSWORD } })).status, 200);
+  assert.equal((await api.platformLogin({ ip: freshIp(), body: { email, password: TEST_PASSWORD } })).status, 200);
 });
 
 test("暂停租户不影响登录（需求文档「租户状态」：暂停的租户继续履约已有订单）：已有令牌照常可用，可以重新登录，me 和登录响应里的租户状态是 suspended；恢复后变回 active", async () => {
@@ -327,7 +329,7 @@ for (const entry of ["platform", "tenant"] as const) {
     assert.equal(expired.status, 400);
     assert.equal(expired.body.error.code, "INVITE_INVALID");
     // 时钟拨了 7 天，before 里的会话早过期了
-    platformToken = (await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
+    platformToken = (await api.platformLogin({ ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
     tenant.adminToken = (await api.call("POST", "/tenant/v1/auth/login", { ip: freshIp(), body: { email: "admin@a.test", password: TEST_PASSWORD } })).body.access_token;
 
     const body = { email: invited.email, name: "改了名字", role: entry === "platform" ? "tech" : "dispatch" };
@@ -401,12 +403,12 @@ test("同一来源地址轮换邮箱猜密码：失败满 50 次后，这个地�
   );
 
   assert.equal((await attempt("admin@a.test", TEST_PASSWORD, freshIp())).status, 200, "别的地址不受影响");
-  const platform = await api.call("POST", "/platform/v1/auth/login", { ip, body: { email: "root@platform.test", password: TEST_PASSWORD } });
+  const platform = await api.platformLogin({ ip, body: { email: "root@platform.test", password: TEST_PASSWORD } });
   assert.equal(platform.status, 200, "平台入口和租户入口各算各的");
 
   api.clock.advance(15 * MINUTE);
   assert.equal((await attempt("admin@a.test", TEST_PASSWORD)).status, 200, "窗口过后恢复");
-  platformToken = (await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
+  platformToken = (await api.platformLogin({ ip: freshIp(), body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
   tenant.adminToken = (await api.call("POST", "/tenant/v1/auth/login", { ip: freshIp(), body: { email: "admin@a.test", password: TEST_PASSWORD } })).body.access_token;
 });
 
@@ -447,6 +449,6 @@ test("平台账号和租户账号是两套：同一个邮箱在两边各自登�
   await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: staff.body.invite.token, password: TEST_PASSWORD } });
   const tenantLogin = await api.call("POST", "/tenant/v1/auth/login", { ip: freshIp(), body: { email, password: TEST_PASSWORD } });
   assert.equal(tenantLogin.status, 401, "平台账号不能从租户入口登录");
-  const platformLogin = await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "admin@a.test", password: TEST_PASSWORD } });
+  const platformLogin = await api.platformLogin({ ip: freshIp(), body: { email: "admin@a.test", password: TEST_PASSWORD } });
   assert.equal(platformLogin.status, 401, "租户账号不能从平台入口登录");
 });

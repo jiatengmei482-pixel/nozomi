@@ -4,7 +4,7 @@
  * 任何已登录的平台员工都能调；但每个模块只给有权看这个模块的角色（没有 `tenant.read` 的角色拿到的租户一组是 null），
  * 首页不会成为绕过权限看数量的口子。全部在一个事务里数，各组数字是同一时刻的。
  */
-import { type CurrencyCode, type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformRole, fxStaleAt, fxTableState, platformRoleCan } from "@nozomi/domain";
+import { type CurrencyCode, type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformGrant, fxStaleAt, fxTableState, grantCan } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { countAirportsWithoutCity, countMasterByStatus, countPlacesByTypeAndStatus, countTenantsByStatus } from "../repos/dashboard.ts";
@@ -46,16 +46,16 @@ export function statusCounts(rows: readonly { status: MasterDataStatus; count: n
   return { total: active + disabled, active, disabled };
 }
 
-export function getDashboardSummary(ctx: AppContext, role: PlatformRole): Promise<DashboardSummary> {
+export function getDashboardSummary(ctx: AppContext, grant: PlatformGrant): Promise<DashboardSummary> {
   return withPlatformTx(ctx.pool, async (db) => {
     let tenants: DashboardSummary["tenants"] = null;
-    if (platformRoleCan(role, "tenant.read")) {
+    if (grantCan(grant, "tenant.read")) {
       const rows = await countTenantsByStatus(db);
       const of = (status: string): number => rows.find((row) => row.status === status)?.count ?? 0;
       tenants = { total: of("active") + of("suspended"), active: of("active"), suspended: of("suspended") };
     }
     let masterData: DashboardSummary["masterData"] = null;
-    if (platformRoleCan(role, "master_data.read")) {
+    if (grantCan(grant, "master_data.read")) {
       const places = await countPlacesByTypeAndStatus(db);
       const byType = Object.fromEntries(
         PLACE_TYPES.map((type) => [type, statusCounts(places.filter((row) => row.type === type))]),
@@ -68,7 +68,7 @@ export function getDashboardSummary(ctx: AppContext, role: PlatformRole): Promis
       };
     }
     let fx: DashboardSummary["fx"] = null;
-    if (platformRoleCan(role, "master_data.read")) {
+    if (grantCan(grant, "master_data.read")) {
       const current = await latestRateSet(db);
       const asOf = current?.asOf.toISOString() ?? null;
       const last = await latestFetch(db);

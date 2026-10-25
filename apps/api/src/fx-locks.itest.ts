@@ -45,7 +45,7 @@ const owner = async (sql: string, values: unknown[] = []): Promise<any[]> => (aw
 const serve = (asOf: Date, rates: Record<string, string> = RATES): void => source.respond({ body: fxSourceBody({ asOf, rates }) });
 
 async function login(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 /** 时钟拨过登录令牌的有效期以后，平台员工重新登录 */
 async function advance(ms: number): Promise<void> {

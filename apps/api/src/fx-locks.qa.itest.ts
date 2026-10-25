@@ -79,7 +79,7 @@ async function addStaff(key: PlatformRole | "master_data2", role: PlatformRole):
   const email = `qa-${key}@platform.test`;
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email, name: `测试${key}`, role } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-  const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }));
+  const login = await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }));
   people[key] = { id: invited.user.id, token: login.access_token, email };
 }
 

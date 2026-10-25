@@ -49,7 +49,7 @@ function issues(res: ApiResponse): [string, string | undefined][] {
 }
 /** 拨动时钟超过登录令牌的有效期之后重新登录（平台超管和甲车队管理员）。 */
 async function relogin(): Promise<void> {
-  root = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
+  root = (await ok(api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
   tenant.adminToken = (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email: tenant.adminEmail, password: TEST_PASSWORD } }))).access_token;
 }
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

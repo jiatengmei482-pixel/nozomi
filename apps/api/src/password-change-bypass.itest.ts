@@ -401,7 +401,7 @@ test("请求里夹带标记字段没有用：登录、改密、租户管理员�
   const platformToken = await temporarySuperAdmin("mass@platform.test");
   const tenant = await flaggedTenantUser(tenantA, "mass@a.test");
 
-  const loggedIn = await api.call("POST", "/platform/v1/auth/login", {
+  const loggedIn = await api.platformLogin({
     ip: freshIp(),
     body: { email: "mass@platform.test", password: TEMPORARY, must_change_password: false, purpose: "self_service" },
   });
@@ -602,9 +602,9 @@ test("【缺陷】两个会话同时用同一个临时密码改密：只能有�
   const statuses = [a.status, b.status].sort();
   // 无论谁赢，下面这些都必须成立
   assert.equal(await flagOf("platform_users", "race@platform.test"), false);
-  assert.equal((await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "race@platform.test", password: TEMPORARY } })).status, 401);
+  assert.equal((await api.platformLogin({ ip: freshIp(), body: { email: "race@platform.test", password: TEMPORARY } })).status, 401);
   const works = await Promise.all(
-    [NEW_PASSWORD, OTHER_PASSWORD].map(async (password) => (await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "race@platform.test", password } })).status),
+    [NEW_PASSWORD, OTHER_PASSWORD].map(async (password) => (await api.platformLogin({ ip: freshIp(), body: { email: "race@platform.test", password } })).status),
   );
   assert.equal(works.filter((status) => status === 200).length, 1, "最后只有一个新密码有效");
 

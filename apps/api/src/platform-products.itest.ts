@@ -115,7 +115,7 @@ before(async () => {
     const email = `${key.replaceAll("_", "-")}@platform.test`;
     const invited = await ok(api.call("POST", "/platform/v1/staff", { token: root, body: { email, name: key, role: key } }), 201);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-    const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD }, ip: `10.12.0.${roleTokens.size + 1}` }));
+    const login = await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD }, ip: `10.12.0.${roleTokens.size + 1}` }));
     roleTokens.set(key, login.access_token as string);
   }
   a = await api.tenantWithAdmin(root, "甲车队", "admin@m112-a.test");

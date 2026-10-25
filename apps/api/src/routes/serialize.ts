@@ -15,9 +15,20 @@ export function platformUserJson(user: PlatformUser): Record<string, unknown> {
     email: user.email,
     name: user.name,
     role: user.role,
+    role_name: user.roleName,
     status: user.status,
     created_at: user.createdAt.toISOString(),
     updated_at: user.updatedAt.toISOString(),
+  };
+}
+
+/** 平台账号列表和详情里的员工：多了两步验证是否已绑定、员工自己的 IP 白名单（ADR 0030）。 */
+export function staffJson(user: PlatformUser): Record<string, unknown> {
+  return {
+    ...platformUserJson(user),
+    mfa_enabled: user.totpEnabledAt !== null,
+    mfa_enabled_at: user.totpEnabledAt?.toISOString() ?? null,
+    ip_allowlist: user.ipAllowlist,
   };
 }
 

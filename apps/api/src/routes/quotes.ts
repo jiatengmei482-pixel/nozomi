@@ -5,15 +5,15 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type ComparisonRefusal, type FxQuote, type PlatformRole, platformRoleCan, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type ComparisonRefusal, type FxQuote, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
-import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
+import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type QuotePreviewInput, markupKey, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { bearerToken } from "../auth/token.ts";
-import { forbidden } from "../services/errors.ts";
+import { forbidden, notFound } from "../services/errors.ts";
 import { parseInput, resourceId, uuidSchema } from "../validation.ts";
 
 type Json = Record<string, unknown>;
@@ -128,19 +128,22 @@ const offerJson = (offer: VehicleOffer): Json => ({ vehicle_group_id: offer.vehi
 /**
  * 按渠道试算会看到渠道的加价规则：除了 `quote.preview`，另要能看渠道（`channel.read`），否则 403。
  * 显式检查，不依赖「有试算权限的角色恰好都能看渠道」。
+ * 角色限定了渠道范围（ADR 0030）时，范围外的渠道当作不存在（404）。
  */
-export function assertChannelPreviewAllowed(role: PlatformRole, channelId: string | null): void {
-  if (channelId !== null && !platformRoleCan(role, "channel.read")) throw forbidden("channel.read");
+export function assertChannelPreviewAllowed(grant: PlatformGrant, channelId: string | null): void {
+  if (channelId === null) return;
+  if (!grantCan(grant, "channel.read")) throw forbidden("channel.read");
+  if (!scopeAllowsChannel(grant.scope, channelId)) throw notFound("渠道");
 }
 
 export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const platform = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+  const platform = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, platformCredentials(request), { action });
   const tenant = (request: FastifyRequest, action: TenantAction): Promise<TenantPrincipal> => authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
 
   app.post("/platform/v1/quotes/preview", async (request) => {
     const principal = await platform(request, "quote.preview");
     const input = parseInput(platformPreviewSchema, request.body, "body");
-    assertChannelPreviewAllowed(principal.user.role, input.channel_id);
+    assertChannelPreviewAllowed(principal.grant, input.channel_id);
     const preview = await previewPlatformQuote(ctx, { ...previewInput(input), cityId: input.city_id, category: input.category, placeId: input.place_id, currency: input.currency, channelId: input.channel_id }, { log: request.log });
     const byProduct = new Map([...preview.candidates, ...preview.excluded].map((candidate) => [candidate.product.productId, candidate]));
     const who = (productId: string): Json => {

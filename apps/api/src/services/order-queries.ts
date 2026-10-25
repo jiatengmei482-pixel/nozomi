@@ -6,7 +6,7 @@
  * - 运营后台（`/platform/v1/orders`）：平台事务，跨租户跨渠道；有渠道、对外价、结算价、加价比例、付款状态、报价快照里的全部候选。
  *   完整的订单中心（筛选、异常队列、人工介入）在 M4-02。
  */
-import type { OrderStatus } from "@nozomi/domain";
+import { type OrderStatus, type PlatformDataScope, UNRESTRICTED_SCOPE, scopeAllowsChannel, scopeAllowsCity } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx, withTenantTx } from "../db/context.ts";
 import type { TimeCursor } from "../pagination.ts";
@@ -69,13 +69,14 @@ export interface PlatformOrderDetail {
   quote: StoredQuoteSnapshot;
 }
 
-export async function getOrderForPlatform(ctx: AppContext, orderId: string): Promise<PlatformOrderDetail> {
+/** 数据范围外的订单和不存在一样（ADR 0030）。不给范围 = 不限制。 */
+export async function getOrderForPlatform(ctx: AppContext, orderId: string, scope: PlatformDataScope = UNRESTRICTED_SCOPE): Promise<PlatformOrderDetail> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
       const order = await findOrderForPlatform(db, orderId);
       const sale = order === null ? null : await findSale(db, orderId);
-      if (order === null || sale === null) throw notFound("订单");
+      if (order === null || sale === null || !scopeAllowsCity(scope, order.cityId) || !scopeAllowsChannel(scope, sale.channelId)) throw notFound("订单");
       const names = (await db.query<{ tenant: string; channel: string }>("select t.name as tenant, c.name as channel from tenants t, channels c where t.id = $1 and c.id = $2", [order.tenantId, sale.channelId])).rows[0];
       const quote = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0] as { snapshot: StoredQuoteSnapshot };
       return {
