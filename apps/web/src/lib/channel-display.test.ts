@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalChanges, belowFloorRuleLines, pricingLines, relatedPending } from "./channel-display.ts";
+import { approvalChanges, approvalSummaryText, belowFloorRuleLines, pricingLines, relatedPending } from "./channel-display.ts";
 import type { Approval } from "../api/channels.ts";
+import { formatLocalDateTime } from "./master-display.ts";
 
 const pricing = { default_markup_bp: 1000, markup_floor_bp: 1000, band_bp: 300, min_margin_minor: 0, sell_rounding: {} };
 
@@ -36,4 +37,14 @@ test("发起前的提醒只看渠道类复核：汇率锁定的复核不算（M1
   assert.deepEqual(relatedPending({ kind: "pricing" }, pending).map((item) => item.id), ["p", "u", "c"]);
   assert.deepEqual(relatedPending({ kind: "rule", ruleId: "r1" }, pending).map((item) => item.id), ["p", "u"]);
   assert.deepEqual(relatedPending({ kind: "rule", ruleId: null }, pending).map((item) => item.id), ["p"]);
+});
+
+test("复核摘要里的 UTC 时刻按查看者本地时区写，和「改了什么」表格里的到期时间一致（M1-18）", () => {
+  const expires = "2026-10-26T03:00:00.000Z";
+  const shown = approvalSummaryText("锁定 JPY 汇率：1 USD = 151.2 JPY（中央汇率 150，偏离 +0.80%），到 2026-10-26 03:00 UTC");
+  assert.equal(shown, `锁定 JPY 汇率：1 USD = 151.2 JPY（中央汇率 150，偏离 +0.80%），到 ${formatLocalDateTime(expires)}`);
+  const table = approvalChanges("fx_lock.create", null, { currency: "JPY", rate: "151.2", expires_at: expires, central_rate: "150", deviation_bp: 80 }, null);
+  assert.equal(table.find((line) => line.label === "到期时间")?.after, formatLocalDateTime(expires));
+  assert.equal(approvalSummaryText("解除 JPY 的锁定（1 USD = 151.2 JPY，原定到 2026-01-01 00:00 UTC），恢复用中央汇率 150"), `解除 JPY 的锁定（1 USD = 151.2 JPY，原定到 ${formatLocalDateTime("2026-01-01T00:00:00Z")}），恢复用中央汇率 150`);
+  assert.equal(approvalSummaryText("把默认加价比例从 10% 改为 12%"), "把默认加价比例从 10% 改为 12%", "没有时刻的摘要原样");
 });

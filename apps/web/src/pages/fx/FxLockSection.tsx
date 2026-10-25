@@ -17,7 +17,7 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES } from "../../lib/channel-display.ts";
+import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, approvalSummaryText } from "../../lib/channel-display.ts";
 import { FX_LOCKABLE_CURRENCIES, LOCK_DURATION_HOURS, LOCK_HOURS_MESSAGE, checkLockDraft, lockExpiresAt, lockHoursOf, lockServerErrors } from "../../lib/fx-lock-form.ts";
 import { CURRENCY_NAMES, FX_LOCK_BADGES, changeText, rateText } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
@@ -113,7 +113,7 @@ function PendingLocks({ items }: { items: readonly Approval[] }) {
               <StatusBadge tone="warning" label="待审核" />
               <strong>{APPROVAL_KIND_NAMES[approval.kind]}</strong>
             </span>
-            <span>{approval.summary}</span>
+            <span>{approvalSummaryText(approval.summary)}</span>
             <span className="table__muted">{`${approval.requested_by.name} 发起 · ${formatLocalDateTime(approval.requested_at)}${approval.request_note ? ` · ${approval.request_note}` : ""}`}</span>
             {approval.can.approve ? (
               <Link className="link" to={APPROVALS_PAGE_PATH}>

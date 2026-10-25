@@ -9,6 +9,7 @@ import type { Approval } from "../../api/channels.ts";
 import type { FxLock, FxOverview } from "../../api/fx.ts";
 import type { DashboardSummary } from "../../api/master.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { formatLocalDateTime } from "../../lib/master-display.ts";
 
 afterEach(resetBrowser);
 
@@ -231,9 +232,16 @@ test("待审核的锁定申请：汇率页列出来（能审的人有去处理�
   const changes = within(approvalCard).getByRole("region", { name: "改了什么" });
   assert.match(changes.textContent ?? "", /锁定值未锁定（中央汇率 1 USD = 7\.2 CNY）1 USD = 7\.3 CNY/);
   assert.match(changes.textContent ?? "", /和发起时中央汇率的偏离—\+1\.39%/);
+  // 摘要里的到期时间和「改了什么」表格里的同一种写法：查看者本地时区，不再一处 UTC、一处本地（M1-18）
+  const localExpiry = formatLocalDateTime(EXPIRES);
+  const shownSummary = `锁定 CNY 汇率：1 USD = 7.3 CNY（中央汇率 7.2，偏离 +1.39%），到 ${localExpiry}`;
+  assert.ok(within(approvalCard).getByText(shownSummary));
+  assert.match(changes.textContent ?? "", new RegExp(`到期时间—${localExpiry}`));
+  assert.doesNotMatch(approvalCard.textContent ?? "", /UTC/);
+  assert.match(document.querySelector(".page__lead")?.textContent ?? "", /时间按你的本地时区（UTC[+-]\d{1,2}(:\d{2})?）显示。/);
   // 汇率锁定类复核的按钮读屏名字同样带摘要和发起时间（M1-17）
   const approve = within(approvalCard).getByRole("button", { name: /^批准：/ });
-  assert.equal(approve.getAttribute("aria-label")?.startsWith(`批准：${approval().summary}（`), true);
+  assert.equal(approve.getAttribute("aria-label")?.startsWith(`批准：${shownSummary}（`), true);
   assert.equal(approve.textContent, "批准");
   await actor.click(approve);
   const dialog = await screen.findByRole("dialog");

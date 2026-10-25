@@ -63,6 +63,11 @@ test("主数据运营发起锁定泰铢、自己批不了 → 超级管理员批
   const mine = page.locator(".approval-card").filter({ hasText: "锁定汇率" }).filter({ hasText: "THB" }).first();
   await expect(mine.getByRole("button", { name: "批准" })).toHaveCount(0);
   await expect(mine.getByRole("button", { name: "撤回" })).toBeVisible();
+  // 摘要里的到期时间和「改了什么」表格里写法一样：查看者本地时区，不出现 UTC（M1-18）
+  const expiry = ((await mine.getByRole("row", { name: /到期时间/ }).getByRole("cell").last().textContent()) ?? "").trim();
+  expect(expiry).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  await expect(mine.getByText(new RegExp(`^锁定 THB 汇率：.*，到 ${expiry}$`))).toBeVisible();
+  await expect(mine).not.toContainText("UTC");
 
   // 超级管理员：批准
   const admin = await browser.newPage();
