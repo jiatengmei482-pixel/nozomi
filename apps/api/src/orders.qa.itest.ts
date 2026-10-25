@@ -194,6 +194,26 @@ test("跨币种（韩元，零小数）：对外价没有小数点，Stripe 金�
   assert.deepEqual(res.body.order.price.total, quote.price.total);
 });
 
+test("运营后台的订单详情：汇率照报价快照给出，含人工锁定（M2-06）——没有锁定为 null，快照里有锁定就写明哪一边、锁定值、到期时间", async () => {
+  const quote = await quoteFor(m.ids.biz7, { currency: "USD" });
+  const placed = await placeOrder({ quote_id: quote.quote_id, ...details() });
+  assert.equal(placed.status, 201, placed.text);
+  const id = placed.body.order.id as string;
+  const detail = async (): Promise<any> => {
+    const res = await api.call("GET", `/platform/v1/orders/${id}`, { token: m.staff.operations.token });
+    assert.equal(res.status, 200, res.text);
+    assertMatchesOperation("GET", "/platform/v1/orders/{id}", res.status, res.body);
+    return res.body.order.fx;
+  };
+  const plain = await detail();
+  assert.deepEqual([plain.rate, plain.lock], ["0.0067", null]);
+  // 报价时日元一边用的是人工锁定（快照原样存进订单的销售端一侧）
+  const lockId = randomUUID();
+  const locked: FxQuote = { ...(await row("select fx from order_sales where order_id = $1", [id])).fx, lock: { legs: [{ currency: "JPY", rate: "149.5", lockId, expiresAt: "2026-10-09T00:00:00.000Z" }], usesSource: false } };
+  await api.db.owner.query("update order_sales set fx = $2::jsonb where order_id = $1", [id, JSON.stringify(locked)]);
+  assert.deepEqual((await detail()).lock, { legs: [{ currency: "JPY", rate: "149.5", lock_id: lockId, expires_at: "2026-10-09T00:00:00.000Z" }], uses_source: false });
+});
+
 test("报价之后供应商改了价格：订单仍按快照收钱和结算，不重新报价", async () => {
   const quote = await quoteFor(m.ids.biz7);
   const snapshot = (await row("select snapshot from quotes where id = $1", [quote.quote_id])).snapshot;

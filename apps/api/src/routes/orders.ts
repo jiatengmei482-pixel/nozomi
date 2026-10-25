@@ -17,6 +17,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import { authenticatePlatform } from "../services/platform-auth.ts";
 import { getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
+import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 
@@ -122,7 +123,7 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     sell: salesMoney(sale.sellMinor, sale.currency),
     settlement: settlementJson(order),
     markup_bp: sale.markupBp,
-    fx: sale.fx === null ? null : { from: sale.fx.from, to: sale.fx.to, rate: sale.fx.rate, as_of: sale.fx.asOf },
+    fx: sale.fx === null ? null : fxJson(sale.fx),
     fx_buffer_bp: sale.fxBufferBp,
     payment_due_at: order.paymentDueAt.toISOString(),
     payment: paymentJson(entry.payment),

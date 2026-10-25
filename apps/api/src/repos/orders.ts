@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CurrencyCode, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection } from "@nozomi/domain";
+import type { CurrencyCode, FxQuote, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -231,7 +231,8 @@ export interface OrderSale {
   currency: CurrencyCode;
   sellMinor: number;
   markupBp: number;
-  fx: { from: string; to: string; rate: string; asOf: string } | null;
+  /** 报价快照里的汇率（含人工锁定 `lock`，M2-06）；同币种为 null */
+  fx: FxQuote | null;
   fxBufferBp: number;
   createdAt: Date;
 }

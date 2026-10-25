@@ -12275,7 +12275,7 @@ components:
           oneOf:
             - type: object
               additionalProperties: false
-              required: [from, to, rate, as_of]
+              required: [from, to, rate, as_of, lock]
               properties:
                 from:
                   type: string
@@ -12286,6 +12286,32 @@ components:
                 as_of:
                   type: string
                   format: date-time
+                lock:
+                  type: [object, "null"]
+                  additionalProperties: false
+                  required: [legs, uses_source]
+                  description: 报价时用了人工锁定的汇率（M2-06，ADR 0025）就写明哪一边、锁定值和到期时间；没有锁定为 null
+                  properties:
+                    legs:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: false
+                        required: [currency, rate, lock_id, expires_at]
+                        properties:
+                          currency:
+                            type: string
+                          rate:
+                            type: string
+                            description: 锁定值（1 USD = ?）
+                          lock_id:
+                            type: string
+                            format: uuid
+                          expires_at:
+                            type: string
+                            format: date-time
+                    uses_source:
+                      type: boolean
             - type: "null"
         fx_buffer_bp:
           type: integer
