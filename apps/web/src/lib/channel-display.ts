@@ -43,7 +43,15 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "删除加价规则",
   "fx_lock.create": "锁定汇率",
   "fx_lock.release": "解除汇率锁定",
+  "tenant.suspend": "暂停供应商",
+  "tenant.terminate": "清退供应商",
+  "tenant.contract": "供应商合同新版本",
 };
+
+/** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
+export function isTenantApproval(kind: ApprovalKind): boolean {
+  return kind === "tenant.suspend" || kind === "tenant.terminate" || kind === "tenant.contract";
+}
 
 /** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
 export function isFxApproval(kind: ApprovalKind): boolean {
@@ -111,6 +119,22 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
   ];
 }
 
+const TENANT_STATUS_TEXT: Readonly<Record<string, string>> = { applying: "申请中", reviewing: "审核中", signed: "已签约", trial: "试运营", active: "正式", suspended: "已暂停", terminated: "已清退" };
+
+/** 供应商的复核里「改了什么」：暂停、清退是状态；合同是新版本的条款。 */
+function tenantChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const status = (value: unknown): string => (typeof value === "string" ? (TENANT_STATUS_TEXT[value] ?? value) : "—");
+  if (kind === "tenant.suspend") return [{ label: "状态", before: status(before?.["status"]), after: "已暂停（人工暂停）" }];
+  if (kind === "tenant.terminate") return [{ label: "状态", before: status(before?.["status"]), after: "已清退" }];
+  const text = (value: unknown): string => (value === null || value === undefined || value === "" ? "—" : String(value));
+  return [
+    { label: "版本", before: before === null ? "（还没有合同）" : `第 ${text(before["version"])} 版`, after: `第 ${text(after["version"])} 版` },
+    { label: "生效日期", before: before === null ? "—" : text(before["valid_from"]), after: text(after["valid_from"]) },
+    { label: "结算币种", before: before === null ? "—" : text(before["settle_currency"]), after: text(after["settle_currency"]) },
+    { label: "结算周期", before: before === null ? "—" : "月结，次月 20 日付款", after: "月结，次月 20 日付款" },
+  ];
+}
+
 /** 汇率锁定的复核里「改了什么」：锁定值、到期时间、和发起时中央汇率的偏离。 */
 function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const currency = typeof after["currency"] === "string" ? after["currency"] : "";
@@ -134,6 +158,7 @@ function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | nul
 /** 复核记录里「改了什么」：逐项列出改之前和改之后（只列变了的）。 */
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
+  if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */

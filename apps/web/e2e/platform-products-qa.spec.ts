@@ -10,7 +10,7 @@
 import { addDays } from "@nozomi/domain";
 import { type APIRequestContext, type Page, type Request, expect, test } from "@playwright/test";
 import { type Supplier, type World, createArea, createBrand, createProductByApi, createWorld, tenantHeaders } from "./catalog.ts";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, suspendTenant, uniqueEmail } from "./support.ts";
+import { activateTenant, adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, suspendTenant, uniqueEmail } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -28,6 +28,8 @@ async function supplierNamed(request: APIRequestContext, world: World, tenantNam
   const created = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: adminEmail, name: "测试管理员" } } });
   expect(created.status(), await created.text()).toBe(201);
   const body = (await created.json()) as { tenant: { id: string }; invite: { token: string } };
+  // 新建的供应商在「申请中」不能上架（ADR 0028）：直接摆成「正常」
+  await activateTenant(body.tenant.id);
   const password = newPassword();
   expect((await request.post("/tenant/v1/auth/accept-invite", { data: { token: body.invite.token, password } })).ok()).toBe(true);
   const tenantHeader = await tenantHeaders(request, adminEmail, password);

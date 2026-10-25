@@ -42,6 +42,7 @@ type NavEntry = NavLeaf | NavGroup;
 function navEntries(portal: Portal, home: string, role: string | null): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
+  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenant-documents", label: "资质审核", icon: "file", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
@@ -75,6 +76,9 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
       ...(tenantRoleCan(role, "product.read") ? [{ to: "/products", label: "商品", prefix: true }, { to: "/price-rules", label: "价格规则", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "catalog", label: "商品配置", icon: "map", children });
+    // 企业资质（M4-01）：管理员、财务、只读；履约评分每个角色都能看
+    if (tenantRoleCan(role, "company.read")) entries.push({ to: "/company", label: "企业资质", icon: "file", prefix: true });
+    if (tenantRoleCan(role, "performance.read")) entries.push({ to: "/performance", label: "履约评分", icon: "check-circle", prefix: true });
   }
   return entries;
 }

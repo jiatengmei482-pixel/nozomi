@@ -143,7 +143,8 @@ export interface StatusCounts {
 
 export interface DashboardSummary {
   /** 当前角色不能看供应商时为 null */
-  tenants: { total: number; active: number; suspended: number } | null;
+  /** 供应商：总数（不含已清退）、正常、暂停、参与比价的（试运营 + 正常）、各状态的数（M4-01） */
+  tenants: { total: number; active: number; suspended: number; bidding: number; by_status: Record<string, number> } | null;
   /** 当前角色不能看主数据时为 null */
   master_data: {
     cities: StatusCounts;

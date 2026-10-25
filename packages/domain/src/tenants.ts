@@ -67,7 +67,7 @@ export const TENANT_STATUS_NAMES: Readonly<Record<TenantStatus, string>> = {
   reviewing: "审核中",
   signed: "已签约",
   trial: "试运营",
-  active: "正式",
+  active: "正常",
   suspended: "暂停",
   terminated: "已清退",
 };

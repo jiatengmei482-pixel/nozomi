@@ -9084,10 +9084,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, company.read, company.manage, performance.read]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -9203,7 +9203,9 @@ components:
         name:
           type: string
         status:
-          $ref: "#/components/schemas/TenantStatus"
+          type: string
+          enum: [applying, reviewing, signed, trial, active, suspended, terminated]
+          description: 入驻状态，见 `TenantStatus`
         suspended_from:
           type: [string, "null"]
           enum: [trial, active, null]
@@ -9779,7 +9781,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval, tenant_profile, tenant_file, tenant_document, tenant_contract]
         resource_id:
           type: [string, "null"]
         action:
@@ -9817,6 +9819,18 @@ components:
             - revoke
             - activate
             - pause
+            - lock
+            - unlock
+            - expire
+            - submit
+            - return
+            - sign
+            - start_trial
+            - promote
+            - terminate
+            - observe
+            - upload
+            - request_supplement
         before:
           type: [object, "null"]
           additionalProperties: true
@@ -9859,7 +9873,7 @@ components:
           enum: [console, api]
         resource:
           type: string
-          enum: [tenant_user, area, brand, product]
+          enum: [tenant_user, area, brand, product, tenant_profile, tenant_file, tenant_document]
         resource_id:
           type: [string, "null"]
         action:

@@ -7,7 +7,7 @@ import { type FormEvent, type ReactNode, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type AuditLog, createTenant, getTenant, listAllTenants, listAuditLogs } from "../../api/platform.ts";
-import type { Tenant, TenantStatus } from "../../api/types.ts";
+import { TENANT_STATUSES, type Tenant, type TenantStatus } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -31,11 +31,15 @@ import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { PlatformProductTable } from "./ProductPages.tsx";
+import { TenantOnboardingSections } from "./TenantOnboardingSections.tsx";
 import { useTenantActions } from "./useTenantActions.tsx";
+import { observationText, suspensionText } from "../../lib/onboarding-display.ts";
 
 const DEFAULT_PAGE_SIZE = 50;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
+
+const isTenantStatus = (value: string | null): value is TenantStatus => value !== null && (TENANT_STATUSES as readonly string[]).includes(value);
 
 function StatusFilter() {
   const [status, setStatus] = useFilterParam("status");
@@ -43,12 +47,8 @@ function StatusFilter() {
     <SelectField
       inline
       label="状态"
-      value={status === "active" || status === "suspended" ? status : "all"}
-      options={[
-        { value: "all", label: "全部" },
-        { value: "active", label: "正常" },
-        { value: "suspended", label: "已暂停" },
-      ]}
+      value={isTenantStatus(status) ? status : "all"}
+      options={[{ value: "all", label: "全部" }, ...TENANT_STATUSES.map((value) => ({ value, label: TENANT_STATUS_BADGES[value].label }))]}
       onChange={(value) => setStatus(value === "all" ? null : value)}
     />
   );
@@ -70,7 +70,7 @@ export function TenantListPage() {
 
   const q = (params.get("q") ?? "").trim().slice(0, 100);
   const statusParam = params.get("status");
-  const status: TenantStatus | null = statusParam === "active" || statusParam === "suspended" ? statusParam : null;
+  const status: TenantStatus | null = isTenantStatus(statusParam) ? statusParam : null;
   const sizeParam = Number(params.get("size"));
   const pageSize = (PAGE_SIZES as readonly number[]).includes(sizeParam) ? sizeParam : DEFAULT_PAGE_SIZE;
   const setParam = (changes: Record<string, string | null>): void => {
@@ -119,7 +119,16 @@ export function TenantListPage() {
         </Link>
       ),
     },
-    { key: "status", header: "状态", cell: (row) => <StatusBadge {...TENANT_STATUS_BADGES[row.status]} /> },
+    {
+      key: "status",
+      header: "状态",
+      cell: (row) => (
+        <span className="tenant-status-cell">
+          <StatusBadge {...TENANT_STATUS_BADGES[row.status]} />
+          {(row.observation_reasons ?? []).length > 0 && <StatusBadge tone="warning" label="观察期" />}
+        </span>
+      ),
+    },
     { key: "created", header: "创建时间", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
     { key: "updated", header: "最近修改", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.updated_at)}</span> },
     {
@@ -139,16 +148,16 @@ export function TenantListPage() {
                     <span className="menu-item__text">邀请管理员</span>
                   </button>
                 )}
-                {canChangeStatus &&
-                  (row.status === "active" ? (
-                    <button type="button" role="menuitem" className="menu-item menu-item--danger" onClick={() => actions.open("suspend", row)}>
-                      <span className="menu-item__text">暂停</span>
-                    </button>
-                  ) : (
-                    <button type="button" role="menuitem" className="menu-item" onClick={() => actions.open("resume", row)}>
-                      <span className="menu-item__text">恢复</span>
-                    </button>
-                  ))}
+                {canChangeStatus && (row.status === "active" || row.status === "trial") && (
+                  <button type="button" role="menuitem" className="menu-item menu-item--danger" onClick={() => actions.open("suspend", row)}>
+                    <span className="menu-item__text">申请暂停</span>
+                  </button>
+                )}
+                {canChangeStatus && row.status === "suspended" && (
+                  <button type="button" role="menuitem" className="menu-item" onClick={() => actions.open("resume", row)}>
+                    <span className="menu-item__text">恢复</span>
+                  </button>
+                )}
               </Dropdown>
             )}
           </span>
@@ -476,11 +485,11 @@ export function TenantDetailPage() {
     <Button variant="primary" onClick={() => actions.open("resume", tenant, { reason: reason?.reason ?? null })}>
       恢复
     </Button>
-  ) : (
+  ) : tenant.status === "trial" || tenant.status === "active" ? (
     <Button variant="secondary" className="button--danger-text" onClick={() => actions.open("suspend", tenant)}>
-      暂停
+      申请暂停
     </Button>
-  );
+  ) : undefined;
 
   return shell(
     <>
@@ -490,6 +499,7 @@ export function TenantDetailPage() {
           <Alert kind="warning">
             <strong className="alert__title">这家供应商已暂停。</strong>
             <span>暂停期间：它的商品不参与比价、不接新订单；已经接下的订单要照常履约；它的账号仍然可以登录供应商后台。</span>
+            {(tenant.suspension_reasons ?? []).length > 0 && <span>{`暂停的原因：${suspensionText(tenant.suspension_reasons)}${tenant.suspension_reasons.includes("document_expired") ? "（换上新证件、审核通过后自动恢复）" : ""}。`}</span>}
             <span className="tenant-reason">
               {!canAudit ? (
                 "暂停原因记在审计日志里，需要的话请问超级管理员。"
@@ -539,9 +549,15 @@ export function TenantDetailPage() {
             <dt>最近修改</dt>
             <dd>{formatLocalDateTime(tenant.updated_at)}</dd>
           </div>
-        
         </dl>
       </section>
+      {(tenant.observation_reasons ?? []).length > 0 && (
+        <Alert kind="info">
+          <strong className="alert__title">在观察期。</strong>
+          <span>{`原因：${observationText(tenant.observation_reasons)}。比价时排序价按对外价 ×1.05 计算；原因消除后自动退出。`}</span>
+        </Alert>
+      )}
+      <TenantOnboardingSections tenant={tenant} onTenantChanged={loaded.set} />
       <section className="card" aria-labelledby="tenant-admins-title">
         <div className="card__title-row">
           <h2 className="card__title" id="tenant-admins-title">

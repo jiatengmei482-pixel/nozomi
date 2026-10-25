@@ -123,7 +123,8 @@ test("首页：数量取不到时入口照常可用，有「重试」；不能�
 
   resetBrowser();
   const calls = open("/", "dispatch");
-  await screen.findByText("这里暂时没有你可以使用的模块");
+  // 调度看不了区域和商品；只有「履约评分」（M4-01）
+  await screen.findByRole("link", { name: "履约评分" , description: /评分/ });
   assert.equal(calls.some((call) => call.path.includes("dashboard/summary")), false);
   assertAbsent(within(screen.getByRole("navigation", { name: "主菜单" })).queryByRole("link", { name: "区域" }));
 });

@@ -12,7 +12,7 @@ import { App } from "../../App.tsx";
 import type { ApiClient, Approval, Channel, ChannelDetail, MarkupRule } from "../../api/channels.ts";
 import type { City, VehicleGroup } from "../../api/master.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
-import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -29,7 +29,7 @@ const OTHER_ID = "98989898-9898-4898-8898-989898989898";
 const SECRET = "nzs_THIS-IS-THE-ONE-TIME-SECRET-0123456789abcd";
 
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role: role as PlatformUser["role"], status: "active", ...stamps });
-const tenant: Tenant = { id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps };
+const tenant: Tenant = { id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps };
 const tokyo: City = { id: CITY_ID, code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: [], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 1, ...stamps };
 const channelOf = (changes: Partial<Channel> = {}): Channel => ({

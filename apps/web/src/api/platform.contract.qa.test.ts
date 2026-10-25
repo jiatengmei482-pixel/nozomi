@@ -142,7 +142,7 @@ test("页面的长度上限和接口一致：供应商名称、姓名 100，暂�
   assert.deepEqual([spec.components.schemas["PersonName"]?.minLength, spec.components.schemas["PersonName"]?.maxLength], [1, NAME_MAX]);
   const suspend = deref(spec.paths["/platform/v1/tenants/{id}/suspend"]?.["post"]?.requestBody?.content?.["application/json"]?.schema);
   assert.equal(suspend?.properties?.["reason"]?.maxLength, REASON_MAX);
-  assert.ok(!(suspend?.required ?? []).includes("reason"), "接口的原因还是可选的：页面自己要求必填。接口改成必填以后这条会失败，提醒核对");
+  assert.ok((suspend?.required ?? []).includes("reason"), "暂停的原因接口也要求必填（双人复核，ADR 0028），页面同样要求");
   const emailMax = spec.components.schemas["Email"]?.maxLength as number;
   assert.equal(emailMax, 254);
   assert.equal(emailProblem(`${"a".repeat(emailMax - 12)}@example.com`), null, "正好 254 个字符可以");

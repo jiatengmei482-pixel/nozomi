@@ -11,6 +11,8 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "tenant.read": "供应商",
   "tenant.create": "新建",
   "tenant.change_status": "暂停和恢复",
+  "tenant.review": "审核资质",
+  "tenant.approve": "另一位同事审核",
   "product.read": "商品和价格",
   "quote.preview": "报价试算",
   "master_data.read": "主数据",
