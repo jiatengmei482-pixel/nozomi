@@ -113,6 +113,11 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   // 订单（只读，ADR 0026）：跨租户跨渠道的运营后台视图
   { method: "GET", url: "/platform/v1/orders", action: "order.read" },
   { method: "GET", url: `/platform/v1/orders/${MISSING}`, action: "order.read" },
+  { method: "GET", url: `/platform/v1/orders/${MISSING}/files/${MISSING_CHILD}`, action: "order.read" },
+  // 推给供应商的 Webhook（ADR 0027）：看投递记录、手动重推
+  { method: "GET", url: "/platform/v1/webhook-deliveries", action: "order.read" },
+  { method: "GET", url: `/platform/v1/webhook-deliveries/${MISSING}`, action: "order.read" },
+  { method: "POST", url: `/platform/v1/webhook-deliveries/${MISSING}/retry`, action: "order.resend" },
   // 查看供应商的商品（只读，ADR 0021）
   { method: "GET", url: "/platform/v1/products", action: "product.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
@@ -156,7 +161,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);
@@ -369,7 +374,7 @@ test("集成详情：技术和超级管理员能看到脱敏说明，里面没�
     const token = role === "super_admin" ? rootToken : tokens.get(role)!;
     const res = await api.call("GET", "/platform/v1/integrations", { token });
     assert.equal(res.status, 200, role);
-    assert.deepEqual(res.body.items.map((i: any) => i.key), ["database", "auth", "stripe", "googleMaps", "fx"]);
+    assert.deepEqual(res.body.items.map((i: any) => i.key), ["database", "auth", "dataEncryption", "stripe", "googleMaps", "fx"]);
     for (const item of res.body.items) assert.deepEqual(Object.keys(item), ["key", "label", "state", "detail"]);
     const byKey = new Map<string, any>(res.body.items.map((i: any) => [i.key, i]));
     assert.match(byKey.get("database").detail, /:•••@/);

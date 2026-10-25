@@ -5,7 +5,7 @@
 - 补充 ADR 0008：租户状态从「启用 / 暂停」两种扩成完整的入驻状态机；「暂停不影响登录」不变。
 - 补充 ADR 0023：双人复核新登记三类——人工暂停供应商（`tenant.suspend`）、清退（`tenant.terminate`）、合同版本（`tenant.contract`，「修改租户结算条款」）。
 - 补充 ADR 0010：迁移 0030 新增九张租户表的授权。
-- 编号说明：ADR 0027、迁移 0025–0029 留给 M3-02（派车、司机 H5、租户 Webhook），合并时按实际顺序调整。
+- 编号说明：ADR 0027、迁移 0025–0028 是 M3-02（派车、司机 H5、租户 Webhook）；0029 未使用（开发时为 M3-02 预留），入驻的迁移是 0030。
 
 ## 背景
 
@@ -77,7 +77,7 @@ roadmap 的验收标准：90 天滚动评分；观察 / 暂停自动触发。
 ### 文件存在哪里
 
 和 M3-02（ADR 0027 的照片）同一个做法：存在 PostgreSQL（`tenant_files.data`，`bytea`），不存本机文件、不接对象存储——单机 Docker Compose、以后可能多实例，库里的文件随每日数据库备份一起备份和恢复，和资质记录在同一个事务里写入。
-任务说明里提到「最小的本机存储接口」；考虑到 M3-02 已经定了库内存储、本机文件要另外挂卷和备份，这里没有另起一套，合并 M3-02 时两边的格式判断可以合成一个函数。
+任务说明里提到「最小的本机存储接口」；考虑到 M3-02 已经定了库内存储、本机文件要另外挂卷和备份，这里没有另起一套；两边的格式判断是同一个函数（domain 的 `files.ts`：`detectFileType`，资质和照片各自再按收的格式过滤）。
 
 - 只收 PDF、JPEG、PNG，按文件开头的字节判断，和请求头声明的 `Content-Type` 不一致（`application/octet-stream` 除外）415；空文件 400；超过 10 MB 413。请求体就是文件本身（不引入 multipart 依赖），文件名放在查询参数（去掉路径、控制字符、引号，最长 200 字）。
 - 下载原样返回：`Content-Disposition: attachment`（UTF-8 文件名）、`X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; sandbox`、`Cache-Control: no-store`。

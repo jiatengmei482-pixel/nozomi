@@ -748,3 +748,22 @@ test("基础信息页注明城市、接送点名称的数据来源（许可条�
   await waitFor(() => assert.equal(document.querySelectorAll(".page__attribution").length, 2));
   assert.match(document.body.textContent ?? "", /机场数据来自 OurAirports.*公有领域/);
 });
+
+test("其他步骤和列表也注明数据来源（M1-18）：标题下有城市、接送点名称的页面都有署名，基础信息页不重复", async () => {
+  const lines = (): string[] => [...document.querySelectorAll(".page__attribution")].map((node) => (node.textContent ?? "").replace(/（在新标签页打开）/g, ""));
+  open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({}));
+  await screen.findByRole("heading", { level: 1, name: "羽田机场接送" });
+  await waitFor(() => assert.equal(lines().length, 2));
+  assert.match(lines()[0] as string, /^机场数据来自 OurAirports/);
+  assert.match(lines()[1] as string, /^城市数据和机场的中文、日文名称来自 GeoNames/);
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/basic`, "admin", productRoutes({}));
+  await screen.findByRole("heading", { level: 1, name: "羽田机场接送" });
+  await waitFor(() => assert.equal(lines().length, 2, "基础信息页自己带署名，页面层不再加一份"));
+  resetBrowser();
+
+  open("/products", "readonly", (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/products" ? page([rowOf()]) : null));
+  await screen.findByRole("link", { name: "羽田机场接送" });
+  assert.equal(lines().length, 2, "列表有城市和接送点两列");
+});

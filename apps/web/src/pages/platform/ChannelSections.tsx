@@ -43,7 +43,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, relatedPending, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
+import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, approvalSummaryText, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, relatedPending, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { SERVICE_CATEGORY_NAMES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, moneyText, readAmount } from "../../lib/product-display.ts";
@@ -100,7 +100,7 @@ function PendingNotice({ channelId, target }: { channelId: string; target: Param
       <strong className="alert__title">{`这个渠道已经有 ${related.length} 条待审核的定价改动：`}</strong>
       <ul className="alert__list">
         {related.map((approval) => (
-          <li key={approval.id}>{`${approval.summary}（${approval.requested_by.name}，${formatLocalDateTime(approval.requested_at)} 发起）`}</li>
+          <li key={approval.id}>{`${approvalSummaryText(approval.summary)}（${approval.requested_by.name}，${formatLocalDateTime(approval.requested_at)} 发起）`}</li>
         ))}
       </ul>
       <span>它们和这次的改动谁先被批准，另外的就会过时，只能驳回后按现在的数重新发起。要改的是同一处的话，建议先到「待审核」撤回旧的，或等它处理完再发起。</span>
@@ -628,7 +628,7 @@ function ChannelApprovals({ channelId, version }: { channelId: string; version: 
           {items.map((item) => (
             <li key={item.id}>
               <StatusBadge {...APPROVAL_STATUS_BADGES[item.status]} />
-              <span>{`${APPROVAL_KIND_NAMES[item.kind]}：${item.summary}`}</span>
+              <span>{`${APPROVAL_KIND_NAMES[item.kind]}：${approvalSummaryText(item.summary)}`}</span>
               <span className="table__muted">{`${item.requested_by.name} · ${formatLocalDateTime(item.requested_at)}${item.decided_by ? ` · 审核：${item.decided_by.name}` : ""}`}</span>
             </li>
           ))}

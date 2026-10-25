@@ -56,23 +56,37 @@ export interface SelectFieldProps<T extends string> {
   onChange(value: T): void;
   /** 标签写在控件内左侧（筛选条里用） */
   inline?: boolean;
+  /** 不预选：第一项是值为空的「请选择」，`value` 传空字符串表示还没选 */
+  placeholder?: string;
+  required?: boolean;
+  errors?: readonly string[];
+  hint?: string;
 }
 
 /** 原生下拉。选项 ≤ 10 个、不需要搜索时用。 */
-export function SelectField<T extends string>({ label, value, options, onChange, inline = false }: SelectFieldProps<T>) {
+export function SelectField<T extends string>({ label, value, options, onChange, inline = false, placeholder, required, errors = [], hint }: SelectFieldProps<T>) {
   const id = useId();
+  const describedBy = [errors.length > 0 ? `${id}-error` : null, hint ? `${id}-hint` : null].filter(Boolean).join(" ");
   return (
     <div className={inline ? "field field--inline" : "field"}>
       <label className="field__label" htmlFor={id}>
         {label}
+        {required && <Required />}
       </label>
-      <select id={id} className="input select" value={value} onChange={(event) => onChange(event.target.value as T)}>
+      <select id={id} className="input select" value={value} aria-invalid={errors.length > 0 || undefined} aria-describedby={describedBy || undefined} onChange={(event) => onChange(event.target.value as T)}>
+        {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
       </select>
+      <FieldErrors id={`${id}-error`} errors={errors} />
+      {hint && (
+        <p className="field__hint" id={`${id}-hint`}>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

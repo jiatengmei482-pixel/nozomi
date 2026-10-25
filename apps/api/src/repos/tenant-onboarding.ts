@@ -3,7 +3,7 @@
  * 每个函数都显式接收 tenantId 并写在 where 里（ADR 0003 的第一道防线）。租户事务里行级安全再兜一层；
  * 平台事务（审核、合同、定时任务）跨供应商读写，SQL 自己带条件。
  */
-import type { DocumentFileType, DocumentStatus, DocumentType, ObservationReason, ScoreInput, SuspensionReason, TenantStatus } from "@nozomi/domain";
+import { type DocumentFileType, type DocumentStatus, type DocumentType, ORDER_STATUSES, type ObservationReason, type ScoreInput, type SuspensionReason, type TenantStatus, orderStatusIsFinal } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -534,9 +534,12 @@ export async function recordOrderReview(db: Db, review: { tenantId: string; orde
 
 // ---- 其他 ----
 
+/** 订单的终态（已完成、客人未出现、已取消，`orderStatusIsFinal`）：之外的都算还没结束。 */
+const FINAL_ORDER_STATUSES: readonly string[] = ORDER_STATUSES.filter(orderStatusIsFinal);
+
 /** 还没结束的订单（清退的前提：已有订单全部履约完毕）。 */
 export async function countOpenOrders(db: Db, tenantId: string): Promise<number> {
-  const result = await db.query<{ n: number }>("select count(*)::int as n from orders where tenant_id = $1 and status not in ('completed', 'cancelled')", [tenantId]);
+  const result = await db.query<{ n: number }>("select count(*)::int as n from orders where tenant_id = $1 and status <> all($2::text[])", [tenantId, FINAL_ORDER_STATUSES]);
   return (result.rows[0] as { n: number }).n;
 }
 

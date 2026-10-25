@@ -12,7 +12,7 @@ import { ApiError } from "../../api/client.ts";
 import { type Brand, type Product, type ProductPatch, alreadyCreatedId, createProduct, getProduct, listAllAreas, listBrands, listPickupPlaces, patchProduct } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
-import { Attributions } from "../../components/Attribution.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, IconButton, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { FieldErrors, RadioGroup, StaticField } from "../../components/FormFields.tsx";
@@ -22,7 +22,7 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_LIST_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { PLACE_TYPE_NAMES, countryLabel, displayName, pickupNoMatchText, vehicleGradeName } from "../../lib/master-display.ts";
 import { placeQueryMatches } from "../../lib/place-search.ts";
-import { checkReasons, comboText } from "../../lib/product-display.ts";
+import { brandLabel, checkReasons, comboText } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -389,7 +389,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                   <dl className="details">
                     <div className="details__item">
                       <dt>子品牌</dt>
-                      <dd>{product.brand ? `${product.brand.name}（${product.brand.currency}）` : "—"}</dd>
+                      <dd>{product.brand ? brandLabel(product.brand) : "—"}</dd>
                     </div>
                     <div className="details__item">
                       <dt>品类</dt>
@@ -463,7 +463,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                           )}
                         </div>
                         {onlyBrand ? (
-                          <p className="field__static" id="brand-select">{`${onlyBrand.name}（${onlyBrand.currency}）`}</p>
+                          <p className="field__static" id="brand-select">{brandLabel(onlyBrand)}</p>
                         ) : (
                           <select
                             className="input select"
@@ -480,7 +480,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                           >
                             <option value="">请选择</option>
                             {activeBrands.map((brand) => (
-                              <option key={brand.id} value={brand.id}>{`${brand.name}（${brand.currency}）`}</option>
+                              <option key={brand.id} value={brand.id}>{brandLabel(brand)}</option>
                             ))}
                           </select>
                         )}
@@ -907,7 +907,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
               </div>
             </section>
             {/* 城市和接送点的名称来自公开数据，按许可要注明来源（ADR 0014、0024） */}
-            <Attributions sources={category === "airport_transfer" ? ["ourairports", "geonames"] : ["geonames"]} />
+            <Attributions sources={placeSources(category === "airport_transfer")} />
             {addingBrand && (
               <BrandDialog
                 onClose={() => setAddingBrand(false)}

@@ -13,6 +13,7 @@ import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type Q
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { CoordinateInput, FieldErrors, RadioGroup } from "../../components/FormFields.tsx";
@@ -585,6 +586,7 @@ export function QuotePreviewPage() {
         </div>
       </form>
       {result && <QuoteResult result={result.data} groupNames={groupNames} form={result.form} cityName={displayName((cities.state.data ?? []).find((entry) => entry.id === result.form.cityId)?.name).text} />}
+      <Attributions sources={placeSources(true)} />
     </>,
   );
 }

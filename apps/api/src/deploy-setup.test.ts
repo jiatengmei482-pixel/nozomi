@@ -140,6 +140,7 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
   const environment = api?.environment ?? {};
   for (const key of [
     "AUTH_JWT_SECRET",
+    "DATA_ENCRYPTION_KEY",
     "STRIPE_SECRET_KEY",
     "STRIPE_PUBLISHABLE_KEY",
     "STRIPE_WEBHOOK_SECRET",
@@ -184,6 +185,9 @@ test("初始化脚本生成两个不同用途的数据库密码；部署、恢�
   const bootstrap = await readText("deploy/bootstrap.sh");
   assert.match(bootstrap, /^\s*ensure_generated_secret "\$file" POSTGRES_PASSWORD 24$/m);
   assert.match(bootstrap, /^\s*ensure_generated_secret "\$file" POSTGRES_APP_PASSWORD 24$/m);
+  // 数据加密密钥（ADR 0027）：初始化时生成；早先初始化过的服务器由部署脚本补上
+  assert.match(bootstrap, /^\s*ensure_generated_secret "\$file" DATA_ENCRYPTION_KEY 32$/m);
+  assert.match(await readText("deploy/bin/deploy.sh"), /^\s*ensure_data_encryption_key$/m);
   for (const script of ["deploy/bin/deploy.sh", "deploy/bin/restore.sh"]) {
     const text = await readText(script);
     const tasks = [...text.matchAll(/run --rm --no-deps -T (\S+) node (\S+)/g)].map((match) => `${match[1]} ${match[2]}`);

@@ -135,6 +135,14 @@ function tenantChanges(kind: ApprovalKind, before: Record<string, unknown> | nul
   ];
 }
 
+/**
+ * 复核的摘要由后端生成并存档，里面的时刻写成「2026-10-26 03:00 UTC」；页面上其他时间（发起时间、「改了什么」的到期时间）都按查看者本地时区写（04-data-display.md 第 4 节）。
+ * 显示时把摘要里的 UTC 时刻换成同一种写法，标题和表格里对得上（M1-18）。存档的原文不变。
+ */
+export function approvalSummaryText(summary: string): string {
+  return summary.replace(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC/g, (_match, day: string, time: string) => formatLocalDateTime(`${day}T${time}:00Z`));
+}
+
 /** 汇率锁定的复核里「改了什么」：锁定值、到期时间、和发起时中央汇率的偏离。 */
 function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const currency = typeof after["currency"] === "string" ? after["currency"] : "";

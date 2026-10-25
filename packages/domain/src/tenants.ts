@@ -5,6 +5,7 @@
  * 「履约保障与服务标准」（救援计 1 次履约失败；30 天内司机未到 2 次观察、3 次暂停；中标排序的准入过滤）；
  * 《用车报价服务平台》「12. 资质认证」。文末决策：第三轮（低于 4.0 观察、低于 3.5 暂停；试运营每日 10 单、30 天 / 20 单转正式）。
  */
+import { detectFileTypeAmong } from "./files.ts";
 import { roundFractionHalfAwayFromZero } from "./money.ts";
 import { addDays } from "./pricing.ts";
 import { QUOTE_RULES } from "./quote.ts";
@@ -398,13 +399,9 @@ export function expiryReminderDue(daysLeft: number | null, sent: readonly number
 export const DOCUMENT_FILE_TYPES = ["application/pdf", "image/jpeg", "image/png"] as const;
 export type DocumentFileType = (typeof DOCUMENT_FILE_TYPES)[number];
 
-/** 按文件开头的字节判断格式（不信请求里声明的类型）：PDF（`%PDF-`）、JPEG（FF D8 FF）、PNG（89 50 4E 47 0D 0A 1A 0A）。别的都不认。 */
+/** 按文件开头的字节判断格式（不信请求里声明的类型，判断见 files.ts 的 `detectFileType`）：只认 PDF、JPEG、PNG。 */
 export function detectDocumentFileType(bytes: Uint8Array): DocumentFileType | null {
-  const starts = (signature: readonly number[]): boolean => bytes.length >= signature.length && signature.every((byte, index) => bytes[index] === byte);
-  if (starts([0x25, 0x50, 0x44, 0x46, 0x2d])) return "application/pdf";
-  if (starts([0xff, 0xd8, 0xff])) return "image/jpeg";
-  if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
-  return null;
+  return detectFileTypeAmong(bytes, DOCUMENT_FILE_TYPES);
 }
 
 /** 文件名：去掉路径和控制字符，最长 200 个字符；去掉之后是空的用「文件」。只用来显示和下载时的建议文件名。 */

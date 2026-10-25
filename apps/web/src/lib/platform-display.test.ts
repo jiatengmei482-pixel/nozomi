@@ -22,8 +22,9 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "channel.read": "渠道",
   "channel.manage": "管理渠道",
   "channel.review": "审核渠道",
-  "approval.read": "审核",
+  "approval.read": "看待审核的改动",
   "order.read": "订单",
+  "order.resend": "重推",
   "staff.read": "平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
@@ -44,6 +45,7 @@ const NEVER_WITHOUT: Readonly<Partial<Record<PlatformAction, string>>> = {
   "channel.review": "审核渠道",
   "approval.read": "审核",
   "order.read": "订单",
+  "order.resend": "重推",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
   "integration.read": "系统状态",
@@ -74,4 +76,9 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
   assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单"]);
+});
+
+test("主数据运营、渠道经理、超级管理员的说明里都写上「看待审核的改动」（M1-18：原先被「审核汇率」「审核渠道」那一项吞掉了）", () => {
+  assert.deepEqual(roleAbilities("master_data"), ["维护主数据", "管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）", "审核汇率的人工锁定和解锁", "看待审核的改动"]);
+  for (const role of ["channel_manager", "super_admin"] as const) assert.ok(roleAbilities(role).includes("看待审核的改动"), role);
 });

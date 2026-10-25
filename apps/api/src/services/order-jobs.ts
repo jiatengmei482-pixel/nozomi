@@ -12,11 +12,18 @@
  *   收款服务出错 → 这一轮跳过，下一轮再试。
  * 先取消付款再取消订单：保证不会出现「订单取消了，客人却还能付款」。
  * 多个实例同时跑：取消订单、确认订单都先锁住订单行再看状态，同一张单只会被处理一次；收款服务那边重复取消也没关系。
+ *
+ * 同一个定时任务里还做履约的提醒（M3-02，ADR 0027，`remind()`）：
+ * - 过了派车截止时间还没派车：订单上记下发现的时间（供应商后台的订单列表标红置顶、运营后台看得到），服务日志记一条 `order.dispatch_overdue`；
+ * - 用车前 1 小时仍未「已出发」：同样记下时间，日志 `order.departure_overdue`。
+ * 每张单各提醒一次（记下了时间就不再提醒）；一条条件更新完成「找出来 + 记下」，多个实例同时跑也只提醒一次。
+ * 邮件、LINE 等通知渠道在通知中心任务里接；用车前 6 小时仍未派车的救援改派在 M3-04。
  */
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { PaymentProviderError, type ProviderPayment } from "../integrations/payments.ts";
 import { findOrderForPlatform, findOrderPayment, listOverduePendingOrders } from "../repos/orders.ts";
+import { DISPATCH_RULES } from "@nozomi/domain";
 import { type OrderLog, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
 
 const FIRST_TICK_MS = 5_000;
@@ -30,6 +37,11 @@ export interface OrderSweepResult {
   confirmed: number;
   /** 还在处理中、或收款服务出错，留给下一轮 */
   deferred: number;
+}
+
+export interface ReminderResult {
+  dispatchOverdue: number;
+  departureOverdue: number;
 }
 
 export class OrderJobs {
@@ -54,6 +66,30 @@ export class OrderJobs {
       result[outcome] += 1;
     }
     return result;
+  }
+
+  /** 履约的提醒：超时未派车、用车前 1 小时仍未出发。每张单只提醒一次。 */
+  async remind(): Promise<ReminderResult> {
+    const now = this.ctx.now();
+    const departureCutoff = new Date(now.getTime() + DISPATCH_RULES.departureReminderMinutesBeforeService * 60_000);
+    const { dispatch, departure } = await withPlatformTx(this.ctx.pool, async (db) => {
+      const dispatchRows = await db.query<{ id: string; tenant_id: string; order_no: string; dispatch_due_at: Date }>(
+        `update orders set dispatch_overdue_at = $1 where id in (
+           select id from orders where status = 'confirmed' and dispatch_due_at <= $1 and dispatch_overdue_at is null order by dispatch_due_at limit $2 for update skip locked)
+         returning id, tenant_id, order_no, dispatch_due_at`,
+        [now, BATCH],
+      );
+      const departureRows = await db.query<{ id: string; tenant_id: string; order_no: string; service_at: Date }>(
+        `update orders set departure_overdue_at = $1 where id in (
+           select id from orders where status = 'assigned' and service_at <= $2 and departure_overdue_at is null order by service_at limit $3 for update skip locked)
+         returning id, tenant_id, order_no, service_at`,
+        [now, departureCutoff, BATCH],
+      );
+      return { dispatch: dispatchRows.rows, departure: departureRows.rows };
+    });
+    for (const row of dispatch) this.log.warn({ event: "order.dispatch_overdue", orderId: row.id, tenantId: row.tenant_id, orderNo: row.order_no, dueAt: row.dispatch_due_at.toISOString() }, "超时未派车：过了派车截止时间还没有派司机和车辆");
+    for (const row of departure) this.log.warn({ event: "order.departure_overdue", orderId: row.id, tenantId: row.tenant_id, orderNo: row.order_no, serviceAt: row.service_at.toISOString() }, "用车前 1 小时司机仍未出发");
+    return { dispatchOverdue: dispatch.length, departureOverdue: departure.length };
   }
 
   private async expire(orderId: string): Promise<keyof OrderSweepResult> {
@@ -97,6 +133,7 @@ export class OrderJobs {
     this.stopped = false;
     const run = (): void => {
       this.ticking = this.tick()
+        .then(() => this.remind())
         .catch((err: unknown) => this.log.warn({ err }, "订单定时任务这一轮出错，下一轮再试"))
         .finally(() => {
           this.ticking = null;

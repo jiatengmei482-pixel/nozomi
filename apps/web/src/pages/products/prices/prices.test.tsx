@@ -729,6 +729,7 @@ test("价格规则总览：每个商品的价格情况四种写法，缺价数�
   assert.match(pageText(), /价格是按商品设的。选一个商品，进去设它的价格、调价规则，或看价格日历。/);
   assert.match(pageText(), /共 5 条/);
   assert.equal(within(screen.getByRole("navigation", { name: "主菜单" })).getByRole("link", { name: "价格规则" }).getAttribute("aria-current"), "page");
+  assert.match(document.querySelector(".page__attribution")?.textContent ?? "", /^城市数据和机场的中文、日文名称来自 GeoNames/, "M1-18：有城市一列，注明 GeoNames");
   await actor.click(screen.getByRole("button", { name: "羽田机场接送 的更多操作" }));
   assert.equal(screen.getByRole("menuitem", { name: "价格日历" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/calendar`);
   assert.equal(screen.getByRole("menuitem", { name: "调价规则" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust`);

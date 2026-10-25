@@ -237,3 +237,44 @@ test("租户端（规则 4）：逐个 /tenant/v1 接口的应答里没有渠道
     await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query(`select * from ${table} limit 1`)), deniedByDatabase, table);
   }
 });
+
+test("API 客户端的「最近使用」：用令牌调用 /sales/v1 也更新，按分钟节流——离上次记的不到 1 分钟不写库；令牌无效的请求不算（ADR 0023 补充，M1-18）", async () => {
+  const channel = await newChannel(api, m.staff.cm1.token, { name: "最近使用渠道" });
+  const creds = await salesCredentials(api, m, channel.id);
+  const listed = async (): Promise<string | null> => {
+    const res = await ok(api.call("GET", `/platform/v1/channels/${channel.id}/api-clients`, { token: m.staff.readonly.token }));
+    return res.items.find((item: any) => item.id === creds.id).last_used_at;
+  };
+  const rowVersion = async (): Promise<string> => (await api.db.owner.query<{ xmin: string }>("select xmin::text as xmin from channel_api_clients where id = $1", [creds.id])).rows[0]?.xmin ?? "";
+  const issuedAt = await listed();
+  assert.notEqual(issuedAt, null, "换令牌时记一次");
+  const version = await rowVersion();
+
+  // 不到 1 分钟：调用照常成功，但不写库（行版本不变），「最近使用」还是换令牌那一刻
+  const first = await quote(creds.token);
+  assert.equal(first.status, 200, first.text);
+  const quoteId = first.body.quotes[0].quote_id;
+  assert.equal((await sales("GET", `/sales/v1/quotes/${quoteId}`, "/sales/v1/quotes/{id}", creds.token)).status, 200);
+  assert.equal(await listed(), issuedAt);
+  assert.equal(await rowVersion(), version, "1 分钟内的请求不写这一行");
+
+  // 满 1 分钟：下一次调用（查报价也算）把「最近使用」改成这一刻
+  api.clock.advance(60_000);
+  assert.equal((await sales("GET", `/sales/v1/quotes/${quoteId}`, "/sales/v1/quotes/{id}", creds.token)).status, 200);
+  const usedAt = api.clock.now().toISOString();
+  assert.equal(await listed(), usedAt);
+  const afterUse = await rowVersion();
+  assert.notEqual(afterUse, version);
+
+  // 接下来半分钟里连着调几次：都不写
+  for (let i = 0; i < 3; i += 1) assert.equal((await quote(creds.token)).status, 200);
+  assert.equal(await listed(), usedAt);
+  assert.equal(await rowVersion(), afterUse);
+
+  // 令牌无效（被篡改）的请求不算使用
+  api.clock.advance(120_000);
+  assert.equal((await quote(`${creds.token}x`)).status, 401);
+  assert.equal(await listed(), usedAt, "没通过鉴权的不更新");
+  assert.equal((await quote(creds.token)).status, 200);
+  assert.equal(await listed(), api.clock.now().toISOString());
+});

@@ -157,6 +157,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       PUBLIC_BASE_URL: apiOrigin,
       DATABASE_URL: database.url,
       AUTH_JWT_SECRET: randomBytes(48).toString("base64url"),
+      // 数据加密密钥（ADR 0027，供应商的 Webhook 签名密钥加密存储）：本次运行临时生成
+      DATA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       TRUST_PROXY_HOPS: "0",
     };
     // 服务进程只拿应用账号（ADR 0010），迁移账号不交给它。
@@ -200,6 +202,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
     process.env["E2E_DATABASE_URL"] = database.url;
+    // 派车的用例要一张「已经付过款」的订单：端到端测试里没有 Stripe，由用例用迁移账号直接写进本次运行的 schema（只在测试里构造）
+    process.env["E2E_DATABASE_OWNER_URL"] = database.ownerUrl;
   } catch (err) {
     await teardown();
     throw err;

@@ -67,13 +67,17 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "channel.review": "审核渠道的改动",
   "approval.read": "看待审核的改动",
   "order.read": "看订单",
+  "order.resend": "手动重推给供应商的 Webhook",
   "staff.read": "看平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",
   "integration.read": "看系统状态",
 };
 
-/** 有了前者就不用再说后者（能管理当然能看）。 */
+/**
+ * 有了前者就不用再说后者（能管理当然能看）。
+ * 「审核渠道的改动」「审核汇率的锁定」不包含「看待审核的改动」：后者是整个「待审核」队列和历史，单说审核哪一类读不出来（M1-18，主数据运营的说明漏了这一句）。
+ */
 const SUPERSEDES: Readonly<Partial<Record<PlatformAction, readonly PlatformAction[]>>> = {
   "staff.manage": ["staff.read"],
   "master_data.manage": ["master_data.read"],
@@ -81,8 +85,6 @@ const SUPERSEDES: Readonly<Partial<Record<PlatformAction, readonly PlatformActio
   "tenant.change_status": ["tenant.read"],
   "tenant.review": ["tenant.read"],
   "channel.manage": ["channel.read"],
-  "channel.review": ["approval.read"],
-  "fx.review": ["approval.read"],
 };
 
 const TENANT_MANAGE_PHRASE = "管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）";

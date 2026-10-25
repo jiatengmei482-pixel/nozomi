@@ -9,7 +9,14 @@ import { serverIssues } from "./product-failure.ts";
 
 /** 「锁定多久」的选项（小时）：最长 72 小时。 */
 export const LOCK_DURATION_HOURS: readonly number[] = [1, 2, 4, 8, 12, 24, 48, 72].filter((hours) => hours <= FX_LOCK_RULES.maxHours);
-export const DEFAULT_LOCK_HOURS = 24;
+/** 「锁定多久」不预选（M1-18）：锁多久要发起人自己想好，没选就提交时在这个字段下面说明。 */
+export const LOCK_HOURS_MESSAGE = "请选择锁定多久";
+
+/** 下拉框的值换成小时数；没选（空）或不是选项之一时为 null。 */
+export function lockHoursOf(value: string): number | null {
+  const hours = Number(value);
+  return value !== "" && LOCK_DURATION_HOURS.includes(hours) ? hours : null;
+}
 export { FX_LOCKABLE_CURRENCIES };
 
 export interface LockDraft {

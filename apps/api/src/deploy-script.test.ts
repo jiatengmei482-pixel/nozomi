@@ -24,8 +24,9 @@ const linuxOnly = { skip: process.platform === "linux" ? false : "部署脚本�
 const PLACEHOLDER_PASSWORD = "test-placeholder-not-a-real-password";
 const PLACEHOLDER_JWT = "test-placeholder-not-a-real-secret-0000000000";
 const PLACEHOLDER_APP_PASSWORD = "test-placeholder-not-a-real-app-password";
+const PLACEHOLDER_DATA_KEY = "test-placeholder-not-a-real-data-encryption-key";
 /** 在有应用账号之前初始化的服务器上的 .env：没有 POSTGRES_APP_PASSWORD。 */
-const LEGACY_ENV_FILE = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
+const LEGACY_ENV_FILE = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nDATA_ENCRYPTION_KEY=${PLACEHOLDER_DATA_KEY}\nSTRIPE_SECRET_KEY=\n`;
 const PLACEHOLDER_TOKEN = "test-placeholder-registry-token";
 const IMAGE = "registry.example.test/nozomi/nozomi-api";
 /** 配对的前端镜像：同一个仓库前缀、同一个标签，由 deploy.sh 从 API 镜像名推出来。 */
@@ -92,7 +93,7 @@ beforeEach(async () => {
   }
   await writeFile(
     join(root, ".env"),
-    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`,
+    `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nDATA_ENCRYPTION_KEY=${PLACEHOLDER_DATA_KEY}\nSTRIPE_SECRET_KEY=\n`,
     { mode: 0o644 },
   );
   sandbox = { root, stubDir };
@@ -329,6 +330,29 @@ test("建应用账号失败：退出码 10，不执行迁移，不启动新版�
   assert.equal(indexOfCall(log, /--remove-orphans$/), -1, "建账号失败后不应替换正在运行的容器");
 });
 
+test("数据加密密钥（ADR 0027）：.env 里没有时部署自动生成 64 位十六进制（只写进 .env，不打印），已有的绝不改动", linuxOnly, async () => {
+  const envFile = join(sandbox.root, ".env");
+  const before = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
+  await writeFile(envFile, before, { mode: 0o644 });
+  const first = await deploy("v1");
+  assert.equal(first.code, 0, first.output);
+  const after = await readFile(envFile, "utf8");
+  assert.ok(after.startsWith(before), "原有的内容必须原样保留");
+  const generated = /^DATA_ENCRYPTION_KEY=([0-9a-f]{64})$/m.exec(after.slice(before.length))?.[1];
+  assert.ok(generated, "应追加一行 64 位十六进制的 DATA_ENCRYPTION_KEY");
+  assert.equal(after.slice(before.length).trim().split("\n").length, 1, "只应追加这一行");
+  assert.match(first.output, /DATA_ENCRYPTION_KEY（数据加密密钥）原先没有，已自动生成/);
+  assert.ok(!first.output.includes(generated), "生成的密钥不能出现在输出里");
+  assert.ok(!(await calls()).some((line) => line.includes(generated)), "生成的密钥不能出现在 docker 的命令行参数里");
+  const second = await deploy("v2");
+  assert.equal(second.code, 0, second.output);
+  assert.equal(await readFile(envFile, "utf8"), after, "已有的 DATA_ENCRYPTION_KEY 不能被改动（改了库里加密的密钥就解不开）");
+  await writeFile(envFile, `${before}DATA_ENCRYPTION_KEY=\n`);
+  assert.equal((await deploy("v3")).code, 0);
+  assert.match(await readFile(envFile, "utf8"), /^DATA_ENCRYPTION_KEY=[0-9a-f]{64}$/m, "留了空位的也补上");
+  await writeFile(envFile, `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nDATA_ENCRYPTION_KEY=${PLACEHOLDER_DATA_KEY}\nSTRIPE_SECRET_KEY=\n`, { mode: 0o600 });
+});
+
 test("应用账号的数据库密码：.env 里没有时部署自动生成（只写进 .env，不打印），已有的不改；和迁移账号的密码相同、含特殊字符时拒绝部署", linuxOnly, async () => {
   const envFile = join(sandbox.root, ".env");
   const before = LEGACY_ENV_FILE;
@@ -357,9 +381,9 @@ test("应用账号的数据库密码：.env 里没有时部署自动生成（只
     const result = await deploy("v3");
     assert.equal(result.code, 0, result.output);
     const lines = (await readFile(envFile, "utf8")).split("\n").filter(Boolean);
-    assert.deepEqual(lines.slice(0, 3), before.trimEnd().split("\n"));
-    assert.equal(lines.length, 4);
-    assert.match(lines[3] ?? "", /^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$/);
+    assert.deepEqual(lines.slice(0, 4), before.trimEnd().split("\n"));
+    assert.equal(lines.length, 5);
+    assert.match(lines[4] ?? "", /^POSTGRES_APP_PASSWORD=[0-9a-f]{48}$/);
   }
 
   await clearCalls();

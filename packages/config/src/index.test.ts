@@ -299,3 +299,23 @@ test("集成状态里的缓冲按基点原样写回百分比，不出现浮点�
   assert.match(detail({}) ?? "", /缓冲 1\.5%$/);
   assert.match(detail({ FX_BUFFER_PERCENT: "1.005" }) ?? "", /缓冲 1\.01%$/);
 });
+
+test("数据加密密钥（ADR 0027）：local / staging 可以不配（显示未配置，供应商不能设置 Webhook）；production 必须配", () => {
+  const local = loadConfig(base);
+  assert.equal(local.dataEncryptionKey, null);
+  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook" });
+  assert.equal(loadConfig({ ...base, APP_ENV: "staging" }).dataEncryptionKey, null);
+  assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" }).some((i) => i.includes("DATA_ENCRYPTION_KEY")));
+});
+
+test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相同；状态里只有长度，没有原文", () => {
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY: "short-key" }).some((i) => i.includes("DATA_ENCRYPTION_KEY 至少 32 个字符")));
+  assert.ok(issuesOf({ ...base, DATA_ENCRYPTION_KEY: base.AUTH_JWT_SECRET }).some((i) => i.includes("不能和 AUTH_JWT_SECRET 相同")));
+  const key = "Kd8".repeat(16);
+  const c = loadConfig({ ...base, DATA_ENCRYPTION_KEY: key });
+  assert.equal(c.dataEncryptionKey, key);
+  const status = integrationStatus(c).find((s) => s.key === "dataEncryption");
+  assert.deepEqual(status, { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: "48 个字符" });
+  assert.ok(!JSON.stringify(integrationStatus(c)).includes(key));
+  assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
+});

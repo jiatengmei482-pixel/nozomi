@@ -4,6 +4,7 @@ import {
   ORDER_NO_PATTERN,
   ORDER_PAYMENT_RULES,
   ORDER_STATUSES,
+  ORDER_STATUS_NAMES,
   PAYMENT_INTENT_STATUSES,
   type OrderDetailsInput,
   type OrderStatus,
@@ -31,15 +32,32 @@ test("状态机：付款成功自动确认、待支付可以取消；没有「�
   assert.ok(!(ORDER_STATUSES as readonly string[]).includes("rejected"));
 });
 
-test("状态机：服务开始前可以取消，开始后不能；完成、取消是终态；救援改派只从已确认 / 已派车进入", () => {
+test("状态机：服务开始前可以取消，开始后不能；完成、客人未出现、取消是终态；救援改派只从已确认 / 已派车 / 司机已出发进入", () => {
   const allowed = (from: OrderStatus): OrderStatus[] => ORDER_STATUSES.filter((to) => orderTransitionAllowed(from, to));
   assert.deepEqual(allowed("confirmed"), ["assigned", "cancelled", "rescue_pending"]);
-  assert.deepEqual(allowed("assigned"), ["in_service", "cancelled", "rescue_pending"]);
+  assert.deepEqual(allowed("assigned"), ["departed", "cancelled", "rescue_pending"]);
+  assert.deepEqual(allowed("departed"), ["assigned", "arrived", "cancelled", "rescue_pending"]);
+  assert.deepEqual(allowed("arrived"), ["in_service", "no_show_claimed", "cancelled"]);
   assert.deepEqual(allowed("in_service"), ["completed"]);
+  assert.deepEqual(allowed("no_show_claimed"), ["no_show", "cancelled"]);
   assert.deepEqual(allowed("rescue_pending"), ["confirmed", "assigned", "cancelled"]);
-  assert.deepEqual(ORDER_STATUSES.filter(orderStatusIsFinal), ["completed", "cancelled"]);
+  assert.deepEqual(ORDER_STATUSES.filter(orderStatusIsFinal), ["completed", "no_show", "cancelled"]);
   for (const status of ORDER_STATUSES) assert.equal(orderTransitionAllowed(status, status), false, `${status} 不能转到自己`);
   for (const from of ORDER_STATUSES) assert.equal(orderTransitionAllowed(from, "pending_payment"), false, "不能回到待支付");
+});
+
+test("状态机（M3-02）：履约不能跳步——没出发不能到达，没到达不能接到客人，没接到客人不能完成；到达后不能改派", () => {
+  assert.equal(orderTransitionAllowed("assigned", "arrived"), false);
+  assert.equal(orderTransitionAllowed("assigned", "in_service"), false);
+  assert.equal(orderTransitionAllowed("departed", "in_service"), false);
+  assert.equal(orderTransitionAllowed("arrived", "completed"), false);
+  assert.equal(orderTransitionAllowed("confirmed", "departed"), false, "没派车不能出发");
+  assert.equal(orderTransitionAllowed("arrived", "assigned"), false, "司机已在上车点，不能再改派");
+  assert.equal(orderTransitionAllowed("in_service", "cancelled"), false, "接到客人后不能取消");
+  assert.equal(orderTransitionAllowed("in_service", "no_show_claimed"), false, "接到了客人就不是 no-show");
+  assert.equal(orderTransitionAllowed("departed", "no_show_claimed"), false, "没到达不能申请 no-show");
+  assert.equal(orderTransitionAllowed("no_show", "completed"), false);
+  for (const status of ORDER_STATUSES) assert.ok(ORDER_STATUS_NAMES[status].length > 0);
 });
 
 test("租户只看得到付过款的单", () => {

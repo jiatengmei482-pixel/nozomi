@@ -23,6 +23,11 @@ import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
 import { masterRoutes } from "./pages/master/routes.tsx";
 import { platformRoutes } from "./pages/platform/routes.tsx";
 import { SetPasswordPage } from "./pages/SetPasswordPage.tsx";
+import { DRIVER_LIST_PATH, DRIVER_PAGE_PATH, ORDER_LIST_PATH, VEHICLE_LIST_PATH, WEBHOOK_SETTINGS_PATH } from "./lib/dispatch-display.ts";
+import { DriverTripPage } from "./pages/driver/DriverTripPage.tsx";
+import { DriverListPage, VehicleListPage } from "./pages/fleet/FleetPages.tsx";
+import { OrderDetailPage, OrderListPage } from "./pages/orders/OrderPages.tsx";
+import { WebhookSettingsPage } from "./pages/webhooks/WebhookPages.tsx";
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
@@ -51,6 +56,11 @@ function portalRoutes(portal: Portal) {
             <Route path={PRICE_OVERVIEW_PATH} element={<PriceOverviewPage />} />
             <Route path={PRODUCT_NEW_PATH} element={<ProductEditorPage key="new" />} />
             <Route path={`${PRODUCT_LIST_PATH}/:id/*`} element={<ProductEditorPage />} />
+            <Route path={ORDER_LIST_PATH} element={<OrderListPage />} />
+            <Route path={`${ORDER_LIST_PATH}/:id`} element={<OrderDetailPage />} />
+            <Route path={DRIVER_LIST_PATH} element={<DriverListPage />} />
+            <Route path={VEHICLE_LIST_PATH} element={<VehicleListPage />} />
+            <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
             <Route path={COMPANY_PATH} element={<CompanyPage />} />
             <Route path={PERFORMANCE_PATH} element={<PerformancePage />} />
           </>
@@ -66,6 +76,8 @@ export function App() {
   return (
     <ToastProvider>
       <Routes>
+        {/* 司机 H5：司机没有账号，凭链接里的令牌（# 后面）；不在任何一个后台里 */}
+        <Route path={DRIVER_PAGE_PATH} element={<DriverTripPage />} />
         {portalRoutes("platform")}
         {portalRoutes("tenant")}
       </Routes>

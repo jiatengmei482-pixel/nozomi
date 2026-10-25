@@ -8,7 +8,25 @@
  */
 import type { OrderStatus } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { withPlatformTx, withTenantTx } from "../db/context.ts";
+import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
+import {
+  type Assignment,
+  type DriverLink,
+  type NoShowClaim,
+  type OrderContact,
+  type OrderFile,
+  type OrderLocation,
+  currentDriverLink,
+  findNoShowClaim,
+  findOrderFile,
+  listAssignments,
+  listOrderContacts,
+  listOrderFiles,
+  listOrderLocations,
+} from "../repos/dispatch.ts";
+import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
+import { type WebhookDelivery, listDeliveries } from "../repos/webhooks.ts";
+import type { DispatchFacts } from "./order-views.ts";
 import type { TimeCursor } from "../pagination.ts";
 import {
   type Order,
@@ -34,23 +52,99 @@ export interface TenantOrderListQuery {
   status: OrderStatus | null;
   from: string | null;
   to: string | null;
+  dispatch: "unassigned" | "overdue" | null;
 }
 
-export async function listOrdersForTenant(ctx: AppContext, tenantId: string, query: TenantOrderListQuery, limit: number, after: TimeCursor | null): Promise<{ items: Order[]; nextCursor: string | null; total: number }> {
-  return withTenantTx(ctx.pool, tenantId, (db) => listTenantOrders(db, tenantId, query, limit, after), { snapshot: true });
+/** 一页订单里派了的司机和车辆（各一条查询取回）。 */
+async function dispatchFactsOf(db: Db, orders: readonly Order[]): Promise<Map<string, DispatchFacts>> {
+  const byTenant = new Map<string, Order[]>();
+  for (const order of orders) byTenant.set(order.tenantId, [...(byTenant.get(order.tenantId) ?? []), order]);
+  const facts = new Map<string, DispatchFacts>();
+  for (const [tenantId, list] of byTenant) {
+    const drivers = await findDriversByIds(db, tenantId, list.flatMap((order) => (order.dispatch.driverId === null ? [] : [order.dispatch.driverId])));
+    const vehicles = await findVehiclesByIds(db, tenantId, list.flatMap((order) => (order.dispatch.vehicleId === null ? [] : [order.dispatch.vehicleId])));
+    for (const order of list) {
+      facts.set(order.id, { driver: order.dispatch.driverId === null ? null : (drivers.get(order.dispatch.driverId) ?? null), vehicle: order.dispatch.vehicleId === null ? null : (vehicles.get(order.dispatch.vehicleId) ?? null) });
+    }
+  }
+  return facts;
 }
 
-export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<{ order: Order; events: OrderEvent[] }> {
+const NO_FACTS: DispatchFacts = { driver: null, vehicle: null };
+
+export async function listOrdersForTenant(ctx: AppContext, tenantId: string, query: TenantOrderListQuery, limit: number, after: TimeCursor | null): Promise<{ items: { order: Order; facts: DispatchFacts }[]; nextCursor: string | null; total: number }> {
+  return withTenantTx(
+    ctx.pool,
+    tenantId,
+    async (db) => {
+      const page = await listTenantOrders(db, tenantId, { ...query, now: ctx.now() }, limit, after);
+      const facts = await dispatchFactsOf(db, page.items);
+      return { items: page.items.map((order) => ({ order, facts: facts.get(order.id) ?? NO_FACTS })), nextCursor: page.nextCursor, total: page.total };
+    },
+    { snapshot: true },
+  );
+}
+
+/** 一张订单的派车和履约记录：派车 / 改派、当前的司机链接、照片、联系记录、定位、no-show 申请和 5 项证据。 */
+export interface OrderFulfilmentRecords {
+  assignments: Assignment[];
+  link: DriverLink | null;
+  files: OrderFile[];
+  contacts: OrderContact[];
+  locations: OrderLocation[];
+  claim: NoShowClaim | null;
+}
+
+async function fulfilmentRecords(db: Db, order: Order): Promise<OrderFulfilmentRecords> {
+  return {
+    assignments: await listAssignments(db, order.tenantId, order.id),
+    link: await currentDriverLink(db, order.tenantId, order.id),
+    files: await listOrderFiles(db, order.tenantId, order.id),
+    contacts: await listOrderContacts(db, order.tenantId, order.id),
+    locations: await listOrderLocations(db, order.tenantId, order.id),
+    claim: await findNoShowClaim(db, order.tenantId, order.id),
+  };
+}
+
+export interface TenantOrderDetail {
+  order: Order;
+  facts: DispatchFacts;
+  events: OrderEvent[];
+  records: OrderFulfilmentRecords;
+}
+
+export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
   return withTenantTx(
     ctx.pool,
     tenantId,
     async (db) => {
       const order = await findTenantOrder(db, tenantId, orderId);
       if (order === null) throw notFound("订单");
-      return { order, events: await listOrderEvents(db, tenantId, orderId) };
+      const facts = (await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS;
+      return { order, facts, events: await listOrderEvents(db, tenantId, orderId), records: await fulfilmentRecords(db, order) };
     },
     { snapshot: true },
   );
+}
+
+/** 一张订单的一张照片（供应商后台、运营后台查看证据）。 */
+export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } | "platform", orderId: string, fileId: string): Promise<OrderFile & { data: Buffer }> {
+  const read = async (db: Db, tenantId: string): Promise<OrderFile & { data: Buffer }> => {
+    const file = await findOrderFile(db, tenantId, orderId, fileId);
+    if (file === null) throw notFound("照片");
+    return file;
+  };
+  if (scope === "platform") {
+    return withPlatformTx(ctx.pool, async (db) => {
+      const order = await findOrderForPlatform(db, orderId);
+      if (order === null) throw notFound("照片");
+      return read(db, order.tenantId);
+    });
+  }
+  return withTenantTx(ctx.pool, scope.tenantId, async (db) => {
+    if ((await findTenantOrder(db, scope.tenantId, orderId)) === null) throw notFound("照片");
+    return read(db, scope.tenantId);
+  });
 }
 
 export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<{ items: PlatformOrderRow[]; nextCursor: string | null; total: number }> {
@@ -59,6 +153,9 @@ export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrd
 
 export interface PlatformOrderDetail {
   order: Order;
+  facts: DispatchFacts;
+  records: OrderFulfilmentRecords;
+  deliveries: WebhookDelivery[];
   sale: OrderSale;
   payment: OrderPayment | null;
   tenantName: string;
@@ -80,6 +177,9 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string): Pro
       const quote = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0] as { snapshot: StoredQuoteSnapshot };
       return {
         order,
+        facts: (await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS,
+        records: await fulfilmentRecords(db, order),
+        deliveries: (await listDeliveries(db, { tenantId: order.tenantId, status: null, orderId }, 200, null)).items,
         sale,
         payment: await findOrderPayment(db, orderId),
         tenantName: names?.tenant ?? "",

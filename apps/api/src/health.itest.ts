@@ -60,7 +60,7 @@ test("集成状态只有「已配置 / 未配置」：每项只含 key、label�
   assert.ok(!text.includes(password), "响应里出现了数据库密码");
   assert.deepEqual(
     body.integrations.map((i: any) => i.key),
-    ["database", "auth", "stripe", "googleMaps", "fx"],
+    ["database", "auth", "dataEncryption", "stripe", "googleMaps", "fx"],
   );
   for (const item of body.integrations) {
     assert.deepEqual(Object.keys(item), ["key", "label", "state"]);

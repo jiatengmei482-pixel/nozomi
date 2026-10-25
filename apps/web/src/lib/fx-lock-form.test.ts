@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ApiError } from "../api/client.ts";
 import { approvalChanges } from "./channel-display.ts";
-import { LOCK_DURATION_HOURS, LOCK_RATE_FORMAT_MESSAGE, LOCK_REASON_MESSAGE, LOCK_TOO_FAR_MESSAGE, checkLockDraft, lockExpiresAt, lockServerErrors } from "./fx-lock-form.ts";
+import { LOCK_DURATION_HOURS, LOCK_HOURS_MESSAGE, LOCK_RATE_FORMAT_MESSAGE, LOCK_REASON_MESSAGE, LOCK_TOO_FAR_MESSAGE, checkLockDraft, lockExpiresAt, lockHoursOf, lockServerErrors } from "./fx-lock-form.ts";
 
 test("锁定值：没填时不报错（填过才报「请填」）；写法不对报格式；和后端同一套解析（字符串上，不经过浮点数）", () => {
   assert.deepEqual(checkLockDraft({ rate: "", reason: "" }, "150", false).errors, { rate: [], reason: [] });
@@ -42,4 +42,13 @@ test("复核记录里汇率锁定改了什么：锁定值、到期时间、偏�
   assert.deepEqual([replaced[0]?.before, replaced[0]?.after], ["1 USD = 151.2 JPY", "1 USD = 152 JPY"]);
   const released = approvalChanges("fx_lock.release", { lock_id: "x", currency: "JPY", rate: "151.2", expires_at: "2026-10-19T00:00:00.000Z" }, { lock_id: "x", currency: "JPY", rate: null, central_rate: "149" }, null);
   assert.deepEqual(released.map((line) => [line.label, line.before.startsWith("1 USD") || line.before !== "—", line.after]), [["锁定值", true, "解除，恢复用中央汇率（发起时 149）"], ["到期时间", true, "—"]]);
+});
+
+test("锁定多久不预选（M1-18）：空值和不在选项里的都算没选；选了的换成小时数", () => {
+  assert.equal(lockHoursOf(""), null);
+  assert.equal(lockHoursOf("5"), null);
+  assert.equal(lockHoursOf("abc"), null);
+  assert.equal(lockHoursOf("24"), 24);
+  assert.equal(lockHoursOf("72"), 72);
+  assert.equal(LOCK_HOURS_MESSAGE, "请选择锁定多久");
 });

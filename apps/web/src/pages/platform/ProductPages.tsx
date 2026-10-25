@@ -12,6 +12,7 @@ import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
@@ -21,7 +22,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge, TENANT_STATUS_BADGES } from "../../components/StatusBadge.tsx";
 import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
-import { PRODUCT_STATUS_BADGES, productName } from "../../lib/product-display.ts";
+import { PRODUCT_STATUS_BADGES, brandLabel, productName } from "../../lib/product-display.ts";
 import { PRODUCT_STEP_SLUGS, type ProductStepSlug } from "../../lib/product-paths.ts";
 import { PLATFORM_PRODUCT_LIST_PATH, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -181,7 +182,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
 
   // 子品牌没有可选的清单（平台没有列子品牌的接口）：从某一行的子品牌点进来，条件以小标签的样子列在表格上方
   const brandRow = brand === null ? undefined : rows.find((row) => row.brand_id === brand);
-  const brandLabel = brand === null ? null : brandRow?.brand ? `${brandRow.brand.name}（${brandRow.brand.currency}）` : "指定的子品牌";
+  const brandChip = brand === null ? null : brandRow?.brand ? brandLabel(brandRow.brand) : "指定的子品牌";
   const brandFilter = (row: PlatformProductSummary): string => {
     const next = new URLSearchParams(params);
     next.set("brand", row.brand_id);
@@ -196,7 +197,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
     cell: (row) =>
       row.brand ? (
         <Link className="link" to={brandFilter(row)} replace title={`只看子品牌「${row.brand.name}」的商品`} aria-label={`只看子品牌「${row.brand.name}」的商品`}>
-          {`${row.brand.name}（${row.brand.currency}）`}
+          {brandLabel(row.brand)}
         </Link>
       ) : (
         "—"
@@ -266,7 +267,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
       <FilterBar search={<SearchBox label="按商品名或商品编号搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={filterParams.filter((key) => key !== "q" && key !== "brand" && !(key === "tenant" && !canSeeTenants))} active={filtered} onClear={clearFilters}>
         <Filters fixedTenant={fixedTenant !== undefined} tenants={tenants.state.data?.items ?? null} tenantsState={!fixedTenant && canSeeTenants ? tenants.state.status : null} cityOptions={cityOptions} citiesState={cities.state.status} />
       </FilterBar>
-      {(brandLabel !== null || fixedTenantFilter !== null) && (
+      {(brandChip !== null || fixedTenantFilter !== null) && (
         <p className="filter-chips">
           {fixedTenantFilter !== null && (
             <span className="filter-chip" title={`供应商：${fixedTenantFilter}`}>
@@ -276,10 +277,10 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
               </button>
             </span>
           )}
-          {brandLabel !== null && (
-            <span className="filter-chip" title={`子品牌：${brandLabel}`}>
-              <span className="filter-chip__text">{`子品牌：${brandLabel}`}</span>
-              <button type="button" className="filter-chip__remove" aria-label={`去掉条件「子品牌：${brandLabel}」`} onClick={() => setParam({ brand: null })}>
+          {brandChip !== null && (
+            <span className="filter-chip" title={`子品牌：${brandChip}`}>
+              <span className="filter-chip__text">{`子品牌：${brandChip}`}</span>
+              <button type="button" className="filter-chip__remove" aria-label={`去掉条件「子品牌：${brandChip}」`} onClick={() => setParam({ brand: null })}>
                 <Icon name="x" />
               </button>
             </span>
@@ -300,6 +301,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
           if (next) goToPage([...stack, next]);
         }}
       />
+      <Attributions sources={placeSources(true)} />
     </>
   );
 }
@@ -489,7 +491,7 @@ export function PlatformProductDetailPage() {
           detail.tenant.name
         )}
       </span>
-      {product.brand && <span className="product-meta__brand">{`子品牌 ${product.brand.name}（${product.brand.currency}）`}</span>}
+      {product.brand && <span className="product-meta__brand">{`子品牌 ${brandLabel(product.brand)}`}</span>}
       <span>{`版本 ${product.version}`}</span>
       {product.published_at !== null && <span>{`上架时间 ${formatLocalDateTime(product.published_at)}`}</span>}
       <span>{`最近修改 ${formatLocalDateTime(product.updated_at)}`}</span>
@@ -512,6 +514,7 @@ export function PlatformProductDetailPage() {
         </Alert>
       ))}
       <ProductSteps frame={frame} current={slug} rest={rest} checkStatus={loaded.state.status} onReloadCheck={loaded.reload} inventory={<InventorySummary detail={detail} listPath={listPath} listState={listState} />} />
+      {slug !== "basic" && <Attributions sources={placeSources(product.category === "airport_transfer")} />}
     </div>,
     meta,
   );

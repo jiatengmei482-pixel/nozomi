@@ -644,3 +644,45 @@ test("只读详情的每一步、每个页签：说明文字不对供应商说�
     assert.ok(all.includes(expected), `应有「${expected}」`);
   }
 });
+
+test("数据来源署名（M1-18）：商品列表、商品详情的每一步、报价试算都展示城市和机场名称，都注明 OurAirports 和 GeoNames", async () => {
+  const lines = (): string[] => [...document.querySelectorAll(".page__attribution")].map((node) => (node.textContent ?? "").replace(/（在新标签页打开）/g, ""));
+  const both = ["机场数据来自 OurAirports（ourairports.com），公有领域", "城市数据和机场的中文、日文名称来自 GeoNames（geonames.org），CC BY 4.0"];
+  open("/platform/products", "super_admin");
+  await screen.findByRole("link", { name: "羽田机场接送" });
+  assert.deepEqual(lines(), both);
+  resetBrowser();
+
+  for (const slug of ["basic", "service-rules"]) {
+    open(`/platform/products/${PRODUCT_ID}/${slug}`, "customer_service");
+    await screen.findByRole("heading", { level: 2, name: slug === "basic" ? "① 基础信息" : "② 服务规则" });
+    await waitFor(() => assert.deepEqual(lines(), both, `「${slug}」这一步只有一份署名`));
+    resetBrowser();
+  }
+
+  open("/platform/quote-preview", "operations");
+  await screen.findByRole("heading", { level: 2, name: "用车请求" });
+  assert.deepEqual(lines(), both);
+});
+
+test("子品牌名自己带了币种时不重复（M1-18）：列表的子品牌列、筛选标签、详情标题行都只有一个「（JPY）」", async () => {
+  const named = { id: BRAND_ID, name: "测试（JPY）", currency: "JPY", status: "active" as const };
+  open(`/platform/products?brand=${BRAND_ID}`, "super_admin", (call) => {
+    if (call.method !== "GET") return null;
+    if (call.url.pathname === "/platform/v1/products") return page([rowOf({ brand: named })]);
+    if (call.url.pathname === `/platform/v1/products/${PRODUCT_ID}`) return json(200, { ...detailOf(), product: { ...detailOf().product, brand: named } });
+    return null;
+  });
+  const row = (await screen.findByRole("link", { name: "羽田机场接送" })).closest("tr") as HTMLElement;
+  assert.ok(within(row).getByRole("link", { name: "只看子品牌「测试（JPY）」的商品" }));
+  assert.match(row.textContent ?? "", /测试（JPY）/);
+  assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
+  assert.ok(screen.getByText("子品牌：测试（JPY）"));
+  resetBrowser();
+
+  open(`/platform/products/${PRODUCT_ID}/basic`, "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/products/${PRODUCT_ID}` ? json(200, { ...detailOf(), product: { ...detailOf().product, brand: named } }) : null));
+  await screen.findByRole("heading", { level: 2, name: "① 基础信息" });
+  assert.match(document.querySelector(".page__meta")?.textContent ?? "", /子品牌 测试（JPY）/);
+  await waitFor(() => assert.match(document.body.textContent ?? "", /测试（JPY）/));
+  assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
+});

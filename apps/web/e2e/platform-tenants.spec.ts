@@ -301,7 +301,7 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   const staffName = `运营 ${random()}`;
   await page.getByRole("link", { name: "新增员工" }).click();
   await expect(page.getByRole("radio")).toHaveCount(10);
-  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单。").first()).toBeVisible();
+  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook。").first()).toBeVisible();
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
   await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单。").first()).toBeVisible();
   await page.getByLabel(/^邮箱/).fill(email);
@@ -389,7 +389,8 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "系统状态" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "系统状态" })).toBeVisible();
   await expect(page.getByText("每次打开这一页都会记入审计日志。", { exact: false })).toBeVisible();
-  await expect(page.getByRole("region", { name: "系统状态" }).getByRole("row")).toHaveCount(6);
+  await expect(page.getByRole("region", { name: "系统状态" })).toContainText("数据加密密钥");
+  await expect(page.getByRole("region", { name: "系统状态" }).getByRole("row")).toHaveCount(7);
   await expect(page.getByRole("region", { name: "系统状态" })).toContainText("数据库");
   await page.getByRole("button", { name: "重新检查" }).click();
   await expect(page.getByRole("status").filter({ hasText: /已重新检查，\d+ 项未配置/ })).toHaveCount(1);

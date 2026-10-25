@@ -163,6 +163,27 @@ ensure_app_db_password() {
     die "$EXIT_USAGE" "POSTGRES_APP_PASSWORD 不能和 POSTGRES_PASSWORD 相同：应用账号和迁移账号必须各用各的密码"
 }
 
+# 数据加密密钥（DATA_ENCRYPTION_KEY，ADR 0027：加密库里需要还原原文的密钥，如供应商的 Webhook 签名密钥）。新服务器由初始化脚本生成；
+# 在此之前初始化过的服务器没有这一项，这里补上：值是本机随机生成的，只写进 .env（权限 600），永远不打印。已有的值绝不改动
+# （改了的话库里已经加密的签名密钥就解不开了，供应商要各自换一把新的）。在拿到部署锁之后调用。
+ensure_data_encryption_key() {
+  local env_file="$root_dir/.env" value
+  if ! grep -Eq '^DATA_ENCRYPTION_KEY=.+' "$env_file"; then
+    value="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+    [[ "$value" =~ ^[0-9a-f]{64}$ ]] ||
+      die "$EXIT_NOT_SWITCHED" "没能生成数据加密密钥，旧版本没有被替换"
+    if grep -q '^DATA_ENCRYPTION_KEY=' "$env_file"; then
+      sed -i "s/^DATA_ENCRYPTION_KEY=.*/DATA_ENCRYPTION_KEY=$value/" "$env_file"
+    else
+      # 文件末尾可能没有换行，先补一个，避免和上一行连在一起
+      [[ -z "$(tail -c 1 "$env_file")" ]] || printf '\n' >>"$env_file"
+      printf 'DATA_ENCRYPTION_KEY=%s\n' "$value" >>"$env_file"
+    fi
+    chmod 600 "$env_file"
+    log "DATA_ENCRYPTION_KEY（数据加密密钥）原先没有，已自动生成并写入 .env"
+  fi
+}
+
 # 版本目录里的文件没有密钥。Caddyfile 要挂进反向代理容器，而容器里的进程去掉了
 # 「无视文件权限」的特权，所以它必须所有人可读——不能依赖上传时服务器上的 umask。
 normalize_permissions() {
@@ -291,6 +312,7 @@ cmd_deploy() {
   check_layout
   acquire_lock
   ensure_app_db_password
+  ensure_data_encryption_key
 
   local current fallback image
   current="$(linked_release current)"
