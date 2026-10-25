@@ -219,7 +219,11 @@ test("待审核的锁定申请：汇率页列出来（能审的人有去处理�
   const changes = within(approvalCard).getByRole("region", { name: "改了什么" });
   assert.match(changes.textContent ?? "", /锁定值未锁定（中央汇率 1 USD = 7\.2 CNY）1 USD = 7\.3 CNY/);
   assert.match(changes.textContent ?? "", /和发起时中央汇率的偏离—\+1\.39%/);
-  await actor.click(within(approvalCard).getByRole("button", { name: "批准" }));
+  // 汇率锁定类复核的按钮读屏名字同样带摘要和发起时间（M1-17）
+  const approve = within(approvalCard).getByRole("button", { name: /^批准：/ });
+  assert.equal(approve.getAttribute("aria-label")?.startsWith(`批准：${approval().summary}（`), true);
+  assert.equal(approve.textContent, "批准");
+  await actor.click(approve);
   const dialog = await screen.findByRole("dialog");
   assert.ok(within(dialog).getByText(/之后的报价就按新的汇率算/));
   await actor.click(within(dialog).getByRole("button", { name: "批准" }));

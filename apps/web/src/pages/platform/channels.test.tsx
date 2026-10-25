@@ -225,11 +225,11 @@ test("待审核：发起人只能撤回、看不到批准和驳回；别人能�
   });
   const mineCard = (await screen.findByText("我发起的那条")).closest("section") as HTMLElement;
   assert.deepEqual(within(mineCard).queryAllByRole("button", { name: /批准|驳回/ }), []);
-  assert.ok(within(mineCard).getByRole("button", { name: "撤回" }));
+  assert.ok(within(mineCard).getByRole("button", { name: /^撤回：我发起的那条（/ }));
   assert.ok(within(mineCard).getByText(/要等另一位有审核权限的同事处理/));
   const otherCard = screen.getByText("「NOZOMI 官网」改定价参数：默认加价 10% → 12%", { selector: "p" }).closest("section") as HTMLElement;
   assert.ok(within(otherCard).getByText("12%", { selector: "strong" }), "改之后的值");
-  await actor.click(within(otherCard).getByRole("button", { name: "批准" }));
+  await actor.click(within(otherCard).getByRole("button", { name: /^批准：/ }));
   const dialog = await screen.findByRole("dialog", { name: /^批准/ });
   await actor.type(within(dialog).getByRole("textbox", { name: "说明（选填）" }), "同意");
   await actor.click(within(dialog).getByRole("button", { name: "批准" }));
@@ -249,4 +249,171 @@ test("报价试算：能看渠道的角色可以选渠道，请求体带 channel
   resetBrowser();
   open("/platform/quote-preview", "customer_service");
   assert.ok(await screen.findByRole("combobox", { name: /按哪个渠道的规则/ }));
+});
+
+// ───────────── M1-17：验收发现的小问题 ─────────────
+
+test("M1-17 待审核：改对外价取整时「改之后」只写一遍币种（向上取整到 JPY 100）", async () => {
+  const rounding = approvalOf({ summary: "改对外价取整", payload: { ...approvalOf().before, sell_rounding: { JPY: 100 } } });
+  open("/platform/approvals", "channel_manager", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/approvals" ? page([rounding]) : null));
+  const card = (await screen.findByText("改对外价取整", { selector: "p" })).closest("section") as HTMLElement;
+  const row = within(card).getByRole("rowheader", { name: "对外价取整" }).closest("tr") as HTMLElement;
+  assert.deepEqual([...row.querySelectorAll("td")].map((cell) => cell.textContent), ["不取整", "向上取整到 JPY 100"]);
+  assert.doesNotMatch(document.body.textContent ?? "", /JPY JPY/);
+});
+
+const cityOf = (id: string, code: string, country: string, name: City["name"], status: City["status"] = "active"): City => ({ ...tokyo, id, code, country_code: country, name, status });
+const OSAKA = cityOf("22222222-2222-4222-8222-222222222222", "CTY-JP-OSA", "JP", { zh: "大阪", ja: "大阪", en: "Osaka" });
+const SAPPORO = cityOf("33333333-3333-4333-8333-333333333333", "CTY-JP-SPK", "JP", { zh: "札幌", en: "Sapporo" });
+const SEOUL = cityOf("44444444-4444-4444-8444-444444444444", "CTY-KR-SEL", "KR", { en: "Seoul", ko: "서울" });
+const NAGOYA_OFF = cityOf("66666666-6666-4666-8666-666666666666", "CTY-JP-NGO", "JP", { zh: "名古屋" }, "disabled");
+const manyCities = (call: ApiCall & { url: URL }): Response | null => (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities" ? page([SAPPORO, tokyo, SEOUL, NAGOYA_OFF, OSAKA]) : null);
+const optionNames = (listbox: HTMLElement): string[] => within(listbox).queryAllByRole("option").map((option) => option.querySelector(".combobox__option-label")?.textContent ?? "");
+
+test("M1-17 新建渠道「只卖选中的城市」：城市按国家分组、按名称排，可以输入名称或编码找，选上的是可以去掉的标签；停用的不列", async () => {
+  const actor = user();
+  const calls = open("/platform/channels/new", "channel_manager", (call) => manyCities(call) ?? (call.method === "POST" && call.url.pathname === "/platform/v1/channels" ? json(201, detailOf()) : null));
+  await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
+  await actor.click(screen.getByRole("radio", { name: /^自营/ }));
+  await actor.click(screen.getByRole("radio", { name: "只卖选中的城市" }));
+  const box = await screen.findByRole("combobox", { name: /城市/ });
+  await actor.click(box);
+  const listbox = screen.getByRole("listbox", { name: "城市" });
+  await waitFor(() => assert.deepEqual(optionNames(listbox), ["Seoul", "大阪", "东京", "札幌"]));
+  assert.deepEqual([...listbox.querySelectorAll(".combobox__group")].map((node) => node.textContent), ["韩国（KR）", "日本（JP）"]);
+  await actor.type(box, "spk{Enter}");
+  await actor.type(box, "东京{Enter}");
+  const chips = screen.getByRole("list", { name: "已选的城市（2 个）" });
+  assert.deepEqual(within(chips).getAllByRole("listitem").map((item) => item.textContent), ["札幌", "东京"]);
+  await actor.click(box);
+  await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["Seoul", "大阪"], "选过的不再列出"));
+  await actor.keyboard("{Escape}");
+  await actor.click(within(chips).getByRole("button", { name: "去掉 札幌" }));
+  await waitFor(() => assert.equal(document.activeElement, screen.getByRole("button", { name: "去掉 东京" }), "焦点移到下一个标签"));
+  await actor.click(screen.getByRole("button", { name: "新建" }));
+  await waitFor(() => assert.equal(posts(calls).length, 1));
+  assert.deepEqual((posts(calls)[0]?.body as Record<string, any>)["scope"]["city_ids"], [CITY_ID]);
+});
+
+test("M1-17 新建渠道：选了「只卖选中的城市」却一个没选，提交时拦下", async () => {
+  const actor = user();
+  const calls = open("/platform/channels/new", "channel_manager", manyCities);
+  await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
+  await actor.click(screen.getByRole("radio", { name: /^自营/ }));
+  await actor.click(screen.getByRole("radio", { name: "只卖选中的城市" }));
+  assert.ok(await screen.findByText("还没有选城市"));
+  await actor.click(screen.getByRole("button", { name: "新建" }));
+  assert.ok(await screen.findByText("请至少选一个城市；全部城市都卖请选「全部城市」"));
+  assert.deepEqual(posts(calls), []);
+});
+
+test("M1-17 加价规则的城市：只列渠道授权的城市（按名称排、可搜索）；渠道卖全部城市时列平台启用中的全部", async () => {
+  const actor = user();
+  const scoped = detailOf({ channel: channelOf({ scope: { ...channelOf().scope, cities: [{ id: OSAKA.id, name: "大阪" }, { id: CITY_ID, name: "东京" }] } }) });
+  const calls = open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", (call) => manyCities(call) ?? (call.method === "GET" && call.url.pathname === `/platform/v1/channels/${CHANNEL_ID}` ? json(200, scoped) : call.method === "POST" && call.url.pathname.endsWith("/markup-rules") ? json(202, { approval: approvalOf({ kind: "markup_rule.create" }) }) : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  const dialog = await screen.findByRole("dialog", { name: "新增加价规则" });
+  const city = within(dialog).getByRole("combobox", { name: /城市/ });
+  assert.ok(within(dialog).getByText("只列这个渠道授权卖的 2 个城市。要加别的城市，先在「编辑基本信息和授权范围」里授权。"));
+  await actor.click(city);
+  await waitFor(() => assert.deepEqual(optionNames(within(dialog).getByRole("listbox", { name: "城市" })), ["大阪", "东京"]));
+  await actor.type(city, "tyo{Enter}");
+  assert.equal((city as HTMLInputElement).value, "东京");
+  await actor.selectOptions(within(dialog).getByRole("combobox", { name: "品类" }), "airport_transfer");
+  await actor.type(within(dialog).getByRole("textbox", { name: "加价比例（%）" }), "12");
+  await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
+  await waitFor(() => assert.equal(posts(calls).length, 1));
+  assert.equal((posts(calls)[0]?.body as any).city_id, CITY_ID);
+
+  resetBrowser();
+  open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", manyCities);
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  const all = await screen.findByRole("dialog", { name: "新增加价规则" });
+  await actor.click(within(all).getByRole("combobox", { name: /城市/ }));
+  await waitFor(() => assert.deepEqual(optionNames(within(all).getByRole("listbox", { name: "城市" })), ["Seoul", "大阪", "东京", "札幌"], "停用的名古屋不列"));
+});
+
+test("M1-17 申请调高下限被拦（RULES_BELOW_FLOOR）：列出是哪几条规则、怎么办", async () => {
+  const actor = user();
+  const calls = open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", (call) => (call.method === "POST" && call.url.pathname.endsWith("/pricing-changes") ? apiError(409, "RULES_BELOW_FLOOR", "有 1 条还在用的加价规则低于新的下限 16%，请先把它们改到下限以上再调高下限", { rule_ids: [RULE_ID], floor_bp: 1600 }) : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: "申请修改定价参数" }));
+  const dialog = await screen.findByRole("dialog", { name: "申请修改定价参数" });
+  for (const name of ["加价下限（%）", "默认加价比例（%）"]) {
+    await actor.clear(within(dialog).getByRole("textbox", { name }));
+    await actor.type(within(dialog).getByRole("textbox", { name }), "16");
+  }
+  await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
+  const alert = await within(dialog).findByText(/有 1 条还在用的加价规则低于新的下限 16%/);
+  const box = alert.closest(".alert") as HTMLElement;
+  assert.deepEqual(within(box).getAllByRole("listitem").map((item) => item.textContent), ["第 2 级 · NOZOMI 自营车队 = 15%（用车日期 不限）"]);
+  assert.match(box.textContent ?? "", /在「加价规则」里把这几条「修改」到新的下限以上/);
+  assert.equal(posts(calls).length, 1);
+});
+
+test("M1-17 批准「暂停渠道」的确认说明讲暂停的后果；批准调高下限被拦时列出挡住的规则", async () => {
+  const actor = user();
+  const pause = approvalOf({ id: "a2a2a2a2-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "channel.pause", summary: "暂停「NOZOMI 官网」", payload: { status: "paused" }, before: { status: "testing" } });
+  const floor = approvalOf({ summary: "「NOZOMI 官网」改定价参数：下限 10% → 16%" });
+  open("/platform/approvals", "channel_manager", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/approvals") return page([pause, floor]);
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/approvals/${APPROVAL_ID}/approve`) return apiError(409, "RULES_BELOW_FLOOR", "有 1 条还在用的加价规则低于新的下限 16%，请先把它们改到下限以上再调高下限", { rule_ids: [RULE_ID], floor_bp: 1600 });
+    return null;
+  });
+  await actor.click(await screen.findByRole("button", { name: /^批准：暂停「NOZOMI 官网」/ }));
+  const paused = await screen.findByRole("dialog", { name: "批准：暂停渠道" });
+  assert.match(paused.textContent ?? "", /批准后渠道立即暂停：它调用销售端接口（询价等）一律被拒绝/);
+  assert.doesNotMatch(paused.textContent ?? "", /按新的规则算/);
+  await actor.click(within(paused).getByRole("button", { name: "取消" }));
+
+  await actor.click(screen.getByRole("button", { name: /^批准：「NOZOMI 官网」改定价参数：下限 10% → 16%/ }));
+  const dialog = await screen.findByRole("dialog", { name: "批准：改定价参数" });
+  assert.match(dialog.textContent ?? "", /之后的询价按新的定价参数算/);
+  await actor.click(within(dialog).getByRole("button", { name: "批准" }));
+  const box = (await within(dialog).findByText(/按现在的数据不能生效：有 1 条还在用的加价规则低于新的下限 16%/)).closest(".alert") as HTMLElement;
+  assert.deepEqual(within(box).getAllByRole("listitem").map((item) => item.textContent), ["第 2 级 · NOZOMI 自营车队 = 15%（用车日期 不限）"]);
+  assert.match(box.textContent ?? "", /请驳回/);
+});
+
+test("M1-17 待审核：同一渠道两条一样的改动，每条的「批准」「驳回」读屏名字带摘要和发起时间，分得清", async () => {
+  const first = approvalOf();
+  const second = approvalOf({ id: "a3a3a3a3-aaaa-4aaa-8aaa-aaaaaaaaaaaa", requested_at: "2026-10-09T01:00:00.000Z" });
+  open("/platform/approvals", "channel_manager", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/approvals" ? page([first, second]) : null));
+  await screen.findAllByText("「NOZOMI 官网」改定价参数：默认加价 10% → 12%", { selector: "p" });
+  const names = screen.getAllByRole("button", { name: /^(批准|驳回)：/ }).map((button) => button.getAttribute("aria-label"));
+  assert.equal(names.length, 4);
+  assert.equal(new Set(names).size, 4, `名字不能重复：${names.join(" / ")}`);
+  assert.ok(names.every((name) => name?.includes("「NOZOMI 官网」改定价参数：默认加价 10% → 12%（2026-10-")));
+  for (const button of screen.getAllByRole("button", { name: /^(批准|驳回)：/ })) assert.match(button.textContent ?? "", /^(批准|驳回)$/, "看得见的字还是「批准」「驳回」");
+});
+
+test("M1-17 同一渠道已有待审核的定价改动时再发起：改定价参数、新增规则都提醒，列出是哪几条；没有相关的不提醒", async () => {
+  const actor = user();
+  const pricing = approvalOf({ summary: "「NOZOMI 官网」改定价参数：默认加价 10% → 12%", requested_by: { id: OTHER_ID, name: "佐藤", email: "sato@example.com" } });
+  const create = approvalOf({ id: "a4a4a4a4-aaaa-4aaa-8aaa-aaaaaaaaaaaa", kind: "markup_rule.create", summary: "「NOZOMI 官网」新增加价规则：东京 · 接送机 = 13%" });
+  let pending: Approval[] = [pricing, create];
+  const calls = open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/approvals" && call.url.searchParams.get("status") === "pending" ? page(pending) : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: "申请修改定价参数" }));
+  let dialog = await screen.findByRole("dialog", { name: "申请修改定价参数" });
+  const warning = (await within(dialog).findByText("这个渠道已经有 2 条待审核的定价改动：")).closest(".alert") as HTMLElement;
+  assert.deepEqual(within(warning).getAllByRole("listitem").map((item) => item.textContent?.replace(/，.*$/, "")), ["「NOZOMI 官网」改定价参数：默认加价 10% → 12%（佐藤", "「NOZOMI 官网」新增加价规则：东京 · 接送机 = 13%（佐藤"]);
+  assert.match(warning.textContent ?? "", /谁先被批准，另外的就会过时，只能驳回后按现在的数重新发起/);
+  const query = new URL(calls.find((call) => call.path.includes("status=pending"))?.path ?? "", "http://x").searchParams;
+  assert.equal(query.get("resource_id"), CHANNEL_ID);
+  await actor.click(within(dialog).getByRole("button", { name: "取消" }));
+
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  dialog = await screen.findByRole("dialog", { name: "新增加价规则" });
+  const ruleWarning = (await within(dialog).findByText("这个渠道已经有 1 条待审核的定价改动：")).closest(".alert") as HTMLElement;
+  assert.match(ruleWarning.textContent ?? "", /改定价参数：默认加价 10% → 12%/, "新增规则只和待审核的定价参数改动有关");
+  await actor.click(within(dialog).getByRole("button", { name: "取消" }));
+
+  pending = [create];
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  dialog = await screen.findByRole("dialog", { name: "新增加价规则" });
+  await waitFor(() => assert.ok(calls.filter((call) => call.path.includes("status=pending")).length >= 3));
+  assert.equal(within(dialog).queryByText(/待审核的定价改动/), null, "只有另一条新增规则挂着时不提醒");
 });

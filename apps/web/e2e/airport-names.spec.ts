@@ -5,9 +5,9 @@
  */
 import { expect, test } from "@playwright/test";
 import { createBrand, createWorld, tenantHeaders } from "./catalog.ts";
-import { createActiveTenant, importAirportNames, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
+import { adminCredentials, createActiveTenant, importAirportNames, importAirports, loginAs, platformAdminHeaders, randomLetters } from "./support.ts";
 
-test("导入名称后，接送点里输入「成田」找得到成田机场（导入的英文名里没有「成田」）", async ({ page, request }) => {
+test("导入名称后，接送点里输入「成田」「成田机场」「成田空港」都找得到成田国际机场（导入的英文名里没有「成田」）", async ({ page, request }) => {
   test.slow();
   const world = await createWorld(request);
   const tag = randomLetters(4);
@@ -38,6 +38,31 @@ test("导入名称后，接送点里输入「成田」找得到成田机场（�
   const options = page.getByRole("option");
   await expect(options).toHaveCount(1);
   await expect(options.first()).toContainText(iata);
+  for (const query of [`成田${tag}机场`, `成田${tag}空港`]) {
+    await pickup.fill(query);
+    await expect(options, `M1-17：「${query}」也找得到正式名称是「成田${tag}国际机场」的机场`).toHaveCount(1);
+    await expect(options.first()).toContainText(iata);
+  }
   await options.first().click();
   await expect(pickup).toHaveValue(`成田${tag}国际机场`);
+});
+
+test("运营后台机场编辑页的「数据来源」写明中文、日文名称来自 GeoNames（M1-17）", async ({ page, request }) => {
+  test.slow();
+  const tag = randomLetters(4);
+  const iata = `M${randomLetters(2)}`;
+  const location = { lat: 34.434722, lng: 135.244167 };
+  await importAirports("JP", [{ iata, name: `Sample Kansai ${tag} International Airport`, ...location }]);
+  await importAirportNames("JP", [{ iata, ...location, names: { ja: `関西${tag}国際空港`, "zh-CN": `关西${tag}国际机场` } }]);
+  const headers = await platformAdminHeaders(request);
+  const listed = await request.get(`/platform/v1/master/places?code=${iata}&status=all`, { headers });
+  const airport = ((await listed.json()) as { items: { id: string }[] }).items[0];
+  const { email, password } = adminCredentials();
+  await loginAs(page, "platform", email, password);
+  await page.goto(`/platform/master/places/${airport?.id}`);
+  const source = page.getByRole("region", { name: "数据来源" });
+  await expect(source).toContainText("英语名和坐标来自 OurAirports");
+  await expect(source).toContainText("中文、日文名称来自 GeoNames");
+  await expect(source).toContainText("（CC BY 4.0）。导入时只填空着的语言");
+  await expect(source.getByRole("link", { name: /GeoNames/ })).toHaveAttribute("href", /geonames\.org/);
 });

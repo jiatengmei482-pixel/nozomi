@@ -3,11 +3,13 @@
  * 百分比一律以基点整数进出接口；页面上写成「12.5%」。
  */
 import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
-import type { ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
+import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
+import type { City } from "../api/master.ts";
+import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
 import { changeText } from "./fx-display.ts";
-import { SERVICE_CATEGORY_NAMES, formatLocalDateTime } from "./master-display.ts";
+import { SERVICE_CATEGORY_NAMES, countryLabel, displayName, formatLocalDateTime } from "./master-display.ts";
 import { moneyText } from "./product-display.ts";
 
 export const CHANNELS_PAGE_PATH = "/platform/channels";
@@ -105,7 +107,7 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
     { label: "加价下限", value: percentText(pricing.markup_floor_bp) },
     { label: "价格带 δ", value: percentText(pricing.band_bp) },
     { label: "最低毛利", value: pricing.min_margin === 0 ? "不设" : moneyText(pricing.min_margin, settleCurrency) },
-    { label: "对外价取整", value: rounding.length === 0 ? "不取整（四舍五入到最小单位）" : rounding.map(([currency, unit]) => `${currency} 向上取整到 ${moneyText(unit, currency)}`).join("；") },
+    { label: "对外价取整", value: rounding.length === 0 ? "不取整（四舍五入到最小单位）" : rounding.map(([currency, unit]) => `向上取整到 ${moneyText(unit, currency)}`).join("；") },
   ];
 }
 
@@ -134,9 +136,10 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
+  /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */
   const rounding = (value: unknown): string => {
     const entries = typeof value === "object" && value !== null ? Object.entries(value as Record<string, number>) : [];
-    return entries.length === 0 ? "不取整" : entries.map(([currency, unit]) => `${currency} ${moneyText(unit, currency)}`).join("；");
+    return entries.length === 0 ? "不取整" : entries.map(([currency, unit]) => `向上取整到 ${moneyText(unit, currency)}`).join("；");
   };
   const text = (value: unknown): string => (value === null || value === undefined || value === "" ? "不限" : String(value));
   const fields: { key: string; label: string; format: (value: unknown) => string }[] =
@@ -163,4 +166,45 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
 
 export function categoriesText(categories: readonly ServiceCategory[]): string {
   return categories.length === 3 ? "全部品类" : categories.map((category) => SERVICE_CATEGORY_NAMES[category]).join("、");
+}
+
+const NAME_ORDER = new Intl.Collator("zh-Hans-CN-u-co-pinyin", { numeric: true });
+
+/**
+ * 渠道表单、加价规则里选城市的选项（M1-17）：按国家分组，组里按显示名排（中文按拼音），右边写编码；
+ * 用任意一种语言的名称、编码、国家都能筛。
+ */
+export function cityChoices(cities: readonly City[]): ComboboxOption[] {
+  return cities
+    .map((city) => ({ city, name: displayName(city.name).text, country: countryLabel(city.country_code) }))
+    .sort((a, b) => NAME_ORDER.compare(a.country, b.country) || NAME_ORDER.compare(a.name, b.name) || a.city.code.localeCompare(b.city.code))
+    .map(({ city, name, country }) => ({ value: city.id, label: city.status === "active" ? name : `${name}（已停用）`, detail: city.code, group: country, keywords: `${Object.values(city.name).join(" ")} ${country}` }));
+}
+
+/**
+ * 调高下限被拦（409 RULES_BELOW_FLOOR，`details.rule_ids`）时，把挡住的规则一条条写出来（M1-17）：
+ * 「第 2 级 · NOZOMI 车队 = 12%（用车日期 不限）」。规则表里找不到的（刚被别人改过、删了）写明刷新后再看。
+ */
+export function belowFloorRuleLines(details: Readonly<Record<string, unknown>>, rules: readonly MarkupRule[]): string[] {
+  const ids = Array.isArray(details["rule_ids"]) ? details["rule_ids"].filter((id): id is string => typeof id === "string") : [];
+  return ids.map((id) => {
+    const rule = rules.find((entry) => entry.id === id);
+    return rule ? `第 ${rule.level} 级 · ${ruleScopeText(rule)} = ${percentText(rule.markup_bp)}（用车日期 ${ruleDatesText(rule)}）` : "有一条规则这里还没有显示（可能刚被改过），刷新页面后再看";
+  });
+}
+
+/**
+ * 发起定价改动前，同一渠道上已经挂着、会和这次互相「过时」的待审核改动（M1-17，ADR 0023）：
+ * 定价参数的复核核对渠道的 pricing_version（定价参数、加价规则、状态任何一个变了都加一），规则的修改、删除核对规则自己的版本。
+ * - 改定价参数：这个渠道上所有待审核的改动都相关（谁先批准，另一边就过时）；
+ * - 新增、修改、删除规则：待审核的定价参数改动相关（这次批准后它过时）；修改、删除时再加上同一条规则的修改、删除。
+ * 只用于渠道类复核：汇率锁定（M2-06）的对象是币种、不核对渠道版本，和渠道的改动互不过时，不算在里面。
+ */
+export function relatedPending(target: { kind: "pricing" } | { kind: "rule"; ruleId: string | null }, pending: readonly Approval[]): Approval[] {
+  return pending.filter((approval) => {
+    if (approval.status !== "pending" || isFxApproval(approval.kind)) return false;
+    if (target.kind === "pricing") return true;
+    if (approval.kind === "channel.pricing") return true;
+    return target.ruleId !== null && (approval.kind === "markup_rule.update" || approval.kind === "markup_rule.delete") && approval.payload["rule_id"] === target.ruleId;
+  });
 }

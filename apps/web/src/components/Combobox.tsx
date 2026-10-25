@@ -42,15 +42,20 @@ export interface ComboboxProps {
   clearLabel?: string;
   onBlur?(): void;
   ref?: Ref<HTMLInputElement>;
+  /** 自定义匹配：收到选项的全部可搜文字（显示名、次要文字、keywords）和输入；默认是不分大小写的「包含」 */
+  match?(haystack: string, query: string): boolean;
 }
 
-function matches(option: ComboboxOption, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (needle === "") return true;
-  return `${option.label} ${option.detail ?? ""} ${option.keywords ?? ""}`.toLowerCase().includes(needle);
+function contains(haystack: string, query: string): boolean {
+  return haystack.toLowerCase().includes(query.trim().toLowerCase());
 }
 
-export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText = "没有匹配的选项", noMatchText, loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref }: ComboboxProps) {
+function matches(option: ComboboxOption, query: string, match: (haystack: string, query: string) => boolean): boolean {
+  if (query.trim() === "") return true;
+  return match(`${option.label} ${option.detail ?? ""} ${option.keywords ?? ""}`, query);
+}
+
+export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText = "没有匹配的选项", noMatchText, loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref, match = contains }: ComboboxProps) {
   const id = useId();
   const listId = `${id}-list`;
   const errorId = `${id}-error`;
@@ -76,9 +81,9 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
     if (input && value !== null && document.activeElement === input) input.select();
   }, [value]);
   const visible = useMemo(() => {
-    const filtered = options.filter((option) => matches(option, query ?? ""));
+    const filtered = options.filter((option) => matches(option, query ?? "", match));
     return clearLabel !== undefined && (query ?? "") === "" ? [{ value: "", label: clearLabel }, ...filtered] : filtered;
-  }, [options, query, clearLabel]);
+  }, [options, query, clearLabel, match]);
 
   useEffect(() => {
     if (!open) return;

@@ -21,6 +21,7 @@ import { PickerPanel } from "../../components/PickerPanel.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_LIST_PATH, AREA_NEW_PATH, areaEditPath } from "../../lib/area-paths.ts";
 import { PLACE_TYPE_NAMES, countryLabel, displayName, pickupNoMatchText, vehicleGradeName } from "../../lib/master-display.ts";
+import { placeQueryMatches } from "../../lib/place-search.ts";
 import { checkReasons, comboText } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -527,6 +528,7 @@ export function BasicStep({ frame }: { frame: ProductFrame }) {
                           required
                           options={(places.state.data ?? []).filter((place) => place.status === "active").map((place) => ({ value: place.id, label: displayName(place.name).text, detail: `${place.code} · ${PLACE_TYPE_NAMES[place.type]}`, keywords: `${Object.values(place.name).join(" ")} ${place.code}` }))}
                           value={poiId}
+                          match={placeQueryMatches}
                           placeholder="输入名称或三字代码查找"
                           emptyText="这个城市还没有可选的机场或车站"
                           noMatchText={(query) => pickupNoMatchText(query, (places.state.data ?? []).filter((place) => place.status === "active"))}
