@@ -142,6 +142,24 @@ test("补差价时收款服务出错：504，改单留在「补差价」，别�
   assert.equal(pay.calls.filter((call) => call.startsWith("charge:")).length >= 2, true, "确实重试过");
 });
 
+test("补差价扣款的同时客人取消了订单：改单作废，扣到的差价和订单的钱都退回", async () => {
+  const order = await flow.paidOrder();
+  const original = pay.chargeSavedPaymentMethod.bind(pay);
+  pay.chargeSavedPaymentMethod = async (input) => {
+    const result = await original(input);
+    pay.chargeSavedPaymentMethod = original;
+    // 扣款请求在路上的时候客人取消了（取消时这笔差价还没扣到）
+    await ok(api.call("POST", `/sales/v1/orders/${order.id}/cancel`, { token: await flow.token(), body: {} }));
+    return result;
+  };
+  const res = await patch(order.id, { service_time: "2026-10-22T10:00:00+09:00" });
+  assert.equal(res.status, 200, res.text);
+  assert.deepEqual([res.body.order.status, res.body.change.status, res.body.order.service_local], ["cancelled", "cancelled", "2026-10-20T10:00"]);
+  const diff = Number(pay.chargesOf(order.id)[0]?.amountMinor);
+  assert.ok(diff > 0);
+  assert.deepEqual(pay.refundsOf(order.id).map((refund) => refund.amountMinor).sort((x, y) => x - y), [diff, Number(order.price.total.amount)].sort((x, y) => x - y), "下单付的全额（离用车还远）和补收的差价都退了");
+});
+
 test("并发改单：同一个版本同时来两次，只有一个成功", async () => {
   const order = await flow.paidOrder();
   const version = (await salesGet(order.id)).version;

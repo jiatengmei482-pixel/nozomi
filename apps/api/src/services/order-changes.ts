@@ -417,6 +417,8 @@ async function settleChangeCharge(ctx: AppContext, change: OrderChange, outcome:
     const now = ctx.now();
     const order = (await findOrderForPlatform(db, change.orderId, { lock: true })) as Order;
     const current = (await findOrderChange(db, change.tenantId, change.id, { lock: true })) as OrderChange;
+    // 扣差价的时候订单被取消了（改单随之作废）：取消时这笔还没扣到、没算进退款，现在扣到了就退回去
+    if (current.status === "cancelled" && outcome === "succeeded") return { change: current, refunds: await scheduleRefund(db, order, "change", await collectedFor(db, order.id, change.id), change.id, now) };
     if (current.status !== "awaiting_payment") return { change: current, refunds: [] };
     if (outcome === "declined") {
       await updateOrderChange(db, current, { status: "failed", decidedAt: now });

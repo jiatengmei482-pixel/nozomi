@@ -6380,7 +6380,7 @@ paths:
         Stripe 调用，不需要登录：用请求头 `Stripe-Signature`（`t=时间戳,v1=签名`，HMAC-SHA256，密钥是 `STRIPE_WEBHOOK_SECRET`）验证是 Stripe 发来的，对原始请求体校验；时间戳和现在相差超过 5 分钟拒绝（防重放）。
         同一个事件编号只处理一次（重复的回 200、`duplicate: true`）。处理：`payment_intent.succeeded`（核对金额币种 → 自动确认订单、库存转已售、记下保存的支付方式）、
         `payment_intent.payment_failed`（记失败原因，订单仍待支付）、`payment_intent.processing` / `requires_action`、`payment_intent.canceled`（取消待支付的单、释放库存）、
-        `charge.refunded`（记已退金额）、`charge.dispute.created`（标记拒付）；其余类型记下不处理。测试 / 正式模式和本环境不一致的不处理。
+        `charge.refunded`（记已退金额）、`charge.dispute.created`（标记拒付）；M3-03：`refund.updated` / `refund.failed` / `charge.refund.updated`（平台发起的退款有了结果），改期补差价、事后加收的离线扣款的 `payment_intent.*` 只更新那一笔收款；其余类型记下不处理。测试 / 正式模式和本环境不一致的不处理。
         处理出错 500，Stripe 会按它的节奏重发。
       parameters:
         - name: Stripe-Signature
