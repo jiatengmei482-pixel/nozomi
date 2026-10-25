@@ -66,7 +66,7 @@ test("pnpm dev 的命令能启动 API：/health 经真实 HTTP 返回 200，数�
     const body = JSON.parse(res.body) as { status: string; database: { state: string }; integrations: unknown[] };
     assert.equal(body.status, "ok");
     assert.equal(body.database.state, "up");
-    assert.equal(body.integrations.length, 5);
+    assert.equal(body.integrations.length, 6);
     assert.deepEqual(leakedSecrets(res.body), []);
     assert.deepEqual(leakedSecrets(running.output()), []);
   } finally {

@@ -3,6 +3,7 @@
  * 以及一次性链接的硬性要求（令牌只在对话框里、不重试、只能用底部的按钮关闭）。
  * 接口用测试替身；真实后端由端到端测试 e2e/platform-tenants.spec.ts 覆盖。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -24,8 +25,8 @@ const STAFF_ID = "22222222-2222-4222-8222-222222222222";
 /** 测试里用的令牌：页面上除了对话框的文本框，哪里都不该有它 */
 const TOKEN = "nzi_SECRET-token-0123456789abcdefghij";
 const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps, ...changes });
-const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", status: "active", ...stamps, ...changes });
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
+const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", role_name: "运营", status: "active", ...stamps, ...changes });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const logOf = (changes: Partial<AuditLog> = {}): AuditLog => ({ id: "7", occurred_at: "2026-10-09T02:02:37.000Z", tenant_id: TENANT_ID, actor: { type: "platform_user", id: ME_ID, email: "kato@example.com" }, ip: "203.0.113.9", source: "console", resource: "tenant", resource_id: TENANT_ID, action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质到期，等补件" }, ...changes });
 const invite = { token: TOKEN, expires_at: "2026-10-16T05:30:00.000Z" };
 

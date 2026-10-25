@@ -36,7 +36,8 @@ before(async () => {
 after(() => api.close());
 
 async function login(entry: "platform" | "tenant", email: string): Promise<string> {
-  const res = await api.call("POST", `/${entry}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } });
+  // 平台员工经测试辅助函数完成两步验证（ADR 0030），拿到的是正常可用的令牌
+  const res = entry === "platform" ? await api.platformLogin({ body: { email, password: TEST_PASSWORD } }) : await api.call("POST", `/${entry}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } });
   assert.equal(res.status, 200, res.text);
   return res.body.access_token as string;
 }

@@ -10,6 +10,18 @@ export const STAFF_LIST_PATH = `${SETTINGS_ROOT}/staff`;
 export const STAFF_NEW_PATH = `${STAFF_LIST_PATH}/new`;
 export const AUDIT_LOG_PATH = `${SETTINGS_ROOT}/audit-logs`;
 export const INTEGRATIONS_PAGE_PATH = `${SETTINGS_ROOT}/integrations`;
+/** 员工详情（改角色、IP 白名单、重置两步验证，ADR 0030） */
+export function staffPath(id: string): string {
+  return `${STAFF_LIST_PATH}/${encodeURIComponent(id)}`;
+}
+/** 角色管理（ADR 0030） */
+export const ROLE_LIST_PATH = `${SETTINGS_ROOT}/roles`;
+export const ROLE_NEW_PATH = `${ROLE_LIST_PATH}/new`;
+export function rolePath(key: string): string {
+  return `${ROLE_LIST_PATH}/${encodeURIComponent(key)}`;
+}
+/** 本人的账号安全（两步验证、恢复码） */
+export const ACCOUNT_SECURITY_PATH = "/platform/account/security";
 
 /** 去审计日志并带着筛选条件：某家供应商、某个操作人、某一个对象。 */
 export function auditLogPath(filter: { tenant?: string; actor?: string; resource?: string; rid?: string } = {}): string {

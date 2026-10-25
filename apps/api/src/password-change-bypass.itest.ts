@@ -38,7 +38,9 @@ before(async () => {
 after(() => api.close());
 
 async function login(entry: Entry, email: string, password: string): Promise<ApiResponse> {
-  const res = await api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
+  // 平台员工经测试辅助函数完成两步验证（ADR 0030：两步验证在前，必须先修改密码在后）
+  const options = { ip: freshIp(), body: { email, password } };
+  const res = entry === "platform" ? await api.platformLogin(options) : await api.call("POST", `/${entry}/v1/auth/login`, options);
   assert.equal(res.status, 200, res.text);
   return res;
 }
@@ -122,6 +124,14 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/staff/${ids.userId}/disable`],
       ["POST", `/platform/v1/staff/${ids.userId}/enable`],
       ["POST", `/platform/v1/staff/${ids.userId}/password-reset`],
+      ["GET", `/platform/v1/staff/${ids.userId}`],
+      ["PATCH", `/platform/v1/staff/${ids.userId}`, { role: "finance", ip_allowlist: ["192.0.2.0/24"] }],
+      ["POST", `/platform/v1/staff/${ids.userId}/mfa-reset`, {}],
+      ["GET", "/platform/v1/roles"],
+      ["POST", "/platform/v1/roles", { name: "不该出现的角色", grants: ["orders:view"] }],
+      ["GET", `/platform/v1/roles/${ids.userId}`],
+      ["DELETE", `/platform/v1/roles/${ids.userId}`],
+      ["POST", `/platform/v1/roles/${ids.userId}/changes`, { name: "不该生效", grants: [] }],
       ["GET", "/platform/v1/tenants"],
       ["POST", "/platform/v1/tenants", { name: "不该出现的车队", admin: { email: `bypass-${randomUUID().slice(0, 8)}@c.test`, name: "某人" } }],
       ["GET", `/platform/v1/tenants/${ids.tenantId}`],

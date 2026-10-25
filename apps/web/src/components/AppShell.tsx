@@ -6,10 +6,12 @@
  * - 账号正在用临时密码、必须先改密码时：不显示侧边栏和菜单按钮，账号菜单里只留「退出登录」。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { isPlatformRole, isTenantRole, platformRoleCan, tenantRoleCan } from "@nozomi/domain";
+import { type PlatformAction, isTenantRole, tenantRoleCan } from "@nozomi/domain";
 import { Link, useLocation } from "react-router";
 import { usePortalSession } from "../auth/PortalSession.tsx";
 import { type Portal, roleName } from "../lib/portal.ts";
+import { ACCOUNT_SECURITY_PATH } from "../lib/platform-paths.ts";
+import { platformAccountCan } from "../lib/use-master-access.ts";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.tsx";
 import { IconButton } from "./Button.tsx";
 import { Dropdown } from "./Dropdown.tsx";
@@ -39,14 +41,14 @@ interface NavGroup {
 type NavEntry = NavLeaf | NavGroup;
 
 /** 菜单只列已经做出来、当前角色有权限看的页面（docs/design/pages/platform-home.md 第 2 节）。 */
-function navEntries(portal: Portal, home: string, role: string | null): NavEntry[] {
+function navEntries(portal: Portal, home: string, role: string | null, platformCan: (action: PlatformAction) => boolean): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
-  if (portal === "platform" && role !== null && isPlatformRole(role) && platformRoleCan(role, "master_data.read")) {
+  if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
+  if (portal === "platform" && platformCan("product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
+  if (portal === "platform" && platformCan("quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
+  if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
+  if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
+  if (portal === "platform" && platformCan("master_data.read")) {
     entries.push({
       key: "master",
       label: "主数据",
@@ -60,12 +62,13 @@ function navEntries(portal: Portal, home: string, role: string | null): NavEntry
       ],
     });
   }
-  if (portal === "platform" && role !== null && isPlatformRole(role)) {
+  if (portal === "platform") {
     // 系统设置：各子项各看各的权限；一项都看不到时整个分组不显示
     const children = [
-      ...(platformRoleCan(role, "staff.read") ? [{ to: "/platform/settings/staff", label: "平台员工", prefix: true }] : []),
-      ...(platformRoleCan(role, "audit_log.read") ? [{ to: "/platform/settings/audit-logs", label: "审计日志", prefix: true }] : []),
-      ...(platformRoleCan(role, "integration.read") ? [{ to: "/platform/settings/integrations", label: "系统状态", prefix: true }] : []),
+      ...(platformCan("staff.read") ? [{ to: "/platform/settings/staff", label: "平台员工", prefix: true }] : []),
+      ...(platformCan("role.read") ? [{ to: "/platform/settings/roles", label: "角色", prefix: true }] : []),
+      ...(platformCan("audit_log.read") ? [{ to: "/platform/settings/audit-logs", label: "审计日志", prefix: true }] : []),
+      ...(platformCan("integration.read") ? [{ to: "/platform/settings/integrations", label: "系统状态", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "settings", label: "系统设置", icon: "settings", children, collapsedByDefault: true });
   }
@@ -153,7 +156,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </>
     );
   }
-  const entries = navEntries(portal.key, portal.paths.home, account.status === "ready" ? account.account.role : null);
+  const ready = account.status === "ready" ? account.account : null;
+  const entries = navEntries(portal.key, portal.paths.home, ready?.role ?? null, (action) => ready !== null && platformAccountCan(ready, action));
   return (
     <>
       {brand}
@@ -172,7 +176,7 @@ function AccountMenu() {
   const { portal, account, signOut, mustChangePassword } = usePortalSession();
   const [signingOut, setSigningOut] = useState(false);
   const ready = account.status === "ready" ? account.account : null;
-  const role = ready ? (roleName(portal.key, ready.role) ?? "—") : null;
+  const role = ready ? (roleName(portal.key, ready.role) ?? ready.roleName ?? "—") : null;
 
   return (
     <Dropdown
@@ -196,6 +200,11 @@ function AccountMenu() {
           <span className="menu-header__detail">{role}</span>
           <span className="menu-header__detail menu-header__email">{ready.email}</span>
         </div>
+      )}
+      {!mustChangePassword && portal.key === "platform" && (
+        <Link role="menuitem" className="menu-item" to={ACCOUNT_SECURITY_PATH}>
+          <span className="menu-item__text">账号安全</span>
+        </Link>
       )}
       {!mustChangePassword && (
         <Link role="menuitem" className="menu-item" to={portal.paths.changePassword}>

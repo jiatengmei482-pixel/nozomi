@@ -2,7 +2,7 @@
  * 运营后台「系统设置 / 平台员工」：列表、新增 / 重新邀请、停用 / 启用、发密码重置链接（docs/design/pages/platform-settings.md 第 2 节）。
  * 列表接口只能翻页：进来时全部取完，搜索和筛选在浏览器里做。新增和发密码重置成功后拿到的令牌只在对话框的内存状态里。
  */
-import { PLATFORM_ROLES, type PlatformRole } from "@nozomi/domain";
+import { PLATFORM_ROLES } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -40,7 +40,7 @@ const roleLabel = (role: string): string => roleName("platform", role) ?? role;
 
 /** 重新邀请时从列表带到新增页的内容（只有姓名、邮箱、角色，没有令牌）。 */
 interface ReinviteState {
-  reinvite: { email: string; name: string; role: PlatformRole };
+  reinvite: { email: string; name: string; role: string };
 }
 
 function Filters() {
@@ -386,7 +386,7 @@ export function StaffNewPage() {
   useDocumentTitle(`${reinvite ? "重新邀请" : "新增员工"} · NOZOMI ${portal.name}`);
   const [email, setEmail] = useState(reinvite?.email ?? "");
   const [name, setName] = useState(reinvite?.name ?? "");
-  const [role, setRole] = useState<PlatformRole | null>(reinvite?.role ?? null);
+  const [role, setRole] = useState<string | null>(reinvite?.role ?? null);
   const [attempted, setAttempted] = useState(false);
   const [working, setWorking] = useState(false);
   const [taken, setTaken] = useState(false);

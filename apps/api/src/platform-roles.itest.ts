@@ -176,7 +176,7 @@ test("数据范围（渠道）：列表只有范围内的；范围外的渠道�
   assert.equal((await api.call("POST", `/platform/v1/approvals/${pauseB.approval.id}/reject`, { token: staff.token, body: {} })).status, 404);
   for (const a of [pauseA, pauseB]) await ok(api.call("POST", `/platform/v1/approvals/${a.approval.id}/withdraw`, { token: m.staff.cm1.token, body: {} }));
 
-  const preview = { city_id: m.ids.tokyo, category: "airport_transfer", place_id: m.ids.narita, direction: "pickup", dropoff: DROPOFF, service_time: SERVICE_TIME, passengers: 2, luggage: 1, currency: "JPY" };
+  const preview = { city_id: m.ids.tokyo, category: "airport_transfer", place_id: m.ids.narita, direction: "pickup", dropoff: DROPOFF, service_time: "2026-10-20T10:00", passengers: 2, luggage: 1, currency: "JPY" };
   assert.equal((await api.call("POST", "/platform/v1/quotes/preview", { token: staff.token, body: { ...preview, channel_id: channelB } })).status, 404);
   assert.equal((await api.call("POST", "/platform/v1/quotes/preview", { token: staff.token, body: { ...preview, channel_id: channelA } })).status, 200);
 });

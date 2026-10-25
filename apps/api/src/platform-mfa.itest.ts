@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { createSuperAdmin } from "./services/platform-staff.ts";
 import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
-import { leakedSecrets, testEnv } from "./testing/fixtures.ts";
+import { FAKE_SECRETS, leakedSecrets, testEnv } from "./testing/fixtures.ts";
+import { issueSession } from "./auth/session.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 import { totpAt } from "./testing/totp.ts";
 
@@ -358,11 +359,11 @@ test("必须先修改密码的账号：先两步验证、再改密码——待�
 
 test("上线时已有的会话（没有两步验证记录）：下一个请求就被引导绑定，用同一个令牌绑定后照常使用", async () => {
   await newAdmin("legacy@platform.test");
-  const { token } = await enrolled("legacy@platform.test");
-  // 模拟迁移之前的状态：账号没绑定、会话没有两步验证记录
-  await api.db.owner.query("update platform_users set totp_secret = null, totp_enabled_at = null, totp_last_step = null where email = 'legacy@platform.test'");
-  await api.db.owner.query("delete from platform_recovery_codes where user_id = (select id from platform_users where email = 'legacy@platform.test')");
-  await api.db.owner.query("update platform_sessions set mfa_verified_at = null, mfa_method = null where user_id = (select id from platform_users where email = 'legacy@platform.test')");
+  // 模拟迁移之前就开着的会话：账号没绑定，会话是迁移之前建的（没有两步验证记录，过期时间是 8 小时）
+  const userId = (await api.db.owner.query("select id from platform_users where email = 'legacy@platform.test'")).rows[0].id as string;
+  const session = issueSession(FAKE_SECRETS.authJwtSecret, { audience: "platform", userId, tenantId: null, role: "super_admin" }, api.clock.now());
+  await api.db.owner.query("insert into platform_sessions (id, user_id, created_at, expires_at) values ($1, $2, $3, $4)", [session.sessionId, userId, session.createdAt, session.expiresAt]);
+  const token = session.accessToken;
   const blocked = await api.call("GET", "/platform/v1/tenants", { token });
   assert.deepEqual(blocked.body.error.details, { status: "enrollment_required" });
   const started = await api.call("POST", "/platform/v1/auth/mfa/enrollment", { token, body: {} });

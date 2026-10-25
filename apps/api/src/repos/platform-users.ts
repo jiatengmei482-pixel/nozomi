@@ -3,6 +3,7 @@
  * 对外返回的 PlatformUser 不含密码哈希和邀请令牌哈希；需要它们的查询单独返回。
  */
 import type { AccountStatus, PlatformDataScope } from "@nozomi/domain";
+import { SESSION_TTL_MS } from "../auth/session.ts";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -349,13 +350,14 @@ export async function insertPlatformSession(db: Db, session: PlatformSession): P
 export type MfaMethod = "totp" | "recovery_code" | "enrollment";
 
 /**
- * 会话完成两步验证：记下时间和方式，过期时间改成令牌本身的过期时间（登录起 8 小时）。
- * 只改还是「待验证」、没过期的会话；返回是否改到了（并发的两次验证只有一次算数）。
+ * 会话完成两步验证：记下时间和方式，过期时间改成令牌本身的过期时间（登录起 8 小时），无论如何不超过建会话起 8 小时
+ * （数据库触发器另有同样的上限）。只改还是「待验证」、没过期的会话；返回是否改到了（并发的两次验证只有一次算数）。
  */
 export async function markPlatformSessionVerified(db: Db, sessionId: string, method: MfaMethod, expiresAt: Date, now: Date): Promise<boolean> {
   const result = await db.query(
-    "update platform_sessions set mfa_verified_at = $2, mfa_method = $3, expires_at = $4 where id = $1 and mfa_verified_at is null and expires_at > $2",
-    [sessionId, now, method, expiresAt],
+    `update platform_sessions set mfa_verified_at = $2, mfa_method = $3, expires_at = least($4::timestamptz, created_at + make_interval(secs => $5))
+      where id = $1 and mfa_verified_at is null and expires_at > $2`,
+    [sessionId, now, method, expiresAt, SESSION_TTL_MS / 1000],
   );
   return (result.rowCount ?? 0) > 0;
 }

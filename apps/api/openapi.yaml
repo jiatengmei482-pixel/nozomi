@@ -8095,7 +8095,7 @@ components:
       properties:
         key:
           type: string
-          enum: [database, auth, stripe, googleMaps, fx]
+          enum: [database, auth, dataEncryption, stripe, googleMaps, fx]
         label:
           type: string
         state:
@@ -8109,7 +8109,7 @@ components:
       properties:
         key:
           type: string
-          enum: [database, auth, stripe, googleMaps, fx]
+          enum: [database, auth, dataEncryption, stripe, googleMaps, fx]
         label:
           type: string
         state:
@@ -8239,11 +8239,37 @@ components:
         ip_allowlist:
           $ref: "#/components/schemas/IpAllowlist"
     StaffDetail:
-      allOf:
-        - $ref: "#/components/schemas/StaffMember"
       type: object
-      required: [role_ip_allowlist, recovery_codes_remaining]
+      additionalProperties: false
+      description: 员工详情：`StaffMember` 的全部字段，加上角色的 IP 白名单、剩余恢复码数
+      required: [id, email, name, role, role_name, status, created_at, updated_at, mfa_enabled, mfa_enabled_at, ip_allowlist, role_ip_allowlist, recovery_codes_remaining]
       properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        mfa_enabled:
+          type: boolean
+        mfa_enabled_at:
+          type: [string, "null"]
+          format: date-time
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
         role_ip_allowlist:
           $ref: "#/components/schemas/IpAllowlist"
         recovery_codes_remaining:

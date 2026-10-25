@@ -54,8 +54,10 @@ after(() => api.close());
 
 type Entry = "platform" | "tenant";
 
+/** 平台员工经测试辅助函数完成两步验证（ADR 0030：两步验证在前，必须先修改密码在后），之后才轮到这里测的「必须先改密码」。 */
 function tryLogin(entry: Entry, email: string, password: string): Promise<ApiResponse> {
-  return api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
+  const options = { ip: freshIp(), body: { email, password } };
+  return entry === "platform" ? api.platformLogin(options) : api.call("POST", `/${entry}/v1/auth/login`, options);
 }
 
 async function login(entry: Entry, email: string, password: string): Promise<ApiResponse> {
@@ -149,7 +151,8 @@ test("遍历全部已注册的路由：必须先改密码的账号，除查看�
     .sort();
   assert.deepEqual([...passed].sort(), expectedPassed, "强制改密期间放行的接口应当恰好是这六个");
   assert.ok(blocked.length >= 16, `被拦的接口数量不对：${blocked.length}`);
-  for (const key of blocked) assert.ok(!key.includes("/auth/"), `${key} 不应被拦`);
+  // auth/ 下只有两步验证的接口被拦（ADR 0030：两步验证已经完成、正在等改密码时，它们按普通接口对待）
+  for (const key of blocked) assert.ok(!key.includes("/auth/") || key.includes("/platform/v1/auth/mfa/"), `${key} 不应被拦`);
 
   for (const entry of ["platform", "tenant"] as const) {
     assert.equal(responses.get(`GET /${entry}/v1/auth/me`)?.status, 200);
@@ -179,13 +182,13 @@ test("平台：用临时密码登录照常成功，登录应答和 auth/me 的�
   await temporarySuperAdmin("first@platform.test");
   const loggedIn = await login("platform", "first@platform.test", TEMPORARY);
   assert.equal(loggedIn.body.must_change_password, true);
-  assert.deepEqual(Object.keys(loggedIn.body).sort(), ["access_token", "expires_at", "must_change_password", "token_type", "user"]);
-  assert.deepEqual(Object.keys(loggedIn.body.user).sort(), ["created_at", "email", "id", "name", "role", "status", "updated_at"]);
+  assert.deepEqual(Object.keys(loggedIn.body).sort(), ["access_token", "expires_at", "must_change_password", "second_factor", "token_type", "user"]);
+  assert.deepEqual(Object.keys(loggedIn.body.user).sort(), ["created_at", "email", "id", "name", "role", "role_name", "status", "updated_at"]);
 
   const me = await api.call("GET", "/platform/v1/auth/me", { token: loggedIn.body.access_token });
   assert.equal(me.status, 200, me.text);
   assert.equal(me.body.must_change_password, true);
-  assert.deepEqual(Object.keys(me.body).sort(), ["must_change_password", "permissions", "user"]);
+  assert.deepEqual(Object.keys(me.body).sort(), ["data_scope", "must_change_password", "permissions", "second_factor", "user"]);
   assert.ok(!("must_change_password" in me.body.user));
   assert.ok(me.body.permissions.includes("tenant.create"), "权限清单照常给出，前端据此准备改密之后的界面");
 

@@ -27,7 +27,7 @@ for (const entry of ["platform", "tenant"] as const) {
   const knownEmail = entry === "platform" ? "root@platform.test" : "admin@a.test";
   const loginUrl = `/${entry}/v1/auth/login`;
   // 平台员工密码对了之后还要做两步验证（ADR 0030）：测试辅助函数把第二步做完，这里的用例照旧只关心密码这一步
-  const signIn = (options: CallOptions): Promise<ApiResponse> => (entry === "platform" ? api.platformLogin(options) : signIn(options));
+  const signIn = (options: CallOptions): Promise<ApiResponse> => (entry === "platform" ? api.platformLogin(options) : api.call("POST", loginUrl, options));
 
   test(`${entry} 登录：邮箱不存在和密码错误，状态码和响应体完全一样`, async () => {
     const ip = freshIp();

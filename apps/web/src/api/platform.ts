@@ -5,7 +5,7 @@
  * 五个发令牌的接口（新建供应商、邀请管理员、给管理员发密码重置、新增员工、给员工发密码重置）：
  * 令牌只在这一次应答里出现。这里只把应答原样交给调用的页面，不缓存、不打日志、不自动重试（重试一次就多发一个令牌、让上一个作废）。
  */
-import type { FxFetchStatus, FxTableState, PlatformRole } from "@nozomi/domain";
+import type { FxFetchStatus, FxTableState } from "@nozomi/domain";
 import { query } from "./areas.ts";
 import { ApiError, apiRequest } from "./client.ts";
 import type { PlatformUser, Tenant, TenantUser } from "./types.ts";
@@ -94,14 +94,22 @@ export function issueTenantAdminReset(token: string, id: string, email: string):
 
 // ───────────── 平台员工 ─────────────
 
-export function listAllStaff(token: string): Promise<{ items: PlatformUser[]; truncated: boolean }> {
-  return listAll<PlatformUser>(token, STAFF_PATH, TENANT_LOAD_MAX);
+/** 员工列表、详情里的员工：多了两步验证是否已绑定、员工自己的 IP 白名单（ADR 0030）。 */
+export interface StaffMember extends PlatformUser {
+  mfa_enabled: boolean;
+  mfa_enabled_at: string | null;
+  ip_allowlist: string[];
+}
+
+export function listAllStaff(token: string): Promise<{ items: StaffMember[]; truncated: boolean }> {
+  return listAll<StaffMember>(token, STAFF_PATH, TENANT_LOAD_MAX);
 }
 
 export interface StaffCreate {
   email: string;
   name: string;
-  role: PlatformRole;
+  /** 内置角色或自建角色的键 */
+  role: string;
 }
 
 export function createStaff(token: string, body: StaffCreate): Promise<{ user: PlatformUser; invite: OneTimeToken }> {
@@ -183,7 +191,8 @@ export function listIntegrations(token: string): Promise<{ items: IntegrationSta
 export const PLATFORM_SCHEMA_FIELDS = {
   Tenant: ["id", "name", "status", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
-  PlatformUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
+  PlatformUser: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at"],
+  StaffMember: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at", "mfa_enabled", "mfa_enabled_at", "ip_allowlist"],
   Invite: ["token", "expires_at"],
   ResetToken: ["token", "expires_at"],
   AuditLog: ["id", "occurred_at", "tenant_id", "actor", "ip", "source", "resource", "resource_id", "action", "before", "after"],
@@ -192,6 +201,7 @@ export const PLATFORM_SCHEMA_FIELDS = {
   Tenant: readonly (keyof Tenant)[];
   TenantUser: readonly (keyof TenantUser)[];
   PlatformUser: readonly (keyof PlatformUser)[];
+  StaffMember: readonly (keyof StaffMember)[];
   Invite: readonly (keyof OneTimeToken)[];
   ResetToken: readonly (keyof OneTimeToken)[];
   AuditLog: readonly (keyof AuditLog)[];

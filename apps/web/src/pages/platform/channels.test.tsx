@@ -3,6 +3,7 @@
  * API 密钥只显示一次、待审核队列里发起人不能审核自己发起的、批准失败时写出原因、报价试算选渠道。
  * 接口用测试替身；真实后端由集成测试和端到端测试 e2e/channels.spec.ts 覆盖。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -28,7 +29,7 @@ const ME_ID = "99999999-9999-4999-8999-999999999999";
 const OTHER_ID = "98989898-9898-4898-8898-989898989898";
 const SECRET = "nzs_THIS-IS-THE-ONE-TIME-SECRET-0123456789abcd";
 
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role: role as PlatformUser["role"], status: "active", ...stamps });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const tenant: Tenant = { id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps };
 const tokyo: City = { id: CITY_ID, code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: [], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 1, ...stamps };

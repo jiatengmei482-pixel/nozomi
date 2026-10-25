@@ -93,6 +93,28 @@ alter table platform_sessions
   add constraint platform_sessions_mfa_complete check ((mfa_verified_at is null) = (mfa_method is null)),
   add constraint platform_sessions_mfa_method check (mfa_method is null or mfa_method in ('totp', 'recovery_code', 'enrollment'));
 
+-- 平台角色可以改会话（完成两步验证时），但只能改这一件事：从「待验证」变成「已验证」，
+-- 过期时间不超过建会话起 8 小时（ADR 0008：会话满 8 小时失效，续不了期）。应用代码写错了也延长不了会话。
+create function platform_sessions_verify_only() returns trigger
+  language plpgsql as $$
+begin
+  if new.id <> old.id or new.user_id <> old.user_id or new.created_at <> old.created_at then
+    raise exception '会话的编号、账号、建立时间不能改' using errcode = 'P0001';
+  end if;
+  if old.mfa_verified_at is not null or new.mfa_verified_at is null then
+    raise exception '会话只能从「待验证」改成「已完成两步验证」一次' using errcode = 'P0001';
+  end if;
+  if new.expires_at > old.created_at + interval '8 hours' then
+    raise exception '会话最长 8 小时' using errcode = 'P0001';
+  end if;
+  return new;
+end
+$$;
+
+create trigger platform_sessions_verify_only
+  before update on platform_sessions
+  for each row execute function platform_sessions_verify_only();
+
 -- ---- 一次性恢复码：只存 SHA-256，用一个少一个 ----
 create table platform_recovery_codes (
   id uuid primary key default gen_random_uuid(),
