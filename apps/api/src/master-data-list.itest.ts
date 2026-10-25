@@ -48,7 +48,7 @@ test("首页统计：空库里全是 0，五种地点类型都列出来；只有
   const res = await get("/platform/v1/dashboard/summary");
   assert.equal(res.status, 200, res.text);
   assert.deepEqual(res.body, {
-    tenants: { total: 0, active: 0, suspended: 0 },
+    tenants: { total: 0, active: 0, suspended: 0, bidding: 0, by_status: { applying: 0, reviewing: 0, signed: 0, trial: 0, active: 0, suspended: 0, terminated: 0 } },
     master_data: {
       cities: EMPTY,
       places: { ...EMPTY, by_type: { airport: EMPTY, station: EMPTY, poi: EMPTY, terminal: EMPTY, exit: EMPTY }, airports_without_city: 0 },
@@ -93,7 +93,7 @@ test("首页统计：数量跟着数据变——租户按状态，主数据按�
 
   const res = await get("/platform/v1/dashboard/summary");
   assert.deepEqual(res.body, {
-    tenants: { total: 2, active: 1, suspended: 1 },
+    tenants: { total: 2, active: 1, suspended: 1, bidding: 1, by_status: { applying: 0, reviewing: 0, signed: 0, trial: 0, active: 1, suspended: 1, terminated: 0 } },
     master_data: {
       cities: { total: 3, active: 2, disabled: 1 },
       places: {

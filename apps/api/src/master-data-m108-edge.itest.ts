@@ -124,7 +124,7 @@ test("首页统计的权限裁剪：十个平台角色各调一次——有 tena
     assert.deepEqual(Object.keys(res.body).sort(), ["fx", "master_data", "tenants"], key);
     assert.deepEqual(Object.keys(res.body.fx).sort(), ["as_of", "held", "last_attempt_status", "locks", "stale_at", "state"], key);
     assert.equal(res.body.tenants !== null, platformRoleCan(key, "tenant.read"), `${key} 的供应商数量`);
-    if (res.body.tenants !== null) assert.deepEqual(Object.keys(res.body.tenants).sort(), ["active", "suspended", "total"], key);
+    if (res.body.tenants !== null) assert.deepEqual(Object.keys(res.body.tenants).sort(), ["active", "bidding", "by_status", "suspended", "total"], key);
     assert.deepEqual(Object.keys(res.body.master_data).sort(), ["addons", "cities", "places", "vehicle_groups"], key);
     assert.deepEqual(Object.keys(res.body.master_data.places).sort(), ["active", "airports_without_city", "by_type", "disabled", "total"], key);
     assert.doesNotMatch(res.text, /甲车队|乙车队|admin@|Sample Airport|CTY-|东京/, `${key}：只有数量，没有明细`);

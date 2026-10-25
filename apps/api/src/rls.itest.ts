@@ -174,7 +174,8 @@ test("结构检查：每张带 tenant_id 的表都开启了行级安全并且有
       order by 1`,
   );
   assert.deepEqual(tables.rows.map((r) => r.table_name), [
-    "adjust_rules", "area_polygons", "areas", "audit_logs", "brands", "idempotency_keys", "inventory_days", "order_events", "orders", "price_rules", "product_areas", "product_dispatchers", "product_vehicle_groups", "products", "tenant_sessions", "tenant_users",
+    "adjust_rules", "area_polygons", "areas", "audit_logs", "brands", "idempotency_keys", "inventory_days", "order_events", "order_reviews", "orders", "price_rules", "product_areas", "product_dispatchers", "product_vehicle_groups", "products",
+    "tenant_contracts", "tenant_documents", "tenant_files", "tenant_notices", "tenant_performance_events", "tenant_profiles", "tenant_score_daily", "tenant_sessions", "tenant_status_events", "tenant_users",
   ]);
   for (const table of tables.rows) {
     assert.equal(table.rls, true, `${table.table_name} 没有开启行级安全`);

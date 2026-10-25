@@ -65,6 +65,7 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: `/platform/v1/tenants/${MISSING}/performance`, action: "tenant.read" },
   { method: "GET", url: "/platform/v1/tenant-documents", action: "tenant.read" },
   { method: "GET", url: `/platform/v1/tenants/${MISSING}/files/${MISSING}`, action: "tenant.review" },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/files`, action: "tenant.review", body: {} },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/approve`, action: "tenant.review", body: {} },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/reject`, action: "tenant.review", body: { reason: "测试" } },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/request-supplement`, action: "tenant.review", body: { reason: "测试" } },
@@ -155,7 +156,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);

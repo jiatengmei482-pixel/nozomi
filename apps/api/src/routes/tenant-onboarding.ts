@@ -394,7 +394,8 @@ export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppCon
 
     scoped.post("/platform/v1/tenants/:id/files", upload, async (request, reply) => {
       const principal = await platformAuth(request, "tenant.review");
-      return reply.code(201).send(fileJson(await uploadContractFile(ctx, principal, resourceId(request.params, "供应商"), uploadInput(request), request.ip)));
+      const id = resourceId(request.params, "供应商");
+      return reply.code(201).send(fileJson(await uploadContractFile(ctx, principal, id, uploadInput(request), request.ip)));
     });
 
     scoped.get("/platform/v1/tenant-documents", async (request) => {
@@ -411,8 +412,10 @@ export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppCon
     const decide = (path: string, decision: "approve" | "reject" | "request_supplement"): void => {
       scoped.post(`/platform/v1/tenants/:id/documents/:documentId/${path}`, async (request) => {
         const principal = await platformAuth(request, "tenant.review");
+        const tenantId = resourceId(request.params, "供应商");
+        const documentId = secondId(request.params, "documentId", "资质");
         const input = decision === "approve" ? { reason: null, ...withExpiry(parseInput(approveSchema, request.body ?? {}, "body")) } : { reason: parseInput(decisionSchema, request.body, "body").reason };
-        const result = await reviewDocument(ctx, principal, resourceId(request.params, "供应商"), secondId(request.params, "documentId", "资质"), decision, input, request.ip);
+        const result = await reviewDocument(ctx, principal, tenantId, documentId, decision, input, request.ip);
         return { document: documentJson(result.document, true), tenant: tenantJson(result.tenant) };
       });
     };
@@ -422,21 +425,24 @@ export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppCon
 
     scoped.post("/platform/v1/tenants/:id/contracts", async (request, reply) => {
       const principal = await platformAuth(request, "tenant.review");
+      const id = resourceId(request.params, "供应商");
       const input = parseInput(contractSchema, request.body, "body");
-      const approval = await requestContract(ctx, principal, resourceId(request.params, "供应商"), { validFrom: input.valid_from, settleCurrency: input.settle_currency, fileId: input.file_id, note: input.note }, request.ip);
+      const approval = await requestContract(ctx, principal, id, { validFrom: input.valid_from, settleCurrency: input.settle_currency, fileId: input.file_id, note: input.note }, request.ip);
       return reply.code(202).send(approvalResponse(approval, principal));
     });
 
     scoped.post("/platform/v1/tenants/:id/sign", async (request) => {
       const principal = await platformAuth(request, "tenant.change_status");
+      const id = resourceId(request.params, "供应商");
       const input = parseInput(noteSchema, request.body ?? {}, "body");
-      return tenantJson(await signTenant(ctx, principal, resourceId(request.params, "供应商"), input.note, request.ip));
+      return tenantJson(await signTenant(ctx, principal, id, input.note, request.ip));
     });
 
     scoped.post("/platform/v1/tenants/:id/start-trial", async (request) => {
       const principal = await platformAuth(request, "tenant.change_status");
+      const id = resourceId(request.params, "供应商");
       const input = parseInput(startTrialSchema, request.body, "body");
-      return tenantJson(await startTrial(ctx, principal, resourceId(request.params, "供应商"), input.test_order_note, request.ip));
+      return tenantJson(await startTrial(ctx, principal, id, input.test_order_note, request.ip));
     });
 
     scoped.post("/platform/v1/tenants/:id/suspend", async (request, reply) => {
@@ -448,8 +454,9 @@ export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppCon
 
     scoped.post("/platform/v1/tenants/:id/resume", async (request) => {
       const principal = await platformAuth(request, "tenant.change_status");
+      const id = resourceId(request.params, "供应商");
       const input = parseInput(noteSchema, request.body ?? {}, "body");
-      return tenantJson(await resumeTenant(ctx, principal, resourceId(request.params, "供应商"), input.note, request.ip));
+      return tenantJson(await resumeTenant(ctx, principal, id, input.note, request.ip));
     });
 
     scoped.post("/platform/v1/tenants/:id/terminate", async (request, reply) => {
