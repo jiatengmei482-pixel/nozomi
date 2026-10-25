@@ -4,17 +4,21 @@
  * - `POST /sales/v1/oauth/token`：OAuth 2.0 Client Credentials，换 2 小时的访问令牌（JSON 或表单都行）。
  * - `POST /sales/v1/quotes`：询价。渠道只来自令牌；只比渠道授权的租户、城市、品类；每个渠道每秒 50 次。
  * - `GET /sales/v1/quotes/{quote_id}`：下单前确认报价仍有效（过期 410 `QUOTE_EXPIRED`）；只查得到本渠道的。每个渠道每秒 10 次。
- * 应答里没有中标租户、结算价、加价比例。
+ * - `POST /sales/v1/orders`：用 quote_id 下单（M3-01，ADR 0026），必须带 Idempotency-Key；应答里有给前端确认付款用的 Stripe client_secret。每个渠道每秒 10 次。
+ * - `GET /sales/v1/orders/{id}`：查本渠道的订单；付款成功后（渠道设置了展示时）才有中标租户名。
+ * 应答里没有结算价、加价比例；付款前没有中标租户。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
+import { MESSAGING_APPS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, TRIP_DIRECTIONS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
 import { authenticateSales, issueSalesToken } from "../services/sales-auth.ts";
 import { type SalesPoint, type SalesQuote, createSalesQuotes, getSalesQuote, salesMoney } from "../services/sales-quotes.ts";
-import { dateTimeSchema, parseInput, uuidSchema } from "../validation.ts";
+import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView } from "../services/orders.ts";
+import { dateTimeSchema, idempotencyKey, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { orderTripJson } from "./orders.ts";
 
 const tokenSchema = z.object({ grant_type: z.literal("client_credentials"), client_id: z.string().min(1).max(100), client_secret: z.string().min(1).max(200) }).strict();
 
@@ -44,6 +48,22 @@ const quoteSchema = z
 
 const quoteIdSchema = /^QT\d{8}[0-9A-Z]{10}$/;
 
+const text = (max: number) => z.string().max(max).nullable().default(null);
+const orderSchema = z
+  .object({
+    quote_id: z.string().regex(quoteIdSchema, "不是 quote_id 的格式（QT + 日期 + 10 位）"),
+    passenger: z.object({ name: z.string().max(200), phone: z.string().max(40), email: z.string().max(320) }).strict(),
+    flight_no: text(20),
+    pickup_address: text(1_000),
+    dropoff_address: text(1_000),
+    messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
+    notes: text(2_000),
+    channel_order_no: text(200),
+    // 客人勾选「同意保存支付方式，用于服务后加收」（第五轮决策 ⑤）；没勾不能下单
+    save_payment_method: z.boolean(),
+  })
+  .strict();
+
 function point(input: z.output<typeof pointSchema> | null): SalesPoint | null {
   if (input === null) return null;
   return "place_id" in input ? { placeId: input.place_id } : { lng: input.lng, lat: input.lat };
@@ -61,6 +81,23 @@ function quoteJson(quote: SalesQuote): Record<string, unknown> {
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
   };
+}
+
+function salesOrderJson(view: SalesOrderView): Record<string, unknown> {
+  const { order, sale, payment } = view;
+  return {
+    ...orderTripJson(order),
+    quote_id: sale.quoteId,
+    channel_order_no: sale.channelOrderNo,
+    price: { total: salesMoney(sale.sellMinor, sale.currency), fx: sale.fx === null ? null : { rate: sale.fx.rate, as_of: sale.fx.asOf } },
+    payment_status: payment?.status ?? "creating",
+    payment_due_at: order.paymentDueAt.toISOString(),
+    winning_tenant: view.winningTenant,
+  };
+}
+
+function paymentJson(payment: SalesOrderPayment): Record<string, unknown> {
+  return { provider: payment.provider, status: payment.status, client_secret: payment.clientSecret, publishable_key: payment.publishableKey };
 }
 
 export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -103,6 +140,40 @@ export function registerSalesRoutes(app: FastifyInstance, ctx: AppContext): void
       { log: request.log, request: { ...input, service_time: input.service_time.toISOString() } },
     );
     return { quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+  });
+
+  app.post("/sales/v1/orders", async (request, reply) => {
+    const principal = await channel(request, "other");
+    const key = idempotencyKey(request.headers["idempotency-key"]);
+    const input = parseInput(orderSchema, request.body, "body");
+    const created = await createSalesOrder(
+      ctx,
+      principal,
+      {
+        quoteId: input.quote_id,
+        idempotencyKey: key,
+        details: {
+          passenger: input.passenger,
+          flightNo: input.flight_no,
+          pickupAddress: input.pickup_address,
+          dropoffAddress: input.dropoff_address,
+          messaging: input.messaging,
+          notes: input.notes,
+          channelOrderNo: input.channel_order_no,
+          savePaymentMethodConsent: input.save_payment_method,
+        },
+      },
+      request.log,
+    );
+    if (created.replayed) reply.header("idempotent-replayed", "true");
+    return reply.code(201).send({ order: salesOrderJson(created.view), payment: paymentJson(created.payment) });
+  });
+
+  app.get("/sales/v1/orders/:id", async (request) => {
+    const principal = await channel(request, "other");
+    const view = await getSalesOrderView(ctx, principal.channelId, resourceId(request.params, "订单"));
+    if (view === null) throw new AppError(404, "NOT_FOUND", "订单不存在");
+    return { order: salesOrderJson(view) };
   });
 
   app.get("/sales/v1/quotes/:id", async (request) => {

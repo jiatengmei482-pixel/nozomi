@@ -4,6 +4,7 @@
  */
 import type { AppConfig } from "@nozomi/config";
 import type { Pool } from "./db/pool.ts";
+import type { PaymentProvider } from "./integrations/payments.ts";
 import type { FxCenter } from "./services/fx-center.ts";
 import type { QuoteDeps } from "./services/quote-deps.ts";
 
@@ -15,4 +16,6 @@ export interface AppContext {
   quote: QuoteDeps;
   /** 汇率中心：拉取、确认、过期告警、给报价引擎的汇率（ADR 0022） */
   fx: FxCenter;
+  /** 收款服务（Stripe，ADR 0026）；Stripe 没配置时为 null：不能下单，/health 和 config:check 显示「未配置」 */
+  payments: PaymentProvider | null;
 }
