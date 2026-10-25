@@ -260,3 +260,76 @@ test("M1-17 待审核：改对外价取整时「改之后」只写一遍币种�
   assert.deepEqual([...row.querySelectorAll("td")].map((cell) => cell.textContent), ["不取整", "向上取整到 JPY 100"]);
   assert.doesNotMatch(document.body.textContent ?? "", /JPY JPY/);
 });
+
+const cityOf = (id: string, code: string, country: string, name: City["name"], status: City["status"] = "active"): City => ({ ...tokyo, id, code, country_code: country, name, status });
+const OSAKA = cityOf("22222222-2222-4222-8222-222222222222", "CTY-JP-OSA", "JP", { zh: "大阪", ja: "大阪", en: "Osaka" });
+const SAPPORO = cityOf("33333333-3333-4333-8333-333333333333", "CTY-JP-SPK", "JP", { zh: "札幌", en: "Sapporo" });
+const SEOUL = cityOf("44444444-4444-4444-8444-444444444444", "CTY-KR-SEL", "KR", { en: "Seoul", ko: "서울" });
+const NAGOYA_OFF = cityOf("66666666-6666-4666-8666-666666666666", "CTY-JP-NGO", "JP", { zh: "名古屋" }, "disabled");
+const manyCities = (call: ApiCall & { url: URL }): Response | null => (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities" ? page([SAPPORO, tokyo, SEOUL, NAGOYA_OFF, OSAKA]) : null);
+const optionNames = (listbox: HTMLElement): string[] => within(listbox).queryAllByRole("option").map((option) => option.querySelector(".combobox__option-label")?.textContent ?? "");
+
+test("M1-17 新建渠道「只卖选中的城市」：城市按国家分组、按名称排，可以输入名称或编码找，选上的是可以去掉的标签；停用的不列", async () => {
+  const actor = user();
+  const calls = open("/platform/channels/new", "channel_manager", (call) => manyCities(call) ?? (call.method === "POST" && call.url.pathname === "/platform/v1/channels" ? json(201, detailOf()) : null));
+  await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
+  await actor.click(screen.getByRole("radio", { name: /^自营/ }));
+  await actor.click(screen.getByRole("radio", { name: "只卖选中的城市" }));
+  const box = await screen.findByRole("combobox", { name: /城市/ });
+  await actor.click(box);
+  const listbox = screen.getByRole("listbox", { name: "城市" });
+  await waitFor(() => assert.deepEqual(optionNames(listbox), ["Seoul", "大阪", "东京", "札幌"]));
+  assert.deepEqual([...listbox.querySelectorAll(".combobox__group")].map((node) => node.textContent), ["韩国（KR）", "日本（JP）"]);
+  await actor.type(box, "spk{Enter}");
+  await actor.type(box, "东京{Enter}");
+  const chips = screen.getByRole("list", { name: "已选的城市（2 个）" });
+  assert.deepEqual(within(chips).getAllByRole("listitem").map((item) => item.textContent), ["札幌", "东京"]);
+  await actor.click(box);
+  await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["Seoul", "大阪"], "选过的不再列出"));
+  await actor.keyboard("{Escape}");
+  await actor.click(within(chips).getByRole("button", { name: "去掉 札幌" }));
+  await waitFor(() => assert.equal(document.activeElement, screen.getByRole("button", { name: "去掉 东京" }), "焦点移到下一个标签"));
+  await actor.click(screen.getByRole("button", { name: "新建" }));
+  await waitFor(() => assert.equal(posts(calls).length, 1));
+  assert.deepEqual((posts(calls)[0]?.body as Record<string, any>)["scope"]["city_ids"], [CITY_ID]);
+});
+
+test("M1-17 新建渠道：选了「只卖选中的城市」却一个没选，提交时拦下", async () => {
+  const actor = user();
+  const calls = open("/platform/channels/new", "channel_manager", manyCities);
+  await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
+  await actor.click(screen.getByRole("radio", { name: /^自营/ }));
+  await actor.click(screen.getByRole("radio", { name: "只卖选中的城市" }));
+  assert.ok(await screen.findByText("还没有选城市"));
+  await actor.click(screen.getByRole("button", { name: "新建" }));
+  assert.ok(await screen.findByText("请至少选一个城市；全部城市都卖请选「全部城市」"));
+  assert.deepEqual(posts(calls), []);
+});
+
+test("M1-17 加价规则的城市：只列渠道授权的城市（按名称排、可搜索）；渠道卖全部城市时列平台启用中的全部", async () => {
+  const actor = user();
+  const scoped = detailOf({ channel: channelOf({ scope: { ...channelOf().scope, cities: [{ id: OSAKA.id, name: "大阪" }, { id: CITY_ID, name: "东京" }] } }) });
+  const calls = open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", (call) => manyCities(call) ?? (call.method === "GET" && call.url.pathname === `/platform/v1/channels/${CHANNEL_ID}` ? json(200, scoped) : call.method === "POST" && call.url.pathname.endsWith("/markup-rules") ? json(202, { approval: approvalOf({ kind: "markup_rule.create" }) }) : null));
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  const dialog = await screen.findByRole("dialog", { name: "新增加价规则" });
+  const city = within(dialog).getByRole("combobox", { name: /城市/ });
+  assert.ok(within(dialog).getByText("只列这个渠道授权卖的 2 个城市。要加别的城市，先在「编辑基本信息和授权范围」里授权。"));
+  await actor.click(city);
+  await waitFor(() => assert.deepEqual(optionNames(within(dialog).getByRole("listbox", { name: "城市" })), ["大阪", "东京"]));
+  await actor.type(city, "tyo{Enter}");
+  assert.equal((city as HTMLInputElement).value, "东京");
+  await actor.selectOptions(within(dialog).getByRole("combobox", { name: "品类" }), "airport_transfer");
+  await actor.type(within(dialog).getByRole("textbox", { name: "加价比例（%）" }), "12");
+  await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
+  await waitFor(() => assert.equal(posts(calls).length, 1));
+  assert.equal((posts(calls)[0]?.body as any).city_id, CITY_ID);
+
+  resetBrowser();
+  open(`/platform/channels/${CHANNEL_ID}`, "channel_manager", manyCities);
+  await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
+  await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
+  const all = await screen.findByRole("dialog", { name: "新增加价规则" });
+  await actor.click(within(all).getByRole("combobox", { name: /城市/ }));
+  await waitFor(() => assert.deepEqual(optionNames(within(all).getByRole("listbox", { name: "城市" })), ["Seoul", "大阪", "东京", "札幌"], "停用的名古屋不列"));
+});

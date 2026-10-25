@@ -4,9 +4,11 @@
  */
 import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
 import type { ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
+import type { City } from "../api/master.ts";
+import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
-import { SERVICE_CATEGORY_NAMES } from "./master-display.ts";
+import { SERVICE_CATEGORY_NAMES, countryLabel, displayName } from "./master-display.ts";
 import { moneyText } from "./product-display.ts";
 
 export const CHANNELS_PAGE_PATH = "/platform/channels";
@@ -135,4 +137,17 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
 
 export function categoriesText(categories: readonly ServiceCategory[]): string {
   return categories.length === 3 ? "全部品类" : categories.map((category) => SERVICE_CATEGORY_NAMES[category]).join("、");
+}
+
+const NAME_ORDER = new Intl.Collator("zh-Hans-CN-u-co-pinyin", { numeric: true });
+
+/**
+ * 渠道表单、加价规则里选城市的选项（M1-17）：按国家分组，组里按显示名排（中文按拼音），右边写编码；
+ * 用任意一种语言的名称、编码、国家都能筛。
+ */
+export function cityChoices(cities: readonly City[]): ComboboxOption[] {
+  return cities
+    .map((city) => ({ city, name: displayName(city.name).text, country: countryLabel(city.country_code) }))
+    .sort((a, b) => NAME_ORDER.compare(a.country, b.country) || NAME_ORDER.compare(a.name, b.name) || a.city.code.localeCompare(b.city.code))
+    .map(({ city, name, country }) => ({ value: city.id, label: city.status === "active" ? name : `${name}（已停用）`, detail: city.code, group: country, keywords: `${Object.values(city.name).join(" ")} ${country}` }));
 }

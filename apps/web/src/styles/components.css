@@ -706,3 +706,16 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* 组合框的多选：已选的小标签排在输入框下面（M1-17） */
+.multi-combobox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.multi-combobox__chips {
+  padding: 0;
+  list-style: none;
+}
