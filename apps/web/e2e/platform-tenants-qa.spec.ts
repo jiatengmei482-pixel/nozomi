@@ -6,7 +6,7 @@
  */
 import { type APIRequestContext, type Browser, type Page, type Request, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, clickLogin, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 type Headers = Record<string, string>;
@@ -118,7 +118,7 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   expect(page.url().includes(token), "设好密码后地址栏里不留令牌").toBe(false);
   expect(await page.evaluate((secret) => JSON.stringify(history.state ?? null).includes(secret) || document.body.innerHTML.includes(secret), token)).toBe(false);
   await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(portal === "tenant" ? "/" : "/platform");
   return { page, password };

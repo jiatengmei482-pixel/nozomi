@@ -26,6 +26,8 @@ import { E2E_FX_RATES } from "./support.ts";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const START_TIMEOUT_MS = 30_000;
+/** 准备几个超级管理员：每个用例按编号固定用其中一个（见 support.ts 的 adminCredentials） */
+const E2E_ADMIN_SLOTS = 24;
 
 interface Running {
   name: string;
@@ -188,9 +190,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     apiEnv["FX_SOURCE_URL"] = fxSource.url;
     apiEnv["FX_AUTO_FETCH"] = "true";
 
-    const adminEmail = `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`;
-    const adminPassword = `E2e-${randomBytes(18).toString("base64url")}-9z`;
-    await runAdminCreate(apiEnv, adminEmail, "端到端测试管理员", adminPassword);
+    // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
+    const admins = Array.from({ length: E2E_ADMIN_SLOTS }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));
+    for (const admin of admins) await runAdminCreate(apiEnv, admin.email, "端到端测试管理员", admin.password);
+    const adminEmail = (admins[0] as { email: string }).email;
+    const adminPassword = (admins[0] as { password: string }).password;
 
     const tileOrigin = `http://127.0.0.1:${E2E_TILE_PORT}`;
     tileServer = await startTileServer(E2E_TILE_PORT);
@@ -216,10 +220,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     started.push(web);
     await waitUntilUp(web, `http://127.0.0.1:${E2E_WEB_PORT}/login`);
 
+    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码
+    for (const admin of admins) admin.secret = await enrollAdmin(apiOrigin, admin.email, admin.password);
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
-    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码
-    process.env["E2E_ADMIN_TOTP_SECRET"] = await enrollAdmin(apiOrigin, adminEmail, adminPassword);
+    process.env["E2E_ADMINS"] = JSON.stringify(admins);
     process.env["E2E_DATABASE_URL"] = database.url;
   } catch (err) {
     await teardown();

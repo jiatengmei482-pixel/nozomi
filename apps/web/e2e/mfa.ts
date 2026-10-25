@@ -21,7 +21,8 @@ export function rememberSecret(email: string, secret: string): void {
 }
 
 export function secretOf(email: string): string {
-  const fromEnv = process.env["E2E_ADMIN_EMAIL"]?.toLowerCase() === email.toLowerCase() ? process.env["E2E_ADMIN_TOTP_SECRET"] : undefined;
+  const admins = JSON.parse(process.env["E2E_ADMINS"] ?? "[]") as { email: string; secret: string }[];
+  const fromEnv = admins.find((admin) => admin.email.toLowerCase() === email.toLowerCase())?.secret;
   const secret = secrets.get(email.toLowerCase()) ?? fromEnv;
   if (!secret) throw new Error(`${email} 绑定过两步验证，但测试不知道它的密钥`);
   return secret;
@@ -105,7 +106,7 @@ export async function uiSecondFactor(page: Page, email: string, status: string):
   await withFreshCode(secret, async (code) => {
     await page.getByLabel("动态码").fill(code);
     const responded = page.waitForResponse((response) => response.url().endsWith("/platform/v1/auth/mfa/verify"));
-    await page.getByRole("button", { name: "验证" }).click();
+    await page.getByRole("button", { name: "验证", exact: true }).click();
     const response = await responded;
     if (response.status() === 400 && ((await response.json()) as { error: { code: string } }).error.code === "MFA_CODE_REUSED") return { reused: true };
     return { reused: false, value: undefined };

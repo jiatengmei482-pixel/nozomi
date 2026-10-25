@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { type APIRequestContext, type Page, expect } from "@playwright/test";
+import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { platformApiLogin, uiSecondFactor } from "./mfa.ts";
 
 /** 假汇率源给的汇率（global-setup 起的本机假服务器；端到端测试里现场给的数，不是业务数据）。 */
@@ -19,11 +19,21 @@ export const VIEWPORTS = {
   desktop: { width: 1280, height: 800 },
 } as const;
 
+/**
+ * 这个用例用的平台超级管理员。global-setup 准备了一批，每个用例按自己的编号固定用其中一个（同一个用例里每次拿到的都是同一个人）：
+ * 同一个人同一个 30 秒里的动态码只能用一次（ADR 0030），用例都抢同一个人会互相顶掉、要等下一个时间窗。
+ */
 export function adminCredentials(): { email: string; password: string } {
-  const email = process.env["E2E_ADMIN_EMAIL"];
-  const password = process.env["E2E_ADMIN_PASSWORD"];
-  if (!email || !password) throw new Error("global-setup 没有准备好平台管理员账号");
-  return { email, password };
+  const admins = JSON.parse(process.env["E2E_ADMINS"] ?? "[]") as { email: string; password: string }[];
+  let seed = Number(process.env["TEST_PARALLEL_INDEX"] ?? 0);
+  try {
+    seed = [...test.info().testId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7);
+  } catch {
+    // 不在用例里（不会发生）：按进程编号选
+  }
+  const admin = admins[seed % Math.max(admins.length, 1)];
+  if (!admin) throw new Error("global-setup 没有准备好平台管理员账号");
+  return { email: admin.email, password: admin.password };
 }
 
 /** 一个符合强度规则、每次不同的密码。 */
@@ -40,17 +50,21 @@ async function okJson<T>(response: Awaited<ReturnType<APIRequestContext["post"]>
   return (await response.json()) as T;
 }
 
-/** 本进程里平台管理员的令牌（登录并完成两步验证一次，之后复用：令牌 8 小时有效，够一次运行用）。 */
-let adminToken: Promise<string> | null = null;
+/** 本进程里各个平台管理员的令牌（每人登录并完成两步验证一次，之后复用：令牌 8 小时有效，够一次运行用）。 */
+const adminTokens = new Map<string, Promise<string>>();
 
 /** 以平台管理员身份直接调 API（准备数据用），返回带令牌的请求头。 */
 export async function platformAdminHeaders(request: APIRequestContext): Promise<Record<string, string>> {
   const { email, password } = adminCredentials();
-  adminToken ??= platformApiLogin(request, email, password).catch((err: unknown) => {
-    adminToken = null;
-    throw err;
-  });
-  return { authorization: `Bearer ${await adminToken}` };
+  let token = adminTokens.get(email);
+  if (token === undefined) {
+    token = platformApiLogin(request, email, password).catch((err: unknown) => {
+      adminTokens.delete(email);
+      throw err;
+    });
+    adminTokens.set(email, token);
+  }
+  return { authorization: `Bearer ${await token}` };
 }
 
 export interface InvitedTenant {
@@ -93,12 +107,10 @@ export async function suspendTenant(request: APIRequestContext, tenantId: string
 }
 
 /**
- * 填登录表单并提交。运营后台密码正确时接着在页面上完成两步验证（ADR 0030：绑定或输入动态码，见 mfa.ts），
+ * 点「登录」。运营后台密码正确时接着在页面上完成两步验证（ADR 0030：绑定或输入动态码，见 mfa.ts），
  * 除非 `secondFactor: "manual"`（测两步验证页面本身的用例自己操作）。密码不对、被拦下时什么也不多做。
  */
-export async function fillLogin(page: Page, email: string, password: string, options: { secondFactor?: "auto" | "manual" } = {}): Promise<void> {
-  await page.getByLabel("邮箱").fill(email);
-  await page.getByLabel("密码", { exact: true }).fill(password);
+export async function clickLogin(page: Page, email: string, options: { secondFactor?: "auto" | "manual" } = {}): Promise<void> {
   const responded = page.waitForResponse((response) => response.url().endsWith("/platform/v1/auth/login") && response.request().method() === "POST", { timeout: 15_000 }).catch(() => null);
   await page.getByRole("button", { name: "登录" }).click();
   if (!page.url().includes("/platform/") || options.secondFactor === "manual") return;
@@ -106,6 +118,13 @@ export async function fillLogin(page: Page, email: string, password: string, opt
   if (response === null || response.status() !== 200) return;
   const status = ((await response.json().catch(() => null)) as { second_factor?: { status?: string } } | null)?.second_factor?.status;
   if (status === "enrollment_required" || status === "verify_required") await uiSecondFactor(page, email, status);
+}
+
+/** 填登录表单并提交（运营后台接着完成两步验证，见 `clickLogin`）。 */
+export async function fillLogin(page: Page, email: string, password: string, options: { secondFactor?: "auto" | "manual" } = {}): Promise<void> {
+  await page.getByLabel("邮箱").fill(email);
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await clickLogin(page, email, options);
 }
 
 export async function loginAs(page: Page, portal: "tenant" | "platform", email: string, password: string): Promise<void> {

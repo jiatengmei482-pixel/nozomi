@@ -7,7 +7,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { nextCode, platformApiLogin, rememberSecret } from "./mfa.ts";
-import { fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 const menu = (page: Page) => page.getByRole("navigation", { name: "主菜单" }).first();
 
@@ -56,7 +56,7 @@ test("新员工第一次登录必须绑定两步验证：扫码页、输一次�
   await expect(page.getByRole("heading", { level: 1, name: "两步验证" })).toBeVisible();
   await page.getByRole("button", { name: "手机不在身边？用恢复码" }).click();
   await page.getByLabel("恢复码").fill(recovery);
-  await page.getByRole("button", { name: "验证" }).click();
+  await page.getByRole("button", { name: "验证", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
 
   // 个人页能看到剩下 9 个恢复码
@@ -69,7 +69,7 @@ test("新员工第一次登录必须绑定两步验证：扫码页、输一次�
 test("自建角色：超级管理员勾选「渠道 · 查看」新建角色，把员工改成它；员工的菜单立即只剩首页和渠道", async ({ page, browser, request }) => {
   test.setTimeout(120_000);
   const staff = await invitedStaff(request, "readonly");
-  const admin = { email: process.env["E2E_ADMIN_EMAIL"] ?? "", password: process.env["E2E_ADMIN_PASSWORD"] ?? "" };
+  const admin = adminCredentials();
   await loginAs(page, "platform", admin.email, admin.password);
   await page.goto("/platform/settings/roles");
   await expect(page.getByRole("heading", { level: 1, name: "角色" })).toBeVisible();

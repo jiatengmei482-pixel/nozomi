@@ -40,6 +40,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
 `密码 → 两步验证（第一次是绑定）→ 必须修改密码时先改密码 → 正常使用`，规则是 domain 的 `platformSessionRefusal`：
 
 - 密码正确就建会话、发令牌（ADR 0013 的做法：令牌只是会话的凭证），但这个会话是「待验证」的：过期时间先是 15 分钟（够装好 App 并绑定；过了重新输密码）；完成两步验证后同一个令牌恢复正常，会话延长到令牌本身的过期时间（登录起 8 小时，ADR 0008 不变）。
+- 平台角色因此要能改会话（ADR 0010 的授权多了 `platform_sessions` 的 update），但数据库触发器只放行一种改法：从「待验证」改成「已验证」一次，过期时间不超过建会话起 8 小时——应用代码写错了也延长不了会话（ADR 0008「续不了期」不变；`db-roles.itest.ts`、`token-attacks.itest.ts` 有测试）。
 - 登录应答和 `auth/me` 多一个 `second_factor.status`：`enrollment_required`（还没绑定，先绑定）/ `verify_required`（输入动态码）/ `verified`。
 - 待验证的会话只能用：`auth/me`、`auth/logout`（用途 `self_service`）和两步验证本身（`auth/mfa/verify`、`auth/mfa/enrollment`、`auth/mfa/enrollment/confirm`，用途 `second_factor`）。其余一律 403 `MFA_REQUIRED`（`details.status` 告诉前端去绑定还是去输入动态码）。**修改密码也要先完成两步验证**——否则只知道密码的人能改掉密码把本人锁在门外。
 - 完成两步验证后，账号必须先修改密码时（ADR 0013）照旧只放行 `self_service` 和 `auth/change-password`（用途 `password_change`）。

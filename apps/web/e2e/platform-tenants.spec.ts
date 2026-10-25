@@ -5,7 +5,7 @@
  */
 import { type Browser, type ConsoleMessage, type Page, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { adminCredentials, clickLogin, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -55,7 +55,7 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   await page.getByRole("button", { name: /^设置(新)?密码并继续$/ }).click();
   await expect(page.getByLabel("邮箱")).toHaveValue(email);
   await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(portal === "tenant" ? "/" : "/platform");
   return { page, password };
