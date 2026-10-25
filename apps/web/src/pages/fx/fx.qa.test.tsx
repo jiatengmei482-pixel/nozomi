@@ -43,10 +43,13 @@ const board = (overrides: Partial<FxOverview> = {}): FxOverview => ({
   max_age_hours: 48,
   jump_threshold_bp: 300,
   source: "open.er-api.com",
-  rates: [{ currency: "JPY", rate: "151.21" }],
+  rates: [{ currency: "JPY", rate: "151.21", central_rate: "151.21", locked: false }],
   cross: [],
   source_status: { host: "open.er-api.com", auto_fetch: true, last_attempt: record(), last_success_at: "2026-10-14T00:10:01.000Z", next_fetch_at: "2026-10-14T12:10:01.000Z" },
   held: null,
+  locks: [],
+  pending_locks: [],
+  lock_rules: { max_hours: 72, min_minutes: 30, reason_above_bp: 300, max_deviation_bp: 2000 },
   ...overrides,
 });
 const emptyHistory: FxHistory = { base: "USD", from: "2026-09-14T00:00:00.000Z", to: "2026-10-14T01:00:00.000Z", series: [{ currency: "JPY", points: [] }] };
@@ -63,6 +66,7 @@ function open(role: string, routes: Route = () => null): ApiCall[] {
     if (call.url.pathname === "/platform/v1/fx-rates") return json(200, board());
     if (call.url.pathname === "/platform/v1/fx-rates/history") return json(200, emptyHistory);
     if (call.url.pathname === "/platform/v1/fx-rates/fetches") return json(200, { items: [] });
+    if (call.url.pathname === "/platform/v1/fx-rates/locks") return json(200, { items: [] });
     return null;
   });
   render(
@@ -122,7 +126,7 @@ test("看板加载失败：说明失败并给「重试」，重试成功后显�
 test("空状态：近 30 天还没有汇率、还没有拉过汇率；定时拉取关闭时说明；没有汇率时对有权限的人提示可以立即拉取", async () => {
   open("master_data", (call) =>
     call.url.pathname === "/platform/v1/fx-rates"
-      ? json(200, board({ state: "none", as_of: null, fetched_at: null, stale_at: null, rates: [{ currency: "JPY", rate: null }], source_status: { host: "open.er-api.com", auto_fetch: false, last_attempt: null, last_success_at: null, next_fetch_at: null } }))
+      ? json(200, board({ state: "none", as_of: null, fetched_at: null, stale_at: null, rates: [{ currency: "JPY", rate: null, central_rate: null, locked: false }], source_status: { host: "open.er-api.com", auto_fetch: false, last_attempt: null, last_success_at: null, next_fetch_at: null } }))
       : null,
   );
   await within(main()).findByText("近 30 天还没有汇率");

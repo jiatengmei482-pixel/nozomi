@@ -139,7 +139,7 @@ test("超长小数、指数写法按原文入库；挂起的一批确认后原�
     assert.equal(board.cross.find((item: any) => item.from === "CNY" && item.to === "JPY").rate, "21.303350969859");
     // 报价快照：所用汇率、取数时间与库里一致
     const candidate = (await preview()).groups[0].candidates.find((entry: any) => entry.product_id === cnyProduct);
-    assert.deepEqual(candidate.fx, { from: "CNY", to: "JPY", rate: fxQuoteFromTable(table, "CNY", "JPY")?.rate, as_of: stored.asOf });
+    assert.deepEqual(candidate.fx, { from: "CNY", to: "JPY", rate: fxQuoteFromTable(table, "CNY", "JPY")?.rate, as_of: stored.asOf, lock: null });
     // 挂起的一批（日元 +5%，超长小数）确认后，库里是原样的十进制
     const second = env.ago(HOUR / 2);
     env.serve(second, { JPY: "156.579629628462962962", CNY: "7.000000000000000001", KRW: "14e2", HKD: "7.8", TWD: "32", THB: "36.123456789012345678" });
@@ -149,7 +149,7 @@ test("超长小数、指数写法按原文入库；挂起的一批确认后原�
     const after = await dbTable(env);
     assert.deepEqual([after.asOf, after.rates["JPY"], after.rates["THB"]], [second.toISOString(), "156.579629628462962962", "36.123456789012345678"]);
     const fx = (await preview()).groups[0].candidates.find((entry: any) => entry.product_id === cnyProduct).fx;
-    assert.deepEqual(fx, { from: "CNY", to: "JPY", rate: fxQuoteFromTable({ base: "USD", asOf: after.asOf, rates: after.rates }, "CNY", "JPY")?.rate, as_of: second.toISOString() });
+    assert.deepEqual(fx, { from: "CNY", to: "JPY", rate: fxQuoteFromTable({ base: "USD", asOf: after.asOf, rates: after.rates }, "CNY", "JPY")?.rate, as_of: second.toISOString(), lock: null });
   });
 });
 

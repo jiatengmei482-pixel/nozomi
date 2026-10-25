@@ -17,7 +17,7 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
 
 /**
  * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
- * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022），
+ * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022；汇率人工锁定，ADR 0025），
  * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
@@ -29,6 +29,7 @@ const PLATFORM_TABLES = [
   "channels",
   "cities",
   "fx_fetches",
+  "fx_locks",
   "fx_rates",
   "holidays",
   "login_throttles",
@@ -106,6 +107,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     cities: ["INSERT", "SELECT", "UPDATE"],
     // 汇率中心（ADR 0022）：拉取记录要改状态（结束、确认、放弃）；汇率只追加，保留全部历史
     fx_fetches: ["INSERT", "SELECT", "UPDATE"],
+    // 汇率人工锁定（ADR 0025）：批准时写入，解锁、取代、到期改状态；不删。租户没有任何权限
+    fx_locks: ["INSERT", "SELECT", "UPDATE"],
     fx_rates: ["INSERT", "SELECT"],
     // 节假日日历：写错了删掉重填，所以平台可以删
     holidays: ["DELETE", "INSERT", "SELECT", "UPDATE"],

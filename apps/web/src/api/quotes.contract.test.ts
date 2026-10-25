@@ -76,7 +76,7 @@ test("应答：每个车型组的中标、全部候选、报不出价的商品�
   assert.deepEqual(props(candidate), sorted(QUOTE_SCHEMA_FIELDS.QuoteCandidate));
   assert.deepEqual(sorted(candidate?.required ?? []), sorted(QUOTE_SCHEMA_FIELDS.QuoteCandidate));
   assert.equal(ref(candidate?.properties?.["offer"]), "QuoteOffer");
-  assert.deepEqual(props(candidate?.properties?.["fx"]), ["as_of", "from", "rate", "to"]);
+  assert.deepEqual(props(candidate?.properties?.["fx"]), ["as_of", "from", "lock", "rate", "to"]);
   assert.deepEqual(props(schemas["QuoteOffer"]), sorted(QUOTE_SCHEMA_FIELDS.QuoteOffer));
   assert.equal(ref(schemas["QuoteOffer"]?.properties?.["settlement"]), "QuoteSettlement");
   const settlement = schemas["QuoteSettlement"];

@@ -1,12 +1,13 @@
 /**
  * 运营后台「汇率」页（M2-03，ADR 0022）：数据源状态、当前汇率、常用币种互换、近 30 天走势、拉取记录；
  * 有 `fx.manage` 的角色（主数据运营、超级管理员）可以立即拉取、确认 / 放弃变动过大而挂起的一批。
+ * 人工锁定（M2-06）：锁定状态、待审核的锁定 / 解锁申请、发起锁定 / 解锁、锁定记录（FxLockSection.tsx）；汇率表里锁定的值有标记，另列数据源的中央汇率。
  * 汇率是十进制字符串，页面四舍五入显示（完整值在悬停提示里，也可以切成「显示完整数值」——手机上没有悬停），不拿它算钱。
  */
 import { useState } from "react";
 import type { CurrencyCode } from "@nozomi/domain";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type FxFetch, type FxHistory, type FxOverview, decideFxFetch, fetchFxFetches, fetchFxHistory, fetchFxNow, fetchFxOverview } from "../../api/fx.ts";
+import { type FxFetch, type FxHistory, type FxLock, type FxOverview, decideFxFetch, fetchFxFetches, fetchFxHistory, fetchFxLocks, fetchFxNow, fetchFxOverview } from "../../api/fx.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert, AlertSlot, type Notice } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -21,6 +22,7 @@ import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { FxLockCard, FxLockHistory } from "./FxLockSection.tsx";
 
 const CURRENCY_OPTIONS = FX_DISPLAY_ORDER.map((code) => ({ value: code, label: `${code} ${CURRENCY_NAMES[code]}` }));
 const when = (iso: string | null): string => (iso === null ? "—" : formatLocalDateTime(iso));
@@ -39,8 +41,18 @@ function fetchNotice(fetch: FxFetch): Notice {
   }
 }
 
-function RateCell({ rate, full }: { rate: string | null; full: boolean }) {
-  return <span title={rate ?? undefined}>{full ? (rate ?? "—") : rateText(rate)}</span>;
+function RateCell({ rate, full, locked = false }: { rate: string | null; full: boolean; locked?: boolean }) {
+  return (
+    <>
+      <span title={rate ?? undefined}>{full ? (rate ?? "—") : rateText(rate)}</span>
+      {locked && (
+        <span className="fx-locked-mark">
+          <span aria-hidden="true">*</span>
+          <span className="visually-hidden">（用了人工锁定的汇率）</span>
+        </span>
+      )}
+    </>
+  );
 }
 
 /** 表格上方的一句「怎么显示的」+ 切换完整数值（两张表共用一个开关）。 */
@@ -65,6 +77,7 @@ export function FxRatesPage() {
   const overview = useLoad<FxOverview>(`fx-${base}`, (current) => fetchFxOverview(current, base));
   const history = useLoad<FxHistory>(`fx-history-${base}`, (current) => fetchFxHistory(current, base));
   const fetches = useLoad<{ items: FxFetch[] }>("fx-fetches", (current) => fetchFxFetches(current));
+  const lockHistory = useLoad<{ items: FxLock[] }>("fx-locks", (current) => fetchFxLocks(current));
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState<"fetch" | "confirm" | "dismiss" | null>(null);
   const [deciding, setDeciding] = useState<"confirm" | "dismiss" | null>(null);
@@ -73,6 +86,7 @@ export function FxRatesPage() {
     overview.reload();
     history.reload();
     fetches.reload();
+    lockHistory.reload();
   };
   const failed = (err: unknown): void => {
     if (handleAuthFailure(err)) return;
@@ -156,6 +170,7 @@ export function FxRatesPage() {
                 <strong className="alert__title">汇率超过 {data.max_age_hours} 小时没有更新，跨币种报价已暂停</strong>
                 <span>
                   现在这批是 {when(data.as_of)} 的。{canManage ? "请检查数据源，或点「立即拉取」。" : "请联系主数据运营处理。"}
+                  {data.locks.length > 0 ? `人工锁定的币种（${data.locks.map((lock) => lock.currency).join("、")}）和美元之间照常报价。` : ""}
                 </span>
               </Alert>
             )}
@@ -217,6 +232,15 @@ export function FxRatesPage() {
               </section>
             )}
 
+            <FxLockCard
+              data={data}
+              canManage={canManage}
+              onSubmitted={(next) => {
+                setNotice(next);
+                reloadAll();
+              }}
+            />
+
             <section className="card" aria-labelledby="fx-source-title">
               <div className="card__header">
                 <h2 className="card__title" id="fx-source-title">
@@ -270,6 +294,7 @@ export function FxRatesPage() {
                 <SelectField label="基准币种" inline value={base} options={CURRENCY_OPTIONS} onChange={(value) => setBase(value)} />
               </div>
               <RoundingNote full={full} onToggle={() => setFull(!full)} />
+              {data.locks.length > 0 && <p className="fx-hint">标 * 的是人工锁定的值，报价用的就是它；右边一列是数据源的中央汇率（照常更新，锁定期间不用于这个币种）。</p>}
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="当前汇率表">
                   <table className="table">
@@ -279,19 +304,32 @@ export function FxRatesPage() {
                         <th scope="col" className="table__cell--end">
                           1 {base} =
                         </th>
+                        {data.locks.length > 0 && (
+                          <th scope="col" className="table__cell--end">
+                            数据源（中央汇率）
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
-                      {FX_DISPLAY_ORDER.filter((code) => code !== base).map((code) => (
-                        <tr key={code}>
-                          <th scope="row">
-                            {code} {CURRENCY_NAMES[code]}
-                          </th>
-                          <td className="table__cell--end fx-mono">
-                            <RateCell full={full} rate={data.rates.find((item) => item.currency === code)?.rate ?? null} />
-                          </td>
-                        </tr>
-                      ))}
+                      {FX_DISPLAY_ORDER.filter((code) => code !== base).map((code) => {
+                        const item = data.rates.find((entry) => entry.currency === code);
+                        return (
+                          <tr key={code}>
+                            <th scope="row">
+                              {code} {CURRENCY_NAMES[code]}
+                            </th>
+                            <td className="table__cell--end fx-mono">
+                              <RateCell full={full} rate={item?.rate ?? null} locked={item?.locked ?? false} />
+                            </td>
+                            {data.locks.length > 0 && (
+                              <td className="table__cell--end fx-mono">
+                                <RateCell full={full} rate={item?.central_rate ?? null} />
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -302,7 +340,9 @@ export function FxRatesPage() {
               <h2 className="card__title" id="fx-cross-title">
                 常用币种互换
               </h2>
-              <p className="fx-hint">每行是「1 个该行币种 = 多少个该列币种」。这里是中央汇率，不含缓冲；报价时跨币种另加汇率缓冲（比例见「系统状态」里的汇率数据源）。</p>
+              <p className="fx-hint">
+                每行是「1 个该行币种 = 多少个该列币种」。这里是报价用的汇率{data.locks.length > 0 ? "（标 * 的用到了人工锁定的值）" : "（中央汇率）"}，不含缓冲；报价时跨币种另加汇率缓冲（比例见「系统状态」里的汇率数据源）。
+              </p>
               <RoundingNote full={full} onToggle={() => setFull(!full)} />
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="币种互换表">
@@ -323,7 +363,7 @@ export function FxRatesPage() {
                           <th scope="row">{from}</th>
                           {FX_DISPLAY_ORDER.map((to) => (
                             <td key={to} className="table__cell--end fx-mono">
-                              {from === to ? "1" : <RateCell full={full} rate={data.cross.find((item) => item.from === from && item.to === to)?.rate ?? null} />}
+                              {from === to ? "1" : <RateCell full={full} rate={data.cross.find((item) => item.from === from && item.to === to)?.rate ?? null} locked={data.cross.find((item) => item.from === from && item.to === to)?.locked ?? false} />}
                             </td>
                           ))}
                         </tr>
@@ -357,6 +397,17 @@ export function FxRatesPage() {
                 refreshing={fetches.state.status === "loading" && fetches.state.data !== null}
                 onRetry={fetches.reload}
                 empty={<StateBlock tone="neutral" title="还没有拉过汇率" />}
+              />
+            </section>
+
+            <section className="card" aria-labelledby="fx-lock-log-title">
+              <h2 className="card__title" id="fx-lock-log-title">
+                锁定记录
+              </h2>
+              <FxLockHistory
+                items={lockHistory.state.data?.items ?? []}
+                state={lockHistory.state.status === "ready" ? "ready" : lockHistory.state.status === "forbidden" ? "forbidden" : lockHistory.state.status === "loading" ? "loading" : "error"}
+                onRetry={lockHistory.reload}
               />
             </section>
           </div>

@@ -56,7 +56,7 @@ test("首页统计：空库里全是 0，五种地点类型都列出来；只有
       addons: EMPTY,
     },
     // 汇率中心（M2-03）：空库里还没有汇率
-    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null },
+    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null, locks: [] },
   });
 });
 
@@ -112,7 +112,7 @@ test("首页统计：数量跟着数据变——租户按状态，主数据按�
       vehicle_groups: { total: 1, active: 1, disabled: 0 },
       addons: { total: 2, active: 1, disabled: 1 },
     },
-    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null },
+    fx: { state: "none", as_of: null, stale_at: null, held: false, last_attempt_status: null, locks: [] },
   });
   assert.doesNotMatch(res.text, /甲车队|HND|东京|admin@/, "只有数量，没有任何明细");
 });

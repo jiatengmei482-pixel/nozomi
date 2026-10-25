@@ -537,8 +537,25 @@ export interface FxQuote {
   from: CurrencyCode;
   to: CurrencyCode;
   rate: string;
-  /** 这个汇率是什么时候取的（快照里要记） */
+  /** 这个汇率是什么时候取的（快照里要记）：数据源那一批的时间。有一边锁定时仍是现在用的那一批的时间 */
   asOf: string;
+  /** 有一边（或两边）用的是人工锁定的汇率（M2-06，ADR 0025）；没有锁定时不出现 */
+  lock?: FxQuoteLock;
+}
+
+/** 汇率里用到的一个人工锁定：哪个币种、锁定值（1 个基准币种 = rate 个该币种）、哪一条锁定、到什么时候失效。 */
+export interface FxLockLeg {
+  currency: CurrencyCode;
+  rate: string;
+  lockId: string;
+  /** 到这一刻起不再用（不含这一刻） */
+  expiresAt: string;
+}
+
+export interface FxQuoteLock {
+  legs: FxLockLeg[];
+  /** 另一边还用数据源的汇率（那一边仍受 48 小时过期的约束）；两边都锁定或另一边是基准币种时为 false */
+  usesSource: boolean;
 }
 
 /**
@@ -546,8 +563,17 @@ export interface FxQuote {
  * 取数时间比现在晚：几分钟以内是两台机器的钟差，照常用；晚得更多（超过 `fxClockSkewMinutes`）说明数据源或时钟出了错，当作不能用——
  * 否则一个写错成明年的取数时间会让这个汇率永远不过期。
  * 汇率中心自己也该停掉过期的汇率；这里再查一遍，保证不管汇率从哪里来，过期的都进不了报价。
+ * 有人工锁定的（`lock`，M2-06）：锁定的那一边到期就不能用；另一边还用数据源的汇率时，那一边照样按 48 小时判断。
  */
-export function fxQuoteUsable(fx: Pick<FxQuote, "asOf">, now: Date): boolean {
+export function fxQuoteUsable(fx: Pick<FxQuote, "asOf" | "lock">, now: Date): boolean {
+  if (fx.lock !== undefined) {
+    // 锁定的那一边：到期那一刻起不能用；不看 48 小时（ADR 0025：锁定期间不因数据源停更而暂停）
+    for (const leg of fx.lock.legs) {
+      const expiresAt = new Date(leg.expiresAt).getTime();
+      if (!Number.isFinite(expiresAt) || now.getTime() >= expiresAt) return false;
+    }
+    if (!fx.lock.usesSource) return true;
+  }
   const asOf = new Date(fx.asOf).getTime();
   if (!Number.isFinite(asOf)) return false;
   const age = now.getTime() - asOf;

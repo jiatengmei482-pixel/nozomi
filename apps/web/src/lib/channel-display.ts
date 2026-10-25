@@ -8,7 +8,8 @@ import type { City } from "../api/master.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
-import { SERVICE_CATEGORY_NAMES, countryLabel, displayName } from "./master-display.ts";
+import { changeText } from "./fx-display.ts";
+import { SERVICE_CATEGORY_NAMES, countryLabel, displayName, formatLocalDateTime } from "./master-display.ts";
 import { moneyText } from "./product-display.ts";
 
 export const CHANNELS_PAGE_PATH = "/platform/channels";
@@ -40,7 +41,14 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.create": "新增加价规则",
   "markup_rule.update": "修改加价规则",
   "markup_rule.delete": "删除加价规则",
+  "fx_lock.create": "锁定汇率",
+  "fx_lock.release": "解除汇率锁定",
 };
+
+/** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
+export function isFxApproval(kind: ApprovalKind): boolean {
+  return kind === "fx_lock.create" || kind === "fx_lock.release";
+}
 
 export const APPROVAL_STATUS_BADGES: Readonly<Record<ApprovalStatus, BadgeSpec>> = {
   pending: { tone: "warning", label: "待审核" },
@@ -103,8 +111,29 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
   ];
 }
 
+/** 汇率锁定的复核里「改了什么」：锁定值、到期时间、和发起时中央汇率的偏离。 */
+function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : "";
+  const central = typeof after["central_rate"] === "string" ? after["central_rate"] : null;
+  const rate = (value: unknown): string | null => (typeof value === "string" ? `1 USD = ${value} ${currency}` : null);
+  const time = (value: unknown): string => (typeof value === "string" ? formatLocalDateTime(value) : "—");
+  const notLocked = `未锁定（中央汇率 ${central === null ? "—" : `1 USD = ${central} ${currency}`}）`;
+  if (kind === "fx_lock.release") {
+    return [
+      { label: "锁定值", before: rate(before?.["rate"]) ?? "—", after: `解除，恢复用中央汇率（发起时 ${central ?? "—"}）` },
+      { label: "到期时间", before: time(before?.["expires_at"]), after: "—" },
+    ];
+  }
+  return [
+    { label: "锁定值", before: rate(before?.["rate"]) ?? notLocked, after: rate(after["rate"]) ?? "—" },
+    { label: "到期时间", before: time(before?.["expires_at"]), after: time(after["expires_at"]) },
+    { label: "和发起时中央汇率的偏离", before: "—", after: typeof after["deviation_bp"] === "number" ? changeText(after["deviation_bp"]) : "—" },
+  ];
+}
+
 /** 复核记录里「改了什么」：逐项列出改之前和改之后（只列变了的）。 */
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
+  if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */
@@ -169,10 +198,11 @@ export function belowFloorRuleLines(details: Readonly<Record<string, unknown>>, 
  * 定价参数的复核核对渠道的 pricing_version（定价参数、加价规则、状态任何一个变了都加一），规则的修改、删除核对规则自己的版本。
  * - 改定价参数：这个渠道上所有待审核的改动都相关（谁先批准，另一边就过时）；
  * - 新增、修改、删除规则：待审核的定价参数改动相关（这次批准后它过时）；修改、删除时再加上同一条规则的修改、删除。
+ * 只用于渠道类复核：汇率锁定（M2-06）的对象是币种、不核对渠道版本，和渠道的改动互不过时，不算在里面。
  */
 export function relatedPending(target: { kind: "pricing" } | { kind: "rule"; ruleId: string | null }, pending: readonly Approval[]): Approval[] {
   return pending.filter((approval) => {
-    if (approval.status !== "pending") return false;
+    if (approval.status !== "pending" || isFxApproval(approval.kind)) return false;
     if (target.kind === "pricing") return true;
     if (approval.kind === "channel.pricing") return true;
     return target.ruleId !== null && (approval.kind === "markup_rule.update" || approval.kind === "markup_rule.delete") && approval.payload["rule_id"] === target.ruleId;

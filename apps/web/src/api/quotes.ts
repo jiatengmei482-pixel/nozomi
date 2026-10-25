@@ -89,7 +89,8 @@ export interface QuoteCandidate {
   /** 加价部分不足渠道的最低毛利、被补到了最低毛利 */
   min_margin_applied: boolean;
   fx_buffer_bp: number;
-  fx: { from: string; to: string; rate: string; as_of: string } | null;
+  /** `lock`：用了人工锁定的汇率（M2-06）时写明哪一边锁定、锁定值和到期时间 */
+  fx: { from: string; to: string; rate: string; as_of: string; lock: { legs: { currency: string; rate: string; lock_id: string; expires_at: string }[]; uses_source: boolean } | null } | null;
   offer: QuoteOffer;
 }
 

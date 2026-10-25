@@ -4429,6 +4429,8 @@ paths:
         - `state`：`none` 还没有汇率；`fresh` 能用；`stale` 超过 48 小时没更新，跨币种报价已暂停（`FX_RATE_UNAVAILABLE`）。
         - `source_status`：最近一次拉取的结果和原因、最近一次成功的时间、下一次定时拉取的时间（没开定时拉取为 null）。
         - `held`：变动超过 3% 被挂起、等人确认的一批（最新的一个）；没有为 null。
+        - 人工锁定（M2-06，ADR 0025）：`rates`、`cross` 的 `rate` 是**报价用的值**（锁定的币种用锁定值，`locked` 为 true），`rates[].central_rate` 是数据源的中央汇率；
+          `locks` 是生效中的锁定（锁定值、到期时间、发起人、批准人），`pending_locks` 是待审核的锁定 / 解锁申请（`Approval`），`lock_rules` 是发起时的限制。
         数据源不可用时继续用最近一次有效汇率。不写审计日志。
       security:
         - platformToken: []
@@ -4583,6 +4585,123 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/fx-rates/locks:
+    get:
+      tags: [汇率]
+      operationId: listFxLocks
+      summary: 人工锁定记录
+      description: 需要操作 `master_data.read`。新的在前，含已结束的（解锁、被取代、到期）。
+      security:
+        - platformToken: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: 锁定记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FxLock"
+    post:
+      tags: [汇率]
+      operationId: requestFxLock
+      summary: 发起锁定某个币种的汇率（双人复核）
+      description: |
+        需要操作 `fx.manage`（主数据运营、超级管理员）。极端行情时临时锁定「1 USD = `rate` 个 `currency`」：不直接生效，返回 202 和一条待审核的复核记录（`kind` = `fx_lock.create`）；
+        另一位有 `fx.review` 的同事（主数据运营、超级管理员，**不能是发起人**）在待审核队列里批准后才生效。
+        - 按币种锁定，交叉汇率照常由两边算出；USD 是基准，不能锁定（`BASE_CURRENCY`）。
+        - `rate` 是十进制字符串（如 `"151.2"`），大于 0，整数、小数各最多 12 位；不接受 JSON 数字、正负号、千分位、指数（`INVALID_RATE`）。
+        - `expires_at` 必填：离现在至少 30 分钟（`EXPIRES_TOO_SOON`）、最多 72 小时（`EXPIRES_TOO_LATE`）；到这一刻起锁定自动失效。
+        - 和现在的中央汇率相差超过 3%：必须填 `reason`（`REASON_REQUIRED`）；超过 20%：不允许（`DEVIATION_TOO_LARGE`）。`details` 里有偏离的基点和中央汇率。
+        - 币种已经锁定时，这是「改锁定值或到期时间」：批准后新的取代旧的。和现在的锁定一样的不发起（`UNCHANGED`）。
+        批准时按那一刻的数据再核对一次：这个币种的锁定在发起之后变过（被别的复核锁定、解锁、到期）返回 409 `APPROVAL_STALE`；中央汇率变了则按新的中央汇率重新核对偏离。
+        锁定期间报价用锁定值，报价快照的 `fx.lock` 里记明；锁定的一边不受「48 小时没更新」的约束。数据源新拉到的汇率照常入库，只是这个币种不用。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currency, rate, expires_at]
+              properties:
+                currency:
+                  $ref: "#/components/schemas/FxCurrency"
+                rate:
+                  type: string
+                  maxLength: 40
+                  description: 1 USD = rate 个该币种，十进制字符串
+                expires_at:
+                  type: string
+                  format: date-time
+                  description: 到这一刻起不再用（带时区）
+                reason:
+                  type: [string, "null"]
+                  maxLength: 500
+                  description: 原因（偏离中央汇率超过 3% 时必填）；也是复核记录的发起说明
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          description: "`VALIDATION_FAILED`：`issues[].reason` 见上"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`FX_RATE_UNAVAILABLE`：还没有汇率，无法和中央汇率比对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/fx-rates/locks/{id}/release:
+    post:
+      tags: [汇率]
+      operationId: requestFxUnlock
+      summary: 发起解锁（双人复核）
+      description: |
+        需要操作 `fx.manage`。不直接生效：返回 202 和一条待审核的复核记录（`kind` = `fx_lock.release`）；另一位有 `fx.review` 的同事批准后，这个币种恢复用数据源的汇率。
+        批准时这条锁定已经到期、解除或被取代：409 `APPROVAL_STALE`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`FX_LOCK_NOT_ACTIVE`：这条锁定已经结束（`details.status` 是 `expired` / `released` / `replaced`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/fx-rates:
     get:
       tags: [租户主数据]
@@ -4591,6 +4710,7 @@ paths:
       description: |
         需要操作 `master_data.read`（每个租户角色）。平台的中央汇率：1 个 `base` = 多少个各币种，十进制字符串。
         只有汇率本身，没有汇率缓冲、加价比例、对外价这类平台参数。和租户无关，每个租户看到的一样。
+        平台的人工锁定（ADR 0025）不影响这里：给的是数据源的中央汇率，也不说有没有锁定——锁定是平台对客人报价的风控手段。
         `state` 是 `stale` 时跨币种报价已暂停。
       security:
         - tenantToken: []
@@ -5064,7 +5184,7 @@ paths:
       operationId: listApprovals
       summary: 双人复核记录（待审核队列）
       description: |
-        需要操作 `approval.read`。默认只列待审核的（`status=pending`），按发起时间从新到旧，带 `total`；只列自己看得到的那几类（现在都是渠道的，要有 `channel.read`）。
+        需要操作 `approval.read`。默认只列待审核的（`status=pending`），按发起时间从新到旧，带 `total`；只列自己看得到的那几类（渠道的要有 `channel.read`，汇率锁定的要有 `master_data.read`）。
         每条带 `can`：当前账号能不能批准、驳回、撤回（发起人不能审核自己发起的；没有审核权限的不能批准、驳回）。
       security:
         - platformToken: []
@@ -5111,7 +5231,7 @@ paths:
       operationId: approveApproval
       summary: 批准（改动随即生效）
       description: |
-        要能看这一类（`approval.read` + 这一类的查看权限），还要有这一类的审核权限（渠道的是 `channel.review`：渠道经理、超级管理员），否则 403。
+        要能看这一类（`approval.read` + 这一类的查看权限），还要有这一类的审核权限（渠道的是 `channel.review`：渠道经理、超级管理员；汇率锁定的是 `fx.review`：主数据运营、超级管理员），否则 403。
         **发起人不能批准自己发起的**（409 `APPROVAL_SELF_REVIEW`）。改动在批准的同一个事务里生效；按那一刻的数据校验不通过（下限已调高、和别的规则冲突、
         发起之后对象被改过 `APPROVAL_STALE`）时什么都不改，记录仍是待审核，可以驳回。写审计日志（复核记录和被改的对象各一条）。
       security:
@@ -5137,7 +5257,7 @@ paths:
         "409":
           description: |
             `APPROVAL_SELF_REVIEW`：发起人不能审核自己发起的；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：发起之后对象被改过；
-            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`：按现在的数据不能生效
+            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`、`FX_RATE_UNAVAILABLE`：按现在的数据不能生效
           content:
             application/json:
               schema:
@@ -6265,8 +6385,8 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete]
-          description: 哪一类操作（以后会加：汇率人工锁定、结算条款、退款……）
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release]
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；以后会加：结算条款、退款……）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -6696,7 +6816,7 @@ components:
     FxOverview:
       type: object
       additionalProperties: false
-      required: [base, state, as_of, fetched_at, stale_at, max_age_hours, jump_threshold_bp, source, rates, cross, source_status, held]
+      required: [base, state, as_of, fetched_at, stale_at, max_age_hours, jump_threshold_bp, source, rates, cross, source_status, held, locks, pending_locks, lock_rules]
       properties:
         base:
           $ref: "#/components/schemas/FxCurrency"
@@ -6724,14 +6844,32 @@ components:
         rates:
           type: array
           items:
-            $ref: "#/components/schemas/FxRateItem"
+            type: object
+            additionalProperties: false
+            required: [currency, rate, central_rate, locked]
+            properties:
+              currency:
+                $ref: "#/components/schemas/FxCurrency"
+              rate:
+                description: 报价用的值：1 个 base = rate 个该币种（有锁定的用锁定值）；还没有汇率时为 null
+                oneOf:
+                  - $ref: "#/components/schemas/FxRateText"
+                  - type: "null"
+              central_rate:
+                description: 数据源的中央汇率（不看锁定）
+                oneOf:
+                  - $ref: "#/components/schemas/FxRateText"
+                  - type: "null"
+              locked:
+                type: boolean
+                description: 这一项用到了人工锁定（base 或这个币种被锁定）
         cross:
           type: array
-          description: 平台币种两两之间：1 个 from = rate 个 to
+          description: 平台币种两两之间：1 个 from = rate 个 to（报价用的值）
           items:
             type: object
             additionalProperties: false
-            required: [from, to, rate]
+            required: [from, to, rate, locked]
             properties:
               from:
                 $ref: "#/components/schemas/FxCurrency"
@@ -6741,6 +6879,8 @@ components:
                 oneOf:
                   - $ref: "#/components/schemas/FxRateText"
                   - type: "null"
+              locked:
+                type: boolean
         source_status:
           type: object
           additionalProperties: false
@@ -6765,6 +6905,86 @@ components:
         held:
           oneOf:
             - $ref: "#/components/schemas/FxFetch"
+            - type: "null"
+        locks:
+          type: array
+          description: 生效中的人工锁定（按币种）
+          items:
+            $ref: "#/components/schemas/FxLock"
+        pending_locks:
+          type: array
+          description: 待审核的锁定 / 解锁申请（新的在前）
+          items:
+            $ref: "#/components/schemas/Approval"
+        lock_rules:
+          type: object
+          additionalProperties: false
+          required: [max_hours, min_minutes, reason_above_bp, max_deviation_bp]
+          properties:
+            max_hours:
+              type: integer
+              description: 锁定最长多少小时
+            min_minutes:
+              type: integer
+              description: 到期时间离发起至少多少分钟
+            reason_above_bp:
+              type: integer
+              description: 偏离中央汇率超过它（基点）时必须写原因
+            max_deviation_bp:
+              type: integer
+              description: 偏离超过它（基点）时不允许
+    FxLock:
+      type: object
+      additionalProperties: false
+      required: [id, currency, rate, reason, expires_at, locked_at, central_rate, central_as_of, deviation_bp, lock_approval_id, requested_by, approved_by, status, ended_at, end_approval_id, ended_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        rate:
+          type: string
+          description: 锁定值：1 USD = rate 个该币种（十进制字符串）
+        reason:
+          type: [string, "null"]
+        expires_at:
+          type: string
+          format: date-time
+          description: 到这一刻起不再用
+        locked_at:
+          type: string
+          format: date-time
+          description: 生效的时刻（批准的那一刻）
+        central_rate:
+          type: string
+          description: 批准那一刻的中央汇率（1 USD = ?）
+        central_as_of:
+          type: string
+          format: date-time
+        deviation_bp:
+          type: integer
+          description: 锁定值相对 central_rate 的偏离（基点，带正负号，四舍五入，只给人看）
+        lock_approval_id:
+          type: string
+          format: uuid
+        requested_by:
+          $ref: "#/components/schemas/Person"
+        approved_by:
+          $ref: "#/components/schemas/Person"
+        status:
+          type: string
+          enum: [active, released, replaced, expired]
+          description: "active 生效中；released 已解锁；replaced 被新的锁定取代；expired 到期"
+        ended_at:
+          type: [string, "null"]
+          format: date-time
+        end_approval_id:
+          type: [string, "null"]
+          format: uuid
+        ended_by:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
             - type: "null"
     FxHistory:
       type: object
@@ -6820,7 +7040,7 @@ components:
       type: [object, "null"]
       description: 汇率中心；当前角色没有 `master_data.read` 时为 null
       additionalProperties: false
-      required: [state, as_of, stale_at, held, last_attempt_status]
+      required: [state, as_of, stale_at, held, last_attempt_status, locks]
       properties:
         state:
           $ref: "#/components/schemas/FxTableState"
@@ -6836,6 +7056,21 @@ components:
         last_attempt_status:
           type: [string, "null"]
           enum: [running, accepted, unchanged, held, confirmed, dismissed, rejected, failed, null]
+        locks:
+          type: array
+          description: 生效中的人工锁定（M2-06）
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, rate, expires_at]
+            properties:
+              currency:
+                $ref: "#/components/schemas/FxCurrency"
+              rate:
+                type: string
+              expires_at:
+                type: string
+                format: date-time
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -7525,7 +7760,7 @@ components:
                     fx:
                       type: [object, "null"]
                       additionalProperties: false
-                      required: [from, to, rate, as_of]
+                      required: [from, to, rate, as_of, lock]
                       properties:
                         from:
                           type: string
@@ -7535,6 +7770,33 @@ components:
                           type: string
                         as_of:
                           type: string
+                        lock:
+                          type: [object, "null"]
+                          additionalProperties: false
+                          required: [legs, uses_source]
+                          description: 用了人工锁定的汇率时写明（M2-06）；没有锁定为 null
+                          properties:
+                            legs:
+                              type: array
+                              items:
+                                type: object
+                                additionalProperties: false
+                                required: [currency, rate, lock_id, expires_at]
+                                properties:
+                                  currency:
+                                    type: string
+                                  rate:
+                                    type: string
+                                    description: 锁定值（1 USD = ?）
+                                  lock_id:
+                                    type: string
+                                    format: uuid
+                                  expires_at:
+                                    type: string
+                                    format: date-time
+                            uses_source:
+                              type: boolean
+                              description: 另一边还用数据源的汇率（那一边仍受 48 小时过期约束）
                     offer:
                       $ref: "#/components/schemas/QuoteOffer"
         refused:
@@ -7562,7 +7824,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, channel.read, channel.manage, channel.review, approval.read]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage]
@@ -7788,7 +8050,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, channel, markup_rule, api_client, approval]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval]
         resource_id:
           type: [string, "null"]
         action:

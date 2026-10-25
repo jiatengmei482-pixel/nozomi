@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approvalChanges, belowFloorRuleLines, pricingLines } from "./channel-display.ts";
+import { approvalChanges, belowFloorRuleLines, pricingLines, relatedPending } from "./channel-display.ts";
+import type { Approval } from "../api/channels.ts";
 
 const pricing = { default_markup_bp: 1000, markup_floor_bp: 1000, band_bp: 300, min_margin_minor: 0, sell_rounding: {} };
 
@@ -27,4 +28,12 @@ test("调高下限被拦：按 details.rule_ids 列出是哪几条规则；规�
     "有一条规则这里还没有显示（可能刚被改过），刷新页面后再看",
   ]);
   assert.deepEqual(belowFloorRuleLines({}, rules), []);
+});
+
+test("发起前的提醒只看渠道类复核：汇率锁定的复核不算（M1-17 × M2-06）", () => {
+  const base = { status: "pending", payload: {} } as unknown as Approval;
+  const pending = [{ ...base, id: "p", kind: "channel.pricing" }, { ...base, id: "f", kind: "fx_lock.create" }, { ...base, id: "u", kind: "markup_rule.update", payload: { rule_id: "r1" } }, { ...base, id: "c", kind: "markup_rule.create" }] as Approval[];
+  assert.deepEqual(relatedPending({ kind: "pricing" }, pending).map((item) => item.id), ["p", "u", "c"]);
+  assert.deepEqual(relatedPending({ kind: "rule", ruleId: "r1" }, pending).map((item) => item.id), ["p", "u"]);
+  assert.deepEqual(relatedPending({ kind: "rule", ruleId: null }, pending).map((item) => item.id), ["p"]);
 });
