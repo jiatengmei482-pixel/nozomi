@@ -1096,7 +1096,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     const headers = await platformAdminHeaders(request);
     const tenant = await createActiveTenant(request);
-    await request.post(`/platform/v1/tenants/${tenant.tenantId}/suspend`, { headers, data: { reason: "很长的原因".repeat(60) } });
+    await suspendTenant(request, tenant.tenantId, "很长的原因".repeat(60));
     const staff = await inviteStaff(request, headers, "customer_service", { name: "名字很长很长的同事".repeat(5) });
     const admin = await adminPage(page);
     const check = async (what: string): Promise<void> => {

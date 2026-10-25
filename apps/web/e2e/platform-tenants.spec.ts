@@ -323,6 +323,8 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await expect(page).toHaveURL(/\/platform\/settings\/staff$/);
   await expect(toast(page, `已邀请「${staffName}」`)).toBeVisible();
   await expectTokenNowhere(page, invite.token, logs, { dialogOpen: false });
+  // 员工列表分页：并行的用例（和双人复核的审核人）建了很多员工，新建的不一定在第一页，按邮箱搜
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(email)}`);
   const row = page.getByRole("row").filter({ hasText: email });
   await expect(row).toContainText("待激活");
 

@@ -156,7 +156,7 @@ test("供应商入驻：企业信息 → 逐项上传资质 → 提交审核 →
   await expect(page.locator(".page__meta")).toContainText("试运营");
   expect((await request.post(`/tenant/v1/products/${productId}/publish`, { headers })).status()).toBe(200);
   // 状态变更记录：每一步都在
-  const events = page.getByRole("region", { name: "状态变更记录" });
+  const events = page.getByRole("region", { name: "状态变更记录", exact: true });
   for (const action of ["提交审核", "退回补充", "签约", "开始试运营"]) await expect(events).toContainText(action);
   await expect(events).toContainText("测试单已由运营跑通：接机、派车、完成");
   await expectAccessible(page, "供应商详情（入驻部分）");
@@ -168,10 +168,11 @@ test("供应商入驻：企业信息 → 逐项上传资质 → 提交审核 →
   // ── 供应商：试运营、履约评分（还没有评分）、状态记录里没有平台的说明 ──
   await tenantPage.reload();
   await expect(tenantPage.locator(".page__meta")).toContainText("试运营");
-  await expect(tenantPage.getByRole("region", { name: "状态变更记录" })).not.toContainText("测试单已由运营跑通");
+  await expect(tenantPage.getByRole("region", { name: "状态变更记录", exact: true })).not.toContainText("测试单已由运营跑通");
   await tenantPage.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "履约评分" }).click();
   await expect(tenantPage.getByRole("heading", { level: 1, name: "履约评分" })).toBeVisible();
-  await expect(tenantPage.getByText(/还没有评分：每天会按最近 90 天的数据算一次/)).toBeVisible();
+  // 每日检查可能已经跑过（服务进程启动后 10 秒第一轮）：要么还没有评分，要么是默认的 4.50（完成不足 20 单）
+  await expect(tenantPage.locator("main")).toContainText(/还没有评分：每天会按最近 90 天的数据算一次|比价用的分4\.50/);
   await expectAccessible(tenantPage, "履约评分");
   await theirs.close();
 });

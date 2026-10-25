@@ -604,7 +604,7 @@ export function StatusEventsTable({ events, audience }: { events: TenantStatusEv
   if (events.length === 0) return <p>还没有状态变化。</p>;
   return (
     <div className="table-wrap">
-      <div className="table-scroll" tabIndex={0} role="region" aria-label="状态变更记录">
+      <div className="table-scroll" tabIndex={0} role="region" aria-label="状态变更记录列表">
         <table className="table">
           <thead>
             <tr>
