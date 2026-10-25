@@ -66,6 +66,7 @@ test("渠道和复核：城市可搜索、规则只列授权城市、调高下�
   await checkPage(page, "新建渠道（选了城市）");
   await chips.getByRole("button", { name: `去掉 ${other.city.name}` }).click();
   await expect(page.getByRole("list", { name: "已选的城市（1 个）" })).toBeVisible();
+  await page.getByRole("group", { name: /^可卖的品类/ }).getByRole("checkbox", { name: "接送机" }).check();
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: channelName })).toBeVisible();
   const channelId = /\/platform\/channels\/([0-9a-f-]{36})/.exec(page.url())?.[1] ?? "";

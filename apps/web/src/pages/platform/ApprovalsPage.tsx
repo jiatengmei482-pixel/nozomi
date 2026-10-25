@@ -17,9 +17,10 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, belowFloorRuleLines, channelPath, isFxApproval } from "../../lib/channel-display.ts";
+import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, approvalSummaryText, belowFloorRuleLines, channelPath, isFxApproval } from "../../lib/channel-display.ts";
 import { CURRENCY_NAMES, FX_PATH } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
+import { localOffsetLabel } from "../../lib/audit-display.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -56,7 +57,7 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
 
 /** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */
 function decisionLabel(decision: Decision, approval: Approval): string {
-  return `${DECISION_NAMES[decision]}：${approval.summary}（${formatLocalDateTime(approval.requested_at)} 发起）`;
+  return `${DECISION_NAMES[decision]}：${approvalSummaryText(approval.summary)}（${formatLocalDateTime(approval.requested_at)} 发起）`;
 }
 
 function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; channel: Channel | null; onDecide(approval: Approval, decision: Decision): void }) {
@@ -70,7 +71,7 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
         </h2>
         <StatusBadge {...APPROVAL_STATUS_BADGES[approval.status]} />
       </div>
-      <p>{approval.summary}</p>
+      <p>{approvalSummaryText(approval.summary)}</p>
       {isFxApproval(approval.kind) && (
         <p>
           币种：
@@ -208,7 +209,7 @@ export function ApprovalsPage() {
   const items = loaded.state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。</p>
+      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="显示" value={status} options={[{ value: "pending", label: "待审核" }, { value: "all", label: "全部（含历史）" }]} onChange={(value) => setParams(value === "all" ? { status: "all" } : {}, { replace: true })} />
       </div>
@@ -255,7 +256,7 @@ export function ApprovalsPage() {
           }
         >
           <div role="alert">{typeof problem === "string" ? <Alert kind="danger">{problem}</Alert> : problem}</div>
-          <p>{deciding.approval.summary}</p>
+          <p>{approvalSummaryText(deciding.approval.summary)}</p>
           {deciding.decision === "approve" && <p>{APPROVE_EFFECTS[deciding.approval.kind]}</p>}
           <TextField label="说明（选填）" autoComplete="off" value={note} onChange={(event) => setNote(event.target.value)} />
         </Dialog>

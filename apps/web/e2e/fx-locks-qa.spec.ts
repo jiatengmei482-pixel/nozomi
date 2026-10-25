@@ -85,6 +85,9 @@ test("发起表单：写法不对、偏离超过 20% 在提交前拦下（不发
     // 空着提交：要填
     await submit.click();
     await expect(dialog.getByText("请填锁定值")).toBeVisible();
+    // 锁定多久不预选（M1-18）：没选时在字段下面说明
+    await expect(dialog.getByLabel("锁定多久")).toHaveValue("");
+    await expect(dialog.getByText("请选择锁定多久")).toBeVisible();
     for (const text of ["abc", "1.5e2", "-32", "32,1", "0", "32.0000000000001"]) {
       await rate.fill(text);
       await rate.blur();
@@ -111,6 +114,11 @@ test("发起表单：写法不对、偏离超过 20% 在提交前拦下（不发
     await rate.fill("32.96");
     await dialog.getByLabel("原因").fill("");
     await expect(dialog.getByText("和中央汇率相差 +3.00%")).toBeVisible();
+    await submit.click();
+    await expect(dialog.getByText("请选择锁定多久")).toBeVisible();
+    expect(posts, "没选锁定多久不提交").toBe(0);
+    await dialog.getByLabel("锁定多久").selectOption("24");
+    await expect(dialog.getByText("请选择锁定多久")).toHaveCount(0);
     await submit.click();
     await expect(page.getByText("已提交，等另一位有审核权限的同事在「待审核」里批准后生效")).toBeVisible();
     expect(posts).toBe(1);

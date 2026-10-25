@@ -27,3 +27,8 @@ export function Attributions({ sources }: { sources: readonly DataSource[] }) {
     </>
   );
 }
+
+/** 只展示城市的页面只要 GeoNames；同时展示机场（接送点）的页面另有 OurAirports。 */
+export function placeSources(withAirports: boolean): readonly DataSource[] {
+  return withAirports ? ["ourairports", "geonames"] : ["geonames"];
+}

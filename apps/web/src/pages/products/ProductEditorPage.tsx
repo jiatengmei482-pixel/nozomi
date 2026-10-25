@@ -9,6 +9,7 @@ import { type Product, type PublishCheckResult, getProduct, getPublishCheck } fr
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Dropdown } from "../../components/Dropdown.tsx";
 import { CopyButton } from "../../components/FormFields.tsx";
@@ -213,6 +214,7 @@ export function ProductEditorPage() {
         </Alert>
       )}
       <ProductSteps frame={frame} isNew={isNew} current={current} rest={rest} checkStatus={checked.state.status} onReloadCheck={reloadCheck} placeholder={placeholder} />
+      {product && current !== "basic" && <Attributions sources={placeSources(product.category === "airport_transfer")} />}
       {actions.dialog}
     </div>,
     header,

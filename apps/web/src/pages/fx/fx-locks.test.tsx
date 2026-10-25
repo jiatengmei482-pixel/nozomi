@@ -9,6 +9,7 @@ import type { Approval } from "../../api/channels.ts";
 import type { FxLock, FxOverview } from "../../api/fx.ts";
 import type { DashboardSummary } from "../../api/master.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { formatLocalDateTime } from "../../lib/master-display.ts";
 
 afterEach(resetBrowser);
 
@@ -162,11 +163,22 @@ test("发起锁定（主数据运营）：锁定值按字符串解析、实时�
   await actor.clear(rate);
   await actor.type(rate, "7.5");
   assert.ok(within(dialog).getByText("和中央汇率相差 +4.17%"));
+  const duration = within(dialog).getByLabelText("锁定多久") as HTMLSelectElement;
+  assert.equal(duration.value, "", "M1-18：锁定多久不预选");
+  assert.equal(duration.options[0]?.textContent, "请选择");
+  assert.match(dialog.textContent ?? "", /最长 72 小时。选好后这里显示到期时间。/);
   await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
   assert.ok(within(dialog).getByText("和中央汇率相差超过 3%，请写明原因"));
+  assert.ok(within(dialog).getByText("请选择锁定多久"), "没选时长时在这个字段下面说明");
+  assert.equal(duration.getAttribute("aria-invalid"), "true");
+  assert.match(duration.getAttribute("aria-describedby") ?? "", /error/);
   assert.equal(calls.filter((call) => call.method === "POST").length, 0, "没写原因不提交");
   await actor.type(within(dialog).getByLabelText("原因（必填）"), "数据源停更，按银行牌价");
+  await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0, "写了原因、没选时长也不提交");
   await actor.selectOptions(within(dialog).getByLabelText("锁定多久"), "72");
+  assert.equal(within(dialog).queryByText("请选择锁定多久"), null, "选了就不再提示");
+  assert.match(dialog.textContent ?? "", /自动失效（从提交时算起/);
   await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
   await within(main()).findByText("已提交，等另一位有审核权限的同事在「待审核」里批准后生效");
   const post = calls.find((call) => call.method === "POST") as ApiCall;
@@ -188,6 +200,7 @@ test("发起锁定：服务器拒收的原因放回对应的字段；解锁要�
   const dialog = await screen.findByRole("dialog");
   await actor.selectOptions(within(dialog).getByLabelText("币种"), "KRW");
   await actor.type(within(dialog).getByLabelText("锁定值（1 USD = ? KRW）"), "1400");
+  await actor.selectOptions(within(dialog).getByLabelText("锁定多久"), "24");
   await actor.click(within(dialog).getByRole("button", { name: "提交审核" }));
   assert.ok(await within(dialog).findByText("和中央汇率相差超过 20%，系统不允许；请核对币种和数量级"));
   await actor.click(within(dialog).getByRole("button", { name: "取消" }));
@@ -219,9 +232,16 @@ test("待审核的锁定申请：汇率页列出来（能审的人有去处理�
   const changes = within(approvalCard).getByRole("region", { name: "改了什么" });
   assert.match(changes.textContent ?? "", /锁定值未锁定（中央汇率 1 USD = 7\.2 CNY）1 USD = 7\.3 CNY/);
   assert.match(changes.textContent ?? "", /和发起时中央汇率的偏离—\+1\.39%/);
+  // 摘要里的到期时间和「改了什么」表格里的同一种写法：查看者本地时区，不再一处 UTC、一处本地（M1-18）
+  const localExpiry = formatLocalDateTime(EXPIRES);
+  const shownSummary = `锁定 CNY 汇率：1 USD = 7.3 CNY（中央汇率 7.2，偏离 +1.39%），到 ${localExpiry}`;
+  assert.ok(within(approvalCard).getByText(shownSummary));
+  assert.match(changes.textContent ?? "", new RegExp(`到期时间—${localExpiry}`));
+  assert.doesNotMatch(approvalCard.textContent ?? "", /UTC/);
+  assert.match(document.querySelector(".page__lead")?.textContent ?? "", /时间按你的本地时区（UTC[+-]\d{1,2}(:\d{2})?）显示。/);
   // 汇率锁定类复核的按钮读屏名字同样带摘要和发起时间（M1-17）
   const approve = within(approvalCard).getByRole("button", { name: /^批准：/ });
-  assert.equal(approve.getAttribute("aria-label")?.startsWith(`批准：${approval().summary}（`), true);
+  assert.equal(approve.getAttribute("aria-label")?.startsWith(`批准：${shownSummary}（`), true);
   assert.equal(approve.textContent, "批准");
   await actor.click(approve);
   const dialog = await screen.findByRole("dialog");
