@@ -54,6 +54,7 @@
 | `0025_fleet.sql` | 司机 `drivers`、车辆 `vehicles`（M3-02，ADR 0027）：租户表，带 `tenant_id`、行级安全；不删除（停用）；同一个供应商里电话、车牌唯一；非营业牌照的车不能设为可用（检查约束）。平台角色只读。不含任何数据 |
 | `0026_dispatch.sql` | 派车和履约（ADR 0027）：订单加四个状态（司机已出发、已到达、客人未出现待审核、客人未出现）和派车、履约、落地时间的列；租户角色对订单加「改」，语句级触发器只许改派车和履约的列，行级触发器只许在履约的范围里改状态；状态流水加 `detail` 和三种操作者；派车记录 `order_assignments`、司机链接 `driver_links`（只存令牌的哈希）、照片 `order_files`（存在库里，≤ 5 MB）、联系记录 `order_contacts`、定位 `order_locations`、no-show 申请 `order_no_show_claims`（租户表，只追加；平台只读）。已有订单的派车截止时间按规则补算。不含任何数据 |
 | `0027_tenant_webhooks.sql` | 推送给供应商（ADR 0027）：订阅 `tenant_webhooks`（一个供应商一个地址；签名密钥是 AES-256-GCM 密文）、投递 `webhook_deliveries`（不存请求体）、每次尝试 `webhook_attempts`（只存大小和指纹）。租户表；平台角色读订阅、读写投递（推送任务、运营后台重推）。不含任何数据 |
+| `0028_webhook_lease.sql` | 推送的租约（M3-02，ADR 0027）：投递加租约令牌 `lease_token`（推送任务租下时写入，记结果时核对，租约被接手的一方记不上结果）；每条投递的尝试编号唯一。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。

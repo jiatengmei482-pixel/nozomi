@@ -94,10 +94,12 @@ export interface WebhookDelivery {
   succeededAt: Date | null;
   failedAt: Date | null;
   createdAt: Date;
+  /** 推送任务租下这一条时写入的租约令牌；没在发的是 null。记结果时核对它。 */
+  leaseToken: string | null;
 }
 
 const DELIVERY_COLUMNS = `d.tenant_id, d.id, d.seq, d.event_id, d.event_type, d.order_id, d.event_data, d.status, d.attempts, d.next_attempt_at, d.last_attempt_at, d.last_status_code,
-  d.last_error_code, d.last_duration_ms, d.succeeded_at, d.failed_at, d.created_at`;
+  d.last_error_code, d.last_duration_ms, d.succeeded_at, d.failed_at, d.created_at, d.lease_token`;
 
 function toDelivery(row: Row): WebhookDelivery {
   return {
@@ -118,6 +120,7 @@ function toDelivery(row: Row): WebhookDelivery {
     succeededAt: row["succeeded_at"],
     failedAt: row["failed_at"],
     createdAt: row["created_at"],
+    leaseToken: row["lease_token"],
   };
 }
 
@@ -139,8 +142,14 @@ export async function findDelivery(db: Db, tenantId: string | null, id: string, 
   return row === undefined ? null : toDelivery(row);
 }
 
+/** 正在被推送任务发送：还在等待、有租约令牌、租约没到期。 */
+export function deliveryLeased(delivery: Pick<WebhookDelivery, "status" | "leaseToken" | "nextAttemptAt">, now: Date): boolean {
+  return delivery.status === "pending" && delivery.leaseToken !== null && delivery.nextAttemptAt !== null && delivery.nextAttemptAt.getTime() > now.getTime();
+}
+
 /**
- * 平台事务：取到期的投递并「租下」它们（`next_attempt_at` 改成租约到期的时间），多个实例同时取时用 `skip locked` 互不重复。
+ * 平台事务：取到期的投递并「租下」它们（`next_attempt_at` 改成租约到期的时间，写一个新的租约令牌），多个实例同时取时用 `skip locked` 互不重复。
+ * 租约到期没记结果（进程中途退出）的，到期后重新取、换一个令牌，原来那一方再记结果时对不上令牌。
  * 同一张订单的事件按排队的先后依次投递：前面还有没投完的，后面的这一轮不取。
  */
 export async function claimDueDeliveries(db: Db, now: Date, leaseUntil: Date, limit: number): Promise<WebhookDelivery[]> {
@@ -153,7 +162,7 @@ export async function claimDueDeliveries(db: Db, now: Date, leaseUntil: Date, li
         limit $3
         for update of d skip locked
      )
-     update webhook_deliveries d set next_attempt_at = $2 from due where d.tenant_id = due.tenant_id and d.id = due.id
+     update webhook_deliveries d set next_attempt_at = $2, lease_token = gen_random_uuid() from due where d.tenant_id = due.tenant_id and d.id = due.id
      returning ${DELIVERY_COLUMNS}`,
     [now, leaseUntil, limit],
   );
@@ -167,21 +176,32 @@ export interface AttemptOutcome {
   at: Date;
 }
 
-/** 记一次尝试的结果并决定下一步：成功 / 排下一次重试 / 最终失败。 */
-export async function finishDeliveryAttempt(db: Db, delivery: Pick<WebhookDelivery, "tenantId" | "id">, outcome: AttemptOutcome, next: { status: DeliveryStatus; nextAttemptAt: Date | null }): Promise<WebhookDelivery> {
+/**
+ * 记一次尝试的结果并决定下一步：成功 / 排下一次重试 / 最终失败，同时放掉租约。
+ * 只有租约令牌还对得上（这一轮确实是自己租下的、没被别人接手）才记得上；对不上返回 null，调用方不记这次尝试。
+ */
+export async function finishDeliveryAttempt(
+  db: Db,
+  delivery: Pick<WebhookDelivery, "tenantId" | "id" | "leaseToken">,
+  outcome: AttemptOutcome,
+  next: { status: DeliveryStatus; nextAttemptAt: Date | null },
+): Promise<WebhookDelivery | null> {
   const result = await db.query<Row>(
     `update webhook_deliveries d set status = $3::text, attempts = attempts + 1, next_attempt_at = $4::timestamptz, last_attempt_at = $5::timestamptz, last_status_code = $6, last_error_code = $7,
-            last_duration_ms = $8, succeeded_at = case when $3::text = 'succeeded' then $5::timestamptz end, failed_at = case when $3::text = 'failed' then $5::timestamptz end
-      where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
-    [delivery.tenantId, delivery.id, next.status, next.nextAttemptAt, outcome.at, outcome.statusCode, outcome.errorCode, outcome.durationMs],
+            last_duration_ms = $8, succeeded_at = case when $3::text = 'succeeded' then $5::timestamptz end, failed_at = case when $3::text = 'failed' then $5::timestamptz end, lease_token = null
+      where d.tenant_id = $1 and d.id = $2 and d.status = 'pending' and d.lease_token is not distinct from $9::uuid returning ${DELIVERY_COLUMNS}`,
+    [delivery.tenantId, delivery.id, next.status, next.nextAttemptAt, outcome.at, outcome.statusCode, outcome.errorCode, outcome.durationMs, delivery.leaseToken],
   );
-  return toDelivery(result.rows[0] as Row);
+  const row = result.rows[0];
+  return row === undefined ? null : toDelivery(row);
 }
 
-/** 手动重推：最终失败的改回等待、马上投；等待重试中的提前到现在。已成功的不动。 */
+/**
+ * 手动重推：最终失败的改回等待、马上投；等待重试中的提前到现在；租约已经到期没记结果的收回租约。已成功的、正在发送（租约中）的不动，调用方先判断。
+ */
 export async function rescheduleDelivery(db: Db, delivery: Pick<WebhookDelivery, "tenantId" | "id">, now: Date): Promise<WebhookDelivery> {
   const result = await db.query<Row>(
-    `update webhook_deliveries d set status = 'pending', next_attempt_at = $3, failed_at = null where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
+    `update webhook_deliveries d set status = 'pending', next_attempt_at = $3, failed_at = null, lease_token = null where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
     [delivery.tenantId, delivery.id, now],
   );
   return toDelivery(result.rows[0] as Row);
@@ -247,11 +267,13 @@ export async function listAttempts(db: Db, tenantId: string, deliveryId: string)
   }));
 }
 
-/** 不发了、直接记成最终失败（订阅已删除或暂停）：没有发出请求，不算一次尝试。 */
-export async function abandonDelivery(db: Db, delivery: Pick<WebhookDelivery, "tenantId" | "id">, errorCode: string, at: Date): Promise<WebhookDelivery> {
+/** 不发了、直接记成最终失败（订阅已删除或暂停）：没有发出请求，不算一次尝试。和记结果一样核对租约令牌，对不上返回 null。 */
+export async function abandonDelivery(db: Db, delivery: Pick<WebhookDelivery, "tenantId" | "id" | "leaseToken">, errorCode: string, at: Date): Promise<WebhookDelivery | null> {
   const result = await db.query<Row>(
-    `update webhook_deliveries d set status = 'failed', next_attempt_at = null, failed_at = $3, last_error_code = $4 where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
-    [delivery.tenantId, delivery.id, at, errorCode],
+    `update webhook_deliveries d set status = 'failed', next_attempt_at = null, failed_at = $3, last_error_code = $4, lease_token = null
+      where d.tenant_id = $1 and d.id = $2 and d.status = 'pending' and d.lease_token is not distinct from $5::uuid returning ${DELIVERY_COLUMNS}`,
+    [delivery.tenantId, delivery.id, at, errorCode, delivery.leaseToken],
   );
-  return toDelivery(result.rows[0] as Row);
+  const row = result.rows[0];
+  return row === undefined ? null : toDelivery(row);
 }

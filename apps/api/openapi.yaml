@@ -6714,6 +6714,7 @@ paths:
       summary: 手动重推
       description: |
         需要操作 `webhook.manage`。最终失败的、等待重试中的都可以：马上投一次（同一个 `event_id`），结果在应答里。
+        推送任务正在发这一条（租约中）时什么都不做，`result` 为 `in_flight`，不写审计日志，发完的结果在推送记录里。
         已成功的 409 `WEBHOOK_DELIVERY_SUCCEEDED`；测试事件 409 `WEBHOOK_TEST_NOT_RETRIABLE`。写审计日志。
       security:
         - tenantToken: []
@@ -6727,10 +6728,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [delivery]
+                required: [delivery, result]
                 properties:
                   delivery:
                     $ref: "#/components/schemas/WebhookDelivery"
+                  result:
+                    $ref: "#/components/schemas/WebhookRetryResult"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -6836,7 +6839,7 @@ paths:
       tags: [Webhook]
       operationId: retryPlatformWebhookDelivery
       summary: 手动重推（运营后台）
-      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。
+      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。
       security:
         - platformToken: []
       parameters:
@@ -6849,10 +6852,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [delivery]
+                required: [delivery, result]
                 properties:
                   delivery:
                     $ref: "#/components/schemas/WebhookDelivery"
+                  result:
+                    $ref: "#/components/schemas/WebhookRetryResult"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -14724,6 +14729,12 @@ components:
       type: string
       enum: [pending, succeeded, failed]
       description: "`pending` 等待投递（含等待重试）；`succeeded` 对方回了 2xx；`failed` 重试用完仍失败（异常：供应商后台和运营后台都看得到，可以手动重推）"
+    WebhookRetryResult:
+      type: string
+      enum: [sent, in_flight, not_configured]
+      description: |
+        手动重推的结果。`sent`：发了一次（成败看 `delivery.status`）；`in_flight`：推送任务正在发这一条（租约中），这次什么都没做；
+        `not_configured`：供应商的 Webhook 设置已删除或暂停，没发，记为最终失败。
     WebhookDelivery:
       type: object
       additionalProperties: false

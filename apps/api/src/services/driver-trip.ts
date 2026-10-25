@@ -61,16 +61,22 @@ export interface DriverSession {
   link: DriverLink;
 }
 
-/** 在令牌所属的租户事务里找到链接并核对：存在、没吊销、没过期、还是这一单现在的司机。通过后在同一个事务里做 `fn`。 */
+/**
+ * 在令牌所属的租户事务里找到链接并核对：存在、没吊销、没过期、还是这一单现在的司机。通过后在同一个事务里做 `fn`。
+ * 吊销、重新生成、改派都先锁订单再改链接，所以这里锁住订单之后**再读一次链接**：和吊销同时到的请求排在吊销之后，读到的是已吊销，401。
+ */
 async function withDriver<T>(ctx: AppContext, token: string | null, fn: (db: Db, session: DriverSession, order: Order) => Promise<T>): Promise<T> {
   const tenantId = token === null ? null : tenantIdOfDriverToken(token);
   if (token === null || tenantId === null) throw driverLinkInvalid();
   const now = ctx.now();
+  const usable = (link: DriverLink | null): link is DriverLink => link !== null && link.revokedAt === null && link.expiresAt.getTime() > now.getTime();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
-    const link = await findDriverLinkByToken(db, tenantId, hashDriverToken(token));
-    if (link === null || link.revokedAt !== null || link.expiresAt.getTime() <= now.getTime()) throw driverLinkInvalid();
-    const order = await findTenantOrder(db, tenantId, link.orderId, { lock: true });
-    if (order === null || order.dispatch.driverId !== link.driverId) throw driverLinkInvalid();
+    const tokenHash = hashDriverToken(token);
+    const found = await findDriverLinkByToken(db, tenantId, tokenHash);
+    if (!usable(found)) throw driverLinkInvalid();
+    const order = await findTenantOrder(db, tenantId, found.orderId, { lock: true });
+    const link = await findDriverLinkByToken(db, tenantId, tokenHash);
+    if (!usable(link) || order === null || order.dispatch.driverId !== link.driverId) throw driverLinkInvalid();
     await touchDriverLink(db, tenantId, link.id, now);
     return fn(db, { tenantId, link }, order);
   });

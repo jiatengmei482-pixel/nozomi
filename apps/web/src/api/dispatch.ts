@@ -433,7 +433,10 @@ export function listDeliveries(token: string, values: { status?: DeliveryStatus;
   return apiRequest("GET", query(`${WEBHOOK_PATH}/deliveries`, values), { token });
 }
 
-export function retryDelivery(token: string, id: string): Promise<{ delivery: WebhookDelivery }> {
+/** 手动重推的结果：发了一次 / 推送任务正在发、这次什么都没做 / 设置已删除或暂停、没发。 */
+export type WebhookRetryResult = "sent" | "in_flight" | "not_configured";
+
+export function retryDelivery(token: string, id: string): Promise<{ delivery: WebhookDelivery; result: WebhookRetryResult }> {
   return apiRequest("POST", `${WEBHOOK_PATH}/deliveries/${encodeURIComponent(id)}/retry`, { token });
 }
 
@@ -441,7 +444,7 @@ export function listPlatformDeliveries(token: string, values: { status?: Deliver
   return apiRequest("GET", query(PLATFORM_DELIVERIES_PATH, values), { token });
 }
 
-export function retryPlatformDelivery(token: string, id: string): Promise<{ delivery: WebhookDelivery }> {
+export function retryPlatformDelivery(token: string, id: string): Promise<{ delivery: WebhookDelivery; result: WebhookRetryResult }> {
   return apiRequest("POST", `${PLATFORM_DELIVERIES_PATH}/${encodeURIComponent(id)}/retry`, { token });
 }
 

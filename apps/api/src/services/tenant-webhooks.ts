@@ -35,6 +35,7 @@ import {
   insertTenantWebhook,
   listAttempts,
   listDeliveries,
+  deliveryLeased,
   rescheduleDelivery,
   updateTenantWebhook,
 } from "../repos/webhooks.ts";
@@ -267,6 +268,8 @@ export async function sendTestEvent(ctx: AppContext, writer: WebhookWriter): Pro
     await insertAttempt(db, tenantId, delivery.id, attempt);
     const finished = await finishDeliveryAttempt(db, delivery, { statusCode: outcome.statusCode, errorCode: outcome.errorCode, durationMs: outcome.durationMs, at: finishedAt }, { status: ok ? "succeeded" : "failed", nextAttemptAt: null });
     await audit(db, writer, finishedAt, "test", null, { event_id: delivery.eventId, status_code: outcome.statusCode, error_code: outcome.errorCode });
+    // 刚插入的这一条没有租约令牌，同一个事务里别人碰不到，一定记得上
+    if (finished === null) throw new Error("测试事件的投递记录没有记上结果");
     return { delivery: finished, attempt };
   });
 }
@@ -292,37 +295,49 @@ export function deliveryAlreadySucceeded(): AppError {
   return new AppError(409, "WEBHOOK_DELIVERY_SUCCEEDED", "这条推送已经成功，不需要重推");
 }
 
-/** 把一条推送改回「马上投」：最终失败的、等待重试的都可以；已成功的不行；测试事件不能重推（再发一次测试就行）。 */
-async function reschedule(db: Db, tenantId: string, id: string, now: Date): Promise<{ before: WebhookDelivery; after: WebhookDelivery }> {
+/**
+ * 把一条推送改回「马上投」：最终失败的、等待重试的都可以；已成功的不行；测试事件不能重推（再发一次测试就行）。
+ * 推送任务正在发（租约中）的什么都不做（`inFlight`）：不改时间、不收回租约、不记审计，发完的结果在推送记录里。
+ */
+async function reschedule(db: Db, tenantId: string, id: string, now: Date): Promise<{ before: WebhookDelivery; after: WebhookDelivery; inFlight: boolean }> {
   const delivery = await findDelivery(db, tenantId, id, { lock: true });
   if (delivery === null) throw notFound("投递记录");
   if (delivery.status === "succeeded") throw deliveryAlreadySucceeded();
   if (delivery.eventType === WEBHOOK_TEST_EVENT) throw new AppError(409, "WEBHOOK_TEST_NOT_RETRIABLE", "测试事件不能重推，请重新发送测试事件");
-  return { before: delivery, after: await rescheduleDelivery(db, delivery, now) };
+  if (deliveryLeased(delivery, now)) return { before: delivery, after: delivery, inFlight: true };
+  return { before: delivery, after: await rescheduleDelivery(db, delivery, now), inFlight: false };
 }
 
 const retryAudit = (before: WebhookDelivery): AuditValues => ({ event_id: before.eventId, event_type: before.eventType, status: before.status, attempts: before.attempts, last_error_code: before.lastErrorCode });
 
+/** 手动重推改回「马上投」之后的结果：`inFlight` 时推送任务正在发，调用方不再投。 */
+export interface RetryScheduled {
+  delivery: WebhookDelivery;
+  inFlight: boolean;
+}
+
 /** 供应商手动重推（`webhook.manage`）。改回「马上投」后由调用方立即投递一次。 */
-export async function retryTenantDelivery(ctx: AppContext, writer: WebhookWriter, id: string): Promise<WebhookDelivery> {
+export async function retryTenantDelivery(ctx: AppContext, writer: WebhookWriter, id: string): Promise<RetryScheduled> {
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
-    const { before, after } = await reschedule(db, tenantId, id, now);
+    const { before, after, inFlight } = await reschedule(db, tenantId, id, now);
+    if (inFlight) return { delivery: after, inFlight };
     await insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), { tenantId, resource: "webhook_delivery", resourceId: id, action: "retry", before: retryAudit(before), after: null });
-    return after;
+    return { delivery: after, inFlight };
   });
 }
 
-/** 运营后台手动重推（`order.resend`）：跨租户找到这条投递。 */
-export async function retryDeliveryForPlatform(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string): Promise<WebhookDelivery> {
+/** 运营后台手动重推（`order.resend`）：跨租户找到这条投递。和供应商的重推同一条路径。 */
+export async function retryDeliveryForPlatform(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string): Promise<RetryScheduled> {
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {
     const found = await findDelivery(db, null, id);
     if (found === null) throw notFound("投递记录");
-    const { before, after } = await reschedule(db, found.tenantId, id, now);
+    const { before, after, inFlight } = await reschedule(db, found.tenantId, id, now);
+    if (inFlight) return { delivery: after, inFlight };
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: found.tenantId, resource: "webhook_delivery", resourceId: id, action: "retry", before: retryAudit(before), after: null });
-    return after;
+    return { delivery: after, inFlight };
   });
 }
 

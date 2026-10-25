@@ -35,7 +35,7 @@ import { StateBlock } from "../../components/States.tsx";
 import { DELIVERY_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { durationText, orderPath, webhookErrorText, webhookEventName } from "../../lib/dispatch-display.ts";
+import { durationText, orderPath, retryResultText, webhookErrorText, webhookEventName } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -231,7 +231,7 @@ export function WebhookSettingsPage() {
               ? {
                   retry: (row: WebhookDelivery) =>
                     row.status !== "succeeded" && row.event_type !== "webhook.test" ? (
-                      <Button variant="text" size="sm" onClick={() => void action(async () => { const result = await retryDelivery(token, row.id); toast(result.delivery.status === "succeeded" ? "已重推成功" : "重推了，对方还是没收到"); deliveries.reload(); }, "重推")}>
+                      <Button variant="text" size="sm" onClick={() => void action(async () => { toast(retryResultText(await retryDelivery(token, row.id))); deliveries.reload(); }, "重推")}>
                         重推
                       </Button>
                     ) : null,
@@ -268,8 +268,7 @@ export function PlatformDeliveriesPage() {
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
   const retry = async (row: WebhookDelivery): Promise<void> => {
     try {
-      const result = await retryPlatformDelivery(token, row.id);
-      toast(result.delivery.status === "succeeded" ? "已重推成功" : "重推了，对方还是没收到");
+      toast(retryResultText(await retryPlatformDelivery(token, row.id)));
       reload();
     } catch (err) {
       if (!handleAuthFailure(err)) toast(failureText(err, "重推"));

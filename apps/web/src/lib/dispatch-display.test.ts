@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { directionName, driverLinkUrl, durationText, formatInZone, moneyText, routeText, serviceLocalText, webhookErrorText, webhookEventName } from "./dispatch-display.ts";
+import { directionName, driverLinkUrl, durationText, formatInZone, moneyText, retryResultText, routeText, serviceLocalText, webhookErrorText, webhookEventName } from "./dispatch-display.ts";
 
 test("用车时间按服务城市的时区显示（Intl 换算，不手工加减小时）", () => {
   assert.equal(formatInZone("2026-10-20T01:00:00.000Z", "Asia/Tokyo"), "2026-10-20 10:00");
@@ -26,4 +26,11 @@ test("路线、方向、金额、时长、错误码、事件的中文", () => {
   assert.equal(webhookEventName("webhook.test"), "测试事件");
   assert.match(webhookEventName("order.assigned"), /派车/);
   assert.equal(driverLinkUrl("https://nozomi.example.com", "/driver#nzd_x"), "https://nozomi.example.com/driver#nzd_x");
+});
+
+test("手动重推的提示：推送任务正在发时提示稍后看结果，没发的说明原因，发了的看成败", () => {
+  assert.equal(retryResultText({ delivery: { status: "pending" }, result: "in_flight" }), "这条推送正在发送，稍后刷新查看结果");
+  assert.equal(retryResultText({ delivery: { status: "failed" }, result: "not_configured" }), "供应商的 Webhook 设置已删除或暂停，没有发送");
+  assert.equal(retryResultText({ delivery: { status: "succeeded" }, result: "sent" }), "已重推成功");
+  assert.equal(retryResultText({ delivery: { status: "pending" }, result: "sent" }), "重推了，对方还是没收到");
 });

@@ -30,6 +30,9 @@ const CONCURRENCY = 4;
 /** 租约：比一次发送的时限（5 秒）长得多 */
 const LEASE_MS = 60_000;
 
+/** 手动重推的结果：`sent` 发了一次（成败看投递的状态）；`in_flight` 推送任务正在发，这次什么都没做；`not_configured` 设置已删除或暂停，没发。 */
+export type DeliverResult = "sent" | "in_flight" | "not_configured";
+
 export interface WebhookSweepResult {
   succeeded: number;
   retrying: number;
@@ -56,7 +59,7 @@ export class WebhookJobs {
     const queue = [...due];
     const worker = async (): Promise<void> => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-        const done = await this.deliver(next, "schedule");
+        const { delivery: done } = await this.deliver(next, "schedule");
         if (done.status === "succeeded") result.succeeded += 1;
         else if (done.status === "failed") result.failed += 1;
         else result.retrying += 1;
@@ -67,22 +70,28 @@ export class WebhookJobs {
   }
 
   /**
-   * 手动重推之后马上投一次（不等下一轮）。这条推送已经被别的实例租走时什么都不做，返回现在的状态。
+   * 手动重推之后马上投一次（不等下一轮）：和推送任务一样先租下（写租约令牌）再发。
+   * 这条推送已经被推送任务或别的实例租走时什么都不做（`in_flight`），返回现在的状态。
    */
-  async deliverNow(tenantId: string, deliveryId: string): Promise<WebhookDelivery> {
+  async deliverNow(tenantId: string, deliveryId: string): Promise<{ delivery: WebhookDelivery; result: DeliverResult }> {
     const now = this.ctx.now();
     const claimed = await withPlatformTx(this.ctx.pool, async (db) => {
       const result = await db.query<{ id: string }>(
-        "update webhook_deliveries set next_attempt_at = $3 where tenant_id = $1 and id = $2 and status = 'pending' and next_attempt_at <= $4 returning id",
+        "update webhook_deliveries set next_attempt_at = $3, lease_token = gen_random_uuid() where tenant_id = $1 and id = $2 and status = 'pending' and next_attempt_at <= $4 returning id",
         [tenantId, deliveryId, new Date(now.getTime() + LEASE_MS), now],
       );
       return (result.rowCount ?? 0) === 1 ? findDelivery(db, tenantId, deliveryId) : null;
     });
-    if (claimed === null) return (await withPlatformTx(this.ctx.pool, (db) => findDelivery(db, tenantId, deliveryId))) as WebhookDelivery;
+    if (claimed === null) return { delivery: await this.current({ tenantId, id: deliveryId }), result: "in_flight" };
     return this.deliver(claimed, "manual");
   }
 
-  private async deliver(delivery: WebhookDelivery, trigger: WebhookAttempt["trigger"]): Promise<WebhookDelivery> {
+  private async current(delivery: Pick<WebhookDelivery, "tenantId" | "id">): Promise<WebhookDelivery> {
+    return (await withPlatformTx(this.ctx.pool, (db) => findDelivery(db, delivery.tenantId, delivery.id))) as WebhookDelivery;
+  }
+
+  /** 发一次并记结果：`sent` 发了并记上；`not_configured` 设置已删除或暂停，没发、记为最终失败；`in_flight` 租约已被接手，结果没记。 */
+  private async deliver(delivery: WebhookDelivery, trigger: WebhookAttempt["trigger"]): Promise<{ delivery: WebhookDelivery; result: DeliverResult }> {
     const startedAt = this.ctx.now();
     const attemptNo = delivery.attempts + 1;
     const prepared = await withPlatformTx(this.ctx.pool, async (db) => {
@@ -92,7 +101,8 @@ export class WebhookJobs {
     });
     if (prepared === null) {
       this.log.warn({ event: "webhook.delivery_abandoned", tenantId: delivery.tenantId, eventId: delivery.eventId }, "供应商的 Webhook 已删除或暂停，这条推送不再发送");
-      return withPlatformTx(this.ctx.pool, (db) => abandonDelivery(db, delivery, "WEBHOOK_NOT_CONFIGURED", startedAt));
+      const abandoned = await withPlatformTx(this.ctx.pool, (db) => abandonDelivery(db, delivery, "WEBHOOK_NOT_CONFIGURED", startedAt));
+      return abandoned === null ? { delivery: await this.leaseLost(delivery), result: "in_flight" } : { delivery: abandoned, result: "not_configured" };
     }
     let request: SignedRequest | null = null;
     let result: WebhookResult;
@@ -108,16 +118,24 @@ export class WebhookJobs {
     const ok = outcome.errorCode === null;
     const delay = ok ? null : webhookRetryDelaySeconds(attemptNo);
     const next = ok ? { status: "succeeded" as const, nextAttemptAt: null } : delay === null ? { status: "failed" as const, nextAttemptAt: null } : { status: "pending" as const, nextAttemptAt: new Date(finishedAt.getTime() + delay * 1000) };
+    // 先核对租约再记尝试：租约已被别人接手（到期后别的实例取走、手动重推收回）时这一方什么都不记
     const saved = await withPlatformTx(this.ctx.pool, async (db) => {
-      await insertAttempt(db, delivery.tenantId, delivery.id, attemptRecord(outcome, request, attemptNo, trigger, startedAt));
-      return finishDeliveryAttempt(db, delivery, { statusCode: outcome.statusCode, errorCode: outcome.errorCode, durationMs: outcome.durationMs, at: finishedAt }, next);
+      const finished = await finishDeliveryAttempt(db, delivery, { statusCode: outcome.statusCode, errorCode: outcome.errorCode, durationMs: outcome.durationMs, at: finishedAt }, next);
+      if (finished !== null) await insertAttempt(db, delivery.tenantId, delivery.id, attemptRecord(outcome, request, attemptNo, trigger, startedAt));
+      return finished;
     });
+    if (saved === null) return { delivery: await this.leaseLost(delivery), result: "in_flight" };
     if (saved.status === "failed") {
       this.log.error({ event: "webhook.delivery_failed", tenantId: delivery.tenantId, eventId: delivery.eventId, eventType: delivery.eventType, attempts: saved.attempts, errorCode: outcome.errorCode, statusCode: outcome.statusCode }, "推送给供应商的 Webhook 重试用完仍然失败，需要人工处理（可在后台手动重推）");
     } else if (saved.status === "pending") {
       this.log.warn({ event: "webhook.delivery_retry", tenantId: delivery.tenantId, eventId: delivery.eventId, attempts: saved.attempts, errorCode: outcome.errorCode, statusCode: outcome.statusCode }, "推送给供应商的 Webhook 失败，稍后重试");
     }
-    return saved;
+    return { delivery: saved, result: "sent" };
+  }
+
+  private async leaseLost(delivery: WebhookDelivery): Promise<WebhookDelivery> {
+    this.log.warn({ event: "webhook.lease_lost", tenantId: delivery.tenantId, eventId: delivery.eventId }, "这条推送的租约已被接手，本次结果不记");
+    return this.current(delivery);
   }
 
   start(): void {

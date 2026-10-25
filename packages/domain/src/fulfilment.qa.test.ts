@@ -64,7 +64,7 @@ test("落地时间 · 6 小时顺延：恰好 6 小时在范围内，6 小时 1 
   assert.deepEqual([over.delayMinutes, over.withinDelayAllowance], [361, false]);
 });
 
-test("缺陷复现 · 6 小时顺延按整分钟向下取整：延误 6 小时 0 分 30 秒仍被算作「6 小时内」", () => {
+test("落地时间 · 6 小时顺延按毫秒比较：延误 6 小时 0 分 30 秒不在范围内（delayMinutes 只用于显示）", () => {
   const scheduled = new Date("2026-10-31T15:00:00Z");
   // 客人「我已落地」用的是系统收到的时间，精确到毫秒，超出 6 小时几十秒的情况是会出现的
   const result = effectiveLanding({ scheduledAt: scheduled, guestReportedAt: new Date(scheduled.getTime() + 6 * HOUR + 30_000), driver: null });

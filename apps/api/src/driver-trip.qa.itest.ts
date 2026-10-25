@@ -94,7 +94,7 @@ test("改派：只换车不换司机，旧链接也立即作废，新链接能�
   assert.equal((await driver("GET", "", res.driver_link.token)).status, 200, "新链接");
 });
 
-test("缺陷复现 · 吊销和司机的请求同时到：吊销所在的事务先锁住订单、吊销、提交，排在后面的司机请求仍然用已吊销的链接操作成功", async () => {
+test("吊销和司机的请求同时到：吊销所在的事务先锁住订单、吊销、提交，排在后面的司机请求锁住订单后重新读链接，401、订单不变", async () => {
   const { order, token } = await dispatched(360);
   const client = await api.db.owner.connect();
   try {

@@ -20,6 +20,7 @@ import {
   listDeliveriesForPlatform,
   listTenantDeliveries,
   removeTenantWebhook,
+  type RetryScheduled,
   retryDeliveryForPlatform,
   retryTenantDelivery,
   rotateWebhookSecret,
@@ -80,6 +81,13 @@ function optionalVersion(header: unknown): number | null {
   return header === undefined ? null : ifMatchVersion(header);
 }
 
+/** 手动重推的应答：`result` 是 `sent`（发了一次，成败看 `delivery.status`）、`in_flight`（推送任务正在发，这次什么都没做）、`not_configured`（设置已删除或暂停，没发）。 */
+async function retryResponse(app: FastifyInstance, scheduled: RetryScheduled): Promise<Record<string, unknown>> {
+  if (scheduled.inFlight) return { delivery: deliveryJson(scheduled.delivery), result: "in_flight" };
+  const done = await app.webhookJobs.deliverNow(scheduled.delivery.tenantId, scheduled.delivery.id);
+  return { delivery: deliveryJson(done.delivery), result: done.result };
+}
+
 export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContext): void {
   const tenant = (request: FastifyRequest, action: TenantAction) => authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
 
@@ -135,7 +143,7 @@ export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContex
   app.post("/tenant/v1/webhooks/deliveries/:id/retry", async (request) => {
     const principal = await tenant(request, "webhook.manage");
     const rescheduled = await retryTenantDelivery(ctx, { principal, ip: request.ip }, resourceId(request.params, "投递记录"));
-    return { delivery: deliveryJson(await app.webhookJobs.deliverNow(rescheduled.tenantId, rescheduled.id)) };
+    return retryResponse(app, rescheduled);
   });
 
   app.get("/platform/v1/webhook-deliveries", async (request) => {
@@ -154,6 +162,6 @@ export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContex
   app.post("/platform/v1/webhook-deliveries/:id/retry", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.resend" });
     const rescheduled = await retryDeliveryForPlatform(ctx, principal, request.ip, resourceId(request.params, "投递记录"));
-    return { delivery: deliveryJson(await app.webhookJobs.deliverNow(rescheduled.tenantId, rescheduled.id)) };
+    return retryResponse(app, rescheduled);
   });
 }

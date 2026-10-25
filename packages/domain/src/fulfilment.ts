@@ -77,13 +77,14 @@ export function effectiveLanding(inputs: LandingInputs): LandingResult {
     landedAt = inputs.scheduledAt;
     source = "scheduled";
   }
-  const delayMinutes = Math.max(0, Math.floor((landedAt.getTime() - inputs.scheduledAt.getTime()) / MINUTE));
+  const delayMs = landedAt.getTime() - inputs.scheduledAt.getTime();
+  const delayMinutes = Math.max(0, Math.floor(delayMs / MINUTE));
   return {
     landedAt,
     source,
     disagreement: guest !== null && driver !== null && guest.getTime() !== driver.getTime(),
     delayMinutes,
-    withinDelayAllowance: delayMinutes <= LANDING_RULES.delayAllowanceHours * 60,
+    withinDelayAllowance: delayMs <= LANDING_RULES.delayAllowanceHours * 60 * MINUTE,
   };
 }
 

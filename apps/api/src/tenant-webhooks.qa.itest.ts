@@ -83,7 +83,7 @@ async function assignedDelivery(side: "a" | "b"): Promise<{ orderId: string; del
 
 const receivedFor = (eventId: string) => receiver.received.filter((entry) => entry.headers["x-event-id"] === eventId);
 
-test("缺陷复现 · 推送任务正在发（租约中）时供应商点「手动重推」：同一条推送被同时发了两次，两次都记成第 1 次尝试", async () => {
+test("推送任务正在发（租约中）时供应商点「手动重推」：什么都不做（应答 in_flight），同一条推送只发一次，尝试编号不重复", async () => {
   await drain();
   await configure("a", ["order.assigned"]);
   receiver.respond([200]);
@@ -101,6 +101,63 @@ test("缺陷复现 · 推送任务正在发（租约中）时供应商点「手�
   const attempts = (await api.db.owner.query<{ attempt_no: number }>("select attempt_no from webhook_attempts where delivery_id = $1 order by attempt_no", [deliveryId])).rows.map((row) => row.attempt_no);
   assert.equal(receivedFor(eventId).length, 1, `租约中的推送不应被重推再发一次（重推应答 ${retried.status}，接收方收到 ${receivedFor(eventId).length} 次，尝试编号 ${attempts.join(",")}）`);
   assert.equal(new Set(attempts).size, attempts.length, "尝试的编号不应重复");
+});
+
+test("运营后台的手动重推走同一条路径：租约中什么都不做（in_flight，不写审计），发完之后再重推照常投", async () => {
+  await drain();
+  await configure("a", ["order.assigned"]);
+  receiver.respond([500, 200]);
+  const { deliveryId, eventId } = await assignedDelivery("a");
+  let entered!: () => void;
+  let release!: () => void;
+  const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+  hold = { entered, release: new Promise<void>((resolve) => (release = resolve)) };
+  const ticking = api.app.webhookJobs.tick();
+  await enteredPromise;
+  const root = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
+  const auditsBefore = (await api.db.owner.query("select 1 from audit_logs where resource = 'webhook_delivery' and resource_id = $1", [deliveryId])).rowCount;
+  const busy = await api.call("POST", `/platform/v1/webhook-deliveries/${deliveryId}/retry`, { token: root });
+  assert.equal(busy.status, 200, busy.text);
+  assert.deepEqual([busy.body.result, busy.body.delivery.status, busy.body.delivery.attempts], ["in_flight", "pending", 0]);
+  assert.equal((await api.db.owner.query("select 1 from audit_logs where resource = 'webhook_delivery' and resource_id = $1", [deliveryId])).rowCount, auditsBefore, "什么都没做就不写审计");
+  release();
+  await ticking;
+  assert.equal(receivedFor(eventId).length, 1);
+  // 第 1 次是 500，排着等重试；这时再重推就马上投第 2 次
+  const again = await api.call("POST", `/platform/v1/webhook-deliveries/${deliveryId}/retry`, { token: root });
+  assert.deepEqual([again.body.result, again.body.delivery.status, again.body.delivery.attempts], ["sent", "succeeded", 2]);
+  const attempts = (await api.db.owner.query<{ attempt_no: number; trigger: string }>("select attempt_no, trigger from webhook_attempts where delivery_id = $1 order by attempt_no", [deliveryId])).rows;
+  assert.deepEqual(attempts.map((row) => [row.attempt_no, row.trigger]), [[1, "schedule"], [2, "manual"]]);
+});
+
+test("租约到期后被别的实例接手：原来那一方发完再记结果时对不上租约令牌，什么都不记；同一条推送的尝试编号在库里唯一", async () => {
+  await drain();
+  await configure("a", ["order.assigned"]);
+  receiver.respond([200, 200]);
+  const { deliveryId } = await assignedDelivery("a");
+  let entered!: () => void;
+  let release!: () => void;
+  const enteredPromise = new Promise<void>((resolve) => (entered = resolve));
+  hold = { entered, release: new Promise<void>((resolve) => (release = resolve)) };
+  const slow = api.app.webhookJobs.tick();
+  await enteredPromise;
+  // 第一个实例卡住超过租约（60 秒），第二个实例取走并发完
+  api.clock.advance(61_000);
+  assert.equal((await api.app.webhookJobs.tick()).succeeded, 1);
+  release();
+  const late = await slow;
+  assert.equal(late.succeeded + late.failed + late.retrying, 1);
+  const row = (await api.db.owner.query<{ attempts: number; status: string; lease_token: string | null }>("select attempts, status, lease_token from webhook_deliveries where id = $1", [deliveryId])).rows[0];
+  assert.deepEqual([row?.attempts, row?.status, row?.lease_token], [1, "succeeded", null]);
+  assert.equal((await api.db.owner.query("select 1 from webhook_attempts where delivery_id = $1", [deliveryId])).rowCount, 1);
+  const tenantId = (await api.db.owner.query<{ tenant_id: string }>("select tenant_id from webhook_deliveries where id = $1", [deliveryId])).rows[0]?.tenant_id;
+  await assert.rejects(
+    api.db.owner.query(
+      "insert into webhook_attempts (tenant_id, delivery_id, attempt_no, trigger, started_at, duration_ms, status_code, target_host, request_bytes, request_sha256) values ($1, $2, 1, 'schedule', now(), 1, 200, 'x.test', 1, repeat('0', 64))",
+      [tenantId, deliveryId],
+    ),
+    /webhook_attempts_delivery_idx/,
+  );
 });
 
 test("进程在发送中途退出：租约（60 秒）到期前别的实例不接手，到期后接着发，同一个 event_id，只记一次尝试", async () => {

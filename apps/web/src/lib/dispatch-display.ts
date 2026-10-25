@@ -100,3 +100,10 @@ export function moneyText(money: { amount: string; currency: string }): string {
 export function driverLinkUrl(origin: string, path: string): string {
   return `${origin}${path}`;
 }
+
+/** 手动重推之后的提示。推送任务正在发这一条时重推什么都不做，提示稍后看结果。 */
+export function retryResultText(response: { delivery: { status: string }; result: "sent" | "in_flight" | "not_configured" }): string {
+  if (response.result === "in_flight") return "这条推送正在发送，稍后刷新查看结果";
+  if (response.result === "not_configured") return "供应商的 Webhook 设置已删除或暂停，没有发送";
+  return response.delivery.status === "succeeded" ? "已重推成功" : "重推了，对方还是没收到";
+}
