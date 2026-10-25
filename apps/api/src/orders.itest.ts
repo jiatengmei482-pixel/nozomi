@@ -15,7 +15,7 @@ import { buildApp } from "./app.ts";
 import { withTenantTx } from "./db/context.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
-import { type ApiResponse, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { testEnv } from "./testing/fixtures.ts";
 import { type Market, DROPOFF, SERVICE_TIME, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
@@ -247,10 +247,10 @@ test("报价：过期的 410；别的渠道的、不存在的当作不存在；�
   assert.deepEqual([gone.status, gone.body.error.code, gone.body.error.details.reason], [409, "QUOTE_NO_LONGER_AVAILABLE", "PRODUCT_UNPUBLISHED"]);
   await ok(api.call("POST", `/tenant/v1/products/${m.ids.pb}/publish`, { token: m.b.adminToken }));
   const beforeSuspend = await quoteFor(m.ids.biz7);
-  await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/suspend`, { token: m.root, body: { reason: "测试暂停" } }));
+  await suspendTenantApproved(api, m.root, m.b.tenantId);
   const suspended = await placeOrder({ quote_id: beforeSuspend.quote_id, ...details() });
   assert.deepEqual([suspended.status, suspended.body.error.details.reason], [409, "TENANT_SUSPENDED"]);
-  await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/resume`, { token: m.root, body: {} }));
+  await resumeTenantNow(api, m.root, m.b.tenantId);
   assert.equal((await row("select count(*)::int as n from orders", [])).n, before + 1, "只有那一张正常的单");
 });
 

@@ -37,6 +37,8 @@ import {
   localDateTimeToInstant,
   quoteProduct,
   quoteRequestIssues,
+  TENANT_RULES,
+  tenantDayStart,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -45,6 +47,7 @@ import { listHolidays } from "../repos/prices.ts";
 import { AppError } from "../errors.ts";
 import { type QuoteCandidate, type QuoteCandidateFilter, findQuoteCity, findQuotePlace, loadInventoryOnDay, loadQuoteCandidates } from "../repos/quotes.ts";
 import { countUrgentOrders } from "../repos/orders.ts";
+import { countOrdersSince } from "../repos/tenant-onboarding.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { masterDataNotReady, notFound } from "./errors.ts";
 
@@ -168,10 +171,12 @@ interface QuoteFacts {
   inventory: Map<string, InventoryDay>;
   urgentUsed: Map<string, number>;
   holidays: HolidayLookup;
+  /** 今天已经接满每日订单上限的试运营供应商（ADR 0028） */
+  trialCapped: Set<string>;
 }
 
 /** 给一批候选商品取库存、加急库存的已用量、节假日（各一次查询）。在事务里调用。 */
-async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest): Promise<QuoteFacts> {
+async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], request: QuoteRequest, now: Date): Promise<QuoteFacts> {
   // 用车那一天（各商品所在城市的当地日期；同一批商品同城，时区一样）
   const dated = candidates.flatMap((candidate) => {
     const instant = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone);
@@ -187,14 +192,18 @@ async function loadQuoteFacts(db: Db, candidates: readonly QuoteCandidate[], req
   const dates = dated.map((entry) => entry.date).sort();
   const first = dates[0];
   const holidays = countries.length === 0 || first === undefined ? [] : await listHolidays(db, { countryCodes: countries, from: addDays(first, -1), to: dates[dates.length - 1] as string }, 5_000);
-  return { inventory, urgentUsed, holidays: holidayLookup(holidays) };
+  // 试运营的每日订单上限（「准入过滤：试运营当日未达 10 单上限」）：今天（东京时间 0 点起）接的、没取消的单
+  const trial = [...new Set(candidates.filter((candidate) => candidate.tenantStatus === "trial").map((candidate) => candidate.product.tenantId))];
+  const todayOrders = await countOrdersSince(db, trial, tenantDayStart(now));
+  const trialCapped = new Set(trial.filter((tenantId) => (todayOrders.get(tenantId) ?? 0) >= TENANT_RULES.trialDailyOrderLimit));
+  return { inventory, urgentUsed, holidays: holidayLookup(holidays), trialCapped };
 }
 
 /** 给一批候选商品各报一次价（纯计算）。 */
 function quoteCandidates(candidates: readonly QuoteCandidate[], facts: QuoteFacts, request: QuoteRequest, now: Date, route: RouteEstimate | null, forOwner: boolean): Quoted[] {
   return candidates.map((candidate) => ({
     candidate,
-    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: facts.urgentUsed.get(candidate.product.productId) ?? 0 }, { forOwner }),
+    quote: quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route, inventoryDay: facts.inventory.get(candidate.product.productId) ?? null, urgentUsed: facts.urgentUsed.get(candidate.product.productId) ?? 0, trialLimitReached: facts.trialCapped.has(candidate.product.tenantId) }, { forOwner }),
   }));
 }
 
@@ -278,7 +287,7 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
       const all = await ctx.quote.catalog.get(`${city.id}|${input.category}|${input.placeId ?? ""}`, () => loadQuoteCandidates(db, filter), { fresh: options.fresh !== false });
       const sold = (candidate: QuoteCandidate): boolean => channel === null || channelSellsTenant(channel.channel.scope, candidate.product.tenantId);
       const candidates = all.filter(sold);
-      const facts = await loadQuoteFacts(db, candidates, request);
+      const facts = await loadQuoteFacts(db, candidates, request, now);
       const standings = await ctx.quote.standings.load(db, [...new Set(candidates.map((candidate) => candidate.product.tenantId))]);
       return { city, place, candidates, excluded: all.filter((candidate) => !sold(candidate)), facts, standings, channel };
     },
@@ -349,7 +358,7 @@ export async function previewTenantQuote(ctx: AppContext, tenantId: string, prod
       const candidates = await loadQuoteCandidates(db, { cityId: row.city_id, category: row.category, poiId: row.poi_id, productId, publishedOnly: false });
       // 城市或接送点被平台停用了：这个商品现在报不了价
       if (candidates.length === 0) throw masterDataNotReady("CITY_OR_PLACE_DISABLED", "这个商品所在的城市或它的接送点已被平台停用，现在报不了价");
-      return { request, candidates, facts: await loadQuoteFacts(db, candidates, request) };
+      return { request, candidates, facts: await loadQuoteFacts(db, candidates, request, now) };
     },
     { snapshot: true },
   );

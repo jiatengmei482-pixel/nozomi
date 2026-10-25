@@ -32,6 +32,10 @@ import {
   paymentOverdue,
   paymentStatusOf,
   quoteSnapshotValid,
+  TENANT_RULES,
+  type TenantStatus,
+  tenantBids,
+  tenantDayStart,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
@@ -61,6 +65,7 @@ import {
 } from "../repos/orders.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { requestHash } from "./idempotency.ts";
+import { countOrdersSince } from "../repos/tenant-onboarding.ts";
 import { idempotencyKeyReused } from "./errors.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { QuoteExpired, type StoredQuoteSnapshot } from "./sales-quotes.ts";
@@ -145,7 +150,7 @@ interface ProductRow {
   place_type: string | null;
 }
 
-function noLongerAvailable(reason: "PRODUCT_UNPUBLISHED" | "TENANT_SUSPENDED"): AppError {
+function noLongerAvailable(reason: "PRODUCT_UNPUBLISHED" | "TENANT_SUSPENDED" | "TENANT_NOT_ONBOARDED" | "TRIAL_DAILY_LIMIT"): AppError {
   return new AppError(409, "QUOTE_NO_LONGER_AVAILABLE", "这个报价的车已经不能预订了，请重新询价", { reason });
 }
 
@@ -180,7 +185,13 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     ).rows[0];
     // 报价之后（30 分钟内）供应商被暂停、商品被下架：车没法派，不能下单。价格变了不影响——以快照为准
     if (product === undefined || product.status !== "published") throw noLongerAvailable("PRODUCT_UNPUBLISHED");
-    if (product.tenant_status !== "active") throw noLongerAvailable("TENANT_SUSPENDED");
+    if (!tenantBids(product.tenant_status as TenantStatus)) throw noLongerAvailable(product.tenant_status === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED");
+    // 试运营的每日订单上限（ADR 0028）：同一个供应商的下单在这把锁上排队，数完再建单，并发也不会超过上限
+    if (product.tenant_status === "trial") {
+      await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`trial-daily-limit:${winner.tenantId}`]);
+      const today = (await countOrdersSince(db, [winner.tenantId], tenantDayStart(now))).get(winner.tenantId) ?? 0;
+      if (today >= TENANT_RULES.trialDailyOrderLimit) throw noLongerAvailable("TRIAL_DAILY_LIMIT");
+    }
 
     const request = snapshot.request;
     const details = input.details;

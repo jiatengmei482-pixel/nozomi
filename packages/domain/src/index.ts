@@ -23,3 +23,4 @@ export * from "./channels.ts";
 export * from "./approvals.ts";
 export * from "./fx-lock.ts";
 export * from "./orders.ts";
+export * from "./tenants.ts";

@@ -52,7 +52,7 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read"] : [])]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read"] : [])]);
   }
   assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
@@ -108,7 +108,7 @@ test("汇率人工锁定（M2-06，ADR 0025）：发起沿用 fx.manage，审核
 
 test("租户：操作日志只有管理员能看", () => {
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "audit_log.read"), key === "admin", key);
-  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read"]);
+  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read", "company.read", "performance.read"]);
 });
 
 test("租户：账号管理只归管理员，只读角色只能看账号列表，其他角色都不行", () => {
@@ -117,7 +117,12 @@ test("租户：账号管理只归管理员，只读角色只能看账号列表�
   assert.equal(tenantRoleCan("readonly", "user.read"), true);
   assert.equal(tenantRoleCan("readonly", "user.manage"), false);
   for (const role of ["pricing", "dispatch", "finance"] as const) {
-    assert.deepEqual(tenantPermissions(role), role === "pricing" ? ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"] : ["master_data.read", "order.read"]);
+    const expected = {
+      pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
+      dispatch: ["master_data.read", "order.read", "performance.read"],
+      finance: ["master_data.read", "order.read", "company.read", "performance.read"],
+    }[role];
+    assert.deepEqual(tenantPermissions(role), expected);
     assert.equal(tenantRoleCan(role, "user.read"), false);
   }
 });
@@ -182,4 +187,17 @@ test("订单（M3-01，ADR 0026）：平台的超级管理员、运营、客服�
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "order.read"), tenant.includes(key), key);
   assert.ok(!(PLATFORM_ACTIONS as readonly string[]).some((action) => action.startsWith("order.") && action !== "order.read"));
   assert.ok(!(TENANT_ACTIONS as readonly string[]).some((action) => action.startsWith("order.") && action !== "order.read"));
+});
+
+test("供应商入驻（M4-01，ADR 0028）：资质审核和合同、复核的审核只归超级管理员、运营、招商；供应商的企业信息只有管理员能改，评分每个角色都能看", () => {
+  for (const { key } of PLATFORM_ROLES) {
+    const onboarding = key === "super_admin" || key === "operations" || key === "tenant_onboarding";
+    assert.equal(platformRoleCan(key, "tenant.review"), onboarding, key);
+    assert.equal(platformRoleCan(key, "tenant.approve"), onboarding, key);
+  }
+  for (const { key } of TENANT_ROLES) {
+    assert.equal(tenantRoleCan(key, "company.manage"), key === "admin", key);
+    assert.equal(tenantRoleCan(key, "company.read"), key === "admin" || key === "finance" || key === "readonly", key);
+    assert.equal(tenantRoleCan(key, "performance.read"), true, key);
+  }
 });

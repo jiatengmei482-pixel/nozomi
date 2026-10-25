@@ -10,7 +10,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -711,7 +711,7 @@ test("暂停的供应商：照常能看、能改自己的子品牌和商品（�
   const token = paused.adminToken;
   const brand = await ok(call("POST", "/brands", { token, body: { name: "暂停前的品牌", currency: "JPY" } }), 201);
   const product = await ok(call("POST", "/products", { token, body: { brand_id: brand.id, city_id: ids["tokyo"], category: "charter" } }), 201);
-  assert.equal((await platform("POST", `/tenants/${paused.tenantId}/suspend`, { reason: "QA" })).status, 200);
+  await suspendTenantApproved(api, root, paused.tenantId, "QA");
   for (const path of ["/brands", "/products", `/products/${product.id}`, `/products/${product.id}/service-rules`, `/products/${product.id}/content`, `/products/${product.id}/publish-check`]) {
     assert.equal((await call("GET", path, { token })).status, 200, path);
   }
@@ -724,7 +724,7 @@ test("暂停的供应商：照常能看、能改自己的子品牌和商品（�
   assert.deepEqual(errorOf(await call("POST", `/products/${product.id}/publish`, { token })), [409, "PUBLISH_CHECK_FAILED"]);
   assert.deepEqual(errorOf(await call("POST", `/products/${product.id}/unpublish`, { token })), [409, "PRODUCT_STATE_INVALID"]);
   assert.equal((await call("DELETE", `/products/${made.id}`, { token })).status, 204);
-  assert.equal((await platform("POST", `/tenants/${paused.tenantId}/resume`)).status, 200);
+  await resumeTenantNow(api, root, paused.tenantId);
   assert.equal((await ok(call("GET", `/products/${product.id}`, { token }))).version, 4);
 });
 

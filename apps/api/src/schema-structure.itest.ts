@@ -79,6 +79,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 订单和状态流水：租户只读（派车等在 M3-02 加）；没付款的单接口层再过滤掉（ADR 0026）
     order_events: ["SELECT"],
     orders: ["SELECT"],
+    // 客人评价、履约事件、合同、状态记录、每日评分、提醒（ADR 0028）：供应商只读自己的
+    order_reviews: ["SELECT"],
     places: ["SELECT"],
     // 价格规则：可以真的删除（ADR 0018）
     price_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -89,8 +91,18 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     product_dispatchers: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     product_vehicle_groups: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     products: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    tenant_contracts: ["SELECT"],
+    // 资质（ADR 0028）：供应商只能提交和看，审核结论只有平台能写；文件只能上传和读
+    tenant_documents: ["INSERT", "SELECT"],
+    tenant_files: ["INSERT", "SELECT"],
+    tenant_notices: ["SELECT"],
+    tenant_performance_events: ["SELECT"],
+    // 企业信息：供应商自己填
+    tenant_profiles: ["INSERT", "SELECT", "UPDATE"],
     tenant_roles: ["SELECT"],
+    tenant_score_daily: ["SELECT"],
     tenant_sessions: ["DELETE", "INSERT", "SELECT"],
+    tenant_status_events: ["SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["SELECT"],
     vehicle_groups: ["SELECT"],
@@ -125,6 +137,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     markup_rules: ["INSERT", "SELECT", "UPDATE"],
     // 订单（ADR 0026）：销售端下单、支付回调、超时取消都在平台事务里；状态流水只追加；订单的销售端一侧只追加；收款、支付通知要改状态；都不删
     order_events: ["INSERT", "SELECT"],
+    // 客人评价（ADR 0028）：只追加
+    order_reviews: ["INSERT", "SELECT"],
     order_payments: ["INSERT", "SELECT", "UPDATE"],
     order_sales: ["INSERT", "SELECT"],
     orders: ["INSERT", "SELECT", "UPDATE"],
@@ -144,6 +158,15 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     quotes: ["INSERT", "SELECT"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
+    // 供应商入驻（ADR 0028）：合同版本、状态记录、履约事件、提醒只追加；资质只改审核结论；每日评分同一天重算时覆盖；企业信息只读；文件只追加
+    tenant_contracts: ["INSERT", "SELECT"],
+    tenant_documents: ["SELECT", "UPDATE"],
+    tenant_files: ["INSERT", "SELECT"],
+    tenant_notices: ["INSERT", "SELECT"],
+    tenant_performance_events: ["INSERT", "SELECT"],
+    tenant_profiles: ["SELECT"],
+    tenant_score_daily: ["INSERT", "SELECT", "UPDATE"],
+    tenant_status_events: ["INSERT", "SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["INSERT", "SELECT", "UPDATE"],
     vehicle_groups: ["INSERT", "SELECT", "UPDATE"],
@@ -182,6 +205,9 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
+  // 供应商入驻（ADR 0028）：审核、合同、状态、评分、提醒都是平台跨供应商做的；企业信息平台只读
+  "tenant_profiles.tenant_profiles_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  ...Object.fromEntries(["tenant_files", "tenant_documents", "tenant_contracts", "tenant_status_events", "tenant_performance_events", "order_reviews", "tenant_score_daily", "tenant_notices"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],
     cmd: "a",
@@ -204,6 +230,8 @@ const INDEX_EXCEPTIONS = [
   "orders_payment_due_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
+  // 资质审核队列跨供应商找待审核的（ADR 0028）
+  "tenant_documents_pending_idx",
   "tenant_users_email_key",
   "tenant_users_invite_token_key",
 ];

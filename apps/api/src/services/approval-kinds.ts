@@ -4,5 +4,6 @@
 import { type ApprovalKinds, approvalKinds } from "./approvals.ts";
 import { CHANNEL_APPROVAL_KINDS } from "./channels.ts";
 import { FX_APPROVAL_KINDS } from "./fx-locks.ts";
+import { TENANT_APPROVAL_KINDS } from "./tenant-onboarding.ts";
 
-export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([...CHANNEL_APPROVAL_KINDS, ...FX_APPROVAL_KINDS]);
+export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([...CHANNEL_APPROVAL_KINDS, ...FX_APPROVAL_KINDS, ...TENANT_APPROVAL_KINDS]);
