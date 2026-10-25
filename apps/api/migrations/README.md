@@ -55,6 +55,7 @@
 | `0026_dispatch.sql` | 派车和履约（ADR 0027）：订单加四个状态（司机已出发、已到达、客人未出现待审核、客人未出现）和派车、履约、落地时间的列；租户角色对订单加「改」，语句级触发器只许改派车和履约的列，行级触发器只许在履约的范围里改状态；状态流水加 `detail` 和三种操作者；派车记录 `order_assignments`、司机链接 `driver_links`（只存令牌的哈希）、照片 `order_files`（存在库里，≤ 5 MB）、联系记录 `order_contacts`、定位 `order_locations`、no-show 申请 `order_no_show_claims`（租户表，只追加；平台只读）。已有订单的派车截止时间按规则补算。不含任何数据 |
 | `0027_tenant_webhooks.sql` | 推送给供应商（ADR 0027）：订阅 `tenant_webhooks`（一个供应商一个地址；签名密钥是 AES-256-GCM 密文）、投递 `webhook_deliveries`（不存请求体）、每次尝试 `webhook_attempts`（只存大小和指纹）。租户表；平台角色读订阅、读写投递（推送任务、运营后台重推）。不含任何数据 |
 | `0028_webhook_lease.sql` | 推送的租约（M3-02，ADR 0027）：投递加租约令牌 `lease_token`（推送任务租下时写入，记结果时核对，租约被接手的一方记不上结果）；每条投递的尝试编号唯一。不含任何数据 |
+| `0031_cancel_change_extra_charges.sql` | 取消、改单、事后加收（M3-03，ADR 0029；0029、0030 留给别的任务）：平台统一取消政策 `cancellation_policies`（按版本追加，租户只读）；订单加下单时适用的取消阶梯、取消的扣款比例和供应商应得；改单 `order_changes`（租户表）和改期的对外价 `order_change_sales`（平台表）；事后加收 `order_extra_charges`（租户表，供应商只能提交和撤回，触发器把关）；收款一单可以多笔（改期补差价、加收）；退款 `order_refunds`（平台表）；凭证照片可以由供应商后台上传。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
