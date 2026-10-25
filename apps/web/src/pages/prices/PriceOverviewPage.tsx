@@ -8,6 +8,7 @@ import { Link, useSearchParams } from "react-router";
 import { type PriceOverview, type PriceOverviewItem, getPriceOverview } from "../../api/prices.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
 import { Dropdown } from "../../components/Dropdown.tsx";
@@ -293,6 +294,7 @@ export function PriceOverviewPage() {
         onNext={() => setParam({ page: String(page + 1) })}
       />
       {all.length >= OVERVIEW_LIMIT && <p className="page-intro">只列出最近改过的 1,000 个商品。</p>}
+      <Attributions sources={placeSources(false)} />
     </>,
   );
 }

@@ -14,6 +14,7 @@ import {
   type IssuedSecret,
   type MarkupRule,
   type MarkupRuleInput,
+  type NamedRef,
   activateChannel,
   createApiClient,
   listApiClients,
@@ -28,12 +29,13 @@ import {
   rotateApiClient,
 } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
-import { type VehicleGroup, listAllMaster } from "../../api/master.ts";
+import { type City, type VehicleGroup, listAllMaster } from "../../api/master.ts";
 import { listAllTenants } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
+import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { CopyButton, RadioGroup, SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
@@ -41,7 +43,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, percentText, pricingLines, readPercent, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
+import { APPROVALS_PAGE_PATH, APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_NAMES, MARKUP_LEVEL_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, approvalSummaryText, categoriesText, channelPath, cityChoices, percentText, pricingLines, readPercent, belowFloorRuleLines, relatedPending, ruleDatesText, ruleScopeText } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { SERVICE_CATEGORY_NAMES, displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, moneyText, readAmount } from "../../lib/product-display.ts";
@@ -66,6 +68,44 @@ function requestFailure(err: unknown, what: string): string {
     if (err.status === 403) return "你没有权限做这个操作。需要的话，请联系管理员开通。";
   }
   return failureText(err, what);
+}
+
+/** 调高下限被拦时：说清楚是哪几条规则、怎么办（M1-17）。 */
+export function BelowFloorAlert({ message, lines, then }: { message: string; lines: readonly string[]; then: string }) {
+  return (
+    <Alert kind="danger">
+      <strong className="alert__title">{`${message}。`}</strong>
+      {lines.length > 0 && (
+        <ul className="alert__list">
+          {lines.map((line, index) => (
+            <li key={`${index}-${line}`}>{line}</li>
+          ))}
+        </ul>
+      )}
+      <span>{then}</span>
+    </Alert>
+  );
+}
+
+/**
+ * 发起前提醒：同一渠道上已经有会和这次互相「过时」的待审核改动（M1-17）。对话框打开时取一次这个渠道待审核的改动；
+ * 取不到就不提醒（不挡发起，批准时后端照样会核对版本）。
+ */
+function PendingNotice({ channelId, target }: { channelId: string; target: Parameters<typeof relatedPending>[0] }) {
+  const loaded = useLoad(`channel-pending:${channelId}`, (token) => listApprovals(token, { status: "pending", resource_id: channelId, limit: 100 }));
+  const related = relatedPending(target, loaded.state.data?.items ?? []);
+  if (related.length === 0) return null;
+  return (
+    <Alert kind="warning">
+      <strong className="alert__title">{`这个渠道已经有 ${related.length} 条待审核的定价改动：`}</strong>
+      <ul className="alert__list">
+        {related.map((approval) => (
+          <li key={approval.id}>{`${approvalSummaryText(approval.summary)}（${approval.requested_by.name}，${formatLocalDateTime(approval.requested_at)} 发起）`}</li>
+        ))}
+      </ul>
+      <span>它们和这次的改动谁先被批准，另外的就会过时，只能驳回后按现在的数重新发起。要改的是同一处的话，建议先到「待审核」撤回旧的，或等它处理完再发起。</span>
+    </Alert>
+  );
 }
 
 // ───────────── 加价规则的表单 ─────────────
@@ -129,7 +169,14 @@ function readRuleForm(form: RuleForm, floorBp: number): { errors: Partial<Record
   };
 }
 
-function RuleDialog({ channelId, floorBp, rule, onClose, onDone }: { channelId: string; floorBp: number; rule: MarkupRule | null; onClose(): void; onDone(): void }) {
+/** 加价规则里能选的城市：渠道授权卖的（「全部城市」= 平台启用中的全部）；修改时原来那个城市即使不在里面也留着，标出来（M1-17）。 */
+function ruleCityOptions(cities: readonly City[], scopeCities: readonly NamedRef[] | null, currentId: string): ComboboxOption[] {
+  const allowed = scopeCities === null ? null : new Set(scopeCities.map((city) => city.id));
+  const usable = cities.filter((city) => city.id === currentId || (city.status === "active" && (allowed === null || allowed.has(city.id))));
+  return cityChoices(usable).map((option) => (option.value === currentId && allowed !== null && !allowed.has(currentId) ? { ...option, label: `${option.label}（渠道没有授权）` } : option));
+}
+
+function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: { channelId: string; floorBp: number; scopeCities: readonly NamedRef[] | null; rule: MarkupRule | null; onClose(): void; onDone(): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const canSeeTenants = usePlatformCan("tenant.read");
@@ -146,7 +193,7 @@ function RuleDialog({ channelId, floorBp, rule, onClose, onDone }: { channelId: 
   const change = (changes: Partial<RuleForm>): void => setForm((current) => ({ ...current, ...changes }));
   const option = (value: string, label: string) => ({ value, label });
   const tenantOptions = [option("", "请选择"), ...(tenants.state.data?.items ?? []).map((tenant) => option(tenant.id, tenant.name))];
-  const cityOptions = [option("", "请选择"), ...(cities.state.data ?? []).filter((city) => city.status === "active" || city.id === form.cityId).map((city) => option(city.id, displayName(city.name).text))];
+  const cityOptions = ruleCityOptions(cities.state.data ?? [], scopeCities, form.cityId);
   const groupOptions = [option("", "请选择"), ...(groups.state.data ?? []).filter((group) => group.status === "active" || group.id === form.vehicleGroupId).map((group) => option(group.id, `${displayName(group.name).text}（${group.code}）`))];
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -175,12 +222,26 @@ function RuleDialog({ channelId, floorBp, rule, onClose, onDone }: { channelId: 
     }>
       <form id="rule-form" className="form" noValidate onSubmit={(event) => void submit(event)}>
         <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        <PendingNotice channelId={channelId} target={{ kind: "rule", ruleId: rule?.id ?? null }} />
         <p className="page-intro">从具体到通用匹配，命中第一级就停。提交后要另一位同事批准才生效。</p>
         <RadioGroup legend="按什么设" name="rule-level" options={([1, 2, 3, 4, 5] as const).map((level) => ({ value: String(level), label: `第 ${level} 级：${MARKUP_LEVEL_NAMES[level]}` }))} value={String(form.level)} onChange={(value: string) => change({ level: Number(value) as MarkupRule["level"] })} />
         {dims.tenant && <SelectField label="供应商" value={form.tenantId} options={tenantOptions} onChange={(value) => change({ tenantId: value })} />}
         {dims.tenant && errorOf("tenantId").length > 0 && <p className="field__error">{errorOf("tenantId")[0]}</p>}
-        {dims.city && <SelectField label="城市" value={form.cityId} options={cityOptions} onChange={(value) => change({ cityId: value })} />}
-        {dims.city && errorOf("cityId").length > 0 && <p className="field__error">{errorOf("cityId")[0]}</p>}
+        {dims.city && (
+          <Combobox
+            label="城市"
+            required
+            options={cityOptions}
+            value={form.cityId === "" ? null : form.cityId}
+            placeholder="输入城市名称或编码查找"
+            emptyText={scopeCities === null ? "平台还没有启用中的城市" : "这个渠道授权的城市都已停用"}
+            loading={cities.state.data === null && cities.state.status === "loading"}
+            loadFailed={cities.state.data === null && cities.state.status === "error"}
+            errors={errorOf("cityId")}
+            hint={scopeCities === null ? "这个渠道可以卖全部城市，这里列出平台启用中的城市。" : `只列这个渠道授权卖的 ${scopeCities.length} 个城市。要加别的城市，先在「编辑基本信息和授权范围」里授权。`}
+            onChange={(value) => change({ cityId: value ?? "" })}
+          />
+        )}
         {dims.category && <SelectField label="品类" value={form.category} options={[option("", "请选择"), ...SERVICE_CATEGORIES.map((value) => option(value, SERVICE_CATEGORY_NAMES[value]))]} onChange={(value) => change({ category: value as ServiceCategory | "" })} />}
         {dims.category && errorOf("category").length > 0 && <p className="field__error">{errorOf("category")[0]}</p>}
         {dims.vehicleGroup && <SelectField label="车型组" value={form.vehicleGroupId} options={groupOptions} onChange={(value) => change({ vehicleGroupId: value })} />}
@@ -211,7 +272,7 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
   const [rounding, setRounding] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(channel.pricing.sell_rounding).map(([currency, unit]) => [currency, amountText(unit, currency)])));
   const [note, setNote] = useState("");
   const [attempted, setAttempted] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<ReactNode>(null);
   const [busy, setBusy] = useState(false);
   const floorBp = readPercent(floor);
   const markupBp = readPercent(markup);
@@ -245,7 +306,13 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
       onDone();
     } catch (err) {
       if (handleAuthFailure(err)) return;
-      setProblem(requestFailure(err, "提交"));
+      setProblem(
+        err instanceof ApiError && err.code === "RULES_BELOW_FLOOR" ? (
+          <BelowFloorAlert message={err.message} lines={belowFloorRuleLines(err.details, detail.markup_rules)} then="在「加价规则」里把这几条「修改」到新的下限以上（同样要同事批准），批准后再来调高下限；或者把下限改低一点。" />
+        ) : (
+          requestFailure(err, "提交")
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -258,7 +325,8 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
       </>
     }>
       <form id="pricing-form" className="form" noValidate onSubmit={(event) => void submit(event)}>
-        <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        <div role="alert">{typeof problem === "string" ? <Alert kind="danger">{problem}</Alert> : problem}</div>
+        <PendingNotice channelId={channel.id} target={{ kind: "pricing" }} />
         <p className="page-intro">改加价比例是敏感操作：提交后要另一位同事批准才生效。调高下限时，还在用的加价规则不能低于新的下限。</p>
         <TextField label="默认加价比例（%）" inputMode="decimal" autoComplete="off" value={markup} errors={shown(errors.markup)} onChange={(event) => setMarkup(event.target.value)} />
         <TextField label="加价下限（%）" inputMode="decimal" autoComplete="off" value={floor} errors={shown(errors.floor)} hint={`不能低于平台下限 ${PLATFORM_FLOOR_TEXT}。`} onChange={(event) => setFloor(event.target.value)} />
@@ -560,7 +628,7 @@ function ChannelApprovals({ channelId, version }: { channelId: string; version: 
           {items.map((item) => (
             <li key={item.id}>
               <StatusBadge {...APPROVAL_STATUS_BADGES[item.status]} />
-              <span>{`${APPROVAL_KIND_NAMES[item.kind]}：${item.summary}`}</span>
+              <span>{`${APPROVAL_KIND_NAMES[item.kind]}：${approvalSummaryText(item.summary)}`}</span>
               <span className="table__muted">{`${item.requested_by.name} · ${formatLocalDateTime(item.requested_at)}${item.decided_by ? ` · 审核：${item.decided_by.name}` : ""}`}</span>
             </li>
           ))}
@@ -742,11 +810,16 @@ export function ChannelDetailSections({ detail, onChanged, onReplace }: { detail
       <ApiClientsCard channelId={channel.id} canManage={canManage} />
       <QuoteLogsCard channelId={channel.id} />
       {dialog?.kind === "pricing" && <PricingDialog detail={detail} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog?.kind === "rule" && <RuleDialog channelId={channel.id} floorBp={channel.pricing.markup_floor_bp} rule={dialog.rule} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog?.kind === "rule" && <RuleDialog channelId={channel.id} floorBp={channel.pricing.markup_floor_bp} scopeCities={channel.scope.cities} rule={dialog.rule} onClose={() => setDialog(null)} onDone={done} />}
       {dialog?.kind === "delete" && (
         <NoteDialog
           title="申请删除加价规则"
-          intro={<p>{`「${ruleScopeText(dialog.rule)} = ${percentText(dialog.rule.markup_bp)}」。提交后要另一位同事批准才删除；删除后这些情况改按下一级的规则或默认加价比例。`}</p>}
+          intro={
+            <>
+              <PendingNotice channelId={channel.id} target={{ kind: "rule", ruleId: dialog.rule.id }} />
+              <p>{`「${ruleScopeText(dialog.rule)} = ${percentText(dialog.rule.markup_bp)}」。提交后要另一位同事批准才删除；删除后这些情况改按下一级的规则或默认加价比例。`}</p>
+            </>
+          }
           confirmLabel="提交审核"
           danger
           onClose={() => setDialog(null)}

@@ -553,7 +553,7 @@ test("新增车型组：等级和座位数填了自动给出编码，手工改�
   assert.ok(screen.getByRole("heading", { level: 1, name: "新增车型组" }));
 });
 
-test("导入的机场的编辑页：有数据来源；改了英语名立即提示不再随导入更新；有航站楼小表格", async () => {
+test("导入的机场的编辑页：有数据来源（中文、日文名称来自 GeoNames）；改了英语名立即提示不再随导入更新；有航站楼小表格", async () => {
   const withCity: Place = { ...hnd, city_id: TOKYO_ID, city: { id: TOKYO_ID, code: "CTY-JP-TYO", name: tokyo.name }, status: "active" };
   const terminal: Place = { ...hnd, id: KIX_ID, type: "terminal", code: "HND-T3", name: { zh: "第 3 航站楼" }, parent_id: HND_ID, source: null, status: "active", flight_scope: "international" };
   open(`/platform/master/places/${HND_ID}`, "master_data", (call) => {
@@ -564,6 +564,10 @@ test("导入的机场的编辑页：有数据来源；改了英语名立即提�
   const english = (await screen.findByLabelText("名称 英语")) as HTMLInputElement;
   assert.ok(screen.getByText("英语名和坐标来自 OurAirports，再次导入时会随数据源更新。"));
   assert.ok(screen.getByText("2434"));
+  const source = screen.getByRole("region", { name: "数据来源" });
+  const names = within(source).getByText("中文、日文名称").nextElementSibling as HTMLElement;
+  assert.match(names.textContent ?? "", /^来自 GeoNames.*（CC BY 4\.0）。导入时只填空着的语言/, "M1-17：数据来源写明中文、日文名称来自 GeoNames");
+  assert.equal(within(names).getByRole("link", { name: /GeoNames/ }).getAttribute("target"), "_blank");
   assert.equal(screen.getAllByText("来自 OurAirports。").length, 2);
   await userEvent.setup().type(english, " (Haneda)");
   assert.ok(screen.getByText("保存后，这个机场的英语名和坐标不再随 OurAirports 更新。"));

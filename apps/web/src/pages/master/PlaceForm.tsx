@@ -211,7 +211,7 @@ function SourceCard({ place }: { place: Place }) {
         ) : (
           <>
             <strong className="alert__title">英语名和坐标来自 OurAirports，再次导入时会随数据源更新。</strong>
-            <span>你在这里改过其中任何一项之后，这个机场的英语名和坐标就不再随导入更新，以这里填的为准。所属城市、其他语言的名称等不受导入影响。</span>
+            <span>你在这里改过其中任何一项之后，这个机场的英语名和坐标就不再随导入更新，以这里填的为准。所属城市、中文名、日文名等不受这项导入影响。</span>
           </>
         )}
       </Alert>
@@ -221,6 +221,12 @@ function SourceCard({ place }: { place: Place }) {
           <dd>
             <ExternalLink to="ourairports">OurAirports</ExternalLink>
             （公开数据）
+          </dd>
+        </div>
+        <div>
+          <dt>中文、日文名称</dt>
+          <dd>
+            来自 <ExternalLink to="geonames">GeoNames</ExternalLink>（CC BY 4.0）。导入时只填空着的语言；在这里改过或删掉的，再导入时不会覆盖、也不会补回。
           </dd>
         </div>
         <div>

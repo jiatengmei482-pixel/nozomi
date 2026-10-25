@@ -4,6 +4,7 @@
  * - `POST /sales/v1/oauth/token`：client_id + client_secret → 访问令牌。密钥不对、客户端不存在、已吊销，返回同一个 401 `INVALID_CLIENT`；
  *   渠道被暂停返回 403 `CHANNEL_PAUSED`（只在密钥正确时才说）。按来源地址限流。
  * - 每个 `/sales/v1` 请求：验令牌签名，再回数据库核对客户端还在用、渠道没被暂停、令牌的密钥代次还有效（轮换的宽限期过了，旧令牌失效）。
+ *   通过了就更新客户端的「最近使用」，按分钟节流：离上次记的不到 1 分钟不写库（ADR 0023 补充，M1-18）。
  * 渠道的编号**只来自令牌**：请求里不接受 channel_id（需求「销售端 Token 内含 channel_id，只能看到平台授权给它的租户」）。
  * 渠道的数据是平台表，所以走平台角色（ADR 0010：平台员工登录同样走平台角色）。
  */
@@ -17,6 +18,9 @@ import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts"
 
 /** 访问令牌有效期：2 小时 */
 export const SALES_TOKEN_TTL_SECONDS = 2 * 60 * 60;
+
+/** 「最近使用」的精度：用令牌调用时，离上次记的不到这么久就不再写库（ADR 0023 补充）。 */
+export const LAST_USED_RESOLUTION_MS = 60_000;
 
 export interface SalesPrincipal {
   /** API 客户端的内部编号 */
@@ -45,10 +49,11 @@ interface ClientRow {
   secret_generation: number;
   retired_secrets: RetiredSecret[];
   status: "active" | "revoked";
+  last_used_at: Date | null;
   channel_status: "testing" | "active" | "paused";
 }
 
-const CLIENT_SELECT = `select k.id, k.client_id, k.channel_id, k.secret_hash, k.secret_generation, k.retired_secrets, k.status, c.status as channel_status
+const CLIENT_SELECT = `select k.id, k.client_id, k.channel_id, k.secret_hash, k.secret_generation, k.retired_secrets, k.status, k.last_used_at, c.status as channel_status
   from channel_api_clients k join channels c on c.id = k.channel_id`;
 
 /** 来源地址不进限流表原文（和登录限速一样只存哈希）。 */
@@ -82,6 +87,11 @@ export async function issueSalesToken(ctx: AppContext, input: { clientId: string
   });
 }
 
+/** 上次记的「最近使用」离现在满 1 分钟（或从来没记过）才需要再写。 */
+export function lastUsedIsStale(lastUsedAt: Date | null, now: Date): boolean {
+  return lastUsedAt === null || now.getTime() - lastUsedAt.getTime() >= LAST_USED_RESOLUTION_MS;
+}
+
 /**
  * 核对访问令牌并占用一次限流额度（按渠道计）。令牌无效、客户端已吊销、密钥代次已失效：401；渠道暂停：403；超限：429。
  */
@@ -98,6 +108,10 @@ export async function authenticateSales(ctx: AppContext, token: string | null, s
     if (row.channel_status === "paused") throw channelPaused();
     const decision = await takeRateSlot(db, row.channel_id, scope, now);
     if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
+    if (lastUsedIsStale(row.last_used_at, now)) {
+      // 条件写在 SQL 里：同一分钟里并发的几个请求只有第一个真正写；时钟比库里记的早（换过机器）也不往回改
+      await db.query("update channel_api_clients set last_used_at = $2 where id = $1 and (last_used_at is null or last_used_at <= $3)", [row.id, now, new Date(now.getTime() - LAST_USED_RESOLUTION_MS)]);
+    }
     return { apiClientId: row.id, clientId: row.client_id, channelId: row.channel_id };
   });
 }

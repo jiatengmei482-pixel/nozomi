@@ -120,6 +120,8 @@ const writes = (calls: ApiCall[]): ApiCall[] => calls.filter((call) => call.meth
 const stepText = (name: string): string => [...document.querySelectorAll(".step-nav__item")].find((node) => node.textContent?.includes(name))?.textContent ?? "";
 const user = () => userEvent.setup();
 const ROW = "东京 23 区 · 商务七座 · 接送通用";
+/** 这个组合各行的某一格：只有一段时名字是「{ROW} 的{格}」，有几段时带「（第 N 段，共 M 段）」（M1-17） */
+const rowCells = (field: string): HTMLInputElement[] => screen.getAllByLabelText(new RegExp(`^${ROW}(（第 \\d+ 段，共 \\d+ 段）)? 的${field}$`)) as HTMLInputElement[];
 const jpy = (minor: number | null): string => `JPY ${(minor ?? 0).toLocaleString("en-US")}`;
 const pageText = (): string => document.body.textContent ?? "";
 /** 规则 4：供应商后台的页面上不能出现对外价和加价比例。 */
@@ -221,7 +223,8 @@ test("价格表：同一个组合再加一段日期，重叠当场标出来，�
   await screen.findByLabelText(`${ROW} 的基础价`);
   await actor.click(screen.getByRole("button", { name: `${ROW} 的更多操作` }));
   await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
-  const added = screen.getAllByLabelText(`${ROW} 的生效日期从`).find((node) => (node as HTMLInputElement).value === "") as HTMLInputElement;
+  const added = rowCells("生效日期从").find((node) => node.value === "") as HTMLInputElement;
+  assert.equal(added.getAttribute("aria-label"), `${ROW}（第 2 段，共 2 段） 的生效日期从`);
   await actor.type(added, "2026-12-01");
   await screen.findByText("有 2 条价格的生效日期重叠，保存前要改。");
   assert.equal([...document.querySelectorAll(".price-table tbody tr")].filter((row) => row.textContent?.includes("和 1 条价格的日期重叠")).length, 2);
@@ -726,6 +729,7 @@ test("价格规则总览：每个商品的价格情况四种写法，缺价数�
   assert.match(pageText(), /价格是按商品设的。选一个商品，进去设它的价格、调价规则，或看价格日历。/);
   assert.match(pageText(), /共 5 条/);
   assert.equal(within(screen.getByRole("navigation", { name: "主菜单" })).getByRole("link", { name: "价格规则" }).getAttribute("aria-current"), "page");
+  assert.match(document.querySelector(".page__attribution")?.textContent ?? "", /^城市数据和机场的中文、日文名称来自 GeoNames/, "M1-18：有城市一列，注明 GeoNames");
   await actor.click(screen.getByRole("button", { name: "羽田机场接送 的更多操作" }));
   assert.equal(screen.getByRole("menuitem", { name: "价格日历" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/calendar`);
   assert.equal(screen.getByRole("menuitem", { name: "调价规则" }).getAttribute("href"), `/products/${PRODUCT_ID}/prices/adjust`);
@@ -971,7 +975,7 @@ test("M1-14 价格日历：手机上打开本月时今天那一行滚到屏幕�
 
 // ───────────── M1-14：价格表「再加一段日期」 ─────────────
 
-const fromCells = (): HTMLInputElement[] => screen.getAllByLabelText(`${ROW} 的生效日期从`) as HTMLInputElement[];
+const fromCells = (): HTMLInputElement[] => rowCells("生效日期从");
 
 test("M1-14 再加一段日期：上一段有结束日期时，新行在下面、从结束的次日开始，焦点落在新行；没保存的新行可以删除", async () => {
   const actor = user();
@@ -981,8 +985,12 @@ test("M1-14 再加一段日期：上一段有结束日期时，新行在下面�
   await actor.click(screen.getByRole("menuitem", { name: "再加一段日期" }));
   await waitFor(() => assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2027-01-01"]));
   await waitFor(() => assertFocused(fromCells()[1] as HTMLElement));
-  assert.equal((screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement).value, "20,000", "价格的数照抄");
+  assert.equal((rowCells("基础价")[1] as HTMLInputElement).value, "20,000", "价格的数照抄");
   assert.match(pageText(), /已在下面加了一行，从 2027-01-01 开始/);
+  // 两段的每个输入框读屏名字都带「第几段，共几段」，分得清是哪一段（M1-17）
+  for (const n of [1, 2]) {
+    for (const name of [`${ROW}（第 ${n} 段，共 2 段） 的基础价`, `${ROW}（第 ${n} 段，共 2 段） 的生效日期从`, `${ROW}（第 ${n} 段，共 2 段） 的生效日期到`, `启用这条价格：${ROW}（第 ${n} 段，共 2 段）`]) assert.equal(screen.getAllByLabelText(name).length, 1, name);
+  }
 
   // 新行：「删除这一行」；原来那条：「删除」
   // 同一组合有两段时，「更多操作」的名字带上日期，读屏分得清是哪一段（M1-16）
@@ -1018,10 +1026,10 @@ test("M1-14 再加一段日期：上一段一直有效时开始日期留空并�
   assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
   await actor.click(screen.getByRole("button", { name: "把那一条的结束日期改成 2026-12-19" }));
   await waitFor(() => assertAbsent(screen.queryByText("有 2 条价格的生效日期重叠，保存前要改。")));
-  assert.equal((screen.getAllByLabelText(`${ROW} 的生效日期到`)[0] as HTMLInputElement).value, "2026-12-19");
+  assert.equal((rowCells("生效日期到")[0] as HTMLInputElement).value, "2026-12-19");
   await actor.clear(fromCells()[1] as HTMLElement);
   await actor.type(fromCells()[1] as HTMLElement, "2026-12-20");
-  const newPrice = screen.getAllByLabelText(`${ROW} 的基础价`)[1] as HTMLInputElement;
+  const newPrice = rowCells("基础价")[1] as HTMLInputElement;
   await actor.clear(newPrice);
   await actor.type(newPrice, "25000");
   await actor.tab();
@@ -1031,7 +1039,7 @@ test("M1-14 再加一段日期：上一段一直有效时开始日期留空并�
   await screen.findByRole("button", { name: `${ROW}：基础价太大了` });
   assert.deepEqual(fromCells().map((cell) => cell.value), ["2026-10-01", "2026-12-20"]);
   // 焦点落在出错的那一格（聚焦时显示成纯数字）
-  assert.deepEqual(screen.getAllByLabelText(`${ROW} 的基础价`).map((cell) => (cell as HTMLInputElement).value.replace(",", "")), ["20000", "25000"]);
+  assert.deepEqual(rowCells("基础价").map((cell) => cell.value.replace(",", "")), ["20000", "25000"]);
   answer = apiError(409, "PRICE_RULE_CONFLICT", "overlap", { conflicts: [{ id: PRICE_ID, valid_from: "2026-10-01", valid_to: "2026-12-19", with: [{ id: "other", valid_from: "2026-11-01", valid_to: null }] }] });
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await screen.findByText(/所以这一批都没有保存/);

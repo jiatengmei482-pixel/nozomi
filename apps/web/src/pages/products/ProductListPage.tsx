@@ -7,6 +7,7 @@ import type { City, MasterPage } from "../../api/master.ts";
 import { type Brand, type ProductSummary, listBrands, listProducts } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { Combobox } from "../../components/Combobox.tsx";
 import { type Column, CursorPagination, DataTable, PAGE_SIZES, type TableState } from "../../components/DataTable.tsx";
@@ -18,7 +19,7 @@ import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { AREA_NEW_PATH } from "../../lib/area-paths.ts";
 import { displayName, formatLocalDateTime, shortName } from "../../lib/master-display.ts";
-import { PRODUCT_STATUS_BADGES, productName } from "../../lib/product-display.ts";
+import { PRODUCT_STATUS_BADGES, brandLabel, productName } from "../../lib/product-display.ts";
 import { PRODUCT_NEW_PATH, productPath } from "../../lib/product-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -59,7 +60,7 @@ function Filters({ cities, citiesState, brands }: { cities: readonly City[] | nu
           inline
           label="子品牌"
           value={brands.some((entry) => entry.id === brand) ? (brand as string) : "all"}
-          options={[{ value: "all", label: "全部" }, ...brands.map((entry) => ({ value: entry.id, label: `${entry.name}（${entry.currency}）` }))]}
+          options={[{ value: "all", label: "全部" }, ...brands.map((entry) => ({ value: entry.id, label: brandLabel(entry) }))]}
           onChange={(value) => setBrand(value === "all" ? null : value)}
         />
       )}
@@ -217,7 +218,7 @@ export function ProductListPage() {
           "—"
         ),
     },
-    ...(multipleBrands ? [{ key: "brand", header: "子品牌", cell: (row: ProductSummary) => (row.brand ? `${row.brand.name}（${row.brand.currency}）` : "—") }] : []),
+    ...(multipleBrands ? [{ key: "brand", header: "子品牌", cell: (row: ProductSummary) => (row.brand ? brandLabel(row.brand) : "—") }] : []),
     { key: "areas", header: "区域", align: "end", cell: (row) => row.area_count },
     { key: "groups", header: "车型组", align: "end", cell: (row) => row.vehicle_group_count },
     {
@@ -318,6 +319,7 @@ export function ProductListPage() {
           if (next) goToPage([...stack, next]);
         }}
       />
+      <Attributions sources={placeSources(true)} />
       {actions.dialog}
     </>,
     canManage ? newButton : undefined,

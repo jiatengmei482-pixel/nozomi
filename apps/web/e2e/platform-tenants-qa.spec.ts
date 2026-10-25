@@ -794,7 +794,8 @@ test("用临时密码登录、必须先改密码的超级管理员：这几个�
   await page.getByLabel("再输入一次新密码").fill(password);
   await page.getByRole("button", { name: "保存新密码" }).click();
   await expect(page).toHaveURL(/\/platform$/);
-  await page.goto("/platform/settings/staff");
+  // 员工列表分页：按邮箱搜，免得并行的用例建的员工把它挤到后面几页
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(temp.email)}`);
   await expect(page.getByRole("heading", { level: 1, name: "平台员工" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: temp.email })).toContainText("你");
 });

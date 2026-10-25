@@ -662,3 +662,22 @@ test("编辑页的「更多」：停用后标题下的状态跟着变，页面�
   await screen.findByText("已删除区域「东京 23 区」");
   await screen.findByRole("heading", { level: 1, name: "区域" });
 });
+
+test("数据来源署名（GeoNames 的许可条件，ADR 0014）：新增区域选城市时、编辑页、列表页都有 GeoNames 那一行并链过去", async () => {
+  const geonamesLines = (): string[] => [...document.querySelectorAll(".page__attribution")].map((line) => line.textContent ?? "").filter((text) => text.startsWith("城市数据和机场的中文、日文名称来自 GeoNames"));
+  open("/areas/new", "admin");
+  await screen.findByRole("combobox", { name: /城市/ });
+  assert.equal(geonamesLines().length, 1, "新增页的城市选择旁有署名");
+  assert.equal(screen.getByRole("link", { name: /^GeoNames/ }).getAttribute("href"), "https://www.geonames.org/");
+  assert.ok(screen.getByRole("link", { name: /^CC BY 4\.0/ }));
+  resetBrowser();
+
+  open(`/areas/${AREA_ID}`, "readonly", getArea(() => areaOf()));
+  await screen.findByRole("heading", { level: 1, name: "东京 23 区" });
+  await waitFor(() => assert.equal(geonamesLines().length, 1, "编辑页展示城市名称，也有署名"));
+  resetBrowser();
+
+  open("/areas", "admin", (call) => (call.method === "GET" && call.url.pathname === "/tenant/v1/areas" ? page([summaryOf()]) : null));
+  await screen.findByRole("link", { name: "东京 23 区" });
+  assert.equal(geonamesLines().length, 1, "列表里有城市一列，也有署名");
+});

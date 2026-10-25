@@ -185,7 +185,7 @@ test("待审核：接口拒绝「发起人审核自己发起的」时写出原�
     return null;
   });
   const card = (await screen.findByText("「QA 官网」新增加价规则：东京 · 接送机 = 12%", { selector: "p" })).closest("section") as HTMLElement;
-  await actor.click(within(card).getByRole("button", { name: "驳回" }));
+  await actor.click(within(card).getByRole("button", { name: /^驳回：/ }));
   const dialog = await screen.findByRole("dialog", { name: /^驳回/ });
   await actor.click(within(dialog).getByRole("button", { name: "驳回" }));
   assert.ok(await within(dialog).findByText(/发起人不能审核自己发起的改动/));

@@ -13,18 +13,20 @@ import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
+import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { type Column, DataTable, type TableState } from "../../components/DataTable.tsx";
 import { FilterBar, SearchBox, useFilterParam } from "../../components/FilterBar.tsx";
 import { CheckboxGroup, RadioGroup, SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
+import { MultiCombobox } from "../../components/MultiCombobox.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { CHANNELS_PAGE_PATH, CHANNEL_NEW_PATH, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_HINTS, CHANNEL_TYPE_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, percentText, readPercent } from "../../lib/channel-display.ts";
+import { CHANNELS_PAGE_PATH, CHANNEL_NEW_PATH, CHANNEL_STATUS_BADGES, CHANNEL_TYPE_HINTS, CHANNEL_TYPE_NAMES, PLATFORM_FLOOR_TEXT, TENANT_SCOPE_NAMES, categoriesText, channelPath, cityChoices, percentText, readPercent } from "../../lib/channel-display.ts";
 import { failureText } from "../../lib/failure.ts";
-import { SERVICE_CATEGORY_NAMES, displayName } from "../../lib/master-display.ts";
+import { SERVICE_CATEGORY_NAMES } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, readAmount } from "../../lib/product-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -162,7 +164,7 @@ interface ChannelFormValue {
 }
 
 function emptyForm(): ChannelFormValue {
-  return { name: "", type: null, settleCurrency: "JPY", company: "", contactName: "", contactEmail: "", contactPhone: "", contractRef: "", notes: "", paymentMode: "prepaid", creditLimit: "", showTenantAfterPay: true, tenantScope: "all", tenantIds: [], allCities: true, cityIds: [], categories: [...SERVICE_CATEGORIES], defaultMarkup: "10", floor: "10", band: "3", minMargin: "" };
+  return { name: "", type: null, settleCurrency: "JPY", company: "", contactName: "", contactEmail: "", contactPhone: "", contractRef: "", notes: "", paymentMode: "prepaid", creditLimit: "", showTenantAfterPay: true, tenantScope: "all", tenantIds: [], allCities: true, cityIds: [], categories: [], defaultMarkup: "10", floor: "10", band: "3", minMargin: "" };
 }
 
 function formOf(channel: Channel): ChannelFormValue {
@@ -254,7 +256,7 @@ function ChannelForm({ initial, withPricing, submitLabel, onSubmit, cancelTo }: 
     setServer({});
   };
   const tenantOptions = useMemo(() => (tenants.state.data?.items ?? []).map((tenant) => ({ value: tenant.id, label: tenant.status === "suspended" ? `${tenant.name}（已暂停）` : tenant.name })), [tenants.state.data]);
-  const cityOptions = useMemo(() => (cities.state.data ?? []).filter((city) => city.status === "active" || form.cityIds.includes(city.id)).map((city) => ({ value: city.id, label: displayName(city.name).text })), [cities.state.data, form.cityIds]);
+  const cityOptions = useMemo(() => cityChoices((cities.state.data ?? []).filter((city) => city.status === "active" || form.cityIds.includes(city.id))), [cities.state.data, form.cityIds]);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -320,7 +322,22 @@ function ChannelForm({ initial, withPricing, submitLabel, onSubmit, cancelTo }: 
             <CheckboxGroup legend={form.tenantScope === "allow" ? "只卖这些供应商" : "不卖这些供应商"} name="channel-tenants" options={tenantOptions} value={form.tenantIds} errors={errorOf("tenantIds")} onChange={(value) => change({ tenantIds: value })} />
           ))}
         <RadioGroup legend="可卖的城市" name="channel-city-scope" options={[{ value: "all", label: "全部城市" }, { value: "listed", label: "只卖选中的城市" }]} value={form.allCities ? "all" : "listed"} onChange={(value: "all" | "listed") => change({ allCities: value === "all" })} />
-        {!form.allCities && <CheckboxGroup legend="城市" name="channel-cities" options={cityOptions} value={form.cityIds} errors={errorOf("cityIds")} onChange={(value) => change({ cityIds: value })} />}
+        {!form.allCities && (
+          <MultiCombobox
+            label="城市"
+            required
+            options={cityOptions}
+            value={form.cityIds}
+            placeholder="输入城市名称或编码查找"
+            emptyText="平台还没有启用中的城市"
+            allChosenText="启用中的城市都已经选上了"
+            loading={cities.state.data === null && cities.state.status === "loading"}
+            loadFailed={cities.state.data === null && cities.state.status === "error"}
+            errors={errorOf("cityIds")}
+            hint="按国家分组、按名称排。可以连着选几个；选错了点标签上的 × 去掉。"
+            onChange={(value) => change({ cityIds: value })}
+          />
+        )}
         <CheckboxGroup legend="可卖的品类" name="channel-categories" required options={SERVICE_CATEGORIES.map((value) => ({ value, label: SERVICE_CATEGORY_NAMES[value] }))} value={form.categories} errors={errorOf("categories")} onChange={(value) => change({ categories: value })} />
       </section>
       {withPricing && (
@@ -364,23 +381,26 @@ export function ChannelNewPage() {
   );
   if (account.status === "ready" && !canManage) return shell(NO_ACCESS);
   return shell(
-    <ChannelForm
-      initial={emptyForm()}
-      withPricing
-      submitLabel="新建"
-      cancelTo={CHANNELS_PAGE_PATH}
-      onSubmit={async (body) => {
-        try {
-          const created = await createChannel(token, body);
-          toast(`已新建渠道「${created.channel.name}」，状态是「测试」`);
-          void navigate(channelPath(created.channel.id), { replace: true });
-          return null;
-        } catch (err) {
-          if (handleAuthFailure(err)) return null;
-          throw err;
-        }
-      }}
-    />,
+    <>
+      <ChannelForm
+        initial={emptyForm()}
+        withPricing
+        submitLabel="新建"
+        cancelTo={CHANNELS_PAGE_PATH}
+        onSubmit={async (body) => {
+          try {
+            const created = await createChannel(token, body);
+            toast(`已新建渠道「${created.channel.name}」，状态是「测试」`);
+            void navigate(channelPath(created.channel.id), { replace: true });
+            return null;
+          } catch (err) {
+            if (handleAuthFailure(err)) return null;
+            throw err;
+          }
+        }}
+      />
+      <Attributions sources={placeSources(false)} />
+    </>,
   );
 }
 
@@ -427,6 +447,7 @@ export function ChannelEditPage() {
           }
         }}
       />
+      <Attributions sources={placeSources(false)} />
     </>,
   );
 }
@@ -452,5 +473,12 @@ export function ChannelDetailPage() {
   if (!valid || loaded.state.status === "not-found") return shell(<section className="card"><StateBlock tone="neutral" title="找不到这个渠道" description="链接可能有误。" action={<LinkButton variant="primary" to={CHANNELS_PAGE_PATH}>回到渠道列表</LinkButton>} /></section>);
   if (!detail) return shell(<section className="card">{loaded.state.status === "error" || loaded.state.status === "forbidden" ? <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={loaded.reload}>重试</Button>} /> : <Skeleton lines={["medium", "long", "long", "short"]} />}</section>);
   const channel = detail.channel;
-  return shell(<ChannelDetailSections detail={detail} onChanged={loaded.reload} onReplace={loaded.set} />, channel.name, <StatusBadge {...CHANNEL_STATUS_BADGES[channel.status]} />);
+  return shell(
+    <>
+      <ChannelDetailSections detail={detail} onChanged={loaded.reload} onReplace={loaded.set} />
+      <Attributions sources={placeSources(false)} />
+    </>,
+    channel.name,
+    <StatusBadge {...CHANNEL_STATUS_BADGES[channel.status]} />,
+  );
 }
