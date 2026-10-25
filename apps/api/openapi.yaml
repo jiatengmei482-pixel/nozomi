@@ -14718,8 +14718,16 @@ components:
       additionalProperties: false
       required: [min_hours_before, fee_bp]
       properties:
-        min_hours_before: {type: integer, minimum: 0, maximum: 720, description: 距用车不少于这么多小时取消（按毫秒比较，正好等于算这一档）}
-        fee_bp: {type: integer, minimum: 0, maximum: 10000, description: 扣对外价的比例（基点，10000 = 100%）}
+        min_hours_before:
+          type: integer
+          minimum: 0
+          maximum: 720
+          description: 距用车不少于这么多小时取消（按毫秒比较，正好等于算这一档）
+        fee_bp:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: 扣对外价的比例（基点，10000 = 100%）
     VehicleLevel:
       type: string
       enum: [economy, comfort, business, luxury, minibus]
@@ -14732,28 +14740,33 @@ components:
         category:
           type: string
           enum: [airport_transfer, point_to_point, charter]
-        level: {$ref: '#/components/schemas/VehicleLevel'}
+        level:
+          $ref: "#/components/schemas/VehicleLevel"
         tiers:
           type: array
           minItems: 1
           maxItems: 5
           description: 按小时数从大到小；最后一档是 0 小时；扣款比例越接近用车越高
-          items: {$ref: '#/components/schemas/CancelTier'}
+          items:
+            $ref: "#/components/schemas/CancelTier"
     CancellationPolicy:
       type: object
       additionalProperties: false
       description: 平台统一取消政策（ADR 0029）。版本 0 是需求表里的默认政策（还没有人改过）
       required: [version, effective_at, rules]
       properties:
-        version: {type: integer, minimum: 0}
+        version:
+          type: integer
+          minimum: 0
         effective_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
           description: 这一版什么时候生效的；默认政策为 null
         rules:
           type: array
           description: 每个「品类 × 车型级别」一条（3 × 5 = 15 条）
-          items: {$ref: '#/components/schemas/CancellationPolicyRule'}
+          items:
+            $ref: "#/components/schemas/CancellationPolicyRule"
     OrderCancelPolicy:
       description: 这一单适用的取消阶梯（下单时的平台政策，之后政策改了不影响这一单）；M3-03 之前下的单为 null
       oneOf:
@@ -14761,15 +14774,18 @@ components:
         additionalProperties: false
         required: [version, category, level, tiers]
         properties:
-          version: {type: integer}
+          version:
+            type: integer
           category:
             type: string
             enum: [airport_transfer, point_to_point, charter]
-          level: {$ref: '#/components/schemas/VehicleLevel'}
+          level:
+            $ref: "#/components/schemas/VehicleLevel"
           tiers:
             type: array
-            items: {$ref: '#/components/schemas/CancelTier'}
-      - {type: 'null'}
+            items:
+              $ref: "#/components/schemas/CancelTier"
+      - type: "null"
     TenantCancellation:
       description: 取消时的扣款比例和供应商应得（结算币种 = 结算价 × 扣款比例）。客人被扣、退了多少不给（规则 4）。没取消、付款前取消的为 null
       oneOf:
@@ -14777,15 +14793,17 @@ components:
         additionalProperties: false
         required: [fee_bp, tenant_share]
         properties:
-          fee_bp: {type: integer}
-          tenant_share: {$ref: '#/components/schemas/SalesMoney'}
-      - {type: 'null'}
+          fee_bp:
+            type: integer
+          tenant_share:
+            $ref: "#/components/schemas/SalesMoney"
+      - type: "null"
     RefundStatusSummary:
       description: 退款到哪一步：没有退款 null；`pending` 处理中；`succeeded` 都退好了；`failed` 有失败的（平台财务会处理）
       oneOf:
       - type: string
         enum: [pending, succeeded, failed]
-      - {type: 'null'}
+      - type: "null"
     SalesCancellation:
       description: 取消的结果（客人支付币种）。没取消为 null
       oneOf:
@@ -14795,18 +14813,20 @@ components:
         properties:
           reason:
             oneOf:
-            - {$ref: '#/components/schemas/OrderCancelReason'}
-            - {type: 'null'}
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
           fee_bp:
-            type: [integer, 'null']
+            type: [integer, "null"]
             description: 扣款比例；付款前取消的为 null
           fee:
             oneOf:
-            - {$ref: '#/components/schemas/SalesMoney'}
-            - {type: 'null'}
-          refund: {$ref: '#/components/schemas/SalesMoney'}
-          refund_status: {$ref: '#/components/schemas/RefundStatusSummary'}
-      - {type: 'null'}
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+          refund:
+            $ref: "#/components/schemas/SalesMoney"
+          refund_status:
+            $ref: "#/components/schemas/RefundStatusSummary"
+      - type: "null"
     PlatformCancellation:
       oneOf:
       - type: object
@@ -14815,100 +14835,134 @@ components:
         properties:
           reason:
             oneOf:
-            - {$ref: '#/components/schemas/OrderCancelReason'}
-            - {type: 'null'}
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
           note:
-            type: [string, 'null']
+            type: [string, "null"]
           fee_bp:
-            type: [integer, 'null']
+            type: [integer, "null"]
           customer_fee:
             oneOf:
-            - {$ref: '#/components/schemas/SalesMoney'}
-            - {type: 'null'}
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
           tenant_share:
             oneOf:
-            - {$ref: '#/components/schemas/SalesMoney'}
-            - {type: 'null'}
-      - {type: 'null'}
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+      - type: "null"
     OrderChangeStatus:
       type: string
       enum: [awaiting_payment, pending_confirmation, applied, rejected, expired, failed, cancelled]
-      description: '`awaiting_payment` 补差价扣款中；`pending_confirmation` 等供应商确认（30 分钟）；`applied` 已生效；`rejected` 供应商拒绝；`expired` 30 分钟内没确认；`failed` 差价没扣到，没改成；`cancelled` 订单取消了，作废'
+      description: "`awaiting_payment` 补差价扣款中；`pending_confirmation` 等供应商确认（30 分钟）；`applied` 已生效；`rejected` 供应商拒绝；`expired` 30 分钟内没确认；`failed` 差价没扣到，没改成；`cancelled` 订单取消了，作废"
     OrderChange:
       type: object
       additionalProperties: false
       description: 一次改单：改了哪些字段的改前改后、结算价改前改后。供应商和运营后台都看；没有对外价
       required: [id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict]
       properties:
-        id: {type: string, format: uuid}
-        status: {$ref: '#/components/schemas/OrderChangeStatus'}
-        reschedule: {type: boolean, description: 改了日期或时间（重新报价）}
-        before: {type: object, description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）}
-        after: {type: object}
-        settlement_before: {$ref: '#/components/schemas/SalesMoney'}
-        settlement_after: {$ref: '#/components/schemas/SalesMoney'}
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
+        reschedule:
+          type: boolean
+          description: 改了日期或时间（重新报价）
+        before:
+          type: object
+          description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）
+        after:
+          type: object
+        settlement_before:
+          $ref: "#/components/schemas/SalesMoney"
+        settlement_after:
+          $ref: "#/components/schemas/SalesMoney"
         confirm_due_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
           description: 等确认时：供应商最晚什么时候确认
         requested_by:
           type: string
           enum: [channel, platform_user]
-        requested_at: {type: string, format: date-time}
+        requested_at:
+          type: string
+          format: date-time
         decided_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         decision_note:
-          type: [string, 'null']
-        dispatch_conflict: {type: boolean, description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）}
+          type: [string, "null"]
+        dispatch_conflict:
+          type: boolean
+          description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
     PlatformOrderChange:
       type: object
       additionalProperties: false
       description: 运营后台看到的改单：另有改期的对外价改前改后
       required: [id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict, sell_before, sell_after]
       properties:
-        id: {type: string, format: uuid}
-        status: {$ref: '#/components/schemas/OrderChangeStatus'}
-        reschedule: {type: boolean, description: 改了日期或时间（重新报价）}
-        before: {type: object, description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）}
-        after: {type: object}
-        settlement_before: {$ref: '#/components/schemas/SalesMoney'}
-        settlement_after: {$ref: '#/components/schemas/SalesMoney'}
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
+        reschedule:
+          type: boolean
+          description: 改了日期或时间（重新报价）
+        before:
+          type: object
+          description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）
+        after:
+          type: object
+        settlement_before:
+          $ref: "#/components/schemas/SalesMoney"
+        settlement_after:
+          $ref: "#/components/schemas/SalesMoney"
         confirm_due_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
           description: 等确认时：供应商最晚什么时候确认
         requested_by:
           type: string
           enum: [channel, platform_user]
-        requested_at: {type: string, format: date-time}
+        requested_at:
+          type: string
+          format: date-time
         decided_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         decision_note:
-          type: [string, 'null']
-        dispatch_conflict: {type: boolean, description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）}
+          type: [string, "null"]
+        dispatch_conflict:
+          type: boolean
+          description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
         sell_before:
           description: 改期的对外价改前（客人支付币种）；只改信息的为 null
           oneOf:
-          - {$ref: '#/components/schemas/SalesMoney'}
-          - {type: 'null'}
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
         sell_after:
           oneOf:
-          - {$ref: '#/components/schemas/SalesMoney'}
-          - {type: 'null'}
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
     SalesOrderChange:
       type: object
       additionalProperties: false
       required: [id, status, fields, before, after, price_difference, confirm_due_at, requested_at, decided_at]
       properties:
-        id: {type: string, format: uuid}
-        status: {$ref: '#/components/schemas/OrderChangeStatus'}
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
         fields:
           type: array
-          items: {type: string}
-        before: {type: object}
-        after: {type: object}
+          items:
+            type: string
+        before:
+          type: object
+        after:
+          type: object
         price_difference:
           description: 改期后对外价的差：`charge` 补收（已用保存的支付方式扣）、`refund` 退回、`none` 不变；只改信息的为 null
           oneOf:
@@ -14919,190 +14973,260 @@ components:
               kind:
                 type: string
                 enum: [charge, refund, none]
-              amount: {$ref: '#/components/schemas/SalesMoney'}
-          - {type: 'null'}
+              amount:
+                $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
         confirm_due_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
-        requested_at: {type: string, format: date-time}
+        requested_at:
+          type: string
+          format: date-time
         decided_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
     ExtraChargeType:
       type: string
       enum: [charter_overtime, charter_over_km, waiting, extra_stop, extra_addon, toll, parking]
-      description: '`charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待、`extra_stop` 现场加停靠点、`extra_addon` 现场加附加服务、`toll` 包车高速费、`parking` 包车停车费（后两种凭票实报，必须附票据）。接送机、点对点是一口价，只能收后三种之外的 `waiting`、`extra_stop`、`extra_addon`'
+      description: "`charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待、`extra_stop` 现场加停靠点、`extra_addon` 现场加附加服务、`toll` 包车高速费、`parking` 包车停车费（后两种凭票实报，必须附票据）。接送机、点对点是一口价，只能收后三种之外的 `waiting`、`extra_stop`、`extra_addon`"
     ExtraChargeStatus:
       type: string
       enum: [in_window, review, disputed, approved, charging, charged, charge_failed, rejected, withdrawn]
-      description: '`in_window` 48 小时异议期内（不扣款）；`review` 待平台审核（超过对外价 50%、没有凭证）；`disputed` 客人提了异议、待审核；`approved` 审核通过、等扣款；`charging` 正在扣款；`charged` 已扣款；`charge_failed` 扣款失败（等财务处理）；`rejected` 驳回；`withdrawn` 供应商撤回'
+      description: "`in_window` 48 小时异议期内（不扣款）；`review` 待平台审核（超过对外价 50%、没有凭证）；`disputed` 客人提了异议、待审核；`approved` 审核通过、等扣款；`charging` 正在扣款；`charged` 已扣款；`charge_failed` 扣款失败（等财务处理）；`rejected` 驳回；`withdrawn` 供应商撤回"
     ExtraCharge:
       type: object
       additionalProperties: false
       description: 一项事后加收（供应商报的金额，结算币种）。客人付的金额不在这里（规则 4）
       required: [id, type, amount, approved_amount, description, file_ids, status, review_reasons, submitted_at, dispute_until, disputed_at, dispute_reason, decided_at, decision_note, charged_at, withdrawn_at, version]
       properties:
-        id: {type: string, format: uuid}
-        type: {$ref: '#/components/schemas/ExtraChargeType'}
-        amount: {$ref: '#/components/schemas/SalesMoney'}
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
         approved_amount:
           description: 审核通过的金额（部分通过时比提交的少）
           oneOf:
-          - {$ref: '#/components/schemas/SalesMoney'}
-          - {type: 'null'}
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
         description:
-          type: [string, 'null']
+          type: [string, "null"]
         file_ids:
           type: array
-          items: {type: string, format: uuid}
-        status: {$ref: '#/components/schemas/ExtraChargeStatus'}
+          items:
+            type: string
+            format: uuid
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
         review_reasons:
           type: array
           items:
             type: string
             enum: [OVER_THRESHOLD, NO_EVIDENCE, DISPUTED]
-        submitted_at: {type: string, format: date-time}
-        dispute_until: {type: string, format: date-time, description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议}
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+          description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议
         disputed_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         dispute_reason:
-          type: [string, 'null']
+          type: [string, "null"]
         decided_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         decision_note:
-          type: [string, 'null']
+          type: [string, "null"]
         charged_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         withdrawn_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
-        version: {type: integer}
+        version:
+          type: integer
     PlatformExtraCharge:
       type: object
       additionalProperties: false
       description: 运营后台看到的事后加收：另有客人要付的金额、最近一次扣款失败的原因、扣了几次
       required: [id, type, amount, approved_amount, description, file_ids, status, review_reasons, submitted_at, dispute_until, disputed_at, dispute_reason, decided_at, decision_note, charged_at, withdrawn_at, version, customer_amount, last_charge_error, charge_attempts]
       properties:
-        id: {type: string, format: uuid}
-        type: {$ref: '#/components/schemas/ExtraChargeType'}
-        amount: {$ref: '#/components/schemas/SalesMoney'}
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
         approved_amount:
           description: 审核通过的金额（部分通过时比提交的少）
           oneOf:
-          - {$ref: '#/components/schemas/SalesMoney'}
-          - {type: 'null'}
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
         description:
-          type: [string, 'null']
+          type: [string, "null"]
         file_ids:
           type: array
-          items: {type: string, format: uuid}
-        status: {$ref: '#/components/schemas/ExtraChargeStatus'}
+          items:
+            type: string
+            format: uuid
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
         review_reasons:
           type: array
           items:
             type: string
             enum: [OVER_THRESHOLD, NO_EVIDENCE, DISPUTED]
-        submitted_at: {type: string, format: date-time}
-        dispute_until: {type: string, format: date-time, description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议}
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+          description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议
         disputed_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         dispute_reason:
-          type: [string, 'null']
+          type: [string, "null"]
         decided_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         decision_note:
-          type: [string, 'null']
+          type: [string, "null"]
         charged_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         withdrawn_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
-        version: {type: integer}
-        customer_amount: {$ref: '#/components/schemas/SalesMoney'}
+        version:
+          type: integer
+        customer_amount:
+          $ref: "#/components/schemas/SalesMoney"
         last_charge_error:
-          type: [object, 'null']
-        charge_attempts: {type: integer}
+          type: [object, "null"]
+        charge_attempts:
+          type: integer
     SalesExtraCharge:
       type: object
       additionalProperties: false
       description: 渠道看到的事后加收：客人要付的金额（客人支付币种）、说明、异议期
       required: [id, type, amount, description, status, submitted_at, dispute_until, dispute_open, disputed_at, charged_at]
       properties:
-        id: {type: string, format: uuid}
-        type: {$ref: '#/components/schemas/ExtraChargeType'}
-        amount: {$ref: '#/components/schemas/SalesMoney'}
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
         description:
-          type: [string, 'null']
-        status: {$ref: '#/components/schemas/ExtraChargeStatus'}
-        submitted_at: {type: string, format: date-time}
-        dispute_until: {type: string, format: date-time}
-        dispute_open: {type: boolean, description: 现在还能不能提异议}
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+        dispute_open:
+          type: boolean
+          description: 现在还能不能提异议
         disputed_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         charged_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
     OrderRefund:
       type: object
       additionalProperties: false
       required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at]
       properties:
-        id: {type: string, format: uuid}
-        payment_id: {type: string, format: uuid}
+        id:
+          type: string
+          format: uuid
+        payment_id:
+          type: string
+          format: uuid
         purpose:
           type: string
           enum: [cancellation, change]
         change_id:
-          type: [string, 'null']
+          type: [string, "null"]
           format: uuid
-        amount: {$ref: '#/components/schemas/SalesMoney'}
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
         status:
           type: string
           enum: [pending, processing, succeeded, failed]
         provider_refund_id:
-          type: [string, 'null']
-        attempts: {type: integer}
+          type: [string, "null"]
+        attempts:
+          type: integer
+        retry_of:
+          type: [string, "null"]
+          format: uuid
+          description: 财务手动重试时：重试的是哪一笔失败的退款
         next_attempt_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         last_error:
-          type: [object, 'null']
+          type: [object, "null"]
         succeeded_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
         failed_at:
-          type: [string, 'null']
+          type: [string, "null"]
           format: date-time
-        created_at: {type: string, format: date-time}
+        created_at:
+          type: string
+          format: date-time
     CancelFee:
       type: object
       additionalProperties: false
       description: 退款试算（这一刻、这个原因）。服务已经开始、已经取消的 `cancellable` 为 false，其余字段不出现
       required: [cancellable]
       properties:
-        cancellable: {type: boolean}
+        cancellable:
+          type: boolean
         stage:
           type: string
           enum: [unpaid, paid]
-        reason: {$ref: '#/components/schemas/OrderCancelReason'}
-        tier_index: {type: integer}
-        hours_before_service: {type: integer, description: 离用车还有多少小时（向下取整，只用于显示；判断按毫秒）}
-        fee_bp: {type: integer}
-        paid: {$ref: '#/components/schemas/SalesMoney'}
-        fee: {$ref: '#/components/schemas/SalesMoney'}
-        refund: {$ref: '#/components/schemas/SalesMoney'}
-        policy: {$ref: '#/components/schemas/OrderCancelPolicy'}
-        policy_fee_bp: {type: integer, description: 只有运营后台：按阶梯本来该扣的比例}
-        policy_refund: {$ref: '#/components/schemas/SalesMoney'}
-        tenant_share: {$ref: '#/components/schemas/SalesMoney'}
-        needs_review: {type: boolean, description: 只有运营后台：多退了钱，代取消要双人复核}
+        reason:
+          $ref: "#/components/schemas/OrderCancelReason"
+        tier_index:
+          type: integer
+        hours_before_service:
+          type: integer
+          description: 离用车还有多少小时（向下取整，只用于显示；判断按毫秒）
+        fee_bp:
+          type: integer
+        paid:
+          $ref: "#/components/schemas/SalesMoney"
+        fee:
+          $ref: "#/components/schemas/SalesMoney"
+        refund:
+          $ref: "#/components/schemas/SalesMoney"
+        policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        policy_fee_bp:
+          type: integer
+          description: 只有运营后台：按阶梯本来该扣的比例
+        policy_refund:
+          $ref: "#/components/schemas/SalesMoney"
+        tenant_share:
+          $ref: "#/components/schemas/SalesMoney"
+        needs_review:
+          type: boolean
+          description: 只有运营后台：多退了钱，代取消要双人复核
     OrderChangeRequest:
       type: object
       additionalProperties: false
@@ -15113,22 +15237,32 @@ components:
           additionalProperties: false
           required: [name, phone, email]
           properties:
-            name: {type: string}
-            phone: {type: string}
-            email: {type: string}
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
         flight_no:
-          type: [string, 'null']
+          type: [string, "null"]
         messaging:
           oneOf:
-          - {$ref: '#/components/schemas/OrderMessaging'}
-          - {type: 'null'}
+          - $ref: "#/components/schemas/OrderMessaging"
+          - type: "null"
         notes:
-          type: [string, 'null']
-        pickup_address: {type: string}
-        dropoff_address: {type: string}
-        service_time: {type: string, format: date-time, description: 新的用车时间（带时区）；按城市当地的分钟计}
-        passengers: {type: integer}
-        luggage: {type: integer}
+          type: [string, "null"]
+        pickup_address:
+          type: string
+        dropoff_address:
+          type: string
+        service_time:
+          type: string
+          format: date-time
+          description: 新的用车时间（带时区）；按城市当地的分钟计
+        passengers:
+          type: integer
+        luggage:
+          type: integer
     SalesOrderRequest:
       type: object
       additionalProperties: false

@@ -1350,6 +1350,59 @@ test("派车：别的供应商的单看不到可派资源、派不了、生成 /
   }
 });
 
+test("取消、改单、事后加收（M3-03）：取消政策两边看到的一样；甲给乙的单传不了票据、交不了加收、撤回不了乙的加收、确认 / 拒绝不了乙的改期（404，和不存在一样，乙的记录原样不动）；数据库里读不到乙的改单和加收", async () => {
+  for (const route of ["GET /tenant/v1/cancellation-policy", "POST /tenant/v1/orders/:id/files", "POST /tenant/v1/orders/:id/extra-charges", "POST /tenant/v1/orders/:id/extra-charges/:chargeId/withdraw", "POST /tenant/v1/orders/:id/changes/:changeId/confirm", "POST /tenant/v1/orders/:id/changes/:changeId/reject"]) cover(route);
+  const policyA = await api.call("GET", "/tenant/v1/cancellation-policy", { token: a.adminToken });
+  const policyB = await api.call("GET", `/tenant/v1/cancellation-policy?tenant_id=${b.tenantId}`, { token: b.adminToken });
+  assert.equal(policyA.status, 200, policyA.text);
+  assert.equal(policyA.text, policyB.text, "平台统一的政策，谁看都一样");
+  const ids = await orderIds();
+  // 乙的单上有一次等确认的改期、一项异议期内的加收（用迁移账号直接写：测试只关心隔离）
+  const change = (await api.db.owner.query<{ id: string }>(
+    `insert into order_changes (tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, settlement_after, confirm_due_at, requested_by, requested_at)
+     values ($1, $2, 'pending_confirmation', true, '{"service_time":"2026-11-01T01:00:00.000Z"}', '{"service_time":"2026-11-02T01:00:00.000Z"}', 11000, 11000, '{}'::jsonb, now() + interval '30 minutes', 'channel', now()) returning id`,
+    [b.tenantId, ids.b],
+  )).rows[0]!.id;
+  const charge = (await api.db.owner.query<{ id: string }>(
+    `insert into order_extra_charges (tenant_id, order_id, type, amount_minor, currency, status, submitted_at, submitted_by, dispute_until, created_at, updated_at)
+     values ($1, $2, 'waiting', 1000, 'JPY', 'in_window', now(), $3, now() + interval '48 hours', now(), now()) returning id`,
+    [b.tenantId, ids.b, b.adminId],
+  )).rows[0]!.id;
+  const before = { change: (await api.db.owner.query("select * from order_changes where id = $1", [change])).rows[0], charge: (await api.db.owner.query("select * from order_extra_charges where id = $1", [charge])).rows[0] };
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(32)]);
+  const upload = async (orderId: string) => {
+    const res = await api.app.inject({ method: "POST", url: `/tenant/v1/orders/${orderId}/files?kind=receipt`, headers: { authorization: `Bearer ${a.adminToken}`, "content-type": "image/jpeg" }, payload: jpeg });
+    return { status: res.statusCode, text: res.body };
+  };
+  const foreignUpload = await upload(ids.b);
+  assert.deepEqual([foreignUpload.status, foreignUpload.text], [404, (await upload(NO_SUCH_ID)).text]);
+  const attempts = [
+    ["POST", `/tenant/v1/orders/${ids.b}/extra-charges`, { type: "waiting", amount: 1000 }],
+    ["POST", `/tenant/v1/orders/${ids.b}/extra-charges/${charge}/withdraw`, undefined],
+    ["POST", `/tenant/v1/orders/${ids.b}/changes/${change}/confirm`, {}],
+    ["POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, {}],
+  ] as const;
+  for (const [method, url, body] of attempts) {
+    const foreign = await api.call(method, url, { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    const missing = await api.call(method, url.replace(ids.b, NO_SUCH_ID), { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    assert.equal(foreign.status, 404, `${method} ${url}: ${foreign.text}`);
+    assert.equal(foreign.text, missing.text, `${method} ${url}`);
+  }
+  // 换成自己的单号也不行：改单、加收的编号是乙的
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.a}/changes/${change}/confirm`, { token: a.adminToken, body: {} })).status, 404);
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.a}/extra-charges/${charge}/withdraw`, { token: a.adminToken })).status, 404);
+  assert.deepEqual((await api.db.owner.query("select * from order_changes where id = $1", [change])).rows[0], before.change, "乙的改单原样不动");
+  assert.deepEqual((await api.db.owner.query("select * from order_extra_charges where id = $1", [charge])).rows[0], before.charge, "乙的加收原样不动");
+  assert.equal((await api.db.owner.query("select count(*)::int as n from order_extra_charges where order_id = $1", [ids.b])).rows[0].n, 1, "甲没能给乙的单交加收");
+  for (const table of ["order_changes", "order_extra_charges"]) {
+    assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query(`select 1 from ${table} where tenant_id = $1`, [b.tenantId]))).rowCount, 0, table);
+  }
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update order_extra_charges set status = 'withdrawn', withdrawn_at = now() where id = $1", [charge]))).rowCount, 0, "甲在库里也撤回不了乙的加收");
+  // 乙自己确认得了（证明上面的 404 不是因为接口坏了）
+  const own = await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, { token: b.adminToken, body: {} });
+  assert.equal(own.status, 200, own.text);
+});
+
 test("Webhook：设置、密钥、测试事件、投递记录、重推都只对令牌所属的供应商；看不到、重推不了别人的投递（404，和不存在一样）", async () => {
   for (const route of ["GET /tenant/v1/webhooks", "PUT /tenant/v1/webhooks", "DELETE /tenant/v1/webhooks", "POST /tenant/v1/webhooks/rotate-secret", "POST /tenant/v1/webhooks/test", "GET /tenant/v1/webhooks/deliveries", "GET /tenant/v1/webhooks/deliveries/:id", "POST /tenant/v1/webhooks/deliveries/:id/retry"]) cover(route);
   const bSaved = await api.call("PUT", "/tenant/v1/webhooks", { token: b.adminToken, body: { url: "https://dispatch.b.example.com/hook", events: ["order.assigned"], tenant_id: a.tenantId } });
