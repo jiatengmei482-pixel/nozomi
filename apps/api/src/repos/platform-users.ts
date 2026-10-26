@@ -151,6 +151,12 @@ export async function listPlatformUsers(db: Db, limit: number, after: TimeCursor
   return toPage(result.rows, limit, toUser, (row) => ({ t: row.cursor_time, id: row.id }));
 }
 
+/** 同事名单（M4-03）：全部平台员工的编号、姓名、是否在用，按姓名排。异常、工单的处理人、判定人在页面上显示成名字，转交时从里面选。 */
+export async function listColleagues(db: Db): Promise<{ id: string; name: string; active: boolean }[]> {
+  const result = await db.query<{ id: string; name: string; status: string }>("select id, name, status from platform_users where status <> 'invited' order by name, id");
+  return result.rows.map((row) => ({ id: row.id, name: row.name, active: row.status === "active" }));
+}
+
 export interface NewInvitedPlatformUser {
   email: string;
   name: string;

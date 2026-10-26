@@ -1312,6 +1312,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
+  /platform/v1/colleagues:
+    get:
+      tags: [ 平台系统 ]
+      operationId: listColleagues
+      summary: 同事名单（处理人、判定人显示成名字；转交异常和工单时选人）
+      description: |
+        任何已登录的平台员工都能调（账号必须先修改密码、两步验证没完成时同样被拦）。全部平台员工的编号、姓名、是否在用（不含还没接受邀请的），按姓名排；
+        没有邮箱、角色、登录记录（这些在 `staff.read` 的「平台员工」里）。M4-03：工单、异常、账单的应答里处理人、判定人、作废人只有编号，页面用它换成名字。不写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 同事名单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name, active ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        active:
+                          type: boolean
+                          description: 在用；false 是已停用（历史记录里的处理人还要显示名字）
   /platform/v1/integrations:
     get:
       tags: [ 平台系统 ]
@@ -15804,11 +15839,28 @@ components:
             - markup_rule
             - api_client
             - approval
+            - driver
+            - vehicle
+            - order
+            - driver_link
+            - tenant_webhook
+            - webhook_delivery
             - tenant_profile
             - tenant_file
             - tenant_document
             - tenant_contract
+            - cancellation_policy
+            - order_change
+            - extra_charge
+            - refund
+            - rescue
+            - rescue_offer
+            - compensation_table
+            - order_exception
+            - ticket
             - platform_role
+            - statement
+            - payout_batch
         resource_id:
           type:
             - string
@@ -15851,6 +15903,11 @@ components:
             - lock
             - unlock
             - expire
+            - assign
+            - reassign
+            - issue
+            - retry
+            - test
             - submit
             - return
             - sign
@@ -15860,6 +15917,20 @@ components:
             - observe
             - upload
             - request_supplement
+            - cancel
+            - change
+            - decide
+            - charge
+            - trigger
+            - offer
+            - accept
+            - waive
+            - claim
+            - close
+            - reply
+            - note
+            - request_reply
+            - pay
             - mfa_enroll_start
             - mfa_enroll
             - mfa_verify
@@ -15867,6 +15938,8 @@ components:
             - mfa_recovery_codes
             - mfa_reset
             - clear_ip_allowlist
+            - dispute
+            - void
         before:
           type:
             - object

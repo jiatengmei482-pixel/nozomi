@@ -11,6 +11,7 @@ import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
+import { listColleagues } from "../repos/platform-users.ts";
 import { latestFetch, latestRateSet } from "../repos/fx.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
 import { type DashboardSummary, type StatusCounts, getDashboardSummary } from "../services/dashboard.ts";
@@ -284,6 +285,12 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   app.get("/platform/v1/dashboard/summary", async (request) => {
     const principal = await authenticate(request);
     return dashboardSummaryJson(await getDashboardSummary(ctx, principal.grant));
+  });
+
+  // 同事名单（M4-03）：处理人、判定人在页面上显示成名字，异常和工单转交时从里面选。只有编号、姓名、是否在用，任何已登录的平台员工都能看
+  app.get("/platform/v1/colleagues", async (request) => {
+    await authenticate(request);
+    return { items: await withPlatformTx(ctx.pool, (db) => listColleagues(db)) };
   });
 
   app.get("/platform/v1/integrations", async (request) => {

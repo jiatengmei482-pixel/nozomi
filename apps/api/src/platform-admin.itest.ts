@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { PLATFORM_ACTIONS, PLATFORM_ROLES, type PlatformAction, type PlatformRole, platformRoleCan } from "@nozomi/domain";
 import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { FAKE_SECRETS, leakedSecrets } from "./testing/fixtures.ts";
+import { assertMatchesOpenApi } from "./testing/openapi.ts";
 
 let api: TestApi;
 let rootToken: string;
@@ -42,7 +43,7 @@ const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
 /** 不存在的自建角色 */
 const MISSING_ROLE = "custom_0000000000000000";
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
-const ANY_STAFF = ["GET /platform/v1/dashboard/summary"];
+const ANY_STAFF = ["GET /platform/v1/dashboard/summary", "GET /platform/v1/colleagues"];
 const HOLIDAY = "/platform/v1/holidays/JP/2027-01-01";
 const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: string; action: PlatformAction; body?: unknown }[] = [
   // 节假日日历是平台主数据（ADR 0018）：看用 master_data.read，登记、修改、删除用 master_data.manage
@@ -235,6 +236,23 @@ test("首页统计：每个角色都能调；租户数量只给有 tenant.read �
     assert.notEqual(res.body.master_data, null, role);
   }
   assert.equal((await api.call("GET", "/platform/v1/dashboard/summary")).status, 401);
+});
+
+test("同事名单（M4-03）：每个角色都能调；只有编号、姓名、是否在用，不含还没接受邀请的；停用的标出来；没登录 401", async () => {
+  const invited = await api.call("POST", "/platform/v1/staff", { token: rootToken, body: { email: "colleague-invited@platform.test", name: "还没接受邀请", role: "readonly" } });
+  assert.equal(invited.status, 201, invited.text);
+  const left = await addStaff("colleague-left@platform.test", "readonly");
+  assert.equal((await api.call("POST", `/platform/v1/staff/${left.id}/disable`, { token: rootToken })).status, 200);
+  for (const { key: role } of PLATFORM_ROLES) {
+    const res = await api.call("GET", "/platform/v1/colleagues", { token: tokens.get(role)! });
+    assert.equal(res.status, 200, role);
+    assertMatchesOpenApi("GET", "/platform/v1/colleagues", res);
+    for (const item of res.body.items) assert.deepEqual(Object.keys(item).sort(), ["active", "id", "name"], role);
+    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === ids.get("finance") && item.active), role);
+    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === left.id && !item.active), role);
+    assert.equal(res.body.items.some((item: { id: string }) => item.id === invited.body.user.id), false, role);
+  }
+  assert.equal((await api.call("GET", "/platform/v1/colleagues")).status, 401);
 });
 
 test("me：返回当前账号和它的操作清单；每个角色都能调", async () => {
