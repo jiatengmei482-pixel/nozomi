@@ -125,6 +125,7 @@ export function refundJson(refund: OrderRefund): Json {
     last_error: refund.lastError,
     succeeded_at: refund.succeededAt?.toISOString() ?? null,
     failed_at: refund.failedAt?.toISOString() ?? null,
+    superseded_at: refund.supersededAt?.toISOString() ?? null,
     created_at: refund.createdAt.toISOString(),
   };
 }

@@ -27,11 +27,13 @@ export interface OrderRefund {
   lastError: { code: string | null; message: string | null } | null;
   succeededAt: Date | null;
   failedAt: Date | null;
+  /** 作废：订单取消时的退款已经把这一笔失败的包含进去了（不能再重试） */
+  supersededAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at, updated_at";
+const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, superseded_at, created_at, updated_at";
 
 function toRefund(row: Row): OrderRefund {
   return {
@@ -51,6 +53,7 @@ function toRefund(row: Row): OrderRefund {
     lastError: row["last_error"],
     succeededAt: row["succeeded_at"],
     failedAt: row["failed_at"],
+    supersededAt: row["superseded_at"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
   };
@@ -82,10 +85,24 @@ export async function findRefundByProviderId(db: Db, providerRefundId: string, o
   return row === undefined ? null : toRefund(row);
 }
 
-/** 每一笔收款里已经退了的和正在退的（失败的不算）：再退时不能超过剩下的。 */
+/**
+ * 每一笔收款里已经退了的和正在退的（失败的不算——含作废的）：再退时不能超过剩下的。
+ * 失败的不算已退，所以取消时「实际付了的」包含失败的那几笔；取消时把它们作废（`supersedeFailedRefunds`），不会再被重试。
+ */
 export async function refundedByPayment(db: Db, orderId: string): Promise<Map<string, number>> {
   const result = await db.query<Row>("select payment_id, sum(amount_minor)::bigint as total from order_refunds where order_id = $1 and status <> 'failed' group by payment_id", [orderId]);
   return new Map(result.rows.map((row) => [row["payment_id"] as string, Number(row["total"])]));
+}
+
+/** 订单取消时：还没重试过、也没作废的失败退款记为作废（取消的退款按「实际付了的」算，已经包含了它们）。返回作废的编号。 */
+export async function supersedeFailedRefunds(db: Db, orderId: string, now: Date): Promise<string[]> {
+  const result = await db.query<Row>(
+    `update order_refunds r set superseded_at = $2, updated_at = $2
+      where r.order_id = $1 and r.status = 'failed' and r.superseded_at is null and not exists (select 1 from order_refunds retry where retry.retry_of = r.id)
+      returning r.id`,
+    [orderId, now],
+  );
+  return result.rows.map((row) => row["id"] as string);
 }
 
 export interface RefundChange {

@@ -1,7 +1,7 @@
 /**
  * M3-03 测试角色补充：取消与退款的钱、时间、并发（ADR 0029），经真实接口、真实 PostgreSQL；收款服务用替身。
  * - 钱：同一张单多次改期（涨、降、再涨）后取消，客人「总付 − 总退」正好等于最终对外价 × 扣款比例，供应商得最终结算价 × 比例；
- *   改期退差价失败后客人取消、财务再重试那笔失败的退款——不能多退（缺陷复现）；
+ *   改期退差价失败后客人取消、财务再重试那笔失败的退款——取消的退款已经包含了它，那一笔作废、重试被拒，不会多退；
  * - 时间：真的取消（不只是试算）落在阶梯边界上：正好 48 小时免费，差 1 毫秒扣 50%；
  * - 并发与幂等：取消与司机接到客人同时、待支付的取消与付款成功通知同时、两次「免收取消费」复核都被批准、
  *   退款和补差价「收款服务其实做成了但应答超时」后重试不重复。
@@ -98,7 +98,7 @@ function customerNet(orderId: string): { collected: number; refunded: number; ne
   return { collected, refunded, net: collected - refunded };
 }
 
-test("缺陷复现：改期降价的退差价失败后，客人在 50% 档取消，财务再重试那笔失败的退款——客人最终只该被扣「最终对外价 × 50%」，不能多退", async () => {
+test("改期降价的退差价失败后，客人在 50% 档取消：取消的退款包含那一笔差价、那一笔作废；财务再重试被拒（409 REFUND_SUPERSEDED），客人最终只被扣「最终对外价 × 50%」", async () => {
   const surgeDay = tokyoDay(4);
   const baseDay = tokyoDay(5);
   // 调价日甲乙都 +20%：乙 23,760 仍比甲 24,000 便宜，乙中标，客人付 26,136（只有下单这一笔收款）
@@ -125,6 +125,12 @@ test("缺陷复现：改期降价的退差价失败后，客人在 50% 档取消
   const retried = await api.call("POST", `/platform/v1/orders/${order.id}/refunds/${failed.id}/retry`, { token: await platformLogin(api, finance.email) });
   const money = customerNet(order.id);
   assert.equal(money.net, fee, `客人付了 ${money.collected}、共退 ${money.refunded}，实际只扣了 ${money.net}；应扣 ${fee}（多退了 ${fee - money.net}）；重试的应答 ${retried.status} ${retried.body?.outcome ?? retried.body?.error?.code}`);
+  assert.deepEqual([retried.status, retried.body.error?.code], [409, "REFUND_SUPERSEDED"], retried.text);
+  const refunds = (await platformDetail(order.id)).refunds;
+  const superseded = refunds.find((refund: any) => refund.id === failed.id);
+  assert.deepEqual([superseded.status, typeof superseded.superseded_at], ["failed", "string"], "失败的那一笔标为作废");
+  assert.deepEqual(refunds.filter((refund: any) => refund.purpose === "cancellation").map((refund: any) => [refund.status, refund.superseded_at]), [["succeeded", null]]);
+  assert.equal((await salesGet(order.id)).cancellation.refund_status, "succeeded", "渠道看到的退款状态不受作废的那一笔影响");
 });
 
 test("同一张单改期三次（涨、降、再涨）后在 50% 档取消：客人总付 − 总退 = 最终对外价 × 50%；供应商得最终结算价 × 50%；每笔退款都对着一笔收款且不超过它", async () => {

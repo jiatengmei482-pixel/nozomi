@@ -15,7 +15,9 @@ import {
   cancellationTierAt,
   inFreeCancellationWindow,
   nextRefundAttemptAt,
+  refundRetryRefusal,
   refundTransitionAllowed,
+  retainedAfterRefundsMinor,
   sameCancellationPolicy,
   vehicleLevel,
 } from "./cancellation.ts";
@@ -161,4 +163,22 @@ test("退款从最近收的那一笔开始退；可退的不够抛错；已退�
   assert.deepEqual(allocateRefund(charges, 0), []);
   assert.throws(() => allocateRefund(charges, 22_001), RangeError);
   assert.throws(() => allocateRefund(charges, -1), RangeError);
+});
+
+test("退款之后客人至少留下多少：没取消的是对外价，取消了的是取消费（四舍五入），没有扣款比例的按 0", () => {
+  assert.equal(retainedAfterRefundsMinor({ cancelled: false, sellMinor: 21_780, cancelFeeBp: null }), 21_780);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: true, sellMinor: 21_781, cancelFeeBp: 5_000 }), 10_891);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: true, sellMinor: 21_780, cancelFeeBp: 0 }), 0);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: true, sellMinor: 21_780, cancelFeeBp: null }), 0);
+});
+
+test("手动重试失败的退款前的核对：作废的不能重试；退了之后少于应留下的、或超过这一笔收款还能退的，不能重试；正好等于可以", () => {
+  const base = { superseded: false, amountMinor: 4_356, netPaidMinor: 26_136, paymentAvailableMinor: 26_136, retainedMinor: 21_780 };
+  assert.equal(refundRetryRefusal(base), null, "改期退差价失败、订单没取消：退了之后正好是新的对外价");
+  assert.equal(refundRetryRefusal({ ...base, superseded: true }), "SUPERSEDED");
+  assert.equal(refundRetryRefusal({ ...base, retainedMinor: 21_781 }), "EXCEEDS_PAID", "少 1 也不行");
+  assert.equal(refundRetryRefusal({ ...base, paymentAvailableMinor: 4_355 }), "EXCEEDS_PAID", "超过这一笔收款还能退的");
+  // 取消时已经按「实际付了的」退完（只剩取消费）：即便没标作废，金额核对也拦得住
+  assert.equal(refundRetryRefusal({ ...base, netPaidMinor: 10_890, paymentAvailableMinor: 10_890, retainedMinor: 10_890 }), "EXCEEDS_PAID");
+  assert.equal(refundRetryRefusal({ ...base, amountMinor: 10_890, netPaidMinor: 21_780, paymentAvailableMinor: 21_780, retainedMinor: 10_890 }), null, "取消的退款失败：重试它正好留下取消费");
 });

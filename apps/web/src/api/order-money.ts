@@ -197,6 +197,7 @@ export interface PlatformRefund {
   last_error: { code?: string | null; message?: string | null } | null;
   succeeded_at: string | null;
   failed_at: string | null;
+  superseded_at: string | null;
   created_at: string;
 }
 
@@ -288,6 +289,6 @@ export const ORDER_MONEY_SCHEMA_FIELDS = {
   CancelTier: ["min_hours_before", "fee_bp"],
   OrderChange: ["id", "status", "reschedule", "before", "after", "settlement_before", "settlement_after", "confirm_due_at", "requested_by", "requested_at", "decided_at", "decision_note", "dispatch_conflict"],
   ExtraCharge: ["id", "type", "amount", "approved_amount", "description", "file_ids", "status", "review_reasons", "submitted_at", "dispute_until", "disputed_at", "dispute_reason", "decided_at", "decision_note", "charged_at", "withdrawn_at", "version"],
-  OrderRefund: ["id", "payment_id", "purpose", "change_id", "amount", "status", "provider_refund_id", "retry_of", "attempts", "next_attempt_at", "last_error", "succeeded_at", "failed_at", "created_at"],
+  OrderRefund: ["id", "payment_id", "purpose", "change_id", "amount", "status", "provider_refund_id", "retry_of", "attempts", "next_attempt_at", "last_error", "succeeded_at", "failed_at", "superseded_at", "created_at"],
   PlatformOrderPayment: ["id", "kind", "change_id", "extra_charge_id", "provider", "status", "amount", "intent_id", "customer_id", "payment_method_saved", "refunded", "disputed", "paid_after_cancel", "last_error", "save_consent_at", "succeeded_at"],
 } as const;

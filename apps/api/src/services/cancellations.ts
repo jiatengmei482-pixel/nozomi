@@ -35,7 +35,7 @@ import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { findOpenChange, listOrderChanges, updateOrderChange } from "../repos/order-changes.ts";
 import { type Order, type OrderCancelPolicy, type OrderEventActor, type OrderSale, findOrderForPlatform, findOrderPayment, findSale, insertOrderEvent, releaseSoldInventory, updateOrderStatus } from "../repos/orders.ts";
-import { type OrderRefund, listOrderRefunds } from "../repos/refunds.ts";
+import { type OrderRefund, listOrderRefunds, supersedeFailedRefunds } from "../repos/refunds.ts";
 import { validationFailed } from "../validation.ts";
 import { type ApprovalKind, requestApproval } from "./approvals.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
@@ -140,6 +140,8 @@ export async function cancelPaidOrderInTx(db: Db, order: Order, sale: OrderSale,
   if (open !== null) await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "cancelled", actor: who.actor, reason: input.reason, occurredAt: now, detail: { fee_bp: quote.feeBp, waived: input.waiveFee, ...(who.origin === null ? {} : { by: who.origin.actor.email }) } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.cancelled", orderId: order.id, data: { reason: input.reason, from_status: order.status } }, now);
+  // 「实际付了的」不扣失败的退款：这次的退款已经包含了它们，作废，不能再重试（否则多退）
+  const superseded = await supersedeFailedRefunds(db, order.id, now);
   const refunds = await scheduleRefund(db, order, "cancellation", quote.refundMinor, null, now);
   if (who.origin !== null) {
     await insertAuditLog(db, who.origin, {
@@ -148,7 +150,7 @@ export async function cancelPaidOrderInTx(db: Db, order: Order, sale: OrderSale,
       resourceId: order.id,
       action: "cancel",
       before: { status: order.status },
-      after: { status: "cancelled", reason: input.reason, waive_fee: input.waiveFee, note: input.note, fee_bp: quote.feeBp, refund_minor: quote.refundMinor, currency: quote.currency, tenant_share_minor: quote.tenantShareMinor },
+      after: { status: "cancelled", reason: input.reason, waive_fee: input.waiveFee, note: input.note, fee_bp: quote.feeBp, refund_minor: quote.refundMinor, currency: quote.currency, tenant_share_minor: quote.tenantShareMinor, superseded_refund_ids: superseded },
     });
   }
   return { quote, refunds };

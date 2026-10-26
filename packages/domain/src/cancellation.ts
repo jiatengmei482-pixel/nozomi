@@ -296,3 +296,26 @@ export function allocateRefund(charges: readonly RefundableCharge[], amountMinor
   if (left > 0) throw new RangeError(`可退的钱不够：还差 ${left}`);
   return parts;
 }
+
+/**
+ * 退款之后客人至少要留下多少（客人支付币种）：没取消的单是现在的对外价；取消了的是取消费（对外价 × 取消时的扣款比例；没有扣款比例的按 0）。
+ * 「实际付了的」（下单付款 + 改期补收 − 已退和正在退的，失败的不算已退）减去任何一笔退款之后都不能少于它。
+ */
+export function retainedAfterRefundsMinor(order: { cancelled: boolean; sellMinor: number; cancelFeeBp: number | null }): number {
+  if (!order.cancelled) return order.sellMinor;
+  return order.cancelFeeBp === null ? 0 : portionBasisPoints(order.sellMinor, order.cancelFeeBp);
+}
+
+/**
+ * 财务手动重试一笔失败的退款前的核对（ADR 0029「补充：钱的口径与审核时机」）：
+ * - `SUPERSEDED`：取消时的退款已经把这一笔包含进去了（取消按「实际付了的」退，失败的退款不算已退），再退就是多退；
+ * - `EXCEEDS_PAID`：重试之后「实际付了的」会少于应留下的（`retainedAfterRefundsMinor`），或者超过了这一笔收款还能退的。
+ * 可以重试返回 null。
+ */
+export type RefundRetryRefusal = "SUPERSEDED" | "EXCEEDS_PAID";
+
+export function refundRetryRefusal(input: { superseded: boolean; amountMinor: number; netPaidMinor: number; paymentAvailableMinor: number; retainedMinor: number }): RefundRetryRefusal | null {
+  if (input.superseded) return "SUPERSEDED";
+  if (input.amountMinor > input.paymentAvailableMinor || input.netPaidMinor - input.amountMinor < input.retainedMinor) return "EXCEEDS_PAID";
+  return null;
+}

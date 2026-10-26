@@ -89,11 +89,15 @@ function quoteJson(quote: SalesQuote): Record<string, unknown> {
   };
 }
 
-/** 退款的总状态：没有退款 null；有在处理的 pending；有失败的 failed；都退好了 succeeded。 */
+/**
+ * 退款的总状态：没有退款 null；有在处理的 pending；有失败的 failed；都退好了 succeeded。
+ * 失败后已经重试过的（看重试的那一笔）、已作废的（取消时的退款包含了它）不算。
+ */
 export function refundStatusOf(refunds: readonly OrderRefund[]): "pending" | "succeeded" | "failed" | null {
-  if (refunds.length === 0) return null;
-  if (refunds.some((refund) => refund.status === "failed")) return "failed";
-  return refunds.every((refund) => refund.status === "succeeded") ? "succeeded" : "pending";
+  const live = refunds.filter((refund) => refund.supersededAt === null && !refunds.some((retry) => retry.retryOf === refund.id));
+  if (live.length === 0) return null;
+  if (live.some((refund) => refund.status === "failed")) return "failed";
+  return live.every((refund) => refund.status === "succeeded") ? "succeeded" : "pending";
 }
 
 /** 渠道看到的取消结果：扣了多少、退多少、退款到哪一步（客人支付币种）。没有供应商应得的部分。 */

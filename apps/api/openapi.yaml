@@ -6322,7 +6322,7 @@ paths:
       tags: [订单]
       operationId: retryPlatformRefund
       summary: 重试失败的退款
-      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。写审计日志。
+      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。
       security:
         - platformToken: []
       parameters:
@@ -6364,7 +6364,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`REFUND_STATE_INVALID`：只有失败的能重试"
+          description: "`REFUND_STATE_INVALID`：只有失败的能重试（已经重试过的看重试的那一笔）；`REFUND_SUPERSEDED`：订单取消时的退款已经包含了这一笔（`superseded_at`），再退就多退了；`REFUND_EXCEEDS_PAID`：再退这一笔，客人留下的会少于应付的（没取消的单是对外价，取消了的是取消费）"
           content:
             application/json:
               schema:
@@ -15148,7 +15148,7 @@ components:
     OrderRefund:
       type: object
       additionalProperties: false
-      required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, created_at]
+      required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, superseded_at, created_at]
       properties:
         id:
           type: string
@@ -15186,6 +15186,10 @@ components:
         failed_at:
           type: [string, "null"]
           format: date-time
+        superseded_at:
+          type: [string, "null"]
+          format: date-time
+          description: 失败的这一笔已作废：订单取消时的退款按「实际付了的」算，已经包含了它（不能再重试）
         created_at:
           type: string
           format: date-time
