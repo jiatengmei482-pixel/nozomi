@@ -64,6 +64,12 @@ export const PLATFORM_ACTIONS = [
   "cancellation_policy.review",
   "rescue.manage",
   "rescue.review",
+  "exception.manage",
+  "ticket.read",
+  "ticket.manage",
+  "ticket.review",
+  "compensation_table.manage",
+  "compensation_table.review",
   "role.read",
   "role.manage",
   "role.review",
@@ -94,6 +100,8 @@ export const TENANT_ACTIONS = [
   "company.read",
   "company.manage",
   "performance.read",
+  "ticket.read",
+  "ticket.manage",
   "statement.read",
   "statement.confirm",
 ] as const;
@@ -136,6 +144,14 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 救援改派（M3-04，ADR 0031）：救援队列和订单里的救援记录用 `order.read` 看；
  * - `rescue.manage`（按 4 种情形发起救援、给候选供应商发救援单、认定不可抗力、发起人工指定）：运营、客服（需求「人工介入能力」归处理订单的人）；
  * - `rescue.review`（审核人工指定救援供应商，需求「全部候选都不接，运营可人工指定租户（双人复核）」）：运营——两位运营互审，或超级管理员审。
+ * 订单中心、异常队列、工单、赔付表（M4-02，ADR 0034；需求菜单表「订单中心：客服、运营」「工单：客服」「财务结算」）：
+ * - 异常队列用 `order.read` 看；`exception.manage`（认领、关闭）：运营、客服、财务（支付异常由财务核实）；
+ * - `ticket.read`（看工单）：和订单一样——运营、客服、财务、风控、只读；
+ * - `ticket.manage`（建工单、认领、留言、征求租户意见、判定、关闭）：运营、客服（需求「判定：客服给出结论和赔付方案」）；
+ * - `ticket.review`（赔给客人的钱超过阈值时复核判定，需求「金额超过阈值需主管复核」）：运营——客服判定、运营复核；两位运营互审，或超级管理员审；
+ * - `compensation_table.manage`（发起改赔付表）：运营；`compensation_table.review`（审核）：运营、财务——和取消政策同一种分工；
+ *   赔付表本身每个角色都能看（和取消政策一样用 `master_data.read`）；
+ * - 赔付里退不回卡上、要另付的钱（报销）登记已付：`payment.manage`（财务、运营）。
  * 供应商应付账单与付款批次（M5-01，ADR 0040；菜单表「财务结算：应收应付、账单、发票、付款、对账差异」归财务）：
  * - `statement.read`（看账单、明细、付款批次）：财务、只读（看得到每家供应商的结算价，没有对外价）；
  * - `statement.manage`（手动出账、答复异议、作废重出、发起付款复核、锁定付款批次）：财务；
@@ -146,15 +162,16 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   operations: [
     "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
     "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
+    "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"],
-  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review", "statement.read", "statement.manage", "statement.review"],
-  risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
+  risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
-  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "statement.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read", "statement.read"],
 };
 
 /**
@@ -174,14 +191,16 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 确认 / 拒绝客人的改期用 `order.dispatch`（排不排得出车是调度的判断）。
  * 救援改派（M3-04，ADR 0031）：声明无法履约、接 / 拒救援单用 `order.dispatch`（调度知道排不排得出车）；
  * 看自己的应扣款项（违约金、救援差价）用 `order.read`（财务对账、只读也要看）。
+ * 工单（M4-02，ADR 0034；需求「征求租户意见：租户须在 24 小时内回复并上传证据」「租户可在 7 天内申诉一次」）：
+ * 看和自己有关的工单（`ticket.read`）：管理员、调度、财务、只读；回复、申诉、登记失物（`ticket.manage`）：管理员、调度（履约的人知道现场情况）、财务（对扣款申诉）。
  * 账单（M5-01，ADR 0040；需求「财务：订单（只读）、对账、发票」）：看（`statement.read`）给管理员、财务、只读；确认、提异议（`statement.confirm`）给管理员、财务。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
   pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
-  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
-  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read", "statement.read", "statement.confirm"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read", "statement.read"],
+  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read", "ticket.read", "ticket.manage"],
+  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read", "ticket.read", "ticket.manage", "statement.read", "statement.confirm"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read", "ticket.read", "statement.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {
@@ -286,10 +305,16 @@ export const PLATFORM_MENUS = [
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
   { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 异常队列（M4-02，ADR 0034）：看和看订单是同一个操作（和救援一样），认领和关闭算编辑——单独一格，财务处理支付异常不用拿到代取消、改单
+  { key: "exceptions", name: "异常队列", operations: { view: ["order.read"], edit: ["exception.manage"] } },
   // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核
   { key: "rescues", name: "救援", operations: { view: ["order.read"], edit: ["rescue.manage"], review: ["rescue.review"] } },
   // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
   { key: "cancellation_policy", name: "取消政策", operations: { view: ["master_data.read"], edit: ["cancellation_policy.manage"], review: ["cancellation_policy.review"] } },
+  // 工单（M4-02，ADR 0034）：建、处理、判定算编辑，复核超过阈值的判定算审核
+  { key: "tickets", name: "工单", operations: { view: ["ticket.read"], edit: ["ticket.manage"], review: ["ticket.review"] } },
+  // 客人赔付表（M4-02）：和取消政策一样，看是主数据的查看；发起修改算编辑，审核修改算审核
+  { key: "compensation_table", name: "赔付表", operations: { view: ["master_data.read"], edit: ["compensation_table.manage"], review: ["compensation_table.review"] } },
   { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },
   // 财务结算（M5-01）：看账单和付款批次；出账、答复异议、作废重出、发起付款复核、锁定批次算编辑；审核「付款给租户」算审核
   { key: "finance", name: "财务结算", operations: { view: ["statement.read"], edit: ["statement.manage"], review: ["statement.review"] } },

@@ -4,6 +4,7 @@
  * 拿到的链接真的能用（接受邀请、重置密码、登录）。
  */
 import { type Browser, type ConsoleMessage, type Page, expect, test } from "@playwright/test";
+import { ROLE_DUTIES, roleAbilities } from "../src/lib/platform-display.ts";
 import { expectAccessible, toast } from "./catalog.ts";
 import { activateTenant, adminCredentials, approveApproval, approverEmail, clickLogin, expectNoHorizontalOverflow, loginAs, newPassword, pendingApproval, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
@@ -302,9 +303,10 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await page.getByRole("link", { name: "新增员工" }).click();
   // 十个内置角色；别的用例新建的自建角色（带「（自建）」）排在后面，不算在内
   await expect(page.getByRole("radio", { name: /^(?!.*（自建）)/ })).toHaveCount(10);
-  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商。").first()).toBeVisible();
+  await expect(page.getByText(`现在能做的：${roleAbilities("super_admin").join("、")}。`).first()).toBeVisible();
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
-  await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改、看供应商账单和付款批次、出账、答复供应商的异议、作废重出、发起付款（要另一位同事审核）、锁定付款批次、审核付款给供应商。").first()).toBeVisible();
+  // 文字和页面同源（按权限现算），角色以后多了权限不用改这里
+  await expect(page.getByText(`${ROLE_DUTIES.finance} 现在能做的：${roleAbilities("finance").join("、")}。`).first()).toBeVisible();
   await page.getByLabel(/^邮箱/).fill(email);
   await page.getByLabel(/^姓名/).fill(staffName);
   await page.getByRole("button", { name: "新增", exact: true }).click();

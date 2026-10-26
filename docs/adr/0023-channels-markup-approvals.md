@@ -6,6 +6,7 @@
 - 实现 ADR 0020「本期不做」里的 `/sales/v1/quotes`、`GET /quotes/{quote_id}`、渠道鉴权、限流、`quote` 表和 `quote_id`、询价日志。
 - 补充 ADR 0008：渠道的 API 客户端与访问令牌（第三种受众 `sales`）。补充 ADR 0010：九张新的平台表的授权。
 - 双人复核做成通用机制：ADR 0022 留下的「汇率人工锁定」以及之后的结算条款、付款、退款、停用租户都用它。
+- 由 ADR 0034 补充（2026-10-26，M4-02）：登记 `compensation_table.update`、`ticket.decision` 两类；`ApprovalKind` 多一个可选的 `onDismiss`（驳回、撤回时在同一个事务里恢复对象）。
 
 ## 背景
 

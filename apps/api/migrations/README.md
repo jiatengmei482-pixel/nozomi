@@ -64,6 +64,7 @@
 | `0048_platform_session_verify_expiry.sql` | 平台会话触发器（ADR 0030）补一条：两步验证完成的时间必须在待验证会话的有效期里——已经过期的待验证会话不能被「验证」复活。不改任何数据 |
 | `0050_approval_pricing_impact.sql` | 加价规则 / 定价参数生效前的毛利试算（M3-07，ADR 0033；0034–0049 留给别的任务）：复核记录加 `impact`（发起时保存的试算结果，审核人批准前看）。只加列，授权不变。不含任何数据 |
 | `0051_pricing_impact_inputs.sql` | 毛利试算取数（M3-07，ADR 0033「性能」）：报价、订单的渠道索引加上编号（`quotes (channel_id, created_at desc, id desc)`、`order_sales (channel_id, created_at desc, order_id desc)`），替换原来只有（渠道、时间）的两个；`quotes` 加生成列 `impact_inputs`（数据库从快照算出试算要的那几项，约 0.5 KB）。只改结构，授权不变，不含任何数据 |
+| `0060_order_center_tickets.sql` | 订单中心、异常队列、工单与赔付表（M4-02，ADR 0034；0047–0059 段留给别的分支）：平台表 `compensation_tables`（赔付表按版本追加）、`order_exceptions`（异常队列）、`ticket_notes`（内部备注）、`ticket_compensations`（客人那边的赔付金额）；租户表 `tickets`、`ticket_messages`（供应商只读）；`order_refunds` 加赔付用途和 `ticket_id`；`tenant_deductions` 加赔付、报销两种（来源是工单）；`order_no_show_claims` 加审核结论（平台只改这三列）；履约失败加 `no_show_rejected`，平台可删履约事件（申诉撤销）。不含任何数据 |
 | `0070_billing.sql` | 供应商应付账单与付款批次（M5-01，ADR 0040；0050–0069 留给别的分支）：付款批次 `payout_batches`（平台表，一个付款日一个批次）；账单 `statements`（同一供应商、同一期、同一币种只有一张有效的）、明细 `statement_lines`（一笔应付同一时刻只挂在一张有效的账单上；平台只能改作废时间）、经过 `statement_events`（只追加），三张租户表，供应商只读。不含任何数据 |
 | `0080_integration_secrets.sql` | 运营后台填写的第三方密钥（M4-09，ADR 0041；0052–0079 留给别的任务）：`integration_secrets`（谷歌地图、Stripe 各一行；`sealed` 是 AES-256-GCM 密文、`hints` 是打码后的末 4 位、版本、谁什么时候改的；清空 = 删行）。平台表：平台读、写、删，租户角色没有任何权限。不含任何数据 |
 

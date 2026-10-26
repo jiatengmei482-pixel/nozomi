@@ -7,7 +7,7 @@ import type { Db } from "../db/context.ts";
 
 type Row = Record<string, any>;
 
-export type RefundPurpose = "cancellation" | "change";
+export type RefundPurpose = "cancellation" | "change" | "compensation";
 
 export interface OrderRefund {
   id: string;
@@ -16,6 +16,8 @@ export interface OrderRefund {
   paymentId: string;
   purpose: RefundPurpose;
   changeId: string | null;
+  /** 赔付（M4-02）：哪一张工单判定的 */
+  ticketId: string | null;
   amountMinor: number;
   currency: CurrencyCode;
   status: RefundStatus;
@@ -33,7 +35,7 @@ export interface OrderRefund {
   updatedAt: Date;
 }
 
-const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, superseded_at, created_at, updated_at";
+const COLUMNS = "id, order_id, supplier_tenant_id, payment_id, purpose, change_id, ticket_id, amount_minor, currency, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, superseded_at, created_at, updated_at";
 
 function toRefund(row: Row): OrderRefund {
   return {
@@ -43,6 +45,7 @@ function toRefund(row: Row): OrderRefund {
     paymentId: row["payment_id"],
     purpose: row["purpose"],
     changeId: row["change_id"],
+    ticketId: row["ticket_id"],
     amountMinor: Number(row["amount_minor"]),
     currency: row["currency"],
     status: row["status"],
@@ -59,11 +62,11 @@ function toRefund(row: Row): OrderRefund {
   };
 }
 
-export async function insertRefund(db: Db, refund: { orderId: string; supplierTenantId: string; paymentId: string; purpose: RefundPurpose; changeId: string | null; amountMinor: number; currency: CurrencyCode; now: Date; retryOf?: string }): Promise<OrderRefund> {
+export async function insertRefund(db: Db, refund: { orderId: string; supplierTenantId: string; paymentId: string; purpose: RefundPurpose; changeId: string | null; ticketId?: string | null; amountMinor: number; currency: CurrencyCode; now: Date; retryOf?: string }): Promise<OrderRefund> {
   const result = await db.query<Row>(
-    `insert into order_refunds (order_id, supplier_tenant_id, payment_id, purpose, change_id, amount_minor, currency, status, next_attempt_at, created_at, updated_at, retry_of)
-     values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $8, $8, $9) returning ${COLUMNS}`,
-    [refund.orderId, refund.supplierTenantId, refund.paymentId, refund.purpose, refund.changeId, refund.amountMinor, refund.currency, refund.now, refund.retryOf ?? null],
+    `insert into order_refunds (order_id, supplier_tenant_id, payment_id, purpose, change_id, ticket_id, amount_minor, currency, status, next_attempt_at, created_at, updated_at, retry_of)
+     values ($1, $2, $3, $4, $5, $10, $6, $7, 'pending', $8, $8, $8, $9) returning ${COLUMNS}`,
+    [refund.orderId, refund.supplierTenantId, refund.paymentId, refund.purpose, refund.changeId, refund.amountMinor, refund.currency, refund.now, refund.retryOf ?? null, refund.ticketId ?? null],
   );
   return toRefund(result.rows[0] as Row);
 }
