@@ -58,7 +58,8 @@ jobs:
   # API 和前端由 apps/web/e2e/global-setup.ts 起在非默认端口上；登录签名密钥是每次运行临时生成的随机值。
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 整个任务的上限；装浏览器的系统库偶尔要十几分钟（软件源慢），单独限时，不挤占测试本身的 20 分钟
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16
@@ -87,10 +88,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: 安装 Playwright 的 Chromium 和它需要的系统库
+        timeout-minutes: 15
         run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium
       - name: 创建数据库的应用账号（最小权限）
         run: pnpm db:provision
       - name: 端到端测试（先构建前端，再起 API 和前端跑 Playwright）
+        timeout-minutes: 20
         run: pnpm test:e2e
       - name: 失败时上传 Playwright 报告和现场（截图、trace）
         if: failure()
