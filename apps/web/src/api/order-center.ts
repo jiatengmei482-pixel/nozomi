@@ -177,6 +177,8 @@ export interface TicketNote {
   id: string;
   author: { id: string; name: string };
   body: string;
+  /** 给客人的回复（官网订单页、渠道看得到，供应商看不到）；false 是内部备注 */
+  to_guest: boolean;
   created_at: string;
 }
 
@@ -308,9 +310,9 @@ export function assignTicket(token: string, id: string, assigneeId: string | nul
   return apiRequest("POST", `${platformTicket(id)}/assign`, { token, body: { assignee_id: assigneeId } });
 }
 
-/** 留言：`internal` 为真是内部备注（只有平台看得到），否则是给供应商看的对话。 */
-export function addTicketMessage(token: string, id: string, body: string, internal: boolean): Promise<PlatformTicketDetail> {
-  return apiRequest("POST", `${platformTicket(id)}/messages`, { token, body: { body, internal } });
+/** 留言：`internal` 是内部备注（只有平台看得到），`guest` 是给客人的回复（官网订单页、渠道看得到），都不是就是给供应商看的对话。 */
+export function addTicketMessage(token: string, id: string, body: string, audience: "tenant" | "internal" | "guest"): Promise<PlatformTicketDetail> {
+  return apiRequest("POST", `${platformTicket(id)}/messages`, { token, body: { body, internal: audience === "internal", ...(audience === "guest" ? { to_guest: true } : {}) } });
 }
 
 export function requestTenantReply(token: string, id: string, body: string): Promise<PlatformTicketDetail> {

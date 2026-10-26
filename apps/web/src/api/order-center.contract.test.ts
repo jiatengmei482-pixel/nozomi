@@ -7,6 +7,7 @@ import { COMPENSATION_SCENARIOS, EXCEPTION_TYPES, PAYOUT_BATCH_STATUSES, STATEME
 import { BILLING_SCHEMA_FIELDS, PAYOUT_BATCHES_PATH, PLATFORM_STATEMENTS_PATH, TENANT_STATEMENTS_PATH } from "./billing.ts";
 import { COLLEAGUES_PATH, COMPENSATION_TABLE_PATH, EXCEPTIONS_PATH, ORDER_CENTER_SCHEMA_FIELDS, PLATFORM_TICKETS_PATH, TENANT_TICKETS_PATH, TICKET_DETAIL_FIELDS } from "./order-center.ts";
 import { PLATFORM_ORDERS_PATH } from "./order-money.ts";
+import { SITE_TICKET_FIELDS, SITE_TICKET_TYPES } from "./site.ts";
 
 interface Schema {
   type?: string | string[];
@@ -105,4 +106,17 @@ test("规则 4：供应商看到的工单、账单里没有对外价、加价比
   for (const name of ["TenantStatement", "TenantStatementDetail", "TenantStatementEvent"]) walk(schemas[name]);
   assert.ok(keys.has("deductions") && keys.has("lines"));
   assert.deepEqual([...keys].filter((key) => /sell|markup|customer|refund|manual_payout|notes|assignee|decided_by|actor_id|compensation$/.test(key)), []);
+});
+
+test("官网的投诉和反馈（M4-03）：接口在、字段和渠道看到的工单一样；客人能提的类型和接口一致；平台留言能选「回复客人」", () => {
+  assert.ok(spec.paths["/site/v1/order/tickets"]?.["get"]);
+  assert.ok(spec.paths["/site/v1/order/tickets"]?.["post"]);
+  const ticket = schemas["ChannelTicket"];
+  assert.deepEqual(sorted(Object.keys(ticket?.properties ?? {})), sorted(SITE_TICKET_FIELDS));
+  assert.deepEqual(sorted(ticket?.required ?? []), sorted(SITE_TICKET_FIELDS));
+  const body = (spec.paths["/platform/v1/tickets/{id}/messages"]?.["post"] as unknown as { requestBody: { content: { "application/json": { schema: Schema } } } }).requestBody.content["application/json"].schema;
+  assert.ok(body.properties?.["to_guest"]);
+  const post = (spec.paths["/site/v1/order/tickets"]?.["post"] as unknown as { requestBody: { content: { "application/json": { schema: Schema } } } }).requestBody.content["application/json"].schema;
+  const resolved = post.$ref !== undefined ? schemas[post.$ref.replace("#/components/schemas/", "")] : post;
+  assert.deepEqual(resolved?.properties?.["type"]?.enum, [...SITE_TICKET_TYPES]);
 });

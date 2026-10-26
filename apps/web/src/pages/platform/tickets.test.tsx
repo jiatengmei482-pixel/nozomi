@@ -215,3 +215,34 @@ test("赔付：运营后台看得到客人那边的金额；待另付的只有 `
   assertAbsent(screen.queryByRole("textbox", { name: "内部备注" }));
   void ME;
 });
+
+test("回复客人（M4-03）：客人、渠道提的工单有「回复客人」，发出去带 to_guest；客人的回复和内部备注分开列；客服自己建的工单没有这一块", async () => {
+  const bodies: unknown[] = [];
+  const withReply = platformTicketDetailOf(platformTicketOf({ source: "guest" }), {
+    notes: [
+      { id: "n1", author: { id: COLLEAGUE, name: "佐藤" }, body: "客人第二次投诉，留意语气。", to_guest: false, created_at: "2026-10-08T05:30:00.000Z" },
+      { id: "n2", author: { id: COLLEAGUE, name: "佐藤" }, body: "我们正在核实，24 小时内答复您。", to_guest: true, created_at: "2026-10-08T05:40:00.000Z" },
+    ],
+  });
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "customer_service", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}`) return json(200, withReply);
+    if (call.method === "POST" && call.url.pathname.endsWith("/messages")) {
+      bodies.push(call.body);
+      return json(201, withReply);
+    }
+    return null;
+  });
+  const u = user();
+  const section = (await screen.findByRole("heading", { name: "回复客人" })).closest("section") as HTMLElement;
+  assert.ok(within(section).getByText("我们正在核实，24 小时内答复您。"));
+  assertAbsent(within(section).queryByText("客人第二次投诉，留意语气。"));
+  const notes = screen.getByText("内部备注", { selector: "h2" }).closest("section") as HTMLElement;
+  assertAbsent(within(notes).queryByText("我们正在核实，24 小时内答复您。"));
+  await u.type(within(section).getByLabelText("给客人的回复"), "已核实司机迟到，补偿会退回您的银行卡。");
+  await u.click(within(section).getByRole("button", { name: "回复客人" }));
+  await waitFor(() => assert.deepEqual(bodies, [{ body: "已核实司机迟到，补偿会退回您的银行卡。", internal: false, to_guest: true }]));
+  resetBrowser();
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}` ? json(200, platformTicketDetailOf(platformTicketOf({ source: "platform" }))) : null));
+  await screen.findByText("内部备注", { selector: "h2" });
+  assertAbsent(screen.queryByRole("heading", { name: "回复客人" }));
+});

@@ -109,7 +109,7 @@ export const platformTicketOf = (changes: Partial<PlatformTicket> = {}): Platfor
 export const platformTicketDetailOf = (ticket: PlatformTicket = platformTicketOf(), changes: Partial<PlatformTicketDetail> = {}): PlatformTicketDetail => ({
   ticket,
   messages: [{ id: "m1", author_type: "tenant_user", author_id: "u1", body: "司机 10:02 已到达。", file_ids: [], created_at: stamps.updated_at }],
-  notes: [{ id: "n1", author: { id: COLLEAGUE, name: "佐藤" }, body: "客人第二次投诉，留意语气。", created_at: stamps.updated_at }],
+  notes: [{ id: "n1", author: { id: COLLEAGUE, name: "佐藤" }, body: "客人第二次投诉，留意语气。", to_guest: false, created_at: stamps.updated_at }],
   compensation: null,
   deductions: [],
   refund_ids: [],

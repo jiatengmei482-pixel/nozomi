@@ -86,7 +86,17 @@ test("订单页排第一的区块：待付款 → 付款；「我已落地」能
   assert.equal(primaryOrderSection({ ...base, status: "completed", extra_charges: [charge(false), charge(true)] }, now), "charges");
   assert.equal(primaryOrderSection({ ...base, status: "completed", extra_charges: [charge(false)] }, now), "trip", "异议期过了");
   assert.equal(primaryOrderSection(base, now), "trip");
-  assert.deepEqual(orderSectionSequence("landing"), ["landing", "trip", "timeline", "driver", "charges", "change", "cancel", "help"]);
-  assert.deepEqual(orderSectionSequence("payment"), ["payment", "trip", "timeline", "driver", "landing", "charges", "change", "cancel", "help"]);
-  assert.deepEqual(orderSectionSequence("trip"), ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "help"]);
+  assert.deepEqual(orderSectionSequence("landing"), ["landing", "trip", "timeline", "driver", "charges", "change", "cancel", "feedback", "help"]);
+  assert.deepEqual(orderSectionSequence("payment"), ["payment", "trip", "timeline", "driver", "landing", "charges", "change", "cancel", "feedback", "help"]);
+  assert.deepEqual(orderSectionSequence("trip"), ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "feedback", "help"]);
+});
+
+test("投诉和反馈（M4-03）：排在取消之后、需要帮助之前；客人看到的处理状态只有三种说法；结论用客人的说法", async () => {
+  const { guestTicketBadge, guestTicketOutcome, GUEST_TICKET_TYPE_NAMES } = await import("./site-display.ts");
+  const { SITE_TICKET_TYPES } = await import("../api/site.ts");
+  assert.deepEqual(orderSectionSequence("trip").slice(-3), ["cancel", "feedback", "help"]);
+  for (const type of SITE_TICKET_TYPES) assert.ok(GUEST_TICKET_TYPE_NAMES[type], type);
+  assert.deepEqual(["open", "awaiting_tenant", "in_progress", "pending_review", "decided", "closed"].map((status) => guestTicketBadge(status).label), ["处理中", "处理中", "处理中", "处理中", "已有结果", "已结束"]);
+  assert.equal(guestTicketOutcome("complaint", "upheld"), "投诉成立，平台按赔付标准给您补偿");
+  assert.equal(guestTicketOutcome("complaint", null), null);
 });

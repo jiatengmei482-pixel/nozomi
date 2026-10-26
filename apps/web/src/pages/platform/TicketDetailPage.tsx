@@ -414,7 +414,9 @@ export function TicketDetailPage() {
     }
   };
   const messages = detail.messages.map((message) => ({ id: message.id, who: authorText(message, names, "platform"), at: message.created_at, body: message.body }));
-  const notes = detail.notes.map((note) => ({ id: note.id, who: note.author.id === me ? "你" : note.author.name, at: note.created_at, body: note.body, internal: true }));
+  const notes = detail.notes.filter((note) => !note.to_guest).map((note) => ({ id: note.id, who: note.author.id === me ? "你" : note.author.name, at: note.created_at, body: note.body, internal: true }));
+  const guestReplies = detail.notes.filter((note) => note.to_guest).map((note) => ({ id: note.id, who: `${note.author.id === me ? "你" : note.author.name}（客人看到的是「平台的回复」）`, at: note.created_at, body: note.body }));
+  const guestTicket = ticket.source === "guest" || ticket.source === "channel";
   const canClose = ticket.status === "decided" || (active && ticket.type !== "no_show_review");
 
   return shell(
@@ -480,8 +482,19 @@ export function TicketDetailPage() {
             </h2>
             <p className="table__muted">这里的每一条供应商都看得到（看不到是哪位同事写的，只显示「平台」）。</p>
             <Thread items={messages} empty="还没有对话。" />
-            {canManage && active && <Composer label="发给供应商的话" button="发给供应商" busyText="发送中…" hint="要供应商在 24 小时内答复的，用右边的「征求供应商意见」。" onSend={async (body) => close(await addTicketMessage(token, ticket.id, body, false), "已发给供应商")} />}
+            {canManage && active && <Composer label="发给供应商的话" button="发给供应商" busyText="发送中…" hint="要供应商在 24 小时内答复的，用右边的「征求供应商意见」。" onSend={async (body) => close(await addTicketMessage(token, ticket.id, body, "tenant"), "已发给供应商")} />}
           </section>
+
+          {guestTicket && (
+            <section className="card" aria-labelledby="ticket-guest-replies">
+              <h2 className="card__title" id="ticket-guest-replies">
+                回复客人
+              </h2>
+              <p className="table__muted">{ticket.source === "guest" ? "客人在官网订单页的「投诉和反馈」里看得到这里的回复（不显示是哪位同事）；供应商看不到。" : "渠道查这张工单时看得到这里的回复（不显示是哪位同事）；供应商看不到。"}</p>
+              <Thread items={guestReplies} empty="还没有回复客人。" />
+              {canManage && ticket.status !== "closed" && <Composer label="给客人的回复" button="回复客人" busyText="发送中…" hint="写给客人看的话：核实进度、结论、补偿怎么给。不要写供应商的结算价。" onSend={async (body) => close(await addTicketMessage(token, ticket.id, body, "guest"), "已回复客人")} />}
+            </section>
+          )}
 
           <section className="card" aria-labelledby="ticket-notes">
             <h2 className="card__title" id="ticket-notes">
@@ -489,7 +502,7 @@ export function TicketDetailPage() {
             </h2>
             <p className="table__muted">只有平台员工看得到，供应商看不到。</p>
             <Thread items={notes} empty="还没有备注。" />
-            {canManage && ticket.status !== "closed" && <Composer label="内部备注" button="加备注" busyText="保存中…" hint="同事之间的讨论、电话记录。" onSend={async (body) => close(await addTicketMessage(token, ticket.id, body, true), "已加备注")} />}
+            {canManage && ticket.status !== "closed" && <Composer label="内部备注" button="加备注" busyText="保存中…" hint="同事之间的讨论、电话记录。" onSend={async (body) => close(await addTicketMessage(token, ticket.id, body, "internal"), "已加备注")} />}
           </section>
         </div>
 
