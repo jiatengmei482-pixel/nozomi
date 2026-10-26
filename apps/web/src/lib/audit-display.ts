@@ -2,7 +2,7 @@
  * 审计日志的显示（docs/design/pages/platform-settings.md 第 3 节）：对象类型和操作的中文名、从改前改后的值里找名称、
  * 「改了什么」的对照。审计日志是后台里唯一允许出现字段原名的地方——排查问题时要拿它去对接口和数据库。
  */
-import { PLATFORM_ROLES, PRODUCT_STATUS_NAMES, TENANT_ROLES } from "@nozomi/domain";
+import { EXCEPTION_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
 import type { AuditActorType, AuditLog, AuditSource } from "../api/platform.ts";
 import { displayName } from "./master-display.ts";
 
@@ -34,6 +34,23 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   tenant_file: "供应商的文件",
   tenant_document: "供应商的资质",
   tenant_contract: "供应商的合同",
+  driver: "司机",
+  vehicle: "车辆",
+  order: "订单",
+  driver_link: "司机链接",
+  tenant_webhook: "供应商的 Webhook 设置",
+  webhook_delivery: "Webhook 推送",
+  cancellation_policy: "平台取消政策",
+  order_change: "改单",
+  extra_charge: "事后加收",
+  refund: "退款",
+  rescue: "救援改派",
+  rescue_offer: "救援单",
+  compensation_table: "客人赔付表",
+  order_exception: "订单异常",
+  ticket: "工单",
+  statement: "账单",
+  payout_batch: "付款批次",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -88,6 +105,40 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   observe: "观察期变化",
   upload: "上传",
   request_supplement: "要求补充",
+  assign: "指派",
+  reassign: "改派",
+  issue: "生成",
+  retry: "重试",
+  test: "发送测试",
+  cancel: "取消",
+  change: "改单",
+  decide: "审核",
+  charge: "扣款",
+  trigger: "发起",
+  offer: "发救援单",
+  accept: "接单",
+  waive: "免除",
+  claim: "认领",
+  close: "关闭",
+  reply: "回复",
+  note: "备注",
+  request_reply: "征求供应商意见",
+  pay: "登记已付",
+  dispute: "提异议",
+  void: "作废",
+};
+
+/** 同一个操作在不同对象上的说法（「关闭」付款批次是锁定，「出」账单是出账）。没列的用上面的通用说法。 */
+export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  order: { assign: "派车", reassign: "改派", cancel: "取消订单" },
+  driver_link: { issue: "生成司机链接" },
+  rescue: { trigger: "发起救援", waive: "认定不可抗力" },
+  rescue_offer: { accept: "接救援单", reject: "拒绝救援单" },
+  ticket: { assign: "认领 / 转交", reply: "留言（供应商看得到）", note: "内部备注", decide: "判定", close: "关闭工单", pay: "登记另付已付", request_reply: "征求供应商意见" },
+  order_exception: { claim: "认领 / 转交", close: "写说明关闭" },
+  statement: { issue: "出账", confirm: "确认账单", dispute: "提异议", reply: "答复异议", void: "作废并重出" },
+  payout_batch: { close: "锁定" },
+  extra_charge: { decide: "审核加收" },
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };
@@ -98,8 +149,8 @@ export function resourceName(resource: string): { text: string; known: boolean }
   const name = RESOURCE_NAMES[resource];
   return name ? { text: name, known: true } : { text: resource, known: false };
 }
-export function actionName(action: string): { text: string; known: boolean } {
-  const name = ACTION_NAMES[action];
+export function actionName(action: string, resource?: string): { text: string; known: boolean } {
+  const name = (resource === undefined ? undefined : ACTION_NAMES_BY_RESOURCE[resource]?.[action]) ?? ACTION_NAMES[action];
   return name ? { text: name, known: true } : { text: action, known: false };
 }
 
@@ -145,12 +196,31 @@ export const FIELD_NAMES: Readonly<Record<string, string>> = {
   version: "版本号",
   key: "项目",
   count: "数量",
+  type: "类型",
+  order_id: "订单",
+  priority: "优先级",
+  assignee_id: "处理人",
+  ticket_no: "工单号",
+  outcome: "结论",
+  liable_party: "责任方",
+  note: "说明",
+  body: "内容",
+  internal: "内部备注",
+  resolution: "处理说明",
+  reference: "凭证号",
+  statement_no: "账单号",
+  period: "周期",
 };
 
 const ROLE_NAMES: Readonly<Record<string, string>> = Object.fromEntries([...PLATFORM_ROLES, ...TENANT_ROLES].map((role) => [role.key, role.name]));
 /** 「状态」在各种对象上的说法不一样：供应商是正常 / 已暂停，账号是待激活 / 在用 / 已停用，商品是草稿 / 已上架 / 已下架，主数据是启用 / 已停用。 */
 function statusNames(resource: string): Readonly<Record<string, string>> {
   if (resource === "tenant") return { active: "正常", suspended: "已暂停" };
+  if (resource === "ticket") return Object.fromEntries(Object.entries(TICKET_STATUS_NAMES).map(([key, name]) => [key, name.replace("租户", "供应商")]));
+  if (resource === "order_exception") return EXCEPTION_STATUS_NAMES;
+  if (resource === "statement") return STATEMENT_STATUS_NAMES;
+  if (resource === "payout_batch") return { open: "收账单中", closed: "已锁定", paid: "已付款" };
+  if (resource === "order") return ORDER_STATUS_NAMES;
   if (resource === "platform_user" || resource === "tenant_user") return { invited: "待激活", active: "在用", disabled: "已停用" };
   if (resource === "product") return PRODUCT_STATUS_NAMES;
   return { active: "启用", disabled: "已停用" };

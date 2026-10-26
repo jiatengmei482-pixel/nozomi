@@ -5,8 +5,8 @@
  * - 代客人取消（`order.manage`）：选原因、写说明、先看试算；多退给客人的（免收取消费、免费的原因）提交后要另一位同事批准；
  * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）。
  */
-import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, localDateTimeToInstant } from "@nozomi/domain";
-import { type ReactNode, useEffect, useState } from "react";
+import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, SERVICE_CATEGORIES, type ServiceCategory, localDateTimeToInstant } from "@nozomi/domain";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import type { ListPage } from "../../api/dispatch.ts";
@@ -16,6 +16,8 @@ import {
   type PlatformExtraCharge,
   type PlatformOrder,
   type PlatformOrderDetail,
+  type PlatformOrderQuery,
+  type PlatformOrderRow,
   cancelPlatformOrder,
   changePlatformOrder,
   decideExtraCharge,
@@ -28,8 +30,11 @@ import {
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
-import { Button } from "../../components/Button.tsx";
-import { type Column, DataTable } from "../../components/DataTable.tsx";
+import { Button, LinkButton } from "../../components/Button.tsx";
+import { Combobox } from "../../components/Combobox.tsx";
+import { type Column, CursorPagination, DataTable } from "../../components/DataTable.tsx";
+import { FilterBar, useFilterParam } from "../../components/FilterBar.tsx";
+import { DateFilter, TextFilter } from "../../components/FilterFields.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
@@ -45,6 +50,7 @@ import {
   EXTRA_STATUS_BADGES,
   PLATFORM_CANCEL_REASONS,
   PLATFORM_ORDER_LIST_PATH,
+  POLICY_CATEGORY_NAMES,
   REFUND_STATUS_BADGES,
   REVIEW_REASON_NAMES,
   amountToMinor,
@@ -58,6 +64,12 @@ import {
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { localDayInstant } from "../../lib/audit-display.ts";
+import { displayName } from "../../lib/master-display.ts";
+import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
+import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
+import { useAllCities } from "../master/shared.tsx";
+import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
 import { RescueSection } from "./RescuePages.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
@@ -66,8 +78,27 @@ const TRAIL = [{ label: "订单", to: PLATFORM_ORDER_LIST_PATH }];
 const CANCELLABLE: readonly OrderStatus[] = ["pending_payment", "confirmed", "assigned", "departed", "arrived", "rescue_pending"];
 const CHANGEABLE: readonly OrderStatus[] = ["confirmed", "assigned", "departed", "arrived"];
 
-function tableState(status: string): "ready" | "forbidden" | "error" | "loading" {
-  return status === "ready" ? "ready" : status === "forbidden" ? "forbidden" : status === "error" ? "error" : "loading";
+/** 订单中心的筛选条件（网址参数名 → 说明）；状态、订单号原来就有，其余是 M4-02 加的。 */
+const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger"] as const;
+
+function OrderFilters({ cityOptions, citiesState }: { cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string }) {
+  const [status, setStatus] = useFilterParam("status");
+  const [city, setCity] = useFilterParam("city");
+  const [category, setCategory] = useFilterParam("category");
+  const [exception, setException] = useFilterParam("exception");
+  return (
+    <>
+      <SelectField inline label="状态" value={(ORDER_STATUSES as readonly string[]).includes(status ?? "") ? (status as OrderStatus) : "all"} options={[{ value: "all", label: "全部" }, ...ORDER_STATUSES.map((value) => ({ value, label: ORDER_STATUS_NAMES[value] }))]} onChange={(value) => setStatus(value === "all" ? null : value)} />
+      <SelectField inline label="异常" value={exception === "open" || exception === "none" ? exception : "all"} options={[{ value: "all", label: "全部" }, { value: "open", label: "有没处理完的异常" }, { value: "none", label: "没有异常" }]} onChange={(value) => setException(value === "all" ? null : value)} />
+      <DateFilter name="service_from" label="用车日期从" />
+      <DateFilter name="service_to" label="到" />
+      <DateFilter name="created_from" label="下单日期从" />
+      <DateFilter name="created_to" label="到" />
+      <Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={uuidOrNull(city)} onChange={setCity} loading={cityOptions.length === 0 && citiesState === "loading"} loadFailed={cityOptions.length === 0 && citiesState === "error"} />
+      <SelectField inline label="品类" value={(SERVICE_CATEGORIES as readonly string[]).includes(category ?? "") ? (category as ServiceCategory) : "all"} options={[{ value: "all", label: "全部" }, ...SERVICE_CATEGORIES.map((value) => ({ value, label: POLICY_CATEGORY_NAMES[value] }))]} onChange={(value) => setCategory(value === "all" ? null : value)} />
+      <TextFilter name="passenger" label="乘客" minLength={2} />
+    </>
+  );
 }
 
 export function PlatformOrderListPage() {
@@ -75,46 +106,133 @@ export function PlatformOrderListPage() {
   useDocumentTitle(`订单 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("order.read");
   const [params, setParams] = useSearchParams();
+  const cities = useAllCities();
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: `${displayName(entry.name).text}${entry.status === "disabled" ? "（已停用）" : ""}`, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const status = (ORDER_STATUSES as readonly string[]).includes(params.get("status") ?? "") ? (params.get("status") as OrderStatus) : null;
   const q = params.get("q") ?? "";
+  const date = (name: string): string | null => {
+    const value = params.get(name);
+    return value !== null && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  };
+  const serviceFrom = date("service_from");
+  const serviceTo = date("service_to");
+  const createdFrom = date("created_from") === null ? null : localDayInstant(date("created_from") as string, false);
+  const createdTo = date("created_to") === null ? null : localDayInstant(date("created_to") as string, true);
+  const city = uuidOrNull(params.get("city"));
+  const categoryParam = params.get("category");
+  const category = (SERVICE_CATEGORIES as readonly string[]).includes(categoryParam ?? "") ? (categoryParam as ServiceCategory) : null;
+  const exceptionParam = params.get("exception");
+  const exception = exceptionParam === "open" || exceptionParam === "none" ? exceptionParam : null;
+  const passengerParam = (params.get("passenger") ?? "").trim();
+  const passenger = passengerParam.length >= 2 ? passengerParam.slice(0, 100) : null;
+  const pageSize = pageSizeOf(params.get("size"));
   const [search, setSearch] = useState(q);
-  const { state, reload } = useLoad<ListPage<PlatformOrder>>(`platform-orders|${status ?? ""}|${q}`, canRead ? (t) => listPlatformOrders(t, { limit: 100, ...(status === null ? {} : { status }), ...(q === "" ? {} : { q }) }) : null);
+  const query: PlatformOrderQuery = {
+    limit: pageSize,
+    ...(status === null ? {} : { status }),
+    ...(q === "" ? {} : { q }),
+    ...(serviceFrom === null ? {} : { service_from: serviceFrom }),
+    ...(serviceTo === null ? {} : { service_to: serviceTo }),
+    ...(createdFrom === null ? {} : { created_from: createdFrom }),
+    ...(createdTo === null ? {} : { created_to: createdTo }),
+    ...(city === null ? {} : { city_id: city }),
+    ...(category === null ? {} : { category }),
+    ...(exception === null ? {} : { exception }),
+    ...(passenger === null ? {} : { passenger }),
+  };
+  const filterKey = JSON.stringify(["platform-orders", query]);
+  const pages = useCursorPages(filterKey);
+  const { state, reload } = useLoad<ListPage<PlatformOrderRow>>(`${filterKey}|${pages.cursor ?? ""}`, canRead ? (t) => listPlatformOrders(t, { ...query, ...(pages.cursor === null ? {} : { cursor: pages.cursor }) }) : null);
   const shell = (content: ReactNode): ReactNode => (
     <AppShell pageName="订单">
       <Page title="订单">{content}</Page>
     </AppShell>
   );
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
-  const columns: Column<PlatformOrder>[] = [
+  const columns: Column<PlatformOrderRow>[] = [
     { key: "no", header: "订单号", cell: (row) => <Link className="link mono" to={platformOrderPath(row.id)}>{row.order_no}</Link> },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...ORDER_STATUS_BADGES[row.status]} /> },
-    { key: "time", header: "用车时间（当地）", cell: (row) => <time dateTime={row.service_time}>{row.service_local.replace("T", " ")}</time> },
+    {
+      key: "exceptions",
+      header: "异常",
+      cardLabel: true,
+      cell: (row) =>
+        row.open_exceptions === 0 ? (
+          <span className="table__muted">—</span>
+        ) : (
+          <Link className="link" to={`${EXCEPTION_QUEUE_PATH}?order=${encodeURIComponent(row.id)}`}>{`${row.open_exceptions} 条没处理完`}</Link>
+        ),
+    },
+    { key: "time", header: "用车时间（当地）", cardLabel: true, cell: (row) => <time dateTime={row.service_time}>{row.service_local.replace("T", " ")}</time> },
+    { key: "category", header: "品类", cell: (row) => <span className="tag">{POLICY_CATEGORY_NAMES[row.category]}</span> },
+    { key: "passenger", header: "乘客", wrap: true, cardLabel: true, cell: (row) => row.passenger.name },
     { key: "tenant", header: "供应商", cell: (row) => row.tenant.name, wrap: true },
     { key: "channel", header: "渠道", cell: (row) => row.channel.name, wrap: true },
     { key: "sell", header: "对外价", cell: (row) => moneyText(row.sell), align: "end" },
     { key: "settlement", header: "结算价", cell: (row) => moneyText(row.settlement.total), align: "end" },
   ];
-  const update = (next: { status?: string | null; q?: string }): void => {
-    const values = { status: next.status === undefined ? status : next.status, q: next.q === undefined ? q : next.q };
-    setParams(Object.fromEntries(Object.entries(values).filter(([, value]) => value !== null && value !== "")) as Record<string, string>, { replace: true });
+  const setParam = (changes: Record<string, string | null>): void => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    setParams(next, { replace: true });
   };
+  const filtered = q !== "" || ORDER_FILTERS.some((name) => params.has(name));
+  const clear = (): void => {
+    setSearch("");
+    setParam(Object.fromEntries(["q", ...ORDER_FILTERS].map((name) => [name, null])));
+  };
+  const data = state.data;
   return shell(
     <>
-      <div className="filter-bar">
-        <SelectField inline label="状态" value={status ?? "all"} options={[{ value: "all", label: "全部" }, ...ORDER_STATUSES.map((value) => ({ value, label: ORDER_STATUS_NAMES[value] }))]} onChange={(value) => update({ status: value === "all" ? null : value })} />
-        <form
-          className="order-search"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            update({ q: search.trim() });
-          }}
-        >
-          <TextField label="订单号或渠道订单号" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <Button type="submit">查找</Button>
-        </form>
+      <p className="page__lead">跨供应商、跨渠道的全部订单。用车日期按各城市当地的日期算；下单日期按你的本地时区算。要人处理的单在「异常队列」里。</p>
+      <FilterBar
+        search={
+          <form
+            className="order-search"
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setParam({ q: search.trim() });
+            }}
+          >
+            <TextField label="订单号或渠道订单号" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Button type="submit">查找</Button>
+          </form>
+        }
+        paramNames={ORDER_FILTERS}
+        active={filtered}
+        onClear={clear}
+      >
+        <OrderFilters cityOptions={cityOptions} citiesState={cities.state.status} />
+      </FilterBar>
+      <div className="card-table">
+        <DataTable
+          label="订单"
+          columns={columns}
+          rows={data?.items ?? []}
+          rowKey={(row) => row.id}
+          state={tableStateOf(state.status, data !== null)}
+          refreshing={state.status === "loading" && data !== null}
+          onRetry={reload}
+          empty={filtered ? <StateBlock tone="neutral" title="没有符合条件的订单" description="换个条件试试，或清空筛选。" action={<Button variant="secondary" onClick={clear}>清空筛选</Button>} /> : <StateBlock tone="neutral" title="还没有订单" description="渠道和官网下的单都会出现在这里。" />}
+        />
       </div>
-      <DataTable label="订单" columns={columns} rows={state.data?.items ?? []} rowKey={(row) => row.id} state={tableState(state.status)} onRetry={reload} empty={<StateBlock tone="neutral" title="没有订单" description="换个条件试试。" />} />
+      <CursorPagination
+        total={data ? data.total : null}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => setParam({ size: size === 20 ? null : String(size) })}
+        hasPrevious={pages.hasPrevious}
+        hasNext={state.status === "ready" && state.data.next_cursor !== null}
+        busy={state.status === "loading"}
+        onPrevious={pages.previous}
+        onNext={() => {
+          const next = data?.next_cursor;
+          if (next) pages.next(next);
+        }}
+      />
     </>,
   );
 }
@@ -302,6 +420,8 @@ export function PlatformOrderDetailPage() {
   const canRead = usePlatformCan("order.read");
   const canManage = usePlatformCan("order.manage");
   const canPayment = usePlatformCan("payment.manage");
+  const canTicket = usePlatformCan("ticket.manage");
+  const canSeeTickets = usePlatformCan("ticket.read");
   const toast = useToast();
   const { state, reload } = useLoad<PlatformOrderDetail>(`platform-order|${id}`, canRead ? (t) => getPlatformOrder(t, id) : null);
   const [dialog, setDialog] = useState<"cancel" | "change" | { decide: PlatformExtraCharge } | null>(null);
@@ -406,7 +526,7 @@ export function PlatformOrderDetailPage() {
                 <tbody>
                   {detail.refunds.map((refund) => (
                     <tr key={refund.id}>
-                      <th scope="row">{`${refund.purpose === "cancellation" ? "取消" : "改单差价"}${refund.retry_of ? "（重试）" : ""}`}</th>
+                      <th scope="row">{`${refund.purpose === "cancellation" ? "取消" : refund.purpose === "compensation" ? "工单赔付" : "改单差价"}${refund.retry_of ? "（重试）" : ""}`}</th>
                       <td>{moneyText(refund.amount)}</td>
                       <td>
                         <StatusBadge {...REFUND_STATUS_BADGES[refund.status]} />
@@ -496,6 +616,66 @@ export function PlatformOrderDetailPage() {
           <p className="field__hint">提交后 48 小时是客人的异议期，期间不扣款；之后没有异议、不超过对外价 50%、有凭证的自动从客人保存的卡上扣，其余在这里审核。</p>
         </section>
       )}
+
+      <section className="card" aria-labelledby="order-exceptions">
+        <h2 className="card__title" id="order-exceptions">
+          异常
+        </h2>
+        {detail.exceptions.length === 0 ? (
+          <p className="table__muted">这一单没有异常。</p>
+        ) : (
+          <ul className="plain-list">
+            {detail.exceptions.map((exception) => (
+              <li key={exception.id}>
+                <span className="badge-row">
+                  <Link className="link" to={exceptionPath(exception.id)}>
+                    {exceptionTypeName(exception.type)}
+                  </Link>
+                  <StatusBadge {...EXCEPTION_STATUS_BADGES[exception.status]} />
+                  {exception.status !== "closed" && new Date(exception.due_at).getTime() < Date.now() && <StatusBadge {...OVERDUE_BADGE} />}
+                </span>
+                <span className="table__muted">{`发现 ${formatLocalDateTime(exception.opened_at)} · 时限 ${formatLocalDateTime(exception.due_at)}${exception.closed_at === null ? "" : ` · 关闭 ${formatLocalDateTime(exception.closed_at)}（${exception.close_kind === "cleared" ? "条件已解除" : "人工处理完"}）`}`}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card" aria-labelledby="order-tickets">
+        <div className="card__title-row">
+          <h2 className="card__title" id="order-tickets">
+            工单
+          </h2>
+          {canTicket && (
+            <LinkButton variant="secondary" to={newPlatformTicketPath(order.id)}>
+              新建工单
+            </LinkButton>
+          )}
+        </div>
+        {detail.tickets.length === 0 ? (
+          <p className="table__muted">这一单没有工单。</p>
+        ) : (
+          <ul className="plain-list">
+            {detail.tickets.map((ticket) => (
+              <li key={ticket.id}>
+                <span className="badge-row">
+                  {canSeeTickets ? (
+                    <Link className="link mono" to={platformTicketPath(ticket.id)}>
+                      {ticket.ticket_no}
+                    </Link>
+                  ) : (
+                    <span className="mono">{ticket.ticket_no}</span>
+                  )}
+                  <span className="tag">{ticketTypeName(ticket.type)}</span>
+                  <StatusBadge {...TICKET_STATUS_BADGES[ticket.status]} />
+                  {ticket.outcome !== null && <span>{outcomeName(ticket.type, ticket.outcome)}</span>}
+                </span>
+                <span className="table__muted">{`${ticket.subject} · ${formatLocalDateTime(ticket.created_at)}`}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="card">
         <h2 className="card__title">状态流水</h2>

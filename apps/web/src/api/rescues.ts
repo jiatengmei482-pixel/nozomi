@@ -2,7 +2,7 @@
  * 救援改派与违约金的接口（M3-04，ADR 0031）。字段与 `apps/api/openapi.yaml` 对齐，由 rescues.contract.test.ts 保证。
  * 供应商的接口（救援单、应扣款项、订单里的救援）没有对外价、加价比例、别的供应商是谁（规则 4）；运营后台的有。
  */
-import type { DeductionKind, DeductionStatus, OrderStatus, PenaltyTier, RescueOfferStatus, RescueStatus, RescueTrigger, ServiceCategory } from "@nozomi/domain";
+import type { CompensationScenario, DeductionKind, DeductionStatus, OrderStatus, PenaltyTier, RescueOfferStatus, RescueStatus, RescueTrigger, ServiceCategory } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest } from "./client.ts";
 import type { Approval } from "./channels.ts";
@@ -26,6 +26,12 @@ export interface DeductionBasis {
   rescue_in_original_minor?: number;
   raw_minor?: number;
   same_currency?: boolean;
+  /** 赔付、报销（工单判定，M4-02）：哪张工单、哪种情形；赔付另有比例所得和车型降级的差价、赔付表版本 */
+  ticket_no?: string;
+  scenario?: CompensationScenario;
+  ratio_minor?: number;
+  downgrade_settlement_difference_minor?: number;
+  table_version?: number;
 }
 
 export interface TenantDeduction {

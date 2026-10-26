@@ -2,6 +2,7 @@
  * 运营后台首页（docs/design/pages/platform-home.md）：各模块的入口、数量和需要处理的提醒。
  * 数量全部来自 `dashboard/summary`；入口不等数量，数量加载失败时入口照常可用。
  * 汇率超过 48 小时没更新（跨币种报价已暂停）时，页面顶部一条危险提示条（M2-03）。
+ * M4-03 起「运营」分区加异常队列、工单、赔付表三张卡片，另加「财务结算」分区（账单、付款批次）。
  */
 import { TENANT_LIST_PATH, platformProductListPath } from "../lib/platform-paths.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,6 +22,10 @@ import { useDocumentTitle } from "../lib/use-document-title.ts";
 import { FX_PATH } from "../lib/fx-display.ts";
 import { APPROVALS_PAGE_PATH, CHANNELS_PAGE_PATH } from "../lib/channel-display.ts";
 import { useLoad } from "../lib/use-load.ts";
+import { type CompensationTableView, countExceptions, countPlatformTickets, getCompensationTable } from "../api/order-center.ts";
+import { type PayoutBatch, countPlatformStatements, listPayoutBatches } from "../api/billing.ts";
+import { COMPENSATION_TABLE_PAGE, EXCEPTION_QUEUE_PATH, PLATFORM_TICKETS_PAGE } from "../lib/order-center-display.ts";
+import { PAYOUT_BATCHES_PAGE, STATEMENTS_PAGE } from "../lib/billing-display.ts";
 import { usePlatformCan } from "../lib/use-master-access.ts";
 
 /** 窗口重新获得焦点时，距上次请求超过这么久才重新取。 */
@@ -39,6 +44,13 @@ export function PlatformHomePage() {
   const canSeeProducts = usePlatformCan("product.read");
   const canSeeChannels = usePlatformCan("channel.read");
   const canSeeApprovals = usePlatformCan("approval.read");
+  // 订单中心、财务结算（M4-03）：数量用列表接口的 total；没取到只影响这几张卡片
+  const canSeeOrders = usePlatformCan("order.read");
+  const canSeeTickets = usePlatformCan("ticket.read");
+  const canManageCompensation = usePlatformCan("compensation_table.manage");
+  const canReviewCompensation = usePlatformCan("compensation_table.review");
+  const canSeeCompensation = canSeeTickets || canManageCompensation || canReviewCompensation;
+  const canSeeStatements = usePlatformCan("statement.read");
   const { state, reload: reloadSummary } = useLoad<DashboardSummary>("summary", fetchDashboardSummary);
   // 商品的两个数：已上架的、其中报不出价的（ADR 0021：用列表接口的 total，不在首页数量接口里）
   const products = useLoad<{ published: number; unpriced: number }>(
@@ -49,14 +61,29 @@ export function PlatformHomePage() {
   // 渠道和待审核（ADR 0023）：同样用列表接口的 total；没取到只影响这两张卡片
   const channels = useLoad<{ total: number; active: number }>("home-channels", canSeeChannels ? countChannels : null);
   const approvals = useLoad<number>("home-approvals", canSeeApprovals ? countPendingApprovals : null);
+  const exceptions = useLoad<{ active: number; overdue: number }>("home-exceptions", canSeeOrders ? countExceptions : null);
+  const tickets = useLoad<{ active: number; overdue: number }>("home-tickets", canSeeTickets ? countPlatformTickets : null);
+  const compensation = useLoad<{ compensation_table: CompensationTableView }>("home-compensation", canSeeCompensation ? getCompensationTable : null);
+  const statements = useLoad<{ issued: number; disputed: number; confirmed: number }>("home-statements", canSeeStatements ? countPlatformStatements : null);
+  const batches = useLoad<{ items: PayoutBatch[] }>("home-batches", canSeeStatements ? (token) => listPayoutBatches(token, "open") : null);
   const reloadChannels = channels.reload;
   const reloadApprovals = approvals.reload;
+  const reloadExceptions = exceptions.reload;
+  const reloadTickets = tickets.reload;
+  const reloadCompensation = compensation.reload;
+  const reloadStatements = statements.reload;
+  const reloadBatches = batches.reload;
   const reload = useCallback(() => {
     reloadSummary();
     reloadProducts();
     reloadChannels();
     reloadApprovals();
-  }, [reloadSummary, reloadProducts, reloadChannels, reloadApprovals]);
+    reloadExceptions();
+    reloadTickets();
+    reloadCompensation();
+    reloadStatements();
+    reloadBatches();
+  }, [reloadSummary, reloadProducts, reloadChannels, reloadApprovals, reloadExceptions, reloadTickets, reloadCompensation, reloadStatements, reloadBatches]);
   const requestedAt = useRef(Date.now());
   const [announce, setAnnounce] = useState("");
 
@@ -83,6 +110,17 @@ export function PlatformHomePage() {
   const channelCounts = cardCounts(channels, (data) => ({ status: "ready", counts: [{ value: data.total, label: "全部" }, { value: data.active, label: "启用" }] }));
   const approvalCounts = cardCounts(approvals, (pendingCount) => ({ status: "ready", counts: [{ value: pendingCount, label: "待审核" }] }));
   const approvalReminders: EntryReminder[] = (approvals.state.data ?? 0) > 0 ? [{ text: `${formatCount(approvals.state.data ?? 0)} 条改动等你或同事审核`, to: APPROVALS_PAGE_PATH }] : [];
+  const exceptionCounts = cardCounts(exceptions, (data) => ({ status: "ready", counts: [{ value: data.active, label: "待处理和处理中" }, { value: data.overdue, label: "已超时" }] }));
+  const exceptionReminders: EntryReminder[] = (exceptions.state.data?.overdue ?? 0) > 0 ? [{ text: `${formatCount(exceptions.state.data?.overdue ?? 0)} 条异常已超过处理时限`, to: `${EXCEPTION_QUEUE_PATH}?overdue=true` }] : [];
+  const ticketCounts = cardCounts(tickets, (data) => ({ status: "ready", counts: [{ value: data.active, label: "没有结论" }, { value: data.overdue, label: "已超时" }] }));
+  const ticketReminders: EntryReminder[] = (tickets.state.data?.overdue ?? 0) > 0 ? [{ text: `${formatCount(tickets.state.data?.overdue ?? 0)} 张工单超过了响应或结案期限`, to: `${PLATFORM_TICKETS_PAGE}?overdue=true` }] : [];
+  const compensationCounts = cardCounts(compensation, (data) => ({ status: "text", text: data.compensation_table.version === 0 ? "默认表（需求原表）" : `第 ${data.compensation_table.version} 版` }));
+  const statementCounts = cardCounts(statements, (data) => ({ status: "ready", counts: [{ value: data.issued, label: "待确认" }, { value: data.disputed, label: "有异议" }, { value: data.confirmed, label: "待复核" }] }));
+  const statementReminders: EntryReminder[] = [
+    ...((statements.state.data?.disputed ?? 0) > 0 ? [{ text: `${formatCount(statements.state.data?.disputed ?? 0)} 张账单有异议，等答复`, to: `${STATEMENTS_PAGE}?status=disputed` }] : []),
+    ...((statements.state.data?.confirmed ?? 0) > 0 ? [{ text: `${formatCount(statements.state.data?.confirmed ?? 0)} 张账单已确认，等发起付款复核`, to: `${STATEMENTS_PAGE}?status=confirmed` }] : []),
+  ];
+  const batchCounts = cardCounts(batches, (data) => ({ status: "ready", counts: [{ value: data.items.length, label: "收账单中" }] }));
   const showMaster = summary !== null ? summary.master_data !== null : canSeeMaster;
   const showTenants = summary !== null ? summary.tenants !== null : canSeeTenants;
   const master = summary?.master_data ?? null;
@@ -129,8 +167,8 @@ export function PlatformHomePage() {
             <Link to={FX_PATH}>去汇率页处理</Link>
           </Alert>
         )}
-        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && !canSeeApprovals && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
-        {(showTenants || canSeeProducts || canSeeChannels || canSeeApprovals) && (
+        {!showMaster && !showTenants && !canSeeProducts && !canSeeChannels && !canSeeApprovals && !canSeeOrders && !canSeeTickets && !canSeeCompensation && !canSeeStatements && (state.status === "ready" || state.status === "forbidden") && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系管理员开通。" />}
+        {(showTenants || canSeeProducts || canSeeChannels || canSeeApprovals || canSeeOrders || canSeeTickets || canSeeCompensation) && (
           <section className="home-section" aria-labelledby="home-operations">
             <h2 className="home-section__title" id="home-operations">
               运营
@@ -140,6 +178,20 @@ export function PlatformHomePage() {
               {canSeeProducts && <EntryCard title="商品" to={platformProductListPath({ status: "published" })} counts={productCounts ? { status: "ready", counts: [{ value: productCounts.published, label: "已上架" }] } : productsFailed ? { status: "failed" } : { status: "loading" }} reminders={productReminders} />}
               {canSeeChannels && <EntryCard title="渠道" to={CHANNELS_PAGE_PATH} counts={channelCounts} />}
               {canSeeApprovals && <EntryCard title="待审核" to={APPROVALS_PAGE_PATH} counts={approvalCounts} reminders={approvalReminders} />}
+              {canSeeOrders && <EntryCard title="异常队列" to={EXCEPTION_QUEUE_PATH} counts={exceptionCounts} reminders={exceptionReminders} />}
+              {canSeeTickets && <EntryCard title="工单" to={PLATFORM_TICKETS_PAGE} counts={ticketCounts} reminders={ticketReminders} />}
+              {canSeeCompensation && <EntryCard title="赔付表" to={COMPENSATION_TABLE_PAGE} counts={compensationCounts} />}
+            </div>
+          </section>
+        )}
+        {canSeeStatements && (
+          <section className="home-section" aria-labelledby="home-finance">
+            <h2 className="home-section__title" id="home-finance">
+              财务结算
+            </h2>
+            <div className="entry-grid">
+              <EntryCard title="账单" to={STATEMENTS_PAGE} counts={statementCounts} reminders={statementReminders} />
+              <EntryCard title="付款批次" to={PAYOUT_BATCHES_PAGE} counts={batchCounts} />
             </div>
           </section>
         )}

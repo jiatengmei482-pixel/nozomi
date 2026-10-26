@@ -20342,7 +20342,8 @@ components:
           format: uuid
         purpose:
           type: string
-          enum: [ cancellation, change ]
+          enum: [ cancellation, change, compensation ]
+          description: "`cancellation` 取消；`change` 改期退差价；`compensation` 工单判定的赔付（M4-02）"
         change_id:
           type: [ string, "null" ]
           format: uuid

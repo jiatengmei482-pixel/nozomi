@@ -1,0 +1,112 @@
+/* 订单中心（异常队列、工单、赔付表）和财务结算（M4-03）。只用设计令牌。 */
+
+/* 详情页：主栏 + 侧栏（03-layout.md 第 2 节）；< 1024px 侧栏排到主栏下方，DOM 顺序相同 */
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.detail-layout__main,
+.detail-layout__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .detail-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  }
+}
+
+/* 工单的对话和内部备注：一条一块，时间和作者在上，正文保留换行 */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.thread__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.thread__item--internal {
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
+}
+
+.thread__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.thread__body {
+  margin: 0;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 一组操作按钮：放不下换行 */
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* 标题行里的徽标组（状态、超时、优先级） */
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+/* 金额对照表：金额列右对齐、等宽数字 */
+.amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 赔付表的编辑：每行一个百分比输入框，窄屏时单栏 */
+.rate-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .rate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 多段的长文字（工单描述、异议原因）保留换行 */
+.prewrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 对话框正文里的说明段落 */
+.dialog__intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

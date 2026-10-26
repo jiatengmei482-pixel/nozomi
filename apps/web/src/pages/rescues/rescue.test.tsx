@@ -146,7 +146,7 @@ const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => (
   ...changes,
 });
 
-const platformDetail = (order: PlatformOrder, rescues: PlatformRescue[]): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues });
+const platformDetail = (order: PlatformOrder, rescues: PlatformRescue[]): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues, exceptions: [], tickets: [] });
 
 test("订单详情（运营后台）：救援记录写出违约金和应扣款项；看候选写出差价，发救援单带上选的供应商；不可抗力要写说明", async () => {
   let offered: unknown = null;
