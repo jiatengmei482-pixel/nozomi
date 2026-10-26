@@ -45,10 +45,18 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "删除加价规则",
   "fx_lock.create": "锁定汇率",
   "fx_lock.release": "解除汇率锁定",
+  "tenant.suspend": "暂停供应商",
+  "tenant.terminate": "清退供应商",
+  "tenant.contract": "供应商合同新版本",
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
   "rescue.manual_assign": "救援改派：人工指定供应商",
 };
+
+/** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
+export function isTenantApproval(kind: ApprovalKind): boolean {
+  return kind === "tenant.suspend" || kind === "tenant.terminate" || kind === "tenant.contract";
+}
 
 /** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
 export function isFxApproval(kind: ApprovalKind): boolean {
@@ -116,6 +124,22 @@ export function pricingLines(pricing: ChannelPricing, settleCurrency: string): {
   ];
 }
 
+const TENANT_STATUS_TEXT: Readonly<Record<string, string>> = { applying: "申请中", reviewing: "审核中", signed: "已签约", trial: "试运营", active: "正式", suspended: "已暂停", terminated: "已清退" };
+
+/** 供应商的复核里「改了什么」：暂停、清退是状态；合同是新版本的条款。 */
+function tenantChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const status = (value: unknown): string => (typeof value === "string" ? (TENANT_STATUS_TEXT[value] ?? value) : "—");
+  if (kind === "tenant.suspend") return [{ label: "状态", before: status(before?.["status"]), after: "已暂停（人工暂停）" }];
+  if (kind === "tenant.terminate") return [{ label: "状态", before: status(before?.["status"]), after: "已清退" }];
+  const text = (value: unknown): string => (value === null || value === undefined || value === "" ? "—" : String(value));
+  return [
+    { label: "版本", before: before === null ? "（还没有合同）" : `第 ${text(before["version"])} 版`, after: `第 ${text(after["version"])} 版` },
+    { label: "生效日期", before: before === null ? "—" : text(before["valid_from"]), after: text(after["valid_from"]) },
+    { label: "结算币种", before: before === null ? "—" : text(before["settle_currency"]), after: text(after["settle_currency"]) },
+    { label: "结算周期", before: before === null ? "—" : "月结，次月 20 日付款", after: "月结，次月 20 日付款" },
+  ];
+}
+
 /**
  * 复核的摘要由后端生成并存档，里面的时刻写成「2026-10-26 03:00 UTC」；页面上其他时间（发起时间、「改了什么」的到期时间）都按查看者本地时区写（04-data-display.md 第 4 节）。
  * 显示时把摘要里的 UTC 时刻换成同一种写法，标题和表格里对得上（M1-18）。存档的原文不变。
@@ -180,6 +204,7 @@ function manualAssignChanges(before: Record<string, unknown> | null, after: Reco
 
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
+  if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
   if (kind === "cancellation_policy.update") return policyChanges(before, after);
   if (kind === "order.cancel_refund") return refundChanges(after);
   if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);

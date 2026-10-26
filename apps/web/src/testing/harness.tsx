@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { sessionStore } from "../auth/session-store.ts";
 import { ToastProvider } from "../components/Toast.tsx";
+import type { Tenant } from "../api/types.ts";
 
 export interface ApiCall {
   method: string;
@@ -159,3 +160,18 @@ export function assertFocused(element: Element | null): void {
 export function assertAbsent(element: Element | null): void {
   assert.ok(element === null, `不应该出现：${element?.textContent ?? ""}`);
 }
+
+/** 供应商主体里入驻、评分那些字段的默认值（M4-01）：测试只关心名称和状态时用它补齐。 */
+export const TENANT_EXTRAS: Omit<Tenant, "id" | "name" | "status" | "created_at" | "updated_at"> = {
+  suspended_from: null,
+  suspension_reasons: [],
+  suspended_at: null,
+  observation_reasons: [],
+  observation_since: null,
+  signed_at: null,
+  trial_started_at: null,
+  activated_at: null,
+  terminated_at: null,
+  score: { score_centi: null, raw_score_centi: null, completed_orders: 0, no_shows: 0, score_on: null },
+  version: 1,
+};

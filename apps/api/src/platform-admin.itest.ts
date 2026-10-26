@@ -57,8 +57,22 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: "/platform/v1/tenants", action: "tenant.create", body: {} },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/admin-invites`, action: "tenant.create", body: {} },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/admin-password-resets`, action: "tenant.create", body: {} },
-  { method: "POST", url: `/platform/v1/tenants/${MISSING}/suspend`, action: "tenant.change_status" },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/suspend`, action: "tenant.change_status", body: { reason: "测试" } },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/resume`, action: "tenant.change_status" },
+  // 供应商入驻（ADR 0028）：看资质、合同、评分、状态记录、审核队列 tenant.read；审核资质、上传 / 下载文件、发起合同 tenant.review；签约、试运营、清退 tenant.change_status
+  { method: "GET", url: `/platform/v1/tenants/${MISSING}/company`, action: "tenant.read" },
+  { method: "GET", url: `/platform/v1/tenants/${MISSING}/status-events`, action: "tenant.read" },
+  { method: "GET", url: `/platform/v1/tenants/${MISSING}/performance`, action: "tenant.read" },
+  { method: "GET", url: "/platform/v1/tenant-documents", action: "tenant.read" },
+  { method: "GET", url: `/platform/v1/tenants/${MISSING}/files/${MISSING}`, action: "tenant.review" },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/files`, action: "tenant.review", body: {} },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/approve`, action: "tenant.review", body: {} },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/reject`, action: "tenant.review", body: { reason: "测试" } },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/documents/${MISSING}/request-supplement`, action: "tenant.review", body: { reason: "测试" } },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/contracts`, action: "tenant.review", body: { valid_from: "2099-01-01", settle_currency: "JPY" } },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/sign`, action: "tenant.change_status", body: {} },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/start-trial`, action: "tenant.change_status", body: { test_order_note: "测试" } },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/terminate`, action: "tenant.change_status", body: { reason: "测试" } },
   { method: "GET", url: "/platform/v1/audit-logs", action: "audit_log.read" },
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
   // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
@@ -148,14 +162,15 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
   // channel.review、fx.review、cancellation_policy.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review"];
+  // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）同样按复核的类别检查（tenant-onboarding.itest.ts）
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);
@@ -181,7 +196,7 @@ test("me：返回当前账号和它的操作清单；每个角色都能调", asy
   }
 });
 
-test("运营能创建和暂停租户；只读能看不能建", async () => {
+test("运营能创建租户、招商能发起暂停；只读能看不能建", async () => {
   const created = await api.call("POST", "/platform/v1/tenants", {
     token: tokens.get("operations")!,
     body: { name: "运营建的车队", admin: { email: "admin@ops-fleet.test", name: "管理员" } },
@@ -191,8 +206,12 @@ test("运营能创建和暂停租户；只读能看不能建", async () => {
   const seen = await api.call("GET", `/platform/v1/tenants/${id}`, { token: tokens.get("readonly")! });
   assert.equal(seen.status, 200);
   assert.deepEqual(seen.body, created.body.tenant);
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${id}/suspend`, { token: tokens.get("readonly")! })).status, 403);
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${id}/suspend`, { token: tokens.get("tenant_onboarding")! })).status, 200);
+  assert.equal((await api.call("POST", `/platform/v1/tenants/${id}/suspend`, { token: tokens.get("readonly")!, body: { reason: "测试" } })).status, 403);
+  // 新建的供应商在「申请中」，还不参与比价，不用暂停（ADR 0028）；转成正式以后招商能发起暂停（双人复核，202）
+  const applying = await api.call("POST", `/platform/v1/tenants/${id}/suspend`, { token: tokens.get("tenant_onboarding")!, body: { reason: "测试" } });
+  assert.deepEqual([applying.status, applying.body.error.code], [409, "TENANT_STATE_INVALID"]);
+  await api.db.owner.query("update tenants set status = 'active' where id = $1", [id]);
+  assert.equal((await api.call("POST", `/platform/v1/tenants/${id}/suspend`, { token: tokens.get("tenant_onboarding")!, body: { reason: "测试" } })).status, 202);
 });
 
 test("创建租户：参数校验；管理员邮箱已被别的租户使用时 409，并且不会留下半个租户", async () => {
@@ -248,7 +267,7 @@ test("租户列表：游标分页翻完全部，不重不漏，顺序稳定", as
 test("不存在的租户、格式不对的编号：404", async () => {
   for (const id of [MISSING, "not-a-uuid", "1"]) {
     for (const [method, suffix] of [["GET", ""], ["POST", "/suspend"], ["POST", "/resume"]] as const) {
-      const res = await api.call(method, `/platform/v1/tenants/${id}${suffix}`, { token: rootToken });
+      const res = await api.call(method, `/platform/v1/tenants/${id}${suffix}`, { token: rootToken, ...(suffix === "/suspend" ? { body: { reason: "测试" } } : {}) });
       assert.equal(res.status, 404, `${method} ${id}${suffix}`);
       assert.equal(res.body.error.code, "NOT_FOUND");
     }

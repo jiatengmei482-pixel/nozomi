@@ -5,6 +5,9 @@ export function tenantPath(id: string): string {
   return `${TENANT_LIST_PATH}/${encodeURIComponent(id)}`;
 }
 
+/** 资质审核队列（M4-01，ADR 0028）。 */
+export const DOCUMENT_QUEUE_PAGE_PATH = "/platform/tenant-documents";
+
 export const SETTINGS_ROOT = "/platform/settings";
 export const STAFF_LIST_PATH = `${SETTINGS_ROOT}/staff`;
 export const STAFF_NEW_PATH = `${STAFF_LIST_PATH}/new`;

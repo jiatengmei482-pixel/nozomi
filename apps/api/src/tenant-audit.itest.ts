@@ -5,7 +5,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { TENANT_ROLES } from "@nozomi/domain";
-import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, approverToken, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let platformToken: string;
@@ -33,7 +33,8 @@ before(async () => {
   await api.call("POST", "/tenant/v1/auth/login", { ip: TENANT_IP, body: { email: "dispatch@a.test", password: "Wrong-Password-000" } });
   // 平台对这个租户做的操作：暂停（带内部原因）、恢复、代发管理员邀请、给管理员发重置令牌
   const asPlatform = { token: platformToken, ip: PLATFORM_IP };
-  await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { ...asPlatform, body: { reason: "内部备注：风控怀疑刷单" } });
+  const requested = await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { ...asPlatform, body: { reason: "内部备注：风控怀疑刷单" } });
+  await api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/approve`, { token: await approverToken(api, platformToken), ip: PLATFORM_IP, body: {} });
   await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/resume`, asPlatform);
   await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/admin-invites`, { ...asPlatform, body: { email: "admin2@a.test", name: "平台代邀" } });
   await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/admin-password-resets`, { ...asPlatform, body: { email: "admin@a.test" } });
@@ -76,11 +77,14 @@ test("内容：本租户用户的操作和针对本租户账号的登录失败�
 test("不包含平台内部的记录：平台员工对这个租户做的操作（创建、暂停及原因、恢复、代发邀请、发重置令牌）和平台级记录都看不到", async () => {
   const visibleToPlatform = await api.call("GET", `/platform/v1/audit-logs?limit=200&tenant_id=${tenant.tenantId}&actor_id=${platformUserId}`, { token: platformToken });
   const platformActions = visibleToPlatform.body.items.map((l: any) => `${l.resource}:${l.action}`).sort();
-  assert.deepEqual(platformActions, ["tenant:create", "tenant:resume", "tenant:suspend", "tenant_user:invite", "tenant_user:invite", "tenant_user:request_password_reset"], "前提：平台确实在这个租户名下留了这些记录");
+  assert.deepEqual(platformActions, ["tenant:create", "tenant:resume", "tenant_user:invite", "tenant_user:invite", "tenant_user:request_password_reset"], "前提：平台确实在这个租户名下留了这些记录");
+  // 人工暂停是双人复核：暂停那一条的操作人是批准的审核人（ADR 0028）
+  const suspended = await api.call("GET", `/platform/v1/audit-logs?limit=200&tenant_id=${tenant.tenantId}&action=suspend`, { token: platformToken });
+  assert.deepEqual(suspended.body.items.map((l: any) => [l.resource, l.actor.type, l.after.reason]), [["tenant", "platform_user", "内部备注：风控怀疑刷单"]]);
 
   const logs = await all();
   const text = JSON.stringify(logs);
-  for (const leaked of ["root@platform.test", platformUserId, PLATFORM_IP, "内部备注", "风控怀疑", "platform_user", "suspend", "resume"]) {
+  for (const leaked of ["root@platform.test", "approver@platform.test", platformUserId, PLATFORM_IP, "内部备注", "风控怀疑", "platform_user", "suspend", "resume"]) {
     assert.ok(!text.includes(leaked), `租户的操作日志里出现了平台内部内容：${leaked}`);
   }
   assert.ok(!logs.some((l) => l.resource === "tenant" || l.resource === "platform_user" || l.resource === "integration"));
@@ -132,12 +136,12 @@ test("参数校验：编号、时间、分页参数不对是 400，不是 500；
 });
 
 test("查看操作日志不依赖租户状态：暂停期间管理员照常能查", async () => {
-  await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { token: platformToken });
+  await suspendTenantApproved(api, platformToken, tenant.tenantId);
   try {
     assert.equal((await api.call("GET", "/tenant/v1/audit-logs", { token: tenant.adminToken })).status, 200);
     const login = await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } });
     assert.equal(login.status, 200);
   } finally {
-    await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/resume`, { token: platformToken });
+    await resumeTenantNow(api, platformToken, tenant.tenantId);
   }
 });

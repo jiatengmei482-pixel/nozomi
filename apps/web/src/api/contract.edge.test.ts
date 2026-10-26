@@ -14,9 +14,9 @@ import { SCHEMA_FIELDS } from "./types.ts";
 
 interface Schema {
   $ref?: string;
-  type?: string;
+  type?: string | string[];
   format?: string;
-  enum?: string[];
+  enum?: (string | null)[];
   required?: string[];
   properties?: Record<string, Schema>;
   items?: Schema;
@@ -46,6 +46,11 @@ function shape(schema: Schema | undefined): string {
     const target = spec.components.schemas[name];
     return target?.type === "object" ? `ref(${name})` : shape(target);
   }
+  if (Array.isArray(schema.type)) {
+    const { enum: values, ...rest } = schema;
+    const nonNull = values?.filter((value) => value !== null);
+    return `${shape({ ...rest, type: schema.type.find((type) => type !== "null") as string, ...(nonNull === undefined ? {} : { enum: nonNull }) })}|null`;
+  }
   if (schema.enum) return `enum(${schema.enum.join("|")})`;
   if (schema.type === "array") return `array<${shape(schema.items)}>`;
   if (schema.type === "string" && schema.format === "date-time") return "string(date-time)";
@@ -65,7 +70,24 @@ const PORTAL_KEYS: readonly Portal[] = ["tenant", "platform"];
 const EXPECTED_SHAPES: Record<keyof typeof SCHEMA_FIELDS, Record<string, string | RegExp>> = {
   PlatformUser: { id: "string", email: "string", name: "string", role: /^enum\(/, status: /^enum\(/, created_at: "string(date-time)", updated_at: "string(date-time)" },
   TenantUser: { id: "string", email: "string", name: "string", role: /^enum\(/, status: /^enum\(/, created_at: "string(date-time)", updated_at: "string(date-time)" },
-  Tenant: { id: "string", name: "string", status: "enum(active|suspended)", created_at: "string(date-time)", updated_at: "string(date-time)" },
+  Tenant: {
+    id: "string",
+    name: "string",
+    status: "enum(applying|reviewing|signed|trial|active|suspended|terminated)",
+    suspended_from: "enum(trial|active)|null",
+    suspension_reasons: "array<enum(manual|document_expired|score_below_red_line|driver_no_show)>",
+    suspended_at: "string(date-time)|null",
+    observation_reasons: "array<enum(score_below_threshold|driver_no_show)>",
+    observation_since: "string(date-time)|null",
+    signed_at: "string(date-time)|null",
+    trial_started_at: "string(date-time)|null",
+    activated_at: "string(date-time)|null",
+    terminated_at: "string(date-time)|null",
+    score: "object",
+    version: "integer",
+    created_at: "string(date-time)",
+    updated_at: "string(date-time)",
+  },
   LoginRequest: { email: "string", password: "string" },
   PlatformLoginResponse: { access_token: "string", token_type: "enum(Bearer)", expires_at: "string(date-time)", user: "ref(PlatformUser)", must_change_password: "boolean" },
   TenantLoginResponse: { access_token: "string", token_type: "enum(Bearer)", expires_at: "string(date-time)", user: "ref(TenantUser)", tenant: "ref(Tenant)", must_change_password: "boolean" },

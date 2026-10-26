@@ -134,6 +134,11 @@ test("第 2 步 找商品：没上架的、供应商被暂停的、子品牌停�
   assert.equal(outcome(product({ status: "draft" })), "PRODUCT_NOT_PUBLISHED");
   assert.equal(outcome(product({ status: "unpublished" })), "PRODUCT_NOT_PUBLISHED");
   assert.equal(outcome(product({ tenantActive: false })), "TENANT_SUSPENDED");
+  // 入驻状态（ADR 0028）：还没开始试运营、已清退的给出自己的原因；试运营当天接满上限的不参加比价，供应商自己试算不受影响
+  assert.equal(outcome(product({ tenantActive: false, tenantRefusal: "TENANT_NOT_ONBOARDED" })), "TENANT_NOT_ONBOARDED");
+  assert.equal(outcome(product(), request(), { ...moment(), trialLimitReached: true }), "TRIAL_DAILY_LIMIT");
+  assert.equal(outcome(product(), request(), { ...moment(), trialLimitReached: false }), 20_000);
+  assert.equal(outcome(product(), request(), { ...moment(), trialLimitReached: true }, { forOwner: true }), 20_000);
   assert.equal(outcome(product({ brandActive: false })), "BRAND_DISABLED");
   assert.equal(outcome(product({ status: "draft", tenantActive: false }), request(), moment(), { forOwner: true }), 20_000);
   assert.equal(outcome(product({ status: "draft", serviceRules: emptyServiceRules() }), request(), moment(), { forOwner: true }), "SERVICE_RULES_INCOMPLETE");

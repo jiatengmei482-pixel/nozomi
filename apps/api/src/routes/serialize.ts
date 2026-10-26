@@ -21,11 +21,33 @@ export function platformUserJson(user: PlatformUser): Record<string, unknown> {
   };
 }
 
+/**
+ * 供应商主体。运营后台和供应商自己看到的是同一份：状态、暂停和观察的原因、入驻各阶段的时间、最近一次每日评分（需求「租户可在自己后台看到各项指标」）。
+ * 里面没有对外价、加价比例（规则 4）。
+ */
 export function tenantJson(tenant: Tenant): Record<string, unknown> {
+  const iso = (value: Date | null): string | null => (value === null ? null : value.toISOString());
   return {
     id: tenant.id,
     name: tenant.name,
     status: tenant.status,
+    suspended_from: tenant.suspendedFrom,
+    suspension_reasons: tenant.suspensionReasons,
+    suspended_at: iso(tenant.suspendedAt),
+    observation_reasons: tenant.observationReasons,
+    observation_since: iso(tenant.observationSince),
+    signed_at: iso(tenant.signedAt),
+    trial_started_at: iso(tenant.trialStartedAt),
+    activated_at: iso(tenant.activatedAt),
+    terminated_at: iso(tenant.terminatedAt),
+    score: {
+      score_centi: tenant.score.scoreCenti,
+      raw_score_centi: tenant.score.rawScoreCenti,
+      completed_orders: tenant.score.completedOrders,
+      no_shows: tenant.score.noShows,
+      score_on: tenant.score.scoreOn,
+    },
+    version: tenant.version,
     created_at: tenant.createdAt.toISOString(),
     updated_at: tenant.updatedAt.toISOString(),
   };

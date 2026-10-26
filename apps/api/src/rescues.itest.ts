@@ -13,7 +13,7 @@ import { withTenantTx } from "./db/context.ts";
 import { type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { type FakeReceiver, assign, newDriver, newVehicle, startFakeReceiver } from "./testing/dispatch.ts";
-import { type Market, type Staff, addStaff, allKeys, buildMarket, ok, publishAirportProduct } from "./testing/market.ts";
+import { type Market, type Staff, addStaff, allKeys, buildMarket, marketProduct, ok } from "./testing/market.ts";
 import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
@@ -37,7 +37,7 @@ before(async () => {
   m = await buildMarket(api);
   // 丙：商务 7 座 21,000，提前 1 小时就能订（离用车很近的救援也报得出价）
   c = await api.tenantWithAdmin(m.root, "丙车队", "admin@market-c.test");
-  await publishAirportProduct(api, c, m.ids, [[m.ids.biz7, 21_000]], { leadTimeHours: 1 });
+  await marketProduct(api, c, m.ids, [[m.ids.biz7, 21_000]], { leadTimeHours: 1 });
   flow = await salesFlow(api, m, pay);
   support = await addStaff(api, m.root, "cs@platform.test", "customer_service");
   receiverA = await startFakeReceiver();

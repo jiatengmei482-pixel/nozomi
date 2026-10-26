@@ -8,7 +8,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { type FxQuote, PLATFORM_ROLES, type RouteEstimate, type TenantStanding, platformRoleCan } from "@nozomi/domain";
-import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -194,10 +194,10 @@ test("每个没报出价的都有原因：区域（营运区外、禁行区）�
   assert.deepEqual(reasons(await preview({ vehicle_group_ids: [ids["biz7"]] })), [["乙车队", null, "SOLD_OUT"]], "卖完了");
   await ok(call(b, "PUT", `/products/${ids["pb"]}/inventory`, { version: await version(b, ids["pb"] as string), body: { mode: "unlimited" } }));
   // 乙被平台暂停：不参与比价（已有订单继续履约是订单那边的事）
-  await ok(platform("POST", `/tenants/${b.tenantId}/suspend`, {}));
+  await suspendTenantApproved(api, root, b.tenantId);
   const suspended = await preview({ vehicle_group_ids: [ids["biz7"]] });
   assert.deepEqual([group(suspended).winner.tenant_name, reasons(suspended)], ["甲车队", [["乙车队", null, "TENANT_SUSPENDED"]]]);
-  await ok(platform("POST", `/tenants/${b.tenantId}/resume`, {}));
+  await resumeTenantNow(api, root, b.tenantId);
   // 没上架的商品不在候选里；别的机场、别的城市、别的品类没有候选
   await ok(call(a, "POST", `/products/${ids["pa"]}/unpublish`));
   assert.deepEqual([(await preview()).candidate_count, (await preview({ place_id: ids["haneda"] })).candidate_count, (await preview({ city_id: ids["osaka"], place_id: null, category: "charter", direction: null, package_hours: 10, pickup: WEST, dropoff: null })).candidate_count], [1, 0, 0]);
@@ -281,10 +281,10 @@ test("租户侧试算：供应商对自己的商品（没上架的也可以）�
   // 没上架的商品也能试算（需求文档 quote-preview：用未上架商品试算）；被暂停的供应商照常能试算
   const draft = await transfer(a, ids["brandA"] as string, [ids["aWest"] as string]);
   await addPrice(a, draft, { area_id: ids["aWest"], base_price: 15_000 });
-  await ok(platform("POST", `/tenants/${a.tenantId}/suspend`, {}));
+  await suspendTenantApproved(api, root, a.tenantId);
   const drafted = await ok(call(a, "POST", `/products/${draft}/quote-preview`, { body: { ...body, addons: [], vehicle_group_ids: [ids["biz7"]] } }));
   assert.deepEqual([drafted.status, drafted.offers.map((entry: any) => entry.settlement.total)], ["draft", [15_000]]);
-  await ok(platform("POST", `/tenants/${a.tenantId}/resume`, {}));
+  await resumeTenantNow(api, root, a.tenantId);
   // 报不出时给原因：商品层面的、车型组层面的
   const refused = await ok(call(a, "POST", `/products/${ids["pa"]}/quote-preview`, { body: { ...body, dropoff: FAR } }));
   assert.deepEqual([refused.refusal.reason, refused.offers, /营运区/.test(refused.refusal.message)], ["OUT_OF_SERVICE_AREA", [], true]);

@@ -5,6 +5,7 @@
  * 都没有则取计划到达时间。客人和司机不一致时取较晚者；提交后不能改。航班延误 6 小时内顺延且不加收费用）、「客人未出现」；
  * 《平台运营端与渠道对接》「航班信息」「免费等待与 no-show」（no-show 成立必须同时满足 5 项）、「航班延误与取消」；第五轮决策 ③。
  */
+import { detectFileTypeAmong } from "./files.ts";
 import { haversineMeters } from "./geo.ts";
 
 const MINUTE = 60_000;
@@ -232,17 +233,7 @@ export const EVIDENCE_FILE_RULES = {
 
 export type EvidenceContentType = (typeof EVIDENCE_FILE_RULES.contentTypes)[number];
 
-const HEIC_BRANDS = new Set(["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1"]);
-
-/**
- * 按文件开头的字节判断是不是认的图片格式（不信上传时声明的类型）；不是返回 null。
- * JPEG：FF D8 FF；PNG：89 50 4E 47 0D 0A 1A 0A；WebP：RIFF....WEBP；HEIC：第 4–8 字节是 ftyp、品牌是 heic / mif1 等。
- */
+/** 按文件开头的字节判断是不是认的图片格式（不信上传时声明的类型，判断见 files.ts 的 `detectFileType`）；不是返回 null。 */
 export function detectEvidenceType(bytes: Uint8Array): EvidenceContentType | null {
-  const ascii = (from: number, to: number): string => String.fromCharCode(...bytes.subarray(from, to));
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => bytes[index] === byte)) return "image/png";
-  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
-  if (bytes.length >= 12 && ascii(4, 8) === "ftyp" && HEIC_BRANDS.has(ascii(8, 12))) return "image/heic";
-  return null;
+  return detectFileTypeAmong(bytes, EVIDENCE_FILE_RULES.contentTypes);
 }

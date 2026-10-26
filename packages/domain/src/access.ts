@@ -41,6 +41,8 @@ export const PLATFORM_ACTIONS = [
   "tenant.read",
   "tenant.create",
   "tenant.change_status",
+  "tenant.review",
+  "tenant.approve",
   "audit_log.read",
   "integration.read",
   "master_data.read",
@@ -82,6 +84,9 @@ export const TENANT_ACTIONS = [
   "fleet.manage",
   "webhook.read",
   "webhook.manage",
+  "company.read",
+  "company.manage",
+  "performance.read",
 ] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
@@ -107,6 +112,9 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 所以主数据运营也有了 `approval.read`。
  * 订单（只读，M3-01，ADR 0026）：运营（每天处理订单和异常）、客服（处理订单、工单）、财务（对账）、风控（看下单风险）、只读。
  * 里面有乘客的姓名、电话、邮箱：招商、渠道经理、主数据运营、技术用不到，不给。
+ * 供应商入驻（M4-01，ADR 0028）：菜单表「租户管理：入驻申请、资质审核、合同、结算条款、评分、停用」归招商和运营。
+ * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
+ * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
  * 取消、改单、事后加收（M3-03，ADR 0029）：
  * - `order.manage`（代客人取消、改单，审核事后加收，发起「免收取消费」）：运营、客服（需求「订单中心」「工单」归客服、运营）；
@@ -120,10 +128,10 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
   operations: [
-    "tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
+    "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
     "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
   ],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"],
@@ -139,6 +147,9 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 区域、商品（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
  * 子品牌决定商品的币种，新建和改名只归管理员；能看商品的角色都能看子品牌（`product.read`）。
  * 订单（只读，M3-01，ADR 0026）：管理员、调度（派车要看订单）、财务（对账）、只读；商品价格用不到。
+ * 企业信息和资质（M4-01，ADR 0028；需求「管理员：全部，包括账号、资质、API 密钥」）：填写、上传、提交审核（`company.manage`）只归管理员；
+ * 看（`company.read`：企业信息、资质、合同、状态记录、提醒）给管理员、财务（结算条款、结算账户证明）、只读。
+ * 履约评分（`performance.read`，需求「租户可在自己后台看到各项指标」）：每个角色都能看——调度要看按时派车率，商品价格要知道观察期对中标的影响。
  * 派车、改派、司机链接、回传履约状态（`order.dispatch`）和司机、车辆的管理（`fleet.manage`）：管理员、调度（需求「调度：订单、指派、履约回传、司机、车辆」）。
  * 看司机、车辆（`fleet.read`）：管理员、调度、只读。
  * Webhook（M3-02，ADR 0027）：设置地址、签名密钥、手动重推、发送测试事件（`webhook.manage`）只归管理员（需求「管理员：账号、资质、API 密钥」，签名密钥同属密钥）；
@@ -150,10 +161,10 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
-  pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
-  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read"],
-  finance: ["master_data.read", "order.read", "order.extra_charge"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read"],
+  pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
+  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
+  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {

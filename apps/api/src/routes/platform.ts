@@ -28,7 +28,6 @@ import {
 } from "../services/platform-auth.ts";
 import { inviteStaff, issueStaffPasswordReset, listStaff, setStaffStatus } from "../services/platform-staff.ts";
 import {
-  changeTenantStatus,
   createTenant,
   getTenant,
   inviteTenantAdmin,
@@ -66,8 +65,6 @@ const tenantSchema = z.object({
   admin: adminSchema,
 });
 
-const suspendSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() });
-
 const adminEmailSchema = z.object({ email: emailSchema });
 
 const auditQuerySchema = auditFilterSchema.extend({ tenant_id: uuidSchema.optional() });
@@ -79,7 +76,7 @@ function statusCountsJson(counts: StatusCounts): Record<string, number> {
 function dashboardSummaryJson(summary: DashboardSummary): Record<string, unknown> {
   const master = summary.masterData;
   return {
-    tenants: summary.tenants === null ? null : { total: summary.tenants.total, active: summary.tenants.active, suspended: summary.tenants.suspended },
+    tenants: summary.tenants === null ? null : { total: summary.tenants.total, active: summary.tenants.active, suspended: summary.tenants.suspended, bidding: summary.tenants.bidding, by_status: summary.tenants.byStatus },
     master_data:
       master === null
         ? null
@@ -230,19 +227,6 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   app.get("/platform/v1/tenants/:id", async (request) => {
     await authenticate(request, "tenant.read");
     return tenantJson(await getTenant(ctx, resourceId(request.params, "租户")));
-  });
-
-  app.post("/platform/v1/tenants/:id/suspend", async (request) => {
-    const principal = await authenticate(request, "tenant.change_status");
-    const id = resourceId(request.params, "租户");
-    const input = parseInput(suspendSchema, request.body, "body");
-    return tenantJson(await changeTenantStatus(ctx, principal, id, "suspended", input.reason ?? null, request.ip));
-  });
-
-  app.post("/platform/v1/tenants/:id/resume", async (request) => {
-    const principal = await authenticate(request, "tenant.change_status");
-    const id = resourceId(request.params, "租户");
-    return tenantJson(await changeTenantStatus(ctx, principal, id, "active", null, request.ip));
   });
 
   app.post("/platform/v1/tenants/:id/admin-invites", async (request, reply) => {

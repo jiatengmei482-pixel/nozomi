@@ -12,7 +12,7 @@ import type { AuditLog } from "../../api/platform.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
 import { ErrorBoundary } from "../../components/ErrorBoundary.tsx";
 import { OneTimeLinkDialog } from "../../components/OneTimeLinkDialog.tsx";
-import { type ApiCall, apiError, assertAbsent, assertFocused, deferred, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, deferred, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -21,7 +21,7 @@ const TENANT_ID = "7b1c2d3e-aaaa-4bbb-8ccc-ddddeeeeffff";
 const ME_ID = "11111111-1111-4111-8111-111111111111";
 const STAFF_ID = "22222222-2222-4222-8222-222222222222";
 const TOKEN = "nzi_QA-secret-token-0123456789abcdefghij";
-const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps, ...changes });
+const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps, ...changes });
 const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", status: "active", ...stamps, ...changes });
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
 const logOf = (changes: Partial<AuditLog> = {}): AuditLog => ({ id: "7", occurred_at: "2026-10-09T02:02:37.000Z", tenant_id: TENANT_ID, actor: { type: "platform_user", id: ME_ID, email: "kato@example.com" }, ip: "203.0.113.9", source: "console", resource: "tenant", resource_id: TENANT_ID, action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质到期" }, ...changes });
@@ -130,7 +130,7 @@ for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
     await visit("/platform/tenants/new", expected.tenants === "manage", "新建供应商", /\/v1\/(tenants|audit-logs)/);
     const detailCalls = await visit(`/platform/tenants/${TENANT_ID}`, expected.tenants !== "none", "NOZOMI 自营车队", /\/v1\/(tenants|audit-logs)/);
     if (expected.tenants !== "none") {
-      for (const name of ["暂停", "邀请管理员", "发密码重置链接"]) assert.equal(screen.queryByRole("button", { name }) !== null, expected.tenants === "manage", `详情页的「${name}」`);
+      for (const name of ["申请暂停", "邀请管理员", "发密码重置链接"]) assert.equal(screen.queryByRole("button", { name }) !== null, expected.tenants === "manage", `详情页的「${name}」`);
       assert.equal(screen.queryByRole("link", { name: /看这家供应商的操作记录/ }) !== null, expected.audit);
       if (!expected.audit) assert.equal(detailCalls.filter((call) => call.path.includes("audit-logs")).length, 0);
     }
@@ -324,17 +324,17 @@ test("连点两下、回车加点击：新建供应商、邀请管理员、发�
   await actor.click(within(dialog).getByRole("button", { name: "取消" }));
 
   pending = deferred();
-  await actor.click(screen.getByRole("button", { name: "暂停" }));
-  dialog = screen.getByRole("dialog", { name: "暂停「NOZOMI 自营车队」？" });
+  await actor.click(screen.getByRole("button", { name: "申请暂停" }));
+  dialog = screen.getByRole("dialog", { name: "申请暂停「NOZOMI 自营车队」" });
   await actor.type(within(dialog).getByLabelText(/暂停原因/), "测试");
-  await actor.dblClick(within(dialog).getByRole("button", { name: "暂停" }));
-  await within(dialog).findByRole("button", { name: "暂停中…" });
-  await actor.click(within(dialog).getByRole("button", { name: "暂停中…" }));
-  assert.equal(writes(calls).length, 3, "暂停只发一次");
+  await actor.dblClick(within(dialog).getByRole("button", { name: "提交申请" }));
+  await within(dialog).findByRole("button", { name: "提交中…" });
+  await actor.click(within(dialog).getByRole("button", { name: "提交中…" }));
+  assert.equal(writes(calls).length, 3, "暂停的申请只发一次");
   assert.equal((within(dialog).getByLabelText(/暂停原因/) as HTMLTextAreaElement).readOnly, true);
   pending.resolve(apiError(404, "NOT_FOUND", "no"));
   await within(dialog).findByText("找不到这家供应商，它可能已被删除。");
-  assertAbsent(within(dialog).queryByRole("button", { name: "暂停" }));
+  assertAbsent(within(dialog).queryByRole("button", { name: "提交申请" }));
   assert.ok(within(dialog).getByRole("button", { name: "知道了" }));
 
   // 新增员工
@@ -407,12 +407,12 @@ test("供应商名称的边界：只有空白等于没填；100 个字可以、1
 
 test("暂停原因的边界：空、只有空白、换行都不发请求；500 个字可以（首尾空白不算）、501 个不行；带 HTML 的原样当文字发出去；剩 50 个字以内才播报字数", async () => {
   const actor = user();
-  const calls = open(`/platform/tenants/${TENANT_ID}`, "operations", {}, (call) => (call.method === "POST" && call.path.endsWith("/suspend") ? json(200, tenantOf({ status: "suspended" })) : null));
+  const calls = open(`/platform/tenants/${TENANT_ID}`, "operations", {}, (call) => (call.method === "POST" && call.path.endsWith("/suspend") ? json(202, { approval: { id: "a1", kind: "tenant.suspend", status: "pending" } }) : null));
   await screen.findByRole("heading", { level: 1, name: "NOZOMI 自营车队" });
-  await actor.click(screen.getByRole("button", { name: "暂停" }));
-  const dialog = screen.getByRole("dialog", { name: "暂停「NOZOMI 自营车队」？" });
+  await actor.click(screen.getByRole("button", { name: "申请暂停" }));
+  const dialog = screen.getByRole("dialog", { name: "申请暂停「NOZOMI 自营车队」" });
   const box = within(dialog).getByLabelText(/暂停原因/) as HTMLTextAreaElement;
-  const press = (): Promise<void> => actor.click(within(dialog).getByRole("button", { name: "暂停" }));
+  const press = (): Promise<void> => actor.click(within(dialog).getByRole("button", { name: "提交申请" }));
   const counter = (): Element => dialog.querySelector(".field__counter") as Element;
   for (const blank of ["", "   ", "\n\n \t", "　　"]) {
     fireEvent.change(box, { target: { value: blank } });
@@ -423,7 +423,7 @@ test("暂停原因的边界：空、只有空白、换行都不发请求；500 �
   assert.equal(writes(calls).length, 0);
   // 点遮罩不关（有表单）
   fireEvent.click(dialog);
-  assert.ok(screen.getByRole("dialog", { name: "暂停「NOZOMI 自营车队」？" }));
+  assert.ok(screen.getByRole("dialog", { name: "申请暂停「NOZOMI 自营车队」" }));
 
   fireEvent.change(box, { target: { value: "因".repeat(449) } });
   assert.deepEqual([counter().textContent, counter().getAttribute("aria-live")], ["449 / 500", "off"]);
@@ -438,7 +438,7 @@ test("暂停原因的边界：空、只有空白、换行都不发请求；500 �
   fireEvent.change(box, { target: { value: `  ${html}${"因".repeat(500 - html.length)}\n ` } });
   assert.equal(counter().textContent, "500 / 500");
   await press();
-  await screen.findByText("已暂停「NOZOMI 自营车队」");
+  await screen.findByText("已提交暂停「NOZOMI 自营车队」的申请，等另一位同事审核后生效");
   assert.deepEqual(writes(calls).map((call) => [call.path, call.body]), [[`/platform/v1/tenants/${TENANT_ID}/suspend`, { reason: `${html}${"因".repeat(500 - html.length)}` }]]);
 });
 

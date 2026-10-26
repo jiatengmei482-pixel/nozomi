@@ -15,6 +15,8 @@ import { AreaEditorPage } from "./pages/areas/AreaEditorPage.tsx";
 import { AreaListPage } from "./pages/areas/AreaListPage.tsx";
 import { ProductEditorPage } from "./pages/products/ProductEditorPage.tsx";
 import { PRICE_OVERVIEW_PATH, PriceOverviewPage } from "./pages/prices/PriceOverviewPage.tsx";
+import { COMPANY_PATH, CompanyPage } from "./pages/company/CompanyPage.tsx";
+import { PERFORMANCE_PATH, PerformancePage } from "./pages/company/PerformancePage.tsx";
 import { ProductListPage } from "./pages/products/ProductListPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
 import { PlatformHomePage } from "./pages/PlatformHomePage.tsx";
@@ -63,6 +65,8 @@ function portalRoutes(portal: Portal) {
             <Route path={DRIVER_LIST_PATH} element={<DriverListPage />} />
             <Route path={VEHICLE_LIST_PATH} element={<VehicleListPage />} />
             <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
+            <Route path={COMPANY_PATH} element={<CompanyPage />} />
+            <Route path={PERFORMANCE_PATH} element={<PerformancePage />} />
           </>
         )}
         <Route path={paths.changePassword} element={<ChangePasswordPage />} />

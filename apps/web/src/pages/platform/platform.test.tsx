@@ -12,7 +12,7 @@ import { App } from "../../App.tsx";
 import { ApiError } from "../../api/client.ts";
 import { type AuditLog, type FxCenterStatus, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
-import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -23,7 +23,7 @@ const ME_ID = "11111111-1111-4111-8111-111111111111";
 const STAFF_ID = "22222222-2222-4222-8222-222222222222";
 /** 测试里用的令牌：页面上除了对话框的文本框，哪里都不该有它 */
 const TOKEN = "nzi_SECRET-token-0123456789abcdefghij";
-const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps, ...changes });
+const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps, ...changes });
 const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", status: "active", ...stamps, ...changes });
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
 const logOf = (changes: Partial<AuditLog> = {}): AuditLog => ({ id: "7", occurred_at: "2026-10-09T02:02:37.000Z", tenant_id: TENANT_ID, actor: { type: "platform_user", id: ME_ID, email: "kato@example.com" }, ip: "203.0.113.9", source: "console", resource: "tenant", resource_id: TENANT_ID, action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质到期，等补件" }, ...changes });
@@ -86,7 +86,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "渠道", "待审核", "订单", "救援", "取消政策", "推送记录", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "资质审核", "商品", "报价试算", "渠道", "待审核", "订单", "救援", "取消政策", "推送记录", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
@@ -253,42 +253,54 @@ test("发令牌的请求不自动重试：网络不明时只发了一次，说�
 
 // ───────────── 供应商：详情、暂停、恢复、邀请、重置 ─────────────
 
-test("供应商详情：暂停要填原因（接口不要求，页面要求）；已暂停时能看审计日志的角色看得到原因，恢复的确认里带着它；别的角色看不到原因；不存在的说清楚", async () => {
+test("供应商详情：申请暂停要填原因（页面要求），提交后等另一位同事审核、状态不变；已暂停时能看审计日志的角色看得到原因，恢复的确认里带着它；别的角色看不到原因；不存在的说清楚", async () => {
   const actor = user();
   let tenant = tenantOf();
   const calls = open(`/platform/tenants/${TENANT_ID}`, "super_admin", {}, (call) => {
     if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenant);
-    if (call.method === "POST" && call.path.endsWith("/suspend")) return json(200, (tenant = tenantOf({ status: "suspended", updated_at: "2026-10-09T02:02:37.000Z" })));
+    if (call.method === "POST" && call.path.endsWith("/suspend")) return json(202, { approval: { id: "a1", kind: "tenant.suspend", status: "pending" } });
     if (call.method === "POST" && call.path.endsWith("/resume")) return json(200, (tenant = tenantOf()));
     return null;
   });
   await screen.findByRole("heading", { level: 1, name: "NOZOMI 自营车队" });
   assert.match(pageText(), /供应商编号7b1c2d3e-aaaa-4bbb-8ccc-ddddeeeeffff/);
   assert.equal(screen.getByRole("link", { name: /看这家供应商的操作记录/ }).getAttribute("href"), `/platform/settings/audit-logs?tenant=${TENANT_ID}`);
-  await actor.click(screen.getByRole("button", { name: "暂停" }));
-  const dialog = screen.getByRole("dialog", { name: "暂停「NOZOMI 自营车队」？" });
+  await actor.click(screen.getByRole("button", { name: "申请暂停" }));
+  const dialog = screen.getByRole("dialog", { name: "申请暂停「NOZOMI 自营车队」" });
   assertFocused(within(dialog).getByRole("button", { name: "取消" }));
+  assert.match(dialog.textContent ?? "", /暂停要另一位同事审核：提交以后在「待审核」里批准了才生效。/);
   assert.match(dialog.textContent ?? "", /已经接下的订单不受影响，仍然要照常派车、履约；/);
-  await actor.click(within(dialog).getByRole("button", { name: "暂停" }));
+  await actor.click(within(dialog).getByRole("button", { name: "提交申请" }));
   await within(dialog).findByText("请填写暂停原因");
   await actor.type(within(dialog).getByLabelText(/暂停原因/), "   ");
-  await actor.click(within(dialog).getByRole("button", { name: "暂停" }));
+  await actor.click(within(dialog).getByRole("button", { name: "提交申请" }));
   assert.equal(writes(calls).length, 0, "只有空格等于没填");
   await actor.type(within(dialog).getByLabelText(/暂停原因/), "资质到期，等补件");
   assert.match(dialog.textContent ?? "", /8 \/ 500/);
-  await actor.click(within(dialog).getByRole("button", { name: "暂停" }));
-  await screen.findByText("已暂停「NOZOMI 自营车队」");
+  await actor.click(within(dialog).getByRole("button", { name: "提交申请" }));
+  await screen.findByText("已提交暂停「NOZOMI 自营车队」的申请，等另一位同事审核后生效");
   assert.deepEqual(writes(calls)[0]?.body, { reason: "资质到期，等补件" });
+  assertAbsent(screen.queryByText("这家供应商已暂停。"));
+
+  // 另一位同事批准以后：已暂停，原因从审计日志里取
+  resetBrowser();
+  tenant = tenantOf({ status: "suspended", suspended_from: "active", suspension_reasons: ["manual"], suspended_at: "2026-10-09T02:02:37.000Z", updated_at: "2026-10-09T02:02:37.000Z" });
+  const after = open(`/platform/tenants/${TENANT_ID}`, "super_admin", {}, (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenant);
+    if (call.method === "POST" && call.path.endsWith("/resume")) return json(200, (tenant = tenantOf()));
+    return null;
+  });
   await screen.findByText("这家供应商已暂停。");
+  assert.match(pageText(), /暂停的原因：人工暂停。/);
   await screen.findByText(/原因：资质到期，等补件（kato@example\.com，\d{4}-\d{2}-\d{2} \d{2}:\d{2}）/);
-  assert.match(calls.filter((call) => call.path.includes("/audit-logs")).at(-1)?.path ?? "", new RegExp(`resource=tenant&resource_id=${TENANT_ID}&action=suspend&limit=1`));
+  assert.match(after.filter((call) => call.path.includes("/audit-logs")).at(-1)?.path ?? "", new RegExp(`resource=tenant&resource_id=${TENANT_ID}&action=suspend&limit=1`));
 
   await actor.click(screen.getByRole("button", { name: "恢复" }));
   const resume = screen.getByRole("dialog", { name: "恢复「NOZOMI 自营车队」？" });
   assert.match(resume.textContent ?? "", /恢复以后，它的商品重新参与比价、可以接新订单。当初暂停的原因：资质到期，等补件。请确认问题已经解决。/);
   await actor.click(within(resume).getByRole("button", { name: "恢复" }));
   await screen.findByText("已恢复「NOZOMI 自营车队」");
-  assert.equal(writes(calls)[1]?.body, undefined, "恢复不带原因");
+  assert.deepEqual(writes(after)[0]?.body, { note: null }, "恢复不带原因");
   assertAbsent(screen.queryByText("这家供应商已暂停。"));
 
   resetBrowser();
@@ -471,13 +483,13 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(screen.getAllByRole("radio").length, 10);
   assert.ok(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked), "没有默认值");
   const hintOf = (name: RegExp): string => document.getElementById(screen.getByRole("radio", { name }).getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商。");
+  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商。");
   assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、查看供应商的商品和价格、看主数据、看渠道、看待审核的改动、看订单。");
   assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看渠道、看待审核的改动、看系统状态。");
   assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、看待审核的改动。");
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
   assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商、管理平台员工、看审计日志、看系统状态。$/);
+  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商、管理平台员工、看审计日志、看系统状态。$/);
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));

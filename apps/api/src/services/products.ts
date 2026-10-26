@@ -50,6 +50,7 @@ import {
   publishCheck,
   publishCheckSummary,
   serviceRuleIssues,
+  tenantCanPublish,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
@@ -94,6 +95,7 @@ import {
 import { countSellableDays, findInventoryMode } from "../repos/inventory.ts";
 import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
+import { findOwnTenant } from "../repos/tenants.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
@@ -803,11 +805,18 @@ export async function getPublishCheck(ctx: AppContext, tenantId: string, id: str
   });
 }
 
-/** 上架：必须的校验项全部通过才行，否则 409 PUBLISH_CHECK_FAILED 并带上逐项结果。已经上架的原样返回。 */
+/**
+ * 上架：必须的校验项全部通过才行，否则 409 PUBLISH_CHECK_FAILED 并带上逐项结果。已经上架的原样返回。
+ * 供应商要到了试运营（或正式、暂停中）才能上架：申请中、审核中、已签约「建区域、商品……不能上架」（ADR 0028），409 `TENANT_NOT_ONBOARDED`。
+ */
 export async function publishProduct(ctx: AppContext, writer: ProductWriter, id: string): Promise<ProductView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
+    const tenant = await findOwnTenant(db, tenantId);
+    if (tenant === null || !tenantCanPublish(tenant.status)) {
+      throw new AppError(409, "TENANT_NOT_ONBOARDED", "还没有开始试运营，商品不能上架：资质审核通过、签约并开始试运营以后才能上架", { status: tenant?.status ?? null });
+    }
     const current = await findProduct(db, tenantId, id, { lock: true });
     if (!current) throw notFound("商品");
     if (current.status === "published") return detail(db, tenantId, current);

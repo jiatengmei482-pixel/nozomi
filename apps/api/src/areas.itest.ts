@@ -7,7 +7,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { AREA_LIMITS, circleToRing, ringToGeoJson } from "@nozomi/domain";
-import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -486,7 +486,7 @@ test("供应商被平台暂停后仍然可以看和改自己的区域（暂停�
   const paused = await api.tenantWithAdmin(root, "被暂停的车队", "admin@paused.test");
   const made = await post(body(), randomUUID(), paused.adminToken);
   assert.equal(made.status, 201, made.text);
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${paused.tenantId}/suspend`, { token: root, body: { reason: "测试" } })).status, 200);
+  await suspendTenantApproved(api, root, paused.tenantId);
   assert.equal((await call("GET", "/areas", { token: paused.adminToken })).body.total, 1);
   assert.equal((await put(made.body.id, 1, { name: { zh: "暂停期间改的" }, biz_type: "general", polygons: made.body.polygons }, paused.adminToken)).status, 200);
   assert.equal((await post(body(), randomUUID(), paused.adminToken)).status, 201);

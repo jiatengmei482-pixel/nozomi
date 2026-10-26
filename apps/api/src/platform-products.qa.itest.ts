@@ -13,7 +13,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PLATFORM_ROLES, type PlatformRole } from "@nozomi/domain";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -184,11 +184,11 @@ test("状态：已暂停的供应商、停用的子品牌、停用的城市在�
   const draft = await product(b, { brandId: ids["brandB"] as string, cityId: ids["tokyo"] as string, areaId: ids["bTokyo"] as string, title: "要删掉的草稿" });
   const listed = async (): Promise<any> => (await list(`tenant_id=${b.tenantId}`)).items.find((item: any) => item.id === pid);
 
-  await ok(api.call("POST", `/platform/v1/tenants/${b.tenantId}/suspend`, { token: root, body: {} }));
+  await suspendTenantApproved(api, root, b.tenantId);
   assert.equal((await listed()).tenant.status, "suspended");
   assert.equal((await show(pid)).tenant.status, "suspended");
   assert.equal((await show(pid)).product.status, "published", "暂停不改商品自己的状态");
-  await ok(api.call("POST", `/platform/v1/tenants/${b.tenantId}/resume`, { token: root }));
+  await resumeTenantNow(api, root, b.tenantId);
 
   await api.db.owner.query("update brands set status = 'disabled' where id = $1", [ids["brandB"]]);
   assert.equal((await listed()).brand.status, "disabled");

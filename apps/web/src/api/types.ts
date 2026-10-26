@@ -24,12 +24,35 @@ export interface TenantUser {
   updated_at: string;
 }
 
-export type TenantStatus = "active" | "suspended";
+/** 入驻状态（ADR 0028）：申请中、审核中、已签约、试运营、正式、暂停、已清退。只有试运营和正式参与比价。 */
+export type TenantStatus = "applying" | "reviewing" | "signed" | "trial" | "active" | "suspended" | "terminated";
+export type SuspensionReason = "manual" | "document_expired" | "score_below_red_line" | "driver_no_show";
+export type ObservationReason = "score_below_threshold" | "driver_no_show";
+
+export interface TenantScoreSummary {
+  /** 比价用的分（百分之一分；完成不足 20 单时是默认 450）；还没算过为 null */
+  score_centi: number | null;
+  raw_score_centi: number | null;
+  completed_orders: number;
+  no_shows: number;
+  score_on: string | null;
+}
 
 export interface Tenant {
   id: string;
   name: string;
   status: TenantStatus;
+  suspended_from: "trial" | "active" | null;
+  suspension_reasons: SuspensionReason[];
+  suspended_at: string | null;
+  observation_reasons: ObservationReason[];
+  observation_since: string | null;
+  signed_at: string | null;
+  trial_started_at: string | null;
+  activated_at: string | null;
+  terminated_at: string | null;
+  score: TenantScoreSummary;
+  version: number;
   created_at: string;
   updated_at: string;
 }
@@ -99,7 +122,7 @@ export interface PortalTypes {
 export const SCHEMA_FIELDS = {
   PlatformUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
-  Tenant: ["id", "name", "status", "created_at", "updated_at"],
+  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
   LoginRequest: ["email", "password"],
   PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user", "must_change_password"],
   TenantLoginResponse: ["access_token", "token_type", "expires_at", "user", "tenant", "must_change_password"],
@@ -134,4 +157,4 @@ export const ME_FIELDS = {
 } as const satisfies { [P in keyof PortalTypes]: readonly (keyof PortalTypes[P]["me"])[] };
 
 /** 前端认识的租户状态；OpenAPI 新增状态时对账测试会失败，届时请美工定颜色和文案。 */
-export const TENANT_STATUSES = ["active", "suspended"] as const satisfies readonly TenantStatus[];
+export const TENANT_STATUSES = ["applying", "reviewing", "signed", "trial", "active", "suspended", "terminated"] as const satisfies readonly TenantStatus[];

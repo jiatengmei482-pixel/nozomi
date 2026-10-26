@@ -221,7 +221,7 @@ export function changePassword(portal: Portal, token: string, request: ChangePas
 // ───────────── 文件：上传 .xlsx、下载导出的文件 ─────────────
 
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-/** 上传和下载文件给的时间比普通请求长（文件最大 1 MB，正常几秒内完成）。 */
+/** 上传和下载文件给的时间比普通请求长（.xlsx 最大 1 MB、资质文件最大 10 MB，正常几秒内完成）。 */
 export const FILE_TIMEOUT_MS = 30_000;
 
 export interface FileRequestOptions {
@@ -229,10 +229,14 @@ export interface FileRequestOptions {
   headers?: Readonly<Record<string, string>>;
   /** 用户点了「取消」 */
   signal?: AbortSignal;
+  /** 上传的文件类型（默认 .xlsx；资质文件是 PDF / JPEG / PNG） */
+  contentType?: string;
+  /** 下载时接受的类型（默认 .xlsx） */
+  accept?: string;
 }
 
 function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<Sent> {
-  return send(method, url, { headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": XLSX_CONTENT_TYPE } : {}), ...options.headers }, body, timeoutMs: FILE_TIMEOUT_MS, signal: options.signal });
+  return send(method, url, { headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": options.contentType ?? XLSX_CONTENT_TYPE } : {}), ...options.headers }, body, timeoutMs: FILE_TIMEOUT_MS, signal: options.signal });
 }
 
 /** 把一个文件原样传上去（请求体就是文件本身），应答是 JSON。令牌只走请求头。 */
@@ -272,7 +276,7 @@ export function parseFilename(header: string | null): string | null {
 
 /** 取回一个要下载的文件。失败时接口返回的是 JSON 的错误格式；状态是成功、拿到的却不是文件，同样按出错处理。 */
 export async function apiDownload(url: string, options: FileRequestOptions): Promise<DownloadedFile> {
-  const { response, done, timedOut } = await fileFetch("GET", url, null, `${XLSX_CONTENT_TYPE}, application/json`, options);
+  const { response, done, timedOut } = await fileFetch("GET", url, null, `${options.accept ?? XLSX_CONTENT_TYPE}, application/json`, options);
   try {
     if (!response.ok) throw await toApiError(response);
     if ((response.headers.get("content-type") ?? "").includes("application/json")) throw malformedResponse();

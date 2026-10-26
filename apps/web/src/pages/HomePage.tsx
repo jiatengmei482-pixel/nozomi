@@ -17,6 +17,10 @@ import { Button } from "../components/Button.tsx";
 import { Skeleton, StateBlock } from "../components/States.tsx";
 import { StatusBadge, TENANT_STATUS_BADGES } from "../components/StatusBadge.tsx";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
+import { type TenantNotice, listOwnNotices } from "../api/onboarding.ts";
+import { TENANT_STATUS_HINTS, noticeText, scoreText, standingNotice } from "../lib/onboarding-display.ts";
+import { COMPANY_PATH } from "./company/CompanyPage.tsx";
+import { PERFORMANCE_PATH } from "./company/PerformancePage.tsx";
 
 export function HomePage() {
   const { portal, account, reloadAccount } = usePortalSession();
@@ -55,6 +59,10 @@ export function HomePage() {
 
   // 供应商名称和状态在标题行；姓名、角色、邮箱在顶栏的账号菜单里（docs/design/pages/tenant-home.md）
   const tenant = account.status === "ready" ? account.account.tenant : null;
+  const showCompany = useTenantCan("company.read");
+  const showPerformance = useTenantCan("performance.read");
+  const notices = useLoad<{ items: TenantNotice[] }>("home-notices", showCompany ? listOwnNotices : null);
+  const standing = tenant === null ? null : standingNotice(tenant);
 
   return (
     <AppShell pageName="首页">
@@ -84,6 +92,12 @@ export function HomePage() {
             </Alert>
           </div>
         )}
+        {standing !== null && (
+          <Alert kind={standing.kind}>
+            <strong className="alert__title">{standing.title}</strong>
+            <span>{standing.text}</span>
+          </Alert>
+        )}
         {(showAreas || showProducts) && (
           <section className="home-section" aria-labelledby="home-catalog">
             <h2 className="home-section__title" id="home-catalog">
@@ -96,7 +110,25 @@ export function HomePage() {
             </div>
           </section>
         )}
-        {account.status === "ready" && !showAreas && !showProducts && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
+        {(showCompany || showPerformance) && (
+          <section className="home-section" aria-labelledby="home-company">
+            <h2 className="home-section__title" id="home-company">
+              入驻和评分
+            </h2>
+            <div className="entry-grid">
+              {showCompany && tenant !== null && (
+                <EntryCard
+                  title="企业资质"
+                  to={COMPANY_PATH}
+                  counts={{ status: "text", text: `${TENANT_STATUS_BADGES[tenant.status].label}：${TENANT_STATUS_HINTS[tenant.status]}` }}
+                  reminders={[...(tenant.status === "applying" ? [{ text: "填企业信息、上传资质，交齐后提交审核", to: COMPANY_PATH }] : []), ...(notices.state.data?.items ?? []).filter((notice) => notice.kind === "document_expiring" || notice.kind === "document_expired" || notice.kind === "document_reviewed").slice(0, 2).map((notice) => ({ text: noticeText(notice, {}), to: COMPANY_PATH }))]}
+                />
+              )}
+              {showPerformance && tenant !== null && <EntryCard title="履约评分" to={PERFORMANCE_PATH} counts={{ status: "text", text: tenant.score?.score_on ? `比价用的分 ${scoreText(tenant.score.score_centi)}（近 90 天完成 ${tenant.score.completed_orders} 单）` : "还没有评分：完成不足 20 单时按默认 4.50 参与比价" }} />}
+            </div>
+          </section>
+        )}
+        {account.status === "ready" && !showAreas && !showProducts && !showCompany && !showPerformance && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
         {account.status === "loading" && (
           <section className="card">
             <Skeleton lines={["medium", "long", "short"]} />

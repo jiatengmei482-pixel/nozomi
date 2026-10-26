@@ -10,7 +10,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -196,12 +196,12 @@ test("QA 跨租户：A 试算 B 的商品与试算不存在的商品应答完全
   walk(mine);
   assert.deepEqual(keys.filter((key) => /sell|markup|margin|rank|band|fx|score|winner|candidate|tenant|channel|floor|buffer|completed|observation/i.test(key)), []);
   // B 被暂停 / B 的商品下架，都不影响 A 自己的试算，也不在 A 的应答里留下痕迹
-  await ok(platform("POST", `/tenants/${b.tenantId}/suspend`, {}));
+  await suspendTenantApproved(api, root, b.tenantId);
   try {
     const again = await ok(call(a, "POST", `/products/${ids["pa"]}/quote-preview`, { body: own() }));
     assert.deepEqual(again, mine);
   } finally {
-    await ok(platform("POST", `/tenants/${b.tenantId}/resume`, {}));
+    await resumeTenantNow(api, root, b.tenantId);
   }
 });
 
@@ -227,13 +227,13 @@ test("QA 缓存：平台试算现取现算——改价、暂停供应商、下�
   try {
     assert.deepEqual(await settlements(), [[a.tenantId, 15_000], [b.tenantId, 17_777]].sort());
     // 暂停乙：乙马上不参加比价，原因是 TENANT_SUSPENDED
-    await ok(platform("POST", `/tenants/${b.tenantId}/suspend`, {}));
+    await suspendTenantApproved(api, root, b.tenantId);
     try {
       const body = await ok(platform("POST", "/quotes/preview", ask()));
       assert.deepEqual(body.groups[0].candidates.map((entry: any) => entry.tenant_id), [a.tenantId]);
       assert.deepEqual(body.refused.map((entry: any) => [entry.tenant_id, entry.reason]), [[b.tenantId, "TENANT_SUSPENDED"]]);
     } finally {
-      await ok(platform("POST", `/tenants/${b.tenantId}/resume`, {}));
+      await resumeTenantNow(api, root, b.tenantId);
     }
     // 下架甲：马上不在候选里
     await ok(call(a, "POST", `/products/${ids["pa"]}/unpublish`));

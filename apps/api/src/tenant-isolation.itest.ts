@@ -9,7 +9,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { signAccessToken, verifyAccessToken } from "./auth/token.ts";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { XLSX_CONTENT_TYPE, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, approverToken, createTestApi, uploadBytes } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
 
@@ -1243,6 +1243,73 @@ test("订单：只列出自己的单，带别人的 tenant_id 也一样；看不
   assert.deepEqual(status.rows[0], { status: "confirmed", notes: null });
 });
 
+test("供应商入驻（ADR 0028）：企业信息、资质文件、资质、提交审核、合同、状态记录、提醒、评分——甲读不到、改不了乙的，带乙的编号也一样；数据库层面同样拦得住", async () => {
+  for (const route of ["GET /tenant/v1/company", "PUT /tenant/v1/company/profile", "POST /tenant/v1/company/files", "GET /tenant/v1/company/files/:id", "POST /tenant/v1/company/documents", "POST /tenant/v1/company/submit", "GET /tenant/v1/company/contracts", "GET /tenant/v1/company/status-events", "GET /tenant/v1/company/notices", "GET /tenant/v1/performance"]) cover(route);
+  // 两家还在「申请中」的供应商：入驻的动作只在这个状态下能做
+  const c = await api.tenantWithAdmin(platformToken, "车队丙", "admin@onboarding-c.test", { onboarding: "applying" });
+  const d = await api.tenantWithAdmin(platformToken, "车队丁", "admin@onboarding-d.test", { onboarding: "applying" });
+  const pdf = Buffer.from("%PDF-1.7\n乙的营业执照\n%%EOF");
+  const upload = (who: TenantFixture, bytes: Buffer): Promise<ApiResponse> => uploadBytes(api, `/tenant/v1/company/files?file_name=${encodeURIComponent("执照.pdf")}`, bytes, who.adminToken, "application/pdf");
+  const dFile = await upload(d, pdf);
+  assert.equal(dFile.status, 201, dFile.text);
+  // 丁交一份资质、填企业信息、提交审核
+  const profile = { country_code: "KR", legal_name: "丁株式会社", registration_no: "D-1", address: "首尔", contact_name: "丁", contact_phone: "+8221234567", contact_email: "d@d.test" };
+  assert.equal((await api.call("PUT", "/tenant/v1/company/profile", { token: d.adminToken, body: profile })).status, 200);
+  const dDoc = await api.call("POST", "/tenant/v1/company/documents", { token: d.adminToken, body: { type: "settlement_account", file_id: dFile.body.id } });
+  assert.equal(dDoc.status, 201, dDoc.text);
+
+  // 文件：丙拿丁的文件编号下载，和不存在一样 404
+  const foreignFile = await api.call("GET", `/tenant/v1/company/files/${dFile.body.id}`, { token: c.adminToken });
+  assert.equal(foreignFile.status, 404);
+  assert.equal(foreignFile.text, (await api.call("GET", `/tenant/v1/company/files/${NO_SUCH_ID}`, { token: c.adminToken })).text);
+  assert.equal((await api.call("GET", `/tenant/v1/company/files/${dFile.body.id}`, { token: d.adminToken })).status, 200);
+  // 资质：丙拿丁的文件提交资质，当作文件不存在；丁的文件仍然没被用过、丙一份资质都没有
+  const stolen = await api.call("POST", "/tenant/v1/company/documents", { token: c.adminToken, body: { type: "settlement_account", file_id: dFile.body.id, tenant_id: d.tenantId } });
+  assert.equal(stolen.status, 400, stolen.text);
+  assert.equal(stolen.body.error.details.issues[0].reason, "UNKNOWN_FILE");
+  assert.equal((await api.db.owner.query("select count(*)::int as n from tenant_documents where tenant_id = $1", [c.tenantId])).rows[0].n, 0);
+  // 企业信息：丙改的只是自己的；带丁的 tenant_id 不生效
+  const cProfile = await api.call("PUT", `/tenant/v1/company/profile?tenant_id=${d.tenantId}`, { token: c.adminToken, body: { ...profile, legal_name: "丙改的", tenant_id: d.tenantId } });
+  assert.equal(cProfile.status, 200, cProfile.text);
+  const profiles = await api.db.owner.query<{ tenant_id: string; legal_name: string }>("select tenant_id, legal_name from tenant_profiles order by legal_name");
+  assert.deepEqual(profiles.rows.map((row) => [row.tenant_id, row.legal_name]), [[d.tenantId, "丁株式会社"], [c.tenantId, "丙改的"]]);
+  // 提交审核：丙的资料不齐，提交不了，也不会动到丁
+  const submitted = await api.call("POST", `/tenant/v1/company/submit?tenant_id=${d.tenantId}`, { token: c.adminToken, body: { tenant_id: d.tenantId } });
+  assert.equal(submitted.status, 409, submitted.text);
+  assert.deepEqual((await api.db.owner.query("select id, status from tenants where id = any($1::uuid[]) order by name", [[c.tenantId, d.tenantId]])).rows.map((row) => row.status), ["applying", "applying"]);
+  // 丁这边有了合同、状态记录、提醒、评分；丙一样都看不到
+  await api.db.owner.query("update tenants set status = 'reviewing' where id = $1", [d.tenantId]);
+  const approver = await approverToken(api, platformToken);
+  const contract = await api.call("POST", `/platform/v1/tenants/${d.tenantId}/contracts`, { token: platformToken, body: { valid_from: "2026-10-07", settle_currency: "KRW" } });
+  assert.equal(contract.status, 202, contract.text);
+  assert.equal((await api.call("POST", `/platform/v1/approvals/${contract.body.approval.id}/approve`, { token: approver, body: {} })).status, 200);
+  const rejected = await api.call("POST", `/platform/v1/tenants/${d.tenantId}/documents/${dDoc.body.id}/reject`, { token: platformToken, body: { reason: "看不清" } });
+  assert.equal(rejected.status, 200, rejected.text);
+  await api.app.tenantJobs.tick();
+  const fromD = await api.call("GET", "/tenant/v1/company/status-events", { token: d.adminToken });
+  assert.ok(fromD.body.items.length > 0);
+  assert.ok((await api.call("GET", "/tenant/v1/company/notices", { token: d.adminToken })).body.items.length > 0);
+  for (const path of ["/tenant/v1/company", "/tenant/v1/company/contracts", "/tenant/v1/company/status-events", "/tenant/v1/company/notices", "/tenant/v1/performance"]) {
+    const res = await api.call("GET", `${path}?tenant_id=${d.tenantId}`, { token: c.adminToken });
+    assert.equal(res.status, 200, `${path} ${res.text}`);
+    for (const secret of [d.tenantId, dDoc.body.id, dFile.body.id, contract.body.approval.id, "丁株式会社", "看不清"]) assert.ok(!res.text.includes(secret), `${path} 里有丁的 ${secret}`);
+  }
+  const cCompany = await api.call("GET", "/tenant/v1/company", { token: c.adminToken });
+  assert.deepEqual([cCompany.body.tenant.id, cCompany.body.documents, cCompany.body.contracts], [c.tenantId, [], []]);
+  // 数据库层面：丙的租户事务里看不到丁的任何一行，改不了、写不进
+  for (const table of ["tenant_profiles", "tenant_files", "tenant_documents", "tenant_contracts", "tenant_status_events", "tenant_notices", "tenant_score_daily", "tenant_performance_events", "order_reviews"]) {
+    const rows = await withTenantTx(api.db.pool, c.tenantId, (db) => db.query(`select 1 from ${table} where tenant_id = $1`, [d.tenantId]));
+    assert.equal(rows.rowCount, 0, table);
+  }
+  await assert.rejects(withTenantTx(api.db.pool, c.tenantId, (db) => db.query("insert into tenant_files (tenant_id, purpose, content_type, byte_size, sha256, data, file_name, uploaded_at, uploaded_by_type, uploaded_by) values ($1, 'document', 'application/pdf', 1, repeat('0', 64), 'x', 'x', now(), 'tenant_user', $2)", [d.tenantId, c.adminId])), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, c.tenantId, (db) => db.query("update tenant_documents set status = 'approved'")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, c.tenantId, (db) => db.query("update tenants set status = 'active'")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, c.tenantId, (db) => db.query("insert into tenant_contracts (tenant_id, version, valid_from, settle_currency, settle_cycle, payment_day, approval_id, requested_by, approved_by, created_at) select $1, 9, '2030-01-01', 'JPY', 'monthly', 20, approval_id, requested_by, approved_by, now() from tenant_contracts limit 1", [c.tenantId])), deniedByDatabase);
+  const updated = await withTenantTx(api.db.pool, c.tenantId, (db) => db.query("update tenant_profiles set legal_name = 'x' where tenant_id = $1", [d.tenantId]));
+  assert.equal(updated.rowCount, 0);
+  assert.equal((await api.db.owner.query("select legal_name from tenant_profiles where tenant_id = $1", [d.tenantId])).rows[0].legal_name, "丁株式会社");
+});
+
 /** 两边的已确认订单（seedOrders 写入的，按订单号找回来）。 */
 async function orderIds(): Promise<{ a: string; b: string }> {
   await seedOrders();
@@ -1530,6 +1597,8 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/orders", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/company", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/performance", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/drivers", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/vehicles", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/webhooks", { token: a.adminToken }),

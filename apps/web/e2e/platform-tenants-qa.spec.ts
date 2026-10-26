@@ -6,7 +6,7 @@
  */
 import { type APIRequestContext, type Browser, type Page, type Request, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { activateTenant, adminCredentials, approveApproval, approverEmail, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, pendingApproval, platformAdminHeaders, suspendTenant, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 type Headers = Record<string, string>;
@@ -183,20 +183,20 @@ test("一次性链接对话框连按几次 Esc 也不会被浏览器关掉：链
   await expect(dialog.getByRole("button", { name: "我已经发给对方，关闭" })).toBeVisible();
 });
 
-test("确认对话框在等结果时（暂停中…）连按 Esc 也不会被浏览器关掉：之后的出错提示看得到（规范：等待时 Esc、遮罩、关闭按钮都不起作用）", async ({ page, request }) => {
+test("确认对话框在等结果时（提交中…）连按 Esc 也不会被浏览器关掉：之后的出错提示看得到（规范：等待时 Esc、遮罩、关闭按钮都不起作用）", async ({ page, request }) => {
   const tenant = await createTenant(request);
   await adminPage(page);
   await page.goto(`/platform/tenants/${tenant.tenantId}`);
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: `暂停「${tenant.tenantName}」？` });
+  await page.getByRole("button", { name: "申请暂停", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: `申请暂停「${tenant.tenantName}」` });
   await dialog.getByLabel(/暂停原因/).fill("连按 Esc");
   // 让应答晚一点回来，并且是一个出错的应答
   await page.route(/\/platform\/v1\/tenants\/[^/]+\/suspend$/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     await route.fulfill({ status: 500, json: { error: { code: "INTERNAL_ERROR", message: "x", details: {} } } });
   });
-  await dialog.getByRole("button", { name: "暂停", exact: true }).click();
-  await expect(dialog.getByRole("button", { name: "暂停中…" })).toBeVisible();
+  await dialog.getByRole("button", { name: "提交申请", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "提交中…" })).toBeVisible();
   for (let press = 1; press <= 4; press += 1) await page.keyboard.press("Escape");
   await expect(dialog, "等待时按 Esc 不该关掉对话框").toBeVisible();
   await expect(dialog.getByText("系统暂时无法暂停，请稍后再试。")).toBeVisible();
@@ -681,7 +681,7 @@ for (const [role, expected] of Object.entries(ROLE_EXPECTATIONS)) {
     test.setTimeout(150_000);
     const headers = await platformAdminHeaders(request);
     const tenant = await createTenant(request);
-    await request.post(`/platform/v1/tenants/${tenant.tenantId}/suspend`, { headers, data: { reason: "角色测试" } });
+    await suspendTenant(request, tenant.tenantId, "角色测试");
     const staff = await inviteStaff(request, headers, role);
     const refused: string[] = [];
     const asked: string[] = [];
@@ -813,6 +813,7 @@ test("供应商名、管理员姓名、员工姓名、暂停原因里写 HTML �
   const created = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: adminEmail, name: adminName } } });
   expect(created.status(), await created.text()).toBe(201);
   const body = (await created.json()) as { tenant: { id: string }; invite: { token: string } };
+  await activateTenant(body.tenant.id);
   const staffName = `<svg onload="window.__xss=3"></svg><u>员工${tag}</u>`;
   const staff = await inviteStaff(request, headers, "readonly", { name: staffName });
   const reason = `<img src=x onerror="window.__xss=4"><a href="javascript:window.__xss=5">点我</a> ${tag}`;
@@ -833,14 +834,17 @@ test("供应商名、管理员姓名、员工姓名、暂停原因里写 HTML �
   await expect(row.locator("a.tenant-name")).toHaveText(tenantName);
   await clean("供应商列表");
   await row.getByRole("button", { name: /的更多操作$/ }).click();
-  await page.getByRole("menuitem", { name: "暂停" }).click();
+  await page.getByRole("menuitem", { name: "申请暂停" }).click();
   const suspend = page.getByRole("dialog");
-  await expect(suspend.getByRole("heading", { level: 2 })).toHaveText(`暂停「${tenantName}」？`);
+  await expect(suspend.getByRole("heading", { level: 2 })).toHaveText(`申请暂停「${tenantName}」`);
   await suspend.getByLabel(/暂停原因/).fill(reason);
   await clean("暂停对话框");
-  await suspend.getByRole("button", { name: "暂停", exact: true }).click();
-  await expect(toast(page, `已暂停「${tenantName}」`)).toBeVisible();
+  await suspend.getByRole("button", { name: "提交申请", exact: true }).click();
+  await expect(toast(page, `已提交暂停「${tenantName}」的申请，等另一位同事审核后生效`)).toBeVisible();
   await clean("暂停后的 Toast");
+  // 另一位同事批准（双人复核，ADR 0028）
+  await approveApproval(request, await pendingApproval(request, body.tenant.id, "tenant.suspend"));
+  await page.reload();
   await expect(row).toContainText("已暂停");
 
   // 详情：标题、标签页标题、提示条里的原因、恢复的确认
@@ -928,28 +932,32 @@ test("邮箱通过了页面的格式检查、却被后端判为不合规（如�
 
 // ───────────── 供应商：两个人同时操作 ─────────────
 
-test("两个人同时处理同一家供应商：别人已经暂停了，我这边还显示正常并再点暂停——接口照常成功，页面变成已暂停，显示的是真正记下的那个原因（先暂停的人填的），不是我刚填的", async ({ page, request }) => {
+test("两个人同时处理同一家供应商：别人已经暂停了（批准生效），我这边还显示正常并再申请暂停——说清楚现在不能暂停，刷新后显示真正记下的那个原因；别人已经恢复了，我再点恢复——说清楚不用恢复；状态记录、审计都不多记", async ({ page, request }) => {
   const headers = await platformAdminHeaders(request);
   const tenant = await createTenant(request);
-  const admin = await adminPage(page);
+  await adminPage(page);
   await page.goto(`/platform/tenants/${tenant.tenantId}`);
-  await expect(page.getByRole("button", { name: "暂停", exact: true })).toBeVisible();
-  expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/suspend`, { headers, data: { reason: "同事先填的原因" } })).ok()).toBe(true);
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
+  await expect(page.getByRole("button", { name: "申请暂停", exact: true })).toBeVisible();
+  await suspendTenant(request, tenant.tenantId, "同事先填的原因");
+  await page.getByRole("button", { name: "申请暂停", exact: true }).click();
   await page.getByRole("dialog").getByLabel(/暂停原因/).fill("我后填的原因");
-  await page.getByRole("dialog").getByRole("button", { name: "暂停", exact: true }).click();
-  await expect(toast(page, `已暂停「${tenant.tenantName}」`)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "提交申请", exact: true }).click();
+  await expect(page.getByRole("dialog").getByText(/现在的状态不能暂停（可能已经被人工暂停/)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "知道了" }).click();
+  await page.reload();
   await expect(page.getByText("这家供应商已暂停。")).toBeVisible();
-  await expect(page.locator(".tenant-reason")).toContainText(`原因：同事先填的原因（${admin.email}，`);
+  await expect(page.locator(".tenant-reason")).toContainText(`原因：同事先填的原因（${await approverEmail(request)}，`);
   await expect(page.locator(".tenant-reason")).not.toContainText("我后填的原因");
-  // 别人已经恢复了，我这边再点恢复：同样照常成功
-  expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/resume`, { headers })).ok()).toBe(true);
+  // 别人已经恢复了，我这边再点恢复：说清楚不用恢复
+  expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/resume`, { headers, data: {} })).ok()).toBe(true);
   await page.getByRole("button", { name: "恢复", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "恢复", exact: true }).click();
-  await expect(toast(page, `已恢复「${tenant.tenantName}」`)).toBeVisible();
-  await expect(page.getByRole("button", { name: "暂停", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(/现在没有暂停，不用恢复/)).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "知道了" }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "申请暂停", exact: true })).toBeVisible();
   const logs = (await (await request.get(`/platform/v1/audit-logs?resource=tenant&resource_id=${tenant.tenantId}&limit=50`, { headers })).json()) as { items: { action: string }[] };
-  expect(logs.items.map((entry) => entry.action).sort(), "重复的暂停、恢复不多记").toEqual(["create", "resume", "suspend"]);
+  expect(logs.items.map((entry) => entry.action).sort(), "被拦下的暂停、恢复不记").toEqual(["create", "resume", "suspend"]);
 });
 
 // ───────────── 审计日志：真实后端 ─────────────
@@ -959,8 +967,8 @@ test("审计日志连真实后端：游标翻页不重不漏、从新到旧；�
   const headers = await platformAdminHeaders(request);
   const tenant = await createTenant(request);
   for (let round = 0; round < 12; round += 1) {
-    expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/suspend`, { headers, data: { reason: `第 ${round + 1} 次` } })).ok()).toBe(true);
-    expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/resume`, { headers })).ok()).toBe(true);
+    await suspendTenant(request, tenant.tenantId, `第 ${round + 1} 次`);
+    expect((await request.post(`/platform/v1/tenants/${tenant.tenantId}/resume`, { headers, data: {} })).ok()).toBe(true);
   }
   // 这家供应商一共 26 条：新建、邀请、12 次暂停、12 次恢复
   await adminPage(page);
@@ -1088,7 +1096,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     const headers = await platformAdminHeaders(request);
     const tenant = await createActiveTenant(request);
-    await request.post(`/platform/v1/tenants/${tenant.tenantId}/suspend`, { headers, data: { reason: "很长的原因".repeat(60) } });
+    await suspendTenant(request, tenant.tenantId, "很长的原因".repeat(60));
     const staff = await inviteStaff(request, headers, "customer_service", { name: "名字很长很长的同事".repeat(5) });
     const admin = await adminPage(page);
     const check = async (what: string): Promise<void> => {

@@ -10,8 +10,10 @@ import {
   type TenantAction,
   checkPasswordStrength,
   passwordChangeRequiredFirst,
+  tenantReadOnly,
   tenantRoleCan,
 } from "@nozomi/domain";
+import { AppError } from "../errors.ts";
 import { hashInviteToken } from "../auth/invite-token.ts";
 import { hashResetToken, tenantIdOfResetToken } from "../auth/reset-token.ts";
 import { hashPassword, sameStoredPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
@@ -212,6 +214,8 @@ export async function authenticateTenant(
   if (!found || found.user.status !== "active") throw unauthenticated();
   if (passwordChangeRequiredFirst(found.user.mustChangePassword, purpose)) throw passwordChangeRequired();
   if (action !== undefined && !tenantRoleCan(found.user.role, action)) throw forbidden(action);
+  // 已清退：「只能查看历史和账单」，所有修改都拒绝（ADR 0028）
+  if (action !== undefined && action.endsWith(".manage") && tenantReadOnly(found.tenant.status)) throw new AppError(409, "TENANT_TERMINATED", "这家供应商已清退，后台只能查看历史，不能再修改");
   return { sessionId: claims.sid, tenantId, user: found.user, tenant: found.tenant };
 }
 
