@@ -63,6 +63,8 @@ export interface ApprovalRequest {
   before: AuditValues | null;
   baseVersion: number | null;
   note: string | null;
+  /** 发起时的试算结果（M3-07：改定价参数、加价规则才有） */
+  impact?: AuditValues | null;
 }
 
 /** 在调用方的事务里发起一条复核。权限由调用方的接口检查（`kind.requestAction`）。 */
@@ -78,6 +80,7 @@ export async function requestApproval(db: Db, origin: AuditOrigin, principal: Pl
     baseVersion: request.baseVersion,
     requestedBy: principal.user.id,
     requestNote: request.note,
+    impact: request.impact ?? null,
     now: origin.occurredAt,
   });
   await insertAuditLog(db, origin, { tenantId: null, resource: "approval", resourceId: id, action: "request", before: request.before, after: { kind: request.kind.kind, resource: request.kind.resource, resource_id: request.resourceId, summary: request.summary, payload: request.payload } });
@@ -113,7 +116,7 @@ export function listApprovalsFor(
 }
 
 /** 这个人看不看得到这一条：这一类有看的权限，而且（渠道类、订单类的）对象在他的数据范围里。 */
-async function canSee(db: Db, kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): Promise<boolean> {
+export async function canSee(db: Db, kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): Promise<boolean> {
   const kind = kinds.get(approval.kind);
   if (!kind || !principalCan(principal, kind.readAction)) return false;
   if (kind.unscopedOnly === true && scopeIsRestricted(principal.grant.scope)) return false;

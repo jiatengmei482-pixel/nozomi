@@ -141,6 +141,16 @@ export function localDateTimeToInstant(local: string, timeZone: string): Date | 
   return new Date(asUtc - offsetAt(asUtc - 86_400_000));
 }
 
+/**
+ * 这个当地时间在这个时区里存不存在：写法对、并且不是夏令时拨快跳过的那一段。
+ * `localDateTimeToInstant` 对跳过的时间按拨快之后算（报价、改单等处靠这个顺延）；
+ * 客人直接填写当地时间的入口（官网询价）用它先拒绝不存在的时间，免得按客人没写过的时间报价。
+ */
+export function localDateTimeExists(local: string, timeZone: string): boolean {
+  const instant = localDateTimeToInstant(local, timeZone);
+  return instant !== null && instantToLocal(instant, timeZone).dateTime === local;
+}
+
 /** 加急的一档：在提前预订时长以内、离用车不到 `withinHours` 小时下单，加收 `surchargeMinor`。 */
 export interface UrgentTier {
   withinHours: number;

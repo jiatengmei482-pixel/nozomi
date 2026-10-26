@@ -772,8 +772,11 @@ export interface QuoteSnapshot {
     offer: VehicleOffer;
     sell: SellPrice;
   };
-  /** 全部参与比价的租户和它们的排序依据（含中标的） */
-  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number }[];
+  /**
+   * 全部参与比价的租户和它们的排序依据（含中标的）。`fx`、`fxBufferBp` 是这个候选算对外价用的汇率（结算币种 → 客人支付币种，同币种为 null）和缓冲：
+   * 生效前试算（M3-07，ADR 0033）按快照汇率重算每个候选的对外价要用。M3-07 之前的快照没有这两项。
+   */
+  candidates: { tenantId: string; productId: string; productVersion: number; settlementMinor: number; settlementCurrency: CurrencyCode; sellMinor: number; markupBp: number; fx?: FxQuote | null; fxBufferBp?: number; observation: boolean; scoreCenti: number; completedOrders: number; rankPrice: string; inBand: boolean; position: number }[];
 }
 
 export function quoteExpiresAt(createdAt: Date): Date {
@@ -910,6 +913,8 @@ export function compareQuotes(input: { request: QuoteRequest; currency: Currency
             settlementCurrency: candidate.offer.settlement.currency,
             sellMinor: candidate.sellMinor,
             markupBp: candidate.sell.markupBp,
+            fx: candidate.sell.fx,
+            fxBufferBp: candidate.sell.fxBufferBp,
             observation: candidate.observation,
             scoreCenti: candidate.scoreCenti,
             completedOrders: candidate.completedOrders,

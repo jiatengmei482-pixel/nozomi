@@ -77,6 +77,8 @@ services:
       MAP_TILE_SIZE: ${MAP_TILE_SIZE:-}
       # 官网用哪个 API 客户端（不是密钥，ADR 0032）：运营后台给官网渠道发的客户端的 client_id。不配 = 官网暂未开放
       SITE_CLIENT_ID: ${SITE_CLIENT_ID:-}
+      # 官网订单页「需要帮助」里的客服电话（不是密钥）：以 + 和国家码开头，如 +81 3-1234-5678。不配 = 订单页不显示客服区块
+      SITE_SUPPORT_PHONE: ${SITE_SUPPORT_PHONE:-}
       # API 前面有几层我们信任的反向代理：审计日志和登录限速据此从 X-Forwarded-For 取客户端真实地址。
       # 不手填，由 bin/deploy.sh 按入口模式算出：standalone 是 1（只有 Caddy），behind-proxy 是 2（外层代理 + Caddy）。
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?缺少 TRUST_PROXY_HOPS，请通过 bin/deploy.sh 部署}

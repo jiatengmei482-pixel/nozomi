@@ -118,20 +118,20 @@ tags:
       救援改派与违约金（ADR 0031）：只在 4 种情形（供应商声明无法履约、用车前 6 小时仍未派车、司机未到、供应商被暂停）启动，客人价格不变；
       按原报价条件重新比价找候选，救援单要供应商主动接（15 分钟，用车前 2 小时内 5 分钟），都不接人工指定（双人复核）或全额退款；
       原供应商承担违约金（0 / 30% / 100%）和救援差价，现在只记账，M5 结算时扣；不可抗力经运营认定免除
-  - name: 财务结算
-    description: |
-      供应商应付账单与付款批次（ADR 0040）：按月（订单服务日期的城市当地月份）出账，已完成、客人未出现、有偿取消的结算价，加已扣到款的事后加收，减违约金和救援差价；
-      生成 → 供应商确认（可提异议，7 天不确认视为确认）→ 平台双人复核（付款给租户）→ 进次月 20 日的付款批次 → 已付款（银行转账文件和流水号回填在 M5-02）
   - name: Webhook
     description: |
       推送给供应商（ADR 0027）：供应商设置接收地址和订阅的事件，平台签名（HMAC-SHA256，`X-Timestamp` + `X-Signature: v1=…`，5 分钟防重放）后推送，
       失败按 1–5–30 分钟、2–6–24 小时重试，最终失败可在供应商后台和运营后台看到并手动重推。出站请求防 SSRF。
   - name: 官网
     description: |
-      `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
+      `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032；M3-10 起接送机、点对点、包车都能订，ADR 0035）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
       客人凭查看令牌只看得到自己的一张单；按来源地址限速。应答里没有中标供应商（付款前）、结算价、加价比例。
   - name: 角色
     description: 平台角色（ADR 0030）：内置角色是只读模板；自建角色按「菜单 × 操作」勾选，可加数据范围和 IP 白名单；修改走双人复核
+  - name: 财务结算
+    description: |
+      供应商应付账单与付款批次（ADR 0040）：按月（订单服务日期的城市当地月份）出账，已完成、客人未出现、有偿取消的结算价，加已扣到款的事后加收，减违约金和救援差价；
+      生成 → 供应商确认（可提异议，7 天不确认视为确认）→ 平台双人复核（付款给租户）→ 进次月 20 日的付款批次 → 已付款（银行转账文件和流水号回填在 M5-02）
 paths:
   /health:
     get:
@@ -5651,7 +5651,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/channels/{id}/pricing-changes:
     post:
-      tags: [ 渠道 ]
+      tags:
+        - 渠道
       operationId: requestChannelPricingChange
       summary: 发起修改定价参数（双人复核）
       description: |
@@ -5660,7 +5661,7 @@ paths:
         - 和现在一样的不发起（`UNCHANGED`）；
         - 调高下限时，还在用的加价规则有低于新下限的，先要把它们改掉（409 `RULES_BELOW_FLOOR`，`details.rule_ids`）。
         批准时按那一刻的数据再校验一次；发起之后定价参数或加价规则被别的复核改过，批准返回 409 `APPROVAL_STALE`。
-        「生效前试算对近 30 天订单的毛利影响」要等有了订单（M3），本期没有。
+        发起时按当时的数据做一次「近 30 天毛利试算」（同 `pricing-impact`），存进复核记录的 `impact`，审核人批准前看（ADR 0033）。新增、修改、删除加价规则同样。
       security:
         - platformToken: []
       parameters:
@@ -9617,8 +9618,10 @@ paths:
     get:
       tags: [ 官网 ]
       operationId: listSiteCities
-      summary: 能预订接送机的城市
-      description: 启用的、在官网渠道授权范围里、有渠道卖的供应商上架了接送机商品的城市。名称来自 GeoNames（CC BY 4.0，页面要带署名）。
+      summary: 能预订的城市和各自能订的品类
+      description: |
+        启用的、在官网渠道授权范围里、有渠道卖的供应商上架了商品的城市；`categories` 是这个城市能在官网预订的品类（接送机、点对点、包车，M3-10），
+        品类本身也要在渠道的授权里。名称来自 GeoNames（CC BY 4.0，页面要带署名）。每个地址每分钟 120 次。
       responses:
         "200":
           description: 城市
@@ -9665,13 +9668,76 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/charter-packages:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteCharterPackages
+      summary: 这个城市能选的包车套餐时长
+      description: |
+        渠道卖的供应商上架的包车商品里，启用且到城市当地今天还没过期的价格规则的套餐时长（小时，从短到长、不重复）。
+        城市或包车不在渠道授权里、城市不存在时为空列表。某个时长那一天到底报不报得出价，询价时再看。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 套餐时长
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCharterPackage"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/places:
+    get:
+      tags: [ 官网 ]
+      operationId: listSitePlaces
+      summary: 地址输入辅助：城市里的机场、车站、地标
+      description: |
+        平台维护的主数据里这个城市启用的机场、车站、地标（不含航站楼、出口），按种类（机场、车站、地标）和编码排，最多 500 个。
+        客人选一个，页面把名称和坐标填进地址那一栏；不调用任何外部地图或地址搜索服务（那要谷歌地图的密钥，M2-02）。
+        城市不存在、停用或不在官网渠道的授权城市里时为空列表（和城市列表同一口径）。机场数据来自 OurAirports（公有领域），中文、日文名来自 GeoNames。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SitePlace"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/quotes:
     post:
       tags: [ 官网 ]
       operationId: createSiteQuotes
-      summary: 官网询价（接送机）
+      summary: 官网询价（接送机、点对点、包车）
       description: |
-        服务端以官网渠道的身份走正式询价（和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+        该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
       requestBody:
@@ -9701,13 +9767,13 @@ paths:
                     items:
                       $ref: "#/components/schemas/SiteUnavailable"
         "400":
-          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）等写得不对"
+          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）、这个品类该填的没填（`REQUIRED`）或不该填的填了（`NOT_APPLICABLE`）等"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANNEL_SCOPE_DENIED`：这个城市官网不卖"
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖"
           content:
             application/json:
               schema:
@@ -10563,6 +10629,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/pricing-impact:
+    post:
+      tags: [ 渠道 ]
+      operationId: previewChannelPricingImpact
+      summary: 生效前试算：改动对近 30 天询价和订单毛利的影响（只读）
+      description: |
+        需要操作 `channel.manage`（和发起这几类复核的权限一样）。只读：不写库、不写审计。入参是待提交的改动，`kind` 和复核的类别一致，里面的内容和发起复核的入参同形
+        （`channel.pricing` 的 `change` 同 `pricing-changes` 的请求体；`markup_rule.create` / `update` 的 `rule` 同新增、修改加价规则的请求体；`update` / `delete` 另给 `rule_id`）。
+        校验和发起一样（低于下限、日期重叠、调高下限时有规则低于新下限都直接拦），但不查「和现在一样」和版本号。
+
+        口径（ADR 0033）：取这个渠道最近 30 天的报价（每个车型组一个 `quote_id`，按询价时间）和这 30 天里下单、付过款的订单（按下单时间；付过款后取消的按扣款比例计入，免费取消的只计数），
+        用快照里的全部候选（结算价、快照汇率和缓冲、评分、单量、观察期）分别按**现在的规则**和**改动后的规则**重算每个候选的对外价、**重新选中标**，
+        汇总对外价、结算价、毛利（对外价 − 结算价，按快照汇率换到渠道结算币种，每单四舍五入到最小单位再相加）。报价、订单各最多取最近 100,000 个（`truncated`）。
+        **这是估算**：客人面对新价格还会不会下单无法知道，这里假定询价和订单照旧发生。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PricingImpactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "400":
+          description: "`VALIDATION_FAILED`：入参不合规则（同发起复核）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RULES_BELOW_FLOOR`：有还在用的加价规则低于新的下限；`MARKUP_RULE_CONFLICT`：和已有的规则冲突"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/approvals/{id}/pricing-impact:
+    post:
+      tags: [ 双人复核 ]
+      operationId: recomputeApprovalPricingImpact
+      summary: 按现在的数据再算一次毛利试算（只读）
+      description: |
+        改定价参数、加价规则的复核（`channel.pricing`、`markup_rule.*`）：按现在的规则和这条复核要做的改动，用现在的近 30 天数据重算（口径同 `/platform/v1/channels/{id}/pricing-impact`）。
+        只读，不改复核记录里发起时存的 `impact`。要能看这一类（否则 404），还要有这一类的审核或发起权限（渠道的是 `channel.review` / `channel.manage`，否则 403）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "403":
+          description: "`FORBIDDEN`：没有这一类的审核或发起权限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PRICING_IMPACT_NOT_APPLICABLE`：不是定价、规则的复核；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：要改的规则已经被删除"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/statements:
     get:
       tags: [ 财务结算 ]
@@ -11400,51 +11536,6 @@ components:
                 minLength: 1
                 maxLength: 500
   responses:
-    TenantStatementResult:
-      description: 账单（含明细和经过）
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ statement ]
-            properties:
-              statement:
-                $ref: "#/components/schemas/TenantStatementDetail"
-    PlatformStatementResult:
-      description: 账单（含明细、经过、待审核的付款复核）
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ statement ]
-            properties:
-              statement:
-                $ref: "#/components/schemas/PlatformStatementDetail"
-    PayoutBatchResult:
-      description: 付款批次（含账单）
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ batch ]
-            properties:
-              batch:
-                $ref: "#/components/schemas/PayoutBatchDetail"
-    StatementStateInvalid:
-      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚"
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    DataScopeDenied:
-      description: "`FORBIDDEN`：没有这个操作的权限；`DATA_SCOPE_DENIED`：限定了数据范围的员工不能用财务结算的接口（账单跨城市、跨渠道，切不开）"
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
     TenantStateInvalid:
       description: |
         `TENANT_STATE_INVALID`：供应商现在的状态不能做这一步（`details.status`）；`TENANT_CONDITIONS_UNMET`：条件还不满足（`details.issues[]`：`path`、`reason`，如
@@ -11720,6 +11811,62 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     RoleInvalid:
       description: "`ROLE_GRANTS_INVALID`、`ROLE_SCOPE_INVALID`（`details.missing_city_ids`、`missing_channel_ids`）、`IP_ALLOWLIST_INVALID`、`VALIDATION_FAILED`"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PricingImpactResult:
+      description: 毛利试算结果
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ impact ]
+            properties:
+              impact:
+                $ref: "#/components/schemas/PricingImpact"
+    TenantStatementResult:
+      description: 账单（含明细和经过）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ statement ]
+            properties:
+              statement:
+                $ref: "#/components/schemas/TenantStatementDetail"
+    PlatformStatementResult:
+      description: 账单（含明细、经过、待审核的付款复核）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ statement ]
+            properties:
+              statement:
+                $ref: "#/components/schemas/PlatformStatementDetail"
+    PayoutBatchResult:
+      description: 付款批次（含账单）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ batch ]
+            properties:
+              batch:
+                $ref: "#/components/schemas/PayoutBatchDetail"
+    StatementStateInvalid:
+      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DataScopeDenied:
+      description: "`FORBIDDEN`：没有这个操作的权限；`DATA_SCOPE_DENIED`：限定了数据范围的员工不能用财务结算的接口（账单跨城市、跨渠道，切不开）"
       content:
         application/json:
           schema:
@@ -12204,6 +12351,7 @@ components:
         - decided_by
         - decided_at
         - decision_note
+        - impact
         - can
       properties:
         id:
@@ -12295,6 +12443,11 @@ components:
               type: boolean
             withdraw:
               type: boolean
+        impact:
+          description: 发起时按当时的数据算的毛利试算（ADR 0033）；只有改定价参数、加价规则的复核有，其余为 null
+          oneOf:
+            - $ref: "#/components/schemas/PricingImpact"
+            - type: "null"
     ApprovalList:
       type: object
       additionalProperties: false
@@ -13729,7 +13882,28 @@ components:
         - statement.review
     TenantAction:
       type: string
-      enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read, statement.read, statement.confirm ]
+      enum:
+        - user.read
+        - user.manage
+        - audit_log.read
+        - master_data.read
+        - area.read
+        - area.manage
+        - product.read
+        - product.manage
+        - brand.manage
+        - order.read
+        - order.dispatch
+        - order.extra_charge
+        - fleet.read
+        - fleet.manage
+        - webhook.read
+        - webhook.manage
+        - company.read
+        - company.manage
+        - performance.read
+        - statement.read
+        - statement.confirm
     LoginRequest:
       type: object
       additionalProperties: false
@@ -20565,7 +20739,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments ]
+      required: [ open, currency, payments, support_phone ]
       properties:
         open:
           type: boolean
@@ -20587,11 +20761,20 @@ components:
                   type: string
                   pattern: "^pk_(test|live)_"
             - type: "null"
+        support_phone:
+          type: [ string, "null" ]
+          pattern: "^\\+[1-9][0-9 -]*[0-9]$"
+          description: 订单页「需要帮助」里的客服电话（配置 SITE_SUPPORT_PHONE，原样显示）；没有登记时为 null，页面不显示客服区块。官网没开时也照常给出（已下单的客人仍要能联系客服）
     SiteCity:
       type: object
       additionalProperties: false
-      required: [ id, code, name, timezone, country_code ]
+      required: [ id, code, name, timezone, country_code, categories ]
       properties:
+        categories:
+          type: array
+          description: 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车）；至少一种
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
         id:
           type: string
           format: uuid
@@ -20624,35 +20807,83 @@ components:
               type: number
             lat:
               type: number
+    SitePoint:
+      type: object
+      additionalProperties: false
+      required: [ lng, lat ]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+    SiteCharterPackage:
+      type: object
+      additionalProperties: false
+      required: [ hours ]
+      properties:
+        hours:
+          type: integer
+          minimum: 1
+          description: 套餐时长（小时）
+    SitePlace:
+      type: object
+      additionalProperties: false
+      required: [ id, type, code, name, address, location ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [ airport, station, poi ]
+          description: airport 机场 / station 车站 / poi 地标
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        address:
+          type: [ string, "null" ]
+          description: 地标的地址（主数据里有才有）
+        location:
+          $ref: "#/components/schemas/SitePoint"
     SiteQuoteRequest:
       type: object
       additionalProperties: false
-      required: [ city_id, airport_id, direction, address, service_local, passengers ]
+      required: [ city_id, service_local, passengers ]
+      description: 各品类要填的字段不同（见 `POST /site/v1/quotes`）；不属于这个品类的字段不要填
       properties:
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+          description: 不填是接送机
         city_id:
           type: string
           format: uuid
         airport_id:
           type: string
           format: uuid
+          description: 接送机：机场
         direction:
           type: string
           enum: [ pickup, dropoff ]
-          description: pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
+          description: 接送机：pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
         address:
-          type: object
-          additionalProperties: false
-          required: [ lng, lat ]
-          description: 地址那一端的坐标
-          properties:
-            lng:
-              type: number
-              minimum: -180
-              maximum: 180
-            lat:
-              type: number
-              minimum: -90
-              maximum: 90
+          $ref: "#/components/schemas/SitePoint"
+          description: 接送机：地址那一端的坐标
+        pickup:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点、包车：上车点的坐标
+        dropoff:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点：下车点的坐标
+        package_hours:
+          type: integer
+          minimum: 1
+          maximum: 72
+          description: 包车：套餐时长（小时），从 `GET /site/v1/cities/{id}/charter-packages` 里选
         service_local:
           type: string
           pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -20669,8 +20900,20 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, price, free_wait_minutes, cancel_policy ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy ]
       properties:
+        package:
+          description: 包车：套餐时长和含的公里数（超时、超公里服务后按实际加收）；其他品类 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ hours, km ]
+              properties:
+                hours:
+                  type: integer
+                km:
+                  type: [ integer, "null" ]
+            - type: "null"
         quote_id:
           type: string
           pattern: "^QT\\d{8}[0-9A-Z]{10}$"
@@ -21346,12 +21589,175 @@ components:
         updated_at:
           type: string
           format: date-time
+    PricingImpactRequest:
+      description: 待提交的改动（和发起复核的入参同形；`request_note` 可以带，不用）
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [ kind, change ]
+          properties:
+            kind:
+              type: string
+              enum: [ channel.pricing ]
+            change:
+              $ref: "#/components/schemas/ChannelPricingChangeRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.create ]
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule_id, rule ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.update ]
+            rule_id:
+              type: string
+              format: uuid
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule_id ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.delete ]
+            rule_id:
+              type: string
+              format: uuid
+    PricingImpactTotals:
+      type: object
+      additionalProperties: false
+      required: [ sell_minor, settlement_minor, margin_minor ]
+      description: 合计（渠道结算币种的最小货币单位）：对外价、结算价、毛利（= 对外价 − 结算价）
+      properties:
+        sell_minor:
+          type: integer
+        settlement_minor:
+          type: integer
+        margin_minor:
+          type: integer
+    PricingImpactSection:
+      type: object
+      additionalProperties: false
+      required: [ total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable ]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少个报价（每个车型组一个 quote_id）
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+    PricingImpactOrderSection:
+      type: object
+      additionalProperties: false
+      required: [ total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable, cancelled_with_fee, cancelled_free ]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少张付过款的订单
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+        cancelled_with_fee:
+          type: integer
+          description: 付过款后有偿取消、按扣款比例计入的单数（含在 count 里）
+        cancelled_free:
+          type: integer
+          description: 付过款后免费取消的单数（毛利为 0，不计入 count）
+    PricingImpact:
+      type: object
+      additionalProperties: false
+      required: [ computed_at, window_days, from, to, settle_currency, quotes, orders ]
+      description: |
+        近 30 天毛利试算（ADR 0033）。改前 = 按现在的规则重算，改后 = 按改动后的规则重算，差额 = 改后 − 改前；都重新选中标、用快照汇率。
+        **估算**：客人面对新价格还会不会下单无法知道。
+      properties:
+        computed_at:
+          type: string
+          format: date-time
+        window_days:
+          type: integer
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        settle_currency:
+          type: string
+          description: 金额的币种：渠道的结算币种
+        quotes:
+          $ref: "#/components/schemas/PricingImpactSection"
+        orders:
+          $ref: "#/components/schemas/PricingImpactOrderSection"
     SignedMoney:
       type: object
       additionalProperties: false
       required:
-      - amount
-      - currency
+        - amount
+        - currency
       description: 带符号的金额（账单里扣款、合计为负时是负数）
       properties:
         amount:
@@ -21363,27 +21769,27 @@ components:
     StatementStatus:
       type: string
       enum:
-      - issued
-      - disputed
-      - confirmed
-      - in_payout
-      - paid
-      - settled
-      - carried
-      - void
+        - issued
+        - disputed
+        - confirmed
+        - in_payout
+        - paid
+        - settled
+        - carried
+        - void
       description: |
         `issued` 待供应商确认；`disputed` 供应商提了异议，待平台答复；`confirmed` 已确认（或确认期满视为确认），待平台双人复核；`in_payout` 复核通过，已进付款批次；
         `paid` 已付款（M5-02）；`settled` 复核通过、合计为 0，无需付款；`carried` 复核通过、合计为负，转入下一期；`void` 已作废（已重出）
     StatementLineKind:
       type: string
       enum:
-      - order
-      - no_show
-      - cancellation
-      - extra_charge
-      - deduction
-      - deduction_waiver
-      - carry_forward
+        - order
+        - no_show
+        - cancellation
+        - extra_charge
+        - deduction
+        - deduction_waiver
+        - carry_forward
       description: |
         `order` 已完成订单的结算价；`no_show` 客人未出现（审核通过，全额）；`cancellation` 有偿取消的供应商应得（结算价 × 扣款比例）；`extra_charge` 已从客人那里扣到款的事后加收（审核通过的金额）；
         `deduction` 违约金、救援差价（负数）；`deduction_waiver` 已出账的扣款后来被认定不可抗力免除，退回；`carry_forward` 上期合计为负，结转（负数）
@@ -21392,26 +21798,26 @@ components:
       additionalProperties: false
       description: 一张账单（一家供应商、一期、一种币种）。金额都是结算币种，没有对外价和加价比例（规则 4）
       required:
-      - id
-      - statement_no
-      - period
-      - currency
-      - status
-      - total
-      - line_count
-      - pay_due_on
-      - payout_on
-      - issued_at
-      - confirm_due_at
-      - confirmed_at
-      - confirmed_by_type
-      - disputed_at
-      - dispute_reason
-      - approved_at
-      - paid_at
-      - voided_at
-      - void_reason
-      - version
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
       properties:
         id:
           type: string
@@ -21437,8 +21843,8 @@ components:
           description: 应付日（次月 20 日；已清退的供应商再延后一个月）
         payout_on:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date
           description: 进了付款批次后的付款日
         issued_at:
@@ -21450,61 +21856,61 @@ components:
           description: 确认期截止：到点还是待确认的视为确认
         confirmed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         confirmed_by_type:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           enum:
-          - tenant_user
-          - system
-          - null
+            - tenant_user
+            - system
+            - null
           description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
         disputed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         dispute_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         approved_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         voided_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         void_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         version:
           type: integer
     StatementLine:
       type: object
       additionalProperties: false
       required:
-      - id
-      - kind
-      - order_id
-      - order_no
-      - service_date
-      - prior_period
-      - amount
-      - detail
-      - voided
+        - id
+        - kind
+        - order_id
+        - order_no
+        - service_date
+        - prior_period
+        - amount
+        - detail
+        - voided
       properties:
         id:
           type: string
@@ -21513,17 +21919,17 @@ components:
           $ref: '#/components/schemas/StatementLineKind'
         order_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         order_no:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         service_date:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date
         prior_period:
           type: boolean
@@ -21540,9 +21946,9 @@ components:
       type: object
       additionalProperties: false
       required:
-      - kind
-      - count
-      - amount
+        - kind
+        - count
+        - amount
       properties:
         kind:
           $ref: '#/components/schemas/StatementLineKind'
@@ -21554,33 +21960,33 @@ components:
       type: object
       additionalProperties: false
       required:
-      - action
-      - actor_type
-      - note
-      - at
+        - action
+        - actor_type
+        - note
+        - at
       properties:
         action:
           type: string
           enum:
-          - issue
-          - confirm
-          - auto_confirm
-          - dispute
-          - reply
-          - void
-          - request_review
-          - approve
-          - pay
+            - issue
+            - confirm
+            - auto_confirm
+            - dispute
+            - reply
+            - void
+            - request_review
+            - approve
+            - pay
         actor_type:
           type: string
           enum:
-          - tenant_user
-          - platform_user
-          - system
+            - tenant_user
+            - platform_user
+            - system
         note:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           description: 异议原因、平台的答复、作废原因。付款复核的说明是平台内部信息，供应商看到的「已提交复核」「复核通过」没有说明（总是 null）
         at:
           type: string
@@ -21590,29 +21996,29 @@ components:
       additionalProperties: false
       description: 一张账单和它的明细、小计、经过。没有对外价和加价比例（规则 4）
       required:
-      - id
-      - statement_no
-      - period
-      - currency
-      - status
-      - total
-      - line_count
-      - pay_due_on
-      - payout_on
-      - issued_at
-      - confirm_due_at
-      - confirmed_at
-      - confirmed_by_type
-      - disputed_at
-      - dispute_reason
-      - approved_at
-      - paid_at
-      - voided_at
-      - void_reason
-      - version
-      - summary
-      - lines
-      - events
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - summary
+        - lines
+        - events
       properties:
         id:
           type: string
@@ -21638,8 +22044,8 @@ components:
           description: 应付日（次月 20 日；已清退的供应商再延后一个月）
         payout_on:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date
           description: 进了付款批次后的付款日
         issued_at:
@@ -21651,46 +22057,46 @@ components:
           description: 确认期截止：到点还是待确认的视为确认
         confirmed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         confirmed_by_type:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           enum:
-          - tenant_user
-          - system
-          - null
+            - tenant_user
+            - system
+            - null
           description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
         disputed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         dispute_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         approved_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         voided_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         void_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         version:
           type: integer
         summary:
@@ -21711,31 +22117,31 @@ components:
       additionalProperties: false
       description: 运营后台看到的账单：多了供应商、确认人、复核、付款批次、作废人
       required:
-      - id
-      - statement_no
-      - period
-      - currency
-      - status
-      - total
-      - line_count
-      - pay_due_on
-      - payout_on
-      - issued_at
-      - confirm_due_at
-      - confirmed_at
-      - confirmed_by_type
-      - disputed_at
-      - dispute_reason
-      - approved_at
-      - paid_at
-      - voided_at
-      - void_reason
-      - version
-      - tenant
-      - confirmed_by
-      - approval_id
-      - payout_batch_id
-      - voided_by
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - tenant
+        - confirmed_by
+        - approval_id
+        - payout_batch_id
+        - voided_by
       properties:
         id:
           type: string
@@ -21761,8 +22167,8 @@ components:
           description: 应付日（次月 20 日；已清退的供应商再延后一个月）
         payout_on:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date
           description: 进了付款批次后的付款日
         issued_at:
@@ -21774,54 +22180,54 @@ components:
           description: 确认期截止：到点还是待确认的视为确认
         confirmed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         confirmed_by_type:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           enum:
-          - tenant_user
-          - system
-          - null
+            - tenant_user
+            - system
+            - null
           description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
         disputed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         dispute_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         approved_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         voided_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         void_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         version:
           type: integer
         tenant:
           type: object
           additionalProperties: false
           required:
-          - id
-          - name
+            - id
+            - name
           properties:
             id:
               type: string
@@ -21830,61 +22236,61 @@ components:
               type: string
         confirmed_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         approval_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         payout_batch_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         voided_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
     PlatformStatementEvent:
       type: object
       additionalProperties: false
       required:
-      - action
-      - actor_type
-      - actor_id
-      - note
-      - at
+        - action
+        - actor_type
+        - actor_id
+        - note
+        - at
       properties:
         action:
           type: string
           enum:
-          - issue
-          - confirm
-          - auto_confirm
-          - dispute
-          - reply
-          - void
-          - request_review
-          - approve
-          - pay
+            - issue
+            - confirm
+            - auto_confirm
+            - dispute
+            - reply
+            - void
+            - request_review
+            - approve
+            - pay
         actor_type:
           type: string
           enum:
-          - tenant_user
-          - platform_user
-          - system
+            - tenant_user
+            - platform_user
+            - system
         actor_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         note:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         at:
           type: string
           format: date-time
@@ -21893,35 +22299,35 @@ components:
       additionalProperties: false
       description: 运营后台看到的一张账单和它的明细、小计、经过、待审核的付款复核
       required:
-      - id
-      - statement_no
-      - period
-      - currency
-      - status
-      - total
-      - line_count
-      - pay_due_on
-      - payout_on
-      - issued_at
-      - confirm_due_at
-      - confirmed_at
-      - confirmed_by_type
-      - disputed_at
-      - dispute_reason
-      - approved_at
-      - paid_at
-      - voided_at
-      - void_reason
-      - version
-      - tenant
-      - confirmed_by
-      - approval_id
-      - payout_batch_id
-      - voided_by
-      - pending_approval_id
-      - summary
-      - lines
-      - events
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - tenant
+        - confirmed_by
+        - approval_id
+        - payout_batch_id
+        - voided_by
+        - pending_approval_id
+        - summary
+        - lines
+        - events
       properties:
         id:
           type: string
@@ -21947,8 +22353,8 @@ components:
           description: 应付日（次月 20 日；已清退的供应商再延后一个月）
         payout_on:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date
           description: 进了付款批次后的付款日
         issued_at:
@@ -21960,54 +22366,54 @@ components:
           description: 确认期截止：到点还是待确认的视为确认
         confirmed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         confirmed_by_type:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           enum:
-          - tenant_user
-          - system
-          - null
+            - tenant_user
+            - system
+            - null
           description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
         disputed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         dispute_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         approved_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         voided_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         void_reason:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
         version:
           type: integer
         tenant:
           type: object
           additionalProperties: false
           required:
-          - id
-          - name
+            - id
+            - name
           properties:
             id:
               type: string
@@ -22016,28 +22422,28 @@ components:
               type: string
         confirmed_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         approval_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         payout_batch_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         voided_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         pending_approval_id:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         summary:
           type: array
@@ -22056,16 +22462,16 @@ components:
       additionalProperties: false
       description: 一个付款日的付款批次（一个批次里有多家供应商、多种币种的账单；合计按币种分开）
       required:
-      - id
-      - pay_date
-      - status
-      - created_at
-      - closed_at
-      - closed_by
-      - paid_at
-      - statement_count
-      - totals
-      - version
+        - id
+        - pay_date
+        - status
+        - created_at
+        - closed_at
+        - closed_by
+        - paid_at
+        - statement_count
+        - totals
+        - version
       properties:
         id:
           type: string
@@ -22076,27 +22482,27 @@ components:
         status:
           type: string
           enum:
-          - open
-          - closed
-          - paid
+            - open
+            - closed
+            - paid
           description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
         created_at:
           type: string
           format: date-time
         closed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         closed_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         statement_count:
           type: integer
@@ -22106,9 +22512,9 @@ components:
             type: object
             additionalProperties: false
             required:
-            - currency
-            - count
-            - total
+              - currency
+              - count
+              - total
             properties:
               currency:
                 $ref: '#/components/schemas/FxCurrency'
@@ -22123,17 +22529,17 @@ components:
       additionalProperties: false
       description: 付款批次和它里面的账单
       required:
-      - id
-      - pay_date
-      - status
-      - created_at
-      - closed_at
-      - closed_by
-      - paid_at
-      - statement_count
-      - totals
-      - version
-      - statements
+        - id
+        - pay_date
+        - status
+        - created_at
+        - closed_at
+        - closed_by
+        - paid_at
+        - statement_count
+        - totals
+        - version
+        - statements
       properties:
         id:
           type: string
@@ -22144,27 +22550,27 @@ components:
         status:
           type: string
           enum:
-          - open
-          - closed
-          - paid
+            - open
+            - closed
+            - paid
           description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
         created_at:
           type: string
           format: date-time
         closed_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         closed_by:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: uuid
         paid_at:
           type:
-          - string
-          - 'null'
+            - string
+            - 'null'
           format: date-time
         statement_count:
           type: integer
@@ -22174,9 +22580,9 @@ components:
             type: object
             additionalProperties: false
             required:
-            - currency
-            - count
-            - total
+              - currency
+              - count
+              - total
             properties:
               currency:
                 $ref: '#/components/schemas/FxCurrency'

@@ -22,7 +22,7 @@ afterEach(resetBrowser);
 const TOKEN = `nzo_${"Q".repeat(20)}_${"a".repeat(22)}`;
 const NEW_TOKEN = `nzo_${"N".repeat(43)}`;
 const HOUR = 3_600_000;
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const landingOf = (scheduledAt: string, reported: string | null = null): NonNullable<SiteOrder["landing"]> => ({
   scheduled_at: scheduledAt,
@@ -229,13 +229,13 @@ test("「我已落地」在页面上：送机单不出这一块；接机单取�
   resetBrowser();
 
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, orderRoutes(orderOf({ status: "assigned", landing: landingOf(soon, "2030-11-20T00:50:00.000Z") })));
-  assert.ok(await screen.findByText("您已确认落地：当地时间 2030-11-20 09:50。"));
+  assert.ok(await screen.findByText("您已确认落地：当地时间 2030年11月20日（周三）09:50。"));
   assertAbsent(screen.queryByRole("button", { name: "我已落地" }));
 });
 
 test("改单：姓名、电话、邮箱、航班号只在写法上不同（首尾空白、电话的空格连字符、航班号大小写和空格）不算改动，和后端同口径", () => {
-  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", address: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
-  assert.deepEqual(changeRequestOf(orderOf(), { ...base, address: " 新宿站南口 ", notes: "  " }), {}, "地址、备注只多了空白");
+  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
+  assert.deepEqual(changeRequestOf(orderOf(), { ...base, dropoffAddress: " 新宿站南口 ", notes: "  " }), {}, "地址、备注只多了空白");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, name: "李四 " }), {}, "姓名只多了一个空格：不应当提交一次乘车人修改");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, phone: " +81 90-8765-4321 ", email: " qa@example.com " }), {}, "电话只多了空格连字符、邮箱只多了空白");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, flightNo: "nh 211" }), {}, "航班号只是大小写和空格不同");
@@ -250,7 +250,7 @@ test("改单：后端回 422 NO_CHANGE 时页面提示「没有改动」，不�
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
   await actor.click(screen.getByRole("button", { name: "修改订单" }));
-  await actor.type(screen.getByLabelText("备注"), "带婴儿座椅");
+  await actor.type(screen.getByLabelText("备注（选填）"), "带婴儿座椅");
   await actor.click(screen.getByRole("button", { name: "提交修改" }));
   assert.ok(await screen.findByText("没有改动。"));
   assert.equal(screen.queryByText(/修改订单失败|修改失败/), null);
@@ -273,11 +273,11 @@ test("找回：全角的手机号（输入法常见）先转成半角再提交�
 });
 
 test("改单：只改备注时请求体只有 notes；清空备注给 null；改送机单的地址给 pickup_address", () => {
-  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", address: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
+  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, notes: " 带婴儿座椅 " }), { notes: "带婴儿座椅" });
   assert.deepEqual(changeRequestOf(orderOf({ notes: "旧备注" }), { ...base, notes: "" }), { notes: null });
   const dropoff = orderOf({ direction: "dropoff", pickup: { lng: 139.7, lat: 35.6, address: "新宿站南口" }, dropoff: null, landing: null });
-  assert.deepEqual(changeRequestOf(dropoff, { ...base, address: "涩谷站" }), { pickup_address: "涩谷站" });
+  assert.deepEqual(changeRequestOf(dropoff, { ...base, pickupAddress: "涩谷站" }), { pickup_address: "涩谷站" });
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, passengers: "0" }), { error: "人数填 1 以上的整数" });
 });
 

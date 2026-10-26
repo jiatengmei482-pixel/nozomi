@@ -157,7 +157,7 @@ test("数据范围（渠道）：列表只有范围内的；范围外的渠道�
     const res = await api.call("GET", `/platform/v1/channels/${channelB}${path}`, { token: staff.token });
     assert.equal(res.status, 404, path);
   }
-  for (const [method, path] of [["PATCH", ""], ["POST", "/pause"], ["POST", "/pricing-changes"], ["POST", "/markup-rules"], ["POST", "/api-clients"], ["POST", "/activate"]] as const) {
+  for (const [method, path] of [["PATCH", ""], ["POST", "/pause"], ["POST", "/pricing-changes"], ["POST", "/pricing-impact"], ["POST", "/markup-rules"], ["POST", "/api-clients"], ["POST", "/activate"]] as const) {
     const res = await api.call(method, `/platform/v1/channels/${channelB}${path}`, { token: staff.token, body: {}, headers: { "if-match": '"1"' } });
     assert.equal(res.status, 404, `${method} ${path}`);
   }
@@ -175,6 +175,10 @@ test("数据范围（渠道）：列表只有范围内的；范围外的渠道�
   assert.equal(approvals.total, ids.length);
   assert.equal((await api.call("GET", `/platform/v1/approvals/${pauseB.approval.id}`, { token: staff.token })).status, 404);
   assert.equal((await api.call("POST", `/platform/v1/approvals/${pauseB.approval.id}/reject`, { token: staff.token, body: {} })).status, 404);
+  // 复核的毛利试算（M3-07）同样按范围：范围外的 404；范围内的走到「这一类没有试算」
+  assert.equal((await api.call("POST", `/platform/v1/approvals/${pauseB.approval.id}/pricing-impact`, { token: staff.token })).status, 404);
+  const inScope = await api.call("POST", `/platform/v1/approvals/${pauseA.approval.id}/pricing-impact`, { token: staff.token });
+  assert.equal(inScope.body.error.code, "PRICING_IMPACT_NOT_APPLICABLE", inScope.text);
   for (const a of [pauseA, pauseB]) await ok(api.call("POST", `/platform/v1/approvals/${a.approval.id}/withdraw`, { token: m.staff.cm1.token, body: {} }));
 
   const preview = { city_id: m.ids.tokyo, category: "airport_transfer", place_id: m.ids.narita, direction: "pickup", dropoff: DROPOFF, service_time: "2026-10-20T10:00", passengers: 2, luggage: 1, currency: "JPY" };

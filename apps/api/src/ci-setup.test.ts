@@ -33,7 +33,8 @@ interface Workflow {
     {
       services?: Record<string, { image: string; env?: Record<string, string>; ports?: string[]; options?: string }>;
       env?: Record<string, string>;
-      steps: { name?: string; run?: string; uses?: string }[];
+      "timeout-minutes"?: number;
+      steps: { name?: string; run?: string; uses?: string; "timeout-minutes"?: number }[];
     }
   >;
 }
@@ -148,4 +149,15 @@ test("根目录的脚本：pnpm check 包含集成测试；两类测试的文件
   assert.match(scripts["test:integration"] ?? "", /\*\.itest\.ts/);
   assert.match(scripts["test"] ?? "", /\*\.test\.ts/);
   assert.ok(!(scripts["test"] ?? "").includes("itest"), "单元测试命令不应包含集成测试（它不需要数据库）");
+});
+
+test("端到端任务：装浏览器和跑测试各自限时，加起来不超过整个任务的上限（装系统库慢时不挤占测试的时间）", async () => {
+  const workflow = parse(await readText(".github/workflows/ci.yml")) as Workflow;
+  const e2e = workflow.jobs["e2e"];
+  assert.ok(e2e);
+  const install = e2e.steps.find((step) => step.run?.includes("playwright install"));
+  const run = e2e.steps.find((step) => step.run === "pnpm test:e2e");
+  assert.ok(install?.["timeout-minutes"] && run?.["timeout-minutes"], "两步都要单独限时");
+  assert.ok(run["timeout-minutes"] >= 20, "测试本身至少 20 分钟");
+  assert.ok((e2e["timeout-minutes"] ?? 0) >= install["timeout-minutes"] + run["timeout-minutes"] + 3, "任务上限要留出其余步骤的时间");
 });

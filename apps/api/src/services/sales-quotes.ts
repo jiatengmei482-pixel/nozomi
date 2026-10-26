@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, type CurrencyCode, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, type CurrencyCode, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -71,7 +71,8 @@ function salesReason(reason: ComparisonRefusal): SalesUnavailableReason {
 /** 存进 quotes.snapshot 的完整快照：domain 的快照 + quote_id + 渠道 + 加价规则的出处。 */
 export interface StoredQuoteSnapshot extends QuoteSnapshot {
   quoteId: string;
-  channel: { id: string; bandBp: number; markupFloorBp: number; minMarginMinor: number; settleCurrency: CurrencyCode; roundingUnit: number };
+  /** `settleFx`：渠道结算币种 → 客人支付币种的中央汇率（同币种、取不到为 null；M3-07 起才有，试算换算毛利用，ADR 0033） */
+  channel: { id: string; bandBp: number; markupFloorBp: number; minMarginMinor: number; settleCurrency: CurrencyCode; roundingUnit: number; settleFx?: FxQuote | null };
   markup: MarkupMatch;
   /** 用车日期（城市当地）、是不是走了加急 */
   serviceDate: string;
@@ -234,7 +235,7 @@ function storedSnapshots(preview: PlatformQuotePreview, now: Date): StoredQuoteS
     return {
       ...group.snapshot,
       quoteId: newQuoteId(now),
-      channel: { id: channel.id, bandBp: preview.bandBp, markupFloorBp: preview.markupFloorBp, minMarginMinor: channel.pricing.minMarginMinor, settleCurrency: channel.settleCurrency, roundingUnit: channel.pricing.sellRounding[preview.currency] ?? 1 },
+      channel: { id: channel.id, bandBp: preview.bandBp, markupFloorBp: preview.markupFloorBp, minMarginMinor: channel.pricing.minMarginMinor, settleCurrency: channel.settleCurrency, roundingUnit: channel.pricing.sellRounding[preview.currency] ?? 1, settleFx: preview.settleFx },
       markup,
       serviceDate: group.snapshot.request.serviceLocal.slice(0, 10),
       urgent: winner.offer.settlement.urgentTier !== null,

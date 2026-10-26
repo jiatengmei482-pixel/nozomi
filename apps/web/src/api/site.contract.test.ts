@@ -27,6 +27,8 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/config`],
     ["get", `${SITE_BASE}/cities`],
     ["get", `${SITE_BASE}/cities/{id}/airports`],
+    ["get", `${SITE_BASE}/cities/{id}/charter-packages`],
+    ["get", `${SITE_BASE}/cities/{id}/places`],
     ["post", `${SITE_BASE}/quotes`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
