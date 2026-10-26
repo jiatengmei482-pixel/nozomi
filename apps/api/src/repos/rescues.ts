@@ -468,11 +468,11 @@ export async function listDriverAlerts(db: Db, limit: number): Promise<{ tenantI
   return result.rows.map((row) => ({ tenantId: row["tenant_id"], id: row["id"], orderNo: row["order_no"], status: row["status"], serviceAt: row["service_at"], arrivalOverdueAt: row["arrival_overdue_at"], driverMissingReportedAt: row["driver_missing_reported_at"] }));
 }
 
-/** 暂停中的供应商名下还有几张未来订单（运营批量发起救援用）。 */
+/** 暂停中、已清退的供应商名下还有几张未来订单（运营批量发起救援用）。 */
 export async function listSuspendedTenantsWithFutureOrders(db: Db, now: Date): Promise<{ tenantId: string; name: string; orders: number }[]> {
   const result = await db.query<Row>(
     `select t.id, t.name, count(o.id)::int as n from tenants t join orders o on o.tenant_id = t.id
-      where t.status = 'suspended' and o.status in ('confirmed', 'assigned', 'departed') and o.service_at > $1
+      where t.status in ('suspended', 'terminated') and o.status in ('confirmed', 'assigned', 'departed') and o.service_at > $1
       group by t.id, t.name order by t.name, t.id`,
     [now],
   );

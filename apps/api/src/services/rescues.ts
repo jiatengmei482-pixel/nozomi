@@ -34,6 +34,9 @@ import {
   rescuePenaltyMinor,
   rescueTriggerRefusal,
   rescuedDispatchDeadline,
+  type TenantStatus,
+  tenantCanRescue,
+  tenantOutOfService,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -80,6 +83,7 @@ import {
   waiveDeductions,
 } from "../repos/rescues.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
+import { recordPerformanceEvent } from "../repos/tenant-onboarding.ts";
 import { validationFailed } from "../validation.ts";
 import { type ApprovalKind, requestApproval } from "./approvals.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
@@ -154,7 +158,7 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
   const open = await findOpenRescue(db, order.id, { lock: true });
   if (open !== null) throw rescueAlreadyOpen(open);
   const tenant = (await db.query<{ status: string }>("select status from tenants where id = $1", [order.tenantId])).rows[0];
-  const refusal = rescueTriggerRefusal(input.trigger, { status: order.status, serviceAt: order.serviceAt, dispatchDueAt: order.dispatch.dueAt, landedAt: order.dispatch.landedAt, tenantSuspended: tenant?.status === "suspended", now });
+  const refusal = rescueTriggerRefusal(input.trigger, { status: order.status, serviceAt: order.serviceAt, dispatchDueAt: order.dispatch.dueAt, landedAt: order.dispatch.landedAt, tenantSuspended: tenant !== undefined && tenantOutOfService(tenant.status as TenantStatus), now });
   if (refusal !== null) {
     const error = TRIGGER_REFUSALS[refusal];
     throw new AppError(error.status, error.code, error.message, { reason: refusal, status: order.status, trigger: input.trigger });
@@ -245,7 +249,7 @@ export async function triggerForPlatform(ctx: AppContext, principal: PlatformPri
 export async function rescueSuspendedTenant(ctx: AppContext, actor: RescueActor, tenantId: string, note: string | null, log: OrderLog): Promise<{ triggered: string[]; skipped: { orderId: string; code: string }[] }> {
   const status = await withPlatformTx(ctx.pool, async (db) => (await db.query<{ status: string }>("select status from tenants where id = $1", [tenantId])).rows[0]?.status ?? null);
   if (status === null) throw notFound("租户");
-  if (status !== "suspended") throw new AppError(409, "RESCUE_TRIGGER_NOT_MET", "这家供应商现在没有被暂停", { reason: "TENANT_NOT_SUSPENDED" });
+  if (!tenantOutOfService(status as TenantStatus)) throw new AppError(409, "RESCUE_TRIGGER_NOT_MET", "这家供应商现在没有被暂停或清退（观察期不算）", { reason: "TENANT_NOT_SUSPENDED" });
   const orderIds = await withPlatformTx(ctx.pool, (db) => listFutureOrdersOfTenant(db, tenantId, ctx.now(), 500));
   const triggered: string[] = [];
   const skipped: { orderId: string; code: string }[] = [];
@@ -579,10 +583,18 @@ export interface RescueAssignment {
  * 改派（调用方的平台事务里，订单、救援已锁）：原供应商的那一行转出、释放它的库存；救援供应商照着另起一行（占它的库存）；销售端一侧换供应商；
  * 救援记为已改派；记救援差价（应扣款项；认定过不可抗力的直接免除）；流水、推送、审计。客人付的钱不变。
  */
+/**
+ * 计入原供应商的评分（ADR 0028「履约失败率」、需求「每次救援计 1 次履约失败」）：改派成功、或救援中订单取消时记一次。
+ * 司机未到另记成 `driver_no_show`（30 天内 2 次观察、3 次暂停的依据）。同一单同一个供应商只记一次（唯一约束）。
+ */
+async function recordRescueFailure(db: Db, rescue: Rescue, now: Date): Promise<void> {
+  await recordPerformanceEvent(db, { tenantId: rescue.originalTenantId, orderId: rescue.orderId, kind: "failure", failureType: rescue.trigger === "driver_no_show" ? "driver_no_show" : "rescue", occurredAt: rescue.triggeredAt, now });
+}
+
 export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, assignment: RescueAssignment, actor: RescueActor, now: Date): Promise<void> {
   const tenant = (await db.query<{ status: string }>("select status from tenants where id = $1", [assignment.tenantId])).rows[0];
   if (tenant === undefined) throw notFound("租户");
-  if (tenant.status === "suspended") throw new AppError(409, "RESCUE_TENANT_SUSPENDED", "这家供应商现在被暂停了，不能接救援单");
+  if (!tenantCanRescue(tenant.status as TenantStatus)) throw new AppError(409, "RESCUE_TENANT_SUSPENDED", "这家供应商现在不能接单（暂停中、已清退或还没开始试运营）", { status: tenant.status });
   const product = (await db.query<{ inventory_mode: string }>("select inventory_mode from products where tenant_id = $1 and id = $2", [assignment.tenantId, assignment.productId])).rows[0];
   if (product === undefined) throw notFound("商品");
   const limited = product.inventory_mode === "limited";
@@ -639,6 +651,7 @@ export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, a
     waived: rescue.forceMajeureAt === null ? null : { at: now, reason: rescue.forceMajeureNote as string },
     now,
   });
+  await recordRescueFailure(db, rescue, now);
   await insertOrderEvent(db, order, { fromStatus: "rescue_pending", toStatus: "rescued", actor: eventActor(actor.type), reason: "RESCUED", occurredAt: now, detail: { via: assignment.via } });
   const rescued = { tenantId: assignment.tenantId, id: order.id };
   await insertOrderEvent(db, rescued, { fromStatus: null, toStatus: "confirmed", actor: eventActor(actor.type), reason: "RESCUE_ASSIGNED", occurredAt: now, detail: { via: assignment.via } });
@@ -663,6 +676,7 @@ export async function closeRescueOnCancel(db: Db, order: Order, now: Date): Prom
   if (rescue === null) return;
   for (const offer of await listRescueOffers(db, rescue.id, { lock: true })) if (offer.status === "pending") await updateOfferStatus(db, offer, { status: "withdrawn", decidedAt: now });
   await updateRescue(db, rescue.id, { status: "cancelled", closedAt: now }, now);
+  await recordRescueFailure(db, rescue, now);
 }
 
 /**
@@ -737,7 +751,7 @@ export async function requestManualAssign(ctx: AppContext, principal: PlatformPr
     if (holders.includes(input.tenantId)) throw validationFailed("body", [{ path: "/tenant_id", reason: "PREVIOUS_SUPPLIER", message: "这家以前接过这一单（原供应商），不能再指定给它" }]);
     const tenant = (await db.query<{ name: string; status: string }>("select name, status from tenants where id = $1", [input.tenantId])).rows[0];
     if (tenant === undefined) throw validationFailed("body", [{ path: "/tenant_id", reason: "UNKNOWN_TENANT", message: "供应商不存在" }]);
-    if (tenant.status === "suspended") throw validationFailed("body", [{ path: "/tenant_id", reason: "TENANT_SUSPENDED", message: "这家供应商现在被暂停了" }]);
+    if (!tenantCanRescue(tenant.status as TenantStatus)) throw validationFailed("body", [{ path: "/tenant_id", reason: "TENANT_SUSPENDED", message: "这家供应商现在不能接单（暂停中、已清退或还没开始试运营）" }]);
     const product = (
       await db.query<{ city_id: string; category: string; poi_id: string | null; version: number; currency: CurrencyCode; has_group: boolean }>(
         `select p.city_id, p.category, p.poi_id, p.version, b.currency,

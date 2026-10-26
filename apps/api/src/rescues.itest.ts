@@ -253,6 +253,10 @@ test("供应商用车前 ≥ 24 小时声明无法履约：违约金 0；原供�
   assert.equal(sales.order.status, "assigned");
   assert.deepEqual(sales.order.price.total, sellBefore);
 
+  // 评分（ADR 0028）：乙记 1 次履约失败（救援改派），甲没有
+  const failures = (await api.db.owner.query<{ tenant_id: string; failure_type: string }>("select tenant_id, failure_type from tenant_performance_events where order_id = $1 and kind = 'failure'", [order.id])).rows;
+  assert.deepEqual(failures, [{ tenant_id: m.b.tenantId, failure_type: "rescue" }]);
+
   // 审计：触发（供应商）、发救援单（运营）、接单（供应商）
   const audits = (await api.db.owner.query<{ action: string; actor_type: string }>("select action, actor_type from audit_logs where resource = 'rescue' and resource_id = $1 order by occurred_at, id", [record.id])).rows;
   assert.deepEqual(audits.map((row) => `${row.actor_type}:${row.action}`), ["tenant_user:trigger", "platform_user:offer", "tenant_user:accept"]);
@@ -433,6 +437,8 @@ test("救援中无人可接、按「供应商原因」取消：全额退款不�
   assert.equal(detail.rescues[0].offers[0].status, "withdrawn");
   assert.equal(detail.rescues[0].deductions[0].amount.amount, "5940", "用车前 3 小时声明（30%）：取消了违约金照记");
   assert.equal((await decide(c, toC.body.offer.id, "accept")).body.error.code, "RESCUE_OFFER_CLOSED");
+  const failures = (await api.db.owner.query<{ tenant_id: string; failure_type: string }>("select tenant_id, failure_type from tenant_performance_events where order_id = $1 and kind = 'failure'", [order.id])).rows;
+  assert.deepEqual(failures, [{ tenant_id: m.b.tenantId, failure_type: "rescue" }], "救援中取消也记 1 次履约失败");
 });
 
 test("规则 2：别的供应商的单不能声明、别的供应商的救援单看不到接不了、应扣款项只看得到自己的；租户角色在数据库里读不到救援表", async () => {
@@ -476,7 +482,9 @@ test("供应商被暂停：没暂停时不能批量发起；暂停后名下未�
   const refused = await api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/rescue`, { token: root, body: { note: "供应商暂停" } });
   assertMatchesOpenApi("POST", "/platform/v1/tenants/{id}/rescue", refused);
   assert.equal(refused.body.error.code, "RESCUE_TRIGGER_NOT_MET");
-  await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/suspend`, { token: root, body: { reason: "资质过期" } }));
+  // 人工暂停走双人复核（ADR 0028）：超级管理员发起、运营批准
+  const suspension = await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/suspend`, { token: root, body: { reason: "资质过期" } }), 202);
+  await ok(api.call("POST", `/platform/v1/approvals/${suspension.approval.id}/approve`, { token: await ops(), body: {} }));
   const queue = await ok(api.call("GET", "/platform/v1/rescues", { token: await ops() }));
   assert.ok(queue.suspended_tenants.some((entry: any) => entry.tenant.id === m.b.tenantId && entry.future_orders >= 1));
   const done = await api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/rescue`, { token: root, body: { note: "资质过期，名下订单改派" } });

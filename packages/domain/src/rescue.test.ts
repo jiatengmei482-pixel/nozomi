@@ -17,7 +17,10 @@ import {
   rescueTransitionAllowed,
   rescueTriggerRefusal,
   rescuedDispatchDeadline,
+  tenantCanRescue,
+  tenantOutOfService,
 } from "./rescue.ts";
+import { TENANT_STATUSES } from "./tenants.ts";
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -167,4 +170,9 @@ test("救援供应商接单后的派车截止时间：离用车还远按普通�
   assert.equal(rescuedDispatchDeadline(before(20 * MINUTE), service).getTime(), before(20 * MINUTE).getTime() + 30 * MINUTE, "不晚于用车时间的规则让它落在 20 分钟后，这里至少 30 分钟");
   const late = new Date(service.getTime() + 20 * MINUTE);
   assert.equal(rescuedDispatchDeadline(late, service).getTime(), late.getTime() + 30 * MINUTE);
+});
+
+test("供应商状态（ADR 0028）：暂停中、已清退才算「被暂停或解约」；能接救援单的是试运营和正式", () => {
+  assert.deepEqual(TENANT_STATUSES.filter(tenantOutOfService), ["suspended", "terminated"]);
+  assert.deepEqual(TENANT_STATUSES.filter(tenantCanRescue), ["trial", "active"]);
 });

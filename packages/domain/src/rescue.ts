@@ -11,6 +11,7 @@ import { rateToFraction } from "./fx.ts";
 import { type CurrencyCode, minorDigits, portionBasisPoints, roundFractionHalfAwayFromZero } from "./money.ts";
 import type { OrderStatus } from "./orders.ts";
 import type { FxQuote } from "./quote.ts";
+import { type TenantStatus, tenantBids } from "./tenants.ts";
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -109,6 +110,19 @@ export function rescueTriggerRefusal(trigger: RescueTrigger, facts: RescueTrigge
       if (!facts.tenantSuspended) return "TENANT_NOT_SUSPENDED";
       return facts.serviceAt.getTime() > now ? null : "SERVICE_TIME_PASSED";
   }
+}
+
+/**
+ * 「供应商被暂停或解约」这种情形认哪些状态（ADR 0028 的状态机）：暂停中（不管有几个暂停原因）、已清退。
+ * 观察期只是试运营 / 正式身上的标记，不是暂停，不能按这种情形救援。
+ */
+export function tenantOutOfService(status: TenantStatus): boolean {
+  return status === "suspended" || status === "terminated";
+}
+
+/** 能接救援单、能被人工指定的供应商：和参加比价同一个条件（试运营、正式；观察期照样可以）。 */
+export function tenantCanRescue(status: TenantStatus): boolean {
+  return tenantBids(status);
 }
 
 // ---- 违约金 ----
