@@ -15,6 +15,17 @@ export const SALES_RATE_LIMITS = {
   other: { max: 10, windowMs: 1_000 },
   /** 换令牌：每个来源地址每秒 10 次 */
   token: { max: 10, windowMs: 1_000 },
+  // 官网 /site/v1（ADR 0032）：按来源地址计（地址只存哈希），不占渠道自己的额度
+  /** 官网询价：每个地址每分钟 30 次 */
+  site_quote: { max: 30, windowMs: 60_000 },
+  /** 官网下单：每个地址 10 分钟 10 次 */
+  site_order: { max: 10, windowMs: 600_000 },
+  /** 用订单号找回订单：每个地址 15 分钟 10 次 */
+  site_lookup: { max: 10, windowMs: 900_000 },
+  /** 用订单号找回订单：每个订单号每小时 10 次（换着地址猜同一张单也挡得住） */
+  site_lookup_order: { max: 10, windowMs: 3_600_000 },
+  /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
+  site_read: { max: 120, windowMs: 60_000 },
 } as const;
 
 export type SalesRateScope = keyof typeof SALES_RATE_LIMITS;

@@ -61,3 +61,4 @@
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
+| `0045_site_order_links.sql` | 官网的订单查看链接（M3-05，ADR 0032）：`site_order_links`（订单、令牌的 SHA-256、下单发的还是找回发的、有效期）。平台表：平台读、追加，租户角色没有任何权限。不含任何数据（0034–0044 未使用：任务指定从 0045 起） |

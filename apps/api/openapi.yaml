@@ -113,6 +113,10 @@ tags:
   - name: 司机 H5
     description: |
       `/driver/v1`：司机凭链接（不需要账号）看这一单（没有任何价格）、回传出发 / 到达 / 接到 / 完成、填实际落地时间（附到达屏）、记联系客人、申请离开、提交 no-show（5 项证据）
+  - name: 官网
+    description: |
+      `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
+      客人凭查看令牌只看得到自己的一张单；按来源地址限速。应答里没有中标供应商（付款前）、结算价、加价比例。
   - name: Webhook
     description: |
       推送给供应商（ADR 0027）：供应商设置接收地址和订阅的事件，平台签名（HMAC-SHA256，`X-Timestamp` + `X-Signature: v1=…`，5 分钟防重放）后推送，
@@ -8744,6 +8748,542 @@ paths:
           $ref: "#/components/responses/DriverLinkInvalid"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /site/v1/config:
+    get:
+      tags: [官网]
+      operationId: getSiteConfig
+      summary: 官网开没开、币种、付款
+      description: |
+        不需要登录。`open` 为 false（没配置 `SITE_CLIENT_ID`、客户端已吊销、渠道暂停）时页面显示「暂未开放」，其余接新单的接口 503 `SITE_NOT_OPEN`。
+        `payments` 只在 Stripe 配置了时有，里面只有 publishable key（`sk_`、`whsec_` 永远不下发）；为 null 时页面显示「付款暂未开放」。每个地址每分钟 120 次。
+      responses:
+        "200":
+          description: 官网的配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteConfig"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/cities:
+    get:
+      tags: [官网]
+      operationId: listSiteCities
+      summary: 能预订接送机的城市
+      description: 启用的、在官网渠道授权范围里、有渠道卖的供应商上架了接送机商品的城市。名称来自 GeoNames（CC BY 4.0，页面要带署名）。
+      responses:
+        "200":
+          description: 城市
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/airports:
+    get:
+      tags: [官网]
+      operationId: listSiteAirports
+      summary: 这个城市里能预订接送机的机场
+      description: 启用的、有渠道卖的供应商上架了接送机商品的机场。机场数据来自 OurAirports（公有领域），中文、日文名来自 GeoNames。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 机场
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteAirport"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/quotes:
+    post:
+      tags: [官网]
+      operationId: createSiteQuotes
+      summary: 官网询价（接送机）
+      description: |
+        服务端以官网渠道的身份走正式询价（和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
+        每个地址每分钟 30 次。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteQuoteRequest"
+      responses:
+        "200":
+          description: 各车型组的报价；报不出价的在 `unavailable`（原因只有面向客人的几种）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [currency, quotes, unavailable]
+                properties:
+                  currency:
+                    type: string
+                  quotes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteQuote"
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteUnavailable"
+        "400":
+          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）等写得不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市官网不卖"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/orders:
+    post:
+      tags: [官网]
+      operationId: createSiteOrder
+      summary: 官网下单
+      description: |
+        和 `POST /sales/v1/orders` 同一个下单流程（报价有效、库存预占、下单信息校验、30 分钟付款期限），必须带 `Idempotency-Key`（重复提交得到同一张单）。
+        应答的 `link.token` 是这张单的查看令牌（`nzo_…`，**只在这一次出现**；库里只存哈希），页面跳到 `/book/order#<令牌>`。
+        Stripe 没配置时照样建单：订单待支付、`payment` 为 null，到付款期限自动取消、释放库存（ADR 0032）；配置了时 `payment.client_secret` 交给 Stripe Elements 确认付款。
+        每个地址 10 分钟 10 次。
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: "8 到 128 位的字母、数字或 `_` `.` `:` `-`（例如一个 UUID）"
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteOrderRequest"
+      responses:
+        "201":
+          description: 订单（待支付）、付款信息、查看令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, timeline, names, payment, link]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  timeline:
+                    $ref: "#/components/schemas/SiteOrderTimeline"
+                  names:
+                    $ref: "#/components/schemas/SiteOrderNames"
+                  payment:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesOrderPayment"
+                      - type: "null"
+                  link:
+                    $ref: "#/components/schemas/SiteOrderLink"
+        "400":
+          description: "`VALIDATION_FAILED`：`UNKNOWN_QUOTE`、`REQUIRED`、`NOT_APPLICABLE`、`INVALID_PHONE`、`INVALID_FLIGHT_NO`、`TOO_LONG`、`INVALID_FORMAT`、`CONSENT_REQUIRED`；没带 `Idempotency-Key`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`QUOTE_ALREADY_ORDERED`、`QUOTE_NO_LONGER_AVAILABLE`、`SOLD_OUT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "410":
+          description: "`QUOTE_EXPIRED`：报价已过有效期，请重新询价"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`IDEMPOTENCY_KEY_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`：收款服务出错，付款没建好；用同一个 `Idempotency-Key` 重试"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+        "504":
+          description: "`PAYMENT_PROVIDER_TIMEOUT`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /site/v1/orders/lookup:
+    post:
+      tags: [官网]
+      operationId: lookupSiteOrder
+      summary: 用订单号找回订单
+      description: |
+        订单号 + 下单时的邮箱（不分大小写）或手机号（去掉空格、连字符比较）。对上了发一个新的查看令牌。
+        订单号不存在、联系方式对不上、不是官网的单，一律 404 `ORDER_NOT_FOUND`。每个地址 15 分钟 10 次、每个订单号每小时 10 次（失败也算）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [order_no, contact]
+              properties:
+                order_no:
+                  type: string
+                  description: NZ 开头的订单号（不分大小写）
+                contact:
+                  type: string
+                  minLength: 3
+                  maxLength: 320
+                  description: 下单时填的邮箱或手机号
+      responses:
+        "200":
+          description: 新的查看令牌
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [link]
+                properties:
+                  link:
+                    $ref: "#/components/schemas/SiteOrderLink"
+        "400":
+          description: "`VALIDATION_FAILED`：订单号的格式不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`ORDER_NOT_FOUND`：没有找到（不说是订单号不对还是联系方式不对）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/order:
+    get:
+      tags: [官网]
+      operationId: getSiteOrder
+      summary: 客人看自己的订单
+      description: 凭查看令牌（`Authorization` 请求头带 `Bearer nzo_…`）。令牌格式不对、不存在、过期（用车后 30 天）、不是官网的单，一律 401 `ORDER_LINK_INVALID`。官网停止接单（渠道暂停）不影响已经下了的单。
+      security:
+        - siteOrderLink: []
+      responses:
+        "200":
+          description: 订单、时间线、名称
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteOrderEnvelope"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    patch:
+      tags: [官网]
+      operationId: changeSiteOrder
+      summary: 客人改单
+      description: 和 `PATCH /sales/v1/orders/{id}` 同一套规则（ADR 0029）：`If-Match` 带订单的 `version`，只给要改的字段。
+      security:
+        - siteOrderLink: []
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderChangeRequest"
+      responses:
+        "200":
+          description: 改单的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, timeline, names, change]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  timeline:
+                    $ref: "#/components/schemas/SiteOrderTimeline"
+                  names:
+                    $ref: "#/components/schemas/SiteOrderNames"
+                  change:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesOrderChange"
+                      - type: "null"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "402":
+          description: "`CHANGE_PAYMENT_DECLINED`：补差价没扣到"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`VERSION_CONFLICT`、`CHANGE_IN_PROGRESS`、`ORDER_STATE_INVALID`、`CHANGE_NOT_ALLOWED`、`CHANGE_NOT_SERVICEABLE`、`NO_SAVED_PAYMENT_METHOD`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANGE_REQUIRES_REBOOK`、`NO_CHANGE`、`VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/order/payment:
+    get:
+      tags: [官网]
+      operationId: getSiteOrderPayment
+      summary: 接着付款
+      description: 待支付的单：还没建付款就建，建好了就查出给 Stripe Elements 的 `client_secret`（不再待支付时为 null）。Stripe 没配置 503 `PAYMENT_NOT_CONFIGURED`。
+      security:
+        - siteOrderLink: []
+      responses:
+        "200":
+          description: 付款信息
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [payment]
+                properties:
+                  payment:
+                    $ref: "#/components/schemas/SalesOrderPayment"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: "`PAYMENT_NOT_CONFIGURED`：付款暂未开放"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /site/v1/order/cancel-fee:
+    get:
+      tags: [官网]
+      operationId: getSiteCancelFee
+      summary: 取消前试算退多少
+      description: 和 `GET /sales/v1/orders/{id}/cancel-fee` 一样（按下单时这一单的取消阶梯）。
+      security:
+        - siteOrderLink: []
+      parameters:
+        - name: reason
+          in: query
+          schema:
+            type: string
+            enum: [GUEST_REQUEST, CHANGE_NOT_CONFIRMED]
+            default: GUEST_REQUEST
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelFee"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/order/cancel:
+    post:
+      tags: [官网]
+      operationId: cancelSiteOrder
+      summary: 客人取消订单
+      description: 和 `POST /sales/v1/orders/{id}/cancel` 同一个流程（按阶梯扣款、退款走 Stripe；重复取消返回那一次的结果）。
+      security:
+        - siteOrderLink: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  enum: [GUEST_REQUEST, CHANGE_NOT_CONFIRMED]
+                  default: GUEST_REQUEST
+      responses:
+        "200":
+          description: 取消后的订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, timeline, names, replayed]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  timeline:
+                    $ref: "#/components/schemas/SiteOrderTimeline"
+                  names:
+                    $ref: "#/components/schemas/SiteOrderNames"
+                  replayed:
+                    type: boolean
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`FREE_CANCEL_NOT_APPLICABLE`、`PAYMENT_PROCESSING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /site/v1/order/landed:
+    post:
+      tags: [官网]
+      operationId: reportSiteGuestLanded
+      summary: 客人「我已落地」
+      description: 和 `POST /sales/v1/orders/{id}/landed` 同一个流程：只有接机单、付款后、接到客人之前；时间用系统收到的时间；提交后不能改；离计划到达还早 3 小时以上不能点。
+      security:
+        - siteOrderLink: []
+      responses:
+        "200":
+          description: 订单（含落地时间）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteOrderEnvelope"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "409":
+          description: "`LANDING_NOT_APPLICABLE`、`LANDING_ALREADY_REPORTED`、`LANDING_TOO_EARLY`、`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /site/v1/order/extra-charges/{chargeId}/dispute:
+    post:
+      tags: [官网]
+      operationId: disputeSiteExtraCharge
+      summary: 客人对事后加收提异议
+      description: 和 `POST /sales/v1/orders/{id}/extra-charges/{chargeId}/dispute` 一样：48 小时异议期内可以提，提了之后不扣款、转平台审核。
+      security:
+        - siteOrderLink: []
+      parameters:
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 提了异议之后的订单和这一项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, timeline, names, extra_charge]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  timeline:
+                    $ref: "#/components/schemas/SiteOrderTimeline"
+                  names:
+                    $ref: "#/components/schemas/SiteOrderNames"
+                  extra_charge:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesExtraCharge"
+                      - type: "null"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`DISPUTE_WINDOW_CLOSED`、`EXTRA_CHARGE_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 webhooks:
   tenantOrderEvent:
     post:
@@ -8833,6 +9373,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: 渠道用 `POST /sales/v1/oauth/token`（client_id + client_secret）换来的访问令牌，2 小时有效；渠道编号只从这里取
+    siteOrderLink:
+      type: http
+      scheme: bearer
+      description: 官网的订单查看令牌（`nzo_…`，下单或用订单号找回时发、只出现一次，库里只存哈希）：客人不需要账号；一个令牌只对应一张单，用车后 30 天失效
     driverLink:
       type: http
       scheme: bearer
@@ -9270,6 +9814,18 @@ components:
           schema:
             type: integer
           description: 还要等多少秒
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    SiteNotOpen:
+      description: "`SITE_NOT_OPEN`：官网暂未开放预订（没有配置官网的 API 客户端、客户端已吊销或渠道暂停）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    SiteLinkInvalid:
+      description: "`ORDER_LINK_INVALID`：订单的查看令牌格式不对、不存在、已过期或不是官网的单；用订单号和下单时的邮箱或手机号重新查找"
       content:
         application/json:
           schema:
@@ -17653,3 +18209,327 @@ components:
         request_sha256:
           type: string
           pattern: "^[0-9a-f]{64}$"
+    SiteConfig:
+      type: object
+      additionalProperties: false
+      required: [open, currency, payments]
+      properties:
+        open:
+          type: boolean
+          description: 官网开着（配置了官网的 API 客户端、客户端在用、渠道没暂停）
+        currency:
+          type: [string, "null"]
+          description: 客人付的币种（渠道的结算币种）；没开时为 null
+        payments:
+          description: Stripe 配置了才有；只有 publishable key
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [provider, publishable_key]
+              properties:
+                provider:
+                  type: string
+                  enum: [stripe]
+                publishable_key:
+                  type: string
+                  pattern: "^pk_(test|live)_"
+            - type: "null"
+    SiteCity:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, timezone, country_code]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        timezone:
+          type: string
+        country_code:
+          type: string
+    SiteAirport:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, location]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        location:
+          type: object
+          additionalProperties: false
+          required: [lng, lat]
+          properties:
+            lng:
+              type: number
+            lat:
+              type: number
+    SiteQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [city_id, airport_id, direction, address, service_local, passengers]
+      properties:
+        city_id:
+          type: string
+          format: uuid
+        airport_id:
+          type: string
+          format: uuid
+        direction:
+          type: string
+          enum: [pickup, dropoff]
+          description: pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
+        address:
+          type: object
+          additionalProperties: false
+          required: [lng, lat]
+          description: 地址那一端的坐标
+          properties:
+            lng:
+              type: number
+              minimum: -180
+              maximum: 180
+            lat:
+              type: number
+              minimum: -90
+              maximum: 90
+        service_local:
+          type: string
+          pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+          description: 城市当地的用车时间（接机填航班的计划到达时间）
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+    SiteQuote:
+      type: object
+      additionalProperties: false
+      required: [quote_id, expires_at, service_date, urgent, vehicle_group, price, free_wait_minutes, cancel_policy]
+      properties:
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+        expires_at:
+          type: string
+          format: date-time
+        service_date:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+        vehicle_group:
+          type: object
+          additionalProperties: false
+          required: [id, code, name, grade, seats, sample_models, combos]
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+            name:
+              $ref: "#/components/schemas/LocalizedText"
+            grade:
+              type: string
+            seats:
+              type: integer
+            sample_models:
+              type: array
+              items:
+                type: string
+            combos:
+              type: array
+              description: 这个车型组能坐的人数和行李组合（主数据）
+              items:
+                type: object
+                additionalProperties: false
+                required: [passengers, luggage]
+                properties:
+                  passengers:
+                    type: integer
+                  luggage:
+                    type: integer
+        price:
+          type: object
+          additionalProperties: false
+          required: [total, fx]
+          properties:
+            total:
+              $ref: "#/components/schemas/SalesMoney"
+            fx:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [rate, as_of]
+                  properties:
+                    rate:
+                      type: string
+                    as_of:
+                      type: string
+                      format: date-time
+                - type: "null"
+        free_wait_minutes:
+          type: [integer, "null"]
+        cancel_policy:
+          type: object
+          additionalProperties: false
+          required: [category, level, tiers]
+          description: 按现在的平台取消政策，下单后这一单适用的阶梯（下单时抄进订单，之后政策改了不影响）
+          properties:
+            category:
+              $ref: "#/components/schemas/ServiceCategory"
+            level:
+              type: string
+            tiers:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [min_hours_before, fee_bp]
+                properties:
+                  min_hours_before:
+                    type: integer
+                  fee_bp:
+                    type: integer
+    SiteUnavailable:
+      type: object
+      additionalProperties: false
+      required: [vehicle_group_id, reasons]
+      properties:
+        vehicle_group_id:
+          type: [string, "null"]
+          format: uuid
+        reasons:
+          type: array
+          items:
+            type: string
+            enum: [NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NOT_AVAILABLE]
+    SiteOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [quote_id, passenger, save_payment_method]
+      properties:
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+        passenger:
+          $ref: "#/components/schemas/OrderPassenger"
+        flight_no:
+          type: [string, "null"]
+          maxLength: 20
+          description: 航班号：机场接机必填，送机可填
+        pickup_address:
+          type: [string, "null"]
+          maxLength: 1000
+          description: 送机时的上车地址（或酒店名）
+        dropoff_address:
+          type: [string, "null"]
+          maxLength: 1000
+          description: 接机时的下车地址（或酒店名）
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+          maxLength: 2000
+        save_payment_method:
+          type: boolean
+          description: 客人同意保存支付方式用于服务后加收（必须为 true）
+    SiteOrderLink:
+      type: object
+      additionalProperties: false
+      required: [token, expires_at]
+      description: 订单的查看令牌（只出现这一次，库里只存哈希）。页面地址是 `/book/order#<token>`
+      properties:
+        token:
+          type: string
+          pattern: "^nzo_[A-Za-z0-9_-]{43}$"
+        expires_at:
+          type: string
+          format: date-time
+    SiteOrderTimeline:
+      type: array
+      description: 订单的状态时间线（从什么到什么、原因、时间），从早到晚
+      items:
+        type: object
+        additionalProperties: false
+        required: [from_status, to_status, reason, occurred_at]
+        properties:
+          from_status:
+            oneOf:
+              - $ref: "#/components/schemas/OrderStatus"
+              - type: "null"
+          to_status:
+            $ref: "#/components/schemas/OrderStatus"
+          reason:
+            type: [string, "null"]
+          occurred_at:
+            type: string
+            format: date-time
+    SiteOrderNames:
+      type: object
+      additionalProperties: false
+      required: [city, place, vehicle_group]
+      description: 订单上城市、机场（车站）、车型组的名称
+      properties:
+        city:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [code, name]
+              properties:
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+            - type: "null"
+        place:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [code, name, type]
+              properties:
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+                type:
+                  type: string
+            - type: "null"
+        vehicle_group:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [code, name, seats]
+              properties:
+                code:
+                  type: string
+                name:
+                  $ref: "#/components/schemas/LocalizedText"
+                seats:
+                  type: integer
+            - type: "null"
+    SiteOrderEnvelope:
+      type: object
+      additionalProperties: false
+      required: [order, timeline, names]
+      properties:
+        order:
+          $ref: "#/components/schemas/SalesOrder"
+        timeline:
+          $ref: "#/components/schemas/SiteOrderTimeline"
+        names:
+          $ref: "#/components/schemas/SiteOrderNames"
