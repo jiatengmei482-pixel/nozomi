@@ -25,6 +25,7 @@ export * from "./fx-lock.ts";
 export * from "./orders.ts";
 export * from "./totp.ts";
 export * from "./ip-allowlist.ts";
+export * from "./rate-limit-key.ts";
 export * from "./second-factor.ts";
 export * from "./files.ts";
 export * from "./dispatch.ts";
