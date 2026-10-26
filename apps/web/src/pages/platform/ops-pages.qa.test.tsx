@@ -350,3 +350,52 @@ test("规则 4：供应商后台的工单、账单页面只调 /tenant/v1 的接
   assert.ok(!visits.some((call) => call.path.includes(TENANT_ID)), "租户编号不进请求地址（只来自令牌）");
   assert.ok(ORDER_ID);
 });
+
+// ---- 分页和筛选组合 ----
+
+test("分页 + 筛选组合（工单列表）：下一页带上游标和全部筛选条件；改一个条件回到第一页（不带旧游标）；上一页回到第一页", async () => {
+  const queries: URLSearchParams[] = [];
+  openApp(`/platform/tickets?type=complaint&overdue=true&assignee=${COLLEAGUE}&status=all`, "platform", "operations", (call) => {
+    if (call.method !== "GET" || call.url.pathname !== "/platform/v1/tickets") return null;
+    queries.push(call.url.searchParams);
+    const cursor = call.url.searchParams.get("cursor");
+    return json(200, { items: [platformTicketOf({ id: cursor === null ? TICKET_ID : "d2d2d2d2-dddd-4ddd-8ddd-dddddddddddd", ticket_no: cursor === null ? "TK20261026PAGE001" : "TK20261026PAGE002" })], next_cursor: cursor === null ? "c2" : null, total: 2 });
+  });
+  const u = user();
+  await screen.findByText("TK20261026PAGE001");
+  await u.click(screen.getByRole("button", { name: "下一页" }));
+  await screen.findByText("TK20261026PAGE002");
+  const second = queries.at(-1) as URLSearchParams;
+  assert.deepEqual([second.get("cursor"), second.get("type"), second.get("overdue"), second.get("assignee"), second.get("status")], ["c2", "complaint", "true", COLLEAGUE, null]);
+  await u.selectOptions(screen.getByRole("combobox", { name: /类型/ }), "lost_and_found");
+  await waitFor(() => assert.equal(queries.at(-1)?.get("type"), "lost_and_found"));
+  const changed = queries.at(-1) as URLSearchParams;
+  assert.deepEqual([changed.get("cursor"), changed.get("overdue"), changed.get("assignee")], [null, "true", COLLEAGUE], "改条件回到第一页，其余条件保留");
+  await screen.findByText("TK20261026PAGE001");
+  assert.equal(screen.queryByRole("button", { name: "上一页" })?.hasAttribute("disabled") ?? true, true, "第一页没有上一页");
+});
+
+test("分页 + 筛选组合（账单列表）：状态 + 周期 + 游标一起带上；周期写错的网址参数不带去接口", async () => {
+  const queries: URLSearchParams[] = [];
+  openApp("/platform/finance/statements?status=disputed&period=2026-09", "platform", "finance", (call) => {
+    if (call.method !== "GET" || call.url.pathname !== "/platform/v1/statements") return null;
+    queries.push(call.url.searchParams);
+    const cursor = call.url.searchParams.get("cursor");
+    return json(200, { items: [platformStatementOf({ id: cursor === null ? "s1" : "s2", statement_no: cursor === null ? "ST202609PAGEAAAA" : "ST202609PAGEBBBB", status: "disputed" })], next_cursor: cursor === null ? "c2" : null, total: 2 });
+  });
+  const u = user();
+  await screen.findByText("ST202609PAGEAAAA");
+  await u.click(screen.getByRole("button", { name: "下一页" }));
+  await screen.findByText("ST202609PAGEBBBB");
+  const last = queries.at(-1) as URLSearchParams;
+  assert.deepEqual([last.get("status"), last.get("period"), last.get("cursor")], ["disputed", "2026-09", "c2"]);
+  resetBrowser();
+  const bad: URLSearchParams[] = [];
+  openApp("/platform/finance/statements?status=nonsense&period=2026-13", "platform", "finance", (call) => {
+    if (call.method !== "GET" || call.url.pathname !== "/platform/v1/statements") return null;
+    bad.push(call.url.searchParams);
+    return json(200, { items: [], next_cursor: null, total: 0 });
+  });
+  await waitFor(() => assert.ok(bad.length > 0));
+  assert.deepEqual([bad[0]?.get("status"), bad[0]?.get("period")], [null, null]);
+});

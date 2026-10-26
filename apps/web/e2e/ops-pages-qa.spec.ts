@@ -9,7 +9,7 @@
 import { randomInt } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
-import { createProductByApi, createSupplier, createWorld, post } from "./catalog.ts";
+import { createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
 import { adminCredentials, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
 const ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -300,4 +300,36 @@ test("全部操作留审计：工单认领、转交、给供应商留言、内�
   await expect(logs).toContainText(credentials.email);
   await expect(logs).toContainText("工单");
   await expect(logs.getByText(/request_reply|ticket\b/)).toHaveCount(0);
+});
+
+test("列表页的无障碍和窄屏：异常队列、工单、赔付表、账单、付款批次、审计日志（订单中心），供应商的工单、账单——亮色、暗色过 axe，320 / 768 宽不横向滚动", async ({ page, request, browser }) => {
+  test.setTimeout(240_000);
+  const seed = await prepare(request);
+  const order = await seedOrder(seed, { serviceAt: new Date(Date.now() - 2 * 3_600_000), completed: true });
+  await post(request, await salesHeaders(request, seed), `/sales/v1/orders/${order.id}/tickets`, { type: "complaint", subject: "司机迟到", description: "晚到 20 分钟", language: "zh", raised_by: "guest" }, "渠道提投诉");
+  const check = async (target: Page, path: string, heading: string): Promise<void> => {
+    await target.setViewportSize({ width: 1280, height: 900 });
+    await target.goto(path);
+    await expect(target.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+    await expect(target.locator(".skeleton")).toHaveCount(0);
+    await expectAccessible(target, `${path}（亮色）`);
+    await target.emulateMedia({ colorScheme: "dark" });
+    await expectAccessible(target, `${path}（暗色）`);
+    await target.emulateMedia({ colorScheme: "light" });
+    await widths(target, path);
+  };
+  const credentials = adminCredentials();
+  await loginAs(page, "platform", credentials.email, credentials.password);
+  await check(page, "/platform/exceptions", "异常队列");
+  await check(page, "/platform/tickets", "工单");
+  await check(page, "/platform/compensation-table", "客人赔付表");
+  await check(page, "/platform/finance/statements", "账单");
+  await check(page, "/platform/finance/payout-batches", "付款批次");
+  await check(page, "/platform/settings/audit-logs?resource=ticket", "审计日志");
+  const tenantContext = await browser.newContext();
+  const tenantPage = await tenantContext.newPage();
+  await loginAs(tenantPage, "tenant", seed.adminEmail, seed.password);
+  await check(tenantPage, "/tickets", "工单");
+  await check(tenantPage, "/statements", "账单");
+  await tenantContext.close();
 });
