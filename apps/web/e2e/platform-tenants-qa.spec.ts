@@ -1054,8 +1054,9 @@ test("审计日志连真实后端：游标翻页不重不漏、从新到旧；�
   if (![database.username, database.hostname, database.pathname.slice(1)].some((shown) => shown.includes(database.password))) expect(text.includes(database.password), "页面上没有数据库密码").toBe(false);
   expect(text.includes(tech.password), "页面上没有登录密码").toBe(false);
   await expect(techPage.getByRole("row").filter({ hasText: "登录签名密钥" })).toContainText(/^登录签名密钥已配置\d+ 个字符$/);
-  await expect(techPage.getByText(/有 2 项还没有配置/)).toBeVisible();
-  await expect(techPage.locator(".alert").filter({ hasText: "还没有配置" })).toContainText("：Stripe 支付、谷歌地图。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图和 Stripe 支付也可以由超级管理员在下面的「第三方密钥」里直接填写。密钥只能由负责人本人填写，不要发在聊天里。");
+  // 谷歌地图可能正被并行的 integration-secrets.spec.ts 在后台临时填着（同一个库），所以是 1 或 2 项
+  await expect(techPage.getByText(/有 [12] 项还没有配置/)).toBeVisible();
+  await expect(techPage.locator(".alert").filter({ hasText: "还没有配置" })).toContainText(/：Stripe 支付(、谷歌地图)?。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图和 Stripe 支付也可以由超级管理员在下面的「第三方密钥」里直接填写。密钥只能由负责人本人填写，不要发在聊天里。/);
   await theirs.close();
   // 管理员在审计日志里看得到这两次查看
   await page.goto(`/platform/settings/audit-logs?actor=${tech.id}&resource=integration`);

@@ -5,7 +5,7 @@
  * 填进来的密钥原文只在两处：对话框里的输入框（不受控，React 不把值写进 value 属性）和 PUT 的请求体。
  * 不进 state、不进 localStorage、不进地址、不打日志；提交成功后输入框随对话框一起清掉，页面上只显示后端给的打码值。
  */
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { ApiError, NetworkError } from "../../api/client.ts";
 import { type IntegrationSecretItem, type IntegrationSecretKey, type IntegrationSecrets, type IntegrationTestResult, type SecretFieldName, clearIntegrationSecret, listIntegrationSecrets, saveIntegrationSecret, testIntegrationSecret } from "../../api/platform.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -358,6 +358,13 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
   const loaded = useLoad<IntegrationSecrets>("integration-secrets", listIntegrationSecrets);
   const toast = useToast();
   const [open, setOpen] = useState<Open>(null);
+  /** 清空以后「清空」按钮跟着没有了：对话框关掉、页面更新以后，焦点放到这一项的「填写」上 */
+  const [focusFill, setFocusFill] = useState<IntegrationSecretKey | null>(null);
+  useEffect(() => {
+    if (focusFill === null) return;
+    document.getElementById(fillButtonId(focusFill))?.focus();
+    setFocusFill(null);
+  }, [focusFill]);
   const encryptionNoteId = useId();
   const data = loaded.state.data;
 
@@ -438,8 +445,7 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
             replaceItem(cleared);
             toast(`已清空「${cleared.label}」在后台填写的密钥`);
             onChanged();
-            // 「清空」按钮跟着没有了：焦点放到这一项的「填写」上
-            setTimeout(() => document.getElementById(fillButtonId(cleared.key))?.focus(), 0);
+            setFocusFill(cleared.key);
           }}
         />
       )}
