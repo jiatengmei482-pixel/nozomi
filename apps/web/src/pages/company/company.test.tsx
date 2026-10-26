@@ -146,6 +146,7 @@ test("企业资质：入驻进度列出还缺什么；按清单逐项上传—�
   assert.equal(sent[0]?.headers["content-type"], "application/pdf");
   assert.deepEqual(sent[1]?.body, { type: "vehicle_insurance", file_id: FILE_ID, expires_on: "2027-10-01", note: null });
   await waitFor(() => assert.match(screen.getByRole("region", { name: "资质清单" }).textContent ?? "", /营运车辆商业保险.*审核中/));
+  assert.match(screen.getByRole("row", { name: /营运车辆商业保险/ }).textContent ?? "", /2027-10-01（审核中）/, "审核前就看得到填的到期日");
 
   await user.click(screen.getByRole("button", { name: "提交审核" }));
   await screen.findByText("还不能提交：结算账户证明：还没有提交。");
@@ -194,6 +195,7 @@ test("运营后台供应商详情：审核中的可以签约；资质逐项审�
   await screen.findByRole("heading", { level: 1, name: "丙车队" });
   const progress = await screen.findByRole("region", { name: "入驻进度" });
   assert.match(progress.textContent ?? "", /签约前还缺：还没有已生效的合同/);
+  assert.match((await screen.findByRole("row", { name: /营运车辆商业保险/ })).textContent ?? "", /2027-10-01（审核中）/, "运营审核前在资质表里就看得到供应商填的到期日");
   await user.click(within(progress).getByRole("button", { name: "签约" }));
   const sign = screen.getByRole("dialog", { name: "和「丙车队」签约" });
   await user.click(within(sign).getByRole("button", { name: "签约" }));

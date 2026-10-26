@@ -34,7 +34,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { saveFile } from "../../lib/download.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, TENANT_STATUS_HINTS, fileSizeText, issueText, noticeText, standingNotice } from "../../lib/onboarding-display.ts";
+import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, TENANT_STATUS_HINTS, fileSizeText, issueText, noticeText, requirementExpiryText, standingNotice } from "../../lib/onboarding-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -277,7 +277,7 @@ function DocumentsCard({ company, canManage, onChanged }: { company: CompanyOver
                       <StatusBadge {...REQUIREMENT_BADGES[item.state]} />
                       {renewing && <span className="table__muted">（新的一份审核中）</span>}
                     </td>
-                    <td>{item.expires_on === null ? (item.expiry === "none" ? "无到期日" : "—") : `${item.expires_on}${item.days_left !== null && item.days_left > 0 ? `（还有 ${item.days_left} 天）` : ""}`}</td>
+                    <td>{requirementExpiryText(item, latest)}</td>
                     <td>{latest?.review_reason ?? "—"}</td>
                     <td>
                       <span className="table__actions">

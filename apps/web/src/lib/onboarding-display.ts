@@ -2,7 +2,7 @@
  * 供应商入驻（M4-01，ADR 0028）在页面上的说法：状态、暂停和观察的原因、资质的现状、状态记录的动作、提醒、评分。
  * 两个后台用同一套，供应商后台不写平台内部的说明。
  */
-import type { DocumentStatus, NoticeKind, RequirementState, ScoreComponentKey, StatusTrigger, TenantIssue, TenantNotice, TenantStatusEvent } from "../api/onboarding.ts";
+import type { DocumentRequirement, DocumentStatus, NoticeKind, RequirementState, ScoreComponentKey, StatusTrigger, TenantIssue, TenantNotice, TenantStatusEvent } from "../api/onboarding.ts";
 import type { ObservationReason, SuspensionReason, Tenant, TenantStatus } from "../api/types.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
@@ -56,6 +56,20 @@ export const REQUIREMENT_BADGES: Readonly<Record<RequirementState, BadgeSpec>> =
   expiring: { tone: "warning", label: "快到期" },
   expired: { tone: "danger", label: "已到期" },
 };
+
+/**
+ * 资质清单「到期日」一列：已通过的那一份的到期日（快到期时带剩几天）；还没有通过的、或换证时新交的一份在审核中，
+ * 也写出供应商填的到期日并标「审核中」——审核前就看得到填的是哪天（M4-10）。
+ */
+export function requirementExpiryText(item: Pick<DocumentRequirement, "expiry" | "approved_document_id" | "expires_on" | "days_left">, latest: { id: string; status: DocumentStatus; expires_on: string | null } | undefined): string {
+  const pending = latest !== undefined && latest.status === "pending" && latest.id !== item.approved_document_id && latest.expires_on !== null ? latest.expires_on : null;
+  if (item.expires_on === null) {
+    if (pending !== null) return `${pending}（审核中）`;
+    return item.expiry === "none" ? "无到期日" : "—";
+  }
+  const current = `${item.expires_on}${item.days_left !== null && item.days_left > 0 ? `（还有 ${item.days_left} 天）` : ""}`;
+  return pending !== null && pending !== item.expires_on ? `${current}；新的一份 ${pending}（审核中）` : current;
+}
 
 export const DOCUMENT_STATUS_BADGES: Readonly<Record<DocumentStatus, BadgeSpec>> = {
   pending: { tone: "info", label: "审核中" },
