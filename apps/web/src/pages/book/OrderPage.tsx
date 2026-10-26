@@ -59,7 +59,7 @@ function LookupForm({ expired }: { expired: boolean }) {
   return (
     <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
       <AlertSlot notice={notice} />
-      <TextField label="订单号" size="lg" required autoCapitalize="characters" placeholder="NZ20261026AB12CD34" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />
+      <TextField label="订单号" size="lg" required autoCapitalize="characters" autoComplete="off" spellCheck={false} hint="NZ 开头的 18 位，在订单页顶部" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />
       <TextField label="下单时的邮箱或手机号" size="lg" required autoComplete="email" value={contact} errors={errors.contact ? [errors.contact] : []} onChange={(event) => setContact(event.target.value)} />
       <div className="site-actions">
         <Button type="submit" variant="primary" size="lg" block loading={busy} loadingText="正在查找">
@@ -123,7 +123,7 @@ export function OrderPage() {
     return (
       <SiteLayout attribution={false}>
         <h1 className="site__title">订单</h1>
-        <StateBlock title="订单没有读出来" description={loaded.message} action={<Button onClick={refresh}>重试</Button>} />
+        <StateBlock title="订单没有读出来" description={loaded.message} action={<Button size="lg" onClick={refresh}>重试</Button>} />
       </SiteLayout>
     );
   }

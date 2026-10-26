@@ -240,11 +240,11 @@ export function BookPage() {
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
     body = <Skeleton lines={["long", "control", "control", "control", "control"]} label="正在打开预订页" />;
   } else if (config.kind === "failed") {
-    body = <StateBlock title="页面没有打开" description={config.message} action={<Button onClick={reloadConfig}>重试</Button>} />;
+    body = <StateBlock title="页面没有打开" description={config.message} action={<Button size="lg" onClick={reloadConfig}>重试</Button>} />;
   } else if (!config.config.open) {
     body = <StateBlock tone="neutral" title="暂未开放预订" description="官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。" />;
   } else if (cities.kind === "failed") {
-    body = <StateBlock title="城市列表没有读出来" description={cities.message} action={<Button onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
+    body = <StateBlock title="城市列表没有读出来" description={cities.message} action={<Button size="lg" onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订接送机的城市，请稍后再来。" />;
   } else {
@@ -277,7 +277,7 @@ export function BookPage() {
             onChange={(direction) => update({ direction })}
           />
           {airportError !== null ? (
-            <StateBlock headingLevel="h3" title="机场列表没有读出来" description={airportError} action={<Button onClick={() => setAirportRound((value) => value + 1)}>重试</Button>} />
+            <StateBlock headingLevel="h3" title="机场列表没有读出来" description={airportError} action={<Button size="lg" onClick={() => setAirportRound((value) => value + 1)}>重试</Button>} />
           ) : (
             <SelectField
               label="机场"

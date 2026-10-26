@@ -24,6 +24,7 @@
 | [`pages/tenant-products.md`](./pages/tenant-products.md) | 商品：列表、分步配置（基础信息、服务规则、商品详情）、上架检查与上下架 |
 | [`pages/tenant-prices.md`](./pages/tenant-prices.md) | 商品的第 ③ 步：价格规则（固定一口价 / 里程 + 时长 / 包车套餐、缺价的组合、生效日期重叠）、调价规则（步骤、顺序、试算）、价格日历、取整单位；菜单里的「价格规则」 |
 | [`pages/tenant-inventory.md`](./pages/tenant-inventory.md) | 商品的第 ④ 步：库存模式（不限量 / 限量）、库存日历、改某一天、批量设置；价格和库存的 Excel 导入导出（下载模版、选文件、检查结果、确认导入） |
+| [`pages/site-booking.md`](./pages/site-booking.md) | 官网（客人用）：预订接送机（询价、报价卡片）、填写订单、订单页（付款 / 付款暂未开放、我已落地、修改、取消、服务后的费用和异议）、查订单与链接失效；官网的字号、控件、必填写法、语气与信任感、手机优先的断点 |
 | [`contrast-check.mjs`](./contrast-check.mjs) | 校验脚本：两段暗色令牌一致、亮暗令牌齐全、对比度达标 |
 
 以后每个有界面的任务，在 `pages/` 下加一篇页面说明，固定写四件事：给谁用、要完成什么、首屏看到什么、空状态和出错时显示什么。

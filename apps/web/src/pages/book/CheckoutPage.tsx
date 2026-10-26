@@ -12,6 +12,7 @@ import { type SiteOrderRequest, createSiteOrder } from "../../api/site.ts";
 import { AlertSlot, type Notice } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
+import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
@@ -81,7 +82,7 @@ export function CheckoutPage() {
     return (
       <SiteLayout>
         <h1 className="site__title">填写订单</h1>
-        <StateBlock tone="neutral" title="还没有选车" description="请先查询价格、选好车型再来填写订单。" action={<LinkButton to={SITE_HOME_PATH} variant="primary">去查询价格</LinkButton>} />
+        <StateBlock tone="neutral" title="还没有选车" description="请先查询价格、选好车型再来填写订单。" action={<LinkButton to={SITE_HOME_PATH} variant="primary" size="lg">去查询价格</LinkButton>} />
       </SiteLayout>
     );
   }
@@ -171,7 +172,7 @@ export function CheckoutPage() {
             </dd>
           </div>
           <div className="site-facts__item">
-            <dt>价格</dt>
+            <dt>总价（按车计价，已含高速费和停车费）</dt>
             <dd className="site-price">{moneyText(quote.price.total)}</dd>
           </div>
           <div className="site-facts__item">
@@ -189,9 +190,9 @@ export function CheckoutPage() {
         <h2 className="site-section__title">乘车人和联系方式</h2>
         <AlertSlot notice={notice} />
         <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => update({ name: event.target.value })} />
-        <TextField label="手机号（带国家码）" size="lg" required type="tel" autoComplete="tel" placeholder="+81 90-1234-5678" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint="司机和客服用它联系您" onChange={(event) => update({ phone: event.target.value })} />
-        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" value={form.email} errors={errors.email ? [errors.email] : []} hint="以后可以用订单号和这个邮箱查找订单" onChange={(event) => update({ email: event.target.value })} />
-        <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" required={pickup} autoCapitalize="characters" placeholder="NH211" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} onChange={(event) => update({ flightNo: event.target.value })} />
+        <TextField label="手机号（带国家码）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint="以 + 和国家码开头，如 +81 90-1234-5678。司机和客服用它联系您" onChange={(event) => update({ phone: event.target.value })} />
+        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint="以后可以用订单号和这个邮箱查找订单" onChange={(event) => update({ email: event.target.value })} />
+        <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" required={pickup} autoCapitalize="characters" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint={pickup ? "如 NH211。航班延误时司机按实际落地时间等候" : "如 NH211"} onChange={(event) => update({ flightNo: event.target.value })} />
         <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" required value={form.address} errors={errors.address ? [errors.address] : []} hint="写给司机看的，酒店名或详细地址" onChange={(event) => update({ address: event.target.value })} />
         <div className="site-form__row">
           <SelectField<MessagingApp | "">
@@ -211,13 +212,18 @@ export function CheckoutPage() {
         </div>
         <div className="field">
           <label className="choice site-consent">
-            <input type="checkbox" checked={form.consent} aria-invalid={errors.consent ? true : undefined} aria-describedby="site-consent-help" onChange={(event) => update({ consent: event.target.checked })} />
+            <input type="checkbox" checked={form.consent} aria-invalid={errors.consent ? true : undefined} aria-describedby={errors.consent ? "site-consent-error site-consent-help" : "site-consent-help"} onChange={(event) => update({ consent: event.target.checked })} />
             <span className="choice__text">同意保存这次付款用的银行卡，用于服务后产生的费用（如超时等候）</span>
           </label>
           <p className="field__hint" id="site-consent-help">
             服务后的费用会先通知您，48 小时内可以在订单页提异议；没有异议才会扣款。
           </p>
-          {errors.consent && <p className="field__error">{errors.consent}</p>}
+          {errors.consent && (
+            <p className="field__error" id="site-consent-error">
+              <Icon name="alert-triangle" className="field__error-icon" />
+              <span>{errors.consent}</span>
+            </p>
+          )}
         </div>
         <div className="site-actions">
           {expired ? (
