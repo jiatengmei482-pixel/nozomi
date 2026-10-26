@@ -34,6 +34,8 @@ export const GUEST_STATUS_BADGES: Readonly<Record<OrderStatus, BadgeSpec>> = {
   no_show: { tone: "neutral", label: "未接到乘客" },
   cancelled: { tone: "neutral", label: "已取消" },
   rescue_pending: { tone: "warning", label: "正在为您重新安排车辆" },
+  // 原供应商那一行转给救援供应商后的状态；客人看的是当前那一行，一般看不到它，兜底写成已重新安排
+  rescued: { tone: "info", label: "已为您重新安排车辆" },
 };
 
 /** 时间线上每一步的说法。 */
@@ -49,6 +51,7 @@ export const TIMELINE_NAMES: Readonly<Record<OrderStatus, string>> = {
   no_show: "审核结果：未接到乘客",
   cancelled: "订单已取消",
   rescue_pending: "正在为您重新安排车辆",
+  rescued: "已为您重新安排车辆",
 };
 
 export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
