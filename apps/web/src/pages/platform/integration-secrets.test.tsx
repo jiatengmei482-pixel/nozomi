@@ -261,7 +261,8 @@ test("清空：确认对话框写清「清空后改用服务器配置文件里�
   assert.ok(stripeGone);
   assert.equal(within(second).queryAllByRole("button", { name: "清空" }).length, 0, "再点一次结果也一样：确认按钮去掉");
   await actor.click(within(second).getByRole("button", { name: "知道了" }));
-  await waitFor(() => assert.match(card("Stripe 支付").textContent ?? "", /现在用的未配置/), "关掉后重新取一次");
+  // 关掉后重新取一次
+  await waitFor(() => assert.match(card("Stripe 支付").textContent ?? "", /现在用的未配置/));
 });
 
 test("测试一下：测试中按钮显示加载状态；可用、不可用（带原因）、没测成都写出来，带测试时间；谷歌地图写明会产生极少量费用，Stripe 写明不产生费用", async () => {
