@@ -51,6 +51,7 @@ import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
 import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
 import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
+import { type PlatformRescueView, type TenantRescueView, orderRescueViews, tenantRescueOf } from "./rescues.ts";
 
 export interface TenantOrderListQuery {
   status: OrderStatus | null;
@@ -118,10 +119,12 @@ export interface TenantOrderDetail {
   /** 改单、事后加收（M3-03） */
   changes: OrderChange[];
   extraCharges: ExtraCharge[];
+  /** 这一单和救援改派的关系（M3-04）：原供应商 / 救援供应商；没有为 null */
+  rescue: TenantRescueView | null;
 }
 
 export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
-  return withTenantTx(
+  const detail = await withTenantTx(
     ctx.pool,
     tenantId,
     async (db) => {
@@ -132,6 +135,9 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
     },
     { snapshot: true },
   );
+  // 救援记录在平台表里（涉及几家供应商）：在平台事务里只取和令牌里这个供应商有关的那一部分
+  const rescue = await withPlatformTx(ctx.pool, (db) => tenantRescueOf(db, { tenantId, id: orderId }), { snapshot: true });
+  return { ...detail, rescue };
 }
 
 /** 一张订单的一张照片（供应商后台、运营后台查看证据）。 */
@@ -177,6 +183,8 @@ export interface PlatformOrderDetail {
   changes: OrderChange[];
   changeSales: Map<string, ChangeSale>;
   extraCharges: ExtraCharge[];
+  /** M3-04：这一单的全部救援改派 */
+  rescues: PlatformRescueView[];
 }
 
 export async function getOrderForPlatform(ctx: AppContext, orderId: string): Promise<PlatformOrderDetail> {
@@ -205,6 +213,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string): Pro
         changes: await listOrderChanges(db, order.tenantId, orderId),
         changeSales: await listChangeSales(db, orderId),
         extraCharges: await listExtraCharges(db, order.tenantId, orderId),
+        rescues: await orderRescueViews(db, orderId),
       };
     },
     { snapshot: true },

@@ -45,7 +45,9 @@ export type AuditResource =
   | "cancellation_policy"
   | "order_change"
   | "extra_charge"
-  | "refund";
+  | "refund"
+  | "rescue"
+  | "rescue_offer";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -99,7 +101,11 @@ export type AuditAction =
   | "cancel"
   | "change"
   | "decide"
-  | "charge";
+  | "charge"
+  | "trigger"
+  | "offer"
+  | "accept"
+  | "waive";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

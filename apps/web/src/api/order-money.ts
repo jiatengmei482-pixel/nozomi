@@ -9,6 +9,7 @@ import { apiRequest, apiUpload } from "./client.ts";
 import type { ListPage, Money, OrderEvent, OrderFile } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
+import type { PlatformRescue } from "./rescues.ts";
 
 export const TENANT_POLICY_PATH = `${TENANT_BASE}/cancellation-policy`;
 export const PLATFORM_POLICY_PATH = `${PLATFORM_BASE}/cancellation-policy`;
@@ -211,6 +212,8 @@ export interface PlatformOrderDetail {
   refunds: PlatformRefund[];
   changes: PlatformOrderChange[];
   extra_charges: PlatformExtraCharge[];
+  /** 这一单的全部救援改派（M3-04） */
+  rescues: PlatformRescue[];
 }
 
 export interface PlatformOrderQuery {

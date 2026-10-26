@@ -41,6 +41,7 @@ import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
+import { DECLARABLE, DeclareUnableDialog, TenantRescueSection } from "../rescues/TenantRescuePages.tsx";
 
 const TRAIL = [{ label: "订单", to: ORDER_LIST_PATH }];
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系你们的管理员开通。" />;
@@ -305,6 +306,7 @@ export function OrderDetailPage() {
   const toast = useToast();
   const { state, reload } = useLoad<TenantOrderDetail>(`order|${id}`, canRead ? (t) => getOrder(t, id) : null);
   const [assigning, setAssigning] = useState(false);
+  const [declaring, setDeclaring] = useState(false);
   const [link, setLink] = useState<IssuedDriverLink | null>(null);
   const detail = state.data;
   useDocumentTitle(`${detail?.order.order_no ?? "订单"} · NOZOMI ${portal.name}`);
@@ -345,6 +347,8 @@ export function OrderDetailPage() {
 
   return shell(
     <>
+      {order.status === "rescue_pending" && <Alert kind="danger">这一单已进入救援改派：平台正在安排别的供应商，你们不能再派车或回传。</Alert>}
+      {order.status === "rescued" && <Alert kind="info">这一单已转给救援供应商，只能查看。违约金和差价见下面的「救援改派」。</Alert>}
       {order.dispatch.overdue && <Alert kind="danger">{`已过派车截止时间（${formatInZone(order.dispatch.due_at, timeZone)}）还没派车。用车前 6 小时（${formatInZone(order.dispatch.escalation_at, timeZone)}）仍未派车会进入救援改派。`}</Alert>}
       <section className="card">
         <div className="card__title-row">
@@ -363,6 +367,13 @@ export function OrderDetailPage() {
           <Detail label="免费等待">{order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}</Detail>
           <Detail label="结算价">{moneyText(order.settlement.total)}</Detail>
         </dl>
+        {canDispatch && DECLARABLE.includes(order.status) && (
+          <div className="form__actions">
+            <Button variant="text" onClick={() => setDeclaring(true)}>
+              声明无法履约
+            </Button>
+          </div>
+        )}
       </section>
 
       <section className="card">
@@ -458,6 +469,7 @@ export function OrderDetailPage() {
         </section>
       )}
 
+      <TenantRescueSection rescue={detail.rescue} />
       <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} onChanged={reload} />
       <ExtraChargesSection order={order} charges={detail.extra_charges} canSubmit={canExtraCharge} onChanged={reload} />
       <CancellationSection order={order} />
@@ -488,6 +500,17 @@ export function OrderDetailPage() {
         />
       )}
       {link !== null && <DriverLinkDialog link={link} onClose={() => setLink(null)} />}
+      {declaring && (
+        <DeclareUnableDialog
+          order={order}
+          onClose={() => setDeclaring(false)}
+          onDone={(text) => {
+            setDeclaring(false);
+            toast(text);
+            reload();
+          }}
+        />
+      )}
     </>,
     `订单 ${order.order_no}`,
   );

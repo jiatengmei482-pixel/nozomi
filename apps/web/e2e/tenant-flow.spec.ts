@@ -31,7 +31,7 @@ test("接受邀请 → 登录 → 首页 → 修改密码 → 退出 → 用新�
   await expect(detail(page, "角色")).toHaveText("管理员");
   await expect(detail(page, "供应商名称")).toHaveText(tenant.tenantName);
   await expect(detail(page, "供应商状态")).toHaveText("正常");
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "区域", "商品", "价格规则", "订单", "司机", "车辆", "企业资质", "履约评分"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "区域", "商品", "价格规则", "订单", "救援单", "违约金与扣款", "司机", "车辆", "企业资质", "履约评分"]);
 
   const stored = await page.evaluate(() => ({
     session: Object.keys(sessionStorage),

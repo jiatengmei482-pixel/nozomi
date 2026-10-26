@@ -20,7 +20,7 @@ import { webhookSignature } from "../integrations/webhook-signature.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
-import { findOrderForPlatform } from "../repos/orders.ts";
+import { findOrderOfTenant } from "../repos/orders.ts";
 import {
   type DeliveryFilter,
   type TenantWebhook,
@@ -171,7 +171,7 @@ export function newEventId(): string {
  * 在当前事务里给供应商排一条推送（付款确认是平台事务，派车、履约回传是租户事务）。没设置、暂停、没订阅的不排。返回有没有排上。
  * `data` 是事件自己的少量信息（改派的 change、状态从什么到什么），不能放乘客信息和金额。
  */
-export async function enqueueTenantEvent(db: Db, event: { tenantId: string; type: TenantWebhookEvent; orderId: string; data: Record<string, unknown> }, now: Date): Promise<boolean> {
+export async function enqueueTenantEvent(db: Db, event: { tenantId: string; type: TenantWebhookEvent; orderId: string | null; data: Record<string, unknown> }, now: Date): Promise<boolean> {
   const webhook = await findTenantWebhook(db, event.tenantId);
   if (webhook === null || webhook.status !== "active" || !webhook.events.includes(event.type)) return false;
   await insertDelivery(db, { tenantId: event.tenantId, eventId: newEventId(), eventType: event.type, orderId: event.orderId, eventData: event.data, status: "pending", nextAttemptAt: now, createdAt: now });
@@ -183,8 +183,9 @@ export async function deliveryBody(db: Db, delivery: Pick<WebhookDelivery, "tena
   let data: Record<string, unknown> = { ...delivery.eventData };
   if (delivery.eventType === WEBHOOK_TEST_EVENT) data = { message: "这是一条测试事件，用来确认接收地址和签名校验是否正常", ...data };
   if (delivery.orderId !== null) {
-    const order = await findOrderForPlatform(db, delivery.orderId);
-    if (order !== null && order.tenantId === delivery.tenantId) {
+    // 这个供应商自己的那一行（救援改派后原供应商的行已转出，发给它的「已转给救援供应商」仍带它看到的订单，ADR 0031）
+    const order = await findOrderOfTenant(db, delivery.tenantId, delivery.orderId);
+    if (order !== null) {
       const driver = order.dispatch.driverId === null ? null : ((await findDriversByIds(db, order.tenantId, [order.dispatch.driverId])).get(order.dispatch.driverId) ?? null);
       const vehicle = order.dispatch.vehicleId === null ? null : ((await findVehiclesByIds(db, order.tenantId, [order.dispatch.vehicleId])).get(order.dispatch.vehicleId) ?? null);
       data = { ...data, order: tenantOrderJson(order, { driver, vehicle }, now) };

@@ -60,6 +60,7 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "tenant.contract": "批准后这一版合同写入；到了生效日期就是这家供应商现在的结算条款。",
   "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
   "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
+  "rescue.manual_assign": "批准后这张单立即转给指定的供应商（按上面的结算价，不用它再接单），客人付的钱不变；差价记到原供应商的应扣款项。",
 };
 
 /** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */
