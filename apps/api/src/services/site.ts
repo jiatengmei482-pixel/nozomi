@@ -26,6 +26,7 @@ import {
   localDateTimeToInstant,
   inBounds,
   normalizePhone,
+  rateLimitKeyOf,
   tenantBids,
   vehicleLevel,
 } from "@nozomi/domain";
@@ -97,7 +98,8 @@ const bucketOf = (kind: string, value: string): string => createHash("sha256").u
 
 /** 占用一次官网的限流额度；超限 429。计数单独一个事务先提交，后面出错回滚时这一次照样算数。 */
 export async function takeSiteSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, key: { ip: string } | { orderNo: string }): Promise<void> {
-  const bucket = "ip" in key ? bucketOf("ip", key.ip) : bucketOf("order", key.orderNo);
+  // 来源地址按限流键计（IPv6 按 /64，ADR 0045）
+  const bucket = "ip" in key ? bucketOf("ip", rateLimitKeyOf(key.ip)) : bucketOf("order", key.orderNo);
   const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucket, scope, ctx.now()));
   if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
 }

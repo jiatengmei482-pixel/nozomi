@@ -9,6 +9,7 @@
  * 渠道的数据是平台表，所以走平台角色（ADR 0010：平台员工登录同样走平台角色）。
  */
 import { createHash } from "node:crypto";
+import { rateLimitKeyOf } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { signSalesToken, verifySalesToken } from "../auth/token.ts";
@@ -56,8 +57,8 @@ interface ClientRow {
 const CLIENT_SELECT = `select k.id, k.client_id, k.channel_id, k.secret_hash, k.secret_generation, k.retired_secrets, k.status, k.last_used_at, c.status as channel_status
   from channel_api_clients k join channels c on c.id = k.channel_id`;
 
-/** 来源地址不进限流表原文（和登录限速一样只存哈希）。 */
-const ipBucket = (ip: string): string => createHash("sha256").update(`sales-token:${ip}`, "utf8").digest("hex");
+/** 来源地址按限流键计（IPv6 按 /64，ADR 0045），不进限流表原文（和登录限速一样只存哈希）。 */
+const ipBucket = (ip: string): string => createHash("sha256").update(`sales-token:${rateLimitKeyOf(ip)}`, "utf8").digest("hex");
 
 export interface IssuedSalesToken {
   accessToken: string;
