@@ -543,7 +543,11 @@ test("所有应答（含各种错误）都不含供应商编号、结算价、�
   const sale = (await api.db.owner.query<{ api_client_id: string }>("select api_client_id from order_sales where order_id = $1", [orderId])).rows[0]!;
   const forbidden = [m.a.tenantId, m.b.tenantId, m.ids.pa, m.ids.pb, siteChannelId, siteClient.clientId, siteClient.id, sale.api_client_id, "甲车队", "19800", "20000", "19,800", "markup", "settlement", "tenant_id", "api_client", "channel_id", "client_id\""];
   for (const { label, text, paid } of texts) {
-    for (const word of forbidden) assert.ok(!text.includes(word), `${label} 里有 ${word}：${text.slice(0, 400)}`);
+    for (const word of forbidden) {
+      // 金额按「单独的数」比对：编号（UUID、订单号）里碰巧有同样几位数字不算
+      const found = /^[0-9,]+$/.test(word) ? new RegExp(`(?<![0-9A-Za-z-])${word}(?![0-9A-Za-z-])`).test(text) : text.includes(word);
+      assert.ok(!found, `${label} 里有 ${word}：${text.slice(0, 400)}`);
+    }
     if (!paid) assert.ok(!text.includes("乙车队"), `${label}：付款前出现了中标供应商`);
   }
   assert.ok(texts.find((entry) => entry.label === "view-paid")?.text.includes("乙车队"), "检查本身有效：付款后确实显示中标供应商的名字（ADR 0032 允许）");
