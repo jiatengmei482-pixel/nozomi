@@ -45,6 +45,11 @@ export async function reserveRouteCall(db: Db, day: string, allowed: (used: numb
   return ok;
 }
 
+/** 记一次「被每日上限挡下」（冷却期内直接挡下、没走占名额的那些），让系统状态里的次数是全的。 */
+export async function recordRouteRefused(db: Db, day: string): Promise<void> {
+  await db.query("insert into route_api_usage (day, refused) values ($1, 1) on conflict (day) do update set refused = route_api_usage.refused + 1", [day]);
+}
+
 /** 记下一次调用的结果：成功记时间；失败记次数、时间和原因代码。 */
 export async function recordRouteOutcome(db: Db, day: string, outcome: { ok: true } | { ok: false; code: RouteFailureCode }, at: Date): Promise<void> {
   if (outcome.ok) {

@@ -13,7 +13,7 @@ import { type LatLng, type RouteCacheKey, type RouteFailureCode, type RouteLooku
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import type { ComputedRoute } from "../integrations/google-maps.ts";
-import { type CachedRoute, findRouteEstimate, recordRouteOutcome, reserveRouteCall, saveRouteEstimate } from "../repos/route-estimates.ts";
+import { type CachedRoute, findRouteEstimate, recordRouteOutcome, recordRouteRefused, reserveRouteCall, saveRouteEstimate } from "../repos/route-estimates.ts";
 import type { RouteEstimator } from "./quote-deps.ts";
 
 /** 读写缓存和计数的每条查询最多等多久（毫秒）：库慢的时候不拖住询价 */
@@ -79,7 +79,13 @@ export class GoogleRouteEstimator implements RouteEstimator {
     if (apiKey === null) return fail("NOT_CONFIGURED");
     const keyId = fingerprint(apiKey);
     const cooling = this.#cooldown;
-    if (cooling !== null && cooling.key === keyId && performance.now() < cooling.until) return fail(cooling.code);
+    if (cooling !== null && cooling.key === keyId && performance.now() < cooling.until) {
+      // 到了每日上限后的冷却期里直接挡下的，同样记一次「被挡下」（记不了不影响报价）
+      if (cooling.code === "DAILY_LIMIT_REACHED") {
+        await withPlatformTx(pool, (db) => recordRouteRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败"));
+      }
+      return fail(cooling.code);
+    }
 
     const day = routeUsageDay(this.#deps.now());
     let reserveFailed = false;
