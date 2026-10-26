@@ -300,7 +300,7 @@
         { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "review", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/42 ；本地单元 1321、前端组件 448 个通过，集成与端到端以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 2 个缺陷已修复", "updated": "2026-10-26" },
         { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "todo", "acceptance": ["赔付按统一表计算"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "review", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "PR_LINK ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 39 个测试（时间窗边界、防重放、并发恢复码、遍历全部路由、IP 伪造、范围外 404 不可区分），没有发现可绕过的缺陷，4 个小缺陷已修复", "updated": "2026-10-26" },
+        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "review", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/44 ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 39 个测试（时间窗边界、防重放、并发恢复码、遍历全部路由、IP 伪造、范围外 404 不可区分），没有发现可绕过的缺陷，4 个小缺陷已修复", "updated": "2026-10-26" },
         { "id": "M4-06", "title": "公司统一登录（SSO）", "role": "backend", "status": "blocked", "blockedBy": "等你确定用 Google Workspace 还是 Microsoft，并在其管理后台创建登录应用", "acceptance": ["平台员工可用公司账号登录"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-04", "title": "M4 验收", "role": "acceptance", "status": "todo", "acceptance": ["运营人员从零审核一个新租户并处理一张工单"], "evidence": "", "updated": "2026-10-07" }
       ]
