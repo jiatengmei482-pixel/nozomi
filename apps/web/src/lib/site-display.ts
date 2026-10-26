@@ -48,6 +48,8 @@ export function serviceTimeLabels(category: SiteCategory, direction: SiteDirecti
 /** 免费等待从什么时候算：只有接机从航班落地算。 */
 export function freeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
   if (minutes === null) return "不限时";
+  // 包车的免费等待是 0：从约定的开始时间起就计入包车时长（需求「免费等待与 no-show」表）
+  if (category === "charter" && minutes === 0) return "不另计免费等待（从约定的开始时间起计入包车时长）";
   return `${minutes} 分钟（${category === "airport_transfer" && direction === "pickup" ? "从航班落地起算" : "从约定的上车时间起算"}）`;
 }
 

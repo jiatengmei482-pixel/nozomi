@@ -105,7 +105,7 @@ async function product(options: { category?: Category; brand?: string; complete?
   };
   const created = await ok(call("POST", "/products", { body, on: target }), 201);
   if (options.complete) {
-    const rules = await ok(call("PUT", `/products/${created.id}/service-rules`, { version: 1, on: target, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "unlimited" } } } }));
+    const rules = await ok(call("PUT", `/products/${created.id}/service-rules`, { version: 1, on: target, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: category === "charter" ? { mode: "limited", minutes: 0 } : { mode: "unlimited" } } } }));
     const content = await ok(call("PUT", `/products/${created.id}/content`, { version: rules.version, on: target, body: { zh: { title: "测试商品" } } }));
     await ok(call("POST", `/products/${created.id}/price-rules`, { version: content.version, on: target, body: { area_id: areaIds[0], vehicle_group_id: ids["biz7"], pricing_model: "fixed", base_price: 9_000, valid_from: "2026-01-01" } }), 201);
   }

@@ -233,7 +233,11 @@ test("包车和点对点：没有接送点；各自的服务规则只显示该�
     await expect(page).toHaveURL(/\/service-rules$/);
     await expect(page.getByRole("heading", { level: 1, name: `未命名的${category}商品` })).toBeVisible();
     await expect(step(page, "基础信息")).toContainText("还差 1 项");
-    await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveValue(category === "包车" ? "0" : "15");
+    if (category === "包车") {
+      // 包车的免费等待由平台固定为 0：没有输入框，写明原因
+      await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveCount(0);
+      await expect(page.getByText(/包车不另外免费等待/)).toBeVisible();
+    } else await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveValue("15");
     await expect(page.getByLabel("接机免费等待的分钟数")).toHaveCount(0);
     await page.getByRole("checkbox", { name: "收夜间加价" }).check();
     await expect(page.getByRole("radio", { name: new RegExp(`^${unit}`) })).toBeChecked();

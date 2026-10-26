@@ -420,6 +420,7 @@ test("VALIDATION_FAILED 的原因代码：每一个实际会出现的都写在�
   await rules({ driver_languages: [{ language: "Chinese", unit_price: 0 }] }, ["INVALID_LANGUAGE"], "语言代码");
   await rules({ addons: [{ addon_id: MISSING, unit_price: 0 }, { addon_id: ids["off"], unit_price: 0 }, { addon_id: ids["guide"], unit_price: 0 }, { addon_id: ids["sign"], unit_price: 0, first_free: true }] }, ["UNKNOWN_ADDON", "ADDON_DISABLED", "ADDON_NOT_APPLICABLE"], "附加服务（按次计费的带了首个免费不再报错：当作没设）");
   await rules({ free_wait: { pickup: { mode: "unlimited" } } }, ["NOT_APPLICABLE"], "包车填了接机免等", charter);
+  await rules({ free_wait: { general: { mode: "limited", minutes: 15 } } }, ["FIXED_BY_PLATFORM"], "包车的免等只能是 0", charter);
   await content({ zh: { title: "题".repeat(101), includes: Array.from({ length: 31 }, () => "x") } }, ["TOO_LONG", "TOO_MANY"], "详情太长");
   await content({ zh: { title: "​" } }, ["REQUIRED"], "标题只有看不见的字符");
 
@@ -510,7 +511,8 @@ test("请求定义和实现一致：必填项、枚举、条数和长度上限�
     booking: { sale_from: "2026-01-01", sale_to: "2026-12-31", service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 720, note: "字".repeat(500) },
     urgent: { enabled: true, daily_quota: 10_000, tiers: Array.from({ length: 10 }, (_, index) => ({ within_hours: index + 1, surcharge: 0 })) },
     night: { enabled: true, window: { start: "23:59", end: "00:00" }, amount: 0, charge_unit: "per_hour" },
-    free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 1440 } },
+    // 包车的免等由平台固定为 0（M4-10）；分钟数的上限 1440 由下面「超一个」的 1441 和定义里的 maximum 核对
+    free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } },
     addons: [{ addon_id: ids["seat"], enabled: true, unit_price: 0, first_free: false }],
     driver_languages: [...DRIVER_LANGUAGES].map((language) => ({ language, unit_price: 0 })),
   };
