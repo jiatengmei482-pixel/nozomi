@@ -31,6 +31,12 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "cancellation_policy.review": "审核平台取消政策",
   "rescue.manage": "发起救援改派",
   "rescue.review": "审核人工指定的救援供应商",
+  "exception.manage": "订单异常",
+  "ticket.read": "看工单",
+  "ticket.manage": "处理工单",
+  "ticket.review": "审核超过阈值的工单判定",
+  "compensation_table.manage": "修改客人赔付表",
+  "compensation_table.review": "审核客人赔付表",
   "staff.read": "平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
@@ -64,6 +70,11 @@ const NEVER_WITHOUT: Readonly<Partial<Record<PlatformAction, string>>> = {
   "cancellation_policy.review": "审核平台取消政策",
   "rescue.manage": "救援改派",
   "rescue.review": "审核人工指定",
+  "exception.manage": "订单异常",
+  "ticket.manage": "处理工单",
+  "ticket.review": "审核超过阈值",
+  "compensation_table.manage": "修改客人赔付表",
+  "compensation_table.review": "审核客人赔付表",
   "staff.manage": "管理平台员工",
   "audit_log.read": "审计日志",
   "integration.read": "系统状态",
@@ -96,7 +107,7 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
   for (const role of ["readonly", "risk"] as const) {
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
-  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单", "看供应商账单和付款批次"]);
+  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单", "看工单", "看供应商账单和付款批次"]);
 });
 
 test("主数据运营、渠道经理、超级管理员的说明里都写上「看待审核的改动」（M1-18：原先被「审核汇率」「审核渠道」那一项吞掉了）", () => {

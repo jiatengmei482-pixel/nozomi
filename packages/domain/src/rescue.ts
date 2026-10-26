@@ -309,16 +309,21 @@ export const RESCUE_OFFER_STATUS_NAMES: Readonly<Record<RescueOfferStatus, strin
 
 // ---- 供应商应扣款项 ----
 
-/** 原供应商的应扣款项：违约金、救援差价。现在只记账，M5 结算时从当期或下一期账单里扣。 */
-export const DEDUCTION_KINDS = ["penalty", "rescue_difference"] as const;
+/**
+ * 供应商的应扣款项：违约金、救援差价（救援改派，ADR 0031）；赔付（结算价 × 赔付表的同一比例、车型降级的差价）、替代交通报销（工单判定，ADR 0034）。
+ * 现在只记账，M5 结算时从当期或下一期账单里扣。
+ */
+export const DEDUCTION_KINDS = ["penalty", "rescue_difference", "compensation", "reimbursement"] as const;
 export type DeductionKind = (typeof DEDUCTION_KINDS)[number];
 
 export const DEDUCTION_KIND_NAMES: Readonly<Record<DeductionKind, string>> = {
   penalty: "违约金",
   rescue_difference: "救援差价",
+  compensation: "客人赔付",
+  reimbursement: "替代交通报销",
 };
 
-/** `pending` 待结算时扣；`waived` 不可抗力免除。M5 结算时加「已扣」。 */
+/** `pending` 待结算时扣；`waived` 免除（不可抗力；工单的款项申诉成立时同样记为免除，原因写在 `waive_reason`）。M5 结算时加「已扣」。 */
 export const DEDUCTION_STATUSES = ["pending", "waived"] as const;
 export type DeductionStatus = (typeof DEDUCTION_STATUSES)[number];
 

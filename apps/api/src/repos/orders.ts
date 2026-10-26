@@ -633,6 +633,15 @@ export interface PlatformOrderFilter {
   tenantId: string | null;
   channelId: string | null;
   q: string | null;
+  /** 订单中心（M4-02，ADR 0034）：用车日期（城市当地，两端都含）、下单时间（[from, to)）、城市、品类、是否有没关的异常、乘客姓名或电话（部分匹配） */
+  serviceFrom?: string | null;
+  serviceTo?: string | null;
+  createdFrom?: Date | null;
+  createdTo?: Date | null;
+  cityId?: string | null;
+  category?: string | null;
+  exception?: "open" | "none" | null;
+  passenger?: string | null;
   /** 数据范围（ADR 0030）：只列这几个城市 / 渠道的；null 或不给 = 不限制 */
   scopeCityIds?: readonly string[] | null;
   scopeChannelIds?: readonly string[] | null;
@@ -648,14 +657,23 @@ export interface PlatformOrderRow {
 
 /** 运营后台的订单列表：跨租户、跨渠道，按下单时间从新到旧；一个订单一行（「现在的」供应商那一行，ADR 0031）。`q` 按订单号、渠道订单号精确找。销售端一侧、收款、租户和渠道的名字按这一页的订单各一条查询取回。 */
 export async function listPlatformOrders(db: Db, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<Page<PlatformOrderRow> & { total: number }> {
-  const where =
-    `($1::text is null or o.status = $1) and ($2::uuid is null or o.tenant_id = $2) and ($3::uuid is null or s.channel_id = $3) and ($4::text is null or o.order_no = $4 or s.channel_order_no = $4)` +
-    ` and ($5::uuid[] is null or o.city_id = any($5::uuid[])) and ($6::uuid[] is null or s.channel_id = any($6::uuid[]))`;
-  const params = [filter.status, filter.tenantId, filter.channelId, filter.q, filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null];
+  // 乘客电话按数字部分匹配（客人填的电话带空格、横线、+ 号）；姓名不分大小写的部分匹配
+  const passenger = filter.passenger ?? null;
+  const phoneDigits = passenger === null ? "" : passenger.replace(/\D/g, "");
+  const where = `($1::text is null or o.status = $1) and ($2::uuid is null or o.tenant_id = $2) and ($3::uuid is null or s.channel_id = $3) and ($4::text is null or o.order_no = $4 or s.channel_order_no = $4)
+    and ($5::date is null or o.service_date >= $5) and ($6::date is null or o.service_date <= $6) and ($7::timestamptz is null or o.created_at >= $7) and ($8::timestamptz is null or o.created_at < $8)
+    and ($9::uuid is null or o.city_id = $9) and ($10::text is null or o.category = $10)
+    and ($11::text is null or ($11 = 'open') = exists (select 1 from order_exceptions e where e.order_id = o.id and e.status <> 'closed'))
+    and ($12::text is null or strpos(lower(o.passenger ->> 'name'), lower($12)) > 0 or ($13::text <> '' and strpos(regexp_replace(o.passenger ->> 'phone', '\\D', '', 'g'), $13) > 0))
+    and ($14::uuid[] is null or o.city_id = any($14::uuid[])) and ($15::uuid[] is null or s.channel_id = any($15::uuid[]))`;
+  const params = [
+    filter.status, filter.tenantId, filter.channelId, filter.q, filter.serviceFrom ?? null, filter.serviceTo ?? null, filter.createdFrom ?? null, filter.createdTo ?? null,
+    filter.cityId ?? null, filter.category ?? null, filter.exception ?? null, passenger, phoneDigits, filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null,
+  ];
   const result = await db.query<Row>(
     `select ${ORDER_COLUMNS}, o.created_at::text as cursor_time from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id
-      where ${where} and ($7::timestamptz is null or (o.created_at, o.id) < ($7::timestamptz, $8::uuid))
-      order by o.created_at desc, o.id desc limit $9`,
+      where ${where} and ($16::timestamptz is null or (o.created_at, o.id) < ($16::timestamptz, $17::uuid))
+      order by o.created_at desc, o.id desc limit $18`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where ${where}`, params);

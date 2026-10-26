@@ -348,7 +348,9 @@ export interface Deduction {
   tenantId: string;
   id: string;
   orderId: string;
-  rescueId: string;
+  /** 来自救援（违约金、救援差价）或工单（赔付、报销，M4-02），二者有且只有一个 */
+  rescueId: string | null;
+  ticketId: string | null;
   kind: DeductionKind;
   amountMinor: number;
   currency: CurrencyCode;
@@ -360,7 +362,7 @@ export interface Deduction {
   updatedAt: Date;
 }
 
-const DEDUCTION_COLUMNS = "d.tenant_id, d.id, d.order_id, d.rescue_id, d.kind, d.amount_minor, d.currency, d.basis, d.status, d.waived_at, d.waive_reason, d.created_at, d.updated_at";
+const DEDUCTION_COLUMNS = "d.tenant_id, d.id, d.order_id, d.rescue_id, d.ticket_id, d.kind, d.amount_minor, d.currency, d.basis, d.status, d.waived_at, d.waive_reason, d.created_at, d.updated_at";
 
 function toDeduction(row: Row): Deduction {
   return {
@@ -368,6 +370,7 @@ function toDeduction(row: Row): Deduction {
     id: row["id"],
     orderId: row["order_id"],
     rescueId: row["rescue_id"],
+    ticketId: row["ticket_id"],
     kind: row["kind"],
     amountMinor: Number(row["amount_minor"]),
     currency: row["currency"],
@@ -380,12 +383,21 @@ function toDeduction(row: Row): Deduction {
   };
 }
 
-export async function insertDeduction(db: Db, deduction: Pick<Deduction, "tenantId" | "orderId" | "rescueId" | "kind" | "amountMinor" | "currency" | "basis"> & { waived: { at: Date; reason: string } | null; now: Date }): Promise<void> {
+export async function insertDeduction(
+  db: Db,
+  deduction: Pick<Deduction, "tenantId" | "orderId" | "rescueId" | "kind" | "amountMinor" | "currency" | "basis"> & { ticketId?: string | null; waived: { at: Date; reason: string } | null; now: Date },
+): Promise<void> {
   await db.query(
-    `insert into tenant_deductions (tenant_id, order_id, rescue_id, kind, amount_minor, currency, basis, status, waived_at, waive_reason, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $11)`,
-    [deduction.tenantId, deduction.orderId, deduction.rescueId, deduction.kind, deduction.amountMinor, deduction.currency, JSON.stringify(deduction.basis), deduction.waived === null ? "pending" : "waived", deduction.waived?.at ?? null, deduction.waived?.reason ?? null, deduction.now],
+    `insert into tenant_deductions (tenant_id, order_id, rescue_id, ticket_id, kind, amount_minor, currency, basis, status, waived_at, waive_reason, created_at, updated_at)
+     values ($1, $2, $3, $12, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $11)`,
+    [deduction.tenantId, deduction.orderId, deduction.rescueId, deduction.kind, deduction.amountMinor, deduction.currency, JSON.stringify(deduction.basis), deduction.waived === null ? "pending" : "waived", deduction.waived?.at ?? null, deduction.waived?.reason ?? null, deduction.now, deduction.ticketId ?? null],
   );
+}
+
+/** 一张工单记下的应扣款项（工单详情）。 */
+export async function listTicketDeductions(db: Db, tenantId: string, ticketId: string): Promise<Deduction[]> {
+  const result = await db.query<Row>(`select ${DEDUCTION_COLUMNS} from tenant_deductions d where d.tenant_id = $1 and d.ticket_id = $2 order by d.created_at, d.kind`, [tenantId, ticketId]);
+  return result.rows.map(toDeduction);
 }
 
 /** 不可抗力：这次救援还没免除的应扣款项全部免除。返回免除了几条。 */

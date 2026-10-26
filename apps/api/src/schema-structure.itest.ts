@@ -22,6 +22,7 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到），
  * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到），
  * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到），
+ * 以及赔付表、异常队列、工单的内部备注和客人那边的赔付金额（ADR 0034：全平台一份 / 跨供应商 / 租户碰不到），
  * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
@@ -33,6 +34,7 @@ const PLATFORM_TABLES = [
   "channel_tenants",
   "channels",
   "cities",
+  "compensation_tables",
   "fx_fetches",
   "fx_locks",
   "fx_rates",
@@ -40,6 +42,7 @@ const PLATFORM_TABLES = [
   "login_throttles",
   "markup_rules",
   "order_change_sales",
+  "order_exceptions",
   "order_payments",
   "order_refunds",
   "order_rescue_quotes",
@@ -59,6 +62,8 @@ const PLATFORM_TABLES = [
   "site_lookup_failures",
   "site_order_links",
   "tenant_roles",
+  "ticket_compensations",
+  "ticket_notes",
   "vehicle_groups",
 ];
 /** 迁移写入的系统常量（不是业务数据）：角色清单。其余的表在空库里必须是 0 行。 */
@@ -145,6 +150,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_status_events: ["SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["SELECT"],
+    // 工单和对话（ADR 0034）：供应商只看和自己有关的；回复、申诉在平台事务里做（要改工单状态，租户编号只来自令牌）
+    ticket_messages: ["SELECT"],
+    tickets: ["SELECT"],
     vehicle_groups: ["SELECT"],
   },
   [PLATFORM_DB_ROLE]: {
@@ -209,7 +217,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_contacts: ["SELECT"],
     order_files: ["SELECT"],
     order_locations: ["SELECT"],
-    order_no_show_claims: ["SELECT"],
+    // no-show 审核（ADR 0034）：平台只改结论的三列（触发器按语句检查）
+    order_no_show_claims: ["SELECT", "UPDATE"],
     vehicles: ["SELECT"],
     // Webhook（ADR 0027）：推送任务读订阅（含加密的密钥）、投递并记结果，付款确认时排队，运营后台查看和手动重推
     tenant_webhooks: ["SELECT"],
@@ -244,12 +253,22 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_documents: ["SELECT", "UPDATE"],
     tenant_files: ["INSERT", "SELECT"],
     tenant_notices: ["INSERT", "SELECT"],
-    tenant_performance_events: ["INSERT", "SELECT"],
+    // 申诉成立时撤销那张工单记下的履约事件（ADR 0034），所以能删
+    tenant_performance_events: ["DELETE", "INSERT", "SELECT"],
     tenant_profiles: ["SELECT"],
     tenant_score_daily: ["INSERT", "SELECT", "UPDATE"],
     tenant_status_events: ["INSERT", "SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
     tenants: ["INSERT", "SELECT", "UPDATE"],
+    // 赔付表（ADR 0034）：批准时追加新版本，不改不删
+    compensation_tables: ["INSERT", "SELECT"],
+    // 异常队列（ADR 0034）：系统生成、认领、关闭；不删
+    order_exceptions: ["INSERT", "SELECT", "UPDATE"],
+    // 工单（ADR 0034）：工单改状态；对话、内部备注只追加；赔付记录登记另付；都不删
+    ticket_compensations: ["INSERT", "SELECT", "UPDATE"],
+    ticket_messages: ["INSERT", "SELECT"],
+    ticket_notes: ["INSERT", "SELECT"],
+    tickets: ["INSERT", "SELECT", "UPDATE"],
     vehicle_groups: ["INSERT", "SELECT", "UPDATE"],
   },
   [PREAUTH_DB_ROLE]: {
@@ -296,6 +315,11 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 救援单、应扣款项：发救援单、供应商接 / 拒、超时顺延、记违约金和差价、不可抗力免除、运营后台查看（ADR 0031）
   "order_rescue_offers.order_rescue_offers_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "tenant_deductions.tenant_deductions_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 工单和对话：客服、渠道、系统建工单，供应商回复和申诉（平台事务里，租户编号只来自令牌），运营后台查看（ADR 0034）
+  "tickets.tickets_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "ticket_messages.ticket_messages_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // no-show 审核写结论（ADR 0034）
+  "order_no_show_claims.order_no_show_claims_platform_review": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   // 账单（ADR 0040）：出账、确认期满、复核、付款批次都是平台跨供应商做的
   ...Object.fromEntries(["statements", "statement_lines", "statement_events"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
@@ -351,6 +375,10 @@ const INDEX_EXCEPTIONS = [
   "tenant_documents_pending_idx",
   "tenant_users_email_key",
   "tenant_users_invite_token_key",
+  // 退款、赔付记录、内部备注按编号指向工单；工单号全平台唯一；运营后台跨租户的工单队列（ADR 0034）
+  "tickets_id_key",
+  "tickets_queue_idx",
+  "tickets_ticket_no_key",
   // 推送任务跨租户取到期的投递、运营后台跨租户看最终失败的投递（ADR 0027）
   "webhook_deliveries_due_idx",
   "webhook_deliveries_failed_idx",

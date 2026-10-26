@@ -516,7 +516,7 @@ export async function loadTrialProgress(db: Db, tenantId: string, since: Date, u
  */
 export async function recordPerformanceEvent(
   db: Db,
-  event: { tenantId: string; orderId: string; kind: "dispatch" | "arrival" | "complaint" | "failure"; onTime?: boolean; major?: boolean; failureType?: "rescue" | "driver_no_show" | "major_delay"; occurredAt: Date; now: Date },
+  event: { tenantId: string; orderId: string; kind: "dispatch" | "arrival" | "complaint" | "failure"; onTime?: boolean; major?: boolean; failureType?: "rescue" | "driver_no_show" | "major_delay" | "no_show_rejected"; occurredAt: Date; now: Date },
 ): Promise<boolean> {
   const result = await db.query(
     `insert into tenant_performance_events (tenant_id, order_id, kind, on_time, major, failure_type, occurred_at, recorded_at)

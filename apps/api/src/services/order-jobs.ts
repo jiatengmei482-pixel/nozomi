@@ -26,6 +26,9 @@
  * - 退款：到时候该发的（等着发的、收款服务出错后等重试的、租约到期的）发一次；
  * - 改单：供应商 30 分钟没确认的改期记为超时（补收的差价退回，客人可以免费取消）；补差价卡住的（收款服务出错、进程中途退出）接着扣；
  * - 事后加收：48 小时异议期到了的，不用审核的自动扣款、要审核的转待审核；审核通过的、等重试的扣款。
+ *
+ * 最后是异常队列（M4-02，ADR 0034，`exceptions()`）：按需求表的触发条件生成异常、条件解除的自动关闭，给 no-show 申请建审核工单。
+ * 放在最后：同一轮里前面几步记下的提醒、失败的退款马上能进队列。
  */
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -37,6 +40,7 @@ import { processDueRefunds } from "./order-money.ts";
 import { sweepOrderChanges } from "./order-changes.ts";
 import { sweepExtraCharges } from "./extra-charges.ts";
 import { type RescueSweepResult, sweepRescues } from "./rescues.ts";
+import { type ExceptionSweepResult, sweepExceptions } from "./exceptions.ts";
 
 const FIRST_TICK_MS = 5_000;
 const TICK_INTERVAL_MS = 60_000;
@@ -123,6 +127,11 @@ export class OrderJobs {
     return { refunds, changes, extraCharges };
   }
 
+  /** 异常队列（M4-02）：生成、自动关闭、给 no-show 申请建审核工单。 */
+  async exceptions(): Promise<ExceptionSweepResult> {
+    return sweepExceptions(this.ctx, this.log);
+  }
+
   private async expire(orderId: string): Promise<keyof OrderSweepResult> {
     // 锁住订单再读收款记录：还没建付款的就在这个事务里取消；建好了的拿到最新的付款编号，先去收款服务取消
     const first = await withPlatformTx(this.ctx.pool, async (db): Promise<{ outcome: keyof OrderSweepResult } | { intentId: string }> => {
@@ -167,6 +176,7 @@ export class OrderJobs {
         .then(() => this.remind())
         .then(() => this.rescue())
         .then(() => this.money())
+        .then(() => this.exceptions())
         .catch((err: unknown) => this.log.warn({ err }, "订单定时任务这一轮出错，下一轮再试"))
         .finally(() => {
           this.ticking = null;

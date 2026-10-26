@@ -182,3 +182,10 @@ test("手动重试失败的退款前的核对：作废的不能重试；退了�
   assert.equal(refundRetryRefusal({ ...base, netPaidMinor: 10_890, paymentAvailableMinor: 10_890, retainedMinor: 10_890 }), "EXCEEDS_PAID");
   assert.equal(refundRetryRefusal({ ...base, amountMinor: 10_890, netPaidMinor: 21_780, paymentAvailableMinor: 21_780, retainedMinor: 10_890 }), null, "取消的退款失败：重试它正好留下取消费");
 });
+
+test("退款后应留下的钱减去工单判定的赔付（M4-02）：没取消的单 = 对外价 − 赔付；取消了的 = 取消费 − 赔付；不低于 0", () => {
+  assert.equal(retainedAfterRefundsMinor({ cancelled: false, sellMinor: 22_000, cancelFeeBp: null, compensatedMinor: 2200 }), 19_800);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: true, sellMinor: 22_000, cancelFeeBp: 5000, compensatedMinor: 1000 }), 10_000);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: true, sellMinor: 22_000, cancelFeeBp: 0, compensatedMinor: 1000 }), 0);
+  assert.equal(retainedAfterRefundsMinor({ cancelled: false, sellMinor: 22_000, cancelFeeBp: null }), 22_000);
+});
