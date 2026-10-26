@@ -13119,7 +13119,7 @@ components:
     TicketConflict:
       description: |
         `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
-        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`；`APPEAL_SAME_REVIEWER`；
+        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`（建工单时 `details.reason` 为 `NOT_CONFIRMED`：订单还没付款，或没付款就取消了）；`APPEAL_SAME_REVIEWER`；
         `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
       content:
         application/json:
