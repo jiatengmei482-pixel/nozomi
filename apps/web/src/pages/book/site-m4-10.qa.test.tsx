@@ -16,7 +16,7 @@ import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith }
 afterEach(resetBrowser);
 
 const TOKEN = `nzo_${"M".repeat(20)}_${"q".repeat(22)}`;
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 
 const orderOf = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
