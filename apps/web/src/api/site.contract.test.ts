@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
+import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
 import { SITE_BASE, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS } from "./site.ts";
 
 interface Schema {
@@ -13,6 +14,7 @@ interface Schema {
   properties?: Record<string, Schema>;
   items?: Schema;
   oneOf?: Schema[];
+  enum?: string[];
 }
 interface Operation {
   security?: Record<string, unknown>[];
@@ -80,4 +82,14 @@ test("客人看到的报价和订单里没有结算价、加价比例、中标�
   for (const name of ["SiteQuote", "SiteOrderEnvelope", "SiteConfig"]) walk(schemas[name], new Set([name]));
   assert.ok(keys.has("price") && keys.has("cancel_policy"));
   assert.deepEqual([...keys].filter((key) => /settlement|markup|tenant_id|secret_key|webhook_secret/i.test(key)), []);
+});
+
+test("报不出价的每个原因（含路线预估的 NO_ROUTE、TEMPORARILY_UNAVAILABLE）都有给客人看的说法", () => {
+  const reasons = schemas["SiteUnavailable"]?.properties?.["reasons"]?.items?.enum ?? [];
+  assert.ok(reasons.includes("NO_ROUTE") && reasons.includes("TEMPORARILY_UNAVAILABLE"));
+  assert.deepEqual(Object.keys(UNAVAILABLE_REASON_TEXT).sort(), sorted(reasons));
+  for (const [reason, text] of Object.entries(UNAVAILABLE_REASON_TEXT)) {
+    assert.match(text, /请|暂/, `${reason} 要告诉客人怎么办`);
+    assert.doesNotMatch(text, /[A-Z_]{4,}|失败|错误/, `${reason} 不出现代码、不说失败`);
+  }
 });
