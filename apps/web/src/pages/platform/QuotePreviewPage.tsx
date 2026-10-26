@@ -541,10 +541,10 @@ export function QuotePreviewPage() {
           <fieldset className="field fieldset form-grid__wide" id="quote-time">
             <legend className="field__label">用车时间</legend>
             <div className="quote-form__time">
-              <TextField label="日期" inputMode="numeric" autoComplete="off" placeholder="2026-10-08" className="quote-form__date" value={form.date} errors={errorOf("date")} onChange={(event) => change({ date: event.target.value })} onBlur={() => change({ date: tidyDate(form.date) ?? form.date })} />
+              <TextField label="日期" inputMode="numeric" autoComplete="off" placeholder="年-月-日" className="quote-form__date" value={form.date} errors={errorOf("date")} onChange={(event) => change({ date: event.target.value })} onBlur={() => change({ date: tidyDate(form.date) ?? form.date })} />
               <TextField label="时刻" inputMode="numeric" autoComplete="off" placeholder="08:00" className="quote-form__clock" value={form.time} errors={errorOf("time")} onChange={(event) => change({ time: event.target.value })} onBlur={() => change({ time: tidyTime(form.time) ?? form.time })} />
             </div>
-            <p className="field__hint">{`按${timeZoneText}填写。`}</p>
+            <p className="field__hint">{`按${timeZoneText}填写；日期写成 2026-01-31 这样。`}</p>
           </fieldset>
           <div id="quote-passengers">
             <TextField label="人数" inputMode="numeric" autoComplete="off" value={form.passengers} errors={errorOf("passengers")} onChange={(event) => change({ passengers: event.target.value })} />

@@ -802,7 +802,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                               autoComplete="off"
                               aria-label={`${label}${ordinal} 的生效日期${field === "from" ? "从" : "到"}`}
                               aria-invalid={bad(field)}
-                              placeholder={field === "to" ? "一直有效" : "2026-01-31"}
+                              placeholder={field === "to" ? "一直有效" : "年-月-日"}
                               readOnly={rowLocked}
                               value={row[field]}
                               onChange={(event) => update(row.key, { [field]: event.target.value })}

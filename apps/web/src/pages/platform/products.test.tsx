@@ -537,6 +537,13 @@ test("试算结果：每个车型组的中标、全部候选（结算价、对�
   assert.match(document.body.textContent ?? "", /找到 3 个已上架的商品，1 个车型组报出了价。2 个商品有没报出价的，原因见最下面。/);
 });
 
+test("M4-12 报价试算的日期输入框：占位写格式「年-月-日」，不是一个具体（会变成过去）的日期；例子写在说明里", async () => {
+  open("/platform/quote-preview", "operations", () => null);
+  const date = (await screen.findByRole("textbox", { name: "日期" })) as HTMLInputElement;
+  assert.equal(date.placeholder, "年-月-日");
+  assert.match((date.closest("fieldset") as HTMLElement).textContent ?? "", /日期写成 2026-01-31 这样。/);
+});
+
 test("M4-12 试算的路程按四舍五入显示公里：7,295 米是 7.3 公里（概况和结算价明细一样），不截断成 7.2", async () => {
   const usage = { meters: 7_295, minutes: 18 };
   const base = previewOf();
