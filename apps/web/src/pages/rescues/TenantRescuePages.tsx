@@ -22,7 +22,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { CATEGORY_NAMES, directionName, formatInZone, moneyText, orderPath, routeText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { DEDUCTION_STATUS_BADGES, OFFER_STATUS_BADGES, declarePenaltyPreview, deductionBasisText, deductionKindName, offerRemainingText, penaltyText, triggerName } from "../../lib/rescue-display.ts";
+import { DEDUCTIONS_PATH, DEDUCTION_STATUS_BADGES, OFFER_STATUS_BADGES, declarePenaltyPreview, deductionBasisText, deductionKindName, offerRemainingText, penaltyText, triggerName } from "../../lib/rescue-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -127,7 +127,12 @@ export function TenantRescueSection({ rescue }: { rescue: TenantOrderRescue | nu
         {rescue.force_majeure && <Detail label="不可抗力">平台已认定，应扣款项全部免除</Detail>}
       </dl>
       {rescue.deductions.length > 0 && <DeductionList deductions={rescue.deductions} />}
-      <p className="field__hint">应扣款项现在只记账，结算时从你们的账单里扣。</p>
+      <p className="field__hint">
+        {"应扣款项现在只记账，结算时从你们的账单里扣。"}
+        <Link className="link" to={DEDUCTIONS_PATH}>
+          看全部违约金与扣款
+        </Link>
+      </p>
     </section>
   );
 }
