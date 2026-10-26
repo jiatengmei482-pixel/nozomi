@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { applyBasisPoints } from "@nozomi/domain";
 import { PaymentProviderError } from "./integrations/payments.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
-import { type Market, type Staff, addStaff, allKeys, buildMarket, ok } from "./testing/market.ts";
+import { type Market, type Staff, addStaff, allKeys, allValues, buildMarket, ok } from "./testing/market.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { completeOrder, platformLogin, tenantLogin, uploadReceipt } from "./testing/money.ts";
@@ -198,8 +198,9 @@ test("同一单几项加收累计：各自按金额 × 1.1 四舍五入扣（.5 
   const sales = (await ok(api.call("GET", `/sales/v1/orders/${order.id}`, { token: await flow.token() }))).order;
   assert.deepEqual(sales.extra_charges.map((item: any) => [item.id, item.amount.amount]), [[a.id, "1106"], [b.id, "1357"], [c.id, "1227"]], "客人看到的是自己付的");
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m.b.adminEmail) }));
-  const text = JSON.stringify(tenant);
-  for (const customer of ["1106", "1357", "1227", "21780"]) assert.ok(!text.includes(customer), `供应商看得到客人付的 ${customer}`);
+  // 按值比对：整段文本找子串会撞上编号、订单号里碰巧出现的这几位数字
+  const values = allValues(tenant);
+  for (const customer of ["1106", "1357", "1227", "21780"]) assert.ok(!values.has(customer), `供应商看得到客人付的 ${customer}`);
   for (const key of ["customer_amount", "markup_bp", "sell", "price", "payments"]) assert.ok(!allKeys(tenant).has(key), `供应商看得到 ${key}`);
 });
 

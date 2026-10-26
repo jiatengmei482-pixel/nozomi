@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { portionBasisPoints } from "@nozomi/domain";
 import { type TestApi, createTestApi } from "./testing/api.ts";
-import { type Market, type Staff, SERVICE_TIME, addStaff, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
+import { type Market, type Staff, SERVICE_TIME, addStaff, allKeys, allValues, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
@@ -126,7 +126,7 @@ test("付款后取消（24–48 小时，扣 50%）：客人退「对外价 − 
   assert.deepEqual(tenant.order.cancellation, { fee_bp: 5000, tenant_share: { amount: "9900", currency: "JPY" } });
   const keys = allKeys(tenant);
   for (const forbidden of ["refund", "refunds", "fee", "customer_fee", "sell", "markup_bp", "price", "paid"]) assert.ok(!keys.has(forbidden), `供应商看得到 ${forbidden}`);
-  assert.ok(!JSON.stringify(tenant).includes(String(sell)), "原文里没有对外价");
+  assert.ok(!allValues(tenant).has(String(sell)), "应答里没有对外价");
   const queued = await api.db.owner.query("select event_type, event_data from webhook_deliveries where order_id = $1 and event_type = 'order.cancelled'", [order.id]);
   assert.deepEqual(queued.rows.map((row) => row.event_data), [{ reason: "GUEST_REQUEST", from_status: "confirmed" }]);
   // 重复取消
