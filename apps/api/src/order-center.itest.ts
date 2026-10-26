@@ -137,6 +137,31 @@ test("支付异常：退款被收款服务拒绝 → 生成「支付异常」（
   assert.equal(done.close_kind, "cleared");
 });
 
+test("认领：已被别人认领的再认领 409（只有现在的处理人能转交）；两人同时认领同一条，只有一个成功", async () => {
+  const orderId = await paidOrderIn(5 * 24);
+  await ok(api.call("POST", `/tenant/v1/orders/${orderId}/declare-unable`, { token: await tenantLogin(api, m.b.adminEmail), body: { reason: "车辆故障" } }));
+  await api.app.orderJobs.exceptions();
+  const [exception] = await exceptionsOf(orderId);
+  const [csToken, opsToken] = [await cs(), await ops()];
+  const results = await Promise.all([
+    api.call("POST", `/platform/v1/exceptions/${exception.id}/claim`, { token: csToken, body: {} }),
+    api.call("POST", `/platform/v1/exceptions/${exception.id}/claim`, { token: opsToken, body: {} }),
+  ]);
+  assert.deepEqual(results.map((res) => res.status).sort(), [200, 409]);
+  const loser = results.find((res) => res.status === 409)!;
+  assertMatchesOpenApi("POST", "/platform/v1/exceptions/{id}/claim", loser);
+  assert.equal(loser.body.error.code, "EXCEPTION_ALREADY_CLAIMED");
+  const winner = results.find((res) => res.status === 200)!.body.exception.assignee.id as string;
+  const [winnerToken, loserToken, loserId] = winner === support.id ? [csToken, opsToken, m.staff.operations.id] : [opsToken, csToken, support.id];
+  // 别人想转给自己、转给第三人都不行；现在的处理人可以转交，重复认领给本人原样返回
+  assert.equal((await api.call("POST", `/platform/v1/exceptions/${exception.id}/claim`, { token: loserToken, body: { assignee_id: finance.id } })).body.error.code, "EXCEPTION_ALREADY_CLAIMED");
+  assert.equal((await api.call("POST", `/platform/v1/exceptions/${exception.id}/claim`, { token: winnerToken, body: {} })).status, 200);
+  const handed = await ok(api.call("POST", `/platform/v1/exceptions/${exception.id}/claim`, { token: winnerToken, body: { assignee_id: loserId } }));
+  assert.equal(handed.exception.assignee.id, loserId);
+  const claims = (await api.db.owner.query("select count(*)::int as n from audit_logs where resource = 'order_exception' and resource_id = $1 and action = 'claim'", [exception.id])).rows[0].n;
+  assert.equal(claims, 2, "认领、转交各一条审计；被拒和重复的不记");
+});
+
 test("救援中：供应商声明无法履约，救援没有结论之前在异常队列里（立即）", async () => {
   const orderId = await paidOrderIn(5 * 24);
   await ok(api.call("POST", `/tenant/v1/orders/${orderId}/declare-unable`, { token: await tenantLogin(api, m.b.adminEmail), body: { reason: "车辆故障" } }));

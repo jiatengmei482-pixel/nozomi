@@ -10115,7 +10115,8 @@ paths:
       operationId: claimPlatformException
       summary: 认领异常（或转给别人）
       description: |
-        需要操作 `exception.manage`（运营、客服、财务）。不给 `assignee_id` 就是认领给自己；给了就是转给那位员工（必须在用）。已关闭的 409 `EXCEPTION_CLOSED`。写审计日志。
+        需要操作 `exception.manage`（运营、客服、财务）。不给 `assignee_id` 就是认领给自己；给了就是指派给那位员工（必须在用）。已关闭的 409 `EXCEPTION_CLOSED`。
+        已被别人认领的：只有现在的处理人能转交，别人再认领 409 `EXCEPTION_ALREADY_CLAIMED`（两人同时认领只有一个成功）；认领给现在的处理人本人原样返回。写审计日志。
       security:
         - platformToken: []
       parameters:
@@ -10136,7 +10137,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`EXCEPTION_CLOSED`：已经关闭"
+          description: "`EXCEPTION_CLOSED`：已经关闭；`EXCEPTION_ALREADY_CLAIMED`：已经有别人在处理"
           content:
             application/json:
               schema:
@@ -10574,6 +10575,7 @@ paths:
       summary: 关闭工单
       description: |
         需要操作 `ticket.manage`。判定过的可以关；没判定的可以直接关（重复、撤回），no-show 审核除外（409 `DECISION_REQUIRED`）；复核中的不能关。说明必填。
+        申诉：判定或复核过原工单的人不能关它（409 `APPEAL_SAME_REVIEWER`，关掉等于驳回）。
       security:
         - platformToken: []
       parameters:

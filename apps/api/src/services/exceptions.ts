@@ -61,7 +61,10 @@ function closedError(exception: OrderException): AppError {
   return new AppError(409, "EXCEPTION_CLOSED", "这条异常已经关闭了", { status: exception.status, close_kind: exception.closeKind });
 }
 
-/** 认领：不给人就是自己；给了就是转给那个人（在用的平台员工）。 */
+/**
+ * 认领：不给人就是自己；给了就是指派给那个人（在用的平台员工）。待处理的谁都可以认领或指派；
+ * 已被认领的，只有现在的处理人能转交给别人，别人再认领 409 `EXCEPTION_ALREADY_CLAIMED`（认领给现在的处理人本人是重复操作，原样返回）。
+ */
 export async function claimException(ctx: AppContext, principal: PlatformPrincipal, id: string, assigneeId: string | null, ip: string): Promise<ExceptionRow> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
@@ -70,6 +73,11 @@ export async function claimException(ctx: AppContext, principal: PlatformPrincip
     if (exception === null) throw notFound("异常");
     if (exceptionActionRefusal(exception.status) !== null) throw closedError(exception);
     const target = assigneeId ?? principal.user.id;
+    // 已被别人认领的：只有现在的处理人能转交；别人认领返回 409（两人同时认领，行锁让后到的看到已被认领）
+    if (exception.status === "claimed" && exception.assigneeId === target) return;
+    if (exception.status === "claimed" && exception.assigneeId !== principal.user.id) {
+      throw new AppError(409, "EXCEPTION_ALREADY_CLAIMED", "这条异常已经有人在处理；要转交请让现在的处理人操作", { assignee_id: exception.assigneeId });
+    }
     const staff = (await db.query<{ status: string }>("select status from platform_users where id = $1", [target])).rows[0];
     if (staff === undefined || staff.status !== "active") throw new AppError(422, "ASSIGNEE_INVALID", "指定的人不存在或没有在用", { assignee_id: target });
     const updated = (await updateException(db, exception, { status: "claimed", assigneeId: target, claimedAt: now }, now)) as OrderException;

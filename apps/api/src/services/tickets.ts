@@ -186,6 +186,8 @@ export async function createTicketForChannel(ctx: AppContext, channelId: string,
     const sale = await findSale(db, orderId);
     const order = sale === null || sale.channelId !== channelId ? null : await findOrderForPlatform(db, orderId);
     if (order === null) throw notFound("订单");
+    // 同一张单的计数和新建排成先后（并发提交不会超过上限）
+    await db.query("select pg_advisory_xact_lock(hashtext(current_schema() || ':nozomi.ticket-cap:' || $1))", [orderId]);
     const count = await db.query<{ n: number }>("select count(*)::int as n from tickets where order_id = $1 and source in ('guest', 'channel')", [orderId]);
     if ((count.rows[0] as { n: number }).n >= TICKET_RULES.maxExternalTicketsPerOrder) throw new AppError(409, "TICKET_LIMIT_REACHED", "这一单的工单已经很多了，请直接联系客服", { limit: TICKET_RULES.maxExternalTicketsPerOrder });
     return createInTx(db, order, { ...input, priority: null, createdByType: input.source, createdBy: null, parentTicketId: null }, now);
@@ -723,12 +725,7 @@ async function executeNoShow(db: Db, ticket: Ticket, input: DecisionInput, origi
 async function executeAppeal(db: Db, ticket: Ticket, input: DecisionInput, origin: AuditOrigin, now: Date): Promise<{ refunds: OrderRefund[]; events: string[] }> {
   const parent = await findTicket(db, ticket.parentTicketId as string, { lock: true });
   if (parent === null) throw notFound("工单");
-  const reviewers = new Set([parent.decidedBy]);
-  if (parent.approvalId !== null) {
-    const approval = await findApproval(db, parent.approvalId);
-    if (approval?.decidedBy) reviewers.add(approval.decidedBy.id);
-  }
-  if (reviewers.has(origin.actor.id)) throw new AppError(409, "APPEAL_SAME_REVIEWER", "申诉要由另一人复核：判定或复核过原工单的人不能判它的申诉");
+  await assertNotParentReviewer(db, parent, origin.actor.id as string);
   if (input.outcome !== "upheld") return { refunds: [], events: [] };
   const reason = `申诉成立（工单 ${ticket.ticketNo}）`;
   await waiveTicketDeductions(db, parent.tenantId, parent.id, reason, now);
@@ -738,6 +735,16 @@ async function executeAppeal(db: Db, ticket: Ticket, input: DecisionInput, origi
   }
   await mustUpdate(db, parent, { recordedEvents: [] }, now);
   return { refunds: [], events: [] };
+}
+
+/** 申诉要由另一人复核：判定或复核过原工单的人不能判它的申诉，也不能不经判定直接关掉它（关掉等于驳回）。 */
+async function assertNotParentReviewer(db: Db, parent: Ticket, staffId: string): Promise<void> {
+  const reviewers = new Set([parent.decidedBy]);
+  if (parent.approvalId !== null) {
+    const approval = await findApproval(db, parent.approvalId);
+    if (approval?.decidedBy) reviewers.add(approval.decidedBy.id);
+  }
+  if (reviewers.has(staffId)) throw new AppError(409, "APPEAL_SAME_REVIEWER", "申诉要由另一人复核：判定或复核过原工单的人不能判它的申诉，也不能直接关掉它");
 }
 
 export type DecideResult = { kind: "decided"; ticket: Ticket } | { kind: "pending_review"; ticket: Ticket; approval: Approval };
@@ -870,6 +877,10 @@ export async function closeTicket(ctx: AppContext, principal: PlatformPrincipal,
     const refusal = ticketCloseRefusal(ticket);
     if (refusal === "TICKET_STATE_INVALID") throw ticketStateInvalid(ticket, "close");
     if (refusal === "DECISION_REQUIRED") throw new AppError(409, "DECISION_REQUIRED", "no-show 审核要先判定（通过或驳回），订单才不会一直卡在待审核");
+    if (ticket.type === "tenant_appeal") {
+      const parent = await findTicket(db, ticket.parentTicketId as string);
+      if (parent !== null) await assertNotParentReviewer(db, parent, principal.user.id);
+    }
     const updated = await mustUpdate(db, ticket, { status: "closed", closedAt: now, closedBy: principal.user.id, closeNote: note }, now);
     await auditTicket(db, origin, updated, "close", ticketAudit(ticket), { ...ticketAudit(updated), note });
     return updated;

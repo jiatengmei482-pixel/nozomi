@@ -451,6 +451,20 @@ test("投诉时限：服务后 14 天内（正好 14 天还行）；渠道、客
   assert.equal(resolved.body.ticket.outcome, "resolved");
 });
 
+test("每单最多 10 张工单的上限在并发下也不会超过：已有 8 张时同时提 5 张，只成功 2 张", async () => {
+  const order = await completedOrder();
+  for (let i = 0; i < 8; i++) {
+    api.clock.advance(200);
+    await channelComplaint(order.id, flow, "lost_and_found");
+  }
+  api.clock.advance(1_000);
+  const token = await flow.token();
+  const results = await Promise.all(Array.from({ length: 5 }, (_, i) => api.call("POST", `/sales/v1/orders/${order.id}/tickets`, { token, body: { type: "other", subject: `并发 ${i}`, description: "x" } })));
+  assert.deepEqual(results.map((res) => res.status).sort(), [201, 201, 409, 409, 409]);
+  assert.ok(results.filter((res) => res.status === 409).every((res) => res.body.error.code === "TICKET_LIMIT_REACHED"));
+  assert.equal((await api.db.owner.query("select count(*)::int as n from tickets where order_id = $1", [order.id])).rows[0].n, 10);
+});
+
 test("规则 2：供应商 A 读不到、改不了供应商 B 的工单（列表、详情、回复、申诉都 404）；数据库层面租户读不到内部备注和赔付记录，写不了工单和对话", async () => {
   const order = await completedOrder();
   const ticket = await channelComplaint(order.id);
