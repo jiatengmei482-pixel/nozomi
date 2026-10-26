@@ -5599,7 +5599,7 @@ paths:
         - 和现在一样的不发起（`UNCHANGED`）；
         - 调高下限时，还在用的加价规则有低于新下限的，先要把它们改掉（409 `RULES_BELOW_FLOOR`，`details.rule_ids`）。
         批准时按那一刻的数据再校验一次；发起之后定价参数或加价规则被别的复核改过，批准返回 409 `APPROVAL_STALE`。
-        「生效前试算对近 30 天订单的毛利影响」要等有了订单（M3），本期没有。
+        发起时按当时的数据做一次「近 30 天毛利试算」（同 `pricing-impact`），存进复核记录的 `impact`，审核人批准前看（ADR 0033）。新增、修改、删除加价规则同样。
       security:
         - platformToken: []
       parameters:
@@ -5619,6 +5619,47 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: "`RULES_BELOW_FLOOR`：有还在用的加价规则低于新的下限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/pricing-impact:
+    post:
+      tags: [渠道]
+      operationId: previewChannelPricingImpact
+      summary: 生效前试算：改动对近 30 天询价和订单毛利的影响（只读）
+      description: |
+        需要操作 `channel.manage`（和发起这几类复核的权限一样）。只读：不写库、不写审计。入参是待提交的改动，`kind` 和复核的类别一致，里面的内容和发起复核的入参同形
+        （`channel.pricing` 的 `change` 同 `pricing-changes` 的请求体；`markup_rule.create` / `update` 的 `rule` 同新增、修改加价规则的请求体；`update` / `delete` 另给 `rule_id`）。
+        校验和发起一样（低于下限、日期重叠、调高下限时有规则低于新下限都直接拦），但不查「和现在一样」和版本号。
+
+        口径（ADR 0033）：取这个渠道最近 30 天的报价（每个车型组一个 `quote_id`，按询价时间）和这 30 天里下单、付过款的订单（按下单时间；付过款后取消的按扣款比例计入，免费取消的只计数），
+        用快照里的全部候选（结算价、快照汇率和缓冲、评分、单量、观察期）分别按**现在的规则**和**改动后的规则**重算每个候选的对外价、**重新选中标**，
+        汇总对外价、结算价、毛利（对外价 − 结算价，按快照汇率换到渠道结算币种，每单四舍五入到最小单位再相加）。报价、订单各最多取最近 100,000 个（`truncated`）。
+        **这是估算**：客人面对新价格还会不会下单无法知道，这里假定询价和订单照旧发生。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PricingImpactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "400":
+          description: "`VALIDATION_FAILED`：入参不合规则（同发起复核）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RULES_BELOW_FLOOR`：有还在用的加价规则低于新的下限；`MARKUP_RULE_CONFLICT`：和已有的规则冲突"
           content:
             application/json:
               schema:
@@ -5920,6 +5961,35 @@ paths:
           $ref: "#/components/responses/ApprovalResult"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/approvals/{id}/pricing-impact:
+    post:
+      tags: [双人复核]
+      operationId: recomputeApprovalPricingImpact
+      summary: 按现在的数据再算一次毛利试算（只读）
+      description: |
+        改定价参数、加价规则的复核（`channel.pricing`、`markup_rule.*`）：按现在的规则和这条复核要做的改动，用现在的近 30 天数据重算（口径同 `/platform/v1/channels/{id}/pricing-impact`）。
+        只读，不改复核记录里发起时存的 `impact`。要能看这一类（否则 404），还要有这一类的审核或发起权限（渠道的是 `channel.review` / `channel.manage`，否则 403）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "403":
+          description: "`FORBIDDEN`：没有这一类的审核或发起权限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PRICING_IMPACT_NOT_APPLICABLE`：不是定价、规则的复核；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：要改的规则已经被删除"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/approvals/{id}/approve:
     post:
       tags: [双人复核]
@@ -9239,6 +9309,17 @@ components:
             properties:
               approval:
                 $ref: "#/components/schemas/Approval"
+    PricingImpactResult:
+      description: 毛利试算结果
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [impact]
+            properties:
+              impact:
+                $ref: "#/components/schemas/PricingImpact"
     ApprovalResult:
       description: 复核记录
       content:
@@ -9870,10 +9951,173 @@ components:
           type: string
         email:
           type: string
+    PricingImpactRequest:
+      description: 待提交的改动（和发起复核的入参同形；`request_note` 可以带，不用）
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, change]
+          properties:
+            kind:
+              type: string
+              enum: [channel.pricing]
+            change:
+              $ref: "#/components/schemas/ChannelPricingChangeRequest"
+        - type: object
+          additionalProperties: false
+          required: [kind, rule]
+          properties:
+            kind:
+              type: string
+              enum: [markup_rule.create]
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [kind, rule_id, rule]
+          properties:
+            kind:
+              type: string
+              enum: [markup_rule.update]
+            rule_id:
+              type: string
+              format: uuid
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [kind, rule_id]
+          properties:
+            kind:
+              type: string
+              enum: [markup_rule.delete]
+            rule_id:
+              type: string
+              format: uuid
+    PricingImpactTotals:
+      type: object
+      additionalProperties: false
+      required: [sell_minor, settlement_minor, margin_minor]
+      description: 合计（渠道结算币种的最小货币单位）：对外价、结算价、毛利（= 对外价 − 结算价）
+      properties:
+        sell_minor:
+          type: integer
+        settlement_minor:
+          type: integer
+        margin_minor:
+          type: integer
+    PricingImpactSection:
+      type: object
+      additionalProperties: false
+      required: [total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少个报价（每个车型组一个 quote_id）
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+    PricingImpactOrderSection:
+      type: object
+      additionalProperties: false
+      required: [total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable, cancelled_with_fee, cancelled_free]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少张付过款的订单
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+        cancelled_with_fee:
+          type: integer
+          description: 付过款后有偿取消、按扣款比例计入的单数（含在 count 里）
+        cancelled_free:
+          type: integer
+          description: 付过款后免费取消的单数（毛利为 0，不计入 count）
+    PricingImpact:
+      type: object
+      additionalProperties: false
+      required: [computed_at, window_days, from, to, settle_currency, quotes, orders]
+      description: |
+        近 30 天毛利试算（ADR 0033）。改前 = 按现在的规则重算，改后 = 按改动后的规则重算，差额 = 改后 − 改前；都重新选中标、用快照汇率。
+        **估算**：客人面对新价格还会不会下单无法知道。
+      properties:
+        computed_at:
+          type: string
+          format: date-time
+        window_days:
+          type: integer
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        settle_currency:
+          type: string
+          description: 金额的币种：渠道的结算币种
+        quotes:
+          $ref: "#/components/schemas/PricingImpactSection"
+        orders:
+          $ref: "#/components/schemas/PricingImpactOrderSection"
     Approval:
       type: object
       additionalProperties: false
-      required: [id, kind, resource, resource_id, summary, payload, before, base_version, status, requested_by, requested_at, request_note, decided_by, decided_at, decision_note, can]
+      required: [id, kind, resource, resource_id, summary, payload, before, base_version, status, requested_by, requested_at, request_note, decided_by, decided_at, decision_note, impact, can]
       properties:
         id:
           type: string
@@ -9919,6 +10163,11 @@ components:
           format: date-time
         decision_note:
           type: [string, "null"]
+        impact:
+          description: 发起时按当时的数据算的毛利试算（ADR 0033）；只有改定价参数、加价规则的复核有，其余为 null
+          oneOf:
+            - $ref: "#/components/schemas/PricingImpact"
+            - type: "null"
         can:
           type: object
           additionalProperties: false

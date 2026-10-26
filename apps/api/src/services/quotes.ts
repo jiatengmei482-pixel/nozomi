@@ -25,6 +25,8 @@ import {
   type TripDirection,
   type ChannelSellRules,
   type MarkupMatch,
+  type FxQuote,
+  fxQuoteUsable,
   addDays,
   channelScopeRefusal,
   channelSellsTenant,
@@ -240,6 +242,11 @@ export interface PlatformQuotePreview {
   excluded: QuoteCandidate[];
   /** 每个报出价的「商品 | 车型组」用的是哪条加价规则（第几级） */
   markups: Map<string, MarkupMatch>;
+  /**
+   * 按渠道报价、客人支付币种和渠道结算币种不同时：渠道结算币种 → 客人支付币种的中央汇率（取不到或已过期为 null）。
+   * 存进快照，生效前试算（M3-07，ADR 0033）按它把对外价、结算价换到渠道结算币种
+   */
+  settleFx: FxQuote | null;
 }
 
 export const markupKey = (productId: string, vehicleGroupId: string): string => `${productId}|${vehicleGroupId}`;
@@ -299,9 +306,11 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   const markupFloorBp = pricing?.markupFloorBp ?? ctx.quote.markup.floorBp;
   // 最低毛利是渠道结算币种的金额：客人付别的币种时要汇率
   const marginCurrency = channel !== null && pricing !== null && pricing.minMarginMinor > 0 && channel.channel.settleCurrency !== currency ? channel.channel.settleCurrency : null;
+  // 渠道结算币种的汇率不论有没有最低毛利都取：快照里要记（试算换算毛利用，ADR 0033）
+  const settleCurrency = channel !== null && channel.channel.settleCurrency !== currency ? channel.channel.settleCurrency : null;
 
   const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
-  const currencies = [...new Set([...candidates.map((candidate) => candidate.product.currency), ...(marginCurrency === null ? [] : [marginCurrency])].filter((from) => from !== currency))];
+  const currencies = [...new Set([...candidates.map((candidate) => candidate.product.currency), ...(settleCurrency === null ? [] : [settleCurrency])].filter((from) => from !== currency))];
   const [route, fxQuotes] = await Promise.all([
     input.assumeRoute !== null || needsRoute(candidates) ? estimateRoute(ctx, log, request, place?.location ?? null, departAt, input.assumeRoute) : Promise.resolve(null),
     Promise.all(currencies.map(async (from) => [from, await callExternal(ctx, log, "fx", () => ctx.quote.fx.quote(from, currency, now))] as const)),
@@ -331,7 +340,9 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
           minMargin: channel.channel.pricing.minMarginMinor === 0 ? null : { minor: channel.channel.pricing.minMarginMinor, currency: channel.channel.settleCurrency, fx: marginCurrency === null ? null : (rates.get(marginCurrency) ?? null) },
         };
   const comparison = compareQuotes({ request, currency, entries, now, bandBp, markupFloorBp, fxBufferBp: ctx.config.fx.bufferBp, ...(sellRules === undefined ? {} : { channel: sellRules }) });
-  return { currency, bandBp, markupFloorBp, route, candidates, comparison, channel: channel?.channel ?? null, excluded, markups };
+  const settleRate = settleCurrency === null ? null : (rates.get(settleCurrency) ?? null);
+  const settleFx = settleRate !== null && fxQuoteUsable(settleRate, now) ? settleRate : null;
+  return { currency, bandBp, markupFloorBp, route, candidates, comparison, channel: channel?.channel ?? null, excluded, markups, settleFx };
 }
 
 // ---- 租户侧试算 ----

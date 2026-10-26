@@ -75,7 +75,7 @@ const RULE_MESSAGES: Readonly<Record<MarkupRuleIssue["reason"], string>> = {
   DATES_REQUIRED: "全渠道的规则必须带日期范围（不带日期的全渠道比例就是渠道的默认加价比例）",
 };
 
-function assertPricing(pricing: ChannelPricing): void {
+export function assertPricing(pricing: ChannelPricing): void {
   const issues = channelPricingIssues(pricing).map((issue): InputIssue => ({ path: issue.path, reason: issue.reason, message: PRICING_MESSAGES[issue.reason] }));
   if (issues.length > 0) throw validationFailed("body", issues);
 }
@@ -94,7 +94,7 @@ async function assertScope(db: Db, scope: ChannelScope): Promise<void> {
   if (issues.length > 0) throw validationFailed("body", issues);
 }
 
-async function loadChannel(db: Db, channelId: string, lock = false): Promise<Channel> {
+export async function loadChannel(db: Db, channelId: string, lock = false): Promise<Channel> {
   const channel = await findChannel(db, channelId, { lock });
   if (!channel) throw notFound("渠道");
   return channel;
@@ -141,7 +141,7 @@ export function ruleValues(rule: Omit<MarkupRuleInput, "level"> & { level?: numb
   };
 }
 
-function ruleFromValues(values: AuditValues): Omit<MarkupRuleInput, "level"> {
+export function ruleFromValues(values: AuditValues): Omit<MarkupRuleInput, "level"> {
   const text = (key: string): string | null => (typeof values[key] === "string" ? (values[key] as string) : null);
   return {
     tenantId: text("tenant_id"),
@@ -155,7 +155,7 @@ function ruleFromValues(values: AuditValues): Omit<MarkupRuleInput, "level"> {
   };
 }
 
-function pricingFromValues(values: AuditValues): ChannelPricing {
+export function pricingFromValues(values: AuditValues): ChannelPricing {
   return {
     defaultMarkupBp: values["default_markup_bp"] as number,
     markupFloorBp: values["markup_floor_bp"] as number,
@@ -283,7 +283,7 @@ function rulesBelowFloorError(ruleIds: readonly string[], floorBp: number): AppE
  * 调高下限时还在用的、低于新下限的规则。「还在用」按规则所在城市的当地日期判断（用车日期的口径，和匹配时一致）；
  * 没有城市的规则按世界上最晚的时区（UTC−12）判断——它在哪个城市都可能用到（ADR 0023）。发起和批准都走这里。
  */
-async function assertNoRuleBelowFloor(db: Db, channelId: string, floorBp: number, now: Date): Promise<void> {
+export async function assertNoRuleBelowFloor(db: Db, channelId: string, floorBp: number, now: Date): Promise<void> {
   const rules = await listMarkupRules(db, channelId);
   const cityIds = [...new Set(rules.flatMap((rule) => (rule.cityId === null ? [] : [rule.cityId])))];
   const zones = cityIds.length === 0 ? new Map<string, string>() : new Map((await db.query<{ id: string; timezone: string }>("select id::text, timezone from cities where id = any($1::uuid[])", [cityIds])).rows.map((row) => [row.id, row.timezone]));
@@ -296,7 +296,7 @@ async function assertNoRuleBelowFloor(db: Db, channelId: string, floorBp: number
  * 发起修改定价参数：只给要改的几项，没给的保持现在的值（合并）。合并后和现在一样的不发起（400）；
  * 不合规则的、会让现有规则低于新下限的，发起时就拦下。
  */
-export async function requestPricingChange(ctx: AppContext, principal: PlatformPrincipal, channelId: string, change: Partial<ChannelPricing>, note: string | null, ip: string): Promise<Approval> {
+export async function requestPricingChange(ctx: AppContext, principal: PlatformPrincipal, channelId: string, change: Partial<ChannelPricing>, note: string | null, ip: string, impact: AuditValues | null = null): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {
@@ -320,6 +320,7 @@ export async function requestPricingChange(ctx: AppContext, principal: PlatformP
       before: pricingValues(channel.pricing),
       baseVersion: channel.pricingVersion,
       note,
+      impact,
     });
   });
 }
@@ -348,7 +349,7 @@ export interface RuleInput {
 }
 
 /** 一条规则能不能存进这个渠道：维度组合、不低于下限、日期、引用的租户 / 城市 / 车型组存在、和现有规则不冲突。 */
-async function assertRule(db: Db, channel: Channel, rule: RuleInput, exceptId: string | null): Promise<MarkupRuleInput> {
+export async function assertRule(db: Db, channel: Channel, rule: RuleInput, exceptId: string | null): Promise<MarkupRuleInput> {
   const issues: InputIssue[] = markupRuleIssues(rule, channel.pricing.markupFloorBp).map((issue) => ({
     path: issue.path,
     reason: issue.reason,
@@ -438,17 +439,17 @@ export const MARKUP_RULE_DELETE: ApprovalKind = {
 /** 渠道这一组的复核（登记到 services/approval-kinds.ts）。 */
 export const CHANNEL_APPROVAL_KINDS: readonly ApprovalKind[] = [CHANNEL_PRICING, CHANNEL_PAUSE, MARKUP_RULE_CREATE, MARKUP_RULE_UPDATE, MARKUP_RULE_DELETE];
 
-export async function requestRuleCreate(ctx: AppContext, principal: PlatformPrincipal, channelId: string, rule: RuleInput, note: string | null, ip: string): Promise<Approval> {
+export async function requestRuleCreate(ctx: AppContext, principal: PlatformPrincipal, channelId: string, rule: RuleInput, note: string | null, ip: string, impact: AuditValues | null = null): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {
     const channel = await loadChannel(db, channelId);
     const checked = await assertRule(db, channel, rule, null);
-    return requestApproval(db, origin, principal, { kind: MARKUP_RULE_CREATE, resourceId: channelId, summary: `「${channel.name}」新增加价规则：${await ruleSummary(db, rule)}`, payload: ruleValues(checked), before: null, baseVersion: null, note });
+    return requestApproval(db, origin, principal, { kind: MARKUP_RULE_CREATE, resourceId: channelId, summary: `「${channel.name}」新增加价规则：${await ruleSummary(db, rule)}`, payload: ruleValues(checked), before: null, baseVersion: null, note, impact });
   });
 }
 
-export async function requestRuleUpdate(ctx: AppContext, principal: PlatformPrincipal, channelId: string, ruleId: string, version: number, rule: RuleInput, note: string | null, ip: string): Promise<Approval> {
+export async function requestRuleUpdate(ctx: AppContext, principal: PlatformPrincipal, channelId: string, ruleId: string, version: number, rule: RuleInput, note: string | null, ip: string, impact: AuditValues | null = null): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {
@@ -466,11 +467,12 @@ export async function requestRuleUpdate(ctx: AppContext, principal: PlatformPrin
       before: ruleValues(current),
       baseVersion: current.version,
       note,
+      impact,
     });
   });
 }
 
-export async function requestRuleDelete(ctx: AppContext, principal: PlatformPrincipal, channelId: string, ruleId: string, version: number, note: string | null, ip: string): Promise<Approval> {
+export async function requestRuleDelete(ctx: AppContext, principal: PlatformPrincipal, channelId: string, ruleId: string, version: number, note: string | null, ip: string, impact: AuditValues | null = null): Promise<Approval> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {
@@ -478,7 +480,7 @@ export async function requestRuleDelete(ctx: AppContext, principal: PlatformPrin
     const current = await findMarkupRule(db, channelId, ruleId);
     if (!current) throw notFound("加价规则");
     if (current.version !== version) throw versionConflict(current.version);
-    return requestApproval(db, origin, principal, { kind: MARKUP_RULE_DELETE, resourceId: channelId, summary: `「${channel.name}」删除加价规则：${await ruleSummary(db, current)}`, payload: { rule_id: ruleId }, before: ruleValues(current), baseVersion: current.version, note });
+    return requestApproval(db, origin, principal, { kind: MARKUP_RULE_DELETE, resourceId: channelId, summary: `「${channel.name}」删除加价规则：${await ruleSummary(db, current)}`, payload: { rule_id: ruleId }, before: ruleValues(current), baseVersion: current.version, note, impact });
   });
 }
 

@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { APPROVAL_STATUSES, CHANNEL_RULES, CHANNEL_STATUSES, CHANNEL_TYPES, CURRENCIES, type CurrencyCode, PAYMENT_MODES, type PlatformAction, SERVICE_CATEGORIES, TENANT_SCOPES } from "@nozomi/domain";
+import { APPROVAL_STATUSES, CHANNEL_RULES, type ChannelPricing, CHANNEL_STATUSES, CHANNEL_TYPES, CURRENCIES, type CurrencyCode, PAYMENT_MODES, type PlatformAction, SERVICE_CATEGORIES, TENANT_SCOPES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -19,6 +19,7 @@ import { approvalAbilities, decideApproval, getApproval, listApprovalsFor } from
 import { type ApiClient, createApiClient, listApiClients, revokeApiClient, rotateApiClient } from "../services/channel-clients.ts";
 import { type RuleInput, activateChannel, createChannel, getChannelDetail, listChannelsFor, requestChannelPause, requestPricingChange, requestRuleCreate, requestRuleDelete, requestRuleUpdate, updateChannel } from "../services/channels.ts";
 import { notFound } from "../services/errors.ts";
+import { type PricingProposal, channelPricingImpact, recomputeApprovalImpact } from "../services/pricing-impact.ts";
 import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
 import type { Db } from "../db/context.ts";
 import { ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
@@ -109,12 +110,45 @@ const ruleSchema = z
     request_note: noteSchema,
   })
   .strict();
+/**
+ * 生效前试算（M3-07，ADR 0033）：入参是待提交的改动，和发起复核的四种入参同形（`request_note` 可以带，不用）。
+ * `kind` 和复核的类别一致。
+ */
+const impactSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("channel.pricing"), change: pricingChangeSchema }).strict(),
+  z.object({ kind: z.literal("markup_rule.create"), rule: ruleSchema }).strict(),
+  z.object({ kind: z.literal("markup_rule.update"), rule_id: uuidSchema, rule: ruleSchema }).strict(),
+  z.object({ kind: z.literal("markup_rule.delete"), rule_id: uuidSchema }).strict(),
+]);
 const listQuery = pageQuerySchema.extend({ status: z.enum(CHANNEL_STATUSES).optional(), type: z.enum(CHANNEL_TYPES).optional(), q: z.string().trim().min(1).max(100).optional() });
 const approvalQuery = pageQuerySchema.extend({ status: z.enum([...APPROVAL_STATUSES, "all"]).default("pending"), resource_id: uuidSchema.optional() });
 const clientSchema = z.object({ name: z.string().trim().min(1).max(100) }).strict();
 const rotateSchema = z.object({ immediate: z.boolean().default(false) }).strict();
 
 const emptyToNull = (value: string | null | undefined): string | null | undefined => (value === "" ? null : value);
+
+function pricingChange(input: z.output<typeof pricingChangeSchema>): Partial<ChannelPricing> {
+  return {
+    ...(input.default_markup_bp === undefined ? {} : { defaultMarkupBp: input.default_markup_bp }),
+    ...(input.markup_floor_bp === undefined ? {} : { markupFloorBp: input.markup_floor_bp }),
+    ...(input.band_bp === undefined ? {} : { bandBp: input.band_bp }),
+    ...(input.min_margin === undefined ? {} : { minMarginMinor: input.min_margin }),
+    ...(input.sell_rounding === undefined ? {} : { sellRounding: input.sell_rounding }),
+  };
+}
+
+function proposalOf(input: z.output<typeof impactSchema>): PricingProposal {
+  switch (input.kind) {
+    case "channel.pricing":
+      return { kind: input.kind, change: pricingChange(input.change) };
+    case "markup_rule.create":
+      return { kind: input.kind, rule: ruleInput(input.rule) };
+    case "markup_rule.update":
+      return { kind: input.kind, ruleId: input.rule_id.toLowerCase(), rule: ruleInput(input.rule) };
+    case "markup_rule.delete":
+      return { kind: input.kind, ruleId: input.rule_id.toLowerCase() };
+  }
+}
 
 function ruleInput(input: z.output<typeof ruleSchema>): RuleInput {
   return { tenantId: input.tenant_id, cityId: input.city_id, category: input.category, vehicleGroupId: input.vehicle_group_id, markupBp: input.markup_bp, validFrom: input.valid_from, validTo: input.valid_to, note: input.note };
@@ -212,6 +246,7 @@ export function approvalJson(approval: Approval, principal: PlatformPrincipal): 
     decided_by: person(approval.decidedBy),
     decided_at: approval.decidedAt?.toISOString() ?? null,
     decision_note: approval.decisionNote,
+    impact: approval.impact,
     can: approvalAbilities(APPROVAL_KINDS, principal, approval),
   };
 }
@@ -337,21 +372,18 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const principal = await platform(request, "channel.manage");
     const channelId = resourceId(request.params, "渠道");
     const input = parseInput(pricingChangeSchema, request.body, "body");
-    const approval = await requestPricingChange(
-      ctx,
-      principal,
-      channelId,
-      {
-        ...(input.default_markup_bp === undefined ? {} : { defaultMarkupBp: input.default_markup_bp }),
-        ...(input.markup_floor_bp === undefined ? {} : { markupFloorBp: input.markup_floor_bp }),
-        ...(input.band_bp === undefined ? {} : { bandBp: input.band_bp }),
-        ...(input.min_margin === undefined ? {} : { minMarginMinor: input.min_margin }),
-        ...(input.sell_rounding === undefined ? {} : { sellRounding: input.sell_rounding }),
-      },
-      input.request_note,
-      request.ip,
-    );
+    const change = pricingChange(input);
+    // 发起时按当时的数据试算一次，存进复核记录给审核人看（ADR 0033）；入参不合规则时这里就拦下，和发起的校验一样
+    const impact = await channelPricingImpact(ctx, channelId, { kind: "channel.pricing", change });
+    const approval = await requestPricingChange(ctx, principal, channelId, change, input.request_note, request.ip, impact);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
+  });
+
+  app.post("/platform/v1/channels/:id/pricing-impact", async (request) => {
+    await platform(request, "channel.manage");
+    const channelId = resourceId(request.params, "渠道");
+    const input = parseInput(impactSchema, request.body, "body");
+    return { impact: await channelPricingImpact(ctx, channelId, proposalOf(input)) };
   });
 
   app.get("/platform/v1/channels/:id/markup-rules", async (request) => {
@@ -365,7 +397,8 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const principal = await platform(request, "channel.manage");
     const channelId = resourceId(request.params, "渠道");
     const input = parseInput(ruleSchema, request.body, "body");
-    const approval = await requestRuleCreate(ctx, principal, channelId, ruleInput(input), input.request_note, request.ip);
+    const impact = await channelPricingImpact(ctx, channelId, { kind: "markup_rule.create", rule: ruleInput(input) });
+    const approval = await requestRuleCreate(ctx, principal, channelId, ruleInput(input), input.request_note, request.ip, impact);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
@@ -375,7 +408,8 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const ruleId = childId(request.params, "ruleId", "加价规则");
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(ruleSchema, request.body, "body");
-    const approval = await requestRuleUpdate(ctx, principal, channelId, ruleId, version, ruleInput(input), input.request_note, request.ip);
+    const impact = await channelPricingImpact(ctx, channelId, { kind: "markup_rule.update", ruleId, rule: ruleInput(input) });
+    const approval = await requestRuleUpdate(ctx, principal, channelId, ruleId, version, ruleInput(input), input.request_note, request.ip, impact);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
@@ -385,7 +419,8 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const ruleId = childId(request.params, "ruleId", "加价规则");
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(noteOnlySchema, request.body ?? {}, "body");
-    const approval = await requestRuleDelete(ctx, principal, channelId, ruleId, version, input.request_note, request.ip);
+    const impact = await channelPricingImpact(ctx, channelId, { kind: "markup_rule.delete", ruleId });
+    const approval = await requestRuleDelete(ctx, principal, channelId, ruleId, version, input.request_note, request.ip, impact);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
@@ -471,6 +506,12 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const principal = await platform(request, "approval.read");
     const approval = await getApproval(ctx, APPROVAL_KINDS, principal, resourceId(request.params, "复核记录"));
     return { approval: approvalJson(approval, principal) };
+  });
+
+  // 审核人「按现在的数据再算一次」（ADR 0033）：只读，不改复核记录里发起时存的那一份
+  app.post("/platform/v1/approvals/:id/pricing-impact", async (request) => {
+    const principal = await platform(request, "approval.read");
+    return { impact: await recomputeApprovalImpact(ctx, APPROVAL_KINDS, principal, resourceId(request.params, "复核记录")) };
   });
 
   for (const decision of ["approve", "reject", "withdraw"] as const) {

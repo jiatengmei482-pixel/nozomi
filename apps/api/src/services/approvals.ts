@@ -55,6 +55,8 @@ export interface ApprovalRequest {
   before: AuditValues | null;
   baseVersion: number | null;
   note: string | null;
+  /** 发起时的试算结果（M3-07：改定价参数、加价规则才有） */
+  impact?: AuditValues | null;
 }
 
 /** 在调用方的事务里发起一条复核。权限由调用方的接口检查（`kind.requestAction`）。 */
@@ -70,6 +72,7 @@ export async function requestApproval(db: Db, origin: AuditOrigin, principal: Pl
     baseVersion: request.baseVersion,
     requestedBy: principal.user.id,
     requestNote: request.note,
+    impact: request.impact ?? null,
     now: origin.occurredAt,
   });
   await insertAuditLog(db, origin, { tenantId: null, resource: "approval", resourceId: id, action: "request", before: request.before, after: { kind: request.kind.kind, resource: request.kind.resource, resource_id: request.resourceId, summary: request.summary, payload: request.payload } });
