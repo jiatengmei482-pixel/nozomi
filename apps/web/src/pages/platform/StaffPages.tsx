@@ -333,7 +333,7 @@ export function StaffListPage() {
             停用以后，他<strong>马上不能登录</strong>，已经登录着的也会立刻退出。{user.status === "invited" ? "他还没有设过密码，之前发给他的邀请链接会作废。之后可以重新邀请。" : "之后可以重新启用。"}
           </p>
         )}
-        {action === "enable" && <p>{`启用以后，他可以用原来的密码登录，角色不变（${roleLabel(user.role)}）。`}</p>}
+        {action === "enable" && <p>{`启用以后，他可以用原来的密码登录，角色不变（${roleLabel(user.role, user.role_name)}）。`}</p>}
         {action === "reset" && (
           <>
             <p>
@@ -440,7 +440,7 @@ export function StaffNewPage() {
     try {
       // 不自动重试：重试一次就多发一个令牌、让上一个作废
       const result = await createStaff(token, { email: email.trim(), name: name.trim(), role });
-      setCreated({ id: result.user.id, issued: { portal: "platform", kind: "invite", token: result.invite.token, expiresAt: result.invite.expires_at ?? null, name: result.user.name, email: result.user.email, whom: `平台员工，${roleLabel(result.user.role)}` } });
+      setCreated({ id: result.user.id, issued: { portal: "platform", kind: "invite", token: result.invite.token, expiresAt: result.invite.expires_at ?? null, name: result.user.name, email: result.user.email, whom: `平台员工，${roleLabel(result.user.role, result.user.role_name)}` } });
     } catch (err) {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "EMAIL_TAKEN") {

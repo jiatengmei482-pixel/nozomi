@@ -527,6 +527,32 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.ok(screen.getByRole("button", { name: "重新邀请" }));
 });
 
+test("新增员工选自建角色：邀请链接对话框和启用确认里写角色名，不写内部编号", async () => {
+  const actor = user();
+  const key = "custom_4a16c6195b8bd3aa";
+  const custom = { key, name: "夜班客服", builtin: false, description: null, grants: ["orders:view"], permissions: ["order.read"], data_scope: { city_ids: null, channel_ids: null, cities: [], channels: [] }, ip_allowlist: [], version: 1, staff_count: 0, ...stamps };
+  open("/platform/settings/staff/new", "super_admin", {}, (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/roles") return json(200, { items: [custom] });
+    if (call.method === "POST" && call.url.pathname === "/platform/v1/staff") return json(201, { user: staffOf({ role: key, role_name: "夜班客服", status: "invited" }), invite });
+    return null;
+  });
+  await screen.findByRole("heading", { level: 1, name: "新增员工" });
+  await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
+  await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
+  await actor.click(await screen.findByRole("radio", { name: /^夜班客服（自建）/ }));
+  await actor.click(screen.getByRole("button", { name: "新增" }));
+  const link = await screen.findByRole("dialog", { name: "邀请链接（只显示这一次）" });
+  assert.match(link.textContent ?? "", /给 佐藤 健（sato@example\.com）· 平台员工，夜班客服/);
+  assert.doesNotMatch(link.textContent ?? "", /custom_/);
+
+  resetBrowser();
+  open("/platform/settings/staff", "super_admin", { staff: [meOf("super_admin"), staffOf({ status: "disabled", role: key, role_name: "夜班客服" })] });
+  await actor.click(within((await screen.findByText("sato@example.com")).closest("tr") as HTMLElement).getByRole("button", { name: /的更多操作$/ }));
+  await actor.click(screen.getByRole("menuitem", { name: "启用" }));
+  const enable = screen.getByRole("dialog", { name: "启用「佐藤 健」？" });
+  assert.match(enable.textContent ?? "", /角色不变（夜班客服）。/);
+});
+
 // ───────────── 审计日志、系统状态 ─────────────
 
 test("审计日志：每一行读得出谁、做了什么、对什么；不认识的类型原样显示；详情里「改了什么」只列变了的，值换成中文并带原值，长的可以展开；筛选条件写进请求", async () => {
