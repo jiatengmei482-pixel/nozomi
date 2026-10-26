@@ -95,3 +95,14 @@ test("报不出价的每个原因（含路线预估的 NO_ROUTE、TEMPORARILY_UN
     assert.doesNotMatch(text, /[A-Z_]{4,}|失败|错误/, `${reason} 不出现代码、不说失败`);
   }
 });
+
+test("地址搜索、反查（M3-12）：应答只有 available 和候选 / 地址，没有任何像密钥、谷歌原文的字段；底图沿用区域页的定义", () => {
+  const spec200 = (path: string): Schema | undefined => (spec.paths[path]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
+  assert.deepEqual(props(spec200(`${SITE_BASE}/places/search`)), ["available", "items"]);
+  assert.deepEqual(props(spec200(`${SITE_BASE}/places/reverse`)), ["address", "available"]);
+  assert.deepEqual(props(schemas["SitePlaceCandidate"]), ["address", "id", "location", "name"]);
+  for (const schema of [spec200(`${SITE_BASE}/places/search`), spec200(`${SITE_BASE}/places/reverse`), schemas["SitePlaceCandidate"], schemas["SiteConfig"]]) {
+    assert.deepEqual(props(schema).filter((key) => /key|secret|token|google|raw/i.test(key)), []);
+  }
+  assert.equal(schemas["SiteConfig"]?.properties?.["map_tiles"]?.$ref, "#/components/schemas/MapConfig/properties/tiles");
+});
