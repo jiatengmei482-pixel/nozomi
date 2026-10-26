@@ -297,7 +297,7 @@
       "name": "平台运营后台",
       "goal": "租户管理、渠道、订单中心、工单、风控、通知、审计",
       "tasks": [
-        { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "review", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "PR_LINK ；本地单元 1321、前端组件 448 个通过，集成与端到端以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 2 个缺陷已修复", "updated": "2026-10-26" },
+        { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "review", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/42 ；本地单元 1321、前端组件 448 个通过，集成与端到端以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 2 个缺陷已修复", "updated": "2026-10-26" },
         { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "todo", "acceptance": ["赔付按统一表计算"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "todo", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "", "updated": "2026-10-07" },
