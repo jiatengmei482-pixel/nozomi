@@ -751,7 +751,7 @@ test("审计日志的「筛选」面板（手机宽度用）：面板里改的�
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
   await waitFor(() => assert.equal(requests().length, before + 1, "一起生效，只发一次"));
   const sent = requests().at(-1) as URL;
-  assert.deepEqual([sent.searchParams.get("resource"), sent.searchParams.get("action")], ["tenant", "suspend"]);
+  assert.deepEqual([sent.searchParams.get("resource"), sent.searchParams.get("action")], ["tenant", "suspend,pause"], "网址里的旧写法 suspend 按「暂停」整组查");
   assert.equal(sent.searchParams.get("from"), new Date(2026, 9, 1).toISOString());
   assert.equal(sent.searchParams.get("to"), new Date(2026, 9, 10).toISOString());
   await screen.findByRole("button", { name: "筛选 · 4" });

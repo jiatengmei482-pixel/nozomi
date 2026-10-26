@@ -192,7 +192,9 @@ export function AuditLogPage() {
   const from = pick("from", (value) => localDayInstant(value, false) !== null);
   const to = pick("to", (value) => localDayInstant(value, true) !== null);
   const resource = pick("resource", (value) => /^[a-z_]{1,40}$/.test(value));
-  const action = pick("action", isActionFilter);
+  const actionParam = pick("action", isActionFilter);
+  // 以前的链接只带一个动作（?action=suspend）：展开成它所在的同名那一组再查，和下拉框显示的一致（M4-10）
+  const action = actionParam === null ? null : actionFilterOption(actionParam);
   const tenant = pick("tenant", (value) => UUID_PATTERN.test(value));
   const actor = pick("actor", (value) => UUID_PATTERN.test(value));
   const rid = resource === null ? null : pick("rid", (value) => value.length <= 100);
@@ -238,6 +240,14 @@ export function AuditLogPage() {
     }
     setParams(next, { replace: true });
   };
+  // 网址也规范成那一组的写法（不留历史记录）
+  useEffect(() => {
+    if (actionParam !== null && action !== actionParam) setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("action", action as string);
+      return next;
+    }, { replace: true });
+  }, [actionParam, action, setParams]);
   const shell = (content: ReactNode): ReactNode => (
     <AppShell pageName="审计日志" trail={TRAIL}>
       <Page title="审计日志">{content}</Page>
