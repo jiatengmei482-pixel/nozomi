@@ -61,7 +61,7 @@ test("主链路：建管理员 → 平台登录 → 建租户 → 接受邀请 �
   const tenantMe = await api.call("GET", "/tenant/v1/auth/me", { token: login.body.access_token });
   assert.equal(tenantMe.status, 200);
   assert.equal(tenantMe.body.tenant.name, "测试车队甲");
-  assert.deepEqual(tenantMe.body.permissions, ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "webhook.manage", "company.read", "company.manage", "performance.read", "statement.read", "statement.confirm"]);
+  assert.deepEqual(tenantMe.body.permissions, ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "webhook.manage", "company.read", "company.manage", "performance.read", "ticket.read", "ticket.manage", "statement.read", "statement.confirm"]);
 
   const users = await api.call("GET", "/tenant/v1/users", { token: login.body.access_token });
   assert.equal(users.status, 200);
