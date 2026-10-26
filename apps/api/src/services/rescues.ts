@@ -27,13 +27,13 @@ import {
   RESCUE_TRIGGER_NAMES,
   type RescueTrigger,
   type SettlementBreakdown,
-  dispatchDeadline,
   rescueDifference,
   rescueOfferDeadline,
   rescueOfferExpired,
   rescuePenalty,
   rescuePenaltyMinor,
   rescueTriggerRefusal,
+  rescuedDispatchDeadline,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -607,7 +607,7 @@ export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, a
     settlement: assignment.settlement,
     urgent: assignment.settlement.urgentTier !== null,
     inventoryHeld: limited,
-    dispatchDueAt: dispatchDeadline(now, order.serviceAt),
+    dispatchDueAt: rescuedDispatchDeadline(now, order.serviceAt),
     now,
   });
   await moveSaleToTenant(db, order.id, assignment.tenantId);

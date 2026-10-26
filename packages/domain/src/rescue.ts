@@ -6,7 +6,7 @@
  * 「人工介入能力」（救援改派只在 4 种情形下可用，客人价格不变）、「财务结算 · 一单的账务分录」（履约失败：应付租户 − 结算价 − 违约金）；
  * 第五轮决策 ①（平时不改派；4 种情形启动救援改派，客人价格不变，差价和违约金 0 / 30% / 100% 由原租户承担）。
  */
-import { dispatchEscalationAt } from "./dispatch.ts";
+import { dispatchDeadline, dispatchEscalationAt } from "./dispatch.ts";
 import { rateToFraction } from "./fx.ts";
 import { type CurrencyCode, minorDigits, portionBasisPoints, roundFractionHalfAwayFromZero } from "./money.ts";
 import type { OrderStatus } from "./orders.ts";
@@ -28,6 +28,8 @@ export const RESCUE_RULES = {
   offerMinutes: 15,
   shortOfferMinutes: 5,
   shortOfferWithinHours: 2,
+  /** 改派给救援供应商之后，派车截止时间至少留多少分钟（司机未到这类到点之后才改派的单，按普通规则截止时间已经过了） */
+  rescuedDispatchMinutes: 30,
   /** 声明无法履约、不可抗力说明、人工指定说明的最大长度 */
   noteMaxLength: 500,
 } as const;
@@ -219,6 +221,14 @@ export function rescueDifference(input: RescueDifferenceInput): RescueDifference
 export function rescueOfferDeadline(offeredAt: Date, serviceAt: Date): Date {
   const short = serviceAt.getTime() - offeredAt.getTime() < RESCUE_RULES.shortOfferWithinHours * HOUR;
   return new Date(offeredAt.getTime() + (short ? RESCUE_RULES.shortOfferMinutes : RESCUE_RULES.offerMinutes) * MINUTE);
+}
+
+/**
+ * 救援供应商接单后的派车截止时间：按普通订单的规则（确认时间 = 接单时间，ADR 0027），但至少留 30 分钟。
+ * 到点之后才改派的单（司机未到）按普通规则截止时间已经过了，不留时间的话定时任务会马上又判它「未派车」再救援一次。
+ */
+export function rescuedDispatchDeadline(acceptedAt: Date, serviceAt: Date): Date {
+  return new Date(Math.max(dispatchDeadline(acceptedAt, serviceAt).getTime(), acceptedAt.getTime() + RESCUE_RULES.rescuedDispatchMinutes * MINUTE));
 }
 
 /** 到了期限的那一刻起不能再接（按毫秒）。 */

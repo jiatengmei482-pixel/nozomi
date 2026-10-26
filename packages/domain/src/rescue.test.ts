@@ -16,6 +16,7 @@ import {
   rescuePenaltyMinor,
   rescueTransitionAllowed,
   rescueTriggerRefusal,
+  rescuedDispatchDeadline,
 } from "./rescue.ts";
 
 const HOUR = 3_600_000;
@@ -158,4 +159,12 @@ test("4 种触发情形都有中文名；规则常量和需求一致", () => {
   assert.equal(RESCUE_RULES.fullPenaltyBp, 10_000);
   assert.equal(RESCUE_RULES.offerMinutes, 15);
   assert.equal(RESCUE_RULES.shortOfferMinutes, 5);
+});
+
+test("救援供应商接单后的派车截止时间：离用车还远按普通规则（用车前 24 小时 / 接单后 2 小时）；到点之后才改派的至少留 30 分钟", () => {
+  assert.equal(rescuedDispatchDeadline(before(72 * HOUR), service).toISOString(), before(24 * HOUR).toISOString());
+  assert.equal(rescuedDispatchDeadline(before(10 * HOUR), service).getTime(), before(10 * HOUR).getTime() + 2 * HOUR);
+  assert.equal(rescuedDispatchDeadline(before(20 * MINUTE), service).getTime(), before(20 * MINUTE).getTime() + 30 * MINUTE, "不晚于用车时间的规则让它落在 20 分钟后，这里至少 30 分钟");
+  const late = new Date(service.getTime() + 20 * MINUTE);
+  assert.equal(rescuedDispatchDeadline(late, service).getTime(), late.getTime() + 30 * MINUTE);
 });
