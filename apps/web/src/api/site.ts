@@ -108,7 +108,6 @@ export interface SiteLanding {
   scheduled_at: string;
   guest_reported_at: string | null;
   driver_reported_at: string | null;
-  driver_photo_file_id: string | null;
   landed_at: string;
   source: "guest" | "driver" | "scheduled";
   disagreement: boolean;

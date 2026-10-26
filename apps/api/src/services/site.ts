@@ -286,13 +286,16 @@ export async function placeSiteOrder(ctx: AppContext, input: SalesOrderInput, lo
   return { ...created, link: await issueLink(ctx, created.view.order.id, created.view.order.serviceAt, "order") };
 }
 
-/** 邮箱不分大小写、去掉首尾空白；电话去掉空格、括号、连字符。像邮箱的（有 @）按邮箱比，其余按电话比。 */
+/**
+ * 先做 NFKC 规范化（全角的数字、字母、`＠`、`＋`、`－`、全角空格转成半角：日文 / 中文输入法常见），再比较：
+ * 邮箱不分大小写、去掉首尾空白；电话去掉空格、括号、连字符、点。像邮箱的（有 @）按邮箱比，其余按电话比。
+ */
 export function contactMatches(contact: string, passenger: { email: string; phone: string }): boolean {
-  const given = contact.trim();
+  const given = contact.normalize("NFKC").trim();
   if (given === "") return false;
-  if (given.includes("@")) return given.toLowerCase() === passenger.email.trim().toLowerCase();
+  if (given.includes("@")) return given.toLowerCase() === passenger.email.normalize("NFKC").trim().toLowerCase();
   const phone = normalizePhone(given);
-  return phone.length >= 6 && phone === normalizePhone(passenger.phone);
+  return phone.length >= 6 && phone === normalizePhone(passenger.phone.normalize("NFKC"));
 }
 
 /** 用订单号 + 下单时的邮箱或电话找回订单：对上了发一个新链接；订单号不存在、联系方式不对、不是官网的单一律同一个 404。 */
@@ -307,7 +310,7 @@ export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact:
 export async function resolveSiteLink(ctx: AppContext, token: string | null): Promise<{ orderId: string; channelId: string }> {
   if (token === null || !LINK_FORMAT.test(token)) throw linkInvalid();
   const channelId = await requireSiteChannelId(ctx);
-  const link = await withPlatformTx(ctx.pool, (db) => findLiveSiteOrderLink(db, hashToken(token), ctx.now()), { snapshot: true });
+  const link = await withPlatformTx(ctx.pool, (db) => findLiveSiteOrderLink(db, hashToken(token), ctx.now(), SITE_LINK_RULES), { snapshot: true });
   if (link === null || link.channelId !== channelId) throw linkInvalid();
   return { orderId: link.orderId, channelId };
 }

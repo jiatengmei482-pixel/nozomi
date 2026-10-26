@@ -215,7 +215,7 @@ test("查看链接的有效期：用车后 30 天的前 1 毫秒还能用、到�
   assert.equal((await site.call("GET", "/site/v1/order", { token: found.body.link.token, ip: placed.ip })).status, 401);
 });
 
-test("缺陷复现：改期把用车时间往后推了以后，下单时发的链接仍按旧的用车时间过期，没做到「用车后 30 天」", async () => {
+test("改期把用车时间往后推了以后，下单时发的链接跟着新的用车时间走：旧用车时间 + 30 天之后、新用车时间之前仍能用，新用车时间 + 30 天到点失效", async () => {
   const placed = await place({ days: 5 });
   const token = placed.body.link.token as string;
   await payFor(placed.body.order.id);
@@ -229,6 +229,11 @@ test("缺陷复现：改期把用车时间往后推了以后，下单时发的�
   moveTo(new Date(placed.serviceAt.getTime() + 31 * DAY));
   const res = await site.call("GET", "/site/v1/order", { token, ip: placed.ip });
   assert.equal(res.status, 200, `用车时间改到 ${later.toISOString()}，现在 ${api.clock.now().toISOString()} 行程还没开始，链接却已失效：${res.text}`);
+  moveTo(new Date(later.getTime() + 30 * DAY - 1_000));
+  assert.equal((await site.call("GET", "/site/v1/order", { token, ip: placed.ip })).status, 200, "新用车时间 + 30 天之前 1 秒还能用");
+  moveTo(new Date(later.getTime() + 30 * DAY));
+  const expired = await site.call("GET", "/site/v1/order", { token, ip: placed.ip });
+  assert.deepEqual([expired.status, expired.body.error.code], [401, "ORDER_LINK_INVALID"], "新用车时间 + 30 天到点失效");
 });
 
 // ---- 找回 ----
@@ -305,7 +310,7 @@ test("找回的规范化：订单号大小写和首尾空白、邮箱大小写�
   assert.equal(Number(vias.rows[0]?.n), accepted.length, "只有对上的才发了新链接");
 });
 
-test("缺陷复现（低）：找回时手机号、邮箱用全角输入（日文 / 中文输入法常见）对不上；页面也没把全角转成半角", async () => {
+test("找回时手机号、邮箱用全角输入（日文 / 中文输入法常见）也认：先转成半角再比", async () => {
   const placed = await place();
   const toFullWidth = (text: string): string => text.replace(/[!-~]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0));
   for (const contact of [toFullWidth("+81 90-8765-4321"), toFullWidth("qa.guest@example.com")]) {

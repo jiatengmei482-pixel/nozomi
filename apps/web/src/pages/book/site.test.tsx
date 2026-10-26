@@ -78,7 +78,7 @@ const orderOf = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
   winning_tenant: null,
   driver: null,
   vehicle: null,
-  landing: { scheduled_at: "2026-11-20T01:00:00.000Z", guest_reported_at: null, driver_reported_at: null, driver_photo_file_id: null, landed_at: "2026-11-20T01:00:00.000Z", source: "scheduled", disagreement: false, delay_minutes: 0, within_delay_allowance: true },
+  landing: { scheduled_at: "2026-11-20T01:00:00.000Z", guest_reported_at: null, driver_reported_at: null, landed_at: "2026-11-20T01:00:00.000Z", source: "scheduled", disagreement: false, delay_minutes: 0, within_delay_allowance: true },
   cancel_policy: { version: 0, category: "airport_transfer", level: "business", tiers },
   cancellation: null,
   free_cancel_available: false,

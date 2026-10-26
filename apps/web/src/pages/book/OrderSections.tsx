@@ -2,7 +2,7 @@
  * 官网订单页的各个区块（M3-05，ADR 0032）。每个会改订单的操作都在页面内确认，结果写在区块里；出错时说明怎么办。
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
-import { type ExtraChargeType, EXTRA_CHARGE_RULES, localDateTimeToInstant } from "@nozomi/domain";
+import { type ExtraChargeType, EXTRA_CHARGE_RULES, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -414,12 +414,16 @@ function formOf(order: SiteOrder): ChangeForm {
   };
 }
 
-/** 只给改了的字段（ADR 0029：只给要改的）。 */
+/** 乘车人按后端改单的口径规范化后再比（姓名、邮箱去首尾空白，电话去空格括号连字符点），只多了空白不算改动。 */
+const passengerKey = (passenger: { name: string; phone: string; email: string }): string => JSON.stringify([passenger.name.trim(), normalizePhone(passenger.phone), passenger.email.trim()]);
+const flightKey = (flightNo: string): string => (flightNo.trim() === "" ? "" : normalizeFlightNo(flightNo));
+
+/** 只给改了的字段（ADR 0029：只给要改的）。比较前按后端同样的规则规范化：后端认为没改的，这里也不提交。 */
 export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeRequest | { error: string } {
   const before = formOf(order);
   const body: SiteChangeRequest = {};
-  if (form.name !== before.name || form.phone !== before.phone || form.email !== before.email) body.passenger = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() };
-  if (form.flightNo.trim() !== before.flightNo) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
+  if (passengerKey(form) !== passengerKey(before)) body.passenger = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() };
+  if (flightKey(form.flightNo) !== flightKey(before.flightNo)) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
   if (form.address.trim() !== before.address) {
     if (order.direction === "pickup") body.dropoff_address = form.address.trim();
     else body.pickup_address = form.address.trim();
@@ -474,7 +478,8 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
       });
       onChanged(result);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
+      if (err instanceof ApiError && err.code === "NO_CHANGE") setNotice({ kind: "info", text: "没有改动。" });
+      else if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
       else if (err instanceof ApiError && err.code === "CHANGE_PAYMENT_DECLINED") setNotice({ kind: "danger", text: "改期后价格变高，补差价没有扣款成功，订单没有修改。可以换一个时间，或取消后重新预订。" });
       else setNotice({ kind: "danger", text: siteFailureText(err, "修改订单") });
     } finally {

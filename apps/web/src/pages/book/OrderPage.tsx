@@ -30,15 +30,17 @@ function LookupForm({ expired }: { expired: boolean }) {
     event.preventDefault();
     if (busy) return;
     const no = orderNo.trim().toUpperCase();
+    // 联系方式的全角（日文 / 中文输入法常见）先转半角，和后端同一个口径（NFKC）
+    const given = contact.normalize("NFKC").trim();
     const found: typeof errors = {};
     if (!/^NZ\d{8}[0-9A-Z]{8}$/.test(no)) found.orderNo = "订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34";
-    if (contact.trim().length < 3) found.contact = "请填写下单时的邮箱或手机号";
+    if (given.length < 3) found.contact = "请填写下单时的邮箱或手机号";
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setBusy(true);
     setNotice(null);
     try {
-      const { link } = await lookupSiteOrder(no, contact.trim());
+      const { link } = await lookupSiteOrder(no, given);
       navigate(siteOrderUrl(link.token), { replace: true });
     } catch (err) {
       setNotice({ kind: "danger", text: err instanceof ApiError && err.code === "ORDER_NOT_FOUND" ? "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。" : siteFailureText(err, "查找订单") });

@@ -11,7 +11,8 @@
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱或手机号找回（每个地址 15 分钟 10 次、每个订单号每小时 10 次）；
  * - `GET /site/v1/order`、`GET …/order/payment`、`GET …/order/cancel-fee`、`POST …/order/cancel`、`PATCH /site/v1/order`、
  *   `POST …/order/landed`（我已落地）、`POST …/order/extra-charges/{chargeId}/dispute`（对加收提异议）。
- * 订单的应答是 `{ order, timeline, names }`：`order` 和 `/sales/v1` 同一份 `salesOrderJson`（没有结算价、加价比例；付款前没有中标供应商）。
+ * 订单的应答是 `{ order, timeline, names }`：`order` 是 `/sales/v1` 同一份 `salesOrderJson`（没有结算价、加价比例；付款前没有中标供应商），
+ * 只去掉落地信息里司机到达屏照片的文件编号（客人用不上）。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -83,6 +84,15 @@ function quoteJson(quote: SiteQuote): Json {
   };
 }
 
+/** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
+function guestOrderJson(view: SalesOrderView, now: Date): Json {
+  const order = salesOrderJson(view, now);
+  const landing = order["landing"] as Json | null;
+  if (landing === null) return order;
+  const { driver_photo_file_id: _photo, ...guestLanding } = landing;
+  return { ...order, landing: guestLanding };
+}
+
 /**
  * 客人看到的订单：`order` 就是渠道看到的那一份（没有结算价、加价比例，付款前没有中标供应商），
  * 另加状态时间线（不含操作人和派车细节）和城市、机场、车型组的名称。
@@ -90,7 +100,7 @@ function quoteJson(quote: SiteQuote): Json {
 async function siteOrderJson(ctx: AppContext, view: SalesOrderView): Promise<Json> {
   const extras = await siteOrderExtras(ctx, view);
   return {
-    order: salesOrderJson(view, ctx.now()),
+    order: guestOrderJson(view, ctx.now()),
     timeline: extras.events.map((event) => ({ from_status: event.fromStatus, to_status: event.toStatus, reason: event.reason, occurred_at: event.occurredAt.toISOString() })),
     names: { city: extras.names.city, place: extras.names.place, vehicle_group: extras.names.vehicleGroup },
   };

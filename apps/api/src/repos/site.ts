@@ -112,12 +112,21 @@ export async function insertSiteOrderLink(db: Db, link: { orderId: string; token
   await db.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) values ($1, $2, $3, $4, $5)", [link.orderId, link.tokenHash, link.issuedVia, link.createdAt, link.expiresAt]);
 }
 
-/** 按令牌的哈希找链接：还在有效期里的才返回（订单编号和它的渠道）。 */
-export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date): Promise<{ orderId: string; channelId: string; expiresAt: Date } | null> {
+/**
+ * 按令牌的哈希找链接：还在有效期里的才返回（订单编号和它的渠道）。
+ * 有效期按订单**现在**的用车时间算（`service_at + afterServiceMs`，至少到发链接后 `minimumMs`），不看发链接时记下的 `expires_at`：
+ * 改期以后链接跟着新的用车时间走，不用去改链接（ADR 0032）。
+ */
+export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date, rules: { afterServiceMs: number; minimumMs: number }): Promise<{ orderId: string; channelId: string; expiresAt: Date } | null> {
   const row = (
     await db.query<{ order_id: string; channel_id: string; expires_at: Date }>(
-      "select l.order_id, s.channel_id, l.expires_at from site_order_links l join order_sales s on s.order_id = l.order_id where l.token_hash = $1 and l.expires_at > $2",
-      [tokenHash, now],
+      `select l.order_id, s.channel_id, x.expires_at
+         from site_order_links l
+         join order_sales s on s.order_id = l.order_id
+         join orders o on o.id = l.order_id
+         cross join lateral (select greatest(o.service_at + make_interval(secs => $3::double precision / 1000), l.created_at + make_interval(secs => $4::double precision / 1000)) as expires_at) x
+        where l.token_hash = $1 and x.expires_at > $2`,
+      [tokenHash, now, rules.afterServiceMs, rules.minimumMs],
     )
   ).rows[0];
   return row === undefined ? null : { orderId: row.order_id, channelId: row.channel_id, expiresAt: row.expires_at };

@@ -316,6 +316,7 @@ test("验收标准：客人可点「我已落地」——付款前不能点；�
   assertMatchesOpenApi("POST", "/site/v1/order/landed", landed);
   assert.equal(landed.status, 200, landed.text);
   assert.deepEqual([landed.body.order.landing.source, landed.body.order.landing.guest_reported_at, landed.body.order.landing.delay_minutes], ["guest", api.clock.now().toISOString(), 20]);
+  assert.equal("driver_photo_file_id" in landed.body.order.landing, false, "司机到达屏照片的文件编号不给客人");
   const again = await guest(token, "POST", "/site/v1/order/landed");
   assert.deepEqual([again.status, again.body.error.code], [409, "LANDING_ALREADY_REPORTED"]);
 });

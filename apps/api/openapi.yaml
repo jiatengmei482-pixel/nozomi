@@ -8902,7 +8902,7 @@ paths:
                 required: [order, timeline, names, payment, link]
                 properties:
                   order:
-                    $ref: "#/components/schemas/SalesOrder"
+                    $ref: "#/components/schemas/SiteOrder"
                   timeline:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
@@ -9011,7 +9011,7 @@ paths:
       tags: [官网]
       operationId: getSiteOrder
       summary: 客人看自己的订单
-      description: 凭查看令牌（`Authorization` 请求头带 `Bearer nzo_…`）。令牌格式不对、不存在、过期（用车后 30 天）、不是官网的单，一律 401 `ORDER_LINK_INVALID`。官网停止接单（渠道暂停）不影响已经下了的单。
+      description: 凭查看令牌（`Authorization` 请求头带 `Bearer nzo_…`）。令牌格式不对、不存在、过期（订单现在的用车时间后 30 天，改期后跟着顺延或提前；至少到发链接后 1 天）、不是官网的单，一律 401 `ORDER_LINK_INVALID`。官网停止接单（渠道暂停）不影响已经下了的单。
       security:
         - siteOrderLink: []
       responses:
@@ -9051,7 +9051,7 @@ paths:
                 required: [order, timeline, names, change]
                 properties:
                   order:
-                    $ref: "#/components/schemas/SalesOrder"
+                    $ref: "#/components/schemas/SiteOrder"
                   timeline:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
@@ -9176,7 +9176,7 @@ paths:
                 required: [order, timeline, names, replayed]
                 properties:
                   order:
-                    $ref: "#/components/schemas/SalesOrder"
+                    $ref: "#/components/schemas/SiteOrder"
                   timeline:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
@@ -9263,7 +9263,7 @@ paths:
                 required: [order, timeline, names, extra_charge]
                 properties:
                   order:
-                    $ref: "#/components/schemas/SalesOrder"
+                    $ref: "#/components/schemas/SiteOrder"
                   timeline:
                     $ref: "#/components/schemas/SiteOrderTimeline"
                   names:
@@ -9376,7 +9376,7 @@ components:
     siteOrderLink:
       type: http
       scheme: bearer
-      description: 官网的订单查看令牌（`nzo_…`，下单或用订单号找回时发、只出现一次，库里只存哈希）：客人不需要账号；一个令牌只对应一张单，用车后 30 天失效
+      description: 官网的订单查看令牌（`nzo_…`，下单或用订单号找回时发、只出现一次，库里只存哈希）：客人不需要账号；一个令牌只对应一张单，（按订单现在的）用车时间后 30 天失效
     driverLink:
       type: http
       scheme: bearer
@@ -18460,6 +18460,7 @@ components:
         expires_at:
           type: string
           format: date-time
+          description: 按现在的用车时间算的失效时间（用车后 30 天，至少到发链接后 1 天）。改期后有效期跟着新的用车时间走，以服务端判断为准
     SiteOrderTimeline:
       type: array
       description: 订单的状态时间线（从什么到什么、原因、时间），从早到晚
@@ -18522,13 +18523,241 @@ components:
                 seats:
                   type: integer
             - type: "null"
+    SiteOrder:
+      type: object
+      additionalProperties: false
+      description: |
+        客人在官网订单页看到的订单：和渠道看到的 `SalesOrder` 字段一样，只是落地信息里没有司机到达屏照片的文件编号（客人用不上，ADR 0032）。
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+          pattern: "^NZ\\d{8}[0-9A-HJ-NP-Z]{8}$"
+          description: 订单号：NZ + 下单日期（UTC）+ 8 位随机字符
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+        city_id:
+          type: string
+          format: uuid
+        place_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接送机的机场 / 车站；其他品类为 null
+        direction:
+          oneOf:
+            - $ref: "#/components/schemas/TripDirection"
+            - type: "null"
+        vehicle_group_id:
+          type: string
+          format: uuid
+        package_hours:
+          type: [integer, "null"]
+        service_time:
+          type: string
+          format: date-time
+          description: 用车时刻（UTC）
+        service_local:
+          type: string
+          description: 城市当地的用车时间 `YYYY-MM-DDTHH:mm`
+        timezone:
+          type: string
+          description: 城市的时区名，如 `Asia/Tokyo`
+        service_date:
+          type: string
+          format: date
+        urgent:
+          type: boolean
+          description: 是不是走了加急
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        pickup:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        dropoff:
+          oneOf:
+            - $ref: "#/components/schemas/OrderPoint"
+            - type: "null"
+        addons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [addon_id, quantity]
+            properties:
+              addon_id:
+                type: string
+                format: uuid
+              quantity:
+                type: integer
+        driver_language:
+          type: [string, "null"]
+        flight_no:
+          type: [string, "null"]
+          description: 航班号（去掉空格、大写），接机必填
+        passenger:
+          $ref: "#/components/schemas/OrderPassenger"
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [string, "null"]
+        free_wait_minutes:
+          type: [integer, "null"]
+          description: 免费等待分钟数；不限为 null
+        created_at:
+          type: string
+          format: date-time
+        confirmed_at:
+          type: [string, "null"]
+          format: date-time
+          description: 付款成功、自动确认的时间
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        cancel_reason:
+          oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+        quote_id:
+          type: string
+          pattern: "^QT\\d{8}[0-9A-Z]{10}$"
+        channel_order_no:
+          type: [string, "null"]
+        price:
+          type: object
+          additionalProperties: false
+          required: [total, fx]
+          properties:
+            total:
+              $ref: "#/components/schemas/SalesMoney"
+            fx:
+              description: 跨币种时报价快照里的中央汇率和取数时间；同币种为 null
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [rate, as_of]
+                  properties:
+                    rate:
+                      type: string
+                    as_of:
+                      type: string
+                      format: date-time
+                - type: "null"
+        payment_status:
+          $ref: "#/components/schemas/PaymentStatus"
+        payment_due_at:
+          type: string
+          format: date-time
+          description: 最晚付款时间（下单后 30 分钟）；到点没付款自动取消、释放库存
+        winning_tenant:
+          description: 中标租户：付款成功后才有（第二轮决策「只在支付成功后显示」）
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+            - type: "null"
+        driver:
+          description: 派的司机（M3-02）：只给客人看得到的——姓名、语言、电话（用车前 24 小时起才有，之前为 null）。还没派车为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [name, languages, phone]
+              properties:
+                name:
+                  type: string
+                languages:
+                  type: array
+                  items:
+                    type: string
+                phone:
+                  type: [string, "null"]
+            - type: "null"
+        vehicle:
+          description: 派的车辆：车牌、车型、颜色
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [plate, model, color, vehicle_group_id]
+              properties:
+                plate:
+                  type: string
+                model:
+                  type: string
+                color:
+                  type: string
+                vehicle_group_id:
+                  type: string
+                  format: uuid
+            - type: "null"
+        landing:
+          $ref: "#/components/schemas/SiteOrderLanding"
+        cancel_policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        cancellation:
+          $ref: "#/components/schemas/SalesCancellation"
+        free_cancel_available:
+          type: boolean
+          description: 最近一次改期被供应商拒绝或 30 分钟没确认：可以按 `CHANGE_NOT_CONFIRMED` 免费取消
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesOrderChange"
+        extra_charges:
+          type: array
+          description: 事后加收（客人要付的金额；供应商撤回的不列）
+          items:
+            $ref: "#/components/schemas/SalesExtraCharge"
+        version:
+          type: integer
+          description: 订单的版本：改单（PATCH）时放进 If-Match
+    SiteOrderLanding:
+      description: 实际落地时间（规则同 `OrderLanding`），去掉了司机到达屏照片的文件编号：照片只给平台和供应商核对，客人用不上。只有接机单，其他为 null。
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [scheduled_at, guest_reported_at, driver_reported_at, landed_at, source, disagreement, delay_minutes, within_delay_allowance]
+          properties:
+            scheduled_at:
+              type: string
+              format: date-time
+            guest_reported_at:
+              type: [string, "null"]
+              format: date-time
+            driver_reported_at:
+              type: [string, "null"]
+              format: date-time
+            landed_at:
+              type: string
+              format: date-time
+            source:
+              type: string
+              enum: [guest, driver, scheduled]
+            disagreement:
+              type: boolean
+            delay_minutes:
+              type: integer
+            within_delay_allowance:
+              type: boolean
+        - type: "null"
     SiteOrderEnvelope:
       type: object
       additionalProperties: false
       required: [order, timeline, names]
       properties:
         order:
-          $ref: "#/components/schemas/SalesOrder"
+          $ref: "#/components/schemas/SiteOrder"
         timeline:
           $ref: "#/components/schemas/SiteOrderTimeline"
         names:

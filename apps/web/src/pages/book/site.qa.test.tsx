@@ -28,7 +28,6 @@ const landingOf = (scheduledAt: string, reported: string | null = null): NonNull
   scheduled_at: scheduledAt,
   guest_reported_at: reported,
   driver_reported_at: null,
-  driver_photo_file_id: null,
   landed_at: reported ?? scheduledAt,
   source: reported === null ? "scheduled" : "guest",
   disagreement: false,
@@ -233,10 +232,43 @@ test("「我已落地」在页面上：送机单不出这一块；接机单取�
   assertAbsent(screen.queryByRole("button", { name: "我已落地" }));
 });
 
-test("缺陷复现（低）：改单时姓名只在首尾多了空白也提交一次乘车人修改（后端判为没改动，回 422 NO_CHANGE，客人看到「修改失败」而不是「没有改动」）", () => {
+test("改单：姓名、电话、邮箱、航班号只在写法上不同（首尾空白、电话的空格连字符、航班号大小写和空格）不算改动，和后端同口径", () => {
   const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", address: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, address: " 新宿站南口 ", notes: "  " }), {}, "地址、备注只多了空白");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, name: "李四 " }), {}, "姓名只多了一个空格：不应当提交一次乘车人修改");
+  assert.deepEqual(changeRequestOf(orderOf(), { ...base, phone: " +81 90-8765-4321 ", email: " qa@example.com " }), {}, "电话只多了空格连字符、邮箱只多了空白");
+  assert.deepEqual(changeRequestOf(orderOf(), { ...base, flightNo: "nh 211" }), {}, "航班号只是大小写和空格不同");
+  assert.deepEqual(changeRequestOf(orderOf(), { ...base, name: " 王五 " }), { passenger: { name: "王五", phone: "+819087654321", email: "qa@example.com" } }, "真改了姓名照样提交");
+});
+
+test("改单：后端回 422 NO_CHANGE 时页面提示「没有改动」，不说「修改失败」", async () => {
+  open(
+    { pathname: "/book/order", hash: `#${TOKEN}` },
+    orderRoutes(orderOf(), (call) => (call.method === "PATCH" && call.url.pathname === "/site/v1/order" ? apiError(422, "NO_CHANGE", "没有要改的内容") : null)),
+  );
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
+  await actor.click(screen.getByRole("button", { name: "修改订单" }));
+  await actor.type(screen.getByLabelText("备注"), "带婴儿座椅");
+  await actor.click(screen.getByRole("button", { name: "提交修改" }));
+  assert.ok(await screen.findByText("没有改动。"));
+  assert.equal(screen.queryByText(/修改订单失败|修改失败/), null);
+});
+
+test("找回：全角的手机号（输入法常见）先转成半角再提交，和后端同口径", async () => {
+  const calls = open({ pathname: "/book/order" }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(200, { link: { token: NEW_TOKEN, expires_at: "2030-12-20T01:00:00.000Z" } });
+    if (call.url.pathname === "/site/v1/order") return json(200, envelopeOf());
+    return null;
+  });
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "查订单" });
+  await actor.type(screen.getByLabelText("订单号"), "NZ20261026QAQA2345");
+  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "　＋８１　９０－８７６５－４３２１　");
+  await actor.click(screen.getByRole("button", { name: "查找订单" }));
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
+  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { order_no: "NZ20261026QAQA2345", contact: "+81 90-8765-4321" });
 });
 
 test("改单：只改备注时请求体只有 notes；清空备注给 null；改送机单的地址给 pickup_address", () => {
