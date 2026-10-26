@@ -21,7 +21,8 @@ export default defineConfig({
   forbidOnly: process.env["CI"] !== undefined,
   retries: 0,
   workers: 4,
-  timeout: 30_000,
+  // 运营后台每次登录多一步两步验证（ADR 0030），同一个人同一个 30 秒里的动态码只能用一次，偶尔要等下一个时间窗
+  timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
   use: {
