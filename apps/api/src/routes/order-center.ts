@@ -123,7 +123,7 @@ const ticketListSchema = pageQuerySchema.extend({
   overdue: z.enum(["true", "false"]).optional(),
   q: z.string().trim().min(1).max(64).optional(),
 });
-const tenantTicketListSchema = pageQuerySchema.extend({ status: z.enum(["active", ...TICKET_STATUSES]).optional(), order_id: id.optional() });
+const tenantTicketListSchema = pageQuerySchema.extend({ status: z.enum(["active", ...TICKET_STATUSES]).optional(), order_id: id.optional() }).strict();
 
 const ticketBody = {
   subject: text(TICKET_RULES.subjectMax),

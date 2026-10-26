@@ -1515,6 +1515,39 @@ test("救援改派（M3-04）：甲声明不了乙的单；看不到、接不了
   await assert.rejects(withTenantTx(api.db.pool, b.tenantId, (db) => db.query("update order_rescue_offers set status = 'accepted' where id = $1", [offer])), deniedByDatabase, "接单只能经平台事务");
 });
 
+test("工单（M4-02）：甲看不到、回复不了乙的工单，不能对乙的工单申诉、不能拿乙的单登记工单（404，和不存在一样，乙的工单原样不动）；数据库里读不到、改不了别人的工单", async () => {
+  for (const route of ["GET /tenant/v1/tickets", "POST /tenant/v1/tickets", "GET /tenant/v1/tickets/:id", "POST /tenant/v1/tickets/:id/messages"]) cover(route);
+  const ids = await orderIds();
+  const created = await api.call("POST", "/platform/v1/tickets", { token: platformToken, body: { type: "other", order_id: ids.b, subject: "乙的单", description: "客服登记" } });
+  assert.equal(created.status, 201, created.text);
+  const ticket = created.body.ticket.id as string;
+  const before = (await api.db.owner.query("select * from tickets where id = $1", [ticket])).rows[0];
+  for (const [method, suffix, body] of [["GET", "", undefined], ["POST", "/messages", { body: "冒充乙回复" }]] as const) {
+    const foreign = await api.call(method, `/tenant/v1/tickets/${ticket}${suffix}`, { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    const missing = await api.call(method, `/tenant/v1/tickets/${NO_SUCH_ID}${suffix}`, { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    assert.equal(foreign.status, 404, `${method} ${suffix}: ${foreign.text}`);
+    assert.equal(foreign.text, missing.text, `${method} ${suffix}`);
+  }
+  const foreignOrder = await api.call("POST", "/tenant/v1/tickets", { token: a.adminToken, body: { type: "lost_and_found", order_id: ids.b, subject: "x", description: "x" } });
+  const missingOrder = await api.call("POST", "/tenant/v1/tickets", { token: a.adminToken, body: { type: "lost_and_found", order_id: NO_SUCH_ID, subject: "x", description: "x" } });
+  assert.equal(foreignOrder.status, 404, foreignOrder.text);
+  assert.equal(foreignOrder.text, missingOrder.text);
+  const foreignAppeal = await api.call("POST", "/tenant/v1/tickets", { token: a.adminToken, body: { type: "tenant_appeal", parent_ticket_id: ticket, subject: "x", description: "x" } });
+  assert.equal(foreignAppeal.status, 404, foreignAppeal.text);
+  assert.equal((await api.call("GET", `/tenant/v1/tickets?tenant_id=${b.tenantId}`, { token: a.adminToken })).status, 400, "请求里不能带租户编号");
+  assert.ok(!(await api.call("GET", "/tenant/v1/tickets", { token: a.adminToken })).body.items.some((item: { id: string }) => item.id === ticket));
+  assert.deepEqual((await api.db.owner.query("select * from tickets where id = $1", [ticket])).rows[0], before, "乙的工单原样不动");
+  assert.equal((await api.db.owner.query("select count(*)::int as n from ticket_messages where ticket_id = $1", [ticket])).rows[0].n, 0, "甲的回复没有写进去");
+  assert.equal((await api.db.owner.query("select count(*)::int as n from tickets where tenant_id = $1", [a.tenantId])).rows[0].n, 0, "甲没能拿乙的单登记工单");
+  // 乙自己看得到、回复得了（证明上面的 404 不是因为接口坏了）
+  assert.equal((await api.call("GET", `/tenant/v1/tickets/${ticket}`, { token: b.adminToken })).status, 200);
+  assert.equal((await api.call("POST", `/tenant/v1/tickets/${ticket}/messages`, { token: b.adminToken, body: { body: "乙回复" } })).status, 201);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from tickets where id = $1", [ticket]))).rowCount, 0);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from ticket_messages where ticket_id = $1", [ticket]))).rowCount, 0);
+  await assert.rejects(withTenantTx(api.db.pool, b.tenantId, (db) => db.query("update tickets set status = 'closed' where id = $1", [ticket])), deniedByDatabase, "改工单只能经平台事务");
+  await assert.rejects(withTenantTx(api.db.pool, b.tenantId, (db) => db.query("select 1 from ticket_notes")), deniedByDatabase);
+});
+
 test("Webhook：设置、密钥、测试事件、投递记录、重推都只对令牌所属的供应商；看不到、重推不了别人的投递（404，和不存在一样）", async () => {
   for (const route of ["GET /tenant/v1/webhooks", "PUT /tenant/v1/webhooks", "DELETE /tenant/v1/webhooks", "POST /tenant/v1/webhooks/rotate-secret", "POST /tenant/v1/webhooks/test", "GET /tenant/v1/webhooks/deliveries", "GET /tenant/v1/webhooks/deliveries/:id", "POST /tenant/v1/webhooks/deliveries/:id/retry"]) cover(route);
   const bSaved = await api.call("PUT", "/tenant/v1/webhooks", { token: b.adminToken, body: { url: "https://dispatch.b.example.com/hook", events: ["order.assigned"], tenant_id: a.tenantId } });
