@@ -4,7 +4,7 @@
  * 任何已登录的平台员工都能调；但每个模块只给有权看这个模块的角色（没有 `tenant.read` 的角色拿到的租户一组是 null），
  * 首页不会成为绕过权限看数量的口子。全部在一个事务里数，各组数字是同一时刻的。
  */
-import { type CurrencyCode, type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformGrant, fxStaleAt, fxTableState, grantCan } from "@nozomi/domain";
+import { type CurrencyCode, type FxFetchStatus, type FxTableState, type MasterDataStatus, PLACE_TYPES, type PlaceType, type PlatformGrant, TENANT_STATUSES, type TenantStatus, fxStaleAt, fxTableState, grantCan } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { countAirportsWithoutCity, countMasterByStatus, countPlacesByTypeAndStatus, countTenantsByStatus } from "../repos/dashboard.ts";
@@ -18,7 +18,8 @@ export interface StatusCounts {
 }
 
 export interface DashboardSummary {
-  tenants: { total: number; active: number; suspended: number } | null;
+  /** 供应商：总数（不含已清退）、正式、暂停、参与比价的（试运营 + 正式）、各状态的数（M4-01） */
+  tenants: { total: number; active: number; suspended: number; bidding: number; byStatus: Record<TenantStatus, number> } | null;
   masterData: {
     cities: StatusCounts;
     places: StatusCounts & { byType: Record<PlaceType, StatusCounts>; airportsWithoutCity: number };
@@ -52,7 +53,8 @@ export function getDashboardSummary(ctx: AppContext, grant: PlatformGrant): Prom
     if (grantCan(grant, "tenant.read")) {
       const rows = await countTenantsByStatus(db);
       const of = (status: string): number => rows.find((row) => row.status === status)?.count ?? 0;
-      tenants = { total: of("active") + of("suspended"), active: of("active"), suspended: of("suspended") };
+      const byStatus = Object.fromEntries(TENANT_STATUSES.map((status) => [status, of(status)])) as Record<TenantStatus, number>;
+      tenants = { total: TENANT_STATUSES.filter((status) => status !== "terminated").reduce((sum, status) => sum + byStatus[status], 0), active: byStatus.active, suspended: byStatus.suspended, bidding: byStatus.trial + byStatus.active, byStatus };
     }
     let masterData: DashboardSummary["masterData"] = null;
     if (grantCan(grant, "master_data.read")) {

@@ -10,7 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { XLSX_CONTENT_TYPE, XLSX_LIMITS, type XlsxWriteCell, readXlsx, writeXlsx } from "./integrations/xlsx.ts";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 import { buildZip } from "./testing/zip.ts";
 
 let api: TestApi;
@@ -948,7 +948,7 @@ test("九个接口逐个：管理员都能用，只读角色只能看和导出�
   assert.deepEqual(Object.values(await all(other.adminToken)), [200, 200, 200, 200, 200, 200, 200, 409, 409]);
   assert.deepEqual(Object.values(await all(readonly)), [200, 200, 200, 403, 403, 403, 403, 403, 403], "只读：只能看和导出");
   const before = await snapshot();
-  await ok(platformCall(api, root, "POST", `/tenants/${other.tenantId}/suspend`, { reason: "测试" }));
+  await suspendTenantApproved(api, root, other.tenantId);
   try {
     assert.deepEqual(Object.values(await all(other.adminToken)), [200, 200, 200, 200, 200, 200, 200, 409, 409]);
     assert.deepEqual(Object.values(await all(readonly)), [200, 200, 200, 403, 403, 403, 403, 403, 403]);
@@ -956,7 +956,7 @@ test("九个接口逐个：管理员都能用，只读角色只能看和导出�
     const { audits: _before, ...restBefore } = before as Record<string, unknown>;
     assert.deepEqual(rest, restBefore, "这些调用本身没有改动数据");
   } finally {
-    await ok(platformCall(api, root, "POST", `/tenants/${other.tenantId}/resume`, {}));
+    await resumeTenantNow(api, root, other.tenantId);
   }
   assert.equal((await api.call("GET", `/tenant/v1/products/${id}/inventory?from=${TODAY}&to=${TODAY}`, { token: other.adminToken })).status, 200);
 });

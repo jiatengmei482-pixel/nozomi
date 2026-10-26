@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { createSuperAdmin } from "./services/platform-staff.ts";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, suspendTenantApproved } from "./testing/api.ts";
 
 const TEMPORARY = "Tmp7k-Qw3zR-9vBn2-XyLp4";
 const NEW_PASSWORD = "Fresh-Lantern-2027";
@@ -137,6 +137,19 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", `/platform/v1/tenants/${ids.tenantId}`],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/suspend`, { reason: "不该生效" }],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/resume`],
+      ["GET", `/platform/v1/tenants/${ids.tenantId}/company`],
+      ["GET", `/platform/v1/tenants/${ids.tenantId}/status-events`],
+      ["GET", `/platform/v1/tenants/${ids.tenantId}/performance`],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/files`, {}],
+      ["GET", `/platform/v1/tenants/${ids.tenantId}/files/${ids.userId}`],
+      ["GET", "/platform/v1/tenant-documents"],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/documents/${ids.userId}/approve`, {}],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/documents/${ids.userId}/reject`, { reason: "不该生效" }],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/documents/${ids.userId}/request-supplement`, { reason: "不该生效" }],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/contracts`, { valid_from: "2099-01-01", settle_currency: "JPY" }],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/sign`, {}],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/start-trial`, { test_order_note: "不该生效" }],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/terminate`, { reason: "不该生效" }],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/admin-invites`, { email: `bypass-${randomUUID().slice(0, 8)}@a.test`, name: "某人" }],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/admin-password-resets`, { email: "admin@a.test" }],
       ["GET", "/platform/v1/audit-logs"],
@@ -146,6 +159,15 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/orders"],
       ["GET", `/platform/v1/orders/${ids.userId}`],
       ["GET", `/platform/v1/orders/${ids.userId}/files/${ids.userId}`],
+      // 取消、改单、加收、取消政策（M3-03）
+      ["PATCH", `/platform/v1/orders/${ids.userId}`, { notes: "不该生效" }],
+      ["GET", `/platform/v1/orders/${ids.userId}/cancel-fee`],
+      ["POST", `/platform/v1/orders/${ids.userId}/cancel`, { reason: "FORCE_MAJEURE", note: "不该生效" }],
+      ["POST", `/platform/v1/orders/${ids.userId}/extra-charges/${ids.userId}/decide`, { decision: "approve" }],
+      ["POST", `/platform/v1/orders/${ids.userId}/extra-charges/${ids.userId}/retry`],
+      ["POST", `/platform/v1/orders/${ids.userId}/refunds/${ids.userId}/retry`],
+      ["GET", "/platform/v1/cancellation-policy"],
+      ["POST", "/platform/v1/cancellation-policy/changes", { rules: [], note: "不该生效" }],
       ["GET", "/platform/v1/webhook-deliveries"],
       ["GET", `/platform/v1/webhook-deliveries/${ids.userId}`],
       ["POST", `/platform/v1/webhook-deliveries/${ids.userId}/retry`],
@@ -262,6 +284,13 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["DELETE", `/tenant/v1/orders/${ids.userId}/driver-link`],
     ["POST", `/tenant/v1/orders/${ids.userId}/events`, { type: "depart" }],
     ["GET", `/tenant/v1/orders/${ids.userId}/files/${ids.userId}`],
+    // 取消政策（只读）、票据、事后加收、确认改期（M3-03）
+    ["GET", "/tenant/v1/cancellation-policy"],
+    ["POST", `/tenant/v1/orders/${ids.userId}/files`],
+    ["POST", `/tenant/v1/orders/${ids.userId}/extra-charges`, { type: "waiting", amount: 100 }],
+    ["POST", `/tenant/v1/orders/${ids.userId}/extra-charges/${ids.userId}/withdraw`],
+    ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/confirm`, {}],
+    ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/reject`, {}],
     ["GET", "/tenant/v1/drivers"],
     ["POST", "/tenant/v1/drivers", { name: "不该出现", phone: "+819000000000" }],
     ["GET", `/tenant/v1/drivers/${ids.userId}`],
@@ -280,6 +309,16 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/webhooks/deliveries"],
     ["GET", `/tenant/v1/webhooks/deliveries/${ids.userId}`],
     ["POST", `/tenant/v1/webhooks/deliveries/${ids.userId}/retry`],
+    ["GET", "/tenant/v1/company"],
+    ["PUT", "/tenant/v1/company/profile", { country_code: "JP" }],
+    ["POST", "/tenant/v1/company/files", {}],
+    ["GET", `/tenant/v1/company/files/${ids.userId}`],
+    ["POST", "/tenant/v1/company/documents", { type: "other", file_id: ids.userId }],
+    ["POST", "/tenant/v1/company/submit"],
+    ["GET", "/tenant/v1/company/contracts"],
+    ["GET", "/tenant/v1/company/status-events"],
+    ["GET", "/tenant/v1/company/notices"],
+    ["GET", "/tenant/v1/performance"],
   ];
 }
 
@@ -507,7 +546,7 @@ test("停用再启用：标记不变、停用前的令牌不复活；启用后�
 test("租户被暂停、被标记的用户：登录照常、仍然只能改密码；改完恢复（暂停不影响强制逻辑，强制逻辑也不影响别的租户）", async () => {
   const created = await api.tenantWithAdmin(rootToken, "暂停的车队", "admin@suspended.test");
   await api.db.owner.query("update tenant_users set must_change_password = true where id = $1", [created.adminId]);
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${created.tenantId}/suspend`, { token: rootToken, body: { reason: "测试" } })).status, 200);
+  await suspendTenantApproved(api, rootToken, created.tenantId);
   const loggedIn = await login("tenant", "admin@suspended.test", TEST_PASSWORD);
   assert.equal(loggedIn.body.must_change_password, true);
   assert.equal(loggedIn.body.tenant.status, "suspended");

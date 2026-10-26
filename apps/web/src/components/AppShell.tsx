@@ -44,10 +44,14 @@ type NavEntry = NavLeaf | NavGroup;
 function navEntries(portal: Portal, home: string, role: string | null, platformCan: (action: PlatformAction) => boolean): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
   if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
+  if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenant-documents", label: "资质审核", icon: "file", prefix: true });
   if (portal === "platform" && platformCan("product.read")) entries.push({ to: "/platform/products", label: "商品", icon: "package", prefix: true });
   if (portal === "platform" && platformCan("quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
+  if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/orders", label: "订单", icon: "package", prefix: true });
+  // 取消政策（M3-03）：管订单的人和审核政策的人用得到（主数据运营虽然看得到政策，菜单里不放）
+  if (portal === "platform" && (platformCan("order.read") || platformCan("cancellation_policy.review"))) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("master_data.read")) {
     entries.push({
@@ -82,6 +86,9 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
     if (tenantRoleCan(role, "order.read")) entries.push({ to: "/orders", label: "订单", icon: "package", prefix: true });
     const fleet = tenantRoleCan(role, "fleet.read") ? [{ to: "/fleet/drivers", label: "司机", prefix: true }, { to: "/fleet/vehicles", label: "车辆", prefix: true }] : [];
     if (fleet.length > 0) entries.push({ key: "fleet", label: "车队", icon: "building", children: fleet });
+    // 企业资质（M4-01）：管理员、财务、只读；履约评分每个角色都能看
+    if (tenantRoleCan(role, "company.read")) entries.push({ to: "/company", label: "企业资质", icon: "file", prefix: true });
+    if (tenantRoleCan(role, "performance.read")) entries.push({ to: "/performance", label: "履约评分", icon: "check-circle", prefix: true });
     if (tenantRoleCan(role, "webhook.read")) entries.push({ key: "tenant-settings", label: "设置", icon: "settings", children: [{ to: "/settings/webhook", label: "调度对接（Webhook）", prefix: true }], collapsedByDefault: true });
   }
   return entries;

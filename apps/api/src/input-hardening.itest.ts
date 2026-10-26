@@ -124,10 +124,9 @@ test("字符串里带 NUL 字符（姓名、租户名称、暂停原因、审计
     ["审计筛选 action", "GET", "/platform/v1/audit-logs?action=login%00", { token: platformToken }],
   ];
   const failed = await serverErrors(cases);
-  // 暂停放在最后单独做：它一旦成功会改变租户状态，做完立即恢复
+  // 暂停放在最后单独做：发起暂停是双人复核（ADR 0028），成功也只是建一条待审核的记录，不改租户状态
   const suspend = await api.call("POST", `/platform/v1/tenants/${a.tenantId}/suspend`, { token: platformToken, body: { reason: nul } });
   if (suspend.status >= 500) failed.push(`暂停租户 reason → ${suspend.status}`);
-  if (suspend.status === 200) await api.call("POST", `/platform/v1/tenants/${a.tenantId}/resume`, { token: platformToken });
   assert.deepEqual(failed, []);
 });
 

@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { PLATFORM_ROLES, type PlatformRole, platformRoleCan } from "@nozomi/domain";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 import { assertMatchesOperation } from "./testing/openapi.ts";
 
 let api: TestApi;
@@ -178,9 +178,9 @@ test("列表：看得到所有供应商的商品，每行带供应商、子品�
   assert.equal(row(ids["pa1"] as string).poi.code, "NRT");
   // 丙没有商品，不出现；供应商被暂停时列表里看得出来
   assert.ok(!page.items.some((item: any) => item.tenant_id === c.tenantId));
-  await ok(api.call("POST", `/platform/v1/tenants/${b.tenantId}/suspend`, { token: root, body: {} }));
+  await suspendTenantApproved(api, root, b.tenantId);
   assert.deepEqual((await list(`tenant_id=${b.tenantId}`)).items.map((item: any) => item.tenant.status), ["suspended", "suspended"]);
-  await ok(api.call("POST", `/platform/v1/tenants/${b.tenantId}/resume`, { token: root }));
+  await resumeTenantNow(api, root, b.tenantId);
 });
 
 test("列表的筛选：供应商、城市、品类、状态、关键字（商品名或编号，不区分大小写）、子品牌、有没有可以卖的价格，可以组合；什么都不符合时是空页", async () => {

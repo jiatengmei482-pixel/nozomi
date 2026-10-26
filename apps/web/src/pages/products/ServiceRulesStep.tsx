@@ -3,6 +3,7 @@
  * 附加服务和司机语言、服务后加收的费用（只读）。时间都按城市当地时间；金额是结算价，子品牌的币种。
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
+import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
 import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Addon } from "../../api/master.ts";
@@ -510,6 +511,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 <span className="tag">平台统一 · 不能修改</span>
               </div>
               <p>客人付款前不知道订单会给哪家供应商，所以取消规则由平台按品类和车型级别统一规定，{onPlatform ? "所有供应商相同。" : "所有供应商相同，这里不用设置。"}</p>
+              <PlatformPolicyLines category={category} portal={onPlatform ? "platform" : "tenant"} />
             </section>
 
             <section className="card" id="addons" aria-labelledby="rules-addons-title">

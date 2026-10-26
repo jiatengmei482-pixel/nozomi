@@ -78,15 +78,6 @@ export function orderStatusIsFinal(status: OrderStatus): boolean {
   return TRANSITIONS[status].length === 0;
 }
 
-/** 订单为什么被取消。M3-01 只有付款前的两种；客人、平台、租户原因的取消在 M3-03 / M3-04 加。 */
-export const ORDER_CANCEL_REASONS = ["PAYMENT_TIMEOUT", "PAYMENT_CANCELED"] as const;
-export type OrderCancelReason = (typeof ORDER_CANCEL_REASONS)[number];
-
-export const ORDER_CANCEL_REASON_NAMES: Readonly<Record<OrderCancelReason, string>> = {
-  PAYMENT_TIMEOUT: "超时未支付，系统自动取消",
-  PAYMENT_CANCELED: "付款被取消",
-};
-
 /**
  * 租户看不看得到这一单：只有付过款（确认过）的才看得到。待支付、没付款就取消的单对租户不存在——
  * 需求「支付后可见乘客姓名、电话、航班号」，而且没付款的单不需要租户做任何事。
@@ -116,9 +107,10 @@ export function paymentOverdue(dueAt: Date, now: Date): boolean {
 /**
  * 平台记的付款状态（一单一笔）：
  * `creating` 已建单、还没在支付服务那边建好付款；`requires_payment` 等客人付款（含 3DS 验证中）；`processing` 支付服务处理中；
- * `succeeded` 已付款；`canceled` 付款已取消（超时、客人放弃）。
+ * `succeeded` 已付款；`canceled` 付款已取消（超时、客人放弃）；
+ * `failed` 用保存的支付方式离线扣款没扣到（卡被拒、要客人验证；M3-03 的改期补差价和事后加收才有，下单的付款被拒后客人可以换卡重付，仍是 `requires_payment`）。
  */
-export const PAYMENT_STATUSES = ["creating", "requires_payment", "processing", "succeeded", "canceled"] as const;
+export const PAYMENT_STATUSES = ["creating", "requires_payment", "processing", "succeeded", "canceled", "failed"] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 /** Stripe PaymentIntent 的状态（https://docs.stripe.com/payments/paymentintents/lifecycle）。 */

@@ -1,8 +1,10 @@
 /**
  * 供应商后台「订单」（M3-02，ADR 0027）：订单列表（超时未派车标红、能筛「未派车」「超时未派车」）和订单详情（派车 / 改派、司机链接、履约时间点、落地时间、
  * 照片和联系记录、no-show 的 5 项证据、状态流水）。看：`order.read`；派车、司机链接、回传：`order.dispatch`（管理员、调度）。
+ * M3-03（ADR 0029）：详情里另有这一单的取消阶梯和取消结果、客人的改单（24 小时内的改期要确认）、事后加收（提交、撤回、上传票据；`order.extra_charge`）。
  * 页面上没有对外价和加价比例（规则 4：接口里本来就没有），只有结算价。用车有关的时间按服务城市的当地时间显示（设计规范 04 第 4 节）。
  */
+import { CancellationSection, ChangesSection, ExtraChargesSection } from "./OrderMoneySections.tsx";
 import { NO_SHOW_ITEM_NAMES, ORDER_STATUSES, type OrderStatus } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -299,6 +301,7 @@ export function OrderDetailPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   const canRead = useTenantCan("order.read");
   const canDispatch = useTenantCan("order.dispatch");
+  const canExtraCharge = useTenantCan("order.extra_charge");
   const toast = useToast();
   const { state, reload } = useLoad<TenantOrderDetail>(`order|${id}`, canRead ? (t) => getOrder(t, id) : null);
   const [assigning, setAssigning] = useState(false);
@@ -454,6 +457,10 @@ export function OrderDetailPage() {
           )}
         </section>
       )}
+
+      <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} onChanged={reload} />
+      <ExtraChargesSection order={order} charges={detail.extra_charges} canSubmit={canExtraCharge} onChanged={reload} />
+      <CancellationSection order={order} />
 
       <section className="card">
         <h2 className="card__title">状态流水</h2>

@@ -41,6 +41,8 @@ export const PLATFORM_ACTIONS = [
   "tenant.read",
   "tenant.create",
   "tenant.change_status",
+  "tenant.review",
+  "tenant.approve",
   "audit_log.read",
   "integration.read",
   "master_data.read",
@@ -55,6 +57,10 @@ export const PLATFORM_ACTIONS = [
   "approval.read",
   "order.read",
   "order.resend",
+  "order.manage",
+  "payment.manage",
+  "cancellation_policy.manage",
+  "cancellation_policy.review",
   "role.read",
   "role.manage",
   "role.review",
@@ -74,10 +80,14 @@ export const TENANT_ACTIONS = [
   "brand.manage",
   "order.read",
   "order.dispatch",
+  "order.extra_charge",
   "fleet.read",
   "fleet.manage",
   "webhook.read",
   "webhook.manage",
+  "company.read",
+  "company.manage",
+  "performance.read",
 ] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
@@ -103,16 +113,27 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 所以主数据运营也有了 `approval.read`。
  * 订单（只读，M3-01，ADR 0026）：运营（每天处理订单和异常）、客服（处理订单、工单）、财务（对账）、风控（看下单风险）、只读。
  * 里面有乘客的姓名、电话、邮箱：招商、渠道经理、主数据运营、技术用不到，不给。
+ * 供应商入驻（M4-01，ADR 0028）：菜单表「租户管理：入驻申请、资质审核、合同、结算条款、评分、停用」归招商和运营。
+ * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
+ * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
  * 角色管理（M4-05，ADR 0030）：看（`role.read`）、新建和发起修改（`role.manage`）、审核修改（`role.review`）属于「系统设置」，只归超级管理员。
+ * 取消、改单、事后加收（M3-03，ADR 0029）：
+ * - `order.manage`（代客人取消、改单，审核事后加收，发起「免收取消费」）：运营、客服（需求「订单中心」「工单」归客服、运营）；
+ * - `payment.manage`（重试失败的退款和扣款，审核「多退给客人」的代取消——需求「人工退款超过阈值」的双人复核）：财务、运营（「支付异常：财务核实」）；
+ * - `cancellation_policy.manage`（发起改平台取消政策）：运营；`cancellation_policy.review`（审核）：运营、财务——两位运营互审，或财务审。
+ *   取消政策本身每个角色都能看（和主数据一样用 `master_data.read`）。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  operations: [
+    "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
+    "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
+  ],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
-  finance: ["master_data.read", "channel.read", "approval.read", "order.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
@@ -125,17 +146,22 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 区域、商品（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
  * 子品牌决定商品的币种，新建和改名只归管理员；能看商品的角色都能看子品牌（`product.read`）。
  * 订单（只读，M3-01，ADR 0026）：管理员、调度（派车要看订单）、财务（对账）、只读；商品价格用不到。
+ * 企业信息和资质（M4-01，ADR 0028；需求「管理员：全部，包括账号、资质、API 密钥」）：填写、上传、提交审核（`company.manage`）只归管理员；
+ * 看（`company.read`：企业信息、资质、合同、状态记录、提醒）给管理员、财务（结算条款、结算账户证明）、只读。
+ * 履约评分（`performance.read`，需求「租户可在自己后台看到各项指标」）：每个角色都能看——调度要看按时派车率，商品价格要知道观察期对中标的影响。
  * 派车、改派、司机链接、回传履约状态（`order.dispatch`）和司机、车辆的管理（`fleet.manage`）：管理员、调度（需求「调度：订单、指派、履约回传、司机、车辆」）。
  * 看司机、车辆（`fleet.read`）：管理员、调度、只读。
  * Webhook（M3-02，ADR 0027）：设置地址、签名密钥、手动重推、发送测试事件（`webhook.manage`）只归管理员（需求「管理员：账号、资质、API 密钥」，签名密钥同属密钥）；
  * 看设置和投递记录（`webhook.read`）：管理员、调度（推送失败时要知道）、只读。
+ * 事后加收（M3-03，ADR 0029，`order.extra_charge`：提交、撤回、上传票据）：管理员、调度（履约的人知道超时、停车）、财务（对账的人）。
+ * 确认 / 拒绝客人的改期用 `order.dispatch`（排不排得出车是调度的判断）。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
-  pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
-  dispatch: ["master_data.read", "order.read", "order.dispatch", "fleet.read", "fleet.manage", "webhook.read"],
-  finance: ["master_data.read", "order.read"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read"],
+  pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
+  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
+  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {
@@ -213,7 +239,7 @@ export function checkStatusChange(
  * 自建角色存的是勾选了哪些「菜单:操作」，每个请求按下表换成接口检查用的操作（`PlatformAction`）。
  * 内置角色仍以上面的 `PLATFORM_PERMISSIONS` 为准（只读模板），在角色页上按下表显示成同样的勾选表。
  * 只列已经有接口的菜单和操作：各处的「导出」等以后有了接口再加（加的时候只改这张表）。
- * 订单的「编辑」现在只有手动重推给供应商的 Webhook（`order.resend`，M3-02）；运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。
+ * 运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。「取消政策」的查看和主数据的查看是同一个接口操作（`master_data.read`），两格勾哪一格都能看到两处。
  */
 export const MENU_OPERATIONS = [
   { key: "view", name: "查看" },
@@ -232,11 +258,16 @@ export interface PlatformMenu {
 }
 
 export const PLATFORM_MENUS = [
-  { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.change_status"] } },
+  // 入驻（M4-01）：资质审核、合同上传和发起合同版本（`tenant.review`）算编辑；人工暂停、清退、合同版本的复核（`tenant.approve`）算审核
+  { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.change_status", "tenant.review"], review: ["tenant.approve"] } },
   { key: "products", name: "供应商商品", operations: { view: ["product.read"] } },
   { key: "quote_preview", name: "报价试算", operations: { view: ["quote.preview"] } },
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
-  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend"] } },
+  // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
+  // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
+  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
+  { key: "cancellation_policy", name: "取消政策", operations: { view: ["master_data.read"], edit: ["cancellation_policy.manage"], review: ["cancellation_policy.review"] } },
   { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },
   // 需求文档里汇率中心是主数据菜单的一部分：看汇率就是看主数据；拉取、确认、发起锁定算编辑，审核锁定算审核
   { key: "master_data", name: "主数据与汇率", operations: { view: ["master_data.read"], edit: ["master_data.manage", "fx.manage"], review: ["fx.review"] } },

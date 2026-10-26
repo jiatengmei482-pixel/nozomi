@@ -22,7 +22,10 @@ import {
   type OrderDetailsIssueReason,
   type OrderStatus,
   type PaymentStatus,
+  type VehicleGrade,
+  cancellationRuleFor,
   dispatchDeadline,
+  freeCancelAfterUnconfirmedChange,
   landingReportIssue,
   localDateTimeToInstant,
   normalizeFlightNo,
@@ -35,7 +38,16 @@ import {
   paymentOverdue,
   paymentStatusOf,
   quoteSnapshotValid,
+  TENANT_RULES,
+  type TenantStatus,
+  tenantBids,
+  tenantDayStart,
+  vehicleLevel,
 } from "@nozomi/domain";
+import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
+import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
+import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
+import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -64,6 +76,7 @@ import {
 } from "../repos/orders.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
 import { requestHash } from "./idempotency.ts";
+import { countOrdersSince } from "../repos/tenant-onboarding.ts";
 import { idempotencyKeyReused, notFound } from "./errors.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { QuoteExpired, type StoredQuoteSnapshot } from "./sales-quotes.ts";
@@ -133,6 +146,12 @@ export interface SalesOrderView {
   vehicle: Vehicle | null;
   /** 现在是不是已经到了可以给客人司机电话的时候 */
   driverPhoneVisible: boolean;
+  /** M3-03：退款、改单（和改期的对外价）、事后加收、能不能按「改期没确认」免费取消 */
+  refunds: OrderRefund[];
+  changes: OrderChange[];
+  changeSales: Map<string, ChangeSale>;
+  extraCharges: ExtraCharge[];
+  freeCancelAvailable: boolean;
 }
 
 function orderNoRandom(): string {
@@ -157,7 +176,7 @@ interface ProductRow {
   place_type: string | null;
 }
 
-function noLongerAvailable(reason: "PRODUCT_UNPUBLISHED" | "TENANT_SUSPENDED"): AppError {
+function noLongerAvailable(reason: "PRODUCT_UNPUBLISHED" | "TENANT_SUSPENDED" | "TENANT_NOT_ONBOARDED" | "TRIAL_DAILY_LIMIT"): AppError {
   return new AppError(409, "QUOTE_NO_LONGER_AVAILABLE", "这个报价的车已经不能预订了，请重新询价", { reason });
 }
 
@@ -192,7 +211,13 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     ).rows[0];
     // 报价之后（30 分钟内）供应商被暂停、商品被下架：车没法派，不能下单。价格变了不影响——以快照为准
     if (product === undefined || product.status !== "published") throw noLongerAvailable("PRODUCT_UNPUBLISHED");
-    if (product.tenant_status !== "active") throw noLongerAvailable("TENANT_SUSPENDED");
+    if (!tenantBids(product.tenant_status as TenantStatus)) throw noLongerAvailable(product.tenant_status === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED");
+    // 试运营的每日订单上限（ADR 0028）：同一个供应商的下单在这把锁上排队，数完再建单，并发也不会超过上限
+    if (product.tenant_status === "trial") {
+      await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`trial-daily-limit:${winner.tenantId}`]);
+      const today = (await countOrdersSince(db, [winner.tenantId], tenantDayStart(now))).get(winner.tenantId) ?? 0;
+      if (today >= TENANT_RULES.trialDailyOrderLimit) throw noLongerAvailable("TRIAL_DAILY_LIMIT");
+    }
 
     const request = snapshot.request;
     const details = input.details;
@@ -218,6 +243,11 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
 
     const orderId = randomUUID();
     const serviceAt = localDateTimeToInstant(request.serviceLocal, product.timezone) as Date;
+    // 这一单适用的取消阶梯：下单这一刻的平台政策、按品类和车型级别（ADR 0029）。之后政策改了不影响这一单
+    const group = (await db.query<{ grade: VehicleGrade; seats: number }>("select grade, seats from vehicle_groups where id = $1", [winner.offer.vehicleGroupId])).rows[0] as { grade: VehicleGrade; seats: number };
+    const policy = await currentCancellationPolicy(db);
+    const level = vehicleLevel(group.grade, group.seats);
+    const cancelPolicy = { version: policy.version, category: request.category, level, tiers: cancellationRuleFor(policy.rules, request.category, level).tiers };
     const freeWait = winner.offer.settlement.freeWait.value;
     const point = (position: { lng: number; lat: number } | null, address: string | null) => (position === null ? null : { lng: position.lng, lat: position.lat, address: (address ?? "").trim() });
     const orderNo = orderNumber(now, orderNoRandom());
@@ -255,6 +285,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       inventoryHeld: limited,
       paymentDueAt: paymentDeadline(now),
       createdAt: now,
+      cancelPolicy,
     });
     await insertOrderEvent(db, { tenantId: winner.tenantId, id: orderId }, { fromStatus: null, toStatus: "pending_payment", actor: "channel", reason: null, occurredAt: now });
     await insertOrderSale(db, {
@@ -366,7 +397,21 @@ export async function getSalesOrderView(ctx: AppContext, channelId: string, orde
       const driver = order.dispatch.driverId === null ? null : ((await findDriversByIds(db, order.tenantId, [order.dispatch.driverId])).get(order.dispatch.driverId) ?? null);
       const vehicle = order.dispatch.vehicleId === null ? null : ((await findVehiclesByIds(db, order.tenantId, [order.dispatch.vehicleId])).get(order.dispatch.vehicleId) ?? null);
       const driverPhoneVisible = ctx.now().getTime() >= order.serviceAt.getTime() - DISPATCH_RULES.deadlineHoursBeforeService * 3_600_000;
-      return { order, sale, payment, winningTenant, driver, vehicle, driverPhoneVisible };
+      const changes = await listOrderChanges(db, order.tenantId, orderId);
+      return {
+        order,
+        sale,
+        payment,
+        winningTenant,
+        driver,
+        vehicle,
+        driverPhoneVisible,
+        refunds: await listOrderRefunds(db, orderId),
+        changes,
+        changeSales: await listChangeSales(db, orderId),
+        extraCharges: await listExtraCharges(db, order.tenantId, orderId),
+        freeCancelAvailable: order.status !== "cancelled" && freeCancelAfterUnconfirmedChange(changes),
+      };
     },
     { snapshot: true },
   );

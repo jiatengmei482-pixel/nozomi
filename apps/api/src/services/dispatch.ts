@@ -62,7 +62,7 @@ export interface Conflict {
 }
 
 /** 这些司机、车辆在这一单的时段里已有的别的单。 */
-async function conflictsFor(db: Db, order: Order, driverIds: readonly string[], vehicleIds: readonly string[]): Promise<Conflict[]> {
+export async function conflictsFor(db: Db, order: Order, driverIds: readonly string[], vehicleIds: readonly string[]): Promise<Conflict[]> {
   const window = orderBusyWindow(order.serviceAt, order.packageHours);
   // 粗筛：用车时间在前后一天之内的单（包车最长也在这个范围里），再按各自的时段精确判断
   const day = 36 * 3_600_000;

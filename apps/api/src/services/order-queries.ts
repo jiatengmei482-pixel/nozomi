@@ -41,11 +41,15 @@ import {
   findSale,
   findTenantOrder,
   listOrderEvents,
+  listOrderPayments,
   listPaymentEvents,
   listPlatformOrders,
   listTenantOrders,
 } from "../repos/orders.ts";
 import { notFound } from "./errors.ts";
+import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
+import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
+import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 
 export interface TenantOrderListQuery {
@@ -111,6 +115,9 @@ export interface TenantOrderDetail {
   facts: DispatchFacts;
   events: OrderEvent[];
   records: OrderFulfilmentRecords;
+  /** 改单、事后加收（M3-03） */
+  changes: OrderChange[];
+  extraCharges: ExtraCharge[];
 }
 
 export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
@@ -121,7 +128,7 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
       const order = await findTenantOrder(db, tenantId, orderId);
       if (order === null) throw notFound("订单");
       const facts = (await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS;
-      return { order, facts, events: await listOrderEvents(db, tenantId, orderId), records: await fulfilmentRecords(db, order) };
+      return { order, facts, events: await listOrderEvents(db, tenantId, orderId), records: await fulfilmentRecords(db, order), changes: await listOrderChanges(db, tenantId, orderId), extraCharges: await listExtraCharges(db, tenantId, orderId) };
     },
     { snapshot: true },
   );
@@ -173,6 +180,12 @@ export interface PlatformOrderDetail {
   paymentEvents: PaymentEventRecord[];
   /** 下单用的报价快照：全部参与比价的租户和它们的排序依据（《平台运营端》订单详情「报价快照（含全部参与比价的租户和价格、汇率）」） */
   quote: StoredQuoteSnapshot;
+  /** M3-03：全部收款（下单、改期补差价、事后加收）、退款、改单（和改期的对外价）、事后加收 */
+  payments: OrderPayment[];
+  refunds: OrderRefund[];
+  changes: OrderChange[];
+  changeSales: Map<string, ChangeSale>;
+  extraCharges: ExtraCharge[];
 }
 
 /** 数据范围外的订单和不存在一样（ADR 0030）。不给范围 = 不限制。 */
@@ -197,6 +210,11 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         events: await listOrderEvents(db, order.tenantId, orderId),
         paymentEvents: await listPaymentEvents(db, orderId),
         quote: quote.snapshot,
+        payments: await listOrderPayments(db, orderId),
+        refunds: await listOrderRefunds(db, orderId),
+        changes: await listOrderChanges(db, order.tenantId, orderId),
+        changeSales: await listChangeSales(db, orderId),
+        extraCharges: await listExtraCharges(db, order.tenantId, orderId),
       };
     },
     { snapshot: true },

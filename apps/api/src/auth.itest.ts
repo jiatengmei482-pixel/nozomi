@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { INVITE_TTL_MS } from "./auth/invite-token.ts";
 import { SESSION_TTL_MS } from "./auth/session.ts";
-import { type ApiResponse, type CallOptions, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type CallOptions, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let platformToken: string;
@@ -204,12 +204,9 @@ test("停用平台账号：已登录的令牌立即失效；密码正确也登�
 
 test("暂停租户不影响登录（需求文档「租户状态」：暂停的租户继续履约已有订单）：已有令牌照常可用，可以重新登录，me 和登录响应里的租户状态是 suspended；恢复后变回 active", async () => {
   const staff = await addTenantUser(api, tenant.adminToken, "dispatch@a.test", "dispatch");
-  const suspended = await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, {
-    token: platformToken,
-    body: { reason: "资质过期" },
-  });
-  assert.equal(suspended.status, 200);
-  assert.equal(suspended.body.status, "suspended");
+  // 人工暂停走双人复核（ADR 0028）：发起 + 另一位超级管理员批准
+  const suspended = await suspendTenantApproved(api, platformToken, tenant.tenantId, "资质过期");
+  assert.equal(suspended.status, "suspended");
 
   for (const token of [tenant.adminToken, staff.token]) {
     const me = await api.call("GET", "/tenant/v1/auth/me", { token });
@@ -224,10 +221,10 @@ test("暂停租户不影响登录（需求文档「租户状态」：暂停的�
   const invited = await api.call("POST", "/tenant/v1/users", { token: login.body.access_token, body: { email: "while-suspended@a.test", name: "暂停期间", role: "readonly" } });
   assert.equal(invited.status, 201, "暂停期间租户管理员仍能管理自己的账号");
 
-  const again = await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { token: platformToken });
-  assert.equal(again.status, 200, "重复暂停直接返回当前状态");
-  const resumed = await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/resume`, { token: platformToken });
-  assert.equal(resumed.body.status, "active");
+  const again = await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { token: platformToken, body: { reason: "再暂停一次" } });
+  assert.deepEqual([again.status, again.body.error.code], [409, "TENANT_STATE_INVALID"], "已经人工暂停的不能再发起");
+  const resumed = await resumeTenantNow(api, platformToken, tenant.tenantId);
+  assert.equal(resumed.status, "active");
   const me = await api.call("GET", "/tenant/v1/auth/me", { token: tenant.adminToken });
   assert.equal(me.status, 200);
   assert.equal(me.body.tenant.status, "active");
@@ -235,7 +232,7 @@ test("暂停租户不影响登录（需求文档「租户状态」：暂停的�
 
 test("暂停租户之后，停用该租户里的某个账号仍然立即生效（账号停用与租户状态互不影响）", async () => {
   const staff = await addTenantUser(api, tenant.adminToken, "suspended-then-disabled@a.test", "readonly");
-  await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/suspend`, { token: platformToken });
+  await suspendTenantApproved(api, platformToken, tenant.tenantId);
   try {
     assert.equal((await api.call("DELETE", `/tenant/v1/users/${staff.id}`, { token: tenant.adminToken })).status, 204);
     assert.equal((await api.call("GET", "/tenant/v1/auth/me", { token: staff.token })).status, 401);
@@ -243,7 +240,7 @@ test("暂停租户之后，停用该租户里的某个账号仍然立即生效�
     assert.equal(login.status, 403);
     assert.equal(login.body.error.code, "ACCOUNT_DISABLED");
   } finally {
-    await api.call("POST", `/platform/v1/tenants/${tenant.tenantId}/resume`, { token: platformToken });
+    await resumeTenantNow(api, platformToken, tenant.tenantId);
   }
 });
 

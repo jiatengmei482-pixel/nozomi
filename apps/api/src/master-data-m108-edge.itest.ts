@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLATFORM_ROLES, type PlatformRole, platformRoleCan } from "@nozomi/domain";
 import { createSuperAdmin } from "./services/platform-staff.ts";
-import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, suspendTenantApproved } from "./testing/api.ts";
 import { testEnv } from "./testing/fixtures.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 
@@ -124,7 +124,7 @@ test("首页统计的权限裁剪：十个平台角色各调一次——有 tena
     assert.deepEqual(Object.keys(res.body).sort(), ["fx", "master_data", "tenants"], key);
     assert.deepEqual(Object.keys(res.body.fx).sort(), ["as_of", "held", "last_attempt_status", "locks", "stale_at", "state"], key);
     assert.equal(res.body.tenants !== null, platformRoleCan(key, "tenant.read"), `${key} 的供应商数量`);
-    if (res.body.tenants !== null) assert.deepEqual(Object.keys(res.body.tenants).sort(), ["active", "suspended", "total"], key);
+    if (res.body.tenants !== null) assert.deepEqual(Object.keys(res.body.tenants).sort(), ["active", "bidding", "by_status", "suspended", "total"], key);
     assert.deepEqual(Object.keys(res.body.master_data).sort(), ["addons", "cities", "places", "vehicle_groups"], key);
     assert.deepEqual(Object.keys(res.body.master_data.places).sort(), ["active", "airports_without_city", "by_type", "disabled", "total"], key);
     assert.doesNotMatch(res.text, /甲车队|乙车队|admin@|Sample Airport|CTY-|东京/, `${key}：只有数量，没有明细`);
@@ -498,7 +498,7 @@ test("租户改不了主数据：两个租户的管理员对平台和租户两�
   assert.deepEqual(await placeRow(airport.id), before);
   assert.equal((await get("/platform/v1/master/cities?code=CTY-JP-TEN")).body.total, 0);
 
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${tenantB.tenantId}/suspend`, { token: root, body: { reason: "测试" } })).status, 200);
+  await suspendTenantApproved(api, root, tenantB.tenantId);
   assert.equal((await get("/tenant/v1/master/places", tenantB.adminToken)).status, 200, "暂停的租户照常能读主数据");
   const stillDenied = await api.call("POST", `/platform/v1/master/places/${airport.id}/enable`, { token: tenantB.adminToken, body: { city_id: tokyo.id } });
   assert.equal(stillDenied.status, 401);

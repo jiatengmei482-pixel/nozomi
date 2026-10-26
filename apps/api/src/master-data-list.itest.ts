@@ -9,7 +9,7 @@ import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { CITY, listMaster } from "./services/master-data.ts";
 import { importAirports } from "./services/airport-import.ts";
 import { testConfig } from "./testing/fixtures.ts";
-import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
+import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let root: string;
@@ -48,7 +48,7 @@ test("首页统计：空库里全是 0，五种地点类型都列出来；只有
   const res = await get("/platform/v1/dashboard/summary");
   assert.equal(res.status, 200, res.text);
   assert.deepEqual(res.body, {
-    tenants: { total: 0, active: 0, suspended: 0 },
+    tenants: { total: 0, active: 0, suspended: 0, bidding: 0, by_status: { applying: 0, reviewing: 0, signed: 0, trial: 0, active: 0, suspended: 0, terminated: 0 } },
     master_data: {
       cities: EMPTY,
       places: { ...EMPTY, by_type: { airport: EMPTY, station: EMPTY, poi: EMPTY, terminal: EMPTY, exit: EMPTY }, airports_without_city: 0 },
@@ -63,7 +63,7 @@ test("首页统计：空库里全是 0，五种地点类型都列出来；只有
 test("首页统计：数量跟着数据变——租户按状态，主数据按启用 / 停用，地点另按类型，导入后没指定城市的机场单独数", async () => {
   tenant = await api.tenantWithAdmin(root, "甲车队", "admin@a.test");
   const other = await api.tenantWithAdmin(root, "乙车队", "admin@b.test");
-  assert.equal((await api.call("POST", `/platform/v1/tenants/${other.tenantId}/suspend`, { token: root, body: {} })).status, 200);
+  await suspendTenantApproved(api, root, other.tenantId);
 
   const city = { country_code: "JP", timezone: "Asia/Tokyo", center: { lng: 139.767125, lat: 35.681236 } };
   const tokyo = await create("cities", { ...city, code: "CTY-JP-TYO", name: { ja: "東京", zh: "东京", en: "Tokyo" } });
@@ -93,7 +93,7 @@ test("首页统计：数量跟着数据变——租户按状态，主数据按�
 
   const res = await get("/platform/v1/dashboard/summary");
   assert.deepEqual(res.body, {
-    tenants: { total: 2, active: 1, suspended: 1 },
+    tenants: { total: 2, active: 1, suspended: 1, bidding: 1, by_status: { applying: 0, reviewing: 0, signed: 0, trial: 0, active: 1, suspended: 1, terminated: 0 } },
     master_data: {
       cities: { total: 3, active: 2, disabled: 1 },
       places: {

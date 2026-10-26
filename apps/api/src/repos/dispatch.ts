@@ -198,7 +198,8 @@ export async function touchDriverLink(db: Db, tenantId: string, linkId: string, 
 
 // ---- 照片 ----
 
-export type OrderFileKind = "arrival_screen" | "signboard" | "contact_screenshot";
+/** 到达屏、举牌、联系客人的截图（司机 H5，M3-02）；票据（停车费、高速费的凭证，司机 H5 或供应商后台，M3-03） */
+export type OrderFileKind = "arrival_screen" | "signboard" | "contact_screenshot" | "receipt";
 
 export interface OrderFile {
   id: string;
@@ -216,10 +217,11 @@ function toFile(row: Row): OrderFile {
   return { id: row["id"], orderId: row["order_id"], kind: row["kind"], contentType: row["content_type"], byteSize: row["byte_size"], sha256: row["sha256"], uploadedAt: row["uploaded_at"] };
 }
 
-export async function insertOrderFile(db: Db, tenantId: string, file: { orderId: string; kind: OrderFileKind; contentType: string; data: Buffer; sha256: string; uploadedAt: Date; linkId: string }): Promise<OrderFile> {
+/** 存一张照片。谁传的二选一：司机链接（`linkId`），或供应商后台的用户（`uploadedBy`）。 */
+export async function insertOrderFile(db: Db, tenantId: string, file: { orderId: string; kind: OrderFileKind; contentType: string; data: Buffer; sha256: string; uploadedAt: Date; linkId: string | null; uploadedBy?: string | null }): Promise<OrderFile> {
   const result = await db.query<Row>(
-    `insert into order_files (tenant_id, order_id, kind, content_type, byte_size, sha256, data, uploaded_at, link_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning ${FILE_COLUMNS}`,
-    [tenantId, file.orderId, file.kind, file.contentType, file.data.length, file.sha256, file.data, file.uploadedAt, file.linkId],
+    `insert into order_files (tenant_id, order_id, kind, content_type, byte_size, sha256, data, uploaded_at, link_id, uploaded_by) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning ${FILE_COLUMNS}`,
+    [tenantId, file.orderId, file.kind, file.contentType, file.data.length, file.sha256, file.data, file.uploadedAt, file.linkId, file.uploadedBy ?? null],
   );
   return toFile(result.rows[0] as Row);
 }

@@ -8,6 +8,7 @@
 import type { FxFetchStatus, FxTableState } from "@nozomi/domain";
 import { query } from "./areas.ts";
 import { ApiError, apiRequest } from "./client.ts";
+import type { Approval } from "./channels.ts";
 import type { PlatformUser, Tenant, TenantUser } from "./types.ts";
 
 export const PLATFORM_BASE = "/platform/v1";
@@ -76,12 +77,14 @@ export function createTenant(token: string, body: TenantCreate): Promise<{ tenan
   return withToken(apiRequest("POST", TENANTS_PATH, { token, body }), "invite");
 }
 
-export function suspendTenant(token: string, id: string, reason: string): Promise<Tenant> {
+/** 发起人工暂停（双人复核，ADR 0028）：不直接生效，返回待审核的复核记录。 */
+export function suspendTenant(token: string, id: string, reason: string): Promise<{ approval: Approval }> {
   return apiRequest("POST", `${one(TENANTS_PATH, id)}/suspend`, { token, body: { reason } });
 }
 
-export function resumeTenant(token: string, id: string): Promise<Tenant> {
-  return apiRequest("POST", `${one(TENANTS_PATH, id)}/resume`, { token });
+/** 人工恢复（直接生效）：清掉全部暂停原因，回到暂停之前的状态。 */
+export function resumeTenant(token: string, id: string, note: string | null = null): Promise<Tenant> {
+  return apiRequest("POST", `${one(TENANTS_PATH, id)}/resume`, { token, body: { note } });
 }
 
 export function inviteTenantAdmin(token: string, id: string, body: { email: string; name: string }): Promise<{ user: TenantUser; invite: OneTimeToken }> {
@@ -189,7 +192,7 @@ export function listIntegrations(token: string): Promise<{ items: IntegrationSta
 
 /** 对账用：每个类型的字段名清单。 */
 export const PLATFORM_SCHEMA_FIELDS = {
-  Tenant: ["id", "name", "status", "created_at", "updated_at"],
+  Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
   PlatformUser: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at"],
   StaffMember: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at", "mfa_enabled", "mfa_enabled_at", "ip_allowlist"],

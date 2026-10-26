@@ -64,9 +64,10 @@ test("供应商的接口：路径、方法、请求体、应答；五个发令�
   assert.ok(!params(create).includes("header:Idempotency-Key"), "新建供应商还没有幂等键：网络不明时页面请人先去列表看一眼。接口支持以后这条会失败");
 
   assert.equal(ref(response(op("get", `${TENANTS_PATH}/{id}`), "200")), "Tenant");
+  // 暂停是发起双人复核（202，ADR 0028）；恢复直接生效，返回供应商
   const suspend = op("post", `${TENANTS_PATH}/{id}/suspend`);
   assert.deepEqual(props(request(suspend)), ["reason"]);
-  assert.equal(ref(response(suspend, "200")), "Tenant");
+  assert.ok(suspend.responses["202"]);
   assert.equal(ref(response(op("post", `${TENANTS_PATH}/{id}/resume`), "200")), "Tenant");
 
   const invite = op("post", `${TENANTS_PATH}/{id}/admin-invites`);
@@ -119,5 +120,5 @@ test("手写类型的字段与同名 schema 完全一致；页面处理的错误
     assert.deepEqual([...(schema.required ?? [])].sort(), [...fields].sort(), `${name} 的必有字段不一致`);
   }
   for (const code of PLATFORM_ERROR_CODES) assert.ok(text.includes(`\`${code}\``), `openapi.yaml 里找不到 ${code}`);
-  assert.deepEqual(schemas["Tenant"]?.properties?.["status"]?.enum, ["active", "suspended"]);
+  assert.deepEqual(schemas["Tenant"]?.properties?.["status"]?.enum, ["applying", "reviewing", "signed", "trial", "active", "suspended", "terminated"]);
 });

@@ -6,6 +6,7 @@
  * - 金额是最小货币单位整数（规则 3），币种是大写的三位代码；和 Stripe 之间的换算（小写币种、零小数币种）在实现里做。
  * - 每个调用自己有超时和重试；失败抛 `PaymentProviderError`，错误码见下，不把原始异常（可能带密钥、请求原文）往外抛。
  * - 支付方式要保存下来用于服务后加收（第五轮决策 ⑤：Stripe PaymentIntent 带 `setup_future_usage: off_session`，挂在一个 Customer 上）。
+ * - M3-03（ADR 0029）：用保存的支付方式离线扣款（改期补差价、事后加收），按一笔付款退款（取消、改期的差价）。两者都带以平台记录编号为准的幂等键，重试不会扣两次、退两次。
  */
 import type { CurrencyCode, PaymentIntentStatus } from "@nozomi/domain";
 
@@ -31,8 +32,20 @@ export interface ProviderPaymentError {
   message: string | null;
 }
 
+/** 收款服务里的一笔退款（Stripe 的 Refund）。`pending` 处理中（有的支付方式要几天）；`requires_action` 要客人提供信息（银行卡退款不会出现，出现了当处理中）。 */
+export interface ProviderRefund {
+  refundId: string;
+  intentId: string | null;
+  status: "pending" | "succeeded" | "failed" | "canceled" | "requires_action";
+  amountMinor: number;
+  currency: string;
+  /** 失败的原因（Stripe 的 failure_reason，如 `expired_or_canceled_card`） */
+  failureReason: string | null;
+}
+
 export type PaymentWebhookObject =
   | { kind: "payment_intent"; payment: ProviderPayment; lastError: ProviderPaymentError | null }
+  | { kind: "refund"; refund: ProviderRefund }
   | { kind: "charge"; chargeId: string; intentId: string | null; amountMinor: number; amountRefundedMinor: number; currency: string; refunded: boolean }
   | { kind: "dispute"; disputeId: string; intentId: string | null; amountMinor: number; currency: string; reason: string | null; status: string | null }
   | { kind: "other"; objectId: string | null };
@@ -55,6 +68,39 @@ export interface CreateOrderPaymentInput {
   description: string;
 }
 
+/** 用保存的支付方式离线扣一笔（改期补差价、事后加收）。 */
+export interface OffSessionChargeInput {
+  /** 平台的收款记录编号：幂等键以它为准，同一笔重试不会扣两次 */
+  paymentId: string;
+  orderId: string;
+  orderNo: string;
+  customerId: string;
+  paymentMethodId: string;
+  amountMinor: number;
+  currency: CurrencyCode;
+  description: string;
+  purpose: "change" | "extra_charge";
+}
+
+/**
+ * 离线扣款的结果：
+ * - `succeeded` 扣到了；`processing` 收款服务还在处理（结果等通知）；
+ * - `declined` 没扣到：卡被拒、余额不足、要客人自己验证（3DS，离线时做不了）。这不是收款服务出错，重试也没用，要人处理。
+ * 收款服务本身出错（超时、连不上、限流）照样抛 `PaymentProviderError`，可以稍后重试。
+ */
+export type OffSessionChargeResult =
+  | { outcome: "succeeded" | "processing"; payment: ProviderPayment }
+  | { outcome: "declined"; intentId: string | null; error: ProviderPaymentError };
+
+export interface RefundInput {
+  /** 平台的退款记录编号：幂等键以它为准 */
+  refundId: string;
+  intentId: string;
+  amountMinor: number;
+  orderId: string;
+  orderNo: string;
+}
+
 export interface PaymentProvider {
   readonly name: "stripe";
   /** 前端用的公开密钥（Stripe publishable key，本来就要发给浏览器） */
@@ -69,6 +115,10 @@ export interface PaymentProvider {
   retrievePayment(intentId: string): Promise<ProviderPayment>;
   /** 取消一笔还没付的付款。已经付了（或者已经取消了）不报错，返回它现在的状态，由调用方决定怎么办。 */
   cancelPayment(intentId: string): Promise<ProviderPayment>;
+  /** 用保存的支付方式离线扣款（M3-03）。 */
+  chargeSavedPaymentMethod(input: OffSessionChargeInput): Promise<OffSessionChargeResult>;
+  /** 对一笔已付的付款退一部分或全部（M3-03）。 */
+  refundPayment(input: RefundInput): Promise<ProviderRefund>;
   /** 校验通知的签名并解析；签名不对抛 `StripeSignatureError`，内容不是一条通知抛 `PaymentWebhookPayloadError`。 */
   parseWebhook(rawBody: Buffer, signature: string | undefined, now: Date): PaymentWebhookEvent;
 }

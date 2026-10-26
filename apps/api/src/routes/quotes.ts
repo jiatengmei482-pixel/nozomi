@@ -69,6 +69,8 @@ function previewInput(input: z.output<typeof tenantPreviewSchema>): QuotePreview
 export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   PRODUCT_NOT_PUBLISHED: "商品没有上架",
   TENANT_SUSPENDED: "供应商已被平台暂停，商品不参与比价",
+  TENANT_NOT_ONBOARDED: "供应商还没完成入驻（申请中、审核中或已签约）或已清退：只有试运营和正式的供应商参与比价",
+  TRIAL_DAILY_LIMIT: "供应商在试运营，今天的订单已到每日上限",
   BRAND_DISABLED: "商品的子品牌已停用",
   SERVICE_RULES_INCOMPLETE: "服务规则还没填全（服务时间、提前预订时长）",
   INVALID_SERVICE_TIME: "用车时间写得不对",

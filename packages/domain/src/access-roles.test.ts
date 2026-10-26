@@ -45,7 +45,7 @@ test("勾选换成接口操作：去重、按固定顺序；不认识的和只�
 
 test("isMenuGrant：只认表里有的格子", () => {
   assert.equal(isMenuGrant("tenants:edit"), true);
-  assert.equal(isMenuGrant("tenants:review"), false);
+  assert.equal(isMenuGrant("products:edit"), false);
   assert.equal(isMenuGrant("tenants"), false);
   assert.equal(isMenuGrant("tenants:view:x"), false);
   assert.equal(isMenuGrant("orders:export"), false, "导出还没有接口");

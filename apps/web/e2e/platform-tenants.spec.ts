@@ -5,7 +5,7 @@
  */
 import { type Browser, type ConsoleMessage, type Page, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { adminCredentials, clickLogin, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { activateTenant, adminCredentials, approveApproval, approverEmail, clickLogin, expectNoHorizontalOverflow, loginAs, newPassword, pendingApproval, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -68,7 +68,7 @@ function collectLogs(page: Page): string[] {
   return logs;
 }
 
-test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌不外泄）→ 对方用链接设密码登录 → 暂停（原因必填）→ 对方仍可登录并看到已暂停 → 恢复 → 再邀请一个管理员 → 发密码重置并重置成功 → 审计日志里查得到改前改后", async ({ page, browser, context }) => {
+test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌不外泄）→ 对方用链接设密码登录（申请中）→ 申请暂停（原因必填、另一位同事批准）→ 对方仍可登录并看到已暂停 → 恢复 → 再邀请一个管理员 → 发密码重置并重置成功 → 审计日志里查得到改前改后", async ({ page, browser, context, request }) => {
   test.setTimeout(240_000);
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -142,21 +142,33 @@ test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌
   // 对方用链接设密码并登录供应商后台
   const first = await useLink(browser, invite.link, firstEmail, "tenant");
   await expect(first.page.locator(".tenant-name")).toHaveText(name);
+  await expect(first.page.locator(".tenant-status")).toHaveText("申请中", { timeout: 10_000 });
+  // 新建的供应商还在「申请中」，不参与比价也就不能暂停；入驻流程见 onboarding.spec.ts，这里直接把它摆成「正常」
+  await expect(page.getByRole("button", { name: "申请暂停", exact: true })).toHaveCount(0);
+  await activateTenant(tenantId);
+  await page.reload();
+  await first.page.reload();
   await expect(first.page.locator(".tenant-status")).toHaveText("正常");
 
-  // 暂停：原因必填
-  await page.getByRole("button", { name: "暂停", exact: true }).click();
-  const suspend = page.getByRole("dialog", { name: `暂停「${name}」？` });
+  // 申请暂停：原因必填；提交以后要另一位同事批准
+  await page.getByRole("button", { name: "申请暂停", exact: true }).click();
+  const suspend = page.getByRole("dialog", { name: `申请暂停「${name}」` });
+  await expect(suspend).toContainText("暂停要另一位同事审核：提交以后在「待审核」里批准了才生效。");
   await expect(suspend).toContainText("它的账号仍然可以登录供应商后台，页面上会看到「已暂停」；");
   await expect(suspend.getByRole("button", { name: "取消" })).toBeFocused();
-  await suspend.getByRole("button", { name: "暂停", exact: true }).click();
+  await suspend.getByRole("button", { name: "提交申请", exact: true }).click();
   await expect(suspend.getByText("请填写暂停原因")).toBeVisible();
   await suspend.getByLabel(/暂停原因/).fill("资质到期，等补件");
   await expect(suspend.getByText("8 / 500")).toBeVisible();
-  await suspend.getByRole("button", { name: "暂停", exact: true }).click();
-  await expect(toast(page, `已暂停「${name}」`)).toBeVisible();
+  await suspend.getByRole("button", { name: "提交申请", exact: true }).click();
+  await expect(toast(page, `已提交暂停「${name}」的申请，等另一位同事审核后生效`)).toBeVisible();
+  await expect(page.getByText("这家供应商已暂停。")).toHaveCount(0);
+  await approveApproval(request, await pendingApproval(request, tenantId, "tenant.suspend"));
+  const approver = await approverEmail(request);
+  await page.reload();
   await expect(page.getByText("这家供应商已暂停。")).toBeVisible();
-  await expect(page.getByText(new RegExp(`原因：资质到期，等补件（${admin.email.replace(/[.+]/g, "\\$&")}，\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}）`))).toBeVisible();
+  await expect(page.getByText("暂停的原因：人工暂停。")).toBeVisible();
+  await expect(page.getByText(new RegExp(`原因：资质到期，等补件（${approver.replace(/[.+]/g, "\\$&")}，\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}）`))).toBeVisible();
   await expect(page.getByRole("button", { name: "恢复", exact: true })).toBeVisible();
   await snapshot(page, "platform-tenant-suspended-desktop");
   await expectAccessible(page, "供应商详情（已暂停）");
@@ -224,13 +236,14 @@ test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌
   const table = page.getByRole("region", { name: "审计日志" });
   for (const action of ["暂停", "恢复", "邀请", "发出密码重置", "接受邀请", "重设密码", "登录"]) await expect(table.locator(".tag", { hasText: new RegExp(`^${action}$`) }).first(), action).toBeVisible();
   const suspendRow = table.getByRole("row").filter({ has: page.locator(".tag", { hasText: /^暂停$/ }) });
-  await expect(suspendRow).toContainText(admin.email);
+  // 暂停是双人复核：暂停那一条的操作人是批准的同事
+  await expect(suspendRow).toContainText(approver);
   await expect(suspendRow).toContainText("供应商");
   await suspendRow.getByRole("button", { name: /条记录的详情$/ }).click();
   const detail = page.getByRole("dialog", { name: /^暂停 · 供应商/ });
   const diff = detail.getByRole("table");
-  await expect(diff.getByRole("row", { name: /状态/ })).toContainText("正常");
-  await expect(diff.getByRole("row", { name: /状态/ })).toContainText("已暂停");
+  await expect(diff.getByRole("row", { name: /状态/ }).first()).toContainText("正常");
+  await expect(diff.getByRole("row", { name: /状态/ }).first()).toContainText("已暂停");
   await expect(diff.getByRole("row", { name: /原因/ })).toContainText("资质到期，等补件");
   await expect(detail).toContainText("密码、密码的哈希、邀请和重置链接里的令牌不会被记录");
   await expect(detail).toContainText(name);
@@ -247,7 +260,7 @@ test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌
   await table.getByRole("button", { name: `操作人 ${admin.email}` }).first().click();
   await page.getByRole("menuitem", { name: "只看这个人" }).click();
   await expect(page.getByText(`操作人：${admin.email}`)).toBeVisible();
-  await page.locator("#audit-action").selectOption("suspend");
+  await page.locator("#audit-action").selectOption("resume");
   await expect(table.locator("tbody tr")).toHaveCount(1);
   await page.getByRole("button", { name: `移除条件：操作人：${admin.email}` }).click();
   await page.getByRole("button", { name: "清空筛选" }).first().click();
@@ -260,7 +273,7 @@ test("供应商：首页卡片进列表 → 新建拿到一次性链接（令牌
   const row = page.getByRole("row").filter({ has: page.getByRole("link", { name, exact: true }) });
   await expect(row).toContainText("正常");
   await row.getByRole("button", { name: /的更多操作$/ }).click();
-  await expect(page.getByRole("menuitem")).toHaveText(["邀请管理员", "暂停"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["邀请管理员", "申请暂停"]);
   await page.keyboard.press("Escape");
   expect(logs.filter((line) => [invite.token, secondInvite.token, reset.token].some((token) => line.includes(token)))).toEqual([]);
 });
@@ -289,9 +302,9 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await page.getByRole("link", { name: "新增员工" }).click();
   // 十个内置角色；别的用例新建的自建角色（带「（自建）」）排在后面，不算在内
   await expect(page.getByRole("radio", { name: /^(?!.*（自建）)/ })).toHaveCount(10);
-  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook。").first()).toBeVisible();
+  await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改。").first()).toBeVisible();
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
-  await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单。").first()).toBeVisible();
+  await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改。").first()).toBeVisible();
   await page.getByLabel(/^邮箱/).fill(email);
   await page.getByLabel(/^姓名/).fill(staffName);
   await page.getByRole("button", { name: "新增", exact: true }).click();
@@ -311,6 +324,8 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await expect(page).toHaveURL(/\/platform\/settings\/staff$/);
   await expect(toast(page, `已邀请「${staffName}」`)).toBeVisible();
   await expectTokenNowhere(page, invite.token, logs, { dialogOpen: false });
+  // 员工列表分页：并行的用例（和双人复核的审核人）建了很多员工，新建的不一定在第一页，按邮箱搜
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(email)}`);
   const row = page.getByRole("row").filter({ hasText: email });
   await expect(row).toContainText("待激活");
 
@@ -394,6 +409,7 @@ for (const scheme of ["light", "dark"] as const) {
     const created = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: uniqueEmail("m110-a11y"), name: "名字很长的管理员".repeat(8) } } });
     expect(created.status(), await created.text()).toBe(201);
     const tenantId = ((await created.json()) as { tenant: { id: string } }).tenant.id;
+    await activateTenant(tenantId);
     const viewerEmail = uniqueEmail("m110-readonly");
     const invited = await request.post("/platform/v1/staff", { headers, data: { email: viewerEmail, name: "只读的同事", role: "readonly" } });
     const viewerPassword = newPassword();
@@ -418,9 +434,9 @@ for (const scheme of ["light", "dark"] as const) {
     await page.goto(`/platform/tenants/${tenantId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("很长很长的供应商名字");
     await check("供应商详情");
-    await page.getByRole("button", { name: "暂停", exact: true }).click();
+    await page.getByRole("button", { name: "申请暂停", exact: true }).click();
     await page.getByLabel(/暂停原因/).fill("原因".repeat(260));
-    await page.getByRole("dialog").getByRole("button", { name: "暂停", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "提交申请", exact: true }).click();
     await expect(page.getByText("原因最多 500 个字")).toBeVisible();
     await check("暂停对话框");
     await page.getByRole("dialog").getByRole("button", { name: "取消" }).click();
@@ -461,7 +477,7 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(page.getByRole("button", { name: /的更多操作$/ })).toHaveCount(0);
     await page.goto(`/platform/tenants/${tenantId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("很长很长的供应商名字");
-    await expect(page.getByRole("button", { name: /暂停|恢复|邀请管理员|发密码重置链接/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /暂停|恢复|邀请管理员|发密码重置链接|签约|清退|发起新版本/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "看这家供应商的操作记录" })).toHaveCount(0);
     await page.goto("/platform/tenants/new");
     await expect(page.getByText("你没有权限查看这里")).toBeVisible();

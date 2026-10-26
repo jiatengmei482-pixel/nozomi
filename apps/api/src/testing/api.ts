@@ -83,8 +83,12 @@ export interface TestApi {
   platformLogin(options: CallOptions): Promise<ApiResponse>;
   /** 这个员工在本测试库里绑定的两步验证密钥（Base32）；没经 `platformLogin` 绑定过为 undefined */
   totpSecret(email: string): string | undefined;
-  /** 平台创建租户 → 管理员接受邀请 → 登录，返回租户信息和管理员令牌 */
-  tenantWithAdmin(platformToken: string, name: string, adminEmail: string): Promise<TenantFixture>;
+  /**
+   * 平台创建租户 → 管理员接受邀请 → 登录，返回租户信息和管理员令牌。
+   * 新建的供应商从「申请中」开始（ADR 0028）；不测入驻流程的测试要的是一家能上架、能参与比价的供应商，
+   * 所以默认直接在库里把它摆成「正式」（`onboarding: "active"`）。测入驻的测试给 `"applying"`，走真实的审核流程。
+   */
+  tenantWithAdmin(platformToken: string, name: string, adminEmail: string, options?: { onboarding?: "applying" | "active" }): Promise<TenantFixture>;
   close(): Promise<void>;
 }
 
@@ -188,7 +192,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
       await createSuperAdmin(db.pool, { email, name: "平台超管", password: TEST_PASSWORD }, clock.now());
       return (await login("platform", email)).body.access_token as string;
     },
-    async tenantWithAdmin(platformToken, name, adminEmail) {
+    async tenantWithAdmin(platformToken, name, adminEmail, options = {}) {
       const created = await call("POST", "/platform/v1/tenants", {
         token: platformToken,
         body: { name, admin: { email: adminEmail, name: `${name}管理员` } },
@@ -198,6 +202,10 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
         body: { token: created.body.invite.token, password: TEST_PASSWORD },
       });
       assert.equal(accepted.status, 200, accepted.text);
+      if ((options.onboarding ?? "active") === "active") {
+        const now = clock.now();
+        await db.owner.query("update tenants set status = 'active', signed_at = $2, trial_started_at = $2, activated_at = $2 where id = $1", [created.body.tenant.id, now]);
+      }
       const loggedIn = await login("tenant", adminEmail);
       return {
         tenantId: created.body.tenant.id as string,
@@ -245,4 +253,61 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
     webhookSender: localWebhookSender(),
   };
+}
+
+/**
+ * 双人复核里的审核人：一位「运营」平台员工（有 `tenant.approve`），每个测试环境只建一次，由 `rootToken`（超级管理员）邀请。
+ * 不用第二位超级管理员：那样会让「最后一位超级管理员不能停用」这类测试的前提变掉。
+ */
+const approvers = new WeakMap<TestApi, Promise<string>>();
+export function approverToken(api: TestApi, rootToken: string): Promise<string> {
+  let token = approvers.get(api);
+  if (token === undefined) {
+    token = (async () => {
+      const email = "approver@platform.test";
+      const invited = await api.call("POST", "/platform/v1/staff", { token: rootToken, body: { email, name: "审核人", role: "operations" } });
+      assert.equal(invited.status, 201, invited.text);
+      const accepted = await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
+      assert.equal(accepted.status, 200, accepted.text);
+      const login = await api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } });
+      assert.equal(login.status, 200, login.text);
+      return login.body.access_token as string;
+    })();
+    approvers.set(api, token);
+  }
+  return token;
+}
+
+/**
+ * 人工暂停一家供应商：发起（双人复核，ADR 0028）→ 审核人（`approverToken`）批准。返回批准后的供应商。
+ * `token` 是发起人，要有 `tenant.change_status`，并且是超级管理员（顺便用它邀请审核人）。
+ */
+export async function suspendTenantApproved(api: TestApi, token: string, tenantId: string, reason = "测试暂停"): Promise<any> {
+  const approver = await approverToken(api, token);
+  const requested = await api.call("POST", `/platform/v1/tenants/${tenantId}/suspend`, { token, body: { reason } });
+  assert.equal(requested.status, 202, requested.text);
+  const approved = await api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/approve`, { token: approver, body: {} });
+  assert.equal(approved.status, 200, approved.text);
+  const tenant = await api.call("GET", `/platform/v1/tenants/${tenantId}`, { token });
+  assert.equal(tenant.status, 200, tenant.text);
+  return tenant.body;
+}
+
+/** 恢复一家人工暂停的供应商（直接生效）。 */
+export async function resumeTenantNow(api: TestApi, token: string, tenantId: string): Promise<any> {
+  const resumed = await api.call("POST", `/platform/v1/tenants/${tenantId}/resume`, { token, body: {} });
+  assert.equal(resumed.status, 200, resumed.text);
+  return resumed.body;
+}
+
+/** 按原始字节上传一个文件（资质、合同扫描件；ADR 0028）。`contentType` 是请求头里声明的类型。 */
+export async function uploadBytes(api: TestApi, url: string, bytes: Buffer, token: string, contentType: string): Promise<ApiResponse> {
+  const res = await api.app.inject({ method: "POST", url, payload: bytes, headers: { "content-type": contentType, authorization: `Bearer ${token}` } });
+  let body: unknown = null;
+  try {
+    body = res.body === "" ? null : res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.statusCode, headers: res.headers, text: res.body, body };
 }

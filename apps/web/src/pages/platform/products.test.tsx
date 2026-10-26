@@ -16,7 +16,7 @@ import type { AdjustRuleBody, PriceRuleBody } from "../../api/prices.ts";
 import type { Product, PublishCheckItemBody } from "../../api/products.ts";
 import type { PlatformQuotePreview, QuoteCandidate } from "../../api/quotes.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
-import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -36,7 +36,7 @@ const RULE_ID = "88888888-8888-4888-8888-888888888888";
 const ME_ID = "99999999-9999-4999-8999-999999999999";
 
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
-const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps, ...changes });
+const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps, ...changes });
 const tokyo: City = { id: CITY_ID, code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const haneda = { id: POI_ID, type: "airport", code: "HND", country_code: "JP", city_id: CITY_ID, parent_id: null, city: null, parent: null, name: { zh: "羽田机场" }, location: { lng: 139.78, lat: 35.55 }, category: null, flight_scope: "mixed", address: null, source: null, status: "active", version: 1, ...stamps } as unknown as Place;
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: ["丰田埃尔法"], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 1, ...stamps };
@@ -166,7 +166,7 @@ test("菜单和首页按权限：超级管理员有「商品」「报价试算�
       { status: "published", has_active_price: "false", limit: "1" },
     ],
   );
-  assert.deepEqual(menuLabels().slice(0, 4), ["首页", "供应商", "商品", "报价试算"]);
+  assert.deepEqual(menuLabels().slice(0, 5), ["首页", "供应商", "资质审核", "商品", "报价试算"]);
 
   // 一个都没有报不出价的：没有提醒行
   resetBrowser();

@@ -11,14 +11,16 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { ORDER_STATUSES, isLocalDate } from "@nozomi/domain";
+import { ORDER_STATUSES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } from "../repos/orders.ts";
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, dispatchJson, fulfilmentJson, landingJson, orderTripJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { customerAmountOf } from "../services/extra-charges.ts";
+import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type OrderFulfilmentRecords, getOrderFile, getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
@@ -86,9 +88,13 @@ export function deliveryJson(delivery: WebhookDelivery): Json {
   };
 }
 
-function paymentJson(payment: OrderPayment | null): Json | null {
+export function paymentJson(payment: OrderPayment | null): Json | null {
   if (payment === null) return null;
   return {
+    id: payment.id,
+    kind: payment.kind,
+    change_id: payment.changeId,
+    extra_charge_id: payment.extraChargeId,
     provider: payment.provider,
     status: payment.status,
     amount: salesMoney(payment.amountMinor, payment.currency),
@@ -101,6 +107,38 @@ function paymentJson(payment: OrderPayment | null): Json | null {
     last_error: payment.lastError,
     save_consent_at: payment.saveConsentAt.toISOString(),
     succeeded_at: payment.succeededAt?.toISOString() ?? null,
+  };
+}
+
+export function refundJson(refund: OrderRefund): Json {
+  return {
+    id: refund.id,
+    payment_id: refund.paymentId,
+    purpose: refund.purpose,
+    change_id: refund.changeId,
+    amount: salesMoney(refund.amountMinor, refund.currency),
+    status: refund.status,
+    provider_refund_id: refund.providerRefundId,
+    retry_of: refund.retryOf,
+    attempts: refund.attempts,
+    next_attempt_at: refund.status === "pending" ? (refund.nextAttemptAt?.toISOString() ?? null) : null,
+    last_error: refund.lastError,
+    succeeded_at: refund.succeededAt?.toISOString() ?? null,
+    failed_at: refund.failedAt?.toISOString() ?? null,
+    superseded_at: refund.supersededAt?.toISOString() ?? null,
+    created_at: refund.createdAt.toISOString(),
+  };
+}
+
+/** 运营后台看到的取消结果：扣款比例、客人被扣的、供应商应得的、说明。退了多少看 `refunds`。 */
+function platformCancellationJson(order: Order, sale: OrderSale): Json | null {
+  if (order.status !== "cancelled") return null;
+  return {
+    reason: order.cancelReason,
+    note: order.cancelNote,
+    fee_bp: order.cancelFeeBp,
+    customer_fee: order.cancelFeeBp === null ? null : salesMoney(portionBasisPoints(sale.sellMinor, order.cancelFeeBp), sale.currency),
+    tenant_share: order.cancelTenantShareMinor === null ? null : salesMoney(order.cancelTenantShareMinor, order.settlementCurrency),
   };
 }
 
@@ -124,6 +162,8 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     fx_buffer_bp: sale.fxBufferBp,
     payment_due_at: order.paymentDueAt.toISOString(),
     payment: paymentJson(entry.payment),
+    cancel_policy: cancelPolicyJson(order),
+    cancellation: platformCancellationJson(order, sale),
     version: order.version,
   };
 }
@@ -160,7 +200,13 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
     const found = await getOrderForTenant(ctx, principal.tenantId, resourceId(request.params, "订单"));
     const now = ctx.now();
-    return { order: tenantOrderJson(found.order, found.facts, now), events: found.events.map(eventJson), records: recordsJson(found.records, now) };
+    return {
+      order: tenantOrderJson(found.order, found.facts, now),
+      events: found.events.map(eventJson),
+      records: recordsJson(found.records, now),
+      changes: found.changes.map(changeJson),
+      extra_charges: found.extraCharges.map(extraChargeJson),
+    };
   });
 
   app.get("/tenant/v1/orders/:id/files/:fileId", async (request, reply) => {
@@ -194,6 +240,13 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       records: recordsJson(found.records, now),
       webhook_deliveries: found.deliveries.map(deliveryJson),
       payment_events: found.paymentEvents.map(paymentEventJson),
+      payments: found.payments.map((payment) => paymentJson(payment)),
+      refunds: found.refunds.map(refundJson),
+      changes: found.changes.map((change) => {
+        const sold = found.changeSales.get(change.id) ?? null;
+        return { ...changeJson(change), sell_before: sold === null ? null : salesMoney(sold.sellBeforeMinor, sold.currency), sell_after: sold === null ? null : salesMoney(sold.sellAfterMinor, sold.currency) };
+      }),
+      extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,

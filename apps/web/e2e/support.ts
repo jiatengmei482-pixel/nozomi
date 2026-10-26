@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { withPlatformTx } from "../../api/src/db/context.ts";
+import { createPool } from "../../api/src/db/pool.ts";
 import { platformApiLogin, uiSecondFactor } from "./mfa.ts";
 
 /** 假汇率源给的汇率（global-setup 起的本机假服务器；端到端测试里现场给的数，不是业务数据）。 */
@@ -75,14 +77,74 @@ export interface InvitedTenant {
   inviteToken: string;
 }
 
-export async function createTenant(request: APIRequestContext): Promise<InvitedTenant> {
+/**
+ * 经 API 建一家供应商（同时邀请它的管理员）。新建的供应商从「申请中」开始（ADR 0028）；不测入驻流程的用例要的是一家能上架、
+ * 能参与比价的供应商，所以默认直接在库里把它摆成「正常」（`activateTenant`）。测入驻的用例给 `onboarding: "applying"`。
+ */
+export async function createTenant(request: APIRequestContext, options: { onboarding?: "applying" | "active" } = {}): Promise<InvitedTenant> {
   const headers = await platformAdminHeaders(request);
   const tenantName = `端到端测试供应商 ${randomBytes(3).toString("hex")}`;
   const adminEmail = uniqueEmail("tenant-admin");
   const adminName = "端到端测试租户管理员";
   const response = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: adminEmail, name: adminName } } });
   const body = await okJson<{ tenant: { id: string }; invite: { token: string } }>(response, "创建租户");
+  if ((options.onboarding ?? "active") === "active") await activateTenant(body.tenant.id);
   return { tenantId: body.tenant.id, tenantName, adminEmail, adminName, inviteToken: body.invite.token };
+}
+
+/**
+ * 测试准备：把一家供应商直接在库里摆成「正常」（跳过资质审核、合同、试运营；入驻流程本身由 onboarding.spec.ts 经页面走一遍）。
+ * 用本次运行的应用账号、平台角色（和服务进程一样的权限），只改这一家的状态。
+ */
+export async function activateTenant(tenantId: string): Promise<void> {
+  const databaseUrl = process.env["E2E_DATABASE_URL"];
+  if (!databaseUrl) throw new Error("global-setup 没有交出本次运行的数据库连接串");
+  const pool = createPool(databaseUrl, { max: 1 });
+  try {
+    await withPlatformTx(pool, (db) => db.query("update tenants set status = 'active', signed_at = now(), trial_started_at = now(), activated_at = now() where id = $1", [tenantId]));
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
+ * 双人复核里的审核人：一位「运营」平台员工，每个测试进程建一次（经真实接口邀请、设密码），返回带令牌的请求头。
+ * 登录一次并完成两步验证（ADR 0030，第一次是绑定），之后复用令牌。
+ */
+let approver: Promise<{ email: string; token: string }> | null = null;
+export async function approverHeaders(request: APIRequestContext): Promise<Record<string, string>> {
+  approver ??= (async () => {
+    const headers = await platformAdminHeaders(request);
+    const email = uniqueEmail("approver");
+    const password = newPassword();
+    const invited = await okJson<{ invite: { token: string } }>(await request.post("/platform/v1/staff", { headers, data: { email, name: "端到端测试审核人", role: "operations" } }), "邀请审核人");
+    await okJson(await request.post("/platform/v1/auth/accept-invite", { data: { token: invited.invite.token, password } }), "审核人设密码");
+    return { email, token: await platformApiLogin(request, email, password) };
+  })().catch((err: unknown) => {
+    approver = null;
+    throw err;
+  });
+  return { authorization: `Bearer ${(await approver).token}` };
+}
+
+/** 审核人的邮箱（审计日志里批准的操作人是他）。 */
+export async function approverEmail(request: APIRequestContext): Promise<string> {
+  await approverHeaders(request);
+  return (await (approver as Promise<{ email: string }>)).email;
+}
+
+/** 某个对象上待审核的复核（管理员看得到全部类别）。 */
+export async function pendingApproval(request: APIRequestContext, resourceId: string, kind: string): Promise<string> {
+  const headers = await platformAdminHeaders(request);
+  const body = await okJson<{ items: { id: string; resource_id: string; kind: string }[] }>(await request.get(`/platform/v1/approvals?status=pending&resource_id=${encodeURIComponent(resourceId)}&limit=50`, { headers }), "查待审核");
+  const found = body.items.find((item) => item.resource_id === resourceId && item.kind === kind);
+  if (found === undefined) throw new Error(`没有 ${resourceId} 上 ${kind} 的待审核复核`);
+  return found.id;
+}
+
+/** 批准一条复核（审核人是 `approverHeaders` 那位）。 */
+export async function approveApproval(request: APIRequestContext, approvalId: string): Promise<void> {
+  await okJson(await request.post(`/platform/v1/approvals/${approvalId}/approve`, { headers: await approverHeaders(request), data: {} }), "批准复核");
 }
 
 /** 创建租户并经 API 接受邀请，得到一个可以直接登录的租户管理员。 */
@@ -100,10 +162,12 @@ export async function issueTenantAdminReset(request: APIRequestContext, tenantId
   return (await okJson<{ reset: { token: string } }>(response, "发重置令牌")).reset.token;
 }
 
-export async function suspendTenant(request: APIRequestContext, tenantId: string): Promise<void> {
+/** 人工暂停一家供应商：管理员发起（双人复核，ADR 0028），审核人批准。 */
+export async function suspendTenant(request: APIRequestContext, tenantId: string, reason = "端到端测试"): Promise<void> {
   const headers = await platformAdminHeaders(request);
-  const response = await request.post(`/platform/v1/tenants/${tenantId}/suspend`, { headers, data: { reason: "端到端测试" } });
-  await okJson(response, "暂停租户");
+  const response = await request.post(`/platform/v1/tenants/${tenantId}/suspend`, { headers, data: { reason } });
+  const body = await okJson<{ approval: { id: string } }>(response, "发起暂停");
+  await approveApproval(request, body.approval.id);
 }
 
 /**

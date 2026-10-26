@@ -1,5 +1,5 @@
 /**
- * 供应商的四个操作（docs/design/pages/platform-tenants.md 第 6、7 节）：暂停（原因必填）、恢复、邀请管理员、给管理员发密码重置。
+ * 供应商的四个操作（docs/design/pages/platform-tenants.md 第 6、7 节）：申请暂停（原因必填，双人复核，ADR 0028）、恢复、邀请管理员、给管理员发密码重置。
  * 列表的「更多」菜单和详情页用的是同一套对话框。邀请和重置成功后，原对话框换成一次性链接的内容。
  * 令牌只放在这个钩子的内存状态里，对话框关闭时清掉；发令牌的请求不自动重试。
  */
@@ -26,7 +26,7 @@ export interface TenantActions {
 
 const FORBIDDEN = "你没有权限做这个操作。需要的话，请联系管理员开通。";
 
-export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantActions {
+export function useTenantActions(onChanged: (tenant: Tenant) => void, onRequested?: () => void): TenantActions {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const [current, setCurrent] = useState<{ action: Action; tenant: Tenant; reason: string | null } | null>(null);
@@ -76,10 +76,15 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
     if (action === "invite" && nameProblem(name, "姓名") !== null) return document.getElementById("tenant-admin-name")?.focus();
     setWorking(true);
     try {
-      if (action === "suspend" || action === "resume") {
-        const changed = action === "suspend" ? await suspendTenant(token, tenant.id, reason.trim()) : await resumeTenant(token, tenant.id);
-        onChanged(changed);
-        toast(action === "suspend" ? `已暂停「${tenant.name}」` : `已恢复「${tenant.name}」`);
+      if (action === "suspend") {
+        // 暂停走双人复核：提交以后等另一位同事在「待审核」里批准才生效，供应商现在的状态不变
+        await suspendTenant(token, tenant.id, reason.trim());
+        toast(`已提交暂停「${tenant.name}」的申请，等另一位同事审核后生效`);
+        onRequested?.();
+        close();
+      } else if (action === "resume") {
+        onChanged(await resumeTenant(token, tenant.id));
+        toast(`已恢复「${tenant.name}」`);
         close();
       } else if (action === "invite") {
         const result = await inviteTenantAdmin(token, tenant.id, { email: email.trim(), name: name.trim() });
@@ -101,6 +106,11 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
       } else if (err instanceof ApiError && err.status === 404 && action === "reset") {
         setFieldError("这家供应商没有用这个邮箱的管理员。请核对邮箱；如果他不是管理员，请让他们的管理员处理。");
         document.getElementById("tenant-admin-email")?.focus();
+      } else if (err instanceof ApiError && err.code === "DOCUMENTS_INVALID") {
+        setProblem({ text: "这家供应商有必交资质已到期，不能人工恢复：请供应商上传新的证件，审核通过后会自动恢复。" });
+      } else if (err instanceof ApiError && err.code === "TENANT_STATE_INVALID") {
+        setGone(true);
+        setProblem({ text: action === "suspend" ? "这家供应商现在的状态不能暂停（可能已经被人工暂停，或还没开始试运营）。请刷新页面看最新的状态。" : "这家供应商现在没有暂停，不用恢复。请刷新页面看最新的状态。" });
       } else if (err instanceof ApiError && err.status === 404) {
         setGone(true);
         setProblem({ text: action === "invite" ? "找不到这家供应商。" : "找不到这家供应商，它可能已被删除。" });
@@ -156,7 +166,7 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
         <Dialog
           open
           size="form"
-          title={`暂停「${tenant.name}」？`}
+          title={`申请暂停「${tenant.name}」`}
           busy={working}
           dismissOnBackdrop={false}
           onClose={close}
@@ -164,8 +174,8 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
             <>
               {cancel}
               {!gone && (
-                <Button variant="danger" loading={working} loadingText="暂停中…" onClick={() => void submit()}>
-                  暂停
+                <Button variant="danger" loading={working} loadingText="提交中…" onClick={() => void submit()}>
+                  提交申请
                 </Button>
               )}
             </>
@@ -173,6 +183,7 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
         >
           <form className="form" noValidate onSubmit={(event) => void submit(event)}>
             {alert}
+            <Alert kind="info">暂停要另一位同事审核：提交以后在「待审核」里批准了才生效。</Alert>
             <p>暂停以后——</p>
             <ul className="dialog__list">
               <li>
@@ -184,7 +195,7 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
               <li>
                 它的账号<strong>仍然可以登录</strong>供应商后台，页面上会看到「已暂停」；
               </li>
-              <li>可以随时恢复。</li>
+              <li>可以随时恢复（恢复不用审核）。</li>
             </ul>
             <div className="field">
               <label className="field__label" htmlFor="tenant-reason">
@@ -197,7 +208,7 @@ export function useTenantActions(onChanged: (tenant: Tenant) => void): TenantAct
               <span className={length > REASON_MAX ? "field__counter field__counter--over" : "field__counter"} aria-live={REASON_MAX - length <= 50 ? "polite" : "off"}>{`${length} / ${REASON_MAX}`}</span>
               <FieldErrors id="tenant-reason-error" errors={attempted && reasonProblem(reason) !== null ? [reasonProblem(reason) as string] : []} />
               <p className="field__hint" id="tenant-reason-hint">
-                写给同事和以后的自己看的：为什么暂停、谁要求的。会记入审计日志，供应商看不到。
+                写给审核的同事和以后的自己看的：为什么暂停、谁要求的。会记入状态记录和审计日志，供应商只看到「人工暂停」，看不到这段文字。
               </p>
             </div>
           </form>

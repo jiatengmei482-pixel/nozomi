@@ -6,7 +6,7 @@
  * - `order_sales`、`order_payments`、`payment_events` 是平台表，只在平台事务里用；租户角色对它们没有任何权限。
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
-import type { CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection } from "@nozomi/domain";
+import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -42,6 +42,14 @@ export interface OrderDispatch {
   driverLandedFileId: string | null;
   landedAt: Date | null;
   landedSource: LandingSource | null;
+}
+
+/** 下单时这一单适用的取消阶梯（M3-03，ADR 0029）：平台政策的哪一版、品类、车型级别、阶梯。 */
+export interface OrderCancelPolicy {
+  version: number;
+  category: ServiceCategory;
+  level: VehicleLevel;
+  tiers: CancellationTier[];
 }
 
 /** 订单本身（租户也能看的部分）。 */
@@ -82,6 +90,12 @@ export interface Order {
   confirmedAt: Date | null;
   cancelledAt: Date | null;
   cancelReason: OrderCancelReason | null;
+  /** 下单时适用的取消阶梯；M3-03 之前下的单为 null（按现在的政策算） */
+  cancelPolicy: OrderCancelPolicy | null;
+  /** 取消时的扣款比例（基点）和供应商应得（结算币种）；没取消、付款前取消的为 null */
+  cancelFeeBp: number | null;
+  cancelTenantShareMinor: number | null;
+  cancelNote: string | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -93,7 +107,7 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.passenger, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
-  o.driver_landed_file_id, o.landed_at, o.landed_source`;
+  o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note`;
 
 function toOrder(row: Row): Order {
   return {
@@ -133,6 +147,10 @@ function toOrder(row: Row): Order {
     confirmedAt: row["confirmed_at"],
     cancelledAt: row["cancelled_at"],
     cancelReason: row["cancel_reason"],
+    cancelPolicy: row["cancel_policy"],
+    cancelFeeBp: row["cancel_fee_bp"],
+    cancelTenantShareMinor: row["cancel_tenant_share_minor"] === null ? null : Number(row["cancel_tenant_share_minor"]),
+    cancelNote: row["cancel_note"],
     version: row["version"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
@@ -160,20 +178,20 @@ function toOrder(row: Row): Order {
   };
 }
 
-export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "version" | "updatedAt" | "dispatch">;
+export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
   await db.query(
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, package_hours,
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
-                         passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at)
+                         passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy)
      values ($1, $2, $3, 'pending_payment', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22, $23,
-             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33)`,
+             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb)`,
     [
       order.tenantId, order.id, order.orderNo, order.category, order.cityId, order.placeId, order.direction, order.productId, order.productVersion, order.vehicleGroupId, order.packageHours,
       order.serviceAt, order.serviceLocal, order.timezone, order.serviceDate, order.urgent, order.passengers, order.luggage, json(order.pickup), json(order.dropoff), JSON.stringify(order.addons),
       order.driverLanguage, order.flightNo, JSON.stringify(order.passenger), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
-      order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt,
+      order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt, json(order.cancelPolicy),
     ],
   );
 }
@@ -190,14 +208,15 @@ export async function findOrderForPlatform(db: Db, orderId: string, options: { l
 export async function updateOrderStatus(
   db: Db,
   order: Pick<Order, "tenantId" | "id">,
-  change: { status: OrderStatus; confirmedAt?: Date; cancelledAt?: Date; cancelReason?: OrderCancelReason; dispatchDueAt?: Date },
+  change: { status: OrderStatus; confirmedAt?: Date; cancelledAt?: Date; cancelReason?: OrderCancelReason; dispatchDueAt?: Date; cancelFeeBp?: number; cancelTenantShareMinor?: number; cancelNote?: string | null },
   now: Date,
 ): Promise<void> {
   await db.query(
     `update orders set status = $3, confirmed_at = coalesce($4, confirmed_at), cancelled_at = coalesce($5, cancelled_at), cancel_reason = coalesce($6, cancel_reason),
-            dispatch_due_at = coalesce($8, dispatch_due_at), version = version + 1, updated_at = $7
+            dispatch_due_at = coalesce($8, dispatch_due_at), cancel_fee_bp = coalesce($9, cancel_fee_bp), cancel_tenant_share_minor = coalesce($10, cancel_tenant_share_minor),
+            cancel_note = coalesce($11, cancel_note), version = version + 1, updated_at = $7
       where tenant_id = $1 and id = $2`,
-    [order.tenantId, order.id, change.status, change.confirmedAt ?? null, change.cancelledAt ?? null, change.cancelReason ?? null, now, change.dispatchDueAt ?? null],
+    [order.tenantId, order.id, change.status, change.confirmedAt ?? null, change.cancelledAt ?? null, change.cancelReason ?? null, now, change.dispatchDueAt ?? null, change.cancelFeeBp ?? null, change.cancelTenantShareMinor ?? null, change.cancelNote ?? null],
   );
 }
 
@@ -252,6 +271,25 @@ export async function releaseHeldInventory(db: Db, tenantId: string, productId: 
       where tenant_id = $1 and product_id = $2 and day = $3 and vehicle_group_id is null and held >= 1`,
     [tenantId, productId, date, now],
   );
+}
+
+/** 付过款的单取消：释放已售（M3-03）。 */
+export async function releaseSoldInventory(db: Db, tenantId: string, productId: string, date: string, now: Date): Promise<void> {
+  await db.query(
+    `update inventory_days set sold = sold - 1, updated_at = $4
+      where tenant_id = $1 and product_id = $2 and day = $3 and vehicle_group_id is null and sold >= 1`,
+    [tenantId, productId, date, now],
+  );
+}
+
+/** 改期到另一天（M3-03）：新的一天剩余 ≥ 1 时已售加一（一条语句里判断和占用）。返回是否占到了。 */
+export async function sellInventoryOnDay(db: Db, tenantId: string, productId: string, date: string, now: Date): Promise<boolean> {
+  const result = await db.query(
+    `update inventory_days set sold = sold + 1, updated_at = $4
+      where tenant_id = $1 and product_id = $2 and day = $3 and vehicle_group_id is null and total - held - sold >= 1`,
+    [tenantId, productId, date, now],
+  );
+  return result.rowCount === 1;
 }
 
 /**
@@ -344,10 +382,16 @@ export async function findSale(db: Db, orderId: string): Promise<OrderSale | nul
 
 // ---- 收款 ----
 
+export type OrderPaymentKind = "order" | "change" | "extra_charge";
+
 export interface OrderPayment {
   id: string;
   orderId: string;
   supplierTenantId: string;
+  /** order 下单时的付款 / change 改期补收的差价 / extra_charge 事后加收（后两种用保存的支付方式离线扣，M3-03） */
+  kind: OrderPaymentKind;
+  changeId: string | null;
+  extraChargeId: string | null;
   provider: "stripe";
   intentId: string | null;
   customerId: string | null;
@@ -365,7 +409,7 @@ export interface OrderPayment {
   updatedAt: Date;
 }
 
-const PAYMENT_COLUMNS = `p.id, p.order_id, p.supplier_tenant_id, p.provider, p.intent_id, p.customer_id, p.payment_method_id, p.amount_minor, p.currency, p.status, p.last_error, p.refunded_minor,
+const PAYMENT_COLUMNS = `p.id, p.order_id, p.supplier_tenant_id, p.kind, p.change_id, p.extra_charge_id, p.provider, p.intent_id, p.customer_id, p.payment_method_id, p.amount_minor, p.currency, p.status, p.last_error, p.refunded_minor,
   p.disputed, p.paid_after_cancel, p.save_consent_at, p.succeeded_at, p.created_at, p.updated_at`;
 
 function toPayment(row: Row): OrderPayment {
@@ -373,6 +417,9 @@ function toPayment(row: Row): OrderPayment {
     id: row["id"],
     orderId: row["order_id"],
     supplierTenantId: row["supplier_tenant_id"],
+    kind: row["kind"],
+    changeId: row["change_id"],
+    extraChargeId: row["extra_charge_id"],
     provider: row["provider"],
     intentId: row["intent_id"],
     customerId: row["customer_id"],
@@ -399,6 +446,32 @@ export async function insertOrderPayment(db: Db, payment: { orderId: string; sup
   );
 }
 
+/** 离线扣款（改期补差价、事后加收）的收款记录：先建好（creating），拿它的编号做收款服务的幂等键。 */
+export async function insertOffSessionPayment(
+  db: Db,
+  payment: { orderId: string; supplierTenantId: string; kind: "change" | "extra_charge"; changeId: string | null; extraChargeId: string | null; customerId: string; paymentMethodId: string; amountMinor: number; currency: CurrencyCode; saveConsentAt: Date; now: Date },
+): Promise<OrderPayment> {
+  const result = await db.query<Row>(
+    `insert into order_payments (order_id, supplier_tenant_id, kind, change_id, extra_charge_id, provider, customer_id, payment_method_id, amount_minor, currency, status, save_consent_at, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, 'stripe', $6, $7, $8, $9, 'creating', $10, $11, $11)
+     returning ${PAYMENT_COLUMNS.replaceAll("p.", "")}`,
+    [payment.orderId, payment.supplierTenantId, payment.kind, payment.changeId, payment.extraChargeId, payment.customerId, payment.paymentMethodId, payment.amountMinor, payment.currency, payment.saveConsentAt, payment.now],
+  );
+  return toPayment(result.rows[0] as Row);
+}
+
+/** 一张单的全部收款（下单付款、改期补差价、事后加收），按建的先后。 */
+export async function listOrderPayments(db: Db, orderId: string, options: { lock?: boolean } = {}): Promise<OrderPayment[]> {
+  const result = await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = $1 order by p.created_at, (p.kind <> 'order'), p.id ${options.lock ? "for update" : ""}`, [orderId]);
+  return result.rows.map(toPayment);
+}
+
+export async function findPaymentById(db: Db, paymentId: string, options: { lock?: boolean } = {}): Promise<OrderPayment | null> {
+  const result = await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.id = $1 ${options.lock ? "for update" : ""}`, [paymentId]);
+  const row = result.rows[0];
+  return row === undefined ? null : toPayment(row);
+}
+
 export async function findOrderPayment(db: Db, orderId: string, options: { lock?: boolean } = {}): Promise<OrderPayment | null> {
   const result = await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = $1 and p.kind = 'order' ${options.lock ? "for update" : ""}`, [orderId]);
   const row = result.rows[0];
@@ -421,6 +494,11 @@ export interface PaymentChange {
   disputed?: boolean;
   paidAfterCancel?: boolean;
   succeededAt?: Date;
+}
+
+/** 销售端一侧的对外价（改期后按原加价比例重算，M3-03）。 */
+export async function updateSaleSellMinor(db: Db, orderId: string, sellMinor: number): Promise<void> {
+  await db.query("update order_sales set sell_minor = $2 where order_id = $1", [orderId, sellMinor]);
 }
 
 /** 改收款记录：只改给了的字段。 */

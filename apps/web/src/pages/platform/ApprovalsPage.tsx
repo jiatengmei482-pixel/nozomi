@@ -17,8 +17,8 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { rolePath, staffPath } from "../../lib/platform-paths.ts";
-import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, approvalSummaryText, belowFloorRuleLines, channelPath, isFxApproval } from "../../lib/channel-display.ts";
+import { rolePath, staffPath, tenantPath } from "../../lib/platform-paths.ts";
+import { APPROVAL_KIND_NAMES, APPROVAL_STATUS_BADGES, approvalChanges, approvalSummaryText, belowFloorRuleLines, channelPath, isFxApproval, isTenantApproval } from "../../lib/channel-display.ts";
 import { CURRENCY_NAMES, FX_PATH } from "../../lib/fx-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { localOffsetLabel } from "../../lib/audit-display.ts";
@@ -33,13 +33,14 @@ const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里"
 type Decision = "approve" | "reject" | "withdraw";
 const DECISION_NAMES: Readonly<Record<Decision, string>> = { approve: "批准", reject: "驳回", withdraw: "撤回" };
 
-function decisionFailure(err: unknown): string {
+export function decisionFailure(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "APPROVAL_SELF_REVIEW") return "发起人不能审核自己发起的改动，请让另一位有审核权限的同事处理。";
     if (err.code === "APPROVAL_NOT_PENDING") return "这条已经有结论了（可能刚被别人处理），刷新看看。";
     if (err.code === "APPROVAL_STALE") return "发起之后，要改的对象已经被别的改动改过了，不能照旧生效。请驳回，让发起人按现在的内容重新发起。";
+    if (err.code === "CONTRACT_VALID_FROM_PASSED") return "这份合同的生效日期已经过了，批准会让结算条款追溯生效。请驳回，让发起人按新的生效日期重新发起。";
     if (err.code === "VALIDATION_FAILED") return `按现在的数据，这个改动不合规则了：${serverIssues(err).map((issue) => issue.message).join("；") || err.message}。请驳回。`;
-    if (["MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "FX_RATE_UNAVAILABLE"].includes(err.code)) return `按现在的数据不能生效：${err.message}。请驳回。`;
+    if (["MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "FX_RATE_UNAVAILABLE", "TENANT_STATE_INVALID", "TENANT_HAS_OPEN_ORDERS"].includes(err.code)) return `按现在的数据不能生效：${err.message}。请驳回。`;
     if (err.status === 403) return "你没有审核这一类改动的权限。";
   }
   return failureText(err, "提交");
@@ -54,6 +55,11 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "markup_rule.delete": "批准后这条规则立即删除：之后的询价改按下一级的规则或默认加价比例算。",
   "fx_lock.create": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
   "fx_lock.release": "批准后立即生效：之后的报价就按新的汇率算，已经生成的报价快照不受影响。",
+  "tenant.suspend": "批准后供应商立即暂停：商品不参与比价、不能下单；已经接下的订单照常履约；它的账号仍然可以登录。要恢复，到供应商详情点「恢复」。",
+  "tenant.terminate": "批准后供应商立即清退：后台只能查看历史，不能再修改任何东西，商品不再参与比价。清退不能撤销。",
+  "tenant.contract": "批准后这一版合同写入；到了生效日期就是这家供应商现在的结算条款。",
+  "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
+  "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
   "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
   "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
 };
@@ -96,6 +102,14 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           员工：
           <Link className="link" to={staffPath(approval.resource_id)}>
             {typeof approval.payload["email"] === "string" ? approval.payload["email"] : "查看员工"}
+          </Link>
+        </p>
+      )}
+      {isTenantApproval(approval.kind) && (
+        <p>
+          供应商：
+          <Link className="link" to={tenantPath(approval.resource_id)}>
+            {typeof approval.payload["tenant_name"] === "string" ? approval.payload["tenant_name"] : "去供应商详情"}
           </Link>
         </p>
       )}

@@ -1,0 +1,98 @@
+/* 供应商入驻（M4-01，ADR 0028）：资质、合同、评分、状态记录、提醒。只用设计令牌。 */
+
+.tenant-status-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.tenant-next-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tenant-document-latest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tenant-document-history summary {
+  cursor: pointer;
+  color: var(--color-text-link);
+}
+
+.tenant-document-history[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice-list li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.performance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.score-summary__value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.card__subtitle {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.score-trend-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.score-trend {
+  display: block;
+  width: 100%;
+  height: var(--space-16);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+}
+
+.score-trend__line {
+  fill: transparent;
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.score-trend__threshold {
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.score-trend__threshold--watch {
+  stroke: var(--color-warning-border);
+}
+
+.score-trend__threshold--suspend {
+  stroke: var(--color-danger-border);
+}
