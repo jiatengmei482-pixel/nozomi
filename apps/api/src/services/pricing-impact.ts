@@ -99,6 +99,8 @@ async function pricingStates(db: Db, channel: Channel, proposal: PricingProposal
 }
 
 // ---- 取数：快照里试算要用的那几项（用 jsonb 取字段，不把整份快照读回来）；城市和品类在询价日志上 ----
+// 每批两步：先按游标从（渠道、时间、编号）的索引取这一批的 5,000 个编号，再只对这些行取字段。
+// 不这样写时，统计信息过期（刚写进大量报价）的计划会对剩下的全部行取字段、再排序取前 5,000 个，10 万个报价时单批要几秒（ADR 0033「性能」）。
 
 interface QuoteRow {
   id: string;
@@ -122,15 +124,22 @@ interface OrderRow extends QuoteRow {
   cancel_fee_bp: number | null;
 }
 
+/**
+ * 试算要的那几项。`x.s` 是快照解压后的一份（见 `SNAPSHOT_ONCE`）：快照约 2.5 KB、存的时候是压缩的，
+ * 直接对 `q.snapshot` 取字段时每取一项就解压一次（这里有 7 项），10 万行时取数比计算还慢。
+ */
 const QUOTE_FIELDS = `q.id, q.created_at, q.currency, q.vehicle_group_id::text,
   l.city_id::text as city_id,
   l.category,
-  coalesce(q.snapshot->>'serviceDate', left(q.snapshot->'request'->>'serviceLocal', 10)) as service_date,
-  q.snapshot->'candidates' as candidates,
-  q.snapshot->'channel'->'settleFx' as settle_fx,
-  q.snapshot->'winner'->'sell'->'fx' as winner_fx,
-  q.snapshot->'winner'->'sell'->'channel'->'minMarginFx' as margin_fx,
-  (q.snapshot->'winner'->'sell'->>'fxBufferBp')::integer as winner_buffer`;
+  coalesce(x.s->>'serviceDate', left(x.s->'request'->>'serviceLocal', 10)) as service_date,
+  x.s->'candidates' as candidates,
+  x.s->'channel'->'settleFx' as settle_fx,
+  x.s->'winner'->'sell'->'fx' as winner_fx,
+  x.s->'winner'->'sell'->'channel'->'minMarginFx' as margin_fx,
+  (x.s->'winner'->'sell'->>'fxBufferBp')::integer as winner_buffer`;
+
+/** 每行只解压一次快照：`|| '{}'` 得到一份解压后的值，`offset 0` 不让子查询被展开回每个字段各算一次 */
+const SNAPSHOT_ONCE = `cross join lateral (select q.snapshot || '{}'::jsonb as s offset 0) x`;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -206,15 +215,22 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   let read = 0;
   while (read < PRICING_IMPACT_RULES.maxQuotes) {
     const limit = Math.min(BATCH, PRICING_IMPACT_RULES.maxQuotes - read);
+    const tq = performance.now();
     const page: QuoteRow[] = (
       await db.query<QuoteRow>(
-        `select ${QUOTE_FIELDS} from quotes q join quote_logs l on l.id = q.quote_log_id
-          where q.channel_id = $1 and q.created_at >= $2 and q.created_at <= $3 and ($4::timestamptz is null or (q.created_at, q.id) < ($4::timestamptz, $5::text))
-          order by q.created_at desc, q.id desc limit $6`,
+        `with page as materialized (
+           select id from quotes
+            where channel_id = $1 and created_at >= $2 and created_at <= $3 and ($4::timestamptz is null or (created_at, id) < ($4::timestamptz, $5::text))
+            order by created_at desc, id desc limit $6)
+         select ${QUOTE_FIELDS}
+           from page p join quotes q on q.id = p.id join quote_logs l on l.id = q.quote_log_id ${SNAPSHOT_ONCE}
+          order by q.created_at desc, q.id desc`,
         [channel.id, from, now, cursor?.t ?? null, cursor?.id ?? null, limit],
       )
     ).rows;
+    const tm = performance.now(); (globalThis as any).SQLT = ((globalThis as any).SQLT ?? 0) + tm - tq;
     for (const row of page) acc.addQuote(impactQuoteOf(row, settleCurrency, bufferBp));
+    (globalThis as any).JST = ((globalThis as any).JST ?? 0) + performance.now() - tm;
     read += page.length;
     const last = page.at(-1);
     if (page.length < limit || last === undefined) break;
@@ -223,7 +239,8 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
 
   // 订单：近 30 天下单、付过款的（没付款就取消的、还在待支付的不算）。按下单时的报价快照重算
   const ordersWhere = `s.channel_id = $1 and s.created_at >= $2 and s.created_at <= $3 and o.confirmed_at is not null`;
-  const ordersFrom = `order_sales s join orders o on o.tenant_id = s.supplier_tenant_id and o.id = s.order_id join quotes q on q.id = s.quote_id join quote_logs l on l.id = q.quote_log_id`;
+  const ordersJoins = `join orders o on o.tenant_id = s.supplier_tenant_id and o.id = s.order_id join quotes q on q.id = s.quote_id join quote_logs l on l.id = q.quote_log_id`;
+  const ordersFrom = `order_sales s ${ordersJoins}`;
   const ordersTotal = Number((await db.query<{ n: string }>(`select count(*)::text as n from ${ordersFrom} where ${ordersWhere}`, [channel.id, from, now])).rows[0]?.n ?? 0);
   let orderCursor: { t: Date; id: string } | null = null;
   let ordersRead = 0;
@@ -231,10 +248,13 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
     const limit = Math.min(BATCH, PRICING_IMPACT_RULES.maxOrders - ordersRead);
     const page: OrderRow[] = (
       await db.query<OrderRow>(
-        `select ${QUOTE_FIELDS}, s.created_at as order_created_at, s.order_id::text, o.status, o.cancel_fee_bp
-           from ${ordersFrom}
-          where ${ordersWhere} and ($4::timestamptz is null or (s.created_at, s.order_id) < ($4::timestamptz, $5::uuid))
-          order by s.created_at desc, s.order_id desc limit $6`,
+        `with page as materialized (
+           select s.order_id from ${ordersFrom}
+            where ${ordersWhere} and ($4::timestamptz is null or (s.created_at, s.order_id) < ($4::timestamptz, $5::uuid))
+            order by s.created_at desc, s.order_id desc limit $6)
+         select ${QUOTE_FIELDS}, s.created_at as order_created_at, s.order_id::text, o.status, o.cancel_fee_bp
+           from page p join order_sales s on s.order_id = p.order_id ${ordersJoins} ${SNAPSHOT_ONCE}
+          order by s.created_at desc, s.order_id desc`,
         [channel.id, from, now, orderCursor?.t ?? null, orderCursor?.id ?? null, limit],
       )
     ).rows;
@@ -250,6 +270,7 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
     if (page.length < limit || last === undefined) break;
     orderCursor = { t: last.order_created_at, id: last.order_id };
   }
+  console.error('PROF sql', Math.round((globalThis as any).SQLT), 'js', Math.round((globalThis as any).JST));
   return { computedAt: now, from, to: now, result: acc.result(), quotesTotal, ordersTotal };
 }
 
