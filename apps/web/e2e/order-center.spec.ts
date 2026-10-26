@@ -206,6 +206,8 @@ test("工单：渠道替客人投诉 → 客服判定成立（达到复核阈值
   await loginAs(page, "platform", admin.email, admin.password);
   await menu(page).getByRole("link", { name: "工单", exact: true }).click();
   await page.getByRole("searchbox", { name: /按工单号或订单号查找/ }).fill(ticketNo);
+  // 等搜索生效（停止输入 300ms 后写进网址）再点：否则点进详情的同时，搜索把地址换回列表
+  await expect(page).toHaveURL(new RegExp(`q=${ticketNo}`));
   await page.getByRole("link", { name: ticketNo }).click();
   await expect(page.getByRole("heading", { level: 1, name: `工单 ${ticketNo}` })).toBeVisible();
   await expect(page.getByText("客人说司机 10:40 才到，航班 10:00 落地。")).toBeVisible();
