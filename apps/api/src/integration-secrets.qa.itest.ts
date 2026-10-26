@@ -21,7 +21,7 @@ import { buildApp } from "./app.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
 import { stripeSignatureHeader } from "./integrations/stripe-signature.ts";
-import { IntegrationSecretCache } from "./services/integration-secrets.ts";
+import { INTEGRATION_TEST_INTERVAL_MS, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { createSuperAdmin } from "./services/platform-staff.ts";
 import { type ApiResponse, type CallOptions, type HttpMethod, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { FAKE_SECRETS, testEnv } from "./testing/fixtures.ts";
@@ -83,7 +83,11 @@ async function call(method: HttpMethod, url: string, options: CallOptions = {}):
 }
 const save = (key: string, body: unknown, options: CallOptions = {}): Promise<ApiResponse> => call("PUT", `/platform/v1/integration-secrets/${key}`, { body, ...options });
 const clear = (key: string, options: CallOptions = {}): Promise<ApiResponse> => call("DELETE", `/platform/v1/integration-secrets/${key}`, options);
-const check = (key: string, options: CallOptions = {}): Promise<ApiResponse> => call("POST", `/platform/v1/integration-secrets/${key}/test`, options);
+/** 测试一下有限速（同一项每 5 秒最多一次）：每次先把时钟拨过间隔 */
+const check = (key: string, options: CallOptions = {}): Promise<ApiResponse> => {
+  api.clock.advance(INTEGRATION_TEST_INTERVAL_MS);
+  return call("POST", `/platform/v1/integration-secrets/${key}/test`, options);
+};
 const list = (options: CallOptions = {}): Promise<ApiResponse> => call("GET", "/platform/v1/integration-secrets", options);
 const itemOf = (res: ApiResponse, key: string): any => res.body.items.find((item: any) => item.key === key);
 const maxAuditId = async (): Promise<number> => Number((await api.db.owner.query("select coalesce(max(id), 0) as id from audit_logs")).rows[0].id);
@@ -631,6 +635,7 @@ test("测试一下：对方返回重定向时不跟过去（密钥不会发到�
     await save("google-maps", { api_key: remember(fakeKey("AIza", 39)) });
     for (const code of [301, 302, 303, 307, 308]) {
       status = code;
+      api.clock.advance(INTEGRATION_TEST_INTERVAL_MS);
       const res = await inject(other.app, "POST", "/platform/v1/integration-secrets/google-maps/test", root);
       assert.deepEqual([res.status, res.body.ok], [200, false], `${code}`);
     }

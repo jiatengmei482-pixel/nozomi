@@ -51,6 +51,9 @@ export const INTEGRATION_SECRETS_WAIT_MS = 500;
 
 const PURPOSE = "integration-secret";
 
+/** 「测试一下」的限速：同一项每 5 秒最多一次（不分人）。谷歌地图每次测试都会产生一次计费调用，连点、被人刷都不该放大费用。 */
+export const INTEGRATION_TEST_INTERVAL_MS = 5_000;
+
 /** 后台这一份的状况。 */
 export type AdminSecretProblem =
   /** 解不开（数据加密密钥换了，或者库里的内容被改过）：不生效，需要重新填写 */
@@ -91,6 +94,8 @@ export class IntegrationSecretCache {
   /** 上一次重读开始的时刻（单调时钟，和测试拨动的业务时钟无关） */
   #loadedAt = Number.NEGATIVE_INFINITY;
   #inflight: Promise<void> | null = null;
+  /** 每一项上一次「测试一下」的时刻（业务时钟） */
+  readonly #lastTests = new Map<IntegrationSecretKey, number>();
 
   constructor(deps: { pool: Pool; config: AppConfig; secretBox: SecretBox | null; log: CacheLog; ttlMs?: number }) {
     this.#ttlMs = deps.ttlMs ?? INTEGRATION_SECRETS_TTL_MS;
@@ -109,6 +114,18 @@ export class IntegrationSecretCache {
   /** 后台那一份的状况（打码后的样子、谁什么时候改的、生没生效）；后台没填的项没有。 */
   adminState(key: IntegrationSecretKey): AdminSecretState | null {
     return this.#snapshot.admin[key] ?? null;
+  }
+
+  /**
+   * 占一次「测试一下」：距这一项上一次不到 `INTEGRATION_TEST_INTERVAL_MS` 时不占，返回还要等几秒；占到了返回 null。
+   * 判断和记下在同一个同步步骤里，同时到的两个请求只有一个占得到。只管本进程（ADR 0041：现在只有一个服务进程）。
+   */
+  claimTest(key: IntegrationSecretKey, now: Date): number | null {
+    const last = this.#lastTests.get(key);
+    const waitMs = last === undefined ? 0 : last + INTEGRATION_TEST_INTERVAL_MS - now.getTime();
+    if (waitMs > 0) return Math.ceil(waitMs / 1000);
+    this.#lastTests.set(key, now.getTime());
+    return null;
   }
 
   /** 后台填写的值的原文（日志脱敏用）。 */
@@ -349,14 +366,15 @@ export async function testIntegrationSecret(ctx: AppContext, principal: Platform
   await ctx.integrations.ensureFresh();
   const effective = ctx.integrations.effective;
   const source = sourceOf(effective, key);
-  let result: IntegrationCheckResult;
-  if (key === "google_maps") {
-    if (effective.googleMaps.apiKey === null) throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", "谷歌地图还没有配置，先填写密钥再测试");
-    result = await ctx.integrationChecks.googleMaps(effective.googleMaps.apiKey);
-  } else {
-    if (effective.stripe.config === null) throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", "Stripe 还没有配置，先填写密钥再测试");
-    result = await ctx.integrationChecks.stripe(effective.stripe.config);
+  const mapsKey = effective.googleMaps.apiKey;
+  const stripe = effective.stripe.config;
+  if (key === "google_maps" ? mapsKey === null : stripe === null) {
+    throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", `${key === "google_maps" ? "谷歌地图" : "Stripe"} 还没有配置，先填写密钥再测试`);
   }
+  const retryAfter = ctx.integrations.claimTest(key, ctx.now());
+  if (retryAfter !== null) throw new AppError(429, "INTEGRATION_TEST_RATE_LIMITED", "刚测过，请过几秒再试", { retry_after_seconds: retryAfter });
+  // 上面已经确认这一项有生效的值
+  const result: IntegrationCheckResult = key === "google_maps" ? await ctx.integrationChecks.googleMaps(mapsKey as string) : await ctx.integrationChecks.stripe(stripe as NonNullable<typeof stripe>);
   const now = ctx.now();
   await withPlatformTx(ctx.pool, (db) =>
     insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {

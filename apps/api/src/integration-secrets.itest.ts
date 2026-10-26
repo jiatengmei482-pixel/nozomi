@@ -18,7 +18,7 @@ import { withTenantTx } from "./db/context.ts";
 import { loadMigrationFiles } from "./db/migrate.ts";
 import { stripeSignatureHeader } from "./integrations/stripe-signature.ts";
 import { createSuperAdmin } from "./services/platform-staff.ts";
-import { saveIntegrationSecretValue } from "./services/integration-secrets.ts";
+import { INTEGRATION_TEST_INTERVAL_MS, saveIntegrationSecretValue } from "./services/integration-secrets.ts";
 import type { PlatformPrincipal } from "./services/platform-auth.ts";
 import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
 import { FAKE_SECRETS, testEnv } from "./testing/fixtures.ts";
@@ -76,7 +76,12 @@ async function call(method: HttpMethod, url: string, options: { token?: string; 
 const listSecrets = (token = root): Promise<ApiResponse> => call("GET", "/platform/v1/integration-secrets", { token, template: "/platform/v1/integration-secrets" });
 const save = (key: string, body: unknown, token = root): Promise<ApiResponse> => call("PUT", `/platform/v1/integration-secrets/${key}`, { token, body, template: "/platform/v1/integration-secrets/{key}" });
 const clear = (key: string, token = root): Promise<ApiResponse> => call("DELETE", `/platform/v1/integration-secrets/${key}`, { token, template: "/platform/v1/integration-secrets/{key}" });
-const check = (key: string, token = root): Promise<ApiResponse> => call("POST", `/platform/v1/integration-secrets/${key}/test`, { token, template: "/platform/v1/integration-secrets/{key}/test" });
+/** 测试一下（同一项每 5 秒最多一次）：先把时钟拨过限速的间隔；测限速本身的用例直接用 `checkNow` */
+const checkNow = (key: string, token = root): Promise<ApiResponse> => call("POST", `/platform/v1/integration-secrets/${key}/test`, { token, template: "/platform/v1/integration-secrets/{key}/test" });
+const check = (key: string, token = root): Promise<ApiResponse> => {
+  api.clock.advance(INTEGRATION_TEST_INTERVAL_MS);
+  return checkNow(key, token);
+};
 const itemOf = (res: ApiResponse, key: string): any => res.body.items.find((item: any) => item.key === key);
 const healthState = async (app: FastifyInstance | null, key: "googleMaps" | "stripe"): Promise<string> => {
   const res = app === null ? await api.call("GET", "/health") : await app.inject({ method: "GET", url: "/health" }).then((r) => ({ body: r.json() }));
@@ -284,6 +289,29 @@ test("测试一下：假谷歌的各种不可用（密钥无效、没开通 API�
   const tests = (await auditRows()).filter((r) => r.action === "test" && r.resource_id === "google_maps").slice(-7);
   assert.deepEqual(tests.map((r) => r.after.code), ["KEY_INVALID", "API_NOT_ENABLED", "KEY_RESTRICTED", "BILLING_DISABLED", "QUOTA_EXCEEDED", "UNAVAILABLE", "UNREACHABLE"]);
   await clear("google-maps");
+});
+
+test("测试一下限速：同一项每 5 秒最多一次，不分人（429 INTEGRATION_TEST_RATE_LIMITED，带 Retry-After）；另一项不受影响；同时到的两个只有一个去调对方", async () => {
+  await save("google-maps", { api_key: MAPS_KEY });
+  await save("stripe", STRIPE);
+  api.clock.advance(INTEGRATION_TEST_INTERVAL_MS);
+  google.requests.length = 0;
+  assert.equal((await checkNow("google-maps")).body.ok, true);
+  const second = await createSuperAdmin(api.db.pool, { email: "root2@platform.test", name: "第二位", password: TEST_PASSWORD }, api.clock.now()).then(() => api.platformLogin({ body: { email: "root2@platform.test", password: TEST_PASSWORD } }));
+  api.clock.advance(2_000);
+  const limited = await checkNow("google-maps", second.body.access_token);
+  assert.deepEqual([limited.status, limited.body.error.code, limited.body.error.message, limited.body.error.details.retry_after_seconds], [429, "INTEGRATION_TEST_RATE_LIMITED", "刚测过，请过几秒再试", 3]);
+  assert.equal(limited.headers["retry-after"], "3");
+  assert.equal((await checkNow("stripe")).status, 200, "另一项不受影响");
+  assert.equal(google.requests.length, 1, "被限速的那次没有调谷歌");
+  api.clock.advance(3_000);
+  assert.equal((await checkNow("google-maps")).status, 200, "过了 5 秒又可以");
+  api.clock.advance(INTEGRATION_TEST_INTERVAL_MS);
+  const both = await Promise.all([checkNow("google-maps"), checkNow("google-maps")]);
+  assert.deepEqual(both.map((r) => r.status).sort(), [200, 429]);
+  assert.equal(google.requests.length, 3);
+  await clear("google-maps");
+  await clear("stripe");
 });
 
 test("另一个进程：本进程改了，别的进程最迟一个缓存周期后用上（不用重启）；清空同样", async () => {

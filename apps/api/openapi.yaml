@@ -1509,7 +1509,8 @@ paths:
         - 谷歌地图：Routes API 的 computeRoutes（东京站 → 新宿站、只要距离一个字段，最便宜的一档；每次测试会产生一次调用，费用极少）。
         - Stripe：查余额（只读，不产生费用、不改任何数据），并核对测试 / 正式模式对得上。
         结果是数据（200）：`ok` 可用 / 不可用，不可用时 `code` 是原因（`KEY_INVALID`、`API_NOT_ENABLED`、`KEY_RESTRICTED`、`BILLING_DISABLED`、`PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE`、`UNAVAILABLE`、`UNEXPECTED`），
-        `message` 是一句话说明（我们自己写的，不带对方返回的原文，更不带密钥）。两项都没有配置时 409 `INTEGRATION_NOT_CONFIGURED`。写审计日志（动作 `test`，记来源和结果）。
+        `message` 是一句话说明（我们自己写的，不带对方返回的原文，更不带密钥）。这一项没有配置时 409 `INTEGRATION_NOT_CONFIGURED`。写审计日志（动作 `test`，记来源和结果）。
+        同一项每 5 秒最多测一次（不分人，谷歌地图每次测试都计费）：超了 429 `INTEGRATION_TEST_RATE_LIMITED`。
       security:
         - platformToken: []
       parameters:
@@ -1550,6 +1551,12 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: "`INTEGRATION_NOT_CONFIGURED`：这一项还没有配置（后台和配置文件都没有）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`INTEGRATION_TEST_RATE_LIMITED`：同一项每 5 秒最多测一次（不分人）；`details.retry_after_seconds` 和响应头 `Retry-After` 是还要等几秒"
           content:
             application/json:
               schema:
