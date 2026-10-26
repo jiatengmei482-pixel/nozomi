@@ -882,3 +882,9 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
+
+/* 提示条里的原因码：等宽，颜色跟提示条正文（提示条底色上只用正文色） */
+.route-code {
+  font-family: var(--font-family-mono);
+  overflow-wrap: anywhere;
+}

@@ -4,7 +4,7 @@
  * 只读：不生成可以下单的报价。类型与 `apps/api/openapi.yaml` 对账（`quotes.contract.test.ts`）。
  * 金额是最小货币单位整数；`exact`、`rank_price`、`sell_exact` 等是取整之前的精确值（十进制字符串）。
  */
-import type { ServiceCategory } from "@nozomi/domain";
+import type { RouteSource, ServiceCategory } from "@nozomi/domain";
 import { listAll } from "./areas.ts";
 import { apiRequest } from "./client.ts";
 import { MASTER_BASE, type Place } from "./master.ts";
@@ -122,6 +122,17 @@ export interface QuoteExcluded {
   product_code: string | null;
 }
 
+/**
+ * 这次的路线情况（M2-02，ADR 0042）：`not_needed` 候选都用不到路线；`assumed` 用了请求里的假定值；
+ * `ok` 取到了（`source` 是从哪里来的）；`unavailable` 没取到，`code` 是原因码（`QuoteRouteFailureCode`），`message` 是后端的中文说明。
+ */
+export interface QuoteRouteStatus {
+  status: "not_needed" | "assumed" | "ok" | "unavailable";
+  source: RouteSource | null;
+  code: string | null;
+  message: string | null;
+}
+
 export interface PlatformQuotePreview {
   currency: string;
   band_bp: number;
@@ -131,6 +142,7 @@ export interface PlatformQuotePreview {
   /** 渠道不卖的供应商的商品（没参加比价） */
   excluded: QuoteExcluded[];
   route: QuoteRoute | null;
+  route_status: QuoteRouteStatus;
   candidate_count: number;
   groups: QuoteGroup[];
   refused: QuoteRefusal[];
@@ -148,7 +160,7 @@ export function listQuotePlaces(token: string, cityId: string): Promise<Place[]>
 /** 对账用：字段名清单。 */
 export const QUOTE_SCHEMA_FIELDS = {
   PlatformQuotePreviewRequest: ["city_id", "category", "place_id", "currency", "pickup", "dropoff", "direction", "package_hours", "service_time", "passengers", "luggage", "assume_route", "channel_id"],
-  PlatformQuotePreview: ["currency", "band_bp", "markup_floor_bp", "channel", "excluded", "route", "candidate_count", "groups", "refused"],
+  PlatformQuotePreview: ["currency", "band_bp", "markup_floor_bp", "channel", "excluded", "route", "route_status", "candidate_count", "groups", "refused"],
   QuoteChannel: ["id", "name", "status", "min_margin", "settle_currency", "rounding_unit"],
   QuoteExcluded: ["tenant_id", "tenant_name", "product_id", "product_code"],
   QuoteGroup: ["vehicle_group_id", "package_hours", "created_at", "expires_at", "winner", "candidates"],
@@ -158,6 +170,7 @@ export const QUOTE_SCHEMA_FIELDS = {
   QuoteOffer: ["vehicle_group_id", "package_hours", "area_id", "price_rule_id", "settlement"],
   QuoteSettlement: ["currency", "rounding_unit", "total", "base", "adjust", "urgent", "night", "addons", "driver_language", "exact", "adjusts", "urgent_tier", "night_detail", "addon_items", "driver_language_code", "usage", "free_wait"],
   QuoteRoute: ["meters", "minutes"],
+  QuoteRouteStatus: ["status", "source", "code", "message"],
 } as const satisfies {
   PlatformQuotePreviewRequest: readonly (keyof PlatformQuotePreviewRequest)[];
   PlatformQuotePreview: readonly (keyof PlatformQuotePreview)[];
@@ -170,6 +183,7 @@ export const QUOTE_SCHEMA_FIELDS = {
   QuoteOffer: readonly (keyof QuoteOffer)[];
   QuoteSettlement: readonly (keyof QuoteSettlement)[];
   QuoteRoute: readonly (keyof QuoteRoute)[];
+  QuoteRouteStatus: readonly (keyof QuoteRouteStatus)[];
 };
 /** 页面专门处理的错误码。 */
 export const QUOTE_ERROR_CODES = ["VALIDATION_FAILED", "MASTER_DATA_NOT_READY", "CHANNEL_SCOPE_DENIED"] as const;
