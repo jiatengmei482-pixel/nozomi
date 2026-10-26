@@ -29,9 +29,9 @@ import { DriverListPage, VehicleListPage } from "./pages/fleet/FleetPages.tsx";
 import { OrderDetailPage, OrderListPage } from "./pages/orders/OrderPages.tsx";
 import { WebhookSettingsPage } from "./pages/webhooks/WebhookPages.tsx";
 import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "./lib/site-display.ts";
-import { BookPage } from "./pages/site/BookPage.tsx";
-import { CheckoutPage } from "./pages/site/CheckoutPage.tsx";
-import { OrderPage } from "./pages/site/OrderPage.tsx";
+import { BookPage } from "./pages/book/BookPage.tsx";
+import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
+import { OrderPage } from "./pages/book/OrderPage.tsx";
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
