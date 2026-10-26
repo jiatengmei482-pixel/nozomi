@@ -225,7 +225,9 @@
 }
 
 .site-charge__name {
+  min-width: 0;
   font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
 }
 
 .site-charge__amount {
@@ -360,4 +362,30 @@
   .site-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* 投诉和反馈（M4-03）：平台给客人的回复，一条一块 */
+.site-replies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-left: var(--border-width) solid var(--color-border-strong);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+}
+
+.site-reply__body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

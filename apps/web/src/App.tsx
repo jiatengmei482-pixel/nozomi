@@ -35,6 +35,10 @@ import { BookPage } from "./pages/book/BookPage.tsx";
 import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
 import { OrderPage } from "./pages/book/OrderPage.tsx";
 import { SiteErrorBoundary } from "./pages/book/SiteLayout.tsx";
+import { TENANT_TICKETS_PAGE, TENANT_TICKET_NEW_PATH } from "./lib/order-center-display.ts";
+import { TENANT_STATEMENTS_PAGE } from "./lib/billing-display.ts";
+import { TenantTicketDetailPage, TenantTicketListPage, TenantTicketNewPage } from "./pages/tickets/TenantTicketPages.tsx";
+import { TenantStatementDetailPage, TenantStatementListPage } from "./pages/statements/TenantStatementPages.tsx";
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
@@ -72,6 +76,11 @@ function portalRoutes(portal: Portal) {
             <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
             <Route path={COMPANY_PATH} element={<CompanyPage />} />
             <Route path={PERFORMANCE_PATH} element={<PerformancePage />} />
+            <Route path={TENANT_TICKETS_PAGE} element={<TenantTicketListPage />} />
+            <Route path={TENANT_TICKET_NEW_PATH} element={<TenantTicketNewPage />} />
+            <Route path={`${TENANT_TICKETS_PAGE}/:id`} element={<TenantTicketDetailPage />} />
+            <Route path={TENANT_STATEMENTS_PAGE} element={<TenantStatementListPage />} />
+            <Route path={`${TENANT_STATEMENTS_PAGE}/:id`} element={<TenantStatementDetailPage />} />
           </>
         )}
         <Route path={paths.changePassword} element={<ChangePasswordPage />} />

@@ -1,7 +1,8 @@
 /**
- * 救援改派与违约金在页面上的说法（M3-04，ADR 0031）。规则（阶梯、期限）用 @nozomi/domain 的同一份，页面不另写一套。
+ * 救援改派与违约金在页面上的说法（M3-04，ADR 0031）；M4-03 起应扣款项多两种：客人赔付、替代交通报销（工单判定，ADR 0034）。规则（阶梯、期限）用 @nozomi/domain 的同一份，页面不另写一套。
  */
 import {
+  COMPENSATION_SCENARIO_NAMES,
   DEDUCTION_KIND_NAMES,
   DEDUCTION_STATUS_NAMES,
   type DeductionKind,
@@ -22,6 +23,7 @@ import {
 import type { Money } from "../api/dispatch.ts";
 import type { DeductionBasis } from "../api/rescues.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
+import { basisPointsText } from "./adjust-form.ts";
 import { moneyText } from "./dispatch-display.ts";
 
 export const RESCUE_QUEUE_PATH = "/platform/rescues";
@@ -68,7 +70,14 @@ export function penaltyText(tier: PenaltyTier | null): string {
 /** 一条应扣款项是怎么算的。 */
 export function deductionBasisText(kind: DeductionKind, basis: DeductionBasis, currency: string): string {
   const money = (minor: number | undefined): string => (minor === undefined || !isCurrencyCode(currency) ? "—" : moneyText({ amount: formatMajor(minor, currency), currency }));
-  if (kind === "penalty") return `${triggerName(basis.trigger ?? null)}：原结算价 ${money(basis.settlement_minor)} × ${(basis.bp ?? 0) / 100}%`;
+  if (kind === "penalty") return `${triggerName(basis.trigger ?? null)}：原结算价 ${money(basis.settlement_minor)} × ${basisPointsText(basis.bp ?? 0)}%`;
+  const scenario = basis.scenario === undefined ? "" : COMPENSATION_SCENARIO_NAMES[basis.scenario];
+  const ticket = basis.ticket_no === undefined ? "" : `工单 ${basis.ticket_no}`;
+  if (kind === "compensation") {
+    const difference = basis.downgrade_settlement_difference_minor ?? 0;
+    return `${[ticket, scenario].filter(Boolean).join(" · ")}：结算价 ${money(basis.settlement_minor)} × ${basisPointsText(basis.bp ?? 0)}%${difference > 0 ? ` + 车型差价 ${money(difference)}` : ""}`;
+  }
+  if (kind === "reimbursement") return `${[ticket, scenario].filter(Boolean).join(" · ")}：客人凭票报销的替代交通，全部由供应商承担${basis.same_currency === false ? "（按订单报价时的汇率换成结算币种）" : ""}`;
   const raw = basis.raw_minor ?? 0;
   return `救援结算价${basis.same_currency === false ? "（按两边报价时的汇率换算）" : ""} ${money(basis.rescue_in_original_minor)} − 原结算价 ${money(basis.original_minor)}${raw < 0 ? "，为负记 0" : ""}`;
 }

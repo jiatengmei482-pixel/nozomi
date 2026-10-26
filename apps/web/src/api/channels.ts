@@ -138,6 +138,8 @@ export type ApprovalKind =
   | "cancellation_policy.update"
   | "order.cancel_refund"
   | "rescue.manual_assign"
+  | "compensation_table.update"
+  | "ticket.decision"
   | "platform_role.update"
   | "staff.mfa_reset"
   | "statement.payout";

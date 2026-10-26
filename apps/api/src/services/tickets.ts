@@ -198,17 +198,17 @@ export async function createTicketForChannel(ctx: AppContext, channelId: string,
 }
 
 /** 渠道看到的这一单的工单（只有类型、状态、结论；没有内部备注和供应商的对话）。 */
-export async function listTicketsForChannel(ctx: AppContext, channelId: string, orderId: string): Promise<{ ticket: Ticket; compensation: TicketCompensation | null }[]> {
+export async function listTicketsForChannel(ctx: AppContext, channelId: string, orderId: string): Promise<{ ticket: Ticket; compensation: TicketCompensation | null; replies: TicketNote[] }[]> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
       const sale = await findSale(db, orderId);
       if (sale === null || sale.channelId !== channelId) throw notFound("订单");
       const tickets = (await db.query<{ id: string }>("select id from tickets where order_id = $1 and source in ('guest', 'channel') order by created_at, id", [orderId])).rows;
-      const result: { ticket: Ticket; compensation: TicketCompensation | null }[] = [];
+      const result: { ticket: Ticket; compensation: TicketCompensation | null; replies: TicketNote[] }[] = [];
       for (const row of tickets) {
         const ticket = (await findTicket(db, row.id)) as Ticket;
-        result.push({ ticket, compensation: await findTicketCompensation(db, ticket.id) });
+        result.push({ ticket, compensation: await findTicketCompensation(db, ticket.id), replies: await listTicketNotes(db, ticket.id, true) });
       }
       return result;
     },
@@ -391,16 +391,22 @@ export async function assignTicket(ctx: AppContext, principal: PlatformPrincipal
  * 客服留言（`ticket.manage`）：`internal` 是内部备注（只有平台看得到），否则是给供应商看的对话。待处理的变成处理中；算首次响应。
  * 判定之后、关闭之前还能写内部备注（执行、另付的跟进）；给供应商的对话只在判定之前。
  */
-export async function addPlatformMessage(ctx: AppContext, principal: PlatformPrincipal, id: string, input: { body: string; internal: boolean }, ip: string): Promise<Ticket> {
+/**
+ * 平台留言（`ticket.manage`）：给供应商的对话（没结论的工单）、内部备注（没关闭的），或给客人的回复（`toGuest`：只有客人、渠道提的工单，没关闭的）。
+ * 给客人的回复存在平台表 ticket_notes（`to_guest`），供应商看不到；官网订单页和渠道看得到。
+ */
+export async function addPlatformMessage(ctx: AppContext, principal: PlatformPrincipal, id: string, input: { body: string; internal: boolean; toGuest?: boolean }, ip: string): Promise<Ticket> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
+  const toGuest = input.toGuest === true;
   return withPlatformTx(ctx.pool, async (db) => {
     const ticket = await lockTicket(db, id);
-    if (ticket.status === "closed" || (!input.internal && !ticketActive(ticket.status))) throw ticketStateInvalid(ticket, input.internal ? "note" : "message");
-    if (input.internal) await insertTicketNote(db, ticket.id, principal.user.id, input.body, now);
+    if (ticket.status === "closed" || (!input.internal && !toGuest && !ticketActive(ticket.status))) throw ticketStateInvalid(ticket, toGuest ? "guest_reply" : input.internal ? "note" : "message");
+    if (toGuest && ticket.source !== "guest" && ticket.source !== "channel") throw validationFailed("body", [{ path: "/to_guest", reason: "NOT_GUEST_TICKET", message: "只有客人、渠道提的工单能回复客人" }]);
+    if (input.internal || toGuest) await insertTicketNote(db, ticket.id, principal.user.id, input.body, now, toGuest);
     else await insertTicketMessage(db, ticket, { authorType: "platform_user", authorId: principal.user.id, body: input.body, fileIds: [] }, now);
     const updated = await mustUpdate(db, ticket, { status: ticket.status === "open" ? "in_progress" : ticket.status, firstRespondedAt: ticket.firstRespondedAt ?? now }, now);
-    await auditTicket(db, origin, updated, input.internal ? "note" : "reply", null, { ticket_no: ticket.ticketNo, internal: input.internal, body: input.body });
+    await auditTicket(db, origin, updated, toGuest ? "reply" : input.internal ? "note" : "reply", null, { ticket_no: ticket.ticketNo, internal: input.internal, to_guest: toGuest, body: input.body });
     return updated;
   });
 }

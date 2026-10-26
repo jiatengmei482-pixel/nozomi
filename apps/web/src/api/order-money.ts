@@ -3,7 +3,7 @@
  * 字段与 `apps/api/openapi.yaml` 对齐，由 order-money.contract.test.ts 保证。
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
-import type { ExtraChargeStatus, ExtraChargeType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, VehicleLevel } from "@nozomi/domain";
+import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
 import type { ListPage, Money, OrderEvent, OrderFile } from "./dispatch.ts";
@@ -187,7 +187,8 @@ export interface PlatformOrder {
 export interface PlatformRefund {
   id: string;
   payment_id: string;
-  purpose: "cancellation" | "change";
+  /** `compensation`：工单判定的赔付（M4-02） */
+  purpose: "cancellation" | "change" | "compensation";
   change_id: string | null;
   amount: Money;
   status: RefundStatus;
@@ -199,6 +200,35 @@ export interface PlatformRefund {
   succeeded_at: string | null;
   failed_at: string | null;
   superseded_at: string | null;
+  created_at: string;
+}
+
+/** 订单列表的一行：多了这一单没关的异常有几条（订单中心，M4-02） */
+export type PlatformOrderRow = PlatformOrder & { open_exceptions: number };
+
+/** 订单详情里这一单的异常（含已关闭的，M4-02） */
+export interface OrderExceptionRef {
+  id: string;
+  type: ExceptionType;
+  tenant_id: string;
+  status: ExceptionStatus;
+  opened_at: string;
+  due_at: string;
+  assignee_id: string | null;
+  close_kind: string | null;
+  closed_at: string | null;
+}
+
+/** 订单详情里这一单的工单（各家供应商的，M4-02） */
+export interface OrderTicketRef {
+  id: string;
+  ticket_no: string;
+  type: TicketType;
+  tenant_id: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  subject: string;
+  outcome: string | null;
   created_at: string;
 }
 
@@ -214,18 +244,34 @@ export interface PlatformOrderDetail {
   extra_charges: PlatformExtraCharge[];
   /** 这一单的全部救援改派（M3-04） */
   rescues: PlatformRescue[];
+  exceptions: OrderExceptionRef[];
+  tickets: OrderTicketRef[];
 }
 
 export interface PlatformOrderQuery {
   status?: OrderStatus;
   q?: string;
+  tenant_id?: string;
+  channel_id?: string;
+  /** 用车日期（城市当地），两端都含 */
+  service_from?: string;
+  service_to?: string;
+  /** 下单时间：从（含）到（不含），带时区 */
+  created_from?: string;
+  created_to?: string;
+  city_id?: string;
+  category?: ServiceCategory;
+  /** `open`：有没关的异常；`none`：没有 */
+  exception?: "open" | "none";
+  /** 乘客姓名（部分匹配）或电话（按数字部分匹配），至少 2 个字 */
+  passenger?: string;
   limit?: number;
   cursor?: string;
 }
 
 const platformOrder = (id: string): string => `${PLATFORM_ORDERS_PATH}/${encodeURIComponent(id)}`;
 
-export function listPlatformOrders(token: string, values: PlatformOrderQuery): Promise<ListPage<PlatformOrder>> {
+export function listPlatformOrders(token: string, values: PlatformOrderQuery): Promise<ListPage<PlatformOrderRow>> {
   return apiRequest("GET", query(PLATFORM_ORDERS_PATH, values), { token });
 }
 

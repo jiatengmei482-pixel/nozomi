@@ -67,6 +67,10 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (call.url.pathname === "/platform/v1/dashboard/summary") return json(200, emptySummary);
     if (call.method === "GET" && (call.url.pathname === "/platform/v1/channels" || call.url.pathname === "/platform/v1/approvals")) return json(200, { items: [], next_cursor: null, total: 0 });
     if (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities") return page([tokyo]);
+    // 订单中心、财务结算的卡片（M4-03）
+    if (call.method === "GET" && ["/platform/v1/exceptions", "/platform/v1/tickets", "/platform/v1/statements"].includes(call.url.pathname)) return json(200, { items: [], next_cursor: null, total: 0 });
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/payout-batches") return json(200, { items: [] });
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/compensation-table") return json(200, { compensation_table: { version: 0, effective_at: null, scenarios: [], minimum_jpy: 500, reimbursement_cap_bp: 15000, review_at_or_above_sell_bp: 5000 }, cancellation_policy: { version: 0, effective_at: null, rules: [] } });
     return null;
   });
   render(
@@ -95,11 +99,11 @@ async function assignCurrent(user: ReturnType<typeof userEvent.setup>): Promise<
 
 test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，卡片不隐藏、没有提醒行；六张卡片都是链接", async () => {
   open("/platform", "super_admin");
-  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 14));
-  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "渠道", "待审核", "城市", "地点", "车型组", "附加服务", "汇率"]);
-  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 14 }, () => "0"));
+  await waitFor(() => assert.equal(main().querySelectorAll(".entry-card dd").length, 22));
+  assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["供应商", "商品", "渠道", "待审核", "异常队列", "工单", "赔付表", "账单", "付款批次", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  assert.deepEqual([...main().querySelectorAll(".entry-card dd")].map((node) => node.textContent), Array.from({ length: 22 }, () => "0"));
   assert.equal(main().querySelectorAll(".entry-card__reminder").length, 0);
-  assert.equal(main().querySelectorAll("a.entry-card__title").length, 9, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率；M2-04 加了渠道和待审核");
+  assert.equal(main().querySelectorAll("a.entry-card__title").length, 14, "M1-10 起供应商卡片也是链接；M1-12 加了商品；M2-03 加了汇率；M2-04 加了渠道和待审核；M4-03 加了异常队列、工单、赔付表、账单、付款批次");
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 

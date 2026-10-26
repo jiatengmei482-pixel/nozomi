@@ -119,6 +119,8 @@ const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail
   changes: [],
   extra_charges: [],
   rescues: [],
+  exceptions: [],
+  tickets: [],
   ...extra,
 });
 
