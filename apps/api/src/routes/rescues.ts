@@ -249,8 +249,9 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.post("/tenant/v1/rescue-offers/:id/decline", async (request) => {
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.dispatch" });
+    const offerId = resourceId(request.params, "救援单");
     const input = parseInput(declineSchema, request.body ?? {}, "body");
-    const result = await decideOfferForTenant(ctx, principal, resourceId(request.params, "救援单"), "decline", input.reason, request.ip, request.log);
+    const result = await decideOfferForTenant(ctx, principal, offerId, "decline", input.reason, request.ip, request.log);
     if (result.expired) throw new AppError(409, "RESCUE_OFFER_EXPIRED", "已经过了接单期限，这张救援单记为超时", { offer: tenantOfferJson(result.offer) });
     return { offer: tenantOfferJson(result.offer) };
   });
@@ -322,8 +323,10 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.post("/platform/v1/orders/:id/rescue/manual-assign", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    // 先认路径里的编号（不像编号的统一 404），再校验请求体——和其他带 {id} 的接口一致
+    const orderId = resourceId(request.params, "订单");
     const input = parseInput(manualSchema, request.body, "body");
-    const approval = await requestManualAssign(ctx, principal, resourceId(request.params, "订单"), { tenantId: input.tenant_id, productId: input.product_id, settlementMinor: input.settlement_amount, note: input.note }, request.ip);
+    const approval = await requestManualAssign(ctx, principal, orderId, { tenantId: input.tenant_id, productId: input.product_id, settlementMinor: input.settlement_amount, note: input.note }, request.ip);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
@@ -338,8 +341,9 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.post("/platform/v1/tenants/:id/rescue", async (request) => {
     const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const tenantId = resourceId(request.params, "租户");
     const input = parseInput(batchSchema, request.body ?? {}, "body");
-    const result = await rescueSuspendedTenantForPlatform(ctx, principal, resourceId(request.params, "租户"), input.note, request.ip, request.log);
+    const result = await rescueSuspendedTenantForPlatform(ctx, principal, tenantId, input.note, request.ip, request.log);
     return { triggered: result.triggered, skipped: result.skipped.map((entry) => ({ order_id: entry.orderId, code: entry.code })) };
   });
 
