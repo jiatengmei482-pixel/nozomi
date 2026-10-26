@@ -141,6 +141,7 @@ export interface TriggerInput {
 
 export interface Triggered {
   rescue: Rescue;
+  order: Order;
   penaltyMinor: number;
   refunds: OrderRefund[];
 }
@@ -211,7 +212,7 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
     { event: "order.rescue_triggered", orderId: order.id, orderNo: order.orderNo, tenantId: order.tenantId, trigger: input.trigger, penaltyBp: penalty.bp, serviceAt: order.serviceAt.toISOString() },
     `订单进入救援改派（${RESCUE_TRIGGER_NAMES[input.trigger]}）：请在运营后台的救援队列处理`,
   );
-  return { rescue, penaltyMinor, refunds };
+  return { rescue, order, penaltyMinor, refunds };
 }
 
 /** 一次触发（自己开平台事务）。`order` 的租户要对得上时传 `tenantId`（供应商声明：别的供应商的单当作不存在）。 */
@@ -968,6 +969,11 @@ export async function rescueQueue(ctx: AppContext, state: "open" | "closed"): Pr
     },
     { snapshot: true },
   );
+}
+
+/** 一张单的全部救援（自己开只读事务）。 */
+export async function getOrderRescueViews(ctx: AppContext, orderId: string): Promise<PlatformRescueView[]> {
+  return withPlatformTx(ctx.pool, (db) => orderRescueViews(db, orderId), { snapshot: true });
 }
 
 /** 一张单的全部救援（运营后台订单详情）。 */
