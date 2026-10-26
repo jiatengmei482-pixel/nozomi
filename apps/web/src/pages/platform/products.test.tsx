@@ -537,6 +537,30 @@ test("试算结果：每个车型组的中标、全部候选（结算价、对�
   assert.match(document.body.textContent ?? "", /找到 3 个已上架的商品，1 个车型组报出了价。2 个商品有没报出价的，原因见最下面。/);
 });
 
+test("M4-12 报价试算的日期输入框：占位写格式「年-月-日」，不是一个具体（会变成过去）的日期；例子写在说明里", async () => {
+  open("/platform/quote-preview", "operations", () => null);
+  const date = (await screen.findByRole("textbox", { name: "日期" })) as HTMLInputElement;
+  assert.equal(date.placeholder, "年-月-日");
+  assert.match((date.closest("fieldset") as HTMLElement).textContent ?? "", /日期写成 2026-01-31 这样。/);
+});
+
+test("M4-12 试算的路程按四舍五入显示公里：7,295 米是 7.3 公里（概况和结算价明细一样），不截断成 7.2", async () => {
+  const usage = { meters: 7_295, minutes: 18 };
+  const base = previewOf();
+  const group = base.groups[0]!;
+  const candidates = group.candidates.map((candidate) => ({ ...candidate, offer: { ...candidate.offer, settlement: { ...candidate.offer.settlement, usage } } }));
+  const answer = previewOf({ route: usage, route_status: { status: "ok", source: "cache", code: null, message: null }, groups: [{ ...group, candidates }] });
+  open("/platform/quote-preview", "operations", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? json(200, answer) : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  await screen.findByRole("heading", { level: 2, name: "试算结果" });
+  await waitFor(() => assert.match(document.body.textContent ?? "", /用的路程：7\.3 公里、18 分钟/));
+  const groupCard = screen.getByRole("heading", { level: 3, name: "商务七座" }).closest("section") as HTMLElement;
+  await user().click(within(groupCard).getByRole("button", { name: "看 NOZOMI 自营车队 的结算价明细" }));
+  assert.match(groupCard.querySelector(".quote-detail")?.textContent ?? "", /按多少路程算7\.3 公里、18 分钟/);
+  assert.doesNotMatch(document.body.textContent ?? "", /7\.2 公里/);
+});
+
 test("M2-02 试算的路线情况：取到时写明路程从哪里来；没取到时警示提示条写出原因码和怎么办（含每日上限），一口价和包车照常；用不到路线时什么都不提", async () => {
   let answer: () => Response = () => json(200, previewOf({ route: { meters: 18_400, minutes: 32 }, route_status: { status: "ok", source: "google", code: null, message: null } }));
   open("/platform/quote-preview", "operations", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? answer() : null));

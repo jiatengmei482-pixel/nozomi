@@ -142,7 +142,7 @@ function GenerateDialog({ onClose }: { onClose(changed: boolean): void }) {
       {result === null ? (
         <>
           <p>每月 1 日起系统每小时自动出上个月的账；这里可以马上出。已经出过的不会重复，期间结案的进下一期（往期调整）。出账后账单直接发给供应商，等它 7 天内确认。</p>
-          <TextField label="周期（选填）" placeholder="2026-09" autoComplete="off" value={period} readOnly={busy} errors={error === null ? [] : [error]} onChange={(event) => setPeriod(event.target.value)} hint="不填就是上个月（按东京日期）；只能出已经结束的月份" />
+          <TextField label="周期（选填）" placeholder="年-月" autoComplete="off" value={period} readOnly={busy} errors={error === null ? [] : [error]} onChange={(event) => setPeriod(event.target.value)} hint="写成 2026-09 这样；不填就是上个月（按东京日期）；只能出已经结束的月份" />
         </>
       ) : (
         <div role="status">

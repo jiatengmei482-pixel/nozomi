@@ -255,18 +255,18 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                     <div className="range">
                       <label className="range__cell">
                         <span className="range__label">从</span>
-                        {text("sale-from", form.saleFrom, (saleFrom) => set({ saleFrom }), { label: "下单有效期从", placeholder: "2026-01-01", tidy: tidyDate })}
+                        {text("sale-from", form.saleFrom, (saleFrom) => set({ saleFrom }), { label: "下单有效期从", placeholder: "年-月-日", tidy: tidyDate })}
                       </label>
                       <label className="range__cell">
                         <span className="range__label">到</span>
-                        {text("sale-to", form.saleTo, (saleTo) => set({ saleTo }), { label: "下单有效期到", placeholder: "2026-12-31", tidy: tidyDate })}
+                        {text("sale-to", form.saleTo, (saleTo) => set({ saleTo }), { label: "下单有效期到", placeholder: "年-月-日", tidy: tidyDate })}
                       </label>
                     </div>
                   )}
                   <FieldErrors id="sale-period-error" errors={errors("sale-from", "sale-to")} />
                   {saleExpired && <Warning>{`下单有效期已经过了（到 ${tidyDate(form.saleTo)} 为止），客人现在下不了单。要继续卖，请把结束日期改晚，或改成不限。`}</Warning>}
                   <p className="field__hint" aria-live="polite">
-                    {saleReadback ?? (form.saleMode === "range" ? "两格都留空 = 不限。" : "")}
+                    {saleReadback ?? (form.saleMode === "range" ? "日期写成 2026-01-31 这样；两格都留空 = 不限。" : "")}
                   </p>
                   <p className="field__hint">在这段日期里下的单才接（看的是客人下单那一天，不是用车那一天，两端都含）。不限 = 一直可以下单。</p>
                 </fieldset>

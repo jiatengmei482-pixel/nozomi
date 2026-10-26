@@ -22,9 +22,9 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { basisPointsText, stepText } from "../../lib/adjust-form.ts";
+import { kmText } from "../../lib/distance.ts";
 import { displayName, formatLocalDateTime } from "../../lib/master-display.ts";
 import { exactTextMoney, isWholeText } from "../../lib/price-calendar.ts";
-import { metersToKmText } from "../../lib/price-form.ts";
 import { CURRENCY_NAMES, moneyText } from "../../lib/product-display.ts";
 import { saveFailureText, serverIssues } from "../../lib/product-failure.ts";
 import { platformProductListPath } from "../../lib/platform-paths.ts";
@@ -116,7 +116,7 @@ function SettlementDetail({ candidate, currency }: { candidate: QuoteCandidate; 
   lines.push({ label: "取整前", value: `${exactTextMoney(settlement.exact.total, own)}${isWholeText(settlement.exact.total) ? "" : "（还没取整）"}` });
   lines.push({ label: "取整", value: settlement.rounding_unit > 1 ? `取整到 ${moneyText(settlement.rounding_unit, own)}` : "四舍五入" });
   lines.push({ label: "结算价", value: <strong>{moneyText(settlement.total, own)}</strong> });
-  if (settlement.usage) lines.push({ label: "按多少路程算", value: `${metersToKmText(settlement.usage.meters)} 公里、${durationText(settlement.usage.minutes)}` });
+  if (settlement.usage) lines.push({ label: "按多少路程算", value: `${kmText(settlement.usage.meters)} 公里、${durationText(settlement.usage.minutes)}` });
   const fx = candidate.fx;
   const lockText = fx?.lock ? `；用了人工锁定的汇率：${fx.lock.legs.map((leg) => `1 USD = ${leg.rate} ${leg.currency}（锁定到 ${formatLocalDateTime(leg.expires_at)}）`).join("，")}` : "";
   lines.push({ label: "换算成客人支付的币种", value: fx === null ? `同币种（${own}），不用换算` : `1 ${fx.from} = ${fx.rate} ${fx.to}（汇率时间 ${formatLocalDateTime(fx.as_of)}${lockText}），汇率缓冲 ${basisPointsText(candidate.fx_buffer_bp)}%` });
@@ -234,7 +234,7 @@ function routeSentence(result: PlatformQuotePreview): string {
   if (result.route === null) return "";
   const { status, source } = result.route_status;
   const from = status === "assumed" ? "你填写的假定值" : source !== null ? ROUTE_SOURCE_TEXT[source] : null;
-  return ` 用的路程：${metersToKmText(result.route.meters)} 公里、${durationText(result.route.minutes)}${from === null ? "" : `（${from}）`}。`;
+  return ` 用的路程：${kmText(result.route.meters)} 公里、${durationText(result.route.minutes)}${from === null ? "" : `（${from}）`}。`;
 }
 
 /** 没取到路线（M2-02）：按「里程 + 时长」计价的商品报不出价，原因码和怎么办都写出来；一口价、包车照常。 */
@@ -541,10 +541,10 @@ export function QuotePreviewPage() {
           <fieldset className="field fieldset form-grid__wide" id="quote-time">
             <legend className="field__label">用车时间</legend>
             <div className="quote-form__time">
-              <TextField label="日期" inputMode="numeric" autoComplete="off" placeholder="2026-10-08" className="quote-form__date" value={form.date} errors={errorOf("date")} onChange={(event) => change({ date: event.target.value })} onBlur={() => change({ date: tidyDate(form.date) ?? form.date })} />
+              <TextField label="日期" inputMode="numeric" autoComplete="off" placeholder="年-月-日" className="quote-form__date" value={form.date} errors={errorOf("date")} onChange={(event) => change({ date: event.target.value })} onBlur={() => change({ date: tidyDate(form.date) ?? form.date })} />
               <TextField label="时刻" inputMode="numeric" autoComplete="off" placeholder="08:00" className="quote-form__clock" value={form.time} errors={errorOf("time")} onChange={(event) => change({ time: event.target.value })} onBlur={() => change({ time: tidyTime(form.time) ?? form.time })} />
             </div>
-            <p className="field__hint">{`按${timeZoneText}填写。`}</p>
+            <p className="field__hint">{`按${timeZoneText}填写；日期写成 2026-01-31 这样。`}</p>
           </fieldset>
           <div id="quote-passengers">
             <TextField label="人数" inputMode="numeric" autoComplete="off" value={form.passengers} errors={errorOf("passengers")} onChange={(event) => change({ passengers: event.target.value })} />
