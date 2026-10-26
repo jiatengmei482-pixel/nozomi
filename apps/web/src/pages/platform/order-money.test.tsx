@@ -201,6 +201,17 @@ test("订单详情（运营后台）：包车的行程写「包车 N 小时 · �
   assert.doesNotMatch(payments, /creating|canceled/);
 });
 
+test("订单详情（运营后台）：还没付款的单没有「新建工单」，付过款的有", async () => {
+  open(`/platform/orders/${ORDER_ID}`, "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder({ status: "pending_payment", confirmed_at: null }))) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.ok(screen.getByRole("heading", { name: "工单" }));
+  assert.equal(screen.queryByRole("link", { name: "新建工单" }), null);
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder())) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.ok(screen.getByRole("link", { name: "新建工单" }));
+});
+
 test("订单详情（运营后台）：审核加收可以部分通过；客服看不到「重试退款」（只有财务、运营能重试）；只读看不到代取消和审核", async () => {
   let decided: unknown = null;
   const detail = platformDetail(platformOrder({ status: "completed" }), {

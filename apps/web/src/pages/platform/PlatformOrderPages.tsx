@@ -648,7 +648,7 @@ export function PlatformOrderDetailPage() {
           <h2 className="card__title" id="order-tickets">
             工单
           </h2>
-          {canTicket && (
+          {canTicket && order.confirmed_at !== null && (
             <LinkButton variant="secondary" to={newPlatformTicketPath(order.id)}>
               新建工单
             </LinkButton>

@@ -11811,7 +11811,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`COMPLAINT_WINDOW_CLOSED`：超过投诉时限"
+          description: "`COMPLAINT_WINDOW_CLOSED`：超过投诉时限；`ORDER_STATE_INVALID`（`details.reason` 为 `NOT_CONFIRMED`）：订单还没付款（或没付款就取消了），不能建工单"
           content:
             application/json:
               schema:

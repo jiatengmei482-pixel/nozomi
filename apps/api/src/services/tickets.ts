@@ -173,6 +173,10 @@ export async function createTicketForPlatform(ctx: AppContext, principal: Platfo
   return withPlatformTx(ctx.pool, async (db) => {
     const current = await findOrderForPlatform(db, input.orderId);
     if (current === null) throw notFound("订单");
+    // 运营看得到还没付款的单：说清为什么不能建工单，不说成「订单不存在」（M4-10）
+    if (current.confirmedAt === null) {
+      throw new AppError(409, "ORDER_STATE_INVALID", current.status === "pending_payment" ? "这张订单还没付款，付款完成后才能建工单" : "这张订单没有付过款就取消了，不能建工单", { reason: "NOT_CONFIRMED", status: current.status });
+    }
     const order = input.tenantId === null || input.tenantId === current.tenantId ? current : await findOrderOfTenant(db, input.tenantId, input.orderId);
     if (order === null) throw new AppError(422, "TICKET_TENANT_INVALID", "这个供应商没有接过这一单", { tenant_id: input.tenantId });
     // 客服代供应商登记申诉不在这里（申诉由供应商在自己的后台提），来源是供应商的只能登记失物和其他
