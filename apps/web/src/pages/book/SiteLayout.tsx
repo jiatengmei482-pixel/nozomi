@@ -59,11 +59,17 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
  * 官网页面崩溃（前端异常）时的兜底（F3，pages/site-booking.md 第 7 节）：客人没有「管理员」，
  * 告诉他订单不受影响、可以在「查订单」找到。用官网自己的外观，不用后台的兜底。
  */
-class SiteCrashBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  override state = { failed: false };
+class SiteCrashBoundary extends Component<{ locationKey: string; children: ReactNode }, { failed: boolean; locationKey: string }> {
+  override state = { failed: false, locationKey: this.props.locationKey };
 
-  static getDerivedStateFromError(): { failed: boolean } {
+  static getDerivedStateFromError(): Partial<{ failed: boolean }> {
     return { failed: true };
+  }
+
+  /** 出错后客人去了别处（哪怕地址一样，如订单页 → 点「查订单」）：重新开始。没出错时换地址不重建页面。 */
+  static getDerivedStateFromProps(props: { locationKey: string }, state: { failed: boolean; locationKey: string }): Partial<{ failed: boolean; locationKey: string }> | null {
+    if (props.locationKey === state.locationKey) return null;
+    return { failed: false, locationKey: props.locationKey };
   }
 
   override render(): ReactNode {
@@ -85,11 +91,11 @@ class SiteCrashBoundary extends Component<{ children: ReactNode }, { failed: boo
   }
 }
 
-/** 官网路由的外层：换一个页面（点顶栏入口）就重新开始，不会一直停在兜底页。 */
+/** 官网路由的外层：每次导航（点顶栏入口，即使地址和现在一样）都会离开兜底页，不会一直停在那里。 */
 export function SiteErrorBoundary() {
-  const { pathname } = useLocation();
+  const { key } = useLocation();
   return (
-    <SiteCrashBoundary key={pathname}>
+    <SiteCrashBoundary locationKey={key}>
       <Outlet />
     </SiteCrashBoundary>
   );
