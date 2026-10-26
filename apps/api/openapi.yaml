@@ -8020,6 +8020,7 @@ components:
       name: fileId
       in: path
       required: true
+      description: 文件的编号（资质文件、履约照片）
       schema:
         type: string
         format: uuid
@@ -8153,14 +8154,6 @@ components:
       name: id
       in: path
       required: true
-      schema:
-        type: string
-        format: uuid
-    FileId:
-      name: fileId
-      in: path
-      required: true
-      description: 照片的编号
       schema:
         type: string
         format: uuid
