@@ -188,6 +188,8 @@ const rawSchema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
+  // 路线预估每天（东京时间）最多调用谷歌 Routes API 几次（ADR 0042，费用控制；不是密钥）。默认 1000，0 = 不调用（里程 + 时长的商品暂时无法报价）
+  GOOGLE_ROUTES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(1_000)),
   // 「测试一下」和收款连到哪里（ADR 0041）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
   GOOGLE_MAPS_ROUTES_URL: optionalString,
   STRIPE_API_URL: optionalString,
@@ -271,6 +273,8 @@ export interface AppConfig {
   dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
+  /** 路线预估（ADR 0042）：每天（东京时间）最多调用谷歌 Routes API 几次；0 = 不调用 */
+  routes: { dailyLimit: number };
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
   /** 汇率：数据源地址、跨币种缓冲（基点整数，150 = 1.5%）、服务进程是否定时拉取 */
@@ -397,6 +401,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     dataEncryptionKey,
     stripe,
     googleMapsApiKey,
+    routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },

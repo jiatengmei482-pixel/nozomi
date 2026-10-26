@@ -67,6 +67,7 @@
 | `0070_billing.sql` | 供应商应付账单与付款批次（M5-01，ADR 0040；0050–0069 留给别的分支）：付款批次 `payout_batches`（平台表，一个付款日一个批次）；账单 `statements`（同一供应商、同一期、同一币种只有一张有效的）、明细 `statement_lines`（一笔应付同一时刻只挂在一张有效的账单上；平台只能改作废时间）、经过 `statement_events`（只追加），三张租户表，供应商只读。不含任何数据 |
 | `0080_integration_secrets.sql` | 运营后台填写的第三方密钥（M4-09，ADR 0041；0052–0079 留给别的任务）：`integration_secrets`（谷歌地图、Stripe 各一行；`sealed` 是 AES-256-GCM 密文、`hints` 是打码后的末 4 位、版本、谁什么时候改的；清空 = 删行）。平台表：平台读、写、删，租户角色没有任何权限。不含任何数据 |
 | `0090_order_center_tickets.sql` | 订单中心、异常队列、工单与赔付表（M4-02，ADR 0034；开发时编号 0060，合并时排到 main 上已有的迁移之后）：平台表 `compensation_tables`（赔付表按版本追加）、`order_exceptions`（异常队列）、`ticket_notes`（内部备注）、`ticket_compensations`（客人那边的赔付金额）；租户表 `tickets`、`ticket_messages`（供应商只读）；`order_refunds` 加赔付用途和 `ticket_id`；`tenant_deductions` 加赔付、报销两种（来源是工单）；`order_no_show_claims` 加审核结论（平台只改这三列）；履约失败加 `no_show_rejected`，平台可删履约事件（申诉撤销）。不含任何数据 |
+| `0100_route_estimates.sql` | 路线预估（M2-02，ADR 0042；0091–0099 留给别的任务）：路线缓存 `route_estimates`（取整后的起终点一行，成功的有里程和时长、保留 7 天，没有路线 / 坐标无效只有原因、保留 1 天）、每日调用计数 `route_api_usage`（东京时间的日期一行：调用、失败、被每日上限挡下的次数，最近一次成功和失败）；询价日志加 `route`（这次的路线或降级原因）。平台表，租户角色没有任何权限。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
