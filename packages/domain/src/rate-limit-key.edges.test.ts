@@ -160,9 +160,9 @@ test("各种特殊地址段都能算出键、不抛异常，并按 /64 归并：
   assert.notEqual(rateLimitKeyOf("fe80::1%eth0"), rateLimitKeyOf("fe81::1%eth0"), "fe80::/10 里不同的 /64 各算各的");
 });
 
-test("IPv4 映射（::ffff:a.b.c.d）按 IPv4；IPv4 兼容（::a.b.c.d）不是映射，不能当成 IPv4", () => {
+test("IPv4 映射（::ffff:a.b.c.d）按 IPv4；IPv4 兼容（::a.b.c.d）也取末 32 位按 IPv4（ADR 0045：内嵌 IPv4 的写法和映射同样处理）", () => {
   assert.equal(rateLimitKeyOf("::ffff:1.2.3.4"), "1.2.3.4");
-  assert.notEqual(rateLimitKeyOf("::1.2.3.4"), "1.2.3.4");
+  assert.equal(rateLimitKeyOf("::1.2.3.4"), "1.2.3.4");
   assert.ok(!rateLimitKeyOf("::1.2.3.4").startsWith("raw:"), "IPv4 兼容写法是合法的 IPv6");
 });
 
