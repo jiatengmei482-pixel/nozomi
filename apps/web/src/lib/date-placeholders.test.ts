@@ -18,11 +18,50 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** 占位的值：`placeholder="…"`、`placeholder={…}`（到第一个 `}`）、`placeholder: "…"`。 */
-const PLACEHOLDER = /placeholder\s*(?:=\s*(?:"[^"]*"|\{[^}]*\})|:\s*"[^"]*")/g;
-/** 像日期（年-月，可带日）的数字。 */
-const DATE_LIKE = /\d{4}\s*[-/.年]\s*\d{1,2}/;
-const hasDatePlaceholder = (line: string): boolean => (line.match(PLACEHOLDER) ?? []).some((value) => DATE_LIKE.test(value));
+/** 像日期的写法（time-input.ts 的 tidyDate 认的那些，加上月份和月/日/年）：`2026-10-08`、`2026/10/8`、`2026.10`、`2026年10月`、`20261008`、`10/08/2026`。 */
+const DATE_LIKE = [/\d{4}\s*[-/.年]\s*\d{1,2}/, /(?<!\d)(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?!\d)/, /(?<!\d)\d{1,2}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{4}(?!\d)/];
+
+/**
+ * 从 `from` 起读一个属性值或表达式，返回它的原文：引号（单、双、反引号）读到配对的引号；`{…}` 读到配对的花括号；
+ * 其余（对象属性 `placeholder: …`）读到同一层的 `,`、`}`、`)`、`;`。字符串、反引号里的 `${…}` 里的括号不算层数。
+ */
+function readValue(text: string, from: number): string {
+  const wrapped = /["'`{]/.test(text[from] ?? "");
+  const stack: string[] = [];
+  for (let i = from; i < text.length; i += 1) {
+    const char = text[i]!;
+    const top = stack[stack.length - 1];
+    if (top === '"' || top === "'" || top === "`") {
+      if (char === "\\") i += 1;
+      else if (char === top) stack.pop();
+      else if (top === "`" && char === "$" && text[i + 1] === "{") {
+        stack.push("{");
+        i += 1;
+      }
+    } else if (char === '"' || char === "'" || char === "`" || char === "{" || char === "(" || char === "[") stack.push(char);
+    else if (char === "}" || char === ")" || char === "]") {
+      if (stack.length === 0) return text.slice(from, i);
+      stack.pop();
+    } else if (stack.length === 0 && (char === "," || char === ";" || char === "\n")) return text.slice(from, i);
+    if (wrapped && stack.length === 0) return text.slice(from, i + 1);
+  }
+  return text.slice(from);
+}
+
+/**
+ * 这一段源码里有没有用具体日期（或月份）做占位：`placeholder="…"`、`placeholder={…}`、`placeholder: …`，按值整体读（可以跨行）。
+ * 按行扫时把整份源码的行数组传进来（和 `Array.prototype.some` 的回调同一个签名）：从这一行开始读，跨到后面的行。
+ */
+function hasDatePlaceholder(line: string, index?: number, lines?: readonly string[]): boolean {
+  const text = lines !== undefined && index !== undefined ? lines.slice(index).join("\n") : line;
+  const firstLineEnd = lines !== undefined && index !== undefined ? line.length : text.length;
+  const key = /placeholder\s*[=:]\s*/g;
+  for (let match = key.exec(text); match !== null && match.index < firstLineEnd; match = key.exec(text)) {
+    const value = readValue(text, match.index + match[0].length);
+    if (DATE_LIKE.some((pattern) => pattern.test(value))) return true;
+  }
+  return false;
+}
 
 test("前端没有用具体日期（或月份）做占位文字的输入框", () => {
   const files = sourceFiles(SRC);
@@ -30,7 +69,7 @@ test("前端没有用具体日期（或月份）做占位文字的输入框", ()
   const found = files.flatMap((file) =>
     readFileSync(file, "utf8")
       .split("\n")
-      .flatMap((line, index) => (hasDatePlaceholder(line) ? [`${file.slice(SRC.length)}:${index + 1}  ${line.trim()}`] : [])),
+      .flatMap((line, index, lines) => (hasDatePlaceholder(line, index, lines) ? [`${file.slice(SRC.length)}:${index + 1}  ${line.trim()}`] : [])),
   );
   assert.deepEqual(found, []);
 });
