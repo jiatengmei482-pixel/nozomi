@@ -31,6 +31,11 @@ export const RESCUE_RULES = {
   shortOfferWithinHours: 2,
   /** 改派给救援供应商之后，派车截止时间至少留多少分钟（司机未到这类到点之后才改派的单，按普通规则截止时间已经过了） */
   rescuedDispatchMinutes: 30,
+  /**
+   * 改派给救援供应商之后，「到点」最早从改派后多少分钟起算（再过 15 分钟仍未到达才算司机未到）：
+   * 派车截止至少留 30 分钟，司机接单后还要赶到上车点，再给 30 分钟。到点之后才改派的单不至于一接手就被当成司机未到。
+   */
+  rescuedArrivalMinutes: 60,
   /** 声明无法履约、不可抗力说明、人工指定说明的最大长度 */
   noteMaxLength: 500,
 } as const;
@@ -74,10 +79,15 @@ export function dispatchRescueDueAt(serviceAt: Date, dispatchDueAt: Date): Date 
 /**
  * 「司机未到」从什么时候起成立：到点 15 分钟（含那一刻）仍未「已到达」。
  * 「到点」是用车时间；接机的航班晚点、已经取定了比用车时间晚的实际落地时间时，从落地时间算（免费等待也从落地起算，ADR 0027）。
+ * 改派给救援供应商的那一行（`rescuedAt` 是改派生效的时刻），「到点」不早于改派后 60 分钟（派车和赶到上车点的时间）。
  */
-export function driverLateAt(serviceAt: Date, landedAt: Date | null): Date {
-  const reference = landedAt !== null && landedAt.getTime() > serviceAt.getTime() ? landedAt : serviceAt;
-  return new Date(reference.getTime() + RESCUE_RULES.driverLateMinutes * MINUTE);
+export function driverLateAt(serviceAt: Date, landedAt: Date | null, rescuedAt: Date | null = null): Date {
+  const reference = Math.max(
+    serviceAt.getTime(),
+    landedAt === null ? serviceAt.getTime() : landedAt.getTime(),
+    rescuedAt === null ? serviceAt.getTime() : rescuedAt.getTime() + RESCUE_RULES.rescuedArrivalMinutes * MINUTE,
+  );
+  return new Date(reference + RESCUE_RULES.driverLateMinutes * MINUTE);
 }
 
 export interface RescueTriggerFacts {
@@ -87,6 +97,8 @@ export interface RescueTriggerFacts {
   dispatchDueAt: Date | null;
   /** 接机已取定的实际落地时间 */
   landedAt: Date | null;
+  /** 这一行是改派转来的：改派生效的时刻（救援供应商接手的时候）；不是转来的为 null 或不填 */
+  rescuedAt?: Date | null;
   /** 原供应商现在是不是暂停（或清退）中 */
   tenantSuspended: boolean;
   now: Date;
@@ -105,7 +117,7 @@ export function rescueTriggerRefusal(trigger: RescueTrigger, facts: RescueTrigge
       if (facts.dispatchDueAt === null) return "ORDER_STATE_INVALID";
       return now >= dispatchRescueDueAt(facts.serviceAt, facts.dispatchDueAt).getTime() ? null : "TOO_EARLY";
     case "driver_no_show":
-      return now >= driverLateAt(facts.serviceAt, facts.landedAt).getTime() ? null : "TOO_EARLY";
+      return now >= driverLateAt(facts.serviceAt, facts.landedAt, facts.rescuedAt ?? null).getTime() ? null : "TOO_EARLY";
     case "tenant_suspended":
       if (!facts.tenantSuspended) return "TENANT_NOT_SUSPENDED";
       return facts.serviceAt.getTime() > now ? null : "SERVICE_TIME_PASSED";

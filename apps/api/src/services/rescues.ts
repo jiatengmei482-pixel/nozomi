@@ -118,7 +118,7 @@ function eventActor(type: RescueActorType): OrderEventActor {
 
 const TRIGGER_REFUSALS = {
   ORDER_STATE_INVALID: { status: 409, code: "ORDER_STATE_INVALID", message: "订单当前的状态不能进入救援改派（只有已确认、已派车、司机已出发的单可以；派了车就不是「未派车」）" },
-  TOO_EARLY: { status: 409, code: "RESCUE_TRIGGER_NOT_MET", message: "还没到这种情形的触发时间（未派车：用车前 6 小时、且过了派车截止时间；司机未到：到点 15 分钟后）" },
+  TOO_EARLY: { status: 409, code: "RESCUE_TRIGGER_NOT_MET", message: "还没到这种情形的触发时间（未派车：用车前 6 小时、且过了派车截止时间；司机未到：到点 15 分钟后，改派转来的单到点不早于改派后 60 分钟）" },
   TENANT_NOT_SUSPENDED: { status: 409, code: "RESCUE_TRIGGER_NOT_MET", message: "这家供应商现在没有被暂停" },
   SERVICE_TIME_PASSED: { status: 409, code: "RESCUE_TRIGGER_NOT_MET", message: "用车时间已经到了，不是未来订单" },
 } as const;
@@ -158,7 +158,17 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
   const open = await findOpenRescue(db, order.id, { lock: true });
   if (open !== null) throw rescueAlreadyOpen(open);
   const tenant = (await db.query<{ status: string }>("select status from tenants where id = $1", [order.tenantId])).rows[0];
-  const refusal = rescueTriggerRefusal(input.trigger, { status: order.status, serviceAt: order.serviceAt, dispatchDueAt: order.dispatch.dueAt, landedAt: order.dispatch.landedAt, tenantSuspended: tenant !== undefined && tenantOutOfService(tenant.status as TenantStatus), now });
+  // 改派转来的那一行：救援供应商接手后有一段派车和赶到的时间，之前不算「司机未到」
+  const via = await findRescueOfRescuer(db, order.tenantId, order.id);
+  const refusal = rescueTriggerRefusal(input.trigger, {
+    status: order.status,
+    serviceAt: order.serviceAt,
+    dispatchDueAt: order.dispatch.dueAt,
+    landedAt: order.dispatch.landedAt,
+    rescuedAt: via?.rescuedAt ?? null,
+    tenantSuspended: tenant !== undefined && tenantOutOfService(tenant.status as TenantStatus),
+    now,
+  });
   if (refusal !== null) {
     const error = TRIGGER_REFUSALS[refusal];
     throw new AppError(error.status, error.code, error.message, { reason: refusal, status: order.status, trigger: input.trigger });
@@ -840,7 +850,7 @@ export interface RescueSweepResult {
 /**
  * 订单定时任务每一轮做的救援的事：
  * 1. 用车前 6 小时（且过了派车截止时间）仍未派车的单自动进入救援（每张一个事务，先锁订单再判断；并发的声明、别的实例只会让它建一次）；
- * 2. 到点 15 分钟仍未到达的单记下提醒（一条条件更新「找出来 + 记下」，多实例也只记一次），服务日志 `order.driver_late`；
+ * 2. 到点 15 分钟仍未到达的单记下提醒（改派转来的那一行，到点不早于改派后 60 分钟；一条条件更新「找出来 + 记下」，多实例也只记一次），服务日志 `order.driver_late`；
  * 3. 过了期限还没接的救援单记为超时，顺延下一家。
  */
 export async function sweepRescues(ctx: AppContext, log: OrderLog = SILENT_ORDER_LOG): Promise<RescueSweepResult> {
@@ -868,12 +878,16 @@ export async function sweepRescues(ctx: AppContext, log: OrderLog = SILENT_ORDER
     (
       await db.query<{ id: string; tenant_id: string; order_no: string; status: OrderStatus }>(
         `update orders set arrival_overdue_at = $1 where (tenant_id, id) in (
-           select tenant_id, id from orders
-            where status in ('confirmed', 'assigned', 'departed') and arrival_overdue_at is null and service_at <= $2
-              and greatest(service_at, coalesce(landed_at, service_at)) + make_interval(mins => $3) <= $1
-            order by service_at limit $4 for update skip locked)
+           select o.tenant_id, o.id from orders o
+            where o.status in ('confirmed', 'assigned', 'departed') and o.arrival_overdue_at is null and o.service_at <= $2
+              and greatest(
+                    o.service_at,
+                    coalesce(o.landed_at, o.service_at),
+                    coalesce((select max(r.rescued_at) from order_rescues r where r.order_id = o.id and r.rescue_tenant_id = o.tenant_id) + make_interval(mins => $5), o.service_at)
+                  ) + make_interval(mins => $3) <= $1
+            order by o.service_at limit $4 for update of o skip locked)
          returning id, tenant_id, order_no, status`,
-        [now, new Date(now.getTime() - RESCUE_RULES.driverLateMinutes * 60_000), RESCUE_RULES.driverLateMinutes, JOB_BATCH],
+        [now, new Date(now.getTime() - RESCUE_RULES.driverLateMinutes * 60_000), RESCUE_RULES.driverLateMinutes, JOB_BATCH, RESCUE_RULES.rescuedArrivalMinutes],
       )
     ).rows,
   );

@@ -6,7 +6,7 @@
  * - 包车完成时必须上报实际时长和里程（超时、超公里的依据，需求「完成时填实际时长和公里」），其他品类选填；
  * - 每次状态变化记一条状态流水，并给供应商排一条 `order.status_changed` 推送。
  */
-import { type OrderStatus, distanceToPickupMeters, orderTransitionAllowed } from "@nozomi/domain";
+import { type OrderStatus, distanceToPickupMeters, orderOperableByTenant, orderTransitionAllowed } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { type FulfilmentChange, type LocationKind, findPlace, insertOrderLocation, updateFulfilment } from "../repos/dispatch.ts";
@@ -40,6 +40,11 @@ export interface FulfilmentActor {
 
 export function orderStateInvalid(status: OrderStatus, action: string): AppError {
   return new AppError(409, "ORDER_STATE_INVALID", "订单当前的状态不允许这个操作", { status, action });
+}
+
+/** 供应商的写接口共用：这一行在救援改派中或已转给救援供应商时，原供应商只能查看（409 `ORDER_STATE_INVALID`，ADR 0031）。 */
+export function assertTenantCanOperate(order: Pick<Order, "status">, action: string): void {
+  if (!orderOperableByTenant(order.status)) throw new AppError(409, "ORDER_STATE_INVALID", "这一单在救援改派中或已转给其他供应商，只能查看", { status: order.status, action });
 }
 
 /**

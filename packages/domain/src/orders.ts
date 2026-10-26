@@ -84,6 +84,14 @@ export function orderStatusIsFinal(status: OrderStatus): boolean {
 }
 
 /**
+ * 这一行还归它的供应商操作吗：救援改派中（`rescue_pending`）、已转给救援供应商（`rescued`）的那一行，原供应商只能查看（ADR 0031）。
+ * 供应商对订单的写接口（派车、司机链接、回传履约、上传票据、加收、撤回加收、确认 / 拒绝改期）都先过这一关，再按各自的状态规则判断。
+ */
+export function orderOperableByTenant(status: OrderStatus): boolean {
+  return status !== "rescue_pending" && status !== "rescued";
+}
+
+/**
  * 租户看不看得到这一单：只有付过款（确认过）的才看得到。待支付、没付款就取消的单对租户不存在——
  * 需求「支付后可见乘客姓名、电话、航班号」，而且没付款的单不需要租户做任何事。
  */

@@ -15,6 +15,7 @@ import {
   onPaymentSucceeded,
   orderDetailsIssues,
   orderNumber,
+  orderOperableByTenant,
   orderStatusIsFinal,
   orderTransitionAllowed,
   orderVisibleToTenant,
@@ -167,4 +168,8 @@ test("下单信息：乘客姓名、国际格式的电话、邮箱必填；必�
   assert.deepEqual(paths({ ...good, messaging: null, notes: "注".repeat(501) }), ["/notes:TOO_LONG"]);
   assert.deepEqual(paths({ ...good, channelOrderNo: "有中文" }), ["/channel_order_no:INVALID_FORMAT"]);
   assert.deepEqual(paths({ ...good, channelOrderNo: "x".repeat(65) }), ["/channel_order_no:TOO_LONG"]);
+});
+
+test("供应商还能不能操作这一行：救援改派中、已转给救援供应商的只能查看，其余状态交给各接口自己的规则", () => {
+  for (const status of ORDER_STATUSES) assert.equal(orderOperableByTenant(status), status !== "rescue_pending" && status !== "rescued", status);
 });

@@ -55,7 +55,7 @@ async function paidOrderIn(hours: number): Promise<string> {
 const upload = async (token: string, orderId: string): Promise<number> =>
   (await api.app.inject({ method: "POST", url: `/tenant/v1/orders/${orderId}/files?kind=receipt`, headers: { authorization: `Bearer ${token}`, "content-type": "image/jpeg" }, payload: RECEIPT_JPEG })).statusCode;
 
-/** 原供应商对这一单的写接口（除上传票据，见单独的缺陷测试）：都不能成功。 */
+/** 原供应商对这一单的写接口（上传票据见单独的测试）：都不能成功。 */
 async function assertOriginalCannotWrite(who: TenantFixture, orderId: string, driverId: string, vehicleId: string, stage: string): Promise<void> {
   const token = await tenantToken(who);
   const version = (await ok(api.call("GET", `/tenant/v1/orders/${orderId}`, { token }))).order.version;
@@ -90,10 +90,10 @@ test("原供应商在「救援改派中」「已转给救援供应商」两个�
 });
 
 /**
- * 缺陷复现（当前失败）：原供应商在订单「救援改派中」和「已转给救援供应商」之后仍能往这一单上传票据照片（201），
- * `uploadReceipt` 只拒绝了「已取消」。ADR 0031：原供应商「可以查看」、不能再操作这一单。
+ * 原供应商在订单「救援改派中」和「已转给救援供应商」之后不能再往这一单上传票据照片（409 `ORDER_STATE_INVALID`）。
+ * ADR 0031：原供应商「可以查看」、不能再操作这一单（供应商写接口共用 `assertTenantCanOperate`）。
  */
-test("缺陷：原供应商在救援改派中 / 已转出之后不能再给这一单上传票据", async () => {
+test("原供应商在救援改派中 / 已转出之后不能再给这一单上传票据（409）", async () => {
   const orderId = await paidOrderIn(10 * 24);
   await ok(api.call("POST", `/tenant/v1/orders/${orderId}/declare-unable`, { token: await tenantToken(m.b), body: { reason: "司机病了" } }));
   const during = await upload(await tenantToken(m.b), orderId);

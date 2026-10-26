@@ -124,6 +124,21 @@ test("司机未到：到点 15 分钟（含那一刻）仍未到达；接机晚�
   assert.equal(rescueTriggerRefusal("driver_no_show", facts(new Date(service.getTime() + HOUR), "arrived")), "ORDER_STATE_INVALID", "到了就不是未到");
 });
 
+test("司机未到（改派转来的那一行）：到点不早于改派后 60 分钟，再过 15 分钟仍未到达才算；改派得早的照常从用车时间算", () => {
+  const lateRescue = new Date(service.getTime() + 20 * MINUTE);
+  assert.equal(driverLateAt(service, null, lateRescue).toISOString(), new Date(lateRescue.getTime() + 75 * MINUTE).toISOString());
+  const landed = new Date(service.getTime() + 2 * HOUR);
+  assert.equal(driverLateAt(service, landed, lateRescue).toISOString(), new Date(landed.getTime() + 15 * MINUTE).toISOString(), "落地更晚的从落地时间算");
+  assert.equal(driverLateAt(service, null, before(3 * HOUR)).toISOString(), new Date(service.getTime() + 15 * MINUTE).toISOString(), "用车前 3 小时改派的从用车时间算");
+  assert.equal(driverLateAt(service, null, before(60 * MINUTE)).toISOString(), new Date(service.getTime() + 15 * MINUTE).toISOString(), "正好用车前 60 分钟改派，仍从用车时间算");
+  assert.equal(driverLateAt(service, null, before(60 * MINUTE - 1)).getTime(), service.getTime() + 15 * MINUTE + 1, "少 1 毫秒就往后推 1 毫秒");
+  const facts = (now: Date): RescueTriggerFacts => ({ status: "confirmed", serviceAt: service, dispatchDueAt: new Date(lateRescue.getTime() + 30 * MINUTE), landedAt: null, rescuedAt: lateRescue, tenantSuspended: false, now });
+  assert.equal(rescueTriggerRefusal("driver_no_show", facts(new Date(lateRescue.getTime() + MINUTE))), "TOO_EARLY", "接手 1 分钟不能按司机未到再救援");
+  assert.equal(rescueTriggerRefusal("driver_no_show", facts(new Date(lateRescue.getTime() + 75 * MINUTE - 1))), "TOO_EARLY");
+  assert.equal(rescueTriggerRefusal("driver_no_show", facts(new Date(lateRescue.getTime() + 75 * MINUTE))), null);
+  assert.equal(rescueTriggerRefusal("driver_no_show", { ...facts(new Date(service.getTime() + 15 * MINUTE)), rescuedAt: null }), null, "不是转来的照旧");
+});
+
 test("声明无法履约：已确认、已派车、司机已出发都可以；到达之后、已完成、已取消、救援中不行", () => {
   const facts = (status: RescueTriggerFacts["status"]): RescueTriggerFacts => ({ status, serviceAt: service, dispatchDueAt: before(24 * HOUR), landedAt: null, tenantSuspended: false, now: before(48 * HOUR) });
   for (const status of ["confirmed", "assigned", "departed"] as const) assert.equal(rescueTriggerRefusal("tenant_declared", facts(status)), null, status);

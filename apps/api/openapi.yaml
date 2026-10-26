@@ -9043,7 +9043,7 @@ paths:
       description: |
         需要操作 `rescue.manage`（运营、客服）。说明必填。救援改派只在 4 种情形下可用（需求「履约保障与服务标准」）：
         `tenant_declared` 替供应商登记它声明无法履约；`dispatch_overdue` 用车前 6 小时仍未派车（定时任务每分钟自动触发，这里给还没跑到的时候用；没到时间 409 `RESCUE_TRIGGER_NOT_MET`）；
-        `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
+        `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
         违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
       security:
         - platformToken: []
