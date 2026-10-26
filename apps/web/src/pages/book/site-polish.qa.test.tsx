@@ -320,7 +320,9 @@ test("F12：后端说备注太长（/notes）时要告诉客人是备注的问�
   await actor.clear(email);
   await actor.type(email, "new@example.com");
   await actor.click(screen.getByRole("button", { name: "提交修改" }));
-  await screen.findByText("格式不对");
+  // 后端的「格式不对」按 reason 换成了写清正确写法的说法（协调要求，2.3），这里等邮箱标红而不是等原话
+  await waitFor(() => assert.equal(email.getAttribute("aria-invalid"), "true"));
+  assert.ok(screen.getByText("请填写正确的邮箱，如 name@example.com"));
   const notes = screen.getByLabelText("备注（选填）");
   assert.equal(notes.getAttribute("aria-invalid"), "true", "备注也要标红");
   const section = screen.getByRole("region", { name: "修改订单" });

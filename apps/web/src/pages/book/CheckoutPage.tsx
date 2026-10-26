@@ -4,7 +4,7 @@
  * 选中的报价从询价页带过来；直接打开这一页（刷新、收藏）没有报价，提示回去重新查询。
  * 提交用一个幂等键：网络失败再点一次不会下出两张单；改了内容就换一个新的。
  */
-import { MESSAGING_APPS, type MessagingApp, isFlightNo, isInternationalPhone } from "@nozomi/domain";
+import { MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone } from "@nozomi/domain";
 import { type FormEvent, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -207,7 +207,7 @@ export function CheckoutPage() {
           <label className="field__label" htmlFor="site-notes">
             备注（选填）
           </label>
-          <textarea id="site-notes" className="input textarea" rows={3} maxLength={2000} value={form.notes} onChange={(event) => update({ notes: event.target.value })} />
+          <textarea id="site-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} onChange={(event) => update({ notes: event.target.value })} />
         </div>
         <div className="field">
           <label className="choice site-consent">

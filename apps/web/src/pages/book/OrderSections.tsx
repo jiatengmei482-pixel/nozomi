@@ -2,7 +2,7 @@
  * 官网订单页的各个区块（M3-05，ADR 0032）。每个会改订单的操作都在页面内确认，结果写在区块里；出错时说明怎么办。
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
-import { type ExtraChargeType, EXTRA_CHARGE_RULES, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
+import { type ExtraChargeType, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -485,7 +485,7 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   return body;
 }
 
-type ChangeField = "name" | "phone" | "email" | "flightNo" | "address" | "date" | "time" | "passengers" | "luggage";
+type ChangeField = "name" | "phone" | "email" | "flightNo" | "address" | "date" | "time" | "passengers" | "luggage" | "notes";
 export type ChangeErrors = Partial<Record<ChangeField, string>>;
 
 /**
@@ -529,6 +529,49 @@ const CHANGE_SERVER_PATHS: Readonly<Record<string, ChangeField>> = {
   "/service_time": "time",
   "/passengers": "passengers",
   "/luggage": "luggage",
+  "/notes": "notes",
+};
+
+/** 后端改单校验的简短说法（「必填」「太长了」「格式不对」），客人看不懂是哪一项、该怎么写。 */
+const TERSE_SERVER_MESSAGES: ReadonlySet<string> = new Set(["必填", "太长了", "格式不对"]);
+
+/**
+ * 后端的字段错误换成客人能看懂、写清正确写法的说法（2.3）：按字段和 reason 给；后端给的已经是完整说法（如电话、航班号的格式）时照用。
+ */
+export function guestChangeIssueText(field: ChangeField, issue: { reason?: string; message?: string }, pickup: boolean): string {
+  const message = issue.message ?? "";
+  if (message !== "" && !TERSE_SERVER_MESSAGES.has(message)) return message;
+  const place = pickup ? "下车" : "上车";
+  const byReason: Partial<Record<ChangeField, Partial<Record<string, string>>>> = {
+    name: { REQUIRED: "请填写乘车人姓名", TOO_LONG: `姓名太长了，最多 ${ORDER_FIELD_LIMITS.nameMax} 个字` },
+    phone: { REQUIRED: "请填写带国家码的手机号，如 +81 90-1234-5678", INVALID_FORMAT: "请填写带国家码的手机号，如 +81 90-1234-5678、+86 138 0000 0000" },
+    email: { REQUIRED: "请填写邮箱，如 name@example.com", INVALID_FORMAT: "请填写正确的邮箱，如 name@example.com", TOO_LONG: `邮箱太长了，最多 ${ORDER_FIELD_LIMITS.emailMax} 个字符` },
+    flightNo: { REQUIRED: "接机要填航班号，司机按航班落地时间等候", INVALID_FORMAT: "航班号的格式不对，如 NH211、MU523" },
+    address: { REQUIRED: `请填写${place}的地址或酒店名`, TOO_LONG: `地址太长了，最多 ${ORDER_FIELD_LIMITS.addressMax} 个字，写酒店名或主要地址就可以` },
+    time: { REQUIRED: "请选择时间", INVALID_FORMAT: "用车日期和时间写得不对，请重新选择" },
+    passengers: { REQUIRED: "请填写人数", INVALID_FORMAT: "人数填 1 以上的整数" },
+    luggage: { INVALID_FORMAT: "行李填 0 以上的整数" },
+    notes: { TOO_LONG: `备注太长了，最多 ${ORDER_FIELD_LIMITS.notesMax} 个字，请删短一些` },
+  };
+  const text = issue.reason === undefined ? undefined : byReason[field]?.[issue.reason];
+  if (text !== undefined) return text;
+  return `${CHANGE_FIELD_LABELS[field]}没有通过检查，请检查后再提交`;
+}
+
+const CHANGE_FIELD_LABELS: Readonly<Record<ChangeField, string>> = { name: "姓名", phone: "手机号", email: "邮箱", flightNo: "航班号", address: "地址", date: "日期", time: "时间", passengers: "人数", luggage: "行李", notes: "备注" };
+
+/** 客人改了表单里的哪些项，各自对应哪个字段的后端错误要清掉（改日期也清掉标在时间下的用车时间错误）。 */
+const CLEARS: Readonly<Record<keyof ChangeForm, readonly ChangeField[]>> = {
+  name: ["name"],
+  phone: ["phone"],
+  email: ["email"],
+  flightNo: ["flightNo"],
+  address: ["address"],
+  notes: ["notes"],
+  passengers: ["passengers"],
+  luggage: ["luggage"],
+  date: ["date", "time"],
+  time: ["time"],
 };
 
 const FORM_INCOMPLETE = "有几项没有填好，请看标红的地方。";
@@ -536,6 +579,8 @@ const FORM_INCOMPLETE = "有几项没有填好，请看标红的地方。";
 export function ChangeSection({ token, order, onChanged }: { token: string; order: SiteOrder; onChanged: Changed }) {
   const [form, setForm] = useState<ChangeForm | null>(null);
   const [errors, setErrors] = useState<ChangeErrors>({});
+  // 后端标在字段下的错误：客人改了那一项才清掉，改别的项不动（前端校验管不到后端的判断，如邮箱域名不存在）
+  const [serverErrors, setServerErrors] = useState<ChangeErrors>({});
   const [attempted, setAttempted] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -548,14 +593,20 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
     setForm(next);
     // 提交过一次以后，改一项就重新校验（2.3「出错后该字段实时重新校验」）
     if (attempted) setErrors(validateChange(order, next, new Date()));
+    const cleared = (Object.keys(changes) as (keyof ChangeForm)[]).flatMap((key) => CLEARS[key]);
+    setServerErrors((current) => Object.fromEntries(Object.entries(current).filter(([field]) => !cleared.includes(field as ChangeField))));
   };
   const openForm = (): void => {
     setForm(formOf(order));
     setErrors({});
+    setServerErrors({});
     setAttempted(false);
     setNotice(null);
   };
-  const fieldErrors = (field: ChangeField): string[] => (errors[field] === undefined ? [] : [errors[field]]);
+  const fieldErrors = (field: ChangeField): string[] => {
+    const message = errors[field] ?? serverErrors[field];
+    return message === undefined ? [] : [message];
+  };
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -563,6 +614,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
     const found = validateChange(order, form, new Date());
     setAttempted(true);
     setErrors(found);
+    setServerErrors({});
     if (Object.keys(found).length > 0) {
       setNotice({ kind: "danger", text: FORM_INCOMPLETE });
       return;
@@ -591,13 +643,18 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
       if (err instanceof ApiError && err.code === "NO_CHANGE") setNotice({ kind: "info", text: "没有改动。" });
       else if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
       else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
-        const issues = Array.isArray(err.details["issues"]) ? (err.details["issues"] as { path?: string; message?: string }[]) : [];
         const mapped: ChangeErrors = {};
-        for (const issue of issues) {
-          const field = CHANGE_SERVER_PATHS[issue.path ?? ""];
-          if (field !== undefined && issue.message) mapped[field] = issue.message;
+        if (err.details["reason"] === "SERVICE_TIME_PASSED") {
+          // 提交途中用车时间刚好过去（后端 422）
+          mapped.time = "这个时间已经过了，请选一个以后的时间";
+        } else {
+          const issues = Array.isArray(err.details["issues"]) ? (err.details["issues"] as { path?: string; reason?: string; message?: string }[]) : [];
+          for (const issue of issues) {
+            const field = CHANGE_SERVER_PATHS[issue.path ?? ""];
+            if (field !== undefined) mapped[field] = guestChangeIssueText(field, issue, pickup);
+          }
         }
-        setErrors(mapped);
+        setServerErrors(mapped);
         setNotice({ kind: "danger", text: Object.keys(mapped).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" });
       } else if (err instanceof ApiError && err.code === "CHANGE_PAYMENT_DECLINED") setNotice({ kind: "danger", text: "改期后价格变高，补差价没有扣款成功，订单没有修改。可以换一个时间，或取消后重新预订。" });
       else setNotice({ kind: "danger", text: siteFailureText(err, "修改订单") });
@@ -634,11 +691,11 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
           </>
         ) : (
           <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
-            <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={fieldErrors("name")} onChange={(event) => set({ name: event.target.value })} />
+            <TextField label="乘车人姓名" size="lg" required autoComplete="name" maxLength={ORDER_FIELD_LIMITS.nameMax} value={form.name} errors={fieldErrors("name")} onChange={(event) => set({ name: event.target.value })} />
             <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
             <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" required={pickup} autoCapitalize="characters" hint="如 NH211" value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />
-            <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" required value={form.address} errors={fieldErrors("address")} onChange={(event) => set({ address: event.target.value })} />
+            <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" required maxLength={ORDER_FIELD_LIMITS.addressMax} value={form.address} errors={fieldErrors("address")} onChange={(event) => set({ address: event.target.value })} />
             <div className="site-form__row">
               <TextField label={pickup ? "航班到达日期（当地）" : "用车日期（当地）"} size="lg" type="date" required value={form.date} errors={fieldErrors("date")} onChange={(event) => set({ date: event.target.value })} />
               <TextField label={pickup ? "航班计划到达时间（当地）" : "上车时间（当地）"} size="lg" type="time" required value={form.time} errors={fieldErrors("time")} onChange={(event) => set({ time: event.target.value })} />
@@ -651,7 +708,25 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
               <label className="field__label" htmlFor="site-change-notes">
                 备注（选填）
               </label>
-              <textarea id="site-change-notes" className="input textarea" rows={3} maxLength={2000} value={form.notes} onChange={(event) => set({ notes: event.target.value })} />
+              <textarea
+                id="site-change-notes"
+                className="input textarea"
+                rows={3}
+                maxLength={ORDER_FIELD_LIMITS.notesMax}
+                aria-invalid={fieldErrors("notes").length > 0 || undefined}
+                aria-describedby={fieldErrors("notes").length > 0 ? "site-change-notes-error site-change-notes-hint" : "site-change-notes-hint"}
+                value={form.notes}
+                onChange={(event) => set({ notes: event.target.value })}
+              />
+              {fieldErrors("notes").map((message) => (
+                <p key={message} className="field__error" id="site-change-notes-error">
+                  <Icon name="alert-triangle" className="field__error-icon" />
+                  <span>{message}</span>
+                </p>
+              ))}
+              <p className="field__hint" id="site-change-notes-hint">
+                最多 {ORDER_FIELD_LIMITS.notesMax} 字
+              </p>
             </div>
             <div className="site-actions site-actions--inline">
               <Button type="submit" variant="primary" size="lg" loading={busy} loadingText="正在提交">
@@ -663,6 +738,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
                 onClick={() => {
                   setForm(null);
                   setErrors({});
+                  setServerErrors({});
                   setNotice(null);
                 }}
               >
