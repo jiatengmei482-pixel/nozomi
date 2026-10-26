@@ -82,10 +82,10 @@ test("必须先修改密码、又没完成两步验证的会话：其余接口�
   }
 });
 
-test("平台的待验证令牌调其他入口（租户、销售、司机等，含 M3-02 新增的）：一个也不放行", async () => {
+test("平台的待验证令牌调其他入口（租户、销售、司机等，含 M3-02 新增的）：一个也不放行（官网 /site/v1 本来就不看登录令牌，不在此列）", async () => {
   await createSuperAdmin(api.db.pool, { email: "cross@platform.test", name: "串门", password: TEST_PASSWORD }, api.clock.now());
   const login = await api.call("POST", "/platform/v1/auth/login", { body: { email: "cross@platform.test", password: TEST_PASSWORD } });
-  const responses = await walk(login.body.access_token, (path) => !path.startsWith("/platform/v1/") && Object.keys(doc.paths).includes(path.replace(/:([A-Za-z_]+)/g, "{$1}")));
+  const responses = await walk(login.body.access_token, (path) => !path.startsWith("/platform/v1/") && !path.startsWith("/site/") && Object.keys(doc.paths).includes(path.replace(/:([A-Za-z_]+)/g, "{$1}")));
   assert.ok(responses.size >= 20, `遍历到的其他入口太少：${responses.size}`);
   const leaked = [...responses].filter(([, res]) => res.status < 400).map(([key, res]) => `${key} → ${res.status}`);
   assert.deepEqual(leaked, []);
