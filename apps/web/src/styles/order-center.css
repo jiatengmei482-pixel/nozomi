@@ -110,3 +110,13 @@
   flex-direction: column;
   gap: var(--space-2);
 }
+
+/* 标题行里的长标题（工单标题、供应商名 · 周期）：能折行、不撑破卡片（03-layout.md 第 5 节第 3、5 条）；徽标组保持一行 */
+.card__title-row > .card__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.card__title-row > .badge-row {
+  flex-shrink: 0;
+}

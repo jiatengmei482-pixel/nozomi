@@ -225,7 +225,9 @@
 }
 
 .site-charge__name {
+  min-width: 0;
   font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
 }
 
 .site-charge__amount {

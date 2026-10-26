@@ -317,7 +317,7 @@ export function AuditLogPage() {
       key: "action",
       header: "操作",
       cell: (row) => {
-        const name = actionName(row.action, row.resource);
+        const name = actionName(row.action, row.resource, row.after);
         return name.known ? <span className="tag">{name.text}</span> : <Mono>{name.text}</Mono>;
       },
     },
@@ -505,7 +505,7 @@ export function AuditLogPage() {
     );
   };
   const panelCount = [from, to, resource, action, tenant].filter((value) => value !== null).length;
-  const detailTitle = detail === null ? "" : `${actionName(detail.action, detail.resource).text} · ${objectLabel(detail)}`;
+  const detailTitle = detail === null ? "" : `${actionName(detail.action, detail.resource, detail.after).text} · ${objectLabel(detail)}`;
 
   return shell(
     <>
@@ -612,7 +612,7 @@ export function AuditLogPage() {
                 <span className="audit-sub">{ACTOR_TYPE_NAMES[detail.actor.type] ?? detail.actor.type}</span>
               </dd>
               <dt>操作</dt>
-              <dd>{actionName(detail.action, detail.resource).known ? actionName(detail.action, detail.resource).text : <Mono>{detail.action}</Mono>}</dd>
+              <dd>{actionName(detail.action, detail.resource, detail.after).known ? actionName(detail.action, detail.resource, detail.after).text : <Mono>{detail.action}</Mono>}</dd>
               <dt>对象</dt>
               <dd>
                 {objectLabel(detail)}

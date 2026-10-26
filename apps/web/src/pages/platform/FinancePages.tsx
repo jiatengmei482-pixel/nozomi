@@ -186,15 +186,16 @@ export function StatementListPage() {
       手工出账
     </Button>
   ) : undefined;
-  const shell = (content: ReactNode): ReactNode => (
+  // 没有权限、或限定了数据范围（接口 403）时，标题行不放「手工出账」：点了只会再收到 403
+  const shell = (content: ReactNode, withAction = true): ReactNode => (
     <AppShell pageName="账单" trail={[{ label: "财务结算" }]}>
-      <Page title="账单" {...(action ? { action } : {})}>
+      <Page title="账单" {...(action && withAction ? { action } : {})}>
         {content}
       </Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
-  if (state.status === "forbidden") return shell(SCOPE_DENIED);
+  if (account.status === "ready" && !canRead) return shell(NO_ACCESS, false);
+  if (state.status === "forbidden") return shell(SCOPE_DENIED, false);
   const setParam = (changes: Record<string, string | null>): void => {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(changes)) {

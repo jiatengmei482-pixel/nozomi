@@ -154,7 +154,12 @@ export function resourceName(resource: string): { text: string; known: boolean }
   const name = RESOURCE_NAMES[resource];
   return name ? { text: name, known: true } : { text: resource, known: false };
 }
-export function actionName(action: string, resource?: string): { text: string; known: boolean } {
+/**
+ * 操作的中文名。同一个对象上的同一个操作有时要看改后值里的标记才分得清：工单的 `reply` 带 `to_guest: true` 是回复客人
+ * （客人和渠道看得到、供应商看不到），否则是给供应商的留言。
+ */
+export function actionName(action: string, resource?: string, after?: Readonly<Record<string, unknown>> | null): { text: string; known: boolean } {
+  if (resource === "ticket" && action === "reply" && after?.["to_guest"] === true) return { text: "回复客人（客人和渠道看得到，供应商看不到）", known: true };
   const name = (resource === undefined ? undefined : ACTION_NAMES_BY_RESOURCE[resource]?.[action]) ?? ACTION_NAMES[action];
   return name ? { text: name, known: true } : { text: action, known: false };
 }
