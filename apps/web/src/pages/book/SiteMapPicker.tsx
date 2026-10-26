@@ -101,10 +101,10 @@ export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPic
 
   const map = mapRef.current;
   const markerAt = dragAt ?? (map !== null && point !== null ? map.latLngToContainerPoint([point.lat, point.lng]) : null);
-  // 标记的位置用脚本设（CSSOM），不写内联样式：内容安全策略不放行 style 属性（ADR 0011）
+  // 标记的位置交给地图库定位（和瓦片同一种做法），不写内联样式：内容安全策略不放行 style 属性（ADR 0011、0017）
   const markerRef = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    if (markerRef.current !== null && markerAt !== null) markerRef.current.style.transform = `translate(${markerAt.x}px, ${markerAt.y}px)`;
+    if (markerRef.current !== null && markerAt !== null) L.DomUtil.setPosition(markerRef.current, L.point(markerAt.x, markerAt.y));
   });
 
   const pixelOf = (event: ReactPointerEvent<HTMLElement>): { x: number; y: number } | null => {

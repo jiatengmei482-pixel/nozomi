@@ -548,7 +548,7 @@
   margin: calc(var(--space-6) / -2) 0 0 calc(var(--space-6) / -2);
   border: var(--border-width) solid var(--color-text-primary);
   border-radius: var(--radius-full);
-  box-shadow: 0 0 0 var(--border-width) var(--color-bg-surface);
+  outline: var(--border-width) solid var(--color-bg-surface);
   pointer-events: none;
 }
 
