@@ -337,8 +337,8 @@ test("清退走双人复核：还有没履约完的订单不能发起；批准�
   // 丙有一张已确认、还没完成的单
   const orderId = (await api.db.owner.query<{ id: string }>(
     `insert into orders (tenant_id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, service_at, service_local, timezone, service_date,
-                         urgent, passengers, luggage, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held, payment_due_at, confirmed_at, created_at, updated_at)
-     select $1, 'NZ20261007NBQARD12', 'confirmed', 'airport_transfer', $2, $3, 'pickup', p.id, 1, $4, now(), '2026-10-20T10:00', 'Asia/Tokyo', '2026-10-20', false, 2, 1, '[]', '{}', 1000, 'JPY', '{}', false, now() + interval '30 minutes', now(), now(), now()
+                         urgent, passengers, luggage, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held, payment_due_at, confirmed_at, dispatch_due_at, created_at, updated_at)
+     select $1, 'NZ20261007NBQARD12', 'confirmed', 'airport_transfer', $2, $3, 'pickup', p.id, 1, $4, now(), '2026-10-20T10:00', 'Asia/Tokyo', '2026-10-20', false, 2, 1, '[]', '{}', 1000, 'JPY', '{}', false, now() + interval '30 minutes', now(), now(), now(), now()
        from products p where p.tenant_id = $1 limit 1 returning id`,
     [c.tenantId, m.ids.tokyo, m.ids.narita, m.ids.biz7],
   )).rows[0]?.id;

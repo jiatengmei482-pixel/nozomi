@@ -42,9 +42,9 @@ async function seedOrders(who: TenantFixture, productId: string, count: number, 
     const id = randomUUID();
     await api.db.owner.query(
       `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, service_at, service_local, timezone, service_date,
-                           urgent, passengers, luggage, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held, payment_due_at, confirmed_at, created_at, updated_at)
+                           urgent, passengers, luggage, addons, passenger, settlement_minor, settlement_currency, settlement, inventory_held, payment_due_at, confirmed_at, dispatch_due_at, created_at, updated_at)
        values ($1, $2, $3, $4, 'airport_transfer', $5, $6, 'pickup', $7, 1, $8, $9, '2026-10-01T10:00', 'Asia/Tokyo', '2026-10-01',
-               false, 2, 1, '[]', '{}', 10000, 'JPY', '{}', false, $9::timestamptz + interval '30 minutes', $9, $9, $9)`,
+               false, 2, 1, '[]', '{}', 10000, 'JPY', '{}', false, $9::timestamptz + interval '30 minutes', $9, $9, $9, $9)`,
       [who.tenantId, id, orderNo(), status, m.ids.tokyo, m.ids.narita, productId, m.ids.biz7, at],
     );
     if (status === "completed") await api.db.owner.query("insert into order_events (tenant_id, order_id, from_status, to_status, actor, occurred_at) values ($1, $2, 'in_service', 'completed', 'system', $3)", [who.tenantId, id, at]);
