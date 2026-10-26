@@ -66,7 +66,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     # 整个任务的上限；装浏览器的系统库偶尔要十几分钟（软件源慢），单独限时，不挤占测试本身的 20 分钟
-    timeout-minutes: 40
+    timeout-minutes: 50
     services:
       postgres:
         image: postgres:16
@@ -95,7 +95,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: 安装 Playwright 的 Chromium 和它需要的系统库
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: pnpm --filter @nozomi/web exec playwright install --with-deps chromium
       - name: 创建数据库的应用账号（最小权限）
         run: pnpm db:provision

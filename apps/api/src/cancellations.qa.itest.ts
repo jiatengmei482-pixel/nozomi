@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { applyBasisPoints, portionBasisPoints } from "@nozomi/domain";
 import { PaymentProviderError } from "./integrations/payments.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
-import { type Market, type Staff, addStaff, buildMarket, ok } from "./testing/market.ts";
+import { type Market, type Staff, addStaff, allValues, buildMarket, ok } from "./testing/market.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { completeOrder, platformLogin, tenantLogin } from "./testing/money.ts";
@@ -164,7 +164,7 @@ test("同一张单改期三次（涨、降、再涨）后在 50% 档取消：客
   assert.equal(recorded, money.refunded);
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m.b.adminEmail) }));
   assert.deepEqual(tenant.order.cancellation, { fee_bp: 5_000, tenant_share: { amount: String(portionBasisPoints(SURGE_SETTLEMENT, 5_000)), currency: "JPY" } });
-  assert.ok(!JSON.stringify(tenant).includes(String(SURGE_SELL)), "供应商看不到对外价");
+  assert.ok(!allValues(tenant).has(String(SURGE_SELL)), "供应商看不到对外价");
 });
 
 test("真的取消落在阶梯边界上（商务车 ≥ 48 小时免费）：正好 48 小时全额退、供应商 0；另一单差 1 毫秒扣 50%", async () => {

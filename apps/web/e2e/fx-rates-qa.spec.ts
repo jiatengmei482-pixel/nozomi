@@ -7,9 +7,10 @@
  */
 import { type Page, expect, test } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
-import { adminCredentials, expectNoHorizontalOverflow, loginAs } from "./support.ts";
+import { adminCredentials, expectNoHorizontalOverflow, loginAs, settleAnimations } from "./support.ts";
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const summary = results.violations.map((violation) => `${violation.id}: ${violation.help}（${violation.nodes.map((node) => node.target.join(" ")).join("；")}）`);
   expect(summary, `${what} 的无障碍问题`).toEqual([]);
