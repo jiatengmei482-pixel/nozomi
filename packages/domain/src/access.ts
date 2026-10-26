@@ -212,7 +212,8 @@ export function checkStatusChange(
  * 需求文档「运营后台菜单与角色」：权限按「菜单 × 操作（查看 / 编辑 / 审核 / 导出）」配置，可自建角色。
  * 自建角色存的是勾选了哪些「菜单:操作」，每个请求按下表换成接口检查用的操作（`PlatformAction`）。
  * 内置角色仍以上面的 `PLATFORM_PERMISSIONS` 为准（只读模板），在角色页上按下表显示成同样的勾选表。
- * 只列已经有接口的菜单和操作：订单中心的「编辑」、各处的「导出」等以后有了接口再加（加的时候只改这张表）。
+ * 只列已经有接口的菜单和操作：各处的「导出」等以后有了接口再加（加的时候只改这张表）。
+ * 订单的「编辑」现在只有手动重推给供应商的 Webhook（`order.resend`，M3-02）；运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。
  */
 export const MENU_OPERATIONS = [
   { key: "view", name: "查看" },
@@ -235,7 +236,7 @@ export const PLATFORM_MENUS = [
   { key: "products", name: "供应商商品", operations: { view: ["product.read"] } },
   { key: "quote_preview", name: "报价试算", operations: { view: ["quote.preview"] } },
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
-  { key: "orders", name: "订单", operations: { view: ["order.read"] } },
+  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend"] } },
   { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },
   // 需求文档里汇率中心是主数据菜单的一部分：看汇率就是看主数据；拉取、确认、发起锁定算编辑，审核锁定算审核
   { key: "master_data", name: "主数据与汇率", operations: { view: ["master_data.read"], edit: ["master_data.manage", "fx.manage"], review: ["fx.review"] } },

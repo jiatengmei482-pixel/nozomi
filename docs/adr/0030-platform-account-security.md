@@ -6,8 +6,10 @@
 - 补充 ADR 0013：「必须先修改密码」的判断排在两步验证之后（见「登录的先后顺序」）。
 - 补充 ADR 0023：双人复核多两类（`platform_role.update`、`staff.mfa_reset`）；渠道类的复核按数据范围过滤。
 - 补充 ADR 0010：`platform_roles` 对平台角色开放读写删，`platform_sessions` 加「改」，新表 `platform_recovery_codes`。
-- 数据加密密钥 `DATA_ENCRYPTION_KEY` 和 `SecretBox` 与 M3-02 分支（ADR 0027）是同一份实现（配置项、部署脚本自动生成、AES-256-GCM + HKDF 按用途派生）。
-  本分支从 main 切出时 M3-02 还没合并，所以把那几处原样带了过来，只多一个用途名 `platform-totp-secret`；合并时两边是同一套代码，只需把两个用途名、两段说明合在一起。
+- 数据加密密钥 `DATA_ENCRYPTION_KEY` 和 `SecretBox` 沿用 ADR 0027（M3-02）的实现（配置项、部署脚本自动生成、AES-256-GCM + HKDF 按用途派生），只多一个用途名 `platform-totp-secret`。
+  本任务开发时 M3-02 还没合并，曾把那几处原样带过来；合并 main 后只保留 main 的一份（`apps/api/src/integrations/secret-box.ts`、`packages/config`、`deploy/bin/deploy.sh` 的 `ensure_data_encryption_key`），
+  两个用途派生的子密钥互不相通（`secret-box.test.ts`）。
+- 补充 ADR 0027：M3-02 的运营后台接口（订单的照片、推送记录、手动重推）纳入两步验证、IP 白名单和数据范围；`order.resend` 是订单菜单的「编辑」（见下）。
 
 ## 背景
 
@@ -86,7 +88,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | 供应商商品 | `product.read` | | |
   | 报价试算 | `quote.preview` | | |
   | 渠道 | `channel.read` | `channel.manage` | `channel.review` |
-  | 订单 | `order.read` | | |
+  | 订单（含「推送记录」页） | `order.read` | `order.resend`（手动重推给供应商的 Webhook，M3-02） | |
   | 待审核 | `approval.read` | | |
   | 主数据与汇率 | `master_data.read` | `master_data.manage`、`fx.manage` | `fx.review` |
   | 平台账号 | `staff.read` | `staff.manage`（只归超级管理员） | |
@@ -94,6 +96,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | 审计日志 | `audit_log.read` | | |
   | 集成状态 | `integration.read` | | |
 
+  M3-02 的推送记录页按需求放在订单的「人工介入」里：看投递记录就是看订单（`order.read`），手动重推算订单的编辑。
   「导出」列现在没有任何接口（订单、报表的导出在各自的任务里做），表里留着这一列，有了接口在这张表里加一格即可。汇率中心按需求文档放在主数据菜单里。
 - 自建角色存勾选（`platform_roles.grants`，如 `channels:edit`），每个请求按菜单表换成接口操作；**勾了编辑 / 审核就必须也勾查看**（400 `ROLE_GRANTS_INVALID`）。内置角色在角色页上按同一张表显示成勾选表（`grantsOfActions`，单元测试保证换算前后一个不多一个不少），「从内置角色复制」就是拿这份勾选新建。
 - **只归超级管理员、自建角色勾不了的三格**：平台账号的编辑、角色的编辑和审核。否则有「改角色」的人可以给自己的角色加任何权限、有「管账号」的人可以把自己改成超级管理员，双人复核也挡不住两人合谋。系统设置里的「查看」可以给自建角色。
@@ -110,8 +113,11 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | --- | --- | --- |
   | 渠道 | 渠道列表、渠道详情及其下面的一切（加价规则、API 客户端、询价日志、改动、发起复核）；订单列表和详情；渠道类的复核（列表、详情、审核）；按渠道的报价试算 | 列表里没有；按编号访问和不存在一样（404） |
   | 城市 | 订单列表和详情 | 同上 |
+  | 城市、渠道（M3-02 的接口） | 订单的照片（落地、no-show 的证据）；推给供应商的 Webhook 的投递记录（列表、详情、手动重推）——按投递所属订单的城市和渠道 | 同上；限定了任一维度时，不属于任何订单的测试事件也看不到（归不到任何城市、渠道） |
 
   限定了渠道范围的人不能新建渠道（403 `DATA_SCOPE_DENIED`：新渠道不在任何人的范围里，建了自己也看不到）。
+  M3-02 在运营后台新增的权限只有 `order.resend`，它的对象（投递）都能按订单归到城市和渠道，所以全部纳入数据范围，没有例外；M3-02 的其余权限（派车、司机、车辆、租户 Webhook）是租户角色的，不涉及平台的数据范围。
+  订单是否在范围内由 `services/order-queries.ts` 的 `orderInScope` 统一判断（照片、投递共用）；投递列表在同一条查询里按订单和销售记录过滤。
   渠道的 `/channels/:id…` 接口在一个地方统一检查（路由里的鉴权函数），以后在渠道下面加接口不用各自记得。
 - **为什么是这两个维度**：需求原文的例子就是「某几个城市、某几个渠道」；它们在现有数据里都有明确的归属（订单有城市和渠道，渠道类的复核对象编号就是渠道编号）。
 - **留给以后**（见「本期不做」）：按供应商（租户）的范围、城市范围管到供应商和商品（供应商没有单一城市，商品按区域覆盖多个城市，要先定口径）、报价试算按城市、审计日志按范围、首页统计按范围。
@@ -166,4 +172,4 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
 ## 验证
 
 - 单元：`packages/domain/src/totp.test.ts`（RFC 4226 / RFC 6238 测试向量、时间窗边界、防重放、Base32、otpauth 链接、恢复码）、`ip-allowlist.test.ts`（IPv4 / IPv6 / 映射地址、规范写法、主机位、匹配、生效名单）、`access-roles.test.ts`（菜单表覆盖全部操作、内置角色换算无损、自建角色的勾选校验和换算、权限合并、数据范围）、`second-factor.test.ts`（状态 × 用途的放行表）、`apps/api/src/integrations/secret-box.test.ts`。
-- 集成（真实 PostgreSQL）：`platform-mfa.itest.ts`（未绑定不能用、绑定流程、动态码登录、错码限速、重放、恢复码、换手机、重新生成、密钥加密存储、没配加密密钥、重置的复核和命令行、强制改密与两步验证的先后、最后一个超级管理员）、`mfa-required.itest.ts`（遍历全部路由）、`platform-roles.itest.ts`（自建角色权限生效、数据范围过滤、内置角色不可改、复核、删除、改员工角色）、`ip-allowlist.itest.ts`（按员工 / 按角色、IPv6、映射地址、TRUST_PROXY_HOPS、审计、不锁自己、命令行）。已有的集成测试里平台员工登录都经测试辅助函数完成两步验证（`testing/api.ts` 的 `platformLogin`，只在测试代码里）。
+- 集成（真实 PostgreSQL）：`platform-mfa.itest.ts`（未绑定不能用、绑定流程、动态码登录、错码限速、重放、恢复码、换手机、重新生成、密钥加密存储、没配加密密钥、重置的复核和命令行、强制改密与两步验证的先后、最后一个超级管理员）、`mfa-required.itest.ts`（遍历全部路由）、`platform-roles.itest.ts`（自建角色权限生效、数据范围过滤——含订单的照片和推送记录、内置角色不可改、复核、删除、改员工角色）、`ip-allowlist.itest.ts`（按员工 / 按角色、IPv6、映射地址、TRUST_PROXY_HOPS、审计、不锁自己、命令行）。已有的集成测试里平台员工登录都经测试辅助函数完成两步验证（`testing/api.ts` 的 `platformLogin`，只在测试代码里）。

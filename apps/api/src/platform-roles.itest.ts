@@ -3,7 +3,7 @@
  * - 内置角色是只读模板（接口 409，数据库触发器兜底），在角色页上显示成勾选表；
  * - 新建自建角色（校验勾选、名字、数据范围、IP 白名单），把员工改成这个角色后权限立即按勾选生效；
  * - 修改走双人复核，批准后立即生效（不用重新登录），过时的复核不能生效；
- * - 数据范围：渠道（列表、详情和下面的一切、渠道类的复核、按渠道试算）、城市和渠道（订单）；
+ * - 数据范围：渠道（列表、详情和下面的一切、渠道类的复核、按渠道试算）、城市和渠道（订单、订单的照片、推送给供应商的 Webhook 的投递记录）；
  * - 删除、改员工的角色（不能改自己的、最后一个超级管理员）。
  */
 import { after, before, test } from "node:test";
@@ -13,6 +13,7 @@ import { PLATFORM_ROLES, grantsOfActions, platformPermissions } from "@nozomi/do
 import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { DROPOFF, type Market, SERVICE_TIME, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
+import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
 import { assertMatchesOperation } from "./testing/openapi.ts";
 
 let api: TestApi;
@@ -218,6 +219,56 @@ test("数据范围（订单）：按渠道、按城市过滤列表和详情，�
   // 改了数据范围（复核批准后）立即生效
   await changeRole(byCity.key, { name: "大阪订单", grants: ["orders:view"], data_scope: { city_ids: [m.ids.osaka, m.ids.tokyo], channel_ids: null } });
   assert.equal((await ok(api.call("GET", "/platform/v1/orders", { token: osaka.token }))).total, 2);
+});
+
+test("数据范围（订单的推送记录、照片，M3-02 的接口）：范围外订单的投递、不属于订单的测试事件、范围外订单的照片都和不存在一样", async () => {
+  // 上一个用例在两个渠道各下了一单（东京）
+  const sales = (await api.db.owner.query<{ order_id: string; tenant_id: string; channel_id: string }>("select s.order_id, o.tenant_id, s.channel_id from order_sales s join orders o on o.id = s.order_id where s.channel_id = any($1::uuid[])", [[channelA, channelB]])).rows;
+  const saleA = sales.find((r) => r.channel_id === channelA);
+  const saleB = sales.find((r) => r.channel_id === channelB);
+  assert.ok(saleA && saleB);
+  const deliver = async (tenantId: string, orderId: string | null, type: string): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>(
+      "insert into webhook_deliveries (tenant_id, event_id, event_type, order_id, status, failed_at, created_at) values ($1, $2, $3, $4, 'failed', $5, $5) returning id",
+      [tenantId, `evt_${randomUUID().replaceAll("-", "").slice(0, 24)}`, type, orderId, api.clock.now()],
+    )).rows[0]!.id;
+  const inA = await deliver(saleA.tenant_id, saleA.order_id, "order.assigned");
+  const inB = await deliver(saleB.tenant_id, saleB.order_id, "order.assigned");
+  const testEvent = await deliver(saleA.tenant_id, null, "webhook.test");
+
+  const role = await ok(createRole({ name: "甲渠道推送", grants: ["orders:view", "orders:edit"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
+  assert.deepEqual(role.permissions, ["order.read", "order.resend"]);
+  const a = await addStaff("deliveries-a@platform.test", role.key);
+  const list = await ok(api.call("GET", "/platform/v1/webhook-deliveries?status=failed", { token: a.token }));
+  assert.deepEqual(list.items.map((d: any) => d.id), [inA]);
+  assert.equal(list.total, 1);
+  assert.equal((await api.call("GET", `/platform/v1/webhook-deliveries/${inA}`, { token: a.token })).status, 200);
+  for (const id of [inB, testEvent]) {
+    assert.equal((await api.call("GET", `/platform/v1/webhook-deliveries/${id}`, { token: a.token })).status, 404, id);
+    const retry = await api.call("POST", `/platform/v1/webhook-deliveries/${id}/retry`, { token: a.token });
+    assert.deepEqual([retry.status, retry.body.error.code], [404, "NOT_FOUND"], id);
+  }
+  const untouched = await api.db.owner.query("select status, attempts from webhook_deliveries where id = any($1::uuid[]) order by status", [[inB, testEvent]]);
+  assert.deepEqual(untouched.rows, [{ status: "failed", attempts: 0 }, { status: "failed", attempts: 0 }], "范围外的重推没有任何效果");
+  // 不限范围的内置角色三条都看得到
+  const all = await ok(api.call("GET", "/platform/v1/webhook-deliveries?status=failed", { token: m.staff.operations.token }));
+  assert.ok([inA, inB, testEvent].every((id) => all.items.some((d: any) => d.id === id)));
+
+  // 照片：一张派了车、司机传了到达屏的单（东京，不经渠道下单所以没有渠道）
+  const tenantToken = (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email: m.a.adminEmail, password: TEST_PASSWORD } }))).access_token;
+  const who = { ...m.a, adminToken: tenantToken };
+  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 30 * 60_000) });
+  const link = await ok(assign(api, who, order.id, (await newDriver(api, who)).id, (await newVehicle(api, who, m.ids.biz7)).id));
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
+  const uploaded = await api.app.inject({ method: "POST", url: "/driver/v1/trip/files?kind=arrival_screen", headers: { authorization: `Bearer ${link.driver_link.token}`, "content-type": "image/jpeg" }, payload: jpeg });
+  assert.equal(uploaded.statusCode, 201, uploaded.body);
+  const fileUrl = `/platform/v1/orders/${order.id}/files/${uploaded.json().file.id}`;
+  const tokyo = await addStaff("files-tokyo@platform.test", (await ok(createRole({ name: "东京订单", grants: ["orders:view"], data_scope: { city_ids: [m.ids.tokyo], channel_ids: null } }), 201)).key);
+  const osaka = await addStaff("files-osaka@platform.test", (await ok(createRole({ name: "大阪照片", grants: ["orders:view"], data_scope: { city_ids: [m.ids.osaka], channel_ids: null } }), 201)).key);
+  assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${tokyo.token}` } })).statusCode, 200);
+  assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${osaka.token}` } })).statusCode, 404, "城市范围外");
+  assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${a.token}` } })).statusCode, 404, "限定了渠道范围：不属于任何渠道的单看不到");
+  assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${m.staff.operations.token}` } })).statusCode, 200);
 });
 
 test("删除自建角色：有人用（含待激活、已停用）时 409 ROLE_IN_USE；没人用了可以删；删掉的角色不能再给人", async () => {

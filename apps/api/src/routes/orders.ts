@@ -170,8 +170,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   app.get("/platform/v1/orders/:id/files/:fileId", async (request, reply) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
-    const file = await getOrderFile(ctx, "platform", resourceId(request.params, "订单"), fileIdOf(request.params));
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    const file = await getOrderFile(ctx, { platform: principal.grant.scope }, resourceId(request.params, "订单"), fileIdOf(request.params));
     return sendFile(reply, file);
   });
 

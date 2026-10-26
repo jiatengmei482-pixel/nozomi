@@ -114,7 +114,7 @@ test("运营后台的手动重推走同一条路径：租约中什么都不做�
   hold = { entered, release: new Promise<void>((resolve) => (release = resolve)) };
   const ticking = api.app.webhookJobs.tick();
   await enteredPromise;
-  const root = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
+  const root = (await ok(api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
   const auditsBefore = (await api.db.owner.query("select 1 from audit_logs where resource = 'webhook_delivery' and resource_id = $1", [deliveryId])).rowCount;
   const busy = await api.call("POST", `/platform/v1/webhook-deliveries/${deliveryId}/retry`, { token: root });
   assert.equal(busy.status, 200, busy.text);

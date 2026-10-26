@@ -7208,7 +7208,7 @@ paths:
       tags: [订单]
       operationId: getPlatformOrderFile
       summary: 订单的一张照片（运营后台）
-      description: 需要操作 `order.read`。原样返回图片。
+      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。
       security:
         - platformToken: []
       parameters:
@@ -7229,7 +7229,7 @@ paths:
       tags: [Webhook]
       operationId: listPlatformWebhookDeliveries
       summary: 推给供应商的全部投递（运营后台）
-      description: 需要操作 `order.read`。跨供应商，从新到旧；`status=failed` 是重试用完仍失败的（异常，等人工重推）。
+      description: 需要操作 `order.read`。跨供应商，从新到旧；`status=failed` 是重试用完仍失败的（异常，等人工重推）。限定了数据范围的员工（ADR 0030）只列订单在范围内的投递，不属于任何订单的测试事件不列。
       security:
         - platformToken: []
       parameters:
@@ -7272,7 +7272,7 @@ paths:
       tags: [Webhook]
       operationId: getPlatformWebhookDelivery
       summary: 一条投递和每一次尝试（运营后台）
-      description: 需要操作 `order.read`。
+      description: 需要操作 `order.read`。数据范围外的（ADR 0030：订单不在范围内，或限定了范围时不属于任何订单的测试事件）和不存在一样（404）。
       security:
         - platformToken: []
       parameters:
@@ -7300,7 +7300,7 @@ paths:
       tags: [Webhook]
       operationId: retryPlatformWebhookDelivery
       summary: 手动重推（运营后台）
-      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。
+      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。数据范围外的和不存在一样（404，ADR 0030）。
       security:
         - platformToken: []
       parameters:
