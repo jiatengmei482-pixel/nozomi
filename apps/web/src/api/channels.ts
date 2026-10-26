@@ -139,7 +139,8 @@ export type ApprovalKind =
   | "order.cancel_refund"
   | "rescue.manual_assign"
   | "platform_role.update"
-  | "staff.mfa_reset";
+  | "staff.mfa_reset"
+  | "statement.payout";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "withdrawn";
 
 export interface Approval {

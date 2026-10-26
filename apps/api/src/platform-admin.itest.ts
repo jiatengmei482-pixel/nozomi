@@ -143,6 +143,16 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue/manual-assign`, action: "rescue.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue/force-majeure`, action: "rescue.manage", body: {} },
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/rescue`, action: "rescue.manage", body: {} },
+  // 账单与付款批次（M5-01，ADR 0040）：看用 statement.read；出账、答复、作废、发起付款复核、锁定批次要 statement.manage
+  { method: "GET", url: "/platform/v1/statements", action: "statement.read" },
+  { method: "POST", url: "/platform/v1/statements/generate", action: "statement.manage", body: {} },
+  { method: "GET", url: `/platform/v1/statements/${MISSING}`, action: "statement.read" },
+  { method: "POST", url: `/platform/v1/statements/${MISSING}/reply`, action: "statement.manage", body: {} },
+  { method: "POST", url: `/platform/v1/statements/${MISSING}/void`, action: "statement.manage", body: {} },
+  { method: "POST", url: `/platform/v1/statements/${MISSING}/payout-approval`, action: "statement.manage", body: {} },
+  { method: "GET", url: "/platform/v1/payout-batches", action: "statement.read" },
+  { method: "GET", url: `/platform/v1/payout-batches/${MISSING}`, action: "statement.read" },
+  { method: "POST", url: `/platform/v1/payout-batches/${MISSING}/close`, action: "statement.manage" },
   // 推给供应商的 Webhook（ADR 0027）：看投递记录、手动重推
   { method: "GET", url: "/platform/v1/webhook-deliveries", action: "order.read" },
   { method: "GET", url: `/platform/v1/webhook-deliveries/${MISSING}`, action: "order.read" },
@@ -182,8 +192,8 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
   // channel.review、fx.review、cancellation_policy.review、role.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts、platform-roles.itest.ts）
-  // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）、rescue.review（人工指定救援供应商，ADR 0031）同样按复核的类别检查（tenant-onboarding.itest.ts、rescues.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review", "role.review"];
+  // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）、rescue.review（人工指定救援供应商，ADR 0031）、statement.review（付款给供应商，ADR 0040）同样按复核的类别检查（tenant-onboarding.itest.ts、rescues.itest.ts、billing.itest.ts）
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review", "role.review", "statement.review"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
