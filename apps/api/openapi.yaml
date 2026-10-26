@@ -101,10 +101,6 @@ tags:
     description: 敏感操作的双人复核（ADR 0023）：待审核队列、批准（改动随即生效）、驳回、撤回。发起人不能审核自己发起的
   - name: 订单
     description: 订单（ADR 0026）：供应商看自己付过款的订单（没有渠道、对外价、加价比例）；运营后台看全部订单（只读）。派车在 M3-02，订单中心在 M4-02
-  - name: 订单中心
-    description: 订单中心（ADR 0034）：异常队列（系统按触发条件生成，运营认领、关闭）、客人赔付表（可配置，双人复核）
-  - name: 工单
-    description: 工单（ADR 0034）：客人、渠道、供应商、客服、系统发起；分派、对话和内部备注、征求租户意见、判定（赔付按统一赔付表算）、复核、申诉、关闭
   - name: 收款
     description: 收款服务（Stripe）的通知：签名校验、事件只处理一次、付款成功自动确认订单
   - name: 销售端
@@ -128,8 +124,14 @@ tags:
       失败按 1–5–30 分钟、2–6–24 小时重试，最终失败可在供应商后台和运营后台看到并手动重推。出站请求防 SSRF。
   - name: 官网
     description: |
-      `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
+      `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032；M3-10 起接送机、点对点、包车都能订，ADR 0035）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
       客人凭查看令牌只看得到自己的一张单；按来源地址限速。应答里没有中标供应商（付款前）、结算价、加价比例。
+  - name: 角色
+    description: 平台角色（ADR 0030）：内置角色是只读模板；自建角色按「菜单 × 操作」勾选，可加数据范围和 IP 白名单；修改走双人复核
+  - name: 订单中心
+    description: 订单中心（ADR 0034）：异常队列（系统按触发条件生成，运营认领、关闭）、客人赔付表（可配置，双人复核）
+  - name: 工单
+    description: 工单（ADR 0034）：客人、渠道、供应商、客服、系统发起；分派、对话和内部备注、征求租户意见、判定（赔付按统一赔付表算）、复核、申诉、关闭
 paths:
   /health:
     get:
@@ -164,7 +166,8 @@ paths:
           $ref: "#/components/responses/InternalError"
   /platform/v1/auth/login:
     post:
-      tags: [ 平台登录 ]
+      tags:
+        - 平台登录
       operationId: platformLogin
       summary: 平台员工登录
       description: |
@@ -172,6 +175,8 @@ paths:
         15 分钟内：同一邮箱 + 同一来源地址最多尝试 5 次，同一邮箱最多 20 次，同一来源地址（不分邮箱）最多失败 50 次；
         超过返回 429。登录成功后邮箱维度的计数清零。被 429 拦下的请求不验证密码、不写审计日志。
         登录成功和失败都写审计日志。
+        密码正确之后还要做两步验证（`second_factor.status`，ADR 0030）；在那之前令牌只能用于两步验证、查看自己和退出。
+        账号设了 IP 白名单而来源地址不在里面时（只在密码正确时才说）返回 403 `IP_NOT_ALLOWED`，并写一条原因为 `ip_not_allowed` 的登录失败审计。
       security: []
       requestBody:
         required: true
@@ -193,7 +198,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用；`IP_NOT_ALLOWED`：密码正确，但来源地址不在这个账号的 IP 白名单里"
           content:
             application/json:
               schema:
@@ -213,7 +218,8 @@ paths:
           description: 已退出
   /platform/v1/auth/me:
     get:
-      tags: [ 平台登录 ]
+      tags:
+        - 平台登录
       operationId: getPlatformMe
       summary: 当前登录的平台员工
       security:
@@ -226,7 +232,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ user, permissions, must_change_password ]
+                required:
+                  - user
+                  - permissions
+                  - data_scope
+                  - must_change_password
+                  - second_factor
                 properties:
                   user:
                     $ref: "#/components/schemas/PlatformUser"
@@ -234,8 +245,32 @@ paths:
                     $ref: "#/components/schemas/MustChangePassword"
                   permissions:
                     type: array
+                    description: 当前角色（含自建角色）的操作清单，每个请求按数据库现查；两步验证完成之前为空
                     items:
                       $ref: "#/components/schemas/PlatformAction"
+                  data_scope:
+                    $ref: "#/components/schemas/DataScopeIds"
+                  second_factor:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - status
+                      - enabled_at
+                      - recovery_codes_remaining
+                    properties:
+                      status:
+                        $ref: "#/components/schemas/SecondFactorStatus"
+                      enabled_at:
+                        type:
+                          - string
+                          - "null"
+                        format: date-time
+                        description: 绑定验证器的时间；还没绑定为 null
+                      recovery_codes_remaining:
+                        type:
+                          - integer
+                          - "null"
+                        description: 还剩几个没用的恢复码；两步验证完成之前为 null
   /platform/v1/auth/accept-invite:
     post:
       tags: [ 平台登录 ]
@@ -316,7 +351,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/auth/change-password:
     post:
-      tags: [ 平台登录 ]
+      tags:
+        - 平台登录
       operationId: changePlatformPassword
       summary: 平台员工修改自己的密码
       description: |
@@ -324,6 +360,7 @@ paths:
         账号正在用临时密码时（`must_change_password` 为 `true`）这个接口照常可用：当前密码填临时密码；
         成功后标记清除，当前令牌可以继续访问其他接口。
         核对当前密码和登录一样限速（同一账号同一来源地址 15 分钟 5 次），超过返回 429。
+        要先完成两步验证（否则 403 `MFA_REQUIRED`）：只知道密码的人不能改掉密码把本人锁在门外。
       security:
         - platformToken: []
       requestBody:
@@ -371,7 +408,8 @@ paths:
           $ref: "#/components/responses/ResetRejected"
   /platform/v1/staff:
     get:
-      tags: [ 平台账号 ]
+      tags:
+        - 平台账号
       operationId: listPlatformStaff
       summary: 平台员工列表
       description: 需要操作 `staff.read`（超级管理员）。按创建时间从早到晚。
@@ -388,16 +426,21 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, next_cursor ]
+                required:
+                  - items
+                  - next_cursor
                 properties:
                   items:
                     type: array
                     items:
-                      $ref: "#/components/schemas/PlatformUser"
+                      $ref: "#/components/schemas/StaffMember"
                   next_cursor:
-                    type: [ string, "null" ]
+                    type:
+                      - string
+                      - "null"
     post:
-      tags: [ 平台账号 ]
+      tags:
+        - 平台账号
       operationId: createPlatformStaff
       summary: 创建平台员工账号（发出邀请）
       description: |
@@ -413,14 +456,17 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ email, name, role ]
+              required:
+                - email
+                - name
+                - role
               properties:
                 email:
                   $ref: "#/components/schemas/Email"
                 name:
                   $ref: "#/components/schemas/PersonName"
                 role:
-                  $ref: "#/components/schemas/PlatformRole"
+                  $ref: "#/components/schemas/RoleKey"
       responses:
         "201":
           description: 已创建，带一次性邀请令牌
@@ -429,7 +475,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ user, invite ]
+                required:
+                  - user
+                  - invite
                 properties:
                   user:
                     $ref: "#/components/schemas/PlatformUser"
@@ -5603,7 +5651,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/channels/{id}/pricing-changes:
     post:
-      tags: [ 渠道 ]
+      tags:
+        - 渠道
       operationId: requestChannelPricingChange
       summary: 发起修改定价参数（双人复核）
       description: |
@@ -5612,7 +5661,7 @@ paths:
         - 和现在一样的不发起（`UNCHANGED`）；
         - 调高下限时，还在用的加价规则有低于新下限的，先要把它们改掉（409 `RULES_BELOW_FLOOR`，`details.rule_ids`）。
         批准时按那一刻的数据再校验一次；发起之后定价参数或加价规则被别的复核改过，批准返回 409 `APPROVAL_STALE`。
-        「生效前试算对近 30 天订单的毛利影响」要等有了订单（M3），本期没有。
+        发起时按当时的数据做一次「近 30 天毛利试算」（同 `pricing-impact`），存进复核记录的 `impact`，审核人批准前看（ADR 0033）。新增、修改、删除加价规则同样。
       security:
         - platformToken: []
       parameters:
@@ -6840,10 +6889,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/cancel-fee:
     get:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: getPlatformCancelFee
       summary: 代取消的退款试算
-      description: 需要操作 `order.read`。另有按阶梯本来该退的、供应商应得的、是否要双人复核。
+      description: 需要操作 `order.read`。另有按阶梯本来该退的、供应商应得的、是否要双人复核。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -6856,7 +6906,9 @@ paths:
           in: query
           schema:
             type: string
-            enum: [ "true", "false" ]
+            enum:
+              - "true"
+              - "false"
       responses:
         "200":
           description: 试算结果
@@ -6868,13 +6920,15 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/orders/{id}/cancel:
     post:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: cancelPlatformOrder
       summary: 代客人取消
       description: |
         需要操作 `order.manage`（运营、客服），必须写原因说明。免费的原因（`FLIGHT_CANCELLED` 航班取消有证明、`FORCE_MAJEURE` 不可抗力、`SUPPLIER_FAULT`、`PLATFORM_FAULT`、`CHANGE_NOT_CONFIRMED`）扣 0；
         `GUEST_REQUEST` 按阶梯，可选 `waive_fee` 免收取消费。退给客人的比按阶梯算的多时不直接生效：返回 202 和一条复核（`kind` = `order.cancel_refund`），
         另一位有 `payment.manage`（财务、运营）的同事批准时取消（需求「人工退款超过阈值」）。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -6886,7 +6940,9 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ reason, note ]
+              required:
+                - reason
+                - note
               properties:
                 reason:
                   $ref: "#/components/schemas/OrderCancelReason"
@@ -6905,7 +6961,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order_id, replayed ]
+                required:
+                  - order_id
+                  - replayed
                 properties:
                   order_id:
                     type: string
@@ -6924,10 +6982,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: decidePlatformExtraCharge
       summary: 审核事后加收
-      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。
+      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -6945,15 +7004,22 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ decision ]
+              required:
+                - decision
               properties:
                 decision:
                   type: string
-                  enum: [ approve, reject ]
+                  enum:
+                    - approve
+                    - reject
                 approved_amount:
-                  type: [ integer, "null" ]
+                  type:
+                    - integer
+                    - "null"
                 note:
-                  type: [ string, "null" ]
+                  type:
+                    - string
+                    - "null"
                   maxLength: 500
       responses:
         "200":
@@ -6963,7 +7029,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ extra_charge ]
+                required:
+                  - extra_charge
                 properties:
                   extra_charge:
                     $ref: "#/components/schemas/ExtraCharge"
@@ -6977,10 +7044,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/retry:
     post:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: retryPlatformExtraCharge
       summary: 重试扣款失败的加收
-      description: 需要操作 `payment.manage`（财务、运营）。用一条新的收款记录再扣一次。写审计日志。
+      description: 需要操作 `payment.manage`（财务、运营）。用一条新的收款记录再扣一次。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -6999,7 +7067,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ extra_charge ]
+                required:
+                  - extra_charge
                 properties:
                   extra_charge:
                     $ref: "#/components/schemas/ExtraCharge"
@@ -7013,10 +7082,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/refunds/{refundId}/retry:
     post:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: retryPlatformRefund
       summary: 重试失败的退款
-      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。
+      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7035,26 +7105,43 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ outcome, refund ]
+                required:
+                  - outcome
+                  - refund
                 properties:
                   outcome:
                     type: string
-                    enum: [ succeeded, processing, failed, retry, skipped ]
+                    enum:
+                      - succeeded
+                      - processing
+                      - failed
+                      - retry
+                      - skipped
                   refund:
                     type: object
                     additionalProperties: false
-                    required: [ id, status, amount, last_error ]
+                    required:
+                      - id
+                      - status
+                      - amount
+                      - last_error
                     properties:
                       id:
                         type: string
                         format: uuid
                       status:
                         type: string
-                        enum: [ pending, processing, succeeded, failed ]
+                        enum:
+                          - pending
+                          - processing
+                          - succeeded
+                          - failed
                       amount:
                         $ref: "#/components/schemas/SalesMoney"
                       last_error:
-                        type: [ object, "null" ]
+                        type:
+                          - object
+                          - "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -7241,7 +7328,9 @@ paths:
       summary: 全部订单（运营后台，只读）
       description: |
         需要操作 `order.read`（超级管理员、运营、客服、财务、风控、只读）。跨租户、跨渠道，按下单时间从新到旧；含中标租户、渠道、对外价、结算价、加价比例、付款状态。
-        订单中心（M4-02）的筛选：用车日期、下单时间、渠道、租户、城市、品类、状态、是否有没关的异常、订单号 / 渠道订单号、乘客姓名或电话；每一行带没关的异常数（`open_exceptions`）。
+        完整的订单中心（更多筛选、异常队列、人工介入）在 M4-02。
+
+        订单中心（M4-02）的筛选：用车日期、下单时间、城市、品类、是否有没关的异常、乘客姓名或电话；每一行带没关的异常数（`open_exceptions`）。
       security:
         - platformToken: []
       parameters:
@@ -7342,7 +7431,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}:
     get:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: getPlatformOrder
       summary: 一张订单的详情（运营后台，只读）
       description: 需要操作 `order.read`。订单、状态流水、收到的支付通知、下单用的报价快照（全部参与比价的租户和排序依据）。
@@ -7358,10 +7448,175 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges, rescues, exceptions, tickets ]
+                required:
+                  - order
+                  - events
+                  - records
+                  - webhook_deliveries
+                  - payment_events
+                  - quote
+                  - payments
+                  - refunds
+                  - changes
+                  - extra_charges
+                  - rescues
+                  - exceptions
+                  - tickets
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  rescues:
+                    type: array
+                    description: 这一单的全部救援改派（M3-04）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
+                    items:
+                      $ref: "#/components/schemas/PlatformRescue"
+                  payments:
+                    type: array
+                    description: 全部收款：下单付款、改期补收的差价、事后加收
+                    items:
+                      $ref: "#/components/schemas/PlatformOrderPayment"
+                  refunds:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderRefund"
+                  changes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformOrderChange"
+                  extra_charges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformExtraCharge"
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderEvent"
+                  records:
+                    $ref: "#/components/schemas/OrderRecords"
+                  webhook_deliveries:
+                    type: array
+                    description: 这一单推给供应商的全部 Webhook 投递（ADR 0027）
+                    items:
+                      $ref: "#/components/schemas/WebhookDelivery"
+                  payment_events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - id
+                        - type
+                        - result
+                        - event_created_at
+                        - received_at
+                        - detail
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                        result:
+                          type: string
+                          enum:
+                            - processing
+                            - applied
+                            - ignored
+                            - unmatched
+                            - mismatch
+                            - livemode_mismatch
+                        event_created_at:
+                          type: string
+                          format: date-time
+                        received_at:
+                          type: string
+                          format: date-time
+                        detail:
+                          type:
+                            - object
+                            - "null"
+                  quote:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - quote_id
+                      - created_at
+                      - expires_at
+                      - band_bp
+                      - markup
+                      - candidates
+                    properties:
+                      quote_id:
+                        type: string
+                      created_at:
+                        type: string
+                        format: date-time
+                      expires_at:
+                        type: string
+                        format: date-time
+                      band_bp:
+                        type: integer
+                      markup:
+                        type: object
+                        additionalProperties: false
+                        required:
+                          - markup_bp
+                          - level
+                          - rule_id
+                        properties:
+                          markup_bp:
+                            type: integer
+                          level:
+                            type: integer
+                          rule_id:
+                            type:
+                              - string
+                              - "null"
+                            format: uuid
+                      candidates:
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required:
+                            - tenant_id
+                            - product_id
+                            - product_version
+                            - settlement
+                            - sell
+                            - markup_bp
+                            - observation
+                            - score_centi
+                            - completed_orders
+                            - rank_price
+                            - in_band
+                            - position
+                          properties:
+                            tenant_id:
+                              type: string
+                              format: uuid
+                            product_id:
+                              type: string
+                              format: uuid
+                            product_version:
+                              type: integer
+                            settlement:
+                              $ref: "#/components/schemas/SalesMoney"
+                            sell:
+                              $ref: "#/components/schemas/SalesMoney"
+                            markup_bp:
+                              type: integer
+                            observation:
+                              type: boolean
+                            score_centi:
+                              type: integer
+                            completed_orders:
+                              type: integer
+                            rank_price:
+                              type: string
+                            in_band:
+                              type: boolean
+                            position:
+                              type: integer
                   exceptions:
                     type: array
                     description: 这一单的异常（M4-02，含已关闭的）
@@ -7424,128 +7679,14 @@ paths:
                         created_at:
                           type: string
                           format: date-time
-                  rescues:
-                    type: array
-                    description: 这一单的全部救援改派（M3-04）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
-                    items:
-                      $ref: "#/components/schemas/PlatformRescue"
-                  payments:
-                    type: array
-                    description: 全部收款：下单付款、改期补收的差价、事后加收
-                    items:
-                      $ref: "#/components/schemas/PlatformOrderPayment"
-                  refunds:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/OrderRefund"
-                  changes:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/PlatformOrderChange"
-                  extra_charges:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/PlatformExtraCharge"
-                  events:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/OrderEvent"
-                  records:
-                    $ref: "#/components/schemas/OrderRecords"
-                  webhook_deliveries:
-                    type: array
-                    description: 这一单推给供应商的全部 Webhook 投递（ADR 0027）
-                    items:
-                      $ref: "#/components/schemas/WebhookDelivery"
-                  payment_events:
-                    type: array
-                    items:
-                      type: object
-                      additionalProperties: false
-                      required: [ id, type, result, event_created_at, received_at, detail ]
-                      properties:
-                        id:
-                          type: string
-                        type:
-                          type: string
-                        result:
-                          type: string
-                          enum: [ processing, applied, ignored, unmatched, mismatch, livemode_mismatch ]
-                        event_created_at:
-                          type: string
-                          format: date-time
-                        received_at:
-                          type: string
-                          format: date-time
-                        detail:
-                          type: [ object, "null" ]
-                  quote:
-                    type: object
-                    additionalProperties: false
-                    required: [ quote_id, created_at, expires_at, band_bp, markup, candidates ]
-                    properties:
-                      quote_id:
-                        type: string
-                      created_at:
-                        type: string
-                        format: date-time
-                      expires_at:
-                        type: string
-                        format: date-time
-                      band_bp:
-                        type: integer
-                      markup:
-                        type: object
-                        additionalProperties: false
-                        required: [ markup_bp, level, rule_id ]
-                        properties:
-                          markup_bp:
-                            type: integer
-                          level:
-                            type: integer
-                          rule_id:
-                            type: [ string, "null" ]
-                            format: uuid
-                      candidates:
-                        type: array
-                        items:
-                          type: object
-                          additionalProperties: false
-                          required: [ tenant_id, product_id, product_version, settlement, sell, markup_bp, observation, score_centi, completed_orders, rank_price, in_band, position ]
-                          properties:
-                            tenant_id:
-                              type: string
-                              format: uuid
-                            product_id:
-                              type: string
-                              format: uuid
-                            product_version:
-                              type: integer
-                            settlement:
-                              $ref: "#/components/schemas/SalesMoney"
-                            sell:
-                              $ref: "#/components/schemas/SalesMoney"
-                            markup_bp:
-                              type: integer
-                            observation:
-                              type: boolean
-                            score_centi:
-                              type: integer
-                            completed_orders:
-                              type: integer
-                            rank_price:
-                              type: string
-                            in_band:
-                              type: boolean
-                            position:
-                              type: integer
         "404":
           $ref: "#/components/responses/ResourceNotFound"
     patch:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: changePlatformOrder
       summary: 代客人改单
-      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。
+      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7565,7 +7706,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ change ]
+                required:
+                  - change
                 properties:
                   change:
                     $ref: "#/components/schemas/OrderChange"
@@ -8404,10 +8546,11 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/files/{fileId}:
     get:
-      tags: [ 订单 ]
+      tags:
+        - 订单
       operationId: getPlatformOrderFile
       summary: 订单的一张照片（运营后台）
-      description: 需要操作 `order.read`。原样返回图片。
+      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。
       security:
         - platformToken: []
       parameters:
@@ -8425,10 +8568,11 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/webhook-deliveries:
     get:
-      tags: [ Webhook ]
+      tags:
+        - Webhook
       operationId: listPlatformWebhookDeliveries
       summary: 推给供应商的全部投递（运营后台）
-      description: 需要操作 `order.read`。跨供应商，从新到旧；`status=failed` 是重试用完仍失败的（异常，等人工重推）。
+      description: 需要操作 `order.read`。跨供应商，从新到旧；`status=failed` 是重试用完仍失败的（异常，等人工重推）。限定了数据范围的员工（ADR 0030）只列订单在范围内的投递，不属于任何订单的测试事件不列。
       security:
         - platformToken: []
       parameters:
@@ -8456,22 +8600,28 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, next_cursor, total ]
+                required:
+                  - items
+                  - next_cursor
+                  - total
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/PlatformWebhookDelivery"
                   next_cursor:
-                    type: [ string, "null" ]
+                    type:
+                      - string
+                      - "null"
                   total:
                     type: integer
   /platform/v1/webhook-deliveries/{id}:
     get:
-      tags: [ Webhook ]
+      tags:
+        - Webhook
       operationId: getPlatformWebhookDelivery
       summary: 一条投递和每一次尝试（运营后台）
-      description: 需要操作 `order.read`。
+      description: 需要操作 `order.read`。数据范围外的（ADR 0030：订单不在范围内，或限定了范围时不属于任何订单的测试事件）和不存在一样（404）。
       security:
         - platformToken: []
       parameters:
@@ -8484,7 +8634,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ delivery, attempts ]
+                required:
+                  - delivery
+                  - attempts
                 properties:
                   delivery:
                     $ref: "#/components/schemas/PlatformWebhookDeliveryDetail"
@@ -8496,10 +8648,11 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/webhook-deliveries/{id}/retry:
     post:
-      tags: [ Webhook ]
+      tags:
+        - Webhook
       operationId: retryPlatformWebhookDelivery
       summary: 手动重推（运营后台）
-      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。
+      description: 需要操作 `order.resend`（超级管理员、运营、客服；需求「人工介入：手工重发渠道和租户推送」）。马上投一次，写审计日志。和供应商的重推同一条路径：推送任务正在发这一条时什么都不做，`result` 为 `in_flight`。数据范围外的和不存在一样（404，ADR 0030）。
       security:
         - platformToken: []
       parameters:
@@ -8512,7 +8665,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ delivery, result ]
+                required:
+                  - delivery
+                  - result
                 properties:
                   delivery:
                     $ref: "#/components/schemas/WebhookDelivery"
@@ -9085,12 +9240,14 @@ paths:
                       $ref: "#/components/schemas/TenantDeduction"
   /platform/v1/rescues:
     get:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: listPlatformRescues
       summary: 救援队列
       description: |
         需要操作 `order.read`。`state=open`（默认）：没有结论的救援（待处理、救援单待接、候选都不接），按用车时间；另有司机未到的提醒（到点 15 分钟仍未到达、客人报告司机没到，
         还没进入救援的单，由运营判定「联系不上」后发起）和暂停中还有未来订单的供应商（运营批量发起）。`state=closed`：最近 200 条已改派、已取消的。
+        限定了数据范围的员工（ADR 0030）只看到订单在范围内的救援和提醒，`suspended_tenants` 为空。
       security:
         - platformToken: []
       parameters:
@@ -9098,7 +9255,9 @@ paths:
           in: query
           schema:
             type: string
-            enum: [ open, closed ]
+            enum:
+              - open
+              - closed
             default: open
       responses:
         "200":
@@ -9108,7 +9267,10 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, alerts, suspended_tenants ]
+                required:
+                  - items
+                  - alerts
+                  - suspended_tenants
                 properties:
                   items:
                     type: array
@@ -9119,7 +9281,14 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [ order_id, order_no, tenant, status, service_time, arrival_overdue_at, driver_missing_reported_at ]
+                      required:
+                        - order_id
+                        - order_no
+                        - tenant
+                        - status
+                        - service_time
+                        - arrival_overdue_at
+                        - driver_missing_reported_at
                       properties:
                         order_id:
                           type: string
@@ -9134,11 +9303,15 @@ paths:
                           type: string
                           format: date-time
                         arrival_overdue_at:
-                          type: [ string, "null" ]
+                          type:
+                            - string
+                            - "null"
                           format: date-time
                           description: 系统发现到点 15 分钟仍未到达的时间
                         driver_missing_reported_at:
-                          type: [ string, "null" ]
+                          type:
+                            - string
+                            - "null"
                           format: date-time
                           description: 客人报告司机没到的时间
                   suspended_tenants:
@@ -9146,7 +9319,9 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [ tenant, future_orders ]
+                      required:
+                        - tenant
+                        - future_orders
                       properties:
                         tenant:
                           $ref: "#/components/schemas/RescueTenantRef"
@@ -9154,7 +9329,8 @@ paths:
                           type: integer
   /platform/v1/orders/{id}/rescue:
     post:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: triggerPlatformRescue
       summary: 按 4 种情形之一发起救援改派
       description: |
@@ -9162,6 +9338,7 @@ paths:
         `tenant_declared` 替供应商登记它声明无法履约；`dispatch_overdue` 用车前 6 小时仍未派车（定时任务每分钟自动触发，这里给还没跑到的时候用；没到时间 409 `RESCUE_TRIGGER_NOT_MET`）；
         `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
         违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9173,7 +9350,9 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ trigger, note ]
+              required:
+                - trigger
+                - note
               properties:
                 trigger:
                   $ref: "#/components/schemas/RescueTrigger"
@@ -9189,7 +9368,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ rescue ]
+                required:
+                  - rescue
                 properties:
                   rescue:
                     $ref: "#/components/schemas/PlatformRescue"
@@ -9203,13 +9383,15 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/rescue/candidates:
     get:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: listPlatformRescueCandidates
       summary: 救援候选
       description: |
         需要操作 `rescue.manage`。按原报价条件（原来的请求、同一个渠道的加价和授权、这一单的车型组、现在的用车时间和人数）重新比价，现取现算，
         排除这一单以前和现在的供应商、这次救援已经发过的；同城、同品类、能接这个车型组、没被暂停、报得出价的按中标排序。
         每个候选有它的结算价、对外价、加价比例、名次和改派给它时原供应商要承担的差价（为负记 0）。`excluded` 是没能当候选的和原因（报价引擎的原因代码，或 `OFFER_DECLINED`、`OFFER_EXPIRED`、`OFFER_PENDING`、`CHANNEL_NOT_SELLING`）。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9222,7 +9404,10 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ rescue_id, candidates, excluded ]
+                required:
+                  - rescue_id
+                  - candidates
+                  - excluded
                 properties:
                   rescue_id:
                     type: string
@@ -9236,12 +9421,18 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [ tenant, product_id, reason, message ]
+                      required:
+                        - tenant
+                        - product_id
+                        - reason
+                        - message
                       properties:
                         tenant:
                           $ref: "#/components/schemas/RescueTenantRef"
                         product_id:
-                          type: [ string, "null" ]
+                          type:
+                            - string
+                            - "null"
                           format: uuid
                         reason:
                           type: string
@@ -9258,12 +9449,14 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/rescue/offers:
     post:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: createPlatformRescueOffer
       summary: 给一家候选发救援单
       description: |
         需要操作 `rescue.manage`。`tenant_id` 不给就发第一名；给了要在候选里（409 `RESCUE_CANDIDATE_UNAVAILABLE`）。同一时刻只有一张待接的（409 `RESCUE_OFFER_PENDING`）。
         给这家推 `rescue.offered`（只有行程、它的结算价和期限）。期限 15 分钟（用车前 2 小时内 5 分钟），不接、拒绝就自动顺延下一家；都不接进入「候选都不接」。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9276,7 +9469,9 @@ paths:
               additionalProperties: false
               properties:
                 tenant_id:
-                  type: [ string, "null" ]
+                  type:
+                    - string
+                    - "null"
                   format: uuid
       responses:
         "201":
@@ -9286,7 +9481,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ offer ]
+                required:
+                  - offer
                 properties:
                   offer:
                     $ref: "#/components/schemas/PlatformRescueOffer"
@@ -9300,7 +9496,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/rescue/manual-assign:
     post:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: requestPlatformRescueManualAssign
       summary: 人工指定救援供应商（双人复核）
       description: |
@@ -9308,6 +9505,7 @@ paths:
         用于候选都不接、或电话联系好的供应商报不出价（如提前预订时长不够）。商品要是这家的、同城同品类（接送机同一个接送点）、有这一单的车型组；这家不能是以前接过这一单的、不能是暂停中的。
         `settlement_amount` 是和这家谈好的结算价（这个商品的结算币种，最小货币单位的整数）；和客人支付币种不同时，发起时取一次汇率记进复核内容，之后按它换算救援差价。
         还有待接的救援单时 409 `RESCUE_OFFER_PENDING`。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9319,7 +9517,11 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ tenant_id, product_id, settlement_amount, note ]
+              required:
+                - tenant_id
+                - product_id
+                - settlement_amount
+                - note
               properties:
                 tenant_id:
                   type: string
@@ -9354,13 +9556,15 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/rescue/force-majeure:
     post:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: markPlatformRescueForceMajeure
       summary: 认定不可抗力（免违约金）
       description: |
         需要操作 `rescue.manage`。大雪封路、机场关闭、政府管制等，经运营确认后这一单最近一次救援的应扣款项（违约金、救援差价）全部免除，之后才记的差价也直接免除。
         单人认定（需求只把人工指定救援供应商列为双人复核），说明必填，写审计日志。客人全额退款走取消（原因选 `FORCE_MAJEURE`，多退了钱的照常复核）。
         没有救援记录 409 `RESCUE_NOT_FOUND`；认定过 409 `FORCE_MAJEURE_ALREADY`。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9372,7 +9576,8 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ note ]
+              required:
+                - note
               properties:
                 note:
                   type: string
@@ -9386,7 +9591,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ rescue, waived ]
+                required:
+                  - rescue
+                  - waived
                 properties:
                   rescue:
                     $ref: "#/components/schemas/PlatformRescue"
@@ -9403,13 +9610,15 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/tenants/{id}/rescue:
     post:
-      tags: [ 救援改派 ]
+      tags:
+        - 救援改派
       operationId: rescuePlatformSuspendedTenant
       summary: 暂停中的供应商：名下未来订单批量发起救援
       description: |
         需要操作 `rescue.manage`。需求「租户被暂停或解约，名下还有未来订单：运营批量发起」。供应商要在暂停中（409 `RESCUE_TRIGGER_NOT_MET`）；
         名下已确认、已派车、司机已出发、用车时间还没到的单逐张发起（`tenant_suspended`，违约金按距用车时间 0 / 30% / 100%），一张失败不影响别的（`skipped` 里有原因代码）。
         暂停本身不会自动发起（ADR 0028：暂停后已有订单继续履约）；M4-01 的状态变化要自动发起时调同一个服务函数。
+        限定了数据范围的员工（ADR 0030）不能按供应商批量发起：403 `DATA_SCOPE_DENIED`。
       security:
         - platformToken: []
       parameters:
@@ -9422,7 +9631,9 @@ paths:
               additionalProperties: false
               properties:
                 note:
-                  type: [ string, "null" ]
+                  type:
+                    - string
+                    - "null"
                   maxLength: 500
       responses:
         "200":
@@ -9432,7 +9643,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ triggered, skipped ]
+                required:
+                  - triggered
+                  - skipped
                 properties:
                   triggered:
                     type: array
@@ -9444,7 +9657,9 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [ order_id, code ]
+                      required:
+                        - order_id
+                        - code
                       properties:
                         order_id:
                           type: string
@@ -9516,8 +9731,10 @@ paths:
     get:
       tags: [ 官网 ]
       operationId: listSiteCities
-      summary: 能预订接送机的城市
-      description: 启用的、在官网渠道授权范围里、有渠道卖的供应商上架了接送机商品的城市。名称来自 GeoNames（CC BY 4.0，页面要带署名）。
+      summary: 能预订的城市和各自能订的品类
+      description: |
+        启用的、在官网渠道授权范围里、有渠道卖的供应商上架了商品的城市；`categories` 是这个城市能在官网预订的品类（接送机、点对点、包车，M3-10），
+        品类本身也要在渠道的授权里。名称来自 GeoNames（CC BY 4.0，页面要带署名）。每个地址每分钟 120 次。
       responses:
         "200":
           description: 城市
@@ -9564,13 +9781,76 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/charter-packages:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteCharterPackages
+      summary: 这个城市能选的包车套餐时长
+      description: |
+        渠道卖的供应商上架的包车商品里，启用且到城市当地今天还没过期的价格规则的套餐时长（小时，从短到长、不重复）。
+        城市或包车不在渠道授权里、城市不存在时为空列表。某个时长那一天到底报不报得出价，询价时再看。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 套餐时长
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCharterPackage"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/places:
+    get:
+      tags: [ 官网 ]
+      operationId: listSitePlaces
+      summary: 地址输入辅助：城市里的机场、车站、地标
+      description: |
+        平台维护的主数据里这个城市启用的机场、车站、地标（不含航站楼、出口），按种类（机场、车站、地标）和编码排，最多 500 个。
+        客人选一个，页面把名称和坐标填进地址那一栏；不调用任何外部地图或地址搜索服务（那要谷歌地图的密钥，M2-02）。
+        城市不存在、停用或不在官网渠道的授权城市里时为空列表（和城市列表同一口径）。机场数据来自 OurAirports（公有领域），中文、日文名来自 GeoNames。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SitePlace"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/quotes:
     post:
       tags: [ 官网 ]
       operationId: createSiteQuotes
-      summary: 官网询价（接送机）
+      summary: 官网询价（接送机、点对点、包车）
       description: |
-        服务端以官网渠道的身份走正式询价（和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+        该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
       requestBody:
@@ -9600,13 +9880,13 @@ paths:
                     items:
                       $ref: "#/components/schemas/SiteUnavailable"
         "400":
-          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）等写得不对"
+          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）、这个品类该填的没填（`REQUIRED`）或不该填的填了（`NOT_APPLICABLE`）等"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANNEL_SCOPE_DENIED`：这个城市官网不卖"
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖"
           content:
             application/json:
               schema:
@@ -10031,6 +10311,507 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /platform/v1/auth/mfa/verify:
+    post:
+      tags: [ 平台登录 ]
+      operationId: verifyPlatformSecondFactor
+      summary: 登录的第二步：输入动态码或恢复码
+      description: |
+        会话还没完成两步验证、账号已经绑定过验证器时用。`code`（验证器上的 6 位动态码）和 `recovery_code` 二选一。
+        动态码按 RFC 6238（30 秒一个、前后各容忍一个时间窗）；**同一时间窗的码只能用一次**（`MFA_CODE_REUSED`），用了较晚的之后较早的也不再收。
+        恢复码只能用一次。通过后会话延长到令牌的过期时间（登录起 8 小时），同一个令牌恢复正常。
+        和登录一样限速（单独一组计数：同一账号同一来源地址 15 分钟 5 次、同一账号 20 次），超过 429，被拦下的不验证、不写审计。
+        成功和失败都写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 已通过两步验证
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaVerified"
+        "400":
+          description: "`MFA_CODE_INVALID`：动态码或恢复码不对；`MFA_CODE_REUSED`：这个动态码所在的时间窗已经用过"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_NOT_ENROLLED`：账号还没绑定（先绑定）；`MFA_ALREADY_VERIFIED`：这个会话已经通过了"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/enrollment:
+    post:
+      tags: [ 平台登录 ]
+      operationId: startPlatformMfaEnrollment
+      summary: 开始绑定验证器（第一次绑定，或换手机）
+      description: |
+        生成一个新密钥，返回密钥原文（Base32）和 `otpauth://` 链接（页面显示成二维码）——**只在这一次应答里出现**，库里是加密的。
+        15 分钟内用 `auth/mfa/enrollment/confirm` 输入一次它算出的动态码才生效；再次调用会覆盖之前没确认的那个。
+        - 第一次绑定（会话待验证、账号没绑定过）：请求体可以为空；
+        - 换手机（会话已完成两步验证）：要带现在的动态码或一个恢复码（`MFA_CODE_REQUIRED`），确认之前旧的照常可用；
+        - 会话待验证而账号已经绑定过：409 `MFA_ALREADY_ENROLLED`（先输入动态码登录）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 新密钥（待确认）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ secret, otpauth_uri, expires_at ]
+                properties:
+                  secret:
+                    type: string
+                    description: Base32 的密钥原文（32 个字符），给不能扫码的验证器手输
+                  otpauth_uri:
+                    type: string
+                    description: "`otpauth://totp/…` 链接（HMAC-SHA1、6 位、30 秒）"
+                  expires_at:
+                    type: string
+                    format: date-time
+                    description: 这之前要确认
+        "400":
+          description: "`MFA_CODE_REQUIRED`：换手机要先输入现在的动态码或恢复码；`MFA_CODE_INVALID`、`MFA_CODE_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_ALREADY_ENROLLED`：会话还没验证，账号已经绑定过"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/enrollment/confirm:
+    post:
+      tags: [ 平台登录 ]
+      operationId: confirmPlatformMfaEnrollment
+      summary: 确认绑定：输入新密钥算出的动态码
+      description: |
+        通过后新密钥生效（换手机时旧的同时作废），生成 10 个一次性恢复码——**只在这一次应答里出现**，库里只存哈希；
+        这个会话算完成了两步验证；这个账号的其他会话全部失效。限速同 `auth/mfa/verify`。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ code ]
+              properties:
+                code:
+                  type: string
+                  maxLength: 20
+      responses:
+        "200":
+          description: 已绑定
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/MfaVerified"
+                  - type: object
+                    required: [ recovery_codes ]
+                    properties:
+                      recovery_codes:
+                        type: array
+                        minItems: 10
+                        maxItems: 10
+                        items:
+                          type: string
+                          pattern: "^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$"
+                        description: 一次性恢复码原文，只显示这一次
+        "400":
+          description: "`MFA_CODE_INVALID`：动态码不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`MFA_ENROLLMENT_NOT_STARTED`：没有开始绑定，或已超过 15 分钟；`MFA_ALREADY_ENROLLED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/auth/mfa/recovery-codes:
+    post:
+      tags: [ 平台登录 ]
+      operationId: regeneratePlatformRecoveryCodes
+      summary: 重新生成恢复码
+      description: 要输入现在的动态码或一个恢复码。旧的一组整组作废；新的 10 个只在这一次应答里出现。限速同 `auth/mfa/verify`。写审计日志。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaFactorRequest"
+      responses:
+        "200":
+          description: 新的一组恢复码
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ recovery_codes ]
+                properties:
+                  recovery_codes:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: "`MFA_CODE_INVALID`、`MFA_CODE_REUSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          $ref: "#/components/responses/MfaUnavailable"
+  /platform/v1/staff/{id}:
+    get:
+      tags: [ 平台账号 ]
+      operationId: getPlatformStaff
+      summary: 平台员工详情（含 IP 白名单、两步验证是否已绑定）
+      description: 需要操作 `staff.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 员工
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [ 平台账号 ]
+      operationId: updatePlatformStaff
+      summary: 改平台员工的姓名、角色、IP 白名单
+      description: |
+        需要操作 `staff.manage`（超级管理员），直接生效，写审计（只记变了的字段；改角色记 `change_role`）。至少给一项。
+        - `role`：内置角色或自建角色的键；不存在 400 `VALIDATION_FAILED`（`reason` 为 `UNKNOWN_ROLE`）。不能改自己的角色（409 `OWN_ROLE_UNCHANGEABLE`）；
+          最后一个在用的超级管理员不能改成别的角色（409 `LAST_ADMIN_REQUIRED`）。权限每个请求现查，改了立即生效。
+        - `ip_allowlist`：整份替换；CIDR，IPv4 / IPv6，只写地址 = 单个地址；空数组 = 不限制（这时按角色的名单）。
+          写错的逐条报出（400 `IP_ALLOWLIST_INVALID`，`details.issues[]` 有 `index`、`value`、`reason`：`INVALID`、`HOST_BITS_SET`（带 `suggestion`）、`DUPLICATE`）。
+          改自己的名单时当前地址必须在里面（409 `IP_ALLOWLIST_EXCLUDES_CURRENT`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  $ref: "#/components/schemas/PersonName"
+                role:
+                  $ref: "#/components/schemas/RoleKey"
+                ip_allowlist:
+                  $ref: "#/components/schemas/IpAllowlist"
+      responses:
+        "200":
+          description: 改后的员工
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffDetail"
+        "400":
+          description: "`IP_ALLOWLIST_INVALID`；`VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`OWN_ROLE_UNCHANGEABLE`、`LAST_ADMIN_REQUIRED`、`IP_ALLOWLIST_EXCLUDES_CURRENT`（`details.current_ip`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/staff/{id}/mfa-reset:
+    post:
+      tags: [ 平台账号 ]
+      operationId: requestPlatformStaffMfaReset
+      summary: 发起重置员工的两步验证（双人复核）
+      description: |
+        需要操作 `staff.manage`。发起一条 `staff.mfa_reset` 复核，由另一位超级管理员批准（对方本人不能批准，409 `MFA_RESET_SELF`）。
+        批准后对方的密钥、恢复码作废，全部会话失效；下次登录（密码不变）重新绑定。
+        不能对自己发起（换手机在个人页更换）；对方还没绑定时 409 `MFA_NOT_ENROLLED`。
+        只有一位超级管理员时，在服务器上用 `pnpm admin:reset-2fa --email …`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                request_note:
+                  type: string
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`MFA_RESET_SELF`、`MFA_NOT_ENROLLED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles:
+    get:
+      tags: [ 角色 ]
+      operationId: listPlatformRoles
+      summary: 全部角色（内置角色在前，自建角色在后）
+      description: |
+        需要操作 `role.read`（超级管理员）。内置角色是只读模板，权限以代码为准，`grants` 是按菜单表换算出的勾选；
+        自建角色的 `grants` 是存的勾选。菜单表见 `@nozomi/domain` 的 `PLATFORM_MENUS`（ADR 0030）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 角色
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RoleView"
+    post:
+      tags: [ 角色 ]
+      operationId: createPlatformRole
+      summary: 新建自建角色
+      description: |
+        需要操作 `role.manage`。直接生效（新角色还没人用）。写审计。
+        `grants` 是「菜单:操作」，勾了编辑 / 审核要也勾查看；平台账号的编辑、角色的编辑和审核只归超级管理员，勾不了（400 `ROLE_GRANTS_INVALID`，`details.issues[]` 的 `reason`：
+        `UNKNOWN_GRANT`、`SUPER_ADMIN_ONLY`、`VIEW_REQUIRED`、`DUPLICATE`）。名字和已有角色（含内置）重复 409 `ROLE_NAME_TAKEN`。
+        `data_scope`：城市、渠道，null = 不限制；不存在的编号 400 `ROLE_SCOPE_INVALID`。`ip_allowlist` 同员工的。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleInput"
+      responses:
+        "201":
+          description: 新角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleView"
+        "400":
+          $ref: "#/components/responses/RoleInvalid"
+        "409":
+          description: "`ROLE_NAME_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles/{key}:
+    get:
+      tags: [ 角色 ]
+      operationId: getPlatformRole
+      summary: 一个角色
+      description: 需要操作 `role.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      responses:
+        "200":
+          description: 角色
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleView"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    delete:
+      tags: [ 角色 ]
+      operationId: deletePlatformRole
+      summary: 删除自建角色
+      description: 需要操作 `role.manage`。还有账号（含待激活、已停用）用它时 409 `ROLE_IN_USE`（`details.staff_count`）；内置角色 409 `ROLE_BUILTIN_READONLY`。直接生效，写审计。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ROLE_IN_USE`、`ROLE_BUILTIN_READONLY`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/roles/{key}/changes:
+    post:
+      tags: [ 角色 ]
+      operationId: requestPlatformRoleChange
+      summary: 发起修改自建角色（双人复核）
+      description: |
+        需要操作 `role.manage`。给改完之后的完整内容（不是增量），发起一条 `platform_role.update` 复核，由另一位超级管理员（`role.review`）批准后生效；
+        批准时按那一刻的数据再校验并核对版本（发起后角色被改过 409 `APPROVAL_STALE`）。和现在一样的不发起（400 `VALIDATION_FAILED`，`reason` 为 `UNCHANGED`）。
+        内置角色 409 `ROLE_BUILTIN_READONLY`。校验规则同新建。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/RoleKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/RoleInput"
+                - type: object
+                  properties:
+                    request_note:
+                      type: string
+                      maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          $ref: "#/components/responses/RoleInvalid"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ROLE_BUILTIN_READONLY`、`ROLE_NAME_TAKEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/channels/{id}/pricing-impact:
+    post:
+      tags: [ 渠道 ]
+      operationId: previewChannelPricingImpact
+      summary: 生效前试算：改动对近 30 天询价和订单毛利的影响（只读）
+      description: |
+        需要操作 `channel.manage`（和发起这几类复核的权限一样）。只读：不写库、不写审计。入参是待提交的改动，`kind` 和复核的类别一致，里面的内容和发起复核的入参同形
+        （`channel.pricing` 的 `change` 同 `pricing-changes` 的请求体；`markup_rule.create` / `update` 的 `rule` 同新增、修改加价规则的请求体；`update` / `delete` 另给 `rule_id`）。
+        校验和发起一样（低于下限、日期重叠、调高下限时有规则低于新下限都直接拦），但不查「和现在一样」和版本号。
+
+        口径（ADR 0033）：取这个渠道最近 30 天的报价（每个车型组一个 `quote_id`，按询价时间）和这 30 天里下单、付过款的订单（按下单时间；付过款后取消的按扣款比例计入，免费取消的只计数），
+        用快照里的全部候选（结算价、快照汇率和缓冲、评分、单量、观察期）分别按**现在的规则**和**改动后的规则**重算每个候选的对外价、**重新选中标**，
+        汇总对外价、结算价、毛利（对外价 − 结算价，按快照汇率换到渠道结算币种，每单四舍五入到最小单位再相加）。报价、订单各最多取最近 100,000 个（`truncated`）。
+        **这是估算**：客人面对新价格还会不会下单无法知道，这里假定询价和订单照旧发生。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PricingImpactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "400":
+          description: "`VALIDATION_FAILED`：入参不合规则（同发起复核）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RULES_BELOW_FLOOR`：有还在用的加价规则低于新的下限；`MARKUP_RULE_CONFLICT`：和已有的规则冲突"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/approvals/{id}/pricing-impact:
+    post:
+      tags: [ 双人复核 ]
+      operationId: recomputeApprovalPricingImpact
+      summary: 按现在的数据再算一次毛利试算（只读）
+      description: |
+        改定价参数、加价规则的复核（`channel.pricing`、`markup_rule.*`）：按现在的规则和这条复核要做的改动，用现在的近 30 天数据重算（口径同 `/platform/v1/channels/{id}/pricing-impact`）。
+        只读，不改复核记录里发起时存的 `impact`。要能看这一类（否则 404），还要有这一类的审核或发起权限（渠道的是 `channel.review` / `channel.manage`，否则 403）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PricingImpactResult"
+        "403":
+          description: "`FORBIDDEN`：没有这一类的审核或发起权限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PRICING_IMPACT_NOT_APPLICABLE`：不是定价、规则的复核；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：要改的规则已经被删除"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/exceptions:
     get:
       tags: [ 订单中心 ]
@@ -11258,6 +12039,12 @@ components:
       description: 按等级筛选
       schema:
         $ref: "#/components/schemas/VehicleGrade"
+    RoleKeyPath:
+      name: key
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/RoleKey"
   requestBodies:
     UploadedFile:
       required: true
@@ -11293,154 +12080,6 @@ components:
                 minLength: 1
                 maxLength: 500
   responses:
-    ExceptionResult:
-      description: 一条异常
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ exception ]
-            properties:
-              exception:
-                $ref: "#/components/schemas/OrderException"
-    TicketConflict:
-      description: |
-        `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
-        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`；`APPEAL_SAME_REVIEWER`；
-        `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
-    PlatformTicketDetail:
-      description: 工单详情（运营后台）。判定达到复核阈值时是 202，`approval` 是待审核的复核
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ ticket, messages, notes, compensation, deductions, refund_ids, parent, appeal, approval ]
-            properties:
-              ticket:
-                $ref: "#/components/schemas/PlatformTicket"
-              messages:
-                type: array
-                description: 和供应商来回的对话（供应商看得到）
-                items:
-                  $ref: "#/components/schemas/TicketMessage"
-              notes:
-                type: array
-                description: 内部备注（只有平台看得到）
-                items:
-                  type: object
-                  additionalProperties: false
-                  required: [ id, author, body, created_at ]
-                  properties:
-                    id:
-                      type: string
-                      format: uuid
-                    author:
-                      type: object
-                      additionalProperties: false
-                      required: [ id, name ]
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        name:
-                          type: string
-                    body:
-                      type: string
-                    created_at:
-                      type: string
-                      format: date-time
-              compensation:
-                oneOf:
-                  - $ref: "#/components/schemas/TicketCompensation"
-                  - type: "null"
-              deductions:
-                type: array
-                description: 这张工单记下的供应商应扣款项（结算币种）
-                items:
-                  $ref: "#/components/schemas/TicketDeduction"
-              refund_ids:
-                type: array
-                description: 这张工单排的退款（`order_refunds`，在订单详情里看状态）
-                items:
-                  type: string
-                  format: uuid
-              parent:
-                description: 申诉的是哪一张工单
-                oneOf:
-                  - type: object
-                    additionalProperties: false
-                    required: [ id, ticket_no, type, outcome, decided_by ]
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      ticket_no:
-                        type: string
-                      type:
-                        $ref: "#/components/schemas/TicketType"
-                      outcome:
-                        type: [ string, "null" ]
-                      decided_by:
-                        type: [ string, "null" ]
-                        format: uuid
-                  - type: "null"
-              appeal:
-                $ref: "#/components/schemas/TicketAppealRef"
-              approval:
-                oneOf:
-                  - $ref: "#/components/schemas/Approval"
-                  - type: "null"
-    TenantTicketDetail:
-      description: 工单详情（供应商）：没有内部备注、客人那边的赔付金额
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ ticket, messages, deductions, appeal ]
-            properties:
-              ticket:
-                $ref: "#/components/schemas/TenantTicket"
-              messages:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TicketMessage"
-              deductions:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TicketDeduction"
-              appeal:
-                $ref: "#/components/schemas/TicketAppealRef"
-    ChannelTicketList:
-      description: 这一单由渠道、客人提的工单
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ items ]
-            properties:
-              items:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ChannelTicket"
-    ChannelTicketCreated:
-      description: 建好的工单
-      content:
-        application/json:
-          schema:
-            type: object
-            additionalProperties: false
-            required: [ ticket ]
-            properties:
-              ticket:
-                $ref: "#/components/schemas/ChannelTicket"
     TenantStateInvalid:
       description: |
         `TENANT_STATE_INVALID`：供应商现在的状态不能做这一步（`details.status`）；`TENANT_CONDITIONS_UNMET`：条件还不满足（`details.issues[]`：`path`、`reason`，如
@@ -11708,6 +12347,177 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    MfaUnavailable:
+      description: "`MFA_ENCRYPTION_NOT_CONFIGURED`：平台没有配置数据加密密钥；`MFA_SECRET_UNAVAILABLE`：库里的密钥解不开（加密密钥被换过），请超级管理员重置"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RoleInvalid:
+      description: "`ROLE_GRANTS_INVALID`、`ROLE_SCOPE_INVALID`（`details.missing_city_ids`、`missing_channel_ids`）、`IP_ALLOWLIST_INVALID`、`VALIDATION_FAILED`"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PricingImpactResult:
+      description: 毛利试算结果
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ impact ]
+            properties:
+              impact:
+                $ref: "#/components/schemas/PricingImpact"
+    ExceptionResult:
+      description: 一条异常
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ exception ]
+            properties:
+              exception:
+                $ref: "#/components/schemas/OrderException"
+    TicketConflict:
+      description: |
+        `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
+        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`；`APPEAL_SAME_REVIEWER`；
+        `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PlatformTicketDetail:
+      description: 工单详情（运营后台）。判定达到复核阈值时是 202，`approval` 是待审核的复核
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket, messages, notes, compensation, deductions, refund_ids, parent, appeal, approval ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/PlatformTicket"
+              messages:
+                type: array
+                description: 和供应商来回的对话（供应商看得到）
+                items:
+                  $ref: "#/components/schemas/TicketMessage"
+              notes:
+                type: array
+                description: 内部备注（只有平台看得到）
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ id, author, body, created_at ]
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    author:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                    body:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+              compensation:
+                oneOf:
+                  - $ref: "#/components/schemas/TicketCompensation"
+                  - type: "null"
+              deductions:
+                type: array
+                description: 这张工单记下的供应商应扣款项（结算币种）
+                items:
+                  $ref: "#/components/schemas/TicketDeduction"
+              refund_ids:
+                type: array
+                description: 这张工单排的退款（`order_refunds`，在订单详情里看状态）
+                items:
+                  type: string
+                  format: uuid
+              parent:
+                description: 申诉的是哪一张工单
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [ id, ticket_no, type, outcome, decided_by ]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      ticket_no:
+                        type: string
+                      type:
+                        $ref: "#/components/schemas/TicketType"
+                      outcome:
+                        type: [ string, "null" ]
+                      decided_by:
+                        type: [ string, "null" ]
+                        format: uuid
+                  - type: "null"
+              appeal:
+                $ref: "#/components/schemas/TicketAppealRef"
+              approval:
+                oneOf:
+                  - $ref: "#/components/schemas/Approval"
+                  - type: "null"
+    TenantTicketDetail:
+      description: 工单详情（供应商）：没有内部备注、客人那边的赔付金额
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket, messages, deductions, appeal ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/TenantTicket"
+              messages:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketMessage"
+              deductions:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketDeduction"
+              appeal:
+                $ref: "#/components/schemas/TicketAppealRef"
+    ChannelTicketList:
+      description: 这一单由渠道、客人提的工单
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ items ]
+            properties:
+              items:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChannelTicket"
+    ChannelTicketCreated:
+      description: 建好的工单
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/ChannelTicket"
   schemas:
     ChannelType:
       type: string
@@ -12172,15 +12982,49 @@ components:
     Approval:
       type: object
       additionalProperties: false
-      required: [ id, kind, resource, resource_id, summary, payload, before, base_version, status, requested_by, requested_at, request_note, decided_by, decided_at, decision_note, can ]
+      required:
+        - id
+        - kind
+        - resource
+        - resource_id
+        - summary
+        - payload
+        - before
+        - base_version
+        - status
+        - requested_by
+        - requested_at
+        - request_note
+        - decided_by
+        - decided_at
+        - decision_note
+        - impact
+        - can
       properties:
         id:
           type: string
           format: uuid
         kind:
           type: string
-          enum: [ channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund, rescue.manual_assign, compensation_table.update, ticket.decision ]
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；以后会加：付款……）
+          enum:
+            - channel.pricing
+            - channel.pause
+            - markup_rule.create
+            - markup_rule.update
+            - markup_rule.delete
+            - fx_lock.create
+            - fx_lock.release
+            - tenant.suspend
+            - tenant.terminate
+            - tenant.contract
+            - cancellation_policy.update
+            - order.cancel_refund
+            - rescue.manual_assign
+            - platform_role.update
+            - staff.mfa_reset
+            - compensation_table.update
+            - ticket.decision
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；以后会加：付款……）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -12194,34 +13038,51 @@ components:
           additionalProperties: true
           description: 要改成什么
         before:
-          type: [ object, "null" ]
+          type:
+            - object
+            - "null"
           additionalProperties: true
           description: 发起时是什么
         base_version:
-          type: [ integer, "null" ]
+          type:
+            - integer
+            - "null"
         status:
           type: string
-          enum: [ pending, approved, rejected, withdrawn ]
+          enum:
+            - pending
+            - approved
+            - rejected
+            - withdrawn
         requested_by:
           $ref: "#/components/schemas/Person"
         requested_at:
           type: string
           format: date-time
         request_note:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
         decided_by:
           oneOf:
             - $ref: "#/components/schemas/Person"
             - type: "null"
         decided_at:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
           format: date-time
         decision_note:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
         can:
           type: object
           additionalProperties: false
-          required: [ approve, reject, withdraw ]
+          required:
+            - approve
+            - reject
+            - withdraw
           description: 当前账号能做什么
           properties:
             approve:
@@ -12230,6 +13091,11 @@ components:
               type: boolean
             withdraw:
               type: boolean
+        impact:
+          description: 发起时按当时的数据算的毛利试算（ADR 0033）；只有改定价参数、加价规则的复核有，其余为 null
+          oneOf:
+            - $ref: "#/components/schemas/PricingImpact"
+            - type: "null"
     ApprovalList:
       type: object
       additionalProperties: false
@@ -12998,8 +13864,18 @@ components:
       description: "invited：已邀请、还没设密码；active：在用；disabled：已停用"
     PlatformRole:
       type: string
-      enum: [ super_admin, operations, tenant_onboarding, channel_manager, customer_service, finance, risk, master_data, tech, readonly ]
-      description: 平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
+      enum:
+        - super_admin
+        - operations
+        - tenant_onboarding
+        - channel_manager
+        - customer_service
+        - finance
+        - risk
+        - master_data
+        - tech
+        - readonly
+      description: 内置的平台角色：超级管理员、运营、招商、渠道经理、客服、财务、风控、主数据运营、技术、只读
     TenantRole:
       type: string
       enum: [ admin, pricing, dispatch, finance, readonly ]
@@ -13618,7 +14494,43 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [ staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review, rescue.manage, rescue.review, exception.manage, ticket.read, ticket.manage, ticket.review, compensation_table.manage, compensation_table.review ]
+      enum:
+        - staff.read
+        - staff.manage
+        - tenant.read
+        - tenant.create
+        - tenant.change_status
+        - tenant.review
+        - tenant.approve
+        - audit_log.read
+        - integration.read
+        - master_data.read
+        - master_data.manage
+        - quote.preview
+        - product.read
+        - fx.manage
+        - fx.review
+        - channel.read
+        - channel.manage
+        - channel.review
+        - approval.read
+        - order.read
+        - order.resend
+        - order.manage
+        - payment.manage
+        - cancellation_policy.manage
+        - cancellation_policy.review
+        - rescue.manage
+        - rescue.review
+        - role.read
+        - role.manage
+        - role.review
+        - exception.manage
+        - ticket.read
+        - ticket.manage
+        - ticket.review
+        - compensation_table.manage
+        - compensation_table.review
     TenantAction:
       type: string
       enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read, ticket.read, ticket.manage ]
@@ -13701,7 +14613,15 @@ components:
     PlatformUser:
       type: object
       additionalProperties: false
-      required: [ id, email, name, role, status, created_at, updated_at ]
+      required:
+        - id
+        - email
+        - name
+        - role
+        - role_name
+        - status
+        - created_at
+        - updated_at
       properties:
         id:
           type: string
@@ -13711,7 +14631,10 @@ components:
         name:
           type: string
         role:
-          $ref: "#/components/schemas/PlatformRole"
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+          description: 角色的名字（自建角色的名字前端不认识）
         status:
           $ref: "#/components/schemas/AccountStatus"
         created_at:
@@ -14236,21 +15159,40 @@ components:
     PlatformLoginResponse:
       type: object
       additionalProperties: false
-      required: [ access_token, token_type, expires_at, user, must_change_password ]
+      required:
+        - access_token
+        - token_type
+        - expires_at
+        - user
+        - must_change_password
+        - second_factor
       properties:
         access_token:
           type: string
         token_type:
           type: string
-          enum: [ Bearer ]
+          enum:
+            - Bearer
         expires_at:
           type: string
           format: date-time
-          description: 令牌过期时间（登录后 8 小时）
+          description: 令牌过期时间（登录后 8 小时）；两步验证没在 15 分钟内完成，会话先失效
         user:
           $ref: "#/components/schemas/PlatformUser"
         must_change_password:
           $ref: "#/components/schemas/MustChangePassword"
+        second_factor:
+          type: object
+          additionalProperties: false
+          required:
+            - status
+          description: 密码对了之后的第二步（ADR 0030）
+          properties:
+            status:
+              type: string
+              enum:
+                - enrollment_required
+                - verify_required
     TenantLoginResponse:
       type: object
       additionalProperties: false
@@ -14280,7 +15222,18 @@ components:
     AuditLog:
       type: object
       additionalProperties: false
-      required: [ id, occurred_at, tenant_id, actor, ip, source, resource, resource_id, action, before, after ]
+      required:
+        - id
+        - occurred_at
+        - tenant_id
+        - actor
+        - ip
+        - source
+        - resource
+        - resource_id
+        - action
+        - before
+        - after
       properties:
         id:
           type: string
@@ -14289,35 +15242,83 @@ components:
           type: string
           format: date-time
         tenant_id:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
           format: uuid
           description: 记录所属的租户；平台级操作为 null
         actor:
           type: object
           additionalProperties: false
-          required: [ type, id, email ]
+          required:
+            - type
+            - id
+            - email
           properties:
             type:
               type: string
-              enum: [ platform_user, tenant_user, system, anonymous ]
-              description: "谁做的：平台员工、租户用户、系统（命令行）、未登录的访问者（登录失败）"
+              enum:
+                - platform_user
+                - tenant_user
+                - system
+                - anonymous
+              description: 谁做的：平台员工、租户用户、系统（命令行）、未登录的访问者（登录失败）
             id:
-              type: [ string, "null" ]
+              type:
+                - string
+                - "null"
               format: uuid
             email:
-              type: [ string, "null" ]
+              type:
+                - string
+                - "null"
         ip:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
           description: 来源地址；命令行操作为 null
         source:
           type: string
-          enum: [ console, api, cli, job ]
-          description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
+          enum:
+            - console
+            - api
+            - cli
+            - job
+          description: console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）
         resource:
           type: string
-          enum: [ platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval, tenant_profile, tenant_file, tenant_document, tenant_contract ]
+          enum:
+            - platform_user
+            - tenant
+            - tenant_user
+            - integration
+            - city
+            - place
+            - vehicle_group
+            - addon
+            - area
+            - brand
+            - product
+            - price_rule
+            - adjust_rule
+            - holiday
+            - inventory
+            - fx_fetch
+            - fx_rate
+            - fx_lock
+            - channel
+            - markup_rule
+            - api_client
+            - approval
+            - tenant_profile
+            - tenant_file
+            - tenant_document
+            - tenant_contract
+            - platform_role
         resource_id:
-          type: [ string, "null" ]
+          type:
+            - string
+            - "null"
         action:
           type: string
           enum:
@@ -14365,12 +15366,23 @@ components:
             - observe
             - upload
             - request_supplement
+            - mfa_enroll_start
+            - mfa_enroll
+            - mfa_verify
+            - mfa_failed
+            - mfa_recovery_codes
+            - mfa_reset
+            - clear_ip_allowlist
         before:
-          type: [ object, "null" ]
+          type:
+            - object
+            - "null"
           additionalProperties: true
           description: 改动前的值；不含密码哈希、令牌
         after:
-          type: [ object, "null" ]
+          type:
+            - object
+            - "null"
           additionalProperties: true
           description: |
             改动后的值，或这次操作的补充信息（如登录失败的原因）；不含密码、密码哈希、令牌。
@@ -18060,10 +19072,6 @@ components:
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
       required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version ]
       properties:
-        open_exceptions:
-          type: integer
-          minimum: 0
-          description: 没关的异常有几条（只在订单列表里有，M4-02）
         id:
           type: string
           format: uuid
@@ -18245,6 +19253,10 @@ components:
           $ref: "#/components/schemas/PlatformCancellation"
         version:
           type: integer
+        open_exceptions:
+          type: integer
+          minimum: 0
+          description: 没关的异常有几条（只在订单列表里有，M4-02）
     OrderPartyRef:
       type: object
       additionalProperties: false
@@ -20362,7 +21374,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments ]
+      required: [ open, currency, payments, support_phone ]
       properties:
         open:
           type: boolean
@@ -20384,11 +21396,20 @@ components:
                   type: string
                   pattern: "^pk_(test|live)_"
             - type: "null"
+        support_phone:
+          type: [ string, "null" ]
+          pattern: "^\\+[1-9][0-9 -]*[0-9]$"
+          description: 订单页「需要帮助」里的客服电话（配置 SITE_SUPPORT_PHONE，原样显示）；没有登记时为 null，页面不显示客服区块。官网没开时也照常给出（已下单的客人仍要能联系客服）
     SiteCity:
       type: object
       additionalProperties: false
-      required: [ id, code, name, timezone, country_code ]
+      required: [ id, code, name, timezone, country_code, categories ]
       properties:
+        categories:
+          type: array
+          description: 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车）；至少一种
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
         id:
           type: string
           format: uuid
@@ -20421,35 +21442,83 @@ components:
               type: number
             lat:
               type: number
+    SitePoint:
+      type: object
+      additionalProperties: false
+      required: [ lng, lat ]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+    SiteCharterPackage:
+      type: object
+      additionalProperties: false
+      required: [ hours ]
+      properties:
+        hours:
+          type: integer
+          minimum: 1
+          description: 套餐时长（小时）
+    SitePlace:
+      type: object
+      additionalProperties: false
+      required: [ id, type, code, name, address, location ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [ airport, station, poi ]
+          description: airport 机场 / station 车站 / poi 地标
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        address:
+          type: [ string, "null" ]
+          description: 地标的地址（主数据里有才有）
+        location:
+          $ref: "#/components/schemas/SitePoint"
     SiteQuoteRequest:
       type: object
       additionalProperties: false
-      required: [ city_id, airport_id, direction, address, service_local, passengers ]
+      required: [ city_id, service_local, passengers ]
+      description: 各品类要填的字段不同（见 `POST /site/v1/quotes`）；不属于这个品类的字段不要填
       properties:
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+          description: 不填是接送机
         city_id:
           type: string
           format: uuid
         airport_id:
           type: string
           format: uuid
+          description: 接送机：机场
         direction:
           type: string
           enum: [ pickup, dropoff ]
-          description: pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
+          description: 接送机：pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
         address:
-          type: object
-          additionalProperties: false
-          required: [ lng, lat ]
-          description: 地址那一端的坐标
-          properties:
-            lng:
-              type: number
-              minimum: -180
-              maximum: 180
-            lat:
-              type: number
-              minimum: -90
-              maximum: 90
+          $ref: "#/components/schemas/SitePoint"
+          description: 接送机：地址那一端的坐标
+        pickup:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点、包车：上车点的坐标
+        dropoff:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点：下车点的坐标
+        package_hours:
+          type: integer
+          minimum: 1
+          maximum: 72
+          description: 包车：套餐时长（小时），从 `GET /site/v1/cities/{id}/charter-packages` 里选
         service_local:
           type: string
           pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -20466,8 +21535,20 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, price, free_wait_minutes, cancel_policy ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy ]
       properties:
+        package:
+          description: 包车：套餐时长和含的公里数（超时、超公里服务后按实际加收）；其他品类 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ hours, km ]
+              properties:
+                hours:
+                  type: integer
+                km:
+                  type: [ integer, "null" ]
+            - type: "null"
         quote_id:
           type: string
           pattern: "^QT\\d{8}[0-9A-Z]{10}$"
@@ -20912,6 +21993,400 @@ components:
           $ref: "#/components/schemas/SiteOrderTimeline"
         names:
           $ref: "#/components/schemas/SiteOrderNames"
+    RoleKey:
+      type: string
+      pattern: "^([a-z_]{2,40}|custom_[0-9a-f]{16})$"
+      description: 角色键：内置角色（`PlatformRole`）或自建角色（`custom_` + 16 位十六进制）
+    SecondFactorStatus:
+      type: string
+      enum: [ enrollment_required, verify_required, verified ]
+      description: "会话的两步验证状态：还没绑定，先绑定；绑定过，输入动态码；已通过"
+    MfaFactorRequest:
+      type: object
+      additionalProperties: false
+      description: 动态码和恢复码二选一（都不给或都给 400 `VALIDATION_FAILED`；开始绑定时第一次绑定可以都不给）
+      properties:
+        code:
+          type: string
+          maxLength: 20
+          description: 验证器上的 6 位动态码（可以带空格）
+        recovery_code:
+          type: string
+          maxLength: 40
+          description: 一次性恢复码（不分大小写，可以不带连字符）
+    MfaVerified:
+      type: object
+      additionalProperties: false
+      required: [ user, must_change_password, second_factor ]
+      properties:
+        user:
+          $ref: "#/components/schemas/PlatformUser"
+        must_change_password:
+          $ref: "#/components/schemas/MustChangePassword"
+        recovery_codes:
+          type: array
+          items:
+            type: string
+        second_factor:
+          type: object
+          additionalProperties: false
+          required: [ status, method, recovery_codes_remaining ]
+          properties:
+            status:
+              type: string
+              enum: [ verified ]
+            method:
+              type: string
+              enum: [ totp, recovery_code, enrollment ]
+            recovery_codes_remaining:
+              type: integer
+    IpAllowlist:
+      type: array
+      maxItems: 50
+      items:
+        type: string
+        maxLength: 64
+      description: IP 白名单：CIDR（IPv4 / IPv6，只写地址 = 单个地址；IPv4 映射的 IPv6 写法当作 IPv4）；返回的是规范写法；空 = 不限制
+    DataScopeIds:
+      type: object
+      additionalProperties: false
+      required: [ city_ids, channel_ids ]
+      description: 数据范围：null = 不限制；数组 = 只看这几个（ADR 0030）
+      properties:
+        city_ids:
+          type: [ array, "null" ]
+          items:
+            type: string
+            format: uuid
+        channel_ids:
+          type: [ array, "null" ]
+          items:
+            type: string
+            format: uuid
+    StaffMember:
+      type: object
+      additionalProperties: false
+      required: [ id, email, name, role, role_name, status, created_at, updated_at, mfa_enabled, mfa_enabled_at, ip_allowlist ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        mfa_enabled:
+          type: boolean
+          description: 是否已绑定两步验证
+        mfa_enabled_at:
+          type: [ string, "null" ]
+          format: date-time
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+    StaffDetail:
+      type: object
+      additionalProperties: false
+      description: 员工详情：`StaffMember` 的全部字段，加上角色的 IP 白名单、剩余恢复码数
+      required: [ id, email, name, role, role_name, status, created_at, updated_at, mfa_enabled, mfa_enabled_at, ip_allowlist, role_ip_allowlist, recovery_codes_remaining ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          $ref: "#/components/schemas/Email"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/RoleKey"
+        role_name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        mfa_enabled:
+          type: boolean
+        mfa_enabled_at:
+          type: [ string, "null" ]
+          format: date-time
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+        role_ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+        recovery_codes_remaining:
+          type: [ integer, "null" ]
+          description: 还剩几个恢复码；没绑定为 null
+    RoleInput:
+      type: object
+      additionalProperties: false
+      required: [ name, grants ]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        description:
+          type: [ string, "null" ]
+          maxLength: 500
+        grants:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+          description: 「菜单:操作」，如 `channels:edit`
+        data_scope:
+          type: object
+          additionalProperties: false
+          required: [ city_ids, channel_ids ]
+          properties:
+            city_ids:
+              type: [ array, "null" ]
+              items:
+                type: string
+                format: uuid
+            channel_ids:
+              type: [ array, "null" ]
+              items:
+                type: string
+                format: uuid
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+    RoleView:
+      type: object
+      additionalProperties: false
+      required: [ key, name, builtin, description, grants, permissions, data_scope, ip_allowlist, version, staff_count, created_at, updated_at ]
+      properties:
+        key:
+          $ref: "#/components/schemas/RoleKey"
+        name:
+          type: string
+        builtin:
+          type: boolean
+          description: 内置角色（只读模板）
+        description:
+          type: [ string, "null" ]
+        grants:
+          type: array
+          items:
+            type: string
+          description: 勾选的「菜单:操作」（内置角色由代码里的权限换算）
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformAction"
+        data_scope:
+          type: object
+          additionalProperties: false
+          required: [ city_ids, channel_ids, cities, channels ]
+          properties:
+            city_ids:
+              type: [ array, "null" ]
+              items:
+                type: string
+            channel_ids:
+              type: [ array, "null" ]
+              items:
+                type: string
+            cities:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamedRef"
+            channels:
+              type: array
+              items:
+                $ref: "#/components/schemas/NamedRef"
+        ip_allowlist:
+          $ref: "#/components/schemas/IpAllowlist"
+        version:
+          type: integer
+        staff_count:
+          type: integer
+          description: 用这个角色的账号数（含待激活、已停用）
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PricingImpactRequest:
+      description: 待提交的改动（和发起复核的入参同形；`request_note` 可以带，不用）
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [ kind, change ]
+          properties:
+            kind:
+              type: string
+              enum: [ channel.pricing ]
+            change:
+              $ref: "#/components/schemas/ChannelPricingChangeRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.create ]
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule_id, rule ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.update ]
+            rule_id:
+              type: string
+              format: uuid
+            rule:
+              $ref: "#/components/schemas/MarkupRuleRequest"
+        - type: object
+          additionalProperties: false
+          required: [ kind, rule_id ]
+          properties:
+            kind:
+              type: string
+              enum: [ markup_rule.delete ]
+            rule_id:
+              type: string
+              format: uuid
+    PricingImpactTotals:
+      type: object
+      additionalProperties: false
+      required: [ sell_minor, settlement_minor, margin_minor ]
+      description: 合计（渠道结算币种的最小货币单位）：对外价、结算价、毛利（= 对外价 − 结算价）
+      properties:
+        sell_minor:
+          type: integer
+        settlement_minor:
+          type: integer
+        margin_minor:
+          type: integer
+    PricingImpactSection:
+      type: object
+      additionalProperties: false
+      required: [ total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable ]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少个报价（每个车型组一个 quote_id）
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+    PricingImpactOrderSection:
+      type: object
+      additionalProperties: false
+      required: [ total, truncated, count, skipped, before, after, diff, winner_changed, min_margin_raised_before, min_margin_raised_after, became_unquotable, became_quotable, cancelled_with_fee, cancelled_free ]
+      properties:
+        total:
+          type: integer
+          description: 30 天里一共有多少张付过款的订单
+        truncated:
+          type: boolean
+          description: 超过了上限（各 100,000），只算了最近的那些
+        count:
+          type: integer
+          description: 计入了的个数（改前或改后至少一边报得出价；免费取消的订单不算）
+        skipped:
+          type: integer
+          description: 快照里缺了要用的汇率（M3-07 之前的报价）、没法重算的个数
+        before:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        after:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        diff:
+          $ref: "#/components/schemas/PricingImpactTotals"
+        winner_changed:
+          type: integer
+          description: 中标会换人的个数
+        min_margin_raised_before:
+          type: integer
+          description: 中标者的加价不足最低毛利、要补到最低毛利的个数（引擎不拦，按最低毛利补价）：按现在的规则
+        min_margin_raised_after:
+          type: integer
+          description: 同上，按改动后的规则
+        became_unquotable:
+          type: integer
+          description: 改前报得出、改后报不出的个数
+        became_quotable:
+          type: integer
+          description: 改前报不出、改后报得出的个数
+        cancelled_with_fee:
+          type: integer
+          description: 付过款后有偿取消、按扣款比例计入的单数（含在 count 里）
+        cancelled_free:
+          type: integer
+          description: 付过款后免费取消的单数（毛利为 0，不计入 count）
+    PricingImpact:
+      type: object
+      additionalProperties: false
+      required: [ computed_at, window_days, from, to, settle_currency, quotes, orders ]
+      description: |
+        近 30 天毛利试算（ADR 0033）。改前 = 按现在的规则重算，改后 = 按改动后的规则重算，差额 = 改后 − 改前；都重新选中标、用快照汇率。
+        **估算**：客人面对新价格还会不会下单无法知道。
+      properties:
+        computed_at:
+          type: string
+          format: date-time
+        window_days:
+          type: integer
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        settle_currency:
+          type: string
+          description: 金额的币种：渠道的结算币种
+        quotes:
+          $ref: "#/components/schemas/PricingImpactSection"
+        orders:
+          $ref: "#/components/schemas/PricingImpactOrderSection"
     ExceptionType:
       type: string
       enum: [ dispatch_overdue, departure_overdue, arrival_overdue, push_failed, no_show_review, extra_charge_review, fulfilment_unfinished, payment_issue, rescue ]
@@ -21247,10 +22722,7 @@ components:
     PlatformTicket:
       type: object
       additionalProperties: false
-      required:
-        [ id, ticket_no, type, source, created_by_type, created_by, order, tenant, parent_ticket_id, priority, subject, description, language, status, assignee_id, assigned_at,
-          first_response_due_at, first_responded_at, resolution_due_at, overdue, tenant_reply_requested_at, tenant_reply_due_at, tenant_replied_at, outcome, liable_party, decision_note,
-          decided_at, decided_by, approval_id, appeal_until, closed_at, closed_by, close_note, version, created_at, updated_at ]
+      required: [ id, ticket_no, type, source, created_by_type, created_by, order, tenant, parent_ticket_id, priority, subject, description, language, status, assignee_id, assigned_at, first_response_due_at, first_responded_at, resolution_due_at, overdue, tenant_reply_requested_at, tenant_reply_due_at, tenant_replied_at, outcome, liable_party, decision_note, decided_at, decided_by, approval_id, appeal_until, closed_at, closed_by, close_note, version, created_at, updated_at ]
       properties:
         id:
           type: string

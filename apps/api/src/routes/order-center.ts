@@ -40,8 +40,9 @@ import type { Deduction } from "../repos/rescues.ts";
 import type { Ticket, TicketCompensation, TicketMessage, TicketRow } from "../repos/tickets.ts";
 import { getCancellationPolicy } from "../services/cancellation-policy.ts";
 import { getCompensationTable, requestCompensationTableChange } from "../services/compensation-table.ts";
-import { claimException, closeException, getException, listExceptionsForPlatform } from "../services/exceptions.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { assertExceptionInScope, claimException, closeException, getException, listExceptionsForPlatform } from "../services/exceptions.ts";
+import { assertPlatformOrderInScope } from "../services/order-queries.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { resolveSiteLink, takeSiteSlot } from "../services/site.ts";
@@ -49,6 +50,7 @@ import { authenticateTenant } from "../services/tenant-auth.ts";
 import {
   type CompensationRequest,
   addPlatformMessage,
+  assertTicketInScope,
   assignTicket,
   closeTicket,
   createTicketForChannel,
@@ -379,12 +381,12 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   // ---- 异常队列 ----
 
   app.get("/platform/v1/exceptions", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(exceptionListSchema, request.query, "querystring");
     const now = ctx.now();
     const page = await listExceptionsForPlatform(
       ctx,
-      { status: query.status, type: query.type ?? null, assigneeId: query.assignee === "me" ? principal.user.id : (query.assignee ?? null), orderId: query.order_id ?? null, tenantId: query.tenant_id ?? null, overdue: query.overdue === "true", now },
+      { status: query.status, type: query.type ?? null, assigneeId: query.assignee === "me" ? principal.user.id : (query.assignee ?? null), orderId: query.order_id ?? null, tenantId: query.tenant_id ?? null, overdue: query.overdue === "true", now, scopeCityIds: principal.grant.scope.cityIds, scopeChannelIds: principal.grant.scope.channelIds },
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
     );
@@ -392,19 +394,22 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.get("/platform/v1/exceptions/:id", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    await assertExceptionInScope(ctx, principal.grant.scope, resourceId(request.params, "异常"));
     return { exception: exceptionJson(await getException(ctx, resourceId(request.params, "异常")), ctx.now()) };
   });
 
   app.post("/platform/v1/exceptions/:id/claim", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "exception.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "exception.manage" });
+    await assertExceptionInScope(ctx, principal.grant.scope, resourceId(request.params, "异常"));
     const exceptionId = resourceId(request.params, "异常");
     const input = parseInput(claimSchema, request.body ?? {}, "body");
     return { exception: exceptionJson(await claimException(ctx, principal, exceptionId, input.assignee_id, request.ip), ctx.now()) };
   });
 
   app.post("/platform/v1/exceptions/:id/close", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "exception.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "exception.manage" });
+    await assertExceptionInScope(ctx, principal.grant.scope, resourceId(request.params, "异常"));
     const exceptionId = resourceId(request.params, "异常");
     const input = parseInput(closeExceptionSchema, request.body, "body");
     return { exception: exceptionJson(await closeException(ctx, principal, exceptionId, input.resolution, request.ip), ctx.now()) };
@@ -413,7 +418,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   // ---- 赔付表 ----
 
   app.get("/platform/v1/compensation-table", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "master_data.read" });
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "master_data.read" });
     const table = await getCompensationTable(ctx);
     return {
       compensation_table: {
@@ -446,7 +451,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     .strict();
 
   app.post("/platform/v1/compensation-table/changes", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "compensation_table.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "compensation_table.manage" });
     const input = parseInput(tableChangeSchema, request.body, "body");
     const approval = await requestCompensationTableChange(
       ctx,
@@ -461,7 +466,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   // ---- 工单（运营后台） ----
 
   app.get("/platform/v1/tickets", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.read" });
     const query = parseInput(ticketListSchema, request.query, "querystring");
     const now = ctx.now();
     const page = await listTicketsForPlatform(
@@ -475,6 +480,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
         overdue: query.overdue === "true",
         q: query.q ?? null,
         now,
+        scopeCityIds: principal.grant.scope.cityIds,
+        scopeChannelIds: principal.grant.scope.channelIds,
       },
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
@@ -500,19 +507,22 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   };
 
   app.post("/platform/v1/tickets", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
     const input = parseInput(platformCreateSchema, request.body, "body");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, input.order_id);
     const ticket = await createTicketForPlatform(ctx, principal, { type: input.type, orderId: input.order_id, tenantId: input.tenant_id, source: input.source, priority: input.priority, subject: input.subject, description: input.description, language: input.language }, request.ip);
     return reply.code(201).send(await platformDetail(ticket.id, principal));
   });
 
   app.get("/platform/v1/tickets/:id", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.read" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     return platformDetail(resourceId(request.params, "工单"), principal);
   });
 
   app.post("/platform/v1/tickets/:id/assign", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(assignSchema, request.body ?? {}, "body");
     await assignTicket(ctx, principal, ticketId, input.assignee_id, request.ip);
@@ -520,7 +530,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/messages", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(platformMessageSchema, request.body, "body");
     await addPlatformMessage(ctx, principal, ticketId, { body: input.body, internal: input.internal }, request.ip);
@@ -528,7 +539,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/request-reply", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(requestReplySchema, request.body, "body");
     await requestTenantReply(ctx, principal, ticketId, input.body, request.ip);
@@ -536,7 +548,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/compensation-quote", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(compensationSchema, request.body, "body");
     const preview = await previewCompensation(ctx, ticketId, toCompensationRequest(input));
@@ -544,7 +557,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/decide", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(decideSchema, request.body, "body");
     const result = await decideTicket(ctx, principal, ticketId, { outcome: input.outcome, note: input.note, compensation: input.compensation === null ? null : toCompensationRequest(input.compensation), driverAbsent: input.driver_absent }, request.ip, request.log);
@@ -553,7 +567,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/close", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "ticket.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(closeTicketSchema, request.body, "body");
     await closeTicket(ctx, principal, ticketId, input.note, request.ip);
@@ -561,7 +576,8 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/tickets/:id/payout", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "payment.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "payment.manage" });
+    await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(payoutSchema, request.body, "body");
     await markCompensationPaid(ctx, principal, ticketId, input.reference, request.ip);

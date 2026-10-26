@@ -8,31 +8,66 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-height: 100dvh;
+  /* 官网的正文和控件文字一律 16px（01-tokens.md 第 3 节「官网的正文」；pages/site-booking.md 第 2 节） */
+  --control-font-size: var(--font-size-lg);
+  font-size: var(--font-size-lg);
 }
 
+/* 官网的字段标签、帮助文字、校验提示用 14px，不用后台的 13px */
+.site .field__label,
+.site .field__hint,
+.site .field__errors,
+.site .field__error,
+.site legend {
+  font-size: var(--font-size-md);
+}
+
+/* 官网的控件一律 lg 高度，下拉框和坐标输入框也一样（textarea 除外，它按行数撑高） */
+.site .input:not(.textarea) {
+  height: var(--control-height-lg);
+}
+
+/* 官网不用星号标必填：除了写着「（选填）」的，都要填（pages/site-booking.md 第 2.3 节） */
+.site .field__required {
+  display: none;
+}
+
+/*
+ * 顶栏（F10）：DOM 顺序是品牌、主题切换、入口。< 480px 品牌和主题切换在第一行两端、入口在第二行；
+ * ≥ 480px 一行，主题切换和入口一起靠右。Tab 顺序和看到的顺序一致。
+ */
 .site__header {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand theme"
+    "nav nav";
   gap: var(--space-2) var(--space-4);
   align-items: center;
-  justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   border-bottom: var(--border-width) solid var(--color-border-default);
   background: var(--color-bg-surface);
 }
 
 .site__brand {
+  grid-area: brand;
+  justify-self: start;
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 
+.site__theme {
+  grid-area: theme;
+  display: flex;
+}
+
 .site__nav {
+  grid-area: nav;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
-  margin-right: auto;
 }
 
 .site__nav-link {
@@ -40,6 +75,22 @@
   align-items: center;
   min-height: var(--control-height-md);
   color: var(--color-text-link);
+}
+
+/* 当前页的入口（F11）：正文色、加粗、粗下划线，不只靠颜色区分 */
+.site__nav-link[aria-current] {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+  text-decoration: underline;
+  text-decoration-thickness: var(--focus-ring-width);
+  text-underline-offset: var(--space-1);
+}
+
+@media (min-width: 480px) {
+  .site__header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand theme nav";
+  }
 }
 
 .site__main {
@@ -70,7 +121,7 @@
 
 .site-muted {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
 }
 
 .site-break {
@@ -89,7 +140,7 @@
 }
 
 .site-section__title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
 }
@@ -120,8 +171,9 @@
   background: var(--color-bg-surface);
 }
 
-.site-actions--inline {
+.site-actions.site-actions--inline {
   position: static;
+  background: transparent;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
@@ -160,7 +212,12 @@
   font-weight: var(--font-weight-bold);
 }
 
-.site-quote__price,
+.site-quote__price {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
 .site-price {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
@@ -191,7 +248,7 @@
 
 .site-facts__item > dt {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
 }
 
 .site-facts__item > dd {
@@ -212,6 +269,13 @@
 
 .site-order__no {
   overflow-wrap: anywhere;
+}
+
+/* 订单状态是客人进页面最先要看的：徽标比后台的大一号 */
+.site-order__head .badge {
+  height: auto;
+  min-height: 28px;
+  font-size: var(--font-size-md);
 }
 
 .site-share {
@@ -286,6 +350,10 @@
 
   .site-section {
     padding: var(--space-6);
+  }
+
+  .site__title {
+    font-size: var(--font-size-3xl);
   }
 
   .site-form__row,

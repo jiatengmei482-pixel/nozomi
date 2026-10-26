@@ -2,6 +2,7 @@
  * M1-10 测试角色补的组件测试：十个平台角色逐个的可见性、各接口各错误码、重复提交、供应商列表超过一页和上千家、
  * 审计日志里各种奇怪的值和被改坏的网址、系统状态不自动刷新。接口用测试替身；真实后端由 e2e/platform-tenants-qa.spec.ts 覆盖。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -22,8 +23,8 @@ const ME_ID = "11111111-1111-4111-8111-111111111111";
 const STAFF_ID = "22222222-2222-4222-8222-222222222222";
 const TOKEN = "nzi_QA-secret-token-0123456789abcdefghij";
 const tenantOf = (changes: Partial<Tenant> = {}): Tenant => ({ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps, ...changes });
-const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", status: "active", ...stamps, ...changes });
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
+const staffOf = (changes: Partial<PlatformUser> = {}): PlatformUser => ({ id: STAFF_ID, email: "sato@example.com", name: "佐藤 健", role: "operations", role_name: "运营", status: "active", ...stamps, ...changes });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const logOf = (changes: Partial<AuditLog> = {}): AuditLog => ({ id: "7", occurred_at: "2026-10-09T02:02:37.000Z", tenant_id: TENANT_ID, actor: { type: "platform_user", id: ME_ID, email: "kato@example.com" }, ip: "203.0.113.9", source: "console", resource: "tenant", resource_id: TENANT_ID, action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质到期" }, ...changes });
 const invite = { token: TOKEN, expires_at: "2026-10-16T05:30:00.000Z" };
 const uuidOf = (index: number): string => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
@@ -49,6 +50,7 @@ function open(path: string | { pathname: string; search?: string; state?: unknow
     if (found) return json(200, found);
     if (at.startsWith("/platform/v1/tenants/")) return apiError(404, "NOT_FOUND", "没有");
     if (at === "/platform/v1/staff") return json(200, { items: world.staff ?? [meOf(role), staffOf()], next_cursor: null });
+    if (at === "/platform/v1/roles") return json(200, { items: [] });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
     if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:•••@db:5432/nozomi" }, { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" }] });
     return null;

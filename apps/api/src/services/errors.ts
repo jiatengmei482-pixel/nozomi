@@ -1,6 +1,7 @@
 /** 登录和账号相关的业务错误。集中在这里，保证同一种情况在平台和租户两边的错误码、说明完全一致。 */
 import { PASSWORD_ISSUE_MESSAGES, type PasswordIssue, type StatusChangeError } from "@nozomi/domain";
 import { AppError } from "../errors.ts";
+import { validationFailed } from "../validation.ts";
 
 /** 邮箱不存在、密码错误、账号未激活共用这一个错误：从响应上分辨不出邮箱是否存在。 */
 export function invalidCredentials(): AppError {
@@ -133,4 +134,104 @@ export function masterDataInUse(message: string, activeCount: number): AppError 
 /** 它依赖的记录还没准备好（没指定城市、城市或上级已停用），不能启用或挂到它下面。 */
 export function masterDataNotReady(reason: string, message: string): AppError {
   return new AppError(409, "MASTER_DATA_NOT_READY", message, { reason });
+}
+
+// ---- 两步验证、IP 白名单、角色（M4-05，ADR 0030） ----
+
+/** 会话还没完成两步验证：除了查看自己、退出、两步验证本身，其余接口都先返回这个错误。`status` 告诉前端是去绑定还是去输入动态码。 */
+export function mfaRequired(status: "verify_required" | "enrollment_required"): AppError {
+  return new AppError(
+    403,
+    "MFA_REQUIRED",
+    status === "enrollment_required" ? "请先绑定两步验证，再继续使用" : "请先输入两步验证的动态码，再继续使用",
+    { status },
+  );
+}
+
+export function mfaCodeInvalid(): AppError {
+  return new AppError(400, "MFA_CODE_INVALID", "动态码或恢复码不正确");
+}
+
+export function mfaCodeReused(): AppError {
+  return new AppError(400, "MFA_CODE_REUSED", "这个动态码已经用过了，请等验证器上出现下一个再输入");
+}
+
+export function mfaCodeRequired(): AppError {
+  return new AppError(400, "MFA_CODE_REQUIRED", "要先输入现在的动态码（或一个恢复码）确认是本人");
+}
+
+export function mfaNotEnrolled(): AppError {
+  return new AppError(409, "MFA_NOT_ENROLLED", "这个账号还没有绑定两步验证，请先绑定");
+}
+
+export function mfaAlreadyEnrolled(): AppError {
+  return new AppError(409, "MFA_ALREADY_ENROLLED", "这个账号已经绑定了两步验证，请输入动态码登录；要换手机请登录后在个人页更换");
+}
+
+export function mfaAlreadyVerified(): AppError {
+  return new AppError(409, "MFA_ALREADY_VERIFIED", "这次登录已经通过了两步验证");
+}
+
+export function mfaEnrollmentNotStarted(): AppError {
+  return new AppError(409, "MFA_ENROLLMENT_NOT_STARTED", "绑定已过期或还没开始，请重新生成二维码");
+}
+
+export function mfaEncryptionNotConfigured(): AppError {
+  return new AppError(503, "MFA_ENCRYPTION_NOT_CONFIGURED", "平台还没有配置数据加密密钥（DATA_ENCRYPTION_KEY），现在不能绑定或验证两步验证。请联系技术人员");
+}
+
+/** 库里的密钥解不开（数据加密密钥被换过）：只能由管理员重置两步验证后重新绑定。 */
+export function mfaSecretUnavailable(): AppError {
+  return new AppError(503, "MFA_SECRET_UNAVAILABLE", "两步验证的密钥读取失败，请联系超级管理员重置你的两步验证后重新绑定");
+}
+
+export function mfaResetSelf(): AppError {
+  return new AppError(409, "MFA_RESET_SELF", "不能重置自己的两步验证：换手机请在个人页更换；手机和恢复码都丢了，请另一位超级管理员处理");
+}
+
+export function ipNotAllowed(): AppError {
+  return new AppError(403, "IP_NOT_ALLOWED", "当前网络地址不在这个账号允许的范围内，请在公司网络或指定的网络下登录，或联系超级管理员");
+}
+
+export function ipAllowlistInvalid(issues: readonly { index: number; value: string; reason: string; suggestion?: string }[]): AppError {
+  return new AppError(400, "IP_ALLOWLIST_INVALID", "IP 白名单里有写错的地址段", { issues });
+}
+
+/** 改了之后自己当前的地址就不在名单里了：不保存，免得把自己锁在门外。 */
+export function ipAllowlistExcludesCurrent(ip: string): AppError {
+  return new AppError(409, "IP_ALLOWLIST_EXCLUDES_CURRENT", "改了之后，你现在的网络地址就不在名单里了，保存后你会立即无法使用。请先把当前地址加进去", { current_ip: ip });
+}
+
+export function roleBuiltinReadonly(): AppError {
+  return new AppError(409, "ROLE_BUILTIN_READONLY", "内置角色是只读模板，不能修改或删除；可以复制它新建一个角色再改");
+}
+
+export function roleInUse(staffCount: number): AppError {
+  return new AppError(409, "ROLE_IN_USE", "还有账号在用这个角色，先把它们改成别的角色再删除", { staff_count: staffCount });
+}
+
+export function roleNameTaken(): AppError {
+  return new AppError(409, "ROLE_NAME_TAKEN", "已经有同名的角色");
+}
+
+export function roleGrantsInvalid(issues: readonly { grant: string; reason: string }[]): AppError {
+  return new AppError(400, "ROLE_GRANTS_INVALID", "勾选的权限有问题", { issues });
+}
+
+export function roleScopeInvalid(missing: { cityIds: readonly string[]; channelIds: readonly string[] }): AppError {
+  return new AppError(400, "ROLE_SCOPE_INVALID", "数据范围里有不存在的城市或渠道", { missing_city_ids: missing.cityIds, missing_channel_ids: missing.channelIds });
+}
+
+/** 给员工设的角色不存在：按参数校验错误返回（和渠道里「租户不存在」同一种写法）。 */
+export function roleNotFound(): AppError {
+  return validationFailed("body", [{ path: "/role", reason: "UNKNOWN_ROLE", message: "没有这个角色" }]);
+}
+
+export function ownRoleUnchangeable(): AppError {
+  return new AppError(409, "OWN_ROLE_UNCHANGEABLE", "不能修改自己的角色，请另一位超级管理员处理");
+}
+
+/** 限定了数据范围的人不能做的事（如新建渠道：新渠道不在他的范围里）。 */
+export function dataScopeDenied(): AppError {
+  return new AppError(403, "DATA_SCOPE_DENIED", "当前角色限定了数据范围，不能做这个操作");
 }

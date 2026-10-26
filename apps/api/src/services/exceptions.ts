@@ -6,7 +6,9 @@
  * - 处理：运营后台认领（不给人就是自己，也可以转给别人）、写处理说明后关闭（`exception.manage`），全部写审计日志。
  *   处理本身（催供应商、发起救援、重发推送、重试退款……）用订单上已有的操作；这里记谁在处理、什么结论。
  */
-import { exceptionActionRefusal } from "@nozomi/domain";
+import { type PlatformDataScope, exceptionActionRefusal, scopeIsRestricted } from "@nozomi/domain";
+import { findOrderOfTenant } from "../repos/orders.ts";
+import { orderInScope } from "./order-queries.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -35,6 +37,17 @@ export async function sweepExceptions(ctx: AppContext, log: OrderLog): Promise<E
   });
   for (const row of result.opened) log.warn({ event: "order.exception_opened", exceptionId: row.id, type: row.type, orderId: row.orderId, tenantId: row.tenantId }, "异常队列：新的异常");
   return { opened: result.opened.length, cleared: result.cleared.length, noShowTickets: result.noShowTickets };
+}
+
+/** 运营后台按异常编号操作之前：异常的订单不在这个人的数据范围里时和不存在一样（404，ADR 0030）。不限范围时不查。 */
+export async function assertExceptionInScope(ctx: AppContext, scope: PlatformDataScope, id: string): Promise<void> {
+  if (!scopeIsRestricted(scope)) return;
+  const visible = await withPlatformTx(ctx.pool, async (db) => {
+    const exception = await findException(db, id);
+    const order = exception === null ? null : await findOrderOfTenant(db, exception.tenantId, exception.orderId);
+    return order !== null && (await orderInScope(db, order, scope));
+  });
+  if (!visible) throw notFound("异常");
 }
 
 export async function listExceptionsForPlatform(ctx: AppContext, filter: ExceptionFilter, limit: number, after: TimeCursor | null): Promise<Page<ExceptionRow> & { total: number }> {

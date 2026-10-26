@@ -50,7 +50,10 @@ const overview = (query = ""): Promise<any> => ok(call("GET", "/platform/v1/fx-r
 const fetchNow = (token: string = root): Promise<ApiResponse> => call("POST", "/platform/v1/fx-rates/fetch", { token });
 const serve = (asOf: Date, rates: Record<string, string> = RATES): void => source.respond({ body: fxSourceBody({ asOf, rates }) });
 const owner = (sql: string, values: unknown[] = []): Promise<any> => api.db.owner.query(sql, values);
-const login = async (portal: "platform" | "tenant", email: string): Promise<string> => (await ok(api.call("POST", `/${portal}/v1/auth/login`, { body: { email, password: "Quiet-Harbor-2026" } }))).access_token;
+const login = async (portal: "platform" | "tenant", email: string): Promise<string> => {
+  const options = { body: { email, password: "Quiet-Harbor-2026" } };
+  return (await ok(portal === "platform" ? api.platformLogin(options) : api.call("POST", `/${portal}/v1/auth/login`, options))).access_token;
+};
 /** 时钟拨过 8 小时，令牌都过期了：重新登录 */
 async function advance(ms: number): Promise<void> {
   api.clock.advance(ms);
@@ -94,7 +97,7 @@ before(async () => {
     const invited = await api.call("POST", "/platform/v1/staff", { token: root, body: { email: `${key}@fx.test`, name: key, role } });
     assert.equal(invited.status, 201, invited.text);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: "Quiet-Harbor-2026" } }));
-    const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: `${key}@fx.test`, password: "Quiet-Harbor-2026" } }));
+    const login = await ok(api.platformLogin({ body: { email: `${key}@fx.test`, password: "Quiet-Harbor-2026" } }));
     if (key === "readonly") readonlyToken = login.access_token;
     else masterToken = login.access_token;
   }

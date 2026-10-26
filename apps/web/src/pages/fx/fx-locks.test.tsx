@@ -52,6 +52,7 @@ const approval = (overrides: Partial<Approval> = {}): Approval => ({
   decided_by: null,
   decided_at: null,
   decision_note: null,
+  impact: null,
   can: { approve: true, reject: true, withdraw: false },
   ...overrides,
 });

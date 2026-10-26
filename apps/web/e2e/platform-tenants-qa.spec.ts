@@ -6,7 +6,7 @@
  */
 import { type APIRequestContext, type Browser, type Page, type Request, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { activateTenant, adminCredentials, approveApproval, approverEmail, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, pendingApproval, platformAdminHeaders, suspendTenant, uniqueEmail } from "./support.ts";
+import { activateTenant, adminCredentials, approveApproval, approverEmail, clickLogin, createActiveTenant, createTemporaryPasswordAdmin, createTenant, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, pendingApproval, platformAdminHeaders, suspendTenant, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 type Headers = Record<string, string>;
@@ -118,7 +118,7 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   expect(page.url().includes(token), "设好密码后地址栏里不留令牌").toBe(false);
   expect(await page.evaluate((secret) => JSON.stringify(history.state ?? null).includes(secret) || document.body.innerHTML.includes(secret), token)).toBe(false);
   await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(portal === "tenant" ? "/" : "/platform");
   return { page, password };
@@ -658,6 +658,8 @@ test("只用键盘：从供应商列表走到「新建供应商 → 复制链接
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/platform\/settings\/staff$/);
   await expect(toast(page, `已邀请「${staffName}」`)).toBeVisible();
+  // 员工列表分页：CI 上管理员多（每个并行进程各有几个），新建的不一定在第一页，按邮箱搜
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(staffEmail)}`);
   await expect(page.getByRole("row").filter({ hasText: staffEmail })).toContainText("待激活");
 });
 

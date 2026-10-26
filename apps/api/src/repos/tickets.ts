@@ -210,6 +210,9 @@ export interface TicketFilter {
   /** 工单号、订单号 */
   q: string | null;
   now: Date;
+  /** 数据范围（ADR 0030）：只列这几个城市 / 渠道的订单的工单；null 或不给 = 不限制 */
+  scopeCityIds?: readonly string[] | null;
+  scopeChannelIds?: readonly string[] | null;
 }
 
 export interface TicketRow extends Ticket {
@@ -224,13 +227,15 @@ export async function listTickets(db: Db, filter: TicketFilter, limit: number, a
   const where = `($1::text is null or (case when $1 = 'active' then t.status = any($9::text[]) else t.status = $1 end))
     and ($2::text is null or t.type = $2) and ($3::uuid is null or t.tenant_id = $3) and ($4::uuid is null or t.order_id = $4) and ($5::uuid is null or t.assignee_id = $5)
     and (not $6::boolean or (t.status = any($9::text[]) and ((t.first_responded_at is null and t.first_response_due_at < $8) or t.resolution_due_at < $8)))
-    and ($7::text is null or t.ticket_no = $7 or o.order_no = $7)`;
-  const params = [filter.status, filter.type, filter.tenantId, filter.orderId, filter.assigneeId, filter.overdue, filter.q, filter.now, ACTIVE];
+    and ($7::text is null or t.ticket_no = $7 or o.order_no = $7)
+    and ($10::uuid[] is null or o.city_id = any($10::uuid[]))
+    and ($11::uuid[] is null or exists (select 1 from order_sales s where s.order_id = t.order_id and s.channel_id = any($11::uuid[])))`;
+  const params = [filter.status, filter.type, filter.tenantId, filter.orderId, filter.assigneeId, filter.overdue, filter.q, filter.now, ACTIVE, filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null];
   const from = "from tickets t join orders o on o.tenant_id = t.tenant_id and o.id = t.order_id join tenants tn on tn.id = t.tenant_id";
   const result = await db.query<Row>(
     `select ${COLUMNS}, o.order_no, tn.name as tenant_name, t.created_at::text as cursor_time ${from}
-      where ${where} and ($10::timestamptz is null or (t.created_at, t.id) < ($10::timestamptz, $11::uuid))
-      order by t.created_at desc, t.id desc limit $12`,
+      where ${where} and ($12::timestamptz is null or (t.created_at, t.id) < ($12::timestamptz, $13::uuid))
+      order by t.created_at desc, t.id desc limit $14`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n ${from} where ${where}`, params);

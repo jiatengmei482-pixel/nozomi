@@ -45,6 +45,7 @@ import { registerDispatchRoutes } from "./routes/dispatch.ts";
 import { registerDriverRoutes } from "./routes/driver.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
+import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -229,6 +230,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => tenantJobs.stop());
   }
   registerPlatformRoutes(app, context);
+  registerPlatformSecurityRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
   registerAreaRoutes(app, context);

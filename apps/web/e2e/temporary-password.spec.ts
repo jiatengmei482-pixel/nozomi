@@ -83,7 +83,8 @@ test("临时密码登录 → 被带到修改密码页 → 去别的地址都被�
   await expect(page, "刷新后仍在首页，不再被带去改密码").toHaveURL(/\/platform$/);
   await expect(page.getByRole("navigation", { name: "主菜单" })).toBeVisible();
   await page.getByRole("button", { name: /账号菜单/ }).click();
-  await expect(page.getByRole("menuitem")).toHaveText(["修改密码", "退出登录"]);
+  // 运营后台的账号菜单另有「账号安全」（两步验证，ADR 0030）
+  await expect(page.getByRole("menuitem")).toHaveText(["账号安全", "修改密码", "退出登录"]);
   await page.getByRole("menuitem", { name: "修改密码" }).click();
   await expect(page.getByLabel("当前密码"), "改完之后修改密码页恢复平常的样子").toBeVisible();
   await expect(page.getByText(WARNING)).toHaveCount(0);

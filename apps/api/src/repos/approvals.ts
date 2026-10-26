@@ -28,6 +28,8 @@ export interface Approval {
   decidedBy: PersonRef | null;
   decidedAt: Date | null;
   decisionNote: string | null;
+  /** 发起时保存的试算结果（M3-07，ADR 0033：改定价参数、加价规则的复核才有） */
+  impact: AuditValues | null;
 }
 
 interface ApprovalRow {
@@ -50,11 +52,12 @@ interface ApprovalRow {
   decider_email: string | null;
   decided_at: Date | null;
   decision_note: string | null;
+  impact: AuditValues | null;
 }
 
 const COLUMNS = `a.id, a.kind, a.resource, a.resource_id, a.summary, a.payload, a.before, a.base_version, a.status,
   a.requested_by, r.name as requester_name, r.email as requester_email, a.requested_at, a.request_note,
-  a.decided_by, d.name as decider_name, d.email as decider_email, a.decided_at, a.decision_note`;
+  a.decided_by, d.name as decider_name, d.email as decider_email, a.decided_at, a.decision_note, a.impact`;
 const FROM = "approvals a join platform_users r on r.id = a.requested_by left join platform_users d on d.id = a.decided_by";
 
 function toApproval(row: ApprovalRow): Approval {
@@ -74,6 +77,7 @@ function toApproval(row: ApprovalRow): Approval {
     decidedBy: row.decided_by === null ? null : { id: row.decided_by, name: row.decider_name ?? "", email: row.decider_email ?? "" },
     decidedAt: row.decided_at,
     decisionNote: row.decision_note,
+    impact: row.impact,
   };
 }
 
@@ -87,14 +91,15 @@ export interface NewApproval {
   baseVersion: number | null;
   requestedBy: string;
   requestNote: string | null;
+  impact?: AuditValues | null;
   now: Date;
 }
 
 export async function insertApproval(db: Db, input: NewApproval): Promise<string> {
   const result = await db.query<{ id: string }>(
-    `insert into approvals (kind, resource, resource_id, summary, payload, before, base_version, requested_by, requested_at, request_note)
-     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10) returning id`,
-    [input.kind, input.resource, input.resourceId, input.summary, JSON.stringify(input.payload), input.before === null ? null : JSON.stringify(input.before), input.baseVersion, input.requestedBy, input.now, input.requestNote],
+    `insert into approvals (kind, resource, resource_id, summary, payload, before, base_version, requested_by, requested_at, request_note, impact)
+     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::jsonb) returning id`,
+    [input.kind, input.resource, input.resourceId, input.summary, JSON.stringify(input.payload), input.before === null ? null : JSON.stringify(input.before), input.baseVersion, input.requestedBy, input.now, input.requestNote, input.impact === undefined || input.impact === null ? null : JSON.stringify(input.impact)],
   );
   return (result.rows[0] as { id: string }).id;
 }
@@ -116,16 +121,31 @@ export interface ApprovalFilter {
   kinds: readonly string[];
   resource: string | null;
   resourceId: string | null;
+  /**
+   * 数据范围（ADR 0030）：这几类的对象编号（`resource_id`）是渠道编号，只列 `channelIds` 里的；`channelIds` 为 null 不限制。
+   */
+  channelScopedKinds?: readonly string[];
+  channelIds?: readonly string[] | null;
+  /**
+   * 数据范围（ADR 0030）：这几类针对一张订单（`payload.order_id`），只列订单的城市在 `cityIds`、渠道在 `channelIds` 里的；两个都为 null 不限制。
+   */
+  orderScopedKinds?: readonly string[];
+  cityIds?: readonly string[] | null;
 }
 
 /** 按发起时间从新到旧；带 `total`。 */
 export async function listApprovals(db: Db, filter: ApprovalFilter, limit: number, after: TimeCursor | null): Promise<Page<Approval> & { total: number }> {
-  const where = "a.kind = any($1::text[]) and ($2::text is null or a.status = $2) and ($3::text is null or a.resource = $3) and ($4::text is null or a.resource_id = $4)";
-  const params = [filter.kinds, filter.status, filter.resource, filter.resourceId];
+  const where =
+    "a.kind = any($1::text[]) and ($2::text is null or a.status = $2) and ($3::text is null or a.resource = $3) and ($4::text is null or a.resource_id = $4)" +
+    " and ($6::text[] is null or not (a.kind = any($5::text[])) or a.resource_id = any($6::text[]))" +
+    " and (($6::text[] is null and $8::uuid[] is null) or not (a.kind = any($7::text[])) or exists (" +
+    "select 1 from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where o.id::text = a.payload->>'order_id'" +
+    " and ($8::uuid[] is null or o.city_id = any($8::uuid[])) and ($6::text[] is null or s.channel_id::text = any($6::text[]))))";
+  const params = [filter.kinds, filter.status, filter.resource, filter.resourceId, filter.channelScopedKinds ?? [], filter.channelIds ?? null, filter.orderScopedKinds ?? [], filter.cityIds ?? null];
   const result = await db.query<ApprovalRow & { cursor_time: string }>(
     `select ${COLUMNS}, a.requested_at::text as cursor_time from ${FROM}
-      where ${where} and ($5::timestamptz is null or (a.requested_at, a.id) < ($5::timestamptz, $6::uuid))
-      order by a.requested_at desc, a.id desc limit $7`,
+      where ${where} and ($9::timestamptz is null or (a.requested_at, a.id) < ($9::timestamptz, $10::uuid))
+      order by a.requested_at desc, a.id desc limit $11`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from approvals a where ${where}`, params);

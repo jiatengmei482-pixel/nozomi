@@ -21,7 +21,7 @@ import type { WebhookDelivery } from "../repos/webhooks.ts";
 import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type OrderFulfilmentRecords, getOrderFile, getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
@@ -228,14 +228,15 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   app.get("/platform/v1/orders/:id/files/:fileId", async (request, reply) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
-    const file = await getOrderFile(ctx, "platform", resourceId(request.params, "订单"), fileIdOf(request.params));
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    const file = await getOrderFile(ctx, { platform: principal.grant.scope }, resourceId(request.params, "订单"), fileIdOf(request.params));
     return sendFile(reply, file);
   });
 
   app.get("/platform/v1/orders", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(platformListSchema, request.query, "querystring");
+    const scope = principal.grant.scope;
     const page = await listOrdersForPlatform(
       ctx,
       {
@@ -251,6 +252,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
         category: query.category ?? null,
         exception: query.exception ?? null,
         passenger: query.passenger ?? null,
+        scopeCityIds: scope.cityIds,
+        scopeChannelIds: scope.channelIds,
       },
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
@@ -260,8 +263,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   });
 
   app.get("/platform/v1/orders/:id", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
-    const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"));
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"), principal.grant.scope);
     const now = ctx.now();
     return {
       order: platformOrderJson(found, now),

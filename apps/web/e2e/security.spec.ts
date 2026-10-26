@@ -39,6 +39,8 @@ async function signOut(page: Page): Promise<void> {
 }
 
 test("邀请令牌、访问令牌、密码：不进任何请求的网址和 Referer，不进 localStorage 和 Cookie；全程不请求站外", async ({ page, request, context, baseURL }) => {
+  // 平台登录多了两步验证这一步，整条流程比原来的 60 秒上限长
+  test.setTimeout(120_000);
   const origin = new URL(baseURL ?? "").origin;
   const tenant = await createTenant(request);
   const password = newPassword();

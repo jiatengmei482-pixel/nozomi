@@ -232,7 +232,9 @@ async function cancelOrder(ctx: AppContext, request: CancelRequest, log: OrderLo
   const after = await withPlatformTx(ctx.pool, async (db): Promise<OrderRefund[] | null> => {
     const now = ctx.now();
     if (paid.status === "succeeded") {
-      // 客人在最后一刻付了款：先确认，再按付款后的规则取消
+      // 客人在最后一刻付了款：先确认，再按付款后的规则取消。
+      // 加锁的顺序和付款通知、超时取消一样：先订单、后收款记录——反过来的话和同时到的付款通知互相等，数据库判死锁放弃其中一个（409 CONCURRENT_UPDATE）
+      await findOrderForPlatform(db, request.orderId, { lock: true });
       const record = await findOrderPayment(db, request.orderId, { lock: true });
       if (record !== null) await confirmPaidOrder(db, record, paid, "payment", now, log);
       const order = (await findOrderForPlatform(db, request.orderId, { lock: true })) as Order;
@@ -307,6 +309,8 @@ export const ORDER_CANCEL_REFUND: ApprovalKind = {
   readAction: "order.read",
   requestAction: "order.manage",
   reviewAction: "payment.manage",
+  // 对象是订单：限定了数据范围的人只看得到、审得了范围内订单的（ADR 0030）
+  orderScoped: true,
   async apply(db, approval, origin) {
     const payload = approval.payload;
     const orderId = payload["order_id"] as string;

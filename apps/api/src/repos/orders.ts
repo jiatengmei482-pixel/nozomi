@@ -642,6 +642,9 @@ export interface PlatformOrderFilter {
   category?: string | null;
   exception?: "open" | "none" | null;
   passenger?: string | null;
+  /** 数据范围（ADR 0030）：只列这几个城市 / 渠道的；null 或不给 = 不限制 */
+  scopeCityIds?: readonly string[] | null;
+  scopeChannelIds?: readonly string[] | null;
 }
 
 export interface PlatformOrderRow {
@@ -661,15 +664,16 @@ export async function listPlatformOrders(db: Db, filter: PlatformOrderFilter, li
     and ($5::date is null or o.service_date >= $5) and ($6::date is null or o.service_date <= $6) and ($7::timestamptz is null or o.created_at >= $7) and ($8::timestamptz is null or o.created_at < $8)
     and ($9::uuid is null or o.city_id = $9) and ($10::text is null or o.category = $10)
     and ($11::text is null or ($11 = 'open') = exists (select 1 from order_exceptions e where e.order_id = o.id and e.status <> 'closed'))
-    and ($12::text is null or strpos(lower(o.passenger ->> 'name'), lower($12)) > 0 or ($13::text <> '' and strpos(regexp_replace(o.passenger ->> 'phone', '\\D', '', 'g'), $13) > 0))`;
+    and ($12::text is null or strpos(lower(o.passenger ->> 'name'), lower($12)) > 0 or ($13::text <> '' and strpos(regexp_replace(o.passenger ->> 'phone', '\\D', '', 'g'), $13) > 0))
+    and ($14::uuid[] is null or o.city_id = any($14::uuid[])) and ($15::uuid[] is null or s.channel_id = any($15::uuid[]))`;
   const params = [
     filter.status, filter.tenantId, filter.channelId, filter.q, filter.serviceFrom ?? null, filter.serviceTo ?? null, filter.createdFrom ?? null, filter.createdTo ?? null,
-    filter.cityId ?? null, filter.category ?? null, filter.exception ?? null, passenger, phoneDigits,
+    filter.cityId ?? null, filter.category ?? null, filter.exception ?? null, passenger, phoneDigits, filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null,
   ];
   const result = await db.query<Row>(
     `select ${ORDER_COLUMNS}, o.created_at::text as cursor_time from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id
-      where ${where} and ($14::timestamptz is null or (o.created_at, o.id) < ($14::timestamptz, $15::uuid))
-      order by o.created_at desc, o.id desc limit $16`,
+      where ${where} and ($16::timestamptz is null or (o.created_at, o.id) < ($16::timestamptz, $17::uuid))
+      order by o.created_at desc, o.id desc limit $18`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where ${where}`, params);

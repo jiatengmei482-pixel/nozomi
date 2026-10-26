@@ -15,6 +15,7 @@ import {
   type CurrencyCode,
   type FxQuote,
   type LiableParty,
+  type PlatformDataScope,
   TICKET_RULES,
   type TicketOutcome,
   type TicketPriority,
@@ -31,6 +32,7 @@ import {
   minimumCompensationMinor,
   outcomeNeedsCompensation,
   resolutionDueAt,
+  scopeIsRestricted,
   serviceEnd,
   tenantReplyDueAt,
   ticketActive,
@@ -83,6 +85,7 @@ import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { cancelPaidOrderInTx } from "./cancellations.ts";
 import { notFound } from "./errors.ts";
 import { recordStatusChange } from "./fulfilment.ts";
+import { orderInScope } from "./order-queries.ts";
 import { netPaidMinor, processRefunds, scheduleRefund } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -259,6 +262,19 @@ export async function createNoShowReviewTickets(db: Db, now: Date): Promise<numb
 }
 
 // ---- 查看 ----
+
+/**
+ * 运营后台按工单编号操作之前：工单的订单不在这个人的数据范围里（城市、渠道，ADR 0030）时和不存在一样（404）。不限范围时不查。
+ */
+export async function assertTicketInScope(ctx: AppContext, scope: PlatformDataScope, id: string): Promise<void> {
+  if (!scopeIsRestricted(scope)) return;
+  const visible = await withPlatformTx(ctx.pool, async (db) => {
+    const ticket = await findTicket(db, id);
+    const order = ticket === null ? null : await findOrderOfTenant(db, ticket.tenantId, ticket.orderId);
+    return order !== null && (await orderInScope(db, order, scope));
+  });
+  if (!visible) throw notFound("工单");
+}
 
 export async function listTicketsForPlatform(ctx: AppContext, filter: TicketFilter, limit: number, after: TimeCursor | null): Promise<Page<TicketRow> & { total: number }> {
   return withPlatformTx(ctx.pool, (db) => listTickets(db, filter, limit, after), { snapshot: true });
@@ -572,6 +588,7 @@ function decisionPayload(ticket: Ticket, input: DecisionInput, minimumFx: FxQuot
   return {
     ticket_id: ticket.id,
     ticket_no: ticket.ticketNo,
+    order_id: ticket.orderId,
     tenant_id: ticket.tenantId,
     outcome: input.outcome,
     note: input.note,
@@ -838,6 +855,8 @@ export const TICKET_DECISION: ApprovalKind = {
   readAction: "ticket.read",
   requestAction: "ticket.manage",
   reviewAction: "ticket.review",
+  // 数据范围（ADR 0030）：按工单的订单（`payload.order_id`）的城市、渠道
+  orderScoped: true,
   async apply(db, approval, origin) {
     const ticket = await lockTicket(db, approval.resourceId);
     if (ticket.status !== "pending_review" || ticket.approvalId !== approval.id || ticket.version !== approval.baseVersion) {

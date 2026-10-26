@@ -16,10 +16,10 @@ export interface SiteApi {
   close(): Promise<void>;
 }
 
-/** 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe。 */
-export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null): Promise<SiteApi> {
+/** 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe；`env` 是额外的配置项（如客服电话）。 */
+export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}): Promise<SiteApi> {
   const app = buildApp({
-    config: loadConfig({ ...testEnv(api.db.url), ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }) }),
+    config: loadConfig({ ...testEnv(api.db.url), ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }), ...env }),
     pool: api.db.pool,
     migrationFiles: await loadMigrationFiles(),
     now: api.clock.now,

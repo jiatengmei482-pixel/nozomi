@@ -164,6 +164,9 @@ export interface ExceptionFilter {
   /** 只看过了时限的 */
   overdue: boolean;
   now: Date;
+  /** 数据范围（ADR 0030）：只列这几个城市 / 渠道的订单的异常；null 或不给 = 不限制 */
+  scopeCityIds?: readonly string[] | null;
+  scopeChannelIds?: readonly string[] | null;
 }
 
 export interface ExceptionRow extends OrderException {
@@ -178,8 +181,11 @@ export interface ExceptionRow extends OrderException {
  */
 export async function listExceptions(db: Db, filter: ExceptionFilter, limit: number, after: TimeCursor | null): Promise<Page<ExceptionRow> & { total: number }> {
   const where = `(case when $1 = 'active' then e.status <> 'closed' else e.status = $1 end) and ($2::text is null or e.type = $2) and ($3::uuid is null or e.assignee_id = $3)
-    and ($4::uuid is null or e.order_id = $4) and ($5::uuid is null or e.supplier_tenant_id = $5) and (not $6::boolean or (e.status <> 'closed' and e.due_at < $7))`;
+    and ($4::uuid is null or e.order_id = $4) and ($5::uuid is null or e.supplier_tenant_id = $5) and (not $6::boolean or (e.status <> 'closed' and e.due_at < $7))
+    and ($11::uuid[] is null or o.city_id = any($11::uuid[]))
+    and ($12::uuid[] is null or exists (select 1 from order_sales s where s.order_id = e.order_id and s.channel_id = any($12::uuid[])))`;
   const params = [filter.status, filter.type, filter.assigneeId, filter.orderId, filter.tenantId, filter.overdue, filter.now];
+  const scopeParams = [filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null];
   const closed = filter.status === "closed";
   const sortKey = closed ? "e.closed_at" : "e.due_at";
   const from = "from order_exceptions e join orders o on o.tenant_id = e.supplier_tenant_id and o.id = e.order_id join tenants t on t.id = e.supplier_tenant_id left join platform_users u on u.id = e.assignee_id";
@@ -188,9 +194,9 @@ export async function listExceptions(db: Db, filter: ExceptionFilter, limit: num
     `select ${COLUMNS}, o.order_no, o.service_at, t.name as tenant_name, u.name as assignee_name, ${sortKey}::text as cursor_time ${from}
       where ${where} and ($8::timestamptz is null or ${cursorCondition})
       order by ${sortKey} ${closed ? "desc" : "asc"}, e.id ${closed ? "desc" : "asc"} limit $10`,
-    [...params, after?.t ?? null, after?.id ?? null, limit + 1],
+    [...params, after?.t ?? null, after?.id ?? null, limit + 1, ...scopeParams],
   );
-  const total = await db.query<{ n: number }>(`select count(*)::int as n ${from} where ${where}`, params);
+  const total = await db.query<{ n: number }>(`select count(*)::int as n ${from} where ${where.replaceAll("$11", "$8").replaceAll("$12", "$9")}`, [...params, ...scopeParams]);
   const page = toPage(
     result.rows,
     limit,

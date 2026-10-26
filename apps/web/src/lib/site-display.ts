@@ -3,12 +3,60 @@
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
 import { type ExtraChargeStatus, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays } from "@nozomi/domain";
-import type { SiteOrder, SiteUnavailableReason } from "../api/site.ts";
+import type { CancelTier } from "../api/order-money.ts";
+import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
 export const SITE_HOME_PATH = "/book";
 export const SITE_CHECKOUT_PATH = "/book/checkout";
 export const SITE_ORDER_PATH = "/book/order";
+
+/** 客人看到的服务名称（M3-10）。 */
+export const SITE_CATEGORY_NAMES: Readonly<Record<SiteCategory, string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
+
+/** 选服务时每种服务下面的一句说明。 */
+export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
+  airport_transfer: "机场和酒店、地址之间",
+  point_to_point: "市内两个地点之间",
+  charter: "按小时包一辆车，司机全程陪同",
+};
+
+/** 价格包含什么（询价结果上方的一句）：包车的高速费、停车费和超出套餐的部分服务后按实际收（加收的类型只有包车有这几项）。 */
+export function priceNote(category: SiteCategory): string {
+  return category === "charter"
+    ? "按车计价的套餐价。超出套餐的时长和公里、高速费、停车费服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"
+    : "按车计价的一口价，已含高速费和停车费。";
+}
+
+/** 一单要客人写哪几端的地址：接送机只写机场之外的那一端；点对点两端；包车只写上车点。 */
+export function addressEnds(category: SiteCategory, direction: SiteDirection | null): ("pickup" | "dropoff")[] {
+  if (category === "point_to_point") return ["pickup", "dropoff"];
+  if (category === "charter") return ["pickup"];
+  return direction === "pickup" ? ["dropoff"] : ["pickup"];
+}
+
+/** 地址那一栏的名字：接送机、点对点都按上车 / 下车说。 */
+export const ADDRESS_LABELS: Readonly<Record<"pickup" | "dropoff", string>> = { pickup: "上车地址或酒店名", dropoff: "下车地址或酒店名" };
+
+/** 用车时间那两栏的名字：接机填的是航班的计划到达时间。 */
+export function serviceTimeLabels(category: SiteCategory, direction: SiteDirection | null): { date: string; time: string; fact: string } {
+  return category === "airport_transfer" && direction === "pickup"
+    ? { date: "航班到达日期（当地）", time: "航班计划到达时间（当地）", fact: "航班计划到达" }
+    : { date: "用车日期（当地）", time: "上车时间（当地）", fact: "上车时间" };
+}
+
+/** 免费等待从什么时候算：只有接机从航班落地算。 */
+export function freeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
+  if (minutes === null) return "不限时";
+  return `${minutes} 分钟（${category === "airport_transfer" && direction === "pickup" ? "从航班落地起算" : "从约定的上车时间起算"}）`;
+}
+
+/** 包车套餐的说法：`8 小时，含 150 公里`；公里数不知道时只说时长。 */
+export function packageText(hours: number, km: number | null): string {
+  return km === null ? `${hours} 小时` : `${hours} 小时，含 ${countText(km)} 公里`;
+}
+
+export const SITE_PLACE_TYPE_NAMES: Readonly<Record<SitePlace["type"], string>> = { airport: "机场", station: "车站", poi: "地标" };
 
 /** 订单页的地址：令牌在 `#` 后面，不会发给服务器、不进访问日志。 */
 export function siteOrderUrl(token: string): string {
@@ -67,7 +115,7 @@ export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
 
 /** 报不出价的原因：告诉客人可以怎么改。 */
 export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, string>> = {
-  NO_PRODUCT: "这个机场暂时没有可预订的车。",
+  NO_PRODUCT: "这里暂时没有这种服务可预订，请换一种服务或换一个城市。",
   OUT_OF_SERVICE_AREA: "这个地址不在服务范围内，请换一个更靠近市区的地址。",
   LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
   SOLD_OUT: "这一天已经订满了，请换一天。",
@@ -151,3 +199,80 @@ export const GUEST_CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, Badg
   failed: { tone: "danger", label: "没有改成" },
   cancelled: { tone: "neutral", label: "已作废" },
 };
+
+/** 基点写成百分数（只用于显示，整数运算）：`5000` → `50%`，`1250` → `12.5%`。 */
+function percentOfBp(bp: number): string {
+  const whole = Math.trunc(bp / 100);
+  const rest = String(bp % 100).padStart(2, "0").replace(/0+$/, "");
+  return `${whole}${rest === "" ? "" : `.${rest}`}%`;
+}
+
+/**
+ * 客人看的取消政策（pages/site-booking.md 第 11 节 F7）：不用 ≥ < 符号、不说「扣 100%」。
+ * 「用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额」。每档是「离用车不少于 N 小时」，后一档的上限是前一档的下限。
+ */
+export function guestCancelPolicyText(tiers: readonly CancelTier[]): string {
+  return tiers
+    .map((tier, index) => {
+      const upper = index === 0 ? null : (tiers[index - 1] as CancelTier).min_hours_before;
+      const when = upper === null ? (tier.min_hours_before === 0 ? "任何时候取消" : `用车前 ${tier.min_hours_before} 小时以上取消`) : tier.min_hours_before === 0 ? `${upper} 小时内取消` : `${tier.min_hours_before}–${upper} 小时内取消`;
+      const fee = tier.fee_bp === 0 ? "免费" : tier.fee_bp >= 10_000 ? "收全额" : `收 ${percentOfBp(tier.fee_bp)}`;
+      return `${when}${fee}`;
+    })
+    .join("；");
+}
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+
+/**
+ * 客人看的日期时间（F8）：城市当地的 `YYYY-MM-DDTHH:mm` 写成「10月26日（周一）17:45」；不在当地今年的带上年份「2027年1月3日（周日）09:00」。
+ * 「当地时间」由调用处写在前面或后面。
+ */
+export function guestLocalText(local: string, timeZone: string, now: Date): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(local);
+  if (match === null) return local;
+  const [, year = "", month = "", day = "", time = ""] = match;
+  const weekday = WEEKDAYS[new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay()] as string;
+  const thisYear = localDateTimeIn(timeZone, now).slice(0, 4);
+  return `${year === thisYear ? "" : `${year}年`}${Number(month)}月${Number(day)}日（${weekday}）${time}`;
+}
+
+/** 某个时刻在城市当地的客人说法（见 guestLocalText）；没有时刻时写「—」。 */
+export function guestInstantText(iso: string | null, timeZone: string, now: Date): string {
+  if (iso === null) return "—";
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? "—" : guestLocalText(localDateTimeIn(timeZone, at), timeZone, now);
+}
+
+/** 十进制金额字符串按数值比较（不经浮点）：小数位补齐后当整数比。 */
+function compareDecimal(a: string, b: string): number {
+  const [aWhole = "0", aFraction = ""] = a.split(".");
+  const [bWhole = "0", bFraction = ""] = b.split(".");
+  const digits = Math.max(aFraction.length, bFraction.length);
+  const diff = BigInt(`${aWhole}${aFraction.padEnd(digits, "0")}`) - BigInt(`${bWhole}${bFraction.padEnd(digits, "0")}`);
+  return diff < 0n ? -1 : diff > 0n ? 1 : 0;
+}
+
+/** 报价按总价从低到高（F6）；同价保持接口的顺序。同一次询价的报价是同一个币种。 */
+export function quotesByTotal(quotes: readonly SiteQuote[]): SiteQuote[] {
+  return [...quotes].sort((a, b) => compareDecimal(a.price.total.amount, b.price.total.amount));
+}
+
+/** 订单页上的区块（F1）：默认的先后顺序。 */
+export const ORDER_SECTION_ORDER = ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "help"] as const;
+export type OrderSectionKey = "payment" | (typeof ORDER_SECTION_ORDER)[number];
+
+/**
+ * 客人进来要做的那件事（pages/site-booking.md 5.1）：待付款 → 付款；「我已落地」能点 → 航班落地；有还在异议期内的服务后费用 → 服务后的费用；其他 → 行程。
+ */
+export function primaryOrderSection(order: Pick<SiteOrder, "status" | "landing" | "extra_charges">, now: Date): OrderSectionKey {
+  if (order.status === "pending_payment") return "payment";
+  if (landingAvailability(order, now).kind === "open") return "landing";
+  if (order.extra_charges.some((charge) => charge.dispute_open)) return "charges";
+  return "trip";
+}
+
+/** 区块的先后：排第一的那块放最前，其余按默认顺序。付款区块只在待付款时有，总在第一。 */
+export function orderSectionSequence(primary: OrderSectionKey): OrderSectionKey[] {
+  return [primary, ...ORDER_SECTION_ORDER.filter((key) => key !== primary)];
+}

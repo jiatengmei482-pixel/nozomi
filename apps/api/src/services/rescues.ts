@@ -22,6 +22,7 @@ import {
   type CurrencyCode,
   type FxQuote,
   type OrderStatus,
+  type PlatformDataScope,
   type QuoteRequest,
   RESCUE_RULES,
   RESCUE_TRIGGER_NAMES,
@@ -37,7 +38,10 @@ import {
   type TenantStatus,
   tenantCanRescue,
   tenantOutOfService,
+  UNRESTRICTED_SCOPE,
+  scopeIsRestricted,
 } from "@nozomi/domain";
+import { orderInScope } from "./order-queries.ts";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -814,6 +818,8 @@ export const RESCUE_MANUAL_ASSIGN: ApprovalKind = {
   readAction: "order.read",
   requestAction: "rescue.manage",
   reviewAction: "rescue.review",
+  // 针对一张订单（payload.order_id）：限定了数据范围的人只看得到、审得了范围内订单的（ADR 0030）
+  orderScoped: true,
   async apply(db, approval, origin) {
     const payload = approval.payload;
     const orderId = payload["order_id"] as string;
@@ -982,17 +988,31 @@ export interface RescueQueue {
 }
 
 /** 运营后台的救援队列：没有结论的救援（或最近有结论的）、司机未到的提醒、暂停中还有未来订单的供应商。 */
-export async function rescueQueue(ctx: AppContext, state: "open" | "closed"): Promise<RescueQueue> {
+/**
+ * 数据范围（ADR 0030）：限定了范围的人只看到订单在范围内的救援和提醒；「暂停中还有未来订单的供应商」一组不给
+ * （那是按供应商批量发起用的，限定了范围的人做不了，见 `rescueSuspendedTenantForPlatform` 的接口）。
+ */
+export async function rescueQueue(ctx: AppContext, state: "open" | "closed", scope: PlatformDataScope = UNRESTRICTED_SCOPE): Promise<RescueQueue> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
+      const restricted = scopeIsRestricted(scope);
+      const visible = async <T>(list: readonly T[], orderOf: (entry: T) => Promise<Order | null>): Promise<T[]> => {
+        if (!restricted) return [...list];
+        const out: T[] = [];
+        for (const entry of list) {
+          const order = await orderOf(entry);
+          if (order !== null && (await orderInScope(db, order, scope))) out.push(entry);
+        }
+        return out;
+      };
       const rescues = await listRescues(db, { state, limit: 200 });
-      const alerts = state === "open" ? await listDriverAlerts(db, 200) : [];
+      const alerts = await visible(state === "open" ? await listDriverAlerts(db, 200) : [], (alert) => findOrderForPlatform(db, alert.id));
       const names = new Map((await db.query<{ id: string; name: string }>("select id, name from tenants where id = any($1::uuid[])", [[...new Set(alerts.map((alert) => alert.tenantId))]])).rows.map((row) => [row.id, row.name]));
       return {
-        items: await platformRescueViews(db, rescues),
+        items: await visible(await platformRescueViews(db, rescues), async (view) => view.order),
         alerts: alerts.map((alert) => ({ ...alert, tenantName: names.get(alert.tenantId) ?? "" })),
-        suspendedTenants: state === "open" ? await listSuspendedTenantsWithFutureOrders(db, ctx.now()) : [],
+        suspendedTenants: state === "open" && !restricted ? await listSuspendedTenantsWithFutureOrders(db, ctx.now()) : [],
       };
     },
     { snapshot: true },

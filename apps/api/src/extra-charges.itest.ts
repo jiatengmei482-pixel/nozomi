@@ -100,7 +100,8 @@ test("提交：只有已完成的单、服务结束 24 小时内（正好 24 小
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m.b.adminEmail) }));
   assert.deepEqual(tenant.extra_charges.map((item: any) => item.amount.amount), ["2000", "1000"]);
   for (const forbidden of ["customer_amount", "sell", "markup_bp"]) assert.ok(!allKeys(tenant).has(forbidden), forbidden);
-  assert.ok(!JSON.stringify(tenant).includes("2200"), "原文里没有客人的金额");
+  // 按值比对：整段文本找子串会撞上编号、时间里碰巧出现的 2200
+  assert.ok(!/[":\[,]2200(?:["},\]]|$)/.test(JSON.stringify(tenant)), "原文里没有客人的金额");
   assert.deepEqual((await platformCharges(order.id)).map((item) => item.customer_amount.amount), ["2200", "1100"]);
   const audit = await api.db.owner.query("select count(*)::int as n from audit_logs where resource = 'extra_charge' and action = 'submit' and tenant_id = $1", [m.b.tenantId]);
   assert.ok(audit.rows[0].n >= 2);
