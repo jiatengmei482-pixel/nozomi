@@ -129,6 +129,17 @@ export async function salesCredentials(api: TestApi, market: Market, channelId: 
 }
 
 /** 收集一个 JSON 值里所有的键（逐层）。 */
+/**
+ * 应答里每个叶子值（数字、字符串、布尔）的字符串形式。核对「某个金额不在应答里」时按值比，
+ * 不要在整段 JSON 里找子串：编号（UUID）、订单号、时间里碰巧出现同样的几位数字，测试就会偶发失败。
+ */
+export function allValues(value: unknown, into: Set<string> = new Set()): Set<string> {
+  if (Array.isArray(value)) for (const item of value) allValues(item, into);
+  else if (typeof value === "object" && value !== null) for (const item of Object.values(value)) allValues(item, into);
+  else if (value !== null && value !== undefined) into.add(String(value));
+  return into;
+}
+
 export function allKeys(value: unknown, into: Set<string> = new Set()): Set<string> {
   if (Array.isArray(value)) for (const item of value) allKeys(item, into);
   else if (typeof value === "object" && value !== null) {
