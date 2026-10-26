@@ -31,6 +31,8 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
     **staging / production 不能调高**（配置校验拒绝），只有 local / ci 可以：端到端测试全部从 127.0.0.1 发起，几百个用例里故意输错的密码和动态码、
     并行进程用掉的同一时间窗的动态码累计起来会顶满 50 次，之后的用例全被 429（global-setup 调到 100000）。邮箱 + 地址、邮箱两层不可配置，测限速的用例照旧。
     没有选「按用例换来源地址」：要打开 `TRUST_PROXY_HOPS` 并伪造 `X-Forwarded-For`，和生产的取地址方式不一样，浏览器里的请求也不好逐个改。
+  - 端到端测试另外避免产生失败计数（「邮箱」一层不放宽）：每个测试进程独占两个共用的超级管理员（按 Playwright 的并行编号分配，`e2e/support.ts` 的 `adminCredentials`），
+    不会有两个进程用掉同一个人的同一时间窗；动态码按时间窗顺序取，用过的时间窗记在本次运行的临时目录里（进程重启、绑定时用掉的都算），不够就等下一个时间窗，不拿会被拒的码去试（`e2e/mfa.ts`）。
 - **密钥存储**：20 字节随机数（RFC 4226 推荐的长度），Base32 后用 `SecretBox` 加密存在 `platform_users.totp_secret`（AES-256-GCM，子密钥由 `DATA_ENCRYPTION_KEY` 按用途 `platform-totp-secret` 用 HKDF 派生；附加数据是员工编号，密文搬到别人的行里解不开）。原文只在「开始绑定」的那一次应答里出现。
   - 没配置 `DATA_ENCRYPTION_KEY` 时绑定、验证都返回 503 `MFA_ENCRYPTION_NOT_CONFIGURED`，也就是登录不了运营后台。production 必须配（配置校验）；服务器上初始化 / 部署脚本自动生成；本地开发要自己在 `.env` 里填一个（`.env.example` 有生成命令）。
   - 主密钥被换掉、库里的密文解不开时 503 `MFA_SECRET_UNAVAILABLE`，提示联系超级管理员重置。

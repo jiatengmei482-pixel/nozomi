@@ -22,19 +22,25 @@ export const VIEWPORTS = {
 } as const;
 
 /**
- * 这个用例用的平台超级管理员。global-setup 准备了一批，每个用例按自己的编号固定用其中一个（同一个用例里每次拿到的都是同一个人）：
- * 同一个人同一个 30 秒里的动态码只能用一次（ADR 0030），用例都抢同一个人会互相顶掉、要等下一个时间窗。
+ * 这个用例用的平台超级管理员。global-setup 准备了一批，**每个测试进程独占其中几个**：按 Playwright 的并行编号 `TEST_PARALLEL_INDEX`
+ * （同一时刻在跑的进程编号各不相同；进程退出重启后接着用同一个编号），编号对 `E2E_WORKERS` 取余相同的归这个进程；
+ * 在自己的几个里再按用例编号固定挑一个（同一个用例里每次拿到的都是同一个人）。
+ * 为什么独占：同一个人同一个 30 秒里的动态码只能用一次（ADR 0030），两个进程共用一个人会用掉对方的码，被拒的码算一次失败，
+ * 累计起来会触发登录限速的「邮箱」一层。独占之后只有本进程会用这个人，动态码的时间窗在 mfa.ts 里按顺序取、不够就等。
  */
 export function adminCredentials(): { email: string; password: string } {
   const admins = JSON.parse(process.env["E2E_ADMINS"] ?? "[]") as { email: string; password: string }[];
-  let seed = Number(process.env["TEST_PARALLEL_INDEX"] ?? 0);
+  const workers = Math.max(1, Number(process.env["E2E_WORKERS"] ?? 1));
+  const slot = Number(process.env["TEST_PARALLEL_INDEX"] ?? 0);
+  const own = admins.filter((_, index) => index % workers === slot % workers);
+  let pick = 0;
   try {
-    seed = [...test.info().testId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7);
+    pick = [...test.info().testId].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7);
   } catch {
-    // 不在用例里（不会发生）：按进程编号选
+    // 不在用例里（准备数据的辅助函数在用例之外调用时）：用这个进程的第一个
   }
-  const admin = admins[seed % Math.max(admins.length, 1)];
-  if (!admin) throw new Error("global-setup 没有准备好平台管理员账号");
+  const admin = own[pick % Math.max(own.length, 1)];
+  if (!admin) throw new Error(`global-setup 准备的平台管理员不够：并行编号 ${slot}，共 ${admins.length} 个`);
   return { email: admin.email, password: admin.password };
 }
 

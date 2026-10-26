@@ -3,9 +3,13 @@
  * 只在测试代码里：生产代码没有任何「跳过两步验证」的开关。
  *
  * 动态码按真实时间算。同一个人在同一个 30 秒里登录好几次时，同一时间窗的码只能用一次（防重放）：
- * 这里记下每把密钥用过的时间窗，下一次用更晚的那个（服务端容忍后一个时间窗）；别的并行进程恰好用掉了（MFA_CODE_REUSED），等下一个时间窗再试。
+ * 这里记下每把密钥用过的时间窗（进程内存 + E2E_TOTP_STATE_DIR 下的文件），下一次等到更晚的时间窗再用，**不拿会被拒的码去试**——
+ * 被拒的码算一次失败，累计会触发登录限速。共用的管理员每个测试进程独占一个（support.ts），所以不会有别的进程用掉同一个码；
+ * 万一还是被用掉了（MFA_CODE_REUSED），等下一个时间窗再试。
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
 import { base32Decode, totpCode, totpStep } from "@nozomi/domain";
 
@@ -13,8 +17,25 @@ const hmac = (key: Uint8Array, message: Uint8Array): Uint8Array => createHmac("s
 
 /** 邮箱 → 绑定的密钥（本进程里绑定过的；管理员的由 global-setup 交过来） */
 const secrets = new Map<string, string>();
-/** 密钥 → 用过的最晚的时间窗 */
+/** 密钥 → 用过的最晚的时间窗（本进程的缓存；同时写进 E2E_TOTP_STATE_DIR，进程重启后接着用） */
 const usedSteps = new Map<string, number>();
+
+function stateFile(secret: string): string | null {
+  const dir = process.env["E2E_TOTP_STATE_DIR"];
+  return dir ? join(dir, createHash("sha256").update(secret).digest("hex")) : null;
+}
+
+function lastUsedStep(secret: string): number {
+  const file = stateFile(secret);
+  const stored = file !== null && existsSync(file) ? Number(readFileSync(file, "utf8")) : -1;
+  return Math.max(usedSteps.get(secret) ?? -1, Number.isFinite(stored) ? stored : -1);
+}
+
+function markUsed(secret: string, step: number): void {
+  usedSteps.set(secret, step);
+  const file = stateFile(secret);
+  if (file !== null) writeFileSync(file, String(step));
+}
 
 export function rememberSecret(email: string, secret: string): void {
   secrets.set(email.toLowerCase(), secret.replace(/\s/g, ""));
@@ -38,9 +59,10 @@ function codeAt(secret: string, step: number): string {
 export async function nextCode(secret: string): Promise<{ code: string; step: number }> {
   for (;;) {
     const now = totpStep(Date.now());
-    const step = Math.max(now, (usedSteps.get(secret) ?? -1) + 1);
+    // 服务端容忍后一个时间窗，所以同一个 30 秒里最多可以用两次（现在的、下一个）；再多就等
+    const step = Math.max(now, lastUsedStep(secret) + 1);
     if (step <= now + 1) {
-      usedSteps.set(secret, step);
+      markUsed(secret, step);
       return { code: codeAt(secret, step), step };
     }
     await new Promise((resolve) => setTimeout(resolve, (now + 1) * 30_000 - Date.now() + 200));

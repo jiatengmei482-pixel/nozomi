@@ -15,6 +15,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
@@ -22,12 +25,16 @@ import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/sr
 import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
 import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES } from "./support.ts";
+import type { FullConfig } from "@playwright/test";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const START_TIMEOUT_MS = 30_000;
-/** 准备几个超级管理员：每个用例按编号固定用其中一个（见 support.ts 的 adminCredentials）。不多准备：平台员工列表一页 50 人，有的用例要在第一页找到自己刚建的人 */
-const E2E_ADMIN_SLOTS = 6;
+/**
+ * 每个测试进程独占几个超级管理员（见 support.ts 的 adminCredentials）。两个：一个人 30 秒里最多登录两次（动态码防重放），
+ * 两个人轮着用基本不用等。不多准备：平台员工列表一页 50 人，有的用例要在第一页找到自己刚建的人
+ */
+const E2E_ADMINS_PER_WORKER = 2;
 
 interface Running {
   name: string;
@@ -143,7 +150,8 @@ async function enrollAdmin(apiOrigin: string, email: string, password: string): 
   return secret;
 }
 
-export default async function globalSetup(): Promise<() => Promise<void>> {
+export default async function globalSetup(config: FullConfig): Promise<() => Promise<void>> {
+  const adminSlots = E2E_ADMINS_PER_WORKER * config.workers;
   if (!existsSync(`${WEB_ROOT}dist/index.html`)) {
     throw new Error("没有找到前端构建产物 apps/web/dist。请用 pnpm test:e2e 运行（它会先构建）。");
   }
@@ -157,6 +165,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const started: Running[] = [];
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
+  let totpStateDir: string | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
     await fxSource?.close();
@@ -165,6 +174,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
     }
     await database.drop();
+    if (totpStateDir !== null) await rm(totpStateDir, { recursive: true, force: true });
   };
 
   try {
@@ -195,7 +205,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     apiEnv["FX_AUTO_FETCH"] = "true";
 
     // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
-    const admins = Array.from({ length: E2E_ADMIN_SLOTS }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));
+    const admins = Array.from({ length: adminSlots }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));
     for (const admin of admins) await runAdminCreate(apiEnv, admin.email, "端到端测试管理员", admin.password);
     const adminEmail = (admins[0] as { email: string }).email;
     const adminPassword = (admins[0] as { password: string }).password;
@@ -224,11 +234,16 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     started.push(web);
     await waitUntilUp(web, `http://127.0.0.1:${E2E_WEB_PORT}/login`);
 
+    // 每把两步验证密钥用过的最晚时间窗记在这个目录里（mfa.ts）：绑定时用掉的时间窗、测试进程失败退出重启前用掉的时间窗，
+    // 之后都不会再用一次（再用就是 MFA_CODE_REUSED，算一次失败，累计会触发登录限速）
+    totpStateDir = await mkdtemp(join(tmpdir(), "nozomi-e2e-totp-"));
+    process.env["E2E_TOTP_STATE_DIR"] = totpStateDir;
     // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码
     for (const admin of admins) admin.secret = await enrollAdmin(apiOrigin, admin.email, admin.password);
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
     process.env["E2E_ADMINS"] = JSON.stringify(admins);
+    process.env["E2E_WORKERS"] = String(config.workers);
     process.env["E2E_DATABASE_URL"] = database.url;
     // 派车的用例要一张「已经付过款」的订单：端到端测试里没有 Stripe，由用例用迁移账号直接写进本次运行的 schema（只在测试里构造）
     process.env["E2E_DATABASE_OWNER_URL"] = database.ownerUrl;
