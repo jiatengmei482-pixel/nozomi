@@ -51,7 +51,7 @@ test("isMenuGrant：只认表里有的格子", () => {
   assert.equal(isMenuGrant("orders:export"), false, "导出还没有接口");
 });
 
-test("自建角色的勾选：编辑 / 审核要带查看；只归超级管理员的三项、不认识的、重复的都拦下", () => {
+test("自建角色的勾选：编辑 / 审核要带查看；只归超级管理员的四项、不认识的、重复的都拦下", () => {
   assert.deepEqual(roleGrantIssues([]), []);
   assert.deepEqual(roleGrantIssues(["channels:view", "channels:edit", "channels:review", "staff:view", "roles:view", "audit_logs:view"]), []);
   assert.deepEqual(roleGrantIssues(["channels:edit"]), [{ grant: "channels:edit", reason: "VIEW_REQUIRED" }]);
@@ -60,6 +60,11 @@ test("自建角色的勾选：编辑 / 审核要带查看；只归超级管理�
     { grant: "roles:edit", reason: "SUPER_ADMIN_ONLY" },
     { grant: "roles:review", reason: "SUPER_ADMIN_ONLY" },
   ]);
+  // 第三方密钥（M4-09，ADR 0041）：查看可以给自建角色，填写、更换、清空、测试不行；万一库里存进了这一格，换算时也不给
+  assert.deepEqual(roleGrantIssues(["integrations:view", "integrations:edit"]), [{ grant: "integrations:edit", reason: "SUPER_ADMIN_ONLY" }]);
+  assert.deepEqual(actionsOfGrants(["integrations:view", "integrations:edit"]), ["integration.read"]);
+  assert.ok(platformRoleCan("super_admin", "integration.manage"));
+  assert.deepEqual(PLATFORM_ROLES.filter((role) => platformRoleCan(role.key, "integration.manage")).map((role) => role.key), ["super_admin"]);
   assert.deepEqual(roleGrantIssues(["x:view", "orders:view", "orders:view"]), [
     { grant: "x:view", reason: "UNKNOWN_GRANT" },
     { grant: "orders:view", reason: "DUPLICATE" },

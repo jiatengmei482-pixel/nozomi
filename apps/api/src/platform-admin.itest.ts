@@ -40,6 +40,8 @@ const MISSING = "99999999-9999-4999-8999-999999999999";
 /** 路径里第二个编号（加价规则、API 客户端） */
 const MISSING_CHILD = "88888888-8888-4888-8888-888888888888";
 const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
+/** 不存在的一项第三方密钥 */
+const MISSING_SECRET = "no-such-integration";
 /** 不存在的自建角色 */
 const MISSING_ROLE = "custom_0000000000000000";
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
@@ -88,6 +90,11 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/terminate`, action: "tenant.change_status", body: { reason: "测试" } },
   { method: "GET", url: "/platform/v1/audit-logs", action: "audit_log.read" },
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
+  // 运营后台填写的第三方密钥（M4-09，ADR 0041）：看 integration.read；填写、更换、清空、测试 integration.manage（只归超级管理员）。用不存在的那一项：有权限时 404
+  { method: "GET", url: "/platform/v1/integration-secrets", action: "integration.read" },
+  { method: "PUT", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage", body: {} },
+  { method: "DELETE", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage" },
+  { method: "POST", url: `/platform/v1/integration-secrets/${MISSING_SECRET}/test`, action: "integration.manage" },
   // 报价试算（ADR 0020）：看得到各供应商的结算价和加价比例
   { method: "POST", url: "/platform/v1/quotes/preview", action: "quote.preview", body: {} },
   // 汇率中心（ADR 0022）：每个角色都能看；立即拉取、确认 / 放弃挂起的一批要 fx.manage（测试环境的汇率源连不上，拉取记为失败）
@@ -222,7 +229,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);
@@ -458,7 +465,9 @@ test("集成详情：技术和超级管理员能看到脱敏说明，里面没�
     const byKey = new Map<string, any>(res.body.items.map((i: any) => [i.key, i]));
     assert.match(byKey.get("database").detail, /:•••@/);
     assert.equal(byKey.get("auth").detail, `${FAKE_SECRETS.authJwtSecret.length} 个字符`);
-    assert.match(byKey.get("stripe").detail, /^测试模式 · sk_test…/);
+    // 谷歌地图、Stripe 写来源（ADR 0041）；打码后的末 4 位只给超级管理员
+    assert.equal(byKey.get("stripe").detail, role === "super_admin" ? `测试模式 · 服务器配置文件（••••${FAKE_SECRETS.stripeSecretKey.slice(-4)}）` : "测试模式 · 服务器配置文件");
+    assert.equal(byKey.get("googleMaps").detail, role === "super_admin" ? `服务器配置文件（••••${FAKE_SECRETS.googleMapsApiKey.slice(-4)}）` : "服务器配置文件");
     assert.deepEqual(leakedSecrets(res.text), []);
     assert.ok(!res.text.includes(`:${new URL(api.db.url).password}@`));
   }

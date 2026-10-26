@@ -6,12 +6,13 @@
  * - 数据库出错时只返回归类后的错误码，不返回驱动的原始报错。
  * - 数据库探测同时核对连接用的账号是不是最小权限的应用账号（ADR 0010）：连得上但账号不合格也算不可用（DB_ROLE_UNSAFE）。
  * - 迁移记录在登录前事务里读（应用账号自己没有任何表权限）。
- * - 第三方集成「未配置」不算故障（local / ci / staging 允许缺省，production 缺了根本启动不了）。
+ * - 第三方集成「未配置」不算故障：配置文件和运营后台都可以不填（ADR 0041），缺了只是那项功能不可用。
+ * - 谷歌地图、Stripe 按生效的值（运营后台填写的优先）报「已配置 / 未配置」。
  * - 整个检查共用一个时限 `timeoutMs`：数据库探测和迁移探测加起来不超过它。
  * - 探测用的每个查询都带同样的客户端时限：超时的连接会被连接池丢弃重建，
  *   所以「对端不应答也不断开」的失效连接不会一直占着连接池。
  */
-import { type AppConfig, type AppEnv, type IntegrationStatus, integrationStatus } from "@nozomi/config";
+import { type AppConfig, type AppEnv, type EffectiveIntegrations, type IntegrationStatus, integrationStatus } from "@nozomi/config";
 import { withPreAuthTx } from "./db/context.ts";
 import { DB_ROLE_UNSAFE, DbIdentityError, assertLeastPrivilege } from "./db/identity.ts";
 import { type Pool, isDriverTimeout } from "./db/pool.ts";
@@ -68,12 +69,14 @@ export interface HealthReport {
 /** 公开的集成状态：没有 detail。 */
 export type PublicIntegrationStatus = Pick<IntegrationStatus, "key" | "label" | "state">;
 
-export function publicIntegrationStatus(config: AppConfig): PublicIntegrationStatus[] {
-  return integrationStatus(config).map(({ key, label, state }) => ({ key, label, state }));
+export function publicIntegrationStatus(config: AppConfig, effective?: EffectiveIntegrations): PublicIntegrationStatus[] {
+  return integrationStatus(config, { ...(effective === undefined ? {} : { effective }), hints: false }).map(({ key, label, state }) => ({ key, label, state }));
 }
 
 export interface HealthDeps {
   config: AppConfig;
+  /** 生效的谷歌地图、Stripe（运营后台填写的优先，ADR 0041）；不给时只看配置文件 */
+  effective?: EffectiveIntegrations;
   pool: Pool;
   migrationFiles: readonly MigrationFile[];
   /** 整个健康检查（数据库探测 + 迁移探测）的时限（毫秒） */
@@ -133,6 +136,6 @@ export async function checkHealth(deps: HealthDeps): Promise<HealthReport> {
     env: deps.config.appEnv,
     database,
     migrations,
-    integrations: publicIntegrationStatus(deps.config),
+    integrations: publicIntegrationStatus(deps.config, deps.effective),
   };
 }

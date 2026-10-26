@@ -6,6 +6,8 @@
  *    给的是「一小时前」的一批，日期跟着今天走），先起不配置底图的那个 API、经它建官网的渠道和 API 客户端（ADR 0032），
  *    再带着官网的 client_id 起主 API，最后起前端
  *    （vite preview，把 API 前缀代理给刚起的 API）。API 的底图配置指向假瓦片服务；
+ *    另起本机的假谷歌地图（Routes API）和假 Stripe（ADR 0041：运营后台「测试一下」调的就是它们，测试从不访问真实服务），
+ *    谷歌地图和 Stripe 的密钥一律不经配置文件给（运营后台填写的用例自己填、自己清空）；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
  *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
@@ -22,6 +24,7 @@ import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
+import { type FakeService, startFakeGoogleRoutes, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
 import { nextCode } from "./mfa.ts";
@@ -177,10 +180,12 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   const started: Running[] = [];
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
+  const fakeIntegrations: FakeService[] = [];
   let totpStateDir: string | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
     await fxSource?.close();
+    for (const fake of fakeIntegrations) await fake.close();
     if (tileServer) {
       tileServer.closeAllConnections();
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
@@ -215,6 +220,14 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     fxSource.respond(() => ({ body: fxSourceBody({ asOf: new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000), rates: E2E_FX_RATES }) }));
     apiEnv["FX_SOURCE_URL"] = fxSource.url;
     apiEnv["FX_AUTO_FETCH"] = "true";
+    // 第三方密钥（ADR 0041）：配置文件里不给，「测试一下」打到本机的假服务（只有 local / ci 能改这两个地址）
+    for (const name of ["GOOGLE_MAPS_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"]) delete apiEnv[name];
+    const googleRoutes = await startFakeGoogleRoutes();
+    fakeIntegrations.push(googleRoutes);
+    const stripeApi = await startFakeStripe();
+    fakeIntegrations.push(stripeApi);
+    apiEnv["GOOGLE_MAPS_ROUTES_URL"] = googleRoutes.url;
+    apiEnv["STRIPE_API_URL"] = stripeApi.url;
 
     // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
     const admins = Array.from({ length: adminSlots }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));

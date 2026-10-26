@@ -6,7 +6,7 @@ import { parse } from "yaml";
 import { PLATFORM_ROLES } from "@nozomi/domain";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, RESOURCE_NAMES, SOURCE_NAMES } from "../lib/audit-display.ts";
 import { ACCOUNT_STATUS_BADGES } from "../lib/platform-display.ts";
-import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, type FxCenterStatus, INTEGRATIONS_PATH, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
+import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, type FxCenterStatus, INTEGRATION_SECRETS_PATH, type IntegrationSecrets, type IntegrationTestResult, INTEGRATIONS_PATH, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
 
 interface Schema {
   $ref?: string;
@@ -121,4 +121,22 @@ test("手写类型的字段与同名 schema 完全一致；页面处理的错误
   }
   for (const code of PLATFORM_ERROR_CODES) assert.ok(text.includes(`\`${code}\``), `openapi.yaml 里找不到 ${code}`);
   assert.deepEqual(schemas["Tenant"]?.properties?.["status"]?.enum, ["applying", "reviewing", "signed", "trial", "active", "suspended", "terminated"]);
+});
+
+test("第三方密钥（ADR 0041）：看、填写 / 更换、清空、测试一下的路径和应答；填写的字段名和后端一致；测试结果的字段和手写类型一样", () => {
+  const list = response(op("get", INTEGRATION_SECRETS_PATH), "200");
+  const top: (keyof IntegrationSecrets)[] = ["precedence_note", "can_manage", "encryption_configured", "items"];
+  assert.deepEqual(props(list), [...top].sort());
+  assert.equal(ref(list?.properties?.["items"]?.items), "IntegrationSecretItem");
+  const one = `${INTEGRATION_SECRETS_PATH}/{key}`;
+  assert.deepEqual(spec.components.parameters["IntegrationSecretKeyPath"] && (spec.components.parameters["IntegrationSecretKeyPath"] as { schema?: Schema }).schema?.enum, ["google-maps", "stripe"]);
+  const save = op("put", one);
+  assert.deepEqual(props(response(save, "200")), ["action", "item"]);
+  const bodies = ((request(save) as { oneOf?: Schema[] })?.oneOf ?? []).map((schema) => props(schema));
+  assert.deepEqual(bodies, [["api_key"], ["publishable_key", "secret_key", "webhook_secret"]]);
+  assert.deepEqual(props(response(op("delete", one), "200")), ["item"]);
+  const result: (keyof IntegrationTestResult)[] = ["key", "ok", "code", "message", "source", "source_label", "tested_at"];
+  assert.deepEqual(props(response(op("post", `${one}/test`), "200")), [...result].sort());
+  assert.deepEqual(schemas["SecretSource"]?.enum, ["admin", "env", "none"]);
+  assert.deepEqual(schemas["IntegrationSecretKey"]?.enum, ["google_maps", "stripe"]);
 });

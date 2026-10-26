@@ -11,6 +11,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   tenant: "供应商",
   tenant_user: "供应商的账号",
   integration: "系统状态",
+  integration_secret: "第三方密钥",
   city: "城市",
   place: "地点",
   vehicle_group: "车型组",
@@ -105,6 +106,9 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   observe: "观察期变化",
   upload: "上传",
   request_supplement: "要求补充",
+  set: "填写",
+  replace: "更换",
+  clear: "清空",
   assign: "指派",
   reassign: "改派",
   issue: "生成",
@@ -139,6 +143,7 @@ export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<s
   statement: { issue: "出账", confirm: "确认账单", dispute: "提异议", reply: "答复异议", void: "作废并重出" },
   payout_batch: { close: "锁定" },
   extra_charge: { decide: "审核加收" },
+  integration_secret: { test: "测试一下" },
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };
@@ -187,6 +192,7 @@ export const FIELD_NAMES: Readonly<Record<string, string>> = {
   must_change_password: "必须先改密码",
   code: "编码",
   title: "标题",
+  hints: "打码后的密钥（只有末 4 位）",
   currency: "币种",
   city_id: "城市",
   tenant_id: "供应商",

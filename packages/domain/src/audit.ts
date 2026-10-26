@@ -9,6 +9,7 @@ export const AUDIT_RESOURCES = [
   "tenant",
   "tenant_user",
   "integration",
+  "integration_secret",
   "city",
   "place",
   "vehicle_group",
@@ -126,6 +127,9 @@ export const AUDIT_ACTIONS = [
   "clear_ip_allowlist",
   "dispute",
   "void",
+  "set",
+  "replace",
+  "clear",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

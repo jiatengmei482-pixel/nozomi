@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask, percentToBasisPoints } from "./index.ts";
+import { ConfigError, DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, maskLast4, percentToBasisPoints } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -35,10 +35,18 @@ test("缺少 DATABASE_URL 时报错", () => {
   assert.ok(issuesOf({ AUTH_JWT_SECRET: "x".repeat(40) }).some((i) => i.startsWith("DATABASE_URL")));
 });
 
-test("production 环境必须配齐 Stripe 和谷歌地图", () => {
-  const issues = issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" });
-  assert.ok(issues.some((i) => i.includes("Stripe")));
-  assert.ok(issues.some((i) => i.includes("GOOGLE_MAPS_API_KEY")));
+test("production 环境配置文件里没有 Stripe 和谷歌地图也能启动（可以在运营后台填写，ADR 0041），两项显示未配置", () => {
+  const c = loadConfig({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production", DATA_ENCRYPTION_KEY: "k".repeat(40) });
+  assert.equal(c.stripe, null);
+  assert.equal(c.googleMapsApiKey, null);
+  const status = integrationStatus(c);
+  assert.equal(status.find((s) => s.key === "stripe")?.state, "missing");
+  assert.equal(status.find((s) => s.key === "googleMaps")?.state, "missing");
+});
+
+test("production 环境的配置文件里给了 Stripe，就必须是正式密钥（规则不变）", () => {
+  const issues = issuesOf({ ...base, ...stripeTest, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production", DATA_ENCRYPTION_KEY: "k".repeat(40) });
+  assert.ok(issues.some((i) => i.includes("production 环境必须使用 Stripe 正式")));
 });
 
 test("staging 环境缺 Stripe 和谷歌地图时照常启动，两项显示未配置", () => {
@@ -100,18 +108,15 @@ test("空字符串视为未填写", () => {
   assert.equal(c.stripe, null);
 });
 
-test("mask 只保留首尾", () => {
-  assert.equal(mask("sk_test_1234567890abcd"), "sk_test…abcd");
-  assert.equal(mask("short"), "•••••");
-});
-
-test("mask：不够长的密钥全部打码，脱敏结果里不含任何原文字符", () => {
-  for (const length of [0, 1, 10, 11, 12, 14, 19]) {
-    const secret = "Zk3".repeat(7).slice(0, length);
-    assert.equal(mask(secret), "•".repeat(length));
-  }
-  const twenty = "abcdefg" + "X".repeat(9) + "wxyz";
-  assert.equal(mask(twenty), "abcdefg…wxyz");
+test("集成状态的说明：Stripe、谷歌地图只露末 4 位，标出来源；不要末 4 位时只有来源", () => {
+  const c = loadConfig({ ...base, ...stripeTest, GOOGLE_MAPS_API_KEY: "AIzaSyExample000000000000wxyz" });
+  const byKey = new Map(integrationStatus(c).map((s) => [s.key, s.detail]));
+  assert.equal(byKey.get("stripe"), "测试模式 · 服务器配置文件（••••mnop）");
+  assert.equal(byKey.get("googleMaps"), "服务器配置文件（••••wxyz）");
+  const plain = new Map(integrationStatus(c, { hints: false }).map((s) => [s.key, s.detail]));
+  assert.equal(plain.get("stripe"), "测试模式 · 服务器配置文件");
+  assert.equal(plain.get("googleMaps"), "服务器配置文件");
+  assert.equal(maskLast4("AIzaSyExample000000000000wxyz"), "••••wxyz");
 });
 
 test("DATABASE_URL 前缀正确但无法解析（端口超范围、主机名有空格）：报错，且报错里没有原值", () => {
@@ -303,7 +308,7 @@ test("集成状态里的缓冲按基点原样写回百分比，不出现浮点�
 test("数据加密密钥（ADR 0027、0030）：local / staging 可以不配（显示未配置，供应商不能设置 Webhook、平台员工不能绑定两步验证）；production 必须配", () => {
   const local = loadConfig(base);
   assert.equal(local.dataEncryptionKey, null);
-  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台）" });
+  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" });
   assert.equal(loadConfig({ ...base, APP_ENV: "staging" }).dataEncryptionKey, null);
   assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" }).some((i) => i.includes("DATA_ENCRYPTION_KEY")));
 });
