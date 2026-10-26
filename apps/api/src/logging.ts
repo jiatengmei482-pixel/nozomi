@@ -1,7 +1,7 @@
 /**
  * 日志的脱敏规则（规则 5：日志里不能出现密钥原文）。三道防线，互不依赖：
  *
- * 1. 请求日志只记方法和路径：不记查询串（可能带令牌）、请求头、请求体。
+ * 1. 请求日志只记方法和路由模板（不是实际路径：路径参数里可能有密钥）：不记查询串（可能带令牌）、请求头、请求体。
  * 2. 异常只记类型、错误码、说明和调用栈，其余字段一律丢弃
  *    （例如 `new URL()` 抛出的异常带 `input` 字段，里面就是完整的连接串）。
  * 3. 记下来的文字再过一遍：凡是 `协议://…` 形式的内容，以及当前配置里的每一个密钥原文，都替换掉。
@@ -88,11 +88,19 @@ export type LoggedRequest = {
   remoteAddress: string;
 };
 
-/** 请求的日志形态：方法、路径（不含查询串）、来源地址。 */
-export function serializeRequest(request: { method?: string; url?: string; ip?: string }): LoggedRequest {
+/**
+ * 请求的日志形态：方法、路径、来源地址。
+ * 路径记**路由模板**（如 `/platform/v1/integration-secrets/:key`），不记实际的路径——路径参数里可能是密钥、令牌（ADR 0041）。
+ * 没有匹配上任何路由的（404）没有模板：记实际路径（不含查询串），并抹掉其中当前配置里的密钥原文。
+ */
+export function serializeRequest(
+  request: { method?: string; url?: string; ip?: string; routeOptions?: { url?: string | undefined } },
+  secrets: readonly string[] = [],
+): LoggedRequest {
+  const template = request.routeOptions?.url;
   return {
     method: request.method ?? "",
-    path: pathOnly(request.url ?? ""),
+    path: typeof template === "string" && template !== "" ? template : redactText(pathOnly(request.url ?? ""), secrets),
     remoteAddress: request.ip ?? "",
   };
 }

@@ -1,7 +1,8 @@
 /**
  * 运营后台「系统设置」的审计日志和系统状态（docs/design/pages/platform-settings.md 第 3、4 节）。
  * 审计日志只能看；筛选以接口实际支持的为准（操作人、某一个对象只能从别的页面带进来）。
- * 系统状态不自动刷新：每次请求都会写一条审计日志。
+ * 系统状态不自动刷新：每次请求都会写一条审计日志（填写、清空第三方密钥以后重新取一次）。
+ * 第三方密钥（谷歌地图、Stripe 的填写、更换、清空、测试一下，ADR 0041）在 IntegrationSecretsSection.tsx。
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
@@ -18,6 +19,7 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { Dropdown } from "../../components/Dropdown.tsx";
 import { CopyButton } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
+import { IntegrationSecretsSection } from "./IntegrationSecretsSection.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, type DiffRow, FIELD_NAMES, RESOURCE_NAMES, SOURCE_NAMES, actionName, auditDiff, foldable, localDate, localDayInstant, localOffsetLabel, localSecond, objectName, resourceName, shortId, shownValue, utcSecond } from "../../lib/audit-display.ts";
@@ -763,8 +765,8 @@ export function IntegrationsPage() {
         <Alert kind="warning">
           <strong className="alert__title">{`有 ${missing.length} 项还没有配置：`}</strong>
           <span>
-            {`${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；`}
-            <strong>密钥只能由负责人本人填进各平台的设置页面，不要发在聊天里。</strong>
+            {`${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图和 Stripe 支付也可以由超级管理员在下面的「第三方密钥」里直接填写。`}
+            <strong>密钥只能由负责人本人填写，不要发在聊天里。</strong>
           </span>
         </Alert>
       )}
@@ -778,6 +780,7 @@ export function IntegrationsPage() {
       <div className="card-table">
         <DataTable label="系统状态" columns={columns} rows={items ?? []} rowKey={(row) => row.key} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={loaded.reload} empty={<StateBlock tone="neutral" title="没有可以检查的项目" />} />
       </div>
+      {canRead && <IntegrationSecretsSection onChanged={loaded.reload} />}
       {fx !== null && <FxCenterCard fx={fx} />}
     </>,
     <Button

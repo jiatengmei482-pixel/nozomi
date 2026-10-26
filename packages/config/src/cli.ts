@@ -10,6 +10,7 @@ try {
   for (const s of integrationStatus(config)) {
     console.log(`${s.state === "configured" ? "✓" : "✗"} ${s.label}：${s.detail}`);
   }
+  console.log("\n这里只看服务器配置文件。谷歌地图、Stripe 也可以在运营后台填写，而且后台填写的优先（ADR 0041）：生效的是哪一份，看运营后台「系统设置 → 系统状态」。");
 } catch (err) {
   if (err instanceof ConfigError) {
     console.error(err.message);

@@ -40,6 +40,15 @@ export function testEnv(databaseUrl: string): Record<string, string> {
   };
 }
 
+/**
+ * 接口集成测试（`createTestApi`）的服务进程里：谷歌地图的「测试一下」和 Stripe（收款、「测试一下」）都指向本机连不上的端口（ADR 0041），
+ * 要用的测试换成本机的假服务器。只有 ci / local 认这两项，所以不放进 `testEnv`（有的测试拿它改成 staging、production 用）。
+ */
+export const UNREACHABLE_INTEGRATIONS: Record<string, string> = {
+  GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:1/directions/v2:computeRoutes",
+  STRIPE_API_URL: "http://127.0.0.1:1",
+};
+
 /** 迁移命令（`db:migrate`）的环境变量：只需要迁移账号的连接串。 */
 export function migrateEnv(migrationDatabaseUrl: string): Record<string, string> {
   return { APP_ENV: "ci", DATABASE_MIGRATION_URL: migrationDatabaseUrl };

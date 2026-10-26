@@ -1,5 +1,6 @@
 /**
- * 库里需要还原原文的密钥的加密：供应商的 Webhook 签名密钥（M3-02，ADR 0027）、平台员工的两步验证密钥（M4-05，ADR 0030）。
+ * 库里需要还原原文的密钥的加密：供应商的 Webhook 签名密钥（M3-02，ADR 0027）、平台员工的两步验证密钥（M4-05，ADR 0030）、
+ * 运营后台填写的第三方密钥（M4-09，ADR 0041）。
  *
  * 为什么不是只存哈希（像登录密码、API 客户端密钥那样）：推送时平台要用密钥原文算 HMAC 签名、验证动态码时要用密钥原文算 HMAC，哈希还原不出原文。
  * 做法：
@@ -11,7 +12,7 @@
  */
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
 
-export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret";
+export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret" | "integration-secret";
 
 export class SecretBoxError extends Error {
   constructor() {

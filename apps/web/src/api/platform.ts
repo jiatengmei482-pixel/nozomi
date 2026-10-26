@@ -16,6 +16,7 @@ export const TENANTS_PATH = `${PLATFORM_BASE}/tenants`;
 export const STAFF_PATH = `${PLATFORM_BASE}/staff`;
 export const AUDIT_LOGS_PATH = `${PLATFORM_BASE}/audit-logs`;
 export const INTEGRATIONS_PATH = `${PLATFORM_BASE}/integrations`;
+export const INTEGRATION_SECRETS_PATH = `${PLATFORM_BASE}/integration-secrets`;
 
 /** 一次性的令牌和它的有效期（邀请、密码重置的应答里都是这个样子）。 */
 export interface OneTimeToken {
@@ -190,6 +191,75 @@ export function listIntegrations(token: string): Promise<{ items: IntegrationSta
   return apiRequest("GET", INTEGRATIONS_PATH, { token });
 }
 
+// ───────────── 第三方密钥（ADR 0041） ─────────────
+//
+// 填写的密钥原文只出现在 PUT 的请求体里：这里不缓存、不打日志、不放进地址；应答和错误里都没有原文（后端保证）。
+
+export type IntegrationSecretKey = "google_maps" | "stripe";
+export type SecretSource = "admin" | "env" | "none";
+export type SecretFieldName = "api_key" | "secret_key" | "publishable_key" | "webhook_secret";
+
+export interface IntegrationSecretItem {
+  key: IntegrationSecretKey;
+  label: string;
+  /** 填写时要填的几项（谷歌地图 1 项，Stripe 3 项） */
+  fields: { name: SecretFieldName; label: string }[];
+  state: "configured" | "missing";
+  source: SecretSource;
+  /** 后台设置 / 服务器配置文件 / 未配置 */
+  source_label: string;
+  mode: "test" | "live" | null;
+  /** `••••` + 末 4 位；只给超级管理员 */
+  masked: string | null;
+  env_configured: boolean;
+  /** 后台填写的那一份；只给超级管理员 */
+  admin: {
+    configured: boolean;
+    hints: Record<string, string> | null;
+    updated_at: string | null;
+    updated_by: { id: string; name: string } | null;
+    problem: "UNREADABLE" | "NOT_ALLOWED_IN_ENV" | null;
+  } | null;
+}
+
+export interface IntegrationSecrets {
+  precedence_note: string;
+  can_manage: boolean;
+  encryption_configured: boolean;
+  items: IntegrationSecretItem[];
+}
+
+export interface IntegrationTestResult {
+  key: IntegrationSecretKey;
+  ok: boolean;
+  code: string | null;
+  message: string;
+  source: SecretSource;
+  source_label: string;
+  tested_at: string;
+}
+
+/** 地址里的写法：google_maps → google-maps */
+const secretPath = (key: IntegrationSecretKey): string => `${INTEGRATION_SECRETS_PATH}/${key.replaceAll("_", "-")}`;
+/** 「测试一下」：后端对谷歌最多等 5 秒 × 2 次、对 Stripe 8 秒 × 2 次，页面多等一些 */
+export const INTEGRATION_TEST_TIMEOUT_MS = 30_000;
+
+export function listIntegrationSecrets(token: string): Promise<IntegrationSecrets> {
+  return apiRequest("GET", INTEGRATION_SECRETS_PATH, { token });
+}
+
+export function saveIntegrationSecret(token: string, key: IntegrationSecretKey, values: Partial<Record<SecretFieldName, string>>): Promise<{ action: "set" | "replace"; item: IntegrationSecretItem }> {
+  return apiRequest("PUT", secretPath(key), { token, body: values });
+}
+
+export function clearIntegrationSecret(token: string, key: IntegrationSecretKey): Promise<{ item: IntegrationSecretItem }> {
+  return apiRequest("DELETE", secretPath(key), { token });
+}
+
+export function testIntegrationSecret(token: string, key: IntegrationSecretKey): Promise<IntegrationTestResult> {
+  return apiRequest("POST", `${secretPath(key)}/test`, { token, timeoutMs: INTEGRATION_TEST_TIMEOUT_MS });
+}
+
 /** 对账用：每个类型的字段名清单。 */
 export const PLATFORM_SCHEMA_FIELDS = {
   Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
@@ -200,6 +270,7 @@ export const PLATFORM_SCHEMA_FIELDS = {
   ResetToken: ["token", "expires_at"],
   AuditLog: ["id", "occurred_at", "tenant_id", "actor", "ip", "source", "resource", "resource_id", "action", "before", "after"],
   IntegrationStatusDetail: ["key", "label", "state", "detail"],
+  IntegrationSecretItem: ["key", "label", "fields", "state", "source", "source_label", "mode", "masked", "env_configured", "admin"],
 } as const satisfies {
   Tenant: readonly (keyof Tenant)[];
   TenantUser: readonly (keyof TenantUser)[];
@@ -209,6 +280,7 @@ export const PLATFORM_SCHEMA_FIELDS = {
   ResetToken: readonly (keyof OneTimeToken)[];
   AuditLog: readonly (keyof AuditLog)[];
   IntegrationStatusDetail: readonly (keyof IntegrationStatus)[];
+  IntegrationSecretItem: readonly (keyof IntegrationSecretItem)[];
 };
 /** 页面专门处理的错误码。 */
-export const PLATFORM_ERROR_CODES = ["EMAIL_TAKEN", "LAST_ADMIN_REQUIRED", "ACCOUNT_NOT_ACTIVATED", "ACCOUNT_NOT_ACTIVE"] as const;
+export const PLATFORM_ERROR_CODES = ["EMAIL_TAKEN", "LAST_ADMIN_REQUIRED", "ACCOUNT_NOT_ACTIVATED", "ACCOUNT_NOT_ACTIVE", "INTEGRATION_SECRET_NOT_SET", "INTEGRATION_NOT_CONFIGURED", "INTEGRATION_ENCRYPTION_NOT_CONFIGURED"] as const;

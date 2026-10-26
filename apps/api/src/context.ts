@@ -9,6 +9,7 @@ import type { SecretBox } from "./integrations/secret-box.ts";
 import type { WebhookSender } from "./integrations/webhook-sender.ts";
 import type { FxCenter } from "./services/fx-center.ts";
 import type { QuoteDeps } from "./services/quote-deps.ts";
+import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 
 export interface AppContext {
   config: AppConfig;
@@ -18,8 +19,15 @@ export interface AppContext {
   quote: QuoteDeps;
   /** 汇率中心：拉取、确认、过期告警、给报价引擎的汇率（ADR 0022） */
   fx: FxCenter;
-  /** 收款服务（Stripe，ADR 0026）；Stripe 没配置时为 null：不能下单，/health 和 config:check 显示「未配置」 */
-  payments: PaymentProvider | null;
+  /**
+   * 收款服务（Stripe，ADR 0026）；Stripe 没配置时为 null：不能下单，/health 显示「未配置」。
+   * 每次取都按现在生效的 Stripe 密钥（运营后台填写的优先，ADR 0041）：密钥换了，下一次取到的就是用新密钥的收款服务，不用重启。
+   */
+  readonly payments: PaymentProvider | null;
+  /** 运营后台填写的第三方密钥和生效的值（ADR 0041） */
+  integrations: IntegrationSecretCache;
+  /** 运营后台「测试一下」的外部调用（谷歌地图 Routes API、Stripe 查余额） */
+  integrationChecks: IntegrationChecks;
   /** 数据加密（供应商的 Webhook 签名密钥 ADR 0027、平台员工的两步验证密钥 ADR 0030）；没配置 DATA_ENCRYPTION_KEY 时为 null：供应商不能设置 Webhook，平台员工不能绑定、验证两步验证 */
   secretBox: SecretBox | null;
   /** 推送给供应商的 Webhook 的发送器（防 SSRF、超时、不跟随重定向，ADR 0027） */

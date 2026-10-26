@@ -5,7 +5,9 @@
  */
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.ts";
+import { errorBody } from "../errors.ts";
 import { handlePaymentWebhook } from "../services/payment-webhooks.ts";
+import { paymentNotConfigured } from "../services/orders.ts";
 
 /** 通知的请求体上限：Stripe 的事件一般几 KB */
 const WEBHOOK_BODY_LIMIT = 256 * 1024;
@@ -14,7 +16,13 @@ export function registerWebhookRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.register(async (scoped) => {
     scoped.removeAllContentTypeParsers();
     scoped.addContentTypeParser("*", { parseAs: "buffer", bodyLimit: WEBHOOK_BODY_LIMIT }, (_request, body, done) => done(null, body));
-    scoped.post("/webhooks/stripe", async (request) => {
+    scoped.post("/webhooks/stripe", async (request, reply) => {
+      // Stripe 还没配置（后台和配置文件都没有，ADR 0041）：这是配置状态不是程序出错，记 warn；回 503，Stripe 会稍后重发
+      if (ctx.payments === null) {
+        const notConfigured = paymentNotConfigured();
+        request.log.warn({ event: "payment.webhook_not_configured" }, "收到 Stripe 通知，但 Stripe 还没有配置：已回 503（Stripe 会稍后重发）");
+        return reply.code(notConfigured.statusCode).send(errorBody(notConfigured.code, notConfigured.message));
+      }
       const body = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
       const signature = request.headers["stripe-signature"];
       const outcome = await handlePaymentWebhook(ctx, body, typeof signature === "string" ? signature : undefined, request.log);

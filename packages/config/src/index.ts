@@ -4,14 +4,16 @@
  * 规则：
  * - 所有配置只从环境变量读取，代码里不写任何密钥。
  * - 启动时校验一次，缺失或格式不对立即报错退出（fail fast）。
- * - 只有 production 必须配齐 Stripe、谷歌地图；local / ci / staging 可以缺，缺的集成在功能上显示为「未配置」
- *   （staging 放宽的原因见 ADR 0007「测试环境的配置校验」）。
+ * - Stripe、谷歌地图哪个环境都可以不在这里配：也可以由超级管理员在运营后台填写（ADR 0041，后台的优先）；两处都没有的显示为「未配置」。
  * - 测试密钥和正式密钥不能混用：非 production 环境禁止使用 Stripe live 密钥。
  * - 数据库有两个连接串（ADR 0010）：`DATABASE_URL` 是服务进程用的应用账号（最小权限）；
  *   `DATABASE_MIGRATION_URL` 是迁移账号（表的所有者），只有 `pnpm db:migrate`、`pnpm db:provision` 读它，
  *   服务进程的环境里不应该有它。两者不能是同一个账号。
  */
 import { z } from "zod";
+import { type EffectiveIntegrations, SECRET_SOURCE_LABELS, STRIPE_FIELDS, envIntegrations, maskLast4, stripeKeyIssues, stripeModeOf } from "./integration-secrets.ts";
+
+export * from "./integration-secrets.ts";
 
 export const APP_ENVS = ["local", "ci", "staging", "production"] as const;
 export type AppEnv = (typeof APP_ENVS)[number];
@@ -186,6 +188,9 @@ const rawSchema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalString,
 
   GOOGLE_MAPS_API_KEY: optionalString,
+  // 「测试一下」和收款连到哪里（ADR 0041）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
+  GOOGLE_MAPS_ROUTES_URL: optionalString,
+  STRIPE_API_URL: optionalString,
 
   // 地图底图（栅格瓦片）。不是密钥：这些值会经接口下发给浏览器。没配 = 这个环境没有底图。见 ADR 0015。
   MAP_TILE_URL_TEMPLATE: optionalString,
@@ -244,6 +249,13 @@ export interface StripeConfig {
   mode: "test" | "live";
 }
 
+export interface IntegrationEndpoints {
+  /** 谷歌地图 Routes API 的 computeRoutes 地址 */
+  googleMapsRoutesUrl: string;
+  /** Stripe 接口的主机；null = Stripe 官方地址 */
+  stripeApi: { host: string; port: number; protocol: "http" | "https" } | null;
+}
+
 export interface AppConfig {
   appEnv: AppEnv;
   port: number;
@@ -269,6 +281,8 @@ export interface AppConfig {
   site: { clientId: string } | null;
   /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
   loginThrottle: { maxAttemptsPerIp: number };
+  /** 第三方服务的地址（ADR 0041）：正式的地址是默认值，只有 local / ci 能指到本机的假服务器 */
+  integrationEndpoints: IntegrationEndpoints;
   /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
   siteSupportPhone: string | null;
 }
@@ -282,37 +296,62 @@ export class ConfigError extends Error {
   }
 }
 
+const STRIPE_ENV_NAMES: Readonly<Record<string, string>> = {
+  [STRIPE_FIELDS.secretKey]: "STRIPE_SECRET_KEY",
+  [STRIPE_FIELDS.publishableKey]: "STRIPE_PUBLISHABLE_KEY",
+  [STRIPE_FIELDS.webhookSecret]: "STRIPE_WEBHOOK_SECRET",
+};
+
+/** 服务器配置文件里的 Stripe 三项：规则和后台填写共用 `stripeKeyIssues`（ADR 0041），这里把问题写成配置报错的说法。 */
 function parseStripe(
   env: z.output<typeof rawSchema>,
   issues: string[],
 ): StripeConfig | null {
-  const { STRIPE_SECRET_KEY: sk, STRIPE_PUBLISHABLE_KEY: pk, STRIPE_WEBHOOK_SECRET: wh } = env;
-  const given = [sk, pk, wh].filter(Boolean).length;
-  if (given === 0) {
-    if (env.APP_ENV === "production") issues.push("production 环境必须配置 Stripe 三个密钥");
-    return null;
-  }
-  if (given < 3) {
+  const keys = { secretKey: env.STRIPE_SECRET_KEY ?? "", publishableKey: env.STRIPE_PUBLISHABLE_KEY ?? "", webhookSecret: env.STRIPE_WEBHOOK_SECRET ?? "" };
+  if (keys.secretKey === "" && keys.publishableKey === "" && keys.webhookSecret === "") return null;
+  const found = stripeKeyIssues(env.APP_ENV, keys);
+  if (found.some((issue) => issue.reason === "REQUIRED")) {
     issues.push("Stripe 需要同时配置 STRIPE_SECRET_KEY、STRIPE_PUBLISHABLE_KEY、STRIPE_WEBHOOK_SECRET");
     return null;
   }
-  const secretKey = sk as string;
-  const publishableKey = pk as string;
-  const webhookSecret = wh as string;
-  const mode = secretKey.startsWith("sk_live_") ? "live" : secretKey.startsWith("sk_test_") ? "test" : null;
-  if (!mode) issues.push("STRIPE_SECRET_KEY 应以 sk_test_ 或 sk_live_ 开头");
-  if (!/^pk_(test|live)_/.test(publishableKey)) issues.push("STRIPE_PUBLISHABLE_KEY 应以 pk_test_ 或 pk_live_ 开头");
-  if (!webhookSecret.startsWith("whsec_")) issues.push("STRIPE_WEBHOOK_SECRET 应以 whsec_ 开头");
-  if (mode && !publishableKey.startsWith(mode === "live" ? "pk_live_" : "pk_test_")) {
-    issues.push("Stripe 的 secret key 和 publishable key 必须同为测试或同为正式");
+  for (const issue of found) {
+    const name = STRIPE_ENV_NAMES[issue.field] ?? issue.field;
+    if (issue.reason === "PREFIX") {
+      issues.push(name === "STRIPE_WEBHOOK_SECRET" ? "STRIPE_WEBHOOK_SECRET 应以 whsec_ 开头" : name === "STRIPE_SECRET_KEY" ? "STRIPE_SECRET_KEY 应以 sk_test_ 或 sk_live_ 开头" : "STRIPE_PUBLISHABLE_KEY 应以 pk_test_ 或 pk_live_ 开头");
+    } else if (issue.reason === "MODE_MISMATCH") {
+      issues.push("Stripe 的 secret key 和 publishable key 必须同为测试或同为正式");
+    } else if (issue.reason === "LIVE_KEY_NOT_ALLOWED") {
+      issues.push(`${env.APP_ENV} 环境禁止使用 Stripe 正式（live）密钥，请改用 sk_test_ 测试密钥`);
+    } else if (issue.reason === "TEST_KEY_NOT_ALLOWED") {
+      issues.push("production 环境必须使用 Stripe 正式（live）密钥");
+    }
   }
-  if (mode === "live" && env.APP_ENV !== "production") {
-    issues.push(`${env.APP_ENV} 环境禁止使用 Stripe 正式（live）密钥，请改用 sk_test_ 测试密钥`);
+  const mode = stripeModeOf(keys.secretKey);
+  return mode ? { ...keys, mode } : null;
+}
+
+const DEFAULT_GOOGLE_MAPS_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
+
+/**
+ * 「测试一下」和收款连到哪里（ADR 0041）。正式的地址是默认值；只有 local / ci 可以改到本机的假服务器上（端到端测试用），
+ * staging / production 改了就报错——否则改一行配置就能把密钥发到别处。
+ */
+function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: string[]): IntegrationEndpoints {
+  const local = env.APP_ENV === "local" || env.APP_ENV === "ci";
+  const routesUrl = env.GOOGLE_MAPS_ROUTES_URL ?? DEFAULT_GOOGLE_MAPS_ROUTES_URL;
+  if (routesUrl !== DEFAULT_GOOGLE_MAPS_ROUTES_URL && !local) issues.push(`${env.APP_ENV} 环境不能修改 GOOGLE_MAPS_ROUTES_URL（只给本机和 CI 的测试用）`);
+  if (!URL.canParse(routesUrl)) issues.push("GOOGLE_MAPS_ROUTES_URL 不是合法的网址");
+  let stripeApi: IntegrationEndpoints["stripeApi"] = null;
+  if (env.STRIPE_API_URL !== undefined) {
+    if (!local) issues.push(`${env.APP_ENV} 环境不能配置 STRIPE_API_URL（只给本机和 CI 的测试用）`);
+    if (!URL.canParse(env.STRIPE_API_URL)) issues.push("STRIPE_API_URL 不是合法的网址");
+    else {
+      const url = new URL(env.STRIPE_API_URL);
+      const protocol = url.protocol === "https:" ? "https" : "http";
+      stripeApi = { host: url.hostname, port: url.port === "" ? (protocol === "https" ? 443 : 80) : Number(url.port), protocol };
+    }
   }
-  if (mode === "test" && env.APP_ENV === "production") {
-    issues.push("production 环境必须使用 Stripe 正式（live）密钥");
-  }
-  return mode ? { secretKey, publishableKey, webhookSecret, mode } : null;
+  return { googleMapsRoutesUrl: routesUrl, stripeApi };
 }
 
 /** 从环境变量构建配置；有任何问题都抛出 ConfigError，列出全部问题。 */
@@ -326,10 +365,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
 
   const stripe = parseStripe(env, issues);
   const mapTiles = parseMapTiles(env, issues);
+  // 正式环境不再要求配置文件里有谷歌地图和 Stripe（ADR 0041）：可以在运营后台填写，两处都没有时 /health 显示「未配置」
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
-  if (!googleMapsApiKey && env.APP_ENV === "production") {
-    issues.push("production 环境必须配置 GOOGLE_MAPS_API_KEY");
-  }
+  const integrationEndpoints = parseIntegrationEndpoints(env, issues);
   const dataEncryptionKey = env.DATA_ENCRYPTION_KEY ?? null;
   if (dataEncryptionKey === null && env.APP_ENV === "production") {
     issues.push("production 环境必须配置 DATA_ENCRYPTION_KEY（服务器初始化 / 部署脚本会自动生成）");
@@ -365,6 +403,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
     loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
     siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
+    integrationEndpoints,
   };
 }
 
@@ -408,31 +447,34 @@ export interface IntegrationStatus {
   detail: string;
 }
 
+export interface IntegrationStatusOptions {
+  /** 生效的 Stripe、谷歌地图（ADR 0041）；不给时只看服务器配置文件 */
+  effective?: EffectiveIntegrations;
+  /** 说明里带不带打码后的末 4 位：只有能管理密钥的人（超级管理员）和服务器上的 `pnpm config:check` 带 */
+  hints?: boolean;
+}
+
 /** 只给出「是否已配置」和脱敏信息，永远不返回密钥原文。可用于健康检查和后台的集成状态页。 */
-export function integrationStatus(config: AppConfig): IntegrationStatus[] {
+export function integrationStatus(config: AppConfig, options: IntegrationStatusOptions = {}): IntegrationStatus[] {
+  const effective = options.effective ?? envIntegrations(config);
+  const hints = options.hints ?? true;
+  const stripe = effective.stripe.config;
+  const mapsKey = effective.googleMaps.apiKey;
+  const origin = (source: EffectiveIntegrations["stripe"]["source"], secret: string): string => `${SECRET_SOURCE_LABELS[source]}${hints ? `（${maskLast4(secret)}）` : ""}`;
   return [
     { key: "database", label: "数据库", state: "configured", detail: maskUrl(config.databaseUrl) },
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
     config.dataEncryptionKey
       ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
-      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台）" },
-    config.stripe
-      ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${config.stripe.mode === "live" ? "正式" : "测试"}模式 · ${mask(config.stripe.secretKey)}` }
+      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" },
+    stripe
+      ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${stripe.mode === "live" ? "正式" : "测试"}模式 · ${origin(effective.stripe.source, stripe.secretKey)}` }
       : { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" },
-    config.googleMapsApiKey
-      ? { key: "googleMaps", label: "谷歌地图", state: "configured", detail: mask(config.googleMapsApiKey) }
+    mapsKey
+      ? { key: "googleMaps", label: "谷歌地图", state: "configured", detail: origin(effective.googleMaps.source, mapsKey) }
       : { key: "googleMaps", label: "谷歌地图", state: "missing", detail: "未配置，里程 + 时长报价不可用" },
     { key: "fx", label: "汇率数据源", state: "configured", detail: `${new URL(config.fx.sourceUrl).host} · 缓冲 ${basisPointsToPercentText(config.fx.bufferBp)}%` },
   ];
-}
-
-/** 露出首尾所需的最短长度：短于它时首 7 位 + 末 4 位会占掉大半甚至全部，所以整体打码。 */
-const MASK_MIN_LENGTH = 20;
-
-/** 密钥脱敏：足够长时只露首 7 位和末 4 位（至少遮住 9 位），否则全部打码。 */
-export function mask(secret: string): string {
-  if (secret.length < MASK_MIN_LENGTH) return "•".repeat(secret.length);
-  return `${secret.slice(0, 7)}…${secret.slice(-4)}`;
 }
 
 /** 连接串脱敏：只留协议、用户名、主机、库名；密码和查询参数一律不输出。解析不了时不输出任何原文。 */
