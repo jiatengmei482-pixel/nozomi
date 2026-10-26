@@ -215,7 +215,6 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   let read = 0;
   while (read < PRICING_IMPACT_RULES.maxQuotes) {
     const limit = Math.min(BATCH, PRICING_IMPACT_RULES.maxQuotes - read);
-    const tq = performance.now();
     const page: QuoteRow[] = (
       await db.query<QuoteRow>(
         `with page as materialized (
@@ -228,9 +227,7 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
         [channel.id, from, now, cursor?.t ?? null, cursor?.id ?? null, limit],
       )
     ).rows;
-    const tm = performance.now(); (globalThis as any).SQLT = ((globalThis as any).SQLT ?? 0) + tm - tq;
     for (const row of page) acc.addQuote(impactQuoteOf(row, settleCurrency, bufferBp));
-    (globalThis as any).JST = ((globalThis as any).JST ?? 0) + performance.now() - tm;
     read += page.length;
     const last = page.at(-1);
     if (page.length < limit || last === undefined) break;
@@ -270,7 +267,6 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
     if (page.length < limit || last === undefined) break;
     orderCursor = { t: last.order_created_at, id: last.order_id };
   }
-  console.error('PROF sql', Math.round((globalThis as any).SQLT), 'js', Math.round((globalThis as any).JST));
   return { computedAt: now, from, to: now, result: acc.result(), quotesTotal, ordersTotal };
 }
 
