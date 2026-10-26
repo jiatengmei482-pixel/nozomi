@@ -13616,10 +13616,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [ staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review, rescue.manage, rescue.review ]
+      enum: [ staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review, rescue.manage, rescue.review, exception.manage, ticket.read, ticket.manage, ticket.review, compensation_table.manage, compensation_table.review ]
     TenantAction:
       type: string
-      enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read ]
+      enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read, ticket.read, ticket.manage ]
     LoginRequest:
       type: object
       additionalProperties: false

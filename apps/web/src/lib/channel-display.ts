@@ -37,7 +37,8 @@ export const CHANNEL_STATUS_BADGES: Readonly<Record<ChannelStatus, BadgeSpec>> =
 
 export const TENANT_SCOPE_NAMES: Readonly<Record<TenantScope, string>> = { all: "全部供应商", allow: "只卖名单里的", deny: "名单里的不卖" };
 
-export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
+/** 复核类别的名字。M4-02（ADR 0034）后端新登记的两类（改赔付表、超过阈值的工单判定）先在这里有名字；复核页面接这两类在 M4-03。 */
+export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind | "compensation_table.update" | "ticket.decision", string>> = {
   "channel.pricing": "改定价参数",
   "channel.pause": "暂停渠道",
   "markup_rule.create": "新增加价规则",
@@ -51,6 +52,8 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
   "rescue.manual_assign": "救援改派：人工指定供应商",
+  "compensation_table.update": "修改客人赔付表",
+  "ticket.decision": "工单判定（赔付达到复核阈值）",
 };
 
 /** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
