@@ -23,6 +23,8 @@
 | 技术、勾了「集成状态 · 查看」的自建角色（`integration.read`） | 只有「已配置 / 未配置」和来源（`masked`、`admin` 为 null） | 403 |
 | 其他角色 | 403 | 403 |
 
+- 只读的人（技术、自建角色）也看得到 Stripe 生效的是测试还是正式密钥（`mode`）：**有意保留**——这不是密钥的任何部分、不敏感，排查「为什么收不到钱 / 为什么扣的是测试卡」时最先要知道它。
+
 - 两步验证没完成、必须先改密码的会话照例在鉴权这一步被拦（ADR 0013、0030）。
 - **为什么只给超级管理员**：能换 Stripe 密钥就能把客人的钱收进别人的账户；和「管平台账号」「改角色」同一等级。自建角色勾不了 `integrations:edit`（400 `SUPER_ADMIN_ONLY`），万一库里存进了这一格，换算权限时也丢掉（`actionsOfGrants`）。
 - 不走双人复核：负责人现在是唯一的超级管理员，复核会让他自己填不了；每次改动都有审计（见下）。以后要加复核，登记一类即可。
@@ -71,10 +73,23 @@
 - 谷歌地图：Routes API 的 `computeRoutes`，东京站 → 新宿站、驾车、不考虑实时路况，字段掩码只要 `routes.distanceMeters`——Routes API 最便宜的一档（Essentials），每次测试**产生一次调用，费用极少**（在谷歌每月的免费额度内基本不计费）。
   选 Routes API 而不是 Places API：报价要用的「里程 + 时长」就是它，测它最能说明密钥能不能用。密钥放在请求头 `X-Goog-Api-Key`，不放网址里；不跟随重定向；每次最多等 5 秒，连不上、超时、5xx 再试 1 次。
 - Stripe：查余额（`GET /v1/balance`），只读、不产生费用；再核对余额的 `livemode` 和密钥的测试 / 正式对得上。每次最多等 8 秒，再试 1 次。publishable key、webhook signing secret 没有只读的验证办法，只核对格式。
+- **限速**：同一项每 5 秒最多测一次，不分人（谷歌地图每次测试都计费，连点或被人刷不能放大费用）；超了 429 `INTEGRATION_TEST_RATE_LIMITED`（`details.retry_after_seconds` 和 `Retry-After`），页面显示「刚测过，请过几秒再试」。
+  计数在每个进程里（现在只有一个服务进程）；以后多开进程，最坏是每个进程各 5 秒一次。
+- 谷歌的应答体边读边截，只读前 64 KB（对方回一个超大应答也不会整个读进内存）。
 - 测的是**现在生效的那一份**（不论来自后台还是配置文件）。结果是数据（200）：可用，或不可用 + 原因代码（`KEY_INVALID` 密钥无效、`API_NOT_ENABLED` 没启用 Routes API、`KEY_RESTRICTED` 密钥的限制不允许、`BILLING_DISABLED` 没绑定付款方式、
   `PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE` 网络不通、`UNAVAILABLE`、`UNEXPECTED`）+ 一句我们自己写的说明（不带对方返回的原文）。
 - 测试代码**从不调用真实的外部服务**：单元测试和集成测试都用本机的假服务器（`testing/fake-integrations.ts`）。地址由配置 `GOOGLE_MAPS_ROUTES_URL`、`STRIPE_API_URL` 指定，**只有 local / ci 能改**，staging / production 改了启动报错（否则改一行配置就能把密钥发到别处）。
   这两项只给测试用，不进 `.env.example`。
+
+### 日志
+
+- 请求日志只记**路由模板**（如 `/platform/v1/integration-secrets/:key`），不记实际路径——全局生效：路径参数里可能是密钥、令牌（有人把密钥误填进地址也不会进日志）。没匹配上任何路由的请求记实际路径，并抹掉其中当前配置里的密钥原文。
+- 没配置 Stripe 时收到 Stripe 的通知：这是配置状态，不是程序出错，记 warn，回 503（Stripe 会稍后重发）。
+- 「支付未配置」的提示统一写「请超级管理员在运营后台『系统设置 → 系统状态 → 第三方密钥』填写 Stripe 的三个密钥」。
+
+### 并发
+
+两个人同时改同一项：先按项名取事务级 advisory lock 排队（这一项还没有行时 `for update` 锁不住任何东西），后到的在先到的提交后再读——所以两个人同时第一次填写，审计里是一条「填写」一条「更换」，更换的前值是先到那一份的末 4 位。清空同样排队。
 
 ### 审计
 
