@@ -35,5 +35,8 @@ test("入驻进度（审核中）按实际阶段说：资质没审完说正在�
   assert.equal(at([]), "资质已全部审核通过、合同已生效，可以签约。");
   assert.equal(at([], "tenant"), "资质已全部审核通过、合同已生效，等平台签约。");
   assert.equal(at(["/contract"], "tenant"), "资质已全部审核通过。等合同生效后签约。");
+  assert.equal(progressHint({ tenant: reviewing, next_step_issues: [{ path: "/documents/vehicle_insurance", reason: "DOCUMENT_EXPIRED" }, { path: "/contract", reason: "CONTRACT_NOT_EFFECTIVE" }] }, "platform"), "有资质已到期，需要供应商重新上传，审核通过、合同生效后签约。");
+  assert.equal(progressHint({ tenant: reviewing, next_step_issues: [{ path: "/documents/vehicle_insurance", reason: "DOCUMENT_EXPIRED" }] }, "tenant"), "有资质已到期，请重新上传已到期的资质。审核通过、合同生效后签约。");
+  assert.equal(progressHint({ tenant: reviewing, next_step_issues: [{ path: "/documents/vehicle_insurance", reason: "DOCUMENT_NEEDS_RESUBMISSION" }] }, "platform"), "有资质被驳回或要求补充，需要供应商重新提交。");
   assert.equal(progressHint({ tenant: { status: "signed" } as CompanyOverview["tenant"], next_step_issues: [] }, "platform"), TENANT_STATUS_HINTS.signed);
 });

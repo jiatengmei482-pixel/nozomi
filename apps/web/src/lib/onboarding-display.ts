@@ -33,6 +33,9 @@ export const TENANT_STATUS_HINTS: Readonly<Record<TenantStatus, string>> = {
  */
 export function progressHint(company: Pick<CompanyOverview, "tenant" | "next_step_issues">, audience: "tenant" | "platform"): string {
   if (company.tenant.status !== "reviewing") return TENANT_STATUS_HINTS[company.tenant.status];
+  // 先看要供应商动手的：资质到期了、被驳回或要求补充了，就不是「正在审核」
+  if (company.next_step_issues.some((issue) => issue.reason === "DOCUMENT_EXPIRED")) return audience === "platform" ? "有资质已到期，需要供应商重新上传，审核通过、合同生效后签约。" : "有资质已到期，请重新上传已到期的资质。审核通过、合同生效后签约。";
+  if (company.next_step_issues.some((issue) => issue.reason === "DOCUMENT_NEEDS_RESUBMISSION")) return audience === "platform" ? "有资质被驳回或要求补充，需要供应商重新提交。" : "有资质被驳回或要求补充，请按平台的意见重新提交。";
   const documents = company.next_step_issues.some((issue) => issue.path.startsWith("/documents"));
   const contract = company.next_step_issues.some((issue) => issue.path.startsWith("/contract"));
   const others = company.next_step_issues.some((issue) => !issue.path.startsWith("/documents") && !issue.path.startsWith("/contract"));
