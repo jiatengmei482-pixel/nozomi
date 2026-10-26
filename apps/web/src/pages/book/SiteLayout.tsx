@@ -14,7 +14,7 @@ import { failureText } from "../../lib/failure.ts";
 import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
 import { ThemeSwitcher } from "../../theme/ThemeSwitcher.tsx";
 
-/** 顶栏的入口：当前页是哪一个（F11）。询价和下单都算「预订接送机」，订单页和查订单都算「查订单」。 */
+/** 顶栏的入口：当前页是哪一个（F11）。询价和下单都算「预订用车」，订单页和查订单都算「查订单」。 */
 function navCurrent(pathname: string, target: string): "page" | "true" | undefined {
   if (pathname === target) return "page";
   if (target === SITE_HOME_PATH && pathname === SITE_CHECKOUT_PATH) return "true";
@@ -38,7 +38,7 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
         </div>
         <nav className="site__nav" aria-label="官网">
           <Link to={SITE_HOME_PATH} className="site__nav-link" aria-current={navCurrent(pathname, SITE_HOME_PATH)}>
-            预订接送机
+            预订用车
           </Link>
           <Link to={SITE_ORDER_PATH} className="site__nav-link" aria-current={navCurrent(pathname, SITE_ORDER_PATH)}>
             查订单

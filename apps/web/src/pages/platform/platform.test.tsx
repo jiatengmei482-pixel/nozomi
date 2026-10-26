@@ -4,6 +4,7 @@
  * 接口用测试替身；真实后端由端到端测试 e2e/platform-tenants.spec.ts 覆盖。
  */
 import { roleName } from "../../lib/portal.ts";
+import { ROLE_DUTIES, roleAbilities } from "../../lib/platform-display.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -487,13 +488,10 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(screen.getAllByRole("radio").length, 10);
   assert.ok(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked), "没有默认值");
   const hintOf = (name: RegExp): string => document.getElementById(screen.getByRole("radio", { name }).getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商。");
-  assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、查看供应商的商品和价格、看主数据、看渠道、看待审核的改动、看订单。");
-  assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看渠道、看待审核的改动、看系统状态。");
-  assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、看待审核的改动。");
-  // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
-  assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商、管理平台员工、看审计日志、看系统状态、管理第三方密钥（在后台填写、更换、清空和测试谷歌地图、Stripe 的密钥）、新建角色、发起角色的修改（要另一位超级管理员审核）、审核角色的修改。$/);
+  // 每个角色：职责一句 + 「现在能做的」按权限现算（和页面同源；具体说法由 platform-display 的单元测试把关），角色多了权限不用改这里
+  for (const role of Object.keys(ROLE_DUTIES) as (keyof typeof ROLE_DUTIES)[]) {
+    assert.equal(hintOf(new RegExp(`^${roleName("platform", role)} `)), `${ROLE_DUTIES[role]} 现在能做的：${roleAbilities(role).join("、")}。`, role);
+  }
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));

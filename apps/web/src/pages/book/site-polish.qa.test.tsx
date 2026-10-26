@@ -138,15 +138,15 @@ test("F3：订单页崩溃后，点顶栏「查订单」能离开兜底页，看
   }
 });
 
-test("F3：订单页崩溃后，点顶栏「预订接送机」能回到询价页", async () => {
+test("F3：订单页崩溃后，点顶栏「预订用车」能回到询价页", async () => {
   const quiet = console.error;
   console.error = () => undefined;
   try {
     const broken = { ...orderOf(), passenger: undefined } as unknown as SiteOrder;
     openOrder(envelopeOf(broken), () => json(200, configOf()));
     assert.ok(await screen.findByRole("heading", { level: 1, name: "页面出了点问题" }));
-    await user().click(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订接送机" }));
-    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订接送机" }));
+    await user().click(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }));
+    assert.ok(await screen.findByRole("heading", { level: 1, name: "预订用车" }));
   } finally {
     console.error = quiet;
   }
@@ -189,7 +189,8 @@ const formOf = (order: SiteOrder, changes: Partial<Form> = {}): Form => ({
   phone: order.passenger.phone,
   email: order.passenger.email,
   flightNo: order.flight_no ?? "",
-  address: (order.direction === "pickup" ? order.dropoff : order.pickup)?.address ?? "",
+  pickupAddress: order.pickup?.address ?? "",
+  dropoffAddress: order.dropoff?.address ?? "",
   notes: order.notes ?? "",
   passengers: String(order.passengers),
   luggage: String(order.luggage),
@@ -223,7 +224,7 @@ test("F12 人数、行李、姓名、地址、航班号的边界", () => {
   for (const bad of ["-1", "0.5", ""]) assert.ok(errorsOf({ luggage: bad }).luggage, `行李 ${JSON.stringify(bad)}`);
   assert.equal(errorsOf({ luggage: "0" }).luggage, undefined, "行李可以是 0");
   assert.ok(errorsOf({ name: "   " }).name, "只有空白的姓名");
-  assert.ok(errorsOf({ address: "  " }).address, "只有空白的地址");
+  assert.ok(errorsOf({ dropoffAddress: "  " }).dropoffAddress, "只有空白的地址（接机单改的是下车地址）");
   assert.ok(errorsOf({ flightNo: "  " }).flightNo, "接机把航班号改成空白");
   assert.equal(errorsOf({ flightNo: "nh 211" }).flightNo, undefined, "小写、带空格的航班号按规范化后算对");
   assert.ok(errorsOf({ flightNo: "N" }).flightNo);

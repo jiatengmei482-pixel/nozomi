@@ -234,8 +234,8 @@ test("「我已落地」在页面上：送机单不出这一块；接机单取�
 });
 
 test("改单：姓名、电话、邮箱、航班号只在写法上不同（首尾空白、电话的空格连字符、航班号大小写和空格）不算改动，和后端同口径", () => {
-  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", address: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
-  assert.deepEqual(changeRequestOf(orderOf(), { ...base, address: " 新宿站南口 ", notes: "  " }), {}, "地址、备注只多了空白");
+  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
+  assert.deepEqual(changeRequestOf(orderOf(), { ...base, dropoffAddress: " 新宿站南口 ", notes: "  " }), {}, "地址、备注只多了空白");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, name: "李四 " }), {}, "姓名只多了一个空格：不应当提交一次乘车人修改");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, phone: " +81 90-8765-4321 ", email: " qa@example.com " }), {}, "电话只多了空格连字符、邮箱只多了空白");
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, flightNo: "nh 211" }), {}, "航班号只是大小写和空格不同");
@@ -273,11 +273,11 @@ test("找回：全角的手机号（输入法常见）先转成半角再提交�
 });
 
 test("改单：只改备注时请求体只有 notes；清空备注给 null；改送机单的地址给 pickup_address", () => {
-  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", address: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
+  const base = { name: "李四", phone: "+819087654321", email: "qa@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "新宿站南口", notes: "", passengers: "2", luggage: "1", date: "2030-11-20", time: "10:00" };
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, notes: " 带婴儿座椅 " }), { notes: "带婴儿座椅" });
   assert.deepEqual(changeRequestOf(orderOf({ notes: "旧备注" }), { ...base, notes: "" }), { notes: null });
   const dropoff = orderOf({ direction: "dropoff", pickup: { lng: 139.7, lat: 35.6, address: "新宿站南口" }, dropoff: null, landing: null });
-  assert.deepEqual(changeRequestOf(dropoff, { ...base, address: "涩谷站" }), { pickup_address: "涩谷站" });
+  assert.deepEqual(changeRequestOf(dropoff, { ...base, pickupAddress: "涩谷站" }), { pickup_address: "涩谷站" });
   assert.deepEqual(changeRequestOf(orderOf(), { ...base, passengers: "0" }), { error: "人数填 1 以上的整数" });
 });
 

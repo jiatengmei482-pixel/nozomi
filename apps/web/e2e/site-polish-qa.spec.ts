@@ -123,7 +123,7 @@ async function headerBoxes(page: Page): Promise<{ brand: Box; theme: Box; nav: B
 
 test("F10：顶栏在 320 两行、480 和 768 一行；各宽度从左到右、从上到下的顺序都和 Tab 顺序（品牌 → 主题 → 入口）一致", async ({ page }) => {
   await page.goto("/book");
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送机" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
 
   await page.setViewportSize({ width: 320, height: 640 });
   const narrow = await headerBoxes(page);
@@ -147,7 +147,7 @@ test("F10：顶栏在 320 两行、480 和 768 一行；各宽度从左到右、
     await page.keyboard.press("Tab");
     order.push(await page.evaluate(() => (document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent ?? "").trim()));
   }
-  expect(order).toEqual(["NOZOMI 用车", "切换主题", "预订接送机", "查订单"]);
+  expect(order).toEqual(["NOZOMI 用车", "切换主题", "预订用车", "查订单"]);
   await expectNoOverflow(page, "询价页");
   await expectAccessibleNarrowAndWide(page, "询价页");
 });

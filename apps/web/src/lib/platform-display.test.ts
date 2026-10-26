@@ -39,6 +39,9 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "role.read": "角色",
   "role.manage": "新建角色",
   "role.review": "审核角色",
+  "statement.read": "供应商账单",
+  "statement.manage": "出账",
+  "statement.review": "审核付款",
 };
 
 /** 没有这项权限时，说明里绝不能出现的字眼（「供应商」「主数据」「平台员工」会出现在别的说法里，不在此列）。 */
@@ -95,7 +98,7 @@ test("验收发现的遗漏：运营、招商、渠道经理、客服能报价�
   for (const role of ["readonly", "risk"] as const) {
     assert.ok(roleAbilities(role).includes("查看供应商的商品和价格"), role);
   }
-  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单"]);
+  assert.deepEqual(roleAbilities("readonly"), ["看供应商", "查看供应商的商品和价格", "看主数据", "看渠道", "看待审核的改动", "看订单", "看供应商账单和付款批次"]);
 });
 
 test("主数据运营、渠道经理、超级管理员的说明里都写上「看待审核的改动」（M1-18：原先被「审核汇率」「审核渠道」那一项吞掉了）", () => {

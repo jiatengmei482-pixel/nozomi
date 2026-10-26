@@ -24,7 +24,7 @@ const HOUR = 3_600_000;
 const PHONE = "+81 3-1234-5678";
 
 const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: true, currency: "JPY", payments: null, support_phone: null, ...changes });
-const city = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP" };
+const city = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", categories: ["airport_transfer" as const] };
 const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const quoteOf = (id: string, name: string, amount: string): SiteQuote => ({
@@ -32,6 +32,7 @@ const quoteOf = (id: string, name: string, amount: string): SiteQuote => ({
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   service_date: "2030-11-20",
   urgent: false,
+  package: null,
   vehicle_group: { id: `33333333-3333-4333-8333-33333333333${id.slice(-1)}`, code: `VG-${id}`, name: { zh: name }, grade: "business", seats: 7, sample_models: [], combos: [] },
   price: { total: { amount, currency: "JPY" }, fx: null },
   free_wait_minutes: 90,
@@ -118,13 +119,14 @@ const sectionTitles = (): string[] => screen.getAllByRole("heading", { level: 2 
 const bookingRoutes = (quotes: SiteQuote[], unavailable: unknown[] = []): Route => (call) => {
   if (call.url.pathname === "/site/v1/config") return json(200, configOf());
   if (call.url.pathname === "/site/v1/cities") return json(200, { items: [city] });
+  if (call.url.pathname === `/site/v1/cities/${CITY_ID}/places`) return json(200, { items: [] });
   if (call.url.pathname === `/site/v1/cities/${CITY_ID}/airports`) return json(200, { items: [airport] });
   if (call.method === "POST" && call.url.pathname === "/site/v1/quotes") return json(200, { quotes, unavailable });
   return null;
 };
 
 async function fillInquiry(actor: ReturnType<typeof user>): Promise<void> {
-  await screen.findByRole("heading", { level: 1, name: "预订接送机" });
+  await screen.findByRole("heading", { level: 1, name: "预订用车" });
   await waitFor(() => assert.equal((screen.getByLabelText(/^机场/) as HTMLSelectElement).value, AIRPORT_ID));
   await actor.type(screen.getByLabelText("下车地址或酒店名"), "东京站八重洲口");
   await actor.type(screen.getByLabelText(/^纬度/), "35.6812");
@@ -281,13 +283,13 @@ test("F7：订单页的取消政策是客人的说法；扣全额时确认框写
 
 test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页的入口标 aria-current", async () => {
   open("/book", bookingRoutes([]));
-  await screen.findByRole("heading", { level: 1, name: "预订接送机" });
+  await screen.findByRole("heading", { level: 1, name: "预订用车" });
   const header = document.querySelector(".site__header") as HTMLElement;
   assert.deepEqual([...header.children].map((child) => child.className), ["site__brand", "site__theme", "site__nav"]);
   const focusable = [...header.querySelectorAll<HTMLElement>("a, button")].map((element) => element.getAttribute("aria-label") ?? element.textContent);
-  assert.deepEqual(focusable, ["NOZOMI 用车", "切换主题", "预订接送机", "查订单"], "Tab 顺序：品牌 → 主题 → 入口");
+  assert.deepEqual(focusable, ["NOZOMI 用车", "切换主题", "预订用车", "查订单"], "Tab 顺序：品牌 → 主题 → 入口");
   const nav = screen.getByRole("navigation", { name: "官网" });
-  assert.equal(within(nav).getByRole("link", { name: "预订接送机" }).getAttribute("aria-current"), "page");
+  assert.equal(within(nav).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), "page");
   assert.equal(within(nav).getByRole("link", { name: "查订单" }).getAttribute("aria-current"), null);
   resetBrowser();
 
@@ -295,12 +297,12 @@ test("F10、F11：顶栏 DOM 顺序是品牌、主题切换、入口；当前页
   await screen.findByRole("heading", { level: 1, name: "查订单" });
   const nav2 = screen.getByRole("navigation", { name: "官网" });
   assert.equal(within(nav2).getByRole("link", { name: "查订单" }).getAttribute("aria-current"), "page");
-  assert.equal(within(nav2).getByRole("link", { name: "预订接送机" }).getAttribute("aria-current"), null);
+  assert.equal(within(nav2).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), null);
   resetBrowser();
 
   open("/book/checkout", () => null);
   await screen.findByRole("heading", { level: 1, name: "填写订单" });
-  assert.equal(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订接送机" }).getAttribute("aria-current"), "true", "下单是预订流程的一步");
+  assert.equal(within(screen.getByRole("navigation", { name: "官网" })).getByRole("link", { name: "预订用车" }).getAttribute("aria-current"), "true", "下单是预订流程的一步");
 });
 
 // ───────────── F12 字段级错误 ─────────────

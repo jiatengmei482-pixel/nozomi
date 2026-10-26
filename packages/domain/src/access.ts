@@ -67,6 +67,9 @@ export const PLATFORM_ACTIONS = [
   "role.read",
   "role.manage",
   "role.review",
+  "statement.read",
+  "statement.manage",
+  "statement.review",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -91,6 +94,8 @@ export const TENANT_ACTIONS = [
   "company.read",
   "company.manage",
   "performance.read",
+  "statement.read",
+  "statement.confirm",
 ] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
@@ -131,6 +136,10 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 救援改派（M3-04，ADR 0031）：救援队列和订单里的救援记录用 `order.read` 看；
  * - `rescue.manage`（按 4 种情形发起救援、给候选供应商发救援单、认定不可抗力、发起人工指定）：运营、客服（需求「人工介入能力」归处理订单的人）；
  * - `rescue.review`（审核人工指定救援供应商，需求「全部候选都不接，运营可人工指定租户（双人复核）」）：运营——两位运营互审，或超级管理员审。
+ * 供应商应付账单与付款批次（M5-01，ADR 0040；菜单表「财务结算：应收应付、账单、发票、付款、对账差异」归财务）：
+ * - `statement.read`（看账单、明细、付款批次）：财务、只读（看得到每家供应商的结算价，没有对外价）；
+ * - `statement.manage`（手动出账、答复异议、作废重出、发起付款复核、锁定付款批次）：财务；
+ * - `statement.review`（审核「付款给租户」，需求「敏感操作双人复核：付款给租户」）：财务——两位财务互审，或超级管理员审。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
@@ -141,11 +150,11 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"],
-  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
-  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
+  readonly: ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "statement.read"],
 };
 
 /**
@@ -165,13 +174,14 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 确认 / 拒绝客人的改期用 `order.dispatch`（排不排得出车是调度的判断）。
  * 救援改派（M3-04，ADR 0031）：声明无法履约、接 / 拒救援单用 `order.dispatch`（调度知道排不排得出车）；
  * 看自己的应扣款项（违约金、救援差价）用 `order.read`（财务对账、只读也要看）。
+ * 账单（M5-01，ADR 0040；需求「财务：订单（只读）、对账、发票」）：看（`statement.read`）给管理员、财务、只读；确认、提异议（`statement.confirm`）给管理员、财务。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
   pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
   dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
-  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"],
+  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read", "statement.read", "statement.confirm"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read", "statement.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {
@@ -281,6 +291,8 @@ export const PLATFORM_MENUS = [
   // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
   { key: "cancellation_policy", name: "取消政策", operations: { view: ["master_data.read"], edit: ["cancellation_policy.manage"], review: ["cancellation_policy.review"] } },
   { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },
+  // 财务结算（M5-01）：看账单和付款批次；出账、答复异议、作废重出、发起付款复核、锁定批次算编辑；审核「付款给租户」算审核
+  { key: "finance", name: "财务结算", operations: { view: ["statement.read"], edit: ["statement.manage"], review: ["statement.review"] } },
   // 需求文档里汇率中心是主数据菜单的一部分：看汇率就是看主数据；拉取、确认、发起锁定算编辑，审核锁定算审核
   { key: "master_data", name: "主数据与汇率", operations: { view: ["master_data.read"], edit: ["master_data.manage", "fx.manage"], review: ["fx.review"] } },
   { key: "staff", name: "平台账号", operations: { view: ["staff.read"], edit: ["staff.manage"] } },
