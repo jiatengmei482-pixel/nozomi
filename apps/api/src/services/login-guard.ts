@@ -10,6 +10,7 @@ import {
   LOGIN_MAX_ATTEMPTS_PER_EMAIL_AND_IP,
   combineThrottleDecisions,
   evaluateThrottle,
+  rateLimitKeyOf,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPreAuthTx } from "../db/context.ts";
@@ -42,8 +43,10 @@ export async function reserveLogin(
   ip: string,
   now: Date,
 ): Promise<LoginReservation> {
-  const perIp = throttleKey(entry, "ip", ip);
-  const perEmailAndIp = throttleKey(entry, "email+ip", email, ip);
+  // 来源地址按限流键计（IPv6 按 /64，ADR 0045）：同一个 /64 里换地址绕不过「同一地址」「同一邮箱 + 同一地址」两层
+  const source = rateLimitKeyOf(ip);
+  const perIp = throttleKey(entry, "ip", source);
+  const perEmailAndIp = throttleKey(entry, "email+ip", email, source);
   const perEmail = throttleKey(entry, "email", email);
   const decision = await withPreAuthTx(ctx.pool, async (db) => {
     await deleteStaleLoginThrottles(db, now);
