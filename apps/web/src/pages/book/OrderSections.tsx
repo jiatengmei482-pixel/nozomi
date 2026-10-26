@@ -30,7 +30,18 @@ import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { CHANGE_FIELD_NAMES, extraTypeName, tiersText } from "../../lib/order-money-display.ts";
 import { PaymentNotIntegratedError, type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts";
-import { GUEST_CANCEL_REASON_NAMES, GUEST_CHANGE_STATUS_BADGES, GUEST_EXTRA_STATUS_BADGES, TIMELINE_NAMES, landingAvailability } from "../../lib/site-display.ts";
+import {
+  ADDRESS_LABELS,
+  GUEST_CANCEL_REASON_NAMES,
+  GUEST_CHANGE_STATUS_BADGES,
+  GUEST_EXTRA_STATUS_BADGES,
+  TIMELINE_NAMES,
+  addressEnds,
+  freeWaitText,
+  landingAvailability,
+  packageText,
+  serviceTimeLabels,
+} from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
@@ -173,16 +184,27 @@ export function PaymentSection({ token, order, configPayments, initial, onPaid }
 
 // ---- 行程、时间线、司机 ----
 
-export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrderNames }) {
-  const pickup = order.direction === "pickup";
+/** 行程那一行：接机 / 送机写机场和地址，点对点写两端，包车写套餐和上车点。 */
+function routeFacts(order: SiteOrder, names: SiteOrderNames): { label: string; text: string }[] {
+  const pickupAddress = order.pickup?.address ?? "—";
+  const dropoffAddress = order.dropoff?.address ?? "—";
+  if (order.category === "point_to_point") return [{ label: "点对点", text: `${pickupAddress} → ${dropoffAddress}` }];
+  if (order.category === "charter") return [{ label: "包车", text: order.package_hours === null ? "—" : packageText(order.package_hours, null) }, { label: "上车地点", text: pickupAddress }];
   const airport = placeName(names);
-  const address = (pickup ? order.dropoff : order.pickup)?.address ?? "—";
+  return order.direction === "pickup" ? [{ label: "接机", text: `${airport} → ${dropoffAddress}` }] : [{ label: "送机", text: `${pickupAddress} → ${airport}` }];
+}
+
+export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrderNames }) {
   const group = names.vehicle_group === null ? null : displayName(names.vehicle_group.name);
   return (
     <Section id="site-trip-title" title="行程">
       <dl className="site-facts">
-        <Fact label={pickup ? "接机" : "送机"}>{pickup ? `${airport} → ${address}` : `${address} → ${airport}`}</Fact>
-        <Fact label={pickup ? "航班计划到达" : "上车时间"}>
+        {routeFacts(order, names).map((fact) => (
+          <Fact key={fact.label} label={fact.label}>
+            {fact.text}
+          </Fact>
+        ))}
+        <Fact label={serviceTimeLabels(order.category, order.direction).fact}>
           {order.service_local.replace("T", " ")}（{names.city === null ? "" : displayName(names.city.name).text}当地时间）
         </Fact>
         {order.flight_no !== null && <Fact label="航班号">{order.flight_no}</Fact>}
@@ -195,7 +217,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         </Fact>
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
         <Fact label="价格">{moneyText(order.price.total)}</Fact>
-        <Fact label="免费等待">{order.free_wait_minutes === null ? "不限时" : `${order.free_wait_minutes} 分钟（${pickup ? "从航班落地起算" : "从约定的上车时间起算"}）`}</Fact>
+        <Fact label="免费等待">{freeWaitText(order.free_wait_minutes, order.category, order.direction)}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}
       </dl>
     </Section>
@@ -390,7 +412,8 @@ interface ChangeForm {
   phone: string;
   email: string;
   flightNo: string;
-  address: string;
+  pickupAddress: string;
+  dropoffAddress: string;
   notes: string;
   passengers: string;
   luggage: string;
@@ -399,13 +422,13 @@ interface ChangeForm {
 }
 
 function formOf(order: SiteOrder): ChangeForm {
-  const pickup = order.direction === "pickup";
   return {
     name: order.passenger.name,
     phone: order.passenger.phone,
     email: order.passenger.email,
     flightNo: order.flight_no ?? "",
-    address: (pickup ? order.dropoff : order.pickup)?.address ?? "",
+    pickupAddress: order.pickup?.address ?? "",
+    dropoffAddress: order.dropoff?.address ?? "",
     notes: order.notes ?? "",
     passengers: String(order.passengers),
     luggage: String(order.luggage),
@@ -423,10 +446,15 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   const before = formOf(order);
   const body: SiteChangeRequest = {};
   if (passengerKey(form) !== passengerKey(before)) body.passenger = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() };
-  if (flightKey(form.flightNo) !== flightKey(before.flightNo)) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
-  if (form.address.trim() !== before.address) {
-    if (order.direction === "pickup") body.dropoff_address = form.address.trim();
-    else body.pickup_address = form.address.trim();
+  if (order.category === "airport_transfer" && flightKey(form.flightNo) !== flightKey(before.flightNo)) body.flight_no = form.flightNo.trim() === "" ? null : form.flightNo.trim();
+  const ends = addressEnds(order.category, order.direction);
+  if (ends.includes("pickup") && form.pickupAddress.trim() !== before.pickupAddress) {
+    if (form.pickupAddress.trim() === "") return { error: "上车地址不能为空" };
+    body.pickup_address = form.pickupAddress.trim();
+  }
+  if (ends.includes("dropoff") && form.dropoffAddress.trim() !== before.dropoffAddress) {
+    if (form.dropoffAddress.trim() === "") return { error: "下车地址不能为空" };
+    body.dropoff_address = form.dropoffAddress.trim();
   }
   if (form.notes.trim() !== before.notes) body.notes = form.notes.trim() === "" ? null : form.notes.trim();
   if (form.passengers !== before.passengers) {
@@ -451,7 +479,9 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
   const [busy, setBusy] = useState(false);
   const shown = order.changes.filter((change) => change.status !== "cancelled");
   if (!CHANGEABLE.has(order.status) && shown.length === 0) return null;
-  const pickup = order.direction === "pickup";
+  const transfer = order.category === "airport_transfer";
+  const arrival = transfer && order.direction === "pickup";
+  const labels = serviceTimeLabels(order.category, order.direction);
   const set = (changes: Partial<ChangeForm>): void => setForm((current) => (current === null ? current : { ...current, ...changes }));
 
   const submit = async (event: FormEvent): Promise<void> => {
@@ -508,7 +538,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
       {CHANGEABLE.has(order.status) &&
         (form === null ? (
           <>
-            <p className="site-muted">乘车人、航班号随时可以改；地址、备注、人数行李和用车时间在免费取消期内可以改，改时间会按新时间重新计价（多退少补）。换车型请取消后重新预订。</p>
+            <p className="site-muted">{transfer ? "乘车人、航班号随时可以改" : "乘车人随时可以改"}；地址、备注、人数行李和用车时间在免费取消期内可以改，改时间会按新时间重新计价（多退少补）。换车型请取消后重新预订。</p>
             <Button size="lg" onClick={() => setForm(formOf(order))}>
               修改订单
             </Button>
@@ -518,11 +548,19 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
             <TextField label="乘车人姓名" size="lg" value={form.name} onChange={(event) => set({ name: event.target.value })} />
             <TextField label="手机号（带国家码）" size="lg" type="tel" value={form.phone} onChange={(event) => set({ phone: event.target.value })} />
             <TextField label="邮箱" size="lg" type="email" value={form.email} onChange={(event) => set({ email: event.target.value })} />
-            <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" value={form.flightNo} onChange={(event) => set({ flightNo: event.target.value })} />
-            <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" value={form.address} onChange={(event) => set({ address: event.target.value })} />
+            {transfer && <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" value={form.flightNo} onChange={(event) => set({ flightNo: event.target.value })} />}
+            {addressEnds(order.category, order.direction).map((end) => (
+              <TextField
+                key={end}
+                label={ADDRESS_LABELS[end]}
+                size="lg"
+                value={end === "pickup" ? form.pickupAddress : form.dropoffAddress}
+                onChange={(event) => set(end === "pickup" ? { pickupAddress: event.target.value } : { dropoffAddress: event.target.value })}
+              />
+            ))}
             <div className="site-form__row">
-              <TextField label={pickup ? "航班到达日期（当地）" : "用车日期（当地）"} size="lg" type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} />
-              <TextField label={pickup ? "航班计划到达时间（当地）" : "上车时间（当地）"} size="lg" type="time" value={form.time} onChange={(event) => set({ time: event.target.value })} />
+              <TextField label={labels.date} size="lg" type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} />
+              <TextField label={labels.time} size="lg" type="time" value={form.time} onChange={(event) => set({ time: event.target.value })} />
             </div>
             <div className="site-form__row">
               <TextField label="人数" size="lg" type="number" inputMode="numeric" min={1} value={form.passengers} onChange={(event) => set({ passengers: event.target.value })} />

@@ -20,12 +20,17 @@ export interface SiteConfig {
   payments: { provider: "stripe"; publishable_key: string } | null;
 }
 
+/** 官网卖的品类：接送机、点对点、包车（M3-10）。 */
+export type SiteCategory = "airport_transfer" | "point_to_point" | "charter";
+
 export interface SiteCity {
   id: string;
   code: string;
   name: LocalizedText;
   timezone: string;
   country_code: string;
+  /** 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车） */
+  categories: SiteCategory[];
 }
 
 export interface SiteAirport {
@@ -37,11 +42,43 @@ export interface SiteAirport {
 
 export type SiteDirection = "pickup" | "dropoff";
 
+export interface SitePoint {
+  lng: number;
+  lat: number;
+}
+
+/** 包车能选的套餐时长。 */
+export interface SiteCharterPackage {
+  hours: number;
+}
+
+/** 地址输入辅助：城市里的机场、车站、地标（主数据）。 */
+export interface SitePlace {
+  id: string;
+  type: "airport" | "station" | "poi";
+  code: string;
+  name: LocalizedText;
+  address: string | null;
+  location: SitePoint;
+}
+
+/**
+ * 询价请求。各品类填各自的字段，别的不填（后端对不该填的报 NOT_APPLICABLE）：
+ * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+ */
 export interface SiteQuoteRequest {
+  category: SiteCategory;
   city_id: string;
-  airport_id: string;
-  direction: SiteDirection;
-  address: { lng: number; lat: number };
+  airport_id?: string;
+  direction?: SiteDirection;
+  /** 接送机：地址那一端的坐标 */
+  address?: SitePoint;
+  /** 点对点、包车：上车点 */
+  pickup?: SitePoint;
+  /** 点对点：下车点 */
+  dropoff?: SitePoint;
+  /** 包车：套餐时长（小时） */
+  package_hours?: number;
   /** 城市当地时间 `YYYY-MM-DDTHH:mm` */
   service_local: string;
   passengers: number;
@@ -64,6 +101,8 @@ export interface SiteQuote {
   service_date: string;
   urgent: boolean;
   vehicle_group: SiteVehicleGroup;
+  /** 包车：套餐时长和含的公里数；其他品类 null */
+  package: { hours: number; km: number | null } | null;
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   free_wait_minutes: number | null;
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
@@ -249,9 +288,11 @@ export interface SiteChangeRequest {
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
   SiteConfig: ["open", "currency", "payments"],
-  SiteCity: ["id", "code", "name", "timezone", "country_code"],
+  SiteCity: ["id", "code", "name", "timezone", "country_code", "categories"],
   SiteAirport: ["id", "code", "name", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "price", "free_wait_minutes", "cancel_policy"],
+  SiteCharterPackage: ["hours"],
+  SitePlace: ["id", "type", "code", "name", "address", "location"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "price", "free_wait_minutes", "cancel_policy"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["order", "timeline", "names"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
@@ -264,7 +305,7 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["city_id", "airport_id", "direction", "address", "service_local", "passengers", "luggage"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method"];
 
 const guest = (token: string) => ({ token });
@@ -279,6 +320,14 @@ export function listSiteCities(): Promise<{ items: SiteCity[] }> {
 
 export function listSiteAirports(cityId: string): Promise<{ items: SiteAirport[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/airports`);
+}
+
+export function listSiteCharterPackages(cityId: string): Promise<{ items: SiteCharterPackage[] }> {
+  return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/charter-packages`);
+}
+
+export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {
+  return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
 }
 
 export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResult> {

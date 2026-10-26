@@ -3,12 +3,59 @@
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
 import { type ExtraChargeStatus, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays } from "@nozomi/domain";
-import type { SiteOrder, SiteUnavailableReason } from "../api/site.ts";
+import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
 export const SITE_HOME_PATH = "/book";
 export const SITE_CHECKOUT_PATH = "/book/checkout";
 export const SITE_ORDER_PATH = "/book/order";
+
+/** 客人看到的服务名称（M3-10）。 */
+export const SITE_CATEGORY_NAMES: Readonly<Record<SiteCategory, string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
+
+/** 选服务时每种服务下面的一句说明。 */
+export const SITE_CATEGORY_HINTS: Readonly<Record<SiteCategory, string>> = {
+  airport_transfer: "机场和酒店、地址之间",
+  point_to_point: "市内两个地点之间",
+  charter: "按小时包一辆车，司机全程陪同",
+};
+
+/** 价格包含什么（询价结果上方的一句）：包车的高速费、停车费和超出套餐的部分服务后按实际收（加收的类型只有包车有这几项）。 */
+export function priceNote(category: SiteCategory): string {
+  return category === "charter"
+    ? "按车计价的套餐价。超出套餐的时长和公里、高速费、停车费服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"
+    : "按车计价的一口价，已含高速费和停车费。";
+}
+
+/** 一单要客人写哪几端的地址：接送机只写机场之外的那一端；点对点两端；包车只写上车点。 */
+export function addressEnds(category: SiteCategory, direction: SiteDirection | null): ("pickup" | "dropoff")[] {
+  if (category === "point_to_point") return ["pickup", "dropoff"];
+  if (category === "charter") return ["pickup"];
+  return direction === "pickup" ? ["dropoff"] : ["pickup"];
+}
+
+/** 地址那一栏的名字：接送机、点对点都按上车 / 下车说。 */
+export const ADDRESS_LABELS: Readonly<Record<"pickup" | "dropoff", string>> = { pickup: "上车地址或酒店名", dropoff: "下车地址或酒店名" };
+
+/** 用车时间那两栏的名字：接机填的是航班的计划到达时间。 */
+export function serviceTimeLabels(category: SiteCategory, direction: SiteDirection | null): { date: string; time: string; fact: string } {
+  return category === "airport_transfer" && direction === "pickup"
+    ? { date: "航班到达日期（当地）", time: "航班计划到达时间（当地）", fact: "航班计划到达" }
+    : { date: "用车日期（当地）", time: "上车时间（当地）", fact: "上车时间" };
+}
+
+/** 免费等待从什么时候算：只有接机从航班落地算。 */
+export function freeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
+  if (minutes === null) return "不限时";
+  return `${minutes} 分钟（${category === "airport_transfer" && direction === "pickup" ? "从航班落地起算" : "从约定的上车时间起算"}）`;
+}
+
+/** 包车套餐的说法：`8 小时，含 150 公里`；公里数不知道时只说时长。 */
+export function packageText(hours: number, km: number | null): string {
+  return km === null ? `${hours} 小时` : `${hours} 小时，含 ${countText(km)} 公里`;
+}
+
+export const SITE_PLACE_TYPE_NAMES: Readonly<Record<SitePlace["type"], string>> = { airport: "机场", station: "车站", poi: "地标" };
 
 /** 订单页的地址：令牌在 `#` 后面，不会发给服务器、不进访问日志。 */
 export function siteOrderUrl(token: string): string {
@@ -67,7 +114,7 @@ export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
 
 /** 报不出价的原因：告诉客人可以怎么改。 */
 export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, string>> = {
-  NO_PRODUCT: "这个机场暂时没有可预订的车。",
+  NO_PRODUCT: "这里暂时没有这种服务可预订，请换一种服务或换一个城市。",
   OUT_OF_SERVICE_AREA: "这个地址不在服务范围内，请换一个更靠近市区的地址。",
   LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
   SOLD_OUT: "这一天已经订满了，请换一天。",

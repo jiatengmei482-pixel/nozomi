@@ -21,7 +21,7 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
         </Link>
         <nav className="site__nav" aria-label="官网">
           <Link to={SITE_HOME_PATH} className="site__nav-link">
-            预订接送机
+            预订用车
           </Link>
           <Link to={SITE_ORDER_PATH} className="site__nav-link">
             查订单
