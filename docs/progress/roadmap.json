@@ -314,7 +314,7 @@
           "role": "frontend",
           "status": "review",
           "acceptance": ["docs/design/pages/site-booking.md 第 11.2 节列出的差异（F1–F12）逐项修正并标注完成", "320 / 360 / 768 宽度不横向滚动，亮色、暗色通过无障碍检查"],
-          "evidence": "PR 链接待写入；测试角色补 32 个测试，发现的 5 个缺陷已修复；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；「需要帮助」客服区块等负责人提供客服电话（SITE_SUPPORT_PHONE）后显示",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/49 ；测试角色补 32 个测试，发现的 5 个缺陷已修复；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；「需要帮助」客服区块等负责人提供客服电话（SITE_SUPPORT_PHONE）后显示",
           "updated": "2026-10-26"
         },
         {
