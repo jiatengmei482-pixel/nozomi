@@ -55,6 +55,12 @@ export function cancelReasonName(reason: OrderCancelReason | string | null): str
   return ORDER_CANCEL_REASON_NAMES[reason as OrderCancelReason] ?? reason;
 }
 
+/** 订单上的取消原因：没付过款就取消的单不涉及扣款，「客人取消」不写「按取消政策扣款」（和官网「您取消了订单」一致，M4-10）。 */
+export function orderCancelReasonText(reason: OrderCancelReason | string | null, paid: boolean): string {
+  if (!paid && reason === "GUEST_REQUEST") return "客人取消了订单";
+  return cancelReasonName(reason);
+}
+
 /** 运营代取消能选的原因（付款前的两种只由系统用）。 */
 export const PLATFORM_CANCEL_REASONS: readonly OrderCancelReason[] = ["GUEST_REQUEST", "FLIGHT_CANCELLED", "FORCE_MAJEURE", "SUPPLIER_FAULT", "PLATFORM_FAULT", "CHANGE_NOT_CONFIRMED"];
 

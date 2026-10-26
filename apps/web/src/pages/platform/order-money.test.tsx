@@ -212,6 +212,19 @@ test("订单详情（运营后台）：还没付款的单没有「新建工单�
   assert.ok(screen.getByRole("link", { name: "新建工单" }));
 });
 
+test("订单详情（运营后台）：没付款就取消的单，取消原因写「客人取消了订单」，不写「按取消政策扣款」；付过款的照旧", async () => {
+  const unpaid = platformOrder({ status: "cancelled", confirmed_at: null, cancel_reason: "GUEST_REQUEST", cancellation: { reason: "GUEST_REQUEST", note: null, fee_bp: null, customer_fee: null, tenant_share: null } });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(unpaid, { events: [{ from_status: "pending_payment", to_status: "cancelled", actor: "platform_user", reason: "GUEST_REQUEST", occurred_at: stamps.created_at }] })) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.ok(screen.getAllByText(/客人取消了订单/).length >= 1);
+  assert.doesNotMatch(document.body.textContent ?? "", /按取消政策扣款/);
+  resetBrowser();
+  const paid = platformOrder({ status: "cancelled", cancel_reason: "GUEST_REQUEST", cancellation: { reason: "GUEST_REQUEST", note: null, fee_bp: 5000, customer_fee: money("10890"), tenant_share: money("9900") } });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(paid)) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.ok(screen.getByText("客人取消（按取消政策扣款）"));
+});
+
 test("订单详情（运营后台）：审核加收可以部分通过；客服看不到「重试退款」（只有财务、运营能重试）；只读看不到代取消和审核", async () => {
   let decided: unknown = null;
   const detail = platformDetail(platformOrder({ status: "completed" }), {
