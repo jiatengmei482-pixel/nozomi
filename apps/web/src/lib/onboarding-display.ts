@@ -2,7 +2,7 @@
  * 供应商入驻（M4-01，ADR 0028）在页面上的说法：状态、暂停和观察的原因、资质的现状、状态记录的动作、提醒、评分。
  * 两个后台用同一套，供应商后台不写平台内部的说明。
  */
-import type { DocumentRequirement, DocumentStatus, NoticeKind, RequirementState, ScoreComponentKey, StatusTrigger, TenantIssue, TenantNotice, TenantStatusEvent } from "../api/onboarding.ts";
+import type { CompanyOverview, DocumentRequirement, DocumentStatus, NoticeKind, RequirementState, ScoreComponentKey, StatusTrigger, TenantIssue, TenantNotice, TenantStatusEvent } from "../api/onboarding.ts";
 import type { ObservationReason, SuspensionReason, Tenant, TenantStatus } from "../api/types.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
@@ -26,6 +26,20 @@ export const TENANT_STATUS_HINTS: Readonly<Record<TenantStatus, string>> = {
   suspended: "商品不参与比价、不能接新订单；已经接下的订单照常履约。",
   terminated: "只能查看历史，不能再修改。",
 };
+
+/**
+ * 入驻进度的那一句（M4-10）：「审核中」按实际走到哪一步说——资质全部通过、合同也生效了就说可以签约，
+ * 只差合同就说等合同，资质还没审完才说正在审核。其他状态同 `TENANT_STATUS_HINTS`。
+ */
+export function progressHint(company: Pick<CompanyOverview, "tenant" | "next_step_issues">, audience: "tenant" | "platform"): string {
+  if (company.tenant.status !== "reviewing") return TENANT_STATUS_HINTS[company.tenant.status];
+  const documents = company.next_step_issues.some((issue) => issue.path.startsWith("/documents"));
+  const contract = company.next_step_issues.some((issue) => issue.path.startsWith("/contract"));
+  const others = company.next_step_issues.some((issue) => !issue.path.startsWith("/documents") && !issue.path.startsWith("/contract"));
+  if (documents || others) return contract ? TENANT_STATUS_HINTS.reviewing : "资质正在审核（合同已生效）。审核通过后签约。";
+  if (contract) return audience === "platform" ? "资质已全部审核通过。合同生效后可以签约。" : "资质已全部审核通过。等合同生效后签约。";
+  return audience === "platform" ? "资质已全部审核通过、合同已生效，可以签约。" : "资质已全部审核通过、合同已生效，等平台签约。";
+}
 
 export const SUSPENSION_REASON_NAMES: Readonly<Record<SuspensionReason, string>> = {
   manual: "人工暂停",

@@ -222,6 +222,18 @@ test("运营后台供应商详情：审核中的可以签约；资质逐项审�
   assert.equal(writes(calls).find((call) => call.path.endsWith("/approve"))?.path, `/platform/v1/tenants/${TENANT_ID}/documents/${DOC_ID}/approve`);
 });
 
+test("运营后台：资质全部通过、合同已生效的「审核中」供应商，入驻进度写可以签约，不再写资质正在审核（M4-10）", async () => {
+  const tenant = tenantOf({ status: "reviewing" });
+  openPlatform(`/platform/tenants/${TENANT_ID}`, "tenant_onboarding", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenant);
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}/company`) return json(200, companyOf({ tenant, next_step_issues: [] }));
+    return null;
+  });
+  const progress = await screen.findByRole("region", { name: "入驻进度" });
+  assert.match(progress.textContent ?? "", /资质已全部审核通过、合同已生效，可以签约。/);
+  assert.doesNotMatch(progress.textContent ?? "", /资质正在审核/);
+});
+
 test("运营后台：只读角色看得到入驻进度和资质，但没有签约、审核、下载、发起合同的按钮；资质审核队列列出待审核的、能切到快到期的", async () => {
   const user = userEvent.setup();
   const tenant = tenantOf({ status: "reviewing" });

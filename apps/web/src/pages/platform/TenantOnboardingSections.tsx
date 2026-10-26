@@ -43,10 +43,10 @@ import {
   DOCUMENT_STATUS_BADGES,
   MAX_FILE_BYTES,
   REQUIREMENT_BADGES,
-  TENANT_STATUS_HINTS,
   TRIGGER_NAMES,
   fileSizeText,
   issueText,
+  progressHint,
   requirementExpiryText,
   statusEventText,
 } from "../../lib/onboarding-display.ts";
@@ -190,7 +190,7 @@ function ProgressCard({ company, onTenantChanged }: { company: CompanyOverview; 
           </span>
         )}
       </div>
-      <p>{TENANT_STATUS_HINTS[tenant.status]}</p>
+      <p>{progressHint(company, "platform")}</p>
       <dl className="details">
         {(
           [

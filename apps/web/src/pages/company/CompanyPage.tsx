@@ -34,7 +34,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { saveFile } from "../../lib/download.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, TENANT_STATUS_HINTS, fileSizeText, issueText, noticeText, requirementExpiryText, standingNotice } from "../../lib/onboarding-display.ts";
+import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, fileSizeText, issueText, noticeText, progressHint, requirementExpiryText, standingNotice } from "../../lib/onboarding-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -392,7 +392,7 @@ export function CompanyPage() {
         <h2 className="card__title" id="company-progress-title">
           入驻进度
         </h2>
-        <p>{TENANT_STATUS_HINTS[tenant.status]}</p>
+        <p>{progressHint(data, "tenant")}</p>
         {data.next_step_issues.length > 0 && tenant.status === "applying" && (
           <>
             <p>提交审核前还缺：</p>

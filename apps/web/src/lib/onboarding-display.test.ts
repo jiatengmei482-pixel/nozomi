@@ -3,7 +3,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { requirementExpiryText } from "./onboarding-display.ts";
+import type { CompanyOverview } from "../api/onboarding.ts";
+import { TENANT_STATUS_HINTS, progressHint, requirementExpiryText } from "./onboarding-display.ts";
 
 const item = (changes: Partial<Parameters<typeof requirementExpiryText>[0]> = {}): Parameters<typeof requirementExpiryText>[0] => ({ expiry: "required", approved_document_id: null, expires_on: null, days_left: null, ...changes });
 
@@ -23,4 +24,16 @@ test("已通过的：写通过的那一份的到期日（快到期带剩几天�
   assert.equal(requirementExpiryText(approved, { id: "d2", status: "pending", expires_on: "2027-11-20" }), "2026-11-20（还有 25 天）；新的一份 2027-11-20（审核中）");
   assert.equal(requirementExpiryText(approved, { id: "d2", status: "pending", expires_on: "2026-11-20" }), "2026-11-20（还有 25 天）");
   assert.equal(requirementExpiryText(approved, { id: "d2", status: "pending", expires_on: null }), "2026-11-20（还有 25 天）");
+});
+
+test("入驻进度（审核中）按实际阶段说：资质没审完说正在审核；资质通过只差合同说等合同；都齐了说可以签约；别的状态照常", () => {
+  const reviewing = { status: "reviewing" } as CompanyOverview["tenant"];
+  const at = (paths: string[], audience: "tenant" | "platform" = "platform") => progressHint({ tenant: reviewing, next_step_issues: paths.map((path) => ({ path, reason: "X" })) }, audience);
+  assert.equal(at(["/documents/vehicle_insurance", "/contract"]), "资质正在审核。审核通过、合同生效后签约。");
+  assert.equal(at(["/documents/vehicle_insurance"]), "资质正在审核（合同已生效）。审核通过后签约。");
+  assert.equal(at(["/contract"]), "资质已全部审核通过。合同生效后可以签约。");
+  assert.equal(at([]), "资质已全部审核通过、合同已生效，可以签约。");
+  assert.equal(at([], "tenant"), "资质已全部审核通过、合同已生效，等平台签约。");
+  assert.equal(at(["/contract"], "tenant"), "资质已全部审核通过。等合同生效后签约。");
+  assert.equal(progressHint({ tenant: { status: "signed" } as CompanyOverview["tenant"], next_step_issues: [] }, "platform"), TENANT_STATUS_HINTS.signed);
 });
