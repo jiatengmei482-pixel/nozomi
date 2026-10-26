@@ -56,6 +56,7 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind | "compensation_t
   "ticket.decision": "工单判定（赔付达到复核阈值）",
   "platform_role.update": "修改角色",
   "staff.mfa_reset": "重置两步验证",
+  "statement.payout": "付款给供应商",
 };
 
 /** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
@@ -233,6 +234,17 @@ function manualAssignChanges(before: Record<string, unknown> | null, after: Reco
   ];
 }
 
+/** 付款给供应商（M5-01，ADR 0040）：哪张账单、合计、应付日。 */
+function payoutChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : null;
+  return [
+    { label: "供应商", before: "—", after: typeof after["tenant_name"] === "string" ? after["tenant_name"] : "—" },
+    { label: "账单", before: "—", after: typeof after["statement_no"] === "string" ? `${after["statement_no"]}（${typeof after["period"] === "string" ? after["period"] : "—"}）` : "—" },
+    { label: "合计", before: "—", after: typeof after["total_minor"] === "number" ? moneyText(after["total_minor"], currency) : "—" },
+    { label: "应付日", before: "—", after: typeof after["pay_due_on"] === "string" ? after["pay_due_on"] : "—" },
+  ];
+}
+
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
@@ -241,6 +253,7 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);
   if (kind === "platform_role.update") return roleChanges(before, after);
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];
+  if (kind === "statement.payout") return payoutChanges(after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */

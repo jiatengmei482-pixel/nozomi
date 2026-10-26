@@ -37,6 +37,8 @@ export interface ApprovalKind {
   channelScoped?: boolean;
   /** 针对一张订单（`payload.order_id` 是订单编号）：限定了数据范围的人只看得到订单在范围内的（ADR 0030，按订单的城市和渠道）。可选 */
   orderScoped?: boolean;
+  /** 对象跨城市、跨渠道（如一张账单里有一家供应商在各地的订单），按数据范围切不开：限定了任一维度的人看不到、审不了（ADR 0040）。可选 */
+  unscopedOnly?: boolean;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
   afterApply?(ctx: AppContext, approval: Approval): void | Promise<void>;
   /** 驳回、撤回时（同一个事务里）把对象恢复成发起之前的样子（如工单从「判定待复核」退回处理中，M4-02）。可选 */
@@ -89,7 +91,8 @@ export async function requestApproval(db: Db, origin: AuditOrigin, principal: Pl
 
 /** 这个人能看到哪几类复核。 */
 export function visibleKinds(kinds: ApprovalKinds, principal: PlatformPrincipal): string[] {
-  return [...kinds.values()].filter((kind) => principalCan(principal, kind.readAction)).map((kind) => kind.kind);
+  const restricted = scopeIsRestricted(principal.grant.scope);
+  return [...kinds.values()].filter((kind) => principalCan(principal, kind.readAction) && !(restricted && kind.unscopedOnly === true)).map((kind) => kind.kind);
 }
 
 /** 这个人对这条复核能做什么（给前端决定显示哪些按钮）。 */
@@ -118,6 +121,7 @@ export function listApprovalsFor(
 export async function canSee(db: Db, kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): Promise<boolean> {
   const kind = kinds.get(approval.kind);
   if (!kind || !principalCan(principal, kind.readAction)) return false;
+  if (kind.unscopedOnly === true && scopeIsRestricted(principal.grant.scope)) return false;
   if (kind.channelScoped === true && !scopeAllowsChannel(principal.grant.scope, approval.resourceId)) return false;
   if (kind.orderScoped === true && scopeIsRestricted(principal.grant.scope)) {
     const orderId = approval.payload["order_id"];

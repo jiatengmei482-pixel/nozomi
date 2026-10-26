@@ -128,6 +128,10 @@ tags:
       客人凭查看令牌只看得到自己的一张单；按来源地址限速。应答里没有中标供应商（付款前）、结算价、加价比例。
   - name: 角色
     description: 平台角色（ADR 0030）：内置角色是只读模板；自建角色按「菜单 × 操作」勾选，可加数据范围和 IP 白名单；修改走双人复核
+  - name: 财务结算
+    description: |
+      供应商应付账单与付款批次（ADR 0040）：按月（订单服务日期的城市当地月份）出账，已完成、客人未出现、有偿取消的结算价，加已扣到款的事后加收，减违约金和救援差价；
+      生成 → 供应商确认（可提异议，7 天不确认视为确认）→ 平台双人复核（付款给租户）→ 进次月 20 日的付款批次 → 已付款（银行转账文件和流水号回填在 M5-02）
   - name: 订单中心
     description: 订单中心（ADR 0034）：异常队列（系统按触发条件生成，运营认领、关闭）、客人赔付表（可配置，双人复核）
   - name: 工单
@@ -10812,6 +10816,424 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/statements:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listTenantStatements
+      summary: 本租户的账单
+      description: |
+        需要操作 `statement.read`（管理员、财务、只读）。只有本租户自己的（租户编号只来自令牌），最近的周期在前，最多 200 张。
+        金额只有结算价一侧（结算价、取消的供应商应得、加收报的金额、违约金和扣款），没有对外价和加价比例（规则 4）。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/StatementStatus"
+      responses:
+        "200":
+          description: 账单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantStatement"
+  /tenant/v1/statements/{id}:
+    get:
+      tags: [ 财务结算 ]
+      operationId: getTenantStatement
+      summary: 本租户的一张账单（含明细和经过）
+      description: 需要操作 `statement.read`。别的供应商的账单当作不存在（404）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantStatementResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/statements/{id}/confirm:
+    post:
+      tags: [ 财务结算 ]
+      operationId: confirmTenantStatement
+      summary: 确认账单
+      description: |
+        需要操作 `statement.confirm`（管理员、财务）。待确认、有异议的能确认；已确认的再确认原样返回。别的状态 409 `STATEMENT_STATE_INVALID`。
+        出账（或平台答复异议）起 7 天内不确认也不提异议的，系统视为确认。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantStatementResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /tenant/v1/statements/{id}/dispute:
+    post:
+      tags: [ 财务结算 ]
+      operationId: disputeTenantStatement
+      summary: 对账单提异议
+      description: |
+        需要操作 `statement.confirm`。只有待确认的能提（409 `STATEMENT_STATE_INVALID`）；原因必填。提了异议的不会自动确认，等平台答复。
+        确认期截止那一刻（含）起账单已视为确认：这时提异议会把账单记为系统确认并返回 409 `STATEMENT_CONFIRM_PERIOD_OVER`（定时任务还没跑到也一样）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantStatementResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/statements:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listPlatformStatements
+      summary: 供应商账单（跨供应商）
+      description: |
+        需要操作 `statement.read`（超级管理员、财务、只读）。按出账时间从新到旧，带 `total`。
+        一张账单里有一家供应商在各个城市、各个渠道的订单，按数据范围切不开：限定了数据范围的员工（ADR 0030）403 `DATA_SCOPE_DENIED`（财务结算的全部接口都是）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/StatementStatus"
+        - name: payout_batch_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页账单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformStatement"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+  /platform/v1/statements/generate:
+    post:
+      tags: [ 财务结算 ]
+      operationId: generatePlatformStatements
+      summary: 出账（手动）
+      description: |
+        需要操作 `statement.manage`（超级管理员、财务）。给一期（不给就是上个月，按东京日期）里每个有还没出账的应付的供应商按币种各出一张账单；
+        定时任务每小时也做同样的事。可以反复运行：一笔应付同一时刻只在一张有效的账单上，同一期同一币种只有一张有效的账单，已经出过的不再出（`created` 为空）。
+        只能出已经结束的月份（409 `PERIOD_NOT_ENDED`）。每家供应商一个事务：某一家出错只回滚它自己，其余照常出，出错的列在 `failed` 里。
+      security:
+        - platformToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                period:
+                  type: [ string, "null" ]
+                  pattern: "^[0-9]{4}-(0[1-9]|1[0-2])$"
+      responses:
+        "200":
+          description: 这一次新出的账单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ period, created, failed ]
+                properties:
+                  period:
+                    type: string
+                  created:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformStatement"
+                  failed:
+                    type: array
+                    description: 出账时出错的供应商（这一家整个回滚，其余的照常出；再调一次会重试）。只有错误码和说明，没有内部细节
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ tenant, code, message ]
+                      properties:
+                        tenant:
+                          type: object
+                          additionalProperties: false
+                          required: [ id, name ]
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                        code:
+                          type: string
+                          description: 业务错误的错误码（如 `STATEMENT_LINES_INCONSISTENT`）；意外错误为 `INTERNAL_ERROR`
+                        message:
+                          type: string
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "409":
+          description: "`PERIOD_NOT_ENDED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/statements/{id}:
+    get:
+      tags: [ 财务结算 ]
+      operationId: getPlatformStatement
+      summary: 一张账单（含明细、经过、待审核的付款复核）
+      description: 需要操作 `statement.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformStatementResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/statements/{id}/reply:
+    post:
+      tags: [ 财务结算 ]
+      operationId: replyPlatformStatementDispute
+      summary: 答复供应商的异议
+      description: |
+        需要操作 `statement.manage`。有异议的账单回到待确认，重新给 7 天确认期；答复写进账单的经过（供应商看得到）。
+        账目确实要改的：先在源头改（如审核加收），再作废重出。只有有异议的能答复（409 `STATEMENT_STATE_INVALID`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformStatementResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/statements/{id}/void:
+    post:
+      tags: [ 财务结算 ]
+      operationId: voidPlatformStatement
+      summary: 作废并重出
+      description: |
+        需要操作 `statement.manage`。待确认、有异议、待复核的账单可以作废（已进付款批次、已有复核结论的不能，409 `STATEMENT_STATE_INVALID`；
+        有待审核的付款复核时 409 `STATEMENT_REVIEW_PENDING`，先驳回或撤回那条复核）。明细一起作废、应付释放，同一个事务里按现在的数据重出这一期这家供应商的账单（`reissued`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 作废了的账单和重出的账单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ statement, reissued ]
+                properties:
+                  statement:
+                    $ref: "#/components/schemas/PlatformStatementDetail"
+                  reissued:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformStatement"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/statements/{id}/payout-approval:
+    post:
+      tags: [ 财务结算 ]
+      operationId: requestPlatformStatementPayout
+      summary: 发起付款复核（付款给供应商，双人复核）
+      description: |
+        需要操作 `statement.manage`。只有供应商已确认（或确认期满视为确认）的账单能发起（409 `STATEMENT_STATE_INVALID`）；一张账单同时只有一条待审核的（409 `STATEMENT_REVIEW_PENDING`）。
+        另一位有 `statement.review` 的同事（发起人不能批准）在 `/platform/v1/approvals/{id}/approve` 批准后：合计为正进付款日（默认次月 20 日；已过或那天的批次已锁定就顺延到下个月同一天）的付款批次，
+        为 0 记为无需付款，为负转入下一期（下一张账单里一行「上期结转」）。发起后账单被作废或改过，批准时 409 `APPROVAL_STALE`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/payout-batches:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listPayoutBatches
+      summary: 付款批次
+      description: 需要操作 `statement.read`。付款日从新到旧，最多 200 个；每个批次按币种的张数和合计。
+      security:
+        - platformToken: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ open, closed, paid ]
+      responses:
+        "200":
+          description: 付款批次
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PayoutBatch"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+  /platform/v1/payout-batches/{id}:
+    get:
+      tags: [ 财务结算 ]
+      operationId: getPayoutBatch
+      summary: 一个付款批次（含账单）
+      description: 需要操作 `statement.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PayoutBatchResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/payout-batches/{id}/close:
+    post:
+      tags: [ 财务结算 ]
+      operationId: closePayoutBatch
+      summary: 锁定付款批次
+      description: |
+        需要操作 `statement.manage`。锁定后不再收新的账单（之后复核通过的顺延到下个月的付款日），等银行转账；已锁定的再锁原样返回。
+        导出银行转账文件、回填银行流水号、记为已付款在 M5-02（需要银行的付款文件模板）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PayoutBatchResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/exceptions:
     get:
       tags: [ 订单中心 ]
@@ -12370,6 +12792,51 @@ components:
             properties:
               impact:
                 $ref: "#/components/schemas/PricingImpact"
+    TenantStatementResult:
+      description: 账单（含明细和经过）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ statement ]
+            properties:
+              statement:
+                $ref: "#/components/schemas/TenantStatementDetail"
+    PlatformStatementResult:
+      description: 账单（含明细、经过、待审核的付款复核）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ statement ]
+            properties:
+              statement:
+                $ref: "#/components/schemas/PlatformStatementDetail"
+    PayoutBatchResult:
+      description: 付款批次（含账单）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ batch ]
+            properties:
+              batch:
+                $ref: "#/components/schemas/PayoutBatchDetail"
+    StatementStateInvalid:
+      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    DataScopeDenied:
+      description: "`FORBIDDEN`：没有这个操作的权限；`DATA_SCOPE_DENIED`：限定了数据范围的员工不能用财务结算的接口（账单跨城市、跨渠道，切不开）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     ExceptionResult:
       description: 一条异常
       content:
@@ -13022,9 +13489,10 @@ components:
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
+            - statement.payout
             - compensation_table.update
             - ticket.decision
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；以后会加：付款……）
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -14531,9 +14999,35 @@ components:
         - role.read
         - role.manage
         - role.review
+        - statement.read
+        - statement.manage
+        - statement.review
     TenantAction:
       type: string
-      enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read, ticket.read, ticket.manage ]
+      enum:
+        - user.read
+        - user.manage
+        - audit_log.read
+        - master_data.read
+        - area.read
+        - area.manage
+        - product.read
+        - product.manage
+        - brand.manage
+        - order.read
+        - order.dispatch
+        - order.extra_charge
+        - fleet.read
+        - fleet.manage
+        - webhook.read
+        - webhook.manage
+        - company.read
+        - company.manage
+        - performance.read
+        - ticket.read
+        - ticket.manage
+        - statement.read
+        - statement.confirm
     LoginRequest:
       type: object
       additionalProperties: false
@@ -22387,6 +22881,850 @@ components:
           $ref: "#/components/schemas/PricingImpactSection"
         orders:
           $ref: "#/components/schemas/PricingImpactOrderSection"
+    SignedMoney:
+      type: object
+      additionalProperties: false
+      required:
+        - amount
+        - currency
+      description: 带符号的金额（账单里扣款、合计为负时是负数）
+      properties:
+        amount:
+          type: string
+          pattern: ^-?\d+(\.\d+)?$
+          description: 主单位的十进制字符串
+        currency:
+          $ref: '#/components/schemas/FxCurrency'
+    StatementStatus:
+      type: string
+      enum:
+        - issued
+        - disputed
+        - confirmed
+        - in_payout
+        - paid
+        - settled
+        - carried
+        - void
+      description: |
+        `issued` 待供应商确认；`disputed` 供应商提了异议，待平台答复；`confirmed` 已确认（或确认期满视为确认），待平台双人复核；`in_payout` 复核通过，已进付款批次；
+        `paid` 已付款（M5-02）；`settled` 复核通过、合计为 0，无需付款；`carried` 复核通过、合计为负，转入下一期；`void` 已作废（已重出）
+    StatementLineKind:
+      type: string
+      enum:
+        - order
+        - no_show
+        - cancellation
+        - extra_charge
+        - deduction
+        - deduction_waiver
+        - carry_forward
+      description: |
+        `order` 已完成订单的结算价；`no_show` 客人未出现（审核通过，全额）；`cancellation` 有偿取消的供应商应得（结算价 × 扣款比例）；`extra_charge` 已从客人那里扣到款的事后加收（审核通过的金额）；
+        `deduction` 违约金、救援差价（负数）；`deduction_waiver` 已出账的扣款后来被认定不可抗力免除，退回；`carry_forward` 上期合计为负，结转（负数）
+    TenantStatement:
+      type: object
+      additionalProperties: false
+      description: 一张账单（一家供应商、一期、一种币种）。金额都是结算币种，没有对外价和加价比例（规则 4）
+      required:
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+          pattern: ^ST[0-9]{6}[0-9A-HJ-NP-Z]{8}$
+        period:
+          type: string
+          pattern: ^[0-9]{4}-(0[1-9]|1[0-2])$
+          description: 周期（按订单的服务日期——城市当地日期——切月）
+        currency:
+          $ref: '#/components/schemas/FxCurrency'
+        status:
+          $ref: '#/components/schemas/StatementStatus'
+        total:
+          $ref: '#/components/schemas/SignedMoney'
+        line_count:
+          type: integer
+        pay_due_on:
+          type: string
+          format: date
+          description: 应付日（次月 20 日；已清退的供应商再延后一个月）
+        payout_on:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: 进了付款批次后的付款日
+        issued_at:
+          type: string
+          format: date-time
+        confirm_due_at:
+          type: string
+          format: date-time
+          description: 确认期截止：到点还是待确认的视为确认
+        confirmed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        confirmed_by_type:
+          type:
+            - string
+            - 'null'
+          enum:
+            - tenant_user
+            - system
+            - null
+          description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
+        disputed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        dispute_reason:
+          type:
+            - string
+            - 'null'
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - 'null'
+        version:
+          type: integer
+    StatementLine:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - order_id
+        - order_no
+        - service_date
+        - prior_period
+        - amount
+        - detail
+        - voided
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/StatementLineKind'
+        order_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        order_no:
+          type:
+            - string
+            - 'null'
+        service_date:
+          type:
+            - string
+            - 'null'
+          format: date
+        prior_period:
+          type: boolean
+          description: 往期调整（服务日期早于这一期：上一期出账时还没结案，或者账单作废后重出）
+        amount:
+          $ref: '#/components/schemas/SignedMoney'
+        detail:
+          type: object
+          additionalProperties: true
+          description: 怎么来的（订单状态、结算价、取消扣款比例、加收类型和报的金额、应扣款项的种类和依据、结转的上期账单），只有结算价一侧的数
+        voided:
+          type: boolean
+    StatementSummaryEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - count
+        - amount
+      properties:
+        kind:
+          $ref: '#/components/schemas/StatementLineKind'
+        count:
+          type: integer
+        amount:
+          $ref: '#/components/schemas/SignedMoney'
+    TenantStatementEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - actor_type
+        - note
+        - at
+      properties:
+        action:
+          type: string
+          enum:
+            - issue
+            - confirm
+            - auto_confirm
+            - dispute
+            - reply
+            - void
+            - request_review
+            - approve
+            - pay
+        actor_type:
+          type: string
+          enum:
+            - tenant_user
+            - platform_user
+            - system
+        note:
+          type:
+            - string
+            - 'null'
+          description: 异议原因、平台的答复、作废原因。付款复核的说明是平台内部信息，供应商看到的「已提交复核」「复核通过」没有说明（总是 null）
+        at:
+          type: string
+          format: date-time
+    TenantStatementDetail:
+      type: object
+      additionalProperties: false
+      description: 一张账单和它的明细、小计、经过。没有对外价和加价比例（规则 4）
+      required:
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - summary
+        - lines
+        - events
+      properties:
+        id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+          pattern: ^ST[0-9]{6}[0-9A-HJ-NP-Z]{8}$
+        period:
+          type: string
+          pattern: ^[0-9]{4}-(0[1-9]|1[0-2])$
+          description: 周期（按订单的服务日期——城市当地日期——切月）
+        currency:
+          $ref: '#/components/schemas/FxCurrency'
+        status:
+          $ref: '#/components/schemas/StatementStatus'
+        total:
+          $ref: '#/components/schemas/SignedMoney'
+        line_count:
+          type: integer
+        pay_due_on:
+          type: string
+          format: date
+          description: 应付日（次月 20 日；已清退的供应商再延后一个月）
+        payout_on:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: 进了付款批次后的付款日
+        issued_at:
+          type: string
+          format: date-time
+        confirm_due_at:
+          type: string
+          format: date-time
+          description: 确认期截止：到点还是待确认的视为确认
+        confirmed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        confirmed_by_type:
+          type:
+            - string
+            - 'null'
+          enum:
+            - tenant_user
+            - system
+            - null
+          description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
+        disputed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        dispute_reason:
+          type:
+            - string
+            - 'null'
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - 'null'
+        version:
+          type: integer
+        summary:
+          type: array
+          description: 按种类的小计（只算有效的明细）
+          items:
+            $ref: '#/components/schemas/StatementSummaryEntry'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementLine'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantStatementEvent'
+    PlatformStatement:
+      type: object
+      additionalProperties: false
+      description: 运营后台看到的账单：多了供应商、确认人、复核、付款批次、作废人
+      required:
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - tenant
+        - confirmed_by
+        - approval_id
+        - payout_batch_id
+        - voided_by
+      properties:
+        id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+          pattern: ^ST[0-9]{6}[0-9A-HJ-NP-Z]{8}$
+        period:
+          type: string
+          pattern: ^[0-9]{4}-(0[1-9]|1[0-2])$
+          description: 周期（按订单的服务日期——城市当地日期——切月）
+        currency:
+          $ref: '#/components/schemas/FxCurrency'
+        status:
+          $ref: '#/components/schemas/StatementStatus'
+        total:
+          $ref: '#/components/schemas/SignedMoney'
+        line_count:
+          type: integer
+        pay_due_on:
+          type: string
+          format: date
+          description: 应付日（次月 20 日；已清退的供应商再延后一个月）
+        payout_on:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: 进了付款批次后的付款日
+        issued_at:
+          type: string
+          format: date-time
+        confirm_due_at:
+          type: string
+          format: date-time
+          description: 确认期截止：到点还是待确认的视为确认
+        confirmed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        confirmed_by_type:
+          type:
+            - string
+            - 'null'
+          enum:
+            - tenant_user
+            - system
+            - null
+          description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
+        disputed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        dispute_reason:
+          type:
+            - string
+            - 'null'
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - 'null'
+        version:
+          type: integer
+        tenant:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        confirmed_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        approval_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        payout_batch_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        voided_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+    PlatformStatementEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - actor_type
+        - actor_id
+        - note
+        - at
+      properties:
+        action:
+          type: string
+          enum:
+            - issue
+            - confirm
+            - auto_confirm
+            - dispute
+            - reply
+            - void
+            - request_review
+            - approve
+            - pay
+        actor_type:
+          type: string
+          enum:
+            - tenant_user
+            - platform_user
+            - system
+        actor_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        note:
+          type:
+            - string
+            - 'null'
+        at:
+          type: string
+          format: date-time
+    PlatformStatementDetail:
+      type: object
+      additionalProperties: false
+      description: 运营后台看到的一张账单和它的明细、小计、经过、待审核的付款复核
+      required:
+        - id
+        - statement_no
+        - period
+        - currency
+        - status
+        - total
+        - line_count
+        - pay_due_on
+        - payout_on
+        - issued_at
+        - confirm_due_at
+        - confirmed_at
+        - confirmed_by_type
+        - disputed_at
+        - dispute_reason
+        - approved_at
+        - paid_at
+        - voided_at
+        - void_reason
+        - version
+        - tenant
+        - confirmed_by
+        - approval_id
+        - payout_batch_id
+        - voided_by
+        - pending_approval_id
+        - summary
+        - lines
+        - events
+      properties:
+        id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+          pattern: ^ST[0-9]{6}[0-9A-HJ-NP-Z]{8}$
+        period:
+          type: string
+          pattern: ^[0-9]{4}-(0[1-9]|1[0-2])$
+          description: 周期（按订单的服务日期——城市当地日期——切月）
+        currency:
+          $ref: '#/components/schemas/FxCurrency'
+        status:
+          $ref: '#/components/schemas/StatementStatus'
+        total:
+          $ref: '#/components/schemas/SignedMoney'
+        line_count:
+          type: integer
+        pay_due_on:
+          type: string
+          format: date
+          description: 应付日（次月 20 日；已清退的供应商再延后一个月）
+        payout_on:
+          type:
+            - string
+            - 'null'
+          format: date
+          description: 进了付款批次后的付款日
+        issued_at:
+          type: string
+          format: date-time
+        confirm_due_at:
+          type: string
+          format: date-time
+          description: 确认期截止：到点还是待确认的视为确认
+        confirmed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        confirmed_by_type:
+          type:
+            - string
+            - 'null'
+          enum:
+            - tenant_user
+            - system
+            - null
+          description: '`tenant_user` 供应商确认；`system` 确认期满视为确认'
+        disputed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        dispute_reason:
+          type:
+            - string
+            - 'null'
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        voided_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        void_reason:
+          type:
+            - string
+            - 'null'
+        version:
+          type: integer
+        tenant:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        confirmed_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        approval_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        payout_batch_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        voided_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        pending_approval_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        summary:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementSummaryEntry'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementLine'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformStatementEvent'
+    PayoutBatch:
+      type: object
+      additionalProperties: false
+      description: 一个付款日的付款批次（一个批次里有多家供应商、多种币种的账单；合计按币种分开）
+      required:
+        - id
+        - pay_date
+        - status
+        - created_at
+        - closed_at
+        - closed_by
+        - paid_at
+        - statement_count
+        - totals
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        pay_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - open
+            - closed
+            - paid
+          description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
+        created_at:
+          type: string
+          format: date-time
+        closed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        closed_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        statement_count:
+          type: integer
+        totals:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - currency
+              - count
+              - total
+            properties:
+              currency:
+                $ref: '#/components/schemas/FxCurrency'
+              count:
+                type: integer
+              total:
+                $ref: '#/components/schemas/SalesMoney'
+        version:
+          type: integer
+    PayoutBatchDetail:
+      type: object
+      additionalProperties: false
+      description: 付款批次和它里面的账单
+      required:
+        - id
+        - pay_date
+        - status
+        - created_at
+        - closed_at
+        - closed_by
+        - paid_at
+        - statement_count
+        - totals
+        - version
+        - statements
+      properties:
+        id:
+          type: string
+          format: uuid
+        pay_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - open
+            - closed
+            - paid
+          description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
+        created_at:
+          type: string
+          format: date-time
+        closed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        closed_by:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        paid_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        statement_count:
+          type: integer
+        totals:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - currency
+              - count
+              - total
+            properties:
+              currency:
+                $ref: '#/components/schemas/FxCurrency'
+              count:
+                type: integer
+              total:
+                $ref: '#/components/schemas/SalesMoney'
+        version:
+          type: integer
+        statements:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformStatement'
     ExceptionType:
       type: string
       enum: [ dispatch_overdue, departure_overdue, arrival_overdue, push_failed, no_show_review, extra_charge_review, fulfilment_unfinished, payment_issue, rescue ]
