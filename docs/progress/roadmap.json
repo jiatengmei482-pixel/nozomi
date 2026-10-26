@@ -305,7 +305,7 @@
           "role": "designer",
           "status": "review",
           "acceptance": ["docs/design/pages/site-booking.md 写明官网询价、下单、订单页的布局与交互", "现有页面按规范核对、差异列出并修正"],
-          "evidence": "PR 链接待写入；规范见 docs/design/pages/site-booking.md（第 11 节列出与实现的差异），小的样式与文案差异已在本 PR 修正，较大的差异由 M3-11 处理；相关组件测试通过",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/47 ；规范见 docs/design/pages/site-booking.md（第 11 节列出与实现的差异），小的样式与文案差异已在本 PR 修正，较大的差异由 M3-11 处理；相关组件测试通过",
           "updated": "2026-10-26"
         },
         {
