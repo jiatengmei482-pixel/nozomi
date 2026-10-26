@@ -4,7 +4,7 @@
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
-import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
+import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { Addon } from "../../api/master.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
@@ -115,12 +115,16 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
   };
   const gaps = checkReasons({ key: "service_rules", required: true, passed: false, issues: serviceRuleMissing(reading.rules, context).map((issue) => ({ ...issue, message: "" })) }, { category, brandName: "", cityName: "", placeName: null, station });
   const neverSavedWait = items.some((item) => data.rules.free_wait[item] === null);
+  // 包车的免费等待由平台固定为 0（需求「免费等待与 no-show」表）；以前存下的别的值只做说明
+  const fixedWait = fixedFreeWaitMinutes(category);
+  const storedWait = data.rules.free_wait.general;
+  const legacyWait = fixedWait === null || storedWait === null || (storedWait.mode === "limited" && storedWait.minutes === fixedWait) ? null : storedWait.mode === "unlimited" ? "不限时" : `${storedWait.minutes} 分钟`;
 
   const dirty = JSON.stringify(reading.body) !== baseline;
   const controller: StepController & { pending: boolean } = {
     dirty,
-    // 免费等待是页面替用户填好的建议值：没动过不算「有修改」，但点保存要真的存下来
-    pending: neverSavedWait,
+    // 免费等待是页面替用户填好的建议值（包车以前存的非 0 值换成了 0）：没动过不算「有修改」，但点保存要真的存下来
+    pending: neverSavedWait || legacyWait !== null,
     missing: stepMissing(frame, "service_rules", dirty, { count: gaps.length, anchor: gaps[0]?.anchor ?? null }),
     validate: () => reading.problems,
     submit: async () => {
@@ -165,7 +169,6 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
   const waitHelp = (item: FreeWaitItem): string => {
     const minimum = context.minimums[item];
     const least = minimum === null ? "" : `平台规定最少 ${minimum} 分钟`;
-    if (category === "charter") return `${least === "" ? "" : `${least}。`}包车从约定的开始时间起就计入套餐时长${minimum === 0 ? "；填 0 = 不免等。" : "。"}`;
     const from = item === "pickup" ? (station ? "从列车计划到达时间起算。" : "从航班实际落地起算。") : "从约定的上车时间起算。";
     return `${least === "" ? "" : `${least}，`}${from}`;
   };
@@ -462,6 +465,18 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                 免费等待
               </h3>
               <div className="form">
+                {fixedWait !== null ? (
+                  <div className="field">
+                    <p className="field__label">{waitNames.general}</p>
+                    <p>
+                      <strong>{`${fixedWait} 分钟`}</strong>
+                      <span className="tag">平台统一 · 不能修改</span>
+                    </p>
+                    <p className="field__hint">{`包车不另外免费等待：从约定的开始时间起就计入套餐时长（平台规定，${onPlatform ? "所有供应商相同" : "这里不用设置"}）。`}</p>
+                    {legacyWait !== null && <p className="field__hint field__hint--info">{`以前存的是「${legacyWait}」，报价时已经按 ${fixedWait} 分钟算；${readOnly ? "供应商下次保存这一步时会改成 0。" : "保存这一步时会改成 0。"}`}</p>}
+                  </div>
+                ) : (
+                  <>
                 <p className="field__hint">司机到了以后免费等客人多久。{onPlatform ? "平台规定了最少要等多久，供应商可以设得更长，不能更短。" : "平台规定了最少要等多久，你可以设得更长，不能更短。"}</p>
                 {neverSavedWait && !readOnly && <p className="field__hint field__hint--info">下面是按平台规定的最少时间替你填好的，确认后点保存才会存下来。</p>}
                 {items.map((item) => {
@@ -499,6 +514,8 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                     </fieldset>
                   );
                 })}
+                  </>
+                )}
                 {missingHint("free-wait")}
               </div>
             </section>

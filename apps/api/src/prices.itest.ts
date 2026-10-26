@@ -68,7 +68,7 @@ async function product(category: "airport_transfer" | "point_to_point" | "charte
 /** 把服务规则和详情也填好：除了价格规则，上架条件都满足。 */
 async function publishable(category: "airport_transfer" | "charter" = "airport_transfer"): Promise<string> {
   const id = await product(category);
-  const freeWait = category === "airport_transfer" ? { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } : { general: { mode: "unlimited" } };
+  const freeWait = category === "airport_transfer" ? { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } : { general: category === "charter" ? { mode: "limited", minutes: 0 } : { mode: "unlimited" } };
   const rules = await ok(call("PUT", `/products/${id}/service-rules`, { version: 1, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: freeWait } }));
   await ok(call("PUT", `/products/${id}/content`, { version: rules.version, body: { zh: { title: "测试商品", pickup_guide: "到达大厅 3 号门" } } }));
   return id;

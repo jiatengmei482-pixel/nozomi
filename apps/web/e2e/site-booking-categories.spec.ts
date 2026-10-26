@@ -29,7 +29,7 @@ async function version(request: APIRequestContext, supplier: Supplier, id: strin
 /** 经供应商接口配好、上架的点对点或包车商品：全天可订、不要提前量，价格从城市当地的今天起生效。 */
 async function publishedProduct(request: APIRequestContext, supplier: Supplier, world: World, category: "point_to_point" | "charter", price: Record<string, unknown>): Promise<void> {
   const product = await createProductByApi(request, supplier, world, category);
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: category === "charter" ? { ...RULES, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } } } : RULES });
   expect(rules.status(), await rules.text()).toBe(200);
   const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: category === "charter" ? "官网包车" : "官网市内用车" } } });
   expect(content.status(), await content.text()).toBe(200);
@@ -158,6 +158,7 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   const charter = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(charter).toContainText("77,000 JPY");
   await expect(charter).toContainText("8 小时，含 150 公里");
+  await expect(charter).toContainText("不另计免费等待（从约定的开始时间起计入包车时长）");
   await expect(page.locator("main")).toContainText("超出套餐的时长和公里、高速费、停车费服务后按实际收取");
   await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|70,000/);
   await expectNoOverflow(page, "询价结果（包车）");

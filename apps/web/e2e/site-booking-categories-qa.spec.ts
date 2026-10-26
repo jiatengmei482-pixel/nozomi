@@ -33,7 +33,7 @@ async function version(request: APIRequestContext, supplier: Supplier, id: strin
 
 async function publishedProduct(request: APIRequestContext, supplier: Supplier, world: World, category: "point_to_point" | "charter", price: Record<string, unknown>): Promise<void> {
   const product = await createProductByApi(request, supplier, world, category);
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: category === "charter" ? { ...RULES, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } } } : RULES });
   expect(rules.status(), await rules.text()).toBe(200);
   const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: category === "charter" ? "QA 包车" : "QA 市内用车" } } });
   expect(content.status(), await content.text()).toBe(200);

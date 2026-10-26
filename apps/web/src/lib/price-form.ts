@@ -162,7 +162,7 @@ export interface RowReading {
 
 function decimalsText(currency: string): string {
   const digits = isCurrencyCode(currency) ? CURRENCIES[currency].minorDigits : 0;
-  return digits === 0 ? `${CURRENCY_NAMES[currency] ?? currency}金额不能有小数` : `${currency} 最多 ${digits} 位小数`;
+  return digits === 0 ? `${CURRENCY_NAMES[currency] ?? `${currency} `}金额不能有小数` : `${currency} 最多 ${digits} 位小数`;
 }
 
 /** 读一行。空行没有问题也没有规则；填了任何一格价格，这一行的必填格就都要填齐。 */

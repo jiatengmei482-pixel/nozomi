@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@nozomi/domain";
-import { ACTION_NAMES, ACTION_NAMES_BY_RESOURCE, RESOURCE_NAMES, actionName, auditDiff, foldable, localDayInstant, objectName, resourceName, shortId, shownValue } from "./audit-display.ts";
+import { APPROVAL_KIND_NAMES } from "./channel-display.ts";
+import { ACTION_FILTER_OPTIONS, ACTION_NAMES, ACTION_NAMES_BY_RESOURCE, FIELD_NAMES_BY_RESOURCE, RESOURCE_NAMES, actionFilterOption, actionName, fieldName, isActionFilter, auditDiff, foldable, localDayInstant, objectName, resourceName, shortId, shownValue } from "./audit-display.ts";
 
 test("对象类型和操作：认识的写中文，不认识的原样（页面用等宽字体显示）", () => {
   assert.deepEqual(resourceName("tenant"), { text: "供应商", known: true });
@@ -80,4 +81,43 @@ test("同一个操作在订单中心、财务结算的对象上换成业务说�
   assert.equal(shownValue("status", "awaiting_tenant", "ticket").text, "等供应商回复");
   assert.equal(shownValue("status", "claimed", "order_exception").text, "处理中");
   assert.equal(shownValue("status", "in_payout", "statement").text, "待付款");
+});
+
+test("双人复核的审计（M4-10）：kind、resource_id 等字段有中文名；每一种复核类别的值都换成中文并带原值；同名字段在别的对象上不受影响", () => {
+  assert.equal(fieldName("kind", "approval"), "复核类别");
+  assert.equal(fieldName("resource_id", "approval"), "复核对象的编号");
+  for (const field of Object.keys(FIELD_NAMES_BY_RESOURCE["approval"] ?? {})) assert.ok(fieldName(field, "approval"), field);
+  assert.equal(fieldName("kind", "order_exception"), undefined, "别的对象上的 kind 不叫复核类别");
+  assert.equal(fieldName("status", "approval"), "状态", "通用的照用");
+  const kinds = Object.keys(APPROVAL_KIND_NAMES);
+  assert.ok(kinds.includes("compensation_table.update"));
+  for (const kind of kinds) {
+    const shown = shownValue("kind", kind, "approval");
+    assert.equal(shown.raw, kind, kind);
+    assert.match(shown.text, /[\u4e00-\u9fff]/, kind);
+  }
+  assert.deepEqual(shownValue("kind", "compensation_table.update", "approval"), { text: "修改客人赔付表", raw: "compensation_table.update", block: false, empty: false });
+  assert.deepEqual(shownValue("resource", "compensation_table", "approval").raw, "compensation_table");
+  assert.equal(shownValue("kind", "compensation_table.update", "order").raw, undefined);
+});
+
+test("「操作」筛选（M4-10）：同名的动作合成一项（启用、暂停各只出现一次），选项值是这几个动作逗号连起来；每个动作都在某一项里；以前链接里的单个动作对上它所在的组", () => {
+  const labels = ACTION_FILTER_OPTIONS.map((option) => option.label);
+  assert.equal(new Set(labels).size, labels.length, "名称不重复");
+  assert.equal(labels.filter((label) => label === "启用").length, 1);
+  assert.equal(labels.filter((label) => label === "暂停").length, 1);
+  assert.deepEqual(ACTION_FILTER_OPTIONS.find((option) => option.label === "启用")?.value.split(",").sort(), ["activate", "enable"]);
+  assert.deepEqual(ACTION_FILTER_OPTIONS.find((option) => option.label === "暂停")?.value.split(",").sort(), ["pause", "suspend"]);
+  assert.deepEqual(ACTION_FILTER_OPTIONS.flatMap((option) => option.value.split(",")).sort(), Object.keys(ACTION_NAMES).sort(), "每个动作恰好在一项里");
+  for (const option of ACTION_FILTER_OPTIONS) {
+    assert.ok(isActionFilter(option.value), option.value);
+    for (const action of option.value.split(",")) assert.equal(ACTION_NAMES[action], option.label);
+  }
+  assert.equal(actionFilterOption("suspend"), ACTION_FILTER_OPTIONS.find((option) => option.label === "暂停")?.value);
+  assert.equal(actionFilterOption("login"), "login");
+  assert.equal(actionFilterOption("unknown_action"), "unknown_action");
+  assert.equal(isActionFilter("enable,activate"), true);
+  assert.equal(isActionFilter("enable,,activate"), false);
+  assert.equal(isActionFilter("Enable"), false);
+  assert.equal(isActionFilter(Array.from({ length: 11 }, () => "enable").join(",")), false);
 });

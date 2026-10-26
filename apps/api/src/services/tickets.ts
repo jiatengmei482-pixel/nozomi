@@ -135,9 +135,15 @@ export interface TicketCreateInput {
   priority: TicketPriority | null;
 }
 
+/** 还没付款确认的单不能建工单：409 `ORDER_STATE_INVALID`（`NOT_CONFIRMED`），待付款和没付款就取消的各有说法。 */
+function notConfirmed(order: Pick<Order, "status">): AppError {
+  return new AppError(409, "ORDER_STATE_INVALID", order.status === "pending_payment" ? "这张订单还没付款，付款完成后才能建工单" : "这张订单没有付过款就取消了，不能建工单", { reason: "NOT_CONFIRMED", status: order.status });
+}
+
 async function createInTx(db: Db, order: Order, input: TicketCreateInput & { source: TicketSource; createdByType: NewTicket["createdByType"]; createdBy: string | null; parentTicketId: string | null }, now: Date): Promise<Ticket> {
   if (!ticketTypeAllowed(input.source, input.type)) throw new AppError(422, "TICKET_TYPE_NOT_ALLOWED", "这一类工单不能由这个来源建", { source: input.source, type: input.type });
-  if (order.confirmedAt === null) throw notFound("订单");
+  // 还没付款确认的单：供应商看不到它（404）；运营、渠道、客人看得到，说清为什么不能建（M4-10）
+  if (order.confirmedAt === null) throw input.createdByType === "tenant_user" ? notFound("订单") : notConfirmed(order);
   // 投诉时限：服务后 14 天内（客人、渠道提的；客服代登记的同样按这条）
   if (input.type === "complaint" && !complaintWindowOpen(serviceEndOf(order), now)) {
     throw new AppError(409, "COMPLAINT_WINDOW_CLOSED", "已经超过投诉时限（服务后 14 天内）", { service_end: serviceEndOf(order).toISOString() });
@@ -173,6 +179,8 @@ export async function createTicketForPlatform(ctx: AppContext, principal: Platfo
   return withPlatformTx(ctx.pool, async (db) => {
     const current = await findOrderForPlatform(db, input.orderId);
     if (current === null) throw notFound("订单");
+    // 运营看得到还没付款的单：说清为什么不能建工单，不说成「订单不存在」（M4-10）
+    if (current.confirmedAt === null) throw notConfirmed(current);
     const order = input.tenantId === null || input.tenantId === current.tenantId ? current : await findOrderOfTenant(db, input.tenantId, input.orderId);
     if (order === null) throw new AppError(422, "TICKET_TENANT_INVALID", "这个供应商没有接过这一单", { tenant_id: input.tenantId });
     // 客服代供应商登记申诉不在这里（申诉由供应商在自己的后台提），来源是供应商的只能登记失物和其他

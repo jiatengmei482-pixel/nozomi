@@ -3,7 +3,7 @@
  * 这里把一份表单读成「接口的请求体 + @nozomi/domain 的规则对象 + 写错了的地方」。
  * 范围、上限、缺什么都问 @nozomi/domain（serviceRuleIssues / serviceRuleMissing）；这里只多管「字敲得不成样子」和「填了一半」。
  */
-import { DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
+import { DRIVER_LANGUAGES, type FreeWaitItem, type NightChargeUnit, PRODUCT_LIMITS, type RuleIssue, type ServiceCategory, type ServiceRuleContext, type ServiceRules, fixedFreeWaitIssues, fixedFreeWaitMinutes, freeWaitItems, normalizeDailyWindow, serviceRuleIssues } from "@nozomi/domain";
 import type { DailyWindowBody, FreeWaitBody, ServiceRulesBody } from "../api/products.ts";
 import { LANGUAGE_NAMES, amountText, readAmount } from "./product-display.ts";
 import { tidyDate, tidyTime } from "./time-input.ts";
@@ -79,7 +79,10 @@ export function defaultNightUnit(category: ServiceCategory): NightChargeUnit {
 export function formFromRules(body: ServiceRulesBody, context: Pick<RulesFormContext, "currency" | "category" | "minimums" | "firstFreeAllowed">): RulesForm {
   const { booking, urgent, night } = body;
   const allDay = booking.service_time?.start === "00:00" && booking.service_time.end === "24:00";
+  const fixed = fixedFreeWaitMinutes(context.category);
   const wait = (item: FreeWaitItem): WaitField => {
+    // 平台固定的（包车 0）：不管以前存的是什么，表单里都是固定值，保存时就改成它
+    if (fixed !== null) return { mode: "limited", minutes: String(fixed) };
     const saved = body.free_wait[item];
     if (saved === null) return { mode: "limited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) };
     return saved.mode === "unlimited" ? { mode: "unlimited", minutes: context.minimums[item] === null ? "" : String(context.minimums[item]) } : { mode: "limited", minutes: String(saved.minutes) };
@@ -231,6 +234,8 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
   const items = freeWaitItems(context.category);
   const wait = (item: FreeWaitItem): FreeWaitBody | null => {
     if (!items.includes(item)) return null;
+    const fixed = fixedFreeWaitMinutes(context.category);
+    if (fixed !== null) return { mode: "limited", minutes: fixed };
     const field = form.wait[item];
     if (field.mode === "unlimited") return { mode: "unlimited" };
     const minimum = context.minimums[item] ?? 0;
@@ -286,7 +291,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
   };
   // 兜底：域里的规则还认为不对、而上面没有报过的（正常不会有）
   const reported = new Set(problems.map((problem) => problem.target));
-  for (const issue of serviceRuleIssues(rules, context)) {
+  for (const issue of [...serviceRuleIssues(rules, context), ...fixedFreeWaitIssues(rules, context.category)]) {
     const target = rulePathTarget(issue.path);
     if (!reported.has(target)) problems.push({ text: ruleIssueText(issue), target });
   }
@@ -301,6 +306,8 @@ export function ruleIssueText(issue: Pick<RuleIssue, "path" | "reason" | "detail
       return typeof detail["lead_time_hours"] === "number" && detail["lead_time_hours"] < 1 ? "加急阶梯：提前预订时长是 0 小时时没有「来不及」的单。请关掉加急，或把提前预订时长改成至少 1 小时" : `加急阶梯：请填 1 到 ${detail["lead_time_hours"] ?? "提前预订时长"} 之间的整数`;
     case "BELOW_PLATFORM_MINIMUM":
       return `免费等待：不能少于平台规定的 ${detail["min"] ?? ""} 分钟`;
+    case "FIXED_BY_PLATFORM":
+      return `免费等待：包车由平台固定为 ${detail["minutes"] ?? 0} 分钟（从约定的开始时间起计入套餐时长），不能改`;
     case "OUT_OF_RANGE":
       return `请填 ${detail["min"] ?? 0} 到 ${detail["max"] ?? ""} 之间的数`;
     case "TOO_MANY":

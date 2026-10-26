@@ -20,7 +20,7 @@ const RULES = {
 async function readyProduct(request: APIRequestContext, supplier: Supplier, world: World, category: "airport_transfer" | "point_to_point" | "charter", title: string): Promise<{ id: string }> {
   const product = await createProductByApi(request, supplier, world, category);
   const wait = { mode: "limited", minutes: 60 };
-  const freeWait = category === "airport_transfer" ? { pickup: wait, dropoff: wait, general: null } : { pickup: null, dropoff: null, general: wait };
+  const freeWait = category === "airport_transfer" ? { pickup: wait, dropoff: wait, general: null } : { pickup: null, dropoff: null, general: category === "charter" ? { mode: "limited", minutes: 0 } : wait };
   const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: { ...RULES, free_wait: freeWait } });
   expect(rules.status(), `保存服务规则：${await rules.text()}`).toBe(200);
   const version = ((await rules.json()) as { version: number }).version;

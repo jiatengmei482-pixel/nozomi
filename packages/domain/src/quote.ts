@@ -29,7 +29,7 @@ import {
   scaleExact,
   tripPrice,
 } from "./pricing.ts";
-import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
+import { type FreeWait, type ProductStatus, type ServiceRules, addonAllowsFirstFree, effectiveFreeWait, freeWaitItems, minimumFreeWaitMinutes } from "./products.ts";
 import { type UrgentTier, checkBookingWindow, instantToLocal, localDateTimeToInstant, overlapMinutes } from "./service-time.ts";
 
 // ---- 常数（都来自需求文档和各轮决策）----
@@ -432,7 +432,7 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   if (!hasInventory(product.inventoryMode, moment.inventoryDay)) return refuse("SOLD_OUT");
 
   const item = freeWaitItems(product.category).length === 1 ? ("general" as const) : request.direction === "dropoff" ? ("dropoff" as const) : ("pickup" as const);
-  const freeWait: SettlementBreakdown["freeWait"] = { item, value: product.serviceRules.freeWait[item], platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
+  const freeWait: SettlementBreakdown["freeWait"] = { item, value: effectiveFreeWait(product.category, product.serviceRules.freeWait[item]), platformMinimumMinutes: minimumFreeWaitMinutes(product.category, item, product.pickupPlace) };
   // 包车报价时 H = 套餐时长、里程不超套餐（超时、超公里履约后按实际结算），不看路线预估；其他品类把预估交给计价公式
   const usage: TripUsage = moment.route === null || product.category === "charter" ? {} : { meters: moment.route.meters, minutes: moment.route.minutes };
 

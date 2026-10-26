@@ -3,7 +3,7 @@
  * 条件一改就查询；搜索框停止输入 300ms 后查询，按 Enter 立即查询，输入法组字期间不查询。
  */
 import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useLocation, useSearchParams } from "react-router";
 import { Button } from "./Button.tsx";
 import { Dialog } from "./Dialog.tsx";
 import { Icon } from "./Icon.tsx";
@@ -22,6 +22,10 @@ export function SearchBox({ label, value, onSearch }: { label: string; value: st
     if (pending.current !== null) clearTimeout(pending.current);
     pending.current = null;
   };
+  const { pathname } = useLocation();
+
+  // 已经离开这一页（点进了详情、换了菜单）：还没到点的延时查询作废，否则它会把网址换回列表（M4-10）。卸载时由下面输入的那个效果的清理作废
+  useEffect(() => cancelPending, [pathname]);
 
   // 网址里的条件被别处改了（清空筛选、切页签）时，输入框跟着变；还没到点的延时查询作废，否则它会把旧关键字又写回网址
   useEffect(() => {
