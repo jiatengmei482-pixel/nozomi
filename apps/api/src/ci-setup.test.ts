@@ -161,3 +161,8 @@ test("端到端任务：装浏览器和跑测试各自限时，加起来不超�
   assert.ok(run["timeout-minutes"] >= 20, "测试本身至少 20 分钟");
   assert.ok((e2e["timeout-minutes"] ?? 0) >= install["timeout-minutes"] + run["timeout-minutes"] + 3, "任务上限要留出其余步骤的时间");
 });
+
+test("端到端失败不自动重跑（M4-07）：偶发失败当场暴露，不被重跑掩盖", async () => {
+  const config = await readText("apps/web/playwright.config.ts");
+  assert.match(config, /^\s*retries: 0,$/m);
+});

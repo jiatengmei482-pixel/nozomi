@@ -19,8 +19,8 @@ export default defineConfig({
   outputDir: "./test-results",
   fullyParallel: true,
   forbidOnly: process.env["CI"] !== undefined,
-  // CI 里失败的用例重跑一次：报告里记为 flaky（不算通过），由 M4-07 逐个根治；本机不重跑，偶发问题当场暴露
-  retries: process.env["CI"] !== undefined ? 1 : 0,
+  // 不重跑：偶发失败当场暴露（M4-07 根治后连续 5 次 CI 没有偶发，2026-10-26 改回 0）
+  retries: 0,
   workers: 4,
   // 运营后台每次登录多一步两步验证（ADR 0030），同一个人同一个 30 秒里的动态码只能用一次，偶尔要等下一个时间窗
   timeout: 60_000,
