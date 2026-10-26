@@ -350,3 +350,70 @@ test("财务结算：手工出上个月的账 → 供应商确认 → 财务发�
   await expect(page.getByRole("row").filter({ hasText: statementNo })).toContainText("JPY 19,800");
   await checkLayout(page, "付款批次详情");
 });
+
+test("官网投诉和反馈：客人在订单页提投诉 → 运营在工单列表看到、回复客人 → 客人在订单页看到回复", async ({ page, request, browser }) => {
+  test.setTimeout(180_000);
+  const seed = await prepare(request);
+  // 官网是 global-setup 建好的那个渠道：订单挂在它下面，客人才能凭订单链接看
+  const site = await owner(async (client) => (await client.query<{ channel_id: string; id: string }>("select c.id as channel_id, a.id from channels c join channel_api_clients a on a.channel_id = c.id where c.name = 'NOZOMI 官网（端到端测试）' order by a.created_at limit 1")).rows[0]);
+  expect(site, "global-setup 建的官网渠道").toBeTruthy();
+  const order = await seedOrder({ ...seed, channelId: site?.channel_id as string, apiClientId: site?.id as string }, { serviceAt: new Date(Date.now() - 3 * 3_600_000), completed: true });
+  const lookup = await request.post("/site/v1/orders/lookup", { data: { order_no: order.orderNo, contact: "guest@e2e.example.com" } });
+  expect(lookup.ok(), `找回订单链接：${await lookup.text()}`).toBe(true);
+  const token = ((await lookup.json()) as { link: { token: string } }).link.token;
+
+  // 客人：订单页 → 投诉和反馈 → 提交
+  const guestContext = await browser.newContext();
+  const guest = await guestContext.newPage();
+  await guest.setViewportSize({ width: 400, height: 800 });
+  await guest.goto(`/book/order#${token}`);
+  await expect(guest.getByRole("heading", { level: 1, name: `订单 ${order.orderNo}` })).toBeVisible();
+  const block = guest.locator("section").filter({ has: guest.getByRole("heading", { level: 2, name: "投诉和反馈" }) });
+  await block.getByRole("button", { name: "提交投诉或反馈" }).click();
+  await block.getByRole("radio", { name: /投诉服务/ }).check();
+  await block.getByLabel(/一句话说明/).fill("司机迟到了 40 分钟");
+  await block.getByLabel(/经过/).fill("航班 10:00 落地，司机 10:40 才到，也没有举牌。");
+  await block.getByRole("button", { name: "提交", exact: true }).click();
+  await expect(block).toContainText("已提交。平台一般 2 小时内答复");
+  await expect(block).toContainText("投诉服务：司机迟到了 40 分钟");
+  const ticketNo = (/TK\d{8}[0-9A-Z]{6}/.exec((await block.textContent()) ?? "") ?? [""])[0];
+  expect(ticketNo).not.toBe("");
+  await expect(guest).toHaveURL(new RegExp(`/book/order#${token}$`));
+  for (const width of [320, 360, 768]) {
+    await guest.setViewportSize({ width, height: 800 });
+    await expectNoHorizontalOverflow(guest, `官网订单页的投诉和反馈（${width}px）`);
+  }
+  await expectAccessible(guest, "官网订单页的投诉和反馈（亮色）");
+  await guest.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(guest, "官网订单页的投诉和反馈（暗色）");
+  await guest.emulateMedia({ colorScheme: "light" });
+
+  // 运营：工单列表里有这张（来源客人）→ 回复客人
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const admin = adminCredentials();
+  await loginAs(page, "platform", admin.email, admin.password);
+  await menu(page).getByRole("link", { name: "工单", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: ticketNo });
+  await expect(row).toContainText("司机迟到了 40 分钟");
+  await row.getByRole("link", { name: ticketNo }).click();
+  await expect(page.getByText("航班 10:00 落地，司机 10:40 才到，也没有举牌。")).toBeVisible();
+  const reply = page.locator("section").filter({ has: page.getByRole("heading", { name: "回复客人" }) });
+  await reply.getByLabel("给客人的回复").fill("您好，我们已联系司机核实，24 小时内给您结果。");
+  await reply.getByRole("button", { name: "回复客人" }).click();
+  await expect(toast(page, "已回复客人")).toBeVisible();
+  await expect(reply).toContainText("您好，我们已联系司机核实");
+  await checkLayout(page, "工单详情（回复客人）");
+
+  // 客人：刷新订单页，看到平台的回复；供应商看不到这段回复
+  await guest.reload();
+  await expect(block.getByRole("list", { name: "平台对「司机迟到了 40 分钟」的回复" })).toContainText("您好，我们已联系司机核实，24 小时内给您结果。");
+  await guestContext.close();
+  const tenantContext = await browser.newContext();
+  const tenantPage = await tenantContext.newPage();
+  await loginAs(tenantPage, "tenant", seed.adminEmail, seed.password);
+  await menu(tenantPage).getByRole("link", { name: "工单", exact: true }).click();
+  await tenantPage.getByRole("link", { name: ticketNo }).click();
+  await expect(tenantPage.getByText("航班 10:00 落地，司机 10:40 才到，也没有举牌。")).toBeVisible();
+  await expect(tenantPage.getByText("您好，我们已联系司机核实")).toHaveCount(0);
+  await tenantContext.close();
+});
