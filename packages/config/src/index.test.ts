@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ConfigError, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask, percentToBasisPoints } from "./index.ts";
+import { ConfigError, DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, basisPointsToPercentText, databaseUserOf, integrationStatus, loadConfig, loadMigrationConfig, mapTileOrigin, mask, percentToBasisPoints } from "./index.ts";
 
 const base = {
   DATABASE_URL: "postgres://app:pw@localhost:5432/nozomi",
@@ -318,4 +318,15 @@ test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相�
   assert.deepEqual(status, { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: "48 个字符" });
   assert.ok(!JSON.stringify(integrationStatus(c)).includes(key));
   assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
+});
+
+test("登录限速的来源地址上限（ADR 0030）：默认 50（和 domain 的常量一致）；local / ci 可以调高给端到端测试用，staging / production 不能调高", () => {
+  assert.equal(DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, 50);
+  assert.deepEqual(loadConfig(base).loginThrottle, { maxAttemptsPerIp: 50 });
+  assert.deepEqual(loadConfig({ ...base, LOGIN_MAX_ATTEMPTS_PER_IP: "" }).loginThrottle, { maxAttemptsPerIp: 50 });
+  assert.deepEqual(loadConfig({ ...base, APP_ENV: "ci", LOGIN_MAX_ATTEMPTS_PER_IP: "100000" }).loginThrottle, { maxAttemptsPerIp: 100_000 });
+  assert.ok(issuesOf({ ...base, APP_ENV: "staging", LOGIN_MAX_ATTEMPTS_PER_IP: "51" }).some((i) => i.includes("LOGIN_MAX_ATTEMPTS_PER_IP")));
+  assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production", LOGIN_MAX_ATTEMPTS_PER_IP: "1000" }).some((i) => i.includes("LOGIN_MAX_ATTEMPTS_PER_IP")));
+  assert.deepEqual(loadConfig({ ...base, APP_ENV: "staging", LOGIN_MAX_ATTEMPTS_PER_IP: "20" }).loginThrottle, { maxAttemptsPerIp: 20 }, "调低可以");
+  assert.ok(issuesOf({ ...base, LOGIN_MAX_ATTEMPTS_PER_IP: "0" }).length > 0);
 });

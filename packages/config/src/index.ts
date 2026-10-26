@@ -158,12 +158,18 @@ function parseMapTiles(env: z.output<typeof rawSchema>, issues: string[]): MapTi
   };
 }
 
+/** 和 @nozomi/domain 的 `LOGIN_MAX_ATTEMPTS_PER_IP` 相同（config 不依赖 domain；单元测试核对两边一致）。 */
+export const DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP = 50;
+
 const rawSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:8080"),
   // 服务前面有几层自己的反向代理（Nginx / Caddy 等）。0 表示直接对外，不信任 X-Forwarded-For。
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  // 登录限速里「同一来源地址」这一层的上限（窗口 15 分钟内的失败次数，ADR 0008、0030）。默认 50，staging / production 不能调高；
+  // 只给端到端测试用：全部用例都从 127.0.0.1 发起，几百个用例的失败尝试（错码、并行进程用掉的动态码）会把这一层顶满
+  LOGIN_MAX_ATTEMPTS_PER_IP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(1).max(100_000).default(DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP)),
 
   DATABASE_URL: databaseUrlSchema("DATABASE_URL"),
   DATABASE_MIGRATION_URL: z.preprocess(
@@ -243,6 +249,8 @@ export interface AppConfig {
   fx: { sourceUrl: string; bufferBp: number; autoFetch: boolean };
   /** 报价的默认参数（渠道和加价规则上线之前用） */
   quote: { defaultMarkupBp: number };
+  /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
+  loginThrottle: { maxAttemptsPerIp: number };
 }
 
 export class ConfigError extends Error {
@@ -311,6 +319,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
   }
+  if ((env.APP_ENV === "staging" || env.APP_ENV === "production") && env.LOGIN_MAX_ATTEMPTS_PER_IP > DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP) {
+    issues.push(`${env.APP_ENV} 环境的 LOGIN_MAX_ATTEMPTS_PER_IP 不能超过 ${DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP}（调高只给本机和 CI 的端到端测试用）`);
+  }
   const databaseMigrationUrl = env.DATABASE_MIGRATION_URL ?? null;
   if (databaseMigrationUrl !== null && sameDatabaseAccount(env.DATABASE_URL, databaseMigrationUrl)) {
     issues.push(SAME_DATABASE_ACCOUNT);
@@ -331,6 +342,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
+    loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
   };
 }
 

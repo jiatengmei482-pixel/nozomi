@@ -179,6 +179,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       // 数据加密密钥（ADR 0027、0030：供应商的 Webhook 签名密钥、平台员工的两步验证密钥加密存储）：本次运行临时生成
       DATA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       TRUST_PROXY_HOPS: "0",
+      // 登录限速「同一来源地址」这一层（ADR 0030）：全部用例都从 127.0.0.1 发起，几百个用例里的失败尝试（故意输错的密码和动态码、
+      // 并行进程用掉的同一时间窗的动态码）累计起来会顶满默认的 50 次，后面的用例全被 429。只调高这一层（只有 local / ci 允许），
+      // 邮箱 + 地址、邮箱两层不变，测限速的用例照旧
+      LOGIN_MAX_ATTEMPTS_PER_IP: "100000",
     };
     // 服务进程只拿应用账号（ADR 0010），迁移账号不交给它。
     delete apiEnv["DATABASE_MIGRATION_URL"];
