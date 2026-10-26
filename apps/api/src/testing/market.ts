@@ -39,15 +39,6 @@ export async function addStaff(api: TestApi, root: string, email: string, role: 
 export async function buildMarket(api: TestApi): Promise<Market> {
   const root = await api.superAdminToken();
   const platform = (method: HttpMethod, path: string, body?: unknown): Promise<any> => ok(api.call(method, `/platform/v1${path}`, { token: root, ...(body === undefined ? {} : { body }) }), method === "POST" ? 201 : 200);
-  const tenant = (who: TenantFixture, method: HttpMethod, path: string, body: unknown, version?: number, status = 200): Promise<any> =>
-    ok(
-      api.call(method, `/tenant/v1${path}`, {
-        token: who.adminToken,
-        body,
-        headers: { ...(version === undefined ? {} : { "if-match": `"${version}"` }), ...(method === "POST" && /^\/(products|brands|areas)$|\/price-rules$/.test(path) ? { "idempotency-key": randomUUID() } : {}) },
-      }),
-      status,
-    );
   const a = await api.tenantWithAdmin(root, "甲车队", "admin@market-a.test");
   const b = await api.tenantWithAdmin(root, "乙车队", "admin@market-b.test");
   const tokyo = (await platform("POST", "/master/cities", { country_code: "JP", timezone: "Asia/Tokyo", code: "CTY-JP-TYO", name: { zh: "东京" }, center: { lng: 139.6917, lat: 35.6895 } })).id;
@@ -56,35 +47,7 @@ export async function buildMarket(api: TestApi): Promise<Market> {
   const biz7 = (await platform("POST", "/master/vehicle-groups", { grade: "business", seats: 7, power: "fuel", combos: [{ passengers: 6, luggage: 4 }], code: "VG-BIZ-7", name: { zh: "商务 7 座" } })).id;
   const eco4 = (await platform("POST", "/master/vehicle-groups", { grade: "economy", seats: 4, power: "fuel", combos: [{ passengers: 3, luggage: 2 }], code: "VG-ECO-4", name: { zh: "经济 4 座" } })).id;
 
-  const product = async (who: TenantFixture, prices: [string, number][]): Promise<string> => {
-    const brand = (await tenant(who, "POST", "/brands", { name: `品牌-${who.tenantId.slice(0, 4)}`, currency: "JPY" }, undefined, 201)).id;
-    api.clock.advance(1_000);
-    const area = (await tenant(who, "POST", "/areas", { city_id: tokyo, name: { zh: "东京全域" }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.0, 35.0], [140.0, 35.0], [140.0, 36.0], [139.0, 36.0], [139.0, 35.0]]] } }] }, undefined, 201)).id;
-    const created = await tenant(
-      who,
-      "POST",
-      "/products",
-      {
-        brand_id: brand,
-        city_id: tokyo,
-        category: "airport_transfer",
-        poi_id: narita,
-        areas: [{ area_id: area }],
-        vehicle_groups: prices.map(([vg]) => (vg === biz7 ? { vehicle_group_id: vg, passengers: 6, luggage: 4 } : { vehicle_group_id: vg, passengers: 3, luggage: 2 })),
-        dispatchers: [{ name: "调度", phone: "0312345678" }],
-      },
-      undefined,
-      201,
-    );
-    const saved = await tenant(who, "PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } }, 1);
-    let version = (await tenant(who, "PUT", `/products/${created.id}/content`, { zh: { title: "成田机场接送", pickup_guide: "到达大厅 3 号门" } }, saved.version)).version as number;
-    for (const [vg, price] of prices) {
-      await tenant(who, "POST", `/products/${created.id}/price-rules`, { area_id: area, vehicle_group_id: vg, direction: "both", pricing_model: "fixed", valid_from: "2026-01-01", base_price: price }, version, 201);
-      version = (await tenant(who, "GET", `/products/${created.id}`, undefined)).version;
-    }
-    await tenant(who, "POST", `/products/${created.id}/publish`, undefined);
-    return created.id;
-  };
+  const product = (who: TenantFixture, prices: [string, number][]): Promise<string> => marketProduct(api, who, { tokyo, narita, biz7 }, prices);
   const pa = await product(a, [[biz7, 20_000], [eco4, 12_000]]);
   const pb = await product(b, [[biz7, 19_800]]);
   const staff = {
@@ -95,6 +58,49 @@ export async function buildMarket(api: TestApi): Promise<Market> {
     operations: await addStaff(api, root, "ops@platform.test", "operations"),
   };
   return { root, a, b, staff, ids: { tokyo, osaka, narita, biz7, eco4, pa, pb } };
+}
+
+/**
+ * 给一个供应商建一个成田接送机商品（区域盖住整个东京，价格按 `prices`），默认上架。`publish: false` 只建到「能通过上架校验」为止（入驻测试用：已签约的供应商不能上架）。
+ */
+export async function marketProduct(api: TestApi, who: TenantFixture, ids: { tokyo: string; narita: string; biz7: string }, prices: [string, number][], options: { publish?: boolean } = {}): Promise<string> {
+  const { tokyo, narita, biz7 } = ids;
+  const tenant = (target: TenantFixture, method: HttpMethod, path: string, body: unknown, version?: number, status = 200): Promise<any> =>
+    ok(
+      api.call(method, `/tenant/v1${path}`, {
+        token: target.adminToken,
+        body,
+        headers: { ...(version === undefined ? {} : { "if-match": `"${version}"` }), ...(method === "POST" && /^\/(products|brands|areas)$|\/price-rules$/.test(path) ? { "idempotency-key": randomUUID() } : {}) },
+      }),
+      status,
+    );
+  const brand = (await tenant(who, "POST", "/brands", { name: `品牌-${who.tenantId.slice(0, 4)}`, currency: "JPY" }, undefined, 201)).id;
+  api.clock.advance(1_000);
+  const area = (await tenant(who, "POST", "/areas", { city_id: tokyo, name: { zh: "东京全域" }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.0, 35.0], [140.0, 35.0], [140.0, 36.0], [139.0, 36.0], [139.0, 35.0]]] } }] }, undefined, 201)).id;
+  const created = await tenant(
+    who,
+    "POST",
+    "/products",
+    {
+      brand_id: brand,
+      city_id: tokyo,
+      category: "airport_transfer",
+      poi_id: narita,
+      areas: [{ area_id: area }],
+      vehicle_groups: prices.map(([vg]) => (vg === biz7 ? { vehicle_group_id: vg, passengers: 6, luggage: 4 } : { vehicle_group_id: vg, passengers: 3, luggage: 2 })),
+      dispatchers: [{ name: "调度", phone: "0312345678" }],
+    },
+    undefined,
+    201,
+  );
+  const saved = await tenant(who, "PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } }, 1);
+  let version = (await tenant(who, "PUT", `/products/${created.id}/content`, { zh: { title: "成田机场接送", pickup_guide: "到达大厅 3 号门" } }, saved.version)).version as number;
+  for (const [vg, price] of prices) {
+    await tenant(who, "POST", `/products/${created.id}/price-rules`, { area_id: area, vehicle_group_id: vg, direction: "both", pricing_model: "fixed", valid_from: "2026-01-01", base_price: price }, version, 201);
+    version = (await tenant(who, "GET", `/products/${created.id}`, undefined)).version;
+  }
+  if (options.publish !== false) await tenant(who, "POST", `/products/${created.id}/publish`, undefined);
+  return created.id;
 }
 
 /** 接机（成田 → 东京市区），2026-10-20 10:00（东京时间），2 人 1 件行李。测试时钟是 2026-10-07，离用车足够远。 */

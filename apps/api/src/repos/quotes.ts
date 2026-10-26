@@ -2,7 +2,7 @@
  * 报价引擎取数（M2-01，ADR 0020）：把一批商品报价要看的全部事实取出来，拼成 domain 的 QuoteProduct。
  * 每一类数据一条查询取回这一批商品的（不逐个商品查）。在租户事务里只看得到本租户的（行级安全），在平台事务里看得到全部供应商的。
  */
-import type { AddonChargeUnit, CurrencyCode, InventoryDay, Position, QuoteProduct, ServiceCategory, ServiceRules } from "@nozomi/domain";
+import { type AddonChargeUnit, type CurrencyCode, type InventoryDay, type Position, type QuoteProduct, type ServiceCategory, type ServiceRules, type TenantStatus, tenantBids } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { ADJUST_COLUMNS, PRICE_COLUMNS, toAdjustRule, toPriceRule } from "./prices.ts";
 
@@ -14,6 +14,8 @@ export interface QuoteCandidate {
   code: string;
   version: number;
   tenantName: string;
+  /** 供应商的入驻状态（试运营的要另查当天的订单数，ADR 0028） */
+  tenantStatus: TenantStatus;
   cityId: string;
   countryCode: string;
   /** 接送机商品的接送点坐标（估路线用） */
@@ -35,7 +37,7 @@ const columns = (prefix: string, list: string): string => list.split(", ").map((
 
 /**
  * 找商品（报价引擎第 2 步）：同城市、同品类（接送机还要同一个接送点）；城市、接送点要是启用中的。
- * 供应商是不是被暂停、子品牌是不是停用、区域和车型组是不是启用，都带在事实里由 domain 判断并给出原因。
+ * 供应商参不参与比价（试运营、正式才参与）、子品牌是不是停用、区域和车型组是不是启用，都带在事实里由 domain 判断并给出原因。
  */
 export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter): Promise<QuoteCandidate[]> {
   const products = await db.query<Row>(
@@ -104,6 +106,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
       code: row["code"],
       version: row["version"],
       tenantName: row["tenant_name"],
+      tenantStatus: row["tenant_status"],
       cityId: row["city_id"],
       countryCode: row["country_code"],
       pickupPlaceLocation: row["place_lng"] === null ? null : { lng: Number(row["place_lng"]), lat: Number(row["place_lat"]) },
@@ -112,7 +115,8 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         tenantId: row["tenant_id"],
         category,
         status: row["status"],
-        tenantActive: row["tenant_status"] === "active",
+        tenantActive: tenantBids(row["tenant_status"]),
+        tenantRefusal: row["tenant_status"] === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED",
         brandActive: row["brand_status"] === "active",
         currency: row["currency"] as CurrencyCode,
         roundingUnit: row["rounding_unit"],

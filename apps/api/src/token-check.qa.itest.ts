@@ -8,7 +8,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { INVITE_TTL_MS } from "./auth/invite-token.ts";
-import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
 let rootToken: string;
@@ -249,8 +249,8 @@ test("租户被暂停：核对的结论和真正接受邀请 / 重设密码的�
   const fleet = await api.tenantWithAdmin(rootToken, "暂停车队", "admin@qa-check-paused.test");
   const invited = await invite(api, rootToken, fleet.adminToken, "tenant");
   const reset = await issueReset(api, rootToken, fleet.adminToken, "tenant");
-  const suspended = await api.call("POST", `/platform/v1/tenants/${fleet.tenantId}/suspend`, { token: rootToken, body: { reason: "测试" } });
-  assert.equal(suspended.status, 200, suspended.text);
+  const suspended = await suspendTenantApproved(api, rootToken, fleet.tenantId);
+  assert.equal(suspended.status, "suspended");
   const inviteCheck = await check(api, "tenant", "check-invite", invited.token);
   const resetCheck = await check(api, "tenant", "check-reset-token", reset.token);
   const accepted = await api.call("POST", "/tenant/v1/auth/accept-invite", { body: { token: invited.token, password: TEST_PASSWORD } });

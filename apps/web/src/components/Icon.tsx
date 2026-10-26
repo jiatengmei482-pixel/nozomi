@@ -43,9 +43,17 @@ export type IconName =
   | "redo"
   | "target"
   | "minus"
-  | "calculator";
+  | "calculator"
+  | "file";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
+  file: (
+    <>
+      <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />
+      <path d="M14 3v5h5" />
+      <path d="M9 13h6M9 17h6" />
+    </>
+  ),
   eye: (
     <>
       <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />

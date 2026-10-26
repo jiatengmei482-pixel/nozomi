@@ -125,7 +125,7 @@ test("运营后台首页：没有供应商那两项；侧边栏写明是运营�
   assert.ok(document.querySelector(".sidebar--pinned")?.textContent?.includes("运营后台"));
 });
 
-test("后台框架：一个 main、一个 h1、跳到正文是第一个可聚焦元素；菜单只有真实存在、这个角色能看的页面（调度：订单、车队；设置默认收起）", async () => {
+test("后台框架：一个 main、一个 h1、跳到正文是第一个可聚焦元素；菜单只有真实存在、这个角色能看的页面（调度：订单、车队、履约评分；设置默认收起）", async () => {
   signIn("tenant");
   stubApi({ "GET /tenant/v1/auth/me": tenantMe("active") });
   renderAt("/", ROUTES);
@@ -138,7 +138,7 @@ test("后台框架：一个 main、一个 h1、跳到正文是第一个可聚焦
 
   const nav = document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]') as HTMLElement;
   const links = within(nav).getAllByRole("link");
-  assert.deepEqual(links.map((link) => link.textContent), ["首页", "订单", "司机", "车辆"]);
+  assert.deepEqual(links.map((link) => link.textContent), ["首页", "订单", "司机", "车辆", "履约评分"]);
   assert.ok(within(nav).getByRole("button", { name: "设置" }), "调度能看 Webhook 的设置和推送记录（默认收起）");
   assert.equal(links[0]?.getAttribute("aria-current"), "page");
   assert.equal(document.querySelector('nav[aria-label="当前位置"] [aria-current="page"]')?.textContent, "首页");

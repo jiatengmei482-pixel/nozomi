@@ -3,13 +3,14 @@
  * - 路线预估（M2-02，谷歌地图 Routes API）：取不到 → 里程 + 时长的价格报不出，一口价和包车套餐不受影响；
  * - 汇率（M2-03）：已由汇率中心实现（services/fx-center.ts 的 `FxCenter.rates`），由 buildApp 传进来；
  * - 加价规则和渠道参数（M2-04）：用配置里的默认加价比例、需求文档的默认下限和价格带；
- * - 评分和观察期（M4-01）：每个租户都按默认分、0 单、不在观察期。
+ * - 评分、完成订单数和观察期（M4-01）：每日检查写在供应商主体上的最新结果（services/tenant-standings.ts，ADR 0028）。
  */
-import { type CurrencyCode, DEFAULT_TENANT_STANDING, type FxQuote, type LatLng, QUOTE_RULES, type RouteEstimate, type ServiceCategory, type TenantStanding } from "@nozomi/domain";
+import { type CurrencyCode, type FxQuote, type LatLng, QUOTE_RULES, type RouteEstimate, type ServiceCategory, type TenantStanding } from "@nozomi/domain";
 import type { AppConfig } from "@nozomi/config";
 import type { Db } from "../db/context.ts";
 import type { QuoteCandidate } from "../repos/quotes.ts";
 import { QuoteCatalogCache } from "./quote-catalog.ts";
+import { DB_TENANT_STANDINGS } from "./tenant-standings.ts";
 
 /**
  * 路线预估：两点之间的预估里程（米）和时长（分钟）。取不到（没有配置、服务不可用、超时）返回 null。
@@ -66,6 +67,6 @@ export function defaultQuoteDeps(config: AppConfig, fx: FxRates, now: () => Date
     routes: { estimate: async () => null },
     fx,
     markup: { floorBp: QUOTE_RULES.defaultMarkupFloorBp, bandBp: QUOTE_RULES.defaultBandBp, markupBp: () => config.quote.defaultMarkupBp },
-    standings: { load: async (_db, tenantIds) => new Map(tenantIds.map((tenantId) => [tenantId, DEFAULT_TENANT_STANDING])) },
+    standings: DB_TENANT_STANDINGS,
   };
 }

@@ -44,7 +44,7 @@ const kix = airport(KIX_ID, "KIX", "Kansai International Airport");
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: ["丰田埃尔法"], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 2, ...stamps };
 const counts = (active: number, disabled: number) => ({ total: active + disabled, active, disabled });
 const summary = (waiting: number): DashboardSummary => ({
-  tenants: { total: 4, active: 3, suspended: 1 },
+  tenants: { total: 4, active: 3, suspended: 1, bidding: 3, by_status: {} },
   master_data: {
     cities: counts(0, 3),
     places: { ...counts(9, 99), by_type: { airport: counts(2, 97), station: counts(2, 0), poi: counts(1, 0), terminal: counts(3, 2), exit: counts(1, 0) }, airports_without_city: waiting },

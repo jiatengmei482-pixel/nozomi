@@ -77,7 +77,7 @@ test("临时密码登录 → 被带到修改密码页 → 去别的地址都被�
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "新密码已生效，临时密码已作废。" })).toBeVisible();
   await expectSignedInAs(page, { email: admin.email, role: "超级管理员" });
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "供应商", "商品", "报价试算", "渠道", "待审核", "订单", "取消政策", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "供应商", "资质审核", "商品", "报价试算", "渠道", "待审核", "订单", "取消政策", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
 
   await page.reload();
   await expect(page, "刷新后仍在首页，不再被带去改密码").toHaveURL(/\/platform$/);

@@ -1,5 +1,5 @@
 /**
- * 平台侧的租户管理：创建租户（同时邀请第一个管理员）、查看、暂停、恢复、补发管理员邀请。
+ * 平台侧的租户管理：创建租户（同时邀请第一个管理员）、查看、补发管理员邀请。入驻、审核、状态变化在 tenant-onboarding.ts（M4-01）。
  * 这些是平台员工的跨租户操作，在 withPlatformTx 里执行，每条 SQL 自己带租户条件，并写审计日志（ADR 0003）。
  */
 import { newInvite } from "../auth/invite-token.ts";
@@ -8,14 +8,7 @@ import { withPlatformTx } from "../db/context.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { type TenantUser, findTenantUserByEmail } from "../repos/tenant-users.ts";
-import {
-  type Tenant,
-  type TenantStatus,
-  findTenantForPlatform,
-  insertTenant,
-  listTenantsAcrossTenants,
-  setTenantStatus,
-} from "../repos/tenants.ts";
+import { type Tenant, findTenantForPlatform, insertTenant, listTenantsAcrossTenants } from "../repos/tenants.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -96,36 +89,6 @@ export async function inviteTenantAdmin(
   } catch (err) {
     throw asEmailTaken(err);
   }
-}
-
-/**
- * 暂停或恢复租户。暂停不影响该租户用户的登录和已有会话（需求文档「租户状态」：暂停 = 商品不参与比价、
- * 已有订单继续履约）；这里只改状态并写审计，状态的业务含义由 M4-01 实现。状态没变化时不重复处理。
- */
-export async function changeTenantStatus(
-  ctx: AppContext,
-  principal: PlatformPrincipal,
-  tenantId: string,
-  status: TenantStatus,
-  reason: string | null,
-  ip: string,
-): Promise<Tenant> {
-  const now = ctx.now();
-  return withPlatformTx(ctx.pool, async (db) => {
-    const before = await findTenantForPlatform(db, tenantId, { lock: true });
-    if (!before) throw notFound("租户");
-    if (before.status === status) return before;
-    const after = await setTenantStatus(db, tenantId, status, now);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {
-      tenantId,
-      resource: "tenant",
-      resourceId: tenantId,
-      action: status === "suspended" ? "suspend" : "resume",
-      before: { status: before.status },
-      after: reason === null ? { status: after.status } : { status: after.status, reason },
-    });
-    return after;
-  });
 }
 
 /**

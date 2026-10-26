@@ -135,8 +135,10 @@ export interface QuoteProduct {
   tenantId: string;
   category: ServiceCategory;
   status: ProductStatus;
-  /** 供应商是不是启用中（被平台暂停的不参与比价）、子品牌是不是启用中 */
+  /** 供应商是不是参与比价（入驻状态是试运营或正式，ADR 0028）、子品牌是不是启用中 */
   tenantActive: boolean;
+  /** 供应商不参与比价时的原因：暂停（默认）或还没完成入驻 / 已清退（`TENANT_NOT_ONBOARDED`） */
+  tenantRefusal?: "TENANT_SUSPENDED" | "TENANT_NOT_ONBOARDED";
   brandActive: boolean;
   /** 子品牌的币种和取整单位 */
   currency: CurrencyCode;
@@ -167,6 +169,8 @@ export interface QuoteMoment {
   inventoryDay: InventoryDay | null;
   /** 用车那一天已经接了几单加急（查每日加急库存用） */
   urgentUsed: number;
+  /** 试运营的供应商今天已经接满了每日订单上限（ADR 0028）；不给按没满 */
+  trialLimitReached?: boolean;
 }
 
 // ---- 报不出价的原因 ----
@@ -176,6 +180,10 @@ export const QUOTE_REFUSALS = [
   "PRODUCT_NOT_PUBLISHED",
   /** 供应商被平台暂停：商品不参与比价 */
   "TENANT_SUSPENDED",
+  /** 供应商还没完成入驻（申请中、审核中、已签约）或已清退：只有试运营和正式的参与比价（ADR 0028） */
+  "TENANT_NOT_ONBOARDED",
+  /** 试运营的供应商今天的订单已到每日上限（默认 10 单） */
+  "TRIAL_DAILY_LIMIT",
   "BRAND_DISABLED",
   /** 服务规则还没填全（没有服务时间或提前预订时长）：只会出现在没上架的商品上 */
   "SERVICE_RULES_INCOMPLETE",
@@ -383,7 +391,8 @@ export function quoteProduct(product: QuoteProduct, request: QuoteRequest, momen
   // 第 2 步：已上架、供应商和子品牌启用中（城市、品类、接送点由找商品的那一层筛）
   if (options.forOwner !== true) {
     if (product.status !== "published") return refuse("PRODUCT_NOT_PUBLISHED");
-    if (!product.tenantActive) return refuse("TENANT_SUSPENDED");
+    if (!product.tenantActive) return refuse(product.tenantRefusal ?? "TENANT_SUSPENDED");
+    if (moment.trialLimitReached === true) return refuse("TRIAL_DAILY_LIMIT");
   }
   if (!product.brandActive) return refuse("BRAND_DISABLED");
 

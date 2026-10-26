@@ -52,7 +52,7 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review"] : [])]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review"] : [])]);
   }
   assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
@@ -108,7 +108,7 @@ test("汇率人工锁定（M2-06，ADR 0025）：发起沿用 fx.manage，审核
 
 test("租户：操作日志只有管理员能看", () => {
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "audit_log.read"), key === "admin", key);
-  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read"]);
+  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"]);
 });
 
 test("租户：账号管理只归管理员，只读角色只能看账号列表，其他角色都不行", () => {
@@ -118,9 +118,9 @@ test("租户：账号管理只归管理员，只读角色只能看账号列表�
   assert.equal(tenantRoleCan("readonly", "user.manage"), false);
   for (const role of ["pricing", "dispatch", "finance"] as const) {
     const expected: Record<typeof role, string[]> = {
-      pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
-      dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read"],
-      finance: ["master_data.read", "order.read", "order.extra_charge"],
+      pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
+      dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
+      finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
     };
     assert.deepEqual(tenantPermissions(role), expected[role]);
     assert.equal(tenantRoleCan(role, "user.read"), false);
@@ -198,6 +198,19 @@ test("派车、司机车辆、Webhook（M3-02，ADR 0027）：派车和管理司
   assert.deepEqual(can("webhook.read"), ["admin", "dispatch", "readonly"]);
   assert.deepEqual(PLATFORM_ROLES.filter(({ key }) => platformRoleCan(key, "order.resend")).map(({ key }) => key), ["super_admin", "operations", "customer_service"]);
   for (const { key } of PLATFORM_ROLES) if (platformRoleCan(key, "order.resend")) assert.equal(platformRoleCan(key, "order.read"), true, `${key} 能重推就能看订单`);
+});
+
+test("供应商入驻（M4-01，ADR 0028）：资质审核和合同、复核的审核只归超级管理员、运营、招商；供应商的企业信息只有管理员能改，评分每个角色都能看", () => {
+  for (const { key } of PLATFORM_ROLES) {
+    const onboarding = key === "super_admin" || key === "operations" || key === "tenant_onboarding";
+    assert.equal(platformRoleCan(key, "tenant.review"), onboarding, key);
+    assert.equal(platformRoleCan(key, "tenant.approve"), onboarding, key);
+  }
+  for (const { key } of TENANT_ROLES) {
+    assert.equal(tenantRoleCan(key, "company.manage"), key === "admin", key);
+    assert.equal(tenantRoleCan(key, "company.read"), key === "admin" || key === "finance" || key === "readonly", key);
+    assert.equal(tenantRoleCan(key, "performance.read"), true, key);
+  }
 });
 
 test("取消、改单、事后加收（M3-03，ADR 0029）：代取消改单归运营和客服；退款和扣款的异常、多退给客人的审核归财务和运营；改取消政策运营发起、运营或财务审核；加收归供应商的管理员、调度、财务", () => {

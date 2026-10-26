@@ -4,7 +4,7 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
+import { TEST_PASSWORD, type TestApi, createTestApi, approverToken } from "./testing/api.ts";
 import { leakedSecrets } from "./testing/fixtures.ts";
 
 let api: TestApi;
@@ -70,9 +70,15 @@ before(async () => {
   sensitive.add(extra.body.access_token);
   await api.call("POST", "/tenant/v1/auth/logout", { token: extra.body.access_token, ip: TENANT_IP });
 
-  // 暂停、恢复租户
+  // 暂停、恢复租户。新建的供应商在「申请中」，不参与比价也就不能暂停：直接在库里摆成「正式」（入驻流程见 tenant-onboarding.itest.ts）。
+  // 人工暂停走双人复核（ADR 0028）：root 发起，另一位超级管理员批准；恢复直接生效
+  await api.db.owner.query("update tenants set status = 'active' where id = $1", [created.body.tenant.id]);
+  const reviewerToken = await approverToken(api, rootToken);
+  sensitive.add(reviewerToken);
   api.clock.advance(1_000);
-  await p("POST", `/platform/v1/tenants/${created.body.tenant.id}/suspend`, { reason: "资质过期" });
+  const requested = await p("POST", `/platform/v1/tenants/${created.body.tenant.id}/suspend`, { reason: "资质过期" });
+  api.clock.advance(1_000);
+  await api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/approve`, { token: reviewerToken, body: {}, ip: PLATFORM_IP });
   await p("POST", `/platform/v1/tenants/${created.body.tenant.id}/resume`);
 
   flow = {
@@ -143,20 +149,30 @@ test("创建 / 停用 / 启用平台账号、接受邀请：按对象查得到�
   assert.ok(history.every((l) => l.tenant_id === null && l.ip === PLATFORM_IP));
 });
 
-test("创建 / 暂停 / 恢复租户：记在该租户名下，操作人是平台员工，暂停带原因", async () => {
+test("创建 / 暂停 / 恢复租户：记在该租户名下，操作人是平台员工，暂停带原因和复核编号（批准的人是操作人）", async () => {
   const history = (await logs(`resource=tenant&resource_id=${flow.tenantId}`)).reverse();
+  const approvalId = history[1]?.after?.approval_id;
+  assert.equal(typeof approvalId, "string");
   assert.deepEqual(
-    history.map((l) => ({ action: l.action, before: l.before, after: l.after })),
+    history.map((l) => ({ action: l.action, actor: l.actor.email, before: l.before, after: l.after })),
     [
-      { action: "create", before: null, after: { name: "车队甲", status: "active" } },
-      { action: "suspend", before: { status: "active" }, after: { status: "suspended", reason: "资质过期" } },
-      { action: "resume", before: { status: "suspended" }, after: { status: "active" } },
+      { action: "create", actor: "root@platform.test", before: null, after: { name: "车队甲", status: "applying" } },
+      {
+        action: "suspend",
+        actor: "approver@platform.test",
+        before: { status: "active", suspension_reasons: [], observation_reasons: [] },
+        after: { status: "suspended", suspension_reasons: ["manual"], observation_reasons: [], reason: "资质过期", approval_id: approvalId },
+      },
+      { action: "resume", actor: "root@platform.test", before: { status: "suspended", suspension_reasons: ["manual"], observation_reasons: [] }, after: { status: "active", suspension_reasons: [], observation_reasons: [] } },
     ],
   );
   for (const log of history) {
     assert.equal(log.tenant_id, flow.tenantId);
-    assert.deepEqual(log.actor, { type: "platform_user", id: rootId, email: "root@platform.test" });
+    assert.equal(log.actor.type, "platform_user");
   }
+  // 发起和批准记在复核记录上（平台级，tenant_id 为空）
+  const approval = (await logs(`resource=approval&resource_id=${approvalId}`)).reverse();
+  assert.deepEqual(approval.map((l) => [l.action, l.actor.email, l.tenant_id]), [["request", "root@platform.test", null], ["approve", "approver@platform.test", null]]);
 });
 
 test("邀请 / 改角色 / 停用 / 启用租户用户、接受邀请", async () => {
@@ -216,7 +232,7 @@ test("被拒绝的操作不产生「成功」的记录：没权限的、校验�
   ];
   assert.deepEqual(rejected.map((r) => r.status), [400, 401, 409, 409, 409]);
   const unchanged = await api.call("POST", `/platform/v1/tenants/${flow.tenantId}/resume`, { token: rootToken });
-  assert.equal(unchanged.status, 200, "状态没变化的重复操作不重复记录");
+  assert.deepEqual([unchanged.status, unchanged.body.error.code], [409, "TENANT_STATE_INVALID"], "没在暂停的不能恢复，也不记录");
   assert.equal(await count(), before);
 });
 
@@ -235,12 +251,12 @@ test("按人查、按租户查、按时间查，条件可以组合；从新到�
 
   const suspendAt = (await logs("action=suspend"))[0].occurred_at;
   const fromSuspend = await logs(`from=${encodeURIComponent(suspendAt)}`);
-  // 暂停之后发生的：暂停、恢复，以及前面两个测试里的「再看一次集成详情」和「重新登录」
-  assert.deepEqual(fromSuspend.map((l) => l.action).sort(), ["login", "resume", "suspend", "view"]);
+  // 暂停之后（批准的那一刻起）发生的：批准、暂停、恢复，以及前面两个测试里的「再看一次集成详情」和「重新登录」
+  assert.deepEqual(fromSuspend.map((l) => l.action).sort(), ["approve", "login", "resume", "suspend", "view"]);
   const beforeSuspend = await logs(`to=${encodeURIComponent(suspendAt)}`);
   assert.equal(beforeSuspend.length + fromSuspend.length, (await logs("")).length);
   const combined = await logs(`actor_id=${rootId}&tenant_id=${flow.tenantId}&from=${encodeURIComponent(suspendAt)}`);
-  assert.deepEqual(combined.map((l) => l.action), ["resume", "suspend"]);
+  assert.deepEqual(combined.map((l) => l.action), ["resume"], "暂停的操作人是批准的那位");
 
   const paged: string[] = [];
   let cursor: string | null = null;

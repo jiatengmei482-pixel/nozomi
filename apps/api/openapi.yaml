@@ -620,12 +620,45 @@ paths:
     post:
       tags: [租户管理]
       operationId: suspendTenant
-      summary: 暂停租户
+      summary: 发起人工暂停供应商（双人复核）
       description: |
-        需要操作 `tenant.change_status`。把租户状态改为 `suspended`。
-        暂停**不影响**该租户用户的登录和已有会话（暂停的租户还要继续履约已有订单）；
-        「暂停的租户不参与比价」等业务含义由后续任务（M4-01）实现。
-        已经是暂停状态时直接返回当前租户。写审计日志（含原因）。
+        需要操作 `tenant.change_status`。「停用租户」是敏感操作（ADR 0023、ADR 0028）：**不直接生效**，返回 202 和一条待审核的复核记录（`kind` = `tenant.suspend`）；
+        另一位有 `tenant.approve` 的同事（超级管理员、运营、招商）批准后，供应商变成「暂停」（加上 `manual` 这个原因，暂停之前的状态记在 `suspended_from`）。
+        只有试运营、正式的供应商能暂停（已经因为别的原因暂停的，可以再加上人工暂停）。暂停不影响登录和已有会话，已有订单继续履约；商品不参与比价、不能下单。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: 暂停原因（写进复核记录、状态记录和审计日志；供应商看不到这段文字，只看到「人工暂停」）
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+  /platform/v1/tenants/{id}/resume:
+    post:
+      tags: [租户管理]
+      operationId: resumeTenant
+      summary: 人工恢复供应商
+      description: |
+        需要操作 `tenant.change_status`。直接生效（需求只要求停用复核）：清掉全部暂停原因，回到暂停之前的状态（`suspended_from`：试运营或正式）。
+        评分低于红线、司机未到、人工暂停都要这样恢复（「需运营人工恢复」）。**资质过期的不能这样恢复**（409 `DOCUMENTS_INVALID`）：
+        供应商换上新证件、审核通过后系统自动恢复。写状态记录和审计日志。
       security:
         - platformToken: []
       parameters:
@@ -635,41 +668,18 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              properties:
-                reason:
-                  type: string
-                  maxLength: 500
-                  description: 暂停原因，记入审计日志
+              $ref: "#/components/schemas/TenantNoteRequest"
       responses:
         "200":
-          description: 暂停后的租户
+          description: 恢复后的供应商
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Tenant"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
-  /platform/v1/tenants/{id}/resume:
-    post:
-      tags: [租户管理]
-      operationId: resumeTenant
-      summary: 恢复租户
-      description: 需要操作 `tenant.change_status`。把租户状态改回 `active`。已经是正常状态时直接返回当前租户。写审计日志。
-      security:
-        - platformToken: []
-      parameters:
-        - $ref: "#/components/parameters/Id"
-      responses:
-        "200":
-          description: 恢复后的租户
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Tenant"
-        "404":
-          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
   /platform/v1/tenants/{id}/admin-invites:
     post:
       tags: [租户管理]
@@ -765,6 +775,392 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "409":
           $ref: "#/components/responses/AccountNotActive"
+  /platform/v1/tenants/{id}/company:
+    get:
+      tags: [供应商入驻]
+      operationId: getTenantCompanyForPlatform
+      summary: 供应商的企业信息、资质、合同（详情页）
+      description: |
+        需要操作 `tenant.read`。企业信息、按国家清单逐项的资质现状（`requirements`）、交过的全部资质（`documents`，含审核人）、全部合同版本和今天生效的那一版、
+        现在做下一步还缺什么（`next_step_issues`：申请中看提交审核，审核中看签约）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 企业信息和资质
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyOverview"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/status-events:
+    get:
+      tags: [供应商入驻]
+      operationId: listTenantStatusEventsForPlatform
+      summary: 供应商的状态变更记录
+      description: 需要操作 `tenant.read`。每次状态、暂停原因、观察期变化一条，新的在前；带操作者（平台员工 / 供应商用户 / 系统）、说明、复核编号。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/OnboardingLimit"
+      responses:
+        "200":
+          description: 状态变更记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantStatusEvent"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/performance:
+    get:
+      tags: [供应商入驻]
+      operationId: getTenantPerformanceForPlatform
+      summary: 供应商的履约评分和评分趋势
+      description: 需要操作 `tenant.read`。和供应商自己看到的同一份（`GET /tenant/v1/performance`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ScoreDays"
+      responses:
+        "200":
+          description: 评分
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPerformance"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/files:
+    post:
+      tags: [供应商入驻]
+      operationId: uploadTenantContractFile
+      summary: 上传合同扫描件
+      description: |
+        需要操作 `tenant.review`。请求体就是文件本身（PDF / JPEG / PNG，最大 10 MB），`Content-Type` 写文件的类型（或 `application/octet-stream`）；
+        格式按文件开头的字节判断，和声明的不一致 415。文件名放在查询参数 `file_name`（只用来显示和下载）。发起合同版本时用返回的 `id`。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FileName"
+      requestBody:
+        $ref: "#/components/requestBodies/UploadedFile"
+      responses:
+        "201":
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantFile"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/FileTypeRejected"
+  /platform/v1/tenants/{id}/files/{fileId}:
+    get:
+      tags: [供应商入驻]
+      operationId: downloadTenantFileForPlatform
+      summary: 下载供应商的资质 / 合同文件
+      description: |
+        需要操作 `tenant.review`（资质里有结算账户证明这类敏感材料，只给做审核的人）。原样返回，带 `X-Content-Type-Options: nosniff` 和 `Content-Security-Policy: sandbox`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/FileId"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantFileContent"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenant-documents:
+    get:
+      tags: [供应商入驻]
+      operationId: listTenantDocumentQueue
+      summary: 资质审核队列
+      description: |
+        需要操作 `tenant.read`。`kind=pending`（默认）：待审核的资质，每个供应商每个类型只列最新提交的那份，提交得早的在前；
+        `kind=expiring`：现在生效、`within_days` 天内到期（含已过期）的，到期早的在前（已清退的供应商不列）。带 `total`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [pending, expiring]
+            default: pending
+        - name: within_days
+          in: query
+          description: "`kind=expiring` 时：多少天内到期（默认 30）"
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 366
+            default: 30
+      responses:
+        "200":
+          description: 一页资质
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [tenant, document]
+                      properties:
+                        tenant:
+                          type: object
+                          additionalProperties: false
+                          required: [id, name, status]
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                            status:
+                              $ref: "#/components/schemas/TenantStatus"
+                        document:
+                          $ref: "#/components/schemas/TenantDocument"
+                  next_cursor:
+                    type: [string, "null"]
+                  total:
+                    type: integer
+                    minimum: 0
+  /platform/v1/tenants/{id}/documents/{documentId}/approve:
+    post:
+      tags: [供应商入驻]
+      operationId: approveTenantDocument
+      summary: 资质审核通过
+      description: |
+        需要操作 `tenant.review`。只能审「审核中」、而且是这一类型最新提交的那份。可以照证件改正到期日（不能已到期）。同类型更早的那些变成「被取代」。
+        供应商只因资质过期而暂停、这一份让必交资质全部有效了：自动恢复。给供应商一条提醒；写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DocumentId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expires_on:
+                  type: [string, "null"]
+                  format: date
+                  description: 改正后的到期日；不给保持供应商填的
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantDocumentReviewed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantDocumentNotReviewable"
+  /platform/v1/tenants/{id}/documents/{documentId}/reject:
+    post:
+      tags: [供应商入驻]
+      operationId: rejectTenantDocument
+      summary: 资质驳回（必须写原因）
+      description: |
+        需要操作 `tenant.review`。供应商在「审核中」而这是必交的一项时，退回「申请中」，改好再提交。给供应商一条提醒（带原因）；写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DocumentId"
+      requestBody:
+        $ref: "#/components/requestBodies/TenantReason"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantDocumentReviewed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantDocumentNotReviewable"
+  /platform/v1/tenants/{id}/documents/{documentId}/request-supplement:
+    post:
+      tags: [供应商入驻]
+      operationId: requestTenantDocumentSupplement
+      summary: 资质要求补充（必须写要补什么）
+      description: 需要操作 `tenant.review`。和驳回一样退回、提醒；状态记为「要求补充」。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/DocumentId"
+      requestBody:
+        $ref: "#/components/requestBodies/TenantReason"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantDocumentReviewed"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantDocumentNotReviewable"
+  /platform/v1/tenants/{id}/contracts:
+    post:
+      tags: [供应商入驻]
+      operationId: requestTenantContract
+      summary: 发起一个新的合同版本（双人复核）
+      description: |
+        需要操作 `tenant.review`。「修改租户结算条款」是敏感操作：返回 202 和复核记录（`kind` = `tenant.contract`），另一位有 `tenant.approve` 的同事批准后写入。
+        生效日期不早于今天、晚于已有的最后一个版本；结算币种是平台支持的币种；月结、次月 20 日付款、平台不收服务费和保证金是固定条款。
+        批准时按批准当天（东京日期）再核对一次：生效日期已早于批准当天的，批准返回 409 `CONTRACT_VALID_FROM_PASSED`（不追溯修改结算条款），复核仍是待审核，驳回或撤回后按新的生效日期重新发起。
+        可以附上合同扫描件（先 `POST /platform/v1/tenants/{id}/files`）。电子签不在本期。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [valid_from, settle_currency]
+              properties:
+                valid_from:
+                  type: string
+                  format: date
+                settle_currency:
+                  $ref: "#/components/schemas/FxCurrency"
+                file_id:
+                  type: [string, "null"]
+                  format: uuid
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          description: "`VALIDATION_FAILED`：`reason` 是 `INVALID_DATE`、`IN_THE_PAST`、`NOT_AFTER_LATEST`、`UNSUPPORTED_CURRENCY`、`UNKNOWN_FILE`、`WRONG_FILE_PURPOSE`、`TOO_LONG`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+  /platform/v1/tenants/{id}/sign:
+    post:
+      tags: [供应商入驻]
+      operationId: signTenant
+      summary: 签约（审核中 → 已签约）
+      description: |
+        需要操作 `tenant.change_status`。必交资质全部审核通过且有效、有一份今天已生效的合同，否则 409 `TENANT_CONDITIONS_UNMET`（`details.issues`）。
+        已签约的供应商可以建区域、商品，但还不能上架。写状态记录和审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantNoteRequest"
+      responses:
+        "200":
+          description: 签约后的供应商
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+  /platform/v1/tenants/{id}/start-trial:
+    post:
+      tags: [供应商入驻]
+      operationId: startTenantTrial
+      summary: 开始试运营（已签约 → 试运营）
+      description: |
+        需要操作 `tenant.change_status`。至少 1 个商品通过上架校验、完成了一次测试单（`test_order_note` 写测试单的情况，必填）、资质仍然有效，
+        否则 409 `TENANT_CONDITIONS_UNMET`（`NO_PUBLISHABLE_PRODUCT`、`DOCUMENTS_INVALID`）。试运营：可以上架、参与比价，每日订单上限 10 单；
+        满 30 天且完成 ≥ 20 单、无重大投诉后由每日检查自动转正式。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [test_order_note]
+              properties:
+                test_order_note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 试运营中的供应商
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+  /platform/v1/tenants/{id}/terminate:
+    post:
+      tags: [供应商入驻]
+      operationId: terminateTenant
+      summary: 发起清退（双人复核）
+      description: |
+        需要操作 `tenant.change_status`。返回 202 和复核记录（`kind` = `tenant.terminate`），另一位有 `tenant.approve` 的同事批准后变成「已清退」：
+        后台只能查看历史，所有修改都拒绝（409 `TENANT_TERMINATED`）。要求已有订单全部履约完毕（否则 409 `TENANT_HAS_OPEN_ORDERS`，批准时再查一次）；
+        账单结清的核对在财务结算上线后加上。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        $ref: "#/components/requestBodies/TenantReason"
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
   /platform/v1/audit-logs:
     get:
       tags: [平台系统]
@@ -2250,6 +2646,291 @@ paths:
                       $ref: "#/components/schemas/TenantAuditLog"
                   next_cursor:
                     type: [string, "null"]
+  /tenant/v1/company:
+    get:
+      tags: [企业信息与资质]
+      operationId: getOwnCompany
+      summary: 本供应商的企业信息、资质、合同和入驻进度
+      description: |
+        需要操作 `company.read`（管理员、财务、只读）。供应商主体（状态、暂停和观察的原因、最近的评分）、企业信息、按国家清单逐项的资质现状、
+        交过的全部资质（不带审核人的身份）、合同版本、下一步还缺什么。没有对外价和加价比例（规则 4）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 企业信息和资质
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyOverview"
+  /tenant/v1/company/profile:
+    put:
+      tags: [企业信息与资质]
+      operationId: putOwnCompanyProfile
+      summary: 填写企业信息
+      description: |
+        需要操作 `company.manage`（管理员）。整体替换。只有「申请中」能改（409 `TENANT_STATE_INVALID`）。
+        第一次填不带 `If-Match`；以后每次都要带企业信息当前的 `version`（不一致 409 `VERSION_CONFLICT`）。提交审核前每一项都要填（国家决定必交资料清单）。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [country_code]
+              properties:
+                country_code:
+                  type: [string, "null"]
+                  pattern: "^[A-Za-z]{2}$"
+                legal_name:
+                  type: [string, "null"]
+                  maxLength: 200
+                registration_no:
+                  type: [string, "null"]
+                  maxLength: 100
+                address:
+                  type: [string, "null"]
+                  maxLength: 300
+                contact_name:
+                  type: [string, "null"]
+                  maxLength: 100
+                contact_phone:
+                  type: [string, "null"]
+                  maxLength: 40
+                contact_email:
+                  type: [string, "null"]
+                  maxLength: 254
+      responses:
+        "200":
+          description: 保存后的企业信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+        "409":
+          description: "`TENANT_STATE_INVALID`：不在「申请中」；`VERSION_CONFLICT`：版本不对；`TENANT_TERMINATED`：已清退"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/company/files:
+    post:
+      tags: [企业信息与资质]
+      operationId: uploadOwnCompanyFile
+      summary: 上传一份资质文件
+      description: |
+        需要操作 `company.manage`。请求体就是文件本身（PDF / JPEG / PNG，最大 10 MB），`Content-Type` 写文件的类型（或 `application/octet-stream`），
+        格式按文件开头的字节判断，和声明的不一致、不是这三种 415；超过 10 MB 413；空文件 400。文件名放在查询参数 `file_name`。
+        只是存下，还不算提交：再用返回的 `id` 调 `POST /tenant/v1/company/documents`。只有本供应商看得到（别的供应商 404）。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/FileName"
+      requestBody:
+        $ref: "#/components/requestBodies/UploadedFile"
+      responses:
+        "201":
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantFile"
+        "409":
+          description: "`TENANT_TERMINATED`：已清退"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/FileTypeRejected"
+  /tenant/v1/company/files/{id}:
+    get:
+      tags: [企业信息与资质]
+      operationId: downloadOwnCompanyFile
+      summary: 下载本供应商的资质 / 合同文件
+      description: 需要操作 `company.read`。别的供应商的文件和不存在一样 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantFileContent"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/company/documents:
+    post:
+      tags: [企业信息与资质]
+      operationId: submitOwnCompanyDocument
+      summary: 提交一份资质（新交或换证）
+      description: |
+        需要操作 `company.manage`。`file_id` 是本供应商上传的资质文件、没用过（用过 409 `FILE_ALREADY_USED`）。营运许可、保险要填到期日（不能已到期）；
+        登记簿、结算账户证明没有到期日。提交后「审核中」；同类型已经通过的那份照常有效，直到这份通过。写审计日志。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, file_id]
+              properties:
+                type:
+                  $ref: "#/components/schemas/TenantDocumentType"
+                file_id:
+                  type: string
+                  format: uuid
+                expires_on:
+                  type: [string, "null"]
+                  format: date
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "201":
+          description: 已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantDocument"
+        "400":
+          description: "`VALIDATION_FAILED`：`reason` 是 `REQUIRED`、`NOT_APPLICABLE`、`INVALID_DATE`、`ALREADY_EXPIRED`、`UNKNOWN_FILE`、`WRONG_FILE_PURPOSE`、`TOO_LONG`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: "`FILE_ALREADY_USED`：这个文件已经提交过；`TENANT_TERMINATED`：已清退"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/company/submit:
+    post:
+      tags: [企业信息与资质]
+      operationId: submitOwnCompanyForReview
+      summary: 提交审核（申请中 → 审核中）
+      description: |
+        需要操作 `company.manage`。企业信息每项填齐、每项必交资质都有一份在审核中或已通过且没过期的，否则 409 `TENANT_CONDITIONS_UNMET`（`details.issues`）。
+        平台审核期间被驳回或要求补充的，会退回「申请中」。写状态记录和审计日志。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 审核中的供应商
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "409":
+          $ref: "#/components/responses/TenantStateInvalid"
+  /tenant/v1/company/contracts:
+    get:
+      tags: [企业信息与资质]
+      operationId: listOwnContracts
+      summary: 本供应商的合同版本
+      description: 需要操作 `company.read`。版本号从小到大；结算币种、结算周期、付款日、生效日期。电子签不在本期。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 合同版本
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantContract"
+  /tenant/v1/company/status-events:
+    get:
+      tags: [企业信息与资质]
+      operationId: listOwnStatusEvents
+      summary: 本供应商的状态变更记录
+      description: 需要操作 `company.read`。新的在前；只有动作、前后的状态和原因代码、操作者的类型（平台 / 系统 / 本供应商），没有平台员工的身份和内部说明。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/OnboardingLimit"
+      responses:
+        "200":
+          description: 状态变更记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantStatusEvent"
+  /tenant/v1/company/notices:
+    get:
+      tags: [企业信息与资质]
+      operationId: listOwnNotices
+      summary: 给本供应商的提醒
+      description: |
+        需要操作 `company.read`。资质快到期（30 天、7 天各一次）、已到期、审核结果、状态变化、进入 / 退出观察期。新的在前。
+        系统现在不发邮件，提醒都在这里和后台首页。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 一页提醒
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantNotice"
+                  next_cursor:
+                    type: [string, "null"]
+  /tenant/v1/performance:
+    get:
+      tags: [企业信息与资质]
+      operationId: getOwnPerformance
+      summary: 本供应商的履约评分
+      description: |
+        需要操作 `performance.read`（每个角色）。最近一次每日评分的各项指标、权重、得分，评分趋势（默认近 90 天），观察和暂停的规则。
+        需求「租户可在自己后台看到各项指标」；没有别的供应商的分、没有对外价和加价比例。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/ScoreDays"
+      responses:
+        "200":
+          description: 评分
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPerformance"
   /tenant/v1/master/cities:
     get:
       tags: [租户主数据]
@@ -5271,7 +5952,7 @@ paths:
         "409":
           description: |
             `APPROVAL_SELF_REVIEW`：发起人不能审核自己发起的；`APPROVAL_NOT_PENDING`：已经有结论了；`APPROVAL_STALE`：发起之后对象被改过；
-            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`、`FX_RATE_UNAVAILABLE`：按现在的数据不能生效
+            `MARKUP_RULE_CONFLICT`、`RULES_BELOW_FLOOR`、`CHANNEL_STATUS_UNCHANGED`、`FX_RATE_UNAVAILABLE`、`TENANT_STATE_INVALID`、`TENANT_HAS_OPEN_ORDERS`、`CONTRACT_VALID_FROM_PASSED`（合同生效日期已早于批准当天）：按现在的数据不能生效
           content:
             application/json:
               schema:
@@ -8157,6 +8838,46 @@ components:
       scheme: bearer
       description: 司机链接里的令牌（`nzd_…`，派车时生成、只出现一次）：司机不需要账号；用车结束后 24 小时、改派、重新生成、吊销后失效
   parameters:
+    OnboardingLimit:
+      name: limit
+      in: query
+      description: 最多返回多少条（默认 50）
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    ScoreDays:
+      name: days
+      in: query
+      description: 评分趋势取最近多少天（默认 90）
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 366
+        default: 90
+    FileName:
+      name: file_name
+      in: query
+      description: 原来的文件名（只用来显示和下载时的建议文件名；去掉路径和控制字符，最长 200 个字符）
+      schema:
+        type: string
+        maxLength: 500
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      description: 文件的编号（资质文件、履约照片）
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      name: documentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     ApiClientId:
       name: clientId
       in: path
@@ -8283,14 +9004,6 @@ components:
       schema:
         type: string
         format: uuid
-    FileId:
-      name: fileId
-      in: path
-      required: true
-      description: 照片的编号
-      schema:
-        type: string
-        format: uuid
     Limit:
       name: limit
       in: query
@@ -8406,7 +9119,97 @@ components:
       description: 按等级筛选
       schema:
         $ref: "#/components/schemas/VehicleGrade"
+  requestBodies:
+    UploadedFile:
+      required: true
+      description: 文件本身（PDF / JPEG / PNG，最大 10 MB）
+      content:
+        application/pdf:
+          schema:
+            type: string
+            format: binary
+        image/jpeg:
+          schema:
+            type: string
+            format: binary
+        image/png:
+          schema:
+            type: string
+            format: binary
+        application/octet-stream:
+          schema:
+            type: string
+            format: binary
+    TenantReason:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [reason]
+            properties:
+              reason:
+                type: string
+                minLength: 1
+                maxLength: 500
   responses:
+    TenantStateInvalid:
+      description: |
+        `TENANT_STATE_INVALID`：供应商现在的状态不能做这一步（`details.status`）；`TENANT_CONDITIONS_UNMET`：条件还不满足（`details.issues[]`：`path`、`reason`，如
+        `DOCUMENT_MISSING`、`DOCUMENT_NOT_APPROVED`、`DOCUMENT_EXPIRED`、`DOCUMENT_NEEDS_RESUBMISSION`、`CONTRACT_NOT_EFFECTIVE`、`NO_PUBLISHABLE_PRODUCT`、`DOCUMENTS_INVALID`、`REQUIRED`）；
+        `DOCUMENTS_INVALID`：有必交资质过期或没通过，不能人工恢复；`TENANT_HAS_OPEN_ORDERS`：还有没履约完的订单（`details.open_orders`）；`TENANT_TERMINATED`：已清退
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    FileTooLarge:
+      description: "`PAYLOAD_TOO_LARGE`：文件超过 10 MB"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    FileTypeRejected:
+      description: "`UNSUPPORTED_MEDIA_TYPE`：不是 PDF / JPEG / PNG，或请求头的 `Content-Type` 和文件的实际格式不一致（`details.detected`、`details.declared`）"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TenantFileContent:
+      description: |
+        文件原样（`Content-Disposition: attachment`，带 `X-Content-Type-Options: nosniff` 和 `Content-Security-Policy: default-src 'none'; sandbox`）
+      content:
+        application/pdf:
+          schema:
+            type: string
+            format: binary
+        image/jpeg:
+          schema:
+            type: string
+            format: binary
+        image/png:
+          schema:
+            type: string
+            format: binary
+    TenantDocumentReviewed:
+      description: 审核后的资质，和审核后的供应商（可能被退回申请中，或资质恢复后自动恢复）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [document, tenant]
+            properties:
+              document:
+                $ref: "#/components/schemas/TenantDocument"
+              tenant:
+                $ref: "#/components/schemas/Tenant"
+    TenantDocumentNotReviewable:
+      description: "`DOCUMENT_NOT_PENDING`：已经审核过；`DOCUMENT_SUPERSEDED`：供应商之后又交了一份同类型的；`TENANT_STATE_INVALID`：供应商已清退"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     ChannelInvalid:
       description: |
         `VALIDATION_FAILED`：`details.issues[]` 每条有 `path`、`message`，业务规则的问题另有 `reason`：
@@ -9077,8 +9880,8 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, cancellation_policy.update, order.cancel_refund]
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；以后会加：结算条款、退款……）
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund]
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；以后会加：付款……）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -9905,12 +10708,12 @@ components:
     QuoteRefusalReason:
       type: string
       description: |
-        报不出价的原因。商品层面的：`PRODUCT_NOT_PUBLISHED`、`TENANT_SUSPENDED`、`BRAND_DISABLED`、`SERVICE_RULES_INCOMPLETE`、`INVALID_SERVICE_TIME`、
+        报不出价的原因。商品层面的：`PRODUCT_NOT_PUBLISHED`、`TENANT_SUSPENDED`、`TENANT_NOT_ONBOARDED`（还没开始试运营或已清退）、`TRIAL_DAILY_LIMIT`（试运营当天已到每日上限）、`BRAND_DISABLED`、`SERVICE_RULES_INCOMPLETE`、`INVALID_SERVICE_TIME`、
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
         `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。车型组层面的：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT]
+      enum: [PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -10516,10 +11319,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -10618,10 +11421,16 @@ components:
         updated_at:
           type: string
           format: date-time
+    TenantStatus:
+      type: string
+      enum: [applying, reviewing, signed, trial, active, suspended, terminated]
+      description: |
+        入驻状态（ADR 0028）：applying 申请中、reviewing 审核中、signed 已签约（能建商品，不能上架）、trial 试运营（参与比价，每日 10 单上限）、
+        active 正式、suspended 暂停（不参与比价，已有订单继续履约，用户仍可登录）、terminated 已清退（只能查看）。只有 trial、active 参与比价。
     Tenant:
       type: object
       additionalProperties: false
-      required: [id, name, status, created_at, updated_at]
+      required: [id, name, status, suspended_from, suspension_reasons, suspended_at, observation_reasons, observation_since, signed_at, trial_started_at, activated_at, terminated_at, score, version, created_at, updated_at]
       properties:
         id:
           type: string
@@ -10630,14 +11439,479 @@ components:
           type: string
         status:
           type: string
-          enum: [active, suspended]
-          description: "active：正常；suspended：已被平台暂停（用户仍可登录，前端应提示「已暂停」）"
+          enum: [applying, reviewing, signed, trial, active, suspended, terminated]
+          description: 入驻状态，见 `TenantStatus`
+        suspended_from:
+          type: [string, "null"]
+          enum: [trial, active, null]
+          description: 暂停之前的状态（恢复时回到它）
+        suspension_reasons:
+          type: array
+          items:
+            type: string
+            enum: [manual, document_expired, score_below_red_line, driver_no_show]
+          description: 暂停的原因：人工、资质过期、评分低于 3.5、近 30 天司机未到 3 次。全部消除才恢复
+        suspended_at:
+          type: [string, "null"]
+          format: date-time
+        observation_reasons:
+          type: array
+          items:
+            type: string
+            enum: [score_below_threshold, driver_no_show]
+          description: 观察期的原因（空 = 不在观察期；在观察期时比价的排序价 ×1.05）：评分低于 4.0、近 30 天司机未到 2 次。每天重算
+        observation_since:
+          type: [string, "null"]
+          format: date-time
+        signed_at:
+          type: [string, "null"]
+          format: date-time
+        trial_started_at:
+          type: [string, "null"]
+          format: date-time
+        activated_at:
+          type: [string, "null"]
+          format: date-time
+        terminated_at:
+          type: [string, "null"]
+          format: date-time
+        score:
+          type: object
+          additionalProperties: false
+          required: [score_centi, raw_score_centi, completed_orders, no_shows, score_on]
+          description: 最近一次每日评分（还没算过时 score_on 为 null）
+          properties:
+            score_centi:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 500
+              description: 比价用的分（百分之一分；完成不足 20 单时是默认 450）
+            raw_score_centi:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 500
+              description: 按数据算出的分；没有数据为 null
+            completed_orders:
+              type: integer
+              minimum: 0
+              description: 近 90 天完成订单数
+            no_shows:
+              type: integer
+              minimum: 0
+              description: 近 30 天司机未到次数
+            score_on:
+              type: [string, "null"]
+              format: date
+        version:
+          type: integer
+          minimum: 1
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
+    TenantNoteRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        note:
+          type: [string, "null"]
+          maxLength: 500
+    CompanyProfile:
+      type: object
+      additionalProperties: false
+      required: [country_code, legal_name, registration_no, address, contact_name, contact_phone, contact_email, version, updated_at]
+      properties:
+        country_code:
+          type: [string, "null"]
+          pattern: "^[A-Z]{2}$"
+        legal_name:
+          type: [string, "null"]
+        registration_no:
+          type: [string, "null"]
+        address:
+          type: [string, "null"]
+        contact_name:
+          type: [string, "null"]
+        contact_phone:
+          type: [string, "null"]
+        contact_email:
+          type: [string, "null"]
+        version:
+          type: integer
+          minimum: 1
+        updated_at:
+          type: string
+          format: date-time
+    TenantDocumentType:
+      type: string
+      enum: [commercial_registration, business_license, passenger_transport_license, passenger_liability_insurance, vehicle_insurance, settlement_account, other]
+      description: |
+        证件类型：登记簿謄本、营业执照、旅客运输营运许可（日本为一般乘用旅客自动车运送事业许可，绿牌）、旅客赔偿责任保险、营运车辆商业保险、结算账户证明、其他补充材料。
+        必交清单按国家：日本是前四种里除营业执照外的三种加营运车辆商业保险和结算账户证明；其他国家是营业执照、营运许可、营运车辆商业保险、结算账户证明。
+    TenantFile:
+      type: object
+      additionalProperties: false
+      required: [id, purpose, content_type, byte_size, sha256, file_name, uploaded_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum: [document, contract]
+        content_type:
+          type: string
+          enum: [application/pdf, image/jpeg, image/png]
+        byte_size:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        file_name:
+          type: string
+        uploaded_at:
+          type: string
+          format: date-time
+    TenantDocument:
+      type: object
+      additionalProperties: false
+      required: [id, type, type_name, status, expires_on, note, file, submitted_at, reviewed_at, review_reason]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/TenantDocumentType"
+        type_name:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, supplement_requested, superseded]
+          description: 审核中、通过、驳回、要求补充、被同类型新通过的一份取代
+        expires_on:
+          type: [string, "null"]
+          format: date
+          description: 到期日（到期当天起不算有效）
+        note:
+          type: [string, "null"]
+        file:
+          type: object
+          additionalProperties: false
+          required: [id, content_type, byte_size, file_name]
+          properties:
+            id:
+              type: string
+              format: uuid
+            content_type:
+              type: string
+            byte_size:
+              type: integer
+            file_name:
+              type: string
+        submitted_at:
+          type: string
+          format: date-time
+        reviewed_at:
+          type: [string, "null"]
+          format: date-time
+        review_reason:
+          type: [string, "null"]
+        reviewed_by:
+          description: 只在运营后台的接口里有
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+    DocumentRequirement:
+      type: object
+      additionalProperties: false
+      required: [type, type_name, required, expiry, state, approved_document_id, latest_document_id, expires_on, days_left]
+      properties:
+        type:
+          $ref: "#/components/schemas/TenantDocumentType"
+        type_name:
+          type: string
+        required:
+          type: boolean
+          description: 是不是这个国家的必交项（另交的补充材料为 false）
+        expiry:
+          type: string
+          enum: [required, optional, none]
+        state:
+          type: string
+          enum: [missing, pending, rejected, supplement_requested, approved, expiring, expired]
+          description: 没交、审核中、被驳回、要求补充、通过、30 天内到期、已到期
+        approved_document_id:
+          type: [string, "null"]
+          format: uuid
+        latest_document_id:
+          type: [string, "null"]
+          format: uuid
+        expires_on:
+          type: [string, "null"]
+          format: date
+        days_left:
+          type: [integer, "null"]
+    TenantContract:
+      type: object
+      additionalProperties: false
+      required: [id, version, valid_from, settle_currency, settle_cycle, payment_day, service_fee_bp, deposit, file_id, note, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        valid_from:
+          type: string
+          format: date
+        settle_currency:
+          type: string
+        settle_cycle:
+          type: string
+          enum: [monthly]
+        payment_day:
+          type: integer
+          description: 次月几日付款（20）
+        service_fee_bp:
+          type: integer
+          description: 平台服务费（基点）：0，平台只赚加价差价
+        deposit:
+          type: integer
+          description: 保证金：0
+        file_id:
+          type: [string, "null"]
+          format: uuid
+        note:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    TenantIssue:
+      type: object
+      additionalProperties: false
+      required: [path, reason]
+      properties:
+        path:
+          type: string
+        reason:
+          type: string
+        detail:
+          type: object
+          additionalProperties: true
+    CompanyOverview:
+      type: object
+      additionalProperties: false
+      required: [tenant, today, profile, required_document_types, requirements, documents, contracts, effective_contract, next_step_issues]
+      properties:
+        tenant:
+          $ref: "#/components/schemas/Tenant"
+        today:
+          type: string
+          format: date
+          description: 供应商的「今天」（东京时间）
+        profile:
+          oneOf:
+            - $ref: "#/components/schemas/CompanyProfile"
+            - type: "null"
+        required_document_types:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantDocumentType"
+        requirements:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentRequirement"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantDocument"
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantContract"
+        effective_contract:
+          oneOf:
+            - $ref: "#/components/schemas/TenantContract"
+            - type: "null"
+        next_step_issues:
+          type: array
+          description: 申请中：提交审核还缺什么；审核中：签约还缺什么；其他状态为空
+          items:
+            $ref: "#/components/schemas/TenantIssue"
+    TenantStatusEvent:
+      type: object
+      additionalProperties: false
+      required: [id, trigger, from_status, to_status, suspension_before, suspension_after, observation_before, observation_after, actor, occurred_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        trigger:
+          type: string
+          enum: [submit, return, sign, start_trial, promote, suspend, resume, terminate, observation]
+        from_status:
+          $ref: "#/components/schemas/TenantStatus"
+        to_status:
+          $ref: "#/components/schemas/TenantStatus"
+        suspension_before:
+          type: array
+          items:
+            type: string
+        suspension_after:
+          type: array
+          items:
+            type: string
+        observation_before:
+          type: array
+          items:
+            type: string
+        observation_after:
+          type: array
+          items:
+            type: string
+        actor:
+          type: object
+          additionalProperties: false
+          required: [type]
+          description: 供应商看到的只有 `type`；运营后台另有 `id`、`email`
+          properties:
+            type:
+              type: string
+              enum: [tenant_user, platform_user, system]
+            id:
+              type: [string, "null"]
+              format: uuid
+            email:
+              type: [string, "null"]
+        note:
+          type: [string, "null"]
+          description: 只在运营后台
+        approval_id:
+          type: [string, "null"]
+          format: uuid
+          description: 只在运营后台
+        occurred_at:
+          type: string
+          format: date-time
+    TenantNotice:
+      type: object
+      additionalProperties: false
+      required: [id, kind, data, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [document_expiring, document_expired, document_reviewed, status_changed, observation_started, observation_ended]
+        data:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    TenantScoreComponent:
+      type: object
+      additionalProperties: false
+      required: [value, points_centi, weight_bp]
+      properties:
+        value:
+          type: [integer, "null"]
+          description: 比率（基点）；评价是均分（百分之一分）；没有数据为 null
+        points_centi:
+          type: [integer, "null"]
+          description: 折成 5 分制的得分（百分之一分）
+        weight_bp:
+          type: integer
+          description: 实际用的权重（没有数据的项不算，其余按比例放大）
+    TenantPerformance:
+      type: object
+      additionalProperties: false
+      required: [today, status, observation_reasons, suspension_reasons, rules, latest, trend]
+      properties:
+        today:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/TenantStatus"
+        observation_reasons:
+          type: array
+          items:
+            type: string
+        suspension_reasons:
+          type: array
+          items:
+            type: string
+        rules:
+          type: object
+          additionalProperties: true
+          description: 评分窗口、默认分、观察和暂停的线、权重、试运营每日上限
+        latest:
+          description: 最近一次每日评分；还没算过为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [date, window_from, score_centi, raw_score_centi, is_default, completed_orders, no_shows, components, inputs]
+              properties:
+                date:
+                  type: string
+                  format: date
+                window_from:
+                  type: string
+                  format: date
+                score_centi:
+                  type: integer
+                raw_score_centi:
+                  type: [integer, "null"]
+                is_default:
+                  type: boolean
+                completed_orders:
+                  type: integer
+                no_shows:
+                  type: integer
+                components:
+                  type: object
+                  additionalProperties: false
+                  required: [dispatch, arrival, rating, complaint, failure]
+                  properties:
+                    dispatch:
+                      $ref: "#/components/schemas/TenantScoreComponent"
+                    arrival:
+                      $ref: "#/components/schemas/TenantScoreComponent"
+                    rating:
+                      $ref: "#/components/schemas/TenantScoreComponent"
+                    complaint:
+                      $ref: "#/components/schemas/TenantScoreComponent"
+                    failure:
+                      $ref: "#/components/schemas/TenantScoreComponent"
+                inputs:
+                  type: object
+                  additionalProperties:
+                    type: integer
+        trend:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, score_centi, raw_score_centi, is_default, completed_orders]
+            properties:
+              date:
+                type: string
+                format: date
+              score_centi:
+                type: integer
+              raw_score_centi:
+                type: [integer, "null"]
+              is_default:
+                type: boolean
+              completed_orders:
+                type: integer
     TenantUser:
       type: object
       additionalProperties: false
@@ -10742,7 +12016,7 @@ components:
           description: "console：后台登录后的操作；api：用 API 密钥的调用；cli：服务器上的命令行；job：服务进程里的定时任务（汇率过期告警等）"
         resource:
           type: string
-          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval]
+          enum: [platform_user, tenant, tenant_user, integration, city, place, vehicle_group, addon, area, brand, product, price_rule, adjust_rule, holiday, inventory, fx_fetch, fx_rate, fx_lock, channel, markup_rule, api_client, approval, tenant_profile, tenant_file, tenant_document, tenant_contract]
         resource_id:
           type: [string, "null"]
         action:
@@ -10780,6 +12054,18 @@ components:
             - revoke
             - activate
             - pause
+            - lock
+            - unlock
+            - expire
+            - submit
+            - return
+            - sign
+            - start_trial
+            - promote
+            - terminate
+            - observe
+            - upload
+            - request_supplement
         before:
           type: [object, "null"]
           additionalProperties: true
@@ -10822,7 +12108,7 @@ components:
           enum: [console, api]
         resource:
           type: string
-          enum: [tenant_user, area, brand, product]
+          enum: [tenant_user, area, brand, product, tenant_profile, tenant_file, tenant_document]
         resource_id:
           type: [string, "null"]
         action:
@@ -11458,9 +12744,9 @@ components:
       properties:
         tenants:
           type: [object, "null"]
-          description: 租户数量（按状态）；当前角色没有 `tenant.read` 时为 null
+          description: 供应商数量；当前角色没有 `tenant.read` 时为 null。`total` 不含已清退的；`active` 是正式的；`bidding` 是参与比价的（试运营 + 正式）
           additionalProperties: false
-          required: [total, active, suspended]
+          required: [total, active, suspended, bidding, by_status]
           properties:
             total:
               type: integer
@@ -11471,6 +12757,21 @@ components:
             suspended:
               type: integer
               minimum: 0
+            bidding:
+              type: integer
+              minimum: 0
+            by_status:
+              type: object
+              additionalProperties: false
+              required: [applying, reviewing, signed, trial, active, suspended, terminated]
+              properties:
+                applying: { type: integer, minimum: 0 }
+                reviewing: { type: integer, minimum: 0 }
+                signed: { type: integer, minimum: 0 }
+                trial: { type: integer, minimum: 0 }
+                active: { type: integer, minimum: 0 }
+                suspended: { type: integer, minimum: 0 }
+                terminated: { type: integer, minimum: 0 }
         master_data:
           type: [object, "null"]
           description: 主数据数量；当前角色没有 `master_data.read` 时为 null

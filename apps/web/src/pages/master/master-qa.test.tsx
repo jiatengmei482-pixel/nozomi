@@ -42,7 +42,7 @@ const airport = (n: number): Place => ({
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: ["丰田埃尔法"], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 2, ...stamps };
 const counts = (active: number, disabled: number) => ({ total: active + disabled, active, disabled });
 const emptySummary: DashboardSummary = {
-  tenants: { total: 0, active: 0, suspended: 0 },
+  tenants: { total: 0, active: 0, suspended: 0, bidding: 0, by_status: {} },
   master_data: {
     cities: counts(0, 0),
     places: { ...counts(0, 0), by_type: { airport: counts(0, 0), station: counts(0, 0), poi: counts(0, 0), terminal: counts(0, 0), exit: counts(0, 0) }, airports_without_city: 0 },

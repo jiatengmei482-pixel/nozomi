@@ -29,6 +29,10 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   markup_rule: "加价规则",
   api_client: "API 客户端",
   approval: "双人复核",
+  tenant_profile: "供应商的企业信息",
+  tenant_file: "供应商的文件",
+  tenant_document: "供应商的资质",
+  tenant_contract: "供应商的合同",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -67,6 +71,15 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   lock: "锁定生效",
   unlock: "解除锁定",
   expire: "到期失效",
+  submit: "提交审核",
+  return: "退回补充",
+  sign: "签约",
+  start_trial: "开始试运营",
+  promote: "转为正式",
+  terminate: "清退",
+  observe: "观察期变化",
+  upload: "上传",
+  request_supplement: "要求补充",
 };
 
 export const ACTOR_TYPE_NAMES: Readonly<Record<AuditActorType, string>> = { platform_user: "平台员工", tenant_user: "供应商的账号", system: "系统（命令行或定时任务）", anonymous: "没有登录的访问者" };

@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createHmac, hkdfSync, randomUUID } from "node:crypto";
 import type { CurrencyCode, FxQuote, TenantStanding } from "@nozomi/domain";
 import { signSalesToken } from "./auth/token.ts";
-import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TestApi, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
 import { type Market, DROPOFF, SERVICE_TIME, approvedBy, buildMarket, newChannel, ok, ruleRequest, salesCredentials } from "./testing/market.ts";
 import { assertMatchesOperation } from "./testing/openapi.ts";
@@ -186,7 +186,7 @@ test("暂停的供应商：最迟 30 秒（ADR 0020 的目录缓存）后不再�
   const creds = await salesCredentials(api, m, channel.id, "198.51.100.108");
   const bizOnly = ask({ vehicle_group_ids: [m.ids.biz7] });
   assert.equal((await quote(creds.token, bizOnly)).body.quotes.length, 1);
-  await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/suspend`, { token: m.root, body: { reason: "QA" } }));
+  await suspendTenantApproved(api, m.root, m.b.tenantId, "QA");
   try {
     api.clock.advance(31_000);
     const res = await quote(creds.token, bizOnly);
@@ -195,7 +195,7 @@ test("暂停的供应商：最迟 30 秒（ADR 0020 的目录缓存）后不再�
     const log = (await api.db.owner.query("select rejects from quote_logs where channel_id = $1 order by created_at desc limit 1", [channel.id])).rows[0];
     assert.ok(JSON.stringify(log.rejects).includes("TENANT_SUSPENDED"), "完整原因在询价日志里");
   } finally {
-    await ok(api.call("POST", `/platform/v1/tenants/${m.b.tenantId}/resume`, { token: m.root }));
+    await resumeTenantNow(api, m.root, m.b.tenantId);
     api.clock.advance(31_000);
   }
 });

@@ -13,9 +13,15 @@ export interface BadgeSpec {
 }
 
 /** 租户状态。「已暂停」= 被平台暂停、商品不参与比价但仍要履约已有订单，需要留意，用警告色。 */
+/** 供应商的入驻状态（ADR 0028）。参与比价的两种用绿色，入驻中的用中性 / 信息色，暂停警告色，已清退中性。 */
 export const TENANT_STATUS_BADGES: Readonly<Record<TenantStatus, BadgeSpec>> = {
+  applying: { tone: "neutral", label: "申请中" },
+  reviewing: { tone: "info", label: "审核中" },
+  signed: { tone: "info", label: "已签约" },
+  trial: { tone: "success", label: "试运营" },
   active: { tone: "success", label: "正常" },
   suspended: { tone: "warning", label: "已暂停" },
+  terminated: { tone: "neutral", label: "已清退" },
 };
 
 export function StatusBadge({ tone, label }: BadgeSpec) {
