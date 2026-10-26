@@ -42,7 +42,12 @@ create trigger orders_tenant_columns
   on orders
   for each statement execute function reject_tenant_column_update();
 
--- 进入救援时原来的司机链接立即作废（原供应商不能再操作这一单）
+-- 进入救援时原来的司机链接立即作废（原供应商不能再操作这一单）：触发在平台事务里（定时任务、运营也会触发），平台角色要能吊销——只许改吊销的两列
+create policy driver_links_platform_revoke on driver_links for update to nozomi_platform using (true) with check (true);
+grant update on driver_links to nozomi_platform;
+create trigger driver_links_platform_columns
+  before update of tenant_id, id, order_id, assignment_id, driver_id, token_hash, created_at, expires_at, last_used_at on driver_links
+  for each statement execute function reject_platform_column_update();
 alter table driver_links drop constraint driver_links_revoked;
 alter table driver_links add constraint driver_links_revoked check (
   (revoked_at is null) = (revoke_reason is null) and (revoke_reason is null or revoke_reason in ('reassigned', 'reissued', 'manual', 'rescue'))
@@ -136,6 +141,8 @@ grant select, insert, update on order_rescues to nozomi_platform;
 create table order_rescue_offers (
   tenant_id uuid not null references tenants (id),
   id uuid not null default gen_random_uuid(),
+  -- 发出的先后（同一时刻的按它排）
+  seq bigint generated always as identity,
   rescue_id uuid not null references order_rescues (id),
   order_id uuid not null,
   -- 用这家的哪个商品、哪个车型组接（报价引擎按原报价条件比出来的）

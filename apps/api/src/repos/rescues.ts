@@ -266,20 +266,20 @@ export async function findTenantOffer(db: Db, tenantId: string, offerId: string,
 /** 几次救援发过的全部救援单（运营后台一页救援用，一条查询），按发出的先后。 */
 export async function listOffersOfRescues(db: Db, rescueIds: readonly string[]): Promise<RescueOffer[]> {
   if (rescueIds.length === 0) return [];
-  const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = any($1::uuid[]) order by f.offered_at, f.id`, [[...rescueIds]]);
+  const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = any($1::uuid[]) order by f.offered_at, f.seq`, [[...rescueIds]]);
   return result.rows.map(toOffer);
 }
 
 /** 一次救援发过的全部救援单，按发出的先后。 */
 export async function listRescueOffers(db: Db, rescueId: string, options: { lock?: boolean } = {}): Promise<RescueOffer[]> {
-  const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = $1 order by f.offered_at, f.id ${options.lock ? "for update" : ""}`, [rescueId]);
+  const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = $1 order by f.offered_at, f.seq ${options.lock ? "for update" : ""}`, [rescueId]);
   return result.rows.map(toOffer);
 }
 
 /** 供应商自己的救援单（租户事务，行级安全），最近发出的在前。`pending` 只看待接的。 */
 export async function listTenantOffers(db: Db, tenantId: string, filter: { pendingOnly: boolean; limit: number }): Promise<RescueOffer[]> {
   const result = await db.query<Row>(
-    `select ${OFFER_COLUMNS} from order_rescue_offers f where f.tenant_id = $1 and ($2::boolean is false or f.status = 'pending') order by f.offered_at desc, f.id desc limit $3`,
+    `select ${OFFER_COLUMNS} from order_rescue_offers f where f.tenant_id = $1 and ($2::boolean is false or f.status = 'pending') order by f.offered_at desc, f.seq desc limit $3`,
     [tenantId, filter.pendingOnly, filter.limit],
   );
   return result.rows.map(toOffer);

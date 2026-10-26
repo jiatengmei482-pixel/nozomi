@@ -9711,7 +9711,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, cancellation_policy.update, order.cancel_refund]
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, cancellation_policy.update, order.cancel_refund, rescue.manual_assign]
           description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；以后会加：结算条款、退款……）
         resource:
           type: string

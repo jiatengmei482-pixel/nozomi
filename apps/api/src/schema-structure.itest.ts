@@ -174,7 +174,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
-    driver_links: ["SELECT"],
+    // 进入救援时作废原来的司机链接（ADR 0031）：平台只改吊销的两列（触发器按语句检查）
+    driver_links: ["SELECT", "UPDATE"],
     drivers: ["SELECT"],
     order_assignments: ["SELECT"],
     order_contacts: ["SELECT"],
@@ -241,6 +242,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 进入救援时作废原来的司机链接（ADR 0031）
+  "driver_links.driver_links_platform_revoke": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   // 改单、事后加收：渠道和运营改单、供应商确认改期、客人异议、平台审核和扣款、定时任务（ADR 0029）
   "order_changes.order_changes_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_extra_charges.order_extra_charges_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
