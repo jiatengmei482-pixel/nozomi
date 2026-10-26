@@ -334,8 +334,8 @@ function assertBlocked(res: ApiResponse, label: string): void {
 
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
-    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，都不在这份清单里
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/"))
+    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，官网（/site/v1）是给客人的公开接口，都不在这份清单里
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/") && !route.path.startsWith("/site/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();
