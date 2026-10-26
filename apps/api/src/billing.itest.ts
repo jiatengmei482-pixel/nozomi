@@ -481,3 +481,21 @@ test("数据范围：限定了城市或渠道的员工不能用财务接口（40
   // 不限范围的财务照常看得到
   assert.equal((await ok(api.call("GET", "/platform/v1/approvals", { token: await fin2() }))).items.some((item: any) => item.id === requested.approval.id), true);
 });
+
+test("确认期截止后定时任务还没跑：提异议 409 并在同一事务里记为系统确认；确认照常成功", async () => {
+  await order("a", "2027-01-10T10:00:00+09:00");
+  await order("a", "2027-01-11T10:00:00+09:00", { currency: "USD", settlement: 900 });
+  const created = (await generate(await fin1(), "2027-01")).created.filter((entry: any) => entry.tenant.id === m.a.tenantId);
+  const jpy = created.find((entry: any) => entry.currency === "JPY");
+  const usd = created.find((entry: any) => entry.currency === "USD");
+  moveTo(new Date(new Date(jpy.confirm_due_at).getTime() + 30 * 60_000).toISOString());
+  const token = await tenantToken(m.a);
+  const late = await api.call("POST", `/tenant/v1/statements/${jpy.id}/dispute`, { token, body: { reason: "过期再提" } });
+  assert.deepEqual([late.status, late.body.error.code], [409, "STATEMENT_CONFIRM_PERIOD_OVER"]);
+  assertMatchesOpenApi("POST", "/tenant/v1/statements/{id}/dispute", late);
+  const after = await platformStatement(jpy.id);
+  assert.deepEqual([after.status, after.confirmed_by_type], ["confirmed", "system"]);
+  assert.deepEqual(after.events.map((event: any) => event.action), ["issue", "auto_confirm"]);
+  const confirmed = await ok(api.call("POST", `/tenant/v1/statements/${usd.id}/confirm`, { token }));
+  assert.deepEqual([confirmed.statement.status, confirmed.statement.confirmed_by_type], ["confirmed", "tenant_user"]);
+});

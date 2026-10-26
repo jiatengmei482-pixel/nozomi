@@ -13,6 +13,7 @@ import { randomInt } from "node:crypto";
 import {
   BILLING_RULES,
   ORDER_NO_ALPHABET,
+  autoConfirmDue,
   type PayoutBatchStatus,
   type StatementAction,
   type StatementStatus,
@@ -248,17 +249,29 @@ export async function confirmByTenant(ctx: AppContext, principal: TenantPrincipa
   });
 }
 
+/**
+ * 供应商提异议。确认期截止那一刻（含）起账单已经视为确认——定时任务每小时才跑一次，所以这里在同一个事务里先把它记为系统确认（提交），
+ * 再拒绝这次异议（409 `STATEMENT_CONFIRM_PERIOD_OVER`）。
+ */
 export async function disputeByTenant(ctx: AppContext, principal: TenantPrincipal, id: string, reason: string, ip: string): Promise<StatementView> {
   const now = ctx.now();
-  return withPlatformTx(ctx.pool, async (db) => {
+  const result = await withPlatformTx(ctx.pool, async (db): Promise<StatementView | { overdue: Statement }> => {
     const statement = await findStatement(db, id, { tenantId: principal.tenantId, lock: true });
     if (statement === null) throw notFound("账单");
+    if (autoConfirmDue(statement, now)) {
+      await autoConfirmInTx(db, statement, now);
+      return { overdue: statement };
+    }
     assertAction(statement, "dispute");
     await updateStatement(db, statement.tenantId, id, { status: "disputed", disputed_at: now, dispute_reason: reason }, now);
     await insertStatementEvent(db, statement.tenantId, id, { action: "dispute", actorType: "tenant_user", actorId: principal.user.id, note: reason, data: {}, at: now });
     await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId: principal.tenantId, resource: "statement", resourceId: id, action: "dispute", before: { status: statement.status }, after: { status: "disputed", reason } });
     return loadView(db, (await findStatement(db, id)) as Statement, false);
   });
+  if ("overdue" in result) {
+    throw new AppError(409, "STATEMENT_CONFIRM_PERIOD_OVER", "确认期已过，这张账单已视为确认，不能再提异议；有问题请联系平台财务", { status: "confirmed", confirm_due_at: result.overdue.confirmDueAt.toISOString() });
+  }
+  return result;
 }
 
 // ---- 平台：答复异议、作废重出 ----
@@ -402,6 +415,13 @@ export async function closeBatchForPlatform(ctx: AppContext, principal: Platform
 
 // ---- 定时任务 ----
 
+/** 确认期满视为确认（调用方已锁住账单、核对过到期）：定时任务和「过了确认期才来提异议」共用。 */
+async function autoConfirmInTx(db: Db, statement: Statement, now: Date): Promise<void> {
+  await updateStatement(db, statement.tenantId, statement.id, { status: "confirmed", confirmed_at: now, confirmed_by_type: "system", confirmed_by: null }, now);
+  await insertStatementEvent(db, statement.tenantId, statement.id, { action: "auto_confirm", actorType: "system", actorId: null, note: null, data: { confirm_due_at: statement.confirmDueAt.toISOString() }, at: now });
+  await insertAuditLog(db, SYSTEM_ORIGIN(now), { tenantId: null, resource: "statement", resourceId: statement.id, action: "confirm", before: { status: "issued" }, after: { status: "confirmed", by: "system" } });
+}
+
 /** 确认期满还是待确认的：系统视为确认（每张一个事务，锁住再判断）。 */
 export async function autoConfirmStatements(ctx: AppContext, limit: number): Promise<number> {
   const now = ctx.now();
@@ -410,10 +430,8 @@ export async function autoConfirmStatements(ctx: AppContext, limit: number): Pro
   for (const entry of due) {
     const done = await withPlatformTx(ctx.pool, async (db) => {
       const statement = await findStatement(db, entry.id, { tenantId: entry.tenantId, lock: true });
-      if (statement === null || statement.status !== "issued" || statement.confirmDueAt.getTime() > now.getTime()) return false;
-      await updateStatement(db, statement.tenantId, statement.id, { status: "confirmed", confirmed_at: now, confirmed_by_type: "system", confirmed_by: null }, now);
-      await insertStatementEvent(db, statement.tenantId, statement.id, { action: "auto_confirm", actorType: "system", actorId: null, note: null, data: { confirm_due_at: statement.confirmDueAt.toISOString() }, at: now });
-      await insertAuditLog(db, SYSTEM_ORIGIN(now), { tenantId: null, resource: "statement", resourceId: statement.id, action: "confirm", before: { status: "issued" }, after: { status: "confirmed", by: "system" } });
+      if (statement === null || !autoConfirmDue(statement, now)) return false;
+      await autoConfirmInTx(db, statement, now);
       return true;
     });
     if (done) confirmed += 1;

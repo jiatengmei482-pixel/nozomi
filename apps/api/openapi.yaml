@@ -10636,7 +10636,9 @@ paths:
       tags: [ 财务结算 ]
       operationId: disputeTenantStatement
       summary: 对账单提异议
-      description: 需要操作 `statement.confirm`。只有待确认的能提（409 `STATEMENT_STATE_INVALID`）；原因必填。提了异议的不会自动确认，等平台答复。
+      description: |
+        需要操作 `statement.confirm`。只有待确认的能提（409 `STATEMENT_STATE_INVALID`）；原因必填。提了异议的不会自动确认，等平台答复。
+        确认期截止那一刻（含）起账单已视为确认：这时提异议会把账单记为系统确认并返回 409 `STATEMENT_CONFIRM_PERIOD_OVER`（定时任务还没跑到也一样）。
       security:
         - tenantToken: []
       parameters:
@@ -11409,7 +11411,7 @@ components:
               batch:
                 $ref: "#/components/schemas/PayoutBatchDetail"
     StatementStateInvalid:
-      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）"
+      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚"
       content:
         application/json:
           schema:
