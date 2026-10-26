@@ -597,7 +597,7 @@ test("系统状态：只读；有未配置的项时说清楚密钥只能由负�
   const calls = open("/platform/settings/integrations", "tech");
   await screen.findByText("postgres://nozomi_app:••••@db:5432/nozomi");
   assert.match(pageText(), /这里只显示各项配好了没有，以及打过码的信息；看不到密钥原文。每次打开这一页都会记入审计日志。/);
-  assert.match(pageText(), /有 1 项还没有配置：Stripe。用到它们的功能现在不能用。配置要由技术在服务器上做；密钥只能由负责人本人填进各平台的设置页面，不要发在聊天里。/);
+  assert.match(pageText(), /有 1 项还没有配置：Stripe。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图和 Stripe 支付也可以由超级管理员在下面的「第三方密钥」里直接填写。密钥只能由负责人本人填写，不要发在聊天里。/);
   assert.match(screen.getByText("Stripe").closest("tr")?.textContent ?? "", /Stripe未配置—/);
   const count = (): number => calls.filter((call) => call.path === "/platform/v1/integrations").length;
   assert.equal(count(), 1);

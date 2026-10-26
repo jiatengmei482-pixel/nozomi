@@ -85,6 +85,8 @@ export interface RequestOptions {
   token?: string;
   /** 额外的请求头（例如修改主数据时的 If-Match） */
   headers?: Readonly<Record<string, string>>;
+  /** 超时（毫秒）；默认 REQUEST_TIMEOUT_MS。只给后端本身要等外部服务的接口（如「测试一下」）放宽 */
+  timeoutMs?: number;
 }
 
 function call<T>(portal: Portal, endpoint: AuthEndpoint, options: RequestOptions = {}): Promise<T> {
@@ -93,7 +95,7 @@ function call<T>(portal: Portal, endpoint: AuthEndpoint, options: RequestOptions
 }
 
 /**
- * 所有接口共用的请求函数：相对路径、JSON、10 秒超时（覆盖到读完响应体）、不带 Cookie。
+ * 所有接口共用的请求函数：相对路径、JSON、默认 10 秒超时（覆盖到读完响应体）、不带 Cookie。
  * `url` 必须是站内的相对路径。
  */
 export async function apiRequest<T>(method: string, url: string, options: RequestOptions = {}): Promise<T> {
@@ -102,7 +104,7 @@ export async function apiRequest<T>(method: string, url: string, options: Reques
   if (options.token !== undefined) headers["authorization"] = `Bearer ${options.token}`;
 
   // 超时覆盖到读完响应体为止：响应头到了、响应体卡住，同样算没拿到应答
-  const sent = await send(method, url, { headers, body: options.body !== undefined ? JSON.stringify(options.body) : null, timeoutMs: REQUEST_TIMEOUT_MS });
+  const sent = await send(method, url, { headers, body: options.body !== undefined ? JSON.stringify(options.body) : null, timeoutMs: options.timeoutMs ?? REQUEST_TIMEOUT_MS });
   try {
     const { response } = sent;
     if (!response.ok) {
