@@ -198,7 +198,15 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
     if (quote === undefined) throw validationFailed("body", [{ path: "/quote_id", reason: "UNKNOWN_QUOTE", message: "报价不存在" }]);
     const snapshot = quote.snapshot;
     if (!quoteSnapshotValid(snapshot, now)) throw new QuoteExpired(snapshot.expiresAt);
-    if ((await findSaleByQuote(db, input.quoteId)) !== null) throw new AppError(409, "QUOTE_ALREADY_ORDERED", "这个报价已经下过单了，一个报价只能下一单；要再订一辆请重新询价");
+    if ((await findSaleByQuote(db, input.quoteId)) !== null) {
+      // 同一个键的另一次请求可能在上面查键之后、这里查报价之前刚提交：那就是重放，不是「报价已下过单」
+      const committed = await findSaleByIdempotencyKey(db, principal.channelId, input.idempotencyKey);
+      if (committed !== null) {
+        if (committed.requestHash !== hash) throw idempotencyKeyReused();
+        return { orderId: committed.orderId, replayed: true };
+      }
+      throw new AppError(409, "QUOTE_ALREADY_ORDERED", "这个报价已经下过单了，一个报价只能下一单；要再订一辆请重新询价");
+    }
     const { winner } = snapshot;
 
     const product = (
