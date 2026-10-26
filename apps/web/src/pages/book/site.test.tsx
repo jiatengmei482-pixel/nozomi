@@ -353,6 +353,15 @@ test("取消：先算按政策退多少、页面内确认后才取消；取消�
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { reason: "GUEST_REQUEST" });
 });
 
+test("客人取消了还没付款的单：原因写「您取消了订单」，不提按取消政策退款", async () => {
+  const order = orderOf({ status: "cancelled", confirmed_at: null, payment_status: "canceled", cancel_reason: "GUEST_REQUEST", cancelled_at: new Date().toISOString(), cancellation: { reason: "GUEST_REQUEST", fee_bp: 0, fee: null, refund: { amount: "0", currency: "JPY" }, refund_status: null } });
+  const envelope: SiteOrderEnvelope = { ...envelopeOf(order), timeline: [{ from_status: null, to_status: "pending_payment", reason: null, occurred_at: order.created_at }, { from_status: "pending_payment", to_status: "cancelled", reason: "GUEST_REQUEST", occurred_at: order.cancelled_at ?? order.created_at }] };
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, envelope) : null));
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026ABCD2345" });
+  assert.ok(screen.getAllByText("您取消了订单").length >= 2, "进度和取消区块都写这一句");
+  assert.doesNotMatch(document.body.textContent ?? "", /按取消政策退款/);
+});
+
 test("改单：只给改了的字段、带 If-Match；没改就说没有改动；改时间换成带时区的时刻", async () => {
   assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "2", luggage: "1", date: "2026-11-20", time: "10:00" }), {});
   assert.deepEqual(changeRequestOf(orderOf(), { name: "王小明", phone: "+819012345678", email: "guest@example.com", flightNo: "NH211", pickupAddress: "", dropoffAddress: "东京站八重洲口", notes: "", passengers: "3", luggage: "1", date: "2026-11-20", time: "11:30" }), { passengers: 3, service_time: "2026-11-20T02:30:00.000Z" });

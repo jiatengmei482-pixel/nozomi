@@ -105,7 +105,7 @@ export const TIMELINE_NAMES: Readonly<Record<OrderStatus, string>> = {
 export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
   PAYMENT_TIMEOUT: "超过付款期限没有付款，系统自动取消",
   PAYMENT_CANCELED: "付款被取消",
-  GUEST_REQUEST: "您取消了订单（按取消政策退款）",
+  GUEST_REQUEST: "您取消了订单",
   CHANGE_NOT_CONFIRMED: "改期没有被确认，免费取消",
   FLIGHT_CANCELLED: "航班取消，免费取消",
   FORCE_MAJEURE: "不可抗力，免费取消",
