@@ -158,8 +158,50 @@ export interface Approval {
   decided_by: Person | null;
   decided_at: string | null;
   decision_note: string | null;
+  /** 发起时保存的近 30 天毛利试算（改定价参数、加价规则的复核才有，ADR 0033） */
+  impact: PricingImpact | null;
   can: { approve: boolean; reject: boolean; withdraw: boolean };
 }
+
+/** 合计（渠道结算币种的最小货币单位）：对外价、结算价、毛利 */
+export interface PricingImpactTotals {
+  sell_minor: number;
+  settlement_minor: number;
+  margin_minor: number;
+}
+
+export interface PricingImpactSection {
+  total: number;
+  truncated: boolean;
+  count: number;
+  skipped: number;
+  before: PricingImpactTotals;
+  after: PricingImpactTotals;
+  diff: PricingImpactTotals;
+  winner_changed: number;
+  min_margin_raised_before: number;
+  min_margin_raised_after: number;
+  became_unquotable: number;
+  became_quotable: number;
+}
+
+/** 近 30 天毛利试算（ADR 0033）：改前 = 按现在的规则重算，改后 = 按改动后的规则重算；都重新选中标、用报价时的快照汇率。是估算。 */
+export interface PricingImpact {
+  computed_at: string;
+  window_days: number;
+  from: string;
+  to: string;
+  settle_currency: string;
+  quotes: PricingImpactSection;
+  orders: PricingImpactSection & { cancelled_with_fee: number; cancelled_free: number };
+}
+
+/** 待提交的改动（和发起复核的入参同形） */
+export type PricingImpactRequest =
+  | { kind: "channel.pricing"; change: Partial<ChannelPricing> }
+  | { kind: "markup_rule.create"; rule: MarkupRuleInput }
+  | { kind: "markup_rule.update"; rule_id: string; rule: MarkupRuleInput }
+  | { kind: "markup_rule.delete"; rule_id: string };
 
 export interface ApiClient {
   id: string;
@@ -257,6 +299,16 @@ export function requestRuleDelete(token: string, channelId: string, rule: Markup
   return apiRequest("DELETE", `${one(channelId)}/markup-rules/${encodeURIComponent(rule.id)}`, { token, headers: { "if-match": `"${rule.version}"` } });
 }
 
+/** 发起之前试算改动对近 30 天毛利的影响（只读）。 */
+export function previewPricingImpact(token: string, channelId: string, body: PricingImpactRequest): Promise<{ impact: PricingImpact }> {
+  return apiRequest("POST", `${one(channelId)}/pricing-impact`, { token, body });
+}
+
+/** 审核人按现在的数据再算一次（只读，不改复核记录里存的那一份）。 */
+export function recomputeApprovalImpact(token: string, approvalId: string): Promise<{ impact: PricingImpact }> {
+  return apiRequest("POST", `${APPROVALS_PATH}/${encodeURIComponent(approvalId)}/pricing-impact`, { token });
+}
+
 export function listApiClients(token: string, channelId: string): Promise<{ items: ApiClient[] }> {
   return apiRequest("GET", `${one(channelId)}/api-clients`, { token });
 }
@@ -298,7 +350,11 @@ export const CHANNEL_SCHEMA_FIELDS = {
   ChannelCreate: ["name", "type", "company", "contact_name", "contact_email", "contact_phone", "contract_ref", "notes", "settle_currency", "payment_mode", "credit_limit", "show_tenant_after_pay", "scope", "pricing"],
   MarkupRule: ["id", "level", "tenant", "city", "category", "vehicle_group", "markup_bp", "valid_from", "valid_to", "note", "version", "created_at", "updated_at"],
   MarkupRuleInput: ["tenant_id", "city_id", "category", "vehicle_group_id", "markup_bp", "valid_from", "valid_to", "note", "request_note"],
-  Approval: ["id", "kind", "resource", "resource_id", "summary", "payload", "before", "base_version", "status", "requested_by", "requested_at", "request_note", "decided_by", "decided_at", "decision_note", "can"],
+  Approval: ["id", "kind", "resource", "resource_id", "summary", "payload", "before", "base_version", "status", "requested_by", "requested_at", "request_note", "decided_by", "decided_at", "decision_note", "impact", "can"],
+  PricingImpact: ["computed_at", "window_days", "from", "to", "settle_currency", "quotes", "orders"],
+  PricingImpactSection: ["total", "truncated", "count", "skipped", "before", "after", "diff", "winner_changed", "min_margin_raised_before", "min_margin_raised_after", "became_unquotable", "became_quotable"],
+  PricingImpactOrderSection: ["total", "truncated", "count", "skipped", "before", "after", "diff", "winner_changed", "min_margin_raised_before", "min_margin_raised_after", "became_unquotable", "became_quotable", "cancelled_with_fee", "cancelled_free"],
+  PricingImpactTotals: ["sell_minor", "settlement_minor", "margin_minor"],
   ApiClient: ["id", "client_id", "name", "secret_last4", "secret_generation", "previous_valid_until", "status", "created_at", "rotated_at", "revoked_at", "last_used_at"],
   QuoteLogEntry: ["id", "created_at", "client_id", "currency", "city_id", "category", "candidate_count", "quote_count", "reject_count", "duration_ms", "request", "quotes"],
 } as const satisfies {
@@ -310,9 +366,13 @@ export const CHANNEL_SCHEMA_FIELDS = {
   MarkupRule: readonly (keyof MarkupRule)[];
   MarkupRuleInput: readonly (keyof MarkupRuleInput)[];
   Approval: readonly (keyof Approval)[];
+  PricingImpact: readonly (keyof PricingImpact)[];
+  PricingImpactSection: readonly (keyof PricingImpactSection)[];
+  PricingImpactOrderSection: readonly (keyof PricingImpact["orders"])[];
+  PricingImpactTotals: readonly (keyof PricingImpactTotals)[];
   ApiClient: readonly (keyof ApiClient)[];
   QuoteLogEntry: readonly (keyof QuoteLogEntry)[];
 };
 
 /** 页面专门处理的错误码。 */
-export const CHANNEL_ERROR_CODES = ["VALIDATION_FAILED", "CHANNEL_NAME_TAKEN", "VERSION_CONFLICT", "MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "APPROVAL_SELF_REVIEW", "APPROVAL_NOT_PENDING", "APPROVAL_STALE", "API_CLIENT_REVOKED", "CHANNEL_SCOPE_DENIED"] as const;
+export const CHANNEL_ERROR_CODES = ["VALIDATION_FAILED", "CHANNEL_NAME_TAKEN", "VERSION_CONFLICT", "MARKUP_RULE_CONFLICT", "RULES_BELOW_FLOOR", "CHANNEL_STATUS_UNCHANGED", "APPROVAL_SELF_REVIEW", "APPROVAL_NOT_PENDING", "APPROVAL_STALE", "API_CLIENT_REVOKED", "CHANNEL_SCOPE_DENIED", "PRICING_IMPACT_NOT_APPLICABLE"] as const;

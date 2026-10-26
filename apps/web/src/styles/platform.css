@@ -781,3 +781,40 @@
 .permission-matrix td {
   text-align: center;
 }
+
+/* 生效前的毛利试算（M3-07，ADR 0033） */
+.impact-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.impact-preview__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.impact__title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.impact__caption {
+  text-align: start;
+  font-weight: var(--font-weight-medium);
+  padding-block-end: var(--space-1);
+}
+
+.impact__facts {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}

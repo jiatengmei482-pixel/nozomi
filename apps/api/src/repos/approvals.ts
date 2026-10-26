@@ -28,6 +28,8 @@ export interface Approval {
   decidedBy: PersonRef | null;
   decidedAt: Date | null;
   decisionNote: string | null;
+  /** 发起时保存的试算结果（M3-07，ADR 0033：改定价参数、加价规则的复核才有） */
+  impact: AuditValues | null;
 }
 
 interface ApprovalRow {
@@ -50,11 +52,12 @@ interface ApprovalRow {
   decider_email: string | null;
   decided_at: Date | null;
   decision_note: string | null;
+  impact: AuditValues | null;
 }
 
 const COLUMNS = `a.id, a.kind, a.resource, a.resource_id, a.summary, a.payload, a.before, a.base_version, a.status,
   a.requested_by, r.name as requester_name, r.email as requester_email, a.requested_at, a.request_note,
-  a.decided_by, d.name as decider_name, d.email as decider_email, a.decided_at, a.decision_note`;
+  a.decided_by, d.name as decider_name, d.email as decider_email, a.decided_at, a.decision_note, a.impact`;
 const FROM = "approvals a join platform_users r on r.id = a.requested_by left join platform_users d on d.id = a.decided_by";
 
 function toApproval(row: ApprovalRow): Approval {
@@ -74,6 +77,7 @@ function toApproval(row: ApprovalRow): Approval {
     decidedBy: row.decided_by === null ? null : { id: row.decided_by, name: row.decider_name ?? "", email: row.decider_email ?? "" },
     decidedAt: row.decided_at,
     decisionNote: row.decision_note,
+    impact: row.impact,
   };
 }
 
@@ -87,14 +91,15 @@ export interface NewApproval {
   baseVersion: number | null;
   requestedBy: string;
   requestNote: string | null;
+  impact?: AuditValues | null;
   now: Date;
 }
 
 export async function insertApproval(db: Db, input: NewApproval): Promise<string> {
   const result = await db.query<{ id: string }>(
-    `insert into approvals (kind, resource, resource_id, summary, payload, before, base_version, requested_by, requested_at, request_note)
-     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10) returning id`,
-    [input.kind, input.resource, input.resourceId, input.summary, JSON.stringify(input.payload), input.before === null ? null : JSON.stringify(input.before), input.baseVersion, input.requestedBy, input.now, input.requestNote],
+    `insert into approvals (kind, resource, resource_id, summary, payload, before, base_version, requested_by, requested_at, request_note, impact)
+     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::jsonb) returning id`,
+    [input.kind, input.resource, input.resourceId, input.summary, JSON.stringify(input.payload), input.before === null ? null : JSON.stringify(input.before), input.baseVersion, input.requestedBy, input.now, input.requestNote, input.impact === undefined || input.impact === null ? null : JSON.stringify(input.impact)],
   );
   return (result.rows[0] as { id: string }).id;
 }
