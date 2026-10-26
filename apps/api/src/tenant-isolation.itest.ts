@@ -1403,6 +1403,51 @@ test("取消、改单、事后加收（M3-03）：取消政策两边看到的一
   assert.equal(own.status, 200, own.text);
 });
 
+test("救援改派（M3-04）：甲声明不了乙的单；看不到、接不了、拒不了发给乙的救援单；应扣款项只看得到自己的（404，和不存在一样，乙的记录原样不动）；数据库里读不到别人的救援单和应扣款项", async () => {
+  for (const route of ["POST /tenant/v1/orders/:id/declare-unable", "GET /tenant/v1/rescue-offers", "GET /tenant/v1/rescue-offers/:id", "POST /tenant/v1/rescue-offers/:id/accept", "POST /tenant/v1/rescue-offers/:id/decline", "GET /tenant/v1/deductions"]) cover(route);
+  const ids = await orderIds();
+  const foreignDeclare = await api.call("POST", `/tenant/v1/orders/${ids.b}/declare-unable`, { token: a.adminToken, body: { reason: "冒充乙" } });
+  const missingDeclare = await api.call("POST", `/tenant/v1/orders/${NO_SUCH_ID}/declare-unable`, { token: a.adminToken, body: { reason: "冒充乙" } });
+  assert.equal(foreignDeclare.status, 404, foreignDeclare.text);
+  assert.equal(foreignDeclare.text, missingDeclare.text);
+  assert.equal((await api.db.owner.query("select count(*)::int as n from order_rescues")).rows[0].n, 0, "甲没能让乙的单进入救援");
+  // 甲的单进入救援（用迁移账号直接写：测试只关心隔离），救援单发给乙，甲记一条违约金
+  const seeded = await seedProducts();
+  const order = (await api.db.owner.query<{ vehicle_group_id: string; service_at: Date }>("select vehicle_group_id, service_at from orders where id = $1", [ids.a])).rows[0]!;
+  const version = (await api.db.owner.query<{ version: number }>("select version from products where id = $1", [seeded.b.product.id])).rows[0]!.version;
+  const rescue = (await api.db.owner.query<{ id: string }>(
+    `insert into order_rescues (order_id, original_tenant_id, trigger, triggered_by_type, triggered_by, reason, triggered_at, from_status, service_at, original_settlement_minor, original_settlement_currency, penalty_bp, penalty_tier, status, created_at, updated_at)
+     values ($1, $2, 'tenant_declared', 'tenant_user', $3, '车坏了', now(), 'confirmed', $4, 11000, 'JPY', 0, 'none', 'open', now(), now()) returning id`,
+    [ids.a, a.tenantId, a.adminId, order.service_at],
+  )).rows[0]!.id;
+  const offer = (await api.db.owner.query<{ id: string }>(
+    `insert into order_rescue_offers (tenant_id, rescue_id, order_id, product_id, product_version, vehicle_group_id, trip, settlement_minor, settlement_currency, settlement, status, offered_by_type, offered_at, expires_at)
+     values ($1, $2, $3, $4, $5, $6, '{"category":"charter"}'::jsonb, 12000, 'JPY', '{"currency":"JPY","totalMinor":12000,"baseMinor":12000,"adjustMinor":0,"urgentMinor":0,"nightMinor":0,"addonsMinor":0,"driverLanguageMinor":0}'::jsonb, 'pending', 'system', now(), now() + interval '15 minutes') returning id`,
+    [b.tenantId, rescue, ids.a, seeded.b.product.id, version, order.vehicle_group_id],
+  )).rows[0]!.id;
+  await api.db.owner.query("insert into tenant_deductions (tenant_id, order_id, rescue_id, kind, amount_minor, currency, basis, status, created_at, updated_at) values ($1, $2, $3, 'penalty', 0, 'JPY', '{}'::jsonb, 'pending', now(), now())", [a.tenantId, ids.a, rescue]);
+  const before = (await api.db.owner.query("select * from order_rescue_offers where id = $1", [offer])).rows[0];
+  for (const [method, suffix, body] of [["GET", "", undefined], ["POST", "/accept", undefined], ["POST", "/decline", { reason: "冒充" }]] as const) {
+    const foreign = await api.call(method, `/tenant/v1/rescue-offers/${offer}${suffix}`, { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    const missing = await api.call(method, `/tenant/v1/rescue-offers/${NO_SUCH_ID}${suffix}`, { token: a.adminToken, ...(body === undefined ? {} : { body }) });
+    assert.equal(foreign.status, 404, `${method} ${suffix}: ${foreign.text}`);
+    assert.equal(foreign.text, missing.text, `${method} ${suffix}`);
+  }
+  assert.deepEqual((await api.db.owner.query("select * from order_rescue_offers where id = $1", [offer])).rows[0], before, "发给乙的救援单原样不动");
+  assert.deepEqual((await api.call("GET", "/tenant/v1/rescue-offers", { token: a.adminToken })).body.items, [], "甲的救援单列表里没有发给乙的");
+  assert.equal((await api.call("GET", `/tenant/v1/rescue-offers?tenant_id=${b.tenantId}`, { token: a.adminToken })).status, 400, "请求里不能带租户编号");
+  const own = await api.call("GET", `/tenant/v1/rescue-offers/${offer}`, { token: b.adminToken });
+  assert.equal(own.status, 200, own.text);
+  assert.doesNotMatch(own.text, /sell|markup|11000/, "乙看不到对外价、加价比例和原供应商的结算价");
+  // 应扣款项：甲看得到自己的，乙看不到甲的（带甲的单号筛也没有）
+  assert.equal((await api.call("GET", "/tenant/v1/deductions", { token: a.adminToken })).body.items.length, 1);
+  assert.deepEqual((await api.call("GET", `/tenant/v1/deductions?order_id=${ids.a}`, { token: b.adminToken })).body.items, []);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from order_rescue_offers where tenant_id = $1", [b.tenantId]))).rowCount, 0);
+  assert.equal((await withTenantTx(api.db.pool, b.tenantId, (db) => db.query("select 1 from tenant_deductions where tenant_id = $1", [a.tenantId]))).rowCount, 0);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from order_rescues")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, b.tenantId, (db) => db.query("update order_rescue_offers set status = 'accepted' where id = $1", [offer])), deniedByDatabase, "接单只能经平台事务");
+});
+
 test("Webhook：设置、密钥、测试事件、投递记录、重推都只对令牌所属的供应商；看不到、重推不了别人的投递（404，和不存在一样）", async () => {
   for (const route of ["GET /tenant/v1/webhooks", "PUT /tenant/v1/webhooks", "DELETE /tenant/v1/webhooks", "POST /tenant/v1/webhooks/rotate-secret", "POST /tenant/v1/webhooks/test", "GET /tenant/v1/webhooks/deliveries", "GET /tenant/v1/webhooks/deliveries/:id", "POST /tenant/v1/webhooks/deliveries/:id/retry"]) cover(route);
   const bSaved = await api.call("PUT", "/tenant/v1/webhooks", { token: b.adminToken, body: { url: "https://dispatch.b.example.com/hook", events: ["order.assigned"], tenant_id: a.tenantId } });
