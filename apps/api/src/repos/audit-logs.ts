@@ -46,6 +46,8 @@ export type AuditResource =
   | "order_change"
   | "extra_charge"
   | "refund"
+  | "rescue"
+  | "rescue_offer"
   | "platform_role";
 export type AuditAction =
   | "login"
@@ -101,6 +103,10 @@ export type AuditAction =
   | "change"
   | "decide"
   | "charge"
+  | "trigger"
+  | "offer"
+  | "accept"
+  | "waive"
   | "mfa_enroll_start"
   | "mfa_enroll"
   | "mfa_verify"

@@ -61,6 +61,8 @@ export const PLATFORM_ACTIONS = [
   "payment.manage",
   "cancellation_policy.manage",
   "cancellation_policy.review",
+  "rescue.manage",
+  "rescue.review",
   "role.read",
   "role.manage",
   "role.review",
@@ -123,16 +125,19 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * - `payment.manage`（重试失败的退款和扣款，审核「多退给客人」的代取消——需求「人工退款超过阈值」的双人复核）：财务、运营（「支付异常：财务核实」）；
  * - `cancellation_policy.manage`（发起改平台取消政策）：运营；`cancellation_policy.review`（审核）：运营、财务——两位运营互审，或财务审。
  *   取消政策本身每个角色都能看（和主数据一样用 `master_data.read`）。
+ * 救援改派（M3-04，ADR 0031）：救援队列和订单里的救援记录用 `order.read` 看；
+ * - `rescue.manage`（按 4 种情形发起救援、给候选供应商发救援单、认定不可抗力、发起人工指定）：运营、客服（需求「人工介入能力」归处理订单的人）；
+ * - `rescue.review`（审核人工指定救援供应商，需求「全部候选都不接，运营可人工指定租户（双人复核）」）：运营——两位运营互审，或超级管理员审。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
   operations: [
     "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
-    "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
+    "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
@@ -155,6 +160,8 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 看设置和投递记录（`webhook.read`）：管理员、调度（推送失败时要知道）、只读。
  * 事后加收（M3-03，ADR 0029，`order.extra_charge`：提交、撤回、上传票据）：管理员、调度（履约的人知道超时、停车）、财务（对账的人）。
  * 确认 / 拒绝客人的改期用 `order.dispatch`（排不排得出车是调度的判断）。
+ * 救援改派（M3-04，ADR 0031）：声明无法履约、接 / 拒救援单用 `order.dispatch`（调度知道排不排得出车）；
+ * 看自己的应扣款项（违约金、救援差价）用 `order.read`（财务对账、只读也要看）。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,

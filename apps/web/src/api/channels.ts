@@ -137,6 +137,7 @@ export type ApprovalKind =
   | "tenant.contract"
   | "cancellation_policy.update"
   | "order.cancel_refund"
+  | "rescue.manual_assign"
   | "platform_role.update"
   | "staff.mfa_reset";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "withdrawn";

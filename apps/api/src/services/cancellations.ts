@@ -43,6 +43,7 @@ import { notFound } from "./errors.ts";
 import { netPaidMinor, processRefunds, scheduleRefund } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
+import { closeRescueOnCancel } from "./rescues.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 /** 这一单的取消阶梯：下单时抄进订单的；M3-03 之前下的单按现在的政策（车型级别按车型组现查）。 */
@@ -87,7 +88,9 @@ export async function quoteCancellation(db: Db, order: Order, sale: OrderSale, r
     return { stage: "unpaid", reason, policy, tierIndex: match.index, tier: match.tier, msBeforeService: match.msBeforeService, feeBp: 0, policyFeeBp: match.feeBp, currency: sale.currency, settlementCurrency: order.settlementCurrency, paidMinor: 0, customerFeeMinor: 0, refundMinor: 0, policyRefundMinor: 0, tenantShareMinor: 0 };
   }
   const paidMinor = await netPaidMinor(db, order.id);
-  const actual = cancellationAmounts({ sellMinor: sale.sellMinor, settlementMinor: order.settlementMinor, feeBp: free ? 0 : match.feeBp });
+  const charged = cancellationAmounts({ sellMinor: sale.sellMinor, settlementMinor: order.settlementMinor, feeBp: free ? 0 : match.feeBp });
+  // 救援改派中的单（M3-04，ADR 0031）：原供应商没有履约，客人扣的取消费不分给它（需求「履约失败：应付租户 − 结算价 − 违约金」）
+  const actual = order.status === "rescue_pending" ? { ...charged, tenantShareMinor: 0 } : charged;
   const byPolicy = cancellationAmounts({ sellMinor: sale.sellMinor, settlementMinor: order.settlementMinor, feeBp: match.feeBp });
   // 退「实际付了的 − 取消费」：改期补收了差价、还在等供应商确认的，那部分差价一起退
   const refund = (fee: number): number => Math.max(0, paidMinor - fee);
@@ -138,6 +141,7 @@ export async function cancelPaidOrderInTx(db: Db, order: Order, sale: OrderSale,
   if (order.inventoryHeld) await releaseSoldInventory(db, order.tenantId, order.productId, order.serviceDate, now);
   const open = await findOpenChange(db, order.tenantId, order.id, { lock: true });
   if (open !== null) await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
+  if (order.status === "rescue_pending") await closeRescueOnCancel(db, order, now);
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "cancelled", actor: who.actor, reason: input.reason, occurredAt: now, detail: { fee_bp: quote.feeBp, waived: input.waiveFee, ...(who.origin === null ? {} : { by: who.origin.actor.email }) } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.cancelled", orderId: order.id, data: { reason: input.reason, from_status: order.status } }, now);
   // 「实际付了的」不扣失败的退款：这次的退款已经包含了它们，作废，不能再重试（否则多退）
@@ -194,7 +198,9 @@ async function cancelOrder(ctx: AppContext, request: CancelRequest, log: OrderLo
     if (request.principal !== null) {
       await assertReasonApplies(db, order, request.reason);
       const quote = await quoteCancellation(db, order, sale, request.reason, request.waiveFee, ctx.now());
-      if (cancellationNeedsReview(quote.policyRefundMinor, quote.refundMinor)) return { approve: { quote, order } };
+      // 救援改派中、无人可接按「供应商原因」全额退款是需求定好的结果（「无人可接时全额退款」），不是人工多退，不用复核（ADR 0031）
+      const rescueRefund = order.status === "rescue_pending" && request.reason === "SUPPLIER_FAULT";
+      if (!rescueRefund && cancellationNeedsReview(quote.policyRefundMinor, quote.refundMinor)) return { approve: { quote, order } };
     }
     return { refunds: (await cancelPaidOrderInTx(db, order, sale, request, request.who, ctx.now())).refunds };
   });

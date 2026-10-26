@@ -20,7 +20,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022；汇率人工锁定，ADR 0025），
  * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到），
  * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到），
- * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到）。新增平台表时加到这里。
+ * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到），
+ * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -40,6 +41,8 @@ const PLATFORM_TABLES = [
   "order_change_sales",
   "order_payments",
   "order_refunds",
+  "order_rescue_quotes",
+  "order_rescues",
   "order_sales",
   "payment_events",
   "places",
@@ -90,6 +93,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_changes: ["SELECT"],
     // 事后加收（ADR 0029）：供应商提交、撤回（触发器只许撤回异议期内的）
     order_extra_charges: ["INSERT", "SELECT", "UPDATE"],
+    // 救援单、应扣款项（ADR 0031）：供应商只看；接 / 拒救援单在平台事务里做（租户编号只来自令牌）
+    order_rescue_offers: ["SELECT"],
+    tenant_deductions: ["SELECT"],
     // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
     order_assignments: ["INSERT", "SELECT"],
     order_contacts: ["INSERT", "SELECT"],
@@ -175,10 +181,16 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_changes: ["INSERT", "SELECT", "UPDATE"],
     order_extra_charges: ["SELECT", "UPDATE"],
     order_refunds: ["INSERT", "SELECT", "UPDATE"],
+    // 救援改派（ADR 0031）：救援、救援单、应扣款项要改状态，救援单的平台一侧只追加；都不删
+    order_rescue_offers: ["INSERT", "SELECT", "UPDATE"],
+    order_rescue_quotes: ["INSERT", "SELECT"],
+    order_rescues: ["INSERT", "SELECT", "UPDATE"],
+    tenant_deductions: ["INSERT", "SELECT", "UPDATE"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
-    driver_links: ["SELECT"],
+    // 进入救援时作废原来的司机链接（ADR 0031）：平台只改吊销的两列（触发器按语句检查）
+    driver_links: ["SELECT", "UPDATE"],
     drivers: ["SELECT"],
     order_assignments: ["SELECT"],
     order_contacts: ["SELECT"],
@@ -259,9 +271,14 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 进入救援时作废原来的司机链接（ADR 0031）
+  "driver_links.driver_links_platform_revoke": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   // 改单、事后加收：渠道和运营改单、供应商确认改期、客人异议、平台审核和扣款、定时任务（ADR 0029）
   "order_changes.order_changes_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_extra_charges.order_extra_charges_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 救援单、应扣款项：发救援单、供应商接 / 拒、超时顺延、记违约金和差价、不可抗力免除、运营后台查看（ADR 0031）
+  "order_rescue_offers.order_rescue_offers_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "tenant_deductions.tenant_deductions_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
@@ -290,12 +307,20 @@ const INDEX_EXCEPTIONS = [
   "order_extra_charges_charge_due_idx",
   "order_extra_charges_review_idx",
   "order_extra_charges_window_idx",
+  // 超时没接的救援单跨租户扫；一次救援同一时刻只有一张待接的救援单（ADR 0031）
+  "order_rescue_offers_due_idx",
+  "order_rescue_offers_pending_key",
+  // 司机未到的提醒跨租户扫；一个订单编号「现在的」只有一行（原供应商的行改派后不算，ADR 0031）
+  "orders_arrival_due_idx",
+  "orders_current_key",
   // 超时未派车、用车前 1 小时仍未出发的提醒跨租户扫（ADR 0027）
   "orders_departure_due_idx",
   "orders_dispatch_due_idx",
-  // 订单号全平台唯一；超时未付款的自动取消跨租户扫到期的单（ADR 0026）
+  // 订单号全平台唯一（ADR 0026；改派后原供应商的行不算，ADR 0031）；超时未付款的自动取消跨租户扫到期的单（ADR 0026）
   "orders_order_no_key",
   "orders_payment_due_idx",
+  // 用车前 6 小时仍未派车的自动救援跨租户扫（ADR 0031）
+  "orders_rescue_due_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
   // 资质审核队列跨供应商找待审核的（ADR 0028）

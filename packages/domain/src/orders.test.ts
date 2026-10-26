@@ -15,6 +15,7 @@ import {
   onPaymentSucceeded,
   orderDetailsIssues,
   orderNumber,
+  orderOperableByTenant,
   orderStatusIsFinal,
   orderTransitionAllowed,
   orderVisibleToTenant,
@@ -40,8 +41,8 @@ test("状态机：服务开始前可以取消，开始后不能；完成、客�
   assert.deepEqual(allowed("arrived"), ["in_service", "no_show_claimed", "cancelled"]);
   assert.deepEqual(allowed("in_service"), ["completed"]);
   assert.deepEqual(allowed("no_show_claimed"), ["no_show", "cancelled"]);
-  assert.deepEqual(allowed("rescue_pending"), ["confirmed", "assigned", "cancelled"]);
-  assert.deepEqual(ORDER_STATUSES.filter(orderStatusIsFinal), ["completed", "no_show", "cancelled"]);
+  assert.deepEqual(allowed("rescue_pending"), ["cancelled", "rescued"], "救援中只会转出给救援供应商或取消，不回到原供应商手里");
+  assert.deepEqual(ORDER_STATUSES.filter(orderStatusIsFinal), ["completed", "no_show", "cancelled", "rescued"]);
   for (const status of ORDER_STATUSES) assert.equal(orderTransitionAllowed(status, status), false, `${status} 不能转到自己`);
   for (const from of ORDER_STATUSES) assert.equal(orderTransitionAllowed(from, "pending_payment"), false, "不能回到待支付");
 });
@@ -167,4 +168,8 @@ test("下单信息：乘客姓名、国际格式的电话、邮箱必填；必�
   assert.deepEqual(paths({ ...good, messaging: null, notes: "注".repeat(501) }), ["/notes:TOO_LONG"]);
   assert.deepEqual(paths({ ...good, channelOrderNo: "有中文" }), ["/channel_order_no:INVALID_FORMAT"]);
   assert.deepEqual(paths({ ...good, channelOrderNo: "x".repeat(65) }), ["/channel_order_no:TOO_LONG"]);
+});
+
+test("供应商还能不能操作这一行：救援改派中、已转给救援供应商的只能查看，其余状态交给各接口自己的规则", () => {
+  for (const status of ORDER_STATUSES) assert.equal(orderOperableByTenant(status), status !== "rescue_pending" && status !== "rescued", status);
 });

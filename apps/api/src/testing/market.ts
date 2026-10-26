@@ -63,7 +63,7 @@ export async function buildMarket(api: TestApi): Promise<Market> {
 /**
  * 给一个供应商建一个成田接送机商品（区域盖住整个东京，价格按 `prices`），默认上架。`publish: false` 只建到「能通过上架校验」为止（入驻测试用：已签约的供应商不能上架）。
  */
-export async function marketProduct(api: TestApi, who: TenantFixture, ids: { tokyo: string; narita: string; biz7: string }, prices: [string, number][], options: { publish?: boolean } = {}): Promise<string> {
+export async function marketProduct(api: TestApi, who: TenantFixture, ids: { tokyo: string; narita: string; biz7: string }, prices: [string, number][], options: { publish?: boolean; leadTimeHours?: number } = {}): Promise<string> {
   const { tokyo, narita, biz7 } = ids;
   const tenant = (target: TenantFixture, method: HttpMethod, path: string, body: unknown, version?: number, status = 200): Promise<any> =>
     ok(
@@ -93,7 +93,7 @@ export async function marketProduct(api: TestApi, who: TenantFixture, ids: { tok
     undefined,
     201,
   );
-  const saved = await tenant(who, "PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } }, 1);
+  const saved = await tenant(who, "PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: options.leadTimeHours ?? 24 }, free_wait: { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } }, 1);
   let version = (await tenant(who, "PUT", `/products/${created.id}/content`, { zh: { title: "成田机场接送", pickup_guide: "到达大厅 3 号门" } }, saved.version)).version as number;
   for (const [vg, price] of prices) {
     await tenant(who, "POST", `/products/${created.id}/price-rules`, { area_id: area, vehicle_group_id: vg, direction: "both", pricing_model: "fixed", valid_from: "2026-01-01", base_price: price }, version, 201);

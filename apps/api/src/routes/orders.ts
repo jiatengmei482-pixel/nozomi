@@ -27,6 +27,7 @@ import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { platformRescueJson, tenantOrderRescueJson } from "./rescues.ts";
 
 type Json = Record<string, unknown>;
 
@@ -206,6 +207,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       records: recordsJson(found.records, now),
       changes: found.changes.map(changeJson),
       extra_charges: found.extraCharges.map(extraChargeJson),
+      rescue: tenantOrderRescueJson(found.rescue, found.order),
     };
   });
 
@@ -246,6 +248,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
         const sold = found.changeSales.get(change.id) ?? null;
         return { ...changeJson(change), sell_before: sold === null ? null : salesMoney(sold.sellBeforeMinor, sold.currency), sell_after: sold === null ? null : salesMoney(sold.sellAfterMinor, sold.currency) };
       }),
+      rescues: found.rescues.map(platformRescueJson),
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
       quote: {
         quote_id: found.quote.quoteId,

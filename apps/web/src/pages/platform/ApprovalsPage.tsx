@@ -60,6 +60,7 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "tenant.contract": "批准后这一版合同写入；到了生效日期就是这家供应商现在的结算条款。",
   "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
   "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
+  "rescue.manual_assign": "批准后这张单立即转给指定的供应商（按上面的结算价，不用它再接单），客人付的钱不变；差价记到原供应商的应扣款项。",
   "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
   "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
 };

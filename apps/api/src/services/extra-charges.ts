@@ -43,6 +43,7 @@ import { validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import { fileTooLarge } from "./driver-trip.ts";
+import { assertTenantCanOperate } from "./fulfilment.ts";
 import { chargeOffSession, savedPaymentMethod } from "./order-money.ts";
 import type { OrderLog } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -65,7 +66,7 @@ export interface ExtraChargeInput {
   fileIds: string[];
 }
 
-/** 供应商后台上传票据照片（`order.extra_charge`）：按字节判断格式，和声明的类型不一致、不是认的格式都拒绝（415），最大 5 MB（和司机 H5 一样）。已取消的单不能传。 */
+/** 供应商后台上传票据照片（`order.extra_charge`）：按字节判断格式，和声明的类型不一致、不是认的格式都拒绝（415），最大 5 MB（和司机 H5 一样）。已取消、救援改派中、已转给救援供应商的单不能传。 */
 export async function uploadReceipt(ctx: AppContext, principal: TenantPrincipal, orderId: string, declaredType: string | undefined, data: Buffer): Promise<OrderFile> {
   if (data.length === 0) throw validationFailed("body", [{ path: "/", reason: "REQUIRED", message: "没有收到照片" }]);
   if (data.length > EVIDENCE_FILE_RULES.maxBytes) throw fileTooLarge();
@@ -76,6 +77,7 @@ export async function uploadReceipt(ctx: AppContext, principal: TenantPrincipal,
   return withTenantTx(ctx.pool, principal.tenantId, async (db) => {
     const order = await findTenantOrder(db, principal.tenantId, orderId);
     if (order === null) throw notFound("订单");
+    assertTenantCanOperate(order, "upload");
     if (order.status === "cancelled") throw new AppError(409, "ORDER_STATE_INVALID", "订单已取消", { status: order.status, action: "upload" });
     return insertOrderFile(db, principal.tenantId, { orderId, kind: "receipt", contentType: detected, data, sha256: createHash("sha256").update(data).digest("hex"), uploadedAt: now, linkId: null, uploadedBy: principal.user.id });
   });
@@ -96,6 +98,7 @@ export async function submitExtraCharge(ctx: AppContext, principal: TenantPrinci
   return withTenantTx(ctx.pool, principal.tenantId, async (db) => {
     const order = await findTenantOrder(db, principal.tenantId, orderId, { lock: true });
     if (order === null || sale === null) throw notFound("订单");
+    assertTenantCanOperate(order, "submit_extra_charge");
     const files = await listOrderFiles(db, principal.tenantId, orderId);
     const unknown = input.fileIds.filter((id) => !files.some((file) => file.id === id && file.kind === "receipt"));
     if (unknown.length > 0 || new Set(input.fileIds).size !== input.fileIds.length) throw validationFailed("body", [{ path: "/file_ids", reason: "UNKNOWN_FILE", message: "凭证要是这一单上传的票据照片（kind=receipt），不能重复" }]);
@@ -135,6 +138,7 @@ export async function withdrawExtraChargeForTenant(ctx: AppContext, principal: T
   return withTenantTx(ctx.pool, principal.tenantId, async (db) => {
     const charge = await findExtraCharge(db, principal.tenantId, chargeId, { lock: true });
     if (charge === null || charge.orderId !== orderId) throw notFound("加收");
+    assertTenantCanOperate((await findTenantOrder(db, principal.tenantId, orderId)) as Order, "withdraw_extra_charge");
     const refused = (): AppError => new AppError(409, "EXTRA_CHARGE_STATE_INVALID", "只有异议期内的加收能撤回（异议期截止那一刻起不能）", { status: charge.status, action: "withdraw", dispute_until: charge.disputeUntil.toISOString() });
     if (!extraChargeWithdrawable(charge, now)) throw refused();
     if (!(await withdrawExtraCharge(db, principal.tenantId, chargeId, now))) throw refused();

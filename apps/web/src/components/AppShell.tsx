@@ -50,6 +50,8 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
   if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/orders", label: "订单", icon: "package", prefix: true });
+  // 救援改派（M3-04）：看得到订单的就看得到救援队列；发起、发救援单要 rescue.manage（页面上按权限给按钮）
+  if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/rescues", label: "救援", icon: "check-circle", prefix: true });
   // 取消政策（M3-03）：管订单的人和审核政策的人用得到（主数据运营虽然看得到政策，菜单里不放）
   if (portal === "platform" && (platformCan("order.read") || platformCan("cancellation_policy.review"))) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
@@ -84,6 +86,9 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
     ];
     if (children.length > 0) entries.push({ key: "catalog", label: "商品配置", icon: "map", children });
     if (tenantRoleCan(role, "order.read")) entries.push({ to: "/orders", label: "订单", icon: "package", prefix: true });
+    // 救援改派（M3-04）：救援单给调度（接单的人），违约金与扣款给看订单的人（含财务）
+    if (tenantRoleCan(role, "order.dispatch")) entries.push({ to: "/rescue-offers", label: "救援单", icon: "check-circle", prefix: true });
+    if (tenantRoleCan(role, "order.read")) entries.push({ to: "/deductions", label: "违约金与扣款", icon: "database", prefix: true });
     const fleet = tenantRoleCan(role, "fleet.read") ? [{ to: "/fleet/drivers", label: "司机", prefix: true }, { to: "/fleet/vehicles", label: "车辆", prefix: true }] : [];
     if (fleet.length > 0) entries.push({ key: "fleet", label: "车队", icon: "building", children: fleet });
     // 企业资质（M4-01）：管理员、财务、只读；履约评分每个角色都能看

@@ -6,6 +6,7 @@ import { CHANNEL_APPROVAL_KINDS } from "./channels.ts";
 import { FX_APPROVAL_KINDS } from "./fx-locks.ts";
 import { CANCELLATION_POLICY_APPROVAL_KINDS } from "./cancellation-policy.ts";
 import { CANCELLATION_APPROVAL_KINDS } from "./cancellations.ts";
+import { RESCUE_APPROVAL_KINDS } from "./rescues.ts";
 import { TENANT_APPROVAL_KINDS } from "./tenant-onboarding.ts";
 import { PLATFORM_ROLE_APPROVAL_KINDS } from "./platform-roles.ts";
 import { STAFF_APPROVAL_KINDS } from "./platform-staff.ts";
@@ -16,6 +17,7 @@ export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...TENANT_APPROVAL_KINDS,
   ...CANCELLATION_POLICY_APPROVAL_KINDS,
   ...CANCELLATION_APPROVAL_KINDS,
+  ...RESCUE_APPROVAL_KINDS,
   ...PLATFORM_ROLE_APPROVAL_KINDS,
   ...STAFF_APPROVAL_KINDS,
 ]);
