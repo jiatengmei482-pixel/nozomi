@@ -94,9 +94,12 @@ export interface OrderLog {
 
 export const SILENT_ORDER_LOG: OrderLog = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
-/** Stripe 没配置（三个密钥没填）：不能收款，所以不能下单。和 /health、config:check 的「Stripe 支付：未配置，无法收款」是同一件事。 */
+/** 去哪里填 Stripe 的密钥（ADR 0041）：各处「支付未配置」的提示共用这一句 */
+export const PAYMENT_SETUP_HINT = "请超级管理员在运营后台「系统设置 → 系统状态 → 第三方密钥」填写 Stripe 的三个密钥";
+
+/** Stripe 没配置（三个密钥没填）：不能收款，所以不能下单。和 /health 的「Stripe 支付：未配置」是同一件事（后台和服务器配置文件都没有，ADR 0041）。 */
 export function paymentNotConfigured(): AppError {
-  return new AppError(503, "PAYMENT_NOT_CONFIGURED", "支付未配置（Stripe 还没有配置），现在不能下单。请平台在服务器的设置里填好 Stripe 的三个密钥");
+  return new AppError(503, "PAYMENT_NOT_CONFIGURED", `支付未配置（Stripe 还没有配置），现在不能下单。${PAYMENT_SETUP_HINT}`);
 }
 
 export function requirePayments(ctx: AppContext): PaymentProvider {

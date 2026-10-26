@@ -31,6 +31,13 @@ jobs:
       AUTH_JWT_SECRET: ci-placeholder-not-a-real-secret-0000000000
     steps:
       - uses: actions/checkout@v4
+      # PR 上核对新迁移的编号：要能和 main 比，需要把 main 也取下来
+      - name: 取 main（核对迁移编号用）
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin main
+      - name: 新迁移的编号要大于 main 上已有的（否则部署时被拒绝）
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-migration-order.mjs origin/main
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

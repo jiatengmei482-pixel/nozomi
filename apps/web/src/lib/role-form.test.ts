@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { PLATFORM_MENUS, roleGrantIssues } from "@nozomi/domain";
 import { allowlistProblems, permissionMatrix, splitAllowlist, toggleGrant } from "./role-form.ts";
 
-test("勾选表：每个菜单一行、四列；没有的格子标出来；只归超级管理员的三格标出来", () => {
+test("勾选表：每个菜单一行、四列；没有的格子标出来；只归超级管理员的四格标出来（M4-09 起多了「系统状态 · 编辑」：管理第三方密钥）", () => {
   const rows = permissionMatrix();
   assert.equal(rows.length, PLATFORM_MENUS.length);
   const products = rows.find((row) => row.key === "products");
@@ -13,7 +13,7 @@ test("勾选表：每个菜单一行、四列；没有的格子标出来；只�
   assert.equal(products?.cells.export.exists, false);
   assert.equal(rows.find((row) => row.key === "tenants")?.cells.review.exists, true, "供应商的复核（M4-01）");
   const locked = rows.flatMap((row) => Object.values(row.cells)).filter((cell) => cell.superAdminOnly).map((cell) => cell.grant);
-  assert.deepEqual(locked.sort(), ["roles:edit", "roles:review", "staff:edit"]);
+  assert.deepEqual(locked.sort(), ["integrations:edit", "roles:edit", "roles:review", "staff:edit"]);
 });
 
 test("勾编辑自动带上查看；去掉查看同一菜单的其他格一起去掉；结果总是后端认的（没有 VIEW_REQUIRED）", () => {

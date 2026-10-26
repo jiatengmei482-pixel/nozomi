@@ -818,3 +818,53 @@
   margin: 0;
   padding-inline-start: var(--space-4);
 }
+
+/* 系统状态页的「第三方密钥」（M4-09，ADR 0041）：每一项一张卡片；测试结果 = 徽标 + 一句话 + 测试时间 */
+.secret-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.secret-section__title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.secret-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.secret-card > .card__header {
+  margin-bottom: 0;
+}
+
+.secret-card__manage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.secret-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.secret-test__time {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.secret-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

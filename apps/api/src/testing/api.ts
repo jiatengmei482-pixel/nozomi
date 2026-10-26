@@ -11,13 +11,14 @@ import { FxCenter } from "../services/fx-center.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import { SecretBox } from "../integrations/secret-box.ts";
+import { IntegrationSecretCache } from "../services/integration-secrets.ts";
 import { HttpsWebhookSender, type WebhookSender } from "../integrations/webhook-sender.ts";
 import type { AppConfig } from "@nozomi/config";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
 import { loadConfig } from "@nozomi/config";
-import { testConfig, testEnv } from "./fixtures.ts";
+import { UNREACHABLE_INTEGRATIONS, testEnv } from "./fixtures.ts";
 import { totpAt } from "./totp.ts";
 
 /** 测试里的 Webhook 接收地址用的主机名：经接口保存时它是合格的 https 地址；测试的发送器把它换成本机的假接收方。 */
@@ -108,6 +109,8 @@ export interface TestApiOptions {
   payments?: PaymentProvider | null;
   /** 推送给供应商的发送器；不给时用 `localWebhookSender`（推到本机的假接收方） */
   webhookSender?: WebhookSender;
+  /** 运营后台填写的第三方密钥的缓存多久重读一次（ADR 0041）；0 = 每个请求都重读（测试直接改库后马上看到） */
+  integrationSecretsTtlMs?: number;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -124,13 +127,14 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
   let logs = "";
   const totpSecrets = new Map<string, string>();
   const app = buildApp({
-    config: options.env === undefined ? testConfig(db.url) : loadConfig({ ...testEnv(db.url), ...options.env }),
+    config: loadConfig({ ...testEnv(db.url), ...UNREACHABLE_INTEGRATIONS, ...options.env }),
     pool: db.pool,
     migrationFiles,
     now: clock.now,
     ...(options.quote === undefined ? {} : { quote: options.quote }),
     ...(options.payments === undefined ? {} : { payments: options.payments }),
     webhookSender: options.webhookSender ?? localWebhookSender(),
+    ...(options.integrationSecretsTtlMs === undefined ? {} : { integrationSecretsTtlMs: options.integrationSecretsTtlMs }),
     logDestination: { write: (line) => void (logs += line) },
   });
 
@@ -253,14 +257,18 @@ export async function addTenantUser(
 export function testContext(config: AppConfig, pool: Pool, now: () => Date, quote: Partial<QuoteDeps> = {}): AppContext {
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
+  const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  const unreachable = { ok: false as const, code: "UNREACHABLE" as const, message: "测试上下文不连外部服务" };
   return {
     config,
     pool,
     now,
     fx,
     payments: null,
+    integrations: new IntegrationSecretCache({ pool, config, secretBox, log: silent }),
+    integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable },
     quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote },
-    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+    secretBox,
     webhookSender: localWebhookSender(),
   };
 }

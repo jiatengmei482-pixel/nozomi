@@ -35,7 +35,10 @@ import { registerBillingRoutes } from "./routes/billing.ts";
 import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
-import { StripePaymentProvider } from "./integrations/stripe.ts";
+import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
+import { checkGoogleMapsKey } from "./integrations/google-maps.ts";
+import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
+import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
@@ -65,7 +68,7 @@ export interface AppDeps {
   /** 报价引擎的外部依赖（路线预估、汇率、加价规则、评分）；不给的用默认实现（汇率是汇率中心） */
   quote?: Partial<QuoteDeps>;
   /**
-   * 收款服务（ADR 0026）。不给：配置了 Stripe 就用 Stripe，没配置为 null（不能下单）。
+   * 收款服务（ADR 0026）。不给：生效的 Stripe 密钥（运营后台填写的优先，其次配置文件，ADR 0041）有就用 Stripe，没有为 null（不能下单）。
    * 测试给替身（testing/payments.ts），不连 Stripe；给 null 模拟没配置。
    */
   payments?: PaymentProvider | null;
@@ -74,6 +77,8 @@ export interface AppDeps {
    * 集成测试给一个打开了 `allowLocalTargets` 的发送器，推到本机的假服务器。
    */
   webhookSender?: WebhookSender;
+  /** 运营后台填写的第三方密钥在本进程的缓存多久重读一次（毫秒，ADR 0041）；不给用 5 秒。测试用它模拟「另一个进程改了密钥」 */
+  integrationSecretsTtlMs?: number;
   /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
@@ -102,17 +107,19 @@ declare module "fastify" {
 
 /**
  * 日志规则（细节见 logging.ts）：
- * - 请求只记方法、路径（不含查询串）、来源地址；不记请求头和请求体。
+ * - 请求只记方法、路由模板（不是实际路径，ADR 0041）、来源地址；不记请求头和请求体。
  * - 异常只记类型、错误码、说明、调用栈，并抹掉其中的密钥原文和连接串。
  * - 再加一层兜底：万一以后有人把请求头打进日志，凭证类字段也会被抹掉。
  */
-function loggerOptions(deps: AppDeps): NonNullable<FastifyServerOptions["logger"]> {
+function loggerOptions(deps: AppDeps, extraSecrets: () => readonly string[]): NonNullable<FastifyServerOptions["logger"]> {
   const secrets = secretValues(deps.config);
+  const allSecrets = (): string[] => [...secrets, ...extraSecrets()].sort((a, b) => b.length - a.length);
   return {
     level: deps.config.appEnv === "local" ? "debug" : "info",
     serializers: {
-      req: serializeRequest,
-      err: (err: unknown) => serializeError(err, secrets),
+      // 运营后台填写的密钥（ADR 0041）随时会变：每次现取
+      req: (request: Parameters<typeof serializeRequest>[0]) => serializeRequest(request, allSecrets()),
+      err: (err: unknown) => serializeError(err, allSecrets()),
     },
     redact: {
       paths: [
@@ -130,8 +137,10 @@ function loggerOptions(deps: AppDeps): NonNullable<FastifyServerOptions["logger"
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const { config, pool, migrationFiles } = deps;
+  // 日志脱敏要抹掉运营后台填写的密钥：缓存在 Fastify 建好之后才有（它要用 Fastify 的日志）
+  let integrations: IntegrationSecretCache | null = null;
   const app = Fastify({
-    logger: deps.logger === false ? false : loggerOptions(deps),
+    logger: deps.logger === false ? false : loggerOptions(deps, () => integrations?.secretValues() ?? []),
     // 前面有自己的反向代理时，从 X-Forwarded-For 取客户端地址（审计日志、登录限速用）；层数来自配置
     trustProxy: config.trustProxyHops > 0 ? (_address: string, hop: number) => hop < config.trustProxyHops : false,
     // 路由阶段就出错的请求（畸形的百分号编码等）也走统一错误格式
@@ -190,9 +199,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
+  const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  const secretCache = new IntegrationSecretCache({ pool, config, secretBox, log: app.log, ...(deps.integrationSecretsTtlMs === undefined ? {} : { ttlMs: deps.integrationSecretsTtlMs }) });
+  integrations = secretCache;
+  // 每个请求开始前看一眼运营后台填写的密钥过没过期（ADR 0041）：过期了先重读（最多等 0.5 秒），所以别的进程改了密钥，这里最迟 5 秒后用上
+  app.addHook("onRequest", async () => {
+    await secretCache.ensureFresh();
+  });
+
   app.get("/health", async (_request, reply) => {
     const report = await checkHealth({
       config,
+      effective: secretCache.effective,
       pool,
       migrationFiles,
       timeoutMs: deps.healthTimeoutMs ?? 2_000,
@@ -206,15 +224,32 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const now = deps.now ?? (() => new Date());
   const fx = new FxCenter({ pool, now, config: config.fx, log: app.log });
   app.decorate("fxCenter", fx);
-  const payments = deps.payments !== undefined ? deps.payments : config.stripe === null ? null : new StripePaymentProvider(config.stripe);
+  // 收款服务跟着生效的 Stripe 密钥走（ADR 0041）：密钥变了才新建一个，没变一直用同一个
+  const stripeEndpoint = config.integrationEndpoints.stripeApi;
+  let stripeProvider: { signature: string; provider: StripePaymentProvider } | null = null;
+  const currentPayments = (): PaymentProvider | null => {
+    const stripe = secretCache.effective.stripe.config;
+    if (stripe === null) return null;
+    const signature = [stripe.secretKey, stripe.publishableKey, stripe.webhookSecret].join("\n");
+    if (stripeProvider?.signature !== signature) stripeProvider = { signature, provider: new StripePaymentProvider(stripe, { endpoint: stripeEndpoint }) };
+    return stripeProvider.provider;
+  };
+  const integrationChecks: IntegrationChecks = {
+    googleMaps: (apiKey) => checkGoogleMapsKey(apiKey, { url: config.integrationEndpoints.googleMapsRoutesUrl }),
+    stripe: (stripe) => checkStripeKey(stripe, { endpoint: stripeEndpoint }),
+  };
   const context: AppContext = {
     config,
     pool,
     now,
     fx,
-    payments,
+    get payments() {
+      return deps.payments !== undefined ? deps.payments : currentPayments();
+    },
+    integrations: secretCache,
+    integrationChecks,
     quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote },
-    secretBox: config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey),
+    secretBox,
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
   };
   const orderJobs = new OrderJobs(context, app.log);
@@ -239,6 +274,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
+  registerIntegrationSecretRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
   registerAreaRoutes(app, context);
