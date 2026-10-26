@@ -92,14 +92,16 @@ test("运营后台菜单：内置角色、每一项勾选、任意两项勾选�
   }
 });
 
-test("运营后台菜单：只勾了「订单 · 查看」的自建角色看不到「取消政策」；能看主数据又管订单或审核取消政策的看得到", () => {
+test("运营后台菜单：只勾了「订单 · 查看」的自建角色看不到「取消政策」；能看主数据的（勾了取消政策、赔付表或主数据的查看）都看得到", () => {
   const labels = (grants: string[]) => platformMenu(new Set(actionsOfGrants(grants))).map((leaf) => leaf.label);
   assert.ok(!labels(["orders:view"]).includes("取消政策"));
   assert.ok(labels(["orders:view"]).includes("订单"));
   assert.ok(labels(["orders:view", "cancellation_policy:view"]).includes("取消政策"));
   assert.ok(labels(["cancellation_policy:view", "cancellation_policy:review"]).includes("取消政策"));
   assert.ok(labels(["cancellation_policy:view", "cancellation_policy:edit"]).includes("取消政策"));
-  assert.ok(!labels(["master_data:view"]).includes("取消政策"), "只看主数据的（主数据运营）菜单里不放");
+  assert.ok(labels(["master_data:view"]).includes("取消政策"), "菜单和页面的条件一致：看得了主数据就看得了取消政策，菜单里就有入口");
+  assert.ok(labels(["cancellation_policy:view"]).includes("取消政策"));
+  assert.ok(labels(["compensation_table:view"]).includes("赔付表"));
   assert.ok(!labels(["tickets:view"]).includes("赔付表"), "只勾了「工单 · 查看」没有主数据查看：赔付表页面看不了，菜单不放");
   assert.ok(labels(["tickets:view", "compensation_table:view"]).includes("赔付表"));
 });

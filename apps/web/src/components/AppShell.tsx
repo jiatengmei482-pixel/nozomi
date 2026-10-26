@@ -58,11 +58,9 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
   if (portal === "platform" && platformCan("ticket.read")) entries.push({ to: "/platform/tickets", label: "工单", icon: "message", prefix: true });
   // 救援改派（M3-04）：看得到订单的就看得到救援队列；发起、发救援单要 rescue.manage（页面上按权限给按钮）
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/rescues", label: "救援", icon: "check-circle", prefix: true });
-  // 取消政策（M3-03）：页面要「看主数据」（`master_data.read`，取消政策的查看就是它）；其中管订单的人和发起、审核改政策的人用得到才放进菜单
-  // （主数据运营虽然看得到政策，菜单里不放）。只勾了「订单 · 查看」的自建角色没有 `master_data.read`，不显示。
-  if (portal === "platform" && platformCan("master_data.read") && (platformCan("order.read") || platformCan("cancellation_policy.manage") || platformCan("cancellation_policy.review"))) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
-  // 赔付表（M4-03）：页面要「看主数据」（`master_data.read`）；菜单里只放处理订单、工单的人和发起 / 审核修改的人
-  if (portal === "platform" && platformCan("master_data.read") && (platformCan("ticket.read") || platformCan("compensation_table.manage") || platformCan("compensation_table.review"))) entries.push({ to: "/platform/compensation-table", label: "赔付表", icon: "file", prefix: true });
+  // 取消政策（M3-03）、赔付表（M4-03）：菜单的显示条件和页面的查看条件一致（能看页面就有入口，M4-10）——都是「看主数据」（`master_data.read`）
+  if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
+  if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/compensation-table", label: "赔付表", icon: "file", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
   // 财务结算（M4-03，接口 M5-01）：账单、付款批次
   if (portal === "platform" && platformCan("statement.read")) {
