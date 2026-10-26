@@ -512,7 +512,7 @@ export function PendingAirportsPage() {
           {country !== null && done.length === 0 ? (
             <StateBlock
               tone="success"
-              title={`${countryName(country) ?? country}没有待指定城市的机场`}
+              title={`${countryName(country) ?? `${country} `}没有待指定城市的机场`}
               description="导入新的机场后，会出现在这里。"
               action={
                 <Button variant="secondary" onClick={() => setCountry(null)}>
@@ -602,7 +602,7 @@ export function PendingAirportsPage() {
                 options={choices}
                 value={draft.cityId}
                 placeholder="输入城市名称或编码查找"
-                emptyText={`还没有${countryName(current.country_code) ?? current.country_code}的城市`}
+                emptyText={`还没有${countryName(current.country_code) ?? ` ${current.country_code} `}的城市`}
                 loading={cityList === null && cities.state.status === "loading"}
                 loadFailed={cityList === null && cities.state.status === "error"}
                 errors={[...(cityError !== null ? [cityError] : []), ...(attempted && draft.cityId === null ? ["请选择所属城市"] : [])]}

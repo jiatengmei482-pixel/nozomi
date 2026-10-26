@@ -530,6 +530,32 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.ok(screen.getByRole("button", { name: "重新邀请" }));
 });
 
+test("新增员工选自建角色：邀请链接对话框和启用确认里写角色名，不写内部编号", async () => {
+  const actor = user();
+  const key = "custom_4a16c6195b8bd3aa";
+  const custom = { key, name: "夜班客服", builtin: false, description: null, grants: ["orders:view"], permissions: ["order.read"], data_scope: { city_ids: null, channel_ids: null, cities: [], channels: [] }, ip_allowlist: [], version: 1, staff_count: 0, ...stamps };
+  open("/platform/settings/staff/new", "super_admin", {}, (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/roles") return json(200, { items: [custom] });
+    if (call.method === "POST" && call.url.pathname === "/platform/v1/staff") return json(201, { user: staffOf({ role: key, role_name: "夜班客服", status: "invited" }), invite });
+    return null;
+  });
+  await screen.findByRole("heading", { level: 1, name: "新增员工" });
+  await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
+  await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
+  await actor.click(await screen.findByRole("radio", { name: /^夜班客服（自建）/ }));
+  await actor.click(screen.getByRole("button", { name: "新增" }));
+  const link = await screen.findByRole("dialog", { name: "邀请链接（只显示这一次）" });
+  assert.match(link.textContent ?? "", /给 佐藤 健（sato@example\.com）· 平台员工，夜班客服/);
+  assert.doesNotMatch(link.textContent ?? "", /custom_/);
+
+  resetBrowser();
+  open("/platform/settings/staff", "super_admin", { staff: [meOf("super_admin"), staffOf({ status: "disabled", role: key, role_name: "夜班客服" })] });
+  await actor.click(within((await screen.findByText("sato@example.com")).closest("tr") as HTMLElement).getByRole("button", { name: /的更多操作$/ }));
+  await actor.click(screen.getByRole("menuitem", { name: "启用" }));
+  const enable = screen.getByRole("dialog", { name: "启用「佐藤 健」？" });
+  assert.match(enable.textContent ?? "", /角色不变（夜班客服）。/);
+});
+
 // ───────────── 审计日志、系统状态 ─────────────
 
 test("审计日志：每一行读得出谁、做了什么、对什么；不认识的类型原样显示；详情里「改了什么」只列变了的，值换成中文并带原值，长的可以展开；筛选条件写进请求", async () => {
@@ -690,6 +716,18 @@ test("邮箱过了页面的格式检查、却被后端判为不合规：新建�
   assert.equal(document.getElementById("staff-email-error")?.textContent ?? "", "");
 });
 
+test("审计日志详情：双人复核的 kind、resource_id 写中文字段名，复核类别写中文并带原值（M4-10）", async () => {
+  const actor = user();
+  const approval = logOf({ id: "9", tenant_id: null, resource: "approval", resource_id: "a1", action: "approve", before: { status: "pending" }, after: { status: "approved", kind: "compensation_table.update", resource_id: "default", note: null } });
+  open("/platform/settings/audit-logs", "super_admin", { logs: [approval] });
+  await actor.click(await screen.findByRole("button", { name: "第 9 条记录的详情" }));
+  const detail = await screen.findByRole("dialog");
+  const heads = within(within(detail).getByRole("table")).getAllByRole("rowheader").map((cell) => cell.textContent);
+  assert.ok(heads.includes("复核类别kind"), heads.join("|"));
+  assert.ok(heads.includes("复核对象的编号resource_id"), heads.join("|"));
+  assert.match(within(detail).getByRole("row", { name: /复核类别/ }).textContent ?? "", /修改客人赔付表compensation_table\.update/);
+});
+
 test("审计日志的「筛选」面板（手机宽度用）：面板里改的是草稿，不发请求；日期写错不关面板并指出是哪一个；点「查看结果」才一起生效并关闭；「清空」清掉面板里的条件；直接关掉不生效", async () => {
   const actor = user();
   const calls = open("/platform/settings/audit-logs?action=suspend", "super_admin");
@@ -699,7 +737,7 @@ test("审计日志的「筛选」面板（手机宽度用）：面板里改的�
   await actor.click(screen.getByRole("button", { name: "筛选 · 1" }));
   const panel = screen.getByRole("dialog", { name: "筛选" });
   const field = (id: string): HTMLInputElement => panel.querySelector(`#audit-panel-${id}`) as HTMLInputElement;
-  assert.equal(field("action").value, "suspend", "面板打开时带着现在生效的条件");
+  assert.equal(field("action").value, "suspend,pause", "面板打开时带着现在生效的条件（网址里只有 suspend：对上同名的「暂停」那一项）");
   await actor.selectOptions(field("resource"), "tenant");
   await actor.type(field("from"), "2026/10/1");
   await actor.type(field("to"), "2026-02-31");
@@ -716,7 +754,7 @@ test("审计日志的「筛选」面板（手机宽度用）：面板里改的�
   await waitFor(() => assertAbsent(screen.queryByRole("dialog", { name: "筛选" })));
   await waitFor(() => assert.equal(requests().length, before + 1, "一起生效，只发一次"));
   const sent = requests().at(-1) as URL;
-  assert.deepEqual([sent.searchParams.get("resource"), sent.searchParams.get("action")], ["tenant", "suspend"]);
+  assert.deepEqual([sent.searchParams.get("resource"), sent.searchParams.get("action")], ["tenant", "suspend,pause"], "网址里的旧写法 suspend 按「暂停」整组查");
   assert.equal(sent.searchParams.get("from"), new Date(2026, 9, 1).toISOString());
   assert.equal(sent.searchParams.get("to"), new Date(2026, 9, 10).toISOString());
   await screen.findByRole("button", { name: "筛选 · 4" });

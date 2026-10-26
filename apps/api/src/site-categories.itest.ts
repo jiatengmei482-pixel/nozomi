@@ -14,6 +14,7 @@ import type { TenantFixture } from "./testing/api.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
 import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
+import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
@@ -55,7 +56,7 @@ async function categoryProduct(who: TenantFixture, category: "point_to_point" | 
   api.clock.advance(1_000);
   const area = (await call("POST", "/areas", { city_id: m.ids.tokyo, name: { zh: `东京-${category}` }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: [[[139.0, 35.0], [140.0, 35.0], [140.0, 36.0], [139.0, 36.0], [139.0, 35.0]]] } }] }, undefined, 201)).id;
   const created = await call("POST", "/products", { brand_id: brand, city_id: m.ids.tokyo, category, areas: [{ area_id: area }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] }, undefined, 201);
-  const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: { mode: "limited", minutes: 30 } } }, 1);
+  const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general: category === "charter" ? { mode: "limited", minutes: 0 } : { mode: "limited", minutes: 30 } } }, 1);
   let version = (await call("PUT", `/products/${created.id}/content`, { zh: { title: category === "charter" ? "东京包车" : "东京市内用车" } }, rules.version)).version as number;
   for (const price of prices) {
     await call("POST", `/products/${created.id}/price-rules`, { area_id: area, vehicle_group_id: m.ids.biz7, valid_from: "2026-01-01", ...price }, version, 201);
@@ -248,6 +249,28 @@ test("包车：选 8 小时（乙 70,000，对外 77,000，含 150 公里）→ 
   assert.deepEqual([seen.body.order.package_hours, seen.body.order.cancel_policy.category], [8, "charter"]);
   const fee = await site.call("GET", "/site/v1/order/cancel-fee?reason=GUEST_REQUEST", { token: created.body.link.token, ip: nextIp() });
   assert.equal(fee.status, 200, fee.text);
+});
+
+test("包车的免费等待按需求固定为 0：报价写 0 分钟；供应商保存别的值被拒（FIXED_BY_PLATFORM）；以前存下的非 0 值不改数据，报价时按 0 算", async () => {
+  assert.equal((await quote(charterBody())).quotes[0].free_wait_minutes, 0);
+  const id = (await api.db.owner.query<{ id: string; version: number }>("select id, version from products where tenant_id = $1 and category = 'charter'", [m.b.tenantId])).rows[0];
+  assert.ok(id);
+  const token = await tenantLogin(api, m.b.adminEmail);
+  for (const general of [{ mode: "limited", minutes: 15 }, { mode: "unlimited" }]) {
+    const refused = await api.call("PUT", `/tenant/v1/products/${id.id}/service-rules`, { token, headers: { "if-match": `"${id.version}"` }, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: { general } } });
+    assert.equal(refused.status, 400, refused.text);
+    assert.deepEqual(refused.body.error.details.issues.map((issue: any) => [issue.path, issue.reason]), [[general.mode === "limited" ? "/free_wait/general/minutes" : "/free_wait/general", "FIXED_BY_PLATFORM"]]);
+    assert.match(refused.body.error.details.issues[0].message, /0 分钟/);
+  }
+  // M4-10 之前存下的 15 分钟（迁移不改数据，ADR 0043）：报价、下单都按 0
+  const updated = await api.db.owner.query<{ general: unknown }>(`update products set service_rules = jsonb_set(service_rules, '{freeWait,general}', '{"mode":"limited","minutes":15}'::jsonb) where id = $1 returning service_rules -> 'freeWait' -> 'general' as general`, [id.id]);
+  assert.deepEqual(updated.rows[0]?.general, { mode: "limited", minutes: 15 }, "库里确实是旧的 15 分钟");
+  api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
+  const legacy = await quote(charterBody());
+  assert.equal(legacy.quotes[0].free_wait_minutes, 0);
+  const placed = await order({ quote_id: legacy.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站大饭店" });
+  assert.equal(placed.status, 201, placed.text);
+  assert.equal(placed.body.order.free_wait_minutes, 0);
 });
 
 test("别的渠道经 /sales/v1 下的点对点单：官网用订单号 + 联系方式也找不到（同一个 404）", async () => {

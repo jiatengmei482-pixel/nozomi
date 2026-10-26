@@ -4,6 +4,7 @@
  */
 import { EXCEPTION_STATUS_NAMES, ORDER_STATUS_NAMES, PLATFORM_ROLES, PRODUCT_STATUS_NAMES, STATEMENT_STATUS_NAMES, TENANT_ROLES, TICKET_STATUS_NAMES } from "@nozomi/domain";
 import type { AuditActorType, AuditLog, AuditSource } from "../api/platform.ts";
+import { APPROVAL_KIND_NAMES } from "./channel-display.ts";
 import { displayName } from "./master-display.ts";
 
 export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
@@ -132,6 +133,27 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   void: "作废",
 };
 
+/**
+ * 「操作」筛选的选项：同名的几个动作合成一项（「启用」= enable、activate；「暂停」= suspend、pause），
+ * 选项的值是这几个动作用逗号连起来（接口按任一个查）。按名称排在第一次出现的位置。
+ */
+export const ACTION_FILTER_OPTIONS: readonly { value: string; label: string }[] = (() => {
+  const groups = new Map<string, string[]>();
+  for (const [action, label] of Object.entries(ACTION_NAMES)) groups.set(label, [...(groups.get(label) ?? []), action]);
+  return [...groups].map(([label, actions]) => ({ value: actions.join(","), label }));
+})();
+
+/** 网址里的「操作」：一个或几个动作，逗号分隔；只认小写字母和下划线，最多 10 个。 */
+export function isActionFilter(value: string): boolean {
+  const parts = value.split(",");
+  return parts.length <= 10 && parts.every((part) => /^[a-z_]{1,40}$/.test(part));
+}
+
+/** 网址里只有一个动作（以前的链接）而它属于某个同名的组：选项里对应那一组。 */
+export function actionFilterOption(value: string): string {
+  return ACTION_FILTER_OPTIONS.find((option) => option.value === value || option.value.split(",").includes(value))?.value ?? value;
+}
+
 /** 同一个操作在不同对象上的说法（「关闭」付款批次是锁定，「出」账单是出账）。没列的用上面的通用说法。 */
 export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   order: { assign: "派车", reassign: "改派", cancel: "取消订单" },
@@ -223,6 +245,16 @@ export const FIELD_NAMES: Readonly<Record<string, string>> = {
   period: "周期",
 };
 
+/** 只在某一类对象上才这样叫的字段（同名字段在别处意思不同）：双人复核的 `kind` 是复核类别，`resource_id` 是要改的对象。 */
+export const FIELD_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  approval: { kind: "复核类别", resource: "复核对象的类型", resource_id: "复核对象的编号", summary: "摘要", payload: "申请的内容" },
+};
+
+/** 字段的中文名：先看这一类对象专有的，再看通用的；不认识的返回 undefined（页面上只显示原名）。 */
+export function fieldName(field: string, resource = ""): string | undefined {
+  return FIELD_NAMES_BY_RESOURCE[resource]?.[field] ?? FIELD_NAMES[field];
+}
+
 const ROLE_NAMES: Readonly<Record<string, string>> = Object.fromEntries([...PLATFORM_ROLES, ...TENANT_ROLES].map((role) => [role.key, role.name]));
 /** 「状态」在各种对象上的说法不一样：供应商是正常 / 已暂停，账号是待激活 / 在用 / 已停用，商品是草稿 / 已上架 / 已下架，主数据是启用 / 已停用。 */
 function statusNames(resource: string): Readonly<Record<string, string>> {
@@ -240,6 +272,8 @@ function enumName(key: string, value: string, resource: string): string | undefi
   if (key === "status") return statusNames(resource)[value];
   if (key === "role") return ROLE_NAMES[value];
   if (key === "mode") return ({ unlimited: "不限量", limited: "限量" } as Record<string, string>)[value];
+  if (resource === "approval" && key === "kind") return (APPROVAL_KIND_NAMES as Readonly<Record<string, string>>)[value];
+  if (resource === "approval" && key === "resource") return RESOURCE_NAMES[value];
   return undefined;
 }
 

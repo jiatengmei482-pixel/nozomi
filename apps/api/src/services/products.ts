@@ -39,6 +39,7 @@ import {
   canPublish,
   contentIssues,
   emptyServiceRules,
+  fixedFreeWaitIssues,
   freeWaitItems,
   hasVisibleText,
   instantToLocal,
@@ -519,6 +520,7 @@ export async function deleteProduct(ctx: AppContext, writer: ProductWriter, id: 
 // ---- 服务规则 ----
 
 const RULE_MESSAGES: Readonly<Record<PublishIssueReason, string>> = {
+  FIXED_BY_PLATFORM: "包车的免费等待由平台固定为 0 分钟（从约定的开始时间起计入套餐时长），不能设别的值",
   REQUIRED: "必填",
   INVALID_DATE: "不是合法的日期（YYYY-MM-DD）",
   DATE_RANGE_REVERSED: "结束日期不能早于开始日期",
@@ -634,7 +636,7 @@ export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id
     // 已上架的商品开了新的附加服务：先和平台停用附加服务互斥，再查它们是不是启用的
     if (current.status === "published") await lockMasterReferences(db, current, [], input);
     const rules = await effectiveServiceRules(db, input);
-    const issues = ruleIssues(serviceRuleIssues(rules, await ruleContext(db, current)));
+    const issues = ruleIssues([...serviceRuleIssues(rules, await ruleContext(db, current)), ...fixedFreeWaitIssues(rules, current.category)]);
     const addons = await findAddonsForProduct(db, rules.addons.map((addon) => addon.addonId));
     for (const [index, chosen] of rules.addons.entries()) {
       const at = `/addons/${index}`;

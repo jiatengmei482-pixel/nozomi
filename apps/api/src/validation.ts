@@ -157,7 +157,14 @@ export const auditFilterSchema = pageQuerySchema.extend({
   actor_id: uuidSchema.optional(),
   resource: z.string().min(1).max(50).optional(),
   resource_id: z.string().min(1).max(100).optional(),
-  action: z.string().min(1).max(50).optional(),
+  /** 一个或几个动作，逗号分隔（「启用」在不同对象上是 enable、activate，按名称筛时一起查，M4-10） */
+  action: z
+    .string()
+    .min(1)
+    .max(500)
+    .transform((value) => value.split(",").map((part) => part.trim()))
+    .refine((actions) => actions.length <= 10 && actions.every((action) => action.length >= 1 && action.length <= 50), { message: "动作最多 10 个，逗号分隔，每个 1 到 50 个字" })
+    .optional(),
   from: dateTimeSchema.optional(),
   to: dateTimeSchema.optional(),
 });

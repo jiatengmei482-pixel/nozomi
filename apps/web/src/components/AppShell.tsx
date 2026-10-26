@@ -21,7 +21,7 @@ import { Skeleton } from "./States.tsx";
 /** 侧边栏常驻显示的最小宽度：tokens.css 的 --breakpoint-lg。 */
 const SIDEBAR_PINNED_QUERY = "(min-width: 1024px)";
 
-interface NavLeaf {
+export interface NavLeaf {
   to: string;
   label: string;
   icon?: IconName;
@@ -29,7 +29,7 @@ interface NavLeaf {
   prefix?: boolean;
 }
 
-interface NavGroup {
+export interface NavGroup {
   key: string;
   label: string;
   icon: IconName;
@@ -38,10 +38,13 @@ interface NavGroup {
   collapsedByDefault?: boolean;
 }
 
-type NavEntry = NavLeaf | NavGroup;
+export type NavEntry = NavLeaf | NavGroup;
 
-/** 菜单只列已经做出来、当前角色有权限看的页面（docs/design/pages/platform-home.md 第 2 节）。 */
-function navEntries(portal: Portal, home: string, role: string | null, platformCan: (action: PlatformAction) => boolean): NavEntry[] {
+/**
+ * 菜单只列已经做出来、当前角色有权限看的页面（docs/design/pages/platform-home.md 第 2 节）：
+ * 每一项的条件都要包含那个页面自己要求的查看权限，不能出现点进去显示「你没有权限查看这里」的菜单项（AppShell.nav.test.tsx 遍历权限组合核对）。
+ */
+export function navEntries(portal: Portal, home: string, role: string | null, platformCan: (action: PlatformAction) => boolean): NavEntry[] {
   const entries: NavEntry[] = [{ to: home, label: "首页", icon: "home" }];
   if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenants", label: "供应商", icon: "building", prefix: true });
   if (portal === "platform" && platformCan("tenant.read")) entries.push({ to: "/platform/tenant-documents", label: "资质审核", icon: "file", prefix: true });
@@ -55,10 +58,9 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
   if (portal === "platform" && platformCan("ticket.read")) entries.push({ to: "/platform/tickets", label: "工单", icon: "message", prefix: true });
   // 救援改派（M3-04）：看得到订单的就看得到救援队列；发起、发救援单要 rescue.manage（页面上按权限给按钮）
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/rescues", label: "救援", icon: "check-circle", prefix: true });
-  // 取消政策（M3-03）：管订单的人和审核政策的人用得到（主数据运营虽然看得到政策，菜单里不放）
-  if (portal === "platform" && (platformCan("order.read") || platformCan("cancellation_policy.review"))) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
-  // 赔付表（M4-03）：每个角色都能看（`master_data.read`），菜单里只放处理订单、工单的人和发起 / 审核修改的人
-  if (portal === "platform" && (platformCan("ticket.read") || platformCan("compensation_table.manage") || platformCan("compensation_table.review"))) entries.push({ to: "/platform/compensation-table", label: "赔付表", icon: "file", prefix: true });
+  // 取消政策（M3-03）、赔付表（M4-03）：菜单的显示条件和页面的查看条件一致（能看页面就有入口，M4-10）——都是「看主数据」（`master_data.read`）
+  if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
+  if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/compensation-table", label: "赔付表", icon: "file", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
   // 财务结算（M4-03，接口 M5-01）：账单、付款批次
   if (portal === "platform" && platformCan("statement.read")) {

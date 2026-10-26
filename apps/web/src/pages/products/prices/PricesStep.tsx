@@ -137,7 +137,7 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
       ) : (
         <p className="price-info">
           金额都是<strong>结算价</strong>，币种 <strong>{currency}</strong>
-          {digits === 0 ? `（${CURRENCY_NAMES[currency] ?? currency}没有小数）` : `（最多 ${digits} 位小数）`} · {data.rounding_unit > 1 ? "调价后的结算价取整到 " : "调价后的结算价四舍五入到 "}
+          {digits === 0 ? `（${CURRENCY_NAMES[currency] ?? `${currency} `}没有小数）` : `（最多 ${digits} 位小数）`} · {data.rounding_unit > 1 ? "调价后的结算价取整到 " : "调价后的结算价四舍五入到 "}
           <span className="price-info__keep">
             <strong>{moneyText(data.rounding_unit, currency)}</strong>
             {canSetRounding && product.brand && (

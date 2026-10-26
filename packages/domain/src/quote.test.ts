@@ -438,6 +438,13 @@ test("免费等待（「服务规则」免等）：接机 / 送机各用各的�
   assert.deepEqual(settlement(p2p, request({ category: "point_to_point", direction: null, pickup: WEST, dropoff: WEST })).freeWait, { item: "general", value: { mode: "unlimited" }, platformMinimumMinutes: 15 });
 });
 
+test("免费等待：包车按需求固定为 0——以前存下的别的值（15 分钟、不限时）报价时也按 0 分钟算", () => {
+  for (const stored of [{ mode: "limited" as const, minutes: 15 }, { mode: "unlimited" as const }, { mode: "limited" as const, minutes: 0 }]) {
+    const charter = product({ category: "charter", pickupPlace: null, priceRules: [price({ model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: 10 })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: stored } }) });
+    assert.deepEqual(settlement(charter, request({ category: "charter", direction: null, packageHours: 10, pickup: WEST, dropoff: null })).freeWait, { item: "general", value: { mode: "limited", minutes: 0 }, platformMinimumMinutes: 0 }, JSON.stringify(stored));
+  }
+});
+
 test("时区：服务时间、夜间时段、出行日期、加急小时数都按服务城市当地时间；同一个钟面时间在纽约和东京是不同的时刻；夏令时里不存在的时间按拨快之后", () => {
   // 纽约的商品：价格只在当地 2026-10-07 这一天有效。现在是 UTC 10-07 01:00 = 纽约 10-06 21:00
   const ny = product({ timeZone: "America/New_York", priceRules: [price(fixed(100), { validFrom: "2026-10-07", validTo: "2026-10-07" })], serviceRules: rules({ booking: { ...rules().booking, leadTimeHours: 2 } }) });

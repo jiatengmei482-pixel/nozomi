@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SiteOrder, SiteQuote } from "../api/site.ts";
-import { guestCancelPolicyText, guestInstantText, guestLocalText, orderSectionSequence, primaryOrderSection, quotesByTotal } from "./site-display.ts";
+import { freeWaitText, guestCancelPolicyText, guestInstantText, guestLocalText, orderSectionSequence, primaryOrderSection, quotesByTotal } from "./site-display.ts";
 
 const HOUR = 3_600_000;
 
@@ -99,4 +99,12 @@ test("投诉和反馈（M4-03）：排在取消之后、需要帮助之前；客
   assert.deepEqual(["open", "awaiting_tenant", "in_progress", "pending_review", "decided", "closed"].map((status) => guestTicketBadge(status).label), ["处理中", "处理中", "处理中", "处理中", "已有结果", "已结束"]);
   assert.equal(guestTicketOutcome("complaint", "upheld"), "投诉成立，平台按赔付标准给您补偿");
   assert.equal(guestTicketOutcome("complaint", null), null);
+});
+
+test("免费等待的客人说法：包车是 0（从约定的开始时间起计入包车时长），接机从落地起算，其他从约定的上车时间起算；以前的包车单照存下的分钟数写", () => {
+  assert.equal(freeWaitText(0, "charter", null), "不另计免费等待（从约定的开始时间起计入包车时长）");
+  assert.equal(freeWaitText(15, "charter", null), "15 分钟（从约定的上车时间起算）");
+  assert.equal(freeWaitText(90, "airport_transfer", "pickup"), "90 分钟（从航班落地起算）");
+  assert.equal(freeWaitText(15, "point_to_point", null), "15 分钟（从约定的上车时间起算）");
+  assert.equal(freeWaitText(null, "point_to_point", null), "不限时");
 });

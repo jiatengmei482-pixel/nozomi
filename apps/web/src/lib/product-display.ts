@@ -87,7 +87,7 @@ export function readAmount(text: string, currency: string | null): AmountResult 
   // 主单位 → 最小货币单位：用 @nozomi/domain 的 scaledInteger（和导入 Excel 同一个函数），先查小数位、再查范围
   const scaled = scaledInteger(tidy, digits, { min: 0, max: PRODUCT_LIMITS.maxAmountMinor });
   if ("value" in scaled) return { ok: true, minor: scaled.value };
-  if (scaled.issue === "PRECISION") return { ok: false, message: digits === 0 ? `${currency ?? "这种币种"}没有小数，请填整数` : `${currency} 最多 ${digits} 位小数` };
+  if (scaled.issue === "PRECISION") return { ok: false, message: digits === 0 ? `${currency === null ? "这种币种" : `${currency} `}没有小数，请填整数` : `${currency} 最多 ${digits} 位小数` };
   return { ok: false, message: "金额太大了，请检查是不是多打了几个零" };
 }
 

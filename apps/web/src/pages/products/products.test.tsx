@@ -504,6 +504,21 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   assert.deepEqual((writes(second)[0]?.body as ServiceRulesBody).free_wait, { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "limited", minutes: 15 }, general: null });
 });
 
+test("服务规则：包车的免费等待由平台固定为 0——没有输入框，写明原因；以前存的 15 分钟提示已按 0 算，保存时改成 0", async () => {
+  const actor = user();
+  const charter = productOf({ category: "charter", poi_id: null, poi: null });
+  const legacy = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24, note: null }, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 15 } } });
+  const calls = open(`/products/${PRODUCT_ID}/service-rules`, "admin", productRoutes({ product: charter, rules: { ...legacy, free_wait_minimums: { pickup: null, dropoff: null, general: 0 } } }, (call) => (call.method === "PUT" ? json(200, rulesOf(call.body as ServiceRulesBody, 8)) : null)));
+  const section = (await screen.findByRole("heading", { name: "免费等待" })).closest("section") as HTMLElement;
+  assert.match(section.textContent ?? "", /上车点0 分钟平台统一 · 不能修改/);
+  assert.match(section.textContent ?? "", /包车不另外免费等待：从约定的开始时间起就计入套餐时长/);
+  assert.match(section.textContent ?? "", /以前存的是「15 分钟」，报价时已经按 0 分钟算；保存这一步时会改成 0。/);
+  assert.equal(within(section).queryAllByRole("textbox").length + within(section).queryAllByRole("radio").length, 0, "没有能填的");
+  await actor.click(screen.getByRole("button", { name: "保存草稿" }));
+  await screen.findByText("已保存");
+  assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).free_wait, { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } });
+});
+
 test("服务规则：后端指出的问题落在对应的输入框上；平台停用的附加服务有提醒；只读角色不能改也没有保存", async () => {
   const actor = user();
   const rules = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null }, free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "unlimited" }, general: null }, addons: [{ addon_id: ADDON_ID, enabled: true, unit_price: 1000, first_free: true }] });

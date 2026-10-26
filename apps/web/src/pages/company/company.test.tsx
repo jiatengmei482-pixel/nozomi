@@ -146,6 +146,7 @@ test("企业资质：入驻进度列出还缺什么；按清单逐项上传—�
   assert.equal(sent[0]?.headers["content-type"], "application/pdf");
   assert.deepEqual(sent[1]?.body, { type: "vehicle_insurance", file_id: FILE_ID, expires_on: "2027-10-01", note: null });
   await waitFor(() => assert.match(screen.getByRole("region", { name: "资质清单" }).textContent ?? "", /营运车辆商业保险.*审核中/));
+  assert.match(screen.getByRole("row", { name: /营运车辆商业保险/ }).textContent ?? "", /2027-10-01（审核中）/, "审核前就看得到填的到期日");
 
   await user.click(screen.getByRole("button", { name: "提交审核" }));
   await screen.findByText("还不能提交：结算账户证明：还没有提交。");
@@ -165,6 +166,7 @@ test("企业资质：只读角色只能看（没有上传、提交、编辑）�
   assertAbsent(screen.queryByRole("button", { name: "保存" }));
   assert.match(screen.getByRole("region", { name: "资质清单" }).textContent ?? "", /保单上的车牌看不清/);
   assert.ok(screen.getByText("丙株式会社"));
+  assert.match(document.body.textContent ?? "", /按 KR 的必交清单。/, "国家代码前后有空格");
 });
 
 test("履约评分：比价用的分、各项指标和权重、趋势；在观察期时说清原因和影响；默认分说明", async () => {
@@ -194,6 +196,7 @@ test("运营后台供应商详情：审核中的可以签约；资质逐项审�
   await screen.findByRole("heading", { level: 1, name: "丙车队" });
   const progress = await screen.findByRole("region", { name: "入驻进度" });
   assert.match(progress.textContent ?? "", /签约前还缺：还没有已生效的合同/);
+  assert.match((await screen.findByRole("row", { name: /营运车辆商业保险/ })).textContent ?? "", /2027-10-01（审核中）/, "运营审核前在资质表里就看得到供应商填的到期日");
   await user.click(within(progress).getByRole("button", { name: "签约" }));
   const sign = screen.getByRole("dialog", { name: "和「丙车队」签约" });
   await user.click(within(sign).getByRole("button", { name: "签约" }));
@@ -217,6 +220,18 @@ test("运营后台供应商详情：审核中的可以签约；资质逐项审�
   await screen.findByText("营运车辆商业保险：已通过");
   assert.deepEqual(writes(calls).find((call) => call.path.endsWith("/approve"))?.body, { expires_on: "2027-09-30" });
   assert.equal(writes(calls).find((call) => call.path.endsWith("/approve"))?.path, `/platform/v1/tenants/${TENANT_ID}/documents/${DOC_ID}/approve`);
+});
+
+test("运营后台：资质全部通过、合同已生效的「审核中」供应商，入驻进度写可以签约，不再写资质正在审核（M4-10）", async () => {
+  const tenant = tenantOf({ status: "reviewing" });
+  openPlatform(`/platform/tenants/${TENANT_ID}`, "tenant_onboarding", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenant);
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tenants/${TENANT_ID}/company`) return json(200, companyOf({ tenant, next_step_issues: [] }));
+    return null;
+  });
+  const progress = await screen.findByRole("region", { name: "入驻进度" });
+  assert.match(progress.textContent ?? "", /资质已全部审核通过、合同已生效，可以签约。/);
+  assert.doesNotMatch(progress.textContent ?? "", /资质正在审核/);
 });
 
 test("运营后台：只读角色看得到入驻进度和资质，但没有签约、审核、下载、发起合同的按钮；资质审核队列列出待审核的、能切到快到期的", async () => {

@@ -9,7 +9,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import type { ListPage } from "../../api/dispatch.ts";
 import { type PlatformTicket, type PlatformTicketCreate, createPlatformTicket, listPlatformTickets } from "../../api/order-center.ts";
-import { type PlatformOrderDetail, getPlatformOrder, listPlatformOrders } from "../../api/order-money.ts";
+import { type PlatformOrder, type PlatformOrderDetail, getPlatformOrder, listPlatformOrders } from "../../api/order-money.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -201,6 +201,12 @@ const LANGUAGES = [
   { value: "ko", label: "韩语" },
 ] as const;
 
+/** 还没付过款的单不能建工单（后端 409 `ORDER_STATE_INVALID`，`NOT_CONFIRMED`）：查找时、打开时就说清楚。 */
+function unpaidTicketText(order: Pick<PlatformOrder, "status" | "confirmed_at">): string | null {
+  if (order.confirmed_at !== null) return null;
+  return order.status === "pending_payment" ? "这张订单还没付款，付款完成后才能建工单。" : "这张订单没有付过款就取消了，不能建工单。";
+}
+
 /** 按订单号找到订单（完整的号），找到了返回编号。 */
 function OrderLookup({ onFound }: { onFound(id: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
@@ -220,6 +226,7 @@ function OrderLookup({ onFound }: { onFound(id: string): void }) {
       const page = await listPlatformOrders(token, { q, limit: 1 });
       const found = page.items[0];
       if (found === undefined) setProblem("没有找到这张订单。请核对订单号（平台订单号或渠道订单号，要完整）。");
+      else if (unpaidTicketText(found) !== null) setProblem(unpaidTicketText(found));
       else onFound(found.id);
     } catch (err) {
       if (!handleAuthFailure(err)) setProblem(failureText(err, "查找订单"));
@@ -285,6 +292,8 @@ export function TicketNewPage() {
     return shell(loaded.state.status === "error" ? <StateBlock title="订单没有加载出来" description="请检查网络后重试。" action={<Button variant="secondary" onClick={loaded.reload}>重试</Button>} /> : <Skeleton lines={["medium", "control", "control", "long"]} />);
   }
   const { order } = detail;
+  const unpaid = unpaidTicketText(order);
+  if (unpaid !== null) return shell(<StateBlock tone="neutral" title="这张订单还不能建工单" description={unpaid} action={<LinkButton variant="secondary" to={platformOrderPath(order.id)}>回到订单</LinkButton>} />);
   // 救援改派过的单：投诉的可能是原来的供应商
   const tenants = [order.tenant, ...detail.rescues.map((rescue) => rescue.original_tenant)].filter((tenant, index, all) => all.findIndex((other) => other.id === tenant.id) === index);
   const update = (patch: Partial<NewTicketForm>): void => setForm({ ...form, ...patch });

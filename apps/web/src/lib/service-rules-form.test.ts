@@ -62,7 +62,7 @@ test("写错了的：每一种都有定稿的话，指到对应的输入框", ()
     "加急阶梯第 3 档：请填写小时数",
     "第 4 档和第 5 档的小时数相同",
   ]);
-  assert.deepEqual(texts(fresh({ night: true, nightStart: "22", nightEnd: "22:00", nightAmount: "1.5" })), ["夜间时段：开始和结束不能相同", "夜间加价的金额：JPY没有小数，请填整数"]);
+  assert.deepEqual(texts(fresh({ night: true, nightStart: "22", nightEnd: "22:00", nightAmount: "1.5" })), ["夜间时段：开始和结束不能相同", "夜间加价的金额：JPY 没有小数，请填整数"]);
   assert.deepEqual(texts(fresh({ wait: { pickup: { mode: "limited", minutes: "30" }, dropoff: { mode: "limited", minutes: "" }, general: { mode: "limited", minutes: "" } } })), ["免费等待：不能少于平台规定的 60 分钟", "免费等待：请填 15 到 1,440 之间的整数"]);
   assert.deepEqual(readRulesForm(fresh({ leadTime: "x" }), airport).problems[0]?.target, "lead-time-input");
 });

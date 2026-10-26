@@ -48,6 +48,8 @@ export function serviceTimeLabels(category: SiteCategory, direction: SiteDirecti
 /** 免费等待从什么时候算：只有接机从航班落地算。 */
 export function freeWaitText(minutes: number | null, category: SiteCategory, direction: SiteDirection | null): string {
   if (minutes === null) return "不限时";
+  // 包车的免费等待是 0：从约定的开始时间起就计入包车时长（需求「免费等待与 no-show」表）
+  if (category === "charter" && minutes === 0) return "不另计免费等待（从约定的开始时间起计入包车时长）";
   return `${minutes} 分钟（${category === "airport_transfer" && direction === "pickup" ? "从航班落地起算" : "从约定的上车时间起算"}）`;
 }
 
@@ -105,7 +107,7 @@ export const TIMELINE_NAMES: Readonly<Record<OrderStatus, string>> = {
 export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
   PAYMENT_TIMEOUT: "超过付款期限没有付款，系统自动取消",
   PAYMENT_CANCELED: "付款被取消",
-  GUEST_REQUEST: "您取消了订单（按取消政策退款）",
+  GUEST_REQUEST: "您取消了订单",
   CHANGE_NOT_CONFIRMED: "改期没有被确认，免费取消",
   FLIGHT_CANCELLED: "航班取消，免费取消",
   FORCE_MAJEURE: "不可抗力，免费取消",

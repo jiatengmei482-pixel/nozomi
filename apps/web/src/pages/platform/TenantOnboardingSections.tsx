@@ -43,10 +43,11 @@ import {
   DOCUMENT_STATUS_BADGES,
   MAX_FILE_BYTES,
   REQUIREMENT_BADGES,
-  TENANT_STATUS_HINTS,
   TRIGGER_NAMES,
   fileSizeText,
   issueText,
+  progressHint,
+  requirementExpiryText,
   statusEventText,
 } from "../../lib/onboarding-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -189,7 +190,7 @@ function ProgressCard({ company, onTenantChanged }: { company: CompanyOverview; 
           </span>
         )}
       </div>
-      <p>{TENANT_STATUS_HINTS[tenant.status]}</p>
+      <p>{progressHint(company, "platform")}</p>
       <dl className="details">
         {(
           [
@@ -341,7 +342,7 @@ function DocumentsCard({ company, onReviewed }: { company: CompanyOverview; onRe
                       <StatusBadge {...REQUIREMENT_BADGES[item.state]} />
                       {latest !== undefined && latest.status === "pending" && item.state !== "pending" && <span className="table__muted">（新的一份审核中）</span>}
                     </td>
-                    <td>{item.expires_on === null ? (item.expiry === "none" ? "无到期日" : "—") : `${item.expires_on}${item.days_left !== null && item.days_left > 0 ? `（还有 ${item.days_left} 天）` : ""}`}</td>
+                    <td>{requirementExpiryText(item, latest)}</td>
                     <td>
                       {latest === undefined ? (
                         "—"

@@ -476,6 +476,29 @@ test("规则 2：别的供应商的单不能声明、别的供应商的救援单
   });
 });
 
+test("还没付款的单：运营发起救援得到 409 ORDER_STATE_INVALID「付款完成后才能发起」（不是「订单不存在」）；供应商声明无法履约仍是 404（它看不到这张单）；不存在的单仍是 404", async () => {
+  const serviceTime = new Date(api.clock.now().getTime() + 5 * 24 * HOUR).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const order = await flow.unpaidOrder({ serviceTime });
+  assert.equal(order.status, "pending_payment");
+  const refused = await api.call("POST", `/platform/v1/orders/${order.id}/rescue`, { token: await ops(), body: { trigger: "driver_no_show", note: "测试" } });
+  assertMatchesOpenApi("POST", "/platform/v1/orders/{id}/rescue", refused);
+  assert.equal(refused.status, 409, refused.text);
+  assert.equal(refused.body.error.code, "ORDER_STATE_INVALID");
+  assert.equal(refused.body.error.details.reason, "NOT_CONFIRMED");
+  assert.equal(refused.body.error.details.status, "pending_payment");
+  assert.match(refused.body.error.message, /付款完成/);
+  assert.equal(await rescueCount(order.id), 0);
+
+  const owner = (await api.db.owner.query<{ tenant_id: string }>("select tenant_id from orders where id = $1", [order.id])).rows[0]?.tenant_id;
+  const tenant = [m.a, m.b, c].find((who) => who.tenantId === owner);
+  assert.ok(tenant, "这张单落在某个供应商名下");
+  const declared = await declare(tenant, order.id);
+  assert.equal(declared.status, 404, declared.text);
+
+  const missing = await api.call("POST", `/platform/v1/orders/${randomUUID()}/rescue`, { token: await ops(), body: { trigger: "driver_no_show", note: "测试" } });
+  assert.equal(missing.status, 404, missing.text);
+});
+
 test("供应商被暂停：没暂停时不能批量发起；暂停后名下未来订单逐张进入救援，违约金按距用车时间套阶梯", async () => {
   const order = await paidOrderIn(3 * 24);
   const root = await platformLogin(api, "root@platform.test");

@@ -13,6 +13,11 @@ test("用车时间按服务城市的时区显示（Intl 换算，不手工加减
 test("路线、方向、金额、时长、错误码、事件的中文", () => {
   assert.equal(routeText({ category: "airport_transfer", direction: "pickup", pickup: null, dropoff: { lng: 1, lat: 1, address: "东京站" } }, "成田机场"), "成田机场 → 东京站");
   assert.equal(routeText({ category: "airport_transfer", direction: "dropoff", pickup: { lng: 1, lat: 1, address: "酒店" }, dropoff: null }, "成田机场"), "酒店 → 成田机场");
+  assert.equal(routeText({ category: "point_to_point", direction: null, pickup: { lng: 1, lat: 1, address: "东京站" }, dropoff: { lng: 1, lat: 1, address: "新宿酒店" } }), "东京站 → 新宿酒店");
+  assert.equal(routeText({ category: "charter", direction: null, package_hours: 8, pickup: { lng: 1, lat: 1, address: "东京站" }, dropoff: null }), "包车 8 小时 · 上车：东京站", "包车不写「→ —」");
+  assert.equal(routeText({ category: "charter", direction: null, package_hours: null, pickup: { lng: 1, lat: 1, address: "东京站" }, dropoff: null }), "包车 · 上车：东京站");
+  assert.equal(routeText({ category: "charter", direction: null, package_hours: 10, pickup: { lng: 1, lat: 1, address: "东京站" }, dropoff: { lng: 1, lat: 1, address: "箱根" } }), "包车 10 小时 · 东京站 → 箱根");
+  assert.equal(routeText({ category: "charter", direction: null, pickup: null, dropoff: null }), "包车 · 上车：—");
   assert.equal(directionName({ category: "airport_transfer", direction: "pickup" }), "接机");
   assert.equal(directionName({ category: "charter", direction: null }), "包车");
   assert.equal(moneyText({ amount: "1234567", currency: "JPY" }), "1,234,567 JPY");

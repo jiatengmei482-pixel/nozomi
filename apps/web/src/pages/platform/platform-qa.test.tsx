@@ -1088,8 +1088,8 @@ test("审计日志游标翻页：下一页带上一页给的游标，上一页�
   await screen.findByRole("button", { name: "第 98 条记录的详情" });
 
   // 改条件回到第一页
-  await actor.selectOptions(document.getElementById("audit-action") as HTMLSelectElement, "suspend");
-  await waitFor(() => assert.deepEqual([cursors().at(-1), auditRequests(calls).at(-1)?.searchParams.get("action")], [null, "suspend"]));
+  await actor.selectOptions(document.getElementById("audit-action") as HTMLSelectElement, "暂停");
+  await waitFor(() => assert.deepEqual([cursors().at(-1), auditRequests(calls).at(-1)?.searchParams.get("action")], [null, "suspend,pause"]));
   await screen.findByRole("button", { name: "第 100 条记录的详情" });
   await actor.click(screen.getByRole("button", { name: "下一页" }));
   await screen.findByRole("button", { name: "第 99 条记录的详情" });

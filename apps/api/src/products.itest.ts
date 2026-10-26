@@ -96,7 +96,7 @@ async function publish(productId: string, token: string = tenant.adminToken): Pr
   let version: number = product.version;
   const failing = new Set<string>((await ok(call("GET", `/products/${productId}/publish-check`, as))).items.filter((item: any) => !item.passed).map((item: any) => item.key));
   if (failing.has("service_rules")) {
-    const freeWait = product.category === "airport_transfer" ? { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } : { general: { mode: "unlimited" } };
+    const freeWait = product.category === "airport_transfer" ? { pickup: { mode: "limited", minutes: 90 }, dropoff: { mode: "limited", minutes: 15 } } : { general: product.category === "charter" ? { mode: "limited", minutes: 0 } : { mode: "unlimited" } };
     version = (await ok(call("PUT", `/products/${productId}/service-rules`, { ...as, version, body: { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24 }, free_wait: freeWait } }))).version;
   }
   if (failing.has("content")) version = (await ok(call("PUT", `/products/${productId}/content`, { ...as, version, body: { zh: { title: "上架用的标题", pickup_guide: "到达大厅" } } }))).version;

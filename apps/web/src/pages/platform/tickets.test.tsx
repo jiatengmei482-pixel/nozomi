@@ -33,7 +33,7 @@ test("列表：默认看没有结论的；处理人写名字；超时、紧急�
   assertAbsent(screen.queryByRole("link", { name: "新建工单" }));
 });
 
-const orderOf = (): PlatformOrder =>
+const orderOf = (changes: Record<string, unknown> = {}): PlatformOrder =>
   ({
     id: ORDER_ID,
     order_no: "NZ20261007ABCDEFGH",
@@ -46,6 +46,7 @@ const orderOf = (): PlatformOrder =>
     channel: { id: "ch1", name: "官网" },
     sell: money("21780"),
     settlement: { total: money("19800") },
+    ...changes,
   }) as unknown as PlatformOrder;
 const orderDetail = (): PlatformOrderDetail => ({ order: orderOf(), events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [] });
 
@@ -74,6 +75,22 @@ test("新建：从订单进来带着订单；类型、标题、经过必填；�
   await waitFor(() => assert.equal(bodies.length, 1, document.querySelector("[role=alert]")?.textContent ?? "没有提交"));
   await screen.findByRole("heading", { level: 1, name: "工单 TK20261026K3M9Q2" });
   assert.deepEqual(bodies[0], { type: "complaint", order_id: ORDER_ID, tenant_id: null, source: "guest", priority: null, subject: "司机迟到 25 分钟", description: "客人来电说司机 10:25 才到。", language: null });
+});
+
+test("新建：还没付款的订单——按订单号查找时就说付款完成后才能建工单；带着订单进来也一样，没有表单", async () => {
+  const unpaid = orderOf({ status: "pending_payment", confirmed_at: null });
+  openApp("/platform/tickets/new", "platform", "customer_service", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/orders" ? json(200, { items: [{ ...unpaid, open_exceptions: 0 }], next_cursor: null }) : null));
+  const u = user();
+  await u.type(await screen.findByLabelText("订单号"), "NZ20261007ABCDEFGH");
+  await u.click(screen.getByRole("button", { name: "查找" }));
+  assert.ok(await screen.findByText("这张订单还没付款，付款完成后才能建工单。"));
+  assertAbsent(screen.queryByLabelText("标题"));
+
+  resetBrowser();
+  openApp(`/platform/tickets/new?order=${ORDER_ID}`, "platform", "customer_service", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, { ...orderDetail(), order: orderOf({ status: "cancelled", confirmed_at: null }) }) : null));
+  assert.ok(await screen.findByText("这张订单没有付过款就取消了，不能建工单。"));
+  assertAbsent(screen.queryByRole("button", { name: "新建工单" }));
+  assert.equal(screen.getByRole("link", { name: "回到订单" }).getAttribute("href"), `/platform/orders/${ORDER_ID}`);
 });
 
 test("详情：对话（供应商看得到）和内部备注分开；留言、加备注发给不同的 internal；征求意见要写内容", async () => {
