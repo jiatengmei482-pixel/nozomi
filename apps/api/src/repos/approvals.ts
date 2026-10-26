@@ -122,7 +122,7 @@ export interface ApprovalFilter {
   channelScopedKinds?: readonly string[];
   channelIds?: readonly string[] | null;
   /**
-   * 数据范围（ADR 0030）：这几类的对象编号是订单编号，只列订单的城市在 `cityIds`、渠道在 `channelIds` 里的；两个都为 null 不限制。
+   * 数据范围（ADR 0030）：这几类针对一张订单（`payload.order_id`），只列订单的城市在 `cityIds`、渠道在 `channelIds` 里的；两个都为 null 不限制。
    */
   orderScopedKinds?: readonly string[];
   cityIds?: readonly string[] | null;
@@ -134,7 +134,7 @@ export async function listApprovals(db: Db, filter: ApprovalFilter, limit: numbe
     "a.kind = any($1::text[]) and ($2::text is null or a.status = $2) and ($3::text is null or a.resource = $3) and ($4::text is null or a.resource_id = $4)" +
     " and ($6::text[] is null or not (a.kind = any($5::text[])) or a.resource_id = any($6::text[]))" +
     " and (($6::text[] is null and $8::uuid[] is null) or not (a.kind = any($7::text[])) or exists (" +
-    "select 1 from orders o join order_sales s on s.order_id = o.id where o.id::text = a.resource_id" +
+    "select 1 from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where o.id::text = a.payload->>'order_id'" +
     " and ($8::uuid[] is null or o.city_id = any($8::uuid[])) and ($6::text[] is null or s.channel_id::text = any($6::text[]))))";
   const params = [filter.kinds, filter.status, filter.resource, filter.resourceId, filter.channelScopedKinds ?? [], filter.channelIds ?? null, filter.orderScopedKinds ?? [], filter.cityIds ?? null];
   const result = await db.query<ApprovalRow & { cursor_time: string }>(

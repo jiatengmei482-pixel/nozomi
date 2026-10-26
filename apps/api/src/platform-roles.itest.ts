@@ -321,6 +321,34 @@ test("数据范围（取消、改单、加收、退款，M3-03 的接口；代�
   for (const id of [inA, inB]) await ok(api.call("POST", `/platform/v1/approvals/${id}/withdraw`, { token: m.root, body: {} }));
 });
 
+test("数据范围（救援改派，M3-04 的接口）：队列只有范围内订单的；按订单的接口范围外和不存在一样；按供应商批量发起限定了范围的人做不了", async () => {
+  const sales = (await api.db.owner.query<{ order_id: string; channel_id: string; tenant_id: string }>("select s.order_id, s.channel_id, s.supplier_tenant_id as tenant_id from order_sales s where s.channel_id = any($1::uuid[])", [[channelA, channelB]])).rows;
+  const orderB = sales.find((r) => r.channel_id === channelB)!;
+  const role = await ok(createRole({ name: "甲渠道救援", grants: ["rescues:view", "rescues:edit", "rescues:review"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
+  assert.deepEqual(role.permissions, ["order.read", "rescue.manage", "rescue.review"]);
+  const staff = await addStaff("rescue-a@platform.test", role.key);
+  const missing = randomUUID();
+  const pairs: [string, (id: string) => string, unknown][] = [
+    ["POST", (id) => `/platform/v1/orders/${id}/rescue`, { trigger: "dispatch_overdue", note: "测试" }],
+    ["GET", (id) => `/platform/v1/orders/${id}/rescue/candidates`, undefined],
+    ["POST", (id) => `/platform/v1/orders/${id}/rescue/offers`, {}],
+    ["POST", (id) => `/platform/v1/orders/${id}/rescue/manual-assign`, { tenant_id: missing, product_id: missing, settlement_amount: 1, note: "测试" }],
+    ["POST", (id) => `/platform/v1/orders/${id}/rescue/force-majeure`, { note: "测试" }],
+  ];
+  for (const [method, url, body] of pairs) {
+    const out = await api.call(method as "GET" | "POST", url(orderB.order_id), { token: staff.token, ...(body === undefined ? {} : { body }) });
+    const none = await api.call(method as "GET" | "POST", url(missing), { token: staff.token, ...(body === undefined ? {} : { body }) });
+    assert.equal(out.status, 404, `${method} ${url(orderB.order_id)}：${out.text}`);
+    assert.deepEqual(out.body, none.body, `${method} ${url(orderB.order_id)} 和不存在的应答不同`);
+  }
+  assert.equal((await api.db.owner.query("select count(*)::int as n from order_rescues where order_id = $1", [orderB.order_id])).rows[0].n, 0, "范围外的发起没有效果");
+  const batch = await api.call("POST", `/platform/v1/tenants/${orderB.tenant_id}/rescue`, { token: staff.token, body: {} });
+  assert.deepEqual([batch.status, batch.body.error.code], [403, "DATA_SCOPE_DENIED"]);
+  const queue = await ok(api.call("GET", "/platform/v1/rescues", { token: staff.token }));
+  assert.deepEqual(queue.suspended_tenants, [], "按供应商的一组不给限定了范围的人");
+  assert.ok(queue.items.every((item: any) => item.order?.id !== orderB.order_id && item.order_id !== orderB.order_id));
+});
+
 test("删除自建角色：有人用（含待激活、已停用）时 409 ROLE_IN_USE；没人用了可以删；删掉的角色不能再给人", async () => {
   const role = await ok(createRole({ name: "临时角色", grants: ["orders:view"] }), 201);
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email: "temp-role@platform.test", name: "临时", role: role.key } }), 201);

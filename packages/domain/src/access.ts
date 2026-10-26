@@ -246,7 +246,7 @@ export function checkStatusChange(
  * 自建角色存的是勾选了哪些「菜单:操作」，每个请求按下表换成接口检查用的操作（`PlatformAction`）。
  * 内置角色仍以上面的 `PLATFORM_PERMISSIONS` 为准（只读模板），在角色页上按下表显示成同样的勾选表。
  * 只列已经有接口的菜单和操作：各处的「导出」等以后有了接口再加（加的时候只改这张表）。
- * 运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。「取消政策」的查看和主数据的查看是同一个接口操作（`master_data.read`），两格勾哪一格都能看到两处。
+ * 运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。「取消政策」的查看和主数据的查看是同一个接口操作（`master_data.read`）、「救援」的查看和订单的查看是同一个（`order.read`），勾哪一格都能看到两处。
  */
 export const MENU_OPERATIONS = [
   { key: "view", name: "查看" },
@@ -273,6 +273,8 @@ export const PLATFORM_MENUS = [
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
   { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核
+  { key: "rescues", name: "救援", operations: { view: ["order.read"], edit: ["rescue.manage"], review: ["rescue.review"] } },
   // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
   { key: "cancellation_policy", name: "取消政策", operations: { view: ["master_data.read"], edit: ["cancellation_policy.manage"], review: ["cancellation_policy.review"] } },
   { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },

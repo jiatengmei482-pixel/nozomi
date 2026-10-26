@@ -35,7 +35,7 @@ export interface ApprovalKind {
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
   /** 对象编号（`resource_id`）是渠道编号：限定了渠道范围的人只看得到范围内的（ADR 0030）。可选 */
   channelScoped?: boolean;
-  /** 对象编号是订单编号：限定了数据范围的人只看得到订单在范围内的（ADR 0030，按订单的城市和渠道）。可选 */
+  /** 针对一张订单（`payload.order_id` 是订单编号）：限定了数据范围的人只看得到订单在范围内的（ADR 0030，按订单的城市和渠道）。可选 */
   orderScoped?: boolean;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
   afterApply?(ctx: AppContext, approval: Approval): void | Promise<void>;
@@ -115,7 +115,8 @@ async function canSee(db: Db, kinds: ApprovalKinds, principal: PlatformPrincipal
   if (!kind || !principalCan(principal, kind.readAction)) return false;
   if (kind.channelScoped === true && !scopeAllowsChannel(principal.grant.scope, approval.resourceId)) return false;
   if (kind.orderScoped === true && scopeIsRestricted(principal.grant.scope)) {
-    const order = await findOrderForPlatform(db, approval.resourceId);
+    const orderId = approval.payload["order_id"];
+    const order = typeof orderId === "string" ? await findOrderForPlatform(db, orderId) : null;
     return order !== null && (await orderInScope(db, order, principal.grant.scope));
   }
   return true;

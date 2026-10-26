@@ -9436,6 +9436,7 @@ paths:
       description: |
         需要操作 `order.read`。`state=open`（默认）：没有结论的救援（待处理、救援单待接、候选都不接），按用车时间；另有司机未到的提醒（到点 15 分钟仍未到达、客人报告司机没到，
         还没进入救援的单，由运营判定「联系不上」后发起）和暂停中还有未来订单的供应商（运营批量发起）。`state=closed`：最近 200 条已改派、已取消的。
+        限定了数据范围的员工（ADR 0030）只看到订单在范围内的救援和提醒，`suspended_tenants` 为空。
       security:
         - platformToken: []
       parameters:
@@ -9507,6 +9508,7 @@ paths:
         `tenant_declared` 替供应商登记它声明无法履约；`dispatch_overdue` 用车前 6 小时仍未派车（定时任务每分钟自动触发，这里给还没跑到的时候用；没到时间 409 `RESCUE_TRIGGER_NOT_MET`）；
         `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
         违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9555,6 +9557,7 @@ paths:
         需要操作 `rescue.manage`。按原报价条件（原来的请求、同一个渠道的加价和授权、这一单的车型组、现在的用车时间和人数）重新比价，现取现算，
         排除这一单以前和现在的供应商、这次救援已经发过的；同城、同品类、能接这个车型组、没被暂停、报得出价的按中标排序。
         每个候选有它的结算价、对外价、加价比例、名次和改派给它时原供应商要承担的差价（为负记 0）。`excluded` 是没能当候选的和原因（报价引擎的原因代码，或 `OFFER_DECLINED`、`OFFER_EXPIRED`、`OFFER_PENDING`、`CHANNEL_NOT_SELLING`）。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9609,6 +9612,7 @@ paths:
       description: |
         需要操作 `rescue.manage`。`tenant_id` 不给就发第一名；给了要在候选里（409 `RESCUE_CANDIDATE_UNAVAILABLE`）。同一时刻只有一张待接的（409 `RESCUE_OFFER_PENDING`）。
         给这家推 `rescue.offered`（只有行程、它的结算价和期限）。期限 15 分钟（用车前 2 小时内 5 分钟），不接、拒绝就自动顺延下一家；都不接进入「候选都不接」。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9653,6 +9657,7 @@ paths:
         用于候选都不接、或电话联系好的供应商报不出价（如提前预订时长不够）。商品要是这家的、同城同品类（接送机同一个接送点）、有这一单的车型组；这家不能是以前接过这一单的、不能是暂停中的。
         `settlement_amount` 是和这家谈好的结算价（这个商品的结算币种，最小货币单位的整数）；和客人支付币种不同时，发起时取一次汇率记进复核内容，之后按它换算救援差价。
         还有待接的救援单时 409 `RESCUE_OFFER_PENDING`。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9706,6 +9711,7 @@ paths:
         需要操作 `rescue.manage`。大雪封路、机场关闭、政府管制等，经运营确认后这一单最近一次救援的应扣款项（违约金、救援差价）全部免除，之后才记的差价也直接免除。
         单人认定（需求只把人工指定救援供应商列为双人复核），说明必填，写审计日志。客人全额退款走取消（原因选 `FORCE_MAJEURE`，多退了钱的照常复核）。
         没有救援记录 409 `RESCUE_NOT_FOUND`；认定过 409 `FORCE_MAJEURE_ALREADY`。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -9755,6 +9761,7 @@ paths:
         需要操作 `rescue.manage`。需求「租户被暂停或解约，名下还有未来订单：运营批量发起」。供应商要在暂停中（409 `RESCUE_TRIGGER_NOT_MET`）；
         名下已确认、已派车、司机已出发、用车时间还没到的单逐张发起（`tenant_suspended`，违约金按距用车时间 0 / 30% / 100%），一张失败不影响别的（`skipped` 里有原因代码）。
         暂停本身不会自动发起（ADR 0028：暂停后已有订单继续履约）；M4-01 的状态变化要自动发起时调同一个服务函数。
+        限定了数据范围的员工（ADR 0030）不能按供应商批量发起：403 `DATA_SCOPE_DENIED`。
       security:
         - platformToken: []
       parameters:

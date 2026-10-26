@@ -20,7 +20,7 @@ import { webhookSignature } from "../integrations/webhook-signature.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
-import { findOrderOfTenant } from "../repos/orders.ts";
+import { findOrderForPlatform, findOrderOfTenant } from "../repos/orders.ts";
 import {
   type DeliveryFilter,
   type TenantWebhook,
@@ -330,7 +330,6 @@ export async function retryTenantDelivery(ctx: AppContext, writer: WebhookWriter
   });
 }
 
-/** 运营后台手动重推（`order.resend`）：跨租户找到这条投递。和供应商的重推同一条路径。 */
 /** 运营后台按数据范围看投递（ADR 0030）：范围外的订单的投递、不属于任何订单的测试事件，对限定了范围的人和不存在一样。 */
 async function deliveryInScope(db: Db, delivery: WebhookDelivery, scope: PlatformDataScope): Promise<boolean> {
   if (!scopeIsRestricted(scope)) return true;

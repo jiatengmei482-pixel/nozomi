@@ -10,8 +10,8 @@
   本任务开发时 M3-02 还没合并，曾把那几处原样带过来；合并 main 后只保留 main 的一份（`apps/api/src/integrations/secret-box.ts`、`packages/config`、`deploy/bin/deploy.sh` 的 `ensure_data_encryption_key`），
   两个用途派生的子密钥互不相通（`secret-box.test.ts`）。
 - 补充 ADR 0027：M3-02 的运营后台接口（订单的照片、推送记录、手动重推）纳入两步验证、IP 白名单和数据范围；`order.resend` 是订单菜单的「编辑」（见下）。
-- 补充 ADR 0028、0029：M4-01（供应商入驻）和 M3-03（取消、改单、加收）的运营后台接口同样纳入两步验证和 IP 白名单；它们新增的权限都在菜单表里有一格（见下），订单类按数据范围、供应商类和取消政策暂不按范围。
-  它们的复核类别（`tenant.suspend`、`tenant.terminate`、`tenant.contract`、`cancellation_policy.update`、`order.cancel_refund`）和本文的 `platform_role.update`、`staff.mfa_reset` 一起登记在 `services/approval-kinds.ts`。
+- 补充 ADR 0028、0029、0031：M4-01（供应商入驻）、M3-03（取消、改单、加收）和 M3-04（救援改派）的运营后台接口同样纳入两步验证和 IP 白名单；它们新增的权限都在菜单表里有一格（见下），订单类按数据范围、供应商类和取消政策暂不按范围。
+  它们的复核类别（`tenant.suspend`、`tenant.terminate`、`tenant.contract`、`cancellation_policy.update`、`order.cancel_refund`、`rescue.manual_assign`）和本文的 `platform_role.update`、`staff.mfa_reset` 一起登记在 `services/approval-kinds.ts`。
 
 ## 背景
 
@@ -99,6 +99,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | 报价试算 | `quote.preview` | | |
   | 渠道 | `channel.read` | `channel.manage` | `channel.review` |
   | 订单（含「推送记录」页） | `order.read` | `order.resend`（手动重推给供应商的 Webhook，M3-02）、`order.manage`（代客人取消、改单、审核事后加收、发起免收取消费，M3-03） | `payment.manage`（重试失败的退款和扣款、审核「多退给客人」的代取消，M3-03） |
+  | 救援（M3-04） | `order.read`（和订单的查看是同一个操作） | `rescue.manage` | `rescue.review` |
   | 取消政策（M3-03） | `master_data.read`（和主数据的查看是同一个操作，勾哪一格都能看两处） | `cancellation_policy.manage` | `cancellation_policy.review` |
   | 待审核 | `approval.read` | | |
   | 主数据与汇率 | `master_data.read` | `master_data.manage`、`fx.manage` | `fx.review` |
@@ -128,6 +129,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | --- | --- | --- |
   | 渠道 | 渠道列表、渠道详情及其下面的一切（加价规则、API 客户端、询价日志、改动、发起复核）；订单列表和详情；渠道类的复核（列表、详情、审核）；按渠道的报价试算 | 列表里没有；按编号访问和不存在一样（404） |
   | 城市 | 订单列表和详情 | 同上 |
+  | 城市、渠道（M3-04 的接口） | 救援队列（救援和司机未到的提醒只列范围内订单的）；按订单发起救援、候选、发救援单、人工指定、不可抗力；「人工指定救援供应商」的复核（`payload.order_id`，标 `orderScoped`） | 按编号 404；列表里没有。按供应商批量发起（`POST /platform/v1/tenants/{id}/rescue`）会动到它名下全部订单，限定了任一维度的人 403 `DATA_SCOPE_DENIED`，队列里「暂停中还有未来订单的供应商」一组也不给 |
   | 城市、渠道（M3-03 的接口） | 按订单的退款试算、代取消、代改单、审核事后加收、重试扣款和退款；「代取消多退给客人」的复核（列表、详情、审核；对象是订单，复核类别标 `orderScoped`） | 同上（按编号 404，列表里没有） |
   | 城市、渠道（M3-02 的接口） | 订单的照片（落地、no-show 的证据）；推给供应商的 Webhook 的投递记录（列表、详情、手动重推）——按投递所属订单的城市和渠道 | 同上；限定了任一维度时，不属于任何订单的测试事件也看不到（归不到任何城市、渠道） |
 
