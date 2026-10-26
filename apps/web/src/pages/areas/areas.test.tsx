@@ -111,6 +111,9 @@ test("首页：数量取不到时入口照常可用，有「重试」；不能�
   let attempts = 0;
   const user = userEvent.setup();
   open("/", "admin", (call) => {
+    // 工单、账单的卡片（M4-03）：数量照常取到，不影响这里看的区域卡片
+    if (call.url.pathname === "/tenant/v1/tickets") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (call.url.pathname === "/tenant/v1/statements") return json(200, { items: [] });
     if (call.url.pathname !== "/tenant/v1/dashboard/summary") return null;
     attempts += 1;
     return attempts === 1 ? Promise.reject(new TypeError("fetch failed")) : json(200, { areas: { active: 5, disabled: 0 } });
