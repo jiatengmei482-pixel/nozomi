@@ -110,7 +110,7 @@ const PAYMENT_ISSUE_NAMES: Readonly<Record<string, string>> = { refund_failed: "
 const REFUND_PURPOSE_NAMES: Readonly<Record<string, string>> = { cancellation: "取消", change: "改期退差价", compensation: "工单赔付" };
 const PAYMENT_KIND_NAMES: Readonly<Record<string, string>> = { order: "下单付款", change: "改期补差价", extra_charge: "事后加收" };
 
-const when = (value: unknown): string => (typeof value === "string" ? formatLocalDateTime(value) : "—");
+const when = (value: unknown): string | null => (typeof value === "string" ? formatLocalDateTime(value) : null);
 
 /** 异常发现时的情况，按类型写成「标签：值」几行。认不出来的字段不显示（原样在审计日志里看得到）。 */
 export function exceptionDetailLines(exception: Pick<OrderException, "type" | "detail">): { label: string; value: string }[] {
