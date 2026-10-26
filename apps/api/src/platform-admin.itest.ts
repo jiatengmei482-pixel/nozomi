@@ -123,6 +123,14 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/orders/${MISSING}/refunds/${MISSING_CHILD}/retry`, action: "payment.manage" },
   { method: "GET", url: "/platform/v1/cancellation-policy", action: "master_data.read" },
   { method: "POST", url: "/platform/v1/cancellation-policy/changes", action: "cancellation_policy.manage", body: {} },
+  // 救援改派（M3-04，ADR 0031）：队列用 order.read 看；发起、候选、发救援单、人工指定、不可抗力、批量发起要 rescue.manage
+  { method: "GET", url: "/platform/v1/rescues", action: "order.read" },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue`, action: "rescue.manage", body: {} },
+  { method: "GET", url: `/platform/v1/orders/${MISSING}/rescue/candidates`, action: "rescue.manage" },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue/offers`, action: "rescue.manage", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue/manual-assign`, action: "rescue.manage", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/rescue/force-majeure`, action: "rescue.manage", body: {} },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/rescue`, action: "rescue.manage", body: {} },
   // 推给供应商的 Webhook（ADR 0027）：看投递记录、手动重推
   { method: "GET", url: "/platform/v1/webhook-deliveries", action: "order.read" },
   { method: "GET", url: `/platform/v1/webhook-deliveries/${MISSING}`, action: "order.read" },
@@ -162,8 +170,8 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
   // channel.review、fx.review、cancellation_policy.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts）
-  // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）同样按复核的类别检查（tenant-onboarding.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve"];
+  // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）、rescue.review（人工指定救援供应商，ADR 0031）同样按复核的类别检查（tenant-onboarding.itest.ts、rescues.itest.ts）
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))

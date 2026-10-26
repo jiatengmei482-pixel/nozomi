@@ -58,6 +58,7 @@ import {
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { RescueSection } from "./RescuePages.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 const TRAIL = [{ label: "订单", to: PLATFORM_ORDER_LIST_PATH }];
@@ -366,6 +367,8 @@ export function PlatformOrderDetailPage() {
           </div>
         )}
       </section>
+
+      <RescueSection order={order} rescues={detail.rescues} onChanged={reload} />
 
       {cancelled !== null && (
         <section className="card">

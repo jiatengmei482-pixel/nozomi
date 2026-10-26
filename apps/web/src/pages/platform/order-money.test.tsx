@@ -118,6 +118,7 @@ const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail
   refunds: [],
   changes: [],
   extra_charges: [],
+  rescues: [],
   ...extra,
 });
 
@@ -281,6 +282,7 @@ const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: Ex
   records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null },
   changes,
   extra_charges: extra,
+  rescue: null,
 });
 
 test("供应商订单详情：等确认的改期写出改前改后和截止时间，调度能确认；取消的单只写扣款比例和自己应得的", async () => {

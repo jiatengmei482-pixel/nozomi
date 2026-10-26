@@ -13,7 +13,7 @@ import type { TripDirection } from "./pricing.ts";
 // ---- 订单状态 ----
 
 /**
- * 订单状态（ADR 0026 定义了前 7 个，M3-02 / ADR 0027 加了履约的 4 个：司机已出发、司机已到达、客人未出现待审核、客人未出现）。
+ * 订单状态（ADR 0026 定义了前 7 个，M3-02 / ADR 0027 加了履约的 4 个：司机已出发、司机已到达、客人未出现待审核、客人未出现；M3-04 / ADR 0031 加了「已转给救援供应商」）。
  * 付款前的两条（待支付 → 已确认 / 已取消）在 M3-01；派车、履约、no-show 申请在 M3-02；付款后的取消在 M3-03；救援改派在 M3-04；no-show 审核在 M4-02。
  */
 export const ORDER_STATUSES = [
@@ -28,6 +28,7 @@ export const ORDER_STATUSES = [
   "no_show",
   "cancelled",
   "rescue_pending",
+  "rescued",
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
@@ -43,10 +44,11 @@ export const ORDER_STATUS_NAMES: Readonly<Record<OrderStatus, string>> = {
   no_show: "客人未出现",
   cancelled: "已取消",
   rescue_pending: "救援改派中",
+  rescued: "已转给救援供应商",
 };
 
 /**
- * 允许的状态转换。`completed`、`no_show`、`cancelled` 是终态。
+ * 允许的状态转换。`completed`、`no_show`、`cancelled`、`rescued` 是终态。
  * - 付款成功即自动确认（`pending_payment → confirmed`），租户不能拒单，所以没有「待确认」「已拒绝」。
  * - 履约按顺序走：已派车 → 司机已出发 → 司机已到达 → 服务中（接到客人）→ 已完成；不能跳步（需求「履约回传：已出发 → 已到达 → 已接到客人 → 已完成」）。
  * - 改派：服务开始前可换司机、换车。已派车时改派状态不变（流水里记一条「已派车 → 已派车」）；司机已出发后改派回到「已派车」（新司机重新出发）；
@@ -54,7 +56,9 @@ export const ORDER_STATUS_NAMES: Readonly<Record<OrderStatus, string>> = {
  * - 服务开始（`in_service`）之前可以取消（需求：服务开始前可到 cancelled），之后不能。
  * - 客人未出现：司机到达后，在免费等待结束、证据齐全时提交（`arrived → no_show_claimed`）；平台审核通过 → `no_show`（按全额收费），
  *   驳回 → `cancelled`（客人全额退款，租户拿 0；审核在 M4-02）。
- * - 救援改派：已确认、已派车、司机已出发（到点仍未到达）的单可以进入 `rescue_pending`；救援租户接单后回到 `confirmed`（或直接带着司机到 `assigned`），无人可接时取消并全额退款。
+ * - 救援改派（M3-04，ADR 0031）：已确认、已派车、司机已出发（到点仍未到达）的单可以进入 `rescue_pending`，原供应商不能再操作。
+ *   救援供应商接单后，原供应商的这一行变成 `rescued`（终态，只能查看），救援供应商另起一行（同一个订单编号）从 `confirmed` 开始按普通订单履约；
+ *   无人可接时取消并全额退款。所以 `rescue_pending` 只去 `rescued` 或 `cancelled`，不回到已确认 / 已派车（ADR 0026 原来的写法由 ADR 0031 取代）。
  */
 const TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
   pending_payment: ["confirmed", "cancelled"],
@@ -64,7 +68,8 @@ const TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
   arrived: ["in_service", "no_show_claimed", "cancelled"],
   in_service: ["completed"],
   no_show_claimed: ["no_show", "cancelled"],
-  rescue_pending: ["confirmed", "assigned", "cancelled"],
+  rescue_pending: ["rescued", "cancelled"],
+  rescued: [],
   completed: [],
   no_show: [],
   cancelled: [],
@@ -76,6 +81,14 @@ export function orderTransitionAllowed(from: OrderStatus, to: OrderStatus): bool
 
 export function orderStatusIsFinal(status: OrderStatus): boolean {
   return TRANSITIONS[status].length === 0;
+}
+
+/**
+ * 这一行还归它的供应商操作吗：救援改派中（`rescue_pending`）、已转给救援供应商（`rescued`）的那一行，原供应商只能查看（ADR 0031）。
+ * 供应商对订单的写接口（派车、司机链接、回传履约、上传票据、加收、撤回加收、确认 / 拒绝改期）都先过这一关，再按各自的状态规则判断。
+ */
+export function orderOperableByTenant(status: OrderStatus): boolean {
+  return status !== "rescue_pending" && status !== "rescued";
 }
 
 /**

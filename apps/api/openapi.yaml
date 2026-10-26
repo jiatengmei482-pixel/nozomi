@@ -113,6 +113,11 @@ tags:
   - name: 司机 H5
     description: |
       `/driver/v1`：司机凭链接（不需要账号）看这一单（没有任何价格）、回传出发 / 到达 / 接到 / 完成、填实际落地时间（附到达屏）、记联系客人、申请离开、提交 no-show（5 项证据）
+  - name: 救援改派
+    description: |
+      救援改派与违约金（ADR 0031）：只在 4 种情形（供应商声明无法履约、用车前 6 小时仍未派车、司机未到、供应商被暂停）启动，客人价格不变；
+      按原报价条件重新比价找候选，救援单要供应商主动接（15 分钟，用车前 2 小时内 5 分钟），都不接人工指定（双人复核）或全额退款；
+      原供应商承担违约金（0 / 30% / 100%）和救援差价，现在只记账，M5 结算时扣；不可抗力经运营认定免除
   - name: 官网
     description: |
       `/site/v1`：官网（自营渠道）给浏览器的公开接口（ADR 0032）。浏览器不持有渠道密钥：服务端以 `SITE_CLIENT_ID` 指定的 API 客户端身份调用和 `/sales/v1` 同一套询价、下单、取消、改单、落地、异议流程。
@@ -7200,10 +7205,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events, records, changes, extra_charges]
+                required: [order, events, records, changes, extra_charges, rescue]
                 properties:
                   order:
                     $ref: "#/components/schemas/TenantOrder"
+                  rescue:
+                    description: 这一单和救援改派的关系（M3-04）；没有为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/TenantOrderRescue"
+                      - type: "null"
                   events:
                     type: array
                     items:
@@ -7297,10 +7307,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges]
+                required: [order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges, rescues]
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  rescues:
+                    type: array
+                    description: 这一单的全部救援改派（M3-04）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
+                    items:
+                      $ref: "#/components/schemas/PlatformRescue"
                   payments:
                     type: array
                     description: 全部收款：下单付款、改期补收的差价、事后加收
@@ -8748,6 +8763,20 @@ paths:
           $ref: "#/components/responses/DriverLinkInvalid"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/declare-unable:
+    post:
+      tags: [救援改派]
+      operationId: declareTenantOrderUnable
+      summary: 声明无法履约
+      description: |
+        需要操作 `order.dispatch`（管理员、调度）。原因必填。只有已确认、已派车、司机已出发的单可以声明（409 `ORDER_STATE_INVALID`）；已经在救援改派中 409 `RESCUE_ALREADY_OPEN`。
+        声明后订单进入「救援改派中」，**供应商不能再操作这一单**（派车、回传、改期确认都拒绝，司机链接立即作废），平台从别的供应商里找救援。
+        违约金按声明时离用车多久（基数是这一单的结算价，ADR 0031）：≥ 24 小时 0；2–24 小时 30%；< 2 小时 100%（按毫秒，正好 24 小时算 0，正好 2 小时算 30%）；
+        另外承担救援差价（救援供应商的结算价 − 本单结算价，为负记 0），改派成功时记。现在只记账，M5 结算时从账单里扣。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
   /site/v1/config:
     get:
       tags: [官网]
@@ -9254,12 +9283,591 @@ paths:
                   maxLength: 500
       responses:
         "200":
+          description: 已进入救援改派；违约金
           description: 提了异议之后的订单和这一项
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
+                required: [rescue]
+                properties:
+                  rescue:
+                    $ref: "#/components/schemas/TenantOrderRescue"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`RESCUE_ALREADY_OPEN`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/rescue-offers:
+    get:
+      tags: [救援改派]
+      operationId: listTenantRescueOffers
+      summary: 发给本租户的救援单
+      description: |
+        需要操作 `order.dispatch`。救援单是唯一需要供应商主动接的订单：15 分钟内不接就顺延下一家（用车前 2 小时内 5 分钟）。
+        接单前只看得到行程和自己的结算价，没有乘客的姓名、电话、邮箱和航班号（接了单在订单里看）。最近发出的在前，最多 100 条。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending]
+          description: "`pending` 只看待接的"
+      responses:
+        "200":
+          description: 救援单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantRescueOffer"
+  /tenant/v1/rescue-offers/{id}:
+    get:
+      tags: [救援改派]
+      operationId: getTenantRescueOffer
+      summary: 一张救援单
+      description: 需要操作 `order.dispatch`。别的供应商的救援单是 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 救援单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offer]
+                properties:
+                  offer:
+                    $ref: "#/components/schemas/TenantRescueOffer"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/rescue-offers/{id}/accept:
+    post:
+      tags: [救援改派]
+      operationId: acceptTenantRescueOffer
+      summary: 接救援单
+      description: |
+        需要操作 `order.dispatch`。接单后这一单转到本租户（订单编号不变），从「已确认」开始按普通订单履约，结算价是救援单上的价；派车截止时间按接单时间算。
+        过了期限 409 `RESCUE_OFFER_EXPIRED`（记为超时，平台顺延下一家）；已经有结果的 409 `RESCUE_OFFER_CLOSED`；用车那一天订满了 409 `RESCUE_SOLD_OUT`；本租户被暂停 409 `RESCUE_TENANT_SUSPENDED`。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 已接单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offer, order_id]
+                properties:
+                  offer:
+                    $ref: "#/components/schemas/TenantRescueOffer"
+                  order_id:
+                    type: string
+                    format: uuid
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_OFFER_EXPIRED`、`RESCUE_OFFER_CLOSED`、`RESCUE_SOLD_OUT`、`RESCUE_TENANT_SUSPENDED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/rescue-offers/{id}/decline:
+    post:
+      tags: [救援改派]
+      operationId: declineTenantRescueOffer
+      summary: 拒绝救援单
+      description: 需要操作 `order.dispatch`。原因选填；拒绝后平台顺延下一家。不计入本租户的履约失败。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "200":
+          description: 已拒绝
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offer]
+                properties:
+                  offer:
+                    $ref: "#/components/schemas/TenantRescueOffer"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_OFFER_EXPIRED`、`RESCUE_OFFER_CLOSED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/deductions:
+    get:
+      tags: [救援改派]
+      operationId: listTenantDeductions
+      summary: 本租户的应扣款项（违约金、救援差价）
+      description: |
+        需要操作 `order.read`（管理员、调度、财务、只读）。只有本租户自己的；现在只记账，M5 结算时从当期或下一期账单里扣。
+        不可抗力经运营认定的显示「已免除」和说明。没有救援供应商是谁、客人付了多少、加价比例（规则 4）。最近的在前，最多 200 条。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 应扣款项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantDeduction"
+  /platform/v1/rescues:
+    get:
+      tags: [救援改派]
+      operationId: listPlatformRescues
+      summary: 救援队列
+      description: |
+        需要操作 `order.read`。`state=open`（默认）：没有结论的救援（待处理、救援单待接、候选都不接），按用车时间；另有司机未到的提醒（到点 15 分钟仍未到达、客人报告司机没到，
+        还没进入救援的单，由运营判定「联系不上」后发起）和暂停中还有未来订单的供应商（运营批量发起）。`state=closed`：最近 200 条已改派、已取消的。
+      security:
+        - platformToken: []
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [open, closed]
+            default: open
+      responses:
+        "200":
+          description: 救援队列
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, alerts, suspended_tenants]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformRescue"
+                  alerts:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [order_id, order_no, tenant, status, service_time, arrival_overdue_at, driver_missing_reported_at]
+                      properties:
+                        order_id:
+                          type: string
+                          format: uuid
+                        order_no:
+                          type: string
+                        tenant:
+                          $ref: "#/components/schemas/RescueTenantRef"
+                        status:
+                          $ref: "#/components/schemas/OrderStatus"
+                        service_time:
+                          type: string
+                          format: date-time
+                        arrival_overdue_at:
+                          type: [string, "null"]
+                          format: date-time
+                          description: 系统发现到点 15 分钟仍未到达的时间
+                        driver_missing_reported_at:
+                          type: [string, "null"]
+                          format: date-time
+                          description: 客人报告司机没到的时间
+                  suspended_tenants:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [tenant, future_orders]
+                      properties:
+                        tenant:
+                          $ref: "#/components/schemas/RescueTenantRef"
+                        future_orders:
+                          type: integer
+  /platform/v1/orders/{id}/rescue:
+    post:
+      tags: [救援改派]
+      operationId: triggerPlatformRescue
+      summary: 按 4 种情形之一发起救援改派
+      description: |
+        需要操作 `rescue.manage`（运营、客服）。说明必填。救援改派只在 4 种情形下可用（需求「履约保障与服务标准」）：
+        `tenant_declared` 替供应商登记它声明无法履约；`dispatch_overdue` 用车前 6 小时仍未派车（定时任务每分钟自动触发，这里给还没跑到的时候用；没到时间 409 `RESCUE_TRIGGER_NOT_MET`）；
+        `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
+        违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [trigger, note]
+              properties:
+                trigger:
+                  $ref: "#/components/schemas/RescueTrigger"
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "201":
+          description: 已进入救援改派
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rescue]
+                properties:
+                  rescue:
+                    $ref: "#/components/schemas/PlatformRescue"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`RESCUE_ALREADY_OPEN`、`RESCUE_TRIGGER_NOT_MET`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/rescue/candidates:
+    get:
+      tags: [救援改派]
+      operationId: listPlatformRescueCandidates
+      summary: 救援候选
+      description: |
+        需要操作 `rescue.manage`。按原报价条件（原来的请求、同一个渠道的加价和授权、这一单的车型组、现在的用车时间和人数）重新比价，现取现算，
+        排除这一单以前和现在的供应商、这次救援已经发过的；同城、同品类、能接这个车型组、没被暂停、报得出价的按中标排序。
+        每个候选有它的结算价、对外价、加价比例、名次和改派给它时原供应商要承担的差价（为负记 0）。`excluded` 是没能当候选的和原因（报价引擎的原因代码，或 `OFFER_DECLINED`、`OFFER_EXPIRED`、`OFFER_PENDING`、`CHANNEL_NOT_SELLING`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 候选
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rescue_id, candidates, excluded]
+                properties:
+                  rescue_id:
+                    type: string
+                    format: uuid
+                  candidates:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RescueCandidate"
+                  excluded:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [tenant, product_id, reason, message]
+                      properties:
+                        tenant:
+                          $ref: "#/components/schemas/RescueTenantRef"
+                        product_id:
+                          type: [string, "null"]
+                          format: uuid
+                        reason:
+                          type: string
+                        message:
+                          type: string
+                          description: 原因的中文说明
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_NOT_OPEN`、`MASTER_DATA_NOT_READY`（城市或接送点被停用了）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/rescue/offers:
+    post:
+      tags: [救援改派]
+      operationId: createPlatformRescueOffer
+      summary: 给一家候选发救援单
+      description: |
+        需要操作 `rescue.manage`。`tenant_id` 不给就发第一名；给了要在候选里（409 `RESCUE_CANDIDATE_UNAVAILABLE`）。同一时刻只有一张待接的（409 `RESCUE_OFFER_PENDING`）。
+        给这家推 `rescue.offered`（只有行程、它的结算价和期限）。期限 15 分钟（用车前 2 小时内 5 分钟），不接、拒绝就自动顺延下一家；都不接进入「候选都不接」。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                tenant_id:
+                  type: [string, "null"]
+                  format: uuid
+      responses:
+        "201":
+          description: 已发出
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offer]
+                properties:
+                  offer:
+                    $ref: "#/components/schemas/PlatformRescueOffer"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_NOT_OPEN`、`RESCUE_OFFER_PENDING`、`RESCUE_CANDIDATE_UNAVAILABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/rescue/manual-assign:
+    post:
+      tags: [救援改派]
+      operationId: requestPlatformRescueManualAssign
+      summary: 人工指定救援供应商（双人复核）
+      description: |
+        需要操作 `rescue.manage` 发起，另一位有 `rescue.review`（运营、超级管理员）的同事在「待审核」里批准时才改派（复核 `kind` = `rescue.manual_assign`；需求「全部候选都不接，运营可人工指定租户（双人复核）」）。
+        用于候选都不接、或电话联系好的供应商报不出价（如提前预订时长不够）。商品要是这家的、同城同品类（接送机同一个接送点）、有这一单的车型组；这家不能是以前接过这一单的、不能是暂停中的。
+        `settlement_amount` 是和这家谈好的结算价（这个商品的结算币种，最小货币单位的整数）；和客人支付币种不同时，发起时取一次汇率记进复核内容，之后按它换算救援差价。
+        还有待接的救援单时 409 `RESCUE_OFFER_PENDING`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tenant_id, product_id, settlement_amount, note]
+              properties:
+                tenant_id:
+                  type: string
+                  format: uuid
+                product_id:
+                  type: string
+                  format: uuid
+                settlement_amount:
+                  type: integer
+                  minimum: 1
+                  description: 最小货币单位的整数
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          description: "`VALIDATION_FAILED`：`details.issues[]` 的 `reason`：`UNKNOWN_TENANT`、`PREVIOUS_SUPPLIER`、`TENANT_SUSPENDED`、`UNKNOWN_PRODUCT`、`PRODUCT_MISMATCH`、`OUT_OF_RANGE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_NOT_OPEN`、`RESCUE_OFFER_PENDING`、`FX_RATE_UNAVAILABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/rescue/force-majeure:
+    post:
+      tags: [救援改派]
+      operationId: markPlatformRescueForceMajeure
+      summary: 认定不可抗力（免违约金）
+      description: |
+        需要操作 `rescue.manage`。大雪封路、机场关闭、政府管制等，经运营确认后这一单最近一次救援的应扣款项（违约金、救援差价）全部免除，之后才记的差价也直接免除。
+        单人认定（需求只把人工指定救援供应商列为双人复核），说明必填，写审计日志。客人全额退款走取消（原因选 `FORCE_MAJEURE`，多退了钱的照常复核）。
+        没有救援记录 409 `RESCUE_NOT_FOUND`；认定过 409 `FORCE_MAJEURE_ALREADY`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 已认定
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rescue, waived]
+                properties:
+                  rescue:
+                    $ref: "#/components/schemas/PlatformRescue"
+                  waived:
+                    type: integer
+                    description: 免除了几条应扣款项
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_NOT_FOUND`、`FORCE_MAJEURE_ALREADY`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}/rescue:
+    post:
+      tags: [救援改派]
+      operationId: rescuePlatformSuspendedTenant
+      summary: 暂停中的供应商：名下未来订单批量发起救援
+      description: |
+        需要操作 `rescue.manage`。需求「租户被暂停或解约，名下还有未来订单：运营批量发起」。供应商要在暂停中（409 `RESCUE_TRIGGER_NOT_MET`）；
+        名下已确认、已派车、司机已出发、用车时间还没到的单逐张发起（`tenant_suspended`，违约金按距用车时间 0 / 30% / 100%），一张失败不影响别的（`skipped` 里有原因代码）。
+        暂停本身不会自动发起（ADR 0028：暂停后已有订单继续履约）；M4-01 的状态变化要自动发起时调同一个服务函数。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "200":
+          description: 发起的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [triggered, skipped]
+                properties:
+                  triggered:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+                  skipped:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [order_id, code]
+                      properties:
+                        order_id:
+                          type: string
+                          format: uuid
+                        code:
+                          type: string
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`RESCUE_TRIGGER_NOT_MET`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/orders/{id}/driver-missing:
+    post:
+      tags: [销售端]
+      operationId: reportSalesDriverMissing
+      summary: 客人报告「司机没到」
+      description: |
+        只认本渠道的单。用车时间到了以后（409 `DRIVER_MISSING_TOO_EARLY`）、司机还没「已到达」的单（已确认、已派车、司机已出发；否则 409 `ORDER_STATE_INVALID`）。
+        记下时间、写状态流水、通知运营；进运营后台的救援队列，由运营联系司机，联系不上就发起救援（「司机未到」）。重复报告只记第一次（`first_report: false`）。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 已记下
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, first_report]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  first_report:
+                    type: boolean
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`DRIVER_MISSING_TOO_EARLY`、`ORDER_STATE_INVALID`"
                 required: [order, timeline, names, extra_charge]
                 properties:
                   order:
@@ -9349,7 +9957,10 @@ webhooks:
                   format: uuid
                 data:
                   type: object
-                  description: "`order`（订单的当前内容，TenantOrder）+ 事件自己的信息：`order.assigned` 的 `change`；`order.status_changed` 的 `from_status`、`to_status`；测试事件只有 `message`"
+                  description: |
+                    `order`（订单的当前内容，TenantOrder）+ 事件自己的信息：`order.assigned` 的 `change`；`order.status_changed` 的 `from_status`、`to_status`（进入救援时另有 `trigger`）；测试事件只有 `message`。
+                    救援（M3-04）：`rescue.offered` 没有 `order`（还没接单），有 `offer_id`、`expires_at`、`trip`（RescueTrip，没有乘客联系方式）、`settlement`（`amount_minor`、`currency`）；
+                    `order.rescued_away` 发给原供应商（`order` 是它自己那一行，状态 `rescued`，`trigger`）；接了救援单的供应商收到 `order.confirmed`（`rescue: true`）
                   properties:
                     order:
                       $ref: "#/components/schemas/TenantOrder"
@@ -10436,8 +11047,8 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund]
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；以后会加：付款……）
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund, rescue.manual_assign]
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；以后会加：付款……）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -11875,7 +12486,7 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, tenant.review, tenant.approve, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review, rescue.manage, rescue.review]
     TenantAction:
       type: string
       enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read]
@@ -15899,11 +16510,12 @@ components:
           type: string
     OrderStatus:
       type: string
-      enum: [pending_payment, confirmed, assigned, departed, arrived, in_service, completed, no_show_claimed, no_show, cancelled, rescue_pending]
+      enum: [pending_payment, confirmed, assigned, departed, arrived, in_service, completed, no_show_claimed, no_show, cancelled, rescue_pending, rescued]
       description: |
         `pending_payment` 待支付（30 分钟内付款，超时自动取消）→ `confirmed` 已确认（付款成功即自动确认，租户不能拒单）→ `assigned` 已派车 → `departed` 司机已出发 →
         `arrived` 司机已到达 → `in_service` 服务中（接到客人）→ `completed` 已完成；司机到达后客人没出现、证据齐全时 → `no_show_claimed` 客人未出现（待审核）→ `no_show`（审核在 M4-02）；
-        服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中（M3-04）。不能跳步（ADR 0026、ADR 0027）。
+        服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中（M3-04，原供应商不能再操作）→ `rescued` 已转给救援供应商（只出现在原供应商自己的那一行，
+        救援供应商另起一行、同一个订单编号，从 `confirmed` 开始）或 `cancelled`。不能跳步（ADR 0026、ADR 0027、ADR 0031）。
     OrderCancelReason:
       type: string
       enum: [PAYMENT_TIMEOUT, PAYMENT_CANCELED, GUEST_REQUEST, CHANGE_NOT_CONFIRMED, FLIGHT_CANCELLED, FORCE_MAJEURE, SUPPLIER_FAULT, PLATFORM_FAULT]
@@ -18209,6 +18821,18 @@ components:
         request_sha256:
           type: string
           pattern: "^[0-9a-f]{64}$"
+    RescueTrigger:
+      type: string
+      enum: [tenant_declared, dispatch_overdue, driver_no_show, tenant_suspended]
+      description: "救援改派的 4 种情形（ADR 0031）：`tenant_declared` 供应商声明无法履约；`dispatch_overdue` 用车前 6 小时仍未派车；`driver_no_show` 司机未到（到点 15 分钟仍未到达且联系不上）；`tenant_suspended` 供应商被暂停、名下的未来订单"
+    RescueStatus:
+      type: string
+      enum: [open, offering, exhausted, rescued, cancelled]
+      description: "`open` 待处理；`offering` 救援单待接；`exhausted` 候选都不接，待人工指定或取消退款；`rescued` 已改派；`cancelled` 订单取消了"
+    RescueTenantRef:
+      type: object
+      additionalProperties: false
+      required: [id, name]
     SiteConfig:
       type: object
       additionalProperties: false
@@ -18242,6 +18866,18 @@ components:
         id:
           type: string
           format: uuid
+        name:
+          type: string
+    DeductionBasis:
+      type: object
+      description: |
+        怎么算的。违约金：`trigger`、`tier`（none / partial / full）、`bp`（比例，基点）、`settlement_minor`（基数：原结算价，最小单位）、`ms_before_service`（触发时离用车多少毫秒）；
+        救援差价：`original_minor`（原结算价）、`rescue_in_original_minor`（救援结算价按快照汇率换到原结算币种）、`raw_minor`（相减的结果，可以为负）、`same_currency`。都是原结算币种的最小单位
+    TenantDeduction:
+      type: object
+      additionalProperties: false
+      description: 供应商自己的一条应扣款项。现在只记账，M5 结算时从账单里扣。没有救援供应商是谁、客人付了多少、加价比例（规则 4）
+      required: [id, order_id, order_no, service_time, kind, amount, status, basis, waived_at, waive_reason, created_at]
         code:
           type: string
         name:
@@ -18533,6 +19169,77 @@ components:
         id:
           type: string
           format: uuid
+        order_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        service_time:
+          type: string
+          format: date-time
+        kind:
+          type: string
+          enum: [penalty, rescue_difference]
+          description: "`penalty` 违约金；`rescue_difference` 救援差价"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        status:
+          type: string
+          enum: [pending, waived]
+          description: "`pending` 待结算时扣除；`waived` 不可抗力，已免除"
+        basis:
+          $ref: "#/components/schemas/DeductionBasis"
+        waived_at:
+          type: [string, "null"]
+          format: date-time
+        waive_reason:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    TenantOrderRescue:
+      type: object
+      additionalProperties: false
+      description: |
+        这一单和救援的关系（供应商看到的）。`original`：本租户是原供应商——触发的情形、时间、原因、违约金比例和阶梯、自己的应扣款项；
+        `rescuer`：这一单是本租户接来的救援单（`trigger` 等为 null；不告诉它原供应商是谁、为什么）
+      required: [role, status, trigger, triggered_at, reason, penalty_bp, penalty_tier, force_majeure, rescued_at, deductions]
+      properties:
+        role:
+          type: string
+          enum: [original, rescuer]
+        status:
+          $ref: "#/components/schemas/RescueStatus"
+        trigger:
+          oneOf:
+            - $ref: "#/components/schemas/RescueTrigger"
+            - type: "null"
+        triggered_at:
+          type: [string, "null"]
+          format: date-time
+        reason:
+          type: [string, "null"]
+        penalty_bp:
+          type: [integer, "null"]
+        penalty_tier:
+          type: [string, "null"]
+          enum: [none, partial, full, null]
+        force_majeure:
+          type: boolean
+          description: 运营认定了不可抗力（应扣款项全部免除）
+        rescued_at:
+          type: [string, "null"]
+          format: date-time
+        deductions:
+          type: array
+          items:
+            $ref: "#/components/schemas/TenantDeduction"
+    RescueTrip:
+      type: object
+      additionalProperties: false
+      description: 救援单上的行程（接单前看得到的部分）：没有乘客的姓名、电话、邮箱和航班号
+      required: [category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, passengers, luggage, pickup, dropoff, addons, driver_language]
+      properties:
         order_no:
           type: string
           pattern: "^NZ\\d{8}[0-9A-HJ-NP-Z]{8}$"
@@ -18560,6 +19267,10 @@ components:
         service_time:
           type: string
           format: date-time
+        service_local:
+          type: string
+        timezone:
+          type: string
           description: 用车时刻（UTC）
         service_local:
           type: string
@@ -18599,6 +19310,254 @@ components:
                 type: integer
         driver_language:
           type: [string, "null"]
+    TenantRescueOffer:
+      type: object
+      additionalProperties: false
+      description: 发给本租户的一张救援单：行程、用哪个商品接、自己的结算价和明细、期限。没有对外价、加价比例（规则 4）
+      required: [id, status, offered_at, expires_at, decided_at, decline_reason, trip, product_id, product_version, vehicle_group_id, settlement, order_id]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, accepted, declined, expired, withdrawn]
+        offered_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          description: 到这一刻起不能再接（15 分钟；发出时离用车不足 2 小时的 5 分钟）
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decline_reason:
+          type: [string, "null"]
+        trip:
+          $ref: "#/components/schemas/RescueTrip"
+        product_id:
+          type: string
+          format: uuid
+        product_version:
+          type: integer
+        vehicle_group_id:
+          type: string
+          format: uuid
+        settlement:
+          $ref: "#/components/schemas/OrderSettlement"
+        order_id:
+          type: [string, "null"]
+          format: uuid
+          description: 接了单之后才有（订单编号不变，在订单里看乘客信息）
+    PlatformDeduction:
+      type: object
+      additionalProperties: false
+      required: [id, tenant_id, kind, amount, status, basis, waived_at, waive_reason, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [penalty, rescue_difference]
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        status:
+          type: string
+          enum: [pending, waived]
+        basis:
+          $ref: "#/components/schemas/DeductionBasis"
+        waived_at:
+          type: [string, "null"]
+          format: date-time
+        waive_reason:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+    PlatformRescueOffer:
+      type: object
+      additionalProperties: false
+      required: [id, tenant, product_id, product_version, status, offered_by_type, offered_at, expires_at, decided_at, decline_reason, settlement, sell, markup_bp, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant:
+          $ref: "#/components/schemas/RescueTenantRef"
+        product_id:
+          type: string
+          format: uuid
+        product_version:
+          type: integer
+        status:
+          type: string
+          enum: [pending, accepted, declined, expired, withdrawn]
+        offered_by_type:
+          type: string
+          enum: [platform_user, system]
+          description: "`platform_user` 运营选的；`system` 上一家不接自动顺延"
+        offered_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decline_reason:
+          type: [string, "null"]
+        settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        sell:
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+          description: 比价时这家的对外价（只用于排序，客人付的钱不变）
+        markup_bp:
+          type: [integer, "null"]
+        position:
+          type: [integer, "null"]
+    PlatformRescue:
+      type: object
+      additionalProperties: false
+      description: 一次救援（运营后台）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
+      required: [id, order, trigger, triggered_by_type, reason, triggered_at, from_status, original_tenant, original_settlement, penalty_bp, penalty_tier, penalty, status, rescue_tenant, rescue_settlement, rescued_via, rescued_at, force_majeure, closed_at, offers, deductions, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order:
+          type: object
+          additionalProperties: false
+          required: [id, order_no, category, city_id, place_id, vehicle_group_id, service_time, service_local, timezone]
+          properties:
+            id:
+              type: string
+              format: uuid
+            order_no:
+              type: string
+            category:
+              $ref: "#/components/schemas/ServiceCategory"
+            city_id:
+              type: string
+              format: uuid
+            place_id:
+              type: [string, "null"]
+              format: uuid
+            vehicle_group_id:
+              type: string
+              format: uuid
+            service_time:
+              type: string
+              format: date-time
+            service_local:
+              type: string
+            timezone:
+              type: string
+        trigger:
+          $ref: "#/components/schemas/RescueTrigger"
+        triggered_by_type:
+          type: string
+          enum: [tenant_user, system, platform_user]
+        reason:
+          type: [string, "null"]
+        triggered_at:
+          type: string
+          format: date-time
+        from_status:
+          $ref: "#/components/schemas/OrderStatus"
+        original_tenant:
+          $ref: "#/components/schemas/RescueTenantRef"
+        original_settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        penalty_bp:
+          type: integer
+        penalty_tier:
+          type: string
+          enum: [none, partial, full]
+        penalty:
+          $ref: "#/components/schemas/SalesMoney"
+        status:
+          $ref: "#/components/schemas/RescueStatus"
+        rescue_tenant:
+          oneOf:
+            - $ref: "#/components/schemas/RescueTenantRef"
+            - type: "null"
+        rescue_settlement:
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+        rescued_via:
+          type: [string, "null"]
+          enum: [offer, manual, null]
+        rescued_at:
+          type: [string, "null"]
+          format: date-time
+        force_majeure:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [at, by, note]
+              properties:
+                at:
+                  type: string
+                  format: date-time
+                by:
+                  type: string
+                  format: uuid
+                note:
+                  type: string
+            - type: "null"
+        closed_at:
+          type: [string, "null"]
+          format: date-time
+        offers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformRescueOffer"
+        deductions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlatformDeduction"
+        version:
+          type: integer
+    RescueCandidate:
+      type: object
+      additionalProperties: false
+      required: [tenant, product_id, product_version, settlement, sell, markup_bp, position, in_band, difference, urgent]
+      properties:
+        tenant:
+          $ref: "#/components/schemas/RescueTenantRef"
+        product_id:
+          type: string
+          format: uuid
+        product_version:
+          type: integer
+        settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        sell:
+          $ref: "#/components/schemas/SalesMoney"
+        markup_bp:
+          type: integer
+        position:
+          type: integer
+          description: 在剩下的候选里的名次（1 起）
+        in_band:
+          type: boolean
+        difference:
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+          description: 改派给它时原供应商承担的救援差价（原结算币种，为负记 0）；两边币种不同又换不了时为 null
+        urgent:
+          type: boolean
+          description: 这家是按加急报的价（离用车太近）
         flight_no:
           type: [string, "null"]
           description: 航班号（去掉空格、大写），接机必填

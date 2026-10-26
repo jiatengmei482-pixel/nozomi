@@ -30,7 +30,7 @@ import { type Order, findTenantOrder, insertOrderEvent } from "../repos/orders.t
 import { validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
-import { type FulfilmentInput, applyFulfilmentEvent, orderStateInvalid } from "./fulfilment.ts";
+import { type FulfilmentInput, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid } from "./fulfilment.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 
@@ -42,9 +42,11 @@ export interface DispatchWriter {
 /** 能派车（第一次）的状态和能改派的状态。 */
 const ASSIGNABLE = new Set(["confirmed", "assigned", "departed"]);
 
-async function lockOrder(db: Db, tenantId: string, orderId: string): Promise<Order> {
+/** 锁住供应商自己的这一行准备写：救援改派中、已转出的拒绝（`assertTenantCanOperate`）。 */
+async function lockOrder(db: Db, tenantId: string, orderId: string, action: string): Promise<Order> {
   const order = await findTenantOrder(db, tenantId, orderId, { lock: true });
   if (order === null) throw notFound("订单");
+  assertTenantCanOperate(order, action);
   return order;
 }
 
@@ -170,7 +172,7 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
-    const order = await lockOrder(db, tenantId, orderId);
+    const order = await lockOrder(db, tenantId, orderId, "assign");
     if (!ASSIGNABLE.has(order.status)) throw orderStateInvalid(order.status, "assign");
     if (order.version !== version) throw versionConflict(order.version);
     const isChange = order.status !== "confirmed";
@@ -218,7 +220,7 @@ export async function reissueDriverLink(ctx: AppContext, writer: DispatchWriter,
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
-    const order = await lockOrder(db, tenantId, orderId);
+    const order = await lockOrder(db, tenantId, orderId, "reissue_driver_link");
     if (!LINKABLE.has(order.status) || order.dispatch.driverId === null) throw orderStateInvalid(order.status, "reissue_driver_link");
     const current = await currentDriverLink(db, tenantId, orderId);
     if (current === null && order.dispatch.assignedAt === null) throw orderStateInvalid(order.status, "reissue_driver_link");
@@ -237,7 +239,7 @@ export async function revokeDriverLink(ctx: AppContext, writer: DispatchWriter, 
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   await withTenantTx(ctx.pool, tenantId, async (db) => {
-    await lockOrder(db, tenantId, orderId);
+    await lockOrder(db, tenantId, orderId, "revoke_driver_link");
     const current = await currentDriverLink(db, tenantId, orderId);
     if (current === null) throw notFound("司机链接");
     await revokeDriverLinks(db, tenantId, orderId, "manual", now);
@@ -254,7 +256,7 @@ export async function reportTenantFulfilment(ctx: AppContext, writer: DispatchWr
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
-    const order = await lockOrder(db, tenantId, orderId);
+    const order = await lockOrder(db, tenantId, orderId, "report_event");
     await applyFulfilmentEvent(db, order, input, { type: "tenant_user", id: writer.principal.user.id, linkId: null }, now);
     const saved = (await findTenantOrder(db, tenantId, orderId)) as Order;
     await insertAuditLog(db, auditOrigin(writer, now), { tenantId, resource: "order", resourceId: orderId, action: "update", before: { status: order.status }, after: { status: saved.status, event: input.type } });
