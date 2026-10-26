@@ -389,3 +389,249 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---------- 地址：搜索、常用地点、手填、地图选点（M3-12，site-booking.md 3.6） ---------- */
+
+.site-address {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.site-address-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* 搜索框和「搜索」按钮一行；按钮和输入框底边对齐（标签在输入框上面），帮助文字在两者下面 */
+.site-address-search__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+}
+
+.site-address-search__button {
+  margin-top: calc(var(--font-size-md) * var(--line-height-normal) + var(--space-1));
+}
+
+.site-address__status {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+}
+
+.site-address__status:empty {
+  display: none;
+}
+
+.site-address__status--warning {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-text-primary);
+}
+
+.site-address__status--warning > .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-warning-text);
+}
+
+.site-address-search__results {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  list-style: none;
+  overflow: hidden;
+}
+
+.site-address-search__results > li + li {
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+/* 每个候选是一整行按钮（触屏至少 48px 高），名称在上、地址在下 */
+.site-address-search__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  width: 100%;
+  min-height: var(--control-height-lg);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.site-address-search__result:hover {
+  background: var(--color-bg-hover);
+}
+
+.site-address-search__result:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+.site-address-search__name {
+  font-weight: var(--font-weight-bold);
+}
+
+.site-address-search__address {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.site-address__map-toggle {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.site-map {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.site-map > .button {
+  max-width: 100%;
+}
+
+/* 手机上地图不超过半屏高：上下还要能看到表单、滚得动页面 */
+.site-map__frame {
+  position: relative;
+  width: 100%;
+  height: min(50dvh, 320px);
+  min-height: 240px;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-subtle);
+}
+
+.site-map__canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-bg-subtle);
+  cursor: crosshair;
+}
+
+.site-map__canvas:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1);
+}
+
+/* 准星：地图正中，键盘选点时「选地图中间这个位置」选的就是它 */
+.site-map__crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--space-6);
+  height: var(--space-6);
+  margin: calc(var(--space-6) / -2) 0 0 calc(var(--space-6) / -2);
+  border: var(--border-width) solid var(--color-text-primary);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 0 var(--border-width) var(--color-bg-surface);
+  pointer-events: none;
+}
+
+/* 标记：针尖对准选中的位置（左上角在那一点，图形往左上挪） */
+.site-map__marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: var(--z-base);
+  touch-action: none;
+  cursor: grab;
+}
+
+.site-map__marker--dragging {
+  cursor: grabbing;
+}
+
+.site-map__pin {
+  position: absolute;
+  left: calc(var(--space-8) / -2);
+  bottom: 0;
+  width: var(--space-8);
+  height: var(--space-10);
+  overflow: visible;
+}
+
+.site-map__pin-body {
+  fill: var(--color-primary);
+  stroke: var(--color-bg-surface);
+  stroke-width: 1.5px;
+}
+
+.site-map__pin-dot {
+  fill: var(--color-bg-surface);
+}
+
+.site-map__controls {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.site-map__control {
+  color: var(--color-text-primary);
+}
+
+.site-map__trouble {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  max-width: calc(100% - var(--control-height-md) - var(--space-8));
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.site-map__attribution {
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 var(--space-2);
+  max-width: calc(100% - var(--space-2));
+  margin: 0;
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}

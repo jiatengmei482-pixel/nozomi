@@ -10,6 +10,7 @@ import type { WebhookSender } from "./integrations/webhook-sender.ts";
 import type { FxCenter } from "./services/fx-center.ts";
 import type { QuoteDeps } from "./services/quote-deps.ts";
 import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
+import type { GooglePlaceSearch } from "./services/place-search.ts";
 
 export interface AppContext {
   config: AppConfig;
@@ -32,4 +33,6 @@ export interface AppContext {
   secretBox: SecretBox | null;
   /** 推送给供应商的 Webhook 的发送器（防 SSRF、超时、不跟随重定向，ADR 0027） */
   webhookSender: WebhookSender;
+  /** 官网的地址搜索和坐标反查（谷歌地图，后端代调；缓存、每日上限、冷却，ADR 0044） */
+  places: GooglePlaceSearch;
 }

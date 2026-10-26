@@ -580,7 +580,7 @@ test("官网的客户端吊销：config 关、询价下单 503；已有订单照
     await ok(api.call("POST", `/platform/v1/channels/${channelId}/api-clients/${creds.id}/revoke`, { token: cm1.token }));
 
     const ip = nextIp();
-    assert.deepEqual((await own.call("GET", "/site/v1/config", { ip })).body, { open: false, currency: null, payments: null, support_phone: null });
+    assert.deepEqual((await own.call("GET", "/site/v1/config", { ip })).body, { open: false, currency: null, payments: null, support_phone: null, address_search: false, map_tiles: null });
     for (const [method, url, body] of [["GET", "/site/v1/cities", undefined], ["GET", `/site/v1/cities/${m.ids.tokyo}/airports`, undefined], ["POST", "/site/v1/quotes", quoteBody(serviceIn(10))]] as const) {
       const res = await own.call(method, url, { ip, ...(body === undefined ? {} : { body }) });
       assert.deepEqual([res.status, res.body.error.code], [503, "SITE_NOT_OPEN"], url);

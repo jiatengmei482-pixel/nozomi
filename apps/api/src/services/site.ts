@@ -10,17 +10,21 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import {
+  type LatLng,
   type LocalizedText,
+  type PlaceCandidate,
   type ServiceCategory,
   type VehicleGrade,
   cancellationRuleFor,
   channelScopeRefusal,
   channelSellsTenant,
+  cityBounds,
   combineThrottleDecisions,
   evaluateRollingWindow,
   instantToLocal,
   localDateTimeExists,
   localDateTimeToInstant,
+  inBounds,
   normalizePhone,
   tenantBids,
   vehicleLevel,
@@ -37,6 +41,7 @@ import {
   type OrderNames,
   type SiteVehicleGroup,
   findChannelOrderByNo,
+  findSiteCityCenter,
   findLiveSiteOrderLink,
   findOrderNames,
   findSiteClient,
@@ -141,12 +146,14 @@ export interface SiteConfig {
   currency: string | null;
   /** Stripe 配置了才有：前端只拿 publishable key */
   payments: { provider: "stripe"; publishableKey: string } | null;
+  /** 页面要不要显示地址搜索（ADR 0044）：官网开着、谷歌密钥配置了、每日上限不是 0。到了上限、谷歌出错时照样是 true，搜的时候再说暂时用不了 */
+  addressSearch: boolean;
 }
 
 export async function siteConfig(ctx: AppContext): Promise<SiteConfig> {
   const site = await loadSiteChannel(ctx);
   const open = site !== null && site.open;
-  return { open, currency: open ? site.channel.settleCurrency : null, payments: open && ctx.payments !== null ? { provider: "stripe", publishableKey: ctx.payments.publishableKey } : null };
+  return { open, currency: open ? site.channel.settleCurrency : null, payments: open && ctx.payments !== null ? { provider: "stripe", publishableKey: ctx.payments.publishableKey } : null, addressSearch: open && ctx.places.enabled };
 }
 
 /** 渠道卖不卖这个供应商（授权范围、供应商在不在比价的状态）。 */
@@ -160,6 +167,8 @@ export interface SiteCity {
   name: LocalizedText;
   timezone: string;
   countryCode: string;
+  /** 城市中心：官网的地图打开时先看这里（ADR 0044） */
+  center: { lat: number; lng: number };
   /** 这个城市能在官网预订的品类（按 `SITE_CATEGORIES` 的顺序） */
   categories: ServiceCategory[];
 }
@@ -171,7 +180,7 @@ export async function siteCities(ctx: AppContext): Promise<SiteCity[]> {
   const cities = new Map<string, SiteCity>();
   for (const row of rows) {
     if (!SITE_CATEGORIES.includes(row.category) || !sells(channel, row) || channelScopeRefusal(channel.scope, row.id, row.category) !== null) continue;
-    const city = cities.get(row.id) ?? { id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.countryCode, categories: [] };
+    const city = cities.get(row.id) ?? { id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.countryCode, center: row.center, categories: [] };
     if (!city.categories.includes(row.category)) city.categories.push(row.category);
     cities.set(row.id, city);
   }
@@ -237,6 +246,46 @@ export async function sitePlaces(ctx: AppContext, cityId: string): Promise<SiteP
   if (channel.scope.cityIds !== null && !channel.scope.cityIds.includes(cityId)) return [];
   const rows = await withPlatformTx(ctx.pool, (db) => listCityPlaces(db, cityId), { snapshot: true });
   return rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat }));
+}
+
+/**
+ * 地址搜索、反查要的城市（ADR 0044）：官网开着、城市在渠道授权里、启用。否则 400 `UNKNOWN_CITY`（和询价同一种说法）。
+ * 授权检查和常用地点同一个口径（只看城市，不看品类）。
+ */
+async function sitePlaceCity(ctx: AppContext, cityId: string): Promise<{ countryCode: string; center: LatLng }> {
+  const { channel } = await requireOpenSite(ctx);
+  const unknown = (): AppError => validationFailed("querystring", [{ path: "/city_id", reason: "UNKNOWN_CITY", message: "城市不存在或暂不开放" }]);
+  if (channel.scope.cityIds !== null && !channel.scope.cityIds.includes(cityId)) throw unknown();
+  const city = await withPlatformTx(ctx.pool, (db) => findSiteCityCenter(db, cityId));
+  if (city === null || !city.active) throw unknown();
+  return city;
+}
+
+export interface SitePlaceSearchResult {
+  /** false：这次用不了（没配置、到了每日上限、谷歌出错），页面退回常用地点、地图点选和手填 */
+  available: boolean;
+  items: PlaceCandidate[];
+}
+
+/** 按关键字在城市附近搜地点（关键字已规范化、长短合格）。谷歌出问题不报错，`available: false`。 */
+export async function siteSearchPlaces(ctx: AppContext, cityId: string, query: string): Promise<SitePlaceSearchResult> {
+  const city = await sitePlaceCity(ctx, cityId);
+  const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode });
+  return found.ok ? { available: true, items: found.value } : { available: false, items: [] };
+}
+
+export interface SiteReverseResult {
+  available: boolean;
+  /** 这个位置的地址；查不到（海上、山里）为 null */
+  address: string | null;
+}
+
+/** 查地图上一个位置的地址。坐标离城市太远 400 `OUT_OF_CITY`（这个代理只为在这个城市用车服务）。谷歌出问题不报错，`available: false`。 */
+export async function siteReversePlace(ctx: AppContext, cityId: string, point: LatLng): Promise<SiteReverseResult> {
+  const city = await sitePlaceCity(ctx, cityId);
+  if (!inBounds(point, cityBounds(city.center))) throw validationFailed("querystring", [{ path: "/lat", reason: "OUT_OF_CITY", message: "这个位置离城市太远，请在城市附近选点" }]);
+  const found = await ctx.places.reverse({ point, regionCode: city.countryCode });
+  return found.ok ? { available: true, address: found.value } : { available: false, address: null };
 }
 
 type Point = { lng: number; lat: number };

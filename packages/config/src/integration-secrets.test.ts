@@ -111,12 +111,22 @@ test("日志脱敏要抹掉的生效值：谷歌地图密钥和 Stripe 三项", 
 });
 
 test("测试用的服务地址：local / ci 可以指到本机，staging / production 不能改", () => {
-  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", STRIPE_API_URL: "http://127.0.0.1:4011" });
-  assert.deepEqual(ci.integrationEndpoints, { googleMapsRoutesUrl: "http://127.0.0.1:4010/directions/v2:computeRoutes", stripeApi: { host: "127.0.0.1", port: 4011, protocol: "http" } });
-  assert.deepEqual(loadConfig(base).integrationEndpoints, { googleMapsRoutesUrl: "https://routes.googleapis.com/directions/v2:computeRoutes", stripeApi: null });
+  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/v1/places:searchText", GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/geocode", STRIPE_API_URL: "http://127.0.0.1:4011" });
+  assert.deepEqual(ci.integrationEndpoints, {
+    googleMapsRoutesUrl: "http://127.0.0.1:4010/directions/v2:computeRoutes",
+    googlePlacesSearchUrl: "http://127.0.0.1:4012/v1/places:searchText",
+    googleGeocodeUrl: "http://127.0.0.1:4013/geocode",
+    stripeApi: { host: "127.0.0.1", port: 4011, protocol: "http" },
+  });
+  assert.deepEqual(loadConfig(base).integrationEndpoints, {
+    googleMapsRoutesUrl: "https://routes.googleapis.com/directions/v2:computeRoutes",
+    googlePlacesSearchUrl: "https://places.googleapis.com/v1/places:searchText",
+    googleGeocodeUrl: "https://geocode.googleapis.com/v4beta/geocode/location",
+    stripeApi: null,
+  });
   for (const env of ["staging", "production"]) {
     const extra = env === "production" ? { AUTH_JWT_SECRET: "x".repeat(64), DATA_ENCRYPTION_KEY: "k".repeat(40) } : {};
-    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
+    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/x" }, { GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
       assert.throws(() => loadConfig({ ...base, ...extra, APP_ENV: env, ...override }), /只给本机和 CI 的测试用/, `${env} ${Object.keys(override)[0]}`);
     }
   }

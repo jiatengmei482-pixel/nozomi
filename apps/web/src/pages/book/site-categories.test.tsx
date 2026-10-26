@@ -21,7 +21,7 @@ const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 const ORDER_ID = "44444444-4444-4444-8444-444444444444";
 const TOKEN = `nzo_${"A".repeat(43)}`;
 
-const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", categories: ["airport_transfer", "point_to_point", "charter"] };
+const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
 const station: SitePlace = { id: "66666666-6666-4666-8666-666666666666", type: "station", code: "STN-JP-TOKYO", name: { zh: "东京站", ja: "東京駅" }, address: null, location: { lng: 139.7671, lat: 35.6812 } };
 const hotel: SitePlace = { id: "77777777-7777-4777-8777-777777777777", type: "poi", code: "POI-000001", name: { zh: "新宿某酒店" }, address: "新宿区西新宿 2-7-2", location: { lng: 139.6917, lat: 35.6895 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
@@ -54,7 +54,7 @@ function open(entry: string | { pathname: string; hash?: string; state?: unknown
 
 const routes = (options: { places?: () => Response; packages?: () => Response; quotes?: Route } = {}): Route => (call) => {
   const path = call.url.pathname;
-  if (call.method === "GET" && path === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null });
+  if (call.method === "GET" && path === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null });
   if (call.method === "GET" && path === "/site/v1/cities") return json(200, { items: [city] });
   if (call.method === "GET" && path === `/site/v1/cities/${CITY_ID}/airports`) return json(200, { items: [] });
   if (call.method === "GET" && path === `/site/v1/cities/${CITY_ID}/places`) return options.places?.() ?? json(200, { items: [station, hotel] });
@@ -284,7 +284,7 @@ const envelopeOf = (order: SiteOrder): SiteOrderEnvelope => ({
 
 test("订单页：包车写套餐时长和上车地点、没有「我已落地」；改单只有上车地址、没有航班号；点对点两端都能改", async () => {
   const calls = open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
-    if (call.url.pathname === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null });
+    if (call.url.pathname === "/site/v1/config") return json(200, { open: true, currency: "JPY", payments: null, support_phone: null, address_search: false, map_tiles: null });
     if (call.method === "GET" && call.url.pathname === "/site/v1/order") return json(200, envelopeOf(charterOrder()));
     if (call.method === "PATCH") return json(200, { ...envelopeOf(charterOrder({ pickup: { lng: 139.7671, lat: 35.6812, address: "东京站丸之内口" }, version: 3 })), change: null });
     return null;

@@ -10129,6 +10129,103 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/places/search:
+    get:
+      tags: [ 官网 ]
+      operationId: searchSitePlaces
+      summary: 地址搜索（关键字 + 城市 → 候选地点）
+      description: |
+        M3-12，ADR 0044。服务端以平台的谷歌地图密钥调 Places API (New) 的 Text Search（密钥不进浏览器），只要名称、地址、坐标，
+        只要城市中心周围 80 公里以内的结果，最多 5 条，中文。关键字先规范化（全角转半角、空白并成一个），规范化后 2–100 个字。
+        同一城市同一关键字 10 分钟内在服务端直接复用（进程内短时缓存，谷歌的名称、地址不存库）。
+        谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和反查合计）、出错、超时时**不报错**：200 + `available: false`，页面退回「从常用地点选」、地图点选和手填。
+        城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次、每天 300 次（和反查合计）。
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 400
+          description: 关键字（酒店名、地址、地标），规范化后 2–100 个字（`TOO_SHORT` / `TOO_LONG`）
+      responses:
+        "200":
+          description: 候选地点；`available` 为 false 时这次用不了（`items` 为空）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, items ]
+                properties:
+                  available:
+                    type: boolean
+                  items:
+                    type: array
+                    maxItems: 5
+                    items:
+                      $ref: "#/components/schemas/SitePlaceCandidate"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/places/reverse:
+    get:
+      tags: [ 官网 ]
+      operationId: reverseSitePlace
+      summary: 地图上一个位置的地址（坐标 → 地址文字）
+      description: |
+        M3-12，ADR 0044。客人在地图上点选或拖动标记后，页面用它把地址填进地址栏。服务端调谷歌 Geocoding API 反查（密钥只在服务端），
+        坐标先取整到小数点后 4 位（约 11 米，同一个格子 10 分钟内直接复用）。
+        坐标要在城市中心周围 80 公里以内，否则 400 `OUT_OF_CITY`；城市的规则同地址搜索（`UNKNOWN_CITY`）。
+        谷歌用不了时 200 + `available: false`；这里没有地址（海上、山里）时 `address` 为 null。每个地址每分钟 20 次、每天 300 次（和搜索合计）。
+        **报价只看坐标**：地址文字只给司机看，服务区按询价请求里的坐标判断。
+      parameters:
+        - name: city_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+      responses:
+        "200":
+          description: 这个位置的地址
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, address ]
+                properties:
+                  available:
+                    type: boolean
+                  address:
+                    type: [ string, "null" ]
+                    maxLength: 240
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/quotes:
     post:
       tags: [ 官网 ]
@@ -22342,7 +22439,7 @@ components:
     SiteConfig:
       type: object
       additionalProperties: false
-      required: [ open, currency, payments, support_phone ]
+      required: [ open, currency, payments, support_phone, address_search, map_tiles ]
       properties:
         open:
           type: boolean
@@ -22368,11 +22465,29 @@ components:
           type: [ string, "null" ]
           pattern: "^\\+[1-9][0-9 -]*[0-9]$"
           description: 订单页「需要帮助」里的客服电话（配置 SITE_SUPPORT_PHONE，原样显示）；没有登记时为 null，页面不显示客服区块。官网没开时也照常给出（已下单的客人仍要能联系客服）
+        address_search:
+          type: boolean
+          description: |
+            页面要不要显示地址搜索（M3-12，ADR 0044）：官网开着、谷歌地图密钥配置了（运营后台或配置文件）、每日上限（`GOOGLE_PLACES_DAILY_LIMIT`）不是 0。
+            到了每日上限、谷歌出错时照样是 true——搜的时候 `GET /site/v1/places/search` 回 `available: false`，页面再退回常用地点和手填。
+        map_tiles:
+          $ref: "#/components/schemas/MapConfig/properties/tiles"
+          description: 地图底图（和供应商区域页同一份配置，ADR 0015）；没有配置或官网没开时为 null，页面不显示地图选点
     SiteCity:
       type: object
       additionalProperties: false
-      required: [ id, code, name, timezone, country_code, categories ]
+      required: [ id, code, name, timezone, country_code, center, categories ]
       properties:
+        center:
+          description: 城市中心（主数据）：官网的地图打开时先看这里；地址搜索、反查只在它周围 80 公里以内（ADR 0044）
+          type: object
+          additionalProperties: false
+          required: [ lat, lng ]
+          properties:
+            lat:
+              type: number
+            lng:
+              type: number
         categories:
           type: array
           description: 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车）；至少一种
@@ -22451,6 +22566,24 @@ components:
         address:
           type: [ string, "null" ]
           description: 地标的地址（主数据里有才有）
+        location:
+          $ref: "#/components/schemas/SitePoint"
+    SitePlaceCandidate:
+      type: object
+      additionalProperties: false
+      required: [ id, name, address, location ]
+      description: 地址搜索的一个候选（谷歌地图 Places API (New)，名称和地址按谷歌给的中文写法，清理过空白、截短过）
+      properties:
+        id:
+          type: string
+          description: 谷歌的地点 ID，只用来区分候选
+        name:
+          type: string
+          maxLength: 120
+        address:
+          type: string
+          maxLength: 240
+          description: 谷歌给的地址；没有时为空字符串
         location:
           $ref: "#/components/schemas/SitePoint"
     SiteQuoteRequest:

@@ -4,7 +4,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "@nozomi/config";
-import { buildApp } from "../app.ts";
+import { type AppDeps, buildApp } from "../app.ts";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import type { ApiResponse, CallOptions, HttpMethod, TestApi } from "./api.ts";
@@ -16,15 +16,19 @@ export interface SiteApi {
   close(): Promise<void>;
 }
 
-/** 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe；`env` 是额外的配置项（如客服电话）。 */
-export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}): Promise<SiteApi> {
+/**
+ * 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe；`env` 是额外的配置项（如客服电话、假谷歌的地址）；
+ * `deps` 是额外的应用依赖（日志去向、地址搜索的缓存时长、密钥缓存的重读间隔）。
+ */
+export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}, deps: Pick<AppDeps, "logDestination" | "placeCacheTtlMs" | "integrationSecretsTtlMs"> = {}): Promise<SiteApi> {
   const app = buildApp({
     config: loadConfig({ ...testEnv(api.db.url), ...UNREACHABLE_INTEGRATIONS, ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }), ...env }),
     pool: api.db.pool,
     migrationFiles: await loadMigrationFiles(),
     now: api.clock.now,
     payments,
-    logger: false,
+    logger: deps.logDestination !== undefined,
+    ...deps,
   });
   const call: SiteApi["call"] = async (method, url, options = {}) => {
     const res = await app.inject({

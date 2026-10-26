@@ -73,7 +73,7 @@
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
-| `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
+| `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Google Cloud Console → 新建项目 → 启用 Routes API、Places API (New) 和 Geocoding API → 凭据 → 创建 API 密钥，并限制只能调用这三个 API（官网地址搜索用 Places API (New)，地图点选后查地址用 Geocoding API，ADR 0044） |
 
 同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：
 
@@ -86,6 +86,7 @@
 
 | 名称 | 是什么 | 怎么填 |
 | --- | --- | --- |
+| `GOOGLE_PLACES_DAILY_LIMIT` | 每天（东京时间）最多调用谷歌几次给官网客人搜地址、查地图上那一点的地址（两者合计，按次计费；ADR 0044） | 不填 = 500 次。到了上限当天剩下的时间里，官网的地址搜索显示「暂时用不了」，客人照样能从常用地点选、在地图上点选、自己写地址；第二天 0 点恢复。填 0 = 完全不调用 |
 | `GOOGLE_ROUTES_DAILY_LIMIT` | 每天（东京时间）最多调用谷歌 Routes API 几次（算里程和时长，按次计费） | 不填 = 1000 次。到了上限当天剩下的时间里，按里程计价的商品显示「暂时无法报价」，一口价和包车照常；第二天 0 点恢复。运营后台「系统状态」能看到今天用了多少次。填 0 = 完全不调用 |
 
 还有一项**不是密钥**的配置——官网用哪个渠道（ADR 0032）：
@@ -129,7 +130,7 @@
 | 账号 | 用途 | 去哪里注册 | 必需于 |
 | --- | --- | --- | --- |
 | Stripe | 客人付款、退款、事后加收 | stripe.com，先用 Test mode | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
-| Google Cloud | 里程 + 时长报价、地址搜索 | console.cloud.google.com，需要绑定付款方式；启用 Routes API 和 Places API | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
+| Google Cloud | 里程 + 时长报价、地址搜索 | console.cloud.google.com，需要绑定付款方式；启用 Routes API、Places API (New)、Geocoding API | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
 | 汇率 | 中央换算中心 | 免费源 open.er-api.com，无需注册 | 已有默认值 |
 
 ## 规则

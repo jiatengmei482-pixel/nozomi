@@ -51,6 +51,7 @@ const PLATFORM_TABLES = [
   "order_sales",
   "payment_events",
   "payout_batches",
+  "place_api_usage",
   "places",
   "platform_recovery_codes",
   "platform_roles",
@@ -250,6 +251,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 路线预估（ADR 0042）：缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
     route_estimates: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     route_api_usage: ["INSERT", "SELECT", "UPDATE"],
+    place_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 官网的订单查看链接（ADR 0032）：只追加，到有效期自然失效
