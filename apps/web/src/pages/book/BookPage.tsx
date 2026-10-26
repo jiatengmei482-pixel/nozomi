@@ -3,7 +3,7 @@
  * 看到各车型组的对外价、免费等待和取消政策摘要，选一个去下单。页面上没有供应商、结算价、加价比例（接口里本来就没有）。
  * 四种状态：加载中（骨架）、官网没开 / 没有可预订的城市（空）、出错（说明怎么办 + 重试）、正常。
  */
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type SiteAirport, type SiteCity, type SiteDirection, type SiteQuote, type SiteQuoteRequest, type SiteQuoteResult, createSiteQuotes, listSiteAirports, listSiteCities } from "../../api/site.ts";
@@ -14,8 +14,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { tiersText } from "../../lib/order-money-display.ts";
-import { SITE_CHECKOUT_PATH, UNAVAILABLE_REASON_TEXT, defaultServiceDate, localDateTimeIn } from "../../lib/site-display.ts";
+import { SITE_CHECKOUT_PATH, UNAVAILABLE_REASON_TEXT, defaultServiceDate, guestCancelPolicyText, localDateTimeIn, quotesByTotal } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
 
@@ -92,7 +91,7 @@ function QuoteCard({ quote, pickup, onChoose }: { quote: SiteQuote; pickup: bool
         </div>
         <div className="site-facts__item">
           <dt>取消政策</dt>
-          <dd>{tiersText(quote.cancel_policy.tiers)}</dd>
+          <dd>{guestCancelPolicyText(quote.cancel_policy.tiers)}</dd>
         </div>
       </dl>
       <Button variant="primary" size="lg" block onClick={onChoose}>
@@ -102,12 +101,24 @@ function QuoteCard({ quote, pickup, onChoose }: { quote: SiteQuote; pickup: bool
   );
 }
 
+/**
+ * 询价结果（报不出价时同样）：出来后把焦点移到结果标题并滚到那里（F4）——手机上结果在长表单下面，不这样客人看不到任何变化。
+ * 报价按总价从低到高（F6）。
+ */
 function Results({ result, city, pickup, onChoose }: { result: SiteQuoteResult; city: SiteCity; pickup: boolean; onChoose(quote: SiteQuote): void }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const node = heading.current;
+    if (node === null) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    node.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
+    node.focus({ preventScroll: true });
+  }, [result]);
   if (result.quotes.length === 0) {
     const reasons = [...new Set(result.unavailable.flatMap((entry) => entry.reasons))];
     return (
       <section aria-labelledby="site-results-title" className="site-section">
-        <h2 id="site-results-title" className="site-section__title">
+        <h2 id="site-results-title" ref={heading} tabIndex={-1} className="site-section__title">
           没有可预订的车
         </h2>
         <ul className="site-reasons">
@@ -121,12 +132,12 @@ function Results({ result, city, pickup, onChoose }: { result: SiteQuoteResult; 
   const expires = result.quotes.map((quote) => quote.expires_at).sort()[0] ?? null;
   return (
     <section aria-labelledby="site-results-title" className="site-section">
-      <h2 id="site-results-title" className="site-section__title">
+      <h2 id="site-results-title" ref={heading} tabIndex={-1} className="site-section__title">
         可预订的车（{result.quotes.length} 种）
       </h2>
       <p className="site-muted">按车计价的一口价，已含高速费和停车费。报价 30 分钟内有效（到当地时间 {formatInZone(expires, city.timezone).slice(11)}），过了请重新查询。</p>
       <ul className="site-quotes">
-        {result.quotes.map((quote) => (
+        {quotesByTotal(result.quotes).map((quote) => (
           <QuoteCard key={quote.quote_id} quote={quote} pickup={pickup} onChoose={() => onChoose(quote)} />
         ))}
       </ul>

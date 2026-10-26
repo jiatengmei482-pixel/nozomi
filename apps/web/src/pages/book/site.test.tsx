@@ -168,7 +168,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { city_id: CITY_ID, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 }, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1 });
   assert.ok(within(card).getByText("21,780 JPY"));
   assert.ok(within(card).getByText("90 分钟（从航班落地起算）"));
-  assert.ok(within(card).getByText("用车前 ≥ 48 小时 免费；24–48 小时 扣 50%；< 24 小时 扣 100%"));
+  assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
   assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
@@ -296,7 +296,7 @@ test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable 
     if (call.url.pathname === "/site/v1/order/payment") return json(200, { payment: { provider: "stripe", status: "requires_payment_method", client_secret: "pi_1_secret_2", publishable_key: "pk_test_abc" } });
     return null;
   });
-  assert.ok(await screen.findByText(/在线付款还在接入中，订单已为您保留到当地时间 2026-10-26 10:30/));
+  assert.ok(await screen.findByText(/在线付款还在接入中，订单已为您保留到当地时间 (2026年)?10月26日（周一）10:30/));
 });
 
 test("我已落地：离计划到达 3 小时以上不出按钮、写明几点起能点；能点时先确认，提交后显示确认的时间、按钮消失", async () => {
@@ -392,10 +392,10 @@ test("事后加收：显示客人要付的金额和异议截止时间；异议�
   });
   const actor = user();
   assert.ok(await screen.findByText("2,200 JPY"));
-  assert.ok(screen.getByText(/当地时间 2026-11-22 10:00 前提出/));
+  assert.ok(screen.getByText(/当地时间 (2026年)?11月22日（周日）10:00 前提出/));
   await actor.click(screen.getByRole("button", { name: "提异议" }));
   await actor.click(screen.getByRole("button", { name: "提交异议" }));
-  assert.ok(await screen.findByText("请写一下为什么有异议"));
+  assert.ok(await screen.findByText("请写一下为什么有异议，如「司机没有等那么久」"));
   await actor.type(screen.getByLabelText("异议的理由"), "司机没有等那么久");
   await actor.click(screen.getByRole("button", { name: "提交异议" }));
   assert.ok(await screen.findByText("已提异议，平台审核中"));

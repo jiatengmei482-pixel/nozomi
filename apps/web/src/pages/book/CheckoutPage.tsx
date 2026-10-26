@@ -15,10 +15,9 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
+import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { tiersText } from "../../lib/order-money-display.ts";
-import { SITE_HOME_PATH, newIdempotencyKey, siteOrderUrl } from "../../lib/site-display.ts";
+import { SITE_HOME_PATH, guestCancelPolicyText, guestInstantText, guestLocalText, newIdempotencyKey, siteOrderUrl } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import type { CheckoutState } from "./BookPage.tsx";
 import { SiteLayout, siteFailureText } from "./SiteLayout.tsx";
@@ -158,7 +157,7 @@ export function CheckoutPage() {
           <div className="site-facts__item">
             <dt>{pickup ? "航班计划到达" : "上车时间"}</dt>
             <dd>
-              {draft.date} {draft.time}（{displayName(city.name).text}当地时间）
+              {guestLocalText(`${draft.date}T${draft.time}`, city.timezone, new Date())}（{displayName(city.name).text}当地时间）
             </dd>
           </div>
           <div className="site-facts__item">
@@ -177,10 +176,10 @@ export function CheckoutPage() {
           </div>
           <div className="site-facts__item">
             <dt>取消政策</dt>
-            <dd>{tiersText(quote.cancel_policy.tiers)}</dd>
+            <dd>{guestCancelPolicyText(quote.cancel_policy.tiers)}</dd>
           </div>
         </dl>
-        <p className="site-muted">报价有效到当地时间 {formatInZone(quote.expires_at, city.timezone)}。</p>
+        <p className="site-muted">报价有效到当地时间 {guestInstantText(quote.expires_at, city.timezone, new Date())}。</p>
         <LinkButton to={SITE_HOME_PATH} state={{ draft }} variant="text">
           返回修改行程
         </LinkButton>

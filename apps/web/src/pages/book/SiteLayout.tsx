@@ -1,33 +1,49 @@
 /**
  * 官网页面的外观（M3-05，ADR 0032；docs/design/03-layout.md「官网下单页」）：不用后台的菜单壳。
- * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌和「查订单」，右上角主题切换；底部是数据来源的署名
+ * 单栏、内容最宽 `layout-reading-max-width`、居中；顶部是品牌、主题切换和两个入口；底部是数据来源的署名
  * （页面上有城市、机场的名称：GeoNames CC BY 4.0、OurAirports 公有领域）。
  */
-import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Component, type ReactNode, useCallback, useEffect, useState } from "react";
+import { Link, Outlet, useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type SiteConfig, getSiteConfig } from "../../api/site.ts";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
+import { Button } from "../../components/Button.tsx";
+import { StateBlock } from "../../components/States.tsx";
 import { failureText } from "../../lib/failure.ts";
-import { SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
+import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
 import { ThemeSwitcher } from "../../theme/ThemeSwitcher.tsx";
 
+/** 顶栏的入口：当前页是哪一个（F11）。询价和下单都算「预订接送机」，订单页和查订单都算「查订单」。 */
+function navCurrent(pathname: string, target: string): "page" | "true" | undefined {
+  if (pathname === target) return "page";
+  if (target === SITE_HOME_PATH && pathname === SITE_CHECKOUT_PATH) return "true";
+  return undefined;
+}
+
+/**
+ * 顶栏：DOM 顺序是品牌、主题切换、入口（F10）。窄屏（320px）品牌和主题切换在第一行两端、入口在第二行；
+ * 宽屏一行，主题切换和入口一起靠右。两种宽度下 Tab 顺序都和看到的顺序一致。
+ */
 export function SiteLayout({ children, attribution = true }: { children: ReactNode; attribution?: boolean }) {
+  const { pathname } = useLocation();
   return (
     <div className="site">
       <header className="site__header">
         <Link to={SITE_HOME_PATH} className="site__brand">
           NOZOMI 用车
         </Link>
+        <div className="site__theme">
+          <ThemeSwitcher />
+        </div>
         <nav className="site__nav" aria-label="官网">
-          <Link to={SITE_HOME_PATH} className="site__nav-link">
+          <Link to={SITE_HOME_PATH} className="site__nav-link" aria-current={navCurrent(pathname, SITE_HOME_PATH)}>
             预订接送机
           </Link>
-          <Link to={SITE_ORDER_PATH} className="site__nav-link">
+          <Link to={SITE_ORDER_PATH} className="site__nav-link" aria-current={navCurrent(pathname, SITE_ORDER_PATH)}>
             查订单
           </Link>
         </nav>
-        <ThemeSwitcher />
       </header>
       <main className="site__main">{children}</main>
       {attribution && (
@@ -36,6 +52,46 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
         </footer>
       )}
     </div>
+  );
+}
+
+/**
+ * 官网页面崩溃（前端异常）时的兜底（F3，pages/site-booking.md 第 7 节）：客人没有「管理员」，
+ * 告诉他订单不受影响、可以在「查订单」找到。用官网自己的外观，不用后台的兜底。
+ */
+class SiteCrashBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <SiteLayout attribution={false}>
+        <StateBlock
+          headingLevel="h1"
+          title="页面出了点问题"
+          description="请刷新重试。您的订单不受影响，可以随时在「查订单」里找到。"
+          action={
+            <Button variant="primary" size="lg" onClick={() => window.location.reload()}>
+              刷新页面
+            </Button>
+          }
+        />
+      </SiteLayout>
+    );
+  }
+}
+
+/** 官网路由的外层：换一个页面（点顶栏入口）就重新开始，不会一直停在兜底页。 */
+export function SiteErrorBoundary() {
+  const { pathname } = useLocation();
+  return (
+    <SiteCrashBoundary key={pathname}>
+      <Outlet />
+    </SiteCrashBoundary>
   );
 }
 

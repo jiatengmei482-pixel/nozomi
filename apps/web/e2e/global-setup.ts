@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
-import { E2E_FX_RATES } from "./support.ts";
+import { E2E_FX_RATES, E2E_SUPPORT_PHONE } from "./support.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -203,6 +203,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       MAP_TILE_URL_TEMPLATE: `${tileOrigin}/{z}/{x}/{y}.png`,
       MAP_TILE_ATTRIBUTION: "© 端到端测试底图|https://tiles.e2e.example.com/copyright",
       SITE_CLIENT_ID: siteClientId,
+      // 订单页「需要帮助」区块登记了客服电话才显示
+      SITE_SUPPORT_PHONE: E2E_SUPPORT_PHONE,
     });
     started.push(api);
     await waitUntilUp(api, `${apiOrigin}/health`);

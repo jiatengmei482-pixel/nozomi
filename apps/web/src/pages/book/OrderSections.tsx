@@ -2,7 +2,7 @@
  * 官网订单页的各个区块（M3-05，ADR 0032）。每个会改订单的操作都在页面内确认，结果写在区块里；出错时说明怎么办。
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
-import { type ExtraChargeType, EXTRA_CHARGE_RULES, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
+import { type ExtraChargeType, EXTRA_CHARGE_RULES, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -23,14 +23,25 @@ import {
 } from "../../api/site.ts";
 import { AlertSlot, Alert, type Notice } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
+import { Icon } from "../../components/Icon.tsx";
 import { Skeleton } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
+import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { CHANGE_FIELD_NAMES, extraTypeName, tiersText } from "../../lib/order-money-display.ts";
+import { CHANGE_FIELD_NAMES, extraTypeName } from "../../lib/order-money-display.ts";
 import { PaymentNotIntegratedError, type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts";
-import { GUEST_CANCEL_REASON_NAMES, GUEST_CHANGE_STATUS_BADGES, GUEST_EXTRA_STATUS_BADGES, TIMELINE_NAMES, landingAvailability } from "../../lib/site-display.ts";
+import {
+  GUEST_CANCEL_REASON_NAMES,
+  GUEST_CHANGE_STATUS_BADGES,
+  GUEST_EXTRA_STATUS_BADGES,
+  TIMELINE_NAMES,
+  guestCancelPolicyText,
+  guestInstantText,
+  guestLocalText,
+  landingAvailability,
+  localDateTimeIn,
+} from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
@@ -55,7 +66,8 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const local = (order: Pick<SiteOrder, "timezone">, iso: string | null): string => formatInZone(iso, order.timezone);
+/** 客人看的当地时间（F8）：「10月26日（周一）17:45」，不在今年的带年份。 */
+const local = (order: Pick<SiteOrder, "timezone">, iso: string | null): string => guestInstantText(iso, order.timezone, new Date());
 const placeName = (names: SiteOrderNames): string => (names.place === null ? "机场" : `${displayName(names.place.name).text}（${names.place.code}）`);
 
 // ---- 付款 ----
@@ -183,15 +195,17 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
       <dl className="site-facts">
         <Fact label={pickup ? "接机" : "送机"}>{pickup ? `${airport} → ${address}` : `${address} → ${airport}`}</Fact>
         <Fact label={pickup ? "航班计划到达" : "上车时间"}>
-          {order.service_local.replace("T", " ")}（{names.city === null ? "" : displayName(names.city.name).text}当地时间）
+          {guestLocalText(order.service_local, order.timezone, new Date())}（{names.city === null ? "" : displayName(names.city.name).text}当地时间）
         </Fact>
         {order.flight_no !== null && <Fact label="航班号">{order.flight_no}</Fact>}
         <Fact label="车型">{group === null ? "—" : <span lang={group.lang}>{group.text}</span>}</Fact>
         <Fact label="人数 / 行李">
           {order.passengers} 人 / {order.luggage} 件
         </Fact>
-        <Fact label="乘车人">
-          {order.passenger.name} · {order.passenger.phone} · <span className="site-break">{order.passenger.email}</span>
+        <Fact label="乘车人">{order.passenger.name}</Fact>
+        <Fact label="乘车人手机号">{order.passenger.phone}</Fact>
+        <Fact label="乘车人邮箱">
+          <span className="site-break">{order.passenger.email}</span>
         </Fact>
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
         <Fact label="总价">
@@ -305,6 +319,8 @@ export function LandingSection({ token, order, onChanged }: { token: string; ord
 
 // ---- 事后加收 ----
 
+const DISPUTE_REASON_MISSING = "请写一下为什么有异议，如「司机没有等那么久」";
+
 function ExtraChargeItem({ token, order, charge, onChanged }: { token: string; order: SiteOrder; charge: SiteOrder["extra_charges"][number]; onChanged: Changed }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -315,7 +331,7 @@ function ExtraChargeItem({ token, order, charge, onChanged }: { token: string; o
     event.preventDefault();
     if (busy) return;
     if (reason.trim() === "") {
-      setError("请写一下为什么有异议");
+      setError(DISPUTE_REASON_MISSING);
       return;
     }
     setError(null);
@@ -348,8 +364,30 @@ function ExtraChargeItem({ token, order, charge, onChanged }: { token: string; o
               <label className="field__label" htmlFor={`site-dispute-${charge.id}`}>
                 异议的理由
               </label>
-              <textarea id={`site-dispute-${charge.id}`} className="input textarea" rows={3} maxLength={EXTRA_CHARGE_RULES.disputeReasonMax} aria-invalid={error !== null || undefined} value={reason} onChange={(event) => setReason(event.target.value)} />
-              {error !== null && <p className="field__error">{error}</p>}
+              <textarea
+                id={`site-dispute-${charge.id}`}
+                className="input textarea"
+                rows={3}
+                required
+                maxLength={EXTRA_CHARGE_RULES.disputeReasonMax}
+                aria-invalid={error !== null || undefined}
+                aria-describedby={error !== null ? `site-dispute-${charge.id}-error site-dispute-${charge.id}-hint` : `site-dispute-${charge.id}-hint`}
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  // 出错后实时重新校验（2.3）
+                  if (error !== null) setError(event.target.value.trim() === "" ? DISPUTE_REASON_MISSING : null);
+                }}
+              />
+              {error !== null && (
+                <p className="field__error" id={`site-dispute-${charge.id}-error`}>
+                  <Icon name="alert-triangle" className="field__error-icon" />
+                  <span>{error}</span>
+                </p>
+              )}
+              <p className="field__hint" id={`site-dispute-${charge.id}-hint`}>
+                写清楚哪里不对，平台审核时会看。
+              </p>
             </div>
             <div className="site-actions site-actions--inline">
               <Button type="submit" variant="primary" size="lg" loading={busy} loadingText="正在提交">
@@ -447,18 +485,88 @@ export function changeRequestOf(order: SiteOrder, form: ChangeForm): SiteChangeR
   return body;
 }
 
+type ChangeField = "name" | "phone" | "email" | "flightNo" | "address" | "date" | "time" | "passengers" | "luggage";
+export type ChangeErrors = Partial<Record<ChangeField, string>>;
+
+/**
+ * 修改订单的字段级校验（F12，同 2.3 的规则）：只查客人改过的字段——没改的照原样，不因为旧数据挡住别的修改。
+ * 说法和下单页、询价页一致。
+ */
+export function validateChange(order: SiteOrder, form: ChangeForm, now: Date): ChangeErrors {
+  const before = formOf(order);
+  const pickup = order.direction === "pickup";
+  const changed = (field: keyof ChangeForm): boolean => form[field] !== before[field];
+  const errors: ChangeErrors = {};
+  if (changed("name") && form.name.trim() === "") errors.name = "请填写乘车人姓名";
+  if (changed("phone") && !isInternationalPhone(form.phone.trim())) errors.phone = "请填写带国家码的手机号，如 +81 90-1234-5678、+86 138 0000 0000";
+  if (changed("email") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "请填写正确的邮箱，如 name@example.com";
+  if (changed("flightNo")) {
+    if (pickup && form.flightNo.trim() === "") errors.flightNo = "接机要填航班号，司机按航班落地时间等候";
+    else if (form.flightNo.trim() !== "" && !isFlightNo(form.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
+  }
+  if (changed("address") && form.address.trim() === "") errors.address = pickup ? "请填写下车的地址或酒店名" : "请填写上车的地址或酒店名";
+  if (changed("passengers") && (!/^\d+$/.test(form.passengers.trim()) || Number(form.passengers) < 1)) errors.passengers = "人数填 1 以上的整数";
+  if (changed("luggage") && !/^\d+$/.test(form.luggage.trim())) errors.luggage = "行李填 0 以上的整数";
+  if (changed("date") || changed("time")) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) errors.date = "请选择日期";
+    if (!/^\d{2}:\d{2}$/.test(form.time)) errors.time = "请选择时间";
+    else if (errors.date === undefined) {
+      if (localDateTimeToInstant(`${form.date}T${form.time}`, order.timezone) === null) errors.time = "这个时间在当地不存在（夏令时调整），请换一个时间";
+      else if (`${form.date}T${form.time}` <= localDateTimeIn(order.timezone, now)) errors.time = "这个时间已经过了，请选一个以后的时间";
+    }
+  }
+  return errors;
+}
+
+/** 后端校验不通过时，能对上字段的标在字段下。 */
+const CHANGE_SERVER_PATHS: Readonly<Record<string, ChangeField>> = {
+  "/passenger/name": "name",
+  "/passenger/phone": "phone",
+  "/passenger/email": "email",
+  "/flight_no": "flightNo",
+  "/pickup_address": "address",
+  "/dropoff_address": "address",
+  "/service_time": "time",
+  "/passengers": "passengers",
+  "/luggage": "luggage",
+};
+
+const FORM_INCOMPLETE = "有几项没有填好，请看标红的地方。";
+
 export function ChangeSection({ token, order, onChanged }: { token: string; order: SiteOrder; onChanged: Changed }) {
   const [form, setForm] = useState<ChangeForm | null>(null);
+  const [errors, setErrors] = useState<ChangeErrors>({});
+  const [attempted, setAttempted] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const shown = order.changes.filter((change) => change.status !== "cancelled");
   if (!CHANGEABLE.has(order.status) && shown.length === 0) return null;
   const pickup = order.direction === "pickup";
-  const set = (changes: Partial<ChangeForm>): void => setForm((current) => (current === null ? current : { ...current, ...changes }));
+  const set = (changes: Partial<ChangeForm>): void => {
+    if (form === null) return;
+    const next = { ...form, ...changes };
+    setForm(next);
+    // 提交过一次以后，改一项就重新校验（2.3「出错后该字段实时重新校验」）
+    if (attempted) setErrors(validateChange(order, next, new Date()));
+  };
+  const openForm = (): void => {
+    setForm(formOf(order));
+    setErrors({});
+    setAttempted(false);
+    setNotice(null);
+  };
+  const fieldErrors = (field: ChangeField): string[] => (errors[field] === undefined ? [] : [errors[field]]);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     if (form === null || busy) return;
+    const found = validateChange(order, form, new Date());
+    setAttempted(true);
+    setErrors(found);
+    if (Object.keys(found).length > 0) {
+      setNotice({ kind: "danger", text: FORM_INCOMPLETE });
+      return;
+    }
     const body = changeRequestOf(order, form);
     if ("error" in body) {
       setNotice({ kind: "danger", text: body.error });
@@ -482,7 +590,16 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
     } catch (err) {
       if (err instanceof ApiError && err.code === "NO_CHANGE") setNotice({ kind: "info", text: "没有改动。" });
       else if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
-      else if (err instanceof ApiError && err.code === "CHANGE_PAYMENT_DECLINED") setNotice({ kind: "danger", text: "改期后价格变高，补差价没有扣款成功，订单没有修改。可以换一个时间，或取消后重新预订。" });
+      else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
+        const issues = Array.isArray(err.details["issues"]) ? (err.details["issues"] as { path?: string; message?: string }[]) : [];
+        const mapped: ChangeErrors = {};
+        for (const issue of issues) {
+          const field = CHANGE_SERVER_PATHS[issue.path ?? ""];
+          if (field !== undefined && issue.message) mapped[field] = issue.message;
+        }
+        setErrors(mapped);
+        setNotice({ kind: "danger", text: Object.keys(mapped).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" });
+      } else if (err instanceof ApiError && err.code === "CHANGE_PAYMENT_DECLINED") setNotice({ kind: "danger", text: "改期后价格变高，补差价没有扣款成功，订单没有修改。可以换一个时间，或取消后重新预订。" });
       else setNotice({ kind: "danger", text: siteFailureText(err, "修改订单") });
     } finally {
       setBusy(false);
@@ -511,28 +628,28 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
         (form === null ? (
           <>
             <p className="site-muted">乘车人、航班号随时可以改；地址、备注、人数行李和用车时间在免费取消期内可以改，改时间会按新时间重新计价（多退少补）。换车型请取消后重新预订。</p>
-            <Button size="lg" onClick={() => setForm(formOf(order))}>
+            <Button size="lg" onClick={openForm}>
               修改订单
             </Button>
           </>
         ) : (
           <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
-            <TextField label="乘车人姓名" size="lg" value={form.name} onChange={(event) => set({ name: event.target.value })} />
-            <TextField label="手机号（带国家码）" size="lg" type="tel" value={form.phone} onChange={(event) => set({ phone: event.target.value })} />
-            <TextField label="邮箱" size="lg" type="email" value={form.email} onChange={(event) => set({ email: event.target.value })} />
-            <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" value={form.flightNo} onChange={(event) => set({ flightNo: event.target.value })} />
-            <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" value={form.address} onChange={(event) => set({ address: event.target.value })} />
+            <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={fieldErrors("name")} onChange={(event) => set({ name: event.target.value })} />
+            <TextField label="手机号（带国家码）" size="lg" required type="tel" inputMode="tel" autoComplete="tel" hint="以 + 和国家码开头，如 +81 90-1234-5678" value={form.phone} errors={fieldErrors("phone")} onChange={(event) => set({ phone: event.target.value })} />
+            <TextField label="邮箱" size="lg" required type="email" inputMode="email" autoCapitalize="none" spellCheck={false} autoComplete="email" value={form.email} errors={fieldErrors("email")} onChange={(event) => set({ email: event.target.value })} />
+            <TextField label={pickup ? "航班号" : "航班号（选填）"} size="lg" required={pickup} autoCapitalize="characters" hint="如 NH211" value={form.flightNo} errors={fieldErrors("flightNo")} onChange={(event) => set({ flightNo: event.target.value })} />
+            <TextField label={pickup ? "下车地址或酒店名" : "上车地址或酒店名"} size="lg" required value={form.address} errors={fieldErrors("address")} onChange={(event) => set({ address: event.target.value })} />
             <div className="site-form__row">
-              <TextField label={pickup ? "航班到达日期（当地）" : "用车日期（当地）"} size="lg" type="date" value={form.date} onChange={(event) => set({ date: event.target.value })} />
-              <TextField label={pickup ? "航班计划到达时间（当地）" : "上车时间（当地）"} size="lg" type="time" value={form.time} onChange={(event) => set({ time: event.target.value })} />
+              <TextField label={pickup ? "航班到达日期（当地）" : "用车日期（当地）"} size="lg" type="date" required value={form.date} errors={fieldErrors("date")} onChange={(event) => set({ date: event.target.value })} />
+              <TextField label={pickup ? "航班计划到达时间（当地）" : "上车时间（当地）"} size="lg" type="time" required value={form.time} errors={fieldErrors("time")} onChange={(event) => set({ time: event.target.value })} />
             </div>
             <div className="site-form__row">
-              <TextField label="人数" size="lg" type="number" inputMode="numeric" min={1} value={form.passengers} onChange={(event) => set({ passengers: event.target.value })} />
-              <TextField label="行李（件）" size="lg" type="number" inputMode="numeric" min={0} value={form.luggage} onChange={(event) => set({ luggage: event.target.value })} />
+              <TextField label="人数" size="lg" type="number" inputMode="numeric" min={1} required value={form.passengers} errors={fieldErrors("passengers")} onChange={(event) => set({ passengers: event.target.value })} />
+              <TextField label="行李（件）" size="lg" type="number" inputMode="numeric" min={0} value={form.luggage} errors={fieldErrors("luggage")} onChange={(event) => set({ luggage: event.target.value })} />
             </div>
             <div className="field">
               <label className="field__label" htmlFor="site-change-notes">
-                备注
+                备注（选填）
               </label>
               <textarea id="site-change-notes" className="input textarea" rows={3} maxLength={2000} value={form.notes} onChange={(event) => set({ notes: event.target.value })} />
             </div>
@@ -540,7 +657,15 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
               <Button type="submit" variant="primary" size="lg" loading={busy} loadingText="正在提交">
                 提交修改
               </Button>
-              <Button size="lg" disabled={busy} onClick={() => setForm(null)}>
+              <Button
+                size="lg"
+                disabled={busy}
+                onClick={() => {
+                  setForm(null);
+                  setErrors({});
+                  setNotice(null);
+                }}
+              >
                 不改了
               </Button>
             </div>
@@ -557,7 +682,10 @@ const CANCELLABLE = CHANGEABLE;
 function feeLine(fee: SiteCancelFee): string {
   if (fee.stage === "unpaid") return "订单还没有付款，取消不收任何费用。";
   if (fee.fee === undefined || fee.refund === undefined) return "";
-  return fee.fee_bp === 0 ? `按取消政策，现在取消免费，全额退还 ${moneyText(fee.refund)}，原路退回银行卡。` : `按取消政策，现在取消扣 ${moneyText(fee.fee)}，退还 ${moneyText(fee.refund)}，原路退回银行卡。`;
+  if (fee.fee_bp === 0) return `按取消政策，现在取消免费，全额退还 ${moneyText(fee.refund)}，原路退回银行卡。`;
+  // 扣全额时不写「退还 0 JPY」（F7）
+  if (/^0(\.0+)?$/.test(fee.refund.amount)) return `按取消政策，现在取消不退款（取消费 ${moneyText(fee.fee)}）。`;
+  return `按取消政策，现在取消扣 ${moneyText(fee.fee)}，退还 ${moneyText(fee.refund)}，原路退回银行卡。`;
 }
 
 const REFUND_STATUS_TEXT: Readonly<Record<string, string>> = { pending: "退款处理中（几天内到账）", succeeded: "已退款", failed: "退款遇到问题，平台财务会处理并联系您" };
@@ -615,7 +743,7 @@ export function CancelSection({ token, order, onChanged }: { token: string; orde
   return (
     <Section id="site-cancel-title" title="取消订单">
       <AlertSlot notice={notice} />
-      {order.cancel_policy !== null && <p>取消政策：{tiersText(order.cancel_policy.tiers)}（按距用车时间计算，扣款按订单金额的比例）。</p>}
+      {order.cancel_policy !== null && <p>取消政策：{guestCancelPolicyText(order.cancel_policy.tiers)}（按订单总价计算）。</p>}
       {fee === null ? (
         <div className="site-actions site-actions--inline">
           <Button size="lg" loading={busy} loadingText="正在计算" onClick={() => void preview("GUEST_REQUEST")}>
@@ -641,6 +769,27 @@ export function CancelSection({ token, order, onChanged }: { token: string; orde
           </div>
         </div>
       )}
+    </Section>
+  );
+}
+
+// ---- 需要帮助 ----
+
+/**
+ * 客服电话（5.10、F2 的结构）：登记了号码（配置 `support_phone`）才显示，没登记时整块不出现，
+ * 也不放不能用的链接或按钮。号码原样显示，`tel:` 链接里只留 + 和数字。
+ */
+export function HelpSection({ order, phone }: { order: Pick<SiteOrder, "order_no">; phone: string | null }) {
+  if (phone === null || phone.trim() === "") return null;
+  return (
+    <Section id="site-help-title" title="需要帮助">
+      <p>对订单有疑问、找不到司机，或者要改网上改不了的内容，请打电话给客服。</p>
+      <div className="site-actions site-actions--inline">
+        <a className="button button--secondary button--lg" href={`tel:${phone.replace(/[^+\d]/g, "")}`}>
+          打电话给客服 {phone}
+        </a>
+      </div>
+      <p className="site-muted">联系时请提供订单号 {order.order_no}。</p>
     </Section>
   );
 }

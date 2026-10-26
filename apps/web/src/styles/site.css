@@ -32,29 +32,42 @@
   display: none;
 }
 
+/*
+ * 顶栏（F10）：DOM 顺序是品牌、主题切换、入口。< 480px 品牌和主题切换在第一行两端、入口在第二行；
+ * ≥ 480px 一行，主题切换和入口一起靠右。Tab 顺序和看到的顺序一致。
+ */
 .site__header {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand theme"
+    "nav nav";
   gap: var(--space-2) var(--space-4);
   align-items: center;
-  justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   border-bottom: var(--border-width) solid var(--color-border-default);
   background: var(--color-bg-surface);
 }
 
 .site__brand {
+  grid-area: brand;
+  justify-self: start;
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
   text-decoration: none;
 }
 
+.site__theme {
+  grid-area: theme;
+  display: flex;
+}
+
 .site__nav {
+  grid-area: nav;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
-  margin-right: auto;
 }
 
 .site__nav-link {
@@ -62,6 +75,22 @@
   align-items: center;
   min-height: var(--control-height-md);
   color: var(--color-text-link);
+}
+
+/* 当前页的入口（F11）：正文色、加粗、粗下划线，不只靠颜色区分 */
+.site__nav-link[aria-current] {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+  text-decoration: underline;
+  text-decoration-thickness: var(--focus-ring-width);
+  text-underline-offset: var(--space-1);
+}
+
+@media (min-width: 480px) {
+  .site__header {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "brand theme nav";
+  }
 }
 
 .site__main {
@@ -255,14 +284,6 @@
   gap: var(--space-2);
   align-items: center;
   margin-top: var(--space-2);
-}
-
-/* 复制按钮跟在链接后面（.copy-button 默认绝对定位贴在输入框右边，这里不是输入框） */
-.site-share > .copy-button {
-  position: relative;
-  flex: none;
-  width: var(--control-height-lg);
-  height: var(--control-height-lg);
 }
 
 .site-share__url {
