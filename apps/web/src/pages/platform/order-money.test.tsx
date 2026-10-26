@@ -218,6 +218,14 @@ test("订单详情（运营后台）：审核加收可以部分通过；客服�
   assert.ok(screen.getByRole("button", { name: "重试退款" }), "财务能重试失败的退款");
   assert.equal(screen.queryByRole("button", { name: "审核" }), null, "财务不审核加收");
 
+  // 已并入取消退款（作废）的失败退款：不再给「重试退款」，写明原因
+  resetBrowser();
+  const superseded = { ...detail, refunds: detail.refunds.map((refund) => ({ ...refund, superseded_at: stamps.updated_at })) };
+  open(`/platform/orders/${ORDER_ID}`, "finance", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, superseded) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(screen.queryByRole("button", { name: "重试退款" }), null, "作废的退款不能重试");
+  assert.ok(screen.getByText("已并入取消退款，不再重试"));
+
   resetBrowser();
   open(`/platform/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder())) : null), "platform");
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });

@@ -410,7 +410,8 @@ export function PlatformOrderDetailPage() {
                       </td>
                       <td>
                         {refund.last_error?.code ?? ""}
-                        {refund.status === "failed" && canPayment && !detail.refunds.some((entry) => entry.retry_of === refund.id) && (
+                        {refund.superseded_at !== null && <span className="table__muted">已并入取消退款，不再重试</span>}
+                        {refund.status === "failed" && refund.superseded_at === null && canPayment && !detail.refunds.some((entry) => entry.retry_of === refund.id) && (
                           <Button variant="text" size="sm" onClick={() => void act(() => retryRefund(token, order.id, refund.id), "已重新发起退款", "重试退款")}>
                             重试退款
                           </Button>
