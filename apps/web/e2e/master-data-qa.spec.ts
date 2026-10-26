@@ -652,7 +652,7 @@ test("只读角色（客服）：首页卡片按权限裁剪；四个列表没�
   const reminder = page.locator(".entry-card").filter({ hasText: "地点" }).locator(".entry-card__reminder");
   await expect(reminder).toHaveCount(1);
   await expect(reminder).toHaveAttribute("href", "/platform/master/places?city=none");
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "商品", "报价试算", "渠道", "待审核", "订单", "取消政策", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "商品", "报价试算", "渠道", "待审核", "订单", "救援", "取消政策", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
   await reminder.click();
   await expect(page).toHaveURL(/\/platform\/master\/places\?city=none$/);
   await expect(page.getByRole("link", { name: "只看这些" })).toBeVisible();

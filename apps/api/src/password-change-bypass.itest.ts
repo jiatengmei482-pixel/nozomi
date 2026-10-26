@@ -158,6 +158,14 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/orders/${ids.userId}/refunds/${ids.userId}/retry`],
       ["GET", "/platform/v1/cancellation-policy"],
       ["POST", "/platform/v1/cancellation-policy/changes", { rules: [], note: "不该生效" }],
+      // 救援改派（M3-04）
+      ["GET", "/platform/v1/rescues"],
+      ["POST", `/platform/v1/orders/${ids.userId}/rescue`, { trigger: "driver_no_show", note: "不该生效" }],
+      ["GET", `/platform/v1/orders/${ids.userId}/rescue/candidates`],
+      ["POST", `/platform/v1/orders/${ids.userId}/rescue/offers`, {}],
+      ["POST", `/platform/v1/orders/${ids.userId}/rescue/manual-assign`, { tenant_id: ids.userId, product_id: ids.userId, settlement_amount: 1, note: "不该生效" }],
+      ["POST", `/platform/v1/orders/${ids.userId}/rescue/force-majeure`, { note: "不该生效" }],
+      ["POST", `/platform/v1/tenants/${ids.userId}/rescue`, {}],
       ["GET", "/platform/v1/webhook-deliveries"],
       ["GET", `/platform/v1/webhook-deliveries/${ids.userId}`],
       ["POST", `/platform/v1/webhook-deliveries/${ids.userId}/retry`],
@@ -281,6 +289,13 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["POST", `/tenant/v1/orders/${ids.userId}/extra-charges/${ids.userId}/withdraw`],
     ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/confirm`, {}],
     ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/reject`, {}],
+    // 声明无法履约、救援单、应扣款项（M3-04）
+    ["POST", `/tenant/v1/orders/${ids.userId}/declare-unable`, { reason: "不该生效" }],
+    ["GET", "/tenant/v1/rescue-offers"],
+    ["GET", `/tenant/v1/rescue-offers/${ids.userId}`],
+    ["POST", `/tenant/v1/rescue-offers/${ids.userId}/accept`],
+    ["POST", `/tenant/v1/rescue-offers/${ids.userId}/decline`, {}],
+    ["GET", "/tenant/v1/deductions"],
     ["GET", "/tenant/v1/drivers"],
     ["POST", "/tenant/v1/drivers", { name: "不该出现", phone: "+819000000000" }],
     ["GET", `/tenant/v1/drivers/${ids.userId}`],
@@ -319,8 +334,8 @@ function assertBlocked(res: ApiResponse, label: string): void {
 
 test("清单没有漏：上面手写的「业务接口」覆盖了全部已注册的、不在 auth/ 下的平台和租户路由", () => {
   const registered = api.app.registeredRoutes
-    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，都不在这份清单里
-    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/"))
+    // 销售端（/sales/v1）不用平台、租户的会话（渠道的 API 客户端令牌），Stripe 的通知（/webhooks）靠签名不靠登录，官网（/site/v1）是给客人的公开接口，都不在这份清单里
+    .filter((route) => route.method !== "HEAD" && route.method !== "OPTIONS" && !route.path.includes("/auth/") && route.path !== "/health" && !route.path.startsWith("/sales/") && !route.path.startsWith("/webhooks/") && !route.path.startsWith("/driver/") && !route.path.startsWith("/site/"))
     // 路径参数不管叫什么名字（:id、:ruleId、:country、:date）都按 :id 比
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();

@@ -63,6 +63,7 @@ import { type InputIssue, validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { orderCancelPolicy } from "./cancellations.ts";
 import { conflictsFor } from "./dispatch.ts";
+import { assertTenantCanOperate } from "./fulfilment.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { chargeOffSession, processRefunds, savedPaymentMethod, scheduleRefund } from "./order-money.ts";
 import type { OrderLog } from "./orders.ts";
@@ -455,6 +456,17 @@ async function collectedFor(db: Db, orderId: string, changeId: string): Promise<
   return payments.reduce((sum, payment) => sum + payment.amountMinor - Math.max(payment.refundedMinor, refunded.get(payment.id) ?? 0), 0);
 }
 
+/**
+ * 订单进入救援改派（M3-04，ADR 0031）：没有结论的改单作废——原供应商已经不再服务这一单，等它确认改期没有意义。
+ * 已经补收的差价退回（还在扣的，扣到之后 `settleChangeCharge` 看到已作废会退回）。在调用方的平台事务里（订单已锁），返回排好的退款。
+ */
+export async function abandonOpenChange(db: Db, order: Order, now: Date): Promise<OrderRefund[]> {
+  const open = await findOpenChange(db, order.tenantId, order.id, { lock: true });
+  if (open === null) return [];
+  await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
+  return scheduleRefund(db, order, "change", await collectedFor(db, order.id, open.id), open.id, now);
+}
+
 export async function changeForChannel(ctx: AppContext, channelId: string, orderId: string, version: number, input: OrderChangeInput, log: OrderLog): Promise<ChangeOutcome> {
   return requestChange(ctx, { channelId }, orderId, version, input, { requestedBy: "channel", requestedById: null, origin: null }, log);
 }
@@ -482,6 +494,7 @@ export async function decideChangeForTenant(ctx: AppContext, principal: TenantPr
     const change = await findOrderChange(db, principal.tenantId, changeId);
     const order = change === null || change.orderId !== orderId ? null : await findOrderForPlatform(db, orderId, { lock: true });
     if (change === null || order === null || order.tenantId !== principal.tenantId || order.confirmedAt === null) throw notFound("改单");
+    assertTenantCanOperate(order, `${decision}_change`);
     const current = (await findOrderChange(db, principal.tenantId, changeId, { lock: true })) as OrderChange;
     if (current.status !== "pending_confirmation") throw new AppError(409, "CHANGE_NOT_PENDING", "这次改单不在等确认（已经有结论了）", { status: current.status });
     if (changeConfirmOverdue(current.confirmDueAt as Date, now)) {

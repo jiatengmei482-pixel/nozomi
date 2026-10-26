@@ -319,3 +319,13 @@ test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相�
   assert.ok(!JSON.stringify(integrationStatus(c)).includes(key));
   assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
 });
+
+test("官网的 API 客户端（ADR 0032）：不配 = 官网暂未开放；配了必须是 nzc_ 加 24 位十六进制，首尾空白去掉", () => {
+  assert.equal(loadConfig(base).site, null);
+  assert.equal(loadConfig({ ...base, SITE_CLIENT_ID: " " }).site, null);
+  const id = `nzc_${"0a1b2c".repeat(4)}`;
+  assert.deepEqual(loadConfig({ ...base, SITE_CLIENT_ID: ` ${id} ` }).site, { clientId: id });
+  for (const wrong of ["nzs_0a1b2c0a1b2c0a1b2c0a1b2c", "nzc_0A1B2C0A1B2C0A1B2C0A1B2C", "nzc_123", `${id}0`]) {
+    assert.ok(issuesOf({ ...base, SITE_CLIENT_ID: wrong }).some((issue) => issue.includes("SITE_CLIENT_ID")), wrong);
+  }
+});

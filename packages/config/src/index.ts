@@ -211,6 +211,13 @@ const rawSchema = z.object({
 
   // 报价：渠道和加价规则（M2-04）上线之前，试算用的默认加价比例，基点（1000 = 10%，也是需求里渠道加价的默认下限）。不是密钥
   QUOTE_DEFAULT_MARKUP_BP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(1_000)),
+
+  // 官网用哪个渠道（ADR 0032）：运营后台给官网渠道发的那个 API 客户端的 client_id（nzc_ 开头，公开值，不是密钥）。
+  // 不配 = 官网显示「暂未开放」
+  SITE_CLIENT_ID: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
+    z.string().regex(/^nzc_[0-9a-f]{24}$/, "SITE_CLIENT_ID 应当是运营后台「API 客户端与密钥」里显示的 client_id（nzc_ 加 24 位十六进制）").optional(),
+  ),
 });
 
 export type RawEnv = z.input<typeof rawSchema>;
@@ -243,6 +250,8 @@ export interface AppConfig {
   fx: { sourceUrl: string; bufferBp: number; autoFetch: boolean };
   /** 报价的默认参数（渠道和加价规则上线之前用） */
   quote: { defaultMarkupBp: number };
+  /** 官网（ADR 0032）：以哪个 API 客户端的身份调用询价、下单；没有配置时为 null（官网暂未开放） */
+  site: { clientId: string } | null;
 }
 
 export class ConfigError extends Error {
@@ -331,6 +340,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
+    site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
   };
 }
 

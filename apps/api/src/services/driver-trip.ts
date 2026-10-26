@@ -49,7 +49,7 @@ import {
 import { type Driver, type Vehicle, findDriver, findVehicle } from "../repos/fleet.ts";
 import { type Order, findTenantOrder } from "../repos/orders.ts";
 import { validationFailed } from "../validation.ts";
-import { type FulfilmentInput, type ReportedLocation, applyFulfilmentEvent, orderStateInvalid, pickupPoint, recordStatusChange } from "./fulfilment.ts";
+import { type FulfilmentInput, type ReportedLocation, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid, pickupPoint, recordStatusChange } from "./fulfilment.ts";
 import { orderLanding, orderLandingApplies } from "./order-views.ts";
 
 export function driverLinkInvalid(): AppError {
@@ -184,6 +184,7 @@ export async function uploadDriverFile(ctx: AppContext, token: string | null, ki
   const now = ctx.now();
   return withDriver(ctx, token, async (db, session, order) => {
     if (orderStatusIsFinal(order.status)) throw orderStateInvalid(order.status, "upload");
+    assertTenantCanOperate(order, "upload");
     return insertOrderFile(db, session.tenantId, { orderId: order.id, kind, contentType: detected, data, sha256: createHash("sha256").update(data).digest("hex"), uploadedAt: now, linkId: session.link.id });
   });
 }

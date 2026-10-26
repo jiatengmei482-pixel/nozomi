@@ -50,13 +50,13 @@ const policySchema = z
   })
   .strict();
 
-const salesCancelSchema = z.object({ reason: z.enum(["GUEST_REQUEST", "CHANGE_NOT_CONFIRMED"]).default("GUEST_REQUEST") }).strict();
-const salesFeeQuerySchema = z.object({ reason: z.enum(["GUEST_REQUEST", "CHANGE_NOT_CONFIRMED"]).default("GUEST_REQUEST") }).strict();
+export const salesCancelSchema = z.object({ reason: z.enum(["GUEST_REQUEST", "CHANGE_NOT_CONFIRMED"]).default("GUEST_REQUEST") }).strict();
+export const salesFeeQuerySchema = z.object({ reason: z.enum(["GUEST_REQUEST", "CHANGE_NOT_CONFIRMED"]).default("GUEST_REQUEST") }).strict();
 const platformCancelReasons = ORDER_CANCEL_REASONS.filter((reason) => reason !== "PAYMENT_TIMEOUT" && reason !== "PAYMENT_CANCELED") as [string, ...string[]];
 const platformCancelSchema = z.object({ reason: z.enum(platformCancelReasons as ["GUEST_REQUEST"]), waive_fee: z.boolean().default(false), note: z.string().trim().min(1).max(500) }).strict();
 const platformFeeQuerySchema = z.object({ reason: z.enum(platformCancelReasons as ["GUEST_REQUEST"]).default("GUEST_REQUEST"), waive_fee: z.enum(["true", "false"]).default("false") }).strict();
 
-const changeSchema = z
+export const changeSchema = z
   .object({
     passenger: z.object({ name: z.string().max(200), phone: z.string().max(40), email: z.string().max(320) }).strict().optional(),
     flight_no: z.string().max(20).nullable().optional(),
@@ -70,7 +70,7 @@ const changeSchema = z
   })
   .strict();
 
-const disputeSchema = z.object({ reason: z.string().trim().min(1).max(EXTRA_CHARGE_RULES.disputeReasonMax) }).strict();
+export const disputeSchema = z.object({ reason: z.string().trim().min(1).max(EXTRA_CHARGE_RULES.disputeReasonMax) }).strict();
 const extraChargeSchema = z
   .object({
     type: z.enum(EXTRA_CHARGE_TYPES),
@@ -84,7 +84,7 @@ const decideSchema = z.object({ decision: z.enum(["approve", "reject"]), approve
 const changeDecisionSchema = z.object({ note: note(500) }).strict();
 const fileQuerySchema = z.object({ kind: z.literal("receipt") }).strict();
 
-function toChangeInput(body: z.output<typeof changeSchema>): OrderChangeInput {
+export function toChangeInput(body: z.output<typeof changeSchema>): OrderChangeInput {
   const input: OrderChangeInput = {};
   if (body.passenger !== undefined) input.passenger = body.passenger;
   if (body.flight_no !== undefined) input.flightNo = body.flight_no;
@@ -107,7 +107,7 @@ export function cancellationPolicyJson(policy: StoredCancellationPolicy): Json {
 }
 
 /** 退款试算：渠道看客人这边的金额；运营后台另有供应商应得和阶梯上本来该扣的。 */
-function feeJson(quote: CancellationQuote | null, scope: "sales" | "platform"): Json {
+export function feeJson(quote: CancellationQuote | null, scope: "sales" | "platform"): Json {
   if (quote === null) return { cancellable: false };
   const base = {
     cancellable: true,

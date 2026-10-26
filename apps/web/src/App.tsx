@@ -28,6 +28,12 @@ import { DriverTripPage } from "./pages/driver/DriverTripPage.tsx";
 import { DriverListPage, VehicleListPage } from "./pages/fleet/FleetPages.tsx";
 import { OrderDetailPage, OrderListPage } from "./pages/orders/OrderPages.tsx";
 import { WebhookSettingsPage } from "./pages/webhooks/WebhookPages.tsx";
+import { DEDUCTIONS_PATH, RESCUE_OFFERS_PATH } from "./lib/rescue-display.ts";
+import { DeductionsPage, RescueOffersPage } from "./pages/rescues/TenantRescuePages.tsx";
+import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "./lib/site-display.ts";
+import { BookPage } from "./pages/book/BookPage.tsx";
+import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
+import { OrderPage } from "./pages/book/OrderPage.tsx";
 
 function portalRoutes(portal: Portal) {
   const { paths } = PORTALS[portal];
@@ -58,6 +64,8 @@ function portalRoutes(portal: Portal) {
             <Route path={`${PRODUCT_LIST_PATH}/:id/*`} element={<ProductEditorPage />} />
             <Route path={ORDER_LIST_PATH} element={<OrderListPage />} />
             <Route path={`${ORDER_LIST_PATH}/:id`} element={<OrderDetailPage />} />
+            <Route path={RESCUE_OFFERS_PATH} element={<RescueOffersPage />} />
+            <Route path={DEDUCTIONS_PATH} element={<DeductionsPage />} />
             <Route path={DRIVER_LIST_PATH} element={<DriverListPage />} />
             <Route path={VEHICLE_LIST_PATH} element={<VehicleListPage />} />
             <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
@@ -78,6 +86,10 @@ export function App() {
       <Routes>
         {/* 司机 H5：司机没有账号，凭链接里的令牌（# 后面）；不在任何一个后台里 */}
         <Route path={DRIVER_PAGE_PATH} element={<DriverTripPage />} />
+        {/* 官网（ADR 0032）：客人不需要账号；订单页凭链接里的令牌（# 后面）。面向客人的独立外观，不在任何一个后台里 */}
+        <Route path={SITE_HOME_PATH} element={<BookPage />} />
+        <Route path={SITE_CHECKOUT_PATH} element={<CheckoutPage />} />
+        <Route path={SITE_ORDER_PATH} element={<OrderPage />} />
         {portalRoutes("platform")}
         {portalRoutes("tenant")}
       </Routes>

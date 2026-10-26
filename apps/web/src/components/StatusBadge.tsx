@@ -46,6 +46,7 @@ export const ORDER_STATUS_BADGES: Readonly<Record<OrderStatus, BadgeSpec>> = {
   no_show: { tone: "neutral", label: ORDER_STATUS_NAMES.no_show },
   cancelled: { tone: "neutral", label: ORDER_STATUS_NAMES.cancelled },
   rescue_pending: { tone: "danger", label: ORDER_STATUS_NAMES.rescue_pending },
+  rescued: { tone: "neutral", label: ORDER_STATUS_NAMES.rescued },
 };
 
 export const DRIVER_STATUS_BADGES: Readonly<Record<DriverStatus, BadgeSpec>> = {
