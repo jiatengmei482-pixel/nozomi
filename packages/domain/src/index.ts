@@ -40,4 +40,5 @@ export * from "./tickets.ts";
 export * from "./exceptions.ts";
 export * from "./pricing-impact.ts";
 export * from "./billing.ts";
+export * from "./audit.ts";
 export * from "./route-estimate.ts";

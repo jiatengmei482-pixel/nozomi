@@ -266,9 +266,9 @@ export function DeductionsPage() {
   const items = state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">你们没有履约、由平台救援改派的订单要承担违约金和救援差价。现在只记账，结算时从当期或下一期账单里扣。不可抗力经平台认定的已免除。</p>
+      <p className="page__lead">你们没有履约、由平台救援改派的订单要承担违约金和救援差价；客人投诉成立、责任在你们的，按统一赔付表承担客人赔付（结算价 × 同一比例），司机未到另承担客人的替代交通报销（工单里能看到判定）。这些在账单里扣；不可抗力经平台认定的、申诉成立的已免除。</p>
       {state.status === "error" && <StateBlock tone="danger" title="没取到" description="请检查网络后刷新。" />}
-      {state.status === "ready" && items.length === 0 && <StateBlock tone="neutral" title="没有应扣款项" description="没有被救援改派过的订单。" />}
+      {state.status === "ready" && items.length === 0 && <StateBlock tone="neutral" title="没有应扣款项" description="没有被救援改派过、也没有判定由你们承担赔付的订单。" />}
       {items.length > 0 && (
         <div className="table-wrap">
           <div className="table-scroll" tabIndex={0} role="region" aria-label="应扣款项表">

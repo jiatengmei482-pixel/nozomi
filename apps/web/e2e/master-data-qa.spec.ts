@@ -648,13 +648,13 @@ test("只读角色（客服）：首页卡片按权限裁剪；四个列表没�
   await loginAs(page, "platform", email, password);
 
   // 首页：客服不能看供应商，「运营」分区里是商品（M1-12）、渠道和待审核（M2-04）；主数据四张卡片和汇率卡片都在；提醒行去筛好的列表，没有「先新增城市」
-  await expect(page.locator(".entry-card__title")).toHaveText(["商品", "渠道", "待审核", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  await expect(page.locator(".entry-card__title")).toHaveText(["商品", "渠道", "待审核", "异常队列", "工单", "赔付表", "城市", "地点", "车型组", "附加服务", "汇率"]);
   await expect(page.locator(".entry-card").getByRole("link", { name: "供应商" })).toHaveCount(0);
   await expect(page.locator(".entry-card").filter({ hasText: "地点" }).locator("dl")).toBeVisible();
   const reminder = page.locator(".entry-card").filter({ hasText: "地点" }).locator(".entry-card__reminder");
   await expect(reminder).toHaveCount(1);
   await expect(reminder).toHaveAttribute("href", "/platform/master/places?city=none");
-  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "商品", "报价试算", "渠道", "待审核", "订单", "救援", "取消政策", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
+  await expect(page.getByRole("navigation", { name: "主菜单" }).getByRole("link")).toHaveText(["首页", "商品", "报价试算", "渠道", "待审核", "订单", "异常队列", "工单", "救援", "取消政策", "赔付表", "推送记录", "城市", "地点", "车型组", "附加服务", "汇率"]);
   await reminder.click();
   await expect(page).toHaveURL(/\/platform\/master\/places\?city=none$/);
   await expect(page.getByRole("link", { name: "只看这些" })).toBeVisible();

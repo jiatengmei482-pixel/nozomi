@@ -1,6 +1,6 @@
 /**
  * 官网订单页（M3-05，ADR 0032）：客人凭链接（`/book/order#<令牌>`）看自己的这一张单——状态时间线、行程、付款、司机和车辆（派车后）、
- * 「我已落地」（接机）、取消（先看按政策退多少）、改单、事后加收和异议。令牌只在地址的 `#` 后面和请求头里，不存进任何存储。
+ * 「我已落地」（接机）、取消（先看按政策退多少）、改单、事后加收和异议、投诉和反馈（M4-03）。令牌只在地址的 `#` 后面和请求头里，不存进任何存储。
  * 没有令牌（直接打开「查订单」）或令牌失效：用订单号 + 下单时的邮箱或手机号找回，换一个新链接。
  */
 import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
@@ -18,6 +18,7 @@ import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { CancelSection, ChangeSection, DriverSection, ExtraChargesSection, HelpSection, LandingSection, PaymentSection, TimelineSection, TripSection } from "./OrderSections.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
+import { FeedbackSection } from "./FeedbackSection.tsx";
 
 /** 找回被限速（可能是这个订单号被别人试了太多次，要等几个小时）：告诉客人等多久，也可以联系客服。 */
 export function lookupThrottledText(retryAfterSeconds: number | null): string {
@@ -166,6 +167,7 @@ export function OrderPage() {
     charges: <ExtraChargesSection token={token} order={order} onChanged={replaceKeeping("charges")} />,
     change: <ChangeSection token={token} order={order} onChanged={replace} />,
     cancel: <CancelSection token={token} order={order} onChanged={replace} />,
+    feedback: <FeedbackSection token={token} order={order} />,
     help: <HelpSection order={order} phone={supportPhone} />,
   };
   return (

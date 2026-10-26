@@ -261,7 +261,7 @@ export function quotesByTotal(quotes: readonly SiteQuote[]): SiteQuote[] {
 }
 
 /** 订单页上的区块（F1）：默认的先后顺序。 */
-export const ORDER_SECTION_ORDER = ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "help"] as const;
+export const ORDER_SECTION_ORDER = ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "feedback", "help"] as const;
 export type OrderSectionKey = "payment" | (typeof ORDER_SECTION_ORDER)[number];
 
 /**
@@ -277,4 +277,29 @@ export function primaryOrderSection(order: Pick<SiteOrder, "status" | "landing" 
 /** 区块的先后：排第一的那块放最前，其余按默认顺序。付款区块只在待付款时有，总在第一。 */
 export function orderSectionSequence(primary: OrderSectionKey): OrderSectionKey[] {
   return [primary, ...ORDER_SECTION_ORDER.filter((key) => key !== primary)];
+}
+
+// ---- 投诉和反馈（M4-03） ----
+
+/** 客人能提的几类，用客人的说法。 */
+export const GUEST_TICKET_TYPE_NAMES: Readonly<Record<string, string>> = { complaint: "投诉服务", order_change: "修改订单", lost_and_found: "失物招领", other: "其他问题" };
+export const GUEST_TICKET_TYPE_HINTS: Readonly<Record<string, string>> = {
+  complaint: "司机迟到、没举牌、车况或态度不好、车型不对等，服务结束后 14 天内可以投诉",
+  order_change: "网上改不了的内容（时间、地址以外的）",
+  lost_and_found: "东西落在车上了：写清楚是什么、坐的哪一程",
+  other: "别的问题",
+};
+
+/** 客人看到的处理状态：没有结论的都是「处理中」，有结论的「已有结果」，关闭的「已结束」。 */
+export function guestTicketBadge(status: string): BadgeSpec {
+  if (status === "decided") return { tone: "success", label: "已有结果" };
+  if (status === "closed") return { tone: "neutral", label: "已结束" };
+  return { tone: "info", label: "处理中" };
+}
+
+/** 结论的客人说法。 */
+export function guestTicketOutcome(type: string, outcome: string | null): string | null {
+  if (outcome === null) return null;
+  if (type === "complaint") return outcome === "upheld" ? "投诉成立，平台按赔付标准给您补偿" : outcome === "rejected" ? "经核实投诉不成立" : null;
+  return outcome === "resolved" ? "已处理" : null;
 }

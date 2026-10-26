@@ -116,6 +116,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
   if (entry === "platform") {
     return [
       ["GET", "/platform/v1/dashboard/summary"],
+      ["GET", "/platform/v1/colleagues"],
       ["GET", "/platform/v1/holidays"],
       ["PUT", `/platform/v1/holidays/${ids.holiday?.country ?? "JP"}/${ids.holiday?.date ?? "2027-01-01"}`, { name: { ja: "不该出现的假日" } }],
       ["DELETE", `/platform/v1/holidays/${ids.holiday?.country ?? "JP"}/${ids.holiday?.date ?? "2027-01-01"}`],

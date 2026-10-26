@@ -29,6 +29,8 @@ import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { BelowFloorAlert } from "./ChannelSections.tsx";
 import { ApprovalImpact } from "./PricingImpactPanel.tsx";
+import { COMPENSATION_TABLE_PAGE, platformTicketPath } from "../../lib/order-center-display.ts";
+import { statementPath } from "../../lib/billing-display.ts";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 type Decision = "approve" | "reject" | "withdraw";
@@ -65,6 +67,8 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
   "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
   "statement.payout": "批准后这张账单进付款日的付款批次（合计为 0 记为无需付款，为负转入下一期）；请先核对账单明细和供应商的确认。",
+  "compensation_table.update": "批准后存成新的一版赔付表，之后判定的工单按新表算；已经判定的不变。",
+  "ticket.decision": "批准后按发起时的判定执行：给客人退款（退不回卡上的记为待财务另付），责任在供应商的记成它的应扣款项并计入评分；判定人记为发起的同事。发起后这一单的收款、退款变了的，会提示已过时，只能驳回。",
 };
 
 /** 每条复核的按钮名字带上是哪一条（「批准：{摘要}（{发起时间} 发起）」），读屏在一页好几条里分得清（M1-17）。 */
@@ -113,6 +117,29 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           供应商：
           <Link className="link" to={tenantPath(approval.resource_id)}>
             {typeof approval.payload["tenant_name"] === "string" ? approval.payload["tenant_name"] : "去供应商详情"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "compensation_table.update" && (
+        <p>
+          <Link className="link" to={COMPENSATION_TABLE_PAGE}>
+            看现在的赔付表
+          </Link>
+        </p>
+      )}
+      {approval.kind === "ticket.decision" && (
+        <p>
+          工单：
+          <Link className="link mono" to={platformTicketPath(approval.resource_id)}>
+            {typeof approval.payload["ticket_no"] === "string" ? approval.payload["ticket_no"] : "去工单详情"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "statement.payout" && (
+        <p>
+          账单：
+          <Link className="link mono" to={statementPath(approval.resource_id)}>
+            {typeof approval.payload["statement_no"] === "string" ? approval.payload["statement_no"] : "去账单详情"}
           </Link>
         </p>
       )}
@@ -246,7 +273,7 @@ export function ApprovalsPage() {
   const items = loaded.state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率、修改角色、重置别人的两步验证，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
+      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率、修改角色、重置别人的两步验证、修改赔付表、赔付达到阈值的工单判定、付款给供应商，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="显示" value={status} options={[{ value: "pending", label: "待审核" }, { value: "all", label: "全部（含历史）" }]} onChange={(value) => setParams(value === "all" ? { status: "all" } : {}, { replace: true })} />
       </div>
@@ -257,7 +284,7 @@ export function ApprovalsPage() {
           <Skeleton lines={["long", "long", "long"]} />
         )
       ) : items.length === 0 ? (
-        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="渠道经理发起修改加价、加价规则或暂停渠道，主数据运营发起锁定或解锁汇率后，会出现在这里。" />
+        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="同事发起需要双人复核的改动（加价、汇率锁定、赔付表、工单判定、付款给供应商等）后，会出现在这里。" />
       ) : (
         <>
           <p className="table__muted">{`共 ${loaded.state.data.total} 条${loaded.state.data.total > items.length ? `，这里显示最近的 ${items.length} 条` : ""}`}</p>

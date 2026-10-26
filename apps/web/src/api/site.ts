@@ -374,3 +374,34 @@ export function reportSiteLanded(token: string): Promise<SiteOrderEnvelope> {
 export function disputeSiteExtraCharge(token: string, chargeId: string, reason: string): Promise<SiteOrderEnvelope & { extra_charge: SiteExtraCharge | null }> {
   return apiRequest("POST", `${SITE_BASE}/order/extra-charges/${encodeURIComponent(chargeId)}/dispute`, { ...guest(token), body: { reason } });
 }
+
+// ---- 投诉和反馈（M4-03，ADR 0034）：客人凭订单链接提工单、看结论和平台的回复 ----
+
+/** 客人能提的工单类型（接口 `/site/v1/order/tickets` 只认这四种）。 */
+export const SITE_TICKET_TYPES = ["complaint", "order_change", "lost_and_found", "other"] as const;
+export type SiteTicketType = (typeof SITE_TICKET_TYPES)[number];
+
+export interface SiteTicket {
+  id: string;
+  ticket_no: string;
+  type: string;
+  source: "guest" | "channel";
+  subject: string;
+  status: string;
+  outcome: string | null;
+  decided_at: string | null;
+  created_at: string;
+  /** 平台写给客人的回复，按时间先后 */
+  replies: { body: string; created_at: string }[];
+  compensation: { scenario: string; compensation: SiteMoney; reimbursement: SiteMoney; refund: SiteMoney; other_payout: SiteMoney; payout_status: "none" | "pending" | "paid" } | null;
+}
+
+export const SITE_TICKET_FIELDS: readonly (keyof SiteTicket)[] = ["id", "ticket_no", "type", "source", "subject", "status", "outcome", "decided_at", "created_at", "replies", "compensation"];
+
+export function listSiteTickets(token: string): Promise<{ items: SiteTicket[] }> {
+  return apiRequest("GET", `${SITE_BASE}/order/tickets`, guest(token));
+}
+
+export function createSiteTicket(token: string, body: { type: SiteTicketType; subject: string; description: string; language: string | null }): Promise<{ ticket: SiteTicket }> {
+  return apiRequest("POST", `${SITE_BASE}/order/tickets`, { ...guest(token), body });
+}

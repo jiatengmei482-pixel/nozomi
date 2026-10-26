@@ -535,3 +535,28 @@ test("官网的客人凭查看链接提投诉、看到结论和赔付；没有�
   const row = (await api.db.owner.query("select created_by_type, source from tickets where id = $1", [created.body.ticket.id])).rows[0];
   assert.deepEqual(row, { created_by_type: "guest", source: "guest" });
 });
+
+test("给客人的回复（M4-03）：客服对客人、渠道提的工单回复客人；渠道和官网看得到（不带员工），供应商看不到；内部备注客人看不到；不是客人提的工单不能回复客人；两个开关不能同时开", async () => {
+  const order = await completedOrder();
+  const ticket = await channelComplaint(order.id);
+  const token = await cs();
+  const replied = await platformCall("POST", `/platform/v1/tickets/${ticket.id}/messages`, token, { body: "我们正在核实司机的到达时间，24 小时内答复您。", to_guest: true }, "/platform/v1/tickets/{id}/messages");
+  assert.equal(replied.status, 201, replied.text);
+  await platformCall("POST", `/platform/v1/tickets/${ticket.id}/messages`, token, { body: "内部：客人第二次投诉", internal: true });
+  const notes = replied.body.notes as { to_guest: boolean; body: string }[];
+  assert.deepEqual(notes.map((note) => note.to_guest), [true]);
+  const listed = await api.call("GET", `/sales/v1/orders/${order.id}/tickets`, { token: await flow.token() });
+  assertMatchesOpenApi("GET", "/sales/v1/orders/{id}/tickets", listed);
+  const item = listed.body.items.find((entry: any) => entry.id === ticket.id);
+  assert.deepEqual(item.replies.map((reply: any) => reply.body), ["我们正在核实司机的到达时间，24 小时内答复您。"]);
+  assert.deepEqual(Object.keys(item.replies[0]).sort(), ["body", "created_at"]);
+  const tenantView = await tenantTicket(m.b, ticket.id);
+  assert.equal(tenantView.status, 200, tenantView.text);
+  assert.doesNotMatch(JSON.stringify(tenantView.body), /24 小时内答复您|客人第二次投诉/);
+  assert.equal((await platformCall("POST", `/platform/v1/tickets/${ticket.id}/messages`, token, { body: "x", internal: true, to_guest: true })).status, 400);
+  const own = await platformCall("POST", "/platform/v1/tickets", token, { type: "other", order_id: order.id, subject: "客服自己发现的", description: "x" });
+  assert.equal(own.status, 201, own.text);
+  const refused = await platformCall("POST", `/platform/v1/tickets/${own.body.ticket.id}/messages`, token, { body: "x", to_guest: true });
+  assert.equal(refused.status, 400);
+  assert.equal((await api.db.owner.query("select count(*)::int as n from audit_logs where resource = 'ticket' and resource_id = $1 and action = 'reply' and after ->> 'to_guest' = 'true'", [ticket.id])).rows[0].n, 1);
+});

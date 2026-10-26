@@ -38,6 +38,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { CATEGORY_NAMES, ORDER_LIST_PATH, directionName, driverLinkUrl, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
+import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -303,6 +304,8 @@ export function OrderDetailPage() {
   const canRead = useTenantCan("order.read");
   const canDispatch = useTenantCan("order.dispatch");
   const canExtraCharge = useTenantCan("order.extra_charge");
+  const canSeeTickets = useTenantCan("ticket.read");
+  const canManageTickets = useTenantCan("ticket.manage");
   const toast = useToast();
   const { state, reload } = useLoad<TenantOrderDetail>(`order|${id}`, canRead ? (t) => getOrder(t, id) : null);
   const [assigning, setAssigning] = useState(false);
@@ -473,6 +476,25 @@ export function OrderDetailPage() {
       <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} onChanged={reload} />
       <ExtraChargesSection order={order} charges={detail.extra_charges} canSubmit={canExtraCharge} onChanged={reload} />
       <CancellationSection order={order} />
+
+      {canSeeTickets && (
+        <section className="card" aria-labelledby="order-tickets">
+          <h2 className="card__title" id="order-tickets">
+            工单
+          </h2>
+          <p>客人投诉、no-show 审核等和这一单有关的工单；平台征求你们意见时要在 24 小时内回复。</p>
+          <div className="action-row">
+            <Link className="link" to={`${TENANT_TICKETS_PAGE}?order=${encodeURIComponent(order.id)}&status=all`}>
+              看这一单的工单
+            </Link>
+            {canManageTickets && (
+              <Link className="link" to={newTenantTicketPath({ order: order.id })}>
+                就这一单发起工单（失物招领、其他）
+              </Link>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="card">
         <h2 className="card__title">状态流水</h2>

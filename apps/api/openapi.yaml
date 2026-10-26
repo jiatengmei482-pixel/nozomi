@@ -1312,6 +1312,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
+  /platform/v1/colleagues:
+    get:
+      tags: [ 平台系统 ]
+      operationId: listColleagues
+      summary: 同事名单（处理人、判定人显示成名字；转交异常和工单时选人）
+      description: |
+        任何已登录的平台员工都能调（账号必须先修改密码、两步验证没完成时同样被拦）。全部平台员工的编号、姓名、是否在用（不含还没接受邀请的），按姓名排；
+        没有邮箱、角色、登录记录（这些在 `staff.read` 的「平台员工」里）。M4-03：工单、异常、账单的应答里处理人、判定人、作废人只有编号，页面用它换成名字。不写审计日志。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 同事名单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name, active ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        active:
+                          type: boolean
+                          description: 在用；false 是已停用（历史记录里的处理人还要显示名字）
   /platform/v1/integrations:
     get:
       tags: [ 平台系统 ]
@@ -11876,7 +11911,8 @@ paths:
       operationId: addPlatformTicketMessage
       summary: 留言或写内部备注
       description: |
-        需要操作 `ticket.manage`。`internal: true` 是内部备注（只有平台看得到，判定之后、关闭之前也能写）；否则是给供应商看的对话（只在判定之前）。
+        需要操作 `ticket.manage`。`internal: true` 是内部备注（只有平台看得到，判定之后、关闭之前也能写）；`to_guest: true` 是给客人的回复（M4-03：只有客人、渠道提的工单，关闭之前；
+        官网订单页和渠道的工单列表里看得到，供应商看不到；两者不能同时为真）；否则是给供应商看的对话（只在判定之前）。
         待处理的变成处理中；算首次响应。
       security:
         - platformToken: []
@@ -11898,9 +11934,18 @@ paths:
                 internal:
                   type: boolean
                   default: false
+                to_guest:
+                  type: boolean
+                  default: false
       responses:
         "201":
           $ref: "#/components/responses/PlatformTicketDetail"
+        "400":
+          description: "`VALIDATION_FAILED`：`internal` 和 `to_guest` 同时为真；不是客人、渠道提的工单却要回复客人（`NOT_GUEST_TICKET`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -13131,15 +13176,18 @@ components:
                   $ref: "#/components/schemas/TicketMessage"
               notes:
                 type: array
-                description: 内部备注（只有平台看得到）
+                description: 内部备注（只有平台看得到）和给客人的回复（`to_guest`）
                 items:
                   type: object
                   additionalProperties: false
-                  required: [ id, author, body, created_at ]
+                  required: [ id, author, body, to_guest, created_at ]
                   properties:
                     id:
                       type: string
                       format: uuid
+                    to_guest:
+                      type: boolean
+                      description: 给客人的回复（官网订单页、渠道看得到，供应商看不到）；false 是内部备注
                     author:
                       type: object
                       additionalProperties: false
@@ -16169,6 +16217,7 @@ components:
             - tenant
             - tenant_user
             - integration
+            - integration_secret
             - city
             - place
             - vehicle_group
@@ -16187,11 +16236,28 @@ components:
             - markup_rule
             - api_client
             - approval
+            - driver
+            - vehicle
+            - order
+            - driver_link
+            - tenant_webhook
+            - webhook_delivery
             - tenant_profile
             - tenant_file
             - tenant_document
             - tenant_contract
+            - cancellation_policy
+            - order_change
+            - extra_charge
+            - refund
+            - rescue
+            - rescue_offer
+            - compensation_table
+            - order_exception
+            - ticket
             - platform_role
+            - statement
+            - payout_batch
         resource_id:
           type:
             - string
@@ -16234,6 +16300,11 @@ components:
             - lock
             - unlock
             - expire
+            - assign
+            - reassign
+            - issue
+            - retry
+            - test
             - submit
             - return
             - sign
@@ -16243,6 +16314,20 @@ components:
             - observe
             - upload
             - request_supplement
+            - cancel
+            - change
+            - decide
+            - charge
+            - trigger
+            - offer
+            - accept
+            - waive
+            - claim
+            - close
+            - reply
+            - note
+            - request_reply
+            - pay
             - mfa_enroll_start
             - mfa_enroll
             - mfa_verify
@@ -16250,6 +16335,11 @@ components:
             - mfa_recovery_codes
             - mfa_reset
             - clear_ip_allowlist
+            - dispute
+            - void
+            - set
+            - replace
+            - clear
         before:
           type:
             - object
@@ -20652,7 +20742,8 @@ components:
           format: uuid
         purpose:
           type: string
-          enum: [ cancellation, change ]
+          enum: [ cancellation, change, compensation ]
+          description: "`cancellation` 取消；`change` 改期退差价；`compensation` 工单判定的赔付（M4-02）"
         change_id:
           type: [ string, "null" ]
           format: uuid
@@ -24669,8 +24760,8 @@ components:
     ChannelTicket:
       type: object
       additionalProperties: false
-      description: 渠道和客人看到的工单：类型、状态、结论、客人这边的赔付
-      required: [ id, ticket_no, type, source, subject, status, outcome, decided_at, created_at, compensation ]
+      description: 渠道和客人看到的工单：类型、状态、结论、平台写给客人的回复、客人这边的赔付
+      required: [ id, ticket_no, type, source, subject, status, outcome, decided_at, created_at, replies, compensation ]
       properties:
         id:
           type: string
@@ -24694,6 +24785,19 @@ components:
         created_at:
           type: string
           format: date-time
+        replies:
+          type: array
+          description: 平台写给客人的回复（M4-03），按时间先后；不带是哪位员工
+          items:
+            type: object
+            additionalProperties: false
+            required: [ body, created_at ]
+            properties:
+              body:
+                type: string
+              created_at:
+                type: string
+                format: date-time
         compensation:
           oneOf:
             - type: object

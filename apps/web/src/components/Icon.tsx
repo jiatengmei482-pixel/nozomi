@@ -44,7 +44,9 @@ export type IconName =
   | "target"
   | "minus"
   | "calculator"
-  | "file";
+  | "file"
+  | "message"
+  | "wallet";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
   file: (
@@ -177,6 +179,13 @@ const SHAPES: Readonly<Record<IconName, ReactNode>> = {
     <>
       <rect x="5" y="3" width="14" height="18" rx="2" />
       <path d="M8.5 7h7M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18h.01M12 18h3.5" />
+    </>
+  ),
+  message: <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4v-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />,
+  wallet: (
+    <>
+      <path d="M4 7h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3" />
+      <path d="M16 13.5h.01" />
     </>
   ),
 };

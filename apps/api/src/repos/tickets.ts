@@ -328,16 +328,21 @@ export interface TicketNote {
   authorId: string;
   authorName: string;
   body: string;
+  /** 给客人的回复（官网订单页、渠道看得到）；false 是内部备注 */
+  toGuest: boolean;
   createdAt: Date;
 }
 
-export async function insertTicketNote(db: Db, ticketId: string, authorId: string, body: string, now: Date): Promise<void> {
-  await db.query("insert into ticket_notes (ticket_id, author_id, body, created_at) values ($1, $2, $3, $4)", [ticketId, authorId, body, now]);
+export async function insertTicketNote(db: Db, ticketId: string, authorId: string, body: string, now: Date, toGuest = false): Promise<void> {
+  await db.query("insert into ticket_notes (ticket_id, author_id, body, created_at, to_guest) values ($1, $2, $3, $4, $5)", [ticketId, authorId, body, now, toGuest]);
 }
 
-export async function listTicketNotes(db: Db, ticketId: string): Promise<TicketNote[]> {
-  const result = await db.query<Row>("select n.id, n.author_id, u.name as author_name, n.body, n.created_at from ticket_notes n join platform_users u on u.id = n.author_id where n.ticket_id = $1 order by n.seq", [ticketId]);
-  return result.rows.map((row) => ({ id: row["id"], authorId: row["author_id"], authorName: row["author_name"], body: row["body"], createdAt: row["created_at"] }));
+export async function listTicketNotes(db: Db, ticketId: string, onlyToGuest = false): Promise<TicketNote[]> {
+  const result = await db.query<Row>(
+    "select n.id, n.author_id, u.name as author_name, n.body, n.to_guest, n.created_at from ticket_notes n join platform_users u on u.id = n.author_id where n.ticket_id = $1 and (not $2::boolean or n.to_guest) order by n.seq",
+    [ticketId, onlyToGuest],
+  );
+  return result.rows.map((row) => ({ id: row["id"], authorId: row["author_id"], authorName: row["author_name"], body: row["body"], toGuest: row["to_guest"], createdAt: row["created_at"] }));
 }
 
 // ---- 赔付记录 ----

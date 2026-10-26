@@ -37,7 +37,7 @@ import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { ExceptionRow } from "../repos/exceptions.ts";
 import type { Deduction } from "../repos/rescues.ts";
-import type { Ticket, TicketCompensation, TicketMessage, TicketRow } from "../repos/tickets.ts";
+import type { Ticket, TicketCompensation, TicketMessage, TicketNote, TicketRow } from "../repos/tickets.ts";
 import { getCancellationPolicy } from "../services/cancellation-policy.ts";
 import { getCompensationTable, requestCompensationTableChange } from "../services/compensation-table.ts";
 import { assertExceptionInScope, claimException, closeException, getException, listExceptionsForPlatform } from "../services/exceptions.ts";
@@ -158,7 +158,11 @@ const externalCreateSchema = z.object({ type: z.enum(["complaint", "order_change
 const salesCreateSchema = externalCreateSchema.extend({ raised_by: z.enum(["guest", "channel"]).default("guest") }).strict();
 
 const assignSchema = z.object({ assignee_id: id.nullable().default(null) }).strict();
-const platformMessageSchema = z.object({ body: text(TICKET_RULES.bodyMax), internal: z.boolean().default(false) }).strict();
+// `to_guest`：给客人的回复（官网订单页、渠道看得到，供应商看不到），和 `internal` 不能同时为真
+const platformMessageSchema = z
+  .object({ body: text(TICKET_RULES.bodyMax), internal: z.boolean().default(false), to_guest: z.boolean().default(false) })
+  .strict()
+  .refine((value) => !(value.internal && value.to_guest), { message: "内部备注和给客人的回复只能选一个", path: ["to_guest"] });
 const requestReplySchema = z.object({ body: text(TICKET_RULES.bodyMax) }).strict();
 const tenantMessageSchema = z.object({ body: text(TICKET_RULES.bodyMax), file_ids: z.array(id).max(TICKET_RULES.maxFilesPerMessage).default([]) }).strict();
 const minorSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -352,7 +356,7 @@ function amountsJson(amounts: CompensationAmounts, willCancel: boolean): Json {
 }
 
 /** 渠道和客人看到的工单：类型、状态、结论和客人这边的赔付（没有对话、内部备注、供应商承担的部分）。 */
-function channelTicketJson(ticket: Ticket, compensation: TicketCompensation | null): Json {
+function channelTicketJson(ticket: Ticket, compensation: TicketCompensation | null, replies: readonly TicketNote[]): Json {
   return {
     id: ticket.id,
     ticket_no: ticket.ticketNo,
@@ -363,6 +367,8 @@ function channelTicketJson(ticket: Ticket, compensation: TicketCompensation | nu
     outcome: ticket.outcome,
     decided_at: iso(ticket.decidedAt),
     created_at: ticket.createdAt.toISOString(),
+    // 平台写给客人的回复（不带是哪位员工）
+    replies: replies.map((reply) => ({ body: reply.body, created_at: reply.createdAt.toISOString() })),
     compensation:
       compensation === null
         ? null
@@ -496,7 +502,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     return {
       ticket: platformTicketJson(row, now),
       messages: found.messages.map((message) => messageJson(message, "platform")),
-      notes: found.notes.map((note) => ({ id: note.id, author: { id: note.authorId, name: note.authorName }, body: note.body, created_at: note.createdAt.toISOString() })),
+      notes: found.notes.map((note) => ({ id: note.id, author: { id: note.authorId, name: note.authorName }, body: note.body, to_guest: note.toGuest, created_at: note.createdAt.toISOString() })),
       compensation: found.compensation === null ? null : compensationJson(found.compensation),
       deductions: found.deductions.map(deductionJson),
       refund_ids: found.refunds.map((refund) => refund.id),
@@ -534,7 +540,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     const ticketId = resourceId(request.params, "工单");
     const input = parseInput(platformMessageSchema, request.body, "body");
-    await addPlatformMessage(ctx, principal, ticketId, { body: input.body, internal: input.internal }, request.ip);
+    await addPlatformMessage(ctx, principal, ticketId, { body: input.body, internal: input.internal, toGuest: input.to_guest }, request.ip);
     return reply.code(201).send(await platformDetail(ticketId, principal));
   });
 
@@ -625,7 +631,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
 
   // ---- 工单（渠道、官网的客人） ----
 
-  const channelList = async (channelId: string, orderId: string): Promise<Json> => ({ items: (await listTicketsForChannel(ctx, channelId, orderId)).map((entry) => channelTicketJson(entry.ticket, entry.compensation)) });
+  const channelList = async (channelId: string, orderId: string): Promise<Json> => ({ items: (await listTicketsForChannel(ctx, channelId, orderId)).map((entry) => channelTicketJson(entry.ticket, entry.compensation, entry.replies)) });
 
   app.get("/sales/v1/orders/:id/tickets", async (request) => {
     const principal = await authenticateSales(ctx, bearerToken(request.headers.authorization), "other");
@@ -637,7 +643,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     const orderId = resourceId(request.params, "订单");
     const input = parseInput(salesCreateSchema, request.body, "body");
     const ticket = await createTicketForChannel(ctx, principal.channelId, orderId, { type: input.type, subject: input.subject, description: input.description, language: input.language, priority: null, source: input.raised_by });
-    return reply.code(201).send({ ticket: channelTicketJson(ticket, null) });
+    return reply.code(201).send({ ticket: channelTicketJson(ticket, null, []) });
   });
 
   const guest = async (request: FastifyRequest): Promise<{ orderId: string; channelId: string }> => {
@@ -654,7 +660,7 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     const who = await guest(request);
     const input = parseInput(externalCreateSchema, request.body, "body");
     const ticket = await createTicketForChannel(ctx, who.channelId, who.orderId, { type: input.type, subject: input.subject, description: input.description, language: input.language, priority: null, source: "guest" });
-    return reply.code(201).send({ ticket: channelTicketJson(ticket, null) });
+    return reply.code(201).send({ ticket: channelTicketJson(ticket, null, []) });
   });
 }
 
