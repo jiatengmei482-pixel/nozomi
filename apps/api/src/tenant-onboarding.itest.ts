@@ -29,7 +29,7 @@ before(async () => {
   c = await api.tenantWithAdmin(m.root, "丙车队", "admin@onboarding-c.test", { onboarding: "applying" });
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email: "bd@platform.test", name: "招商", role: "tenant_onboarding" } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-  onboarding = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: "bd@platform.test", password: TEST_PASSWORD } }))).access_token;
+  onboarding = (await ok(api.platformLogin({ body: { email: "bd@platform.test", password: TEST_PASSWORD } }))).access_token;
 });
 after(() => api.close());
 
@@ -272,7 +272,7 @@ test("资质到期：到期前 30 天、7 天各提醒一次；到期当天自�
 });
 
 async function login(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
 test("文件：只认 PDF / JPEG / PNG（按开头的字节，和声明的类型要一致）；空文件 400、超过 10 MB 413；下载原样返回并带安全头；只有做审核的平台员工能下载", async () => {

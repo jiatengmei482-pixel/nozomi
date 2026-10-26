@@ -22,7 +22,6 @@ import {
   SERVICE_CATEGORIES,
   type ServiceCategory,
   isCurrencyCode,
-  platformRoleCan,
   pricingImpactAccumulator,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -31,10 +30,10 @@ import { AppError } from "../errors.ts";
 import { findApproval } from "../repos/approvals.ts";
 import type { AuditValues } from "../repos/audit-logs.ts";
 import { type Channel, type StoredMarkupRule, findMarkupRule, listMarkupRules } from "../repos/channels.ts";
-import type { ApprovalKinds } from "./approvals.ts";
+import { type ApprovalKinds, canSee } from "./approvals.ts";
 import { type RuleInput, assertNoRuleBelowFloor, assertPricing, assertRule, loadChannel, pricingFromValues, ruleFromValues } from "./channels.ts";
 import { forbidden, notFound } from "./errors.ts";
-import type { PlatformPrincipal } from "./platform-auth.ts";
+import { type PlatformPrincipal, principalCan } from "./platform-auth.ts";
 
 /** 待提交的改动：和发起复核的四种入参一一对应。 */
 export type PricingProposal =
@@ -359,8 +358,9 @@ export async function recomputeApprovalImpact(ctx: AppContext, kinds: ApprovalKi
     async (db) => {
       const approval = await findApproval(db, approvalId);
       const kind = approval === null ? undefined : kinds.get(approval.kind);
-      if (!approval || !kind || !platformRoleCan(principal.user.role, kind.readAction)) throw notFound("复核记录");
-      if (!platformRoleCan(principal.user.role, kind.reviewAction) && !platformRoleCan(principal.user.role, kind.requestAction)) throw forbidden(kind.reviewAction satisfies PlatformAction);
+      // 看不到的那几类、数据范围外的（ADR 0030），当作不存在
+      if (!approval || !kind || !(await canSee(db, kinds, principal, approval))) throw notFound("复核记录");
+      if (!principalCan(principal, kind.reviewAction) && !principalCan(principal, kind.requestAction)) throw forbidden(kind.reviewAction satisfies PlatformAction);
       const proposal = proposalOf(approval.kind, approval.payload);
       if (proposal === null) throw new AppError(409, "PRICING_IMPACT_NOT_APPLICABLE", "只有改定价参数、加价规则的复核才有毛利试算", { kind: approval.kind });
       if (approval.status !== "pending") throw new AppError(409, "APPROVAL_NOT_PENDING", "这条复核已经有结论了，不用再试算", { status: approval.status });

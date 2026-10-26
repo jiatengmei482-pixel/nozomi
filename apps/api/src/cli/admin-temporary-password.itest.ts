@@ -64,7 +64,7 @@ function countOccurrences(text: string, pattern: RegExp): number {
 const LOOKS_LIKE_TEMPORARY_PASSWORD = /[A-Za-z2-9]{5}(?:-[A-Za-z2-9]{5}){3}/g;
 
 const tryLogin = (email: string, password: string): Promise<ApiResponse> =>
-  api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email, password } });
+  api.platformLogin({ ip: freshIp(), body: { email, password } });
 
 async function stored(): Promise<string> {
   return (

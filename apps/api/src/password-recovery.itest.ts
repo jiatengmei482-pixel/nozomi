@@ -33,8 +33,10 @@ async function addStaff(email: string, role = "operations"): Promise<{ id: strin
   return { id: invited.body.user.id, token: await login("platform", email, TEST_PASSWORD) };
 }
 
+/** 平台员工经测试辅助函数完成两步验证（ADR 0030），这里只关心密码。 */
 async function tryLogin(entry: "platform" | "tenant", email: string, password: string): Promise<ApiResponse> {
-  return api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
+  const options = { ip: freshIp(), body: { email, password } };
+  return entry === "platform" ? api.platformLogin(options) : api.call("POST", `/${entry}/v1/auth/login`, options);
 }
 
 async function login(entry: "platform" | "tenant", email: string, password: string): Promise<string> {

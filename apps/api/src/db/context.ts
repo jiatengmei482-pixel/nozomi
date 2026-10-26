@@ -135,11 +135,20 @@ export function withTenantTx<T>(pool: Pool, tenantId: string, fn: (db: Db) => Pr
 }
 
 const UNIQUE_VIOLATION = "23505";
+const FOREIGN_KEY_VIOLATION = "23503";
 
 /** 是否是违反唯一约束的报错；可以指定约束名。 */
 export function isUniqueViolation(err: unknown, constraint?: string): boolean {
   if (typeof err !== "object" || err === null) return false;
   const record = err as { code?: unknown; constraint?: unknown };
   if (record.code !== UNIQUE_VIOLATION) return false;
+  return constraint === undefined || record.constraint === constraint;
+}
+
+/** 是否是违反外键约束的报错；可以指定约束名。 */
+export function isForeignKeyViolation(err: unknown, constraint?: string): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const record = err as { code?: unknown; constraint?: unknown };
+  if (record.code !== FOREIGN_KEY_VIOLATION) return false;
   return constraint === undefined || record.constraint === constraint;
 }

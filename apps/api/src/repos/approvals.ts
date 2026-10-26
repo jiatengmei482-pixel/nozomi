@@ -121,16 +121,31 @@ export interface ApprovalFilter {
   kinds: readonly string[];
   resource: string | null;
   resourceId: string | null;
+  /**
+   * 数据范围（ADR 0030）：这几类的对象编号（`resource_id`）是渠道编号，只列 `channelIds` 里的；`channelIds` 为 null 不限制。
+   */
+  channelScopedKinds?: readonly string[];
+  channelIds?: readonly string[] | null;
+  /**
+   * 数据范围（ADR 0030）：这几类针对一张订单（`payload.order_id`），只列订单的城市在 `cityIds`、渠道在 `channelIds` 里的；两个都为 null 不限制。
+   */
+  orderScopedKinds?: readonly string[];
+  cityIds?: readonly string[] | null;
 }
 
 /** 按发起时间从新到旧；带 `total`。 */
 export async function listApprovals(db: Db, filter: ApprovalFilter, limit: number, after: TimeCursor | null): Promise<Page<Approval> & { total: number }> {
-  const where = "a.kind = any($1::text[]) and ($2::text is null or a.status = $2) and ($3::text is null or a.resource = $3) and ($4::text is null or a.resource_id = $4)";
-  const params = [filter.kinds, filter.status, filter.resource, filter.resourceId];
+  const where =
+    "a.kind = any($1::text[]) and ($2::text is null or a.status = $2) and ($3::text is null or a.resource = $3) and ($4::text is null or a.resource_id = $4)" +
+    " and ($6::text[] is null or not (a.kind = any($5::text[])) or a.resource_id = any($6::text[]))" +
+    " and (($6::text[] is null and $8::uuid[] is null) or not (a.kind = any($7::text[])) or exists (" +
+    "select 1 from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where o.id::text = a.payload->>'order_id'" +
+    " and ($8::uuid[] is null or o.city_id = any($8::uuid[])) and ($6::text[] is null or s.channel_id::text = any($6::text[]))))";
+  const params = [filter.kinds, filter.status, filter.resource, filter.resourceId, filter.channelScopedKinds ?? [], filter.channelIds ?? null, filter.orderScopedKinds ?? [], filter.cityIds ?? null];
   const result = await db.query<ApprovalRow & { cursor_time: string }>(
     `select ${COLUMNS}, a.requested_at::text as cursor_time from ${FROM}
-      where ${where} and ($5::timestamptz is null or (a.requested_at, a.id) < ($5::timestamptz, $6::uuid))
-      order by a.requested_at desc, a.id desc limit $7`,
+      where ${where} and ($9::timestamptz is null or (a.requested_at, a.id) < ($9::timestamptz, $10::uuid))
+      order by a.requested_at desc, a.id desc limit $11`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from approvals a where ${where}`, params);

@@ -246,6 +246,7 @@ const percent = (bp: number): string => `${(bp / 100).toFixed(2).replace(/\.?0+$
 
 export const CHANNEL_PRICING: ApprovalKind = {
   kind: "channel.pricing",
+  channelScoped: true,
   resource: "channel",
   readAction: "channel.read",
   requestAction: "channel.manage",
@@ -263,6 +264,7 @@ export const CHANNEL_PRICING: ApprovalKind = {
 
 export const CHANNEL_PAUSE: ApprovalKind = {
   kind: "channel.pause",
+  channelScoped: true,
   resource: "channel",
   readAction: "channel.read",
   requestAction: "channel.manage",
@@ -386,6 +388,7 @@ function sameRule(a: RuleInput, b: RuleInput): boolean {
 
 export const MARKUP_RULE_CREATE: ApprovalKind = {
   kind: "markup_rule.create",
+  channelScoped: true,
   resource: "channel",
   readAction: "channel.read",
   requestAction: "channel.manage",
@@ -401,6 +404,7 @@ export const MARKUP_RULE_CREATE: ApprovalKind = {
 
 export const MARKUP_RULE_UPDATE: ApprovalKind = {
   kind: "markup_rule.update",
+  channelScoped: true,
   resource: "channel",
   readAction: "channel.read",
   requestAction: "channel.manage",
@@ -420,6 +424,7 @@ export const MARKUP_RULE_UPDATE: ApprovalKind = {
 
 export const MARKUP_RULE_DELETE: ApprovalKind = {
   kind: "markup_rule.delete",
+  channelScoped: true,
   resource: "channel",
   readAction: "channel.read",
   requestAction: "channel.manage",

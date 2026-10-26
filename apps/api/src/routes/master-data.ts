@@ -60,7 +60,7 @@ import {
   updatePlace,
   updateVehicleGroup,
 } from "../services/master-data.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { dateTimeSchema, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { pageJson } from "./serialize.ts";
@@ -331,7 +331,7 @@ function withoutUndefined(values: Record<string, unknown>): ColumnValues {
 
 export function registerMasterDataRoutes(app: FastifyInstance, ctx: AppContext): void {
   const platform = (request: FastifyRequest, action: PlatformAction) =>
-    authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+    authenticatePlatform(ctx, platformCredentials(request), { action });
   const tenant = (request: FastifyRequest, action: TenantAction) =>
     authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
 

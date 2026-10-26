@@ -76,13 +76,17 @@ export async function newDriver(api: TestApi, who: TenantFixture, extra: Record<
   );
 }
 
+/** 同一个供应商的车牌不能重复：按顺序发号（起点随机），同一个测试进程里不会撞号 */
+let plateSeq = randomInt(1000, 9000);
+const nextPlate = (): string => `品川 300 あ ${String(1000 + (plateSeq++ % 9000))}`;
+
 export async function newVehicle(api: TestApi, who: TenantFixture, vehicleGroupId: string, extra: Record<string, unknown> = {}): Promise<any> {
   return ok(
     api.call("POST", "/tenant/v1/vehicles", {
       token: who.adminToken,
       headers: { "idempotency-key": randomUUID() },
       body: {
-        plate: `品川 300 あ ${String(randomInt(1000, 9999))}`,
+        plate: nextPlate(),
         vehicle_group_id: vehicleGroupId,
         model: "丰田埃尔法",
         color: "黑",

@@ -46,6 +46,7 @@ const PLATFORM_TABLES = [
   "order_sales",
   "payment_events",
   "places",
+  "platform_recovery_codes",
   "platform_roles",
   "platform_sessions",
   "platform_users",
@@ -204,7 +205,12 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     webhook_attempts: ["INSERT", "SELECT"],
     webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
-    platform_sessions: ["DELETE", "INSERT", "SELECT"],
+    // 两步验证的恢复码（ADR 0030）：整组替换（所以能删）、用掉时记时间
+    platform_recovery_codes: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 角色（ADR 0030）：每个请求读权限；自建角色可以新建、修改（复核通过时）、删除（没人用时）；内置角色的行由触发器保护
+    platform_roles: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    // 会话：完成两步验证时改状态和过期时间（触发器只放行这一种改法，ADR 0030）
+    platform_sessions: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     platform_users: ["INSERT", "SELECT", "UPDATE"],
     price_rules: ["SELECT"],
     product_areas: ["SELECT"],

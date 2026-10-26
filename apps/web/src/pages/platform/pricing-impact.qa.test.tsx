@@ -6,6 +6,7 @@
  * - 结果里截断、没法重算、改后报不出 / 报得出、免费取消都写出来；负的差额带「−」，美元按分显示。
  * - 「再算一次」：发起人（只能撤回）也有；已批准的没有。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -27,7 +28,7 @@ const APPROVAL_ID = "a0a0a0a0-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ME_ID = "99999999-9999-4999-8999-999999999999";
 const OTHER_ID = "98989898-9898-4898-8898-989898989898";
 
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role: role as PlatformUser["role"], status: "active", ...stamps });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role: role as PlatformUser["role"], role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const tenant: Tenant = { id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps };
 const tokyo: City = { id: "11111111-1111-4111-8111-111111111111", code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const group: VehicleGroup = { id: "55555555-5555-4555-8555-555555555555", code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: [], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 1, ...stamps };

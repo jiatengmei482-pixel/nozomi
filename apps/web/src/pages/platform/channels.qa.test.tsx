@@ -4,6 +4,7 @@
  * - 新建密钥时同样不进存储、网址、标题；
  * - 待审核：只读只能看；发起人看不到「批准」「驳回」；接口说「发起人不能审核自己发起的」时把原因写出来，记录仍在。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -25,7 +26,7 @@ const OTHER_ID = "98989898-9898-4898-8898-989898989898";
 const ROTATED = "nzs_QA-ROTATED-ONE-TIME-SECRET-zyxwvutsrqpo9876";
 const CREATED = "nzs_QA-CREATED-ONE-TIME-SECRET-abcdefghijk01234";
 
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "qa@example.com", name: "测试员", role: role as PlatformUser["role"], status: "active", ...stamps });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "qa@example.com", name: "测试员", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const channel: Channel = {
   id: CHANNEL_ID,
   name: "QA 官网",

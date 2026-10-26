@@ -6,7 +6,7 @@
  * - 运营后台（`/platform/v1/orders`）：平台事务，跨租户跨渠道；有渠道、对外价、结算价、加价比例、付款状态、报价快照里的全部候选。
  *   完整的订单中心（筛选、异常队列、人工介入）在 M4-02。
  */
-import type { OrderStatus } from "@nozomi/domain";
+import { type OrderStatus, type PlatformDataScope, UNRESTRICTED_SCOPE, scopeAllowsChannel, scopeAllowsCity, scopeIsRestricted } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import {
@@ -140,17 +140,17 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
   return { ...detail, rescue };
 }
 
-/** 一张订单的一张照片（供应商后台、运营后台查看证据）。 */
-export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } | "platform", orderId: string, fileId: string): Promise<OrderFile & { data: Buffer }> {
+/** 一张订单的一张照片（供应商后台、运营后台查看证据）。运营后台按数据范围：范围外的订单的照片和不存在一样（ADR 0030）。 */
+export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } | { platform: PlatformDataScope }, orderId: string, fileId: string): Promise<OrderFile & { data: Buffer }> {
   const read = async (db: Db, tenantId: string): Promise<OrderFile & { data: Buffer }> => {
     const file = await findOrderFile(db, tenantId, orderId, fileId);
     if (file === null) throw notFound("照片");
     return file;
   };
-  if (scope === "platform") {
+  if ("platform" in scope) {
     return withPlatformTx(ctx.pool, async (db) => {
       const order = await findOrderForPlatform(db, orderId);
-      if (order === null) throw notFound("照片");
+      if (order === null || !(await orderInScope(db, order, scope.platform))) throw notFound("照片");
       return read(db, order.tenantId);
     });
   }
@@ -158,6 +158,28 @@ export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } 
     if ((await findTenantOrder(db, scope.tenantId, orderId)) === null) throw notFound("照片");
     return read(db, scope.tenantId);
   });
+}
+
+/** 订单在不在数据范围里（城市看订单，渠道看销售记录）。不限范围时不多查。 */
+export async function orderInScope(db: Db, order: Pick<Order, "id" | "cityId">, scope: PlatformDataScope): Promise<boolean> {
+  if (!scopeIsRestricted(scope)) return true;
+  if (!scopeAllowsCity(scope, order.cityId)) return false;
+  if (scope.channelIds === null) return true;
+  const sale = await findSale(db, order.id);
+  return sale !== null && scopeAllowsChannel(scope, sale.channelId);
+}
+
+/**
+ * 运营后台按订单编号操作之前（取消、改单、加收、退款的接口）：订单不在这个人的数据范围里时和不存在一样（404，ADR 0030）。
+ * 不限范围时不查。
+ */
+export async function assertPlatformOrderInScope(ctx: AppContext, scope: PlatformDataScope, orderId: string): Promise<void> {
+  if (!scopeIsRestricted(scope)) return;
+  const visible = await withPlatformTx(ctx.pool, async (db) => {
+    const order = await findOrderForPlatform(db, orderId);
+    return order !== null && (await orderInScope(db, order, scope));
+  });
+  if (!visible) throw notFound("订单");
 }
 
 export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<{ items: PlatformOrderRow[]; nextCursor: string | null; total: number }> {
@@ -187,13 +209,14 @@ export interface PlatformOrderDetail {
   rescues: PlatformRescueView[];
 }
 
-export async function getOrderForPlatform(ctx: AppContext, orderId: string): Promise<PlatformOrderDetail> {
+/** 数据范围外的订单和不存在一样（ADR 0030）。不给范围 = 不限制。 */
+export async function getOrderForPlatform(ctx: AppContext, orderId: string, scope: PlatformDataScope = UNRESTRICTED_SCOPE): Promise<PlatformOrderDetail> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
       const order = await findOrderForPlatform(db, orderId);
       const sale = order === null ? null : await findSale(db, orderId);
-      if (order === null || sale === null) throw notFound("订单");
+      if (order === null || sale === null || !scopeAllowsCity(scope, order.cityId) || !scopeAllowsChannel(scope, sale.channelId)) throw notFound("订单");
       const names = (await db.query<{ tenant: string; channel: string }>("select t.name as tenant, c.name as channel from tenants t, channels c where t.id = $1 and c.id = $2", [order.tenantId, sale.channelId])).rows[0];
       const quote = (await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1", [sale.quoteId])).rows[0] as { snapshot: StoredQuoteSnapshot };
       return {

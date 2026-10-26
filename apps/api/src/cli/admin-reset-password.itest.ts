@@ -30,7 +30,7 @@ async function run(args: string[], input: string): Promise<{ code: number | null
   return { code, output: running.output() };
 }
 
-const login = (email: string, password: string) => api.call("POST", "/platform/v1/auth/login", { body: { email, password } });
+const login = (email: string, password: string) => api.platformLogin({ body: { email, password } });
 const passwordHash = async (email: string): Promise<string> =>
   (await api.db.owner.query("select password_hash from platform_users where email = $1", [email])).rows[0].password_hash;
 

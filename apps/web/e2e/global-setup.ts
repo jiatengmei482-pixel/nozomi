@@ -16,16 +16,26 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES } from "./support.ts";
+import type { FullConfig } from "@playwright/test";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const START_TIMEOUT_MS = 30_000;
+/**
+ * 每个测试进程独占几个超级管理员（见 support.ts 的 adminCredentials）。两个：一个人 30 秒里最多登录两次（动态码防重放），
+ * 两个人轮着用基本不用等。不多准备：平台员工列表一页 50 人，有的用例要在第一页找到自己刚建的人
+ */
+const E2E_ADMINS_PER_WORKER = 2;
 
 interface Running {
   name: string;
@@ -125,19 +135,35 @@ function runAdminCreate(env: NodeJS.ProcessEnv, email: string, name: string, pas
   });
 }
 
+/** 经接口给管理员绑定两步验证，返回密钥（Base32）和绑定后已通过两步验证的登录令牌。 */
+async function enrollAdmin(apiOrigin: string, email: string, password: string): Promise<{ secret: string; token: string }> {
+  const post = async (path: string, body: unknown, token?: string): Promise<Record<string, unknown>> => {
+    const response = await fetch(`${apiOrigin}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(`${path} 失败：HTTP ${response.status} ${await response.text()}`);
+    return (await response.json()) as Record<string, unknown>;
+  };
+  const login = await post("/platform/v1/auth/login", { email, password });
+  const token = login["access_token"] as string;
+  const started = await post("/platform/v1/auth/mfa/enrollment", {}, token);
+  const secret = started["secret"] as string;
+  const { code } = await nextCode(secret);
+  await post("/platform/v1/auth/mfa/enrollment/confirm", { code }, token);
+  return { secret, token };
+}
+
 /** 经运营后台的接口建一个自营渠道（官网）并发一个 API 客户端，返回它的 client_id。密钥只在应答里出现一次，官网用不到，不保存。 */
-async function createSiteChannel(origin: string, email: string, password: string): Promise<string> {
+async function createSiteChannel(origin: string, token: string): Promise<string> {
   const post = async (path: string, body: unknown, token?: string): Promise<any> => {
     const response = await fetch(`${origin}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token === undefined ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error(`准备官网渠道失败：${path} → HTTP ${response.status} ${await response.text()}`);
     return response.json();
   };
-  const token = (await post("/platform/v1/auth/login", { email, password })).access_token as string;
   const channel = await post("/platform/v1/channels", { type: "own", settle_currency: "JPY", name: "NOZOMI 官网（端到端测试）" }, token);
   return (await post(`/platform/v1/channels/${channel.channel.id}/api-clients`, { name: "官网" }, token)).api_client.client_id as string;
 }
 
-export default async function globalSetup(): Promise<() => Promise<void>> {
+export default async function globalSetup(config: FullConfig): Promise<() => Promise<void>> {
+  const adminSlots = E2E_ADMINS_PER_WORKER * config.workers;
   if (!existsSync(`${WEB_ROOT}dist/index.html`)) {
     throw new Error("没有找到前端构建产物 apps/web/dist。请用 pnpm test:e2e 运行（它会先构建）。");
   }
@@ -151,6 +177,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const started: Running[] = [];
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
+  let totpStateDir: string | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
     await fxSource?.close();
@@ -159,6 +186,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
     }
     await database.drop();
+    if (totpStateDir !== null) await rm(totpStateDir, { recursive: true, force: true });
   };
 
   try {
@@ -170,9 +198,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       PUBLIC_BASE_URL: apiOrigin,
       DATABASE_URL: database.url,
       AUTH_JWT_SECRET: randomBytes(48).toString("base64url"),
-      // 数据加密密钥（ADR 0027，供应商的 Webhook 签名密钥加密存储）：本次运行临时生成
+      // 数据加密密钥（ADR 0027、0030：供应商的 Webhook 签名密钥、平台员工的两步验证密钥加密存储）：本次运行临时生成
       DATA_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
       TRUST_PROXY_HOPS: "0",
+      // 登录限速「同一来源地址」这一层（ADR 0030）：全部用例都从 127.0.0.1 发起，几百个用例里的失败尝试（故意输错的密码和动态码、
+      // 并行进程用掉的同一时间窗的动态码）累计起来会顶满默认的 50 次，后面的用例全被 429。只调高这一层（只有 local / ci 允许），
+      // 邮箱 + 地址、邮箱两层不变，测限速的用例照旧
+      LOGIN_MAX_ATTEMPTS_PER_IP: "100000",
     };
     // 服务进程只拿应用账号（ADR 0010），迁移账号不交给它。
     delete apiEnv["DATABASE_MIGRATION_URL"];
@@ -184,9 +216,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     apiEnv["FX_SOURCE_URL"] = fxSource.url;
     apiEnv["FX_AUTO_FETCH"] = "true";
 
-    const adminEmail = `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`;
-    const adminPassword = `E2e-${randomBytes(18).toString("base64url")}-9z`;
-    await runAdminCreate(apiEnv, adminEmail, "端到端测试管理员", adminPassword);
+    // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
+    const admins = Array.from({ length: adminSlots }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));
+    for (const admin of admins) await runAdminCreate(apiEnv, admin.email, "端到端测试管理员", admin.password);
+    const adminEmail = (admins[0] as { email: string }).email;
+    const adminPassword = (admins[0] as { password: string }).password;
 
     const tileOrigin = `http://127.0.0.1:${E2E_TILE_PORT}`;
     tileServer = await startTileServer(E2E_TILE_PORT);
@@ -196,7 +230,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     const noMapApi = start("API（没有配置底图）", ["apps/api/src/server.ts"], REPO_ROOT, { ...apiEnv, PORT: String(E2E_API_NO_MAP_PORT), PUBLIC_BASE_URL: noMapOrigin });
     started.push(noMapApi);
     await waitUntilUp(noMapApi, `${noMapOrigin}/health`);
-    const siteClientId = await createSiteChannel(noMapOrigin, adminEmail, adminPassword);
+    // 每把两步验证密钥用过的最晚时间窗记在这个目录里（mfa.ts）：绑定时用掉的时间窗、测试进程失败退出重启前用掉的时间窗，
+    // 之后都不会再用一次（再用就是 MFA_CODE_REUSED，算一次失败，累计会触发登录限速）
+    totpStateDir = await mkdtemp(join(tmpdir(), "nozomi-e2e-totp-"));
+    process.env["E2E_TOTP_STATE_DIR"] = totpStateDir;
+    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码；两个 API 进程连同一个库，在哪个上绑定都一样
+    let firstAdminToken = "";
+    for (const admin of admins) {
+      const enrolled = await enrollAdmin(noMapOrigin, admin.email, admin.password);
+      admin.secret = enrolled.secret;
+      if (firstAdminToken === "") firstAdminToken = enrolled.token;
+    }
+    const siteClientId = await createSiteChannel(noMapOrigin, firstAdminToken);
 
     const api = start("API", ["apps/api/src/server.ts"], REPO_ROOT, {
       ...apiEnv,
@@ -218,6 +263,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
+    process.env["E2E_ADMINS"] = JSON.stringify(admins);
+    process.env["E2E_WORKERS"] = String(config.workers);
     process.env["E2E_DATABASE_URL"] = database.url;
     // 派车的用例要一张「已经付过款」的订单：端到端测试里没有 Stripe，由用例用迁移账号直接写进本次运行的 schema（只在测试里构造）
     process.env["E2E_DATABASE_OWNER_URL"] = database.ownerUrl;

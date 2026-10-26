@@ -32,7 +32,7 @@ const biz7A = (body: any): any => body.groups.find((group: any) => group.vehicle
 const refusedFx = (body: any): boolean => body.refused.some((entry: any) => entry.product_id === m.ids.pa && entry.reason === "FX_RATE_UNAVAILABLE");
 
 async function login(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 /** 把时钟拨到某一刻（只往后），平台员工重新登录（令牌会过期）。 */
 async function moveTo(at: number): Promise<void> {

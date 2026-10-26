@@ -2,12 +2,12 @@
  * 运营后台「系统设置 / 平台员工」：列表、新增 / 重新邀请、停用 / 启用、发密码重置链接（docs/design/pages/platform-settings.md 第 2 节）。
  * 列表接口只能翻页：进来时全部取完，搜索和筛选在浏览器里做。新增和发密码重置成功后拿到的令牌只在对话框的内存状态里。
  */
-import { PLATFORM_ROLES, type PlatformRole } from "@nozomi/domain";
+import { PLATFORM_ROLES, type PlatformAction } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { createStaff, issueStaffReset, listAllStaff, setStaffEnabled } from "../../api/platform.ts";
-import type { PlatformUser } from "../../api/types.ts";
+import type { StaffMember } from "../../api/platform.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -24,23 +24,30 @@ import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime, shortName } from "../../lib/master-display.ts";
-import { ACCOUNT_STATUS_BADGES, EMAIL_REFUSED_TEXT, ROLE_DUTIES, emailProblem, emailRefused, isUnsure, nameProblem, roleAbilities, roleNotLiveYet } from "../../lib/platform-display.ts";
-import { STAFF_LIST_PATH, STAFF_NEW_PATH, auditLogPath } from "../../lib/platform-paths.ts";
+import { ACCOUNT_STATUS_BADGES, EMAIL_REFUSED_TEXT, PLATFORM_ACTION_PHRASES, ROLE_DUTIES, emailProblem, emailRefused, isUnsure, nameProblem, roleAbilities, roleNotLiveYet } from "../../lib/platform-display.ts";
+
+import { STAFF_LIST_PATH, STAFF_NEW_PATH, auditLogPath, staffPath } from "../../lib/platform-paths.ts";
+import { useRoleOptions } from "./SecurityPages.tsx";
 import { roleName } from "../../lib/portal.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLeaveGuard } from "../../lib/use-leave-guard.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 
+/** 自建角色「现在能做的」：逐项的说法（内置角色另有合并过的说法，见 roleAbilities）。 */
+function customAbilities(actions: readonly PlatformAction[]): string[] {
+  return actions.map((action) => PLATFORM_ACTION_PHRASES[action]);
+}
+
 const DEFAULT_PAGE_SIZE = 50;
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 const TRAIL = [{ label: "系统设置" }];
 const ROLE_KEYS = PLATFORM_ROLES.map((role) => role.key) as readonly string[];
-const roleLabel = (role: string): string => roleName("platform", role) ?? role;
+const roleLabel = (role: string, fallback?: string): string => roleName("platform", role) ?? fallback ?? role;
 
 /** 重新邀请时从列表带到新增页的内容（只有姓名、邮箱、角色，没有令牌）。 */
 interface ReinviteState {
-  reinvite: { email: string; name: string; role: PlatformRole };
+  reinvite: { email: string; name: string; role: string };
 }
 
 function Filters() {
@@ -65,7 +72,7 @@ function Filters() {
   );
 }
 
-type Pending = { action: "disable" | "enable" | "reset"; user: PlatformUser };
+type Pending = { action: "disable" | "enable" | "reset"; user: StaffMember };
 
 export function StaffListPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
@@ -76,7 +83,7 @@ export function StaffListPage() {
   const canManage = usePlatformCan("staff.manage");
   const canAudit = usePlatformCan("audit_log.read");
   const [params, setParams] = useSearchParams();
-  const loaded = useLoad<{ items: PlatformUser[]; truncated: boolean }>("platform-staff", canRead ? listAllStaff : null);
+  const loaded = useLoad<{ items: StaffMember[]; truncated: boolean }>("platform-staff", canRead ? listAllStaff : null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState<{ title?: string; text: string; reinvite?: boolean } | null>(null);
@@ -127,10 +134,10 @@ export function StaffListPage() {
   const rows = matched.slice((page - 1) * pageSize, page * pageSize);
   const filtered = q !== "" || role !== null || status !== null;
 
-  const replace = (changed: PlatformUser): void => {
+  const replace = (changed: StaffMember): void => {
     if (loaded.state.data) loaded.set({ ...loaded.state.data, items: loaded.state.data.items.map((user) => (user.id === changed.id ? changed : user)) });
   };
-  const start = (action: Pending["action"], user: PlatformUser): void => {
+  const start = (action: Pending["action"], user: StaffMember): void => {
     setPending({ action, user });
     setProblem(null);
     setBlocked(false);
@@ -152,9 +159,10 @@ export function StaffListPage() {
       if (action === "reset") {
         // 不自动重试：重试一次就多发一个令牌、让上一个作废
         const result = await issueStaffReset(token, user.id);
-        setIssued({ portal: "platform", kind: "reset", token: result.reset.token, expiresAt: result.reset.expires_at ?? null, name: result.user.name, email: result.user.email, whom: `平台员工，${roleLabel(result.user.role)}` });
+        setIssued({ portal: "platform", kind: "reset", token: result.reset.token, expiresAt: result.reset.expires_at ?? null, name: result.user.name, email: result.user.email, whom: `平台员工，${roleLabel(result.user.role, result.user.role_name)}` });
       } else {
-        replace(await setStaffEnabled(token, user.id, action));
+        // 停用 / 启用的应答是账号对象（没有两步验证、IP 白名单）：这两项沿用列表里的
+        replace({ ...user, ...(await setStaffEnabled(token, user.id, action)) });
         toast(action === "disable" ? `已停用「${user.name}」` : `已启用「${user.name}」`);
         setPending(null);
       }
@@ -180,21 +188,24 @@ export function StaffListPage() {
     }
   };
 
-  const reinviteState = (user: PlatformUser): ReinviteState => ({ reinvite: { email: user.email, name: user.name, role: user.role } });
-  const columns: Column<PlatformUser>[] = [
+  const reinviteState = (user: StaffMember): ReinviteState => ({ reinvite: { email: user.email, name: user.name, role: user.role } });
+  const columns: Column<StaffMember>[] = [
     {
       key: "name",
       header: "姓名",
       wrap: true,
       cell: (row) => (
         <span className={highlight === row.id ? "staff-name staff-name--new" : "staff-name"}>
-          {row.name}
+          <Link className="link" to={staffPath(row.id)}>
+            {row.name}
+          </Link>
           {row.id === me && <span className="tag">你</span>}
         </span>
       ),
     },
     { key: "email", header: "邮箱", wrap: true, cell: (row) => <span className="staff-email">{row.email}</span> },
-    { key: "role", header: "角色", cell: (row) => <span className="tag">{roleLabel(row.role)}</span> },
+    { key: "role", header: "角色", cell: (row) => <span className="tag">{roleLabel(row.role, row.role_name)}</span> },
+    { key: "mfa", header: "两步验证", cell: (row) => <span className={row.mfa_enabled ? "" : "table__muted"}>{row.status !== "active" ? "—" : row.mfa_enabled ? "已绑定" : "还没绑定"}</span> },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...ACCOUNT_STATUS_BADGES[row.status]} /> },
     { key: "created", header: "创建时间", cardLabel: true, cell: (row) => <span className="table__muted">{formatLocalDateTime(row.created_at)}</span> },
     {
@@ -380,13 +391,16 @@ export function StaffNewPage() {
   const toast = useToast();
   const location = useLocation();
   const canManage = usePlatformCan("staff.manage");
+  const { roles } = useRoleOptions();
+  const customRoles = (roles ?? []).filter((entry) => !entry.builtin);
   const given = (location.state as Partial<ReinviteState> | null)?.reinvite;
-  const reinvite = given && typeof given.email === "string" && typeof given.name === "string" && ROLE_KEYS.includes(given.role) ? given : null;
+  // 角色只认内置角色的键或自建角色的键的格式（`custom_` + 16 位十六进制）；别的当作普通的新增
+  const reinvite = given && typeof given.email === "string" && typeof given.name === "string" && typeof given.role === "string" && (ROLE_KEYS.includes(given.role) || /^custom_[0-9a-f]{16}$/.test(given.role)) ? given : null;
   const title = reinvite ? `重新邀请 ${reinvite.name}` : "新增员工";
   useDocumentTitle(`${reinvite ? "重新邀请" : "新增员工"} · NOZOMI ${portal.name}`);
   const [email, setEmail] = useState(reinvite?.email ?? "");
   const [name, setName] = useState(reinvite?.name ?? "");
-  const [role, setRole] = useState<PlatformRole | null>(reinvite?.role ?? null);
+  const [role, setRole] = useState<string | null>(reinvite?.role ?? null);
   const [attempted, setAttempted] = useState(false);
   const [working, setWorking] = useState(false);
   const [taken, setTaken] = useState(false);
@@ -516,6 +530,18 @@ export function StaffNewPage() {
                 </label>
               );
             })}
+            {customRoles.map((entry) => (
+              <label key={entry.key} className="choice">
+                <input type="radio" name="staff-role" value={entry.key} checked={role === entry.key} disabled={locked} aria-describedby={`staff-role-${entry.key}`} onChange={() => setRole(entry.key)} />
+                <span className="choice__text">
+                  {`${entry.name}（自建）`}
+                  <span className="choice__hint" id={`staff-role-${entry.key}`}>
+                    {entry.description ?? "超级管理员自建的角色。"}
+                    {entry.permissions.length > 0 && ` 现在能做的：${customAbilities(entry.permissions).join("、")}。`}
+                  </span>
+                </span>
+              </label>
+            ))}
           </div>
           <FieldErrors id="staff-role-error" errors={roleError !== null ? [roleError] : []} />
           {role === "super_admin" && (
@@ -525,7 +551,7 @@ export function StaffNewPage() {
             </Alert>
           )}
           <p className="field__hint" id="staff-role-hint">
-            角色决定他能看到哪些菜单、能做哪些操作。<strong>账号启用以后角色暂时不能改</strong>，选错了只能停用后重新建。不确定时先给「只读」。
+            角色决定他能看到哪些菜单、能做哪些操作。以后可以在他的员工详情里改。不确定时先给「只读」。
           </p>
         </fieldset>
         <Alert kind="info">
