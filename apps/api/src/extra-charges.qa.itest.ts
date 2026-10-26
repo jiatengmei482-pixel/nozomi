@@ -3,7 +3,7 @@
  * - 并发：异议期最后 1 毫秒客人异议与平台审核同时到；两位客服同时通过同一项；两位财务同时重试扣款失败的；两个定时任务实例同时跑到期的；
  * - 幂等：离线扣款「其实扣到了、应答超时」后自动重试不重复扣；
  * - 钱：同一张单几项加收各按「金额 × (1 + 加价比例)」四舍五入扣，合计正确；部分通过只扣通过的；供应商看不到客人付的；
- * - 时间：异议期到点那一刻（定时任务还没跑）供应商还能不能撤回。
+ * - 时间：异议期到点那一刻（定时任务还没跑）供应商不能再撤回；客人异议了的，异议期内平台也不能先批准。
  * 数据都在测试里构造，测试结束随 schema 一起删除（规则 1）。
  */
 import { after, before, test } from "node:test";
@@ -108,7 +108,7 @@ test("两位客服同时通过同一项待审核的加收：只扣一次", async
   assert.equal((await platformCharges(order.id))[0].status, "charged");
 });
 
-test("缺陷复现：通过后正在扣款的那几秒里，另一位客服又审了一次（改成部分通过）——应当 409；实际被接受，记下的通过金额和实际扣的对不上", async () => {
+test("通过后正在扣款的那几秒里，另一位客服又审了一次（改成部分通过）：409，记下的通过金额和实际扣的一致", async () => {
   const order = await completed();
   const item = await submit(order.id, { type: "extra_stop", amount: 2_000 }, await tenantLogin(api, m.b.adminEmail));
   api.clock.advance(48 * HOUR);
@@ -203,14 +203,58 @@ test("同一单几项加收累计：各自按金额 × 1.1 四舍五入扣（.5 
   for (const key of ["customer_amount", "markup_bp", "sell", "price", "payments"]) assert.ok(!allKeys(tenant).has(key), `供应商看得到 ${key}`);
 });
 
-test("缺陷复现：异议期到点那一刻（定时任务还没跑）供应商还能撤回——应当 409（ADR：只能撤回异议期内的）", async () => {
+test("异议期到点那一刻（定时任务还没跑）供应商不能再撤回：409（ADR：只能撤回异议期内的）；差 1 毫秒还能撤回", async () => {
   const order = await completed();
   const token = await tenantLogin(api, m.b.adminEmail);
   const item = await submit(order.id, { type: "waiting", amount: 1_000, file_ids: [await uploadReceipt(api, token, order.id)] }, token);
+  api.clock.advance(60_000);
+  const other = await submit(order.id, { type: "waiting", amount: 1_200, file_ids: [await uploadReceipt(api, token, order.id)] }, token);
   const until = Date.parse(item.dispute_until);
   api.clock.advance(until - 10_000 - api.clock.now().getTime());
   const fresh = await tenantLogin(api, m.b.adminEmail);
   api.clock.advance(until - api.clock.now().getTime());
   const res = await api.call("POST", `/tenant/v1/orders/${order.id}/extra-charges/${item.id}/withdraw`, { token: fresh });
   assert.deepEqual([res.status, res.body.error?.code], [409, "EXTRA_CHARGE_STATE_INVALID"], `异议期已过仍撤回成功：${res.status} ${res.body.extra_charge?.status}`);
+  const otherUntil = Date.parse(other.dispute_until);
+  api.clock.advance(otherUntil - 10_000 - api.clock.now().getTime());
+  const again = await tenantLogin(api, m.b.adminEmail);
+  api.clock.advance(otherUntil - 1 - api.clock.now().getTime());
+  const early = await api.call("POST", `/tenant/v1/orders/${order.id}/extra-charges/${other.id}/withdraw`, { token: again });
+  assert.deepEqual([early.status, early.body.extra_charge?.status], [200, "withdrawn"], early.text);
+});
+
+test("客人提了异议的加收：异议期内平台不能批准（409），可以驳回；异议期结束后可以批准并扣款", async () => {
+  const order = await completed();
+  const token = await tenantLogin(api, m.b.adminEmail);
+  const first = await submit(order.id, { type: "waiting", amount: 1_000, file_ids: [await uploadReceipt(api, token, order.id)] }, token);
+  const second = await submit(order.id, { type: "waiting", amount: 1_200, file_ids: [await uploadReceipt(api, token, order.id)] }, token);
+  const sales = await flow.token();
+  for (const item of [first, second]) assert.equal((await api.call("POST", `/sales/v1/orders/${order.id}/extra-charges/${item.id}/dispute`, { token: sales, body: { reason: "司机没有等" } })).status, 200);
+  const until = Date.parse(first.dispute_until);
+  api.clock.advance(until - 10_000 - api.clock.now().getTime());
+  const ops = await platformLogin(api, m.staff.operations.email);
+  api.clock.advance(until - 1 - api.clock.now().getTime());
+  const early = await decide(order.id, first.id, { decision: "approve" }, ops);
+  assert.deepEqual([early.status, early.body.error?.code], [409, "EXTRA_CHARGE_STATE_INVALID"], early.text);
+  const rejected = await decide(order.id, second.id, { decision: "reject", note: "司机没有等" }, ops);
+  assert.deepEqual([rejected.status, rejected.body.extra_charge?.status], [200, "rejected"], rejected.text);
+  assert.equal(pay.chargesOf(order.id).length, 0, "异议期内不扣款");
+  api.clock.advance(1);
+  const approved = await decide(order.id, first.id, { decision: "approve" }, ops);
+  assert.deepEqual([approved.status, approved.body.extra_charge?.status], [200, "charged"], approved.text);
+  assert.deepEqual(pay.chargesOf(order.id).map((charge) => charge.amountMinor), [1_100]);
+});
+
+test("数据库把关：异议期不是 48 小时、转人工没有原因、异议期内批准、到点后撤回都写不进去", async () => {
+  const order = await completed();
+  const token = await tenantLogin(api, m.b.adminEmail);
+  const item = await submit(order.id, { type: "waiting", amount: 1_000, file_ids: [await uploadReceipt(api, token, order.id)] }, token);
+  const attempts: [string, string][] = [
+    ["update order_extra_charges set dispute_until = dispute_until + interval '1 hour' where id = $1", "order_extra_charges_window_length"],
+    ["update order_extra_charges set status = 'review', review_reasons = '{}' where id = $1", "order_extra_charges_review_reason"],
+    ["update order_extra_charges set status = 'disputed', review_reasons = '{OVER_THRESHOLD}' where id = $1", "order_extra_charges_review_reason"],
+    ["update order_extra_charges set status = 'approved', review_reasons = '{DISPUTED}', disputed_at = submitted_at, dispute_reason = 'x', decided_at = dispute_until - interval '1 millisecond', decided_by = (select id from platform_users limit 1), approved_minor = 1000 where id = $1", "order_extra_charges_approve_after_window"],
+    ["update order_extra_charges set status = 'withdrawn', withdrawn_at = dispute_until where id = $1", "order_extra_charges_withdraw_in_window"],
+  ];
+  for (const [sql, constraint] of attempts) await assert.rejects(api.db.owner.query(sql, [item.id]), (err: any) => err.constraint === constraint, constraint);
 });

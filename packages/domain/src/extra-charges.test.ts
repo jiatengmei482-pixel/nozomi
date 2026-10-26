@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  EXTRA_CHARGE_STATUSES,
   EXTRA_CHARGE_RULES,
   EXTRA_CHARGE_TYPES,
   type ExtraChargeOrderFacts,
@@ -16,6 +17,8 @@ import {
   extraChargeTransitionAllowed,
   extraChargeTypeAllowed,
   nextChargeAttemptAt,
+  extraChargeReviewRefusal,
+  extraChargeWithdrawable,
 } from "./extra-charges.ts";
 
 const completedAt = new Date("2026-11-01T10:00:00.000Z");
@@ -110,4 +113,25 @@ test("收款服务出错后 10 分钟再扣，5 次后不再自动重试", () =>
   const now = new Date("2026-11-01T00:00:00.000Z");
   assert.equal(nextChargeAttemptAt(1, now)?.toISOString(), "2026-11-01T00:10:00.000Z");
   assert.equal(nextChargeAttemptAt(EXTRA_CHARGE_RULES.maxChargeAttempts, now), null);
+});
+
+test("平台人工审核只能在待审核 / 有异议（驳回还可以是扣款失败）时；通过要等异议期结束——有异议的也一样，截止那一刻起可以", () => {
+  const until = new Date("2026-10-28T00:00:00.000Z");
+  const before = new Date(until.getTime() - 1);
+  for (const status of EXTRA_CHARGE_STATUSES) {
+    const approve = extraChargeReviewRefusal({ status, disputeUntil: until }, "approve", until);
+    const reject = extraChargeReviewRefusal({ status, disputeUntil: until }, "reject", until);
+    assert.equal(approve, status === "review" || status === "disputed" ? null : "STATE_INVALID", `通过 ${status}`);
+    assert.equal(reject, status === "review" || status === "disputed" || status === "charge_failed" ? null : "STATE_INVALID", `驳回 ${status}`);
+  }
+  assert.equal(extraChargeReviewRefusal({ status: "disputed", disputeUntil: until }, "approve", before), "DISPUTE_WINDOW_OPEN", "异议期内平台不能先批准");
+  assert.equal(extraChargeReviewRefusal({ status: "disputed", disputeUntil: until }, "reject", before), null, "驳回对客人有利，异议期内也可以");
+  assert.equal(extraChargeReviewRefusal({ status: "charging", disputeUntil: until }, "approve", until), "STATE_INVALID", "正在扣款时不能再审（收款服务出错的重新排队不走这里）");
+});
+
+test("供应商撤回：异议期内（截止前 1 毫秒可以，截止那一刻起不行）、还没有别的结果", () => {
+  const until = new Date("2026-10-28T00:00:00.000Z");
+  assert.equal(extraChargeWithdrawable({ status: "in_window", disputeUntil: until }, new Date(until.getTime() - 1)), true);
+  assert.equal(extraChargeWithdrawable({ status: "in_window", disputeUntil: until }, until), false);
+  assert.equal(extraChargeWithdrawable({ status: "disputed", disputeUntil: until }, new Date(until.getTime() - 1)), false);
 });

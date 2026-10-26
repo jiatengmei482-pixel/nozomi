@@ -5966,7 +5966,7 @@ paths:
       tags: [订单]
       operationId: withdrawTenantExtraCharge
       summary: 撤回事后加收
-      description: 需要操作 `order.extra_charge`。只有异议期内的能撤回。
+      description: 需要操作 `order.extra_charge`。只有异议期内的能撤回（按毫秒：截止那一刻起不能，定时任务还没跑也一样）。
       security:
         - tenantToken: []
       parameters:
@@ -6233,7 +6233,7 @@ paths:
       tags: [订单]
       operationId: decidePlatformExtraCharge
       summary: 审核事后加收
-      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过后马上用保存的支付方式扣款。写审计日志。
+      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。
       security:
         - platformToken: []
       parameters:
@@ -6276,7 +6276,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`EXTRA_CHARGE_STATE_INVALID`（异议期内的要等异议期结束）"
+          description: "`EXTRA_CHARGE_STATE_INVALID`：只能审待审核、有异议的（驳回还可以是扣款失败的）；通过要等异议期结束（有异议的也一样）；正在扣款、已扣款、已审过的不能再审（两人同时审只有一个成功）"
           content:
             application/json:
               schema:

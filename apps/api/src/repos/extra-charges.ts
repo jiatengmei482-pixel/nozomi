@@ -130,20 +130,22 @@ export interface ExtraChargeUpdate {
 }
 
 /** 改状态和随之变的列（只改给了的；`nextChargeAt` 给了 null 就清掉）。版本加一。 */
-export async function updateExtraCharge(db: Db, charge: Pick<ExtraCharge, "tenantId" | "id">, update: ExtraChargeUpdate, now: Date): Promise<void> {
-  await db.query(
+/** 改一项加收。给了 `expectStatus` 时只在状态还是它的时候改（状态条件更新），返回改没改成。 */
+export async function updateExtraCharge(db: Db, charge: Pick<ExtraCharge, "tenantId" | "id">, update: ExtraChargeUpdate, now: Date, expectStatus?: ExtraChargeStatus): Promise<boolean> {
+  const result = await db.query(
     `update order_extra_charges set status = $3, review_reasons = coalesce($4::text[], review_reasons), disputed_at = coalesce($5, disputed_at), dispute_reason = coalesce($6, dispute_reason),
             decided_at = coalesce($7, decided_at), decided_by = coalesce($8, decided_by), approved_minor = coalesce($9, approved_minor), decision_note = coalesce($10, decision_note),
             charge_attempts = coalesce($11, charge_attempts), next_charge_at = case when $12::boolean then $13::timestamptz else next_charge_at end,
             last_charge_error = case when $14::boolean then $15::jsonb else last_charge_error end, charged_at = coalesce($16, charged_at), withdrawn_at = coalesce($17, withdrawn_at),
             version = version + 1, updated_at = $18
-      where tenant_id = $1 and id = $2`,
+      where tenant_id = $1 and id = $2 and ($19::text is null or status = $19)`,
     [
       charge.tenantId, charge.id, update.status, update.reviewReasons ?? null, update.disputedAt ?? null, update.disputeReason ?? null, update.decidedAt ?? null, update.decidedBy ?? null,
       update.approvedMinor ?? null, update.decisionNote ?? null, update.chargeAttempts ?? null, update.nextChargeAt !== undefined, update.nextChargeAt ?? null,
-      update.lastChargeError !== undefined, update.lastChargeError === undefined || update.lastChargeError === null ? null : JSON.stringify(update.lastChargeError), update.chargedAt ?? null, update.withdrawnAt ?? null, now,
+      update.lastChargeError !== undefined, update.lastChargeError === undefined || update.lastChargeError === null ? null : JSON.stringify(update.lastChargeError), update.chargedAt ?? null, update.withdrawnAt ?? null, now, expectStatus ?? null,
     ],
   );
+  return result.rowCount === 1;
 }
 
 /** 异议期到了的（跨租户，定时任务）。 */
@@ -160,6 +162,6 @@ export async function listDueCharges(db: Db, now: Date, limit: number): Promise<
 
 /** 供应商撤回（租户事务）：只改状态、撤回时间、版本（别的列出现在语句里会被触发器拒绝）。返回是否撤回了（不在异议期内的不动）。 */
 export async function withdrawExtraCharge(db: Db, tenantId: string, chargeId: string, now: Date): Promise<boolean> {
-  const result = await db.query("update order_extra_charges set status = 'withdrawn', withdrawn_at = $3, version = version + 1, updated_at = $3 where tenant_id = $1 and id = $2 and status = 'in_window'", [tenantId, chargeId, now]);
+  const result = await db.query("update order_extra_charges set status = 'withdrawn', withdrawn_at = $3, version = version + 1, updated_at = $3 where tenant_id = $1 and id = $2 and status = 'in_window' and dispute_until > $3", [tenantId, chargeId, now]);
   return result.rowCount === 1;
 }

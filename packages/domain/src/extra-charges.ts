@@ -177,6 +177,30 @@ export function extraChargeTransitionAllowed(from: ExtraChargeStatus, to: ExtraC
   return EXTRA_TRANSITIONS[from].includes(to);
 }
 
+/**
+ * 状态机里的转换（`extraChargeTransitionAllowed`）包括系统自己做的（定时任务、收款服务出错后「正在扣 → 等扣款」重新排队）；
+ * 人和供应商的操作另有更窄的入口，下面两个函数。
+ *
+ * 平台人工审核（ADR 0029「补充：钱的口径与审核时机」）：
+ * - 通过只能对「待审核」「有异议」的，而且异议期已经结束（有异议的也要等到期——异议期内平台不能先批准）；
+ * - 驳回可以对「待审核」「有异议」（异议期内也可以，对客人有利）和「扣款失败」（不收了）的；
+ * - 正在扣、已扣、已审过的都不能再审（`STATE_INVALID`）。
+ * 可以返回 null。
+ */
+export type ExtraChargeReviewRefusal = "STATE_INVALID" | "DISPUTE_WINDOW_OPEN";
+
+export function extraChargeReviewRefusal(charge: { status: ExtraChargeStatus; disputeUntil: Date }, decision: ExtraChargeDecision, now: Date): ExtraChargeReviewRefusal | null {
+  const from: readonly ExtraChargeStatus[] = decision === "approve" ? ["review", "disputed"] : ["review", "disputed", "charge_failed"];
+  if (!from.includes(charge.status)) return "STATE_INVALID";
+  if (decision === "approve" && disputeOpen(charge.disputeUntil, now)) return "DISPUTE_WINDOW_OPEN";
+  return null;
+}
+
+/** 供应商能不能撤回：异议期内（按毫秒，截止那一刻起不能——和客人提异议同一个界线），且还没有别的结果。 */
+export function extraChargeWithdrawable(charge: { status: ExtraChargeStatus; disputeUntil: Date }, now: Date): boolean {
+  return charge.status === "in_window" && disputeOpen(charge.disputeUntil, now);
+}
+
 /** 异议期结束后这一项去哪：有要转人工的原因 → 待审核；没有 → 自动扣款。 */
 export function afterDisputeWindow(reviewReasons: readonly ExtraChargeReviewReason[]): "review" | "charging" {
   return reviewReasons.length > 0 ? "review" : "charging";

@@ -27,7 +27,8 @@ import {
   extraChargeCustomerMinor,
   extraChargeReviewReasons,
   extraChargeSubmitRefusal,
-  extraChargeTransitionAllowed,
+  extraChargeReviewRefusal,
+  extraChargeWithdrawable,
   nextChargeAttemptAt,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -134,8 +135,9 @@ export async function withdrawExtraChargeForTenant(ctx: AppContext, principal: T
   return withTenantTx(ctx.pool, principal.tenantId, async (db) => {
     const charge = await findExtraCharge(db, principal.tenantId, chargeId, { lock: true });
     if (charge === null || charge.orderId !== orderId) throw notFound("加收");
-    if (charge.status !== "in_window") throw new AppError(409, "EXTRA_CHARGE_STATE_INVALID", "只有异议期内的加收能撤回", { status: charge.status, action: "withdraw" });
-    await withdrawExtraCharge(db, principal.tenantId, chargeId, now);
+    const refused = (): AppError => new AppError(409, "EXTRA_CHARGE_STATE_INVALID", "只有异议期内的加收能撤回（异议期截止那一刻起不能）", { status: charge.status, action: "withdraw", dispute_until: charge.disputeUntil.toISOString() });
+    if (!extraChargeWithdrawable(charge, now)) throw refused();
+    if (!(await withdrawExtraCharge(db, principal.tenantId, chargeId, now))) throw refused();
     await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId: principal.tenantId, resource: "extra_charge", resourceId: chargeId, action: "withdraw", before: { status: "in_window" }, after: { status: "withdrawn", order_id: orderId } });
     return (await findExtraCharge(db, principal.tenantId, chargeId)) as ExtraCharge;
   });
@@ -161,7 +163,11 @@ async function recordEvent(db: Db, order: Order, chargeId: string, reason: strin
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor, reason, occurredAt: now, detail: { extra_charge_id: chargeId } });
 }
 
-/** 平台审核（`order.manage`）：待审核、有异议的通过或驳回；扣款失败的也可以驳回（不收了）。通过后马上扣款。 */
+/**
+ * 平台审核（`order.manage`）：待审核、有异议的通过或驳回；扣款失败的也可以驳回（不收了）。通过后马上扣款。
+ * 只能审「待审核 / 有异议 / 扣款失败」的（`extraChargeReviewRefusal`）：正在扣、已扣的 409——收款服务出错后的重新排队走 `chargeExtra` 自己的入口；
+ * 通过要等异议期结束（有异议的也一样）。两人同时审：行锁 + 状态条件更新，只有一个成功。
+ */
 export async function decideExtraCharge(ctx: AppContext, principal: PlatformPrincipal, orderId: string, chargeId: string, input: { decision: ExtraChargeDecision; approvedMinor: number | null; note: string | null }, ip: string, log: OrderLog): Promise<ExtraCharge> {
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
@@ -169,10 +175,11 @@ export async function decideExtraCharge(ctx: AppContext, principal: PlatformPrin
     const charge = await findExtraChargeForPlatform(db, orderId, chargeId, { lock: true });
     if (charge === null) throw notFound("加收");
     const to = input.decision === "approve" ? "approved" : "rejected";
-    if (!extraChargeTransitionAllowed(charge.status, to) || (to === "approved" && charge.status === "charge_failed")) throw new AppError(409, "EXTRA_CHARGE_STATE_INVALID", "这一项现在不能这样审核（异议期内的要等异议期结束；已经扣款的不能再改）", { status: charge.status, action: input.decision });
+    const refused = (): AppError => new AppError(409, "EXTRA_CHARGE_STATE_INVALID", "这一项现在不能这样审核（异议期内的要等异议期结束才能通过；正在扣款、已经扣款或已经审过的不能再审）", { status: charge.status, action: input.decision, dispute_until: charge.disputeUntil.toISOString() });
+    if (extraChargeReviewRefusal(charge, input.decision, now) !== null) throw refused();
     const approved = to === "approved" ? approvedExtraChargeAmount(charge.amountMinor, input.approvedMinor) : null;
     if (to === "approved" && approved === null) throw validationFailed("body", [{ path: "/approved_amount", reason: "OUT_OF_RANGE", message: "部分通过的金额要在 1 和提交的金额之间" }]);
-    await updateExtraCharge(db, charge, { status: to, decidedAt: now, decidedBy: principal.user.id, decisionNote: input.note, ...(approved === null ? {} : { approvedMinor: approved, nextChargeAt: now }) }, now);
+    if (!(await updateExtraCharge(db, charge, { status: to, decidedAt: now, decidedBy: principal.user.id, decisionNote: input.note, ...(approved === null ? {} : { approvedMinor: approved, nextChargeAt: now }) }, now, charge.status))) throw refused();
     await insertAuditLog(db, origin, { tenantId: null, resource: "extra_charge", resourceId: chargeId, action: "decide", before: { status: charge.status }, after: { status: to, order_id: orderId, approved_minor: approved, amount_minor: charge.amountMinor, currency: charge.currency, note: input.note } });
     return charge;
   });
