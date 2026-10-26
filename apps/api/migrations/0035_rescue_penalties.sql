@@ -28,6 +28,9 @@ create unique index orders_current_key on orders (id) where status <> 'rescued';
 -- 司机未到的提醒：跨租户扫到点 15 分钟还没到达的单（不以 tenant_id 开头的例外：定时任务不分租户）
 create index orders_arrival_due_idx on orders (service_at) where status in ('confirmed', 'assigned', 'departed') and arrival_overdue_at is null;
 
+-- 用车前 6 小时仍未派车的自动救援：跨租户扫快到用车时间、还没派车的单（不以 tenant_id 开头的例外）
+create index orders_rescue_due_idx on orders (service_at) where status = 'confirmed';
+
 -- 新加的三列只有平台能改（供应商只能改派车和履约的列，0026 / 0031）
 drop trigger orders_tenant_columns on orders;
 create trigger orders_tenant_columns
@@ -73,6 +76,8 @@ create table order_rescues (
   -- 违约金：基数是原结算价（原供应商的结算币种）、比例和阶梯按触发时刻定
   original_settlement_minor bigint not null,
   original_settlement_currency text not null,
+  -- 原供应商的结算币种 → 客人支付币种（它那一单的报价快照里的汇率；同币种为 null）：换算救援差价用
+  original_fx jsonb,
   penalty_bp integer not null,
   penalty_tier text not null,
   -- open 待处理 / offering 救援单待接 / exhausted 候选都不接 / rescued 已改派 / cancelled 订单取消了
@@ -81,6 +86,8 @@ create table order_rescues (
   rescue_tenant_id uuid,
   rescue_settlement_minor bigint,
   rescue_settlement_currency text,
+  -- 救援供应商的结算币种 → 客人支付币种（救援报价快照里的；同币种为 null）
+  rescue_fx jsonb,
   rescued_via text,
   rescued_at timestamptz,
   -- 不可抗力（运营认定，免违约金和救援差价）

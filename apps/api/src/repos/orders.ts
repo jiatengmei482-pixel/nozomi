@@ -42,6 +42,10 @@ export interface OrderDispatch {
   driverLandedFileId: string | null;
   landedAt: Date | null;
   landedSource: LandingSource | null;
+  /** 系统发现「到点 15 分钟仍未到达」的时间（M3-04 司机未到的提醒） */
+  arrivalOverdueAt: Date | null;
+  /** 客人报告「司机没到」的时间（M3-04） */
+  driverMissingReportedAt: Date | null;
 }
 
 /** 下单时这一单适用的取消阶梯（M3-03，ADR 0029）：平台政策的哪一版、品类、车型级别、阶梯。 */
@@ -96,6 +100,8 @@ export interface Order {
   cancelFeeBp: number | null;
   cancelTenantShareMinor: number | null;
   cancelNote: string | null;
+  /** 原供应商的这一行转给救援供应商的时间（M3-04，只有「已转给救援供应商」的行有） */
+  rescuedAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -107,7 +113,8 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.passenger, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
-  o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note`;
+  o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
+  o.driver_missing_reported_at`;
 
 function toOrder(row: Row): Order {
   return {
@@ -151,6 +158,7 @@ function toOrder(row: Row): Order {
     cancelFeeBp: row["cancel_fee_bp"],
     cancelTenantShareMinor: row["cancel_tenant_share_minor"] === null ? null : Number(row["cancel_tenant_share_minor"]),
     cancelNote: row["cancel_note"],
+    rescuedAt: row["rescued_at"],
     version: row["version"],
     createdAt: row["created_at"],
     updatedAt: row["updated_at"],
@@ -174,11 +182,13 @@ function toOrder(row: Row): Order {
       driverLandedFileId: row["driver_landed_file_id"],
       landedAt: row["landed_at"],
       landedSource: row["landed_source"],
+      arrivalOverdueAt: row["arrival_overdue_at"],
+      driverMissingReportedAt: row["driver_missing_reported_at"],
     },
   };
 }
 
-export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "version" | "updatedAt" | "dispatch">;
+export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "rescuedAt" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
   await db.query(
@@ -198,9 +208,19 @@ export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
 
 const json = (value: unknown): string | null => (value === null ? null : JSON.stringify(value));
 
-/** 平台事务：一张订单（任何状态）。`lock` 时锁住这一行（改状态之前）。 */
+/**
+ * 平台事务：一张订单「现在的」那一行（任何状态）。`lock` 时锁住这一行（改状态之前）。
+ * 救援改派之后同一个订单编号有几行（原供应商的已转出，救援供应商的另起一行，ADR 0031）：这里只取没转出的那一行（`orders_current_key` 保证只有一行）。
+ */
 export async function findOrderForPlatform(db: Db, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
-  const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.id = $1 ${options.lock ? "for update" : ""}`, [orderId]);
+  const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.id = $1 and o.status <> 'rescued' ${options.lock ? "for update" : ""}`, [orderId]);
+  const row = result.rows[0];
+  return row === undefined ? null : toOrder(row);
+}
+
+/** 平台事务：某个供应商的那一行（含已转给救援供应商的）。推给供应商的 Webhook、运营后台看原供应商的记录用。 */
+export async function findOrderOfTenant(db: Db, tenantId: string, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
+  const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.tenant_id = $1 and o.id = $2 ${options.lock ? "for update" : ""}`, [tenantId, orderId]);
   const row = result.rows[0];
   return row === undefined ? null : toOrder(row);
 }
@@ -301,7 +321,7 @@ export async function countUrgentOrders(db: Db, entries: readonly { tenantId: st
   const result = await db.query<Row>(
     `select o.product_id, o.service_date::text as day, count(*)::int as n
        from orders o join unnest($1::uuid[], $2::date[]) as wanted(product_id, day) on wanted.product_id = o.product_id and wanted.day = o.service_date
-      where o.tenant_id = any($3::uuid[]) and o.urgent and o.status <> 'cancelled'
+      where o.tenant_id = any($3::uuid[]) and o.urgent and o.status not in ('cancelled', 'rescued')
       group by o.product_id, o.service_date`,
     [entries.map((entry) => entry.productId), entries.map((entry) => entry.date), [...new Set(entries.map((entry) => entry.tenantId))]],
   );
@@ -613,17 +633,17 @@ export interface PlatformOrderRow {
   channelName: string;
 }
 
-/** 运营后台的订单列表：跨租户、跨渠道，按下单时间从新到旧。`q` 按订单号、渠道订单号精确找。销售端一侧、收款、租户和渠道的名字按这一页的订单各一条查询取回。 */
+/** 运营后台的订单列表：跨租户、跨渠道，按下单时间从新到旧；一个订单一行（「现在的」供应商那一行，ADR 0031）。`q` 按订单号、渠道订单号精确找。销售端一侧、收款、租户和渠道的名字按这一页的订单各一条查询取回。 */
 export async function listPlatformOrders(db: Db, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<Page<PlatformOrderRow> & { total: number }> {
   const where = `($1::text is null or o.status = $1) and ($2::uuid is null or o.tenant_id = $2) and ($3::uuid is null or s.channel_id = $3) and ($4::text is null or o.order_no = $4 or s.channel_order_no = $4)`;
   const params = [filter.status, filter.tenantId, filter.channelId, filter.q];
   const result = await db.query<Row>(
-    `select ${ORDER_COLUMNS}, o.created_at::text as cursor_time from orders o join order_sales s on s.order_id = o.id
+    `select ${ORDER_COLUMNS}, o.created_at::text as cursor_time from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id
       where ${where} and ($5::timestamptz is null or (o.created_at, o.id) < ($5::timestamptz, $6::uuid))
       order by o.created_at desc, o.id desc limit $7`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
-  const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id where ${where}`, params);
+  const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where ${where}`, params);
   const page = toPage(result.rows, limit, toOrder, (row) => ({ t: row["cursor_time"], id: row["id"] }));
   const ids = page.items.map((order) => order.id);
   const sales = new Map((await db.query<Row>(`select ${SALE_COLUMNS} from order_sales s where s.order_id = any($1::uuid[])`, [ids])).rows.map((row) => [row["order_id"] as string, toSale(row)]));

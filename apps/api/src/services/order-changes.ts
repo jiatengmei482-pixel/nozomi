@@ -454,6 +454,17 @@ async function collectedFor(db: Db, orderId: string, changeId: string): Promise<
   return payments.reduce((sum, payment) => sum + payment.amountMinor - Math.max(payment.refundedMinor, refunded.get(payment.id) ?? 0), 0);
 }
 
+/**
+ * 订单进入救援改派（M3-04，ADR 0031）：没有结论的改单作废——原供应商已经不再服务这一单，等它确认改期没有意义。
+ * 已经补收的差价退回（还在扣的，扣到之后 `settleChangeCharge` 看到已作废会退回）。在调用方的平台事务里（订单已锁），返回排好的退款。
+ */
+export async function abandonOpenChange(db: Db, order: Order, now: Date): Promise<OrderRefund[]> {
+  const open = await findOpenChange(db, order.tenantId, order.id, { lock: true });
+  if (open === null) return [];
+  await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
+  return scheduleRefund(db, order, "change", await collectedFor(db, order.id, open.id), open.id, now);
+}
+
 export async function changeForChannel(ctx: AppContext, channelId: string, orderId: string, version: number, input: OrderChangeInput, log: OrderLog): Promise<ChangeOutcome> {
   return requestChange(ctx, { channelId }, orderId, version, input, { requestedBy: "channel", requestedById: null, origin: null }, log);
 }
