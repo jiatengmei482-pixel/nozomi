@@ -342,14 +342,14 @@ test("找回限速：每个地址 15 分钟 10 次（格式不对、对不上、
   assert.equal((await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.email }, ip)).status, 200, "窗口过了放行");
 });
 
-test("找回限速：每个订单号每小时 10 次——换地址、换大小写和空白都算同一个订单号；不存在的订单号表现一样（不能借限速确认订单存在）；59:59 仍挡、1 小时到点放行", async () => {
+test("找回限速：每个订单号每小时 10 次失败——换地址、换大小写和空白都算同一个订单号；不存在的订单号表现一样（不能借限速确认订单存在）；59:59 仍挡、1 小时到点放行", async () => {
   const placed = await place();
   const no = placed.body.order.order_no as string;
   const start = api.clock.now().getTime();
   const variants = [no, no.toLowerCase(), ` ${no} `, `${no.slice(0, 9)}${no.slice(9).toLowerCase()}`];
   for (let i = 0; i < 10; i += 1) assert.equal((await lookup({ order_no: variants[i % variants.length], contact: `wrong${i}@example.com` }, nextIp())).status, 404);
-  const blocked = await lookup({ order_no: no, contact: PASSENGER.email }, nextIp());
-  assert.deepEqual([blocked.status, blocked.body.error.code], [429, "RATE_LIMITED"], "换了地址、联系方式对了也挡（这个订单号这一小时已经猜了 10 次）");
+  const blocked = await lookup({ order_no: no, contact: "wrong-again@example.com" }, nextIp());
+  assert.deepEqual([blocked.status, blocked.body.error.code], [429, "RATE_LIMITED"], "换了地址再猜也挡（这个订单号这一小时已经错了 10 次）");
 
   const ghost = "NZ20261007GHOSTQQQ";
   const ghostStatuses: number[] = [];
@@ -357,9 +357,38 @@ test("找回限速：每个订单号每小时 10 次——换地址、换大小�
   assert.deepEqual(ghostStatuses, [...Array(10).fill(404), 429], "不存在的订单号同样第 11 次 429");
 
   moveTo(new Date(start + HOUR - 1_000));
-  assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp())).status, 429);
+  assert.equal((await lookup({ order_no: no, contact: "wrong-late@example.com" }, nextIp())).status, 429);
   moveTo(new Date(start + HOUR));
-  assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp())).status, 200, "一小时到点放行");
+  assert.equal((await lookup({ order_no: no, contact: "wrong-next@example.com" }, nextIp())).status, 404, "一小时到点放行");
+});
+
+test("找回限速只记失败：订单号的额度被别人用错的联系方式刷满后，真客人用正确的邮箱、手机号仍能找回，也不占这一层额度；刷满后的失败应答和不存在的订单号完全一样", async () => {
+  const placed = await place();
+  const no = placed.body.order.order_no as string;
+  const ghost = "NZ20261007FLOODQQQ";
+  for (const orderNo of [no, ghost]) {
+    for (let i = 0; i < 10; i += 1) assert.equal((await lookup({ order_no: orderNo, contact: `flood${i}@example.com` }, nextIp())).status, 404);
+  }
+  const realFailure = await lookup({ order_no: no, contact: "flood-x@example.com" }, nextIp());
+  const ghostFailure = await lookup({ order_no: ghost, contact: "flood-x@example.com" }, nextIp());
+  assert.deepEqual([realFailure.status, realFailure.body.error.code], [429, "RATE_LIMITED"]);
+  assert.equal(realFailure.text, ghostFailure.text, "刷满后：存在的和不存在的订单号失败正文一样");
+  assert.deepEqual(stableHeaders(realFailure), stableHeaders(ghostFailure), "刷满后：响应头一样");
+
+  for (const contact of [PASSENGER.email, "+81 90-8765-4321", PASSENGER.email]) {
+    const res = await lookup({ order_no: no, contact }, nextIp());
+    assert.equal(res.status, 200, `真客人 ${contact}：${res.text}`);
+    assert.match(res.body.link.token, /^nzo_/);
+    assert.equal((await site.call("GET", "/site/v1/order", { token: res.body.link.token, ip: nextIp() })).status, 200);
+  }
+  const stillBlocked = await lookup({ order_no: no, contact: "flood-y@example.com" }, nextIp());
+  assert.equal(stillBlocked.text, ghostFailure.text, "成功不清零失败计数：猜错的仍然 429，和不存在的一样");
+
+  // 地址那一层成功也照旧计数
+  const ip = nextIp();
+  const statuses: number[] = [];
+  for (let i = 0; i < 11; i += 1) statuses.push((await lookup({ order_no: no, contact: PASSENGER.email }, ip)).status);
+  assert.deepEqual(statuses, [...Array(10).fill(200), 429], "同一个地址成功 10 次后第 11 次也挡");
 });
 
 // ---- 来源地址 ----

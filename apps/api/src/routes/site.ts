@@ -8,7 +8,7 @@
  * - `POST /site/v1/quotes`：询价（每个地址每分钟 30 次）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
- * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱或手机号找回（每个地址 15 分钟 10 次、每个订单号每小时 10 次）；
+ * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱或手机号找回（每个地址 15 分钟 10 次；每个订单号每小时 10 次失败，对上的不受订单号额度限制）；
  * - `GET /site/v1/order`、`GET …/order/payment`、`GET …/order/cancel-fee`、`POST …/order/cancel`、`PATCH /site/v1/order`、
  *   `POST …/order/landed`（我已落地）、`POST …/order/extra-charges/{chargeId}/dispute`（对加收提异议）。
  * 订单的应答是 `{ order, timeline, names }`：`order` 是 `/sales/v1` 同一份 `salesOrderJson`（没有结算价、加价比例；付款前没有中标供应商），
@@ -172,7 +172,6 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/orders/lookup", async (request) => {
     await takeSiteSlot(ctx, "site_lookup", { ip: request.ip });
     const input = parseInput(lookupSchema, request.body, "body");
-    await takeSiteSlot(ctx, "site_lookup_order", { orderNo: input.order_no });
     return { link: linkJson(await lookupSiteOrder(ctx, input.order_no, input.contact)) };
   });
 

@@ -298,12 +298,17 @@ export function contactMatches(contact: string, passenger: { email: string; phon
   return phone.length >= 6 && phone === normalizePhone(passenger.phone.normalize("NFKC"));
 }
 
-/** 用订单号 + 下单时的邮箱或电话找回订单：对上了发一个新链接；订单号不存在、联系方式不对、不是官网的单一律同一个 404。 */
+/**
+ * 用订单号 + 下单时的邮箱或电话找回订单：对上了发一个新链接；订单号不存在、联系方式不对、不是官网的单一律同一个 404。
+ * 订单号这一层的额度只记**失败**的尝试（ADR 0032 已知限制方案 A）：别人用错的联系方式刷满了，真客人对上的那次照样放行；
+ * 失败的一次先计数（单独提交）再决定 429 还是 404——不存在的订单号和对不上的走同一条路，应答分不出来。
+ */
 export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact: string): Promise<SiteLink> {
   const channelId = await requireSiteChannelId(ctx);
   const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
-  if (found === null || !contactMatches(contact, found)) throw orderNotFound();
-  return issueLink(ctx, found.orderId, found.serviceAt, "lookup");
+  if (found !== null && contactMatches(contact, found)) return issueLink(ctx, found.orderId, found.serviceAt, "lookup");
+  await takeSiteSlot(ctx, "site_lookup_order", { orderNo });
+  throw orderNotFound();
 }
 
 /** 凭查看链接找到它对应的订单编号和渠道；令牌格式不对、不存在、过期、不是官网的单一律 401。 */
