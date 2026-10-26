@@ -241,7 +241,7 @@ test("数据范围（订单的推送记录、照片，M3-02 的接口）：范�
   const testEvent = await deliver(saleA.tenant_id, null, "webhook.test");
 
   const role = await ok(createRole({ name: "甲渠道推送", grants: ["orders:view", "orders:edit"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
-  assert.deepEqual(role.permissions, ["order.read", "order.resend", "order.manage"]);
+  assert.deepEqual(role.permissions, ["order.read", "order.resend", "order.manage", "exception.manage"]);
   const a = await addStaff("deliveries-a@platform.test", role.key);
   const list = await ok(api.call("GET", "/platform/v1/webhook-deliveries?status=failed", { token: a.token }));
   assert.deepEqual(list.items.map((d: any) => d.id), [inA]);
@@ -280,7 +280,7 @@ test("数据范围（取消、改单、加收、退款，M3-03 的接口；代�
   const orderA = sales.find((r) => r.channel_id === channelA)!.order_id;
   const orderB = sales.find((r) => r.channel_id === channelB)!.order_id;
   const role = await ok(createRole({ name: "甲渠道售后", grants: ["orders:view", "orders:edit", "orders:review", "approvals:view", "cancellation_policy:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
-  assert.deepEqual(role.permissions, ["master_data.read", "approval.read", "order.read", "order.resend", "order.manage", "payment.manage"]);
+  assert.deepEqual(role.permissions, ["master_data.read", "approval.read", "order.read", "order.resend", "order.manage", "payment.manage", "exception.manage"]);
   const staff = await addStaff("aftersales-a@platform.test", role.key);
   const missing = randomUUID();
   const child = randomUUID();
@@ -399,4 +399,88 @@ test("改员工的角色：不能改自己的；两位超级管理员同时把�
   } finally {
     await solo.close();
   }
+});
+
+test("数据范围（订单中心的异常队列、工单，M4-02 的接口；工单判定的复核）：列表只有范围内订单的；按编号的接口范围外和不存在一样；赔付表是全平台的，不按范围", async () => {
+  const sales = (await api.db.owner.query<{ order_id: string; channel_id: string; tenant_id: string }>("select s.order_id, s.channel_id, s.supplier_tenant_id as tenant_id from order_sales s where s.channel_id = any($1::uuid[])", [[channelA, channelB]])).rows;
+  const saleA = sales.find((r) => r.channel_id === channelA)!;
+  const saleB = sales.find((r) => r.channel_id === channelB)!;
+  // 这个文件里的订单没有付款（工单只能绑付过款的单）：直接写库（测试数据，只关心范围）
+  let seq = 0;
+  const ticketOf = async (sale: { order_id: string; tenant_id: string }): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>(
+      `insert into tickets (tenant_id, ticket_no, type, source, created_by_type, order_id, priority, subject, description, status, first_response_due_at, resolution_due_at, created_at, updated_at)
+       values ($1, $2, 'other', 'platform', 'system', $3, 'normal', '范围测试', 'x', 'open', $4, $4, $4, $4) returning id`,
+      [sale.tenant_id, `TK20261026SCPA0${++seq}`, sale.order_id, api.clock.now()],
+    )).rows[0]!.id;
+  const ticketA = await ticketOf(saleA);
+  const ticketB = await ticketOf(saleB);
+  const exceptionOf = async (sale: { order_id: string; tenant_id: string }): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>(
+      "insert into order_exceptions (type, source_key, order_id, supplier_tenant_id, detail, status, opened_at, due_at, created_at, updated_at) values ('payment_issue', $1, $2, $3, '{}'::jsonb, 'open', $4, $4, $4, $4) returning id",
+      [`scope-test:${randomUUID()}`, sale.order_id, sale.tenant_id, api.clock.now()],
+    )).rows[0]!.id;
+  const exceptionA = await exceptionOf(saleA);
+  const exceptionB = await exceptionOf(saleB);
+  const role = await ok(createRole({ name: "甲渠道工单", grants: ["orders:view", "orders:edit", "orders:review", "tickets:view", "tickets:edit", "tickets:review", "approvals:view", "compensation_table:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
+  assert.ok(["exception.manage", "ticket.read", "ticket.manage", "ticket.review"].every((action) => role.permissions.includes(action)), JSON.stringify(role.permissions));
+  const staff = await addStaff("tickets-a@platform.test", role.key);
+
+  const exceptions = await ok(api.call("GET", "/platform/v1/exceptions?limit=200", { token: staff.token }));
+  assert.ok(exceptions.items.some((e: any) => e.id === exceptionA));
+  assert.ok(!exceptions.items.some((e: any) => e.id === exceptionB), "范围外订单的异常不在列表里");
+  assert.equal(exceptions.total, exceptions.items.length);
+  const tickets = await ok(api.call("GET", "/platform/v1/tickets?limit=200", { token: staff.token }));
+  assert.ok(tickets.items.some((t: any) => t.id === ticketA));
+  assert.ok(!tickets.items.some((t: any) => t.id === ticketB), "范围外订单的工单不在列表里");
+
+  const missing = randomUUID();
+  const pairs: [string, (id: string) => string, unknown][] = [
+    ["GET", (id) => `/platform/v1/exceptions/${id}`, undefined],
+    ["POST", (id) => `/platform/v1/exceptions/${id}/claim`, {}],
+    ["POST", (id) => `/platform/v1/exceptions/${id}/close`, { resolution: "x" }],
+  ];
+  const ticketPairs: [string, (id: string) => string, unknown][] = [
+    ["GET", (id) => `/platform/v1/tickets/${id}`, undefined],
+    ["POST", (id) => `/platform/v1/tickets/${id}/assign`, {}],
+    ["POST", (id) => `/platform/v1/tickets/${id}/messages`, { body: "x" }],
+    ["POST", (id) => `/platform/v1/tickets/${id}/request-reply`, { body: "x" }],
+    ["POST", (id) => `/platform/v1/tickets/${id}/compensation-quote`, { scenario: "late_15_29", liable_party: "tenant" }],
+    ["POST", (id) => `/platform/v1/tickets/${id}/decide`, { outcome: "resolved", note: "x" }],
+    ["POST", (id) => `/platform/v1/tickets/${id}/close`, { note: "x" }],
+    ["POST", (id) => `/platform/v1/tickets/${id}/payout`, { reference: "x" }],
+  ];
+  const before = { exception: (await api.db.owner.query("select * from order_exceptions where id = $1", [exceptionB])).rows[0], ticket: (await api.db.owner.query("select * from tickets where id = $1", [ticketB])).rows[0] };
+  for (const [list, target] of [[pairs, exceptionB], [ticketPairs, ticketB]] as const) {
+    for (const [method, url, body] of list) {
+      const out = await api.call(method as "GET" | "POST", url(target), { token: staff.token, ...(body === undefined ? {} : { body }) });
+      const none = await api.call(method as "GET" | "POST", url(missing), { token: staff.token, ...(body === undefined ? {} : { body }) });
+      assert.equal(out.status, 404, `${method} ${url(target)}：${out.text}`);
+      assert.deepEqual(out.body, none.body, `${method} ${url(target)} 和不存在的应答不同`);
+    }
+  }
+  assert.deepEqual((await api.db.owner.query("select * from order_exceptions where id = $1", [exceptionB])).rows[0], before.exception, "范围外的异常原样不动");
+  assert.deepEqual((await api.db.owner.query("select * from tickets where id = $1", [ticketB])).rows[0], before.ticket, "范围外的工单原样不动");
+  const created = await api.call("POST", "/platform/v1/tickets", { token: staff.token, body: { type: "other", order_id: saleB.order_id, subject: "x", description: "x" } });
+  assert.equal(created.status, 404, "范围外的订单建不了工单");
+  // 范围内的照常
+  assert.equal((await api.call("GET", `/platform/v1/tickets/${ticketA}`, { token: staff.token })).status, 200);
+  assert.equal((await api.call("POST", `/platform/v1/exceptions/${exceptionA}/claim`, { token: staff.token, body: {} })).status, 200);
+  assert.equal((await api.call("GET", "/platform/v1/compensation-table", { token: staff.token })).status, 200, "赔付表是全平台的，不按范围");
+
+  // 工单判定的复核：按工单的订单过滤
+  const rootId = (await api.db.owner.query("select id from platform_users where email = 'root@platform.test'")).rows[0].id;
+  const approvalOf = async (ticketId: string, orderId: string): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>(
+      "insert into approvals (kind, resource, resource_id, summary, payload, requested_by, requested_at) values ('ticket.decision', 'ticket', $1, '工单判定（测试）', $2::jsonb, $3, $4) returning id",
+      [ticketId, JSON.stringify({ ticket_id: ticketId, order_id: orderId, outcome: "upheld" }), rootId, api.clock.now()],
+    )).rows[0]!.id;
+  const inA = await approvalOf(ticketA, saleA.order_id);
+  const inB = await approvalOf(ticketB, saleB.order_id);
+  const list = await ok(api.call("GET", "/platform/v1/approvals?status=pending&limit=100", { token: staff.token }));
+  assert.ok(list.items.some((a: any) => a.id === inA));
+  assert.ok(!list.items.some((a: any) => a.id === inB), "范围外订单的工单复核不在列表里");
+  assert.equal((await api.call("GET", `/platform/v1/approvals/${inB}`, { token: staff.token })).status, 404);
+  assert.equal((await api.call("POST", `/platform/v1/approvals/${inB}/approve`, { token: staff.token, body: {} })).status, 404);
+  for (const id of [inA, inB]) await ok(api.call("POST", `/platform/v1/approvals/${id}/withdraw`, { token: m.root, body: {} }));
 });
