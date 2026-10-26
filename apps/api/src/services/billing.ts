@@ -65,6 +65,7 @@ import {
   pendingReviewOf,
   tenantName,
   tenantStatus,
+  unpairedWaivers,
   updateStatement,
   voidStatementLines,
 } from "../repos/billing.ts";
@@ -117,6 +118,12 @@ function statementNo(period: string): string {
 
 // ---- 出账 ----
 
+/** 「扣一次、退一次」：有效的退回行都要有有效的扣款行，否则整个事务回滚（ADR 0040「违约金免除与作废重出」）。 */
+async function assertWaiversPaired(db: Db, tenantId: string): Promise<void> {
+  const broken = await unpairedWaivers(db, tenantId);
+  if (broken.length > 0) throw new AppError(409, "STATEMENT_LINES_INCONSISTENT", "账单里有退回的违约金找不到对应的扣款，已取消这次出账，请联系技术核对", { deduction_ids: broken });
+}
+
 /**
  * 给一家供应商出一期的账（调用方的平台事务里）：先排队（同一家一次只有一个在出），再取还没出账的应付、按币种组成草稿，
  * 跳过这一期已经有有效账单的币种。返回新出的账单。
@@ -126,7 +133,10 @@ export async function generateForTenant(db: Db, tenantId: string, period: string
   await lockTenantBilling(db, tenantId);
   const items = await listBillableItems(db, tenantId, periodLastDay(period));
   const drafts = draftStatements(period, items, await listCurrentCurrencies(db, tenantId, period));
-  if (drafts.length === 0) return [];
+  if (drafts.length === 0) {
+    await assertWaiversPaired(db, tenantId);
+    return [];
+  }
   const today = billingToday(now);
   const payDue = payDueDate(period, (await contractPaymentDay(db, tenantId, today)) ?? BILLING_RULES.paymentDay, (await tenantStatus(db, tenantId)) === "terminated");
   const name = await tenantName(db, tenantId);
@@ -138,6 +148,7 @@ export async function generateForTenant(db: Db, tenantId: string, period: string
     await insertAuditLog(db, actor.origin, { tenantId: null, resource: "statement", resourceId: id, action: "issue", before: null, after: { tenant_id: tenantId, period, currency: draft.currency, total_minor: draft.totalMinor, line_count: draft.lines.length, pay_due_on: payDue } });
     created.push({ ...((await findStatement(db, id)) as Statement), tenantName: name });
   }
+  await assertWaiversPaired(db, tenantId);
   return created;
 }
 

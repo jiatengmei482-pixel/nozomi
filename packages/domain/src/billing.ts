@@ -164,12 +164,16 @@ export function extraChargeBillable(charge: { status: string; amountMinor: numbe
  * - 待扣的、金额大于 0、这一单在这家供应商那里已经到了终态（救援的：原供应商那一行已转给救援供应商或已取消——救援有了结论；
  *   以后工单记的赔付：订单已完成）、还没出过账 → 扣（`deduction`，负数）；
  * - 已经出过账、之后被免除（不可抗力）、还没退回过 → 退回（`deduction_waiver`，正数）；
+ * - 已经免除、扣款那一行所在的账单被作废了、但退回那一行还在别的有效账单上 → 照旧扣（`deduction`）：保持「扣一次、退一次」，净额为 0
+ *   （否则重出的账单不扣、退回却还在，供应商多拿一笔；M5-01 测试发现的缺陷）；
  * - 其余不出（0 元的违约金只在供应商的「违约金与扣款」页里看得到）。
+ * 不变式：一笔应扣款项的退回行只有在它的扣款行也在有效账单上时才存在（出账、作废重出在同一个事务里核对，repos/billing.ts 的 `unpairedWaivers`）。
  */
 export function deductionBillable(deduction: { status: string; amountMinor: number; orderConcluded: boolean; billed: boolean; waiverBilled: boolean }): { kind: "deduction" | "deduction_waiver"; amountMinor: number } | null {
   if (deduction.amountMinor <= 0) return null;
   if (deduction.status === "pending" && deduction.orderConcluded && !deduction.billed) return { kind: "deduction", amountMinor: -deduction.amountMinor };
   if (deduction.status === "waived" && deduction.billed && !deduction.waiverBilled) return { kind: "deduction_waiver", amountMinor: deduction.amountMinor };
+  if (deduction.status === "waived" && !deduction.billed && deduction.waiverBilled) return { kind: "deduction", amountMinor: -deduction.amountMinor };
   return null;
 }
 

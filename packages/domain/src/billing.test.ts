@@ -105,6 +105,8 @@ test("应扣款项出账：救援有结论才扣；0 元不出；出过账后免
   assert.equal(deductionBillable({ ...base, status: "waived" }), null);
   assert.deepEqual(deductionBillable({ ...base, status: "waived", billed: true }), { kind: "deduction_waiver", amountMinor: 6_000 });
   assert.equal(deductionBillable({ ...base, status: "waived", billed: true, waiverBilled: true }), null);
+  // 扣款行所在的账单作废了、退回行还在别的账单上：重出时照旧扣，净额为 0
+  assert.deepEqual(deductionBillable({ ...base, status: "waived", billed: false, waiverBilled: true }), { kind: "deduction", amountMinor: -6_000 });
 });
 
 function item(over: Partial<BillableItem> & Pick<BillableItem, "sourceKey">): BillableItem {

@@ -209,7 +209,8 @@ export async function listBillableItems(db: Db, tenantId: string, until: string)
             ${billed("'deduction_waiver:' || d.id::text")} as waiver_billed
        from tenant_deductions d join orders o on o.tenant_id = d.tenant_id and o.id = d.order_id
       where d.tenant_id = $1 and o.service_date <= $2::date and d.amount_minor > 0
-        and ((d.status = 'pending' and not ${billed("'deduction:' || d.id::text")}) or (d.status = 'waived' and not ${billed("'deduction_waiver:' || d.id::text")}))`,
+        and ((d.status = 'pending' and not ${billed("'deduction:' || d.id::text")})
+          or (d.status = 'waived' and (not ${billed("'deduction_waiver:' || d.id::text")} or not ${billed("'deduction:' || d.id::text")})))`,
     [tenantId, until],
   );
   for (const row of deductions.rows) {
@@ -266,11 +267,26 @@ export async function listTenantsWithBillableItems(db: Db, until: string): Promi
      select d.tenant_id from tenant_deductions d join orders o on o.tenant_id = d.tenant_id and o.id = d.order_id
       where o.service_date <= $1::date and d.amount_minor > 0
         and ((d.status = 'pending' and o.status = any($2::text[]) and ${unbilled("'deduction:' || d.id::text", "d.tenant_id")})
-          or (d.status = 'waived' and not ${unbilled("'deduction:' || d.id::text", "d.tenant_id")} and ${unbilled("'deduction_waiver:' || d.id::text", "d.tenant_id")}))
+          or (d.status = 'waived' and not ${unbilled("'deduction:' || d.id::text", "d.tenant_id")} and ${unbilled("'deduction_waiver:' || d.id::text", "d.tenant_id")})
+          or (d.status = 'waived' and ${unbilled("'deduction:' || d.id::text", "d.tenant_id")} and not ${unbilled("'deduction_waiver:' || d.id::text", "d.tenant_id")}))
      order by 1`,
     [until, [...ORDER_CONCLUDED_STATUSES]],
   );
   return result.rows.map((row) => row.tenant_id);
+}
+
+/**
+ * 不变式「扣一次、退一次」：有效的退回行（`deduction_waiver:<编号>`）必须有对应的有效扣款行（`deduction:<编号>`）。返回破坏了的应扣款项编号。
+ * 出账、作废重出在同一个事务里（同一家供应商排着队）调用它核对，不满足就整个回滚。
+ */
+export async function unpairedWaivers(db: Db, tenantId: string): Promise<string[]> {
+  const result = await db.query<{ key: string }>(
+    `select w.source_key as key from statement_lines w
+      where w.tenant_id = $1 and w.kind = 'deduction_waiver' and w.voided_at is null
+        and not exists (select 1 from statement_lines d where d.tenant_id = $1 and d.source_key = 'deduction:' || substr(w.source_key, 18) and d.voided_at is null)`,
+    [tenantId],
+  );
+  return result.rows.map((row) => row.key.slice("deduction_waiver:".length));
 }
 
 // ---- 账单 ----
