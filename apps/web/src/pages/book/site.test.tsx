@@ -430,3 +430,38 @@ test("查订单：没有令牌时填订单号和邮箱找回，换成新链接�
   assert.ok(await screen.findByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"));
   assert.ok(screen.getByRole("button", { name: "查找订单" }));
 });
+
+test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例写在帮助文字里、不当占位文字；没勾同意时提示关联到复选框；取消订单的入口是次要按钮，页面内确认时才是危险按钮", async () => {
+  open(checkoutEntry(), () => null);
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "填写订单" });
+  const phone = screen.getByLabelText("手机号（带国家码）") as HTMLInputElement;
+  const flight = screen.getByLabelText("航班号") as HTMLInputElement;
+  assert.equal(phone.placeholder, "");
+  assert.equal(flight.placeholder, "");
+  assert.match(document.getElementById(phone.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 \+81 90-1234-5678/);
+  assert.match(document.getElementById(flight.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 NH211/);
+  assert.ok(screen.getByText("总价（按车计价，已含高速费和停车费）"));
+  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
+  const consent = screen.getByRole("checkbox", { name: /同意保存/ });
+  assert.equal(consent.getAttribute("aria-invalid"), "true");
+  assert.equal(document.getElementById((consent.getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "")?.textContent, "需要同意保存支付方式才能下单");
+
+  resetBrowser();
+  open("/book/order", (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
+  const orderNo = (await screen.findByLabelText("订单号")) as HTMLInputElement;
+  assert.equal(orderNo.placeholder, "");
+  assert.match(document.getElementById(orderNo.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /NZ 开头的 18 位/);
+
+  resetBrowser();
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.url.pathname === "/site/v1/order") return json(200, envelopeOf());
+    if (call.url.pathname === "/site/v1/order/cancel-fee") return json(200, { cancellable: true, stage: "paid", reason: "GUEST_REQUEST", tier_index: 0, hours_before_service: 60, fee_bp: 0, paid: { amount: "21780", currency: "JPY" }, fee: { amount: "0", currency: "JPY" }, refund: { amount: "21780", currency: "JPY" }, policy: orderOf().cancel_policy });
+    return null;
+  });
+  const entry = await screen.findByRole("button", { name: "取消订单" });
+  assert.doesNotMatch(entry.className, /button--danger/);
+  await actor.click(entry);
+  assert.match((await screen.findByRole("button", { name: "确认取消订单" })).className, /button--danger/);
+});
