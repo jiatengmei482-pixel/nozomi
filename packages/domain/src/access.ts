@@ -63,6 +63,9 @@ export const PLATFORM_ACTIONS = [
   "cancellation_policy.review",
   "rescue.manage",
   "rescue.review",
+  "role.read",
+  "role.manage",
+  "role.review",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -116,6 +119,7 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
  * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
+ * 角色管理（M4-05，ADR 0030）：看（`role.read`）、新建和发起修改（`role.manage`）、审核修改（`role.review`）属于「系统设置」，只归超级管理员。
  * 取消、改单、事后加收（M3-03，ADR 0029）：
  * - `order.manage`（代客人取消、改单，审核事后加收，发起「免收取消费」）：运营、客服（需求「订单中心」「工单」归客服、运营）；
  * - `payment.manage`（重试失败的退款和扣款，审核「多退给客人」的代取消——需求「人工退款超过阈值」的双人复核）：财务、运营（「支付异常：财务核实」）；
@@ -233,4 +237,175 @@ export function checkStatusChange(
   if (after === "invited") return "STATUS_INVITED_IS_NOT_SETTABLE";
   if (after === "active" && !activated) return "ACCOUNT_NOT_ACTIVATED";
   return null;
+}
+
+// ---- 菜单 × 操作、自建角色、数据范围（M4-05，ADR 0030） ----
+
+/**
+ * 需求文档「运营后台菜单与角色」：权限按「菜单 × 操作（查看 / 编辑 / 审核 / 导出）」配置，可自建角色。
+ * 自建角色存的是勾选了哪些「菜单:操作」，每个请求按下表换成接口检查用的操作（`PlatformAction`）。
+ * 内置角色仍以上面的 `PLATFORM_PERMISSIONS` 为准（只读模板），在角色页上按下表显示成同样的勾选表。
+ * 只列已经有接口的菜单和操作：各处的「导出」等以后有了接口再加（加的时候只改这张表）。
+ * 运营后台的「推送记录」页属于订单菜单（看是 `order.read`）。「取消政策」的查看和主数据的查看是同一个接口操作（`master_data.read`）、「救援」的查看和订单的查看是同一个（`order.read`），勾哪一格都能看到两处。
+ */
+export const MENU_OPERATIONS = [
+  { key: "view", name: "查看" },
+  { key: "edit", name: "编辑" },
+  { key: "review", name: "审核" },
+  { key: "export", name: "导出" },
+] as const;
+
+export type MenuOperation = (typeof MENU_OPERATIONS)[number]["key"];
+
+export interface PlatformMenu {
+  key: string;
+  name: string;
+  /** 每个操作对应哪些接口操作；没列出的操作这个菜单没有 */
+  operations: Partial<Readonly<Record<MenuOperation, readonly PlatformAction[]>>>;
+}
+
+export const PLATFORM_MENUS = [
+  // 入驻（M4-01）：资质审核、合同上传和发起合同版本（`tenant.review`）算编辑；人工暂停、清退、合同版本的复核（`tenant.approve`）算审核
+  { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.change_status", "tenant.review"], review: ["tenant.approve"] } },
+  { key: "products", name: "供应商商品", operations: { view: ["product.read"] } },
+  { key: "quote_preview", name: "报价试算", operations: { view: ["quote.preview"] } },
+  { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
+  // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
+  // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
+  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核
+  { key: "rescues", name: "救援", operations: { view: ["order.read"], edit: ["rescue.manage"], review: ["rescue.review"] } },
+  // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
+  { key: "cancellation_policy", name: "取消政策", operations: { view: ["master_data.read"], edit: ["cancellation_policy.manage"], review: ["cancellation_policy.review"] } },
+  { key: "approvals", name: "待审核", operations: { view: ["approval.read"] } },
+  // 需求文档里汇率中心是主数据菜单的一部分：看汇率就是看主数据；拉取、确认、发起锁定算编辑，审核锁定算审核
+  { key: "master_data", name: "主数据与汇率", operations: { view: ["master_data.read"], edit: ["master_data.manage", "fx.manage"], review: ["fx.review"] } },
+  { key: "staff", name: "平台账号", operations: { view: ["staff.read"], edit: ["staff.manage"] } },
+  { key: "roles", name: "角色", operations: { view: ["role.read"], edit: ["role.manage"], review: ["role.review"] } },
+  { key: "audit_logs", name: "审计日志", operations: { view: ["audit_log.read"] } },
+  { key: "integrations", name: "集成状态", operations: { view: ["integration.read"] } },
+] as const satisfies readonly PlatformMenu[];
+
+export type PlatformMenuKey = (typeof PLATFORM_MENUS)[number]["key"];
+
+/** 一项勾选：「菜单:操作」，如 `channels:edit` */
+export type MenuGrant = `${PlatformMenuKey}:${MenuOperation}`;
+
+/**
+ * 只有超级管理员（内置角色）才有、自建角色勾不了的几项：管平台账号、建改角色、审核角色修改。
+ * 否则有「改角色」权限的人可以给自己的角色加上任何权限，有「管账号」权限的人可以把自己改成超级管理员——双人复核也挡不住两个人合谋。
+ * 系统设置里的「查看」（账号列表、角色、审计日志、集成状态）可以给自建角色。
+ */
+export const SUPER_ADMIN_ONLY_GRANTS: readonly MenuGrant[] = ["staff:edit", "roles:edit", "roles:review"];
+
+function menuOperationActions(menuKey: string, operation: string): readonly PlatformAction[] | null {
+  const menu = PLATFORM_MENUS.find((entry) => entry.key === menuKey) as PlatformMenu | undefined;
+  const actions = menu?.operations[operation as MenuOperation];
+  return actions ?? null;
+}
+
+/** 全部可以勾的「菜单:操作」，按菜单表和操作的顺序。 */
+export function allMenuGrants(): MenuGrant[] {
+  const out: MenuGrant[] = [];
+  for (const menu of PLATFORM_MENUS as readonly PlatformMenu[]) {
+    for (const { key } of MENU_OPERATIONS) if (menu.operations[key] !== undefined) out.push(`${menu.key}:${key}` as MenuGrant);
+  }
+  return out;
+}
+
+export function isMenuGrant(value: string): value is MenuGrant {
+  const [menu, operation, extra] = value.split(":");
+  return extra === undefined && menu !== undefined && operation !== undefined && menuOperationActions(menu, operation) !== null;
+}
+
+/** 一组勾选换成接口操作（去重，按 `PLATFORM_ACTIONS` 的顺序）。不认识的、只归超级管理员的勾选忽略（保存时已经拦下，这里是兜底）。 */
+export function actionsOfGrants(grants: readonly string[]): PlatformAction[] {
+  const set = new Set<PlatformAction>();
+  for (const grant of grants) {
+    if (!isMenuGrant(grant) || SUPER_ADMIN_ONLY_GRANTS.includes(grant)) continue;
+    const [menu, operation] = grant.split(":") as [string, string];
+    for (const action of menuOperationActions(menu, operation) ?? []) set.add(action);
+  }
+  return PLATFORM_ACTIONS.filter((action) => set.has(action));
+}
+
+/** 一组接口操作显示成勾选表：这一格的操作全都有才算勾上（内置角色在角色页上的显示、「从内置角色复制」）。 */
+export function grantsOfActions(actions: readonly PlatformAction[]): MenuGrant[] {
+  return allMenuGrants().filter((grant) => {
+    const [menu, operation] = grant.split(":") as [string, string];
+    return (menuOperationActions(menu, operation) ?? []).every((action) => actions.includes(action));
+  });
+}
+
+export type RoleGrantIssue = "UNKNOWN_GRANT" | "SUPER_ADMIN_ONLY" | "VIEW_REQUIRED" | "DUPLICATE";
+
+/**
+ * 自建角色的勾选能不能保存：认识的「菜单:操作」、不含只归超级管理员的几项、不重复；
+ * 勾了编辑 / 审核 / 导出就必须也勾查看（看不到列表的人没法编辑和审核）。空的也可以（先建好再慢慢勾）。
+ */
+export function roleGrantIssues(grants: readonly string[]): { grant: string; reason: RoleGrantIssue }[] {
+  const issues: { grant: string; reason: RoleGrantIssue }[] = [];
+  const seen = new Set<string>();
+  for (const grant of grants) {
+    if (seen.has(grant)) {
+      issues.push({ grant, reason: "DUPLICATE" });
+      continue;
+    }
+    seen.add(grant);
+    if (!isMenuGrant(grant)) issues.push({ grant, reason: "UNKNOWN_GRANT" });
+    else if (SUPER_ADMIN_ONLY_GRANTS.includes(grant)) issues.push({ grant, reason: "SUPER_ADMIN_ONLY" });
+    else if (!grant.endsWith(":view") && !grants.includes(`${grant.split(":")[0]}:view`)) issues.push({ grant, reason: "VIEW_REQUIRED" });
+  }
+  return issues;
+}
+
+/**
+ * 数据范围（需求文档「平台账号、安全与审计」：可加数据范围，如只看某几个城市、某几个渠道）。
+ * `null` = 不限制；数组 = 只看这几个（空数组 = 一个都看不到）。各维度同时生效（且）。
+ * 现在落地的两个维度和它们管到的地方见 ADR 0030：城市管订单；渠道管渠道（列表、详情和下面的一切）、订单、渠道类的复核、按渠道的报价试算。
+ */
+export interface PlatformDataScope {
+  cityIds: readonly string[] | null;
+  channelIds: readonly string[] | null;
+}
+
+export const UNRESTRICTED_SCOPE: PlatformDataScope = { cityIds: null, channelIds: null };
+
+/**
+ * 编号是 UUID，大小写不同是同一个（数据库的 uuid 类型就这样认）；范围里存的是数据库读出的小写写法，所以比较前把传入的转成小写。
+ * 请求里的编号（路径、请求体）不用各自记得先规范写法。
+ */
+export function scopeAllowsCity(scope: PlatformDataScope, cityId: string): boolean {
+  return scope.cityIds === null || scope.cityIds.includes(cityId.toLowerCase());
+}
+
+export function scopeAllowsChannel(scope: PlatformDataScope, channelId: string): boolean {
+  return scope.channelIds === null || scope.channelIds.includes(channelId.toLowerCase());
+}
+
+export function scopeIsRestricted(scope: PlatformDataScope): boolean {
+  return scope.cityIds !== null || scope.channelIds !== null;
+}
+
+/** 一个平台员工此刻能做什么：角色给的接口操作和数据范围。每个请求从数据库现查（ADR 0030「不缓存」）。 */
+export interface PlatformGrant {
+  roleKey: string;
+  builtin: boolean;
+  actions: ReadonlySet<PlatformAction>;
+  scope: PlatformDataScope;
+}
+
+/**
+ * 从角色这一行算出权限：内置角色以代码里的表为准（库里没有存勾选）；自建角色按勾选换算。
+ * 角色键既不是内置角色、又没有勾选时一个权限都没有（不会因为数据异常放大权限）。
+ */
+export function resolvePlatformGrant(role: { key: string; builtin: boolean; grants: readonly string[] | null; scope: PlatformDataScope }): PlatformGrant {
+  if (role.builtin) {
+    return { roleKey: role.key, builtin: true, actions: new Set(isPlatformRole(role.key) ? PLATFORM_PERMISSIONS[role.key] : []), scope: UNRESTRICTED_SCOPE };
+  }
+  return { roleKey: role.key, builtin: false, actions: new Set(actionsOfGrants(role.grants ?? [])), scope: role.scope };
+}
+
+export function grantCan(grant: PlatformGrant, action: PlatformAction): boolean {
+  return grant.actions.has(action);
 }

@@ -25,7 +25,7 @@ const TOKEN = `nzo_${"A".repeat(43)}`;
 const NEW_TOKEN = `nzo_${"B".repeat(43)}`;
 const HOUR = 3_600_000;
 
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const city: SiteCity = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", categories: ["airport_transfer"] };
 const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
@@ -133,7 +133,7 @@ async function fillInquiry(actor: ReturnType<typeof user>): Promise<void> {
 }
 
 test("官网没开：说暂未开放，告诉已下单的客人去「查订单」；配置读不出来：说明并能重试", async () => {
-  open("/book", (call) => (call.url.pathname === "/site/v1/config" ? json(200, { open: false, currency: null, payments: null }) : null));
+  open("/book", (call) => (call.url.pathname === "/site/v1/config" ? json(200, { open: false, currency: null, payments: null, support_phone: null }) : null));
   assert.ok(await screen.findByRole("heading", { name: "暂未开放预订" }));
   assert.ok(screen.getByText(/查订单/, { selector: "p" }));
   assert.ok(screen.getByText(/GeoNames/));
@@ -170,7 +170,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
   assert.ok(within(card).getByText("21,780 JPY"));
   assert.ok(within(card).getByText("90 分钟（从航班落地起算）"));
-  assert.ok(within(card).getByText("用车前 ≥ 48 小时 免费；24–48 小时 扣 50%；< 24 小时 扣 100%"));
+  assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
   assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
@@ -298,7 +298,7 @@ test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable 
     if (call.url.pathname === "/site/v1/order/payment") return json(200, { payment: { provider: "stripe", status: "requires_payment_method", client_secret: "pi_1_secret_2", publishable_key: "pk_test_abc" } });
     return null;
   });
-  assert.ok(await screen.findByText(/在线付款还在接入中，订单已为您保留到当地时间 2026-10-26 10:30/));
+  assert.ok(await screen.findByText(/在线付款还在接入中，订单已为您保留到当地时间 (2026年)?10月26日（周一）10:30/));
 });
 
 test("我已落地：离计划到达 3 小时以上不出按钮、写明几点起能点；能点时先确认，提交后显示确认的时间、按钮消失", async () => {
@@ -394,10 +394,10 @@ test("事后加收：显示客人要付的金额和异议截止时间；异议�
   });
   const actor = user();
   assert.ok(await screen.findByText("2,200 JPY"));
-  assert.ok(screen.getByText(/当地时间 2026-11-22 10:00 前提出/));
+  assert.ok(screen.getByText(/当地时间 (2026年)?11月22日（周日）10:00 前提出/));
   await actor.click(screen.getByRole("button", { name: "提异议" }));
   await actor.click(screen.getByRole("button", { name: "提交异议" }));
-  assert.ok(await screen.findByText("请写一下为什么有异议"));
+  assert.ok(await screen.findByText("请写一下为什么有异议，如「司机没有等那么久」"));
   await actor.type(screen.getByLabelText("异议的理由"), "司机没有等那么久");
   await actor.click(screen.getByRole("button", { name: "提交异议" }));
   assert.ok(await screen.findByText("已提异议，平台审核中"));
@@ -431,4 +431,39 @@ test("查订单：没有令牌时填订单号和邮箱找回，换成新链接�
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? apiError(401, "ORDER_LINK_INVALID", "链接无效") : null));
   assert.ok(await screen.findByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"));
   assert.ok(screen.getByRole("button", { name: "查找订单" }));
+});
+
+test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例写在帮助文字里、不当占位文字；没勾同意时提示关联到复选框；取消订单的入口是次要按钮，页面内确认时才是危险按钮", async () => {
+  open(checkoutEntry(), () => null);
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "填写订单" });
+  const phone = screen.getByLabelText("手机号（带国家码）") as HTMLInputElement;
+  const flight = screen.getByLabelText("航班号") as HTMLInputElement;
+  assert.equal(phone.placeholder, "");
+  assert.equal(flight.placeholder, "");
+  assert.match(document.getElementById(phone.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 \+81 90-1234-5678/);
+  assert.match(document.getElementById(flight.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /如 NH211/);
+  assert.ok(screen.getByText("总价（按车计价，已含高速费和停车费）"));
+  await actor.click(screen.getByRole("button", { name: /提交订单/ }));
+  const consent = screen.getByRole("checkbox", { name: /同意保存/ });
+  assert.equal(consent.getAttribute("aria-invalid"), "true");
+  assert.equal(document.getElementById((consent.getAttribute("aria-describedby") ?? "").split(" ")[0] ?? "")?.textContent, "需要同意保存支付方式才能下单");
+
+  resetBrowser();
+  open("/book/order", (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
+  const orderNo = (await screen.findByLabelText("订单号")) as HTMLInputElement;
+  assert.equal(orderNo.placeholder, "");
+  assert.match(document.getElementById(orderNo.getAttribute("aria-describedby") ?? "")?.textContent ?? "", /NZ 开头的 18 位/);
+
+  resetBrowser();
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.url.pathname === "/site/v1/order") return json(200, envelopeOf());
+    if (call.url.pathname === "/site/v1/order/cancel-fee") return json(200, { cancellable: true, stage: "paid", reason: "GUEST_REQUEST", tier_index: 0, hours_before_service: 60, fee_bp: 0, paid: { amount: "21780", currency: "JPY" }, fee: { amount: "0", currency: "JPY" }, refund: { amount: "21780", currency: "JPY" }, policy: orderOf().cancel_policy });
+    return null;
+  });
+  const entry = await screen.findByRole("button", { name: "取消订单" });
+  assert.doesNotMatch(entry.className, /button--danger/);
+  await actor.click(entry);
+  assert.match((await screen.findByRole("button", { name: "确认取消订单" })).className, /button--danger/);
 });

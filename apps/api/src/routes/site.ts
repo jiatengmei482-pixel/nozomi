@@ -3,7 +3,7 @@
  * 这里只做限速、校验、调用、返回；渠道身份在服务端（`SITE_CLIENT_ID`），业务流程和 `/sales/v1` 是同一批 service。
  *
  * 接新单（官网暂未开放时 503 `SITE_NOT_OPEN`）：
- * - `GET /site/v1/config`：开没开、币种、Stripe 的 publishable key（只有它）；
+ * - `GET /site/v1/config`：开没开、币种、Stripe 的 publishable key（只有它）、客服电话（登记了才有，官网没开也给）；
  * - `GET /site/v1/cities`：能预订的城市和各自能订的品类（接送机、点对点、包车）；
  * - `GET /site/v1/cities/{id}/airports`：能预订接送机的机场；`GET …/charter-packages`：能选的包车套餐时长（M3-10）；
  * - `GET /site/v1/cities/{id}/places`：地址输入辅助——城市里的机场、车站、地标（主数据，不调外部地图服务，M3-10）；
@@ -167,7 +167,12 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/config", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const config = await siteConfig(ctx);
-    return { open: config.open, currency: config.currency, payments: config.payments === null ? null : { provider: config.payments.provider, publishable_key: config.payments.publishableKey } };
+    return {
+      open: config.open,
+      currency: config.currency,
+      payments: config.payments === null ? null : { provider: config.payments.provider, publishable_key: config.payments.publishableKey },
+      support_phone: ctx.config.siteSupportPhone,
+    };
   });
 
   app.get("/site/v1/cities", async (request) => {

@@ -16,6 +16,7 @@
 | [`pages/platform-home.md`](./pages/platform-home.md) | 运营后台首页（模块入口和数量）；运营后台菜单的分组与顺序 |
 | [`pages/platform-tenants.md`](./pages/platform-tenants.md) | 运营后台的供应商管理：列表、新建、详情、暂停 / 恢复、邀请管理员、发密码重置；**一次性链接（邀请、重置）怎么交付** |
 | [`pages/platform-settings.md`](./pages/platform-settings.md) | 运营后台的系统设置：平台员工（新增、角色说明、停用 / 启用、发密码重置）、审计日志（筛选、改前改后）、系统状态 |
+| [`pages/platform-security.md`](./pages/platform-security.md) | 运营后台的账号安全：登录的第二步（绑定验证器、输入动态码、恢复码）、个人页「账号安全」、平台员工详情（角色、IP 白名单、重置两步验证）、角色管理（菜单 × 操作、数据范围） |
 | [`pages/platform-products.md`](./pages/platform-products.md) | 运营后台只读查看供应商的商品：列表（按供应商、城市、品类、状态、可用价格、子品牌筛）、详情（复用供应商后台各步骤的只读模式）、首页的商品卡片、供应商详情里的「商品」；报价试算 |
 | [`pages/master-data.md`](./pages/master-data.md) | 主数据：城市、地点、车型组、附加服务的列表页和新增 / 编辑页；处理导入的机场 |
 | [`pages/tenant-home.md`](./pages/tenant-home.md) | 供应商后台首页（模块入口、数量、「先建区域」的引导）；供应商后台菜单的分组与顺序 |
@@ -23,6 +24,7 @@
 | [`pages/tenant-products.md`](./pages/tenant-products.md) | 商品：列表、分步配置（基础信息、服务规则、商品详情）、上架检查与上下架 |
 | [`pages/tenant-prices.md`](./pages/tenant-prices.md) | 商品的第 ③ 步：价格规则（固定一口价 / 里程 + 时长 / 包车套餐、缺价的组合、生效日期重叠）、调价规则（步骤、顺序、试算）、价格日历、取整单位；菜单里的「价格规则」 |
 | [`pages/tenant-inventory.md`](./pages/tenant-inventory.md) | 商品的第 ④ 步：库存模式（不限量 / 限量）、库存日历、改某一天、批量设置；价格和库存的 Excel 导入导出（下载模版、选文件、检查结果、确认导入） |
+| [`pages/site-booking.md`](./pages/site-booking.md) | 官网（客人用）：预订接送机（询价、报价卡片）、填写订单、订单页（付款 / 付款暂未开放、我已落地、修改、取消、服务后的费用和异议）、查订单与链接失效；官网的字号、控件、必填写法、语气与信任感、手机优先的断点 |
 | [`contrast-check.mjs`](./contrast-check.mjs) | 校验脚本：两段暗色令牌一致、亮暗令牌齐全、对比度达标 |
 
 以后每个有界面的任务，在 `pages/` 下加一篇页面说明，固定写四件事：给谁用、要完成什么、首屏看到什么、空状态和出错时显示什么。

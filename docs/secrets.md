@@ -69,7 +69,7 @@
 | `POSTGRES_PASSWORD` | 数据库「迁移账号」的密码：只在更新数据库结构、备份和恢复时用，程序平时运行不用它，也拿不到它 | **自动生成，不用管。** 不要修改或删除：数据库是用它建的，改了就连不上 |
 | `POSTGRES_APP_PASSWORD` | 数据库「应用账号」的密码：程序平时运行用的账号，权限最小（不能改数据库结构，不能改、删操作日志） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除 |
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
-| `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥在数据库里是用它加密保存的（ADR 0027） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开，每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥 |
+| `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥（ADR 0027）和平台员工的两步验证密钥（ADR 0030）在数据库里是用它加密保存的 | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开——每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥，每个平台员工都要重新绑定两步验证（在服务器上运行 `pnpm admin:reset-2fa`） |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
@@ -87,6 +87,7 @@
 | 名称 | 是什么 | 怎么填 |
 | --- | --- | --- |
 | `SITE_CLIENT_ID` | 官网以哪个 API 客户端的身份询价、下单 | 运营后台 → 渠道 → 新建一个「自营」渠道（官网）→ 详情页「API 客户端与密钥」→ 新建客户端，复制显示的 client_id（`nzc_` 开头；同时显示的密钥官网用不到，不用保存）。不填 = 官网显示「暂未开放」。要临时停止官网接单：暂停这个渠道或吊销这个客户端 |
+| `SITE_SUPPORT_PHONE` | 官网订单页「需要帮助」区块里显示的客服电话（公开号码，不是密钥） | 写带国家码的号码，以 + 开头（国家码不以 0 开头，共 8–15 位数字），只用空格和连字符分隔，如 `+81 3-1234-5678`。不填 = 订单页不显示客服区块 |
 
 填好后重新部署一次即可生效；网页的安全策略会自动放行这一个图片来源，不用另外设置。还有几项一般不用动、有默认值的（暗色底图地址 `MAP_TILE_DARK_URL_TEMPLATE`、缩放范围 `MAP_TILE_MIN_ZOOM` / `MAP_TILE_MAX_ZOOM`、图片尺寸 `MAP_TILE_SIZE`、来源页策略 `MAP_TILE_REFERRER_POLICY`），说明见 `docs/adr/0015-areas.md`。
 

@@ -61,7 +61,7 @@ services:
       # 这里不能出现 POSTGRES_PASSWORD（迁移账号的密码）：服务进程发现自己连的是所有者或超级用户会拒绝启动。
       DATABASE_URL: postgres://nozomi_api:${POSTGRES_APP_PASSWORD:?缺少 POSTGRES_APP_PASSWORD，请重新部署或重新运行服务器初始化}@db:5432/nozomi
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?缺少 AUTH_JWT_SECRET，请先运行服务器初始化}
-      # 数据加密密钥（ADR 0027）：由初始化脚本或部署脚本自动生成，不要修改
+      # 数据加密密钥（ADR 0027、0030）：由初始化脚本或部署脚本自动生成，不要修改
       DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?缺少 DATA_ENCRYPTION_KEY，请重新部署或重新运行服务器初始化}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
@@ -77,6 +77,8 @@ services:
       MAP_TILE_SIZE: ${MAP_TILE_SIZE:-}
       # 官网用哪个 API 客户端（不是密钥，ADR 0032）：运营后台给官网渠道发的客户端的 client_id。不配 = 官网暂未开放
       SITE_CLIENT_ID: ${SITE_CLIENT_ID:-}
+      # 官网订单页「需要帮助」里的客服电话（不是密钥）：以 + 和国家码开头，如 +81 3-1234-5678。不配 = 订单页不显示客服区块
+      SITE_SUPPORT_PHONE: ${SITE_SUPPORT_PHONE:-}
       # API 前面有几层我们信任的反向代理：审计日志和登录限速据此从 X-Forwarded-For 取客户端真实地址。
       # 不手填，由 bin/deploy.sh 按入口模式算出：standalone 是 1（只有 Caddy），behind-proxy 是 2（外层代理 + Caddy）。
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?缺少 TRUST_PROXY_HOPS，请通过 bin/deploy.sh 部署}

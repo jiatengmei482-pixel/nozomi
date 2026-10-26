@@ -18,6 +18,8 @@ export interface SiteConfig {
   open: boolean;
   currency: string | null;
   payments: { provider: "stripe"; publishable_key: string } | null;
+  /** 客服电话（登记了才有，原样显示）；null 时订单页不显示「需要帮助」区块 */
+  support_phone: string | null;
 }
 
 /** 官网卖的品类：接送机、点对点、包车（M3-10）。 */
@@ -287,7 +289,7 @@ export interface SiteChangeRequest {
 
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
-  SiteConfig: ["open", "currency", "payments"],
+  SiteConfig: ["open", "currency", "payments", "support_phone"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "categories"],
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],

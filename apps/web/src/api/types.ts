@@ -2,17 +2,23 @@
  * 登录相关接口的请求、响应类型。手写，与 `apps/api/openapi.yaml` 对账：
  * `contract.test.ts` 逐个核对路径、方法、字段名和枚举值，后端改了接口那里会失败。
  */
-import type { AccountStatus, PlatformAction, PlatformRole, TenantAction, TenantRole } from "@nozomi/domain";
+import type { AccountStatus, PlatformAction, TenantAction, TenantRole } from "@nozomi/domain";
 
 export interface PlatformUser {
   id: string;
   email: string;
   name: string;
-  role: PlatformRole;
+  /** 角色键：内置角色（`PlatformRole`）或自建角色（`custom_…`，ADR 0030） */
+  role: string;
+  /** 角色的名字（自建角色的名字前端不认识） */
+  role_name: string;
   status: AccountStatus;
   created_at: string;
   updated_at: string;
 }
+
+/** 会话的两步验证状态（ADR 0030） */
+export type SecondFactorStatus = "enrollment_required" | "verify_required" | "verified";
 
 export interface TenantUser {
   id: string;
@@ -69,6 +75,8 @@ export interface PlatformLoginResponse {
   user: PlatformUser;
   /** 正在用临时密码：除了改密码和退出，别的都做不了（ADR 0013） */
   must_change_password: boolean;
+  /** 密码对了之后的第二步：先绑定，或输入动态码（ADR 0030） */
+  second_factor: { status: Exclude<SecondFactorStatus, "verified"> };
 }
 
 export interface TenantLoginResponse {
@@ -83,7 +91,9 @@ export interface TenantLoginResponse {
 export interface PlatformMe {
   user: PlatformUser;
   permissions: PlatformAction[];
+  data_scope: { city_ids: string[] | null; channel_ids: string[] | null };
   must_change_password: boolean;
+  second_factor: { status: SecondFactorStatus; enabled_at: string | null; recovery_codes_remaining: number | null };
 }
 
 export interface TenantMe {
@@ -120,11 +130,11 @@ export interface PortalTypes {
 
 /** 对账用：上面每个类型的字段名清单。`satisfies` 保证清单里没有类型上不存在的字段。 */
 export const SCHEMA_FIELDS = {
-  PlatformUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
+  PlatformUser: ["id", "email", "name", "role", "role_name", "status", "created_at", "updated_at"],
   TenantUser: ["id", "email", "name", "role", "status", "created_at", "updated_at"],
   Tenant: ["id", "name", "status", "suspended_from", "suspension_reasons", "suspended_at", "observation_reasons", "observation_since", "signed_at", "trial_started_at", "activated_at", "terminated_at", "score", "version", "created_at", "updated_at"],
   LoginRequest: ["email", "password"],
-  PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user", "must_change_password"],
+  PlatformLoginResponse: ["access_token", "token_type", "expires_at", "user", "must_change_password", "second_factor"],
   TenantLoginResponse: ["access_token", "token_type", "expires_at", "user", "tenant", "must_change_password"],
   AcceptInviteRequest: ["token", "password"],
   ResetPasswordRequest: ["token", "password"],
@@ -152,7 +162,7 @@ export const SCHEMA_FIELDS_ARE_COMPLETE: [UnlistedFields] extends [never] ? true
 
 /** 对账用：`auth/me` 响应的顶层字段（OpenAPI 里是内联定义，没有具名 schema）。 */
 export const ME_FIELDS = {
-  platform: ["user", "permissions", "must_change_password"],
+  platform: ["user", "permissions", "data_scope", "must_change_password", "second_factor"],
   tenant: ["user", "tenant", "permissions", "must_change_password"],
 } as const satisfies { [P in keyof PortalTypes]: readonly (keyof PortalTypes[P]["me"])[] };
 

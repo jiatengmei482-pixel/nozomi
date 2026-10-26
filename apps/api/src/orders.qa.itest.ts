@@ -519,7 +519,7 @@ async function staffToken(role: PlatformRole): Promise<string> {
   const email = `qa-${role.replaceAll("_", "-")}-${randomUUID().slice(0, 6)}@platform.test`;
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email, name: role, role } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
 test("权限矩阵：平台十个角色看订单（列表、详情）；租户角色；令牌串用（平台令牌查租户接口、租户令牌查平台接口、渠道令牌查两边）", async () => {

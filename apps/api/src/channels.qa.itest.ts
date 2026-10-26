@@ -138,7 +138,7 @@ test("每个平台角色：只有渠道经理、超级管理员能批准；其�
     const email = `qa-${role.replaceAll("_", "-")}@platform.test`;
     const invited = await ok(api.call("POST", "/platform/v1/staff", { token: m.root, body: { email, name: role, role } }), 201);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-    const token = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+    const token = (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token as string;
     for (const decision of ["approve", "reject"] as const) {
       const res = await decide(pending.id, decision, token);
       assert.ok(res.status === 403 || res.status === 404, `${role} ${decision}: ${res.status} ${res.text}`);
@@ -243,7 +243,7 @@ test("调高下限时「规则结束了没有」按规则所在城市的当地�
   await approvedBy(api, m, ruleRequest(api, m, channel.id, { city_id: m.ids.tokyo, category: "airport_transfer", markup_bp: 1_100, valid_from: "2026-10-01", valid_to: "2026-10-07" }));
   // 测试时钟 2026-10-07T01:00Z；拨到 2026-10-07T16:00Z = 东京 10-08 01:00：这条规则在东京已经结束
   api.clock.advance(15 * 3_600_000);
-  const manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
+  const manager = (await ok(api.platformLogin({ body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
   const raise = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
   assert.equal(raise.status, 202, `东京已经过了规则的结束日期，不该挡：${raise.text}`);
 });
@@ -251,7 +251,7 @@ test("调高下限时「规则结束了没有」按规则所在城市的当地�
 test("调高下限时没有城市的规则（按供应商、全渠道）要在最晚的时区（UTC−12）也过了结束日期才算结束", async () => {
   // 前面的用例拨过时钟：先把时钟拨到 2026-10-08T00:00Z，重新登录两位渠道经理
   api.clock.advance(new Date("2026-10-08T00:00:00Z").getTime() - api.clock.now().getTime());
-  const login = async (email: string): Promise<string> => (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+  const login = async (email: string): Promise<string> => (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token as string;
   const requester = await login(m.staff.cm1.email);
   const reviewer = await login(m.staff.cm2.email);
   const channel = await newChannel(api, requester, { name: "QA 下限与无城市规则" });
@@ -259,12 +259,12 @@ test("调高下限时没有城市的规则（按供应商、全渠道）要在�
   await ok(api.call("POST", `/platform/v1/approvals/${requested.approval.id}/approve`, { token: reviewer, body: {} }));
   // 拨到 2026-10-08T11:00Z：UTC−12 还是 10-07 23:00，这条规则在某些地方还在用
   api.clock.advance(11 * 3_600_000);
-  let manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
+  let manager = (await ok(api.platformLogin({ body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
   const early = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
   assert.deepEqual([early.status, early.body.error?.code], [409, "RULES_BELOW_FLOOR"]);
   // 再过 2 小时：UTC−12 也到了 10-08，规则在哪里都结束了
   api.clock.advance(2 * 3_600_000);
-  manager = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
+  manager = (await ok(api.platformLogin({ body: { email: m.staff.cm1.email, password: TEST_PASSWORD } }))).access_token as string;
   const late = await pricing(channel.id, { markup_floor_bp: 1_200, default_markup_bp: 1_200 }, manager);
   assert.equal(late.status, 202, late.text);
 });

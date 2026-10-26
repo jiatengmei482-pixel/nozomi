@@ -309,7 +309,7 @@ test("/platform 和 /tenant 下的每一种应答（成功、401、403、404、4
     api.call("GET", "/platform/v1/tenants", { token: a.adminToken }),
     api.call("GET", "/platform/v1/integrations", { token: platformToken }),
     api.call("GET", "/platform/v1/audit-logs", { token: platformToken }),
-    api.call("POST", "/platform/v1/auth/login", { body: {} }),
+    api.platformLogin({ body: {} }),
     api.call("GET", "/health"),
   ]);
   assert.deepEqual(responses.map((res) => res.status), [200, 401, 400, 404, 404, 200, 401, 200, 200, 400, 200]);

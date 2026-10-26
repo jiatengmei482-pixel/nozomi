@@ -38,7 +38,9 @@ before(async () => {
 after(() => api.close());
 
 async function login(entry: Entry, email: string, password: string): Promise<ApiResponse> {
-  const res = await api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
+  // 平台员工经测试辅助函数完成两步验证（ADR 0030：两步验证在前，必须先修改密码在后）
+  const options = { ip: freshIp(), body: { email, password } };
+  const res = entry === "platform" ? await api.platformLogin(options) : await api.call("POST", `/${entry}/v1/auth/login`, options);
   assert.equal(res.status, 200, res.text);
   return res;
 }
@@ -122,6 +124,14 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/staff/${ids.userId}/disable`],
       ["POST", `/platform/v1/staff/${ids.userId}/enable`],
       ["POST", `/platform/v1/staff/${ids.userId}/password-reset`],
+      ["GET", `/platform/v1/staff/${ids.userId}`],
+      ["PATCH", `/platform/v1/staff/${ids.userId}`, { role: "finance", ip_allowlist: ["192.0.2.0/24"] }],
+      ["POST", `/platform/v1/staff/${ids.userId}/mfa-reset`, {}],
+      ["GET", "/platform/v1/roles"],
+      ["POST", "/platform/v1/roles", { name: "不该出现的角色", grants: ["orders:view"] }],
+      ["GET", `/platform/v1/roles/${ids.userId}`],
+      ["DELETE", `/platform/v1/roles/${ids.userId}`],
+      ["POST", `/platform/v1/roles/${ids.userId}/changes`, { name: "不该生效", grants: [] }],
       ["GET", "/platform/v1/tenants"],
       ["POST", "/platform/v1/tenants", { name: "不该出现的车队", admin: { email: `bypass-${randomUUID().slice(0, 8)}@c.test`, name: "某人" } }],
       ["GET", `/platform/v1/tenants/${ids.tenantId}`],
@@ -186,6 +196,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/channels/${ids.userId}/activate`],
       ["POST", `/platform/v1/channels/${ids.userId}/pause`, {}],
       ["POST", `/platform/v1/channels/${ids.userId}/pricing-changes`, { default_markup_bp: 1_200 }],
+      ["POST", `/platform/v1/channels/${ids.userId}/pricing-impact`, { default_markup_bp: 1_200 }],
       ["GET", `/platform/v1/channels/${ids.userId}/markup-rules`],
       ["POST", `/platform/v1/channels/${ids.userId}/markup-rules`, { tenant_id: ids.tenantId, markup_bp: 1_500 }],
       ["PUT", `/platform/v1/channels/${ids.userId}/markup-rules/${ids.userId}`, { tenant_id: ids.tenantId, markup_bp: 1_500 }],
@@ -197,6 +208,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", `/platform/v1/channels/${ids.userId}/quote-logs`],
       ["GET", "/platform/v1/approvals"],
       ["GET", `/platform/v1/approvals/${ids.userId}`],
+      ["POST", `/platform/v1/approvals/${ids.userId}/pricing-impact`],
       ["POST", `/platform/v1/approvals/${ids.userId}/approve`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/reject`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/withdraw`, {}],
@@ -483,7 +495,7 @@ test("请求里夹带标记字段没有用：登录、改密、租户管理员�
   const platformToken = await temporarySuperAdmin("mass@platform.test");
   const tenant = await flaggedTenantUser(tenantA, "mass@a.test");
 
-  const loggedIn = await api.call("POST", "/platform/v1/auth/login", {
+  const loggedIn = await api.platformLogin({
     ip: freshIp(),
     body: { email: "mass@platform.test", password: TEMPORARY, must_change_password: false, purpose: "self_service" },
   });
@@ -684,9 +696,9 @@ test("【缺陷】两个会话同时用同一个临时密码改密：只能有�
   const statuses = [a.status, b.status].sort();
   // 无论谁赢，下面这些都必须成立
   assert.equal(await flagOf("platform_users", "race@platform.test"), false);
-  assert.equal((await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "race@platform.test", password: TEMPORARY } })).status, 401);
+  assert.equal((await api.platformLogin({ ip: freshIp(), body: { email: "race@platform.test", password: TEMPORARY } })).status, 401);
   const works = await Promise.all(
-    [NEW_PASSWORD, OTHER_PASSWORD].map(async (password) => (await api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email: "race@platform.test", password } })).status),
+    [NEW_PASSWORD, OTHER_PASSWORD].map(async (password) => (await api.platformLogin({ ip: freshIp(), body: { email: "race@platform.test", password } })).status),
   );
   assert.equal(works.filter((status) => status === 200).length, 1, "最后只有一个新密码有效");
 

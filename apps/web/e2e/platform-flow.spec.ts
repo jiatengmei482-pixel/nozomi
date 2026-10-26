@@ -1,6 +1,6 @@
 /** 运营后台：登录 → 首页 → 退出；平台员工的邀请与重置；两个后台的登录状态互不影响。 */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, detail, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail, expectSignedInAs } from "./support.ts";
+import { adminCredentials, clickLogin, createActiveTenant, detail, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail, expectSignedInAs } from "./support.ts";
 
 test("平台登录 → 首页 → 退出", async ({ page }) => {
   const admin = adminCredentials();
@@ -42,7 +42,7 @@ test("平台员工：接受邀请设置密码 → 登录；管理员发重置令
   await expect(page).toHaveURL(/\/platform\/login$/);
   await expect(page.getByLabel("邮箱")).toHaveValue(email);
   await page.getByLabel("密码", { exact: true }).fill(firstPassword);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expectSignedInAs(page, { role: "运营" });
 
   const issued = await request.post(`/platform/v1/staff/${user.id}/password-reset`, { headers });
@@ -57,7 +57,7 @@ test("平台员工：接受邀请设置密码 → 登录；管理员发重置令
   await expect(page).toHaveURL(/\/platform\/login$/);
   await expect(page.getByRole("status").filter({ hasText: "密码已重设，请用新密码登录。" })).toBeVisible();
   await page.getByLabel("密码", { exact: true }).fill(secondPassword);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   await expectSignedInAs(page, { name: "端到端测试运营" });
 });

@@ -8,7 +8,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
@@ -22,7 +22,7 @@ afterEach(resetBrowser);
 const TOKEN = `nzo_${"Q".repeat(20)}_${"a".repeat(22)}`;
 const NEW_TOKEN = `nzo_${"N".repeat(43)}`;
 const HOUR = 3_600_000;
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const landingOf = (scheduledAt: string, reported: string | null = null): NonNullable<SiteOrder["landing"]> => ({
   scheduled_at: scheduledAt,
@@ -146,7 +146,8 @@ test("令牌去向：看订单、试算、取消的整个过程里，令牌只�
   );
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
-  assert.equal(document.title, "订单 NZ20261026QAQA2345 · NOZOMI 用车");
+  // 标题在标题行渲染之后的 effect 里设置，负载高时要等一下
+  await waitFor(() => assert.equal(document.title, "订单 NZ20261026QAQA2345 · NOZOMI 用车"));
   assert.ok(!document.body.textContent?.includes(TOKEN.slice(4)), "不是刚下单：页面上不显示链接");
   await actor.click(screen.getByRole("button", { name: "取消订单" }));
   await actor.click(await screen.findByRole("button", { name: "确认取消订单" }));
@@ -196,7 +197,7 @@ test("地址里 # 后面不是合法令牌（太短、多了字符、写成 toke
     const calls = open({ pathname: "/book/order", hash }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
     await screen.findByRole("heading", { level: 1, name: "查订单" });
     assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/order")).length, 0, hash);
-    assert.equal(document.title, "查订单 · NOZOMI 用车");
+    await waitFor(() => assert.equal(document.title, "查订单 · NOZOMI 用车"));
     resetBrowser();
   }
 });
@@ -228,7 +229,7 @@ test("「我已落地」在页面上：送机单不出这一块；接机单取�
   resetBrowser();
 
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, orderRoutes(orderOf({ status: "assigned", landing: landingOf(soon, "2030-11-20T00:50:00.000Z") })));
-  assert.ok(await screen.findByText("您已确认落地：当地时间 2030-11-20 09:50。"));
+  assert.ok(await screen.findByText("您已确认落地：当地时间 2030年11月20日（周三）09:50。"));
   assertAbsent(screen.queryByRole("button", { name: "我已落地" }));
 });
 
@@ -249,7 +250,7 @@ test("改单：后端回 422 NO_CHANGE 时页面提示「没有改动」，不�
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
   await actor.click(screen.getByRole("button", { name: "修改订单" }));
-  await actor.type(screen.getByLabelText("备注"), "带婴儿座椅");
+  await actor.type(screen.getByLabelText("备注（选填）"), "带婴儿座椅");
   await actor.click(screen.getByRole("button", { name: "提交修改" }));
   assert.ok(await screen.findByText("没有改动。"));
   assert.equal(screen.queryByText(/修改订单失败|修改失败/), null);

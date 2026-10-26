@@ -31,7 +31,7 @@ import type { Approval } from "../repos/approvals.ts";
 import { type Notice, type ScoreDay, type StatusEvent, type StoredContract, type StoredDocument, type StoredFileMeta, type StoredProfile, listScoreDays } from "../repos/tenant-onboarding.ts";
 import { findOwnTenant, findTenantForPlatform, type Tenant } from "../repos/tenants.ts";
 import { notFound } from "../services/errors.ts";
-import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
+import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import {
   type CompanyOverview,
@@ -284,7 +284,7 @@ function secondId(params: unknown, key: string, what: string): string {
 
 export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppContext): void {
   const tenantAuth = (request: FastifyRequest, action: TenantAction): Promise<TenantPrincipal> => authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
-  const platformAuth = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+  const platformAuth = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, platformCredentials(request), { action });
 
   app.register(async (scoped) => {
     for (const type of FILE_TYPES) {

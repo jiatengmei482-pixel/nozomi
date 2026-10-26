@@ -6,7 +6,7 @@
  * 页面上没有供应商、结算价、加价比例（接口里本来就没有）。
  * 四种状态：加载中（骨架）、官网没开 / 没有可预订的城市（空）、出错（说明怎么办 + 重试）、正常。
  */
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -30,7 +30,6 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { tiersText } from "../../lib/order-money-display.ts";
 import {
   ADDRESS_LABELS,
   SITE_CATEGORY_HINTS,
@@ -39,9 +38,11 @@ import {
   UNAVAILABLE_REASON_TEXT,
   defaultServiceDate,
   freeWaitText,
+  guestCancelPolicyText,
   localDateTimeIn,
   packageText,
   priceNote,
+  quotesByTotal,
   serviceTimeLabels,
 } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -184,7 +185,7 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
         </div>
         <div className="site-facts__item">
           <dt>取消政策</dt>
-          <dd>{tiersText(quote.cancel_policy.tiers)}</dd>
+          <dd>{guestCancelPolicyText(quote.cancel_policy.tiers)}</dd>
         </div>
       </dl>
       <Button variant="primary" size="lg" block onClick={onChoose}>
@@ -194,12 +195,24 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
   );
 }
 
+/**
+ * 询价结果（报不出价时同样）：出来后把焦点移到结果标题并滚到那里（F4）——手机上结果在长表单下面，不这样客人看不到任何变化。
+ * 报价按总价从低到高（F6）。
+ */
 function Results({ result, city, draft, onChoose }: { result: SiteQuoteResult; city: SiteCity; draft: BookingDraft; onChoose(quote: SiteQuote): void }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const node = heading.current;
+    if (node === null) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    node.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" });
+    node.focus({ preventScroll: true });
+  }, [result]);
   if (result.quotes.length === 0) {
     const reasons = [...new Set(result.unavailable.flatMap((entry) => entry.reasons))];
     return (
       <section aria-labelledby="site-results-title" className="site-section">
-        <h2 id="site-results-title" className="site-section__title">
+        <h2 id="site-results-title" ref={heading} tabIndex={-1} className="site-section__title">
           没有可预订的车
         </h2>
         <ul className="site-reasons">
@@ -214,14 +227,14 @@ function Results({ result, city, draft, onChoose }: { result: SiteQuoteResult; c
   const expires = result.quotes.map((quote) => quote.expires_at).sort()[0] ?? null;
   return (
     <section aria-labelledby="site-results-title" className="site-section">
-      <h2 id="site-results-title" className="site-section__title">
+      <h2 id="site-results-title" ref={heading} tabIndex={-1} className="site-section__title">
         可预订的车（{result.quotes.length} 种）
       </h2>
       <p className="site-muted">
         {priceNote(draft.category)}报价 30 分钟内有效（到当地时间 {formatInZone(expires, city.timezone).slice(11)}），过了请重新查询。
       </p>
       <ul className="site-quotes">
-        {result.quotes.map((quote) => (
+        {quotesByTotal(result.quotes).map((quote) => (
           <QuoteCard key={quote.quote_id} quote={quote} draft={draft} onChoose={() => onChoose(quote)} />
         ))}
       </ul>
@@ -349,11 +362,11 @@ export function BookPage() {
   if (config.kind === "loading" || (open && cities.kind === "loading")) {
     body = <Skeleton lines={["long", "control", "control", "control", "control"]} label="正在打开预订页" />;
   } else if (config.kind === "failed") {
-    body = <StateBlock title="页面没有打开" description={config.message} action={<Button onClick={reloadConfig}>重试</Button>} />;
+    body = <StateBlock title="页面没有打开" description={config.message} action={<Button size="lg" onClick={reloadConfig}>重试</Button>} />;
   } else if (!config.config.open) {
     body = <StateBlock tone="neutral" title="暂未开放预订" description="官网的在线预订还没有开放，请稍后再来。已经下过单的客人可以点上方的「查订单」查看订单。" />;
   } else if (cities.kind === "failed") {
-    body = <StateBlock title="城市列表没有读出来" description={cities.message} action={<Button onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
+    body = <StateBlock title="城市列表没有读出来" description={cities.message} action={<Button size="lg" onClick={() => setRound((value) => value + 1)}>重试</Button>} />;
   } else if (cityList.length === 0) {
     body = <StateBlock tone="neutral" title="暂时没有可预订的城市" description="现在还没有可以在线预订用车的城市，请稍后再来。" />;
   } else {
@@ -411,7 +424,7 @@ export function BookPage() {
                 onChange={(direction) => update({ direction })}
               />
               {airports.state?.kind === "failed" ? (
-                <StateBlock headingLevel="h3" title="机场列表没有读出来" description={airports.state.message} action={<Button onClick={airports.retry}>重试</Button>} />
+                <StateBlock headingLevel="h3" title="机场列表没有读出来" description={airports.state.message} action={<Button size="lg" onClick={airports.retry}>重试</Button>} />
               ) : (
                 <SelectField
                   label="机场"
@@ -427,7 +440,7 @@ export function BookPage() {
           )}
           {draft.category === "charter" &&
             (packages.state?.kind === "failed" ? (
-              <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packages.state.message} action={<Button onClick={packages.retry}>重试</Button>} />
+              <StateBlock headingLevel="h3" title="包车时长没有读出来" description={packages.state.message} action={<Button size="lg" onClick={packages.retry}>重试</Button>} />
             ) : packages.state?.kind === "ready" && packageList.length === 0 ? (
               <StateBlock headingLevel="h3" tone="neutral" title="暂时没有可选的包车时长" description="这个城市的包车还没有可以预订的套餐，请换一种服务或换一个城市。" />
             ) : (

@@ -11,7 +11,7 @@ import { PRODUCT_STATUSES, SERVICE_CATEGORIES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type PlatformProductListEntry, type ProductTenantRef, getPlatformProduct, listPlatformProducts } from "../services/platform-products.ts";
 import { pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { adjustRulesJson, priceRulesJson } from "./prices.ts";
@@ -47,7 +47,7 @@ function listItemJson(entry: PlatformProductListEntry): Json {
 
 export function registerPlatformProductRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/platform/v1/products", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "product.read" });
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "product.read" });
     const query = parseInput(listQuerySchema, request.query, "querystring");
     const page = await listPlatformProducts(
       ctx,
@@ -67,7 +67,7 @@ export function registerPlatformProductRoutes(app: FastifyInstance, ctx: AppCont
   });
 
   app.get("/platform/v1/products/:id", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "product.read" });
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "product.read" });
     const found = await getPlatformProduct(ctx, resourceId(request.params, "商品"));
     return {
       tenant: tenantRefJson(found.tenant),

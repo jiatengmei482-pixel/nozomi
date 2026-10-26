@@ -15,6 +15,7 @@ import {
   type MarkupRule,
   type MarkupRuleInput,
   type NamedRef,
+  type PricingImpactRequest,
   activateChannel,
   createApiClient,
   listApiClients,
@@ -51,6 +52,7 @@ import { serverIssues } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { useAllCities } from "../master/shared.tsx";
+import { ImpactPreview } from "./PricingImpactPanel.tsx";
 
 const SUBMITTED = "已提交审核：另一位有审核权限的同事批准后才生效。可以在「待审核」里看进度。";
 
@@ -188,6 +190,9 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const reading = readRuleForm(form, Math.max(floorBp, 1_000));
+  // 试算不看「给审核人的说明」：改说明不让算过的结果作废
+  const ruleBody = reading.body === null ? null : { ...reading.body, request_note: null };
+  const impactRequest: PricingImpactRequest | null = ruleBody === null ? null : rule === null ? { kind: "markup_rule.create", rule: ruleBody } : { kind: "markup_rule.update", rule_id: rule.id, rule: ruleBody };
   const errorOf = (key: keyof RuleForm): string[] => (attempted && reading.errors[key] ? [reading.errors[key] as string] : []);
   const dims = LEVEL_DIMS[form.level];
   const change = (changes: Partial<RuleForm>): void => setForm((current) => ({ ...current, ...changes }));
@@ -254,6 +259,7 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
         <p className="field__hint">促销期用：按用车日期（城市当地），两端都含。同一级里，在日期范围内的规则优先于不带日期的。</p>
         <TextField label="备注（选填）" autoComplete="off" value={form.note} onChange={(event) => change({ note: event.target.value })} />
         <TextField label="给审核人的说明（选填）" autoComplete="off" value={form.requestNote} onChange={(event) => change({ requestNote: event.target.value })} />
+        <ImpactPreview channelId={channelId} request={impactRequest} />
       </form>
     </Dialog>
   );
@@ -287,21 +293,19 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
     rounding: roundingRead.some(([, read]) => !read.ok || read.minor < 1) ? "取整单位要填正数" : null,
   };
   const shown = (message: string | null): string[] => (attempted && message !== null ? [message] : []);
+  const valid = !Object.values(errors).some((value) => value !== null) && floorBp !== null && markupBp !== null && bandBp !== null && marginRead.ok;
+  const pricing =
+    valid && floorBp !== null && markupBp !== null && bandBp !== null && marginRead.ok
+      ? { default_markup_bp: markupBp, markup_floor_bp: floorBp, band_bp: bandBp, min_margin: marginRead.minor, sell_rounding: Object.fromEntries(roundingRead.flatMap(([currency, read]) => (read.ok ? [[currency, read.minor]] : []))) }
+      : null;
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     setAttempted(true);
     setProblem(null);
-    if (Object.values(errors).some((value) => value !== null) || floorBp === null || markupBp === null || bandBp === null || !marginRead.ok || busy) return;
+    if (pricing === null || busy) return;
     setBusy(true);
     try {
-      await requestPricingChange(token, channel.id, {
-        default_markup_bp: markupBp,
-        markup_floor_bp: floorBp,
-        band_bp: bandBp,
-        min_margin: marginRead.minor,
-        sell_rounding: Object.fromEntries(roundingRead.flatMap(([currency, read]) => (read.ok ? [[currency, read.minor]] : []))),
-        request_note: note.trim() === "" ? null : note.trim(),
-      });
+      await requestPricingChange(token, channel.id, { ...pricing, request_note: note.trim() === "" ? null : note.trim() });
       toast(SUBMITTED);
       onDone();
     } catch (err) {
@@ -347,6 +351,7 @@ function PricingDialog({ detail, onClose, onDone }: { detail: ChannelDetail; onC
           ))}
         </fieldset>
         <TextField label="给审核人的说明（选填）" autoComplete="off" value={note} onChange={(event) => setNote(event.target.value)} />
+        <ImpactPreview channelId={channel.id} request={pricing === null ? null : { kind: "channel.pricing", change: pricing }} />
       </form>
     </Dialog>
   );
@@ -818,6 +823,7 @@ export function ChannelDetailSections({ detail, onChanged, onReplace }: { detail
             <>
               <PendingNotice channelId={channel.id} target={{ kind: "rule", ruleId: dialog.rule.id }} />
               <p>{`「${ruleScopeText(dialog.rule)} = ${percentText(dialog.rule.markup_bp)}」。提交后要另一位同事批准才删除；删除后这些情况改按下一级的规则或默认加价比例。`}</p>
+              <ImpactPreview channelId={channel.id} request={{ kind: "markup_rule.delete", rule_id: dialog.rule.id }} auto />
             </>
           }
           confirmLabel="提交审核"

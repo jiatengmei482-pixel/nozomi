@@ -40,6 +40,8 @@ test("前端用到的渠道和复核接口都在 openapi.yaml 里", () => {
     ["post", `${APPROVALS_PATH}/{id}/approve`],
     ["post", `${APPROVALS_PATH}/{id}/reject`],
     ["post", `${APPROVALS_PATH}/{id}/withdraw`],
+    ["post", `${CHANNELS_PATH}/{id}/pricing-impact`],
+    ["post", `${APPROVALS_PATH}/{id}/pricing-impact`],
   ];
   for (const [method, path] of expected) assert.ok(spec.paths[path]?.[method], `${method.toUpperCase()} ${path}`);
 });
@@ -51,6 +53,10 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的", () => {
     ["ChannelScope", schemas["Channel"]?.properties?.["scope"]],
     ["MarkupRule", schemas["MarkupRule"]],
     ["Approval", schemas["Approval"]],
+    ["PricingImpact", schemas["PricingImpact"]],
+    ["PricingImpactSection", schemas["PricingImpactSection"]],
+    ["PricingImpactOrderSection", schemas["PricingImpactOrderSection"]],
+    ["PricingImpactTotals", schemas["PricingImpactTotals"]],
     ["ApiClient", schemas["ApiClient"]],
     ["QuoteLogEntry", schemas["QuoteLogList"]?.properties?.["items"]?.items],
   ];
@@ -72,6 +78,17 @@ test("请求体：页面发的字段都是接口认的，接口必填的页面�
     for (const field of schemas[theirs]?.required ?? []) assert.ok((CHANNEL_SCHEMA_FIELDS[mine] as readonly string[]).includes(field), `页面没有发 ${theirs} 必填的 ${field}`);
   }
   assert.deepEqual(props(schemas["ChannelPricingChangeRequest"]), sorted([...CHANNEL_SCHEMA_FIELDS.ChannelPricing, "request_note"]));
+});
+
+test("试算的请求体：四种改动和复核的类别一一对应，里面的内容和发起复核的请求体是同一个定义", () => {
+  const options = (spec.components.schemas["PricingImpactRequest"] as { oneOf?: Schema[] }).oneOf ?? [];
+  const shapes = options.map((option) => [option.properties?.["kind"]?.enum?.[0], sorted(option.required ?? []), option.properties?.["change"]?.$ref ?? option.properties?.["rule"]?.$ref ?? null]);
+  assert.deepEqual(shapes, [
+    ["channel.pricing", ["change", "kind"], "#/components/schemas/ChannelPricingChangeRequest"],
+    ["markup_rule.create", ["kind", "rule"], "#/components/schemas/MarkupRuleRequest"],
+    ["markup_rule.update", ["kind", "rule", "rule_id"], "#/components/schemas/MarkupRuleRequest"],
+    ["markup_rule.delete", ["kind", "rule_id"], null],
+  ]);
 });
 
 test("枚举与 @nozomi/domain 一致：渠道类型、状态、可卖租户的方式、复核状态、平台操作", () => {

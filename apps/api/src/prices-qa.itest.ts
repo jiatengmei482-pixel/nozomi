@@ -879,7 +879,7 @@ test("平台节假日接口的权限：只有超级管理员和主数据运营�
   const staff = async (email: string, role: string): Promise<string> => {
     const invited = await ok(platform("POST", "/staff", { email, name: email, role }), 201);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-    return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+    return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
   };
   const editor = await staff("qa-holiday-editor@platform.test", "master_data");
   const key = "holiday";
