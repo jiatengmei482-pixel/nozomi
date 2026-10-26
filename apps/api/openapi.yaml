@@ -9403,8 +9403,10 @@ paths:
     get:
       tags: [ 官网 ]
       operationId: listSiteCities
-      summary: 能预订接送机的城市
-      description: 启用的、在官网渠道授权范围里、有渠道卖的供应商上架了接送机商品的城市。名称来自 GeoNames（CC BY 4.0，页面要带署名）。
+      summary: 能预订的城市和各自能订的品类
+      description: |
+        启用的、在官网渠道授权范围里、有渠道卖的供应商上架了商品的城市；`categories` 是这个城市能在官网预订的品类（接送机、点对点、包车，M3-10），
+        品类本身也要在渠道的授权里。名称来自 GeoNames（CC BY 4.0，页面要带署名）。每个地址每分钟 120 次。
       responses:
         "200":
           description: 城市
@@ -9451,13 +9453,76 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/charter-packages:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteCharterPackages
+      summary: 这个城市能选的包车套餐时长
+      description: |
+        渠道卖的供应商上架的包车商品里，启用且到城市当地今天还没过期的价格规则的套餐时长（小时，从短到长、不重复）。
+        城市或包车不在渠道授权里、城市不存在时为空列表。某个时长那一天到底报不报得出价，询价时再看。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 套餐时长
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteCharterPackage"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/cities/{id}/places:
+    get:
+      tags: [ 官网 ]
+      operationId: listSitePlaces
+      summary: 地址输入辅助：城市里的机场、车站、地标
+      description: |
+        平台维护的主数据里这个城市启用的机场、车站、地标（不含航站楼、出口），按种类（机场、车站、地标）和编码排，最多 500 个。
+        客人选一个，页面把名称和坐标填进地址那一栏；不调用任何外部地图或地址搜索服务（那要谷歌地图的密钥，M2-02）。
+        城市不存在或停用时为空列表。机场数据来自 OurAirports（公有领域），中文、日文名来自 GeoNames。每个地址每分钟 120 次。
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SitePlace"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/quotes:
     post:
       tags: [ 官网 ]
       operationId: createSiteQuotes
-      summary: 官网询价（接送机）
+      summary: 官网询价（接送机、点对点、包车）
       description: |
         服务端以官网渠道的身份走正式询价（和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
+        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+        该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
       requestBody:
@@ -9487,13 +9552,13 @@ paths:
                     items:
                       $ref: "#/components/schemas/SiteUnavailable"
         "400":
-          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）等写得不对"
+          description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）、这个品类该填的没填（`REQUIRED`）或不该填的填了（`NOT_APPLICABLE`）等"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`CHANNEL_SCOPE_DENIED`：这个城市官网不卖"
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖"
           content:
             application/json:
               schema:
@@ -19272,8 +19337,13 @@ components:
     SiteCity:
       type: object
       additionalProperties: false
-      required: [ id, code, name, timezone, country_code ]
+      required: [ id, code, name, timezone, country_code, categories ]
       properties:
+        categories:
+          type: array
+          description: 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车）；至少一种
+          items:
+            $ref: "#/components/schemas/ServiceCategory"
         id:
           type: string
           format: uuid
@@ -19306,35 +19376,83 @@ components:
               type: number
             lat:
               type: number
+    SitePoint:
+      type: object
+      additionalProperties: false
+      required: [ lng, lat ]
+      properties:
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+    SiteCharterPackage:
+      type: object
+      additionalProperties: false
+      required: [ hours ]
+      properties:
+        hours:
+          type: integer
+          minimum: 1
+          description: 套餐时长（小时）
+    SitePlace:
+      type: object
+      additionalProperties: false
+      required: [ id, type, code, name, address, location ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [ airport, station, poi ]
+          description: airport 机场 / station 车站 / poi 地标
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        address:
+          type: [ string, "null" ]
+          description: 地标的地址（主数据里有才有）
+        location:
+          $ref: "#/components/schemas/SitePoint"
     SiteQuoteRequest:
       type: object
       additionalProperties: false
-      required: [ city_id, airport_id, direction, address, service_local, passengers ]
+      required: [ city_id, service_local, passengers ]
+      description: 各品类要填的字段不同（见 `POST /site/v1/quotes`）；不属于这个品类的字段不要填
       properties:
+        category:
+          $ref: "#/components/schemas/ServiceCategory"
+          description: 不填是接送机
         city_id:
           type: string
           format: uuid
         airport_id:
           type: string
           format: uuid
+          description: 接送机：机场
         direction:
           type: string
           enum: [ pickup, dropoff ]
-          description: pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
+          description: 接送机：pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场）
         address:
-          type: object
-          additionalProperties: false
-          required: [ lng, lat ]
-          description: 地址那一端的坐标
-          properties:
-            lng:
-              type: number
-              minimum: -180
-              maximum: 180
-            lat:
-              type: number
-              minimum: -90
-              maximum: 90
+          $ref: "#/components/schemas/SitePoint"
+          description: 接送机：地址那一端的坐标
+        pickup:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点、包车：上车点的坐标
+        dropoff:
+          $ref: "#/components/schemas/SitePoint"
+          description: 点对点：下车点的坐标
+        package_hours:
+          type: integer
+          minimum: 1
+          maximum: 72
+          description: 包车：套餐时长（小时），从 `GET /site/v1/cities/{id}/charter-packages` 里选
         service_local:
           type: string
           pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
@@ -19351,8 +19469,20 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, price, free_wait_minutes, cancel_policy ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy ]
       properties:
+        package:
+          description: 包车：套餐时长和含的公里数（超时、超公里服务后按实际加收）；其他品类 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ hours, km ]
+              properties:
+                hours:
+                  type: integer
+                km:
+                  type: [ integer, "null" ]
+            - type: "null"
         quote_id:
           type: string
           pattern: "^QT\\d{8}[0-9A-Z]{10}$"

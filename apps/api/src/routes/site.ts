@@ -4,8 +4,10 @@
  *
  * 接新单（官网暂未开放时 503 `SITE_NOT_OPEN`）：
  * - `GET /site/v1/config`：开没开、币种、Stripe 的 publishable key（只有它）；
- * - `GET /site/v1/cities`、`GET /site/v1/cities/{id}/airports`：能预订接送机的城市和机场；
- * - `POST /site/v1/quotes`：询价（每个地址每分钟 30 次）；
+ * - `GET /site/v1/cities`：能预订的城市和各自能订的品类（接送机、点对点、包车）；
+ * - `GET /site/v1/cities/{id}/airports`：能预订接送机的机场；`GET …/charter-packages`：能选的包车套餐时长（M3-10）；
+ * - `GET /site/v1/cities/{id}/places`：地址输入辅助——城市里的机场、车站、地标（主数据，不调外部地图服务，M3-10）；
+ * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱或手机号找回（每个地址 15 分钟 10 次；每个订单号每小时 10 次失败，对上的不受订单号额度限制）；
@@ -16,7 +18,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS } from "@nozomi/domain";
+import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -24,25 +26,68 @@ import { cancelForChannel, previewCancellation } from "../services/cancellations
 import { disputeExtraCharge } from "../services/extra-charges.ts";
 import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
-import { type SiteLink, type SiteQuote, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCities, siteConfig, siteOrderExtras, siteQuotes, takeSiteSlot } from "../services/site.ts";
+import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, takeSiteSlot } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
-import { idempotencyKey, ifMatchVersion, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { paymentJson, salesOrderJson } from "./sales.ts";
 
 type Json = Record<string, unknown>;
 
+const pointSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict();
+
+/**
+ * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
+ * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+ * 该给的没给是 `REQUIRED`，不该给的给了是 `NOT_APPLICABLE`（和 `/sales/v1` 同一种说法），见 `siteTripOf`。
+ */
 const quoteSchema = z
   .object({
+    category: z.enum(SERVICE_CATEGORIES).default("airport_transfer"),
     city_id: uuidSchema,
-    airport_id: uuidSchema,
-    direction: z.enum(["pickup", "dropoff"]),
-    address: z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict(),
+    airport_id: uuidSchema.optional(),
+    direction: z.enum(["pickup", "dropoff"]).optional(),
+    address: pointSchema.optional(),
+    pickup: pointSchema.optional(),
+    dropoff: pointSchema.optional(),
+    package_hours: z.number().int().min(1).max(PRICE_LIMITS.maxPackageHours).optional(),
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
   })
   .strict();
+
+type QuoteBody = z.output<typeof quoteSchema>;
+type TripField = "airport_id" | "direction" | "address" | "pickup" | "dropoff" | "package_hours";
+
+const TRIP_FIELDS: Readonly<Record<QuoteBody["category"], readonly TripField[]>> = {
+  airport_transfer: ["airport_id", "direction", "address"],
+  point_to_point: ["pickup", "dropoff"],
+  charter: ["pickup", "package_hours"],
+};
+const TRIP_FIELD_NAMES: Readonly<Record<TripField, string>> = { airport_id: "机场", direction: "接机还是送机", address: "地址那一端的坐标", pickup: "上车点的坐标", dropoff: "下车点的坐标", package_hours: "包车套餐时长" };
+const CATEGORY_NAMES: Readonly<Record<QuoteBody["category"], string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
+
+/** 按品类核对该给的字段给了、不该给的没给，换成服务层的行程。 */
+export function siteTripOf(body: QuoteBody): SiteTrip {
+  const needed = TRIP_FIELDS[body.category];
+  const issues: InputIssue[] = [];
+  for (const field of Object.keys(TRIP_FIELD_NAMES) as TripField[]) {
+    const given = body[field] !== undefined;
+    if (needed.includes(field) && !given) issues.push({ path: `/${field}`, reason: "REQUIRED", message: `${CATEGORY_NAMES[body.category]}要填${TRIP_FIELD_NAMES[field]}` });
+    if (!needed.includes(field) && given) issues.push({ path: `/${field}`, reason: "NOT_APPLICABLE", message: `${CATEGORY_NAMES[body.category]}不用填${TRIP_FIELD_NAMES[field]}（请删掉）` });
+  }
+  if (issues.length > 0) throw validationFailed("body", issues);
+  const { airport_id: airportId, direction, address, pickup, dropoff, package_hours: packageHours } = body;
+  switch (body.category) {
+    case "airport_transfer":
+      return { category: "airport_transfer", airportId: airportId as string, direction: direction as "pickup" | "dropoff", address: address as { lng: number; lat: number } };
+    case "point_to_point":
+      return { category: "point_to_point", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number } };
+    case "charter":
+      return { category: "charter", pickup: pickup as { lng: number; lat: number }, packageHours: packageHours as number };
+  }
+}
 
 const text = (max: number) => z.string().max(max).nullable().default(null);
 const orderSchema = z
@@ -78,6 +123,7 @@ function quoteJson(quote: SiteQuote): Json {
     service_date: quote.serviceDate,
     urgent: quote.urgent,
     vehicle_group: { id: group.id, code: group.code, name: group.name, grade: group.grade, seats: group.seats, sample_models: group.sampleModels, combos: group.combos },
+    package: quote.packageHours === null ? null : { hours: quote.packageHours, km: quote.packageKm },
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
@@ -127,7 +173,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/cities", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const cities = await siteCities(ctx);
-    return { items: cities.map((city) => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone, country_code: city.countryCode })) };
+    return { items: cities.map((city) => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone, country_code: city.countryCode, categories: city.categories })) };
   });
 
   app.get("/site/v1/cities/:id/airports", async (request) => {
@@ -136,10 +182,23 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { items: airports.map((airport) => ({ id: airport.id, code: airport.code, name: airport.name, location: { lng: airport.lng, lat: airport.lat } })) };
   });
 
+  app.get("/site/v1/cities/:id/charter-packages", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const hours = await siteCharterPackages(ctx, resourceId(request.params, "城市"));
+    return { items: hours.map((value) => ({ hours: value })) };
+  });
+
+  app.get("/site/v1/cities/:id/places", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
+    return { items: places.map((place) => ({ id: place.id, type: place.type, code: place.code, name: place.name, address: place.address, location: { lng: place.lng, lat: place.lat } })) };
+  });
+
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
-    const result = await siteQuotes(ctx, { cityId: input.city_id, airportId: input.airport_id, direction: input.direction, address: input.address, serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage });
+    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage };
+    const result = await siteQuotes(ctx, quoteInput);
     return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
   });
 
