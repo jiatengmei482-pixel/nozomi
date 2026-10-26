@@ -245,23 +245,6 @@ test("首页统计：每个角色都能调；租户数量只给有 tenant.read �
   assert.equal((await api.call("GET", "/platform/v1/dashboard/summary")).status, 401);
 });
 
-test("同事名单（M4-03）：每个角色都能调；只有编号、姓名、是否在用，不含还没接受邀请的；停用的标出来；没登录 401", async () => {
-  const invited = await api.call("POST", "/platform/v1/staff", { token: rootToken, body: { email: "colleague-invited@platform.test", name: "还没接受邀请", role: "readonly" } });
-  assert.equal(invited.status, 201, invited.text);
-  const left = await addStaff("colleague-left@platform.test", "readonly");
-  assert.equal((await api.call("POST", `/platform/v1/staff/${left.id}/disable`, { token: rootToken })).status, 200);
-  for (const { key: role } of PLATFORM_ROLES) {
-    const res = await api.call("GET", "/platform/v1/colleagues", { token: tokens.get(role)! });
-    assert.equal(res.status, 200, role);
-    assertMatchesOpenApi("GET", "/platform/v1/colleagues", res);
-    for (const item of res.body.items) assert.deepEqual(Object.keys(item).sort(), ["active", "id", "name"], role);
-    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === ids.get("finance") && item.active), role);
-    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === left.id && !item.active), role);
-    assert.equal(res.body.items.some((item: { id: string }) => item.id === invited.body.user.id), false, role);
-  }
-  assert.equal((await api.call("GET", "/platform/v1/colleagues")).status, 401);
-});
-
 test("me：返回当前账号和它的操作清单；每个角色都能调", async () => {
   for (const { key: role } of PLATFORM_ROLES) {
     const res = await api.call("GET", "/platform/v1/auth/me", { token: tokens.get(role)! });
@@ -402,6 +385,24 @@ test("平台账号：创建时校验角色和邮箱；邮箱已激活时 409；�
   assert.equal(list.body.items.length, PLATFORM_ROLES.length);
   assert.ok(list.body.items.some((u: any) => u.email === "root@platform.test" && u.role === "super_admin"));
   assert.ok(!list.text.includes("password") && !list.text.includes("scrypt") && !list.text.includes("invite"));
+});
+
+// 排在「平台账号」之后：这里会多建两个员工（一个没接受邀请、一个停用的），前面的用例按员工人数断言；后面的用例会停用超级管理员
+test("同事名单（M4-03）：每个角色都能调；只有编号、姓名、是否在用，不含还没接受邀请的；停用的标出来；没登录 401", async () => {
+  const invited = await api.call("POST", "/platform/v1/staff", { token: rootToken, body: { email: "colleague-invited@platform.test", name: "还没接受邀请", role: "readonly" } });
+  assert.equal(invited.status, 201, invited.text);
+  const left = await addStaff("colleague-left@platform.test", "readonly");
+  assert.equal((await api.call("POST", `/platform/v1/staff/${left.id}/disable`, { token: rootToken })).status, 200);
+  for (const { key: role } of PLATFORM_ROLES) {
+    const res = await api.call("GET", "/platform/v1/colleagues", { token: tokens.get(role)! });
+    assert.equal(res.status, 200, role);
+    assertMatchesOpenApi("GET", "/platform/v1/colleagues", res);
+    for (const item of res.body.items) assert.deepEqual(Object.keys(item).sort(), ["active", "id", "name"], role);
+    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === ids.get("finance") && item.active), role);
+    assert.ok(res.body.items.some((item: { id: string; active: boolean }) => item.id === left.id && !item.active), role);
+    assert.equal(res.body.items.some((item: { id: string }) => item.id === invited.body.user.id), false, role);
+  }
+  assert.equal((await api.call("GET", "/platform/v1/colleagues")).status, 401);
 });
 
 test("超级管理员至少保留一个：唯一的超级管理员不能停用自己；有第二个之后可以", async () => {
