@@ -59,13 +59,15 @@ export function TextField({ label, errors = [], hint, size = "md", suffix, class
 
 export interface PasswordFieldProps extends Omit<TextFieldProps, "type" | "suffix"> {
   ref?: Ref<HTMLInputElement>;
+  /** 显示 / 隐藏按钮上说的是什么（默认「密码」；填密钥的框写「密钥」） */
+  noun?: string;
 }
 
 /**
  * 密码框：右端有「显示密码 / 隐藏密码」按钮，点击后焦点留在密码框。
  * 所在表单每次提交（不管前端校验过没过）都自动切回隐藏。
  */
-export function PasswordField({ ref, ...rest }: PasswordFieldProps) {
+export function PasswordField({ ref, noun = "密码", ...rest }: PasswordFieldProps) {
   const [revealed, setRevealed] = useState(false);
   const [input, setInput] = useState<HTMLInputElement | null>(null);
 
@@ -92,7 +94,7 @@ export function PasswordField({ ref, ...rest }: PasswordFieldProps) {
         <button
           type="button"
           className="input-suffix-button"
-          aria-label={revealed ? "隐藏密码" : "显示密码"}
+          aria-label={revealed ? `隐藏${noun}` : `显示${noun}`}
           aria-pressed={revealed}
           onClick={() => {
             setRevealed((current) => !current);
@@ -101,7 +103,7 @@ export function PasswordField({ ref, ...rest }: PasswordFieldProps) {
         >
           <Icon name={revealed ? "eye-off" : "eye"} />
           <span className="tooltip tooltip--end" aria-hidden="true">
-            {revealed ? "隐藏密码" : "显示密码"}
+            {revealed ? `隐藏${noun}` : `显示${noun}`}
           </span>
         </button>
       }

@@ -18,7 +18,7 @@ import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { type OffSessionChargeResult, PaymentProviderError } from "../integrations/payments.ts";
 import { type Order, type OrderPayment, type OrderSale, findOrderForPlatform, findPaymentById, findSale, listOrderPayments, updateOrderPayment } from "../repos/orders.ts";
 import { type OrderRefund, type RefundPurpose, findRefund, insertRefund, listDueRefunds, listOrderRefunds, refundedByPayment, syncPaymentRefunded, updateRefund } from "../repos/refunds.ts";
-import type { OrderLog } from "./orders.ts";
+import { type OrderLog, PAYMENT_SETUP_HINT } from "./orders.ts";
 import { AppError } from "../errors.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
@@ -80,7 +80,7 @@ export async function processRefund(ctx: AppContext, refundId: string, log: Orde
     if (next === null) log.error({ event: "refund.failed", refundId: refund.id, orderId: refund.orderId, code }, "退款失败：需要财务核实（支付异常）");
     return next === null ? "failed" : "retry";
   };
-  if (provider === null) return fail("PAYMENT_NOT_CONFIGURED", "支付未配置，不能退款", true);
+  if (provider === null) return fail("PAYMENT_NOT_CONFIGURED", `支付未配置，不能退款。${PAYMENT_SETUP_HINT}`, true);
   if (payment.intentId === null) return fail("NO_PAYMENT_INTENT", "这笔收款没有收款服务的付款编号", false);
   try {
     const result = await provider.refundPayment({ refundId: refund.id, intentId: payment.intentId, amountMinor: refund.amountMinor, orderId: refund.orderId, orderNo });
@@ -184,7 +184,7 @@ export async function processDueRefunds(ctx: AppContext, log: OrderLog, limit = 
  */
 export async function chargeOffSession(ctx: AppContext, payment: OrderPayment, input: { orderNo: string; description: string }): Promise<OffSessionChargeResult> {
   const provider = ctx.payments;
-  if (provider === null) throw new PaymentProviderError("PAYMENT_PROVIDER_UNAVAILABLE", "支付未配置");
+  if (provider === null) throw new PaymentProviderError("PAYMENT_PROVIDER_UNAVAILABLE", `支付未配置。${PAYMENT_SETUP_HINT}`);
   const result = await provider.chargeSavedPaymentMethod({
     paymentId: payment.id,
     orderId: payment.orderId,

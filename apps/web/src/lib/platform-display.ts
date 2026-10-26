@@ -84,6 +84,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",
   "integration.read": "看系统状态",
+  "integration.manage": "管理第三方密钥（在后台填写、更换、清空和测试谷歌地图、Stripe 的密钥）",
   "role.read": "看角色",
   "role.manage": "新建角色、发起角色的修改（要另一位超级管理员审核）",
   "role.review": "审核角色的修改",

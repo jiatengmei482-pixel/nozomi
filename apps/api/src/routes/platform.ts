@@ -24,6 +24,7 @@ import {
   checkPlatformResetToken,
   platformLogin,
   platformLogout,
+  principalCan,
   resetPlatformPassword,
 } from "../services/platform-auth.ts";
 import { inviteStaff, issueStaffPasswordReset, listStaff, setStaffStatus } from "../services/platform-staff.ts";
@@ -302,7 +303,8 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
       return { current, last: await latestFetch(db) };
     });
     return {
-      items: integrationStatus(ctx.config),
+      // 谷歌地图、Stripe 按生效的值、标出来源（ADR 0041）；打码后的末 4 位只给能管理密钥的人（超级管理员）
+      items: integrationStatus(ctx.config, { effective: ctx.integrations.effective, hints: principalCan(principal, "integration.manage") }),
       // 汇率数据源的运行状态（ADR 0022）：超过 48 小时没更新是 stale，跨币种报价已暂停
       fx_center: {
         state: fxTableState(fx.current?.asOf.toISOString() ?? null, now),

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import { PaymentProviderError, PaymentWebhookPayloadError } from "./payments.ts";
-import { StripePaymentProvider, normalizeStripeEvent, paymentFromIntent } from "./stripe.ts";
+import { StripePaymentProvider, checkStripeKey, normalizeStripeEvent, paymentFromIntent } from "./stripe.ts";
 import { StripeSignatureError, stripeSignatureHeader } from "./stripe-signature.ts";
 
 interface Seen {
@@ -206,4 +206,28 @@ test("退款的通知（refund.updated / refund.failed / charge.refund.updated�
   }
   assert.throws(() => normalizeStripeEvent(event("refund.updated", { ...object, status: "weird" })), PaymentWebhookPayloadError);
   assert.throws(() => normalizeStripeEvent(event("refund.updated", { ...object, object: "charge" })), PaymentWebhookPayloadError);
+});
+
+test("「测试一下」（M4-09，ADR 0041）：只读查余额（GET /v1/balance，用的是给的 secret key）；livemode 对得上才算可用", async () => {
+  const keys = { secretKey, publishableKey: `pk_test_${randomBytes(12).toString("hex")}`, webhookSecret, mode: "test" as const };
+  const endpoint = { host: "127.0.0.1", port, protocol: "http" as const };
+  seen.length = 0;
+  handler = () => ({ status: 200, body: { object: "balance", livemode: false, available: [], pending: [] } });
+  assert.deepEqual(await checkStripeKey(keys, { endpoint }), { ok: true });
+  assert.deepEqual(seen.map((entry) => [entry.method, entry.path, entry.headers.authorization]), [["GET", "/v1/balance", `Bearer ${secretKey}`]]);
+  handler = () => ({ status: 200, body: { object: "balance", livemode: true, available: [], pending: [] } });
+  assert.equal((await checkStripeKey(keys, { endpoint })).ok, false);
+  const codeOf = async (status: number, body: unknown): Promise<string | null> => {
+    handler = () => ({ status, body });
+    const result = await checkStripeKey(keys, { endpoint, maxNetworkRetries: 0 });
+    assert.ok(!JSON.stringify(result).includes(secretKey));
+    return result.ok ? null : result.code;
+  };
+  assert.equal(await codeOf(401, { error: { type: "invalid_request_error", message: `Invalid API Key provided: ${secretKey}` } }), "KEY_INVALID");
+  assert.equal(await codeOf(403, { error: { type: "invalid_request_error", message: "restricted" } }), "PERMISSION_DENIED");
+  assert.equal(await codeOf(429, { error: { type: "invalid_request_error", code: "rate_limit" } }), "QUOTA_EXCEEDED");
+  assert.equal(await codeOf(500, { error: { type: "api_error" } }), "UNAVAILABLE");
+  handler = () => ({ status: 200, body: {}, delayMs: 1_500 });
+  assert.deepEqual(await checkStripeKey(keys, { endpoint, timeoutMs: 200, maxNetworkRetries: 0 }).then((r) => (r.ok ? null : r.code)), "TIMEOUT");
+  assert.deepEqual(await checkStripeKey(keys, { endpoint: { host: "127.0.0.1", port: 1, protocol: "http" }, maxNetworkRetries: 0 }).then((r) => (r.ok ? null : r.code)), "UNREACHABLE");
 });

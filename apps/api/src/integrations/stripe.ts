@@ -31,6 +31,7 @@ import {
   type RefundInput,
 } from "./payments.ts";
 import { verifyStripeSignature } from "./stripe-signature.ts";
+import { type IntegrationCheckResult, checkFailed } from "./integration-check.ts";
 
 /** 每次请求最多等多久（毫秒） */
 export const STRIPE_TIMEOUT_MS = 10_000;
@@ -40,8 +41,8 @@ export const STRIPE_MAX_NETWORK_RETRIES = 2;
 export interface StripeProviderOptions {
   timeoutMs?: number;
   maxNetworkRetries?: number;
-  /** 只给单元测试用：把请求发到本机的假服务上（不连 Stripe） */
-  endpoint?: { host: string; port: number; protocol: "http" | "https" };
+  /** 把请求发到本机的假服务上（不连 Stripe）：单元测试直接给；集成测试和端到端测试经配置 `STRIPE_API_URL`（只有 local / ci 能配） */
+  endpoint?: { host: string; port: number; protocol: "http" | "https" } | null;
 }
 
 type Json = Record<string, unknown>;
@@ -159,6 +160,51 @@ export function toProviderError(err: unknown): PaymentProviderError {
   return new PaymentProviderError("PAYMENT_PROVIDER_UNAVAILABLE", "调用 Stripe 时出错");
 }
 
+function stripeClient(secretKey: string, options: StripeProviderOptions): Stripe {
+  return new Stripe(secretKey, {
+    apiVersion: Stripe.API_VERSION,
+    timeout: options.timeoutMs ?? STRIPE_TIMEOUT_MS,
+    maxNetworkRetries: options.maxNetworkRetries ?? STRIPE_MAX_NETWORK_RETRIES,
+    telemetry: false,
+    appInfo: { name: "nozomi-platform" },
+    ...(options.endpoint === undefined || options.endpoint === null ? {} : { host: options.endpoint.host, port: options.endpoint.port, protocol: options.endpoint.protocol }),
+  });
+}
+
+/** 「测试一下」：每次最多等 8 秒（页面上有人等着），连不上、超时、5xx 由官方库再试 1 次。 */
+export const STRIPE_CHECK_TIMEOUT_MS = 8_000;
+
+/**
+ * 运营后台的「测试一下」（M4-09，ADR 0041）：用 secret key 做一次只读调用——查余额（GET /v1/balance），不产生任何费用、不改任何数据。
+ * 余额的 `livemode` 和密钥的测试 / 正式对不上时也算不可用。publishable key、webhook signing secret 没有只读的验证办法（前者由浏览器用，后者只在收到通知时验签），只核对格式。
+ * 永远不抛异常：结果就是「可用」或「不可用 + 原因」；原因说明是我们自己写的，不带 Stripe 返回的原文。
+ */
+export async function checkStripeKey(config: StripeConfig, options: StripeProviderOptions = {}): Promise<IntegrationCheckResult> {
+  const client = stripeClient(config.secretKey, { timeoutMs: STRIPE_CHECK_TIMEOUT_MS, maxNetworkRetries: 1, ...options });
+  try {
+    const balance = await client.balance.retrieve();
+    return balance.livemode === (config.mode === "live") ? { ok: true } : checkFailed("MODE_MISMATCH");
+  } catch (err) {
+    if (!(err instanceof Stripe.errors.StripeError)) return checkFailed("UNEXPECTED");
+    switch (err.type) {
+      case "StripeAuthenticationError":
+        return checkFailed("KEY_INVALID");
+      case "StripePermissionError":
+        return checkFailed("PERMISSION_DENIED");
+      case "StripeRateLimitError":
+        return checkFailed("QUOTA_EXCEEDED");
+      case "StripeConnectionError": {
+        const detail = (err as { detail?: { code?: unknown } }).detail;
+        return checkFailed(detail?.code === "ETIMEDOUT" ? "TIMEOUT" : "UNREACHABLE");
+      }
+      case "StripeAPIError":
+        return checkFailed("UNAVAILABLE");
+      default:
+        return checkFailed("UNEXPECTED");
+    }
+  }
+}
+
 export class StripePaymentProvider implements PaymentProvider {
   readonly name = "stripe" as const;
   readonly publishableKey: string;
@@ -170,14 +216,7 @@ export class StripePaymentProvider implements PaymentProvider {
     this.publishableKey = config.publishableKey;
     this.livemode = config.mode === "live";
     this.#webhookSecret = config.webhookSecret;
-    this.#client = new Stripe(config.secretKey, {
-      apiVersion: Stripe.API_VERSION,
-      timeout: options.timeoutMs ?? STRIPE_TIMEOUT_MS,
-      maxNetworkRetries: options.maxNetworkRetries ?? STRIPE_MAX_NETWORK_RETRIES,
-      telemetry: false,
-      appInfo: { name: "nozomi-platform" },
-      ...(options.endpoint === undefined ? {} : { host: options.endpoint.host, port: options.endpoint.port, protocol: options.endpoint.protocol }),
-    });
+    this.#client = stripeClient(config.secretKey, options);
   }
 
   async #call<T>(run: () => Promise<T>): Promise<T> {

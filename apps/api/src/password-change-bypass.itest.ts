@@ -112,7 +112,7 @@ const AREA_BODY = {
 const PRICE_BODY = { area_id: "99999999-9999-4999-8999-999999999999", vehicle_group_id: "99999999-9999-4999-8999-999999999999", pricing_model: "fixed", base_price: 1, valid_from: "2026-10-01" };
 const ADJUST_BODY = { name: "不该出现的调价", cycle: { type: "daily" }, steps: [{ type: "percent", value: 1_000 }] };
 
-function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; holiday?: { country: string; date: string } }): [HttpMethod, string, unknown?][] {
+function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; holiday?: { country: string; date: string }; integration?: string }): [HttpMethod, string, unknown?][] {
   if (entry === "platform") {
     return [
       ["GET", "/platform/v1/dashboard/summary"],
@@ -154,6 +154,11 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/tenants/${ids.tenantId}/admin-password-resets`, { email: "admin@a.test" }],
       ["GET", "/platform/v1/audit-logs"],
       ["GET", "/platform/v1/integrations"],
+      // 运营后台填写的第三方密钥（M4-09，ADR 0041）
+      ["GET", "/platform/v1/integration-secrets"],
+      ["PUT", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`, { api_key: "AIzaBypassBypassBypassBypass0001" }],
+      ["DELETE", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}`],
+      ["POST", `/platform/v1/integration-secrets/${ids.integration ?? "google-maps"}/test`],
       ["GET", "/platform/v1/products"],
       ["GET", `/platform/v1/products/${ids.userId}`],
       ["GET", "/platform/v1/orders"],
@@ -389,7 +394,7 @@ test("清单没有漏：上面手写的「业务接口」覆盖了全部已注�
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();
   const listed = (["platform", "tenant"] as const)
-    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id", holiday: { country: ":id", date: ":id" } }).map(([method, url]) => `${method} ${url}`))
+    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id", holiday: { country: ":id", date: ":id" }, integration: ":id" }).map(([method, url]) => `${method} ${url}`))
     .sort();
   assert.deepEqual(listed, registered, "新增了业务接口：请把它加进 generalRequests，让下面的用例也覆盖到它");
 });
