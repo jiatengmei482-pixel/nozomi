@@ -29,6 +29,17 @@ test("关键字长短：至少 2 个字、最多 100 个字，按字符数（不
   assert.equal(placeQueryIssue("a".repeat(101)), "TOO_LONG");
 });
 
+test("纯表情、纯符号不能搜：字母、数字、汉字、假名合计至少 2 个", () => {
+  assert.equal(placeQueryIssue("😀😀"), "TOO_SHORT");
+  assert.equal(placeQueryIssue("😀".repeat(100)), "TOO_SHORT");
+  assert.equal(placeQueryIssue("!? #"), "TOO_SHORT");
+  assert.equal(placeQueryIssue("新😀"), "TOO_SHORT");
+  assert.equal(placeQueryIssue("新宿😀"), null);
+  assert.equal(placeQueryIssue("7 11"), null);
+  assert.equal(placeQueryIssue("ホテ"), null);
+  assert.equal(placeQueryIssue("😀".repeat(101)), "TOO_LONG");
+});
+
 test("搜索的缓存键：城市 + 关键字，不分大小写", () => {
   assert.equal(placeSearchCacheKey("c1", "Hilton Tokyo"), placeSearchCacheKey("c1", "hilton tokyo"));
   assert.notEqual(placeSearchCacheKey("c1", "hilton"), placeSearchCacheKey("c2", "hilton"));

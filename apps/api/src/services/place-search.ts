@@ -53,7 +53,7 @@ export class GooglePlaceSearch {
   readonly #inflight = new Map<string, Promise<PlaceLookup<unknown>>>();
   /** 进程内短时缓存：键 → 结果和到期时刻（单调时钟）；先进先出，最多 `PLACE_SEARCH_RULES.cacheMaxEntries` 条 */
   readonly #cache = new Map<string, { result: Cached; until: number }>();
-  #cooldown: { key: string; code: PlaceFailureCode; until: number } | null = null;
+  #cooldown: { key: string; code: PlaceFailureCode; until: number; day: string } | null = null;
 
   constructor(deps: GooglePlaceSearchDeps) {
     this.#deps = deps;
@@ -116,7 +116,8 @@ export class GooglePlaceSearch {
     if (apiKey === null) return { ok: false, code: "NOT_CONFIGURED" };
     const keyId = fingerprint(apiKey);
     const cooling = this.#cooldown;
-    if (cooling !== null && cooling.key === keyId && performance.now() < cooling.until) {
+    // 冷却只在记下它的那一天（东京时间）有效：0 点换了新的一天，前一天的「到了上限」不再挡人，也不记到新的一天
+    if (cooling !== null && cooling.key === keyId && cooling.day === routeUsageDay(this.#deps.now()) && performance.now() < cooling.until) {
       if (cooling.code === "DAILY_LIMIT_REACHED") {
         await withPlatformTx(pool, (db) => recordPlaceRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: PLACE_DB_TIMEOUT_MS }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败（地址搜索）"));
       }
@@ -140,7 +141,7 @@ export class GooglePlaceSearch {
 
     if (!result.ok) {
       const cooldownMs = placeFailureCooldownMs(result.code);
-      if (cooldownMs > 0) this.#cooldown = { key: keyId, code: result.code, until: performance.now() + cooldownMs };
+      if (cooldownMs > 0) this.#cooldown = { key: keyId, code: result.code, until: performance.now() + cooldownMs, day };
       log.warn({ placeFailure: result.code }, "官网地址搜索 / 反查取不到（谷歌地图），页面退回常用地点和手填");
     } else if (this.#cooldown?.key === keyId) {
       this.#cooldown = null;

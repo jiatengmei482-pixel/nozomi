@@ -405,7 +405,11 @@ test("关键字：规范化后正好 2 字、正好 100 字（含全角、表情
   assert.equal(await searched("新宿\r\nX-Injected: 1"), "新宿 X-Injected: 1");
   assert.equal(await searched("‮新宿‬駅"), "新宿 駅");
   assert.equal(await searched("あ".repeat(100)), "あ".repeat(100));
-  assert.equal(await searched("😀".repeat(100)), "😀".repeat(100));
+  // 纯表情不能搜（字母、数字、汉字、假名至少 2 个，协调方的决定）；夹着表情、按字符数正好 100 个可以
+  assert.equal(await searched(`新宿${"😀".repeat(98)}`), `新宿${"😀".repeat(98)}`);
+  await refused("😀".repeat(100), "TOO_SHORT");
+  await refused("😀😀", "TOO_SHORT");
+  await refused("!?#*", "TOO_SHORT");
   assert.equal(await searched(`${"い".repeat(50)}${" ".repeat(200)}${"う".repeat(49)}`), `${"い".repeat(50)} ${"う".repeat(49)}`);
   await refused("😀", "TOO_SHORT");
   await refused("​新​", "TOO_SHORT");
@@ -421,6 +425,12 @@ test("坐标：空、非数字、NaN、无穷、超大、重复的参数、缺�
   for (const query of ["&lat=&lng=", "&lat=abc&lng=139.6", "&lat=NaN&lng=139.6", "&lat=Infinity&lng=139.6", "&lat=1e999&lng=139.6", "&lat=35.6&lat=35.7&lng=139.6", "&lat=35.6", "&lat=90.0001&lng=139.6", "&lat=35.6&lng=-180.0001", "&lat=35.6&lng=139.6&q=x"]) {
     const res = await site.call("GET", `${base}${query}`, { ip: nextIp() });
     assert.equal(res.status, 400, `${query} ${res.text}`);
+  }
+  // 留空、缺一项：REQUIRED（不能被当成 0）
+  for (const [query, missing] of [["&lat=&lng=", ["/lat", "/lng"]], ["&lat=35.6&lng=", ["/lng"]], ["&lat=%20&lng=139.6", ["/lat"]], ["&lat=35.6", ["/lng"]]] as const) {
+    const res = await site.call("GET", `${base}${query}`, { ip: nextIp() });
+    assert.equal(res.body.error.code, "VALIDATION_FAILED", query);
+    assert.deepEqual(res.body.error.details.issues.filter((issue: any) => issue.reason === "REQUIRED").map((issue: any) => issue.path), [...missing], query);
   }
   assert.equal(seen.length, 0);
 });

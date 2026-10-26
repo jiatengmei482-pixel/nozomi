@@ -227,13 +227,17 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     const input = parseInput(placeSearchSchema, request.query, "querystring");
     const query = normalizePlaceQuery(input.q);
     const issue = placeQueryIssue(query);
-    if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字" : "关键字太长了，最多 100 个字" }]);
+    if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
     const found = await siteSearchPlaces(ctx, input.city_id, query);
     return { available: found.available, items: found.items.map((item) => ({ id: item.id, name: item.name, address: item.address, location: { lat: item.location.lat, lng: item.location.lng } })) };
   });
 
   app.get("/site/v1/places/reverse", async (request) => {
     await placeSlot(request);
+    // 留空的坐标是「没填」，不能被当成 0（数字转换会把空字符串变成 0）
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const missing = (["lat", "lng"] as const).filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
+    if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: name === "lat" ? "请给出纬度" : "请给出经度" })));
     const input = parseInput(placeReverseSchema, request.query, "querystring");
     return siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng });
   });

@@ -11,7 +11,7 @@ const MINUTE_MS = 60_000;
 
 /** 地址搜索和反查的规则（推荐值，ADR 0044「待负责人确认」）。 */
 export const PLACE_SEARCH_RULES = {
-  /** 关键字至少几个字（规范化后，按字符数）：一个字（「站」「の」）搜不出有用的结果，白花一次钱 */
+  /** 关键字至少几个字（规范化后，按字符数；其中字母、数字、汉字、假名也至少这么多）：一个字（「站」「の」）、纯表情搜不出有用的结果，白花一次钱 */
   queryMinLength: 2,
   /** 关键字最多几个字 */
   queryMaxLength: 100,
@@ -74,11 +74,15 @@ export function normalizePlaceQuery(query: string): string {
 
 export type PlaceQueryIssue = "TOO_SHORT" | "TOO_LONG";
 
-/** 规范化之后的关键字能不能拿去搜；按字符（不是 UTF-16 单元）数。 */
+/**
+ * 规范化之后的关键字能不能拿去搜；按字符（不是 UTF-16 单元）数。
+ * 太长：超过 100 个字。太短：不到 2 个字，或者字母、数字、汉字、假名合计不到 2 个（纯表情、纯符号搜不出地点，白花一次钱）。
+ */
 export function placeQueryIssue(normalized: string): PlaceQueryIssue | null {
-  const length = [...normalized].length;
-  if (length < PLACE_SEARCH_RULES.queryMinLength) return "TOO_SHORT";
-  if (length > PLACE_SEARCH_RULES.queryMaxLength) return "TOO_LONG";
+  const chars = [...normalized];
+  if (chars.length > PLACE_SEARCH_RULES.queryMaxLength) return "TOO_LONG";
+  const words = chars.filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
+  if (chars.length < PLACE_SEARCH_RULES.queryMinLength || words < PLACE_SEARCH_RULES.queryMinLength) return "TOO_SHORT";
   return null;
 }
 
