@@ -218,6 +218,14 @@ const rawSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
     z.string().regex(/^nzc_[0-9a-f]{24}$/, "SITE_CLIENT_ID 应当是运营后台「API 客户端与密钥」里显示的 client_id（nzc_ 加 24 位十六进制）").optional(),
   ),
+  // 官网订单页「需要帮助」里的客服电话（ADR 0032 待定事项 6；公开值，不是密钥）。不配 = 订单页不显示客服区块
+  SITE_SUPPORT_PHONE: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
+    z
+      .string()
+      .regex(/^\+[0-9][0-9 -]{5,22}[0-9]$/, "SITE_SUPPORT_PHONE 应当是带国家码的电话号码，以 + 开头，只含数字、空格和连字符，如 +81 3-1234-5678")
+      .optional(),
+  ),
 });
 
 export type RawEnv = z.input<typeof rawSchema>;
@@ -252,6 +260,8 @@ export interface AppConfig {
   quote: { defaultMarkupBp: number };
   /** 官网（ADR 0032）：以哪个 API 客户端的身份调用询价、下单；没有配置时为 null（官网暂未开放） */
   site: { clientId: string } | null;
+  /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
+  siteSupportPhone: string | null;
 }
 
 export class ConfigError extends Error {
@@ -341,6 +351,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
+    siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
   };
 }
 

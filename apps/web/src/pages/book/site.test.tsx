@@ -25,7 +25,7 @@ const TOKEN = `nzo_${"A".repeat(43)}`;
 const NEW_TOKEN = `nzo_${"B".repeat(43)}`;
 const HOUR = 3_600_000;
 
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const city = { id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP" };
 const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, location: { lng: 140.3887, lat: 35.7686 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
@@ -131,7 +131,7 @@ async function fillInquiry(actor: ReturnType<typeof user>): Promise<void> {
 }
 
 test("官网没开：说暂未开放，告诉已下单的客人去「查订单」；配置读不出来：说明并能重试", async () => {
-  open("/book", (call) => (call.url.pathname === "/site/v1/config" ? json(200, { open: false, currency: null, payments: null }) : null));
+  open("/book", (call) => (call.url.pathname === "/site/v1/config" ? json(200, { open: false, currency: null, payments: null, support_phone: null }) : null));
   assert.ok(await screen.findByRole("heading", { name: "暂未开放预订" }));
   assert.ok(screen.getByText(/查订单/, { selector: "p" }));
   assert.ok(screen.getByText(/GeoNames/));

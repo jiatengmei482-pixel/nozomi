@@ -22,7 +22,7 @@ afterEach(resetBrowser);
 const TOKEN = `nzo_${"Q".repeat(20)}_${"a".repeat(22)}`;
 const NEW_TOKEN = `nzo_${"N".repeat(43)}`;
 const HOUR = 3_600_000;
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const landingOf = (scheduledAt: string, reported: string | null = null): NonNullable<SiteOrder["landing"]> => ({
   scheduled_at: scheduledAt,

@@ -320,6 +320,15 @@ test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相�
   assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
 });
 
+test("官网的客服电话（ADR 0032 待定事项 6）：不配 = null；配了必须以 + 开头、只含数字空格连字符，首尾空白去掉", () => {
+  assert.equal(loadConfig(base).siteSupportPhone, null);
+  assert.equal(loadConfig({ ...base, SITE_SUPPORT_PHONE: "  " }).siteSupportPhone, null);
+  assert.equal(loadConfig({ ...base, SITE_SUPPORT_PHONE: " +81 3-1234-5678 " }).siteSupportPhone, "+81 3-1234-5678");
+  for (const wrong of ["03-1234-5678", "+81 3-1234-5678 内线 2", "+81", "+81 3-1234-", "tel:+81312345678"]) {
+    assert.ok(issuesOf({ ...base, SITE_SUPPORT_PHONE: wrong }).some((issue) => issue.includes("SITE_SUPPORT_PHONE")), wrong);
+  }
+});
+
 test("官网的 API 客户端（ADR 0032）：不配 = 官网暂未开放；配了必须是 nzc_ 加 24 位十六进制，首尾空白去掉", () => {
   assert.equal(loadConfig(base).site, null);
   assert.equal(loadConfig({ ...base, SITE_CLIENT_ID: " " }).site, null);
