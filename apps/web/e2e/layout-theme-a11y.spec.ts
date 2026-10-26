@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, devices, expect, test } from "@playwright/test";
-import { VIEWPORTS, adminCredentials, createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, issueTenantAdminReset, loginAs, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { VIEWPORTS, adminCredentials, createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, issueTenantAdminReset, loginAs, platformAdminHeaders, snapshot, uniqueEmail, settleAnimations } from "./support.ts";
 import { nextCode, secretOf } from "./mfa.ts";
 
 /** 页面底色的两套取值，直接从令牌文件读，不在测试里另抄一份。 */
@@ -27,6 +27,7 @@ const BACKGROUND = pageBackground();
 const bodyBackground = (page: Page): Promise<string> => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const summary = results.violations.map((violation) => `${violation.id}: ${violation.help}（${violation.nodes.map((node) => node.target.join(" ")).join("；")}）`);
   expect(summary, `${what} 的无障碍问题`).toEqual([]);

@@ -7,7 +7,7 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
-import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, expectSignedInAs } from "./support.ts";
+import { adminCredentials, createActiveTenant, createTemporaryPasswordAdmin, detail, expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, expectSignedInAs, settleAnimations } from "./support.ts";
 
 const WARNING = "你正在使用临时密码，请先设置新密码。设置完成前不能使用其他功能。";
 /** docker-compose.yml 里本地开发库的迁移账号（公开的本地默认值，不是密钥）；CI 里由 DATABASE_MIGRATION_URL 给出。 */
@@ -32,6 +32,7 @@ async function setFlag(table: "platform_users" | "tenant_users", email: string, 
 }
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const summary = results.violations.map((violation) => `${violation.id}: ${violation.help}（${violation.nodes.map((node) => node.target.join(" ")).join("；")}）`);
   expect(summary, `${what} 的无障碍问题`).toEqual([]);
