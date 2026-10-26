@@ -377,6 +377,7 @@ const usdPreview = (changes: Partial<PlatformQuotePreview> = {}): PlatformQuoteP
   excluded: [],
   markup_floor_bp: 1000,
   route: { meters: 12_300, minutes: 45 },
+  route_status: { status: "assumed", source: null, code: null, message: null },
   candidate_count: 2,
   groups: [
     {

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { type PlatformRole, QUOTE_REFUSALS, platformRoleCan } from "@nozomi/domain";
+import { ROUTE_SOURCE_TEXT } from "../lib/route-display.ts";
 import { QUOTE_ERROR_CODES, QUOTE_PREVIEW_PATH, QUOTE_SCHEMA_FIELDS } from "./quotes.ts";
 
 interface Schema {
@@ -64,6 +65,16 @@ test("请求体：页面发的字段都是接口认的，接口必填的页面�
   assert.deepEqual(sorted(point?.required ?? []), ["lat", "lng"]);
   assert.deepEqual(request?.properties?.["direction"]?.enum, ["pickup", "dropoff", null]);
   assert.deepEqual(props(schemas["QuoteRouteEstimate"]), sorted(QUOTE_SCHEMA_FIELDS.QuoteRoute));
+});
+
+test("路线情况（M2-02）：字段、状态、来源和页面用的一一对上；原因码就是 QuoteRouteFailureCode", () => {
+  assert.equal(ref(schemas["PlatformQuotePreview"]?.properties?.["route_status"]), "QuoteRouteStatus");
+  const status = schemas["QuoteRouteStatus"];
+  assert.deepEqual(props(status), sorted(QUOTE_SCHEMA_FIELDS.QuoteRouteStatus));
+  assert.deepEqual(sorted(status?.required ?? []), sorted(QUOTE_SCHEMA_FIELDS.QuoteRouteStatus));
+  assert.deepEqual(status?.properties?.["status"]?.enum, ["not_needed", "assumed", "ok", "unavailable"]);
+  assert.deepEqual(status?.properties?.["source"]?.enum, [...Object.keys(ROUTE_SOURCE_TEXT), null]);
+  assert.equal(ref(status?.properties?.["code"]?.oneOf?.[0]), "QuoteRouteFailureCode");
 });
 
 test("应答：每个车型组的中标、全部候选、报不出价的商品——字段和页面用的一一对上", () => {

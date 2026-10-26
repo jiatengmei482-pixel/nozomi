@@ -1355,7 +1355,7 @@ paths:
       description: |
         需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
         多给一段脱敏说明（打码后的数据库地址；谷歌地图、Stripe 按生效的值写来源，如「后台设置（••••1234）」——末 4 位只给超级管理员，ADR 0041），永远不含密钥原文；
-        另给汇率数据源的运行状态（`fx_center`）。每次查看都写审计日志。
+        另给汇率数据源的运行状态（`fx_center`）和路线预估（谷歌地图 Routes API）的今日调用与最近失败（`routes`，ADR 0042）。每次查看都写审计日志。
       security:
         - platformToken: []
       responses:
@@ -1366,7 +1366,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, fx_center ]
+                required: [ items, fx_center, routes ]
                 properties:
                   items:
                     type: array
@@ -1393,6 +1393,42 @@ paths:
                         format: date-time
                       last_error_code:
                         type: [ string, "null" ]
+                  routes:
+                    type: object
+                    description: |
+                      路线预估的运行状态（ADR 0042）：今天（东京时间 `day`）调用谷歌的次数（含重试）、每日上限、是否已到上限（到了里程 + 时长的商品暂时无法报价，次日 0 点恢复）、
+                      失败次数、被上限挡下的次数，最近一次成功、最近一次失败（不限今天；原因代码同 `QuoteRouteFailureCode`）。
+                    additionalProperties: false
+                    required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
+                    properties:
+                      day:
+                        type: string
+                        format: date
+                      calls:
+                        type: integer
+                      daily_limit:
+                        type: integer
+                      daily_limit_reached:
+                        type: boolean
+                      failures:
+                        type: integer
+                      refused:
+                        type: integer
+                      last_success_at:
+                        type: [ string, "null" ]
+                        format: date-time
+                      last_failure:
+                        type: [ object, "null" ]
+                        additionalProperties: false
+                        required: [ code, message, at ]
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: [ string, "null" ]
+                          at:
+                            type: string
+                            format: date-time
   /platform/v1/integration-secrets:
     get:
       tags: [ 平台系统 ]
@@ -14080,7 +14116,8 @@ components:
           description: |
             没报出价的车型组（请求里指定了车型组时逐个列；没指定、又一个都没报出时一条 `vehicle_group_id` 为 null 的）。原因只有面向客人的几种：
             `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
-            `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`NOT_AVAILABLE`（其他）
+            `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
+            `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）
           items:
             type: object
             additionalProperties: false
@@ -14093,7 +14130,7 @@ components:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB ]
@@ -14713,6 +14750,53 @@ components:
           type: integer
           minimum: 0
           maximum: 10080
+    QuoteRouteFailureCode:
+      type: string
+      description: |
+        取不到路线的原因（M2-02，ADR 0042）：`NOT_CONFIGURED` 谷歌地图密钥没配置、`DAILY_LIMIT_REACHED` 今天的调用到了每日上限（`GOOGLE_ROUTES_DAILY_LIMIT`）、
+        `KEY_INVALID` / `API_NOT_ENABLED` / `KEY_RESTRICTED` / `BILLING_DISABLED` / `PERMISSION_DENIED` 密钥或谷歌云项目的问题、`QUOTA_EXCEEDED` 谷歌的配额用完或限流（429）、
+        `TIMEOUT` 超时、`UNREACHABLE` 连不上、`UNAVAILABLE` 谷歌出错（5xx）、`UNEXPECTED` 应答看不懂（含超过 64 KB）、`INVALID_POINTS` 谷歌认为坐标无效（400）、`NO_ROUTE` 两点之间没有可行驶的路线
+      enum: [ NOT_CONFIGURED, DAILY_LIMIT_REACHED, KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, INVALID_POINTS, NO_ROUTE ]
+    QuoteRouteStatus:
+      type: object
+      additionalProperties: false
+      required: [ status, source, code, message ]
+      description: |
+        这次的路线情况（M2-02，ADR 0042）。`status`：`not_needed` 候选商品都用不到路线（一口价、包车）；`assumed` 用了请求里的 `assume_route`；
+        `ok` 取到了（`source`：`cache` 缓存、`google` 刚调用谷歌、`same_point` 起终点取整后是同一个点，里程时长按 0）；
+        `unavailable` 取不到（降级：里程 + 时长的商品报 `ROUTE_UNAVAILABLE`，一口价和包车照常），`code` 是原因、`message` 是中文说明。
+      properties:
+        status:
+          type: string
+          enum: [ not_needed, assumed, ok, unavailable ]
+        source:
+          type: [ string, "null" ]
+          enum: [ cache, google, same_point, null ]
+        code:
+          oneOf:
+            - $ref: "#/components/schemas/QuoteRouteFailureCode"
+            - type: "null"
+        message:
+          type: [ string, "null" ]
+    TenantQuoteRouteStatus:
+      type: object
+      additionalProperties: false
+      required: [ status, source, code, message ]
+      description: |
+        供应商看的路线情况：同 `QuoteRouteStatus`，但取不到时的原因只有 `NO_ROUTE`（两点之间没有可行驶的路线）和 `TEMPORARILY_UNAVAILABLE`（路线预估暂时不可用）——
+        平台的密钥、配额这些内部原因不告诉供应商。
+      properties:
+        status:
+          type: string
+          enum: [ not_needed, assumed, ok, unavailable ]
+        source:
+          type: [ string, "null" ]
+          enum: [ cache, google, same_point, null ]
+        code:
+          type: [ string, "null" ]
+          enum: [ NO_ROUTE, TEMPORARILY_UNAVAILABLE, null ]
+        message:
+          type: [ string, "null" ]
     QuotePreviewRequest:
       type: object
       additionalProperties: false
@@ -15029,7 +15113,7 @@ components:
     TenantQuotePreview:
       type: object
       additionalProperties: false
-      required: [ product_id, code, status, version, currency, rounding_unit, route, refusal, service_date, urgent, offers, refused ]
+      required: [ product_id, code, status, version, currency, rounding_unit, route, route_status, refusal, service_date, urgent, offers, refused ]
       properties:
         product_id:
           type: string
@@ -15049,6 +15133,8 @@ components:
           oneOf:
             - $ref: "#/components/schemas/QuoteRouteEstimate"
             - type: "null"
+        route_status:
+          $ref: "#/components/schemas/TenantQuoteRouteStatus"
         refusal:
           type: [ object, "null" ]
           additionalProperties: false
@@ -15087,7 +15173,7 @@ components:
     PlatformQuotePreview:
       type: object
       additionalProperties: false
-      required: [ currency, band_bp, markup_floor_bp, channel, route, candidate_count, groups, refused, excluded ]
+      required: [ currency, band_bp, markup_floor_bp, channel, route, route_status, candidate_count, groups, refused, excluded ]
       properties:
         currency:
           type: string
@@ -15139,6 +15225,8 @@ components:
           oneOf:
             - $ref: "#/components/schemas/QuoteRouteEstimate"
             - type: "null"
+        route_status:
+          $ref: "#/components/schemas/QuoteRouteStatus"
         candidate_count:
           type: integer
           description: 找到了几个候选商品
@@ -22526,7 +22614,7 @@ components:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false

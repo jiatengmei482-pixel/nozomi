@@ -444,6 +444,7 @@ const previewOf = (changes: Partial<PlatformQuotePreview> = {}): PlatformQuotePr
   excluded: [],
   markup_floor_bp: 1000,
   route: null,
+  route_status: { status: "not_needed", source: null, code: null, message: null },
   candidate_count: 3,
   groups: [
     {
@@ -534,6 +535,49 @@ test("试算结果：每个车型组的中标、全部候选（结算价、对�
   assert.match(refused, /远方车队PRD-C整个商品地址不在这个商品任何一个区域的营运区里/);
   assert.match(refused, /RelaxcarPRD-B商务七座价格是「里程 \+ 时长」，需要路线预估，而现在取不到/);
   assert.match(document.body.textContent ?? "", /找到 3 个已上架的商品，1 个车型组报出了价。2 个商品有没报出价的，原因见最下面。/);
+});
+
+test("M2-02 试算的路线情况：取到时写明路程从哪里来；没取到时警示提示条写出原因码和怎么办（含每日上限），一口价和包车照常；用不到路线时什么都不提", async () => {
+  let answer: () => Response = () => json(200, previewOf({ route: { meters: 18_400, minutes: 32 }, route_status: { status: "ok", source: "google", code: null, message: null } }));
+  open("/platform/quote-preview", "operations", (call) => (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? answer() : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  await screen.findByRole("heading", { level: 2, name: "试算结果" });
+  await waitFor(() => assert.match(document.body.textContent ?? "", /用的路程：18\.4 公里、32 分钟（刚调用谷歌地图查到的）。/));
+  assertAbsent(screen.queryByText(/这次没有取到路线/));
+
+  const again = async (pattern: RegExp): Promise<void> => {
+    await user().click(screen.getByRole("button", { name: "试算" }));
+    await waitFor(() => assert.match(document.body.textContent ?? "", pattern));
+  };
+  answer = () => json(200, previewOf({ route: { meters: 18_400, minutes: 32 }, route_status: { status: "ok", source: "cache", code: null, message: null } }));
+  await again(/（来自缓存，这次没有调用谷歌地图）/);
+  answer = () => json(200, previewOf({ route: { meters: 0, minutes: 0 }, route_status: { status: "ok", source: "same_point", code: null, message: null } }));
+  await again(/（起点和终点几乎重合，按 0 计算，没有调用谷歌地图）/);
+  answer = () => json(200, previewOf({ route: { meters: 12_000, minutes: 40 }, route_status: { status: "assumed", source: null, code: null, message: null } }));
+  await again(/用的路程：12 公里、40 分钟（你填写的假定值）。/);
+
+  const cases: [string, RegExp][] = [
+    ["DAILY_LIMIT_REACHED", /原因码 DAILY_LIMIT_REACHED：今天调用谷歌地图的次数到了每日上限。今天的里程计价暂停，明天自动恢复；可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。一口价和包车套餐不受影响。/],
+    ["NOT_CONFIGURED", /原因码 NOT_CONFIGURED：谷歌地图的密钥没有配置。请超级管理员在「系统设置 → 系统状态 → 第三方密钥」填写。/],
+    ["NO_ROUTE", /原因码 NO_ROUTE：这两个地点之间没有可行驶的路线（例如隔着海）。请换一组地点。/],
+    ["BRAND_NEW_CODE", /原因码 BRAND_NEW_CODE：后端的说明/],
+  ];
+  for (const [code, pattern] of cases) {
+    answer = () => json(200, previewOf({ route: null, route_status: { status: "unavailable", source: null, code, message: "后端的说明" } }));
+    await again(pattern);
+    const banner = screen.getByText("这次没有取到路线，按「里程 + 时长」计价的商品报不出价。").closest(".alert") as HTMLElement;
+    assert.ok(banner.classList.contains("alert--warning"));
+    assert.match(banner.textContent ?? "", /想看这些商品的价格，可以在上面「假定的里程和时长」里填一组数再试算。/);
+    assert.doesNotMatch(document.body.textContent ?? "", /用的路程/);
+  }
+  // 没报出价的表照旧列出 ROUTE_UNAVAILABLE 的商品和后端的中文原因
+  assert.match(document.body.textContent ?? "", /RelaxcarPRD-B商务七座价格是「里程 \+ 时长」，需要路线预估，而现在取不到/);
+
+  answer = () => json(200, previewOf());
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  await waitFor(() => assertAbsent(screen.queryByText(/这次没有取到路线/)));
+  assert.doesNotMatch(document.body.textContent ?? "", /用的路程/);
 });
 
 test("试算：没有可以比价的商品时引导去商品列表；城市被停用（409）落在城市下面；后端指出的字段落在对应的地方；网络不通保留已填的内容", async () => {

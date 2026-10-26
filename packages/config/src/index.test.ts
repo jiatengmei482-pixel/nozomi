@@ -354,3 +354,11 @@ test("登录限速的来源地址上限（ADR 0030）：默认 50（和 domain �
 });
 
 });
+
+test("路线预估的每日调用上限（ADR 0042）：默认 1000，空值按默认，0 = 不调用；负数、小数、超过 100 万报错", () => {
+  assert.equal(loadConfig(base).routes.dailyLimit, 1_000);
+  assert.equal(loadConfig({ ...base, GOOGLE_ROUTES_DAILY_LIMIT: "" }).routes.dailyLimit, 1_000);
+  assert.equal(loadConfig({ ...base, GOOGLE_ROUTES_DAILY_LIMIT: "0" }).routes.dailyLimit, 0);
+  assert.equal(loadConfig({ ...base, APP_ENV: "staging", GOOGLE_ROUTES_DAILY_LIMIT: "250" }).routes.dailyLimit, 250);
+  for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_ROUTES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_ROUTES_DAILY_LIMIT")), bad);
+});

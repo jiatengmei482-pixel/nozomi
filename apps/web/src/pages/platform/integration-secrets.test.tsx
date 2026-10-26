@@ -69,7 +69,7 @@ function open(role: string, secrets: () => IntegrationSecrets, routes: Route = (
     if (call.method !== "GET") return null;
     const at = call.url.pathname;
     if (at === "/platform/v1/auth/me") return json(200, { user: meOf(role), permissions: [], must_change_password: false });
-    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "googleMaps", label: "谷歌地图", state: "missing", detail: "" }], fx_center: { state: "fresh", as_of: "2026-10-17T00:02:32.000Z", auto_fetch: true, last_attempt_status: "accepted", last_attempt_at: "2026-10-17T09:24:00.000Z", last_error_code: null } });
+    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "googleMaps", label: "谷歌地图", state: "missing", detail: "" }], fx_center: { state: "fresh", as_of: "2026-10-17T00:02:32.000Z", auto_fetch: true, last_attempt_status: "accepted", last_attempt_at: "2026-10-17T09:24:00.000Z", last_error_code: null }, routes: { day: "2026-10-17", calls: 0, daily_limit: 1000, daily_limit_reached: false, failures: 0, refused: 0, last_success_at: null, last_failure: null } });
     if (at === "/platform/v1/integration-secrets") return json(200, secrets());
     return null;
   });

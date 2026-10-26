@@ -208,6 +208,27 @@ test("包车：城市没有可选的时长时说明并不出下拉；读不出�
   assert.ok(screen.getByText("也可以换一个包车时长试试。"));
 });
 
+test("点对点：两点之间没有路线、路线暂时算不出时，告诉客人换地址或稍后再试，不出现原因代码", async () => {
+  let reasons = ["NO_ROUTE"];
+  open("/book", routes({ quotes: () => json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: GROUP_ID, reasons }] }) }));
+  const actor = user();
+  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /点对点/ }));
+  await actor.type(screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }), "东京站");
+  await actor.keyboard("{Enter}");
+  await actor.type(screen.getByRole("combobox", { name: "从常用地点选下车地点（选填）" }), "新宿");
+  await actor.keyboard("{Enter}");
+  await setTime(actor);
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  assert.ok(await screen.findByRole("heading", { name: "没有可预订的车" }));
+  assert.ok(screen.getByText("这两个地点之间没有可行驶的路线，请换一个地址。"));
+
+  reasons = ["TEMPORARILY_UNAVAILABLE"];
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  assert.ok(await screen.findByText("暂时算不出这段路程的价格，请稍后再试，或改订包车。"));
+  assertAbsent(screen.queryByText("这两个地点之间没有可行驶的路线，请换一个地址。"));
+  assert.doesNotMatch(document.body.textContent ?? "", /NO_ROUTE|TEMPORARILY_UNAVAILABLE/);
+});
+
 const charterOrder = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
   id: ORDER_ID,
   order_no: "NZ20261026ABCD2345",

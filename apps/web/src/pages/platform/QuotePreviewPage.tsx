@@ -28,6 +28,7 @@ import { metersToKmText } from "../../lib/price-form.ts";
 import { CURRENCY_NAMES, moneyText } from "../../lib/product-display.ts";
 import { saveFailureText, serverIssues } from "../../lib/product-failure.ts";
 import { platformProductListPath } from "../../lib/platform-paths.ts";
+import { ROUTE_SOURCE_TEXT, routeFailureText } from "../../lib/route-display.ts";
 import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
 import { tidyDate, tidyTime } from "../../lib/time-input.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -228,6 +229,34 @@ function GroupCard({ group, groupName, currency, bandBp, showLevel }: { group: Q
   );
 }
 
+/** 概况里「用的路程」一句：后面写明路程从哪里来（缓存、刚查谷歌地图、起终点重合、你填的假定值）。 */
+function routeSentence(result: PlatformQuotePreview): string {
+  if (result.route === null) return "";
+  const { status, source } = result.route_status;
+  const from = status === "assumed" ? "你填写的假定值" : source !== null ? ROUTE_SOURCE_TEXT[source] : null;
+  return ` 用的路程：${metersToKmText(result.route.meters)} 公里、${durationText(result.route.minutes)}${from === null ? "" : `（${from}）`}。`;
+}
+
+/** 没取到路线（M2-02）：按「里程 + 时长」计价的商品报不出价，原因码和怎么办都写出来；一口价、包车照常。 */
+function RouteUnavailable({ code, message }: { code: string | null; message: string | null }) {
+  const reason = code === null ? (message ?? "谷歌地图没有给出路线。请稍后再试。") : routeFailureText(code, message);
+  return (
+    <Alert kind="warning">
+      <strong className="alert__title">这次没有取到路线，按「里程 + 时长」计价的商品报不出价。</strong>
+      <span>
+        {code !== null && (
+          <>
+            {"原因码 "}
+            <span className="route-code">{code}</span>
+            {"："}
+          </>
+        )}
+        {`${reason}一口价和包车套餐不受影响。想看这些商品的价格，可以在上面「假定的里程和时长」里填一组数再试算。`}
+      </span>
+    </Alert>
+  );
+}
+
 function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string>; form: QuoteForm; cityName: string }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [result]);
@@ -256,7 +285,7 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
         <>
           <p className="quote-result__summary">
             {`找到 ${result.candidate_count} 个已上架的商品，${result.groups.length} 个车型组报出了价。${refusedProducts > 0 ? `${refusedProducts} 个商品有没报出价的，原因见最下面。` : ""}`}
-            {result.route ? ` 用的路程：${metersToKmText(result.route.meters)} 公里、${durationText(result.route.minutes)}。` : ""}
+            {routeSentence(result)}
             {` 加价比例不低于 ${basisPointsText(result.markup_floor_bp)}%。`}
           </p>
           <p className="quote-result__summary">
@@ -265,6 +294,7 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
               : `按渠道「${result.channel.name}」的规则试算：加价比例按它的加价规则匹配，价格带 ${basisPointsText(result.band_bp)}%${result.channel.min_margin > 0 ? `，最低毛利 ${moneyText(result.channel.min_margin, result.channel.settle_currency)}` : ""}${result.channel.rounding_unit > 1 ? `，对外价向上取整到 ${moneyText(result.channel.rounding_unit, result.currency)}` : ""}。`}
             {result.excluded.length > 0 ? ` 渠道不卖的 ${result.excluded.length} 个商品没参加比价（见最下面）。` : ""}
           </p>
+          {result.route_status.status === "unavailable" && <RouteUnavailable code={result.route_status.code} message={result.route_status.message} />}
           {result.groups.length === 0 && (
             <Alert kind="warning">
               <strong className="alert__title">一个车型组都没有报出价。</strong>
@@ -563,7 +593,7 @@ export function QuotePreviewPage() {
               <TextField label="里程（公里）" inputMode="decimal" autoComplete="off" value={form.routeKm} errors={errorOf("routeKm")} onChange={(event) => change({ routeKm: event.target.value })} />
               <TextField label="时长（分钟）" inputMode="numeric" autoComplete="off" value={form.routeMinutes} errors={errorOf("routeMinutes")} onChange={(event) => change({ routeMinutes: event.target.value })} />
             </div>
-            <p className="field__hint">路线预估服务还没有接上：按「里程 + 时长」计价的商品，要填这两项才报得出价。一口价和包车套餐不用填。</p>
+            <p className="field__hint">不填时按谷歌地图预估的路程计价；填了就按这两项算、不调用谷歌地图（谷歌地图取不到路线时，或想看某个路程下的价格时用）。只有按「里程 + 时长」计价的商品用得到。</p>
           </fieldset>
         </div>
         <div className="form__actions">

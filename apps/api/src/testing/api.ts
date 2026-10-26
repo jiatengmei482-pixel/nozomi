@@ -8,7 +8,7 @@ import { buildApp } from "../app.ts";
 import type { AppContext } from "../context.ts";
 import type { Pool } from "../db/pool.ts";
 import { FxCenter } from "../services/fx-center.ts";
-import { type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
+import { NO_ROUTES, type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import { SecretBox } from "../integrations/secret-box.ts";
 import { IntegrationSecretCache } from "../services/integration-secrets.ts";
@@ -267,7 +267,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     payments: null,
     integrations: new IntegrationSecretCache({ pool, config, secretBox, log: silent }),
     integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable },
-    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...quote },
+    quote: { ...defaultQuoteDeps(config, fx.rates, NO_ROUTES, now), ...quote },
     secretBox,
     webhookSender: localWebhookSender(),
   };

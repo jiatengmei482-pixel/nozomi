@@ -43,10 +43,12 @@ test("超级管理员填写谷歌地图密钥 → 只显示末 4 位 → 测试�
   const { email, password } = adminCredentials();
   await loginAs(page, "platform", email, password);
   await page.goto("/platform/settings/integrations");
-  const maps = page.getByRole("region", { name: "谷歌地图" });
+  const maps = page.getByRole("region", { name: "谷歌地图", exact: true });
   await expect(maps).toContainText("现在用的未配置");
   await expect(page.getByText("哪一份生效：运营后台填写的优先；后台没填（或清空后）才用服务器配置文件里的值。")).toBeVisible();
   await expect(maps.getByRole("button", { name: "测试一下" })).toHaveCount(0);
+  // 路线预估的用量（M2-02）：真实后端给的今天的次数和每日上限；下面的 axe、320 / 768 宽检查同样覆盖这张卡片
+  await expect(page.getByRole("region", { name: "路线预估（谷歌地图）" })).toContainText(/今天的调用（\d{4}-\d\d-\d\d）\d+ \/ \d+ 次（含重试）每日上限/);
 
   // 填写
   await maps.getByRole("button", { name: "填写" }).click();

@@ -124,6 +124,8 @@ export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, str
   CAPACITY_EXCEEDED: "人数或行李超出了车辆能坐下的数量，请减少人数或行李。",
   ADDON_NOT_OFFERED: "所选的附加服务暂不提供。",
   DRIVER_LANGUAGE_NOT_OFFERED: "所选的司机语言暂不提供。",
+  NO_ROUTE: "这两个地点之间没有可行驶的路线，请换一个地址。",
+  TEMPORARILY_UNAVAILABLE: "暂时算不出这段路程的价格，请稍后再试，或改订包车。",
   NOT_AVAILABLE: "暂时没有可预订的车，请换一个时间再试。",
 };
 

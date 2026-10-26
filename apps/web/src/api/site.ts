@@ -120,6 +120,8 @@ export type SiteUnavailableReason =
   | "CAPACITY_EXCEEDED"
   | "ADDON_NOT_OFFERED"
   | "DRIVER_LANGUAGE_NOT_OFFERED"
+  | "NO_ROUTE"
+  | "TEMPORARILY_UNAVAILABLE"
   | "NOT_AVAILABLE";
 
 export interface SiteQuoteResult {

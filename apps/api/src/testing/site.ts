@@ -8,7 +8,7 @@ import { buildApp } from "../app.ts";
 import { loadMigrationFiles } from "../db/migrate.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import type { ApiResponse, CallOptions, HttpMethod, TestApi } from "./api.ts";
-import { testEnv } from "./fixtures.ts";
+import { UNREACHABLE_INTEGRATIONS, testEnv } from "./fixtures.ts";
 
 export interface SiteApi {
   app: FastifyInstance;
@@ -19,7 +19,7 @@ export interface SiteApi {
 /** 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe；`env` 是额外的配置项（如客服电话）。 */
 export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}): Promise<SiteApi> {
   const app = buildApp({
-    config: loadConfig({ ...testEnv(api.db.url), ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }), ...env }),
+    config: loadConfig({ ...testEnv(api.db.url), ...UNREACHABLE_INTEGRATIONS, ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }), ...env }),
     pool: api.db.pool,
     migrationFiles: await loadMigrationFiles(),
     now: api.clock.now,
