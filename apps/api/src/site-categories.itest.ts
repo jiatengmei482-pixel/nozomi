@@ -154,6 +154,14 @@ test("地址输入辅助：城市里启用的机场、车站、地标（带坐�
   assert.deepEqual(res.body.items[1].name, { ja: "東京駅", zh: "东京站", en: "Tokyo Station" });
   assert.deepEqual((await site.call("GET", `/site/v1/cities/${m.ids.osaka}/places`)).body.items.map((place: any) => place.code), ["STN-JP-OSAKA"]);
   assert.deepEqual((await site.call("GET", `/site/v1/cities/${randomUUID()}/places`)).body.items, []);
+  const osakaOnly = await newChannel(api, m.staff.cm1.token, { name: "只卖大阪的官网", scope: { city_ids: [m.ids.osaka] } });
+  const scoped = await siteApi(api, (await salesCredentials(api, m, osakaOnly.id)).clientId, pay);
+  try {
+    assert.deepEqual((await scoped.call("GET", `/site/v1/cities/${m.ids.tokyo}/places`)).body.items, [], "渠道没授权东京：和城市列表一致，不列东京的地点");
+    assert.deepEqual((await scoped.call("GET", `/site/v1/cities/${m.ids.osaka}/places`)).body.items.map((place: any) => place.code), ["STN-JP-OSAKA"]);
+  } finally {
+    await scoped.close();
+  }
   const closed = await siteApi(api, null, pay);
   try {
     assert.equal((await closed.call("GET", `/site/v1/cities/${m.ids.tokyo}/places`)).body.error.code, "SITE_NOT_OPEN");

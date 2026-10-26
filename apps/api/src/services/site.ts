@@ -19,6 +19,7 @@ import {
   combineThrottleDecisions,
   evaluateRollingWindow,
   instantToLocal,
+  localDateTimeExists,
   localDateTimeToInstant,
   normalizePhone,
   tenantBids,
@@ -228,10 +229,12 @@ export interface SitePlace {
 
 /**
  * 地址输入辅助：这个城市里启用的机场、车站、地标（平台维护的主数据，不调用任何外部地图服务）。
- * 客人选一个，页面把名称和坐标填进地址那一栏；也可以照旧自己写地址和坐标。
+ * 客人选一个，页面把名称和坐标填进地址那一栏；也可以照旧自己写地址和坐标。渠道没授权的城市为空列表（和城市列表一致）。
  */
 export async function sitePlaces(ctx: AppContext, cityId: string): Promise<SitePlace[]> {
-  await requireOpenSite(ctx);
+  const { channel } = await requireOpenSite(ctx);
+  // 和城市列表同一个口径：渠道没授权的城市不列它的地点
+  if (channel.scope.cityIds !== null && !channel.scope.cityIds.includes(cityId)) return [];
   const rows = await withPlatformTx(ctx.pool, (db) => listCityPlaces(db, cityId), { snapshot: true });
   return rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat }));
 }
@@ -311,7 +314,8 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promis
     }
     return found;
   }, { snapshot: true });
-  const serviceTime = localDateTimeToInstant(input.serviceLocal, city.timezone);
+  // 客人填的是当地钟面：夏令时跳过的时间不存在，直接拒绝（不按顺延后的时间报价，ADR 0032「不存在的当地时间 400」）
+  const serviceTime = localDateTimeExists(input.serviceLocal, city.timezone) ? localDateTimeToInstant(input.serviceLocal, city.timezone) : null;
   if (serviceTime === null) throw validationFailed("body", [{ path: "/service_local", reason: "INVALID_FORMAT", message: "用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间" }]);
   const sales = salesTrip(input);
   const result = await createSalesQuotes(

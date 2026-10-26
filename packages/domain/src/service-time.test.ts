@@ -6,6 +6,7 @@ import {
   dailyWindowIssue,
   instantToLocal,
   isLocalDate,
+  localDateTimeExists,
   localDateTimeToInstant,
   normalizeDailyWindow,
   overlapMinutes,
@@ -188,4 +189,16 @@ test("夏令时里不存在的用车时间：服务时间和提前时长用同�
   // 存在的时间不受影响（前一天的 02:30 就是 02:30；拨回那天出现两次的 01:30 钟面还是 01:30）
   assert.deepEqual(book({ start: "00:00", end: "02:45" }, "2026-03-07T02:30"), { ok: true, urgentTier: null });
   assert.deepEqual(book({ start: "01:00", end: "01:45" }, "2026-11-01T01:30"), { ok: true, urgentTier: null });
+});
+
+test("当地时间存不存在：夏令时拨快跳过的那一段不存在（顺延语义不变）；拨回重复的、平常的、没有夏令时的城市都存在；写法不对不存在", () => {
+  assert.equal(localDateTimeExists("2027-03-14T02:30", "America/Los_Angeles"), false);
+  assert.equal(localDateTimeExists("2027-03-14T02:00", "America/Los_Angeles"), false);
+  assert.equal(localDateTimeExists("2027-03-14T01:59", "America/Los_Angeles"), true);
+  assert.equal(localDateTimeExists("2027-03-14T03:00", "America/Los_Angeles"), true);
+  assert.equal(localDateTimeExists("2027-11-07T01:30", "America/Los_Angeles"), true, "拨回时出现两次，存在");
+  assert.equal(localDateTimeExists("2027-03-14T02:30", "Asia/Tokyo"), true);
+  assert.equal(localDateTimeExists("2027-02-30T10:00", "Asia/Tokyo"), false);
+  assert.equal(localDateTimeExists("2027-03-14 02:30", "Asia/Tokyo"), false);
+  assert.ok(localDateTimeToInstant("2027-03-14T02:30", "America/Los_Angeles") !== null, "顺延的换算照旧给出时刻");
 });
