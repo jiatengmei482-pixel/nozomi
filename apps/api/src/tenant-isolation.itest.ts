@@ -1578,6 +1578,30 @@ test("GET /tenant/v1/fx-rates：汇率是平台数据，两个供应商看到的
   assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ n: number }>("select count(*)::int as n from fx_rates"))).rows[0]?.n, 2);
 });
 
+test("账单（M5-01）：甲看不到、确认不了、异议不了乙的账单（和不存在一样 404）；甲的列表里没有乙的账单", async () => {
+  // 测试数据：直接给乙写一张待确认的账单（只在测试里构造）
+  const now = api.clock.now();
+  const inserted = await api.db.owner.query<{ id: string }>(
+    `insert into statements (tenant_id, statement_no, period, currency, status, total_minor, line_count, pay_due_on, confirm_due_at, issued_at, created_at, updated_at)
+     values ($1, 'ST202609QATEST12', '2026-09', 'JPY', 'issued', 10000, 1, '2026-10-20', $2::timestamptz + interval '7 days', $2, $2, $2) returning id`,
+    [b.tenantId, now],
+  );
+  const id = inserted.rows[0]?.id as string;
+  cover("GET /tenant/v1/statements");
+  cover("GET /tenant/v1/statements/:id");
+  cover("POST /tenant/v1/statements/:id/confirm");
+  cover("POST /tenant/v1/statements/:id/dispute");
+  const list = await api.call("GET", "/tenant/v1/statements", { token: a.adminToken });
+  assert.equal(list.status, 200);
+  assert.ok(!JSON.stringify(list.body).includes(id), "甲的列表里没有乙的账单");
+  assert.equal((await api.call("GET", `/tenant/v1/statements/${id}`, { token: a.adminToken })).status, 404);
+  assert.equal((await api.call("POST", `/tenant/v1/statements/${id}/confirm`, { token: a.adminToken, body: {} })).status, 404);
+  assert.equal((await api.call("POST", `/tenant/v1/statements/${id}/dispute`, { token: a.adminToken, body: { reason: "不该生效" } })).status, 404);
+  const after = await api.db.owner.query<{ status: string }>("select status from statements where id = $1", [id]);
+  assert.equal(after.rows[0]?.status, "issued", "乙的账单没被动过");
+  assert.equal((await api.call("GET", `/tenant/v1/statements/${id}`, { token: b.adminToken })).status, 200, "乙自己看得到");
+});
+
 test("/tenant/v1 的每个接口都在本文件里做过跨租户验证", () => {
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/tenant/v1/"))

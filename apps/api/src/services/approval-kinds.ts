@@ -10,6 +10,7 @@ import { RESCUE_APPROVAL_KINDS } from "./rescues.ts";
 import { TENANT_APPROVAL_KINDS } from "./tenant-onboarding.ts";
 import { PLATFORM_ROLE_APPROVAL_KINDS } from "./platform-roles.ts";
 import { STAFF_APPROVAL_KINDS } from "./platform-staff.ts";
+import { BILLING_APPROVAL_KINDS } from "./billing.ts";
 
 export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...CHANNEL_APPROVAL_KINDS,
@@ -20,4 +21,5 @@ export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...RESCUE_APPROVAL_KINDS,
   ...PLATFORM_ROLE_APPROVAL_KINDS,
   ...STAFF_APPROVAL_KINDS,
+  ...BILLING_APPROVAL_KINDS,
 ]);

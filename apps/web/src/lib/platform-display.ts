@@ -81,6 +81,9 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "role.read": "看角色",
   "role.manage": "新建角色、发起角色的修改（要另一位超级管理员审核）",
   "role.review": "审核角色的修改",
+  "statement.read": "看供应商账单和付款批次",
+  "statement.manage": "出账、答复供应商的异议、作废重出、发起付款（要另一位同事审核）、锁定付款批次",
+  "statement.review": "审核付款给供应商",
 };
 
 /**

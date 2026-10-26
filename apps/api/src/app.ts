@@ -30,12 +30,14 @@ import { registerSalesRoutes } from "./routes/sales.ts";
 import { registerOrderRoutes } from "./routes/orders.ts";
 import { registerOrderActionRoutes } from "./routes/order-actions.ts";
 import { registerRescueRoutes } from "./routes/rescues.ts";
+import { registerBillingRoutes } from "./routes/billing.ts";
 import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider } from "./integrations/stripe.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
+import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
 import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
@@ -71,7 +73,7 @@ export interface AppDeps {
    * 集成测试给一个打开了 `allowLocalTargets` 的发送器，推到本机的假服务器。
    */
   webhookSender?: WebhookSender;
-  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
+  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
 
@@ -92,6 +94,8 @@ declare module "fastify" {
     tenantJobs: TenantJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
+    /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    billingJobs: BillingJobs;
   }
 }
 
@@ -218,15 +222,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("webhookJobs", webhookJobs);
   const tenantJobs = new TenantJobs(context, app.log);
   app.decorate("tenantJobs", tenantJobs);
+  const billingJobs = new BillingJobs(context, app.log);
+  app.decorate("billingJobs", billingJobs);
   if (deps.jobs) {
     fx.start();
     orderJobs.start();
     webhookJobs.start();
     tenantJobs.start();
+    billingJobs.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
     app.addHook("onClose", () => tenantJobs.stop());
+    app.addHook("onClose", () => billingJobs.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
@@ -245,6 +253,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerOrderRoutes(app, context);
   registerOrderActionRoutes(app, context);
   registerRescueRoutes(app, context);
+  registerBillingRoutes(app, context);
   registerWebhookRoutes(app, context);
   registerFleetRoutes(app, context);
   registerDispatchRoutes(app, context);
