@@ -299,6 +299,10 @@ test("测试一下：测试中按钮显示加载状态；可用、不可用（�
   replies.push(() => Promise.reject(new TypeError("Failed to fetch")));
   await actor.click(button);
   await waitFor(() => assert.match(status.textContent ?? "", /没有等到测试结果（网络不通或对方太慢）。请检查网络后再点一次「测试一下」。/));
+
+  replies.push(() => apiError(429, "INTEGRATION_TEST_RATE_LIMITED", "刚测过，请过几秒再试"));
+  await actor.click(button);
+  await waitFor(() => assert.match(status.textContent ?? "", /没有测试成功刚测过，请过几秒再试。/));
 });
 
 test("服务器没有配置数据加密密钥：提示说清楚、「填写」不可用并关联到原因；万一填写时才发现（503），对话框里说明，页面上的按钮也变成不可用", async () => {

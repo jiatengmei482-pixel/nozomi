@@ -60,6 +60,8 @@ type TestOutcome = { kind: "result"; result: IntegrationTestResult } | { kind: "
 
 function testFailureText(err: unknown): string {
   if (err instanceof ApiError && err.code === "INTEGRATION_NOT_CONFIGURED") return "这一项现在没有配置，先填写密钥再测试。";
+  // 「测试一下」每项 5 秒最多一次（ADR 0041）：不是通用的「太频繁」，说清楚是刚测过
+  if (err instanceof ApiError && err.code === "INTEGRATION_TEST_RATE_LIMITED") return "刚测过，请过几秒再试。";
   if (err instanceof ApiError && err.status === 403) return NO_PERMISSION_TEXT;
   if (err instanceof NetworkError) return "没有等到测试结果（网络不通或对方太慢）。请检查网络后再点一次「测试一下」。";
   return failureText(err, "测试");
