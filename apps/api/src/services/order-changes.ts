@@ -214,7 +214,8 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   const candidate = candidates[0];
   if (candidate === undefined) throw notServiceable("PRODUCT_UNPUBLISHED");
   const request: QuoteRequest = { ...quote.request, serviceLocal: next.serviceLocal, passengers: next.passengers, luggage: next.luggage, vehicleGroupIds: [order.vehicleGroupId] };
-  const facts = await loadQuoteFacts(db, [candidate], request);
+  // 试运营的每日上限（M4-01）不看：改期不多接一单，下面的报价也不传 trialLimitReached
+  const facts = await loadQuoteFacts(db, [candidate], request, now);
   // 同一天：这一单自己占着的库存、加急名额不算「别人用掉的」
   const inventoryDay = facts.inventory.get(order.productId) ?? null;
   const sameDay = next.serviceDate === order.serviceDate;
