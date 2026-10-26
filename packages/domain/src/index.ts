@@ -32,3 +32,6 @@ export * from "./cancellation.ts";
 export * from "./order-changes.ts";
 export * from "./extra-charges.ts";
 export * from "./rescue.ts";
+export * from "./compensation.ts";
+export * from "./tickets.ts";
+export * from "./exceptions.ts";
