@@ -658,6 +658,8 @@ test("只用键盘：从供应商列表走到「新建供应商 → 复制链接
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/platform\/settings\/staff$/);
   await expect(toast(page, `已邀请「${staffName}」`)).toBeVisible();
+  // 员工列表分页：CI 上管理员多（每个并行进程各有几个），新建的不一定在第一页，按邮箱搜
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(staffEmail)}`);
   await expect(page.getByRole("row").filter({ hasText: staffEmail })).toContainText("待激活");
 });
 
