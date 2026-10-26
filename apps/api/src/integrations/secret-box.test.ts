@@ -35,3 +35,12 @@ test("换了主密钥、换了归属（搬到别人的行里）、改过任何�
 test("主密钥太短拒绝", () => {
   assert.throws(() => new SecretBox("short"), RangeError);
 });
+
+test("不同用途派生不同的子密钥：两步验证密钥的密文不能当 Webhook 签名密钥解开，反过来也不行", () => {
+  const box = new SecretBox(KEY);
+  const totp = box.seal("platform-totp-secret", "owner-1", "secret");
+  const webhook = box.seal("tenant-webhook-secret", "owner-1", "secret");
+  assert.throws(() => box.open("tenant-webhook-secret", "owner-1", totp), SecretBoxError);
+  assert.throws(() => box.open("platform-totp-secret", "owner-1", webhook), SecretBoxError);
+  assert.equal(box.open("tenant-webhook-secret", "owner-1", webhook), "secret");
+});

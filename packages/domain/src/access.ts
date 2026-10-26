@@ -54,6 +54,7 @@ export const PLATFORM_ACTIONS = [
   "channel.review",
   "approval.read",
   "order.read",
+  "order.resend",
   "role.read",
   "role.manage",
   "role.review",
@@ -61,7 +62,23 @@ export const PLATFORM_ACTIONS = [
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
 
-export const TENANT_ACTIONS = ["user.read", "user.manage", "audit_log.read", "master_data.read", "area.read", "area.manage", "product.read", "product.manage", "brand.manage", "order.read"] as const;
+export const TENANT_ACTIONS = [
+  "user.read",
+  "user.manage",
+  "audit_log.read",
+  "master_data.read",
+  "area.read",
+  "area.manage",
+  "product.read",
+  "product.manage",
+  "brand.manage",
+  "order.read",
+  "order.dispatch",
+  "fleet.read",
+  "fleet.manage",
+  "webhook.read",
+  "webhook.manage",
+] as const;
 
 export type TenantAction = (typeof TENANT_ACTIONS)[number];
 
@@ -86,14 +103,15 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 所以主数据运营也有了 `approval.read`。
  * 订单（只读，M3-01，ADR 0026）：运营（每天处理订单和异常）、客服（处理订单、工单）、财务（对账）、风控（看下单风险）、只读。
  * 里面有乘客的姓名、电话、邮箱：招商、渠道经理、主数据运营、技术用不到，不给。
+ * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
  * 角色管理（M4-05，ADR 0030）：看（`role.read`）、新建和发起修改（`role.manage`）、审核修改（`role.review`）属于「系统设置」，只归超级管理员。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read"],
+  operations: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
@@ -107,13 +125,17 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 区域、商品（需求文档「11. 账号、权限与 API 设置」）：管理员和商品价格能改；只读角色能看；调度、财务用不到。
  * 子品牌决定商品的币种，新建和改名只归管理员；能看商品的角色都能看子品牌（`product.read`）。
  * 订单（只读，M3-01，ADR 0026）：管理员、调度（派车要看订单）、财务（对账）、只读；商品价格用不到。
+ * 派车、改派、司机链接、回传履约状态（`order.dispatch`）和司机、车辆的管理（`fleet.manage`）：管理员、调度（需求「调度：订单、指派、履约回传、司机、车辆」）。
+ * 看司机、车辆（`fleet.read`）：管理员、调度、只读。
+ * Webhook（M3-02，ADR 0027）：设置地址、签名密钥、手动重推、发送测试事件（`webhook.manage`）只归管理员（需求「管理员：账号、资质、API 密钥」，签名密钥同属密钥）；
+ * 看设置和投递记录（`webhook.read`）：管理员、调度（推送失败时要知道）、只读。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
   pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage"],
-  dispatch: ["master_data.read", "order.read"],
+  dispatch: ["master_data.read", "order.read", "order.dispatch", "fleet.read", "fleet.manage", "webhook.read"],
   finance: ["master_data.read", "order.read"],
-  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read"],
+  readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read"],
 };
 
 export function isPlatformRole(value: string): value is PlatformRole {

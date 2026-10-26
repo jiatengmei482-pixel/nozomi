@@ -163,9 +163,9 @@ ensure_app_db_password() {
     die "$EXIT_USAGE" "POSTGRES_APP_PASSWORD 不能和 POSTGRES_PASSWORD 相同：应用账号和迁移账号必须各用各的密码"
 }
 
-# 数据加密密钥（DATA_ENCRYPTION_KEY，ADR 0030：加密库里需要还原原文的密钥，如平台员工的两步验证密钥）。新服务器由初始化脚本生成；
+# 数据加密密钥（DATA_ENCRYPTION_KEY，ADR 0027、0030：加密库里需要还原原文的密钥，如供应商的 Webhook 签名密钥、平台员工的两步验证密钥）。新服务器由初始化脚本生成；
 # 在此之前初始化过的服务器没有这一项，这里补上：值是本机随机生成的，只写进 .env（权限 600），永远不打印。已有的值绝不改动
-# （改了的话库里已经加密的签名密钥就解不开了，供应商要各自换一把新的）。在拿到部署锁之后调用。
+# （改了的话库里已经加密的密钥就解不开了：供应商要各自换一把新的签名密钥，平台员工要重新绑定两步验证）。在拿到部署锁之后调用。
 ensure_data_encryption_key() {
   local env_file="$root_dir/.env" value
   if ! grep -Eq '^DATA_ENCRYPTION_KEY=.+' "$env_file"; then

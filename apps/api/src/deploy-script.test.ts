@@ -330,7 +330,7 @@ test("建应用账号失败：退出码 10，不执行迁移，不启动新版�
   assert.equal(indexOfCall(log, /--remove-orphans$/), -1, "建账号失败后不应替换正在运行的容器");
 });
 
-test("数据加密密钥（ADR 0030）：.env 里没有时部署自动生成 64 位十六进制（只写进 .env，不打印），已有的绝不改动", linuxOnly, async () => {
+test("数据加密密钥（ADR 0027、0030）：.env 里没有时部署自动生成 64 位十六进制（只写进 .env，不打印），已有的绝不改动", linuxOnly, async () => {
   const envFile = join(sandbox.root, ".env");
   const before = `POSTGRES_PASSWORD=${PLACEHOLDER_PASSWORD}\nPOSTGRES_APP_PASSWORD=${PLACEHOLDER_APP_PASSWORD}\nAUTH_JWT_SECRET=${PLACEHOLDER_JWT}\nSTRIPE_SECRET_KEY=\n`;
   await writeFile(envFile, before, { mode: 0o644 });

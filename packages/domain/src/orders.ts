@@ -13,35 +13,60 @@ import type { TripDirection } from "./pricing.ts";
 // ---- 订单状态 ----
 
 /**
- * 订单状态。M3-01 只走「待支付 → 已确认」和「待支付 → 已取消」两条；其余的状态和转换先定义清楚，由后续任务实现：
- * 派车（assigned）、服务中（in_service）、完成（completed）在 M3-02；付款后的取消在 M3-03；救援改派（rescue_pending）在 M3-04。
+ * 订单状态（ADR 0026 定义了前 7 个，M3-02 / ADR 0027 加了履约的 4 个：司机已出发、司机已到达、客人未出现待审核、客人未出现）。
+ * 付款前的两条（待支付 → 已确认 / 已取消）在 M3-01；派车、履约、no-show 申请在 M3-02；付款后的取消在 M3-03；救援改派在 M3-04；no-show 审核在 M4-02。
  */
-export const ORDER_STATUSES = ["pending_payment", "confirmed", "assigned", "in_service", "completed", "cancelled", "rescue_pending"] as const;
+export const ORDER_STATUSES = [
+  "pending_payment",
+  "confirmed",
+  "assigned",
+  "departed",
+  "arrived",
+  "in_service",
+  "completed",
+  "no_show_claimed",
+  "no_show",
+  "cancelled",
+  "rescue_pending",
+] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const ORDER_STATUS_NAMES: Readonly<Record<OrderStatus, string>> = {
   pending_payment: "待支付",
   confirmed: "已确认",
   assigned: "已派车",
+  departed: "司机已出发",
+  arrived: "司机已到达",
   in_service: "服务中",
   completed: "已完成",
+  no_show_claimed: "客人未出现（待审核）",
+  no_show: "客人未出现",
   cancelled: "已取消",
   rescue_pending: "救援改派中",
 };
 
 /**
- * 允许的状态转换。`completed`、`cancelled` 是终态。
+ * 允许的状态转换。`completed`、`no_show`、`cancelled` 是终态。
  * - 付款成功即自动确认（`pending_payment → confirmed`），租户不能拒单，所以没有「待确认」「已拒绝」。
- * - 服务开始（`in_service`）之后不能取消（需求：服务开始前可到 cancelled）。
- * - 救援改派：已确认、已派车的单可以进入 `rescue_pending`；救援租户接单后回到 `confirmed`（或直接带着司机到 `assigned`），无人可接时取消并全额退款。
+ * - 履约按顺序走：已派车 → 司机已出发 → 司机已到达 → 服务中（接到客人）→ 已完成；不能跳步（需求「履约回传：已出发 → 已到达 → 已接到客人 → 已完成」）。
+ * - 改派：服务开始前可换司机、换车。已派车时改派状态不变（流水里记一条「已派车 → 已派车」）；司机已出发后改派回到「已派车」（新司机重新出发）；
+ *   司机已到达上车点后不能再改派（人已经在现场）。
+ * - 服务开始（`in_service`）之前可以取消（需求：服务开始前可到 cancelled），之后不能。
+ * - 客人未出现：司机到达后，在免费等待结束、证据齐全时提交（`arrived → no_show_claimed`）；平台审核通过 → `no_show`（按全额收费），
+ *   驳回 → `cancelled`（客人全额退款，租户拿 0；审核在 M4-02）。
+ * - 救援改派：已确认、已派车、司机已出发（到点仍未到达）的单可以进入 `rescue_pending`；救援租户接单后回到 `confirmed`（或直接带着司机到 `assigned`），无人可接时取消并全额退款。
  */
 const TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderStatus[]>> = {
   pending_payment: ["confirmed", "cancelled"],
   confirmed: ["assigned", "cancelled", "rescue_pending"],
-  assigned: ["in_service", "cancelled", "rescue_pending"],
+  assigned: ["departed", "cancelled", "rescue_pending"],
+  departed: ["assigned", "arrived", "cancelled", "rescue_pending"],
+  arrived: ["in_service", "no_show_claimed", "cancelled"],
   in_service: ["completed"],
+  no_show_claimed: ["no_show", "cancelled"],
   rescue_pending: ["confirmed", "assigned", "cancelled"],
   completed: [],
+  no_show: [],
   cancelled: [],
 };
 

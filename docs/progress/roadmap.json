@@ -276,7 +276,7 @@
       "tasks": [
         { "id": "M3-01", "title": "下单与 Stripe 付款（保存支付方式）", "role": "backend", "status": "blocked",
           "blockedBy": "只差「Stripe 测试卡真实付款成功」一条：要等你注册 Stripe 并把测试密钥（sk_test_、pk_test_、Webhook 签名密钥）填进测试环境的设置（见 docs/secrets.md）。下单、订单状态、库存预占、待支付超时、支付通知的签名校验与幂等都已完成并合并", "acceptance": ["Stripe 测试卡真实付款成功", "Webhook 签名校验"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/35 ；单元 1182、前端组件 419、集成 981 个通过；Webhook 签名校验按 Stripe 算法实现并完整测试；测试角色发现的 3 个缺陷已修复", "updated": "2026-10-25" },
-        { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "todo", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "", "updated": "2026-10-07" },
+        { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "review", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/41 ；单元 1284、前端组件 442、集成 1047 个通过；测试角色补了 42 个测试（含 SSRF 防护、司机令牌、上传伪装、并发状态流转），发现的 3 个缺陷已修复", "updated": "2026-10-26" },
         { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "todo", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "todo", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M3-05", "title": "官网下单页与订单页", "role": "frontend", "status": "todo", "acceptance": ["客人可点「我已落地」"], "evidence": "", "updated": "2026-10-07" },
@@ -526,6 +526,11 @@
       "date": "2026-10-26",
       "by": "Claude",
       "summary": "M1-17、M1-18 验收通过（各 7 条，测试环境浏览器界面逐条核对，没有缺陷）。M1 里程碑全部完成。顺带记下两处极小的问题，暂不单独开任务：同一分钟内发起两条标题完全相同的复核时按钮读屏名称仍会重复；接送点搜不到时的说明措辞还停留在「名称里带…」。"
+    },
+    {
+      "date": "2026-10-26",
+      "by": "Claude",
+      "summary": "M3-02 待验收：供应商后台可以管理司机、车辆并给订单派车 / 改派（同一司机或车辆时间冲突会提醒，派车截止为用车前 24 小时）；派车后生成司机专用链接，司机在手机上看本单信息（不显示任何价格）、点出发 / 到达 / 接到客人 / 完成，上报落地时间要带到达屏照片，客人未出现要交齐 5 项证据；落地时间按规则认定（客人确认优先，取双方较晚，最多认 6 小时延误）；订单变化按签名推送给供应商，失败按 1 分钟到 24 小时退避重试 7 次，最终失败可手动重推，外发请求有防内网访问的保护。新增配置「数据加密密钥」（部署时自动生成，生成后不能更换）。测试角色发现的 3 个缺陷已修复。"
     }
   ]
 }

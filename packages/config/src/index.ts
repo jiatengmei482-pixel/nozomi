@@ -171,8 +171,8 @@ const rawSchema = z.object({
     databaseUrlSchema("DATABASE_MIGRATION_URL").optional(),
   ),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
-  // 数据加密密钥（ADR 0030）：加密库里需要还原原文的密钥（平台员工的两步验证密钥）。服务器上由初始化 / 部署脚本自动生成；
-  // 只有 production 必须配置，其他环境不配时平台员工不能绑定、验证两步验证（接口 503，/health 和 config:check 显示「未配置」）
+  // 数据加密密钥（ADR 0027、0030）：加密库里需要还原原文的密钥（供应商的 Webhook 签名密钥、平台员工的两步验证密钥）。服务器上由初始化 / 部署脚本自动生成；
+  // 只有 production 必须配置，其他环境不配时供应商不能设置 Webhook、平台员工不能绑定、验证两步验证（接口 503，/health 和 config:check 显示「未配置」）
   DATA_ENCRYPTION_KEY: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
@@ -233,7 +233,7 @@ export interface AppConfig {
   /** 迁移账号的连接串；服务进程的环境里没有它时为 null */
   databaseMigrationUrl: string | null;
   authJwtSecret: string;
-  /** 数据加密密钥（ADR 0030）；没有配置时为 null：平台员工不能绑定、验证两步验证 */
+  /** 数据加密密钥（ADR 0027、0030）；没有配置时为 null：供应商不能设置 Webhook，平台员工不能绑定、验证两步验证 */
   dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
@@ -381,7 +381,7 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
     config.dataEncryptionKey
       ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
-      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，平台员工不能绑定两步验证（登录不了运营后台）" },
+      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台）" },
     config.stripe
       ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${config.stripe.mode === "live" ? "正式" : "测试"}模式 · ${mask(config.stripe.secretKey)}` }
       : { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" },

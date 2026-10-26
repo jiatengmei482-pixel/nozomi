@@ -48,6 +48,7 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
   if (portal === "platform" && platformCan("quote.preview")) entries.push({ to: "/platform/quote-preview", label: "报价试算", icon: "calculator", prefix: true });
   if (portal === "platform" && platformCan("channel.read")) entries.push({ to: "/platform/channels", label: "渠道", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("approval.read")) entries.push({ to: "/platform/approvals", label: "待审核", icon: "check-circle", prefix: true });
+  if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
   if (portal === "platform" && platformCan("master_data.read")) {
     entries.push({
       key: "master",
@@ -78,6 +79,10 @@ function navEntries(portal: Portal, home: string, role: string | null, platformC
       ...(tenantRoleCan(role, "product.read") ? [{ to: "/products", label: "商品", prefix: true }, { to: "/price-rules", label: "价格规则", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "catalog", label: "商品配置", icon: "map", children });
+    if (tenantRoleCan(role, "order.read")) entries.push({ to: "/orders", label: "订单", icon: "package", prefix: true });
+    const fleet = tenantRoleCan(role, "fleet.read") ? [{ to: "/fleet/drivers", label: "司机", prefix: true }, { to: "/fleet/vehicles", label: "车辆", prefix: true }] : [];
+    if (fleet.length > 0) entries.push({ key: "fleet", label: "车队", icon: "building", children: fleet });
+    if (tenantRoleCan(role, "webhook.read")) entries.push({ key: "tenant-settings", label: "设置", icon: "settings", children: [{ to: "/settings/webhook", label: "调度对接（Webhook）", prefix: true }], collapsedByDefault: true });
   }
   return entries;
 }
