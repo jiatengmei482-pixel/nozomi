@@ -19,11 +19,13 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 不属于任何租户的表：平台账号与会话、登录限速、迁移记录、两张系统定义的角色清单，
  * 以及全平台共用的主数据（城市、地点、车型组、附加服务；ADR 0012；节假日日历，ADR 0018；汇率和拉取记录，ADR 0022；汇率人工锁定，ADR 0025），
  * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到），
- * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到）。新增平台表时加到这里。
+ * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到），
+ * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
   "approvals",
+  "cancellation_policies",
   "channel_api_clients",
   "channel_cities",
   "channel_tenants",
@@ -35,7 +37,9 @@ const PLATFORM_TABLES = [
   "holidays",
   "login_throttles",
   "markup_rules",
+  "order_change_sales",
   "order_payments",
+  "order_refunds",
   "order_sales",
   "payment_events",
   "places",
@@ -79,6 +83,12 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 订单和状态流水（ADR 0026）：没付款的单接口层再过滤掉。派车、履约回传（M3-02，ADR 0027）：订单只能改派车和履约的列（触发器按语句检查），状态流水只追加
     order_events: ["INSERT", "SELECT"],
     orders: ["SELECT", "UPDATE"],
+    // 取消政策（ADR 0029）：平台统一，供应商后台只读展示
+    cancellation_policies: ["SELECT"],
+    // 改单（ADR 0029）：供应商看得到改了什么；确认改期在平台事务里生效（要改用车时间和结算价）
+    order_changes: ["SELECT"],
+    // 事后加收（ADR 0029）：供应商提交、撤回（触发器只许撤回异议期内的）
+    order_extra_charges: ["INSERT", "SELECT", "UPDATE"],
     // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
     order_assignments: ["INSERT", "SELECT"],
     order_contacts: ["INSERT", "SELECT"],
@@ -155,7 +165,15 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 客人评价（ADR 0028）：只追加
     order_reviews: ["INSERT", "SELECT"],
     order_payments: ["INSERT", "SELECT", "UPDATE"],
-    order_sales: ["INSERT", "SELECT"],
+    // 改期后对外价按原加价比例重算：平台只改 sell_minor（触发器按语句检查，ADR 0029）
+    order_sales: ["INSERT", "SELECT", "UPDATE"],
+    // 取消政策（ADR 0029）：批准时追加新版本，不改不删
+    cancellation_policies: ["INSERT", "SELECT"],
+    // 改单、改期的对外价、事后加收、退款（ADR 0029）：都不删；改期的对外价只追加；加收由供应商提交，平台改状态
+    order_change_sales: ["INSERT", "SELECT"],
+    order_changes: ["INSERT", "SELECT", "UPDATE"],
+    order_extra_charges: ["SELECT", "UPDATE"],
+    order_refunds: ["INSERT", "SELECT", "UPDATE"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
@@ -235,6 +253,9 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 改单、事后加收：渠道和运营改单、供应商确认改期、客人异议、平台审核和扣款、定时任务（ADR 0029）
+  "order_changes.order_changes_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "order_extra_charges.order_extra_charges_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
@@ -258,6 +279,11 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 30 分钟没确认的改期、异议期到了的加收、等扣款的加收、运营后台跨租户看待审核的加收（ADR 0029）
+  "order_changes_confirm_due_idx",
+  "order_extra_charges_charge_due_idx",
+  "order_extra_charges_review_idx",
+  "order_extra_charges_window_idx",
   // 超时未派车、用车前 1 小时仍未出发的提醒跨租户扫（ADR 0027）
   "orders_departure_due_idx",
   "orders_dispatch_due_idx",

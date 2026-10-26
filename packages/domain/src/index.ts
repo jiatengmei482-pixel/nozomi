@@ -28,3 +28,6 @@ export * from "./dispatch.ts";
 export * from "./fulfilment.ts";
 export * from "./webhooks.ts";
 export * from "./tenants.ts";
+export * from "./cancellation.ts";
+export * from "./order-changes.ts";
+export * from "./extra-charges.ts";

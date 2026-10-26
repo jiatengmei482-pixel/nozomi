@@ -2,6 +2,8 @@
  * 渠道、加价规则、双人复核在页面上的写法（ADR 0023）：类型和状态的名字、徽标、五级的说明、复核的类别和改了什么。
  * 百分比一律以基点整数进出接口；页面上写成「12.5%」。
  */
+import type { CancellationPolicyRule } from "../api/order-money.ts";
+import { POLICY_CATEGORY_NAMES, cancelReasonName, levelName, tiersText } from "./order-money-display.ts";
 import { CHANNEL_RULES, type ServiceCategory } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { City } from "../api/master.ts";
@@ -46,6 +48,8 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "tenant.suspend": "暂停供应商",
   "tenant.terminate": "清退供应商",
   "tenant.contract": "供应商合同新版本",
+  "cancellation_policy.update": "修改平台取消政策",
+  "order.cancel_refund": "代取消（多退给客人）",
 };
 
 /** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
@@ -164,9 +168,34 @@ function fxLockChanges(kind: ApprovalKind, before: Record<string, unknown> | nul
 }
 
 /** 复核记录里「改了什么」：逐项列出改之前和改之后（只列变了的）。 */
+/** 取消政策的复核（M3-03）：只列改了的「品类 × 车型级别」，阶梯写成一句话。 */
+function policyChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const rules = (value: unknown): CancellationPolicyRule[] => (Array.isArray(value) ? (value as CancellationPolicyRule[]) : []);
+  const old = rules(before?.["rules"]);
+  return rules(after["rules"]).flatMap((rule) => {
+    const was = old.find((entry) => entry.category === rule.category && entry.level === rule.level);
+    const label = `${POLICY_CATEGORY_NAMES[rule.category]} · ${levelName(rule.level)}`;
+    const now = tiersText(rule.tiers);
+    const then = was === undefined ? "—" : tiersText(was.tiers);
+    return then === now ? [] : [{ label, before: then, after: now }];
+  });
+}
+
+/** 多退给客人的代取消（M3-03）：退多少、按取消政策本来退多少。 */
+function refundChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : null;
+  const amount = (value: unknown): string => (typeof value === "number" ? moneyText(value, currency) : "—");
+  return [
+    { label: "取消原因", before: "—", after: cancelReasonName(typeof after["reason"] === "string" ? after["reason"] : null) + (after["waive_fee"] === true ? "（免收取消费）" : "") },
+    { label: "退给客人", before: `${amount(after["policy_refund_minor"])}（按取消政策）`, after: amount(after["refund_minor"]) },
+  ];
+}
+
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
+  if (kind === "cancellation_policy.update") return policyChanges(before, after);
+  if (kind === "order.cancel_refund") return refundChanges(after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */

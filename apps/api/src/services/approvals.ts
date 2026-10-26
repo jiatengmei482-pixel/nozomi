@@ -32,7 +32,7 @@ export interface ApprovalKind {
    */
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
-  afterApply?(ctx: AppContext, approval: Approval): void;
+  afterApply?(ctx: AppContext, approval: Approval): void | Promise<void>;
 }
 
 export type ApprovalKinds = ReadonlyMap<string, ApprovalKind>;
@@ -120,7 +120,7 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
     await insertAuditLog(db, origin, { tenantId: null, resource: "approval", resourceId: id, action: decision, before: { status: approval.status }, after: { status, kind: approval.kind, resource_id: approval.resourceId, note } });
     return { approval: (await findApproval(db, id)) as Approval, kind };
   });
-  if (decision === "approve") decided.kind.afterApply?.(ctx, decided.approval);
+  if (decision === "approve") await decided.kind.afterApply?.(ctx, decided.approval);
   return decided.approval;
 }
 

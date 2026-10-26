@@ -14,6 +14,8 @@ export interface SalesFlow {
   token(): Promise<string>;
   /** 询价、下单、付款：返回付过款的订单（渠道看到的）。商务 7 座：乙 19,800 比甲 20,000 便宜，乙中标 */
   paidOrder(options?: { vehicleGroupId?: string; serviceTime?: string }): Promise<any>;
+  /** 询价、下单，不付款（M3-03）：返回待支付的订单 */
+  unpaidOrder(options?: { vehicleGroupId?: string; serviceTime?: string }): Promise<any>;
 }
 
 export async function salesFlow(api: TestApi, market: Market, pay: FakePaymentProvider): Promise<SalesFlow> {
@@ -29,36 +31,41 @@ export async function salesFlow(api: TestApi, market: Market, pay: FakePaymentPr
     }
     return token;
   };
+  const unpaidOrder = async (options: { vehicleGroupId?: string; serviceTime?: string } = {}): Promise<any> => {
+    const vehicleGroupId = options.vehicleGroupId ?? market.ids.biz7;
+    api.clock.advance(1_000);
+    const quoted = await ok(
+      api.call("POST", "/sales/v1/quotes", {
+        token: await current(),
+        body: { city_id: market.ids.tokyo, category: "airport_transfer", place_id: market.ids.narita, direction: "pickup", dropoff: DROPOFF, service_time: options.serviceTime ?? SERVICE_TIME, passengers: 2, luggage: 1, currency: "JPY", vehicle_group_ids: [vehicleGroupId] },
+      }),
+    );
+    const quote = quoted.quotes.find((q: any) => q.vehicle_group_id === vehicleGroupId);
+    assert.ok(quote, JSON.stringify(quoted));
+    api.clock.advance(1_000);
+    const created = await ok(
+      api.call("POST", "/sales/v1/orders", {
+        token: await current(),
+        headers: { "idempotency-key": randomUUID() },
+        body: { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "NH 211", dropoff_address: "东京站八重洲口", save_payment_method: true },
+      }),
+      201,
+    );
+    return created.order;
+  };
   return {
     channelId,
     token: current,
+    unpaidOrder,
     async paidOrder(options = {}) {
-      const vehicleGroupId = options.vehicleGroupId ?? market.ids.biz7;
-      api.clock.advance(1_000);
-      const quoted = await ok(
-        api.call("POST", "/sales/v1/quotes", {
-          token: await current(),
-          body: { city_id: market.ids.tokyo, category: "airport_transfer", place_id: market.ids.narita, direction: "pickup", dropoff: DROPOFF, service_time: options.serviceTime ?? SERVICE_TIME, passengers: 2, luggage: 1, currency: "JPY", vehicle_group_ids: [vehicleGroupId] },
-        }),
-      );
-      const quote = quoted.quotes.find((q: any) => q.vehicle_group_id === vehicleGroupId);
-      assert.ok(quote, JSON.stringify(quoted));
-      api.clock.advance(1_000);
-      const created = await ok(
-        api.call("POST", "/sales/v1/orders", {
-          token: await current(),
-          headers: { "idempotency-key": randomUUID() },
-          body: { quote_id: quote.quote_id, passenger: { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" }, flight_no: "NH 211", dropoff_address: "东京站八重洲口", save_payment_method: true },
-        }),
-        201,
-      );
-      const intent = pay.intentOf(created.order.id);
+      const order = await unpaidOrder(options);
+      const intent = pay.intentOf(order.id);
       assert.ok(intent);
       pay.pay(intent.id);
       const raw = pay.event("payment_intent.succeeded", pay.intentObject(intent.id), { created: api.clock.now() });
       const res = await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()));
       assert.equal(res.status, 200, JSON.stringify(res.body));
-      return created.order;
+      return order;
     },
   };
 }

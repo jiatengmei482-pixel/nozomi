@@ -29,7 +29,7 @@ export async function ok(res: Promise<ApiResponse>, status = 200): Promise<any> 
   return done.body;
 }
 
-async function addStaff(api: TestApi, root: string, email: string, role: PlatformRole): Promise<Staff> {
+export async function addStaff(api: TestApi, root: string, email: string, role: PlatformRole): Promise<Staff> {
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: root, body: { email, name: email.split("@")[0], role } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
   const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }));

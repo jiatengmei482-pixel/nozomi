@@ -22,7 +22,10 @@ import {
   type OrderDetailsIssueReason,
   type OrderStatus,
   type PaymentStatus,
+  type VehicleGrade,
+  cancellationRuleFor,
   dispatchDeadline,
+  freeCancelAfterUnconfirmedChange,
   landingReportIssue,
   localDateTimeToInstant,
   normalizeFlightNo,
@@ -39,7 +42,12 @@ import {
   type TenantStatus,
   tenantBids,
   tenantDayStart,
+  vehicleLevel,
 } from "@nozomi/domain";
+import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
+import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
+import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
+import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -138,6 +146,12 @@ export interface SalesOrderView {
   vehicle: Vehicle | null;
   /** 现在是不是已经到了可以给客人司机电话的时候 */
   driverPhoneVisible: boolean;
+  /** M3-03：退款、改单（和改期的对外价）、事后加收、能不能按「改期没确认」免费取消 */
+  refunds: OrderRefund[];
+  changes: OrderChange[];
+  changeSales: Map<string, ChangeSale>;
+  extraCharges: ExtraCharge[];
+  freeCancelAvailable: boolean;
 }
 
 function orderNoRandom(): string {
@@ -229,6 +243,11 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
 
     const orderId = randomUUID();
     const serviceAt = localDateTimeToInstant(request.serviceLocal, product.timezone) as Date;
+    // 这一单适用的取消阶梯：下单这一刻的平台政策、按品类和车型级别（ADR 0029）。之后政策改了不影响这一单
+    const group = (await db.query<{ grade: VehicleGrade; seats: number }>("select grade, seats from vehicle_groups where id = $1", [winner.offer.vehicleGroupId])).rows[0] as { grade: VehicleGrade; seats: number };
+    const policy = await currentCancellationPolicy(db);
+    const level = vehicleLevel(group.grade, group.seats);
+    const cancelPolicy = { version: policy.version, category: request.category, level, tiers: cancellationRuleFor(policy.rules, request.category, level).tiers };
     const freeWait = winner.offer.settlement.freeWait.value;
     const point = (position: { lng: number; lat: number } | null, address: string | null) => (position === null ? null : { lng: position.lng, lat: position.lat, address: (address ?? "").trim() });
     const orderNo = orderNumber(now, orderNoRandom());
@@ -266,6 +285,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       inventoryHeld: limited,
       paymentDueAt: paymentDeadline(now),
       createdAt: now,
+      cancelPolicy,
     });
     await insertOrderEvent(db, { tenantId: winner.tenantId, id: orderId }, { fromStatus: null, toStatus: "pending_payment", actor: "channel", reason: null, occurredAt: now });
     await insertOrderSale(db, {
@@ -377,7 +397,21 @@ export async function getSalesOrderView(ctx: AppContext, channelId: string, orde
       const driver = order.dispatch.driverId === null ? null : ((await findDriversByIds(db, order.tenantId, [order.dispatch.driverId])).get(order.dispatch.driverId) ?? null);
       const vehicle = order.dispatch.vehicleId === null ? null : ((await findVehiclesByIds(db, order.tenantId, [order.dispatch.vehicleId])).get(order.dispatch.vehicleId) ?? null);
       const driverPhoneVisible = ctx.now().getTime() >= order.serviceAt.getTime() - DISPATCH_RULES.deadlineHoursBeforeService * 3_600_000;
-      return { order, sale, payment, winningTenant, driver, vehicle, driverPhoneVisible };
+      const changes = await listOrderChanges(db, order.tenantId, orderId);
+      return {
+        order,
+        sale,
+        payment,
+        winningTenant,
+        driver,
+        vehicle,
+        driverPhoneVisible,
+        refunds: await listOrderRefunds(db, orderId),
+        changes,
+        changeSales: await listChangeSales(db, orderId),
+        extraCharges: await listExtraCharges(db, order.tenantId, orderId),
+        freeCancelAvailable: order.status !== "cancelled" && freeCancelAfterUnconfirmedChange(changes),
+      };
     },
     { snapshot: true },
   );

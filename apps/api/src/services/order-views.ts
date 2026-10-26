@@ -7,6 +7,8 @@
 import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, vehicleIsNew } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { Order } from "../repos/orders.ts";
+import type { OrderChange } from "../repos/order-changes.ts";
+import type { ExtraCharge } from "../repos/extra-charges.ts";
 import { salesMoney } from "./sales-quotes.ts";
 
 type Json = Record<string, unknown>;
@@ -143,6 +145,19 @@ export function fulfilmentJson(order: Order): Json {
   };
 }
 
+/** 这一单适用的取消阶梯（下单时的平台政策；M3-03 之前下的单为 null）。没有金额，三边都能看。 */
+export function cancelPolicyJson(order: Order): Json | null {
+  const policy = order.cancelPolicy;
+  if (policy === null) return null;
+  return { version: policy.version, category: policy.category, level: policy.level, tiers: policy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) };
+}
+
+/** 供应商看到的取消结果：扣款比例和自己应得的（结算币种）。客人被扣多少、退多少不给（规则 4：只给与它结算相关的部分）。 */
+export function tenantCancellationJson(order: Order): Json | null {
+  if (order.cancelFeeBp === null || order.cancelTenantShareMinor === null) return null;
+  return { fee_bp: order.cancelFeeBp, tenant_share: salesMoney(order.cancelTenantShareMinor, order.settlementCurrency) };
+}
+
 /** 供应商看到的订单：行程、乘客、结算价、派车、履约、落地时间。没有渠道、对外价、加价比例、汇率（规则 4）。 */
 export function tenantOrderJson(order: Order, facts: DispatchFacts, now: Date): Json {
   return {
@@ -153,7 +168,51 @@ export function tenantOrderJson(order: Order, facts: DispatchFacts, now: Date): 
     dispatch: dispatchJson(order, facts, now),
     fulfilment: fulfilmentJson(order),
     landing: landingJson(order),
+    cancel_policy: cancelPolicyJson(order),
+    cancellation: tenantCancellationJson(order),
     version: order.version,
+  };
+}
+
+/** 一次改单（供应商、平台都看的部分）：改了什么、结算价改前改后、要不要确认。没有对外价。 */
+export function changeJson(change: OrderChange): Json {
+  return {
+    id: change.id,
+    status: change.status,
+    reschedule: change.reschedule,
+    before: change.before,
+    after: change.after,
+    settlement_before: salesMoney(change.settlementBeforeMinor, change.settlementCurrency),
+    settlement_after: salesMoney(change.settlementAfterMinor, change.settlementCurrency),
+    confirm_due_at: change.status === "pending_confirmation" ? (change.confirmDueAt?.toISOString() ?? null) : null,
+    requested_by: change.requestedBy,
+    requested_at: change.requestedAt.toISOString(),
+    decided_at: iso(change.decidedAt),
+    decision_note: change.decisionNote,
+    dispatch_conflict: change.dispatchConflict,
+  };
+}
+
+/** 一项事后加收（供应商、平台都看的部分）：供应商报的金额（结算币种）、审核通过的金额、状态、异议期。客人付的金额不在这里（规则 4）。 */
+export function extraChargeJson(charge: ExtraCharge): Json {
+  return {
+    id: charge.id,
+    type: charge.type,
+    amount: salesMoney(charge.amountMinor, charge.currency),
+    approved_amount: charge.approvedMinor === null ? null : salesMoney(charge.approvedMinor, charge.currency),
+    description: charge.description,
+    file_ids: charge.fileIds,
+    status: charge.status,
+    review_reasons: charge.reviewReasons,
+    submitted_at: charge.submittedAt.toISOString(),
+    dispute_until: charge.disputeUntil.toISOString(),
+    disputed_at: iso(charge.disputedAt),
+    dispute_reason: charge.disputeReason,
+    decided_at: iso(charge.decidedAt),
+    decision_note: charge.decisionNote,
+    charged_at: iso(charge.chargedAt),
+    withdrawn_at: iso(charge.withdrawnAt),
+    version: charge.version,
   };
 }
 

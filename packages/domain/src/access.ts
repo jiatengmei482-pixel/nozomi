@@ -57,6 +57,10 @@ export const PLATFORM_ACTIONS = [
   "approval.read",
   "order.read",
   "order.resend",
+  "order.manage",
+  "payment.manage",
+  "cancellation_policy.manage",
+  "cancellation_policy.review",
 ] as const;
 
 export type PlatformAction = (typeof PLATFORM_ACTIONS)[number];
@@ -73,6 +77,7 @@ export const TENANT_ACTIONS = [
   "brand.manage",
   "order.read",
   "order.dispatch",
+  "order.extra_charge",
   "fleet.read",
   "fleet.manage",
   "webhook.read",
@@ -109,14 +114,22 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
  * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
+ * 取消、改单、事后加收（M3-03，ADR 0029）：
+ * - `order.manage`（代客人取消、改单，审核事后加收，发起「免收取消费」）：运营、客服（需求「订单中心」「工单」归客服、运营）；
+ * - `payment.manage`（重试失败的退款和扣款，审核「多退给客人」的代取消——需求「人工退款超过阈值」的双人复核）：财务、运营（「支付异常：财务核实」）；
+ * - `cancellation_policy.manage`（发起改平台取消政策）：运营；`cancellation_policy.review`（审核）：运营、财务——两位运营互审，或财务审。
+ *   取消政策本身每个角色都能看（和主数据一样用 `master_data.read`）。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
-  operations: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
+  operations: [
+    "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
+    "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
+  ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend"],
-  finance: ["master_data.read", "channel.read", "approval.read", "order.read"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
@@ -136,12 +149,14 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
  * 看司机、车辆（`fleet.read`）：管理员、调度、只读。
  * Webhook（M3-02，ADR 0027）：设置地址、签名密钥、手动重推、发送测试事件（`webhook.manage`）只归管理员（需求「管理员：账号、资质、API 密钥」，签名密钥同属密钥）；
  * 看设置和投递记录（`webhook.read`）：管理员、调度（推送失败时要知道）、只读。
+ * 事后加收（M3-03，ADR 0029，`order.extra_charge`：提交、撤回、上传票据）：管理员、调度（履约的人知道超时、停车）、财务（对账的人）。
+ * 确认 / 拒绝客人的改期用 `order.dispatch`（排不排得出车是调度的判断）。
  */
 const TENANT_PERMISSIONS: Readonly<Record<TenantRole, readonly TenantAction[]>> = {
   admin: TENANT_ACTIONS,
   pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
-  dispatch: ["master_data.read", "order.read", "order.dispatch", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
-  finance: ["master_data.read", "order.read", "company.read", "performance.read"],
+  dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
+  finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
   readonly: ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"],
 };
 

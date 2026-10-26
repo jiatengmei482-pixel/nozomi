@@ -41,7 +41,11 @@ export type AuditResource =
   | "tenant_profile"
   | "tenant_file"
   | "tenant_document"
-  | "tenant_contract";
+  | "tenant_contract"
+  | "cancellation_policy"
+  | "order_change"
+  | "extra_charge"
+  | "refund";
 export type AuditAction =
   | "login"
   | "login_failed"
@@ -91,7 +95,11 @@ export type AuditAction =
   | "terminate"
   | "observe"
   | "upload"
-  | "request_supplement";
+  | "request_supplement"
+  | "cancel"
+  | "change"
+  | "decide"
+  | "charge";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

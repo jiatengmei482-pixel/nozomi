@@ -114,6 +114,15 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/orders", action: "order.read" },
   { method: "GET", url: `/platform/v1/orders/${MISSING}`, action: "order.read" },
   { method: "GET", url: `/platform/v1/orders/${MISSING}/files/${MISSING_CHILD}`, action: "order.read" },
+  // 取消、改单、加收、取消政策（ADR 0029）：试算 order.read；代取消、代改单、审核加收 order.manage；重试退款和扣款 payment.manage；改政策 cancellation_policy.manage
+  { method: "GET", url: `/platform/v1/orders/${MISSING}/cancel-fee`, action: "order.read" },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/cancel`, action: "order.manage", body: {} },
+  { method: "PATCH", url: `/platform/v1/orders/${MISSING}`, action: "order.manage", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/decide`, action: "order.manage", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/retry`, action: "payment.manage" },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/refunds/${MISSING_CHILD}/retry`, action: "payment.manage" },
+  { method: "GET", url: "/platform/v1/cancellation-policy", action: "master_data.read" },
+  { method: "POST", url: "/platform/v1/cancellation-policy/changes", action: "cancellation_policy.manage", body: {} },
   // 推给供应商的 Webhook（ADR 0027）：看投递记录、手动重推
   { method: "GET", url: "/platform/v1/webhook-deliveries", action: "order.read" },
   { method: "GET", url: `/platform/v1/webhook-deliveries/${MISSING}`, action: "order.read" },
@@ -152,16 +161,16 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 });
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
-  // channel.review、fx.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts 逐个角色验证）
+  // channel.review、fx.review、cancellation_policy.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts）
   // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）同样按复核的类别检查（tenant-onboarding.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "tenant.approve"];
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);
