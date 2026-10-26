@@ -28,6 +28,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { BelowFloorAlert } from "./ChannelSections.tsx";
+import { ApprovalImpact } from "./PricingImpactPanel.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 type Decision = "approve" | "reject" | "withdraw";
@@ -129,6 +130,7 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           </div>
         </div>
       )}
+      <ApprovalImpact approval={approval} />
       <dl className="details">
         <div>
           <dt>发起</dt>
