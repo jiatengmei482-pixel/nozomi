@@ -10,6 +10,7 @@ import type { DriverStatus, OrderStatus, PlateType, TenantWebhookEvent, VehicleS
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
+import type { ExtraCharge, OrderCancelPolicy, OrderChange, TenantCancellation } from "./order-money.ts";
 
 export const ORDERS_PATH = `${TENANT_BASE}/orders`;
 export const DRIVERS_PATH = `${TENANT_BASE}/drivers`;
@@ -169,6 +170,10 @@ export interface TenantOrder {
   dispatch: OrderDispatch;
   fulfilment: OrderFulfilment;
   landing: OrderLanding | null;
+  /** 这一单适用的取消阶梯（下单时的平台政策，M3-03）；之前下的单为 null */
+  cancel_policy: OrderCancelPolicy | null;
+  /** 取消的结果：扣款比例和你应得的（M3-03）；没取消为 null */
+  cancellation: TenantCancellation | null;
   version: number;
 }
 
@@ -180,7 +185,7 @@ export interface OrderEvent {
   occurred_at: string;
 }
 
-export type OrderFileKind = "arrival_screen" | "signboard" | "contact_screenshot";
+export type OrderFileKind = "arrival_screen" | "signboard" | "contact_screenshot" | "receipt";
 
 export interface OrderFile {
   id: string;
@@ -217,6 +222,9 @@ export interface TenantOrderDetail {
   order: TenantOrder;
   events: OrderEvent[];
   records: OrderRecords;
+  /** 改单、事后加收（M3-03） */
+  changes: OrderChange[];
+  extra_charges: ExtraCharge[];
 }
 
 export interface AssignmentIssue {

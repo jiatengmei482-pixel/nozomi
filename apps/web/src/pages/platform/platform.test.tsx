@@ -86,7 +86,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "渠道", "待审核", "推送记录", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "商品", "报价试算", "渠道", "待审核", "订单", "取消政策", "推送记录", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);
@@ -471,13 +471,13 @@ test("新增员工：十个角色各有说明，「现在能做的」按权限�
   assert.equal(screen.getAllByRole("radio").length, 10);
   assert.ok(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked), "没有默认值");
   const hintOf = (name: RegExp): string => document.getElementById(screen.getByRole("radio", { name }).getAttribute("aria-describedby") ?? "")?.textContent ?? "";
-  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook。");
+  assert.equal(hintOf(/^运营/), "日常运营：管理供应商，处理订单和异常。 现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改。");
   assert.equal(hintOf(/^只读/), "只能看，不能改。 现在能做的：看供应商、查看供应商的商品和价格、看主数据、看渠道、看待审核的改动、看订单。");
   assert.equal(hintOf(/^技术/), "负责连接器和系统配置，可以看系统状态。 现在能做的：看主数据、看渠道、看待审核的改动、看系统状态。");
   assert.equal(hintOf(/^主数据运营/), "维护城市、机场、车站、车型组、附加服务。 现在能做的：维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、看待审核的改动。");
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
-  assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道、看待审核的改动、看订单。$/);
-  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、手动重推给供应商的 Webhook、管理平台员工、看审计日志、看系统状态。$/);
+  assert.match(hintOf(/^财务/), /现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改。$/);
+  assert.match(hintOf(/^超级管理员/), /现在能做的：管理供应商（新建、邀请管理员、暂停和恢复）、查看供应商的商品和价格、报价试算、维护主数据、管理汇率（立即拉取、确认或放弃变动过大的汇率，发起人工锁定和解锁）、审核汇率的人工锁定和解锁、管理渠道和加价规则（改加价、停用渠道要另一位同事审核）、审核渠道的改动、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、管理平台员工、看审计日志、看系统状态。$/);
   await actor.type(screen.getByLabelText(/^邮箱/), "sato@example.com");
   await actor.type(screen.getByLabelText(/^姓名/), "佐藤 健");
   await actor.click(screen.getByRole("button", { name: "新增" }));

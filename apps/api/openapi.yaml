@@ -5603,6 +5603,772 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
+    patch:
+      tags: [销售端]
+      operationId: changeSalesOrder
+      summary: 改单
+      description: |
+        客人改单（ADR 0029，需求「客人修改订单规则」「改单补充」）。`If-Match` 带订单的 `version`。只给要改的字段：
+        - 航班号、乘客信息、即时通讯、备注、上下车点的地址文字、人数行李（车型容量内）：直接改，推 `order.changed` 给供应商；
+        - `service_time`（日期或时间）：同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补收差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，没改），便宜了退差价；
+          原来的或新的用车时间离现在不到 24 小时：供应商 30 分钟内确认才生效（`change.status` = `pending_confirmation`），拒绝或超时没确认的，补收的差价退回，客人可以按 `CHANGE_NOT_CONFIRMED` 免费取消；
+        - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标不能改（取消重下）。
+        一张单同时只能有一个没结论的改单（409 `CHANGE_IN_PROGRESS`）。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderChangeRequest"
+      responses:
+        "200":
+          description: 改单的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, change]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  change:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesOrderChange"
+                      - type: "null"
+        "402":
+          description: "`CHANGE_PAYMENT_DECLINED`：补差价没扣到（`details.code`、`details.decline_code`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`、`CHANGE_IN_PROGRESS`、`ORDER_STATE_INVALID`、`CHANGE_NOT_ALLOWED`（出了免费取消期）、`CHANGE_NOT_SERVICEABLE`（新的时间这家供应商报不出价或订满了，`details.reason`）、`NO_SAVED_PAYMENT_METHOD`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`（新的用车时间已经过了）。写法不对（电话、邮箱、航班号）是 400 `VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`：补差价时收款服务出错，几分钟内自动重试（`details.change_id`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/orders/{id}/cancel-fee:
+    get:
+      tags: [销售端]
+      operationId: getSalesCancelFee
+      summary: 退款试算
+      description: |
+        按这一刻、这个原因算取消要扣多少、退多少（客人支付币种）：按下单时这一单的取消阶梯（平台统一，按品类和车型级别），离用车还有多少毫秒落在哪一档。
+        `reason=CHANGE_NOT_CONFIRMED`（改期被供应商拒绝或 30 分钟没确认）免费。待支付的单不涉及钱。服务已开始、已取消的 `cancellable` 为 false。只查得到本渠道的单。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: reason
+          in: query
+          schema:
+            type: string
+            enum: [GUEST_REQUEST, CHANGE_NOT_CONFIRMED]
+            default: GUEST_REQUEST
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelFee"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /sales/v1/orders/{id}/cancel:
+    post:
+      tags: [销售端]
+      operationId: cancelSalesOrder
+      summary: 取消订单
+      description: |
+        客人取消（ADR 0029）。待支付的单：先在 Stripe 取消付款再取消订单，没有钱要退。付过款的单（服务开始之前）：按阶梯扣「对外价 × 扣款比例」，
+        退「实际付了的 − 取消费」（退款走 Stripe，几秒到几天到账，看 `order.cancellation.refund_status`）。`CHANGE_NOT_CONFIRMED`：改期没被确认后免费取消（不满足 409 `FREE_CANCEL_NOT_APPLICABLE`）。
+        已经取消的单再取消一次返回那一次的结果（`replayed: true`），什么都不改。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  enum: [GUEST_REQUEST, CHANGE_NOT_CONFIRMED]
+                  default: GUEST_REQUEST
+      responses:
+        "200":
+          description: 取消后的订单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, replayed]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  replayed:
+                    type: boolean
+                    description: 这张单之前已经取消了，这次什么都没做
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`（服务已开始）、`FREE_CANCEL_NOT_APPLICABLE`、`PAYMENT_PROCESSING`（客人的付款正在处理中）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`：收款服务出错，没能取消待支付单的付款"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /sales/v1/orders/{id}/extra-charges/{chargeId}/dispute:
+    post:
+      tags: [销售端]
+      operationId: disputeSalesExtraCharge
+      summary: 客人对事后加收提异议
+      description: 异议期（提交后 48 小时，按毫秒，截止那一刻起不能再提）内可以提；提了之后不扣款，转平台审核。已经提过的再提返回现在的样子。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: 订单和这一项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order, extra_charge]
+                properties:
+                  order:
+                    $ref: "#/components/schemas/SalesOrder"
+                  extra_charge:
+                    oneOf:
+                      - $ref: "#/components/schemas/SalesExtraCharge"
+                      - type: "null"
+        "401":
+          $ref: "#/components/responses/SalesUnauthenticated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`DISPUTE_WINDOW_CLOSED`：异议期已过，或这一项已经有结果"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /tenant/v1/cancellation-policy:
+    get:
+      tags: [订单]
+      operationId: getTenantCancellationPolicy
+      summary: 平台的取消政策（只读）
+      description: 每个租户角色都能看（`master_data.read`）。取消政策由平台按品类和车型级别统一规定，供应商不设（第五轮决策 ④）；商品「服务规则」里的取消规则只读展示它。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 现在的政策
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [policy]
+                properties:
+                  policy:
+                    $ref: "#/components/schemas/CancellationPolicy"
+  /tenant/v1/orders/{id}/files:
+    post:
+      tags: [订单]
+      operationId: uploadTenantOrderFile
+      summary: 上传票据照片（事后加收的凭证）
+      description: 需要操作 `order.extra_charge`。请求体就是图片的原始字节（JPEG、PNG、WebP、HEIC，最大 5 MB），按文件开头的字节判断格式。`kind` 只能是 `receipt`。已取消的单不能传。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [receipt]
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+          image/heic:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: 上传的照片
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [file]
+                properties:
+                  file:
+                    $ref: "#/components/schemas/OrderFile"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: "`FILE_TOO_LARGE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: "`UNSUPPORTED_MEDIA_TYPE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/extra-charges:
+    post:
+      tags: [订单]
+      operationId: submitTenantExtraCharge
+      summary: 提交事后加收
+      description: |
+        需要操作 `order.extra_charge`（管理员、调度、财务）。只有已完成的单、服务结束 24 小时内（正好 24 小时还行）；类型按品类限定；高速费、停车费必须附票据（`file_ids`，先上传）；
+        单笔不超过这一单的结算价。提交后 48 小时是客人的异议期（不扣款，可以撤回）；之后没有异议、不超过对外价 50%、有凭证的自动用保存的支付方式扣款，其余转平台审核。
+        `amount` 是这一单结算币种的最小货币单位整数（和价格规则一样）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, amount]
+              properties:
+                type:
+                  $ref: "#/components/schemas/ExtraChargeType"
+                amount:
+                  type: integer
+                description:
+                  type: [string, "null"]
+                  maxLength: 200
+                file_ids:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "201":
+          description: 提交的加收
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [extra_charge]
+                properties:
+                  extra_charge:
+                    $ref: "#/components/schemas/ExtraCharge"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXTRA_CHARGE_NOT_ALLOWED`（`details.reason`：`ORDER_NOT_COMPLETED` 没完成、`SUBMIT_WINDOW_CLOSED` 超过 24 小时、`TOO_MANY_ITEMS`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`EXTRA_CHARGE_INVALID`（`details.reason`：`TYPE_NOT_ALLOWED`、`RECEIPT_REQUIRED`、`AMOUNT_INVALID`、`AMOUNT_OVER_LIMIT`）。凭证不是这一单的票据是 400 `VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/extra-charges/{chargeId}/withdraw:
+    post:
+      tags: [订单]
+      operationId: withdrawTenantExtraCharge
+      summary: 撤回事后加收
+      description: 需要操作 `order.extra_charge`。只有异议期内的能撤回（按毫秒：截止那一刻起不能，定时任务还没跑也一样）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 撤回后的这一项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [extra_charge]
+                properties:
+                  extra_charge:
+                    $ref: "#/components/schemas/ExtraCharge"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXTRA_CHARGE_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/changes/{changeId}/confirm:
+    post:
+      tags: [订单]
+      operationId: confirmTenantOrderChange
+      summary: 确认客人的改期
+      description: 需要操作 `order.dispatch`。用车前 24 小时内的改期要供应商 30 分钟内确认才生效；过了 30 分钟 409 `CHANGE_CONFIRMATION_EXPIRED`（按没确认处理，补收的差价退给客人，客人可以免费取消）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [change]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`、`ORDER_STATE_INVALID`、`CHANGE_NOT_SERVICEABLE`（新的一天订满了）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/changes/{changeId}/reject:
+    post:
+      tags: [订单]
+      operationId: rejectTenantOrderChange
+      summary: 拒绝客人的改期
+      description: 需要操作 `order.dispatch`。拒绝后补收的差价退给客人，客人可以免费取消后重新下单（不计入履约失败）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [change]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/cancellation-policy:
+    get:
+      tags: [订单]
+      operationId: getPlatformCancellationPolicy
+      summary: 平台统一取消政策
+      description: 每个平台角色都能看（`master_data.read`）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的政策
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [policy]
+                properties:
+                  policy:
+                    $ref: "#/components/schemas/CancellationPolicy"
+  /platform/v1/cancellation-policy/changes:
+    post:
+      tags: [订单]
+      operationId: requestCancellationPolicyChange
+      summary: 发起修改取消政策（双人复核）
+      description: |
+        需要操作 `cancellation_policy.manage`（运营）。提交整份政策（15 条阶梯）。不直接生效：返回 202 和一条待审核的复核（`kind` = `cancellation_policy.update`），
+        另一位有 `cancellation_policy.review`（运营、财务）的同事批准后存成新的一版；只对之后下的单生效。批准时政策已经被别的修改改过 → `APPROVAL_STALE`。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [rules]
+              properties:
+                rules:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CancellationPolicyRule"
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "400":
+          description: "`VALIDATION_FAILED`（`details.issues[].reason`：`MISSING_RULE`、`DUPLICATE_RULE`、`TIER_COUNT`、`HOURS_INVALID`、`HOURS_NOT_DESCENDING`、`LAST_TIER_NOT_ZERO`、`FEE_INVALID`、`FEE_DECREASING`、`UNCHANGED`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/cancel-fee:
+    get:
+      tags: [订单]
+      operationId: getPlatformCancelFee
+      summary: 代取消的退款试算
+      description: 需要操作 `order.read`。另有按阶梯本来该退的、供应商应得的、是否要双人复核。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: reason
+          in: query
+          schema:
+            $ref: "#/components/schemas/OrderCancelReason"
+        - name: waive_fee
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelFee"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/orders/{id}/cancel:
+    post:
+      tags: [订单]
+      operationId: cancelPlatformOrder
+      summary: 代客人取消
+      description: |
+        需要操作 `order.manage`（运营、客服），必须写原因说明。免费的原因（`FLIGHT_CANCELLED` 航班取消有证明、`FORCE_MAJEURE` 不可抗力、`SUPPLIER_FAULT`、`PLATFORM_FAULT`、`CHANGE_NOT_CONFIRMED`）扣 0；
+        `GUEST_REQUEST` 按阶梯，可选 `waive_fee` 免收取消费。退给客人的比按阶梯算的多时不直接生效：返回 202 和一条复核（`kind` = `order.cancel_refund`），
+        另一位有 `payment.manage`（财务、运营）的同事批准时取消（需求「人工退款超过阈值」）。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason, note]
+              properties:
+                reason:
+                  $ref: "#/components/schemas/OrderCancelReason"
+                waive_fee:
+                  type: boolean
+                  default: false
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 已取消
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [order_id, replayed]
+                properties:
+                  order_id:
+                    type: string
+                    format: uuid
+                  replayed:
+                    type: boolean
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`FREE_CANCEL_NOT_APPLICABLE`、`PAYMENT_PROCESSING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
+    post:
+      tags: [订单]
+      operationId: decidePlatformExtraCharge
+      summary: 审核事后加收
+      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject]
+                approved_amount:
+                  type: [integer, "null"]
+                note:
+                  type: [string, "null"]
+                  maxLength: 500
+      responses:
+        "200":
+          description: 审核后的这一项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [extra_charge]
+                properties:
+                  extra_charge:
+                    $ref: "#/components/schemas/ExtraCharge"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXTRA_CHARGE_STATE_INVALID`：只能审待审核、有异议的（驳回还可以是扣款失败的）；通过要等异议期结束（有异议的也一样）；正在扣款、已扣款、已审过的不能再审（两人同时审只有一个成功）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/extra-charges/{chargeId}/retry:
+    post:
+      tags: [订单]
+      operationId: retryPlatformExtraCharge
+      summary: 重试扣款失败的加收
+      description: 需要操作 `payment.manage`（财务、运营）。用一条新的收款记录再扣一次。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: chargeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 重试后的这一项
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [extra_charge]
+                properties:
+                  extra_charge:
+                    $ref: "#/components/schemas/ExtraCharge"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXTRA_CHARGE_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/refunds/{refundId}/retry:
+    post:
+      tags: [订单]
+      operationId: retryPlatformRefund
+      summary: 重试失败的退款
+      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: refundId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 这一次的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [outcome, refund]
+                properties:
+                  outcome:
+                    type: string
+                    enum: [succeeded, processing, failed, retry, skipped]
+                  refund:
+                    type: object
+                    additionalProperties: false
+                    required: [id, status, amount, last_error]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                        enum: [pending, processing, succeeded, failed]
+                      amount:
+                        $ref: "#/components/schemas/SalesMoney"
+                      last_error:
+                        type: [object, "null"]
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`REFUND_STATE_INVALID`：只有失败的能重试（已经重试过的看重试的那一笔）；`REFUND_SUPERSEDED`：订单取消时的退款已经包含了这一笔（`superseded_at`），再退就多退了；`REFUND_EXCEEDS_PAID`：再退这一笔，客人留下的会少于应付的（没取消的单是对外价，取消了的是取消费）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /webhooks/stripe:
     post:
       tags: [收款]
@@ -5614,7 +6380,7 @@ paths:
         Stripe 调用，不需要登录：用请求头 `Stripe-Signature`（`t=时间戳,v1=签名`，HMAC-SHA256，密钥是 `STRIPE_WEBHOOK_SECRET`）验证是 Stripe 发来的，对原始请求体校验；时间戳和现在相差超过 5 分钟拒绝（防重放）。
         同一个事件编号只处理一次（重复的回 200、`duplicate: true`）。处理：`payment_intent.succeeded`（核对金额币种 → 自动确认订单、库存转已售、记下保存的支付方式）、
         `payment_intent.payment_failed`（记失败原因，订单仍待支付）、`payment_intent.processing` / `requires_action`、`payment_intent.canceled`（取消待支付的单、释放库存）、
-        `charge.refunded`（记已退金额）、`charge.dispute.created`（标记拒付）；其余类型记下不处理。测试 / 正式模式和本环境不一致的不处理。
+        `charge.refunded`（记已退金额）、`charge.dispute.created`（标记拒付）；M3-03：`refund.updated` / `refund.failed` / `charge.refund.updated`（平台发起的退款有了结果），改期补差价、事后加收的离线扣款的 `payment_intent.*` 只更新那一笔收款；其余类型记下不处理。测试 / 正式模式和本环境不一致的不处理。
         处理出错 500，Stripe 会按它的节奏重发。
       parameters:
         - name: Stripe-Signature
@@ -5749,7 +6515,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events, records]
+                required: [order, events, records, changes, extra_charges]
                 properties:
                   order:
                     $ref: "#/components/schemas/TenantOrder"
@@ -5759,6 +6525,14 @@ paths:
                       $ref: "#/components/schemas/OrderEvent"
                   records:
                     $ref: "#/components/schemas/OrderRecords"
+                  changes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderChange"
+                  extra_charges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExtraCharge"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/orders:
@@ -5838,10 +6612,27 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [order, events, records, webhook_deliveries, payment_events, quote]
+                required: [order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges]
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  payments:
+                    type: array
+                    description: 全部收款：下单付款、改期补收的差价、事后加收
+                    items:
+                      $ref: "#/components/schemas/PlatformOrderPayment"
+                  refunds:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderRefund"
+                  changes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformOrderChange"
+                  extra_charges:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformExtraCharge"
                   events:
                     type: array
                     items:
@@ -5937,6 +6728,62 @@ paths:
                               type: integer
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [订单]
+      operationId: changePlatformOrder
+      summary: 代客人改单
+      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderChangeRequest"
+      responses:
+        "200":
+          description: 改单的结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [change]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "402":
+          description: "`CHANGE_PAYMENT_DECLINED`：补差价没扣到（`details.code`、`details.decline_code`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`、`CHANGE_IN_PROGRESS`、`ORDER_STATE_INVALID`、`CHANGE_NOT_ALLOWED`（出了免费取消期）、`CHANGE_NOT_SERVICEABLE`（新的时间这家供应商报不出价或订满了，`details.reason`）、`NO_SAVED_PAYMENT_METHOD`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANGE_REQUIRES_REBOOK`（超出车型容量）、`NO_CHANGE`、`VALIDATION_FAILED`（新的用车时间已经过了）。写法不对（电话、邮箱、航班号）是 400 `VALIDATION_FAILED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+        "502":
+          description: "`PAYMENT_PROVIDER_*`：补差价时收款服务出错，几分钟内自动重试（`details.change_id`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/drivers:
     get:
       tags: [派车]
@@ -8230,7 +9077,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release]
+          enum: [channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, cancellation_policy.update, order.cancel_refund]
           description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；以后会加：结算条款、退款……）
         resource:
           type: string
@@ -9669,10 +10516,10 @@ components:
                 type: string
     PlatformAction:
       type: string
-      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend]
+      enum: [staff.read, staff.manage, tenant.read, tenant.create, tenant.change_status, audit_log.read, integration.read, master_data.read, master_data.manage, quote.preview, product.read, fx.manage, fx.review, channel.read, channel.manage, channel.review, approval.read, order.read, order.resend, order.manage, payment.manage, cancellation_policy.manage, cancellation_policy.review]
     TenantAction:
       type: string
-      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, fleet.read, fleet.manage, webhook.read, webhook.manage]
+      enum: [user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage]
     LoginRequest:
       type: object
       additionalProperties: false
@@ -13202,12 +14049,12 @@ components:
         服务开始前可到 `cancelled` 已取消；`rescue_pending` 救援改派中（M3-04）。不能跳步（ADR 0026、ADR 0027）。
     OrderCancelReason:
       type: string
-      enum: [PAYMENT_TIMEOUT, PAYMENT_CANCELED]
-      description: "`PAYMENT_TIMEOUT` 超时未支付，系统自动取消；`PAYMENT_CANCELED` 付款被取消"
+      enum: [PAYMENT_TIMEOUT, PAYMENT_CANCELED, GUEST_REQUEST, CHANGE_NOT_CONFIRMED, FLIGHT_CANCELLED, FORCE_MAJEURE, SUPPLIER_FAULT, PLATFORM_FAULT]
+      description: "`PAYMENT_TIMEOUT` 超时未支付，系统自动取消；`PAYMENT_CANCELED` 付款被取消；`GUEST_REQUEST` 客人取消（按取消政策扣款）；`CHANGE_NOT_CONFIRMED` 改期没被供应商确认后客人免费取消；`FLIGHT_CANCELLED` 航班取消（有证明）、`FORCE_MAJEURE` 不可抗力、`SUPPLIER_FAULT` 供应商原因、`PLATFORM_FAULT` 平台原因：免费（运营选）"
     PaymentStatus:
       type: string
-      enum: [creating, requires_payment, processing, succeeded, canceled]
-      description: "`creating` 还没在收款服务建好付款；`requires_payment` 等客人付款（含 3DS 验证中、卡被拒后换卡重付）；`processing` 处理中；`succeeded` 已付款；`canceled` 付款已取消"
+      enum: [creating, requires_payment, processing, succeeded, canceled, failed]
+      description: "`failed` 用保存的支付方式离线扣款没扣到（改期补差价、事后加收）；`creating` 还没在收款服务建好付款；`requires_payment` 等客人付款（含 3DS 验证中、卡被拒后换卡重付）；`processing` 处理中；`succeeded` 已付款；`canceled` 付款已取消"
     OrderPoint:
       type: object
       additionalProperties: false
@@ -13287,7 +14134,7 @@ components:
       additionalProperties: false
       description: |
         渠道看到的订单：行程、乘客、客人支付的金额、付款状态。**没有结算价、加价比例**；中标租户只在付款成功后、渠道设置了「付款后展示」时出现。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, quote_id, channel_order_no, price, payment_status, payment_due_at, winning_tenant, driver, vehicle, landing, cancel_policy, cancellation, free_cancel_available, changes, extra_charges, version]
       properties:
         id:
           type: string
@@ -13462,12 +14309,31 @@ components:
             - type: "null"
         landing:
           $ref: "#/components/schemas/OrderLanding"
+        cancel_policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        cancellation:
+          $ref: "#/components/schemas/SalesCancellation"
+        free_cancel_available:
+          type: boolean
+          description: 最近一次改期被供应商拒绝或 30 分钟没确认：可以按 `CHANGE_NOT_CONFIRMED` 免费取消
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SalesOrderChange"
+        extra_charges:
+          type: array
+          description: 事后加收（客人要付的金额；供应商撤回的不列）
+          items:
+            $ref: "#/components/schemas/SalesExtraCharge"
+        version:
+          type: integer
+          description: 订单的版本：改单（PATCH）时放进 If-Match
     TenantOrder:
       type: object
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, version]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version]
       properties:
         id:
           type: string
@@ -13580,6 +14446,10 @@ components:
           $ref: "#/components/schemas/OrderFulfilment"
         landing:
           $ref: "#/components/schemas/OrderLanding"
+        cancel_policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        cancellation:
+          $ref: "#/components/schemas/TenantCancellation"
         version:
           type: integer
     PlatformOrder:
@@ -13587,7 +14457,7 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, version]
+      required: [id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version]
       properties:
         id:
           type: string
@@ -13764,6 +14634,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/PlatformOrderPayment"
             - type: "null"
+        cancel_policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        cancellation:
+          $ref: "#/components/schemas/PlatformCancellation"
         version:
           type: integer
     OrderPartyRef:
@@ -13779,8 +14653,21 @@ components:
     PlatformOrderPayment:
       type: object
       additionalProperties: false
-      required: [provider, status, amount, intent_id, customer_id, payment_method_saved, refunded, disputed, paid_after_cancel, last_error, save_consent_at, succeeded_at]
+      required: [id, kind, change_id, extra_charge_id, provider, status, amount, intent_id, customer_id, payment_method_saved, refunded, disputed, paid_after_cancel, last_error, save_consent_at, succeeded_at]
       properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [order, change, extra_charge]
+          description: "`order` 下单时的付款；`change` 改期补收的差价；`extra_charge` 事后加收（后两种用保存的支付方式离线扣，M3-03）"
+        change_id:
+          type: [string, "null"]
+          format: uuid
+        extra_charge_id:
+          type: [string, "null"]
+          format: uuid
         provider:
           type: string
           enum: [stripe]
@@ -13826,6 +14713,560 @@ components:
         succeeded_at:
           type: [string, "null"]
           format: date-time
+    CancelTier:
+      type: object
+      additionalProperties: false
+      required: [min_hours_before, fee_bp]
+      properties:
+        min_hours_before:
+          type: integer
+          minimum: 0
+          maximum: 720
+          description: 距用车不少于这么多小时取消（按毫秒比较，正好等于算这一档）
+        fee_bp:
+          type: integer
+          minimum: 0
+          maximum: 10000
+          description: 扣对外价的比例（基点，10000 = 100%）
+    VehicleLevel:
+      type: string
+      enum: [economy, comfort, business, luxury, minibus]
+      description: 取消政策用的车型级别：车型组的四个等级，10 座及以上不论等级算 `minibus` 中巴
+    CancellationPolicyRule:
+      type: object
+      additionalProperties: false
+      required: [category, level, tiers]
+      properties:
+        category:
+          type: string
+          enum: [airport_transfer, point_to_point, charter]
+        level:
+          $ref: "#/components/schemas/VehicleLevel"
+        tiers:
+          type: array
+          minItems: 1
+          maxItems: 5
+          description: 按小时数从大到小；最后一档是 0 小时；扣款比例越接近用车越高
+          items:
+            $ref: "#/components/schemas/CancelTier"
+    CancellationPolicy:
+      type: object
+      additionalProperties: false
+      description: 平台统一取消政策（ADR 0029）。版本 0 是需求表里的默认政策（还没有人改过）
+      required: [version, effective_at, rules]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        effective_at:
+          type: [string, "null"]
+          format: date-time
+          description: 这一版什么时候生效的；默认政策为 null
+        rules:
+          type: array
+          description: 每个「品类 × 车型级别」一条（3 × 5 = 15 条）
+          items:
+            $ref: "#/components/schemas/CancellationPolicyRule"
+    OrderCancelPolicy:
+      description: 这一单适用的取消阶梯（下单时的平台政策，之后政策改了不影响这一单）；M3-03 之前下的单为 null
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [version, category, level, tiers]
+        properties:
+          version:
+            type: integer
+          category:
+            type: string
+            enum: [airport_transfer, point_to_point, charter]
+          level:
+            $ref: "#/components/schemas/VehicleLevel"
+          tiers:
+            type: array
+            items:
+              $ref: "#/components/schemas/CancelTier"
+      - type: "null"
+    TenantCancellation:
+      description: 取消时的扣款比例和供应商应得（结算币种 = 结算价 × 扣款比例）。客人被扣、退了多少不给（规则 4）。没取消、付款前取消的为 null
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [fee_bp, tenant_share]
+        properties:
+          fee_bp:
+            type: integer
+          tenant_share:
+            $ref: "#/components/schemas/SalesMoney"
+      - type: "null"
+    RefundStatusSummary:
+      description: 退款到哪一步：没有退款 null；`pending` 处理中；`succeeded` 都退好了；`failed` 有失败的（平台财务会处理）
+      oneOf:
+      - type: string
+        enum: [pending, succeeded, failed]
+      - type: "null"
+    SalesCancellation:
+      description: 取消的结果（客人支付币种）。没取消为 null
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [reason, fee_bp, fee, refund, refund_status]
+        properties:
+          reason:
+            oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+          fee_bp:
+            type: [integer, "null"]
+            description: 扣款比例；付款前取消的为 null
+          fee:
+            oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+          refund:
+            $ref: "#/components/schemas/SalesMoney"
+          refund_status:
+            $ref: "#/components/schemas/RefundStatusSummary"
+      - type: "null"
+    PlatformCancellation:
+      oneOf:
+      - type: object
+        additionalProperties: false
+        required: [reason, note, fee_bp, customer_fee, tenant_share]
+        properties:
+          reason:
+            oneOf:
+            - $ref: "#/components/schemas/OrderCancelReason"
+            - type: "null"
+          note:
+            type: [string, "null"]
+          fee_bp:
+            type: [integer, "null"]
+          customer_fee:
+            oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+          tenant_share:
+            oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
+      - type: "null"
+    OrderChangeStatus:
+      type: string
+      enum: [awaiting_payment, pending_confirmation, applied, rejected, expired, failed, cancelled]
+      description: "`awaiting_payment` 补差价扣款中；`pending_confirmation` 等供应商确认（30 分钟）；`applied` 已生效；`rejected` 供应商拒绝；`expired` 30 分钟内没确认；`failed` 差价没扣到，没改成；`cancelled` 订单取消了，作废"
+    OrderChange:
+      type: object
+      additionalProperties: false
+      description: 一次改单：改了哪些字段的改前改后、结算价改前改后。供应商和运营后台都看；没有对外价
+      required: [id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
+        reschedule:
+          type: boolean
+          description: 改了日期或时间（重新报价）
+        before:
+          type: object
+          description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）
+        after:
+          type: object
+        settlement_before:
+          $ref: "#/components/schemas/SalesMoney"
+        settlement_after:
+          $ref: "#/components/schemas/SalesMoney"
+        confirm_due_at:
+          type: [string, "null"]
+          format: date-time
+          description: 等确认时：供应商最晚什么时候确认
+        requested_by:
+          type: string
+          enum: [channel, platform_user]
+        requested_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decision_note:
+          type: [string, "null"]
+        dispatch_conflict:
+          type: boolean
+          description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
+    PlatformOrderChange:
+      type: object
+      additionalProperties: false
+      description: 运营后台看到的改单：另有改期的对外价改前改后
+      required: [id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict, sell_before, sell_after]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
+        reschedule:
+          type: boolean
+          description: 改了日期或时间（重新报价）
+        before:
+          type: object
+          description: 改了的字段改之前的值（字段名和下单、改单接口一样；改期另有 `service_local`）
+        after:
+          type: object
+        settlement_before:
+          $ref: "#/components/schemas/SalesMoney"
+        settlement_after:
+          $ref: "#/components/schemas/SalesMoney"
+        confirm_due_at:
+          type: [string, "null"]
+          format: date-time
+          description: 等确认时：供应商最晚什么时候确认
+        requested_by:
+          type: string
+          enum: [channel, platform_user]
+        requested_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decision_note:
+          type: [string, "null"]
+        dispatch_conflict:
+          type: boolean
+          description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
+        sell_before:
+          description: 改期的对外价改前（客人支付币种）；只改信息的为 null
+          oneOf:
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
+        sell_after:
+          oneOf:
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
+    SalesOrderChange:
+      type: object
+      additionalProperties: false
+      required: [id, status, fields, before, after, price_difference, confirm_due_at, requested_at, decided_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderChangeStatus"
+        fields:
+          type: array
+          items:
+            type: string
+        before:
+          type: object
+        after:
+          type: object
+        price_difference:
+          description: 改期后对外价的差：`charge` 补收（已用保存的支付方式扣）、`refund` 退回、`none` 不变；只改信息的为 null
+          oneOf:
+          - type: object
+            additionalProperties: false
+            required: [kind, amount]
+            properties:
+              kind:
+                type: string
+                enum: [charge, refund, none]
+              amount:
+                $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
+        confirm_due_at:
+          type: [string, "null"]
+          format: date-time
+        requested_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+    ExtraChargeType:
+      type: string
+      enum: [charter_overtime, charter_over_km, waiting, extra_stop, extra_addon, toll, parking]
+      description: "`charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待、`extra_stop` 现场加停靠点、`extra_addon` 现场加附加服务、`toll` 包车高速费、`parking` 包车停车费（后两种凭票实报，必须附票据）。接送机、点对点是一口价，只能收后三种之外的 `waiting`、`extra_stop`、`extra_addon`"
+    ExtraChargeStatus:
+      type: string
+      enum: [in_window, review, disputed, approved, charging, charged, charge_failed, rejected, withdrawn]
+      description: "`in_window` 48 小时异议期内（不扣款）；`review` 待平台审核（超过对外价 50%、没有凭证）；`disputed` 客人提了异议、待审核；`approved` 审核通过、等扣款；`charging` 正在扣款；`charged` 已扣款；`charge_failed` 扣款失败（等财务处理）；`rejected` 驳回；`withdrawn` 供应商撤回"
+    ExtraCharge:
+      type: object
+      additionalProperties: false
+      description: 一项事后加收（供应商报的金额，结算币种）。客人付的金额不在这里（规则 4）
+      required: [id, type, amount, approved_amount, description, file_ids, status, review_reasons, submitted_at, dispute_until, disputed_at, dispute_reason, decided_at, decision_note, charged_at, withdrawn_at, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        approved_amount:
+          description: 审核通过的金额（部分通过时比提交的少）
+          oneOf:
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
+        description:
+          type: [string, "null"]
+        file_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
+        review_reasons:
+          type: array
+          items:
+            type: string
+            enum: [OVER_THRESHOLD, NO_EVIDENCE, DISPUTED]
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+          description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议
+        disputed_at:
+          type: [string, "null"]
+          format: date-time
+        dispute_reason:
+          type: [string, "null"]
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decision_note:
+          type: [string, "null"]
+        charged_at:
+          type: [string, "null"]
+          format: date-time
+        withdrawn_at:
+          type: [string, "null"]
+          format: date-time
+        version:
+          type: integer
+    PlatformExtraCharge:
+      type: object
+      additionalProperties: false
+      description: 运营后台看到的事后加收：另有客人要付的金额、最近一次扣款失败的原因、扣了几次
+      required: [id, type, amount, approved_amount, description, file_ids, status, review_reasons, submitted_at, dispute_until, disputed_at, dispute_reason, decided_at, decision_note, charged_at, withdrawn_at, version, customer_amount, last_charge_error, charge_attempts]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        approved_amount:
+          description: 审核通过的金额（部分通过时比提交的少）
+          oneOf:
+          - $ref: "#/components/schemas/SalesMoney"
+          - type: "null"
+        description:
+          type: [string, "null"]
+        file_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
+        review_reasons:
+          type: array
+          items:
+            type: string
+            enum: [OVER_THRESHOLD, NO_EVIDENCE, DISPUTED]
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+          description: 异议期截止（提交 + 48 小时）：这一刻起不能再提异议
+        disputed_at:
+          type: [string, "null"]
+          format: date-time
+        dispute_reason:
+          type: [string, "null"]
+        decided_at:
+          type: [string, "null"]
+          format: date-time
+        decision_note:
+          type: [string, "null"]
+        charged_at:
+          type: [string, "null"]
+          format: date-time
+        withdrawn_at:
+          type: [string, "null"]
+          format: date-time
+        version:
+          type: integer
+        customer_amount:
+          $ref: "#/components/schemas/SalesMoney"
+        last_charge_error:
+          type: [object, "null"]
+        charge_attempts:
+          type: integer
+    SalesExtraCharge:
+      type: object
+      additionalProperties: false
+      description: 渠道看到的事后加收：客人要付的金额（客人支付币种）、说明、异议期
+      required: [id, type, amount, description, status, submitted_at, dispute_until, dispute_open, disputed_at, charged_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExtraChargeType"
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        description:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ExtraChargeStatus"
+        submitted_at:
+          type: string
+          format: date-time
+        dispute_until:
+          type: string
+          format: date-time
+        dispute_open:
+          type: boolean
+          description: 现在还能不能提异议
+        disputed_at:
+          type: [string, "null"]
+          format: date-time
+        charged_at:
+          type: [string, "null"]
+          format: date-time
+    OrderRefund:
+      type: object
+      additionalProperties: false
+      required: [id, payment_id, purpose, change_id, amount, status, provider_refund_id, retry_of, attempts, next_attempt_at, last_error, succeeded_at, failed_at, superseded_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        payment_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+          enum: [cancellation, change]
+        change_id:
+          type: [string, "null"]
+          format: uuid
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        status:
+          type: string
+          enum: [pending, processing, succeeded, failed]
+        provider_refund_id:
+          type: [string, "null"]
+        attempts:
+          type: integer
+        retry_of:
+          type: [string, "null"]
+          format: uuid
+          description: 财务手动重试时：重试的是哪一笔失败的退款
+        next_attempt_at:
+          type: [string, "null"]
+          format: date-time
+        last_error:
+          type: [object, "null"]
+        succeeded_at:
+          type: [string, "null"]
+          format: date-time
+        failed_at:
+          type: [string, "null"]
+          format: date-time
+        superseded_at:
+          type: [string, "null"]
+          format: date-time
+          description: 失败的这一笔已作废：订单取消时的退款按「实际付了的」算，已经包含了它（不能再重试）
+        created_at:
+          type: string
+          format: date-time
+    CancelFee:
+      type: object
+      additionalProperties: false
+      description: 退款试算（这一刻、这个原因）。服务已经开始、已经取消的 `cancellable` 为 false，其余字段不出现
+      required: [cancellable]
+      properties:
+        cancellable:
+          type: boolean
+        stage:
+          type: string
+          enum: [unpaid, paid]
+        reason:
+          $ref: "#/components/schemas/OrderCancelReason"
+        tier_index:
+          type: integer
+        hours_before_service:
+          type: integer
+          description: 离用车还有多少小时（向下取整，只用于显示；判断按毫秒）
+        fee_bp:
+          type: integer
+        paid:
+          $ref: "#/components/schemas/SalesMoney"
+        fee:
+          $ref: "#/components/schemas/SalesMoney"
+        refund:
+          $ref: "#/components/schemas/SalesMoney"
+        policy:
+          $ref: "#/components/schemas/OrderCancelPolicy"
+        policy_fee_bp:
+          type: integer
+          description: 只有运营后台：按阶梯本来该扣的比例
+        policy_refund:
+          $ref: "#/components/schemas/SalesMoney"
+        tenant_share:
+          $ref: "#/components/schemas/SalesMoney"
+        needs_review:
+          type: boolean
+          description: 只有运营后台：多退了钱，代取消要双人复核
+    OrderChangeRequest:
+      type: object
+      additionalProperties: false
+      description: 只给要改的字段。坐标、车型、品类、城市不能改（按「取消重下」）
+      properties:
+        passenger:
+          type: object
+          additionalProperties: false
+          required: [name, phone, email]
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+        flight_no:
+          type: [string, "null"]
+        messaging:
+          oneOf:
+          - $ref: "#/components/schemas/OrderMessaging"
+          - type: "null"
+        notes:
+          type: [string, "null"]
+        pickup_address:
+          type: string
+        dropoff_address:
+          type: string
+        service_time:
+          type: string
+          format: date-time
+          description: 新的用车时间（带时区）；按城市当地的分钟计
+        passengers:
+          type: integer
+        luggage:
+          type: integer
     SalesOrderRequest:
       type: object
       additionalProperties: false
@@ -14291,8 +15732,8 @@ components:
         - type: "null"
     OrderFileKind:
       type: string
-      enum: [arrival_screen, signboard, contact_screenshot]
-      description: "`arrival_screen` 到达屏（落地时间的证据）；`signboard` 举牌照片（no-show 第 3 项）；`contact_screenshot` 联系客人的截图"
+      enum: [arrival_screen, signboard, contact_screenshot, receipt]
+      description: "`arrival_screen` 到达屏（落地时间的证据）；`signboard` 举牌照片（no-show 第 3 项）；`contact_screenshot` 联系客人的截图；`receipt` 票据（停车费、高速费等事后加收的凭证，M3-03）"
     OrderFile:
       type: object
       additionalProperties: false

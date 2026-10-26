@@ -583,18 +583,22 @@ test("数据库层面：平台角色改每日库存只能改预占和已售，�
   for (const sql of ["update quote_logs set bids = '[]'::jsonb where id = $1", "update quote_logs set channel_id = channel_id where id = $1", "update quote_logs set currency = 'USD' where id = $1", "delete from quote_logs where id = $1"]) {
     await assert.rejects(platform(sql, [log]), deniedByDatabase, sql);
   }
+  // 改期后对外价按原加价比例重算（M3-03，ADR 0029）：平台只能改 sell_minor 这一列，加价比例、汇率、币种、渠道等仍然不能改
   for (const sql of [
-    "update order_sales set sell_minor = 1 where order_id = $1",
     "update order_sales set markup_bp = 0 where order_id = $1",
+    "update order_sales set fx = null where order_id = $1",
+    "update order_sales set currency = 'USD' where order_id = $1",
+    "update order_sales set sell_minor = sell_minor, channel_id = channel_id where order_id = $1",
     "delete from order_sales where order_id = $1",
     "update order_events set to_status = 'confirmed' where order_id = $1",
     "delete from order_events where order_id = $1",
     "delete from order_payments where order_id = $1",
     "delete from orders where id = $1",
   ]) await assert.rejects(platform(sql, [order.id]), deniedByDatabase, sql);
-  // 下单的金额不可能被平台角色改：库里仍是原样
+  // 被拒绝的语句一行都没改：库里仍是原样
   const sale = await row("select sell_minor from order_sales where order_id = $1", [order.id]);
   assert.equal(Number(sale.sell_minor), Number(order.price.total.amount));
+  await platform("update order_sales set sell_minor = sell_minor where order_id = $1", [order.id]);
 });
 
 // ---- 畸形入参 ----

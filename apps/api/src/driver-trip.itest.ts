@@ -126,7 +126,7 @@ test("照片：JPEG / PNG 按字节判断格式；伪装成图片的内容、声
   assert.deepEqual([svg.status, svg.body.error.code], [415, "UNSUPPORTED_MEDIA_TYPE"]);
   assert.equal((await upload(token, "signboard", PNG, "image/jpeg")).status, 415, "声明的类型和内容不一致");
   assert.equal((await upload(token, "signboard", Buffer.alloc(0))).status, 400);
-  assert.equal((await upload(token, "receipt", JPEG)).status, 400, "不认识的种类");
+  assert.equal((await upload(token, "selfie", JPEG)).status, 400, "不认识的种类");
   const big = await upload(token, "signboard", Buffer.concat([JPEG, Buffer.alloc(5 * 1024 * 1024)]));
   assert.equal(big.status, 413);
   assert.equal((await upload("nzd_garbage", "signboard", JPEG)).status, 401);

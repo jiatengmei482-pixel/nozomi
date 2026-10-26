@@ -72,7 +72,7 @@
 | `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥在数据库里是用它加密保存的（ADR 0027） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开，每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥 |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
-| `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 7 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created` → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
+| `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
 | `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
 
 同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：

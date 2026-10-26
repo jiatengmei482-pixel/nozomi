@@ -167,7 +167,7 @@ export async function reportDriverLocation(ctx: AppContext, token: string | null
   });
 }
 
-const UPLOAD_KINDS = new Set<OrderFileKind>(["arrival_screen", "signboard", "contact_screenshot"]);
+const UPLOAD_KINDS = new Set<OrderFileKind>(["arrival_screen", "signboard", "contact_screenshot", "receipt"]);
 
 export function fileTooLarge(): AppError {
   return new AppError(413, "FILE_TOO_LARGE", `照片太大了（最大 ${EVIDENCE_FILE_RULES.maxBytes / 1024 / 1024} MB）`, { max_bytes: EVIDENCE_FILE_RULES.maxBytes });
@@ -175,7 +175,7 @@ export function fileTooLarge(): AppError {
 
 /** 上传一张照片。按文件开头的字节判断格式，和声明的类型不一致、不是认的格式都拒绝（415）。订单结束后不能再传。 */
 export async function uploadDriverFile(ctx: AppContext, token: string | null, kind: OrderFileKind, declaredType: string | undefined, data: Buffer): Promise<OrderFile> {
-  if (!UPLOAD_KINDS.has(kind)) throw validationFailed("querystring", [{ path: "/kind", message: "只能是 arrival_screen、signboard、contact_screenshot" }]);
+  if (!UPLOAD_KINDS.has(kind)) throw validationFailed("querystring", [{ path: "/kind", message: "只能是 arrival_screen、signboard、contact_screenshot、receipt" }]);
   if (data.length === 0) throw validationFailed("body", [{ path: "/", reason: "REQUIRED", message: "没有收到照片" }]);
   if (data.length > EVIDENCE_FILE_RULES.maxBytes) throw fileTooLarge();
   const detected = detectEvidenceType(data);

@@ -152,3 +152,58 @@ test("parseWebhook：用配置的 whsec 密钥校验签名再整理；签名不�
   const notJson = Buffer.from("{not json");
   assert.throws(() => provider().parseWebhook(notJson, stripeSignatureHeader(notJson, webhookSecret, Math.floor(now.getTime() / 1000)), now), PaymentWebhookPayloadError);
 });
+
+// ---- M3-03：离线扣款、退款 ----
+
+const chargeInput = { paymentId: "11111111-2222-4333-8444-555555555555", orderId: orderInput.orderId, orderNo: orderInput.orderNo, customerId: "cus_test_1", paymentMethodId: "pm_test_1", amountMinor: 2_200, currency: "JPY" as const, description: "NOZOMI 服务后加收", purpose: "extra_charge" as const };
+
+test("离线扣款：PaymentIntent 挂在下单时的 Customer 上、用保存的 PaymentMethod、off_session + confirm，幂等键以收款记录为准；成功、处理中照实返回", async () => {
+  seen.length = 0;
+  handler = () => ({ status: 200, body: intent({ id: "pi_extra_1", amount: 2_200, status: "succeeded", payment_method: "pm_test_1" }) });
+  const result = await provider().chargeSavedPaymentMethod(chargeInput);
+  assert.equal(result.outcome, "succeeded");
+  const [created] = seen as [Seen];
+  assert.equal(`${created.method} ${created.path}`, "POST /v1/payment_intents");
+  assert.equal(created.headers["idempotency-key"], `nozomi-charge-${chargeInput.paymentId}`);
+  assert.deepEqual(
+    [created.form.get("amount"), created.form.get("currency"), created.form.get("customer"), created.form.get("payment_method"), created.form.get("off_session"), created.form.get("confirm"), created.form.get("metadata[purpose]"), created.form.get("metadata[payment_id]")],
+    ["2200", "jpy", "cus_test_1", "pm_test_1", "true", "true", "extra_charge", chargeInput.paymentId],
+  );
+  handler = () => ({ status: 200, body: intent({ id: "pi_extra_2", status: "processing" }) });
+  assert.equal((await provider().chargeSavedPaymentMethod(chargeInput)).outcome, "processing");
+});
+
+test("离线扣款被拒：卡被拒、要客人验证（Stripe 的 card_error）返回 declined 和拒绝代码，不当作收款服务出错；别的错误照样是 PaymentProviderError", async () => {
+  handler = () => ({ status: 402, body: { error: { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: "Your card has insufficient funds.", payment_intent: { id: "pi_declined_1", object: "payment_intent" } } } });
+  const declined = await provider().chargeSavedPaymentMethod(chargeInput);
+  assert.deepEqual(declined, { outcome: "declined", intentId: "pi_declined_1", error: { code: "card_declined", declineCode: "insufficient_funds", message: null } });
+  handler = () => ({ status: 402, body: { error: { type: "card_error", code: "authentication_required", message: "This payment requires authentication." } } });
+  const auth = await provider().chargeSavedPaymentMethod(chargeInput);
+  assert.deepEqual(auth, { outcome: "declined", intentId: null, error: { code: "authentication_required", declineCode: null, message: null } });
+  handler = () => ({ status: 200, body: intent({ id: "pi_action", status: "requires_action" }) });
+  assert.deepEqual(await provider().chargeSavedPaymentMethod(chargeInput), { outcome: "declined", intentId: "pi_action", error: { code: "authentication_required", declineCode: null, message: null } });
+  handler = () => ({ status: 500, body: { error: { type: "api_error" } } });
+  await assert.rejects(provider().chargeSavedPaymentMethod(chargeInput), (err: unknown) => err instanceof PaymentProviderError && err.code === "PAYMENT_PROVIDER_UNAVAILABLE");
+});
+
+test("退款：对着一笔 PaymentIntent、指定金额，幂等键以退款记录为准；返回的状态照实整理；看不懂的状态拒绝", async () => {
+  seen.length = 0;
+  handler = () => ({ status: 200, body: { id: "re_1", object: "refund", amount: 10_890, currency: "jpy", payment_intent: "pi_test_1", status: "succeeded", failure_reason: null } });
+  const refund = await provider().refundPayment({ refundId: "99999999-2222-4333-8444-555555555555", intentId: "pi_test_1", amountMinor: 10_890, orderId: orderInput.orderId, orderNo: orderInput.orderNo });
+  assert.deepEqual(refund, { refundId: "re_1", intentId: "pi_test_1", status: "succeeded", amountMinor: 10_890, currency: "JPY", failureReason: null });
+  const [created] = seen as [Seen];
+  assert.equal(`${created.method} ${created.path}`, "POST /v1/refunds");
+  assert.equal(created.headers["idempotency-key"], "nozomi-refund-99999999-2222-4333-8444-555555555555");
+  assert.deepEqual([created.form.get("payment_intent"), created.form.get("amount"), created.form.get("reason"), created.form.get("metadata[order_no]")], ["pi_test_1", "10890", "requested_by_customer", orderInput.orderNo]);
+  handler = () => ({ status: 400, body: { error: { type: "invalid_request_error", code: "charge_already_refunded", message: "x" } } });
+  await assert.rejects(provider().refundPayment({ refundId: "x", intentId: "pi_test_1", amountMinor: 1, orderId: orderInput.orderId, orderNo: orderInput.orderNo }), (err: unknown) => err instanceof PaymentProviderError && err.code === "PAYMENT_PROVIDER_REJECTED" && err.providerCode === "charge_already_refunded");
+});
+
+test("退款的通知（refund.updated / refund.failed / charge.refund.updated）整理成 refund；状态看不懂的拒绝", () => {
+  const object = { id: "re_2", object: "refund", amount: 500, currency: "usd", payment_intent: { id: "pi_x" }, status: "failed", failure_reason: "expired_or_canceled_card" };
+  for (const type of ["refund.updated", "refund.failed", "charge.refund.updated"]) {
+    assert.deepEqual(normalizeStripeEvent(event(type, object)).object, { kind: "refund", refund: { refundId: "re_2", intentId: "pi_x", status: "failed", amountMinor: 500, currency: "USD", failureReason: "expired_or_canceled_card" } });
+  }
+  assert.throws(() => normalizeStripeEvent(event("refund.updated", { ...object, status: "weird" })), PaymentWebhookPayloadError);
+  assert.throws(() => normalizeStripeEvent(event("refund.updated", { ...object, object: "charge" })), PaymentWebhookPayloadError);
+});

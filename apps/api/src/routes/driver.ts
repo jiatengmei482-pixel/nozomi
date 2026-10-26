@@ -17,7 +17,7 @@ import { dateTimeSchema, parseInput, resourceId, uuidSchema } from "../validatio
 import { fileJson, sendFile } from "./orders.ts";
 import { fulfilmentSchema, locationSchema, toLocation } from "./dispatch.ts";
 
-const fileQuerySchema = z.object({ kind: z.enum(["arrival_screen", "signboard", "contact_screenshot"]) });
+const fileQuerySchema = z.object({ kind: z.enum(["arrival_screen", "signboard", "contact_screenshot", "receipt"]) });
 const landingSchema = z.object({ landed_at: dateTimeSchema, file_id: uuidSchema });
 const contactSchema = z.object({ method: z.enum(["phone", "messaging"]), note: z.string().trim().max(200).nullable().default(null), file_id: uuidSchema.nullable().default(null) });
 const locationBodySchema = z.object({ location: locationSchema.nullable().default(null) });
