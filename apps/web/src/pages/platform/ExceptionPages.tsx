@@ -384,7 +384,7 @@ export function ExceptionDetailPage() {
           label="处理说明"
           missing="请写处理说明：做了什么、结果怎样"
           hint="如「已电话催供应商，14:20 派车」「退款已在 Stripe 后台核实成功」"
-          confirmText="关闭"
+          confirmText="关闭异常"
           busyText="关闭中…"
           action="关闭"
           describe={(err) => (err.code === "EXCEPTION_CLOSED" ? "这条异常已经关闭了（可能是条件解除，系统自动关的）。" : null)}
