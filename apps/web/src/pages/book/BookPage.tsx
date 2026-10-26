@@ -177,7 +177,6 @@ export function BookPage() {
       ({ items }) => {
         if (!alive) return;
         setAirports({ cityId: draft.cityId, items });
-        setDraft((current) => (current.cityId === draft.cityId && current.airportId === "" && items.length === 1 ? { ...current, airportId: (items[0] as SiteAirport).id } : current));
       },
       (err: unknown) => alive && setAirportError(siteFailureText(err, "读取机场")),
     );
@@ -190,6 +189,11 @@ export function BookPage() {
   const city = cityList.find((entry) => entry.id === draft.cityId);
   const airportList = useMemo(() => (airports !== null && airports.cityId === draft.cityId ? airports.items : []), [airports, draft.cityId]);
   const airport = airportList.find((entry) => entry.id === draft.airportId);
+  // 城市里只有一个机场、客人还没选（或换了城市被清空）时替客人选上
+  useEffect(() => {
+    const only = airportList.length === 1 ? (airportList[0] as SiteAirport).id : null;
+    if (only !== null && draft.airportId === "") setDraft((current) => (current.airportId === "" ? { ...current, airportId: only } : current));
+  }, [airportList, draft.airportId]);
 
   const update = (changes: Partial<BookingDraft>): void => {
     setDraft((current) => ({ ...current, ...changes }));
@@ -257,6 +261,7 @@ export function BookPage() {
             options={cityList.map((entry) => ({ value: entry.id, label: displayName(entry.name).text }))}
             errors={errors.city ? [errors.city] : []}
             onChange={(cityId) => {
+              if (cityId === draft.cityId) return;
               const next = cityList.find((entry) => entry.id === cityId);
               update({ cityId, airportId: "", ...(next !== undefined && draft.date === "" ? { date: defaultServiceDate(next.timezone, new Date()) } : {}) });
             }}
