@@ -72,7 +72,8 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   await vehicleDialog.getByLabel("保险到期日").fill("2035-01-01");
   await vehicleDialog.getByLabel("车检到期日").fill("2035-01-01");
   await vehicleDialog.getByRole("button", { name: "保存" }).click();
-  await expect(page.getByText("品川 300 あ 12-34")).toBeVisible();
+  // 保存后的提示里也有车牌，只看列表里的那一行
+  await expect(page.getByRole("row").filter({ hasText: "品川 300 あ 12-34" })).toBeVisible();
 
   // 订单 → 派车
   await page.getByRole("link", { name: "订单", exact: true }).click();
