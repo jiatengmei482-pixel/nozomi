@@ -46,11 +46,25 @@ import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
+import { REFUSAL_MESSAGES } from "./quotes.ts";
 import { salesOrderJson } from "./sales.ts";
 
 type Json = Record<string, unknown>;
 
 const iso = (date: Date | null): string | null => date?.toISOString() ?? null;
+
+/** 没能当候选的原因的中文说明：报价引擎的原因用它的说明，另有救援单自己的几种。 */
+const EXCLUDED_MESSAGES: Readonly<Record<string, string>> = {
+  OFFER_DECLINED: "这次救援已经拒绝了",
+  OFFER_EXPIRED: "这次救援的救援单超时没接",
+  OFFER_PENDING: "救援单正在等它接",
+  OFFER_CLOSED: "这次救援的救援单已收回",
+  CHANNEL_NOT_SELLING: "这一单的渠道不卖这家供应商",
+};
+
+function excludedMessage(reason: string): string {
+  return EXCLUDED_MESSAGES[reason] ?? (REFUSAL_MESSAGES as Readonly<Record<string, string>>)[reason] ?? reason;
+}
 const requiredNote = z.string().trim().min(1).max(RESCUE_RULES.noteMaxLength);
 const optionalNote = z.string().trim().max(RESCUE_RULES.noteMaxLength).nullable().default(null);
 
@@ -293,7 +307,7 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
         difference: entry.differenceMinor === null ? null : salesMoney(entry.differenceMinor, found.rescue.originalSettlementCurrency),
         urgent: entry.urgent,
       })),
-      excluded: found.excluded.map((entry) => ({ tenant: { id: entry.tenantId, name: entry.tenantName }, product_id: entry.productId, reason: entry.reason })),
+      excluded: found.excluded.map((entry) => ({ tenant: { id: entry.tenantId, name: entry.tenantName }, product_id: entry.productId, reason: entry.reason, message: excludedMessage(entry.reason) })),
     };
   });
 

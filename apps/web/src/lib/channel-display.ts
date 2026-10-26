@@ -47,6 +47,7 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "fx_lock.release": "解除汇率锁定",
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
+  "rescue.manual_assign": "救援改派：人工指定供应商",
 };
 
 /** 汇率锁定的复核（M2-06）：对象是币种，页面链接去汇率页。 */
@@ -167,10 +168,21 @@ function refundChanges(after: Record<string, unknown>): { label: string; before:
   ];
 }
 
+/** 人工指定救援供应商（M3-04）：指定给谁、谈好的结算价、原结算价。 */
+function manualAssignChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : null;
+  return [
+    { label: "订单", before: "—", after: typeof after["order_no"] === "string" ? after["order_no"] : "—" },
+    { label: "救援供应商", before: before?.["status"] === "exhausted" ? "候选都不接" : "—", after: typeof after["tenant_name"] === "string" ? after["tenant_name"] : "—" },
+    { label: "结算价", before: "—", after: typeof after["settlement_minor"] === "number" ? moneyText(after["settlement_minor"], currency) : "—" },
+  ];
+}
+
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   if (kind === "cancellation_policy.update") return policyChanges(before, after);
   if (kind === "order.cancel_refund") return refundChanges(after);
+  if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */

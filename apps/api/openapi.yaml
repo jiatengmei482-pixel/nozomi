@@ -8438,7 +8438,7 @@ paths:
                     items:
                       type: object
                       additionalProperties: false
-                      required: [tenant, product_id, reason]
+                      required: [tenant, product_id, reason, message]
                       properties:
                         tenant:
                           $ref: "#/components/schemas/RescueTenantRef"
@@ -8447,6 +8447,9 @@ paths:
                           format: uuid
                         reason:
                           type: string
+                        message:
+                          type: string
+                          description: 原因的中文说明
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":

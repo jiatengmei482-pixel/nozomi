@@ -6,6 +6,7 @@
  *   这里原样交给页面，不缓存、不打日志、不自动重试。
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
+import type { TenantOrderRescue } from "./rescues.ts";
 import type { DriverStatus, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
@@ -225,6 +226,8 @@ export interface TenantOrderDetail {
   /** 改单、事后加收（M3-03） */
   changes: OrderChange[];
   extra_charges: ExtraCharge[];
+  /** 这一单和救援改派的关系（M3-04）；没有为 null */
+  rescue: TenantOrderRescue | null;
 }
 
 export interface AssignmentIssue {

@@ -190,7 +190,7 @@ export interface RescueCandidate {
 export interface RescueCandidates {
   rescue_id: string;
   candidates: RescueCandidate[];
-  excluded: { tenant: TenantRef; product_id: string | null; reason: string }[];
+  excluded: { tenant: TenantRef; product_id: string | null; reason: string; message: string }[];
 }
 
 // ---- 供应商 ----
