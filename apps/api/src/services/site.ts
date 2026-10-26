@@ -18,6 +18,8 @@ import {
   channelSellsTenant,
   combineThrottleDecisions,
   evaluateRollingWindow,
+  instantToLocal,
+  localDateTimeExists,
   localDateTimeToInstant,
   normalizePhone,
   tenantBids,
@@ -38,11 +40,15 @@ import {
   findLiveSiteOrderLink,
   findOrderNames,
   findSiteClient,
+  type SitePlaceType,
+  findQuotePackageKm,
   findVehicleGroups,
   insertLookupFailure,
   insertSiteOrderLink,
   listBookableAirports,
+  listBookableCharterPackages,
   listBookableCities,
+  listCityPlaces,
   listLookupFailures,
 } from "../repos/site.ts";
 import { validationFailed } from "../validation.ts";
@@ -52,8 +58,8 @@ import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
 
-/** 官网现在只卖接送机（ADR 0032 待定事项 4）。 */
-export const SITE_CATEGORY: ServiceCategory = "airport_transfer";
+/** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0035）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
+export const SITE_CATEGORIES: readonly ServiceCategory[] = ["airport_transfer", "point_to_point", "charter"];
 
 export const SITE_LINK_RULES = {
   /** 查看链接在用车时间之后还能用多久：30 天（覆盖加收的提交期和异议期、投诉期） */
@@ -154,18 +160,22 @@ export interface SiteCity {
   name: LocalizedText;
   timezone: string;
   countryCode: string;
+  /** 这个城市能在官网预订的品类（按 `SITE_CATEGORIES` 的顺序） */
+  categories: ServiceCategory[];
 }
 
-/** 能预订接送机的城市：启用、在渠道授权里、有渠道卖的供应商上架了接送机商品。 */
+/** 能预订的城市和各自能订的品类：城市启用、城市和品类在渠道授权里、有渠道卖的供应商上架了这个品类的商品。 */
 export async function siteCities(ctx: AppContext): Promise<SiteCity[]> {
   const { channel } = await requireOpenSite(ctx);
-  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCities(db, SITE_CATEGORY), { snapshot: true });
+  const rows = await withPlatformTx(ctx.pool, (db) => listBookableCities(db), { snapshot: true });
   const cities = new Map<string, SiteCity>();
   for (const row of rows) {
-    if (cities.has(row.id) || !sells(channel, row) || channelScopeRefusal(channel.scope, row.id, SITE_CATEGORY) !== null) continue;
-    cities.set(row.id, { id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.countryCode });
+    if (!SITE_CATEGORIES.includes(row.category) || !sells(channel, row) || channelScopeRefusal(channel.scope, row.id, row.category) !== null) continue;
+    const city = cities.get(row.id) ?? { id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.countryCode, categories: [] };
+    if (!city.categories.includes(row.category)) city.categories.push(row.category);
+    cities.set(row.id, city);
   }
-  return [...cities.values()];
+  return [...cities.values()].map((city) => ({ ...city, categories: SITE_CATEGORIES.filter((category) => city.categories.includes(category)) }));
 }
 
 export interface SiteAirport {
@@ -178,7 +188,7 @@ export interface SiteAirport {
 
 export async function siteAirports(ctx: AppContext, cityId: string): Promise<SiteAirport[]> {
   const { channel } = await requireOpenSite(ctx);
-  if (channelScopeRefusal(channel.scope, cityId, SITE_CATEGORY) !== null) return [];
+  if (channelScopeRefusal(channel.scope, cityId, "airport_transfer") !== null) return [];
   const rows = await withPlatformTx(ctx.pool, (db) => listBookableAirports(db, cityId), { snapshot: true });
   const airports = new Map<string, SiteAirport>();
   for (const row of rows) {
@@ -188,13 +198,61 @@ export async function siteAirports(ctx: AppContext, cityId: string): Promise<Sit
   return [...airports.values()];
 }
 
+/**
+ * 这个城市能选的包车套餐时长（小时，从短到长）：渠道卖的供应商上架的包车商品里、启用且到城市当地今天还没过期的价格规则的时长。
+ * 城市或包车不在渠道授权里时为空。某个时长那一天到底报不报得出价，询价时再看。
+ */
+export async function siteCharterPackages(ctx: AppContext, cityId: string): Promise<number[]> {
+  const { channel } = await requireOpenSite(ctx);
+  if (channelScopeRefusal(channel.scope, cityId, "charter") !== null) return [];
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const city = await findQuoteCity(db, cityId);
+      if (city === null || !city.active) return [];
+      const rows = await listBookableCharterPackages(db, cityId, instantToLocal(ctx.now(), city.timezone).date);
+      return [...new Set(rows.filter((row) => sells(channel, row)).map((row) => row.hours))].sort((a, b) => a - b);
+    },
+    { snapshot: true },
+  );
+}
+
+export interface SitePlace {
+  id: string;
+  type: SitePlaceType;
+  code: string;
+  name: LocalizedText;
+  address: string | null;
+  lng: number;
+  lat: number;
+}
+
+/**
+ * 地址输入辅助：这个城市里启用的机场、车站、地标（平台维护的主数据，不调用任何外部地图服务）。
+ * 客人选一个，页面把名称和坐标填进地址那一栏；也可以照旧自己写地址和坐标。渠道没授权的城市为空列表（和城市列表一致）。
+ */
+export async function sitePlaces(ctx: AppContext, cityId: string): Promise<SitePlace[]> {
+  const { channel } = await requireOpenSite(ctx);
+  // 和城市列表同一个口径：渠道没授权的城市不列它的地点
+  if (channel.scope.cityIds !== null && !channel.scope.cityIds.includes(cityId)) return [];
+  const rows = await withPlatformTx(ctx.pool, (db) => listCityPlaces(db, cityId), { snapshot: true });
+  return rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat }));
+}
+
+type Point = { lng: number; lat: number };
+
+/** 官网询价的行程：三种品类各自要的东西。 */
+export type SiteTrip =
+  /** 接送机：机场、方向（pickup 接机 = 机场 → 地址；dropoff 送机 = 地址 → 机场）、地址那一端的坐标 */
+  | { category: "airport_transfer"; airportId: string; direction: "pickup" | "dropoff"; address: Point }
+  /** 点对点：上车点、下车点的坐标 */
+  | { category: "point_to_point"; pickup: Point; dropoff: Point }
+  /** 包车：上车点的坐标、套餐时长（小时） */
+  | { category: "charter"; pickup: Point; packageHours: number };
+
 export interface SiteQuoteInput {
   cityId: string;
-  airportId: string;
-  /** pickup 接机（机场 → 地址）；dropoff 送机（地址 → 机场） */
-  direction: "pickup" | "dropoff";
-  /** 另一端（地址那一端）的坐标 */
-  address: { lng: number; lat: number };
+  trip: SiteTrip;
   /** 城市当地的用车时间 `YYYY-MM-DDTHH:mm` */
   serviceLocal: string;
   passengers: number;
@@ -209,6 +267,8 @@ export interface SiteCancelPolicy {
 
 export interface SiteQuote extends SalesQuote {
   vehicleGroup: SiteVehicleGroup;
+  /** 包车：套餐含多少公里（超出的服务后按实际加收）；其他品类 null */
+  packageKm: number | null;
   /** 按现在的平台取消政策：这个车型组下单后适用的阶梯（下单时抄进订单） */
   cancelPolicy: SiteCancelPolicy;
 }
@@ -219,30 +279,57 @@ export interface SiteQuoteResult {
   unavailable: { vehicleGroupId: string | null; reasons: SalesUnavailableReason[] }[];
 }
 
-/** 官网询价：城市和机场核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称和取消阶梯。 */
+/** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
+function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; request: Record<string, unknown> } {
+  const { trip } = input;
+  const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage };
+  switch (trip.category) {
+    case "airport_transfer":
+      return {
+        category: trip.category,
+        placeId: trip.airportId,
+        direction: trip.direction,
+        pickup: trip.direction === "dropoff" ? trip.address : null,
+        dropoff: trip.direction === "pickup" ? trip.address : null,
+        packageHours: null,
+        request: { ...common, airport_id: trip.airportId, direction: trip.direction, address: trip.address },
+      };
+    case "point_to_point":
+      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: null, request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff } };
+    case "charter":
+      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: null, packageHours: trip.packageHours, request: { ...common, pickup: trip.pickup, package_hours: trip.packageHours } };
+  }
+}
+
+/** 官网询价：城市（接送机还有机场）核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称、取消阶梯和包车的套餐公里。 */
 export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promise<SiteQuoteResult> {
   const { principal, channel } = await requireOpenSite(ctx);
+  const { trip } = input;
   const city = await withPlatformTx(ctx.pool, async (db) => {
     const found = await findQuoteCity(db, input.cityId);
     if (found === null || !found.active) throw validationFailed("body", [{ path: "/city_id", reason: "UNKNOWN_CITY", message: "城市不存在或暂不开放" }]);
-    const airport = await findQuotePlace(db, input.airportId);
-    if (airport === null || airport.type !== "airport" || airport.cityId !== found.id || !airport.active) throw validationFailed("body", [{ path: "/airport_id", reason: "UNKNOWN_PLACE", message: "机场不存在、已停用，或者不在这个城市" }]);
+    if (trip.category === "airport_transfer") {
+      const airport = await findQuotePlace(db, trip.airportId);
+      if (airport === null || airport.type !== "airport" || airport.cityId !== found.id || !airport.active) throw validationFailed("body", [{ path: "/airport_id", reason: "UNKNOWN_PLACE", message: "机场不存在、已停用，或者不在这个城市" }]);
+    }
     return found;
   }, { snapshot: true });
-  const serviceTime = localDateTimeToInstant(input.serviceLocal, city.timezone);
+  // 客人填的是当地钟面：夏令时跳过的时间不存在，直接拒绝（不按顺延后的时间报价，ADR 0032「不存在的当地时间 400」）
+  const serviceTime = localDateTimeExists(input.serviceLocal, city.timezone) ? localDateTimeToInstant(input.serviceLocal, city.timezone) : null;
   if (serviceTime === null) throw validationFailed("body", [{ path: "/service_local", reason: "INVALID_FORMAT", message: "用车时间写成当地的 YYYY-MM-DDTHH:mm，并且是这个城市里存在的时间" }]);
+  const sales = salesTrip(input);
   const result = await createSalesQuotes(
     ctx,
     principal,
     {
       cityId: input.cityId,
-      category: SITE_CATEGORY,
-      placeId: input.airportId,
-      direction: input.direction,
-      pickup: input.direction === "dropoff" ? input.address : null,
-      dropoff: input.direction === "pickup" ? input.address : null,
+      category: sales.category,
+      placeId: sales.placeId,
+      direction: sales.direction,
+      pickup: sales.pickup,
+      dropoff: sales.dropoff,
       serviceTime,
-      packageHours: null,
+      packageHours: sales.packageHours,
       passengers: input.passengers,
       luggage: input.luggage,
       addons: [],
@@ -250,19 +337,23 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promis
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
     },
-    { request: { source: "site", city_id: input.cityId, airport_id: input.airportId, direction: input.direction, address: input.address, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage } },
+    { request: sales.request },
   );
-  const { groups, policy } = await withPlatformTx(
+  const { groups, policy, packageKm } = await withPlatformTx(
     ctx.pool,
-    async (db) => ({ groups: await findVehicleGroups(db, result.quotes.map((quote) => quote.vehicleGroupId)), policy: await currentCancellationPolicy(db) }),
+    async (db) => ({
+      groups: await findVehicleGroups(db, result.quotes.map((quote) => quote.vehicleGroupId)),
+      policy: await currentCancellationPolicy(db),
+      packageKm: trip.category === "charter" ? await findQuotePackageKm(db, result.quotes.map((quote) => quote.quoteId)) : new Map<string, number>(),
+    }),
     { snapshot: true },
   );
   const quotes = result.quotes.flatMap((quote): SiteQuote[] => {
     const group = groups.get(quote.vehicleGroupId);
     if (group === undefined) return [];
     const level = vehicleLevel(group.grade as VehicleGrade, group.seats);
-    const rule = cancellationRuleFor(policy.rules, SITE_CATEGORY, level);
-    return [{ ...quote, vehicleGroup: group, cancelPolicy: { category: SITE_CATEGORY, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) } }];
+    const rule = cancellationRuleFor(policy.rules, sales.category, level);
+    return [{ ...quote, vehicleGroup: group, packageKm: packageKm.get(quote.quoteId) ?? null, cancelPolicy: { category: sales.category, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) } }];
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);

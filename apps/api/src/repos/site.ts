@@ -37,20 +37,85 @@ export interface BookableCity extends BookableRow {
   name: LocalizedText;
   timezone: string;
   countryCode: string;
+  category: ServiceCategory;
 }
 
-/** 启用的城市里有哪些供应商上架了这个品类的商品（每个城市 × 供应商一行）。 */
-export async function listBookableCities(db: Db, category: ServiceCategory): Promise<BookableCity[]> {
-  const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; tenant_id: string; tenant_status: TenantStatus }>(
-    `select distinct c.id, c.code, c.name, c.timezone, c.country_code, p.tenant_id, t.status as tenant_status
+/** 启用的城市里有哪些供应商上架了哪些品类的商品（每个城市 × 品类 × 供应商一行）。 */
+export async function listBookableCities(db: Db): Promise<BookableCity[]> {
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; category: ServiceCategory; tenant_id: string; tenant_status: TenantStatus }>(
+    `select distinct c.id, c.code, c.name, c.timezone, c.country_code, p.category, p.tenant_id, t.status as tenant_status
        from cities c
-       join products p on p.city_id = c.id and p.status = 'published' and p.category = $1
+       join products p on p.city_id = c.id and p.status = 'published'
        join tenants t on t.id = p.tenant_id
       where c.status = 'active'
-      order by c.code`,
-    [category],
+      order by c.code, p.category`,
   );
-  return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+  return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, category: row.category, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+}
+
+/** 一个包车套餐时长，带报这个时长的供应商（按渠道的授权范围过滤在调用方做）。 */
+export interface BookableCharterPackage extends BookableRow {
+  hours: number;
+}
+
+/**
+ * 这个城市里上架的包车商品有哪些套餐时长：启用的、到 `today`（城市当地日期）还没过期的价格规则里出现的（每个时长 × 供应商一行）。
+ * 只用来给客人列可选的时长；某个时长那一天到底报不报得出价，询价时由报价引擎判断。
+ */
+export async function listBookableCharterPackages(db: Db, cityId: string, today: string): Promise<BookableCharterPackage[]> {
+  const rows = await db.query<{ hours: number; tenant_id: string; tenant_status: TenantStatus }>(
+    `select distinct r.package_hours as hours, p.tenant_id, t.status as tenant_status
+       from price_rules r
+       join products p on p.tenant_id = r.tenant_id and p.id = r.product_id and p.status = 'published' and p.category = 'charter' and p.city_id = $1
+       join tenants t on t.id = p.tenant_id
+      where r.status = 'enabled' and r.package_hours is not null and (r.valid_to is null or r.valid_to >= $2::date)
+      order by r.package_hours`,
+    [cityId, today],
+  );
+  return rows.rows.map((row) => ({ hours: row.hours, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+}
+
+/** 地址输入辅助能列的地点种类：机场、车站、地标（航站楼、出口挂在上级下面，不单独列）。 */
+export const SITE_PLACE_TYPES = ["airport", "station", "poi"] as const;
+export type SitePlaceType = (typeof SITE_PLACE_TYPES)[number];
+/** 一个城市最多列多少个地点（主数据由平台维护，一个城市远到不了这么多；到了就只列前面的） */
+export const SITE_PLACE_LIMIT = 500;
+
+export interface SitePlaceRow {
+  id: string;
+  type: SitePlaceType;
+  code: string;
+  name: LocalizedText;
+  address: string | null;
+  lng: number;
+  lat: number;
+}
+
+/** 这个城市里启用的机场、车站、地标（主数据，公开）。按种类、编码排。 */
+export async function listCityPlaces(db: Db, cityId: string): Promise<SitePlaceRow[]> {
+  const rows = await db.query<{ id: string; type: SitePlaceType; code: string; name: LocalizedText; address: string | null; lng: string; lat: string }>(
+    `select pl.id, pl.type, pl.code, pl.name, pl.address, pl.lng, pl.lat
+       from places pl
+       join cities c on c.id = pl.city_id and c.status = 'active'
+      where pl.city_id = $1 and pl.status = 'active' and pl.type = any($2::text[])
+      order by array_position($2::text[], pl.type), pl.code
+      limit $3`,
+    [cityId, SITE_PLACE_TYPES, SITE_PLACE_LIMIT],
+  );
+  return rows.rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: Number(row.lng), lat: Number(row.lat) }));
+}
+
+/** 包车报价用的价格规则里的套餐公里数（按报价编号）。 */
+export async function findQuotePackageKm(db: Db, quoteIds: readonly string[]): Promise<Map<string, number>> {
+  if (quoteIds.length === 0) return new Map();
+  const rows = await db.query<{ id: string; package_km: number | null }>(
+    `select q.id, (r.params->>'packageKm')::int as package_km
+       from quotes q
+       join price_rules r on r.tenant_id = q.winner_tenant_id and r.id = (q.snapshot->'winner'->'offer'->>'priceRuleId')::uuid
+      where q.id = any($1::text[]) and r.pricing_model = 'charter_package'`,
+    [quoteIds],
+  );
+  return new Map(rows.rows.flatMap((row) => (row.package_km === null ? [] : [[row.id, row.package_km] as const])));
 }
 
 export interface BookablePlace extends BookableRow {

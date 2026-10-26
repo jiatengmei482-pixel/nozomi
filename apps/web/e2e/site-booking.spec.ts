@@ -115,10 +115,10 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
 
   // 询价
   await page.goto("/book");
-  await expect(page.getByRole("heading", { level: 1, name: "预订接送机" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
   await expect(page.getByText(/GeoNames/)).toBeVisible();
   await expect(page.getByText(/OurAirports/)).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "官网" }).getByRole("link", { name: "预订接送机" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "官网" }).getByRole("link", { name: "预订用车" })).toHaveAttribute("aria-current", "page");
   await expectHeaderRowsAt320(page);
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
   await expect(page.getByLabel(/^机场/)).toHaveValue(world.airport.id);

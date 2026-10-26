@@ -180,8 +180,9 @@ export function OrderPage() {
           <ShareLink url={shareUrl} />
         </Alert>
       )}
+      {/* 区块按订单编号区分：同一个标签页换成另一张单的链接时，展开的表单、确认框都重新开始，不带上一张单的内容 */}
       {orderSectionSequence(primary).map((key) => (
-        <Fragment key={key}>{sections[key]}</Fragment>
+        <Fragment key={`${order.id}-${key}`}>{sections[key]}</Fragment>
       ))}
     </SiteLayout>
   );
