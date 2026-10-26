@@ -45,6 +45,7 @@ export const PLATFORM_ACTIONS = [
   "tenant.approve",
   "audit_log.read",
   "integration.read",
+  "integration.manage",
   "master_data.read",
   "master_data.manage",
   "quote.preview",
@@ -119,6 +120,8 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
  * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
+ * 第三方密钥（M4-09，ADR 0041）：在运营后台填写、更换、清空、测试谷歌地图和 Stripe 的密钥（`integration.manage`）只归超级管理员——
+ * 拿到它就能把收款换成别人的 Stripe 账户；技术（`integration.read`）只看得到「已配置 / 未配置」和来源。
  * 角色管理（M4-05，ADR 0030）：看（`role.read`）、新建和发起修改（`role.manage`）、审核修改（`role.review`）属于「系统设置」，只归超级管理员。
  * 取消、改单、事后加收（M3-03，ADR 0029）：
  * - `order.manage`（代客人取消、改单，审核事后加收，发起「免收取消费」）：运营、客服（需求「订单中心」「工单」归客服、运营）；
@@ -283,7 +286,8 @@ export const PLATFORM_MENUS = [
   { key: "staff", name: "平台账号", operations: { view: ["staff.read"], edit: ["staff.manage"] } },
   { key: "roles", name: "角色", operations: { view: ["role.read"], edit: ["role.manage"], review: ["role.review"] } },
   { key: "audit_logs", name: "审计日志", operations: { view: ["audit_log.read"] } },
-  { key: "integrations", name: "集成状态", operations: { view: ["integration.read"] } },
+  // 第三方密钥（M4-09，ADR 0041）：填写、更换、清空、测试算编辑，只归超级管理员
+  { key: "integrations", name: "集成状态", operations: { view: ["integration.read"], edit: ["integration.manage"] } },
 ] as const satisfies readonly PlatformMenu[];
 
 export type PlatformMenuKey = (typeof PLATFORM_MENUS)[number]["key"];
@@ -292,11 +296,12 @@ export type PlatformMenuKey = (typeof PLATFORM_MENUS)[number]["key"];
 export type MenuGrant = `${PlatformMenuKey}:${MenuOperation}`;
 
 /**
- * 只有超级管理员（内置角色）才有、自建角色勾不了的几项：管平台账号、建改角色、审核角色修改。
- * 否则有「改角色」权限的人可以给自己的角色加上任何权限，有「管账号」权限的人可以把自己改成超级管理员——双人复核也挡不住两个人合谋。
+ * 只有超级管理员（内置角色）才有、自建角色勾不了的几项：管平台账号、建改角色、审核角色修改、填写第三方密钥（M4-09，ADR 0041）。
+ * 否则有「改角色」权限的人可以给自己的角色加上任何权限，有「管账号」权限的人可以把自己改成超级管理员——双人复核也挡不住两个人合谋；
+ * 能填第三方密钥的人能把收款换成别人的 Stripe 账户。
  * 系统设置里的「查看」（账号列表、角色、审计日志、集成状态）可以给自建角色。
  */
-export const SUPER_ADMIN_ONLY_GRANTS: readonly MenuGrant[] = ["staff:edit", "roles:edit", "roles:review"];
+export const SUPER_ADMIN_ONLY_GRANTS: readonly MenuGrant[] = ["staff:edit", "roles:edit", "roles:review", "integrations:edit"];
 
 function menuOperationActions(menuKey: string, operation: string): readonly PlatformAction[] | null {
   const menu = PLATFORM_MENUS.find((entry) => entry.key === menuKey) as PlatformMenu | undefined;

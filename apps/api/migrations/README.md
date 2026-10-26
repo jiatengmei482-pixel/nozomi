@@ -64,6 +64,7 @@
 | `0048_platform_session_verify_expiry.sql` | 平台会话触发器（ADR 0030）补一条：两步验证完成的时间必须在待验证会话的有效期里——已经过期的待验证会话不能被「验证」复活。不改任何数据 |
 | `0050_approval_pricing_impact.sql` | 加价规则 / 定价参数生效前的毛利试算（M3-07，ADR 0033；0034–0049 留给别的任务）：复核记录加 `impact`（发起时保存的试算结果，审核人批准前看）。只加列，授权不变。不含任何数据 |
 | `0051_pricing_impact_inputs.sql` | 毛利试算取数（M3-07，ADR 0033「性能」）：报价、订单的渠道索引加上编号（`quotes (channel_id, created_at desc, id desc)`、`order_sales (channel_id, created_at desc, order_id desc)`），替换原来只有（渠道、时间）的两个；`quotes` 加生成列 `impact_inputs`（数据库从快照算出试算要的那几项，约 0.5 KB）。只改结构，授权不变，不含任何数据 |
+| `0080_integration_secrets.sql` | 运营后台填写的第三方密钥（M4-09，ADR 0041；0052–0079 留给别的任务）：`integration_secrets`（谷歌地图、Stripe 各一行；`sealed` 是 AES-256-GCM 密文、`hints` 是打码后的末 4 位、版本、谁什么时候改的；清空 = 删行）。平台表：平台读、写、删，租户角色没有任何权限。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。

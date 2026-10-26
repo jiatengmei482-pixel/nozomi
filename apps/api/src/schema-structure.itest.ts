@@ -21,7 +21,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到），
  * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到），
  * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到），
- * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到）。新增平台表时加到这里。
+ * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到），
+ * 以及运营后台填写的第三方密钥（ADR 0041：密文，租户碰不到）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -36,6 +37,7 @@ const PLATFORM_TABLES = [
   "fx_locks",
   "fx_rates",
   "holidays",
+  "integration_secrets",
   "login_throttles",
   "markup_rules",
   "order_change_sales",
@@ -205,6 +207,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     webhook_attempts: ["INSERT", "SELECT"],
     webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
     places: ["INSERT", "SELECT", "UPDATE"],
+    // 运营后台填写的第三方密钥（ADR 0041）：填写、更换、清空（删行回落到配置文件）
+    integration_secrets: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 两步验证的恢复码（ADR 0030）：整组替换（所以能删）、用掉时记时间
     platform_recovery_codes: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     // 角色（ADR 0030）：每个请求读权限；自建角色可以新建、修改（复核通过时）、删除（没人用时）；内置角色的行由触发器保护
