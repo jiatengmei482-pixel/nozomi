@@ -14,6 +14,7 @@ export type AuditResource =
   | "tenant"
   | "tenant_user"
   | "integration"
+  | "integration_secret"
   | "city"
   | "place"
   | "vehicle_group"
@@ -113,7 +114,10 @@ export type AuditAction =
   | "mfa_failed"
   | "mfa_recovery_codes"
   | "mfa_reset"
-  | "clear_ip_allowlist";
+  | "clear_ip_allowlist"
+  | "set"
+  | "replace"
+  | "clear";
 
 /** 能原样存进 jsonb 的值。主数据的多语言名称、坐标、组合列表这类字段在前后值里是嵌套的。 */
 export type AuditValue = string | number | boolean | null | AuditValue[] | { [key: string]: AuditValue };

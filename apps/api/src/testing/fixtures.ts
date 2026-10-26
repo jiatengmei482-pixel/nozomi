@@ -37,6 +37,9 @@ export function testEnv(databaseUrl: string): Record<string, string> {
     // 测试不访问外网：汇率源指向本机一个连不上的端口，测试启动的服务进程也不定时拉（汇率中心的测试用本机的假数据源）
     FX_SOURCE_URL: "http://127.0.0.1:1/v6/latest/USD",
     FX_AUTO_FETCH: "false",
+    // 同样：谷歌地图的「测试一下」和 Stripe（收款、「测试一下」）都指向本机连不上的端口（ADR 0041）；要用的测试换成本机的假服务器
+    GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:1/directions/v2:computeRoutes",
+    STRIPE_API_URL: "http://127.0.0.1:1",
   };
 }
 

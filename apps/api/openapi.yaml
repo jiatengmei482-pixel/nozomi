@@ -1311,7 +1311,8 @@ paths:
       summary: 各集成的配置状态（含脱敏详情）
       description: |
         需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
-        多给一段脱敏说明（打码后的数据库地址、只露首尾的密钥），永远不含密钥原文；另给汇率数据源的运行状态（`fx_center`）。每次查看都写审计日志。
+        多给一段脱敏说明（打码后的数据库地址；谷歌地图、Stripe 按生效的值写来源，如「后台设置（••••1234）」——末 4 位只给超级管理员，ADR 0041），永远不含密钥原文；
+        另给汇率数据源的运行状态（`fx_center`）。每次查看都写审计日志。
       security:
         - platformToken: []
       responses:
@@ -1349,6 +1350,210 @@ paths:
                         format: date-time
                       last_error_code:
                         type: [ string, "null" ]
+  /platform/v1/integration-secrets:
+    get:
+      tags: [ 平台系统 ]
+      operationId: listIntegrationSecrets
+      summary: 运营后台填写的第三方密钥：每一项的生效来源（ADR 0041）
+      description: |
+        需要操作 `integration.read`（超级管理员、技术）。谷歌地图、Stripe 各一项：现在生效没有（`state`）、生效的来源（`source`：后台设置 / 服务器配置文件 / 未配置）。
+        优先顺序：**运营后台填写的优先；后台没填（或清空后）才用服务器配置文件里的值**（`precedence_note` 是同一句话）。
+        打码后的末 4 位（`masked`、`admin.hints`）和后台那一份的详情（`admin`）只给有 `integration.manage` 的人（超级管理员）；其他人这两项是 null。
+        任何字段都不含密钥原文。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 第三方密钥的状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ precedence_note, can_manage, encryption_configured, items ]
+                properties:
+                  precedence_note:
+                    type: string
+                  can_manage:
+                    type: boolean
+                    description: 当前账号能不能填写、更换、清空、测试（`integration.manage`）
+                  encryption_configured:
+                    type: boolean
+                    description: 服务器配置了数据加密密钥没有；没有时不能在后台填写（503 `INTEGRATION_ENCRYPTION_NOT_CONFIGURED`）
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IntegrationSecretItem"
+  /platform/v1/integration-secrets/{key}:
+    put:
+      tags: [ 平台系统 ]
+      operationId: saveIntegrationSecret
+      summary: 填写或更换一项第三方密钥（只限超级管理员）
+      description: |
+        需要操作 `integration.manage`（只归超级管理员，自建角色勾不了）。`key` 是 `google-maps` 或 `stripe`。
+        - 谷歌地图：`{ api_key }`；Stripe：`{ secret_key, publishable_key, webhook_secret }` 三项一起填。首尾的空白会去掉。
+        - 每项 20–255 个字符，只能有英文字母、数字、下划线、连字符。Stripe：secret key `sk_test_` / `sk_live_`、publishable key `pk_test_` / `pk_live_`、webhook signing secret `whsec_` 开头，
+          两把密钥同为测试或同为正式；非正式环境只收测试密钥，正式环境只收正式密钥。
+        - 不合格时 400 `VALIDATION_FAILED`，`details.issues[]` 每条有 `path`（如 `/secret_key`）、`message`、`reason`（`REQUIRED`、`FORMAT`、`TOO_SHORT`、`TOO_LONG`、`PREFIX`、`MODE_MISMATCH`、`LIVE_KEY_NOT_ALLOWED`、`TEST_KEY_NOT_ALLOWED`），不回显填的值。
+        - 用数据加密密钥加密后存库，保存后立即生效（本进程马上用上；别的进程最迟 5 秒）。写审计日志（动作 `set` 填写 / `replace` 更换，只记打码后的末 4 位）。
+        返回填写还是更换，和这一项现在的状态（同 `GET` 的一项）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/IntegrationSecretKeyPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  description: 谷歌地图
+                  required: [ api_key ]
+                  properties:
+                    api_key:
+                      type: string
+                      maxLength: 1000
+                - type: object
+                  description: Stripe
+                  required: [ secret_key, publishable_key, webhook_secret ]
+                  properties:
+                    secret_key:
+                      type: string
+                      maxLength: 1000
+                    publishable_key:
+                      type: string
+                      maxLength: 1000
+                    webhook_secret:
+                      type: string
+                      maxLength: 1000
+      responses:
+        "200":
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ action, item ]
+                properties:
+                  action:
+                    type: string
+                    enum: [ set, replace ]
+                  item:
+                    $ref: "#/components/schemas/IntegrationSecretItem"
+        "400":
+          description: "`VALIDATION_FAILED`：见上"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`FORBIDDEN`：不是超级管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          description: "`INTEGRATION_ENCRYPTION_NOT_CONFIGURED`：服务器没有配置数据加密密钥"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      tags: [ 平台系统 ]
+      operationId: clearIntegrationSecret
+      summary: 清空后台填写的一项第三方密钥（只限超级管理员）
+      description: |
+        需要操作 `integration.manage`。删掉后台填写的那一份，立即回落到服务器配置文件里的值（配置文件也没有就是未配置）。
+        后台本来就没填时 409 `INTEGRATION_SECRET_NOT_SET`。写审计日志（动作 `clear`，只记打码后的末 4 位）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/IntegrationSecretKeyPath"
+      responses:
+        "200":
+          description: 已清空；返回这一项现在的状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ item ]
+                properties:
+                  item:
+                    $ref: "#/components/schemas/IntegrationSecretItem"
+        "403":
+          description: "`FORBIDDEN`：不是超级管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`INTEGRATION_SECRET_NOT_SET`：后台没有填写这一项"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/integration-secrets/{key}/test:
+    post:
+      tags: [ 平台系统 ]
+      operationId: testIntegrationSecret
+      summary: 测试一下：用现在生效的密钥调一次对方的接口（只限超级管理员）
+      description: |
+        需要操作 `integration.manage`。用现在生效的那一份（不论来自后台还是配置文件）：
+        - 谷歌地图：Routes API 的 computeRoutes（东京站 → 新宿站、只要距离一个字段，最便宜的一档；每次测试会产生一次调用，费用极少）。
+        - Stripe：查余额（只读，不产生费用、不改任何数据），并核对测试 / 正式模式对得上。
+        结果是数据（200）：`ok` 可用 / 不可用，不可用时 `code` 是原因（`KEY_INVALID`、`API_NOT_ENABLED`、`KEY_RESTRICTED`、`BILLING_DISABLED`、`PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE`、`UNAVAILABLE`、`UNEXPECTED`），
+        `message` 是一句话说明（我们自己写的，不带对方返回的原文，更不带密钥）。两项都没有配置时 409 `INTEGRATION_NOT_CONFIGURED`。写审计日志（动作 `test`，记来源和结果）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/IntegrationSecretKeyPath"
+      responses:
+        "200":
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ key, ok, code, message, source, source_label, tested_at ]
+                properties:
+                  key:
+                    $ref: "#/components/schemas/IntegrationSecretKey"
+                  ok:
+                    type: boolean
+                  code:
+                    type: [ string, "null" ]
+                    enum: [ KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, MODE_MISMATCH, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, null ]
+                  message:
+                    type: string
+                  source:
+                    $ref: "#/components/schemas/SecretSource"
+                  source_label:
+                    type: string
+                  tested_at:
+                    type: string
+                    format: date-time
+        "403":
+          description: "`FORBIDDEN`：不是超级管理员"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`INTEGRATION_NOT_CONFIGURED`：这一项还没有配置（后台和配置文件都没有）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/quotes/preview:
     post:
       tags: [ 报价 ]
@@ -10457,7 +10662,7 @@ paths:
       summary: 新建自建角色
       description: |
         需要操作 `role.manage`。直接生效（新角色还没人用）。写审计。
-        `grants` 是「菜单:操作」，勾了编辑 / 审核要也勾查看；平台账号的编辑、角色的编辑和审核只归超级管理员，勾不了（400 `ROLE_GRANTS_INVALID`，`details.issues[]` 的 `reason`：
+        `grants` 是「菜单:操作」，勾了编辑 / 审核要也勾查看；平台账号的编辑、角色的编辑和审核、集成状态的编辑（填写第三方密钥，ADR 0041）只归超级管理员，勾不了（400 `ROLE_GRANTS_INVALID`，`details.issues[]` 的 `reason`：
         `UNKNOWN_GRANT`、`SUPER_ADMIN_ONLY`、`VIEW_REQUIRED`、`DUPLICATE`）。名字和已有角色（含内置）重复 409 `ROLE_NAME_TAKEN`。
         `data_scope`：城市、渠道，null = 不限制；不存在的编号 400 `ROLE_SCOPE_INVALID`。`ip_allowlist` 同员工的。
       security:
@@ -11008,6 +11213,14 @@ components:
       description: 按等级筛选
       schema:
         $ref: "#/components/schemas/VehicleGrade"
+    IntegrationSecretKeyPath:
+      name: key
+      in: path
+      required: true
+      description: "哪一项：google-maps 谷歌地图；stripe Stripe 支付"
+      schema:
+        type: string
+        enum: [ google-maps, stripe ]
     RoleKeyPath:
       name: key
       in: path
@@ -12650,6 +12863,80 @@ components:
         state:
           type: string
           enum: [ configured, missing ]
+    IntegrationSecretKey:
+      type: string
+      enum: [ google_maps, stripe ]
+    SecretSource:
+      type: string
+      enum: [ admin, env, none ]
+      description: "生效的值从哪里来：admin 运营后台填写的；env 服务器配置文件；none 都没有（未配置）"
+    IntegrationSecretItem:
+      type: object
+      description: 一项第三方密钥（ADR 0041）。任何字段都不含密钥原文
+      additionalProperties: false
+      required: [ key, label, fields, state, source, source_label, mode, masked, env_configured, admin ]
+      properties:
+        key:
+          $ref: "#/components/schemas/IntegrationSecretKey"
+        label:
+          type: string
+        fields:
+          type: array
+          description: 填写时要填的几项（谷歌地图 1 项，Stripe 3 项）
+          items:
+            type: object
+            additionalProperties: false
+            required: [ name, label ]
+            properties:
+              name:
+                type: string
+                enum: [ api_key, secret_key, publishable_key, webhook_secret ]
+              label:
+                type: string
+        state:
+          type: string
+          enum: [ configured, missing ]
+        source:
+          $ref: "#/components/schemas/SecretSource"
+        source_label:
+          type: string
+          description: 来源的中文说法：后台设置 / 服务器配置文件 / 未配置
+        mode:
+          type: [ string, "null" ]
+          enum: [ test, live, null ]
+          description: Stripe 生效的是测试还是正式密钥；谷歌地图和未配置时为 null
+        masked:
+          type: [ string, "null" ]
+          pattern: "^••••([A-Za-z0-9_-]{4})?$"
+          description: 生效的那一份打码后的样子（`••••` + 末 4 位；Stripe 是 secret key 的）。只给超级管理员，其他人为 null；未配置时为 null
+        env_configured:
+          type: boolean
+          description: 服务器配置文件里有没有这一项（后台的优先，所以有也不一定生效）
+        admin:
+          type: [ object, "null" ]
+          description: 后台填写的那一份；只给超级管理员，其他人为 null
+          additionalProperties: false
+          required: [ configured, hints, updated_at, updated_by, problem ]
+          properties:
+            configured:
+              type: boolean
+            hints:
+              type: [ object, "null" ]
+              description: 每一项打码后的样子（字段名 → `••••1234`）
+              additionalProperties:
+                type: string
+                pattern: "^••••([A-Za-z0-9_-]{4})?$"
+            updated_at:
+              type: [ string, "null" ]
+              format: date-time
+            updated_by:
+              oneOf:
+                - $ref: "#/components/schemas/NamedRef"
+                - type: "null"
+            problem:
+              type: [ string, "null" ]
+              enum: [ UNREADABLE, NOT_ALLOWED_IN_ENV, null ]
+              description: "后台那一份没有生效的原因：UNREADABLE 解不开（数据加密密钥换了），需要重新填写；NOT_ALLOWED_IN_ENV 不适用于当前环境（如测试密钥到了正式环境）"
     IntegrationStatusDetail:
       type: object
       description: 需要平台登录才能看到的集成状态：多一段脱敏说明
@@ -12666,7 +12953,7 @@ components:
           enum: [ configured, missing ]
         detail:
           type: string
-          description: 脱敏后的说明，例如打码后的数据库地址、只露首尾的密钥
+          description: 脱敏后的说明，例如打码后的数据库地址、谷歌地图、Stripe 的来源（末 4 位只给超级管理员）
     Email:
       type: string
       format: email
@@ -13323,6 +13610,7 @@ components:
         - tenant.approve
         - audit_log.read
         - integration.read
+        - integration.manage
         - master_data.read
         - master_data.manage
         - quote.preview

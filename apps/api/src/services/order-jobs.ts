@@ -163,7 +163,10 @@ export class OrderJobs {
     if (!this.stopped) return;
     this.stopped = false;
     const run = (): void => {
-      this.ticking = this.tick()
+      // 每轮先看一眼运营后台填写的密钥过没过期（ADR 0041）：取消待支付订单要用生效的 Stripe 密钥
+      this.ticking = this.ctx.integrations
+        .ensureFresh()
+        .then(() => this.tick())
         .then(() => this.remind())
         .then(() => this.rescue())
         .then(() => this.money())
