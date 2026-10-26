@@ -96,8 +96,6 @@ export function exceptionActionRefusal(status: ExceptionStatus): ExceptionAction
 export const EXCEPTION_RULES = {
   /** 履约未结束：服务结束 24 小时后仍未「已完成」 */
   unfinishedHoursAfterService: 24,
-  /** 推送失败只看最近这么多天的（更早的失败多半早已处理，订单也已结束） */
-  pushFailureLookbackDays: 7,
 } as const;
 
 /** 还在履约中（派了车、还没完成）的状态：服务结束 24 小时后还在这些状态就是「履约未结束」。 */

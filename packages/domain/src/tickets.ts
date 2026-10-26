@@ -65,6 +65,8 @@ export const TICKET_RULES = {
   noteMax: 1000,
   /** 一条留言最多带几张订单里的照片作证据 */
   maxFilesPerMessage: 10,
+  /** 渠道、客人对一张单最多建几张工单（防止刷单） */
+  maxExternalTicketsPerOrder: 10,
 } as const;
 
 /**

@@ -37,15 +37,15 @@ export async function netPaidMinor(db: Db, orderId: string): Promise<number> {
   return (await refundableCharges(db, orderId)).reduce((sum, entry) => sum + Math.max(0, entry.availableMinor), 0);
 }
 
-/** 在调用方的事务里排好一笔退款（拆到各笔收款上）。金额为 0 什么都不做。返回建的退款记录。 */
-export async function scheduleRefund(db: Db, order: Pick<Order, "tenantId" | "id">, purpose: RefundPurpose, amountMinor: number, changeId: string | null, now: Date): Promise<OrderRefund[]> {
+/** 在调用方的事务里排好一笔退款（拆到各笔收款上）。金额为 0 什么都不做。返回建的退款记录。赔付（M4-02）带上工单编号。 */
+export async function scheduleRefund(db: Db, order: Pick<Order, "tenantId" | "id">, purpose: RefundPurpose, amountMinor: number, changeId: string | null, now: Date, ticketId: string | null = null): Promise<OrderRefund[]> {
   if (amountMinor <= 0) return [];
   const charges = await refundableCharges(db, order.id);
   const parts = allocateRefund(charges.map((entry) => ({ paymentId: entry.payment.id, amountMinor: entry.payment.amountMinor, refundedMinor: entry.payment.amountMinor - entry.availableMinor })), amountMinor);
   const refunds: OrderRefund[] = [];
   for (const part of parts) {
     const payment = (charges.find((entry) => entry.payment.id === part.paymentId) as { payment: OrderPayment }).payment;
-    refunds.push(await insertRefund(db, { orderId: order.id, supplierTenantId: order.tenantId, paymentId: part.paymentId, purpose, changeId, amountMinor: part.amountMinor, currency: payment.currency, now }));
+    refunds.push(await insertRefund(db, { orderId: order.id, supplierTenantId: order.tenantId, paymentId: part.paymentId, purpose, changeId, ticketId, amountMinor: part.amountMinor, currency: payment.currency, now }));
   }
   return refunds;
 }
@@ -144,11 +144,11 @@ export async function retryRefund(ctx: AppContext, principal: PlatformPrincipal,
         amountMinor: refund.amountMinor,
         netPaidMinor: charges.reduce((sum, entry) => sum + Math.max(0, entry.availableMinor), 0),
         paymentAvailableMinor: charges.find((entry) => entry.payment.id === refund.paymentId)?.availableMinor ?? 0,
-        retainedMinor: retainedAfterRefundsMinor({ cancelled: order.status === "cancelled", sellMinor: sale.sellMinor, cancelFeeBp: order.cancelFeeBp }),
+        retainedMinor: retainedAfterRefundsMinor({ cancelled: order.status === "cancelled", sellMinor: sale.sellMinor, cancelFeeBp: order.cancelFeeBp, compensatedMinor: await compensationRefundMinor(db, orderId) }),
       });
       if (refusal === "SUPERSEDED") throw new AppError(409, "REFUND_SUPERSEDED", "订单取消时的退款已经包含了这一笔，不能再重试（再退就多退了）", { status: refund.status, superseded_at: (refund.supersededAt as Date).toISOString() });
       if (refusal === "EXCEEDS_PAID") throw new AppError(409, "REFUND_EXCEEDS_PAID", "再退这一笔，客人留下的会少于应付的（对外价或取消费），请核对这一单的收款和退款", { amount_minor: refund.amountMinor });
-      const retry = await insertRefund(db, { orderId, supplierTenantId: refund.supplierTenantId, paymentId: refund.paymentId, purpose: refund.purpose, changeId: refund.changeId, amountMinor: refund.amountMinor, currency: refund.currency, now, retryOf: refund.id });
+      const retry = await insertRefund(db, { orderId, supplierTenantId: refund.supplierTenantId, paymentId: refund.paymentId, purpose: refund.purpose, changeId: refund.changeId, ticketId: refund.ticketId, amountMinor: refund.amountMinor, currency: refund.currency, now, retryOf: refund.id });
       await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "refund", resourceId: refund.id, action: "retry", before: { status: "failed", last_error: refund.lastError }, after: { order_id: orderId, retry_refund_id: retry.id, amount_minor: refund.amountMinor, currency: refund.currency } });
       return retry;
     });
@@ -158,6 +158,12 @@ export async function retryRefund(ctx: AppContext, principal: PlatformPrincipal,
   }
   const outcome = await processRefund(ctx, created.id, log);
   return { outcome, refund: (await withPlatformTx(ctx.pool, (db) => findRefund(db, created.id))) as OrderRefund };
+}
+
+/** 这一单按工单判定该退给客人的赔付合计（不管退成功没有）：退款之后客人应留下的钱要扣掉它（M4-02）。 */
+async function compensationRefundMinor(db: Db, orderId: string): Promise<number> {
+  const result = await db.query<{ total: string | null }>("select sum(refund_minor)::bigint as total from ticket_compensations where order_id = $1", [orderId]);
+  return Number(result.rows[0]?.total ?? 0);
 }
 
 function alreadyRetried(): AppError {

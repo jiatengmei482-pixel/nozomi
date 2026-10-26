@@ -30,6 +30,7 @@ import { registerSalesRoutes } from "./routes/sales.ts";
 import { registerOrderRoutes } from "./routes/orders.ts";
 import { registerOrderActionRoutes } from "./routes/order-actions.ts";
 import { registerRescueRoutes } from "./routes/rescues.ts";
+import { registerOrderCenterRoutes } from "./routes/order-center.ts";
 import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
@@ -243,6 +244,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerOrderRoutes(app, context);
   registerOrderActionRoutes(app, context);
   registerRescueRoutes(app, context);
+  registerOrderCenterRoutes(app, context);
   registerWebhookRoutes(app, context);
   registerFleetRoutes(app, context);
   registerDispatchRoutes(app, context);

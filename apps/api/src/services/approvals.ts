@@ -33,6 +33,8 @@ export interface ApprovalKind {
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
   afterApply?(ctx: AppContext, approval: Approval): void | Promise<void>;
+  /** 驳回、撤回时（同一个事务里）把对象恢复成发起之前的样子（如工单从「判定待复核」退回处理中，M4-02）。可选 */
+  onDismiss?(db: Db, approval: Approval, now: Date): Promise<void>;
 }
 
 export type ApprovalKinds = ReadonlyMap<string, ApprovalKind>;
@@ -115,6 +117,7 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
     const refusal = approvalDecisionRefusal({ status: approval.status, requestedBy: approval.requestedBy.id }, principal.user.id, decision);
     if (refusal !== null) throw new AppError(409, refusal, REFUSAL_MESSAGES[refusal], { status: approval.status });
     if (decision === "approve") await kind.apply(db, approval, origin);
+    else await kind.onDismiss?.(db, approval, now);
     const status: ApprovalStatus = approvalStatusAfter(decision);
     await setApprovalDecision(db, id, { status, decidedBy: decision === "withdraw" ? null : principal.user.id, note, now });
     await insertAuditLog(db, origin, { tenantId: null, resource: "approval", resourceId: id, action: decision, before: { status: approval.status }, after: { status, kind: approval.kind, resource_id: approval.resourceId, note } });

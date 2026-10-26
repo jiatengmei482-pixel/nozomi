@@ -101,6 +101,10 @@ tags:
     description: 敏感操作的双人复核（ADR 0023）：待审核队列、批准（改动随即生效）、驳回、撤回。发起人不能审核自己发起的
   - name: 订单
     description: 订单（ADR 0026）：供应商看自己付过款的订单（没有渠道、对外价、加价比例）；运营后台看全部订单（只读）。派车在 M3-02，订单中心在 M4-02
+  - name: 订单中心
+    description: 订单中心（ADR 0034）：异常队列（系统按触发条件生成，运营认领、关闭）、客人赔付表（可配置，双人复核）
+  - name: 工单
+    description: 工单（ADR 0034）：客人、渠道、供应商、客服、系统发起；分派、对话和内部备注、征求租户意见、判定（赔付按统一赔付表算）、复核、申诉、关闭
   - name: 收款
     description: 收款服务（Stripe）的通知：签名校验、事件只处理一次、付款成功自动确认订单
   - name: 销售端
@@ -7237,7 +7241,7 @@ paths:
       summary: 全部订单（运营后台，只读）
       description: |
         需要操作 `order.read`（超级管理员、运营、客服、财务、风控、只读）。跨租户、跨渠道，按下单时间从新到旧；含中标租户、渠道、对外价、结算价、加价比例、付款状态。
-        完整的订单中心（更多筛选、异常队列、人工介入）在 M4-02。
+        订单中心（M4-02）的筛选：用车日期、下单时间、渠道、租户、城市、品类、状态、是否有没关的异常、订单号 / 渠道订单号、乘客姓名或电话；每一行带没关的异常数（`open_exceptions`）。
       security:
         - platformToken: []
       parameters:
@@ -7264,6 +7268,53 @@ paths:
             type: string
             minLength: 1
             maxLength: 64
+        - name: service_from
+          in: query
+          description: 用车日期（城市当地）从哪天起，含（订单中心，M4-02）
+          schema:
+            type: string
+            format: date
+        - name: service_to
+          in: query
+          description: 用车日期到哪天，含
+          schema:
+            type: string
+            format: date
+        - name: created_from
+          in: query
+          description: 下单时间从（含），带时区
+          schema:
+            type: string
+            format: date-time
+        - name: created_to
+          in: query
+          description: 下单时间到（不含），带时区
+          schema:
+            type: string
+            format: date-time
+        - name: city_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [ airport_transfer, point_to_point, charter ]
+        - name: exception
+          in: query
+          description: "`open`：有没关的异常；`none`：没有"
+          schema:
+            type: string
+            enum: [ open, none ]
+        - name: passenger
+          in: query
+          description: 乘客姓名（部分匹配，不分大小写）或电话（按数字部分匹配）
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
       responses:
         "200":
           description: 一页订单
@@ -7307,10 +7358,72 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges, rescues ]
+                required: [ order, events, records, webhook_deliveries, payment_events, quote, payments, refunds, changes, extra_charges, rescues, exceptions, tickets ]
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  exceptions:
+                    type: array
+                    description: 这一单的异常（M4-02，含已关闭的）
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, type, tenant_id, status, opened_at, due_at, assignee_id, close_kind, closed_at ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        type:
+                          $ref: "#/components/schemas/ExceptionType"
+                        tenant_id:
+                          type: string
+                          format: uuid
+                        status:
+                          type: string
+                          enum: [ open, claimed, closed ]
+                        opened_at:
+                          type: string
+                          format: date-time
+                        due_at:
+                          type: string
+                          format: date-time
+                        assignee_id:
+                          type: [ string, "null" ]
+                          format: uuid
+                        close_kind:
+                          type: [ string, "null" ]
+                        closed_at:
+                          type: [ string, "null" ]
+                          format: date-time
+                  tickets:
+                    type: array
+                    description: 这一单的工单（M4-02，各家供应商的）
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, ticket_no, type, tenant_id, status, priority, subject, outcome, created_at ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        ticket_no:
+                          type: string
+                        type:
+                          $ref: "#/components/schemas/TicketType"
+                        tenant_id:
+                          type: string
+                          format: uuid
+                        status:
+                          $ref: "#/components/schemas/TicketStatus"
+                        priority:
+                          $ref: "#/components/schemas/TicketPriority"
+                        subject:
+                          type: string
+                        outcome:
+                          type: [ string, "null" ]
+                        created_at:
+                          type: string
+                          format: date-time
                   rescues:
                     type: array
                     description: 这一单的全部救援改派（M3-04）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
@@ -9918,6 +10031,849 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /platform/v1/exceptions:
+    get:
+      tags: [ 订单中心 ]
+      operationId: listPlatformExceptions
+      summary: 异常队列（运营后台）
+      description: |
+        需要操作 `order.read`。系统按需求表的触发条件自动生成（订单定时任务每分钟一轮），条件解除的系统关闭（`close_kind` = `cleared`），人工处理完的关闭（`resolved`）。
+        默认只看没关的（`status=active`），按处理时限从早到晚（最急的在前）；`status=closed` 按关闭时间从新到旧。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ active, open, claimed, closed ]
+            default: active
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ExceptionType"
+        - name: assignee
+          in: query
+          description: "`me` = 认领给自己的；或员工编号"
+          schema:
+            type: string
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: overdue
+          in: query
+          description: "`true`：只看过了处理时限、还没关的"
+          schema:
+            type: string
+            enum: [ "true", "false" ]
+      responses:
+        "200":
+          description: 一页异常
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderException"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+                    minimum: 0
+  /platform/v1/exceptions/{id}:
+    get:
+      tags: [ 订单中心 ]
+      operationId: getPlatformException
+      summary: 一条异常
+      description: 需要操作 `order.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/ExceptionResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/exceptions/{id}/claim:
+    post:
+      tags: [ 订单中心 ]
+      operationId: claimPlatformException
+      summary: 认领异常（或转给别人）
+      description: |
+        需要操作 `exception.manage`（运营、客服、财务）。不给 `assignee_id` 就是认领给自己；给了就是转给那位员工（必须在用）。已关闭的 409 `EXCEPTION_CLOSED`。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                assignee_id:
+                  type: [ string, "null" ]
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/ExceptionResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXCEPTION_CLOSED`：已经关闭"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`ASSIGNEE_INVALID`：指定的人不存在或没有在用"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/exceptions/{id}/close:
+    post:
+      tags: [ 订单中心 ]
+      operationId: closePlatformException
+      summary: 处理完，关闭异常
+      description: 需要操作 `exception.manage`。处理说明必填（怎么处理的、结论）。同一个来源的异常关了不会再生成。写审计日志。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ resolution ]
+              properties:
+                resolution:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        "200":
+          $ref: "#/components/responses/ExceptionResult"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`EXCEPTION_CLOSED`：已经关闭"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/compensation-table:
+    get:
+      tags: [ 订单中心 ]
+      operationId: getCompensationTable
+      summary: 客人赔付表和平台取消政策
+      description: |
+        需要操作 `master_data.read`（每个平台角色）。需求「第五轮新增接口」：赔付表和取消政策。赔付表还没有人改过时是版本 0（需求原表）。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 现在的赔付表和取消政策
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ compensation_table, cancellation_policy ]
+                properties:
+                  compensation_table:
+                    $ref: "#/components/schemas/CompensationTable"
+                  cancellation_policy:
+                    $ref: "#/components/schemas/CancellationPolicy"
+  /platform/v1/compensation-table/changes:
+    post:
+      tags: [ 订单中心 ]
+      operationId: requestCompensationTableChange
+      summary: 发起修改赔付表（双人复核）
+      description: |
+        需要操作 `compensation_table.manage`（运营）。提交整张表。不直接生效：返回 202 和一条待审核的复核（`kind` = `compensation_table.update`），
+        另一位有 `compensation_table.review`（运营、财务）的同事批准后存成新的一版；之后判定的工单按新的一版算，已经判定的不变。
+        比例 0–10000 基点（司机未到固定 10000，`FIXED`）；最低额 0–100000 日元；报销上限 0–50000 基点；复核阈值 0–10000 基点；和现在一样的 400（`UNCHANGED`）。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ customer_bp, minimum_jpy, reimbursement_cap_bp, review_at_or_above_sell_bp ]
+              properties:
+                customer_bp:
+                  $ref: "#/components/schemas/CompensationRates"
+                minimum_jpy:
+                  type: integer
+                reimbursement_cap_bp:
+                  type: integer
+                review_at_or_above_sell_bp:
+                  type: integer
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+  /platform/v1/tickets:
+    get:
+      tags: [ 工单 ]
+      operationId: listPlatformTickets
+      summary: 工单队列（运营后台）
+      description: 需要操作 `ticket.read`（运营、客服、财务、风控、只读）。跨供应商，按创建时间从新到旧。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          description: "`active` = 还没结论的（待处理、等租户回复、处理中、判定待复核）"
+          schema:
+            type: string
+            enum: [ active, open, awaiting_tenant, in_progress, pending_review, decided, closed ]
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/TicketType"
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: assignee
+          in: query
+          description: "`me` = 分给自己的；或员工编号"
+          schema:
+            type: string
+        - name: overdue
+          in: query
+          description: "`true`：还没结论、首次响应或结案过了期限的"
+          schema:
+            type: string
+            enum: [ "true", "false" ]
+        - name: q
+          in: query
+          description: 工单号或订单号（完全一致）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+      responses:
+        "200":
+          description: 一页工单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformTicket"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [ 工单 ]
+      operationId: createPlatformTicket
+      summary: 客服建工单
+      description: |
+        需要操作 `ticket.manage`（运营、客服）。代客人、渠道、供应商登记（`source` 照实选），或客服自己发起。工单绑定订单（付过款的）；
+        供应商默认是这一单现在的供应商，救援改派过的单可以指定原来的供应商（`tenant_id`，没接过这一单的 422 `TICKET_TENANT_INVALID`）。
+        客服能建的：投诉、履约失败、修改订单、失物招领、其他（no-show 审核由系统建，申诉由供应商建）；来源是供应商时只能是失物招领、其他（422 `TICKET_TYPE_NOT_ALLOWED`）。
+        投诉超过服务后 14 天 409 `COMPLAINT_WINDOW_CLOSED`。优先级不给时：用车当天的紧急，其余普通。
+      security:
+        - platformToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ type, order_id, subject, description ]
+              properties:
+                type:
+                  type: string
+                  enum: [ complaint, fulfilment_failure, order_change, lost_and_found, other ]
+                order_id:
+                  type: string
+                  format: uuid
+                tenant_id:
+                  type: [ string, "null" ]
+                  format: uuid
+                source:
+                  type: string
+                  enum: [ guest, channel, tenant, platform ]
+                  default: platform
+                priority:
+                  oneOf:
+                    - $ref: "#/components/schemas/TicketPriority"
+                    - type: "null"
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                language:
+                  type: [ string, "null" ]
+      responses:
+        "201":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`COMPLAINT_WINDOW_CLOSED`：超过投诉时限"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`TICKET_TYPE_NOT_ALLOWED`、`TICKET_TENANT_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tickets/{id}:
+    get:
+      tags: [ 工单 ]
+      operationId: getPlatformTicket
+      summary: 一张工单（对话、内部备注、赔付、应扣款项、申诉、复核）
+      description: 需要操作 `ticket.read`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tickets/{id}/assign:
+    post:
+      tags: [ 工单 ]
+      operationId: assignPlatformTicket
+      summary: 认领工单（或分给别人）
+      description: 需要操作 `ticket.manage`。不给 `assignee_id` 就是自己。待处理的变成处理中；算首次响应。已判定、关闭的 409 `TICKET_STATE_INVALID`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                assignee_id:
+                  type: [ string, "null" ]
+                  format: uuid
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+        "422":
+          description: "`ASSIGNEE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tickets/{id}/messages:
+    post:
+      tags: [ 工单 ]
+      operationId: addPlatformTicketMessage
+      summary: 留言或写内部备注
+      description: |
+        需要操作 `ticket.manage`。`internal: true` 是内部备注（只有平台看得到，判定之后、关闭之前也能写）；否则是给供应商看的对话（只在判定之前）。
+        待处理的变成处理中；算首次响应。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ body ]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                internal:
+                  type: boolean
+                  default: false
+      responses:
+        "201":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /platform/v1/tickets/{id}/request-reply:
+    post:
+      tags: [ 工单 ]
+      operationId: requestTicketTenantReply
+      summary: 征求租户意见（24 小时内回复，超时视为认可）
+      description: |
+        需要操作 `ticket.manage`。给供应商留一条问题，工单变成「等租户回复」，期限 24 小时；供应商回复后变成处理中。期限内不能判定（409 `TENANT_REPLY_PENDING`），到期那一刻起可以。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ body ]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /platform/v1/tickets/{id}/compensation-quote:
+    post:
+      tags: [ 工单 ]
+      operationId: quoteTicketCompensation
+      summary: 按赔付表试算（不写任何东西）
+      description: |
+        需要操作 `ticket.manage`。「投诉成立时自动带出金额」：按现在的赔付表、这一单的对外价和结算价、报价快照的汇率算出客人赔多少（退款 / 另付）、供应商承担多少、要不要复核。
+        只有投诉、履约失败（409 `COMPENSATION_NOT_APPLICABLE`，`details.reason` = `TICKET_TYPE`）。司机未到：这一单已经开始服务或改派给别人服务了不适用（`ORDER_SERVED`）；
+        其余情形：要已经开始服务（`NOT_SERVED`）、被投诉的是现在的供应商（`NOT_CURRENT_SUPPLIER`）。客人付的不是日元而汇率中心没有 48 小时内的汇率：409 `FX_RATE_UNAVAILABLE`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompensationInput"
+      responses:
+        "200":
+          description: 试算结果
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ quote ]
+                properties:
+                  quote:
+                    $ref: "#/components/schemas/CompensationQuote"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /platform/v1/tickets/{id}/decide:
+    post:
+      tags: [ 工单 ]
+      operationId: decidePlatformTicket
+      summary: 判定
+      description: |
+        需要操作 `ticket.manage`（客服、运营）。结论按类型：投诉、履约失败 `upheld` / `rejected`（成立必须带 `compensation`：情形、责任方，金额按赔付表自动算）；
+        no-show 审核 `approved`（订单「客人未出现」，客人全额付费）/ `rejected`（按未履约：订单取消、客人全额退款、供应商拿 0，计一次履约失败；`driver_absent` 按「司机未到」计）；
+        申诉 `upheld`（撤销原判定的处罚：应扣款项免除、记下的履约事件撤销）/ `rejected`——判定或复核过原工单的人不能判它的申诉（409 `APPEAL_SAME_REVIEWER`）；其余 `resolved`。
+        赔付：从这一单的收款里退（走收款服务的退款），退不回去的（报销、超过还能退的）由财务另付后登记；司机未到先按「供应商原因」取消订单（全额退款）。
+        供应商承担的（结算价 × 同一比例、车型降级的差价、报销）记成应扣款项。责任在供应商的投诉成立计入投诉率，司机未到、迟到 30 分钟及以上计入履约失败。
+        赔给客人的钱达到对外价的复核阈值（默认 50%）：返回 202，工单变成「判定待复核」，复核（`kind` = `ticket.decision`）由另一位有 `ticket.review`（运营）的同事批准后才执行；驳回、撤回退回处理中。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ outcome, note ]
+              properties:
+                outcome:
+                  type: string
+                  enum: [ upheld, rejected, approved, resolved ]
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                compensation:
+                  oneOf:
+                    - $ref: "#/components/schemas/CompensationInput"
+                    - type: "null"
+                driver_absent:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "202":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /platform/v1/tickets/{id}/close:
+    post:
+      tags: [ 工单 ]
+      operationId: closePlatformTicket
+      summary: 关闭工单
+      description: |
+        需要操作 `ticket.manage`。判定过的可以关；没判定的可以直接关（重复、撤回），no-show 审核除外（409 `DECISION_REQUIRED`）；复核中的不能关。说明必填。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /platform/v1/tickets/{id}/payout:
+    post:
+      tags: [ 工单 ]
+      operationId: markTicketPayoutPaid
+      summary: 登记赔付的另付已付
+      description: 需要操作 `payment.manage`（财务、运营）。赔付里退不回卡上的部分（报销、超过还能退的）付完后登记凭证号。没有赔付 404；不用另付、已登记过 409 `PAYOUT_STATE_INVALID`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reference ]
+              properties:
+                reference:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          $ref: "#/components/responses/PlatformTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /tenant/v1/tickets:
+    get:
+      tags: [ 工单 ]
+      operationId: listTenantTickets
+      summary: 和自己有关的工单
+      description: 需要操作 `ticket.read`（管理员、调度、财务、只读）。租户编号只来自令牌。没有内部备注、客人那边的赔付金额、对外价、加价比例（规则 4）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ active, open, awaiting_tenant, in_progress, pending_review, decided, closed ]
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页工单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantTicket"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+                    minimum: 0
+    post:
+      tags: [ 工单 ]
+      operationId: createTenantTicket
+      summary: 申诉、登记失物、其他
+      description: |
+        需要操作 `ticket.manage`（管理员、调度、财务）。申诉（`tenant_appeal`）要指明工单（`parent_ticket_id`）：判定对自己不利（投诉成立且责任在自己、no-show 被驳回）、判定后 7 天内、一次
+        （409 `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`）；失物招领、其他要指明订单（自己接过的）。别的供应商的工单、订单 404。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ type, subject, description ]
+              properties:
+                type:
+                  type: string
+                  enum: [ tenant_appeal, lost_and_found, other ]
+                order_id:
+                  type: [ string, "null" ]
+                  format: uuid
+                parent_ticket_id:
+                  type: [ string, "null" ]
+                  format: uuid
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+      responses:
+        "201":
+          $ref: "#/components/responses/TenantTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /tenant/v1/tickets/{id}:
+    get:
+      tags: [ 工单 ]
+      operationId: getTenantTicket
+      summary: 一张和自己有关的工单
+      description: 需要操作 `ticket.read`。别的供应商的 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/TenantTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/tickets/{id}/messages:
+    post:
+      tags: [ 工单 ]
+      operationId: replyTenantTicket
+      summary: 回复（可以引用这一单的照片作证据）
+      description: |
+        需要操作 `ticket.manage`。在等自己回复的工单变成处理中、记下回复时间。判定之后不能再回复（有异议走申诉，409 `TICKET_STATE_INVALID`）。
+        `file_ids` 只能是这一单的照片（司机 H5、票据）；别的 400（`FILE_NOT_FOUND`）。别的供应商的工单 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ body ]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                file_ids:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "201":
+          $ref: "#/components/responses/TenantTicketDetail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /sales/v1/orders/{id}/tickets:
+    get:
+      tags: [ 工单 ]
+      operationId: listSalesOrderTickets
+      summary: 这一单由渠道、客人提的工单
+      description: 本渠道的单（渠道编号只来自令牌，别的渠道的 404）。只有类型、状态、结论和客人这边的赔付。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/ChannelTicketList"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [ 工单 ]
+      operationId: createSalesOrderTicket
+      summary: 渠道（代客人）提工单：投诉、改单、失物、其他
+      description: |
+        `raised_by`：`guest`（客人提的，渠道转过来）或 `channel`（渠道自己）。投诉超过服务后 14 天 409 `COMPLAINT_WINDOW_CLOSED`；一张单最多 10 张 409 `TICKET_LIMIT_REACHED`。
+      security:
+        - salesToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ type, subject, description ]
+              properties:
+                type:
+                  type: string
+                  enum: [ complaint, order_change, lost_and_found, other ]
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                language:
+                  type: [ string, "null" ]
+                raised_by:
+                  type: string
+                  enum: [ guest, channel ]
+                  default: guest
+      responses:
+        "201":
+          $ref: "#/components/responses/ChannelTicketCreated"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+  /site/v1/order/tickets:
+    get:
+      tags: [ 官网 ]
+      operationId: listSiteOrderTickets
+      summary: 客人看自己这一单的工单
+      description: 凭查看链接的令牌。只有类型、状态、结论和赔付。
+      security:
+        - siteOrderLink: []
+      responses:
+        "200":
+          $ref: "#/components/responses/ChannelTicketList"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteOrderTicket
+      summary: 客人投诉、改单、失物、其他
+      description: 凭查看链接的令牌。投诉超过服务后 14 天 409 `COMPLAINT_WINDOW_CLOSED`；一张单最多 10 张 409 `TICKET_LIMIT_REACHED`。
+      security:
+        - siteOrderLink: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ type, subject, description ]
+              properties:
+                type:
+                  type: string
+                  enum: [ complaint, order_change, lost_and_found, other ]
+                subject:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                language:
+                  type: [ string, "null" ]
+      responses:
+        "201":
+          $ref: "#/components/responses/ChannelTicketCreated"
+        "401":
+          $ref: "#/components/responses/SiteLinkInvalid"
+        "409":
+          $ref: "#/components/responses/TicketConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
 webhooks:
   tenantOrderEvent:
     post:
@@ -10331,6 +11287,154 @@ components:
                 minLength: 1
                 maxLength: 500
   responses:
+    ExceptionResult:
+      description: 一条异常
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ exception ]
+            properties:
+              exception:
+                $ref: "#/components/schemas/OrderException"
+    TicketConflict:
+      description: |
+        `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
+        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`；`APPEAL_SAME_REVIEWER`；
+        `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PlatformTicketDetail:
+      description: 工单详情（运营后台）。判定达到复核阈值时是 202，`approval` 是待审核的复核
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket, messages, notes, compensation, deductions, refund_ids, parent, appeal, approval ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/PlatformTicket"
+              messages:
+                type: array
+                description: 和供应商来回的对话（供应商看得到）
+                items:
+                  $ref: "#/components/schemas/TicketMessage"
+              notes:
+                type: array
+                description: 内部备注（只有平台看得到）
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ id, author, body, created_at ]
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    author:
+                      type: object
+                      additionalProperties: false
+                      required: [ id, name ]
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                    body:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+              compensation:
+                oneOf:
+                  - $ref: "#/components/schemas/TicketCompensation"
+                  - type: "null"
+              deductions:
+                type: array
+                description: 这张工单记下的供应商应扣款项（结算币种）
+                items:
+                  $ref: "#/components/schemas/TicketDeduction"
+              refund_ids:
+                type: array
+                description: 这张工单排的退款（`order_refunds`，在订单详情里看状态）
+                items:
+                  type: string
+                  format: uuid
+              parent:
+                description: 申诉的是哪一张工单
+                oneOf:
+                  - type: object
+                    additionalProperties: false
+                    required: [ id, ticket_no, type, outcome, decided_by ]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      ticket_no:
+                        type: string
+                      type:
+                        $ref: "#/components/schemas/TicketType"
+                      outcome:
+                        type: [ string, "null" ]
+                      decided_by:
+                        type: [ string, "null" ]
+                        format: uuid
+                  - type: "null"
+              appeal:
+                $ref: "#/components/schemas/TicketAppealRef"
+              approval:
+                oneOf:
+                  - $ref: "#/components/schemas/Approval"
+                  - type: "null"
+    TenantTicketDetail:
+      description: 工单详情（供应商）：没有内部备注、客人那边的赔付金额
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket, messages, deductions, appeal ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/TenantTicket"
+              messages:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketMessage"
+              deductions:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TicketDeduction"
+              appeal:
+                $ref: "#/components/schemas/TicketAppealRef"
+    ChannelTicketList:
+      description: 这一单由渠道、客人提的工单
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ items ]
+            properties:
+              items:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChannelTicket"
+    ChannelTicketCreated:
+      description: 建好的工单
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ ticket ]
+            properties:
+              ticket:
+                $ref: "#/components/schemas/ChannelTicket"
     TenantStateInvalid:
       description: |
         `TENANT_STATE_INVALID`：供应商现在的状态不能做这一步（`details.status`）；`TENANT_CONDITIONS_UNMET`：条件还不满足（`details.issues[]`：`path`、`reason`，如
@@ -11069,7 +12173,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [ channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund, rescue.manual_assign ]
+          enum: [ channel.pricing, channel.pause, markup_rule.create, markup_rule.update, markup_rule.delete, fx_lock.create, fx_lock.release, tenant.suspend, tenant.terminate, tenant.contract, cancellation_policy.update, order.cancel_refund, rescue.manual_assign, compensation_table.update, ticket.decision ]
           description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；以后会加：付款……）
         resource:
           type: string
@@ -16950,6 +18054,10 @@ components:
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
       required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version ]
       properties:
+        open_exceptions:
+          type: integer
+          minimum: 0
+          description: 没关的异常有几条（只在订单列表里有，M4-02）
         id:
           type: string
           format: uuid
@@ -18865,7 +19973,8 @@ components:
       type: object
       description: |
         怎么算的。违约金：`trigger`、`tier`（none / partial / full）、`bp`（比例，基点）、`settlement_minor`（基数：原结算价，最小单位）、`ms_before_service`（触发时离用车多少毫秒）；
-        救援差价：`original_minor`（原结算价）、`rescue_in_original_minor`（救援结算价按快照汇率换到原结算币种）、`raw_minor`（相减的结果，可以为负）、`same_currency`。都是原结算币种的最小单位
+        救援差价：`original_minor`（原结算价）、`rescue_in_original_minor`（救援结算价按快照汇率换到原结算币种）、`raw_minor`（相减的结果，可以为负）、`same_currency`。都是原结算币种的最小单位；
+        赔付（M4-02）：`ticket_no`、`scenario`、`bp`、`settlement_minor`、`ratio_minor`、`downgrade_settlement_difference_minor`、`table_version`；报销：`ticket_no`、`scenario`、`same_currency`
     TenantDeduction:
       type: object
       additionalProperties: false
@@ -18885,8 +19994,8 @@ components:
           format: date-time
         kind:
           type: string
-          enum: [ penalty, rescue_difference ]
-          description: "`penalty` 违约金；`rescue_difference` 救援差价"
+          enum: [ penalty, rescue_difference, compensation, reimbursement ]
+          description: "`penalty` 违约金；`rescue_difference` 救援差价；`compensation` 客人赔付（结算价 × 赔付表的同一比例 + 车型降级的差价，工单判定，M4-02）；`reimbursement` 替代交通报销"
         amount:
           $ref: "#/components/schemas/SalesMoney"
         status:
@@ -19049,7 +20158,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [ penalty, rescue_difference ]
+          enum: [ penalty, rescue_difference, compensation, reimbursement ]
         amount:
           $ref: "#/components/schemas/SalesMoney"
         status:
@@ -19797,3 +20906,614 @@ components:
           $ref: "#/components/schemas/SiteOrderTimeline"
         names:
           $ref: "#/components/schemas/SiteOrderNames"
+    ExceptionType:
+      type: string
+      enum: [ dispatch_overdue, departure_overdue, arrival_overdue, push_failed, no_show_review, extra_charge_review, fulfilment_unfinished, payment_issue, rescue ]
+      description: |
+        超时未派车（立即）、司机未出发（15 分钟）、司机未到达（5 分钟）、状态推送失败（2 小时）、no-show 待审核（24 小时）、附加费用待审核（24 小时）、
+        履约未结束（24 小时）、支付异常（当天，按 24 小时：退款失败、加收扣款失败、拒付、取消后才付到钱，`detail.reason`）、救援中（立即）
+    OrderException:
+      type: object
+      additionalProperties: false
+      required: [ id, type, type_name, handling, order, tenant, detail, status, opened_at, due_at, overdue, assignee, claimed_at, close_kind, closed_at, closed_by, resolution, version ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/ExceptionType"
+        type_name:
+          type: string
+        handling:
+          type: string
+          description: 需求表里的处理方式
+        order:
+          type: object
+          additionalProperties: false
+          required: [ id, order_no, service_time ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            order_no:
+              type: string
+            service_time:
+              type: string
+              format: date-time
+        tenant:
+          type: object
+          additionalProperties: false
+          required: [ id, name ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        detail:
+          type: object
+          description: 发现时的情况（按类型不同：截止时间、推送的事件和错误码、退款的金额和错误、救援的情形……）
+        status:
+          type: string
+          enum: [ open, claimed, closed ]
+        opened_at:
+          type: string
+          format: date-time
+        due_at:
+          type: string
+          format: date-time
+          description: 处理时限（从发现时起算）
+        overdue:
+          type: boolean
+        assignee:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ id, name ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: [ string, "null" ]
+            - type: "null"
+        claimed_at:
+          type: [ string, "null" ]
+          format: date-time
+        close_kind:
+          type: [ string, "null" ]
+          enum: [ resolved, cleared, null ]
+          description: "`resolved` 人工处理完；`cleared` 条件已解除，系统关闭"
+        closed_at:
+          type: [ string, "null" ]
+          format: date-time
+        closed_by:
+          type: [ string, "null" ]
+          format: uuid
+        resolution:
+          type: [ string, "null" ]
+        version:
+          type: integer
+    CompensationScenario:
+      type: string
+      enum: [ late_15_29, late_30_plus, driver_no_show, vehicle_downgrade, no_signboard, not_delivered, service_complaint ]
+      description: 司机迟到 15–29 分钟、30 分钟及以上、司机未到、车型降级、未举牌（商品含举牌）、没送到目的地、车况或司机态度投诉成立
+    CompensationRates:
+      type: object
+      additionalProperties: false
+      required: [ late_15_29, late_30_plus, driver_no_show, vehicle_downgrade, no_signboard, not_delivered, service_complaint ]
+      description: 每种问题赔客人对外价的多少（基点）
+      properties:
+        late_15_29:
+          type: integer
+        late_30_plus:
+          type: integer
+        driver_no_show:
+          type: integer
+        vehicle_downgrade:
+          type: integer
+        no_signboard:
+          type: integer
+        not_delivered:
+          type: integer
+        service_complaint:
+          type: integer
+    CompensationTable:
+      type: object
+      additionalProperties: false
+      required: [ version, effective_at, scenarios, minimum_jpy, reimbursement_cap_bp, review_at_or_above_sell_bp ]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+          description: 0 = 默认表（需求原表，还没人改过）
+        effective_at:
+          type: [ string, "null" ]
+          format: date-time
+        scenarios:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ scenario, name, customer_bp, full_refund, reimbursement, downgrade_difference ]
+            properties:
+              scenario:
+                $ref: "#/components/schemas/CompensationScenario"
+              name:
+                type: string
+              customer_bp:
+                type: integer
+                description: 赔客人对外价的多少（基点）；租户按同一比例乘以结算价承担
+              full_refund:
+                type: boolean
+                description: 司机未到：全额退款
+              reimbursement:
+                type: boolean
+                description: 另加凭票报销替代交通（上限对外价 × `reimbursement_cap_bp`）
+              downgrade_difference:
+                type: boolean
+                description: 车型降级：另加差价
+        minimum_jpy:
+          type: integer
+          description: 每笔至少等值多少日元（客人付别的币种时按判定时的汇率换算，向上取整）
+        reimbursement_cap_bp:
+          type: integer
+          description: 替代交通报销上限：对外价的多少（基点，15000 = 1.5 倍）
+        review_at_or_above_sell_bp:
+          type: integer
+          description: 赔给客人的钱达到对外价的多少（基点）要第二个人复核（默认 5000，待负责人确认）
+    CompensationInput:
+      type: object
+      additionalProperties: false
+      required: [ scenario, liable_party ]
+      properties:
+        scenario:
+          $ref: "#/components/schemas/CompensationScenario"
+        liable_party:
+          type: string
+          enum: [ tenant, platform ]
+          description: 责任方：租户（按结算价同比例承担 + 差价 + 报销）或平台（全部由平台承担）
+        downgrade_settlement_difference:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 车型降级：两个车型组的结算价之差（被投诉供应商结算币种的最小单位，必填）
+        reimbursement_amount:
+          type: [ integer, "null" ]
+          minimum: 0
+          description: 司机未到：客人凭票申请报销的替代交通（客人支付币种的最小单位）
+        major:
+          type: boolean
+          default: false
+          description: 重大投诉（影响转正式）
+    CompensationQuote:
+      type: object
+      additionalProperties: false
+      required: [ scenario, scenario_name, liable_party, table_version, customer_bp, customer, tenant, order_will_be_cancelled, needs_review ]
+      properties:
+        scenario:
+          $ref: "#/components/schemas/CompensationScenario"
+        scenario_name:
+          type: string
+        liable_party:
+          type: string
+          enum: [ tenant, platform ]
+        table_version:
+          type: integer
+        customer_bp:
+          type: integer
+        customer:
+          type: object
+          additionalProperties: false
+          required: [ ratio_amount, downgrade_difference, minimum, topped_up, compensation, reimbursement_cap, reimbursement, refund, manual_payout ]
+          properties:
+            ratio_amount:
+              $ref: "#/components/schemas/SalesMoney"
+            downgrade_difference:
+              $ref: "#/components/schemas/SalesMoney"
+            minimum:
+              $ref: "#/components/schemas/SalesMoney"
+            topped_up:
+              type: boolean
+            compensation:
+              $ref: "#/components/schemas/SalesMoney"
+            reimbursement_cap:
+              $ref: "#/components/schemas/SalesMoney"
+            reimbursement:
+              $ref: "#/components/schemas/SalesMoney"
+            refund:
+              $ref: "#/components/schemas/SalesMoney"
+            manual_payout:
+              $ref: "#/components/schemas/SalesMoney"
+        tenant:
+          type: object
+          additionalProperties: false
+          required: [ ratio_amount, downgrade_difference, reimbursement, total ]
+          properties:
+            ratio_amount:
+              $ref: "#/components/schemas/SalesMoney"
+            downgrade_difference:
+              $ref: "#/components/schemas/SalesMoney"
+            reimbursement:
+              $ref: "#/components/schemas/SalesMoney"
+            total:
+              $ref: "#/components/schemas/SalesMoney"
+        order_will_be_cancelled:
+          type: boolean
+          description: 司机未到：判定时按「供应商原因」取消订单（全额退款走取消）
+        needs_review:
+          type: boolean
+    TicketCompensation:
+      type: object
+      additionalProperties: false
+      description: 一张工单判定的赔付（客人那边的金额，只在运营后台）
+      required: [ scenario, scenario_name, liable_party, table_version, customer_bp, sell, ratio_amount, downgrade_difference, minimum, minimum_fx, topped_up, compensation, reimbursement_claimed, reimbursement_cap, reimbursement, refund, manual_payout, order_cancelled, payout_status, payout_reference, paid_at, paid_by, tenant_total, created_at ]
+      properties:
+        scenario:
+          $ref: "#/components/schemas/CompensationScenario"
+        scenario_name:
+          type: string
+        liable_party:
+          type: string
+          enum: [ tenant, platform ]
+        table_version:
+          type: integer
+        customer_bp:
+          type: integer
+        sell:
+          $ref: "#/components/schemas/SalesMoney"
+        ratio_amount:
+          $ref: "#/components/schemas/SalesMoney"
+        downgrade_difference:
+          $ref: "#/components/schemas/SalesMoney"
+        minimum:
+          $ref: "#/components/schemas/SalesMoney"
+        minimum_fx:
+          type: [ object, "null" ]
+          description: 换算最低额用的汇率（JPY → 客人支付币种，判定时汇率中心的）；JPY 为 null
+        topped_up:
+          type: boolean
+        compensation:
+          $ref: "#/components/schemas/SalesMoney"
+        reimbursement_claimed:
+          $ref: "#/components/schemas/SalesMoney"
+        reimbursement_cap:
+          $ref: "#/components/schemas/SalesMoney"
+        reimbursement:
+          $ref: "#/components/schemas/SalesMoney"
+        refund:
+          $ref: "#/components/schemas/SalesMoney"
+        manual_payout:
+          $ref: "#/components/schemas/SalesMoney"
+        order_cancelled:
+          type: boolean
+        payout_status:
+          type: string
+          enum: [ none, pending, paid ]
+        payout_reference:
+          type: [ string, "null" ]
+        paid_at:
+          type: [ string, "null" ]
+          format: date-time
+        paid_by:
+          type: [ string, "null" ]
+          format: uuid
+        tenant_total:
+          $ref: "#/components/schemas/SalesMoney"
+        created_at:
+          type: string
+          format: date-time
+    TicketType:
+      type: string
+      enum: [ complaint, no_show_review, fulfilment_failure, order_change, lost_and_found, tenant_appeal, other ]
+    TicketStatus:
+      type: string
+      enum: [ open, awaiting_tenant, in_progress, pending_review, decided, closed ]
+    TicketPriority:
+      type: string
+      enum: [ urgent, high, normal, low ]
+    TicketOrderRef:
+      type: object
+      additionalProperties: false
+      required: [ id, order_no ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+    TicketAppealRef:
+      description: 对这张工单的申诉（没有为 null）
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [ id, ticket_no, status, outcome ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            ticket_no:
+              type: string
+            status:
+              $ref: "#/components/schemas/TicketStatus"
+            outcome:
+              type: [ string, "null" ]
+        - type: "null"
+    PlatformTicket:
+      type: object
+      additionalProperties: false
+      required:
+        [ id, ticket_no, type, source, created_by_type, created_by, order, tenant, parent_ticket_id, priority, subject, description, language, status, assignee_id, assigned_at,
+          first_response_due_at, first_responded_at, resolution_due_at, overdue, tenant_reply_requested_at, tenant_reply_due_at, tenant_replied_at, outcome, liable_party, decision_note,
+          decided_at, decided_by, approval_id, appeal_until, closed_at, closed_by, close_note, version, created_at, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ticket_no:
+          type: string
+          pattern: "^TK\\d{8}[0-9A-HJ-NP-Z]{6}$"
+        type:
+          $ref: "#/components/schemas/TicketType"
+        source:
+          type: string
+          enum: [ guest, channel, tenant, platform, system ]
+        created_by_type:
+          type: string
+          enum: [ platform_user, tenant_user, channel, guest, system ]
+        created_by:
+          type: [ string, "null" ]
+          format: uuid
+        order:
+          $ref: "#/components/schemas/TicketOrderRef"
+        tenant:
+          type: object
+          additionalProperties: false
+          required: [ id, name ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        parent_ticket_id:
+          type: [ string, "null" ]
+          format: uuid
+        priority:
+          $ref: "#/components/schemas/TicketPriority"
+        subject:
+          type: string
+        description:
+          type: string
+        language:
+          type: [ string, "null" ]
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        assignee_id:
+          type: [ string, "null" ]
+          format: uuid
+        assigned_at:
+          type: [ string, "null" ]
+          format: date-time
+        first_response_due_at:
+          type: string
+          format: date-time
+          description: 首次响应期限：2 小时，紧急（用车当天）15 分钟
+        first_responded_at:
+          type: [ string, "null" ]
+          format: date-time
+        resolution_due_at:
+          type: string
+          format: date-time
+          description: 结案期限：3 个工作日
+        overdue:
+          type: boolean
+        tenant_reply_requested_at:
+          type: [ string, "null" ]
+          format: date-time
+        tenant_reply_due_at:
+          type: [ string, "null" ]
+          format: date-time
+        tenant_replied_at:
+          type: [ string, "null" ]
+          format: date-time
+        outcome:
+          type: [ string, "null" ]
+          enum: [ upheld, rejected, approved, resolved, null ]
+        liable_party:
+          type: [ string, "null" ]
+          enum: [ tenant, platform, null ]
+        decision_note:
+          type: [ string, "null" ]
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
+        decided_by:
+          type: [ string, "null" ]
+          format: uuid
+        approval_id:
+          type: [ string, "null" ]
+          format: uuid
+        appeal_until:
+          type: [ string, "null" ]
+          format: date-time
+          description: 判定对租户不利时，租户能申诉到什么时候（判定后 7 天）
+        closed_at:
+          type: [ string, "null" ]
+          format: date-time
+        closed_by:
+          type: [ string, "null" ]
+          format: uuid
+        close_note:
+          type: [ string, "null" ]
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TenantTicket:
+      type: object
+      additionalProperties: false
+      description: 供应商看到的工单：没有处理人、判定人、复核（平台内部的分工），没有客人那边的赔付金额
+      required: [ id, ticket_no, type, source, order, parent_ticket_id, priority, subject, description, status, tenant_reply_requested_at, tenant_reply_due_at, tenant_replied_at, outcome, liable_party, decision_note, decided_at, appeal_until, closed_at, created_at, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ticket_no:
+          type: string
+        type:
+          $ref: "#/components/schemas/TicketType"
+        source:
+          type: string
+          enum: [ guest, channel, tenant, platform, system ]
+        order:
+          $ref: "#/components/schemas/TicketOrderRef"
+        parent_ticket_id:
+          type: [ string, "null" ]
+          format: uuid
+        priority:
+          $ref: "#/components/schemas/TicketPriority"
+        subject:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        tenant_reply_requested_at:
+          type: [ string, "null" ]
+          format: date-time
+        tenant_reply_due_at:
+          type: [ string, "null" ]
+          format: date-time
+        tenant_replied_at:
+          type: [ string, "null" ]
+          format: date-time
+        outcome:
+          type: [ string, "null" ]
+          enum: [ upheld, rejected, approved, resolved, null ]
+        liable_party:
+          type: [ string, "null" ]
+          enum: [ tenant, platform, null ]
+        decision_note:
+          type: [ string, "null" ]
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
+        appeal_until:
+          type: [ string, "null" ]
+          format: date-time
+        closed_at:
+          type: [ string, "null" ]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    TicketMessage:
+      type: object
+      additionalProperties: false
+      required: [ id, author_type, author_id, body, file_ids, created_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        author_type:
+          type: string
+          enum: [ platform_user, tenant_user, channel, guest, system ]
+        author_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 供应商看到的平台留言没有员工编号
+        body:
+          type: string
+        file_ids:
+          type: array
+          description: 引用的这一单的照片（`GET …/orders/{id}/files/{fileId}` 取原文）
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+    TicketDeduction:
+      type: object
+      additionalProperties: false
+      description: 工单记下的供应商应扣款项（结算币种）：赔付（结算价 × 同一比例、车型降级的差价）、替代交通报销
+      required: [ id, kind, amount, status, basis, waived_at, waive_reason, created_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [ penalty, rescue_difference, compensation, reimbursement ]
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+        status:
+          type: string
+          enum: [ pending, waived ]
+        basis:
+          $ref: "#/components/schemas/DeductionBasis"
+        waived_at:
+          type: [ string, "null" ]
+          format: date-time
+        waive_reason:
+          type: [ string, "null" ]
+        created_at:
+          type: string
+          format: date-time
+    ChannelTicket:
+      type: object
+      additionalProperties: false
+      description: 渠道和客人看到的工单：类型、状态、结论、客人这边的赔付
+      required: [ id, ticket_no, type, source, subject, status, outcome, decided_at, created_at, compensation ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ticket_no:
+          type: string
+        type:
+          $ref: "#/components/schemas/TicketType"
+        source:
+          type: string
+          enum: [ guest, channel ]
+        subject:
+          type: string
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        outcome:
+          type: [ string, "null" ]
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        compensation:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ scenario, compensation, reimbursement, refund, other_payout, payout_status ]
+              properties:
+                scenario:
+                  $ref: "#/components/schemas/CompensationScenario"
+                compensation:
+                  $ref: "#/components/schemas/SalesMoney"
+                reimbursement:
+                  $ref: "#/components/schemas/SalesMoney"
+                refund:
+                  $ref: "#/components/schemas/SalesMoney"
+                  description: 退回到客人付款的卡上
+                other_payout:
+                  $ref: "#/components/schemas/SalesMoney"
+                  description: 另行支付（报销等）
+                payout_status:
+                  type: string
+                  enum: [ none, pending, paid ]
+            - type: "null"

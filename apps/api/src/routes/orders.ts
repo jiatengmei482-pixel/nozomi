@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { ORDER_STATUSES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
+import { ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
@@ -26,7 +26,8 @@ import { type OrderFulfilmentRecords, getOrderFile, getOrderForPlatform, getOrde
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { dateTimeSchema, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { orderTicketJson } from "./order-center.ts";
 import { platformRescueJson, tenantOrderRescueJson } from "./rescues.ts";
 
 type Json = Record<string, unknown>;
@@ -39,6 +40,15 @@ const platformListSchema = pageQuerySchema.extend({
   tenant_id: uuidSchema.transform((value) => value.toLowerCase()).optional(),
   channel_id: uuidSchema.transform((value) => value.toLowerCase()).optional(),
   q: z.string().trim().min(1).max(64).optional(),
+  // 订单中心（M4-02）：用车日期（城市当地，两端都含）、下单时间（[from, to)）、城市、品类、是否有没关的异常、乘客姓名或电话
+  service_from: dateSchema,
+  service_to: dateSchema,
+  created_from: dateTimeSchema.optional(),
+  created_to: dateTimeSchema.optional(),
+  city_id: uuidSchema.transform((value) => value.toLowerCase()).optional(),
+  category: z.enum(SERVICE_CATEGORIES).optional(),
+  exception: z.enum(["open", "none"]).optional(),
+  passenger: z.string().trim().min(2).max(100).optional(),
 });
 
 function eventJson(event: OrderEvent): Json {
@@ -226,9 +236,27 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   app.get("/platform/v1/orders", async (request) => {
     await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
     const query = parseInput(platformListSchema, request.query, "querystring");
-    const page = await listOrdersForPlatform(ctx, { status: query.status ?? null, tenantId: query.tenant_id ?? null, channelId: query.channel_id ?? null, q: query.q ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const page = await listOrdersForPlatform(
+      ctx,
+      {
+        status: query.status ?? null,
+        tenantId: query.tenant_id ?? null,
+        channelId: query.channel_id ?? null,
+        q: query.q ?? null,
+        serviceFrom: query.service_from ?? null,
+        serviceTo: query.service_to ?? null,
+        createdFrom: query.created_from ?? null,
+        createdTo: query.created_to ?? null,
+        cityId: query.city_id ?? null,
+        category: query.category ?? null,
+        exception: query.exception ?? null,
+        passenger: query.passenger ?? null,
+      },
+      query.limit,
+      decodeTimeCursor(query.cursor ?? null),
+    );
     const now = ctx.now();
-    return { items: page.items.map((item) => platformOrderJson(item, now)), next_cursor: page.nextCursor, total: page.total };
+    return { items: page.items.map((item) => ({ ...platformOrderJson(item, now), open_exceptions: page.openExceptions.get(item.order.id) ?? 0 })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/orders/:id", async (request) => {
@@ -248,6 +276,18 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
         return { ...changeJson(change), sell_before: sold === null ? null : salesMoney(sold.sellBeforeMinor, sold.currency), sell_after: sold === null ? null : salesMoney(sold.sellAfterMinor, sold.currency) };
       }),
       rescues: found.rescues.map(platformRescueJson),
+      exceptions: found.exceptions.map((exception) => ({
+        id: exception.id,
+        type: exception.type,
+        tenant_id: exception.tenantId,
+        status: exception.status,
+        opened_at: exception.openedAt.toISOString(),
+        due_at: exception.dueAt.toISOString(),
+        assignee_id: exception.assigneeId,
+        close_kind: exception.closeKind,
+        closed_at: exception.closedAt?.toISOString() ?? null,
+      })),
+      tickets: found.tickets.map(orderTicketJson),
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
       quote: {
         quote_id: found.quote.quoteId,

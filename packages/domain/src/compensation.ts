@@ -121,7 +121,7 @@ export function compensationTableIssues(table: Omit<CompensationTable, "version"
 }
 
 /** 两版赔付表的内容一样（不看版本号）：一样的修改不进复核队列。 */
-export function sameCompensationTable(a: Omit<CompensationTable, "version">, b: Omit<CompensationTable, "version">): boolean {
+export function sameCompensationTable(a: Omit<CompensationTable, "version"> & { version?: number }, b: Omit<CompensationTable, "version"> & { version?: number }): boolean {
   return (
     COMPENSATION_SCENARIOS.every((scenario) => a.customerBp[scenario] === b.customerBp[scenario]) &&
     a.minimumJpy === b.minimumJpy &&

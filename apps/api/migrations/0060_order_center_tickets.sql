@@ -62,6 +62,8 @@ create table tickets (
   decided_at timestamptz,
   decided_by uuid references platform_users (id),
   approval_id uuid references approvals (id),
+  -- 判定时记下的履约事件（评分输入）：complaint、failure:<类型>。申诉成立时只撤销这几条（救援先记下的不动）
+  recorded_events text[] not null default '{}',
   closed_at timestamptz,
   closed_by uuid references platform_users (id),
   close_note text,

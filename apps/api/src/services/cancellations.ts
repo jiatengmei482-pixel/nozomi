@@ -133,8 +133,18 @@ export interface CancelActor {
 /**
  * 在调用方的平台事务里取消一张付过款的单（订单已锁）。返回排好的退款（提交之后由调用方发出去）。
  */
-export async function cancelPaidOrderInTx(db: Db, order: Order, sale: OrderSale, input: { reason: OrderCancelReason; waiveFee: boolean; note: string | null }, who: CancelActor, now: Date): Promise<{ quote: CancellationQuote; refunds: OrderRefund[] }> {
-  if (!(CANCELLABLE_STATUSES as readonly string[]).includes(order.status) || order.status === "pending_payment") throw stateInvalid(order.status);
+export async function cancelPaidOrderInTx(
+  db: Db,
+  order: Order,
+  sale: OrderSale,
+  input: { reason: OrderCancelReason; waiveFee: boolean; note: string | null },
+  who: CancelActor,
+  now: Date,
+  options: { fromNoShowReview?: boolean } = {},
+): Promise<{ quote: CancellationQuote; refunds: OrderRefund[] }> {
+  // no-show 审核驳回（M4-02，ADR 0034）：「客人未出现（待审核）」按未履约取消（订单状态机 no_show_claimed → cancelled），只有工单判定走这里
+  const noShowRejected = options.fromNoShowReview === true && order.status === "no_show_claimed";
+  if (!noShowRejected && (!(CANCELLABLE_STATUSES as readonly string[]).includes(order.status) || order.status === "pending_payment")) throw stateInvalid(order.status);
   await assertReasonApplies(db, order, input.reason);
   const quote = await quoteCancellation(db, order, sale, input.reason, input.waiveFee, now);
   await updateOrderStatus(db, order, { status: "cancelled", cancelledAt: now, cancelReason: input.reason, cancelFeeBp: quote.feeBp, cancelTenantShareMinor: quote.tenantShareMinor, cancelNote: input.note }, now);

@@ -52,6 +52,8 @@ import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
 import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import { type PlatformRescueView, type TenantRescueView, orderRescueViews, tenantRescueOf } from "./rescues.ts";
+import { type OrderException, countOpenExceptions, listOrderExceptions } from "../repos/exceptions.ts";
+import { type Ticket, listOrderTickets } from "../repos/tickets.ts";
 
 export interface TenantOrderListQuery {
   status: OrderStatus | null;
@@ -160,8 +162,15 @@ export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } 
   });
 }
 
-export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<{ items: PlatformOrderRow[]; nextCursor: string | null; total: number }> {
-  return withPlatformTx(ctx.pool, (db) => listPlatformOrders(db, filter, limit, after), { snapshot: true });
+export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<{ items: PlatformOrderRow[]; nextCursor: string | null; total: number; openExceptions: Map<string, number> }> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const page = await listPlatformOrders(db, filter, limit, after);
+      return { ...page, openExceptions: await countOpenExceptions(db, page.items.map((item) => item.order.id)) };
+    },
+    { snapshot: true },
+  );
 }
 
 export interface PlatformOrderDetail {
@@ -185,6 +194,9 @@ export interface PlatformOrderDetail {
   extraCharges: ExtraCharge[];
   /** M3-04：这一单的全部救援改派 */
   rescues: PlatformRescueView[];
+  /** M4-02：这一单的异常（含已关闭的）、工单（各家供应商的） */
+  exceptions: OrderException[];
+  tickets: Ticket[];
 }
 
 export async function getOrderForPlatform(ctx: AppContext, orderId: string): Promise<PlatformOrderDetail> {
@@ -214,6 +226,8 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string): Pro
         changeSales: await listChangeSales(db, orderId),
         extraCharges: await listExtraCharges(db, order.tenantId, orderId),
         rescues: await orderRescueViews(db, orderId),
+        exceptions: await listOrderExceptions(db, orderId),
+        tickets: await listOrderTickets(db, orderId),
       };
     },
     { snapshot: true },

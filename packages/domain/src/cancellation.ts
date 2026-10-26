@@ -299,11 +299,12 @@ export function allocateRefund(charges: readonly RefundableCharge[], amountMinor
 
 /**
  * 退款之后客人至少要留下多少（客人支付币种）：没取消的单是现在的对外价；取消了的是取消费（对外价 × 取消时的扣款比例；没有扣款比例的按 0）。
+ * 工单判定的赔付要从收款里退（M4-02，ADR 0034）：再减去这一单该退的赔付合计（`compensatedMinor`），不低于 0。
  * 「实际付了的」（下单付款 + 改期补收 − 已退和正在退的，失败的不算已退）减去任何一笔退款之后都不能少于它。
  */
-export function retainedAfterRefundsMinor(order: { cancelled: boolean; sellMinor: number; cancelFeeBp: number | null }): number {
-  if (!order.cancelled) return order.sellMinor;
-  return order.cancelFeeBp === null ? 0 : portionBasisPoints(order.sellMinor, order.cancelFeeBp);
+export function retainedAfterRefundsMinor(order: { cancelled: boolean; sellMinor: number; cancelFeeBp: number | null; compensatedMinor?: number }): number {
+  const base = !order.cancelled ? order.sellMinor : order.cancelFeeBp === null ? 0 : portionBasisPoints(order.sellMinor, order.cancelFeeBp);
+  return Math.max(0, base - (order.compensatedMinor ?? 0));
 }
 
 /**
