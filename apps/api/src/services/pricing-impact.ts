@@ -98,13 +98,29 @@ async function pricingStates(db: Db, channel: Channel, proposal: PricingProposal
   }
 }
 
-// ---- 取数：快照里试算要用的那几项（用 jsonb 取字段，不把整份快照读回来）；城市和品类在询价日志上 ----
+// ---- 取数：快照里试算要用的那几项（`quotes.impact_inputs`，不把整份快照读回来）；城市和品类在询价日志上 ----
 // 每批两步：先按游标从（渠道、时间、编号）的索引取这一批的 5,000 个编号，再只对这些行取字段。
 // 不这样写时，统计信息过期（刚写进大量报价）的计划会对剩下的全部行取字段、再排序取前 5,000 个，10 万个报价时单批要几秒（ADR 0033「性能」）。
 
-interface QuoteRow {
+/** 一行报价：快照里试算要的那几项在 `impact_inputs`（迁移 0051 的生成列）里；城市和品类在询价日志上 */
+interface StoredQuoteRow {
   id: string;
   created_at: Date;
+  currency: string;
+  vehicle_group_id: string;
+  city_id: string | null;
+  category: string | null;
+  inputs: unknown;
+}
+
+interface StoredOrderRow extends StoredQuoteRow {
+  order_created_at: Date;
+  order_id: string;
+  status: string;
+  cancel_fee_bp: number | null;
+}
+
+interface QuoteRow {
   currency: string;
   vehicle_group_id: string;
   city_id: string | null;
@@ -114,34 +130,33 @@ interface QuoteRow {
   settle_fx: unknown;
   winner_fx: unknown;
   margin_fx: unknown;
-  winner_buffer: number | null;
-}
-
-interface OrderRow extends QuoteRow {
-  order_created_at: Date;
-  order_id: string;
-  status: string;
-  cancel_fee_bp: number | null;
+  winner_buffer: unknown;
 }
 
 /**
- * 试算要的那几项。`x.s` 是快照解压后的一份（见 `SNAPSHOT_ONCE`）：快照约 2.5 KB、存的时候是压缩的，
- * 直接对 `q.snapshot` 取字段时每取一项就解压一次（这里有 7 项），10 万行时取数比计算还慢。
+ * 只读 `quotes.impact_inputs`（约 0.5 KB），不读整份快照：快照约 2.5 KB、存的时候是压缩的，每行都要解压，
+ * 10 万行时取数比计算还慢（ADR 0033「性能」）。
  */
-const QUOTE_FIELDS = `q.id, q.created_at, q.currency, q.vehicle_group_id::text,
-  l.city_id::text as city_id,
-  l.category,
-  coalesce(x.s->>'serviceDate', left(x.s->'request'->>'serviceLocal', 10)) as service_date,
-  x.s->'candidates' as candidates,
-  x.s->'channel'->'settleFx' as settle_fx,
-  x.s->'winner'->'sell'->'fx' as winner_fx,
-  x.s->'winner'->'sell'->'channel'->'minMarginFx' as margin_fx,
-  (x.s->'winner'->'sell'->>'fxBufferBp')::integer as winner_buffer`;
-
-/** 每行只解压一次快照：`|| '{}'` 得到一份解压后的值，`offset 0` 不让子查询被展开回每个字段各算一次 */
-const SNAPSHOT_ONCE = `cross join lateral (select q.snapshot || '{}'::jsonb as s offset 0) x`;
+const QUOTE_FIELDS = `q.id, q.created_at, q.currency, q.vehicle_group_id::text, l.city_id::text as city_id, l.category, q.impact_inputs as inputs`;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+function quoteRowOf(row: StoredQuoteRow): QuoteRow {
+  const inputs = isObject(row.inputs) ? row.inputs : {};
+  const { serviceDate, serviceLocal } = inputs;
+  return {
+    currency: row.currency,
+    vehicle_group_id: row.vehicle_group_id,
+    city_id: row.city_id,
+    category: row.category,
+    service_date: typeof serviceDate === "string" ? serviceDate : typeof serviceLocal === "string" ? serviceLocal.slice(0, 10) : null,
+    candidates: inputs["candidates"],
+    settle_fx: inputs["settleFx"],
+    winner_fx: inputs["winnerFx"],
+    margin_fx: inputs["minMarginFx"],
+    winner_buffer: inputs["winnerBufferBp"],
+  };
+}
 
 function fxOf(value: unknown): FxQuote | null {
   if (!isObject(value)) return null;
@@ -215,19 +230,19 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   let read = 0;
   while (read < PRICING_IMPACT_RULES.maxQuotes) {
     const limit = Math.min(BATCH, PRICING_IMPACT_RULES.maxQuotes - read);
-    const page: QuoteRow[] = (
-      await db.query<QuoteRow>(
+    const page: StoredQuoteRow[] = (
+      await db.query<StoredQuoteRow>(
         `with page as materialized (
            select id from quotes
             where channel_id = $1 and created_at >= $2 and created_at <= $3 and ($4::timestamptz is null or (created_at, id) < ($4::timestamptz, $5::text))
             order by created_at desc, id desc limit $6)
          select ${QUOTE_FIELDS}
-           from page p join quotes q on q.id = p.id join quote_logs l on l.id = q.quote_log_id ${SNAPSHOT_ONCE}
+           from page p join quotes q on q.id = p.id join quote_logs l on l.id = q.quote_log_id
           order by q.created_at desc, q.id desc`,
         [channel.id, from, now, cursor?.t ?? null, cursor?.id ?? null, limit],
       )
     ).rows;
-    for (const row of page) acc.addQuote(impactQuoteOf(row, settleCurrency, bufferBp));
+    for (const row of page) acc.addQuote(impactQuoteOf(quoteRowOf(row), settleCurrency, bufferBp));
     read += page.length;
     const last = page.at(-1);
     if (page.length < limit || last === undefined) break;
@@ -243,14 +258,14 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   let ordersRead = 0;
   while (ordersRead < PRICING_IMPACT_RULES.maxOrders) {
     const limit = Math.min(BATCH, PRICING_IMPACT_RULES.maxOrders - ordersRead);
-    const page: OrderRow[] = (
-      await db.query<OrderRow>(
+    const page: StoredOrderRow[] = (
+      await db.query<StoredOrderRow>(
         `with page as materialized (
            select s.order_id from ${ordersFrom}
             where ${ordersWhere} and ($4::timestamptz is null or (s.created_at, s.order_id) < ($4::timestamptz, $5::uuid))
             order by s.created_at desc, s.order_id desc limit $6)
          select ${QUOTE_FIELDS}, s.created_at as order_created_at, s.order_id::text, o.status, o.cancel_fee_bp
-           from page p join order_sales s on s.order_id = p.order_id ${ordersJoins} ${SNAPSHOT_ONCE}
+           from page p join order_sales s on s.order_id = p.order_id ${ordersJoins}
           order by s.created_at desc, s.order_id desc`,
         [channel.id, from, now, orderCursor?.t ?? null, orderCursor?.id ?? null, limit],
       )
@@ -259,7 +274,7 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
       const cancelled = row.status === "cancelled";
       // 付过款后的取消按扣款比例计入（M3-03 之前的取消没有比例：都是付款前的，走不到这里；保险起见按免费算）
       const shareBp = cancelled ? (row.cancel_fee_bp ?? 0) : 10_000;
-      const order: ImpactOrder = { ...impactQuoteOf(row, settleCurrency, bufferBp), cancelled, shareBp };
+      const order: ImpactOrder = { ...impactQuoteOf(quoteRowOf(row), settleCurrency, bufferBp), cancelled, shareBp };
       acc.addOrder(order);
     }
     ordersRead += page.length;

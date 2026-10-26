@@ -59,7 +59,7 @@
 | `0032_money_guards.sql` | 钱的几道把关（M3-03，ADR 0029「补充：钱的口径与审核时机」）：退款加作废时间 `superseded_at`（只有失败的能作废——取消时的退款已经包含了它）；加收的异议期固定 48 小时、待审核和有异议的必须有转人工的原因、批准只能在异议期结束之后、撤回只能在异议期内。不含任何数据 |
 | `0033_tenant_onboarding.sql` | 供应商入驻（ADR 0028）：`tenants` 加七种状态、暂停原因和之前的状态、观察原因、各阶段时间、最新评分、每日检查做到哪天、版本（原有的 `active` 保留为正式，`suspended` 补上「暂停之前是正式、人工暂停」）；新增九张租户表——企业信息 `tenant_profiles`、文件 `tenant_files`（`bytea`）、资质 `tenant_documents`、合同版本 `tenant_contracts`、状态记录 `tenant_status_events`、评分输入 `tenant_performance_events` 和 `order_reviews`、每日评分 `tenant_score_daily`、提醒 `tenant_notices`；都带 `tenant_id`、行级安全，租户只能读（企业信息能写、文件和资质能追加），审核结论、合同、状态只有平台能写。不含任何业务数据（0029 未使用：入驻开发时为 M3-02 预留的编号） |
 | `0050_approval_pricing_impact.sql` | 加价规则 / 定价参数生效前的毛利试算（M3-07，ADR 0033；0034–0049 留给别的任务）：复核记录加 `impact`（发起时保存的试算结果，审核人批准前看）。只加列，授权不变。不含任何数据 |
-| `0051_pricing_impact_paging_indexes.sql` | 毛利试算分批取数用的索引（M3-07，ADR 0033「性能」）：报价、订单的渠道索引加上编号（`quotes (channel_id, created_at desc, id desc)`、`order_sales (channel_id, created_at desc, order_id desc)`），替换原来只有（渠道、时间）的两个。只改索引，不含任何数据 |
+| `0051_pricing_impact_inputs.sql` | 毛利试算取数（M3-07，ADR 0033「性能」）：报价、订单的渠道索引加上编号（`quotes (channel_id, created_at desc, id desc)`、`order_sales (channel_id, created_at desc, order_id desc)`），替换原来只有（渠道、时间）的两个；`quotes` 加生成列 `impact_inputs`（数据库从快照算出试算要的那几项，约 0.5 KB）。只改结构，授权不变，不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
