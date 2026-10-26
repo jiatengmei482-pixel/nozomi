@@ -12,7 +12,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { MapTiles } from "../../api/areas.ts";
 import type { SiteCity, SiteConfig, SitePlace, SiteQuote } from "../../api/site.ts";
-import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, deferred, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -199,4 +199,20 @@ test("地图选点离城市太远（400 OUT_OF_CITY）：说明在城市附近�
   const group = screen.getByRole("group", { name: /上车地点的坐标/ });
   await actor.clear(within(group).getByLabelText(/^纬度/));
   assertAbsent(screen.queryByText("这个位置离东京太远了，请在城市附近选点。"));
+});
+
+test("选点之后客人又改了地址栏：反查回来只更新坐标，不覆盖客人写的字；状态行说明保留了", async () => {
+  const pending = deferred();
+  open({ config: configOf({ address_search: false, map_tiles: tiles }), reverse: () => pending.promise });
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: "在地图上选上车地点" }));
+  await actor.click(screen.getByRole("button", { name: "选地图中间这个位置" }));
+  assert.ok(await screen.findByText("正在查找这个位置的地址…"));
+  await actor.type(screen.getByLabelText("上车地址或酒店名"), "希尔顿东京 3 楼");
+  pending.resolve(json(200, { available: true, address: "日本、東京都新宿区西新宿６丁目" }));
+  assert.ok(await screen.findByText("坐标已更新；地址栏保留您写的内容。"));
+  assert.equal(addressOf("上车"), "希尔顿东京 3 楼");
+  assert.deepEqual(coordinatesOf("上车"), [String(CENTER.lat), String(CENTER.lng)]);
+  // 地图、按钮、状态行在「上车地点的地图」这个分组里
+  assert.ok(within(screen.getByRole("group", { name: "上车地点的地图" })).getByText("坐标已更新；地址栏保留您写的内容。"));
 });

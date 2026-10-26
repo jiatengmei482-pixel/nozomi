@@ -119,14 +119,15 @@ test("官网地址：搜索 → 选中 → 地图上用键盘选下车点 → �
   await page.getByRole("button", { name: "在地图上选上车地点" }).click();
   const pickupMap = page.getByRole("application", { name: /地图：点一下选上车位置/ });
   await pickupMap.scrollIntoViewIfNeeded();
-  const zoomOut = page.getByRole("button", { name: "缩小地图" }).first();
+  const pickupMapGroup = page.getByRole("group", { name: "上车地点的地图" });
+  const zoomOut = pickupMapGroup.getByRole("button", { name: "缩小地图" });
   await zoomOut.click();
   await zoomOut.click();
   await zoomOut.click();
   const box = await pickupMap.boundingBox();
   if (box === null) throw new Error("地图没有显示出来");
   await page.mouse.click(box.x + box.width - 12, box.y + box.height / 2);
-  await expect(page.getByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。").first()).toBeVisible();
+  await expect(pickupMapGroup.getByText("已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。")).toBeVisible();
   expect(Number(await coordinate(page, "上车", "经度").inputValue())).toBeGreaterThan(CENTER.lng + 0.1);
   await page.getByRole("button", { name: "查询价格" }).click();
   await expect(page.getByRole("heading", { name: "没有可预订的车" })).toBeVisible();

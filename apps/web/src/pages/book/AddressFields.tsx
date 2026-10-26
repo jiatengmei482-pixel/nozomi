@@ -241,6 +241,8 @@ export function AddressFields({
     if (lookup === null) return;
     const coordinates = coordinatesOf(point);
     const picked = { ...latest.current.value, coordinates, placeId: null };
+    // 选点之后客人又改了地址栏：反查回来不覆盖客人写的字（只更新了坐标）
+    const addressAtPick = picked.address;
     latest.current.value = picked;
     latest.current.onChange(picked);
     const mine = ++round.current;
@@ -252,6 +254,7 @@ export function AddressFields({
       if (!still()) return;
       if (!found.available) setReverse({ kind: "done", warning: true, text: noAddress });
       else if (found.address === null) setReverse({ kind: "done", warning: true, text: "坐标已填好，这个位置没有查到地址，请在上面写上地址或酒店名。" });
+      else if (latest.current.value.address !== addressAtPick) setReverse({ kind: "done", warning: false, text: "坐标已更新；地址栏保留您写的内容。" });
       else {
         latest.current.onChange({ ...latest.current.value, address: addressText(found.address, null), placeId: null });
         setReverse({ kind: "done", warning: false, text: "已填入这个位置的地址和坐标，可以在地址后面补充酒店名、楼层。" });
@@ -269,6 +272,13 @@ export function AddressFields({
   };
 
   const current = pointOfDraft(value.coordinates);
+  const reverseStatus =
+    reverse.kind === "idle" ? null : (
+      <p className={reverse.kind === "done" && reverse.warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
+        {reverse.kind === "done" && reverse.warning && <Icon name="alert-triangle" />}
+        {reverse.kind === "looking" ? "正在查找这个位置的地址…" : reverse.text}
+      </p>
+    );
   return (
     <div className="site-address">
       {lookup !== null && lookup.search && (
@@ -318,7 +328,8 @@ export function AddressFields({
         }}
       />
       {lookup !== null && lookup.tiles !== null && (
-        <>
+        // 上车、下车的地图可以同时展开：各自放进带名称的分组，读屏听得出「放大地图」「选地图中间这个位置」是哪一个地点的
+        <div className="site-address__map" role="group" aria-label={`${word}地点的地图`}>
           <Button className="site-address__map-toggle" size="lg" aria-expanded={mapOpen} aria-controls={mapId} onClick={() => setMapOpen((open) => !open)}>
             <Icon name="map" />
             {mapOpen ? "收起地图" : `在地图上选${word}地点`}
@@ -326,14 +337,10 @@ export function AddressFields({
           <div id={mapId} hidden={!mapOpen}>
             {mapOpen && <SiteMapPicker tiles={lookup.tiles} center={lookup.center} point={current} word={word} onPick={(point) => void pickOnMap(point)} />}
           </div>
-        </>
+          {reverseStatus}
+        </div>
       )}
-      {reverse.kind !== "idle" && (
-        <p className={reverse.kind === "done" && reverse.warning ? "site-address__status site-address__status--warning" : "site-address__status"} role="status">
-          {reverse.kind === "done" && reverse.warning && <Icon name="alert-triangle" />}
-          {reverse.kind === "looking" ? "正在查找这个位置的地址…" : reverse.text}
-        </p>
-      )}
+      {(lookup === null || lookup.tiles === null) && reverseStatus}
     </div>
   );
 }

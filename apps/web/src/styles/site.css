@@ -496,6 +496,18 @@
   font-size: var(--font-size-md);
 }
 
+/* 一个地点的地图（按钮、地图、选点后的状态行）：读屏里是一个带名称的分组 */
+.site-address__map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.site-address__map > [hidden] {
+  display: none;
+}
+
 .site-address__map-toggle {
   align-self: flex-start;
   max-width: 100%;
