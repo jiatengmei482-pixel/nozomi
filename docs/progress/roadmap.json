@@ -350,7 +350,7 @@
       "name": "财务结算",
       "goal": "月结账单、银行转账批量文件、违约金扣减、对账、汇兑损益",
       "tasks": [
-        { "id": "M5-01", "title": "账单生成与双人复核", "role": "backend", "status": "review", "acceptance": ["次月 20 日付款批次"], "evidence": "PR 链接待写入；测试角色补 36 个测试（独立对照实现核对 500 组随机应付与 40 张真实订单），发现的 2 个缺陷已修复；本地单元、相关集成 171 个通过，完整检查以 PR 的 CI 为准；6 项口径默认值写在 ADR 0040 待负责人确认", "updated": "2026-10-26" },
+        { "id": "M5-01", "title": "账单生成与双人复核", "role": "backend", "status": "review", "acceptance": ["次月 20 日付款批次"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/52 ；测试角色补 36 个测试（独立对照实现核对 500 组随机应付与 40 张真实订单），发现的 2 个缺陷已修复；本地单元、相关集成 171 个通过，完整检查以 PR 的 CI 为准；6 项口径默认值写在 ADR 0040 待负责人确认", "updated": "2026-10-26" },
         { "id": "M5-02", "title": "银行转账批量文件与流水号回填", "role": "backend", "status": "todo", "acceptance": ["导出文件格式由你提供的银行模板确定"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M5-03", "title": "M5 验收", "role": "acceptance", "status": "todo", "acceptance": ["一个月真实测试订单生成正确账单"], "evidence": "", "updated": "2026-10-07" }
       ]
