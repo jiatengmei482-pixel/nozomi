@@ -223,7 +223,8 @@ const rawSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
     z
       .string()
-      .regex(/^\+[0-9][0-9 -]{5,22}[0-9]$/, "SITE_SUPPORT_PHONE 应当是带国家码的电话号码，以 + 开头，只含数字、空格和连字符，如 +81 3-1234-5678")
+      // 和客人手机号同口径（domain 的 isInternationalPhone，E.164）：+ 国家码不以 0 开头，共 8–15 位数字；写法上只允许空格和连字符分隔
+      .refine((value) => /^\+[0-9][0-9 -]*[0-9]$/.test(value) && /^[1-9]\d{7,14}$/.test(value.replace(/[ -]/g, "").slice(1)), "SITE_SUPPORT_PHONE 应当是带国家码的电话号码：以 + 开头，国家码不以 0 开头，共 8–15 位数字，只用空格和连字符分隔，如 +81 3-1234-5678")
       .optional(),
   ),
 });

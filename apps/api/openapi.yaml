@@ -19271,7 +19271,7 @@ components:
             - type: "null"
         support_phone:
           type: [ string, "null" ]
-          pattern: "^\\+[0-9][0-9 -]{5,22}[0-9]$"
+          pattern: "^\\+[1-9][0-9 -]*[0-9]$"
           description: 订单页「需要帮助」里的客服电话（配置 SITE_SUPPORT_PHONE，原样显示）；没有登记时为 null，页面不显示客服区块。官网没开时也照常给出（已下单的客人仍要能联系客服）
     SiteCity:
       type: object
