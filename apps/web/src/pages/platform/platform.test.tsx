@@ -12,7 +12,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import { ApiError } from "../../api/client.ts";
-import { type AuditLog, type FxCenterStatus, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
+import { type AuditLog, type FxCenterStatus, type RouteUsageStatus, createStaff, createTenant, inviteTenantAdmin, issueStaffReset, issueTenantAdminReset } from "../../api/platform.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
 import { type ApiCall, apiError, assertAbsent, assertFocused, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
 
@@ -33,6 +33,9 @@ const invite = { token: TOKEN, expires_at: "2026-10-16T05:30:00.000Z" };
 
 /** 汇率数据源正常：这批汇率是东京时间 2026-10-17 09:02 的，定时拉取在 18:24 拉过、已更新 */
 const FX_FRESH: FxCenterStatus = { state: "fresh", as_of: "2026-10-17T00:02:32.000Z", auto_fetch: true, last_attempt_status: "accepted", last_attempt_at: "2026-10-17T09:24:00.000Z", last_error_code: null };
+
+/** 路线预估今天还没有调用过（M2-02）：上限是默认的 1000 次 */
+const ROUTES_IDLE: RouteUsageStatus = { day: "2026-10-17", calls: 0, daily_limit: 1000, daily_limit_reached: false, failures: 0, refused: 0, last_success_at: null, last_failure: null };
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 interface World {
@@ -59,7 +62,7 @@ function open(path: string, role: string, world: World = {}, routes: Route = () 
     if (at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
     // 系统状态页下方的「第三方密钥」（M4-09）：这里的用例不关心它，给一份只读、没有项目的
     if (at === "/platform/v1/integration-secrets") return json(200, { precedence_note: "运营后台填写的优先；后台没填（或清空后）才用服务器配置文件里的值。", can_manage: false, encryption_configured: true, items: [] });
-    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }], fx_center: FX_FRESH });
+    if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }], fx_center: FX_FRESH, routes: ROUTES_IDLE });
     return null;
   });
   render(
@@ -838,7 +841,7 @@ test("审计日志的「筛选」面板：「从」晚于「到」时不关面�
 });
 
 test("M1-14 系统状态：显示汇率是否过期和这批汇率的时间、最近一次拉取；过期时顶部危险提示条，失败原因说人话；能去汇率页", async () => {
-  const integrations = (fx: FxCenterStatus): Route => (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/integrations" ? json(200, { items: [{ key: "fx", label: "汇率数据源", state: "configured", detail: "open.er-api.com · 缓冲 1.5%" }], fx_center: fx }) : null);
+  const integrations = (fx: FxCenterStatus): Route => (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/integrations" ? json(200, { items: [{ key: "fx", label: "汇率数据源", state: "configured", detail: "open.er-api.com · 缓冲 1.5%" }], fx_center: fx, routes: ROUTES_IDLE }) : null);
   const time = (iso: string): string => {
     const at = new Date(iso);
     const pad = (value: number): string => String(value).padStart(2, "0");
@@ -864,4 +867,64 @@ test("M1-14 系统状态：显示汇率是否过期和这批汇率的时间、�
   open("/platform/settings/integrations", "tech", {}, integrations({ state: "none", as_of: null, auto_fetch: true, last_attempt_status: null, last_attempt_at: null, last_error_code: null }));
   const none = (await screen.findByRole("heading", { level: 2, name: "汇率数据" })).closest("section") as HTMLElement;
   assert.match(none.textContent ?? "", /还没有汇率是否过期还没有汇率，跨币种报价都报不出这批汇率的时间（数据源给的）—最近一次拉取还没有拉过/);
+});
+
+test("M2-02 系统状态：路线预估卡片显示今天的调用、上限、失败和被挡下的次数、最近一次成功和失败（原因码 + 怎么办）；到了上限顶部提示「明天自动恢复」；上限为 0 时说不调用", async () => {
+  const integrations = (routes: RouteUsageStatus): Route => (call) =>
+    call.method === "GET" && call.url.pathname === "/platform/v1/integrations" ? json(200, { items: [{ key: "googleMaps", label: "谷歌地图", state: "configured", detail: "后台设置（••••1234）" }], fx_center: FX_FRESH, routes }) : null;
+  const time = (iso: string): string => {
+    const at = new Date(iso);
+    const pad = (value: number): string => String(value).padStart(2, "0");
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  };
+  const card = async (): Promise<HTMLElement> => (await screen.findByRole("heading", { level: 2, name: "路线预估（谷歌地图）" })).closest("section") as HTMLElement;
+
+  // 空：今天没调用过、也从来没成功或失败过
+  open("/platform/settings/integrations", "tech", {}, integrations(ROUTES_IDLE));
+  const idle = await card();
+  assert.match(idle.textContent ?? "", /还没有调用过/);
+  assert.match(idle.textContent ?? "", /今天的调用（2026-10-17）0 \/ 1000 次（含重试）每日上限1000 次，今天还剩 1000 次今天失败0 次今天被上限挡下0 次最近一次成功还没有成功过最近一次失败没有失败过/);
+  assertAbsent(screen.queryByText(/已到每日上限/));
+
+  // 正常：最近一次成功比最近一次失败晚；失败的原因码给出中文说明和怎么办
+  resetBrowser();
+  const success = "2026-10-17T03:10:00.000Z";
+  const failedAt = "2026-10-17T02:00:00.000Z";
+  open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, calls: 12, failures: 1, last_success_at: success, last_failure: { code: "TIMEOUT", message: "谷歌地图在时限内没有应答", at: failedAt } }));
+  const ok = await card();
+  assert.ok(within(ok).getByText("正常"));
+  assert.match(ok.textContent ?? "", new RegExp(`12 / 1000 次（含重试）每日上限1000 次，今天还剩 988 次今天失败1 次`));
+  assert.match(ok.textContent ?? "", new RegExp(`最近一次成功${time(success)}最近一次失败${time(failedAt)}TIMEOUT谷歌地图在时限内没有应答。通常过一会儿自己恢复`));
+
+  // 最近一次失败在成功之后：警示徽标；密钥问题告诉超级管理员去哪里改
+  resetBrowser();
+  open("/platform/settings/integrations", "super_admin", {}, integrations({ ...ROUTES_IDLE, calls: 3, failures: 3, last_success_at: failedAt, last_failure: { code: "KEY_INVALID", message: null, at: success } }));
+  const failing = await card();
+  assert.ok(within(failing).getByText("最近一次失败", { selector: ".badge" }));
+  assert.match(failing.textContent ?? "", /KEY_INVALID谷歌地图的密钥无效。请在「系统设置 → 系统状态 → 第三方密钥」核对或更换。/);
+
+  // 接口以后多出来的原因码：用接口给的说明
+  resetBrowser();
+  open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, last_failure: { code: "SOMETHING_NEW", message: "新的原因", at: success } }));
+  assert.match((await card()).textContent ?? "", /SOMETHING_NEW新的原因/);
+
+  // 到了每日上限：顶部警示提示条 + 徽标；被挡下的次数说清后果
+  resetBrowser();
+  open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, calls: 1000, daily_limit_reached: true, refused: 7, last_success_at: success, last_failure: { code: "DAILY_LIMIT_REACHED", message: null, at: success } }));
+  const reached = await card();
+  assert.ok(within(reached).getByText("已到每日上限", { selector: ".badge" }));
+  assert.match(reached.textContent ?? "", /1000 \/ 1000 次（含重试）每日上限1000 次，今天还剩 0 次/);
+  assert.match(reached.textContent ?? "", /今天被上限挡下7 次（这些询价里按「里程 \+ 时长」计价的商品没有报出价）/);
+  const banner = screen.getByText("今天调用谷歌地图的次数已到每日上限（1000 次）").closest(".alert") as HTMLElement;
+  assert.ok(banner.classList.contains("alert--warning"));
+  assert.match(banner.textContent ?? "", /今天的里程计价暂停，明天自动恢复；可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。/);
+
+  // 上限设为 0：不调用，也不说「明天恢复」
+  resetBrowser();
+  open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, daily_limit: 0, daily_limit_reached: true, refused: 2 }));
+  const off = await card();
+  assert.match(off.textContent ?? "", /每日上限0（不调用谷歌地图）/);
+  const offBanner = screen.getByText("路线预估的每日上限设为 0，不调用谷歌地图").closest(".alert") as HTMLElement;
+  assert.doesNotMatch(offBanner.textContent ?? "", /明天自动恢复/);
+  assert.match(offBanner.textContent ?? "", /GOOGLE_ROUTES_DAILY_LIMIT/);
 });

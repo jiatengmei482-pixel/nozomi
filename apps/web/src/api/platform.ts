@@ -187,7 +187,29 @@ export interface FxCenterStatus {
   last_error_code: string | null;
 }
 
-export function listIntegrations(token: string): Promise<{ items: IntegrationStatus[]; fx_center: FxCenterStatus }> {
+/**
+ * 路线预估（谷歌地图 Routes API）今天的用量和最近的结果（`GET /integrations` 的 `routes`，ADR 0042）。
+ * `day` 是东京时间的日期；`calls` 含重试；到了上限（`daily_limit_reached`）里程 + 时长的商品报不出价，第二天 0 点恢复。
+ * 最近一次成功、失败不限今天；`last_failure.code` 是 `QuoteRouteFailureCode` 之一。
+ */
+export interface RouteUsageStatus {
+  day: string;
+  calls: number;
+  daily_limit: number;
+  daily_limit_reached: boolean;
+  failures: number;
+  refused: number;
+  last_success_at: string | null;
+  last_failure: { code: string; message: string | null; at: string } | null;
+}
+
+export interface IntegrationsOverview {
+  items: IntegrationStatus[];
+  fx_center: FxCenterStatus;
+  routes: RouteUsageStatus;
+}
+
+export function listIntegrations(token: string): Promise<IntegrationsOverview> {
   return apiRequest("GET", INTEGRATIONS_PATH, { token });
 }
 
