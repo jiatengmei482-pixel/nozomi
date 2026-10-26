@@ -5,7 +5,6 @@
  * - 规则对话框只改「给审核人的说明」不作废结果，说明也不发给试算接口。
  * - 结果里截断、没法重算、改后报不出 / 报得出、免费取消都写出来；负的差额带「−」，美元按分显示。
  * - 「再算一次」：发起人（只能撤回）也有；已批准的没有。
- * 已知缺陷（留着当前失败的复现测试）：试算失败后改了内容，旧的失败原因还留着（PricingImpactPanel.tsx 的 ImpactPreview 只按内容作废结果，没作废失败原因）。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";

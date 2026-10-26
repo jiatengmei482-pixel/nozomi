@@ -1,7 +1,7 @@
 /**
  * 加价规则 / 定价参数生效前的「近 30 天毛利试算」（M3-07，ADR 0033）。
  * - `PricingImpactView`：一份试算结果（付过款的订单、询价各一张表：改前 / 改后 / 差额，以及中标换人、要按最低毛利补价、改后报不出的个数）。
- * - `ImpactPreview`：发起修改的对话框里用——按现在填的内容试算；内容改了以后旧的结果作废，要重新算。
+ * - `ImpactPreview`：发起修改的对话框里用——按现在填的内容试算；内容改了以后旧的结果和失败原因都作废，要重新算。
  * - `ApprovalImpact`：待审核里用——发起时存下的结果，和「按现在的数据再算一次」。
  * 结果是估算：客人面对新价格还会不会下单无法知道，界面上写明。
  */
@@ -116,7 +116,7 @@ export function PricingImpactView({ impact, title }: { impact: PricingImpact; ti
 export function ImpactPreview({ channelId, request, auto = false }: { channelId: string; request: PricingImpactRequest | null; auto?: boolean }) {
   const { token, handleAuthFailure } = usePortalSession();
   const [result, setResult] = useState<{ key: string; impact: PricingImpact } | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<{ key: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const key = request === null ? null : JSON.stringify(request);
   const run = async (): Promise<void> => {
@@ -129,7 +129,7 @@ export function ImpactPreview({ channelId, request, auto = false }: { channelId:
     } catch (err) {
       if (handleAuthFailure(err)) return;
       setResult(null);
-      setProblem(impactFailure(err));
+      setProblem({ key, text: impactFailure(err) });
     } finally {
       setBusy(false);
     }
@@ -143,6 +143,8 @@ export function ImpactPreview({ channelId, request, auto = false }: { channelId:
     }
   }, []);
   const fresh = result !== null && result.key === key;
+  // 失败原因和结果一样只对算的那份内容有效：内容改了就不再显示
+  const freshProblem = problem !== null && problem.key === key ? problem.text : null;
   return (
     <div className="impact-preview">
       <div className="impact-preview__bar">
@@ -152,7 +154,7 @@ export function ImpactPreview({ channelId, request, auto = false }: { channelId:
         {request === null && <span className="table__muted">先把内容填完整再试算。</span>}
         {result !== null && !fresh && <span className="table__muted">内容改过了，上次的结果不再适用，请重新试算。</span>}
       </div>
-      <div role="status">{problem !== null && <Alert kind="warning">{problem}</Alert>}</div>
+      <div role="status">{freshProblem !== null && <Alert kind="warning">{freshProblem}</Alert>}</div>
       {fresh && <PricingImpactView impact={result.impact} title="近 30 天毛利试算" />}
     </div>
   );
