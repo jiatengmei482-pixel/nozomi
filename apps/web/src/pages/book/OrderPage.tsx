@@ -146,14 +146,15 @@ export function OrderPage() {
           </p>
         </Alert>
       )}
-      {order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} onPaid={refresh} />}
+      {order.status === "pending_payment" && <PaymentSection key={`${order.id}-payment`} token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} onPaid={refresh} />}
+      {/* 会改订单的区块按订单编号区分：同一个标签页换成另一张单的链接时，展开的表单、确认框都重新开始，不带上一张单的内容 */}
       <TripSection order={order} names={names} />
       <TimelineSection order={order} timeline={timeline} />
       <DriverSection order={order} />
-      <LandingSection token={token} order={order} onChanged={replace} />
-      <ExtraChargesSection token={token} order={order} onChanged={replace} />
-      <ChangeSection token={token} order={order} onChanged={replace} />
-      <CancelSection token={token} order={order} onChanged={replace} />
+      <LandingSection key={`${order.id}-landing`} token={token} order={order} onChanged={replace} />
+      <ExtraChargesSection key={`${order.id}-extra`} token={token} order={order} onChanged={replace} />
+      <ChangeSection key={`${order.id}-change`} token={token} order={order} onChanged={replace} />
+      <CancelSection key={`${order.id}-cancel`} token={token} order={order} onChanged={replace} />
     </SiteLayout>
   );
 }

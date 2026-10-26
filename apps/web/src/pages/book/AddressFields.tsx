@@ -3,6 +3,7 @@
  * 常用地点是城市里的机场、车站、地标（平台的主数据，`GET /site/v1/cities/{id}/places`），不调用任何外部地图或地址搜索服务；
  * 选一个就把名称和坐标填好，客人也可以照旧自己写地址、粘贴坐标。之后手改地址或坐标，「选中的地点」随之清掉。
  */
+import { ORDER_FIELD_LIMITS } from "@nozomi/domain";
 import { Combobox, type ComboboxOption } from "../../components/Combobox.tsx";
 import { type CoordinateValue, CoordinateInput } from "../../components/FormFields.tsx";
 import { TextField } from "../../components/TextField.tsx";
@@ -28,10 +29,21 @@ export interface PointErrors {
   lng?: string;
 }
 
-/** 选中一个常用地点后地址栏里写什么：名称，地标有地址时带上地址。 */
+/**
+ * 选中一个常用地点后地址栏里写什么：名称，地标有地址时带上地址。
+ * 不超过下单允许的地址长度（`ORDER_FIELD_LIMITS.addressMax`，按字符数，和后端同口径）：放不下时截短地址、末尾加「…」，名称总是留着。
+ */
 export function placeAddress(place: SitePlace): string {
-  const name = displayName(place.name).text;
-  return place.address === null || place.address.trim() === "" ? name : `${name}（${place.address}）`;
+  const max = ORDER_FIELD_LIMITS.addressMax;
+  const name = [...displayName(place.name).text.trim()];
+  if (name.length >= max) return name.slice(0, max).join("");
+  const address = [...(place.address ?? "").trim()];
+  if (address.length === 0) return name.join("");
+  // 名称 +「（」+ 地址 +「）」
+  const room = max - name.length - 2;
+  if (room < 2) return name.join("");
+  const shown = address.length <= room ? address.join("") : `${address.slice(0, room - 1).join("")}…`;
+  return `${name.join("")}（${shown}）`;
 }
 
 export function placeOptions(places: readonly SitePlace[]): ComboboxOption[] {

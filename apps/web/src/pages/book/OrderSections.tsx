@@ -405,7 +405,8 @@ export function ExtraChargesSection({ token, order, onChanged }: { token: string
 
 // ---- 改单 ----
 
-const CHANGEABLE = new Set<SiteOrder["status"]>(["pending_payment", "confirmed", "assigned", "departed", "arrived", "rescue_pending"]);
+/** 能改单的状态：和后端一致，付款确认之后才能改（待付款的单改不了，要改就取消后重新下单）。 */
+const CHANGEABLE = new Set<SiteOrder["status"]>(["confirmed", "assigned", "departed", "arrived", "rescue_pending"]);
 
 interface ChangeForm {
   name: string;
@@ -588,7 +589,8 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
 
 // ---- 取消 ----
 
-const CANCELLABLE = CHANGEABLE;
+/** 能取消的状态：待付款的也能取消（不收费）。 */
+const CANCELLABLE = new Set<SiteOrder["status"]>(["pending_payment", ...CHANGEABLE]);
 
 function feeLine(fee: SiteCancelFee): string {
   if (fee.stage === "unpaid") return "订单还没有付款，取消不收任何费用。";

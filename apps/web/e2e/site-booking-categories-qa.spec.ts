@@ -5,10 +5,11 @@
  * - 缺陷：待付款的单页面给了「修改订单」，后端却只允许确认后改（提交必定失败）；
  * - 缺陷：同一标签页换一张单的链接（只换 # 后面），展开着的修改表单还是上一张单的内容；
  * - 只上架了点对点的城市选不到包车（服务单选里没有），换回有包车的城市能选。
- * 订单经 /site/v1 接口下（和页面同一个接口；端到端没有 Stripe，订单待付款，待付款的单可以改），数据都在本次运行的临时 schema 里。
+ * 订单经 /site/v1 接口下（和页面同一个接口；端到端没有 Stripe，订单待付款）。要改单的用例用支付替身把单记成已付款、已确认（待付款的单不能改，和后端一致），数据都在本次运行的临时 schema 里。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
+import { createPool } from "../../api/src/db/pool.ts";
 import { platformAdminHeaders, randomLetters } from "./support.ts";
 
 const RULES = {
@@ -84,15 +85,36 @@ async function expectAccessibleBothThemes(page: Page, what: string): Promise<voi
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-/** 经 /site/v1 询价、下单，返回查看令牌。 */
-async function placeByApi(request: APIRequestContext, quoteBody: Record<string, unknown>, addresses: Record<string, string>): Promise<string> {
+/** 支付替身：把这一单记成「Stripe 通知付款成功、自动确认」之后的样子（同 site-booking.spec.ts；只在本次运行的临时 schema 里写）。 */
+async function markPaid(orderNo: string): Promise<void> {
+  const url = process.env["E2E_DATABASE_OWNER_URL"];
+  if (!url) throw new Error("global-setup 没有准备好数据库连接");
+  const client = createPool(url, { max: 1 });
+  try {
+    const order = await client.query<{ tenant_id: string; id: string }>(
+      "update orders set status = 'confirmed', confirmed_at = now(), dispatch_due_at = least(service_at, now() + interval '2 hours'), version = version + 1, updated_at = now() where order_no = $1 and status = 'pending_payment' returning tenant_id, id",
+      [orderNo],
+    );
+    const row = order.rows[0];
+    if (row === undefined) throw new Error(`没有找到待支付的订单 ${orderNo}`);
+    await client.query("insert into order_events (tenant_id, order_id, from_status, to_status, actor, reason, occurred_at) values ($1, $2, 'pending_payment', 'confirmed', 'payment', 'PAYMENT_SUCCEEDED', now())", [row.tenant_id, row.id]);
+    await client.query("update order_payments set status = 'succeeded', intent_id = 'pi_e2e_' || replace($1::text, '-', ''), succeeded_at = now(), updated_at = now() where order_id = $1 and kind = 'order'", [row.id]);
+  } finally {
+    await client.end();
+  }
+}
+
+/** 经 /site/v1 询价、下单，返回查看令牌。`paid`：下单后用支付替身记成已付款（要改单的用例用）。 */
+async function placeByApi(request: APIRequestContext, quoteBody: Record<string, unknown>, addresses: Record<string, string>, options: { paid?: boolean } = {}): Promise<string> {
   const quoted = await request.post("/site/v1/quotes", { data: quoteBody });
   expect(quoted.status(), await quoted.text()).toBe(200);
   const quote = ((await quoted.json()) as { quotes: { quote_id: string }[] }).quotes[0];
   expect(quote, "报出了价").toBeTruthy();
   const created = await request.post("/site/v1/orders", { headers: { "idempotency-key": crypto.randomUUID() }, data: { quote_id: quote?.quote_id, passenger: { name: "陈小红", phone: "+81 90-2222-3333", email: `qa-${randomLetters(6).toLowerCase()}@e2e.example.com` }, save_payment_method: true, ...addresses } });
   expect(created.status(), await created.text()).toBe(201);
-  return ((await created.json()) as { link: { token: string } }).link.token;
+  const body = (await created.json()) as { link: { token: string }; order: { order_no: string } };
+  if (options.paid === true) await markPaid(body.order.order_no);
+  return body.link.token;
 }
 
 test("官网点对点、包车（测试角色补充）：长名称的常用地点在 320 / 360 / 768 宽不横向滚动，亮暗两色过 axe；订单页改单按服务只给有的地址栏", async ({ page, request }) => {
@@ -143,7 +165,7 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   await expectAccessibleBothThemes(page, "询价结果（包车）");
 
   // 包车单的订单页：展开「修改订单」只有上车地址，没有下车地址和航班号
-  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: LONG_ADDRESS });
+  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: LONG_ADDRESS }, { paid: true });
   await page.goto(`/book/order#${charterToken}`);
   await expect(page.getByRole("region", { name: "行程" })).toContainText("8 小时");
   await page.getByRole("button", { name: "修改订单" }).click();
@@ -154,7 +176,7 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   await expectAccessibleBothThemes(page, "订单页（包车，展开修改）");
 
   // 点对点单的订单页：两端地址都在
-  const p2pToken = await placeByApi(request, { category: "point_to_point", city_id: world.city.id, pickup: POINT, dropoff: OTHER, service_local: `${tokyoDayAfter(4)}T10:00`, passengers: 2, luggage: 1 }, { pickup_address: "东京站", dropoff_address: LONG_ADDRESS });
+  const p2pToken = await placeByApi(request, { category: "point_to_point", city_id: world.city.id, pickup: POINT, dropoff: OTHER, service_local: `${tokyoDayAfter(4)}T10:00`, passengers: 2, luggage: 1 }, { pickup_address: "东京站", dropoff_address: LONG_ADDRESS }, { paid: true });
   // 先离开订单页再打开下一张（同一页面里只换 # 后面的令牌见下面的缺陷用例）
   await page.goto("/book");
   await page.goto(`/book/order#${p2pToken}`);
@@ -219,8 +241,8 @@ test("缺陷：同一个标签页里先打开包车单的链接、展开「修�
   const supplier = await createSupplier(request, world);
   await publishedProduct(request, supplier, world, "point_to_point", { pricing_model: "fixed", base_price: 15000 });
   await publishedProduct(request, supplier, world, "charter", { pricing_model: "charter_package", package_hours: 8, package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400 });
-  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: "包车上车点甲" });
-  const p2pToken = await placeByApi(request, { category: "point_to_point", city_id: world.city.id, pickup: POINT, dropoff: OTHER, service_local: `${tokyoDayAfter(4)}T10:00`, passengers: 2, luggage: 1 }, { pickup_address: "点对点上车点乙", dropoff_address: "点对点下车点乙" });
+  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: "包车上车点甲" }, { paid: true });
+  const p2pToken = await placeByApi(request, { category: "point_to_point", city_id: world.city.id, pickup: POINT, dropoff: OTHER, service_local: `${tokyoDayAfter(4)}T10:00`, passengers: 2, luggage: 1 }, { pickup_address: "点对点上车点乙", dropoff_address: "点对点下车点乙" }, { paid: true });
 
   await page.goto(`/book/order#${charterToken}`);
   await page.getByRole("button", { name: "修改订单" }).click();
