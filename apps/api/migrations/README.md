@@ -57,6 +57,7 @@
 | `0028_webhook_lease.sql` | 推送的租约（M3-02，ADR 0027）：投递加租约令牌 `lease_token`（推送任务租下时写入，记结果时核对，租约被接手的一方记不上结果）；每条投递的尝试编号唯一。不含任何数据 |
 | `0031_cancel_change_extra_charges.sql` | 取消、改单、事后加收（M3-03，ADR 0029；0029、0030 留给别的任务）：平台统一取消政策 `cancellation_policies`（按版本追加，租户只读）；订单加下单时适用的取消阶梯、取消的扣款比例和供应商应得；改单 `order_changes`（租户表）和改期的对外价 `order_change_sales`（平台表）；事后加收 `order_extra_charges`（租户表，供应商只能提交和撤回，触发器把关）；收款一单可以多笔（改期补差价、加收）；退款 `order_refunds`（平台表）；凭证照片可以由供应商后台上传。不含任何数据 |
 | `0032_money_guards.sql` | 钱的几道把关（M3-03，ADR 0029「补充：钱的口径与审核时机」）：退款加作废时间 `superseded_at`（只有失败的能作废——取消时的退款已经包含了它）；加收的异议期固定 48 小时、待审核和有异议的必须有转人工的原因、批准只能在异议期结束之后、撤回只能在异议期内。不含任何数据 |
+| `0035_rescue_penalties.sql` | 救援改派与违约金（M3-04，ADR 0031；0033、0034 留给别的任务）：订单加「已转给救援供应商」状态（原供应商的那一行，救援供应商另起一行、同一个订单编号；「现在的」行和订单号只看没转出的）和司机未到的提醒列；进入救援时作废司机链接；平台可以改订单销售端一侧的「现在的供应商」；救援 `order_rescues`、救援单的平台一侧 `order_rescue_quotes`（平台表）；救援单 `order_rescue_offers`、供应商应扣款项 `tenant_deductions`（租户表，供应商只读）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
