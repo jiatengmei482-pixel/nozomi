@@ -2,7 +2,7 @@
  * 路线预估（谷歌地图 Routes API，ADR 0042）在运营后台的显示：取不到路线的原因、路线从哪里来、每日调用的用量。
  * 只给平台员工看（系统状态、报价试算）；客人看到的说法在 site-display.ts，供应商只看得到「没有路线 / 暂时不可用」。
  */
-import type { RouteFailureCode, RouteSource } from "@nozomi/domain";
+import { ROUTE_FAILURE_CODES, type RouteFailureCode, type RouteSource, routeFailureCacheable } from "@nozomi/domain";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import type { RouteUsageStatus } from "../api/platform.ts";
 
@@ -35,11 +35,23 @@ export const ROUTE_SOURCE_TEXT: Readonly<Record<RouteSource, string>> = {
   same_point: "起点和终点几乎重合，按 0 计算，没有调用谷歌地图",
 };
 
-/** 系统状态页「路线预估」卡片的徽标：到了上限最要紧（和顶部的警示提示条一致）；最近一次失败比最近一次成功晚时提醒；什么都没发生过时中性。 */
+/**
+ * 地址问题（`NO_ROUTE`、`INVALID_POINTS`）：谷歌地图正常应答了，只是这组起终点没有路线或无效——不是服务故障（M4-12）。
+ * 和后端「只跟这组点有关、可以负缓存」的失败是同一组（domain 的 `routeFailureCacheable`，ADR 0042）；不认识的码按服务故障算。
+ */
+export function isAddressRouteFailure(code: string): boolean {
+  return (ROUTE_FAILURE_CODES as readonly string[]).includes(code) && routeFailureCacheable(code as RouteFailureCode);
+}
+
+/**
+ * 系统状态页「路线预估」卡片的徽标：到了上限最要紧（和顶部的警示提示条一致）；最近一次失败是服务故障、并且比最近一次成功晚时提醒；
+ * 地址问题不算失败（谷歌地图应答了，服务是好的），按「正常」；什么都没发生过时中性。
+ */
 export function routeUsageBadge(routes: RouteUsageStatus): BadgeSpec {
   if (routes.daily_limit_reached) return { tone: "warning", label: "已到每日上限" };
-  const failedLast = routes.last_failure !== null && (routes.last_success_at === null || routes.last_failure.at > routes.last_success_at);
-  if (failedLast) return { tone: "warning", label: "最近一次失败" };
-  if (routes.last_success_at === null) return { tone: "neutral", label: "还没有调用过" };
+  const failure = routes.last_failure;
+  const serviceFailedLast = failure !== null && !isAddressRouteFailure(failure.code) && (routes.last_success_at === null || failure.at > routes.last_success_at);
+  if (serviceFailedLast) return { tone: "warning", label: "最近一次失败" };
+  if (routes.last_success_at === null && failure === null) return { tone: "neutral", label: "还没有调用过" };
   return { tone: "success", label: "正常" };
 }
