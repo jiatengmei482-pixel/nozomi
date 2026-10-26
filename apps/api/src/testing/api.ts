@@ -134,7 +134,17 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     logDestination: { write: (line) => void (logs += line) },
   });
 
-  const platformLogin = async (options: CallOptions): Promise<ApiResponse> => {
+  // 同一个员工的两步验证登录在这里排队：并发登录时「清掉上次用过的时间窗 → 输同一时间窗的码」会交错，
+  // 第二次就被判为重用（测试时钟是固定的，两次拿到的是同一个码）
+  const loginQueues = new Map<string, Promise<unknown>>();
+  const platformLogin = (options: CallOptions): Promise<ApiResponse> => {
+    const key = String((options.body as { email?: unknown } | undefined)?.email ?? "").trim().toLowerCase();
+    const previous = loginQueues.get(key) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(() => platformLoginNow(options));
+    loginQueues.set(key, next);
+    return next;
+  };
+  const platformLoginNow = async (options: CallOptions): Promise<ApiResponse> => {
     const res = await call("POST", "/platform/v1/auth/login", options);
     if (res.status !== 200) return res;
     const email = String((options.body as { email?: unknown } | undefined)?.email ?? "").trim().toLowerCase();
