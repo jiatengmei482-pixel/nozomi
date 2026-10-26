@@ -155,7 +155,39 @@ export function minimumFreeWaitMinutes(category: ServiceCategory, item: FreeWait
   return 15;
 }
 
+/**
+ * 平台固定、供应商不能改的免等分钟数：包车 0（需求《平台运营端与渠道对接》「免费等待与 no-show」表：包车 0，从约定开始时间计入套餐时长）；
+ * 其他品类返回 null（在平台规定的最少值以上自己设，见 `minimumFreeWaitMinutes`）。
+ */
+export function fixedFreeWaitMinutes(category: ServiceCategory): number | null {
+  return category === "charter" ? 0 : null;
+}
+
+/**
+ * 报价、下单用的免等：平台固定的品类一律按固定值。
+ * M4-10 之前包车可以填别的值，存下来的数据不改（ADR 0043），从这里起按 0 算。
+ */
+export function effectiveFreeWait(category: ServiceCategory, value: FreeWait | null): FreeWait | null {
+  const fixed = fixedFreeWaitMinutes(category);
+  return fixed === null ? value : { mode: "limited", minutes: fixed };
+}
+
+/**
+ * 保存服务规则时：平台固定的免等（包车 0）填了别的值就拒绝（`FIXED_BY_PLATFORM`）。
+ * 不放进 `serviceRuleIssues`：那个也用于上架检查，以前存下的包车非 0 值不该让已上架的商品变成「不能上架」（报价时已经按 0 算）。
+ */
+export function fixedFreeWaitIssues(rules: ServiceRules, category: ServiceCategory): RuleIssue[] {
+  const fixed = fixedFreeWaitMinutes(category);
+  if (fixed === null) return [];
+  return freeWaitItems(category).flatMap((item): RuleIssue[] => {
+    const value = rules.freeWait[item];
+    if (value === null || (value.mode === "limited" && value.minutes === fixed)) return [];
+    return [{ path: value.mode === "limited" ? `/free_wait/${item}/minutes` : `/free_wait/${item}`, reason: "FIXED_BY_PLATFORM", detail: { minutes: fixed } }];
+  });
+}
+
 export type RuleIssueReason =
+  | "FIXED_BY_PLATFORM"
   | "REQUIRED"
   | "INVALID_DATE"
   | "DATE_RANGE_REVERSED"
