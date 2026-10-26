@@ -58,6 +58,8 @@ const PLATFORM_TABLES = [
   "platform_users",
   "quote_logs",
   "quotes",
+  "route_api_usage",
+  "route_estimates",
   "sales_rate_limits",
   "schema_migrations",
   "site_lookup_failures",
@@ -245,6 +247,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 询价日志：追加，下单后改「有没有下单」（ADR 0026）；报价快照：只追加
     quote_logs: ["INSERT", "SELECT", "UPDATE"],
     quotes: ["INSERT", "SELECT"],
+    // 路线预估（ADR 0042）：缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
+    route_estimates: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    route_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 官网的订单查看链接（ADR 0032）：只追加，到有效期自然失效

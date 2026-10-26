@@ -1,7 +1,8 @@
 /**
  * 本机的假谷歌地图（Routes API）和假 Stripe（集成测试、端到端测试用；测试从不访问真实的外部服务，ADR 0041）。
  * 记下收到的每个请求（方法、路径、请求头），回什么由测试随时改（`respond`），可以模拟密钥无效、没开通 API、出错、超时。
- * 默认应答是「可用」：谷歌给一条路线，Stripe 给一份测试模式的余额。
+ * 默认应答是「可用」：谷歌给一条路线（6.8 公里、18 分钟），Stripe 给一份测试模式的余额。
+ * 路线预估的测试（ADR 0042）看请求体（起终点、字段掩码）和请求次数（并发同一组只调一次、缓存命中不调用）。
  */
 import { type IncomingHttpHeaders, type Server, createServer } from "node:http";
 
@@ -16,6 +17,8 @@ export interface FakeRequest {
   method: string;
   path: string;
   headers: IncomingHttpHeaders;
+  /** 请求体原文 */
+  body: string;
 }
 
 export interface FakeService {
@@ -42,9 +45,11 @@ async function startFake(path: string, initial: FakeReply, port: number): Promis
   let reply: FakeReply | (() => FakeReply) = initial;
   const requests: FakeRequest[] = [];
   const server: Server = createServer((request, response) => {
-    request.resume();
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => (body += chunk));
     request.on("end", () => {
-      requests.push({ method: request.method ?? "", path: request.url ?? "", headers: request.headers });
+      requests.push({ method: request.method ?? "", path: request.url ?? "", headers: request.headers, body });
       const current = typeof reply === "function" ? reply() : reply;
       const send = (): void => {
         if (response.destroyed) return;
@@ -75,8 +80,13 @@ async function startFake(path: string, initial: FakeReply, port: number): Promis
   };
 }
 
+/** 谷歌 computeRoutes 的成功应答：一条路线的里程（米）和时长（秒）。 */
+export function googleRouteBody(meters: number, seconds: number): unknown {
+  return { routes: [{ distanceMeters: meters, duration: `${seconds}s` }] };
+}
+
 export function startFakeGoogleRoutes(port = 0): Promise<FakeService> {
-  return startFake("/directions/v2:computeRoutes", { body: { routes: [{ distanceMeters: 6_800 }] } }, port);
+  return startFake("/directions/v2:computeRoutes", { body: googleRouteBody(6_800, 1_080) }, port);
 }
 
 export function startFakeStripe(port = 0): Promise<FakeService> {

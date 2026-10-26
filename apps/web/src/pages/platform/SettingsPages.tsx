@@ -7,7 +7,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type AuditLog, type FxCenterStatus, type IntegrationStatus, type Page as ApiPage, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
+import { type AuditLog, type FxCenterStatus, type IntegrationStatus, type IntegrationsOverview, type Page as ApiPage, type RouteUsageStatus, listAllTenants, listAuditLogs, listIntegrations } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
@@ -26,6 +26,7 @@ import { ACTION_FILTER_OPTIONS, ACTOR_TYPE_NAMES, type DiffRow, RESOURCE_NAMES, 
 import { failureText } from "../../lib/failure.ts";
 import { FX_FETCH_BADGES, FX_PATH, FX_STATE_BADGES, fxErrorText } from "../../lib/fx-display.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
+import { routeFailureText, routeUsageBadge } from "../../lib/route-display.ts";
 import { tidyDate } from "../../lib/time-input.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -714,17 +715,76 @@ function FxCenterCard({ fx }: { fx: FxCenterStatus }) {
   );
 }
 
+/** 到了每日上限时的说法：上限是 0 时不是「明天恢复」，而是一直不调用。 */
+function routeLimitText(routes: RouteUsageStatus): { title: string; body: string } {
+  if (routes.daily_limit === 0) return { title: "路线预估的每日上限设为 0，不调用谷歌地图", body: "按「里程 + 时长」计价的商品现在都报不出价；一口价和包车套餐照常。可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。" };
+  return { title: `今天调用谷歌地图的次数已到每日上限（${routes.daily_limit} 次）`, body: "今天的里程计价暂停，明天自动恢复；可在服务器配置 GOOGLE_ROUTES_DAILY_LIMIT 调整。一口价和包车套餐照常报价。" };
+}
+
+/** 路线预估（谷歌地图 Routes API）今天的用量和最近的结果（接口的 `routes`；M2-02，ADR 0042）。 */
+function RouteUsageCard({ routes }: { routes: RouteUsageStatus }) {
+  const failure = routes.last_failure;
+  return (
+    <section className="card" aria-labelledby="integrations-routes-title">
+      <div className="card__header">
+        <h2 className="card__title" id="integrations-routes-title">
+          路线预估（谷歌地图）
+        </h2>
+        <StatusBadge {...routeUsageBadge(routes)} />
+      </div>
+      <p className="page-intro">按「里程 + 时长」计价的商品，报价时用谷歌地图预估路程。同一段路查过以后 7 天内不再调用；次数按东京时间每天 0 点重新计。</p>
+      <dl className="details">
+        <div className="details__item">
+          <dt>{`今天的调用（${routes.day}）`}</dt>
+          <dd>{routes.daily_limit === 0 ? `${routes.calls} 次` : `${routes.calls} / ${routes.daily_limit} 次（含重试）`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>每日上限</dt>
+          <dd>{routes.daily_limit === 0 ? "0（不调用谷歌地图）" : `${routes.daily_limit} 次，今天还剩 ${Math.max(0, routes.daily_limit - routes.calls)} 次`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>今天失败</dt>
+          <dd>{`${routes.failures} 次`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>今天被上限挡下</dt>
+          <dd>{routes.refused === 0 ? "0 次" : `${routes.refused} 次（这些询价里按「里程 + 时长」计价的商品没有报出价）`}</dd>
+        </div>
+        <div className="details__item">
+          <dt>最近一次成功</dt>
+          <dd>{routes.last_success_at === null ? "还没有成功过" : when(routes.last_success_at)}</dd>
+        </div>
+        <div className="details__item">
+          <dt>最近一次失败</dt>
+          <dd>
+            {failure === null ? (
+              "没有失败过"
+            ) : (
+              <span className="route-failure">
+                <span>{when(failure.at)}</span>
+                <span className="product-code">{failure.code}</span>
+                <span className="route-failure__detail">{routeFailureText(failure.code, failure.message)}</span>
+              </span>
+            )}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 export function IntegrationsPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`系统状态 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("integration.read");
   // 不自动刷新：只在进来时和点「重新检查」时请求（每次请求都会写一条审计日志）
-  const loaded = useLoad<{ items: IntegrationStatus[]; fx_center: FxCenterStatus }>("integrations", canRead ? listIntegrations : null);
+  const loaded = useLoad<IntegrationsOverview>("integrations", canRead ? listIntegrations : null);
   const [announce, setAnnounce] = useState("");
   const [rechecking, setRechecking] = useState(false);
   const [recheckFailed, setRecheckFailed] = useState<string | null>(null);
   const items = loaded.state.data?.items ?? null;
   const fx = loaded.state.data?.fx_center ?? null;
+  const routes = loaded.state.data?.routes ?? null;
   const missing = (items ?? []).filter((item) => item.state === "missing");
   /** 首次加载失败时走列表自己的「重试」；已经有结果以后的「重新检查」在这里请求，等应答回来才换结果、才播报 */
   const recheck = async (): Promise<void> => {
@@ -791,9 +851,16 @@ export function IntegrationsPage() {
           <Link to={FX_PATH}>去汇率页处理</Link>
         </Alert>
       )}
+      {routes?.daily_limit_reached === true && (
+        <Alert kind="warning">
+          <strong className="alert__title">{routeLimitText(routes).title}</strong>
+          <span>{routeLimitText(routes).body}</span>
+        </Alert>
+      )}
       <div className="card-table">
         <DataTable label="系统状态" columns={columns} rows={items ?? []} rowKey={(row) => row.key} state={tableState} refreshing={state.status === "loading" && state.data !== null} onRetry={loaded.reload} empty={<StateBlock tone="neutral" title="没有可以检查的项目" />} />
       </div>
+      {routes !== null && <RouteUsageCard routes={routes} />}
       {canRead && <IntegrationSecretsSection onChanged={loaded.reload} />}
       {fx !== null && <FxCenterCard fx={fx} />}
     </>,

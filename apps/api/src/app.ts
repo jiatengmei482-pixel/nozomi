@@ -36,7 +36,8 @@ import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
-import { checkGoogleMapsKey } from "./integrations/google-maps.ts";
+import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
+import { GoogleRouteEstimator } from "./services/route-estimates.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
@@ -238,6 +239,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     googleMaps: (apiKey) => checkGoogleMapsKey(apiKey, { url: config.integrationEndpoints.googleMapsRoutesUrl }),
     stripe: (stripe) => checkStripeKey(stripe, { endpoint: stripeEndpoint }),
   };
+  // 路线预估（ADR 0042）：每次现取生效的谷歌密钥（运营后台填写的优先），换了密钥下一次询价就用新的
+  const routes = new GoogleRouteEstimator({
+    pool,
+    now,
+    apiKey: () => secretCache.effective.googleMaps.apiKey,
+    dailyLimit: config.routes.dailyLimit,
+    compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+    log: app.log,
+  });
   const context: AppContext = {
     config,
     pool,
@@ -248,7 +258,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     },
     integrations: secretCache,
     integrationChecks,
-    quote: { ...defaultQuoteDeps(config, fx.rates, now), ...deps.quote },
+    quote: { ...defaultQuoteDeps(config, fx.rates, routes, now), ...deps.quote },
     secretBox,
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
   };

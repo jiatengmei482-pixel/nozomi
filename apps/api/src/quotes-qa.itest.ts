@@ -11,6 +11,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { FxQuote, RouteEstimate } from "@nozomi/domain";
+import { routeLookup } from "./testing/routes.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 
 let api: TestApi;
@@ -84,7 +85,7 @@ before(async () => {
           calls.route += 1;
           if (routeMode === "throw") throw new Error("路线服务连接超时");
           if (routeMode === "slow") await pause(300);
-          return route;
+          return routeLookup(route);
         },
       },
       fx: {

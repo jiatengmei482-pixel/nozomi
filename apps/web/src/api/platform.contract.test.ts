@@ -6,7 +6,8 @@ import { parse } from "yaml";
 import { PLATFORM_ROLES } from "@nozomi/domain";
 import { ACTION_NAMES, ACTOR_TYPE_NAMES, RESOURCE_NAMES, SOURCE_NAMES } from "../lib/audit-display.ts";
 import { ACCOUNT_STATUS_BADGES } from "../lib/platform-display.ts";
-import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, type FxCenterStatus, INTEGRATION_SECRETS_PATH, type IntegrationSecrets, type IntegrationTestResult, INTEGRATIONS_PATH, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
+import { ROUTE_FAILURE_TEXT } from "../lib/route-display.ts";
+import { AUDIT_LOGS_PATH, AUDIT_QUERY_KEYS, type FxCenterStatus, INTEGRATION_SECRETS_PATH, type IntegrationSecrets, type IntegrationTestResult, INTEGRATIONS_PATH, type IntegrationsOverview, PLATFORM_ERROR_CODES, PLATFORM_SCHEMA_FIELDS, type RouteUsageStatus, STAFF_PATH, TENANTS_PATH } from "./platform.ts";
 
 interface Schema {
   $ref?: string;
@@ -110,6 +111,15 @@ test("审计日志和系统状态：筛选参数、枚举都对得上；对象�
   const fields: (keyof FxCenterStatus)[] = ["state", "as_of", "auto_fetch", "last_attempt_status", "last_attempt_at", "last_error_code"];
   assert.deepEqual(Object.keys(fx?.properties ?? {}).sort(), [...fields].sort());
   assert.deepEqual([...(fx?.required ?? [])].sort(), [...fields].sort());
+  // 路线预估的用量（M2-02，ADR 0042）：字段和手写的 RouteUsageStatus 一样
+  const overview: (keyof IntegrationsOverview)[] = ["items", "fx_center", "routes"];
+  assert.deepEqual(Object.keys(response(op("get", INTEGRATIONS_PATH), "200")?.properties ?? {}).sort(), [...overview].sort());
+  const routes = response(op("get", INTEGRATIONS_PATH), "200")?.properties?.["routes"];
+  const routeFields: (keyof RouteUsageStatus)[] = ["day", "calls", "daily_limit", "daily_limit_reached", "failures", "refused", "last_success_at", "last_failure"];
+  assert.deepEqual(Object.keys(routes?.properties ?? {}).sort(), [...routeFields].sort());
+  assert.deepEqual([...(routes?.required ?? [])].sort(), [...routeFields].sort());
+  assert.deepEqual(Object.keys(routes?.properties?.["last_failure"]?.properties ?? {}).sort(), ["at", "code", "message"]);
+  assert.deepEqual(Object.keys(ROUTE_FAILURE_TEXT).sort(), [...(schemas["QuoteRouteFailureCode"]?.enum ?? [])].sort(), "每个路线原因码都有中文说明");
 });
 
 test("手写类型的字段与同名 schema 完全一致；页面处理的错误码都写在 openapi.yaml 里", () => {
