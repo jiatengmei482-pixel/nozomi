@@ -8,7 +8,7 @@
  * 日期一律按商品所在城市当地的今天往后推。
  */
 import { addDays } from "@nozomi/domain";
-import { type APIRequestContext, type Page, type Request, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Page, type Request, type Response, expect, test } from "@playwright/test";
 import { type Supplier, type World, createArea, createBrand, createProductByApi, createWorld, tenantHeaders } from "./catalog.ts";
 import { activateTenant, adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, randomLetters, suspendTenant, uniqueEmail } from "./support.ts";
 
@@ -182,27 +182,34 @@ test("数据状态：已暂停的供应商、草稿没有价格、已上架但�
   await expect(refused).toContainText(/暂停/);
 });
 
-test("首页「已上架」的数和列表接口 status=published 的 total 一致；点进去是已上架的列表，共 N 条也一样", async ({ page, request }) => {
-  test.setTimeout(90_000);
+test("首页「已上架」的数和列表接口 status=published 的 total 一致；点进去是已上架的列表，共 N 条也一样", async ({ page }) => {
+  // 别的用例在并行上架、下架，全平台的数随时在变：不拿「另取一次接口」的数来比，
+  // 而是截下页面自己取到的那一次应答（同一时刻的快照），核对页面显示的正是它，且首页和列表用的是同一个筛选
   const admin = adminCredentials();
-  const headers = await platformAdminHeaders(request);
-  const total = async (query: string): Promise<number> => ((await (await request.get(`/platform/v1/products?${query}&limit=1`, { headers })).json()) as { total: number }).total;
+  const isProductList = (response: Response): boolean => {
+    const url = new URL(response.url());
+    return url.pathname === "/platform/v1/products" && response.request().method() === "GET" && response.status() === 200;
+  };
+  const filters = (response: Response): Record<string, string> => {
+    const params = Object.fromEntries(new URL(response.url()).searchParams);
+    delete params["limit"];
+    delete params["cursor"];
+    return params;
+  };
+  const homeResponse = page.waitForResponse((response) => isProductList(response) && JSON.stringify(filters(response)) === JSON.stringify({ status: "published" }));
   await loginAs(page, "platform", admin.email, admin.password);
+  const homeTotal = ((await (await homeResponse).json()) as { total: number }).total;
   const card = page.locator(".entry-card").filter({ has: page.getByRole("link", { name: "商品", exact: true }) });
-  // 别的用例在并行上架商品：取页面上的数之后立刻核对接口，对不上就刷新再来
-  await expect(async () => {
-    await page.reload();
-    await expect(card).toContainText("已上架");
-    const shown = Number(((await card.locator(".entry-card__counts dd").first().textContent()) ?? "").replace(/,/g, ""));
-    expect(shown).toBe(await total("status=published"));
-  }).toPass({ timeout: 30_000 });
+  await expect(card).toContainText("已上架");
+  await expect(card.locator(".entry-card__counts dd").first()).toHaveText(homeTotal.toLocaleString("en-US"));
+
+  const listResponse = page.waitForResponse((response) => isProductList(response) && JSON.stringify(filters(response)) === JSON.stringify({ status: "published" }));
   await card.getByRole("link", { name: "商品", exact: true }).click();
   await expect(page).toHaveURL(/\/platform\/products\?status=published$/);
   await expect(page.getByRole("combobox", { name: "状态" })).toHaveValue("published");
-  await expect(async () => {
-    const text = (await page.getByRole("navigation", { name: "分页" }).textContent()) ?? "";
-    expect(Number(/共\s*([\d,]+)\s*条/.exec(text)?.[1]?.replace(/,/g, ""))).toBe(await total("status=published"));
-  }).toPass({ timeout: 30_000 });
+  // 列表页取数用的筛选和首页的数完全相同（只有状态 = 已上架），显示的「共 N 条」就是这次应答的 total
+  const listTotal = ((await (await listResponse).json()) as { total: number }).total;
+  await expect(page.getByRole("navigation", { name: "分页" })).toContainText(new RegExp(`共\\s*${listTotal.toLocaleString("en-US")}\\s*条`));
 });
 
 test("长供应商名、长子品牌名（带空格）、长商品名：列表、详情、供应商详情在 768px 和 320px 都不横向滚动", async ({ page, request }) => {
