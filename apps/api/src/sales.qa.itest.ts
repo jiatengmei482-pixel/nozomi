@@ -51,7 +51,7 @@ const probe = (token: string, options: { sameSecond?: boolean } = {}) => sales("
 const exchange = (clientId: string, secret: string, ip: string, options: { sameSecond?: boolean } = {}) => sales("POST", "/sales/v1/oauth/token", "/sales/v1/oauth/token", undefined, { grant_type: "client_credentials", client_id: clientId, client_secret: secret }, options);
 
 async function relogin(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token as string;
 }
 
 const b64 = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");

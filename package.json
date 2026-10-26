@@ -13,6 +13,8 @@
     "db:migrate": "node --env-file-if-exists=.env apps/api/src/db/migrate-cli.ts",
     "admin:create": "node --env-file-if-exists=.env apps/api/src/cli/admin-create.ts",
     "admin:reset-password": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-password.ts",
+    "admin:reset-2fa": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-2fa.ts",
+    "admin:clear-ip-allowlist": "node --env-file-if-exists=.env apps/api/src/cli/admin-clear-ip-allowlist.ts",
     "masterdata:import-airports": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airports.ts",
     "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",

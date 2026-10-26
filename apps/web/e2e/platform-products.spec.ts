@@ -7,6 +7,7 @@ import { addDays } from "@nozomi/domain";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, type Supplier, type World, choose, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { expectNoHorizontalOverflow, fillLogin, loginAs, newPassword, platformAdminHeaders, adminCredentials, snapshot, uniqueEmail } from "./support.ts";
+import { platformApiLogin } from "./mfa.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -186,7 +187,7 @@ test("没有权限的角色：财务看不到「商品」「报价试算」，�
     await page.goto(path);
     await expect(page.getByText("你没有权限查看这里"), path).toBeVisible();
   }
-  const token = ((await (await request.post("/platform/v1/auth/login", { data: finance })).json()) as { access_token: string }).access_token;
+  const token = await platformApiLogin(request, finance.email, finance.password);
   expect((await request.get("/platform/v1/products", { headers: { authorization: `Bearer ${token}` } })).status(), "后端同样不让财务看").toBe(403);
 
   const viewer = await createStaff(request, "readonly");

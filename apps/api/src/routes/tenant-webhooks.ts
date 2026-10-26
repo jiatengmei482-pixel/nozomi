@@ -3,7 +3,8 @@
  *
  * 供应商（`/tenant/v1/webhooks…`）：看设置和投递记录 `webhook.read`（管理员、调度、只读）；设置、换签名密钥、删除、发送测试事件、手动重推 `webhook.manage`（管理员）。
  * 签名密钥只在新建设置和换密钥的那一次应答里出现（`secret`），之后只显示末 4 位。
- * 运营后台（`/platform/v1/webhook-deliveries…`）：跨供应商看投递记录（`order.read`），手动重推（`order.resend`：运营、客服）。
+ * 运营后台（`/platform/v1/webhook-deliveries…`）：跨供应商看投递记录（`order.read`），手动重推（`order.resend`：运营、客服）；
+ * 限定了数据范围的人只看得到范围内订单的投递（ADR 0030）。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -12,7 +13,7 @@ import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { TenantWebhook, WebhookAttempt } from "../repos/webhooks.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import {
   getDeliveryForPlatform,
   getTenantDelivery,
@@ -147,20 +148,20 @@ export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContex
   });
 
   app.get("/platform/v1/webhook-deliveries", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(platformDeliveryListSchema, request.query, "querystring");
-    const page = await listDeliveriesForPlatform(ctx, { tenantId: query.tenant_id ?? null, status: query.status ?? null, orderId: query.order_id ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const page = await listDeliveriesForPlatform(ctx, { tenantId: query.tenant_id ?? null, status: query.status ?? null, orderId: query.order_id ?? null, scope: principal.grant.scope }, query.limit, decodeTimeCursor(query.cursor ?? null));
     return { items: page.items.map((item) => ({ ...deliveryJson(item), tenant: { id: item.tenantId, name: item.tenantName } })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/webhook-deliveries/:id", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
-    const found = await getDeliveryForPlatform(ctx, resourceId(request.params, "投递记录"));
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
+    const found = await getDeliveryForPlatform(ctx, resourceId(request.params, "投递记录"), principal.grant.scope);
     return { delivery: { ...deliveryJson(found.delivery), tenant_id: found.delivery.tenantId }, attempts: found.attempts.map(attemptJson) };
   });
 
   app.post("/platform/v1/webhook-deliveries/:id/retry", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.resend" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.resend" });
     const rescheduled = await retryDeliveryForPlatform(ctx, principal, request.ip, resourceId(request.params, "投递记录"));
     return retryResponse(app, rescheduled);
   });

@@ -307,6 +307,8 @@ test("首页：数量与接口一致、入口能进到各列表；只读角色�
   const headers = await platformAdminHeaders(request);
   await signInAsAdmin(page);
   const card = (title: string) => page.locator(".entry-card").filter({ has: page.locator(".entry-card__title", { hasText: new RegExp(`^${title}$`) }) });
+  // 先等登录后首页的那次统计请求结束，免得下面接住的是它（刷新后它的应答体已丢弃，读不出来）
+  await expect(card("城市").locator("dl")).toContainText("启用");
   const summaryResponse = page.waitForResponse((response) => response.url().endsWith("/platform/v1/dashboard/summary") && response.status() === 200);
   await page.reload();
   const summary = (await (await summaryResponse).json()) as {

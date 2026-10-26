@@ -81,7 +81,7 @@ test("供应商的接口：路径、方法、请求体、应答；五个发令�
 
 test("平台员工的接口：新增、停用、启用、发密码重置", () => {
   const list = op("get", STAFF_PATH);
-  assert.equal(ref(response(list, "200")?.properties?.["items"]?.items), "PlatformUser");
+  assert.equal(ref(response(list, "200")?.properties?.["items"]?.items), "StaffMember");
   const create = op("post", STAFF_PATH);
   assert.deepEqual(request(create)?.required, ["email", "name", "role"]);
   assert.deepEqual(props(response(create, "201")), ["invite", "user"]);

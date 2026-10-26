@@ -62,7 +62,9 @@ async function perform(who: TenantFixture, orderIds: readonly string[], facts: {
 }
 
 async function login(portal: "platform" | "tenant", email: string): Promise<string> {
-  return (await ok(api.call("POST", `/${portal}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } }))).access_token;
+  const options = { body: { email, password: TEST_PASSWORD } };
+  // 平台员工登录要完成两步验证（ADR 0030）
+  return (await ok(portal === "platform" ? api.platformLogin(options) : api.call("POST", `/${portal}/v1/auth/login`, options))).access_token;
 }
 const root = (): Promise<string> => login("platform", "root@platform.test");
 const tenantOf = async (who: TenantFixture): Promise<any> => ok(api.call("GET", `/platform/v1/tenants/${who.tenantId}`, { token: await root() }));

@@ -17,14 +17,21 @@ export function SearchBox({ label, value, onSearch }: { label: string; value: st
   const latest = useRef(onSearch);
   latest.current = onSearch;
   const committed = useRef(value);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPending = (): void => {
+    if (pending.current !== null) clearTimeout(pending.current);
+    pending.current = null;
+  };
 
-  // 网址里的条件被别处改了（清空筛选、切页签）时，输入框跟着变
+  // 网址里的条件被别处改了（清空筛选、切页签）时，输入框跟着变；还没到点的延时查询作废，否则它会把旧关键字又写回网址
   useEffect(() => {
+    cancelPending();
     committed.current = value;
     setText(value);
   }, [value]);
 
   const commit = (next: string): void => {
+    cancelPending();
     const trimmed = next.trim();
     if (trimmed === committed.current) return;
     committed.current = trimmed;
@@ -32,9 +39,10 @@ export function SearchBox({ label, value, onSearch }: { label: string; value: st
   };
 
   useEffect(() => {
+    cancelPending();
     if (composing.current || text.trim() === committed.current) return;
-    const timer = setTimeout(() => commit(text), SEARCH_DELAY_MS);
-    return () => clearTimeout(timer);
+    pending.current = setTimeout(() => commit(text), SEARCH_DELAY_MS);
+    return cancelPending;
   }, [text]);
 
   return (

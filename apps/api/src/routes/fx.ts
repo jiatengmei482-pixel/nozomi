@@ -22,7 +22,7 @@ import { APPROVAL_KINDS } from "../services/approval-kinds.ts";
 import { visibleKinds } from "../services/approvals.ts";
 import { fxLockOf, fxOverview, fxSeries, fxSourceStatus } from "../services/fx-center.ts";
 import { FX_APPROVAL_KINDS, requestFxLock, requestFxUnlock } from "../services/fx-locks.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { dateTimeSchema, parseInput, resourceId } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
@@ -91,7 +91,7 @@ export function fxLockJson(lock: StoredFxLock): Record<string, unknown> {
 }
 
 export function registerFxRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const platform = (request: FastifyRequest, action: PlatformAction) => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+  const platform = (request: FastifyRequest, action: PlatformAction) => authenticatePlatform(ctx, platformCredentials(request), { action });
 
   app.get("/platform/v1/fx-rates", async (request) => {
     const principal = await platform(request, "master_data.read");

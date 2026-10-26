@@ -9,6 +9,7 @@
  *   跨午夜、夏令时的当地时间原样提交。
  * 接口用测试替身。
  */
+import { roleName } from "../../lib/portal.ts";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -40,7 +41,7 @@ const PRICE_ID = "77777777-7777-4777-8777-777777777777";
 const RULE_ID = "88888888-8888-4888-8888-888888888888";
 const ME_ID = "99999999-9999-4999-8999-999999999999";
 
-const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: role as PlatformUser["role"], status: "active", ...stamps });
+const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const tokyo: City = { id: CITY_ID, code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const la: City = { id: LA_ID, code: "CTY-US-LAX", country_code: "US", name: { zh: "洛杉矶" }, timezone: "America/Los_Angeles", center: { lng: -118.24, lat: 34.05 }, boundary: null, status: "active", version: 1, ...stamps };
 const haneda = { id: POI_ID, type: "airport", code: "HND", country_code: "JP", city_id: CITY_ID, parent_id: null, city: null, parent: null, name: { zh: "羽田机场" }, location: { lng: 139.78, lat: 35.55 }, category: null, flight_scope: "mixed", address: null, source: null, status: "active", version: 1, ...stamps } as unknown as Place;

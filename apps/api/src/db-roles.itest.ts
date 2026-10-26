@@ -272,12 +272,19 @@ test("验收 2（剩余风险，如实记录）：切到平台角色可以跨租
     "delete from tenant_users",
     "delete from platform_users",
     "truncate tenant_users cascade",
-    "update platform_sessions set expires_at = now() + interval '10 years'",
     "select * from locate_tenant_user_by_email('admin@a.test')",
     "alter table tenant_users disable row level security",
     "drop policy tenant_users_platform on tenant_users",
     "drop table tenant_sessions",
   ]);
+  // 平台角色能改会话（完成两步验证时，ADR 0030），但触发器只放行「待验证 → 已验证、不超过建会话起 8 小时」这一种改法：续不了期
+  for (const sql of [
+    "update platform_sessions set expires_at = now() + interval '10 years'",
+    "update platform_sessions set mfa_verified_at = now(), mfa_method = 'totp', expires_at = created_at + interval '9 hours'",
+    "update platform_sessions set user_id = user_id, created_at = created_at - interval '1 day'",
+  ]) {
+    await assert.rejects(asAppAccount(PLATFORM_DB_ROLE, null, (client) => client.query(sql)), (err: unknown) => (err as { code?: string }).code === "P0001", sql);
+  }
 });
 
 test("验收 3：无论不切换角色还是切到三个角色中的任何一个，审计日志都改不了、删不了、清不掉，保护它的触发器和策略也动不了", async () => {

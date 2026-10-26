@@ -2,7 +2,7 @@
  * 推送给供应商（租户 Webhook，M3-02，ADR 0027）的数据访问：订阅、投递、每一次尝试。
  * 三张都是租户表：供应商后台在租户事务里读写自己的；推送任务、付款确认时排队、运营后台在平台事务里跨租户读写（查询自己带好条件）。
  */
-import type { TenantWebhookEvent, WebhookEventType } from "@nozomi/domain";
+import { type PlatformDataScope, type TenantWebhookEvent, type WebhookEventType, scopeIsRestricted } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -211,16 +211,28 @@ export interface DeliveryFilter {
   tenantId: string | null;
   status: DeliveryStatus | null;
   orderId: string | null;
+  /**
+   * 运营后台的数据范围（ADR 0030）：只列订单在这几个城市 / 渠道的投递；不属于任何订单的（测试事件）不列。
+   * null 或不给 = 不限制。只在平台事务里给（要读平台表 `order_sales`）。
+   */
+  scope?: PlatformDataScope | null;
 }
 
 /** 投递记录：从新到旧。租户事务里 `tenantId` 必须是当前租户；平台事务可以不限。 */
 export async function listDeliveries(db: Db, filter: DeliveryFilter, limit: number, after: TimeCursor | null): Promise<Page<WebhookDelivery> & { total: number }> {
-  const where = "($1::uuid is null or d.tenant_id = $1) and ($2::text is null or d.status = $2) and ($3::uuid is null or d.order_id = $3)";
-  const params = [filter.tenantId, filter.status, filter.orderId];
+  const scope = filter.scope ?? null;
+  const restricted = scope !== null && scopeIsRestricted(scope);
+  // 租户事务里读不到 order_sales：没有范围时整段不出现在语句里
+  const where =
+    "($1::uuid is null or d.tenant_id = $1) and ($2::text is null or d.status = $2) and ($3::uuid is null or d.order_id = $3)" +
+    (restricted
+      ? " and exists (select 1 from orders o join order_sales s on s.order_id = o.id where o.id = d.order_id and ($4::uuid[] is null or o.city_id = any($4::uuid[])) and ($5::uuid[] is null or s.channel_id = any($5::uuid[])))"
+      : " and $4::uuid[] is null and $5::uuid[] is null");
+  const params = [filter.tenantId, filter.status, filter.orderId, restricted ? (scope?.cityIds ?? null) : null, restricted ? (scope?.channelIds ?? null) : null];
   const result = await db.query<Row>(
     `select ${DELIVERY_COLUMNS}, d.created_at::text as cursor_time from webhook_deliveries d where ${where}
-        and ($4::timestamptz is null or (d.created_at, d.id) < ($4::timestamptz, $5::uuid))
-      order by d.created_at desc, d.id desc limit $6`,
+        and ($6::timestamptz is null or (d.created_at, d.id) < ($6::timestamptz, $7::uuid))
+      order by d.created_at desc, d.id desc limit $8`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from webhook_deliveries d where ${where}`, params);

@@ -29,7 +29,7 @@ after(() => api.close());
 
 /** 时钟一次拨好几天，会话 8 小时过期：每次现登录。 */
 async function platformLogin(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 async function tenantLogin(who: TenantFixture): Promise<string> {
   return (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email: who.adminEmail, password: TEST_PASSWORD } }))).access_token;
