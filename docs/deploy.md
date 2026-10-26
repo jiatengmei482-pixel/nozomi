@@ -80,7 +80,11 @@ ssh-keyscan -p SSH端口 服务器IP
 
 按提示输入两遍密码（输入时不显示）。密码至少 12 个字符，大写、小写、数字、符号里至少有三种。之后就可以打开 `https://你的域名/platform/login`，用这个邮箱和密码登录运营后台。
 
+第一次登录时，输完密码后页面会引导你绑定两步验证（ADR 0030）：在手机上装一个验证器 App（Google Authenticator、Microsoft Authenticator 等），扫页面上的二维码，输入 App 里的 6 位数字，然后把页面给出的 10 个恢复码存好。以后每次登录都要输入 App 里的动态码。
+
 忘了密码时，在服务器上运行同样写法的 `admin-reset-password.ts --email 你的邮箱` 重设。
+手机和恢复码都丢了、又没有另一位超级管理员能在后台帮你重置时，运行同样写法的 `admin-reset-2fa.ts --email 你的邮箱`，下次登录重新绑定。
+被自己设的 IP 白名单挡在门外时，运行 `admin-clear-ip-allowlist.ts --email 你的邮箱`。
 
 ### 8. 以后再做：填 Stripe 和谷歌地图的密钥
 

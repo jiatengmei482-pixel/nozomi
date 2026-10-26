@@ -5,7 +5,7 @@
  */
 import { type Browser, type ConsoleMessage, type Page, expect, test } from "@playwright/test";
 import { expectAccessible, toast } from "./catalog.ts";
-import { activateTenant, adminCredentials, approveApproval, approverEmail, expectNoHorizontalOverflow, loginAs, newPassword, pendingApproval, snapshot, uniqueEmail } from "./support.ts";
+import { activateTenant, adminCredentials, approveApproval, approverEmail, clickLogin, expectNoHorizontalOverflow, loginAs, newPassword, pendingApproval, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
 
 const random = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -55,7 +55,7 @@ async function useLink(browser: Browser, link: string, email: string, portal: "t
   await page.getByRole("button", { name: /^设置(新)?密码并继续$/ }).click();
   await expect(page.getByLabel("邮箱")).toHaveValue(email);
   await page.getByLabel("密码", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(portal === "tenant" ? "/" : "/platform");
   return { page, password };
@@ -300,7 +300,8 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   const email = uniqueEmail("m110-staff");
   const staffName = `运营 ${random()}`;
   await page.getByRole("link", { name: "新增员工" }).click();
-  await expect(page.getByRole("radio")).toHaveCount(10);
+  // 十个内置角色；别的用例新建的自建角色（带「（自建）」）排在后面，不算在内
+  await expect(page.getByRole("radio", { name: /^(?!.*（自建）)/ })).toHaveCount(10);
   await expect(page.getByText("现在能做的：管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）、查看供应商的商品和价格、报价试算、看主数据、看渠道、看待审核的改动、看订单、手动重推给供应商的 Webhook、代客人取消和改单、审核事后加收、处理退款和扣款的异常、审核多退给客人的取消、修改平台取消政策（要另一位同事审核）、审核平台取消政策的修改、发起救援改派、给候选供应商发救援单、认定不可抗力、审核人工指定的救援供应商。").first()).toBeVisible();
   // M2-04 起财务也能看渠道和待审核：不再有「负责的模块还没有上线」的角色
   await expect(page.getByText("负责对账、结算和付款。 现在能做的：看主数据、看渠道、看待审核的改动、看订单、处理退款和扣款的异常、审核多退给客人的取消、审核平台取消政策的修改。").first()).toBeVisible();
@@ -403,8 +404,7 @@ for (const scheme of ["light", "dark"] as const) {
     test.setTimeout(240_000);
     await page.emulateMedia({ colorScheme: scheme });
     const admin = adminCredentials();
-    const login = await request.post("/platform/v1/auth/login", { data: admin });
-    const headers = { authorization: `Bearer ${((await login.json()) as { access_token: string }).access_token}` };
+    const headers = await platformAdminHeaders(request);
     const tenantName = `很长很长的供应商名字`.repeat(6).slice(0, 90) + random();
     const created = await request.post("/platform/v1/tenants", { headers, data: { name: tenantName, admin: { email: uniqueEmail("m110-a11y"), name: "名字很长的管理员".repeat(8) } } });
     expect(created.status(), await created.text()).toBe(201);

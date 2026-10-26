@@ -15,12 +15,14 @@ import {
   newPassword,
   platformAdminHeaders,
   randomLetters,
+  settleAnimations,
   uniqueEmail,
 } from "./support.ts";
 
 const MASTER = "/platform/v1/master";
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const summary = results.violations.map((violation) => `${violation.id}: ${violation.help}（${violation.nodes.map((node) => node.target.join(" ")).join("；")}）`);
   expect(summary, `${what} 的无障碍问题`).toEqual([]);

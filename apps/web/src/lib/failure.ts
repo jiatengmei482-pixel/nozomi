@@ -25,6 +25,12 @@ export function isPasswordChangeRequired(err: unknown): boolean {
   return err instanceof ApiError && err.status === 403 && err.code === "PASSWORD_CHANGE_REQUIRED";
 }
 
+/** 平台会话还没完成两步验证（ADR 0030）。返回接下来要做的：绑定还是输入动态码；不是这个错误返回 null。 */
+export function secondFactorRequired(err: unknown): "enrollment_required" | "verify_required" | null {
+  if (!(err instanceof ApiError) || err.status !== 403 || err.code !== "MFA_REQUIRED") return null;
+  return err.details["status"] === "enrollment_required" ? "enrollment_required" : "verify_required";
+}
+
 export function isThrottled(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 429;
 }

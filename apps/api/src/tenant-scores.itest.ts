@@ -76,7 +76,9 @@ async function nextDay(days = 1): Promise<void> {
 
 /** 会话 8 小时过期，这里的时钟一次拨好几天：每次现登录一个。 */
 async function login(portal: "platform" | "tenant", email: string): Promise<string> {
-  return (await ok(api.call("POST", `/${portal}/v1/auth/login`, { body: { email, password: TEST_PASSWORD } }))).access_token;
+  const options = { body: { email, password: TEST_PASSWORD } };
+  // 平台员工登录要完成两步验证（ADR 0030）
+  return (await ok(portal === "platform" ? api.platformLogin(options) : api.call("POST", `/${portal}/v1/auth/login`, options))).access_token;
 }
 const root = (): Promise<string> => login("platform", "root@platform.test");
 const own = (who: TenantFixture): Promise<string> => login("tenant", who.adminEmail);

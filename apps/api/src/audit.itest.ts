@@ -39,8 +39,8 @@ before(async () => {
   const p = (method: "GET" | "POST", url: string, body?: unknown) => api.call(method, url, { token: rootToken, body, ip: PLATFORM_IP });
 
   // 平台侧：登录失败两种、创建平台账号、接受邀请、停用、启用、查看集成详情
-  await api.call("POST", "/platform/v1/auth/login", { ip: PLATFORM_IP, body: { email: "root@platform.test", password: "Wrong-Password-000" } });
-  await api.call("POST", "/platform/v1/auth/login", { ip: PLATFORM_IP, body: { email: "ghost@platform.test", password: "Wrong-Password-000" } });
+  await api.platformLogin({ ip: PLATFORM_IP, body: { email: "root@platform.test", password: "Wrong-Password-000" } });
+  await api.platformLogin({ ip: PLATFORM_IP, body: { email: "ghost@platform.test", password: "Wrong-Password-000" } });
   api.clock.advance(1_000);
   const staff = await p("POST", "/platform/v1/staff", { email: "ops@platform.test", name: "运营", role: "operations" });
   sensitive.add(staff.body.invite.token);
@@ -324,7 +324,7 @@ test("审计日志和应用日志里没有密码、密码哈希、邀请令牌�
 
 test("错误响应里不回显密码和令牌", async () => {
   const responses = [
-    await api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: "Wrong-Password-000" } }),
+    await api.platformLogin({ body: { email: "root@platform.test", password: "Wrong-Password-000" } }),
     await api.call("POST", "/tenant/v1/auth/login", { body: { email: "bad", password: "Wrong-Password-000" } }),
     await api.call("POST", "/tenant/v1/auth/accept-invite", { body: { token: "nzi_guess-guess-guess-guess", password: "Wrong-Password-000" } }),
     await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: 12345, password: ["Wrong-Password-000"] } }),

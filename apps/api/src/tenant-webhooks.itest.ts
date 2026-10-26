@@ -19,6 +19,7 @@ import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
+import { createSuperAdmin } from "./services/platform-staff.ts";
 
 let api: TestApi;
 let m: Market;
@@ -55,7 +56,7 @@ async function configure(side: "a" | "b", events: string[], url = receiver.url):
 }
 
 async function platformLogin(email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
 async function deliveries(side: "a" | "b", query = ""): Promise<any[]> {
@@ -129,7 +130,14 @@ test("权限：调度、只读能看设置和投递记录，不能改；只有�
 test("没有配置数据加密密钥：不能设置 Webhook（503），设置页面能看出原因", async () => {
   const bare = await createTestApi({ env: { DATA_ENCRYPTION_KEY: "" } });
   try {
-    const root = await bare.superAdminToken();
+    // 没配加密密钥时平台员工过不了两步验证（ADR 0030，platform-mfa.itest.ts 有专门的用例）。这个用例只测供应商一侧，
+    // 所以用迁移账号把超级管理员标成已绑定、把这一个会话标成已验证（只在测试代码里），再用它建供应商
+    const email = "root@platform.test";
+    await createSuperAdmin(bare.db.pool, { email, name: "平台超管", password: TEST_PASSWORD }, bare.clock.now());
+    const root = (await ok(bare.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token as string;
+    assert.equal((await bare.call("GET", "/platform/v1/tenants", { token: root })).body.error.code, "MFA_REQUIRED");
+    await bare.db.owner.query("update platform_users set totp_secret = 'v1.unused.in.this.test', totp_enabled_at = $2 where email = $1", [email, bare.clock.now()]);
+    await bare.db.owner.query("update platform_sessions set mfa_verified_at = $2, mfa_method = 'totp' where user_id = (select id from platform_users where email = $1)", [email, bare.clock.now()]);
     const tenant = await bare.tenantWithAdmin(root, "无密钥车队", "admin@nokey.test");
     const read = await bare.call("GET", "/tenant/v1/webhooks", { token: tenant.adminToken });
     assert.equal(read.body.encryption_configured, false);
@@ -258,7 +266,7 @@ async function platformStaff(role: string): Promise<string> {
   const email = `${role}-${Date.now()}@hooks.test`;
   const invited = await ok(api.call("POST", "/platform/v1/staff", { token: await platformLogin("root@platform.test"), body: { email, name: role, role } }), 201);
   await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
 test("同一张订单按顺序投：前一条在等重试，后一条不发；两个实例同时跑，同一条只发一次", async () => {

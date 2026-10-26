@@ -10,7 +10,7 @@
  *   请求体就是供应商后台订单接口里的那份订单（services/order-views.ts），没有对外价和加价比例（规则 4）。
  */
 import { createHash, randomBytes } from "node:crypto";
-import { TENANT_WEBHOOK_EVENTS, type TenantWebhookEvent, WEBHOOK_TEST_EVENT, type WebhookEventType, webhookUrlIssue } from "@nozomi/domain";
+import { type PlatformDataScope, TENANT_WEBHOOK_EVENTS, type TenantWebhookEvent, UNRESTRICTED_SCOPE, WEBHOOK_TEST_EVENT, type WebhookEventType, scopeIsRestricted, webhookUrlIssue } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -20,7 +20,7 @@ import { webhookSignature } from "../integrations/webhook-signature.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
-import { findOrderOfTenant } from "../repos/orders.ts";
+import { findOrderForPlatform, findOrderOfTenant } from "../repos/orders.ts";
 import {
   type DeliveryFilter,
   type TenantWebhook,
@@ -42,6 +42,7 @@ import {
 import { validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { notFound, versionConflict, versionRequired } from "./errors.ts";
+import { orderInScope } from "./order-queries.ts";
 import { tenantOrderJson } from "./order-views.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
@@ -329,12 +330,19 @@ export async function retryTenantDelivery(ctx: AppContext, writer: WebhookWriter
   });
 }
 
-/** 运营后台手动重推（`order.resend`）：跨租户找到这条投递。和供应商的重推同一条路径。 */
+/** 运营后台按数据范围看投递（ADR 0030）：范围外的订单的投递、不属于任何订单的测试事件，对限定了范围的人和不存在一样。 */
+async function deliveryInScope(db: Db, delivery: WebhookDelivery, scope: PlatformDataScope): Promise<boolean> {
+  if (!scopeIsRestricted(scope)) return true;
+  if (delivery.orderId === null) return false;
+  const order = await findOrderForPlatform(db, delivery.orderId);
+  return order !== null && (await orderInScope(db, order, scope));
+}
+
 export async function retryDeliveryForPlatform(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string): Promise<RetryScheduled> {
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {
     const found = await findDelivery(db, null, id);
-    if (found === null) throw notFound("投递记录");
+    if (found === null || !(await deliveryInScope(db, found, principal.grant.scope))) throw notFound("投递记录");
     const { before, after, inFlight } = await reschedule(db, found.tenantId, id, now);
     if (inFlight) return { delivery: after, inFlight };
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: found.tenantId, resource: "webhook_delivery", resourceId: id, action: "retry", before: retryAudit(before), after: null });
@@ -354,12 +362,12 @@ export async function listDeliveriesForPlatform(ctx: AppContext, filter: Deliver
   );
 }
 
-export async function getDeliveryForPlatform(ctx: AppContext, id: string): Promise<{ delivery: WebhookDelivery; attempts: WebhookAttempt[] }> {
+export async function getDeliveryForPlatform(ctx: AppContext, id: string, scope: PlatformDataScope = UNRESTRICTED_SCOPE): Promise<{ delivery: WebhookDelivery; attempts: WebhookAttempt[] }> {
   return withPlatformTx(
     ctx.pool,
     async (db) => {
       const delivery = await findDelivery(db, null, id);
-      if (delivery === null) throw notFound("投递记录");
+      if (delivery === null || !(await deliveryInScope(db, delivery, scope))) throw notFound("投递记录");
       return { delivery, attempts: await listAttempts(db, delivery.tenantId, id) };
     },
     { snapshot: true },

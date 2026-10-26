@@ -33,7 +33,7 @@ async function adminCount(): Promise<number> {
 
 test("迁移之后、运行命令之前：没有任何平台账号，谁也登录不了", async () => {
   assert.equal(await adminCount(), 0);
-  const res = await api.call("POST", "/platform/v1/auth/login", { body: { email: "owner@platform.test", password: PASSWORD } });
+  const res = await api.platformLogin({ body: { email: "owner@platform.test", password: PASSWORD } });
   assert.equal(res.status, 401);
 });
 
@@ -50,7 +50,7 @@ test("创建超级管理员：密码从标准输入读，输出里没有密码�
   assert.match(row.password_hash, /^scrypt\$1\$/);
   assert.ok(!row.password_hash.includes(PASSWORD));
 
-  const login = await api.call("POST", "/platform/v1/auth/login", { body: { email: "owner@platform.test", password: PASSWORD } });
+  const login = await api.platformLogin({ body: { email: "owner@platform.test", password: PASSWORD } });
   assert.equal(login.status, 200, login.text);
   const me = await api.call("GET", "/platform/v1/auth/me", { token: login.body.access_token });
   assert.equal(me.body.user.role, "super_admin");
@@ -62,7 +62,7 @@ test("同一个邮箱再创建一次：失败并说明原因，原账号的密�
   assert.equal(code, 1);
   assert.match(output, /没有创建账号：这个邮箱已被使用/);
   assert.equal(await adminCount(), 1);
-  const login = await api.call("POST", "/platform/v1/auth/login", { body: { email: "owner@platform.test", password: PASSWORD } });
+  const login = await api.platformLogin({ body: { email: "owner@platform.test", password: PASSWORD } });
   assert.equal(login.status, 200);
 });
 

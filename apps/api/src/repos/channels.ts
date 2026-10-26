@@ -131,15 +131,17 @@ export interface ChannelFilter {
   status: ChannelStatus | null;
   type: ChannelType | null;
   q: string | null;
+  /** 数据范围（ADR 0030）：只列这几个；null 或不给 = 不限制 */
+  ids?: readonly string[] | null;
 }
 
 export async function listChannels(db: Db, filter: ChannelFilter, limit: number, after: TimeCursor | null): Promise<Page<Channel> & { total: number }> {
-  const where = `($1::text is null or c.status = $1) and ($2::text is null or c.type = $2) and ($3::text is null or c.name ilike '%' || $3 || '%' or c.company ilike '%' || $3 || '%')`;
-  const params = [filter.status, filter.type, filter.q === null ? null : filter.q.replace(/[\\%_]/g, (ch) => `\\${ch}`)];
+  const where = `($1::text is null or c.status = $1) and ($2::text is null or c.type = $2) and ($3::text is null or c.name ilike '%' || $3 || '%' or c.company ilike '%' || $3 || '%') and ($4::uuid[] is null or c.id = any($4::uuid[]))`;
+  const params = [filter.status, filter.type, filter.q === null ? null : filter.q.replace(/[\\%_]/g, (ch) => `\\${ch}`), filter.ids ?? null];
   const result = await db.query<ChannelRow & { cursor_time: string }>(
     `select ${COLUMNS}, c.created_at::text as cursor_time from channels c
-      where ${where} and ($4::timestamptz is null or (c.created_at, c.id) > ($4::timestamptz, $5::uuid))
-      order by c.created_at, c.id limit $6`,
+      where ${where} and ($5::timestamptz is null or (c.created_at, c.id) > ($5::timestamptz, $6::uuid))
+      order by c.created_at, c.id limit $7`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from channels c where ${where}`, params);

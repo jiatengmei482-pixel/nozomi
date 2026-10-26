@@ -27,7 +27,7 @@ import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import type { Holiday, StoredAdjustRule, StoredPriceRule } from "../repos/prices.ts";
 import { notFound } from "../services/errors.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import {
   type AdjustRulesView,
   type AdjustSaveResult,
@@ -319,7 +319,7 @@ function ruleIdParam(params: unknown, what: string): string {
 
 export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void {
   const authenticate = (request: FastifyRequest, action: TenantAction): Promise<TenantPrincipal> => authenticateTenant(ctx, bearerToken(request.headers.authorization), { action });
-  const platform = (request: FastifyRequest, action: PlatformAction) => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+  const platform = (request: FastifyRequest, action: PlatformAction) => authenticatePlatform(ctx, platformCredentials(request), { action });
   const single = (version: number, rule: StoredPriceRule | undefined): Json => ({ version, price_rule: rule === undefined ? null : priceRuleJson(rule) });
 
   // ---- 价格规则 ----

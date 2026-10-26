@@ -28,7 +28,7 @@ async function staffToken(target: TestApi, admin: string, email: string, role: s
   assert.equal(invited.status, 201, invited.text);
   const accepted = await target.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
   assert.equal(accepted.status, 200, accepted.text);
-  const login = await target.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } });
+  const login = await target.platformLogin({ body: { email, password: TEST_PASSWORD } });
   assert.equal(login.status, 200, login.text);
   return login.body.access_token as string;
 }
@@ -268,7 +268,7 @@ test("未登录、乱写的令牌、退出后的令牌、过期的令牌：平�
       }
     }
     // 重新登录后退出：退出的令牌立刻不能用
-    const again = await own.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } });
+    const again = await own.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } });
     const fresh = again.body.access_token as string;
     assert.equal((await own.call("POST", "/platform/v1/master/cities", { token: fresh, body: cityBody() })).status, 201);
     assert.equal((await own.call("POST", "/platform/v1/auth/logout", { token: fresh })).status, 204);

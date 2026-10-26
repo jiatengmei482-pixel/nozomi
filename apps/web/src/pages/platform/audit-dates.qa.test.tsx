@@ -24,7 +24,7 @@ afterEach(resetBrowser);
 const stamps = { created_at: "2026-10-06T00:12:00.000Z", updated_at: "2026-10-08T05:30:00.000Z" };
 const ME_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "7b1c2d3e-aaaa-4bbb-8ccc-ddddeeeeffff";
-const me: PlatformUser = { id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: "super_admin", status: "active", ...stamps };
+const me: PlatformUser = { id: ME_ID, email: "kato@example.com", name: "加藤 美咲", role: "super_admin", role_name: "超级管理员", status: "active", ...stamps };
 const log: AuditLog = {
   id: "7",
   occurred_at: "2026-10-09T02:02:37.000Z",

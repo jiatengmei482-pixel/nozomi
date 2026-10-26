@@ -50,7 +50,7 @@ async function run(entry: string, args: string[], options: { input?: string; dat
 }
 
 const tryLogin = (email: string, password: string): Promise<ApiResponse> =>
-  api.call("POST", "/platform/v1/auth/login", { ip: freshIp(), body: { email, password } });
+  api.platformLogin({ ip: freshIp(), body: { email, password } });
 
 async function users(): Promise<unknown[]> {
   return (await api.db.owner.query("select email, status, password_hash, must_change_password from platform_users order by email")).rows;
