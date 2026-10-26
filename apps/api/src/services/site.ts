@@ -58,7 +58,7 @@ import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
 
-/** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0034）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
+/** 官网卖的品类：接送机（M3-05）、点对点和包车（M3-10，ADR 0035）。和需求的三种品类一致；渠道没授权的品类照样不卖。 */
 export const SITE_CATEGORIES: readonly ServiceCategory[] = ["airport_transfer", "point_to_point", "charter"];
 
 export const SITE_LINK_RULES = {
