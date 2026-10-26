@@ -37,6 +37,18 @@ export async function listIntegrationSecrets(db: Db): Promise<IntegrationSecretR
   return result.rows.map(toRow);
 }
 
+/** advisory lock 的两段式键：第一段 "NZIS"（ASCII），第二段是哪一项。 */
+const ADVISORY_LOCK_NAMESPACE = 0x4e5a4953;
+const ADVISORY_LOCK_ITEM: Readonly<Record<IntegrationSecretKey, number>> = { google_maps: 1, stripe: 2 };
+
+/**
+ * 按项名排队（事务级 advisory lock，事务结束自动释放）：这一项还没有行时 `for update` 锁不住任何东西，
+ * 两个人同时第一次填写会都以为是「填写」。先拿这把锁，后到的等先到的提交后再读，就是「更换」、前值是先到那一份的末 4 位。
+ */
+export async function queueIntegrationSecretChange(db: Db, integration: IntegrationSecretKey): Promise<void> {
+  await db.query("select pg_advisory_xact_lock($1, $2)", [ADVISORY_LOCK_NAMESPACE, ADVISORY_LOCK_ITEM[integration]]);
+}
+
 /** 锁住这一项（改之前），没有时返回 null。两个人同时改同一项时排好先后，审计里的「填写 / 更换」不会记错。 */
 export async function lockIntegrationSecret(db: Db, integration: IntegrationSecretKey): Promise<IntegrationSecretRow | null> {
   const result = await db.query<Row>(`${SELECT} where s.integration = $1 for update of s`, [integration]);

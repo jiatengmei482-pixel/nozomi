@@ -38,7 +38,7 @@ import { withTimeout } from "../health.ts";
 import type { IntegrationCheckResult } from "../integrations/integration-check.ts";
 import { type SecretBox, SecretBoxError } from "../integrations/secret-box.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
-import { type IntegrationSecretRow, deleteIntegrationSecret, listIntegrationSecrets, lockIntegrationSecret, saveIntegrationSecret } from "../repos/integration-secrets.ts";
+import { type IntegrationSecretRow, deleteIntegrationSecret, listIntegrationSecrets, lockIntegrationSecret, queueIntegrationSecretChange, saveIntegrationSecret } from "../repos/integration-secrets.ts";
 import { validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
@@ -307,6 +307,7 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
   const sealed = ctx.secretBox.seal(PURPOSE, input.key, JSON.stringify(values));
   const now = ctx.now();
   const action = await withPlatformTx(ctx.pool, async (db) => {
+    await queueIntegrationSecretChange(db, input.key);
     const before = await lockIntegrationSecret(db, input.key);
     await saveIntegrationSecret(db, { integration: input.key, sealed, hints, updatedAt: now, updatedBy: principal.user.id });
     const action = before === null ? "set" : "replace";
@@ -328,6 +329,7 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
 export async function clearIntegrationSecretValue(ctx: AppContext, principal: PlatformPrincipal, key: IntegrationSecretKey, ip: string): Promise<void> {
   const now = ctx.now();
   await withPlatformTx(ctx.pool, async (db) => {
+    await queueIntegrationSecretChange(db, key);
     const before = await lockIntegrationSecret(db, key);
     if (before === null || !(await deleteIntegrationSecret(db, key))) throw new AppError(409, "INTEGRATION_SECRET_NOT_SET", "后台没有填写这一项，不用清空");
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {

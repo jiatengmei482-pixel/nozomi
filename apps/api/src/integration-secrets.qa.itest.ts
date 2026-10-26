@@ -147,6 +147,7 @@ async function secondSuperAdmin(email: string, ip?: string): Promise<{ id: strin
 
 /**
  * 让几个请求真的同时进到「锁住这一项」那一步：先用表锁挡住，等它们都在排队了再放开。
+ * 排队的可能是表锁，也可能是按项名的 advisory lock（第一个拿到 advisory lock 的在表锁上等，后到的在 advisory lock 上等），两种都算。
  * 不这样做的话，同一个进程里两个请求往往一前一后跑完，碰不到并发的情形。
  */
 async function together<T>(waiters: number, start: () => Promise<T>[]): Promise<T[]> {
@@ -158,7 +159,7 @@ async function together<T>(waiters: number, start: () => Promise<T>[]): Promise<
     running = Promise.all(start());
     const deadline = Date.now() + 5_000;
     for (;;) {
-      const waiting = (await api.db.owner.query("select count(*)::int as n from pg_locks where relation = 'integration_secrets'::regclass and not granted")).rows[0].n as number;
+      const waiting = (await api.db.owner.query("select count(*)::int as n from pg_locks where not granted and (relation = 'integration_secrets'::regclass or (locktype = 'advisory' and classid = x'4e5a4953'::int::oid))")).rows[0].n as number;
       if (waiting >= waiters) break;
       assert.ok(Date.now() < deadline, `只有 ${waiting} 个请求在排队`);
       await new Promise((resolve) => setTimeout(resolve, 20));

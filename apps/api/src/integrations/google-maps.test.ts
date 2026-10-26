@@ -106,3 +106,39 @@ test("对方 5xx、超时、连不上：再试一次；仍然不行给出对应�
   handler = () => ({ status: 200, body: "<html>not json</html>" });
   assert.deepEqual(await checkGoogleMapsKey(KEY, { url }).then((r) => (r.ok ? null : r.code)), "UNEXPECTED");
 });
+
+test("应答体边读边截：只读前 64 KB，后面的不读（对方回一个几十 MB 的应答也不会整个读进内存）", async () => {
+  const total = 64 * 1024 * 1024;
+  let written = 0;
+  let finished = false;
+  const big = createServer((request, response) => {
+    request.resume();
+    response.writeHead(200, { "content-type": "application/json" });
+    const chunk = Buffer.alloc(1024 * 1024, 0x61);
+    const pump = (): void => {
+      while (written < total) {
+        written += chunk.byteLength;
+        if (!response.write(chunk)) {
+          response.once("drain", pump);
+          return;
+        }
+      }
+      response.end(() => {
+        finished = true;
+      });
+    };
+    pump();
+  });
+  await new Promise<void>((resolve) => big.listen(0, "127.0.0.1", () => resolve()));
+  const address = big.address();
+  const bigUrl = `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}/directions/v2:computeRoutes`;
+  try {
+    const result = await checkGoogleMapsKey(KEY, { url: bigUrl, timeoutMs: 5_000 });
+    assert.deepEqual(result.ok ? null : result.code, "UNEXPECTED", "截断后不是完整的 JSON：看不懂");
+    assert.equal(finished, false, "没有把整个应答读完");
+    assert.ok(written < total, `对方只写出了一部分：${written}`);
+  } finally {
+    big.closeAllConnections();
+    await new Promise<void>((resolve) => big.close(() => resolve()));
+  }
+});

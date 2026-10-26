@@ -5,7 +5,7 @@
  *   这是 Routes API 最便宜的一档（Essentials），每次测试只产生一次调用，费用极少（在谷歌每月的免费额度内基本不计费）。
  *   报价要用的「里程 + 时长」用的也是这个 API，所以测它最能说明密钥能不能用。
  * - 密钥放在请求头 `X-Goog-Api-Key` 里，不放在网址里（网址会进各种日志）；不跟随重定向。
- * - 每次尝试最多等 5 秒；连不上、超时、对方 5xx 时再试 1 次。429（超限）不重试。
+ * - 每次尝试最多等 5 秒；连不上、超时、对方 5xx 时再试 1 次。429（超限）不重试。应答体边读边截，只读前 64 KB。
  * - 失败换成 `IntegrationCheckCode`：按谷歌返回的 `error.details[].reason`（`API_KEY_INVALID`、`SERVICE_DISABLED`、`API_KEY_SERVICE_BLOCKED`、`BILLING_DISABLED` 等）归类；
  *   说明是我们自己写的，不带谷歌返回的原文。
  * 单元测试和集成测试都用本机的假服务器（地址由配置 `GOOGLE_MAPS_ROUTES_URL` 指定，只有 local / ci 能改），不联网。
@@ -14,8 +14,29 @@ import { type IntegrationCheckResult, checkFailed } from "./integration-check.ts
 
 export const GOOGLE_MAPS_TIMEOUT_MS = 5_000;
 export const GOOGLE_MAPS_ATTEMPTS = 2;
-/** 应答正常不到 1 KB；读到这么多还没完一定不对 */
-const MAX_RESPONSE_CHARS = 64 * 1024;
+/** 应答正常不到 1 KB：最多读这么多字节，后面的不读（边读边截，不先把整个应答读进内存） */
+export const MAX_RESPONSE_BYTES = 64 * 1024;
+
+/** 读应答体的前 `MAX_RESPONSE_BYTES` 字节，够了就取消剩下的。 */
+async function readCapped(res: Response): Promise<string> {
+  if (res.body === null) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < MAX_RESPONSE_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const room = MAX_RESPONSE_BYTES - size;
+      const chunk = value.byteLength > room ? value.subarray(0, room) : value;
+      chunks.push(chunk);
+      size += chunk.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 /** 测试用的固定路线：东京站 → 新宿站 */
 const PROBE_BODY = JSON.stringify({
@@ -36,7 +57,7 @@ export interface GoogleMapsCheckOptions {
 /** 谷歌的错误应答里的原因代码（`error.details[].reason`）和状态（`error.status`）。 */
 function errorReasons(text: string): { status: string | null; reasons: string[] } {
   try {
-    const body = JSON.parse(text.slice(0, MAX_RESPONSE_CHARS)) as { error?: { status?: unknown; details?: unknown } };
+    const body = JSON.parse(text) as { error?: { status?: unknown; details?: unknown } };
     const details = Array.isArray(body.error?.details) ? (body.error.details as { reason?: unknown }[]) : [];
     return { status: typeof body.error?.status === "string" ? body.error.status : null, reasons: details.map((d) => (typeof d?.reason === "string" ? d.reason : "")).filter((r) => r !== "") };
   } catch {
@@ -75,10 +96,10 @@ export async function checkGoogleMapsKey(apiKey: string, options: GoogleMapsChec
         redirect: "manual",
         signal: AbortSignal.timeout(options.timeoutMs ?? GOOGLE_MAPS_TIMEOUT_MS),
       });
-      const text = await res.text();
+      const text = await readCapped(res);
       if (res.status === 200) {
         try {
-          const body = JSON.parse(text.slice(0, MAX_RESPONSE_CHARS)) as unknown;
+          const body = JSON.parse(text) as unknown;
           return typeof body === "object" && body !== null && !Array.isArray(body) ? { ok: true } : checkFailed("UNEXPECTED");
         } catch {
           return checkFailed("UNEXPECTED");
