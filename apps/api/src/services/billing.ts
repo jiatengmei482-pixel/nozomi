@@ -156,12 +156,16 @@ export async function generateForTenant(db: Db, tenantId: string, period: string
 export interface GenerateResult {
   period: string;
   created: (Statement & { tenantName: string })[];
-  /** 出账时出错的供应商（下一轮再试） */
-  failed: string[];
+  /** 出账时出错的供应商（这一家整个回滚，别的照常出；下一轮或下一次手动出账再试）。原因只有错误码和说明，没有内部堆栈 */
+  failed: { tenantId: string; tenantName: string; code: string; message: string }[];
+}
+
+export interface BillingErrorLog {
+  error(obj: object, msg: string): void;
 }
 
 /** 给一期出账：逐家供应商，每家一个事务（一家出错不影响别的）。只能出已经结束的月份。 */
-export async function generateStatements(ctx: AppContext, period: string, actor: BillingActor, log: { error(obj: object, msg: string): void } | null = null): Promise<GenerateResult> {
+export async function generateStatements(ctx: AppContext, period: string, actor: BillingActor, log: BillingErrorLog): Promise<GenerateResult> {
   const today = billingToday(actor.origin.occurredAt);
   if (!isBillingPeriod(period)) throw new AppError(400, "VALIDATION_FAILED", "请求参数校验未通过", { location: "body", issues: [{ path: "/period", message: "账单周期的格式是 YYYY-MM" }] });
   if (!periodEnded(period, today)) throw new AppError(409, "PERIOD_NOT_ENDED", `${period} 还没结束（按东京日期），月份结束后才能出账`, { period, today });
@@ -171,17 +175,21 @@ export async function generateStatements(ctx: AppContext, period: string, actor:
     try {
       result.created.push(...(await withPlatformTx(ctx.pool, (db) => generateForTenant(db, tenantId, period, actor))));
     } catch (err) {
-      if (log === null) throw err;
-      log.error({ err, tenantId, period }, "出账失败，下一轮再试");
-      result.failed.push(tenantId);
+      log.error({ err, tenantId, period }, "出账失败：这一家回滚，别的照常出，下一轮再试");
+      const name = await withPlatformTx(ctx.pool, (db) => tenantName(db, tenantId));
+      result.failed.push(
+        err instanceof AppError && err.statusCode < 500
+          ? { tenantId, tenantName: name, code: err.code, message: err.message }
+          : { tenantId, tenantName: name, code: "INTERNAL_ERROR", message: "出账时出错，这家供应商这一次没有出账；已记录错误日志，请稍后重试或联系技术" },
+      );
     }
   }
   return result;
 }
 
-export function generateForPlatform(ctx: AppContext, principal: PlatformPrincipal, period: string | null, ip: string): Promise<GenerateResult> {
+export function generateForPlatform(ctx: AppContext, principal: PlatformPrincipal, period: string | null, ip: string, log: BillingErrorLog): Promise<GenerateResult> {
   const now = ctx.now();
-  return generateStatements(ctx, period ?? periodToGenerate(now), platformBillingActor(principal, ip, now));
+  return generateStatements(ctx, period ?? periodToGenerate(now), platformBillingActor(principal, ip, now), log);
 }
 
 // ---- 查看 ----

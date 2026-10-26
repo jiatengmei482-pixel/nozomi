@@ -499,3 +499,39 @@ test("确认期截止后定时任务还没跑：提异议 409 并在同一事务
   const confirmed = await ok(api.call("POST", `/tenant/v1/statements/${usd.id}/confirm`, { token }));
   assert.deepEqual([confirmed.statement.status, confirmed.statement.confirmed_by_type], ["confirmed", "tenant_user"]);
 });
+
+test("付款复核的说明是平台内部信息：供应商的账单经过里只有「已提交复核」「复核通过」，不带说明；运营后台看得到", async () => {
+  const tenantEvents = (await tenantStatement(m.a, septAUsd.id)).events;
+  const review = tenantEvents.find((event: any) => event.action === "request_review");
+  assert.deepEqual([review.actor_type, review.note], ["platform_user", null]);
+  assert.equal(tenantEvents.find((event: any) => event.action === "approve").note, null);
+  assert.equal(JSON.stringify(tenantEvents).includes("核对无误"), false);
+  // 供应商的异议和平台的答复照常看得到
+  assert.equal(tenantEvents.find((event: any) => event.action === "reply").note, "按下单时的汇率快照，结算价本来就是美元");
+  const platformEvents = (await platformStatement(septAUsd.id)).events;
+  assert.equal(platformEvents.find((event: any) => event.action === "request_review").note, "核对无误");
+});
+
+test("手动出账：某一家出错不中断，其余照常出；返回里列出失败的（错误码和说明，没有内部细节）；修好后再出一次补上", async () => {
+  const okOrder = await order("a", "2026-07-10T10:00:00+09:00");
+  const badOrder = await order("b", "2026-07-11T10:00:00+09:00");
+  // 只在这个测试的 schema 里：让乙的账单写不进去（模拟某一家出账时的意外错误）
+  await api.db.owner.query(`create function test_fail_statement() returns trigger language plpgsql as $$ begin raise exception '测试注入的内部错误 secret-detail'; end $$`);
+  await api.db.owner.query(`create trigger test_fail_statement before insert on statements for each row when (new.tenant_id = '${m.b.tenantId}') execute function test_fail_statement()`);
+  try {
+    const res = await api.call("POST", "/platform/v1/statements/generate", { token: await fin1(), body: { period: "2026-07" } });
+    assert.equal(res.status, 200, res.text);
+    assertMatchesOpenApi("POST", "/platform/v1/statements/generate", res);
+    assert.deepEqual(res.body.created.map((entry: any) => entry.tenant.id), [m.a.tenantId]);
+    assert.deepEqual(res.body.failed, [{ tenant: { id: m.b.tenantId, name: "乙车队" }, code: "INTERNAL_ERROR", message: "出账时出错，这家供应商这一次没有出账；已记录错误日志，请稍后重试或联系技术" }]);
+    assert.equal(res.text.includes("secret-detail"), false);
+    // 乙整个回滚：没有半张账单、明细
+    assert.equal((await api.db.owner.query("select count(*)::int as n from statement_lines where source_key = $1", [`order:${badOrder.id}`])).rows[0].n, 0);
+    assert.equal((await api.db.owner.query("select count(*)::int as n from statement_lines where source_key = $1 and voided_at is null", [`order:${okOrder.id}`])).rows[0].n, 1);
+  } finally {
+    await api.db.owner.query("drop trigger test_fail_statement on statements");
+    await api.db.owner.query("drop function test_fail_statement()");
+  }
+  const retry = await generate(await fin1(), "2026-07");
+  assert.deepEqual([retry.created.map((entry: any) => entry.tenant.id), retry.failed], [[m.b.tenantId], []]);
+});

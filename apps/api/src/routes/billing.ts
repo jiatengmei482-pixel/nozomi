@@ -89,6 +89,9 @@ function statementBase(statement: Statement): Json {
   };
 }
 
+/** 平台内部的说明（发起付款复核时财务写的）：供应商只看到「已提交复核」这一步，不带说明。 */
+const INTERNAL_NOTE_ACTIONS: ReadonlySet<string> = new Set(["request_review", "approve"]);
+
 function viewJson(view: StatementView, platform: boolean): Json {
   const { statement } = view;
   const currency: CurrencyCode = statement.currency;
@@ -111,7 +114,7 @@ function viewJson(view: StatementView, platform: boolean): Json {
       detail: line.detail,
       voided: line.voidedAt !== null,
     })),
-    events: view.events.map((event) => ({ action: event.action, actor_type: event.actorType, ...(platform ? { actor_id: event.actorId } : {}), note: event.note, at: event.at.toISOString() })),
+    events: view.events.map((event) => ({ action: event.action, actor_type: event.actorType, ...(platform ? { actor_id: event.actorId } : {}), note: platform || !INTERNAL_NOTE_ACTIONS.has(event.action) ? event.note : null, at: event.at.toISOString() })),
   };
 }
 
@@ -186,8 +189,12 @@ export function registerBillingRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.post("/platform/v1/statements/generate", async (request) => {
     const principal = await platform(request, "statement.manage");
     const input = parseInput(generateSchema, request.body ?? {}, "body");
-    const result = await generateForPlatform(ctx, principal, input.period, request.ip);
-    return { period: result.period, created: result.created.map(platformStatementJson) };
+    const result = await generateForPlatform(ctx, principal, input.period, request.ip, request.log);
+    return {
+      period: result.period,
+      created: result.created.map(platformStatementJson),
+      failed: result.failed.map((entry) => ({ tenant: { id: entry.tenantId, name: entry.tenantName }, code: entry.code, message: entry.message })),
+    };
   });
 
   app.get("/platform/v1/statements/:id", async (request) => {

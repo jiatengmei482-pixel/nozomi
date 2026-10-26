@@ -10723,7 +10723,7 @@ paths:
       description: |
         需要操作 `statement.manage`（超级管理员、财务）。给一期（不给就是上个月，按东京日期）里每个有还没出账的应付的供应商按币种各出一张账单；
         定时任务每小时也做同样的事。可以反复运行：一笔应付同一时刻只在一张有效的账单上，同一期同一币种只有一张有效的账单，已经出过的不再出（`created` 为空）。
-        只能出已经结束的月份（409 `PERIOD_NOT_ENDED`）。
+        只能出已经结束的月份（409 `PERIOD_NOT_ENDED`）。每家供应商一个事务：某一家出错只回滚它自己，其余照常出，出错的列在 `failed` 里。
       security:
         - platformToken: []
       requestBody:
@@ -10745,7 +10745,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ period, created ]
+                required: [ period, created, failed ]
                 properties:
                   period:
                     type: string
@@ -10753,6 +10753,29 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PlatformStatement"
+                  failed:
+                    type: array
+                    description: 出账时出错的供应商（这一家整个回滚，其余的照常出；再调一次会重试）。只有错误码和说明，没有内部细节
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ tenant, code, message ]
+                      properties:
+                        tenant:
+                          type: object
+                          additionalProperties: false
+                          required: [ id, name ]
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            name:
+                              type: string
+                        code:
+                          type: string
+                          description: 业务错误的错误码（如 `STATEMENT_LINES_INCONSISTENT`）；意外错误为 `INTERNAL_ERROR`
+                        message:
+                          type: string
         "403":
           $ref: "#/components/responses/DataScopeDenied"
         "409":
@@ -21558,7 +21581,7 @@ components:
           type:
           - string
           - 'null'
-          description: 异议原因、平台的答复、作废原因、复核说明
+          description: 异议原因、平台的答复、作废原因。付款复核的说明是平台内部信息，供应商看到的「已提交复核」「复核通过」没有说明（总是 null）
         at:
           type: string
           format: date-time
