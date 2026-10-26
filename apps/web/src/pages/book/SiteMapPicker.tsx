@@ -176,7 +176,10 @@ export function SiteMapPicker({ tiles, center, point, word, onPick }: SiteMapPic
         size="lg"
         onClick={() => {
           const current = mapRef.current;
-          if (current !== null) onPick(roundPoint(current.getCenter()));
+          if (current === null) return;
+          // 方向键平移有动画：先停在当前位置，选的就是此刻准星下的点，标记也落在准星上
+          current.stop();
+          onPick(roundPoint(current.getCenter()));
         }}
       >
         <Icon name="target" />

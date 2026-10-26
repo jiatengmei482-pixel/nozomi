@@ -12,6 +12,13 @@ export const E2E_TILE_PORT = E2E_WEB_PORT + 1;
 export const E2E_API_NO_MAP_PORT = E2E_API_PORT + 1;
 /** 本机的假汇率源（测试从不访问真实的汇率源）。 */
 export const E2E_FX_PORT = E2E_API_PORT + 2;
+/**
+ * 官网地址搜索（M3-12，ADR 0044）专用的一组：配置文件里有一把假的谷歌密钥的 API 进程和指向它的前端。
+ * 主 API 的谷歌密钥只能由用例在运营后台临时填写（别的用例会填、会清空），地址搜索的用例要一个确定「有密钥」的环境；
+ * 谷歌的地址都指向本机的假服务器（global-setup），从不调用真实的谷歌。
+ */
+export const E2E_API_PLACES_PORT = E2E_API_PORT + 3;
+export const E2E_WEB_PLACES_PORT = E2E_WEB_PORT + 2;
 
 export default defineConfig({
   testDir: "./e2e",

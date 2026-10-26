@@ -573,6 +573,7 @@
   left: calc(var(--space-8) / -2);
   bottom: 0;
   width: var(--space-8);
+  max-width: none;
   height: var(--space-10);
   overflow: visible;
 }

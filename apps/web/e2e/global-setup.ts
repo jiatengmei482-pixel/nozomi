@@ -24,9 +24,9 @@ import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
-import { type FakeService, startFakeGoogleRoutes, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
+import { type FakeService, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
-import { E2E_API_NO_MAP_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
 import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES, E2E_SUPPORT_PHONE } from "./support.ts";
 import type { FullConfig } from "@playwright/test";
@@ -227,6 +227,13 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     const stripeApi = await startFakeStripe();
     fakeIntegrations.push(stripeApi);
     apiEnv["GOOGLE_MAPS_ROUTES_URL"] = googleRoutes.url;
+    // 官网地址搜索和反查（ADR 0044）：所有 API 进程都指向本机的假服务器（假 Places 默认找到「東京駅」，假 Geocoding 默认给一个地址）
+    const googlePlaces = await startFakeGooglePlaces();
+    fakeIntegrations.push(googlePlaces);
+    const googleGeocode = await startFakeGoogleGeocode();
+    fakeIntegrations.push(googleGeocode);
+    apiEnv["GOOGLE_PLACES_SEARCH_URL"] = googlePlaces.url;
+    apiEnv["GOOGLE_GEOCODE_URL"] = googleGeocode.url;
     apiEnv["STRIPE_API_URL"] = stripeApi.url;
 
     // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
@@ -266,6 +273,28 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     });
     started.push(api);
     await waitUntilUp(api, `${apiOrigin}/health`);
+
+    // 地址搜索专用的 API 和前端（playwright.config.ts 的 E2E_API_PLACES_PORT）：配置文件里有一把本次运行随机生成的假谷歌密钥
+    const placesOrigin = `http://127.0.0.1:${E2E_API_PLACES_PORT}`;
+    const placesApi = start("API（官网地址搜索）", ["apps/api/src/server.ts"], REPO_ROOT, {
+      ...apiEnv,
+      PORT: String(E2E_API_PLACES_PORT),
+      PUBLIC_BASE_URL: placesOrigin,
+      GOOGLE_MAPS_API_KEY: `AIzaE2E${randomBytes(16).toString("hex")}`,
+      MAP_TILE_URL_TEMPLATE: `${tileOrigin}/{z}/{x}/{y}.png`,
+      MAP_TILE_ATTRIBUTION: "© 端到端测试底图|https://tiles.e2e.example.com/copyright",
+      SITE_CLIENT_ID: siteClientId,
+    });
+    started.push(placesApi);
+    await waitUntilUp(placesApi, `${placesOrigin}/health`);
+    const placesWeb = start(
+      "前端（官网地址搜索）",
+      ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(E2E_WEB_PLACES_PORT), "--strictPort"],
+      WEB_ROOT,
+      { ...process.env, NOZOMI_API_ORIGIN: placesOrigin, NOZOMI_MAP_TILE_CSP_SOURCES: tileOrigin },
+    );
+    started.push(placesWeb);
+    await waitUntilUp(placesWeb, `http://127.0.0.1:${E2E_WEB_PLACES_PORT}/login`);
 
     const web = start(
       "前端",
