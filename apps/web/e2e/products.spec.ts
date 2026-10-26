@@ -111,7 +111,7 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await page.getByRole("checkbox", { name: new RegExp(world.seat.name) }).check();
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByText("有 2 处需要修改")).toBeVisible();
-  await expect(page.getByText("JPY没有小数，请填整数").first()).toBeVisible();
+  await expect(page.getByText("JPY 没有小数，请填整数").first()).toBeVisible();
   await expect(page.getByText("请填单价，免费提供请填 0").first()).toBeVisible();
   await page.getByLabel("夜间加价的金额").fill("2000");
   await page.getByLabel(`${world.seat.name}的单价`).fill("1000");

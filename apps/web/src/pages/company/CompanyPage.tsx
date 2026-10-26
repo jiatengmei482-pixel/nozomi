@@ -249,7 +249,7 @@ function DocumentsCard({ company, canManage, onChanged }: { company: CompanyOver
           </Button>
         )}
       </div>
-      <p className="page-intro">{company.profile?.country_code ? `按${company.profile.country_code}的必交清单。` : "先在上面填所在国家，清单会按国家调整。"}营运许可和保险要填到期日；到期前 30 天、7 天各提醒一次。</p>
+      <p className="page-intro">{company.profile?.country_code ? `按 ${company.profile.country_code} 的必交清单。` : "先在上面填所在国家，清单会按国家调整。"}营运许可和保险要填到期日；到期前 30 天、7 天各提醒一次。</p>
       <div className="table-wrap">
         <div className="table-scroll" tabIndex={0} role="region" aria-label="资质清单">
           <table className="table">

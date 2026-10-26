@@ -166,6 +166,7 @@ test("企业资质：只读角色只能看（没有上传、提交、编辑）�
   assertAbsent(screen.queryByRole("button", { name: "保存" }));
   assert.match(screen.getByRole("region", { name: "资质清单" }).textContent ?? "", /保单上的车牌看不清/);
   assert.ok(screen.getByText("丙株式会社"));
+  assert.match(document.body.textContent ?? "", /按 KR 的必交清单。/, "国家代码前后有空格");
 });
 
 test("履约评分：比价用的分、各项指标和权重、趋势；在观察期时说清原因和影响；默认分说明", async () => {
