@@ -373,7 +373,7 @@ test("供应商违约金与扣款：列出自己的应扣款项和怎么算的�
   const table = await screen.findByRole("table", { name: "应扣款项" });
   assert.match(table.textContent ?? "", /NZ20261007ABCDEFGH违约金5,940 JPY待结算时扣除供应商声明无法履约：原结算价 19,800 JPY × 30%/);
   assert.match(table.textContent ?? "", /救援差价200 JPY/);
-  assert.match(document.body.textContent ?? "", /现在只记账，结算时从当期或下一期账单里扣/);
+  assert.match(document.body.textContent ?? "", /这些在账单里扣/);
 
   resetBrowser();
   open("/deductions", "pricing", () => null, "tenant");
