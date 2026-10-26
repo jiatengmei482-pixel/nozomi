@@ -3,7 +3,7 @@
  * （global-setup 把地址指向本机假服务器，服务进程没有配置密钥）。
  *
  * 路线结果怎么来：别的用例会短暂在运营后台填一把谷歌密钥（integration-secrets.spec.ts），所以「有没有密钥」不是确定的。
- * 这里把要用的两组起终点直接写进路线缓存（平台角色，和服务进程一样的权限）：一组「没有路线」（1 天的负缓存），一组 9 公里 25 分钟——
+ * 这里把要用的两组起终点直接写进路线缓存（平台角色，和服务进程一样的权限）：一组「没有路线」（1 天的负缓存），一组 9.25 公里 25 分钟——
  * 缓存在查密钥之前，结果确定。起终点每次运行随机，用例结束删掉这两行。
  *
  * - 官网点对点：没有路线 → 「换一个地址」；暂时算不出（没有密钥）→ 「稍后再试」；不出现原因代码和内部说法；320 / 768 宽不横向滚动，亮暗 axe。
@@ -102,7 +102,7 @@ test.beforeAll(async ({ request }) => {
   seeded.push(bad.key, good.key);
   await db(async (query) => {
     await query("insert into route_estimates (cache_key, failure_code, fetched_at, expires_at) values ($1, 'NO_ROUTE', now(), now() + interval '1 day') on conflict (cache_key) do update set failure_code = 'NO_ROUTE', distance_meters = null, duration_seconds = null, expires_at = excluded.expires_at", [bad.key]);
-    await query("insert into route_estimates (cache_key, distance_meters, duration_seconds, fetched_at, expires_at) values ($1, 9000, 1500, now(), now() + interval '7 days') on conflict (cache_key) do update set failure_code = null, distance_meters = 9000, duration_seconds = 1500, expires_at = excluded.expires_at", [good.key]);
+    await query("insert into route_estimates (cache_key, distance_meters, duration_seconds, fetched_at, expires_at) values ($1, 9250, 1500, now(), now() + interval '7 days') on conflict (cache_key) do update set failure_code = null, distance_meters = 9250, duration_seconds = 1500, expires_at = excluded.expires_at", [good.key]);
   });
 });
 test.afterAll(async () => {
@@ -177,10 +177,10 @@ test("运营后台报价试算：路程来自缓存 / 起终点重合 / 假定�
   const group = page.locator(".quote-group").filter({ has: page.getByRole("heading", { level: 3, name: world.group.name }) });
   const banner = page.locator(".alert").filter({ hasText: "这次没有取到路线" });
 
-  // 缓存：9 公里 25 分钟 → 3,000 + 4 公里 × 400 + 5 分钟 × 80 = 5,000
+  // 缓存：9,250 米 25 分钟 → 3,000 + 4.25 公里 × 400 + 5 分钟 × 80 = 5,100；路程按四舍五入显示 9.3 公里（M4-12，不截断成 9.2）
   await goTo(cached);
-  await expect(page.locator("main")).toContainText("用的路程：9 公里、25 分钟（来自缓存，这次没有调用谷歌地图）。");
-  await expect(group).toContainText("结算价 JPY 5,000");
+  await expect(page.locator("main")).toContainText("用的路程：9.3 公里、25 分钟（来自缓存，这次没有调用谷歌地图）。");
+  await expect(group).toContainText("结算价 JPY 5,100");
   await expect(banner).toHaveCount(0);
 
   // 起终点在同一个格子：按 0，收起步价
