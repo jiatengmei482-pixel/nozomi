@@ -8,6 +8,28 @@
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-height: 100dvh;
+  /* 官网的正文和控件文字一律 16px（01-tokens.md 第 3 节「官网的正文」；pages/site-booking.md 第 2 节） */
+  --control-font-size: var(--font-size-lg);
+  font-size: var(--font-size-lg);
+}
+
+/* 官网的字段标签、帮助文字、校验提示用 14px，不用后台的 13px */
+.site .field__label,
+.site .field__hint,
+.site .field__errors,
+.site .field__error,
+.site legend {
+  font-size: var(--font-size-md);
+}
+
+/* 官网的控件一律 lg 高度，下拉框和坐标输入框也一样（textarea 除外，它按行数撑高） */
+.site .input:not(.textarea) {
+  height: var(--control-height-lg);
+}
+
+/* 官网不用星号标必填：除了写着「（选填）」的，都要填（pages/site-booking.md 第 2.3 节） */
+.site .field__required {
+  display: none;
 }
 
 .site__header {
@@ -70,7 +92,7 @@
 
 .site-muted {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
 }
 
 .site-break {
@@ -89,7 +111,7 @@
 }
 
 .site-section__title {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
 }
@@ -120,8 +142,9 @@
   background: var(--color-bg-surface);
 }
 
-.site-actions--inline {
+.site-actions.site-actions--inline {
   position: static;
+  background: transparent;
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
@@ -160,7 +183,12 @@
   font-weight: var(--font-weight-bold);
 }
 
-.site-quote__price,
+.site-quote__price {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
 .site-price {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
@@ -191,7 +219,7 @@
 
 .site-facts__item > dt {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
 }
 
 .site-facts__item > dd {
@@ -214,12 +242,27 @@
   overflow-wrap: anywhere;
 }
 
+/* 订单状态是客人进页面最先要看的：徽标比后台的大一号 */
+.site-order__head .badge {
+  height: auto;
+  min-height: 28px;
+  font-size: var(--font-size-md);
+}
+
 .site-share {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
   margin-top: var(--space-2);
+}
+
+/* 复制按钮跟在链接后面（.copy-button 默认绝对定位贴在输入框右边，这里不是输入框） */
+.site-share > .copy-button {
+  position: relative;
+  flex: none;
+  width: var(--control-height-lg);
+  height: var(--control-height-lg);
 }
 
 .site-share__url {
@@ -286,6 +329,10 @@
 
   .site-section {
     padding: var(--space-6);
+  }
+
+  .site__title {
+    font-size: var(--font-size-3xl);
   }
 
   .site-form__row,

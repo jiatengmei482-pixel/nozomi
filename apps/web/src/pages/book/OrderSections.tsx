@@ -194,7 +194,9 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
           {order.passenger.name} · {order.passenger.phone} · <span className="site-break">{order.passenger.email}</span>
         </Fact>
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
-        <Fact label="价格">{moneyText(order.price.total)}</Fact>
+        <Fact label="总价">
+          <span className="site-price">{moneyText(order.price.total)}</span>
+        </Fact>
         <Fact label="免费等待">{order.free_wait_minutes === null ? "不限时" : `${order.free_wait_minutes} 分钟（${pickup ? "从航班落地起算" : "从约定的上车时间起算"}）`}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}
       </dl>
@@ -616,7 +618,7 @@ export function CancelSection({ token, order, onChanged }: { token: string; orde
       {order.cancel_policy !== null && <p>取消政策：{tiersText(order.cancel_policy.tiers)}（按距用车时间计算，扣款按订单金额的比例）。</p>}
       {fee === null ? (
         <div className="site-actions site-actions--inline">
-          <Button variant="danger" size="lg" loading={busy} loadingText="正在计算" onClick={() => void preview("GUEST_REQUEST")}>
+          <Button size="lg" loading={busy} loadingText="正在计算" onClick={() => void preview("GUEST_REQUEST")}>
             取消订单
           </Button>
           {order.free_cancel_available && (
