@@ -235,6 +235,13 @@ test("Stripe：三项一组、只收测试密钥；填写后立即用新密钥�
   const deliver = (secret: string): Promise<number> =>
     api.app.inject({ method: "POST", url: "/webhooks/stripe", headers: { "content-type": "application/json", "stripe-signature": stripeSignatureHeader(body, secret, Math.floor(api.clock.now().getTime() / 1000)) }, payload: body }).then((r) => r.statusCode);
   assert.equal(await deliver(STRIPE.webhook_secret), 503, "还没配置 Stripe：收不了通知");
+  // 这是配置状态不是程序出错：记 warn（40），不记 error（50）；提示去运营后台填写
+  const logLines = api.logs().split("\n").filter((line) => line !== "").map((line) => JSON.parse(line) as Record<string, any>);
+  assert.ok(logLines.some((line) => line["event"] === "payment.webhook_not_configured" && line["level"] === 40));
+  assert.ok(!logLines.some((line) => line["level"] >= 50 && line["req"]?.path === "/webhooks/stripe"));
+  assert.ok(!logLines.some((line) => line["level"] >= 50 && String(line["msg"]).includes("未预期")), "没有记成未预期的异常");
+  const rejected = await api.app.inject({ method: "POST", url: "/webhooks/stripe", headers: { "content-type": "application/json", "stripe-signature": "t=1,v1=x" }, payload: body });
+  assert.deepEqual([rejected.json().error.code, rejected.json().error.message], ["PAYMENT_NOT_CONFIGURED", "支付未配置（Stripe 还没有配置），现在不能下单。请超级管理员在运营后台「系统设置 → 系统状态 → 第三方密钥」填写 Stripe 的三个密钥"]);
 
   const saved = await save("stripe", STRIPE);
   assert.equal(saved.status, 200, saved.text);

@@ -1,18 +1,13 @@
 import { browser, platformPage, SHOT } from "./qa-tmp-lib.mjs";
-import { writeFileSync } from "node:fs";
-const SCR = "/tmp/claude-1000/-workspaces-nozomi/3c52977f-7ec6-45a6-91fb-337c30e17c9c/scratchpad/";
 const b = await browser();
-const p = await platformPage(b, { path: "/platform/settings/staff" });
-console.log(p.url(), await p.getByRole("button").allInnerTexts(), await p.getByRole("link", { name: /新|邀请/ }).allInnerTexts());
-await p.getByRole("link", { name: "新增员工" }).click(); await p.waitForTimeout(1000);
-
-await p.getByLabel("邮箱").fill("qa-m405-20261026@nozomi.moveglobal.io");
-await p.getByLabel("姓名").fill("M4-05 验收临时员工（自建角色）");
-await p.locator('input[value="custom_4a16c6195b8bd3aa"]').check();
-await p.getByRole("button", { name: /邀请|新建|发出/ }).last().click(); await p.waitForTimeout(2500);
-const html = await p.content();
-const m = html.match(/https:\/\/nozomi\.moveglobal\.io\/[^"'<\s]*invite[^"'<\s]*/);
-if (m) writeFileSync(SCR + "invite-staff.txt", m[0].replace(/&amp;/g,"&"), { mode: 0o600 });
-console.log("link saved:", !!m);
-console.log((await p.getByRole("dialog").innerText().catch(()=>"(no dialog)")).replace(/https:\S+/g,"<link>"));
+const p = await platformPage(b, { path: "/platform/tenants/a4f24caa-d0cd-421c-a582-7a440312cc24" });
+await p.getByRole("button", { name: "发起新版本" }).click(); await p.waitForTimeout(800);
+const d = p.getByRole("dialog");
+await d.getByLabel("生效日期").fill("2026-10-26");
+await d.getByLabel("结算币种").selectOption("JPY");
+await d.getByLabel("说明").fill("验收测试合同 M4-01");
+await d.getByRole("button", { name: "提交审核" }).click(); await p.waitForTimeout(2000);
+const t = await p.locator("main").innerText(); console.log(t.slice(t.indexOf("合同"), t.indexOf("合同") + 600));
+await p.goto("https://nozomi.moveglobal.io/platform/approvals", { waitUntil: "networkidle" }); await p.waitForTimeout(1000);
+console.log("APPROVALS (initiator):", (await p.locator("main").innerText()).slice(0, 800).replace(/\n+/g, " | "));
 await b.close();
