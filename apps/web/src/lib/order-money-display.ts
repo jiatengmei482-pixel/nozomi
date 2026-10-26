@@ -8,6 +8,7 @@ import {
   ORDER_CANCEL_REASON_NAMES,
   type OrderCancelReason,
   type OrderChangeStatus,
+  type PaymentStatus,
   type RefundStatus,
   type ServiceCategory,
   VEHICLE_LEVEL_NAMES,
@@ -56,6 +57,20 @@ export function cancelReasonName(reason: OrderCancelReason | string | null): str
 
 /** 运营代取消能选的原因（付款前的两种只由系统用）。 */
 export const PLATFORM_CANCEL_REASONS: readonly OrderCancelReason[] = ["GUEST_REQUEST", "FLIGHT_CANCELLED", "FORCE_MAJEURE", "SUPPLIER_FAULT", "PLATFORM_FAULT", "CHANGE_NOT_CONFIRMED"];
+
+/** 收款记录的状态（`PAYMENT_STATUSES` 每一个都要有中文名）。 */
+export const PAYMENT_STATUS_NAMES: Readonly<Record<PaymentStatus, string>> = {
+  creating: "正在建付款",
+  requires_payment: "等客人付款",
+  processing: "付款处理中",
+  succeeded: "已付款",
+  canceled: "已作废（没有付款）",
+  failed: "扣款失败",
+};
+
+export function paymentStatusName(status: string): string {
+  return PAYMENT_STATUS_NAMES[status as PaymentStatus] ?? status;
+}
 
 export const CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, BadgeSpec>> = {
   awaiting_payment: { tone: "info", label: "补差价中" },

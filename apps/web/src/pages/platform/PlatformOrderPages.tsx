@@ -52,6 +52,7 @@ import {
   changeValueText,
   extraTypeName,
   levelName,
+  paymentStatusName,
   platformOrderPath,
   tiersText,
 } from "../../lib/order-money-display.ts";
@@ -387,7 +388,7 @@ export function PlatformOrderDetailPage() {
         <h2 className="card__title">收款与退款</h2>
         <ul className="plain-list">
           {detail.payments.map((payment) => (
-            <li key={payment.id}>{`${payment.kind === "order" ? "下单付款" : payment.kind === "change" ? "改期补差价" : "事后加收"} · ${moneyText(payment.amount)} · ${payment.status}${payment.refunded.amount !== "0" && payment.refunded.amount !== "0.00" ? ` · 已退 ${moneyText(payment.refunded)}` : ""}${payment.last_error?.decline_code ? ` · 被拒：${payment.last_error.decline_code}` : ""}`}</li>
+            <li key={payment.id}>{`${payment.kind === "order" ? "下单付款" : payment.kind === "change" ? "改期补差价" : "事后加收"} · ${moneyText(payment.amount)} · ${paymentStatusName(payment.status)}${payment.refunded.amount !== "0" && payment.refunded.amount !== "0.00" ? ` · 已退 ${moneyText(payment.refunded)}` : ""}${payment.last_error?.decline_code ? ` · 被拒：${payment.last_error.decline_code}` : ""}`}</li>
           ))}
         </ul>
         {detail.refunds.length > 0 && (

@@ -179,6 +179,13 @@ test("渠道详情：加价规则低于下限当场拦下；提交后发起复�
   assert.ok(screen.getByText("15%"), "规则表里的比例");
   await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
   const dialog = await screen.findByRole("dialog", { name: "新增加价规则" });
+  // 日期框的占位是格式提示（不像已经填好的日期），例子写在说明里
+  for (const name of ["用车日期从（选填）", "到（选填）"]) {
+    const input = within(dialog).getByRole("textbox", { name }) as HTMLInputElement;
+    assert.equal(input.value, "");
+    assert.equal(input.placeholder, "年-月-日", name);
+  }
+  assert.match(dialog.textContent ?? "", /写成 2026-12-01 这样/);
   await actor.click(within(dialog).getByRole("radio", { name: /第 2 级/ }));
   await actor.selectOptions(within(dialog).getByRole("combobox", { name: "供应商" }), TENANT_ID);
   await actor.type(within(dialog).getByRole("textbox", { name: "加价比例（%）" }), "9");

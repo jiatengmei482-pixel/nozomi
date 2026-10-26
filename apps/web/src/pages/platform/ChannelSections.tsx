@@ -253,10 +253,10 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
         {dims.vehicleGroup && errorOf("vehicleGroupId").length > 0 && <p className="field__error">{errorOf("vehicleGroupId")[0]}</p>}
         <TextField label="加价比例（%）" inputMode="decimal" autoComplete="off" value={form.markup} errors={errorOf("markup")} hint={`不能低于这个渠道的加价下限 ${percentText(Math.max(floorBp, 1_000))}（平台下限 ${PLATFORM_FLOOR_TEXT}）。`} onChange={(event) => change({ markup: event.target.value })} />
         <div className="quote-form__time">
-          <TextField label="用车日期从（选填）" inputMode="numeric" autoComplete="off" placeholder="2026-12-01" value={form.validFrom} errors={errorOf("validFrom")} onChange={(event) => change({ validFrom: event.target.value })} />
-          <TextField label="到（选填）" inputMode="numeric" autoComplete="off" placeholder="2026-12-07" value={form.validTo} errors={errorOf("validTo")} onChange={(event) => change({ validTo: event.target.value })} />
+          <TextField label="用车日期从（选填）" inputMode="numeric" autoComplete="off" placeholder="年-月-日" value={form.validFrom} errors={errorOf("validFrom")} onChange={(event) => change({ validFrom: event.target.value })} />
+          <TextField label="到（选填）" inputMode="numeric" autoComplete="off" placeholder="年-月-日" value={form.validTo} errors={errorOf("validTo")} onChange={(event) => change({ validTo: event.target.value })} />
         </div>
-        <p className="field__hint">促销期用：按用车日期（城市当地），两端都含。同一级里，在日期范围内的规则优先于不带日期的。</p>
+        <p className="field__hint">促销期用：按用车日期（城市当地），两端都含，写成 2026-12-01 这样。同一级里，在日期范围内的规则优先于不带日期的。</p>
         <TextField label="备注（选填）" autoComplete="off" value={form.note} onChange={(event) => change({ note: event.target.value })} />
         <TextField label="给审核人的说明（选填）" autoComplete="off" value={form.requestNote} onChange={(event) => change({ requestNote: event.target.value })} />
         <ImpactPreview channelId={channelId} request={impactRequest} />

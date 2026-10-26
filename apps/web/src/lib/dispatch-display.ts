@@ -35,9 +35,18 @@ export function serviceLocalText(order: Pick<TenantOrder, "service_local">): str
 }
 
 /** 路线：接机「机场 → 地址」、送机「地址 → 机场」、其他「上车点 → 下车点」。机场的名字页面另外查，这里用「机场」。 */
-export function routeText(order: Pick<TenantOrder, "category" | "direction" | "pickup" | "dropoff">, placeName = "机场"): string {
+/**
+ * 行程按品类写：接送机、点对点「起点 → 终点」（接送机缺的一头是机场）；
+ * 包车没有终点，写「包车 8 小时 · 上车：地址」（有终点时照写「起点 → 终点」）。
+ */
+export function routeText(order: Pick<TenantOrder, "category" | "direction" | "pickup" | "dropoff"> & { package_hours?: number | null }, placeName = "机场"): string {
+  if (order.category === "charter") {
+    const head = order.package_hours ? `包车 ${order.package_hours} 小时` : "包车";
+    const from = order.pickup?.address ?? "—";
+    return order.dropoff ? `${head} · ${from} → ${order.dropoff.address}` : `${head} · 上车：${from}`;
+  }
   const from = order.pickup?.address ?? placeName;
-  const to = order.dropoff?.address ?? (order.category === "charter" ? "—" : placeName);
+  const to = order.dropoff?.address ?? placeName;
   return `${from} → ${to}`;
 }
 
