@@ -10,6 +10,8 @@
   本任务开发时 M3-02 还没合并，曾把那几处原样带过来；合并 main 后只保留 main 的一份（`apps/api/src/integrations/secret-box.ts`、`packages/config`、`deploy/bin/deploy.sh` 的 `ensure_data_encryption_key`），
   两个用途派生的子密钥互不相通（`secret-box.test.ts`）。
 - 补充 ADR 0027：M3-02 的运营后台接口（订单的照片、推送记录、手动重推）纳入两步验证、IP 白名单和数据范围；`order.resend` 是订单菜单的「编辑」（见下）。
+- 补充 ADR 0028、0029：M4-01（供应商入驻）和 M3-03（取消、改单、加收）的运营后台接口同样纳入两步验证和 IP 白名单；它们新增的权限都在菜单表里有一格（见下），订单类按数据范围、供应商类和取消政策暂不按范围。
+  它们的复核类别（`tenant.suspend`、`tenant.terminate`、`tenant.contract`、`cancellation_policy.update`、`order.cancel_refund`）和本文的 `platform_role.update`、`staff.mfa_reset` 一起登记在 `services/approval-kinds.ts`。
 
 ## 背景
 
@@ -86,11 +88,12 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
 
   | 菜单 | 查看 | 编辑 | 审核 |
   | --- | --- | --- | --- |
-  | 供应商 | `tenant.read` | `tenant.create`、`tenant.change_status` | |
+  | 供应商 | `tenant.read` | `tenant.create`、`tenant.change_status`、`tenant.review`（资质审核、合同，M4-01） | `tenant.approve`（人工暂停、清退、合同版本的复核，M4-01） |
   | 供应商商品 | `product.read` | | |
   | 报价试算 | `quote.preview` | | |
   | 渠道 | `channel.read` | `channel.manage` | `channel.review` |
-  | 订单（含「推送记录」页） | `order.read` | `order.resend`（手动重推给供应商的 Webhook，M3-02） | |
+  | 订单（含「推送记录」页） | `order.read` | `order.resend`（手动重推给供应商的 Webhook，M3-02）、`order.manage`（代客人取消、改单、审核事后加收、发起免收取消费，M3-03） | `payment.manage`（重试失败的退款和扣款、审核「多退给客人」的代取消，M3-03） |
+  | 取消政策（M3-03） | `master_data.read`（和主数据的查看是同一个操作，勾哪一格都能看两处） | `cancellation_policy.manage` | `cancellation_policy.review` |
   | 待审核 | `approval.read` | | |
   | 主数据与汇率 | `master_data.read` | `master_data.manage`、`fx.manage` | `fx.review` |
   | 平台账号 | `staff.read` | `staff.manage`（只归超级管理员） | |
@@ -119,10 +122,13 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
   | --- | --- | --- |
   | 渠道 | 渠道列表、渠道详情及其下面的一切（加价规则、API 客户端、询价日志、改动、发起复核）；订单列表和详情；渠道类的复核（列表、详情、审核）；按渠道的报价试算 | 列表里没有；按编号访问和不存在一样（404） |
   | 城市 | 订单列表和详情 | 同上 |
+  | 城市、渠道（M3-03 的接口） | 按订单的退款试算、代取消、代改单、审核事后加收、重试扣款和退款；「代取消多退给客人」的复核（列表、详情、审核；对象是订单，复核类别标 `orderScoped`） | 同上（按编号 404，列表里没有） |
   | 城市、渠道（M3-02 的接口） | 订单的照片（落地、no-show 的证据）；推给供应商的 Webhook 的投递记录（列表、详情、手动重推）——按投递所属订单的城市和渠道 | 同上；限定了任一维度时，不属于任何订单的测试事件也看不到（归不到任何城市、渠道） |
 
   限定了渠道范围的人不能新建渠道（403 `DATA_SCOPE_DENIED`：新渠道不在任何人的范围里，建了自己也看不到）。
   M3-02 在运营后台新增的权限只有 `order.resend`，它的对象（投递）都能按订单归到城市和渠道，所以全部纳入数据范围，没有例外；M3-02 的其余权限（派车、司机、车辆、租户 Webhook）是租户角色的，不涉及平台的数据范围。
+  M3-03 的 `order.manage`、`payment.manage` 都是对某一张订单的操作，按订单的城市、渠道纳入数据范围（接口先调 `assertPlatformOrderInScope`）。**暂不按范围的**：
+  `cancellation_policy.manage` / `review`（平台取消政策是全平台的一份，没有城市、渠道之分）；M4-01 的 `tenant.review`、`tenant.approve` 和供应商相关的接口、复核（供应商没有单一的城市，和「本期不做」里「按供应商的范围」是同一个口径问题，到时一起定）。
   订单是否在范围内由 `services/order-queries.ts` 的 `orderInScope` 统一判断（照片、投递共用）；投递列表在同一条查询里按订单和销售记录过滤。
   渠道的 `/channels/:id…` 接口在一个地方统一检查（路由里的鉴权函数），以后在渠道下面加接口不用各自记得。
 - **为什么是这两个维度**：需求原文的例子就是「某几个城市、某几个渠道」；它们在现有数据里都有明确的归属（订单有城市和渠道，渠道类的复核对象编号就是渠道编号）。

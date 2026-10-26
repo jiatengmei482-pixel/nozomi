@@ -163,6 +163,19 @@ export async function orderInScope(db: Db, order: Pick<Order, "id" | "cityId">, 
   return sale !== null && scopeAllowsChannel(scope, sale.channelId);
 }
 
+/**
+ * 运营后台按订单编号操作之前（取消、改单、加收、退款的接口）：订单不在这个人的数据范围里时和不存在一样（404，ADR 0030）。
+ * 不限范围时不查。
+ */
+export async function assertPlatformOrderInScope(ctx: AppContext, scope: PlatformDataScope, orderId: string): Promise<void> {
+  if (!scopeIsRestricted(scope)) return;
+  const visible = await withPlatformTx(ctx.pool, async (db) => {
+    const order = await findOrderForPlatform(db, orderId);
+    return order !== null && (await orderInScope(db, order, scope));
+  });
+  if (!visible) throw notFound("订单");
+}
+
 export async function listOrdersForPlatform(ctx: AppContext, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<{ items: PlatformOrderRow[]; nextCursor: string | null; total: number }> {
   return withPlatformTx(ctx.pool, (db) => listPlatformOrders(db, filter, limit, after), { snapshot: true });
 }

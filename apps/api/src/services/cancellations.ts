@@ -291,6 +291,8 @@ export const ORDER_CANCEL_REFUND: ApprovalKind = {
   readAction: "order.read",
   requestAction: "order.manage",
   reviewAction: "payment.manage",
+  // 对象是订单：限定了数据范围的人只看得到、审得了范围内订单的（ADR 0030）
+  orderScoped: true,
   async apply(db, approval, origin) {
     const payload = approval.payload;
     const orderId = payload["order_id"] as string;

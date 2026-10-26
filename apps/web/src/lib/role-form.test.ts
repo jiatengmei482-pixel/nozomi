@@ -6,10 +6,12 @@ import { allowlistProblems, permissionMatrix, splitAllowlist, toggleGrant } from
 test("勾选表：每个菜单一行、四列；没有的格子标出来；只归超级管理员的三格标出来", () => {
   const rows = permissionMatrix();
   assert.equal(rows.length, PLATFORM_MENUS.length);
-  const tenants = rows.find((row) => row.key === "tenants");
-  assert.equal(tenants?.cells.view.exists, true);
-  assert.equal(tenants?.cells.review.exists, false);
-  assert.equal(tenants?.cells.export.exists, false);
+  const products = rows.find((row) => row.key === "products");
+  assert.equal(products?.cells.view.exists, true);
+  assert.equal(products?.cells.edit.exists, false);
+  assert.equal(products?.cells.review.exists, false);
+  assert.equal(products?.cells.export.exists, false);
+  assert.equal(rows.find((row) => row.key === "tenants")?.cells.review.exists, true, "供应商的复核（M4-01）");
   const locked = rows.flatMap((row) => Object.values(row.cells)).filter((cell) => cell.superAdminOnly).map((cell) => cell.grant);
   assert.deepEqual(locked.sort(), ["roles:edit", "roles:review", "staff:edit"]);
 });

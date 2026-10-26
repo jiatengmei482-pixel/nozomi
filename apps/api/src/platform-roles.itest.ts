@@ -237,7 +237,7 @@ test("数据范围（订单的推送记录、照片，M3-02 的接口）：范�
   const testEvent = await deliver(saleA.tenant_id, null, "webhook.test");
 
   const role = await ok(createRole({ name: "甲渠道推送", grants: ["orders:view", "orders:edit"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
-  assert.deepEqual(role.permissions, ["order.read", "order.resend"]);
+  assert.deepEqual(role.permissions, ["order.read", "order.resend", "order.manage"]);
   const a = await addStaff("deliveries-a@platform.test", role.key);
   const list = await ok(api.call("GET", "/platform/v1/webhook-deliveries?status=failed", { token: a.token }));
   assert.deepEqual(list.items.map((d: any) => d.id), [inA]);
@@ -269,6 +269,56 @@ test("数据范围（订单的推送记录、照片，M3-02 的接口）：范�
   assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${osaka.token}` } })).statusCode, 404, "城市范围外");
   assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${a.token}` } })).statusCode, 404, "限定了渠道范围：不属于任何渠道的单看不到");
   assert.equal((await api.app.inject({ method: "GET", url: fileUrl, headers: { authorization: `Bearer ${m.staff.operations.token}` } })).statusCode, 200);
+});
+
+test("数据范围（取消、改单、加收、退款，M3-03 的接口；代取消多退的复核）：范围外的订单和不存在一样；取消政策不按范围", async () => {
+  const sales = (await api.db.owner.query<{ order_id: string; channel_id: string; status: string }>("select s.order_id, s.channel_id, o.status from order_sales s join orders o on o.id = s.order_id where s.channel_id = any($1::uuid[])", [[channelA, channelB]])).rows;
+  const orderA = sales.find((r) => r.channel_id === channelA)!.order_id;
+  const orderB = sales.find((r) => r.channel_id === channelB)!.order_id;
+  const role = await ok(createRole({ name: "甲渠道售后", grants: ["orders:view", "orders:edit", "orders:review", "approvals:view", "cancellation_policy:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
+  assert.deepEqual(role.permissions, ["master_data.read", "approval.read", "order.read", "order.resend", "order.manage", "payment.manage"]);
+  const staff = await addStaff("aftersales-a@platform.test", role.key);
+  const missing = randomUUID();
+  const child = randomUUID();
+  const pairs: [string, (id: string) => string, unknown][] = [
+    ["GET", (id) => `/platform/v1/orders/${id}/cancel-fee`, undefined],
+    ["POST", (id) => `/platform/v1/orders/${id}/cancel`, { reason: "GUEST_REQUEST" }],
+    ["PATCH", (id) => `/platform/v1/orders/${id}`, { flight_no: "NH999" }],
+    ["POST", (id) => `/platform/v1/orders/${id}/extra-charges/${child}/decide`, { decision: "reject" }],
+    ["POST", (id) => `/platform/v1/orders/${id}/extra-charges/${child}/retry`, {}],
+    ["POST", (id) => `/platform/v1/orders/${id}/refunds/${child}/retry`, {}],
+  ];
+  const before = (await api.db.owner.query("select status, version from orders where id = $1", [orderB])).rows[0];
+  for (const [method, url, body] of pairs) {
+    const headers = method === "PATCH" ? { "if-match": '"1"' } : undefined;
+    const out = await api.call(method as "GET" | "POST" | "PATCH", url(orderB), { token: staff.token, ...(body === undefined ? {} : { body }), ...(headers ? { headers } : {}) });
+    const none = await api.call(method as "GET" | "POST" | "PATCH", url(missing), { token: staff.token, ...(body === undefined ? {} : { body }), ...(headers ? { headers } : {}) });
+    assert.equal(out.status, 404, `${method} ${url(orderB)}：${out.text}`);
+    assert.deepEqual(out.body, none.body, `${method} ${url(orderB)} 和不存在的应答不同`);
+  }
+  assert.deepEqual((await api.db.owner.query("select status, version from orders where id = $1", [orderB])).rows[0], before, "范围外的操作没有效果");
+  assert.notEqual((await api.call("GET", `/platform/v1/orders/${orderA}/cancel-fee`, { token: staff.token })).status, 404, "范围内的照常");
+  assert.equal((await api.call("GET", "/platform/v1/cancellation-policy", { token: staff.token })).status, 200, "取消政策是全平台的，不按范围");
+
+  // 代取消多退给客人的复核：对象是订单，按订单的范围过滤（列表、详情、审核）
+  const rootId = (await api.db.owner.query("select id from platform_users where email = 'root@platform.test'")).rows[0].id;
+  const approvalOf = async (orderId: string): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>(
+      "insert into approvals (kind, resource, resource_id, summary, payload, requested_by, requested_at) values ('order.cancel_refund', 'order', $1, '代取消（测试）', $2::jsonb, $3, $4) returning id",
+      [orderId, JSON.stringify({ order_id: orderId, reason: "GUEST_REQUEST", waive_fee: true, note: null, refund_minor: 1, policy_refund_minor: 0, currency: "JPY" }), rootId, api.clock.now()],
+    )).rows[0]!.id;
+  const inA = await approvalOf(orderA);
+  const inB = await approvalOf(orderB);
+  const list = await ok(api.call("GET", "/platform/v1/approvals?status=pending&limit=100", { token: staff.token }));
+  assert.ok(list.items.some((a: any) => a.id === inA));
+  assert.ok(!list.items.some((a: any) => a.id === inB), "范围外订单的复核不在列表里");
+  assert.equal((await api.call("GET", `/platform/v1/approvals/${inA}`, { token: staff.token })).status, 200);
+  assert.equal((await api.call("GET", `/platform/v1/approvals/${inB}`, { token: staff.token })).status, 404);
+  assert.equal((await api.call("POST", `/platform/v1/approvals/${inB}/approve`, { token: staff.token, body: {} })).status, 404);
+  assert.equal((await api.db.owner.query("select status from approvals where id = $1", [inB])).rows[0].status, "pending");
+  const unscoped = await ok(api.call("GET", "/platform/v1/approvals?status=pending&limit=100", { token: m.staff.operations.token }));
+  assert.ok([inA, inB].every((id) => unscoped.items.some((a: any) => a.id === id)), "不限范围的两条都看得到");
+  for (const id of [inA, inB]) await ok(api.call("POST", `/platform/v1/approvals/${id}/withdraw`, { token: m.root, body: {} }));
 });
 
 test("删除自建角色：有人用（含待激活、已停用）时 409 ROLE_IN_USE；没人用了可以删；删掉的角色不能再给人", async () => {

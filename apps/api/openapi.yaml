@@ -7291,7 +7291,7 @@ paths:
       tags: [订单]
       operationId: getPlatformCancelFee
       summary: 代取消的退款试算
-      description: 需要操作 `order.read`。另有按阶梯本来该退的、供应商应得的、是否要双人复核。
+      description: 需要操作 `order.read`。另有按阶梯本来该退的、供应商应得的、是否要双人复核。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7323,6 +7323,7 @@ paths:
         需要操作 `order.manage`（运营、客服），必须写原因说明。免费的原因（`FLIGHT_CANCELLED` 航班取消有证明、`FORCE_MAJEURE` 不可抗力、`SUPPLIER_FAULT`、`PLATFORM_FAULT`、`CHANGE_NOT_CONFIRMED`）扣 0；
         `GUEST_REQUEST` 按阶梯，可选 `waive_fee` 免收取消费。退给客人的比按阶梯算的多时不直接生效：返回 202 和一条复核（`kind` = `order.cancel_refund`），
         另一位有 `payment.manage`（财务、运营）的同事批准时取消（需求「人工退款超过阈值」）。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7375,7 +7376,7 @@ paths:
       tags: [订单]
       operationId: decidePlatformExtraCharge
       summary: 审核事后加收
-      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。
+      description: 需要操作 `order.manage`。待审核、有异议的可以通过（`approved_amount` 部分通过，结算币种最小单位）或驳回；扣款失败的可以驳回（不收了）。通过只能在异议期结束之后（客人提了异议的也要等到期）；驳回随时可以。通过后马上用保存的支付方式扣款。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7428,7 +7429,7 @@ paths:
       tags: [订单]
       operationId: retryPlatformExtraCharge
       summary: 重试扣款失败的加收
-      description: 需要操作 `payment.manage`（财务、运营）。用一条新的收款记录再扣一次。写审计日志。
+      description: 需要操作 `payment.manage`（财务、运营）。用一条新的收款记录再扣一次。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7464,7 +7465,7 @@ paths:
       tags: [订单]
       operationId: retryPlatformRefund
       summary: 重试失败的退款
-      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。
+      description: 需要操作 `payment.manage`。新建一笔同样金额的退款（新的幂等键）马上发一次，指回失败的那一笔（`retry_of`）；一笔失败的只能重试一次。订单取消时已经包含进退款的（`superseded_at` 不为空）不能重试；重试前按这一刻核对「实际付了的 − 这一笔 ≥ 应留下的」。写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:
@@ -7874,7 +7875,7 @@ paths:
       tags: [订单]
       operationId: changePlatformOrder
       summary: 代客人改单
-      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。
+      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
         - platformToken: []
       parameters:

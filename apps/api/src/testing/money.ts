@@ -8,7 +8,7 @@ import { type Market, ok } from "./market.ts";
 
 /** 平台员工重新登录（令牌 8 小时过期）。 */
 export async function platformLogin(api: TestApi, email: string): Promise<string> {
-  return (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } }))).access_token;
+  return (await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD } }))).access_token;
 }
 
 /** 供应商用户重新登录。 */

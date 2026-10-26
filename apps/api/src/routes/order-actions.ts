@@ -13,6 +13,7 @@
  * - `GET /platform/v1/cancellation-policy`、`POST …/cancellation-policy/changes`（双人复核）；
  * - `GET /platform/v1/orders/{id}/cancel-fee`、`POST …/cancel`（多退了钱的发起双人复核）、`PATCH …/orders/{id}`（代客人改单）；
  * - `POST …/extra-charges/{chargeId}/decide`（审核）、`POST …/extra-charges/{chargeId}/retry`、`POST …/refunds/{refundId}/retry`（财务重试）。
+ * 运营后台按订单的接口都先核对数据范围（ADR 0030：订单的城市、渠道），范围外的和不存在一样；取消政策是全平台的，不按范围。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -29,7 +30,8 @@ import { type OrderChangeInput, changeForChannel, changeForPlatform, decideChang
 import { retryRefund } from "../services/order-money.ts";
 import { changeJson, extraChargeJson } from "../services/order-views.ts";
 import { getSalesOrderView } from "../services/orders.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
+import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
@@ -221,28 +223,30 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
   // ---- 运营后台 ----
 
   app.get("/platform/v1/cancellation-policy", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "master_data.read" });
+    await authenticatePlatform(ctx, platformCredentials(request), { action: "master_data.read" });
     return { policy: cancellationPolicyJson(await getCancellationPolicy(ctx, "platform")) };
   });
 
   app.post("/platform/v1/cancellation-policy/changes", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "cancellation_policy.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "cancellation_policy.manage" });
     const input = parseInput(policySchema, request.body, "body");
     const approval = await requestCancellationPolicyChange(ctx, principal, input.rules.map((rule) => ({ category: rule.category, level: rule.level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.min_hours_before, feeBp: tier.fee_bp })) })), input.note, request.ip);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
   app.get("/platform/v1/orders/:id/cancel-fee", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const query = parseInput(platformFeeQuerySchema, request.query, "querystring");
     const found = await previewCancellation(ctx, "platform", orderId, query.reason, query.waive_fee === "true");
     return feeJson(found.quote, "platform");
   });
 
   app.post("/platform/v1/orders/:id/cancel", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(platformCancelSchema, request.body, "body");
     const result = await cancelForPlatform(ctx, principal, orderId, { reason: input.reason, waiveFee: input.waive_fee, note: input.note }, request.ip, request.log);
     if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
@@ -250,8 +254,9 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.patch("/platform/v1/orders/:id", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(changeSchema, request.body ?? {}, "body");
     const result = await changeForPlatform(ctx, principal, orderId, version, toChangeInput(input), request.ip, request.log);
@@ -259,8 +264,9 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/decide", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
     const input = parseInput(decideSchema, request.body, "body");
     const charge = await decideExtraCharge(ctx, principal, orderId, chargeId, { decision: input.decision, approvedMinor: input.approved_amount, note: input.note }, request.ip, request.log);
@@ -268,15 +274,17 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/retry", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "payment.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "payment.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
     return { extra_charge: extraChargeJson(await retryExtraCharge(ctx, principal, orderId, chargeId, request.ip, request.log)) };
   });
 
   app.post("/platform/v1/orders/:id/refunds/:refundId/retry", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "payment.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "payment.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const refundId = resourceId({ id: (request.params as { refundId?: unknown }).refundId }, "退款");
     const { outcome, refund } = await retryRefund(ctx, principal, orderId, refundId, request.ip, request.log);
     return { outcome, refund: refund === null ? null : { id: refund.id, status: refund.status, amount: salesMoney(refund.amountMinor, refund.currency), last_error: refund.lastError } };

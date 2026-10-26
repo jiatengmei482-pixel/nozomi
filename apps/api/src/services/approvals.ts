@@ -8,7 +8,7 @@
  * - 撤回：只有发起人自己能撤回待审核的。
  * 汇率人工锁定（M2-06）按这里登记了两类；以后的结算条款、退款超过阈值、停用租户同样登记一类即可。
  */
-import { type ApprovalDecision, type ApprovalStatus, type PlatformAction, approvalDecisionRefusal, approvalStatusAfter, scopeAllowsChannel } from "@nozomi/domain";
+import { type ApprovalDecision, type ApprovalStatus, type PlatformAction, approvalDecisionRefusal, approvalStatusAfter, scopeAllowsChannel, scopeIsRestricted } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -18,6 +18,8 @@ import { type AuditOrigin, type AuditResource, type AuditValues, insertAuditLog 
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { forbidden, notFound } from "./errors.ts";
 import { type PlatformPrincipal, principalCan } from "./platform-auth.ts";
+import { findOrderForPlatform } from "../repos/orders.ts";
+import { orderInScope } from "./order-queries.ts";
 
 export interface ApprovalKind {
   kind: string;
@@ -33,6 +35,8 @@ export interface ApprovalKind {
   apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
   /** 对象编号（`resource_id`）是渠道编号：限定了渠道范围的人只看得到范围内的（ADR 0030）。可选 */
   channelScoped?: boolean;
+  /** 对象编号是订单编号：限定了数据范围的人只看得到订单在范围内的（ADR 0030，按订单的城市和渠道）。可选 */
+  orderScoped?: boolean;
   /** 批准的事务提交之后要做的事（如作废进程内的缓存，M2-06）；在事务里做会让别的请求在提交前把旧数据读回缓存。可选 */
   afterApply?(ctx: AppContext, approval: Approval): void | Promise<void>;
 }
@@ -91,23 +95,39 @@ export function approvalAbilities(kinds: ApprovalKinds, principal: PlatformPrinc
   return { approve: canReview && can("approve"), reject: canReview && can("reject"), withdraw: can("withdraw") };
 }
 
-export function listApprovalsFor(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, filter: Omit<ApprovalFilter, "kinds" | "channelScopedKinds" | "channelIds">, limit: number, after: TimeCursor | null): Promise<Page<Approval> & { total: number }> {
+export function listApprovalsFor(
+  ctx: AppContext,
+  kinds: ApprovalKinds,
+  principal: PlatformPrincipal,
+  filter: Omit<ApprovalFilter, "kinds" | "channelScopedKinds" | "channelIds" | "orderScopedKinds" | "cityIds">,
+  limit: number,
+  after: TimeCursor | null,
+): Promise<Page<Approval> & { total: number }> {
   const channelScopedKinds = [...kinds.values()].filter((kind) => kind.channelScoped === true).map((kind) => kind.kind);
-  return withPlatformTx(ctx.pool, (db) => listApprovals(db, { ...filter, kinds: visibleKinds(kinds, principal), channelScopedKinds, channelIds: principal.grant.scope.channelIds }, limit, after), { snapshot: true });
+  const orderScopedKinds = [...kinds.values()].filter((kind) => kind.orderScoped === true).map((kind) => kind.kind);
+  const { scope } = principal.grant;
+  return withPlatformTx(ctx.pool, (db) => listApprovals(db, { ...filter, kinds: visibleKinds(kinds, principal), channelScopedKinds, channelIds: scope.channelIds, orderScopedKinds, cityIds: scope.cityIds }, limit, after), { snapshot: true });
 }
 
-/** 这个人看不看得到这一条：这一类有看的权限，而且（渠道类的）渠道在他的数据范围里。 */
-function canSee(kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): boolean {
+/** 这个人看不看得到这一条：这一类有看的权限，而且（渠道类、订单类的）对象在他的数据范围里。 */
+async function canSee(db: Db, kinds: ApprovalKinds, principal: PlatformPrincipal, approval: Approval): Promise<boolean> {
   const kind = kinds.get(approval.kind);
   if (!kind || !principalCan(principal, kind.readAction)) return false;
-  return kind.channelScoped !== true || scopeAllowsChannel(principal.grant.scope, approval.resourceId);
+  if (kind.channelScoped === true && !scopeAllowsChannel(principal.grant.scope, approval.resourceId)) return false;
+  if (kind.orderScoped === true && scopeIsRestricted(principal.grant.scope)) {
+    const order = await findOrderForPlatform(db, approval.resourceId);
+    return order !== null && (await orderInScope(db, order, principal.grant.scope));
+  }
+  return true;
 }
 
 export async function getApproval(ctx: AppContext, kinds: ApprovalKinds, principal: PlatformPrincipal, id: string): Promise<Approval> {
-  const approval = await withPlatformTx(ctx.pool, (db) => findApproval(db, id));
-  // 看不到的那几类、数据范围外的，当作不存在
-  if (!approval || !canSee(kinds, principal, approval)) throw notFound("复核记录");
-  return approval;
+  return withPlatformTx(ctx.pool, async (db) => {
+    const approval = await findApproval(db, id);
+    // 看不到的那几类、数据范围外的，当作不存在
+    if (!approval || !(await canSee(db, kinds, principal, approval))) throw notFound("复核记录");
+    return approval;
+  });
 }
 
 /**
@@ -120,7 +140,7 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
   const decided = await withPlatformTx(ctx.pool, async (db) => {
     const approval = await findApproval(db, id, { lock: true });
     const kind = approval === null ? undefined : kinds.get(approval.kind);
-    if (!approval || !kind || !canSee(kinds, principal, approval)) throw notFound("复核记录");
+    if (!approval || !kind || !(await canSee(db, kinds, principal, approval))) throw notFound("复核记录");
     if (decision !== "withdraw" && !principalCan(principal, kind.reviewAction)) throw forbidden(kind.reviewAction);
     const refusal = approvalDecisionRefusal({ status: approval.status, requestedBy: approval.requestedBy.id }, principal.user.id, decision);
     if (refusal !== null) throw new AppError(409, refusal, REFUSAL_MESSAGES[refusal], { status: approval.status });
