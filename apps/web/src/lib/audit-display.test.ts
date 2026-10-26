@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { actionName, auditDiff, foldable, localDayInstant, objectName, resourceName, shortId, shownValue } from "./audit-display.ts";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@nozomi/domain";
+import { ACTION_NAMES, ACTION_NAMES_BY_RESOURCE, RESOURCE_NAMES, actionName, auditDiff, foldable, localDayInstant, objectName, resourceName, shortId, shownValue } from "./audit-display.ts";
 
 test("对象类型和操作：认识的写中文，不认识的原样（页面用等宽字体显示）", () => {
   assert.deepEqual(resourceName("tenant"), { text: "供应商", known: true });
@@ -55,4 +56,28 @@ test("筛选的日期按查看者本地的整天换成时刻：「到」是第�
   assert.equal(new Date(to).getTime() - new Date(from).getTime(), 24 * 3600 * 1000);
   assert.equal(new Date(from).getHours(), 0);
   for (const bad of ["2026-02-31", "2026-13-01", "abc", ""]) assert.equal(localDayInstant(bad, false), null, bad);
+});
+
+test("全部操作留审计（M4-03）：后端会写的每一种对象类型、每一种操作在审计日志页都有中文名；按对象换的说法也只用后端认识的值", () => {
+  for (const resource of AUDIT_RESOURCES) assert.equal(resourceName(resource).known, true, `对象类型 ${resource} 没有中文名`);
+  for (const action of AUDIT_ACTIONS) assert.equal(actionName(action).known, true, `操作 ${action} 没有中文名`);
+  for (const [resource, actions] of Object.entries(ACTION_NAMES_BY_RESOURCE)) {
+    assert.ok((AUDIT_RESOURCES as readonly string[]).includes(resource), `按对象的说法里有后端没有的对象类型 ${resource}`);
+    for (const action of Object.keys(actions)) assert.ok((AUDIT_ACTIONS as readonly string[]).includes(action), `按对象的说法里有后端没有的操作 ${action}`);
+  }
+  // 名称表里也不留后端已经不用的值（筛选下拉框里不出现点了也查不到的选项）
+  assert.deepEqual(Object.keys(RESOURCE_NAMES).filter((key) => !(AUDIT_RESOURCES as readonly string[]).includes(key)), []);
+  assert.deepEqual(Object.keys(ACTION_NAMES).filter((key) => !(AUDIT_ACTIONS as readonly string[]).includes(key)), []);
+});
+
+test("同一个操作在订单中心、财务结算的对象上换成业务说法；状态按对象说", () => {
+  assert.equal(actionName("close", "payout_batch").text, "锁定");
+  assert.equal(actionName("issue", "statement").text, "出账");
+  assert.equal(actionName("reply", "statement").text, "答复异议");
+  assert.equal(actionName("note", "ticket").text, "内部备注");
+  assert.equal(actionName("claim", "order_exception").text, "认领 / 转交");
+  assert.equal(actionName("close").text, "关闭");
+  assert.equal(shownValue("status", "awaiting_tenant", "ticket").text, "等供应商回复");
+  assert.equal(shownValue("status", "claimed", "order_exception").text, "处理中");
+  assert.equal(shownValue("status", "in_payout", "statement").text, "待付款");
 });

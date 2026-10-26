@@ -21,6 +21,10 @@ import { type TenantNotice, listOwnNotices } from "../api/onboarding.ts";
 import { TENANT_STATUS_HINTS, noticeText, scoreText, standingNotice } from "../lib/onboarding-display.ts";
 import { COMPANY_PATH } from "./company/CompanyPage.tsx";
 import { PERFORMANCE_PATH } from "./company/PerformancePage.tsx";
+import { countTenantTickets } from "../api/order-center.ts";
+import { type TenantStatement, listTenantStatements } from "../api/billing.ts";
+import { TENANT_TICKETS_PAGE } from "../lib/order-center-display.ts";
+import { TENANT_STATEMENTS_PAGE } from "../lib/billing-display.ts";
 
 export function HomePage() {
   const { portal, account, reloadAccount } = usePortalSession();
@@ -63,6 +67,14 @@ export function HomePage() {
   const showPerformance = useTenantCan("performance.read");
   const notices = useLoad<{ items: TenantNotice[] }>("home-notices", showCompany ? listOwnNotices : null);
   const standing = tenant === null ? null : standingNotice(tenant);
+  // 工单、账单（M4-03）
+  const showTickets = useTenantCan("ticket.read");
+  const showStatements = useTenantCan("statement.read");
+  const tickets = useLoad<{ active: number; awaiting: number }>("home-tickets", showTickets ? countTenantTickets : null);
+  const statements = useLoad<{ items: TenantStatement[] }>("home-statements", showStatements ? (token) => listTenantStatements(token) : null);
+  const countsOf = <T,>(loaded: { state: { status: string; data: T | null } }, counts: (data: T) => EntryCounts): EntryCounts => (loaded.state.data !== null ? counts(loaded.state.data) : loaded.state.status === "loading" ? { status: "loading" } : { status: "failed" });
+  const awaiting = tickets.state.data?.awaiting ?? 0;
+  const toConfirm = (statements.state.data?.items ?? []).filter((statement) => statement.status === "issued").length;
 
   return (
     <AppShell pageName="首页">
@@ -128,7 +140,18 @@ export function HomePage() {
             </div>
           </section>
         )}
-        {account.status === "ready" && !showAreas && !showProducts && !showCompany && !showPerformance && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
+        {(showTickets || showStatements) && (
+          <section className="home-section" aria-labelledby="home-service">
+            <h2 className="home-section__title" id="home-service">
+              工单和账单
+            </h2>
+            <div className="entry-grid">
+              {showTickets && <EntryCard title="工单" to={TENANT_TICKETS_PAGE} counts={countsOf(tickets, (data) => ({ status: "ready", counts: [{ value: data.active, label: "没有结论" }, { value: data.awaiting, label: "等你们回复" }] }))} reminders={awaiting > 0 ? [{ text: `${awaiting} 张工单等你们回复（24 小时内，超时视为认可）`, to: `${TENANT_TICKETS_PAGE}?status=awaiting_tenant` }] : []} />}
+              {showStatements && <EntryCard title="账单" to={TENANT_STATEMENTS_PAGE} counts={countsOf(statements, (data) => ({ status: "ready", counts: [{ value: data.items.filter((statement) => statement.status === "issued").length, label: "待确认" }, { value: data.items.filter((statement) => statement.status === "in_payout").length, label: "待付款" }] }))} reminders={toConfirm > 0 ? [{ text: `${toConfirm} 张账单待你们确认`, to: `${TENANT_STATEMENTS_PAGE}?status=issued` }] : []} />}
+            </div>
+          </section>
+        )}
+        {account.status === "ready" && !showAreas && !showProducts && !showCompany && !showPerformance && !showTickets && !showStatements && <StateBlock tone="neutral" title="这里暂时没有你可以使用的模块" description="需要的话，请联系你们的管理员开通。" />}
         {account.status === "loading" && (
           <section className="card">
             <Skeleton lines={["medium", "long", "short"]} />

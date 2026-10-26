@@ -1,4 +1,4 @@
-/** 运营后台「供应商」「资质审核」「商品」「报价试算」「渠道」「待审核」「订单」「救援」「取消政策」「推送记录」「系统设置」（含角色）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
+/** 运营后台「供应商」「资质审核」「商品」「报价试算」「渠道」「待审核」「订单」「异常队列」「工单」「救援」「取消政策」「赔付表」「财务结算」「推送记录」「系统设置」（含角色）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
 import { Route } from "react-router";
 import { ACCOUNT_SECURITY_PATH, AUDIT_LOG_PATH, DOCUMENT_QUEUE_PAGE_PATH, INTEGRATIONS_PAGE_PATH, PLATFORM_PRODUCT_LIST_PATH, QUOTE_PREVIEW_PAGE_PATH, ROLE_LIST_PATH, ROLE_NEW_PATH, STAFF_LIST_PATH, STAFF_NEW_PATH, TENANT_LIST_PATH, TENANT_NEW_PATH } from "../../lib/platform-paths.ts";
 import { AccountSecurityPage, RoleEditorPage, RoleListPage, StaffDetailPage } from "./SecurityPages.tsx";
@@ -18,6 +18,13 @@ import { PlatformOrderDetailPage, PlatformOrderListPage } from "./PlatformOrderP
 import { CancellationPolicyPage } from "./CancellationPolicyPage.tsx";
 import { RESCUE_QUEUE_PATH } from "../../lib/rescue-display.ts";
 import { RescueQueuePage } from "./RescuePages.tsx";
+import { COMPENSATION_TABLE_PAGE, EXCEPTION_QUEUE_PATH, PLATFORM_TICKETS_PAGE, PLATFORM_TICKET_NEW_PATH } from "../../lib/order-center-display.ts";
+import { PAYOUT_BATCHES_PAGE, STATEMENTS_PAGE } from "../../lib/billing-display.ts";
+import { ExceptionDetailPage, ExceptionQueuePage } from "./ExceptionPages.tsx";
+import { TicketListPage, TicketNewPage } from "./TicketPages.tsx";
+import { TicketDetailPage } from "./TicketDetailPage.tsx";
+import { CompensationTablePage } from "./CompensationTablePage.tsx";
+import { PayoutBatchDetailPage, PayoutBatchListPage, StatementDetailPage, StatementListPage } from "./FinancePages.tsx";
 
 export function platformRoutes() {
   return (
@@ -48,6 +55,16 @@ export function platformRoutes() {
       <Route path={`${PLATFORM_ORDER_LIST_PATH}/:id`} element={<PlatformOrderDetailPage />} />
       <Route path={POLICY_PAGE_PATH} element={<CancellationPolicyPage />} />
       <Route path={RESCUE_QUEUE_PATH} element={<RescueQueuePage />} />
+      <Route path={EXCEPTION_QUEUE_PATH} element={<ExceptionQueuePage />} />
+      <Route path={`${EXCEPTION_QUEUE_PATH}/:id`} element={<ExceptionDetailPage />} />
+      <Route path={PLATFORM_TICKETS_PAGE} element={<TicketListPage />} />
+      <Route path={PLATFORM_TICKET_NEW_PATH} element={<TicketNewPage />} />
+      <Route path={`${PLATFORM_TICKETS_PAGE}/:id`} element={<TicketDetailPage />} />
+      <Route path={COMPENSATION_TABLE_PAGE} element={<CompensationTablePage />} />
+      <Route path={STATEMENTS_PAGE} element={<StatementListPage />} />
+      <Route path={`${STATEMENTS_PAGE}/:id`} element={<StatementDetailPage />} />
+      <Route path={PAYOUT_BATCHES_PAGE} element={<PayoutBatchListPage />} />
+      <Route path={`${PAYOUT_BATCHES_PAGE}/:id`} element={<PayoutBatchDetailPage />} />
     </>
   );
 }

@@ -91,7 +91,7 @@ test("菜单按角色显示：超级管理员有供应商和系统设置（默�
   open("/platform", "super_admin");
   const card = (await screen.findByRole("link", { name: "供应商", description: /正常/ })) as HTMLAnchorElement;
   assert.equal(card.getAttribute("href"), "/platform/tenants");
-  assert.deepEqual(menuLabels(), ["首页", "供应商", "资质审核", "商品", "报价试算", "渠道", "待审核", "订单", "救援", "取消政策", "推送记录", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
+  assert.deepEqual(menuLabels(), ["首页", "供应商", "资质审核", "商品", "报价试算", "渠道", "待审核", "订单", "异常队列", "工单", "救援", "取消政策", "赔付表", "推送记录", "财务结算", "账单", "付款批次", "主数据", "城市", "地点", "车型组", "附加服务", "汇率", "系统设置"]);
   const group = screen.getByRole("button", { name: "系统设置" });
   assert.equal(group.getAttribute("aria-expanded"), "false");
   await user().click(group);

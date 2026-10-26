@@ -15,9 +15,14 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/channels": "channel.read",
   "/platform/approvals": "approval.read",
   "/platform/orders": "order.read",
+  "/platform/exceptions": "order.read",
+  "/platform/tickets": "ticket.read",
   "/platform/rescues": "order.read",
   "/platform/cancellation-policy": "master_data.read",
+  "/platform/compensation-table": "master_data.read",
   "/platform/webhook-deliveries": "order.read",
+  "/platform/finance/statements": "statement.read",
+  "/platform/finance/payout-batches": "statement.read",
   "/platform/master/cities": "master_data.read",
   "/platform/master/places": "master_data.read",
   "/platform/master/vehicle-groups": "master_data.read",
@@ -36,6 +41,8 @@ const TENANT_PAGE_VIEW: Readonly<Record<string, TenantAction>> = {
   "/orders": "order.read",
   "/rescue-offers": "order.dispatch",
   "/deductions": "order.read",
+  "/tickets": "ticket.read",
+  "/statements": "statement.read",
   "/fleet/drivers": "fleet.read",
   "/fleet/vehicles": "fleet.read",
   "/company": "company.read",
@@ -68,8 +75,8 @@ test("运营后台菜单：每一项都登记了页面的查看权限（新加�
 
 test("运营后台菜单：菜单条件用到的权限的所有组合下，菜单里没有点进去没权限的项", () => {
   // 菜单条件里会用到的权限：各页面的查看权限，加上「取消政策」看是不是用得到的发起 / 审核权限
-  const relevant = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review"])];
-  assert.ok(relevant.length <= 16, "组合数不超过 65,536");
+  const relevant = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review", "compensation_table.manage", "compensation_table.review"])];
+  assert.ok(relevant.length <= 17, "组合数不超过 131,072");
   for (let mask = 0; mask < 1 << relevant.length; mask += 1) {
     const actions = new Set(relevant.filter((_, index) => (mask & (1 << index)) !== 0));
     const bad = unauthorized(actions);
@@ -93,6 +100,8 @@ test("运营后台菜单：只勾了「订单 · 查看」的自建角色看不�
   assert.ok(labels(["cancellation_policy:view", "cancellation_policy:review"]).includes("取消政策"));
   assert.ok(labels(["cancellation_policy:view", "cancellation_policy:edit"]).includes("取消政策"));
   assert.ok(!labels(["master_data:view"]).includes("取消政策"), "只看主数据的（主数据运营）菜单里不放");
+  assert.ok(!labels(["tickets:view"]).includes("赔付表"), "只勾了「工单 · 查看」没有主数据查看：赔付表页面看不了，菜单不放");
+  assert.ok(labels(["tickets:view", "compensation_table:view"]).includes("赔付表"));
 });
 
 test("供应商后台菜单：每个角色的菜单里都没有点进去没权限的项，每一项都登记了页面的查看权限", () => {

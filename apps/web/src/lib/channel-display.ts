@@ -4,7 +4,7 @@
  */
 import type { CancellationPolicyRule } from "../api/order-money.ts";
 import { POLICY_CATEGORY_NAMES, cancelReasonName, levelName, tiersText } from "./order-money-display.ts";
-import { CHANNEL_RULES, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory } from "@nozomi/domain";
+import { CHANNEL_RULES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { City } from "../api/master.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
@@ -37,8 +37,8 @@ export const CHANNEL_STATUS_BADGES: Readonly<Record<ChannelStatus, BadgeSpec>> =
 
 export const TENANT_SCOPE_NAMES: Readonly<Record<TenantScope, string>> = { all: "全部供应商", allow: "只卖名单里的", deny: "名单里的不卖" };
 
-/** 复核类别的名字。M4-02（ADR 0034）后端新登记的两类（改赔付表、超过阈值的工单判定）先在这里有名字；复核页面接这两类在 M4-03。 */
-export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind | "compensation_table.update" | "ticket.decision", string>> = {
+/** 复核类别的名字（M4-03 起含改赔付表、超过阈值的工单判定，ADR 0034）。 */
+export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "channel.pricing": "改定价参数",
   "channel.pause": "暂停渠道",
   "markup_rule.create": "新增加价规则",
@@ -245,6 +245,43 @@ function payoutChanges(after: Record<string, unknown>): { label: string; before:
   ];
 }
 
+/** 改赔付表（M4-02，ADR 0034）：只列改了的项。比例是对外价的百分比；报销上限是对外价的倍数。 */
+function compensationTableChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const rules = (side: Record<string, unknown> | null): Record<string, unknown> | null => (side !== null && typeof side["rules"] === "object" && side["rules"] !== null ? (side["rules"] as Record<string, unknown>) : null);
+  const old = rules(before);
+  const now = rules(after);
+  if (now === null) return [];
+  const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
+  const rates = (side: Record<string, unknown> | null): Record<string, unknown> => (side !== null && typeof side["customer_bp"] === "object" && side["customer_bp"] !== null ? (side["customer_bp"] as Record<string, unknown>) : {});
+  const lines = COMPENSATION_SCENARIOS.map((scenario) => ({ label: `${COMPENSATION_SCENARIO_NAMES[scenario]}（赔对外价）`, before: old === null ? "—" : pct(rates(old)[scenario]), after: pct(rates(now)[scenario]) }));
+  const yen = (value: unknown): string => (typeof value === "number" ? moneyText(value, "JPY") : "—");
+  const times = (value: unknown): string => (typeof value === "number" ? `对外价的 ${percentText(value)}` : "—");
+  lines.push({ label: "每笔至少等值", before: old === null ? "—" : yen(old["minimum_jpy"]), after: yen(now["minimum_jpy"]) });
+  lines.push({ label: "替代交通报销上限", before: old === null ? "—" : times(old["reimbursement_cap_bp"]), after: times(now["reimbursement_cap_bp"]) });
+  lines.push({ label: "判定要复核的阈值（赔客人达到）", before: old === null ? "—" : times(old["review_at_or_above_sell_bp"]), after: times(now["review_at_or_above_sell_bp"]) });
+  return lines.filter((line) => old === null || line.before !== line.after);
+}
+
+const OUTCOME_TEXT: Readonly<Record<string, string>> = { upheld: "成立", rejected: "不成立 / 驳回", approved: "通过", resolved: "已处理" };
+
+/** 工单判定（M4-02，ADR 0034）：哪张工单、结论、情形和责任方、赔客人多少（按发起时算的）。 */
+function ticketDecisionChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const currency = typeof after["currency"] === "string" ? after["currency"] : null;
+  const amount = (value: unknown): string => (typeof value === "number" ? moneyText(value, currency) : "—");
+  const compensation = typeof after["compensation"] === "object" && after["compensation"] !== null ? (after["compensation"] as Record<string, unknown>) : null;
+  const scenario = compensation !== null && typeof compensation["scenario"] === "string" ? (COMPENSATION_SCENARIO_NAMES[compensation["scenario"] as CompensationScenario] ?? compensation["scenario"]) : "—";
+  const liable = compensation?.["liable_party"] === "tenant" ? "供应商" : compensation?.["liable_party"] === "platform" ? "平台" : "—";
+  return [
+    { label: "工单", before: "—", after: typeof after["ticket_no"] === "string" ? after["ticket_no"] : "—" },
+    { label: "状态", before: typeof before?.["status"] === "string" ? (TICKET_STATUS_NAMES[before["status"] as TicketStatus] ?? before["status"]) : "—", after: "已判定" },
+    { label: "结论", before: "—", after: typeof after["outcome"] === "string" ? (OUTCOME_TEXT[after["outcome"]] ?? after["outcome"]) : "—" },
+    { label: "情形 · 责任方", before: "—", after: `${scenario} · ${liable}` },
+    { label: "赔客人", before: "—", after: amount(after["customer_compensation_minor"]) },
+    { label: "其中退回原卡", before: "—", after: amount(after["customer_refund_minor"]) },
+    { label: "其中财务另付", before: "—", after: amount(after["customer_manual_payout_minor"]) },
+  ];
+}
+
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
@@ -254,6 +291,8 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (kind === "platform_role.update") return roleChanges(before, after);
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];
   if (kind === "statement.payout") return payoutChanges(after);
+  if (kind === "compensation_table.update") return compensationTableChanges(before, after);
+  if (kind === "ticket.decision") return ticketDecisionChanges(before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");
   const money = (value: unknown): string => (typeof value === "number" ? (value === 0 ? "不设" : moneyText(value, settleCurrency)) : "—");
   /** 「向上取整到 JPY 100」：moneyText 已经带了币种，不再在前面另写一遍（M1-17） */
