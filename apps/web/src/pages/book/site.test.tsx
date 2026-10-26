@@ -433,6 +433,22 @@ test("查订单：没有令牌时填订单号和邮箱找回，换成新链接�
   assert.ok(screen.getByRole("button", { name: "查找订单" }));
 });
 
+test("查订单：链接格式不对（# 后面不是令牌）也提示链接无效或已过期，不去请求订单；只有 # 没有内容时只显示表单", async () => {
+  for (const hash of ["#bogus-link-value", `#${TOKEN.slice(0, -1)}`, `#${TOKEN}x`]) {
+    resetBrowser();
+    const calls = open({ pathname: "/book/order", hash }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
+    await screen.findByRole("heading", { level: 1, name: "查订单" });
+    assert.ok(screen.getByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"), hash);
+    assert.equal(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length, 0, hash);
+  }
+  for (const hash of ["", "#", "# "]) {
+    resetBrowser();
+    open({ pathname: "/book/order", hash }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
+    await screen.findByRole("heading", { level: 1, name: "查订单" });
+    assertAbsent(screen.queryByText(/订单链接无效或已过期/));
+  }
+});
+
 test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例写在帮助文字里、不当占位文字；没勾同意时提示关联到复选框；取消订单的入口是次要按钮，页面内确认时才是危险按钮", async () => {
   open(checkoutEntry(), () => null);
   const actor = user();

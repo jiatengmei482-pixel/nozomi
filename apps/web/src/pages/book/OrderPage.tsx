@@ -91,6 +91,8 @@ type Loaded = { kind: "loading" } | { kind: "invalid" } | { kind: "failed"; mess
 export function OrderPage() {
   const location = useLocation();
   const token = siteTokenFromHash(location.hash);
+  // `#` 后面有内容却不是令牌的格式（被截断、改坏）：和失效的链接一样提示，不说是哪种失效（页面规范第 6 节）
+  const malformed = token === null && location.hash.replace(/^#/, "").trim() !== "";
   const arrival = location.state as { placed?: boolean; payment?: SitePayment | null } | null;
   const { state: config } = useSiteConfig();
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
@@ -129,7 +131,7 @@ export function OrderPage() {
       <SiteLayout attribution={false}>
         <h1 className="site__title">查订单</h1>
         <p className="site-muted">输入订单号和下单时填的邮箱或手机号，就能查看订单、付款、取消或修改。</p>
-        <LookupForm key={token ?? "none"} expired={loaded.kind === "invalid"} />
+        <LookupForm key={token ?? (malformed ? "malformed" : "none")} expired={malformed || loaded.kind === "invalid"} />
       </SiteLayout>
     );
   }
