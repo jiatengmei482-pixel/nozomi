@@ -121,3 +121,16 @@ test("开始关闭后才完成的请求：应答带 Connection: close，让保�
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["connection"], "close");
 });
+
+test("密钥写进路径也不进日志：匹配上路由的只记路由模板（ADR 0041）；没匹配上的路径里，配置里的密钥原文被抹掉", async () => {
+  const { app, lines, text } = appWithCapturedLogs();
+  const typed = "AIzaTypedIntoThePath00000000000001";
+  await app.inject({ method: "PUT", url: `/platform/v1/integration-secrets/${typed}`, payload: { api_key: typed } });
+  await app.inject({ method: "GET", url: `/platform/v1/staff/${typed}` });
+  await app.inject({ method: "GET", url: `/no-such-route/${FAKE_SECRETS.googleMapsApiKey}/${FAKE_SECRETS.stripeSecretKey}` });
+  await app.close();
+  const paths = lines().filter((line) => line["msg"] === "incoming request").map((line) => line["req"].path);
+  assert.deepEqual(paths.slice(0, 2), ["/platform/v1/integration-secrets/:key", "/platform/v1/staff/:id"]);
+  assert.ok(!text().includes(typed), "路径里的值进了日志");
+  assert.deepEqual(leakedSecrets(text()), []);
+});

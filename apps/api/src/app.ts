@@ -102,18 +102,19 @@ declare module "fastify" {
 
 /**
  * 日志规则（细节见 logging.ts）：
- * - 请求只记方法、路径（不含查询串）、来源地址；不记请求头和请求体。
+ * - 请求只记方法、路由模板（不是实际路径，ADR 0041）、来源地址；不记请求头和请求体。
  * - 异常只记类型、错误码、说明、调用栈，并抹掉其中的密钥原文和连接串。
  * - 再加一层兜底：万一以后有人把请求头打进日志，凭证类字段也会被抹掉。
  */
 function loggerOptions(deps: AppDeps, extraSecrets: () => readonly string[]): NonNullable<FastifyServerOptions["logger"]> {
   const secrets = secretValues(deps.config);
+  const allSecrets = (): string[] => [...secrets, ...extraSecrets()].sort((a, b) => b.length - a.length);
   return {
     level: deps.config.appEnv === "local" ? "debug" : "info",
     serializers: {
-      req: serializeRequest,
       // 运营后台填写的密钥（ADR 0041）随时会变：每次现取
-      err: (err: unknown) => serializeError(err, [...secrets, ...extraSecrets()].sort((a, b) => b.length - a.length)),
+      req: (request: Parameters<typeof serializeRequest>[0]) => serializeRequest(request, allSecrets()),
+      err: (err: unknown) => serializeError(err, allSecrets()),
     },
     redact: {
       paths: [

@@ -90,3 +90,11 @@ test("pathOnly / serializeRequest：不记查询串和片段", () => {
   });
   assert.deepEqual(serializeRequest({}), { method: "", path: "", remoteAddress: "" });
 });
+
+test("serializeRequest：匹配上路由的只记路由模板；没匹配上的记路径并抹掉密钥原文", () => {
+  assert.deepEqual(
+    serializeRequest({ method: "PUT", url: `/platform/v1/integration-secrets/${FAKE_SECRETS.googleMapsApiKey}`, ip: "10.0.0.1", routeOptions: { url: "/platform/v1/integration-secrets/:key" } }),
+    { method: "PUT", path: "/platform/v1/integration-secrets/:key", remoteAddress: "10.0.0.1" },
+  );
+  assert.equal(serializeRequest({ url: `/nothing/${FAKE_SECRETS.googleMapsApiKey}?x=1`, routeOptions: {} }, secrets).path, `/nothing/${REDACTED}`);
+});
