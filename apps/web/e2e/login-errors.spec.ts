@@ -1,6 +1,6 @@
 /** 登录页的出错提示（真实后端的应答）。 */
 import { expect, test } from "@playwright/test";
-import { adminCredentials, createActiveTenant, fillLogin, uniqueEmail } from "./support.ts";
+import { adminCredentials, clickLogin, createActiveTenant, fillLogin, uniqueEmail } from "./support.ts";
 
 test("字段校验：空着提交、邮箱格式不对，都不发请求", async ({ page }) => {
   let requests = 0;
@@ -74,7 +74,7 @@ test("网络不通：提示检查网络，保留已填内容；恢复后可以�
   await expect(page.getByLabel("密码", { exact: true })).toHaveValue(admin.password);
   await expect(page.getByRole("button", { name: "登录" })).toBeFocused();
   await context.setOffline(false);
-  await page.getByRole("button", { name: "登录" }).click();
+  await clickLogin(page, admin.email);
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
 });
 

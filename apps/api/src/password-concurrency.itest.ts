@@ -37,8 +37,9 @@ before(async () => {
 });
 after(() => api.close());
 
+/** 平台员工经测试辅助函数完成两步验证（ADR 0030），之后的改密流程和以前一样。 */
 const tryLogin = (entry: Entry, email: string, password: string): Promise<ApiResponse> =>
-  api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
+  entry === "platform" ? api.platformLogin({ ip: freshIp(), body: { email, password } }) : api.call("POST", `/${entry}/v1/auth/login`, { ip: freshIp(), body: { email, password } });
 
 async function token(entry: Entry, email: string, password: string): Promise<string> {
   const res = await tryLogin(entry, email, password);

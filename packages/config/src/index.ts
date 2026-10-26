@@ -158,12 +158,18 @@ function parseMapTiles(env: z.output<typeof rawSchema>, issues: string[]): MapTi
   };
 }
 
+/** 和 @nozomi/domain 的 `LOGIN_MAX_ATTEMPTS_PER_IP` 相同（config 不依赖 domain；单元测试核对两边一致）。 */
+export const DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP = 50;
+
 const rawSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:8080"),
   // 服务前面有几层自己的反向代理（Nginx / Caddy 等）。0 表示直接对外，不信任 X-Forwarded-For。
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  // 登录限速里「同一来源地址」这一层的上限（窗口 15 分钟内的失败次数，ADR 0008、0030）。默认 50，staging / production 不能调高；
+  // 只给端到端测试用：全部用例都从 127.0.0.1 发起，几百个用例的失败尝试（错码、并行进程用掉的动态码）会把这一层顶满
+  LOGIN_MAX_ATTEMPTS_PER_IP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(1).max(100_000).default(DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP)),
 
   DATABASE_URL: databaseUrlSchema("DATABASE_URL"),
   DATABASE_MIGRATION_URL: z.preprocess(
@@ -171,8 +177,8 @@ const rawSchema = z.object({
     databaseUrlSchema("DATABASE_MIGRATION_URL").optional(),
   ),
   AUTH_JWT_SECRET: z.string().min(32, "AUTH_JWT_SECRET 至少 32 个字符"),
-  // 数据加密密钥（ADR 0027）：加密库里需要还原原文的密钥（供应商的 Webhook 签名密钥）。服务器上由初始化 / 部署脚本自动生成；
-  // 只有 production 必须配置，其他环境不配时供应商不能设置 Webhook（接口 503，/health 和 config:check 显示「未配置」）
+  // 数据加密密钥（ADR 0027、0030）：加密库里需要还原原文的密钥（供应商的 Webhook 签名密钥、平台员工的两步验证密钥）。服务器上由初始化 / 部署脚本自动生成；
+  // 只有 production 必须配置，其他环境不配时供应商不能设置 Webhook、平台员工不能绑定、验证两步验证（接口 503，/health 和 config:check 显示「未配置」）
   DATA_ENCRYPTION_KEY: optionalString,
 
   STRIPE_SECRET_KEY: optionalString,
@@ -249,7 +255,7 @@ export interface AppConfig {
   /** 迁移账号的连接串；服务进程的环境里没有它时为 null */
   databaseMigrationUrl: string | null;
   authJwtSecret: string;
-  /** 数据加密密钥（ADR 0027）；没有配置时为 null：供应商不能设置 Webhook */
+  /** 数据加密密钥（ADR 0027、0030）；没有配置时为 null：供应商不能设置 Webhook，平台员工不能绑定、验证两步验证 */
   dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
@@ -261,6 +267,8 @@ export interface AppConfig {
   quote: { defaultMarkupBp: number };
   /** 官网（ADR 0032）：以哪个 API 客户端的身份调用询价、下单；没有配置时为 null（官网暂未开放） */
   site: { clientId: string } | null;
+  /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
+  loginThrottle: { maxAttemptsPerIp: number };
   /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
   siteSupportPhone: string | null;
 }
@@ -331,6 +339,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
     issues.push("production 环境的 AUTH_JWT_SECRET 至少 64 个字符");
   }
+  if ((env.APP_ENV === "staging" || env.APP_ENV === "production") && env.LOGIN_MAX_ATTEMPTS_PER_IP > DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP) {
+    issues.push(`${env.APP_ENV} 环境的 LOGIN_MAX_ATTEMPTS_PER_IP 不能超过 ${DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP}（调高只给本机和 CI 的端到端测试用）`);
+  }
   const databaseMigrationUrl = env.DATABASE_MIGRATION_URL ?? null;
   if (databaseMigrationUrl !== null && sameDatabaseAccount(env.DATABASE_URL, databaseMigrationUrl)) {
     issues.push(SAME_DATABASE_ACCOUNT);
@@ -352,6 +363,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
+    loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
     siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
   };
 }
@@ -403,7 +415,7 @@ export function integrationStatus(config: AppConfig): IntegrationStatus[] {
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
     config.dataEncryptionKey
       ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
-      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook" },
+      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台）" },
     config.stripe
       ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${config.stripe.mode === "live" ? "正式" : "测试"}模式 · ${mask(config.stripe.secretKey)}` }
       : { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" },

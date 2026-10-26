@@ -6,8 +6,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { integrationStatus } from "@nozomi/config";
-import { PLATFORM_ROLES, type PlatformAction, type PlatformRole, fxTableState, platformPermissions } from "@nozomi/domain";
-import { bearerToken } from "../auth/token.ts";
+import { type PlatformAction, fxTableState } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
@@ -19,6 +18,7 @@ import {
   type PlatformPrincipal,
   acceptPlatformInvite,
   authenticatePlatform,
+  platformCredentials,
   changePlatformPassword,
   checkPlatformInvite,
   checkPlatformResetToken,
@@ -48,14 +48,16 @@ import {
   tokenCheckSchema,
   uuidSchema,
 } from "../validation.ts";
-import { auditLogJson, inviteJson, pageJson, platformUserJson, tenantJson, tenantUserJson } from "./serialize.ts";
+import { auditLogJson, inviteJson, pageJson, platformUserJson, staffJson, tenantJson, tenantUserJson } from "./serialize.ts";
+import { recoveryCodesRemaining } from "../services/platform-mfa.ts";
 
-const PLATFORM_ROLE_KEYS = PLATFORM_ROLES.map((role) => role.key) as [PlatformRole, ...PlatformRole[]];
+/** 角色键：内置角色或自建角色（`custom_` + 16 位十六进制）；存不存在由业务层查（400 `ROLE_NOT_FOUND`） */
+export const roleKeySchema = z.string().regex(/^([a-z_]{2,40}|custom_[0-9a-f]{16})$/, "不是合法的角色");
 
 const staffSchema = z.object({
   email: emailSchema,
   name: personNameSchema,
-  role: z.enum(PLATFORM_ROLE_KEYS),
+  role: roleKeySchema,
 });
 
 const adminSchema = z.object({ email: emailSchema, name: personNameSchema });
@@ -107,10 +109,10 @@ function dashboardSummaryJson(summary: DashboardSummary): Record<string, unknown
 export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): void {
   /** 普通接口的鉴权：账号必须先修改密码时一律被拦（ADR 0013）。新接口都用这个。 */
   const authenticate = (request: FastifyRequest, action?: PlatformAction): Promise<PlatformPrincipal> =>
-    authenticatePlatform(ctx, bearerToken(request.headers.authorization), action === undefined ? {} : { action });
-  /** 只给「查看自己、修改密码、退出」三个接口用：账号必须先修改密码时也放行。 */
+    authenticatePlatform(ctx, platformCredentials(request), action === undefined ? {} : { action });
+  /** 只给「查看自己、退出」用：两步验证没完成、账号必须先修改密码时也放行。 */
   const authenticateSelfService = (request: FastifyRequest): Promise<PlatformPrincipal> =>
-    authenticatePlatform(ctx, bearerToken(request.headers.authorization), { purpose: "self_service" });
+    authenticatePlatform(ctx, platformCredentials(request), { purpose: "self_service" });
 
   app.post("/platform/v1/auth/login", async (request) => {
     const input = parseInput(loginSchema, request.body, "body");
@@ -121,6 +123,8 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
       expires_at: result.expiresAt.toISOString(),
       user: platformUserJson(result.user),
       must_change_password: result.user.mustChangePassword,
+      // 密码对了只是第一步（ADR 0030）：接着输入动态码，或者先绑定
+      second_factor: { status: result.secondFactor },
     };
   });
 
@@ -132,10 +136,19 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get("/platform/v1/auth/me", async (request) => {
     const principal = await authenticateSelfService(request);
+    const verified = principal.secondFactor === "verified";
+    const scope = principal.grant.scope;
     return {
       user: platformUserJson(principal.user),
-      permissions: platformPermissions(principal.user.role),
+      // 两步验证完成之前不给权限清单（前端只显示两步验证的页面）
+      permissions: verified ? [...principal.grant.actions] : [],
+      data_scope: { city_ids: scope.cityIds, channel_ids: scope.channelIds },
       must_change_password: principal.user.mustChangePassword,
+      second_factor: {
+        status: principal.secondFactor,
+        enabled_at: principal.user.totpEnabledAt?.toISOString() ?? null,
+        recovery_codes_remaining: verified ? await recoveryCodesRemaining(ctx, principal.user.id) : null,
+      },
     };
   });
 
@@ -157,7 +170,8 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
   });
 
   app.post("/platform/v1/auth/change-password", async (request, reply) => {
-    const principal = await authenticateSelfService(request);
+    // 要先完成两步验证（只知道密码的人不能改密码把本人锁在门外）；必须先修改密码时放行
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { purpose: "password_change" });
     const input = parseInput(changePasswordSchema, request.body, "body");
     await changePlatformPassword(
       ctx,
@@ -177,7 +191,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
     await authenticate(request, "staff.read");
     const query = parseInput(pageQuerySchema, request.query, "querystring");
     const page = await listStaff(ctx, query.limit, decodeTimeCursor(query.cursor ?? null));
-    return pageJson(page, platformUserJson);
+    return pageJson(page, staffJson);
   });
 
   app.post("/platform/v1/staff", async (request, reply) => {
@@ -269,7 +283,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get("/platform/v1/dashboard/summary", async (request) => {
     const principal = await authenticate(request);
-    return dashboardSummaryJson(await getDashboardSummary(ctx, principal.user.role));
+    return dashboardSummaryJson(await getDashboardSummary(ctx, principal.grant));
   });
 
   app.get("/platform/v1/integrations", async (request) => {

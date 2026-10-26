@@ -18,8 +18,9 @@ import { APPROVAL_KINDS } from "../services/approval-kinds.ts";
 import { approvalAbilities, decideApproval, getApproval, listApprovalsFor } from "../services/approvals.ts";
 import { type ApiClient, createApiClient, listApiClients, revokeApiClient, rotateApiClient } from "../services/channel-clients.ts";
 import { type RuleInput, activateChannel, createChannel, getChannelDetail, listChannelsFor, requestChannelPause, requestPricingChange, requestRuleCreate, requestRuleDelete, requestRuleUpdate, updateChannel } from "../services/channels.ts";
-import { notFound } from "../services/errors.ts";
-import { type PlatformPrincipal, authenticatePlatform } from "../services/platform-auth.ts";
+import { dataScopeDenied, notFound } from "../services/errors.ts";
+import { assertChannelInScope } from "../services/platform-roles.ts";
+import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import type { Db } from "../db/context.ts";
 import { ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 
@@ -233,7 +234,16 @@ function apiClientJson(client: ApiClient): Json {
 }
 
 export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const platform = (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action });
+  /**
+   * 鉴权；地址里带渠道编号（`/channels/:id…`）的接口再核对数据范围（ADR 0030）：限定了渠道范围的人，范围外的渠道和不存在一样（404）。
+   * 统一在这里做，渠道下面新加的接口不用各自记得。
+   */
+  const platform = async (request: FastifyRequest, action: PlatformAction): Promise<PlatformPrincipal> => {
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action });
+    const channelId = (request.params as { id?: unknown } | undefined)?.id;
+    if (request.routeOptions.url?.startsWith("/platform/v1/channels/:id") && typeof channelId === "string") assertChannelInScope(principal, channelId);
+    return principal;
+  };
 
   const detail = async (channelId: string): Promise<Json> => {
     const { channel, rules } = await getChannelDetail(ctx, channelId);
@@ -242,15 +252,17 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
   };
 
   app.get("/platform/v1/channels", async (request) => {
-    await platform(request, "channel.read");
+    const principal = await platform(request, "channel.read");
     const query = parseInput(listQuery, request.query, "querystring");
-    const page = await listChannelsFor(ctx, { status: query.status ?? null, type: query.type ?? null, q: query.q ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const page = await listChannelsFor(ctx, { status: query.status ?? null, type: query.type ?? null, q: query.q ?? null, ids: principal.grant.scope.channelIds }, query.limit, decodeTimeCursor(query.cursor ?? null));
     const names = await withPlatformTx(ctx.pool, (db) => namesFor(db, page.items, []));
     return { items: page.items.map((channel) => channelJson(channel, names)), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.post("/platform/v1/channels", async (request, reply) => {
     const principal = await platform(request, "channel.manage");
+    // 新渠道不在任何人限定的渠道范围里：限定了渠道范围的人建了也看不到，不让建
+    if (principal.grant.scope.channelIds !== null) throw dataScopeDenied();
     const input = parseInput(createSchema, request.body, "body");
     const channel = await createChannel(
       ctx,

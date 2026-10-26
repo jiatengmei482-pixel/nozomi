@@ -105,7 +105,7 @@ before(async () => {
     const email = `${key.replaceAll("_", "-")}@m112-qa.test`;
     const invited = await ok(api.call("POST", "/platform/v1/staff", { token: root, body: { email, name: key, role: key } }), 201);
     await ok(api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.invite.token, password: TEST_PASSWORD } }));
-    const login = await ok(api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD }, ip: `10.13.0.${roleTokens.size + 1}` }));
+    const login = await ok(api.platformLogin({ body: { email, password: TEST_PASSWORD }, ip: `10.13.0.${roleTokens.size + 1}` }));
     roleTokens.set(key, login.access_token as string);
   }
   a = await api.tenantWithAdmin(root, "甲车队", "admin@m112-qa-a.test");
@@ -364,7 +364,7 @@ test("可用价格按商品所在城市当地的今天：同一刻东京已是 1
   // 时钟往后拨了十几个小时，令牌会过期：每拨一次重新登录
   const target = async (iso: string): Promise<void> => {
     api.clock.advance(new Date(iso).getTime() - api.clock.now().getTime());
-    root = (await ok(api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
+    root = (await ok(api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } }))).access_token;
     a = { ...a, adminToken: (await ok(api.call("POST", "/tenant/v1/auth/login", { body: { email: a.adminEmail, password: TEST_PASSWORD } }))).access_token };
   };
   await target("2026-10-07T14:59:00.000Z");

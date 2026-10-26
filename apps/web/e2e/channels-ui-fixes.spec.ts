@@ -7,6 +7,7 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createWorld, expectAccessible, toast } from "./catalog.ts";
 import { expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { platformApiLogin } from "./mfa.ts";
 
 async function checkPage(page: Page, what: string): Promise<void> {
   for (const width of [1280, 320]) {
@@ -29,8 +30,7 @@ async function createStaff(request: APIRequestContext, role: string, name: strin
   const password = newPassword();
   const accepted = await request.post("/platform/v1/auth/accept-invite", { data: { token: ((await created.json()) as { invite: { token: string } }).invite.token, password } });
   expect(accepted.ok(), "接受邀请").toBe(true);
-  const login = await request.post("/platform/v1/auth/login", { data: { email, password } });
-  return { email, password, headers: { authorization: `Bearer ${((await login.json()) as { access_token: string }).access_token}` } };
+  return { email, password, headers: { authorization: `Bearer ${await platformApiLogin(request, email, password)}` } };
 }
 
 async function pendingOf(request: APIRequestContext, headers: Record<string, string>, channelId: string): Promise<{ id: string; kind: string }[]> {

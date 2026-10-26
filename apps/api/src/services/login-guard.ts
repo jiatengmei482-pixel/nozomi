@@ -1,12 +1,13 @@
 /**
  * 登录防暴力破解：验证密码之前先占用一次尝试；超过限制直接拒绝——不再验证密码（不做哈希计算）、不写审计。
- * 规则在 @nozomi/domain 的 login-throttle.ts。「已登录用户改密码时核对当前密码」也走这里，用自己的一组计数。
+ * 规则在 @nozomi/domain 的 login-throttle.ts。「已登录用户改密码时核对当前密码」也走这里，用自己的一组计数；
+ * 平台员工输入两步验证的动态码 / 恢复码（ADR 0030）也走这里，又是单独的一组（`platform-mfa`）。
+ * 「同一来源地址」这一层的上限来自配置（默认 50，和 domain 的常量一致；只有 local / ci 可以调高，给端到端测试用）。
  */
 import { createHash } from "node:crypto";
 import {
   LOGIN_MAX_ATTEMPTS_PER_EMAIL,
   LOGIN_MAX_ATTEMPTS_PER_EMAIL_AND_IP,
-  LOGIN_MAX_ATTEMPTS_PER_IP,
   combineThrottleDecisions,
   evaluateThrottle,
 } from "@nozomi/domain";
@@ -21,7 +22,7 @@ import {
 import { tooManyLoginAttempts } from "./errors.ts";
 
 /** 哪一个验证密码的入口：各入口的计数互不影响。 */
-export type PasswordCheckEntry = "platform" | "tenant" | "platform-change-password" | "tenant-change-password";
+export type PasswordCheckEntry = "platform" | "tenant" | "platform-change-password" | "tenant-change-password" | "platform-mfa";
 
 function throttleKey(...parts: string[]): string {
   return createHash("sha256").update(parts.join("\n"), "utf8").digest("hex");
@@ -48,7 +49,7 @@ export async function reserveLogin(
     await deleteStaleLoginThrottles(db, now);
     // 先看来源地址这一层：被它拦下的请求不再占用邮箱维度的次数，
     // 否则已经被拦下的攻击者还能继续把别人邮箱的计数顶满
-    const ipDecision = evaluateThrottle(await reserveLoginAttempt(db, perIp, now), LOGIN_MAX_ATTEMPTS_PER_IP, now);
+    const ipDecision = evaluateThrottle(await reserveLoginAttempt(db, perIp, now), ctx.config.loginThrottle.maxAttemptsPerIp, now);
     if (!ipDecision.allowed) return ipDecision;
     // 各个 key 总是按同样的先后顺序占用，并发请求之间不会互相死锁
     const emailAndIpCounter = await reserveLoginAttempt(db, perEmailAndIp, now);

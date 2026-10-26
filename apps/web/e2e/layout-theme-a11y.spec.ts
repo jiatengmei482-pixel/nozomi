@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Page, devices, expect, test } from "@playwright/test";
 import { VIEWPORTS, adminCredentials, createActiveTenant, createTenant, expectNoHorizontalOverflow, fillLogin, issueTenantAdminReset, loginAs, platformAdminHeaders, snapshot, uniqueEmail } from "./support.ts";
+import { nextCode, secretOf } from "./mfa.ts";
 
 /** 页面底色的两套取值，直接从令牌文件读，不在测试里另抄一份。 */
 function pageBackground(): { light: string; dark: string } {
@@ -302,6 +303,10 @@ test("只用键盘完成登录：Tab 顺序符合规范，聚焦环可见，Ente
   await page.keyboard.type(admin.email);
   await page.keyboard.press("Tab");
   await page.keyboard.type(admin.password);
+  await page.keyboard.press("Enter");
+  // 第二步：动态码输入框自动获得焦点，键盘输入后 Enter 提交（ADR 0030）
+  await expect(page.getByLabel("动态码")).toBeFocused();
+  await page.keyboard.type((await nextCode(secretOf(admin.email))).code);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { level: 1, name: "首页" })).toBeVisible();
 

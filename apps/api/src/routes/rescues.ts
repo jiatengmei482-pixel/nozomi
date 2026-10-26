@@ -11,18 +11,20 @@
  * - `POST /platform/v1/orders/{id}/rescue`：按 4 种情形之一发起；`GET …/rescue/candidates`：候选；`POST …/rescue/offers`：发救援单；
  *   `POST …/rescue/manual-assign`：人工指定（双人复核）；`POST …/rescue/force-majeure`：不可抗力（都要 `rescue.manage`）；
  * - `POST /platform/v1/tenants/{id}/rescue`：暂停中的供应商名下未来订单批量发起（`rescue.manage`）。
+ * 数据范围（ADR 0030）：队列只列范围内订单的；按订单的接口范围外 404；按供应商批量发起限定了范围的人不能做（403 `DATA_SCOPE_DENIED`）。
  * 渠道（`/sales/v1`）：`POST /sales/v1/orders/{id}/driver-missing`：客人报告司机没到。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { RESCUE_RULES, RESCUE_TRIGGERS, type SettlementBreakdown } from "@nozomi/domain";
+import { RESCUE_RULES, RESCUE_TRIGGERS, type SettlementBreakdown, scopeIsRestricted } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
 import type { Deduction, RescueOffer } from "../repos/rescues.ts";
-import { notFound } from "../services/errors.ts";
+import { dataScopeDenied, notFound } from "../services/errors.ts";
 import { getSalesOrderView } from "../services/orders.ts";
-import { authenticatePlatform } from "../services/platform-auth.ts";
+import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
+import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import {
   type PlatformRescueView,
   type TenantRescueView,
@@ -265,9 +267,9 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
   // ---- 运营后台 ----
 
   app.get("/platform/v1/rescues", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(queueSchema, request.query, "querystring");
-    const queue = await rescueQueue(ctx, query.state);
+    const queue = await rescueQueue(ctx, query.state, principal.grant.scope);
     return {
       items: queue.items.map(platformRescueJson),
       alerts: queue.alerts.map((alert) => ({
@@ -284,16 +286,19 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/platform/v1/orders/:id/rescue", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(triggerSchema, request.body, "body");
     await triggerForPlatform(ctx, principal, orderId, input, request.ip, request.log);
     return reply.code(201).send({ rescue: await latestRescueJson(orderId) });
   });
 
   app.get("/platform/v1/orders/:id/rescue/candidates", async (request) => {
-    await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
-    const found = await rescueCandidates(ctx, resourceId(request.params, "订单"), request.log);
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
+    const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
+    const found = await rescueCandidates(ctx, orderId, request.log);
     return {
       rescue_id: found.rescue.id,
       candidates: found.candidates.map((entry) => ({
@@ -313,8 +318,9 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/platform/v1/orders/:id/rescue/offers", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(offerSchema, request.body ?? {}, "body");
     const offer = await offerForPlatform(ctx, principal, orderId, input.tenant_id, request.ip, request.log);
     const rescue = await latestRescueJson(orderId);
@@ -322,17 +328,19 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/platform/v1/orders/:id/rescue/manual-assign", async (request, reply) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
     // 先认路径里的编号（不像编号的统一 404），再校验请求体——和其他带 {id} 的接口一致
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(manualSchema, request.body, "body");
     const approval = await requestManualAssign(ctx, principal, orderId, { tenantId: input.tenant_id, productId: input.product_id, settlementMinor: input.settlement_amount, note: input.note }, request.ip);
     return reply.code(202).send({ approval: approvalJson(approval, principal) });
   });
 
   app.post("/platform/v1/orders/:id/rescue/force-majeure", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
     const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(forceMajeureSchema, request.body, "body");
     const result = await markForceMajeure(ctx, principal, orderId, input.note, request.ip);
     const views = await getOrderRescueViews(ctx, orderId);
@@ -340,7 +348,9 @@ export function registerRescueRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/platform/v1/tenants/:id/rescue", async (request) => {
-    const principal = await authenticatePlatform(ctx, bearerToken(request.headers.authorization), { action: "rescue.manage" });
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "rescue.manage" });
+    // 按供应商批量发起会动到它名下全部未来订单：限定了数据范围的人不能做（ADR 0030）
+    if (scopeIsRestricted(principal.grant.scope)) throw dataScopeDenied();
     const tenantId = resourceId(request.params, "租户");
     const input = parseInput(batchSchema, request.body ?? {}, "body");
     const result = await rescueSuspendedTenantForPlatform(ctx, principal, tenantId, input.note, request.ip, request.log);

@@ -165,7 +165,8 @@ test("改掉临时密码：提交临时密码和新密码，成功后直接进�
   assert.ok(document.querySelector('.sidebar--pinned nav[aria-label="主菜单"]'));
   assertAbsent(screen.queryByText(WARNING));
   await userEvent.setup().click(screen.getByRole("button", { name: /账号菜单/ }));
-  assert.deepEqual(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent), ["修改密码", "退出登录"]);
+  // 运营后台的账号菜单另有「账号安全」（两步验证，ADR 0030）
+  assert.deepEqual(within(screen.getByRole("menu")).getAllByRole("menuitem").map((item) => item.textContent), ["账号安全", "修改密码", "退出登录"]);
 
 });
 

@@ -1,16 +1,26 @@
-/** 平台员工的登录、会话校验、退出、接受邀请。 */
+/**
+ * 平台员工的登录、会话校验、退出、接受邀请。
+ * 登录分两步（ADR 0030）：密码正确先建一个「待验证」的会话（15 分钟），完成两步验证（services/platform-mfa.ts）后同一个令牌恢复正常。
+ */
 import {
+  PENDING_SESSION_TTL_MS,
   type PlatformAction,
-  type SessionPurpose,
+  type PlatformGrant,
+  type PlatformSessionPurpose,
+  type SecondFactorState,
   checkPasswordStrength,
-  passwordChangeRequiredFirst,
-  platformRoleCan,
+  effectiveAllowlist,
+  grantCan,
+  ipAllowed,
+  platformSessionRefusal,
+  resolvePlatformGrant,
+  secondFactorState,
 } from "@nozomi/domain";
 import { hashInviteToken } from "../auth/invite-token.ts";
 import { hashResetToken } from "../auth/reset-token.ts";
 import { hashPassword, sameStoredPassword, verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
 import { issueSession } from "../auth/session.ts";
-import { verifyAccessToken } from "../auth/token.ts";
+import { bearerToken, verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
@@ -36,6 +46,8 @@ import {
   forbidden,
   invalidCredentials,
   inviteInvalid,
+  ipNotAllowed,
+  mfaRequired,
   passwordChangeRequired,
   passwordUnchanged,
   resetTokenInvalid,
@@ -51,11 +63,14 @@ export interface LoginInput {
 
 export interface PlatformLoginResult {
   accessToken: string;
+  /** 令牌的过期时间（登录起 8 小时）；两步验证没在 15 分钟内完成，会话会先失效 */
   expiresAt: Date;
   user: PlatformUser;
+  /** 这个会话接下来要做什么：输入动态码，还是先绑定 */
+  secondFactor: Exclude<SecondFactorState, "verified">;
 }
 
-type LoginFailure = "unknown_email" | "not_activated" | "wrong_password" | "account_disabled";
+type LoginFailure = "unknown_email" | "not_activated" | "wrong_password" | "account_disabled" | "ip_not_allowed";
 
 export async function platformLogin(ctx: AppContext, input: LoginInput, ip: string): Promise<PlatformLoginResult> {
   const now = ctx.now();
@@ -65,6 +80,7 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
     ? await verifyPassword(input.password, found.passwordHash)
     : await verifyPasswordAgainstNothing(input.password);
 
+  // IP 白名单只在密码正确之后才看（和「账号已停用」一样）：不在名单里的人从应答上也分辨不出邮箱是否存在
   const failure: LoginFailure | null = !found
     ? "unknown_email"
     : found.passwordHash === null || found.user.status === "invited"
@@ -73,7 +89,9 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
         ? "wrong_password"
         : found.user.status === "disabled"
           ? "account_disabled"
-          : null;
+          : !ipAllowed(ip, effectiveAllowlist(found.user.ipAllowlist, found.roleIpAllowlist))
+            ? "ip_not_allowed"
+            : null;
 
   const reject = async (reason: LoginFailure): Promise<never> => {
     await withPlatformTx(ctx.pool, (db) =>
@@ -86,7 +104,9 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
         after: { email: input.email, reason },
       }),
     );
-    throw reason === "account_disabled" ? accountDisabled() : invalidCredentials();
+    if (reason === "account_disabled") throw accountDisabled();
+    if (reason === "ip_not_allowed") throw ipNotAllowed();
+    throw invalidCredentials();
   };
   if (failure !== null || !found) return reject(failure ?? "unknown_email");
 
@@ -103,11 +123,12 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
       return null;
     }
     const user = locked.user;
+    // 会话先是「待验证」的，15 分钟内完成两步验证才延长到令牌的 8 小时
     await insertPlatformSession(db, {
       id: session.sessionId,
       userId: user.id,
       createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
+      expiresAt: new Date(Math.min(session.expiresAt.getTime(), now.getTime() + PENDING_SESSION_TTL_MS)),
     });
     await insertAuditLog(db, consoleOrigin(platformActor(user), ip, now), {
       tenantId: null,
@@ -117,45 +138,77 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
       before: null,
       after: null,
     });
-    return user;
+    return { user, enrolled: locked.totpSecret !== null };
   });
   if (!user) return reject("wrong_password");
   await clearLoginReservation(ctx, reservation);
-  return { accessToken: session.accessToken, expiresAt: session.expiresAt, user };
+  return { accessToken: session.accessToken, expiresAt: session.expiresAt, user: user.user, secondFactor: user.enrolled ? "verify_required" : "enrollment_required" };
 }
 
 export interface PlatformPrincipal {
   sessionId: string;
   user: PlatformUser;
+  /** 角色给的接口操作和数据范围（每个请求从数据库现查，ADR 0030） */
+  grant: PlatformGrant;
+  /** 这个会话的两步验证状态 */
+  secondFactor: SecondFactorState;
+  /** 令牌的过期时间：完成两步验证时会话延长到这里 */
+  tokenExpiresAt: Date;
 }
 
-/** 一次已登录的平台请求要做什么：需要哪个操作的权限；是不是「查看自己 / 改密码 / 退出」。 */
+/** 这个人能不能做这个操作（以数据库里的当前角色为准）。 */
+export function principalCan(principal: PlatformPrincipal, action: PlatformAction): boolean {
+  return grantCan(principal.grant, action);
+}
+
+/** 一次已登录的平台请求要做什么：需要哪个操作的权限；用途（见 domain 的 `PlatformSessionPurpose`）。 */
 export interface PlatformAccess {
   action?: PlatformAction;
-  /** 不写就是 `general`：账号必须先修改密码时会被拦下。只有查看自己、改密码、退出三个接口写 `self_service` */
-  purpose?: SessionPurpose;
+  /**
+   * 不写就是 `general`：两步验证没完成、账号必须先修改密码时都会被拦下。
+   * 查看自己、退出写 `self_service`；两步验证本身写 `second_factor`；修改密码写 `password_change`。
+   */
+  purpose?: PlatformSessionPurpose;
+}
+
+/** 鉴权要用到的请求信息：令牌和来源地址（来源地址按 TRUST_PROXY_HOPS 取，ADR 0008）。 */
+export interface PlatformCredentials {
+  token: string | null;
+  ip: string;
+}
+
+export function platformCredentials(request: { headers: { authorization?: string | undefined }; ip: string }): PlatformCredentials {
+  return { token: bearerToken(request.headers.authorization), ip: request.ip };
 }
 
 /**
- * 校验平台访问令牌并核对数据库里的会话和账号：令牌无效、过期、会话已删除、账号不在用，都是 401。
- * 账号正在用临时密码（必须先修改密码）时，除 `self_service` 的请求外一律 403 `PASSWORD_CHANGE_REQUIRED`
- * ——在这里统一判断，接口不用各自记得；新接口不声明用途就默认被拦。
- * 传了 `action` 时再检查当前角色（以数据库为准，不看令牌里的角色）有没有这个操作的权限，没有则 403。
+ * 校验平台访问令牌并核对数据库里的会话、账号和角色（一条查询）。判断顺序：
+ * 1. 令牌无效、过期、会话已删除、账号不在用：401；
+ * 2. 来源地址不在这个账号的 IP 白名单里（员工自己的不空用自己的，否则用角色的；都空不限制）：403 `IP_NOT_ALLOWED`；
+ * 3. 两步验证没完成：除 `self_service`、`second_factor` 外一律 403 `MFA_REQUIRED`；
+ * 4. 必须先修改密码：除 `self_service`、`password_change` 外一律 403 `PASSWORD_CHANGE_REQUIRED`（ADR 0013）；
+ * 5. 传了 `action` 时检查当前角色有没有这个操作的权限，没有则 403 `FORBIDDEN`。
+ * 都在这里统一判断，接口不用各自记得；新接口不声明用途就默认被拦。
  */
 export async function authenticatePlatform(
   ctx: AppContext,
-  token: string | null,
+  credentials: PlatformCredentials,
   access: PlatformAccess = {},
 ): Promise<PlatformPrincipal> {
   const { action, purpose = "general" } = access;
   const now = ctx.now();
-  const claims = token === null ? null : verifyAccessToken(ctx.config.authJwtSecret, "platform", token, now);
+  const claims = credentials.token === null ? null : verifyAccessToken(ctx.config.authJwtSecret, "platform", credentials.token, now);
   if (!claims) throw unauthenticated();
-  const user = await withPlatformTx(ctx.pool, (db) => findPlatformSessionUser(db, claims.sid, claims.sub, now));
-  if (!user || user.status !== "active") throw unauthenticated();
-  if (passwordChangeRequiredFirst(user.mustChangePassword, purpose)) throw passwordChangeRequired();
-  if (action !== undefined && !platformRoleCan(user.role, action)) throw forbidden(action);
-  return { sessionId: claims.sid, user };
+  const found = await withPlatformTx(ctx.pool, (db) => findPlatformSessionUser(db, claims.sid, claims.sub, now));
+  if (!found || found.user.status !== "active") throw unauthenticated();
+  if (!ipAllowed(credentials.ip, effectiveAllowlist(found.user.ipAllowlist, found.role.ipAllowlist))) throw ipNotAllowed();
+  const state = secondFactorState(found.sessionVerified, found.enrolled);
+  const refusal = platformSessionRefusal(state, found.user.mustChangePassword, purpose);
+  if (refusal === "MFA_REQUIRED") throw mfaRequired(state === "enrollment_required" ? "enrollment_required" : "verify_required");
+  if (refusal === "PASSWORD_CHANGE_REQUIRED") throw passwordChangeRequired();
+  const grant = resolvePlatformGrant(found.role);
+  if (action !== undefined && !grantCan(grant, action)) throw forbidden(action);
+  return { sessionId: claims.sid, user: found.user, grant, secondFactor: state, tokenExpiresAt: new Date(claims.exp * 1000) };
 }
 
 export async function platformLogout(ctx: AppContext, principal: PlatformPrincipal, ip: string): Promise<void> {

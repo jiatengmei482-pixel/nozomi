@@ -10,6 +10,7 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { E2E_FX_RATES, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { platformApiLogin } from "./mfa.ts";
 
 interface Person {
   email: string;
@@ -25,9 +26,7 @@ async function createStaff(request: APIRequestContext, role: string, name: strin
   const password = newPassword();
   const accepted = await request.post("/platform/v1/auth/accept-invite", { data: { token: ((await created.json()) as { invite: { token: string } }).invite.token, password } });
   expect(accepted.ok(), "接受邀请").toBe(true);
-  const login = await request.post("/platform/v1/auth/login", { data: { email, password } });
-  expect(login.ok(), "登录").toBe(true);
-  return { email, password, headers: { authorization: `Bearer ${((await login.json()) as { access_token: string }).access_token}` } };
+  return { email, password, headers: { authorization: `Bearer ${await platformApiLogin(request, email, password)}` } };
 }
 
 async function ensureRates(request: APIRequestContext): Promise<void> {

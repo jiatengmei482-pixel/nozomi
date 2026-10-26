@@ -16,7 +16,7 @@ async function addStaff(email: string, role: PlatformRole): Promise<{ id: string
   const invited = await api.call("POST", "/platform/v1/staff", { token: rootToken, body: { email, name: `员工-${role}`, role } });
   assert.equal(invited.status, 201, invited.text);
   await api.call("POST", "/platform/v1/auth/accept-invite", { body: { token: invited.body.invite.token, password: TEST_PASSWORD } });
-  const login = await api.call("POST", "/platform/v1/auth/login", { body: { email, password: TEST_PASSWORD } });
+  const login = await api.platformLogin({ body: { email, password: TEST_PASSWORD } });
   assert.equal(login.status, 200, login.text);
   return { id: invited.body.user.id, token: login.body.access_token };
 }
@@ -39,6 +39,8 @@ const MISSING = "99999999-9999-4999-8999-999999999999";
 /** 路径里第二个编号（加价规则、API 客户端） */
 const MISSING_CHILD = "88888888-8888-4888-8888-888888888888";
 const MASTER_PATHS = ["cities", "places", "vehicle-groups", "addons"];
+/** 不存在的自建角色 */
+const MISSING_ROLE = "custom_0000000000000000";
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
 const ANY_STAFF = ["GET /platform/v1/dashboard/summary"];
 const HOLIDAY = "/platform/v1/holidays/JP/2027-01-01";
@@ -52,6 +54,16 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/staff/${MISSING}/disable`, action: "staff.manage" },
   { method: "POST", url: `/platform/v1/staff/${MISSING}/enable`, action: "staff.manage" },
   { method: "POST", url: `/platform/v1/staff/${MISSING}/password-reset`, action: "staff.manage" },
+  // 员工详情、改角色和 IP 白名单、发起重置两步验证（ADR 0030）
+  { method: "GET", url: `/platform/v1/staff/${MISSING}`, action: "staff.read" },
+  { method: "PATCH", url: `/platform/v1/staff/${MISSING}`, action: "staff.manage", body: {} },
+  { method: "POST", url: `/platform/v1/staff/${MISSING}/mfa-reset`, action: "staff.manage", body: {} },
+  // 角色（ADR 0030）：看 role.read，新建、发起修改、删除 role.manage（审核 role.review 按复核的类别检查，在 platform-roles.itest.ts）
+  { method: "GET", url: "/platform/v1/roles", action: "role.read" },
+  { method: "GET", url: `/platform/v1/roles/${MISSING_ROLE}`, action: "role.read" },
+  { method: "POST", url: "/platform/v1/roles", action: "role.manage", body: {} },
+  { method: "POST", url: `/platform/v1/roles/${MISSING_ROLE}/changes`, action: "role.manage", body: {} },
+  { method: "DELETE", url: `/platform/v1/roles/${MISSING_ROLE}`, action: "role.manage" },
   { method: "GET", url: "/platform/v1/tenants", action: "tenant.read" },
   { method: "GET", url: `/platform/v1/tenants/${MISSING}`, action: "tenant.read" },
   { method: "POST", url: "/platform/v1/tenants", action: "tenant.create", body: {} },
@@ -169,16 +181,16 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
 });
 
 test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全部平台接口", () => {
-  // channel.review、fx.review、cancellation_policy.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts）
+  // channel.review、fx.review、cancellation_policy.review、role.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts、platform-roles.itest.ts）
   // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）、rescue.review（人工指定救援供应商，ADR 0031）同样按复核的类别检查（tenant-onboarding.itest.ts、rescues.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review"];
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review", "role.review"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
   ].sort();
   assert.deepEqual(tested, registered);
@@ -200,7 +212,8 @@ test("me：返回当前账号和它的操作清单；每个角色都能调", asy
     assert.equal(res.status, 200, role);
     assert.equal(res.body.user.role, role);
     assert.deepEqual(res.body.permissions, PLATFORM_ACTIONS.filter((action) => platformRoleCan(role, action)));
-    assert.deepEqual(Object.keys(res.body.user).sort(), ["created_at", "email", "id", "name", "role", "status", "updated_at"]);
+    assert.deepEqual(Object.keys(res.body.user).sort(), ["created_at", "email", "id", "name", "role", "role_name", "status", "updated_at"]);
+    assert.equal(res.body.second_factor.status, "verified", role);
   }
 });
 
@@ -350,11 +363,11 @@ test("超级管理员至少保留一个：唯一的超级管理员不能停用�
   const last = await api.call("POST", `/platform/v1/staff/${second.id}/disable`, { token: second.token });
   assert.equal(last.status, 409, "现在第二个成了唯一的超级管理员");
   assert.equal((await api.call("POST", `/platform/v1/staff/${rootId}/enable`, { token: second.token })).status, 200);
-  rootToken = (await api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
+  rootToken = (await api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
 });
 
 test("两个超级管理员同时停用对方：只有一个成功，不会一个都不剩", async () => {
-  const other = await api.call("POST", "/platform/v1/auth/login", { body: { email: "root2@platform.test", password: TEST_PASSWORD } });
+  const other = await api.platformLogin({ body: { email: "root2@platform.test", password: TEST_PASSWORD } });
   const rootId = (await api.call("GET", "/platform/v1/auth/me", { token: rootToken })).body.user.id;
   const otherId = other.body.user.id;
   const results = await Promise.all([
@@ -367,9 +380,9 @@ test("两个超级管理员同时停用对方：只有一个成功，不会一�
   assert.equal(remaining.rows[0].n, 1);
   // 恢复现场：让 root 继续可用
   const survivor = (await api.db.owner.query("select email from platform_users where role = 'super_admin' and status = 'active'")).rows[0].email;
-  const survivorToken = (await api.call("POST", "/platform/v1/auth/login", { body: { email: survivor, password: TEST_PASSWORD } })).body.access_token;
+  const survivorToken = (await api.platformLogin({ body: { email: survivor, password: TEST_PASSWORD } })).body.access_token;
   await api.call("POST", `/platform/v1/staff/${rootId}/enable`, { token: survivorToken });
-  rootToken = (await api.call("POST", "/platform/v1/auth/login", { body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
+  rootToken = (await api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token;
 });
 
 test("启用：从未激活过的账号不能直接启用（要重新邀请）；重复停用 / 启用直接返回当前状态", async () => {

@@ -25,6 +25,9 @@ export const LOGIN_REJECTED_TEXT = "邮箱或密码不正确。";
  */
 const ACCOUNT_DISABLED_CODE = "ACCOUNT_DISABLED";
 const ACCOUNT_DISABLED_FALLBACK_TEXT = "账号已停用，请联系管理员。";
+/** 运营后台的 IP 白名单（ADR 0030）：同样只在密码正确时才返回 */
+const IP_NOT_ALLOWED_CODE = "IP_NOT_ALLOWED";
+export const IP_NOT_ALLOWED_TEXT = "你现在所在的网络不在这个账号允许的范围内。请连上公司网络（或指定的网络）后再登录；需要调整的话，请联系超级管理员。";
 
 const REASON_NOTICES: Readonly<Record<LoginReason, Notice>> = {
   expired: { kind: "info", text: "登录已过期，请重新登录。" },
@@ -134,6 +137,9 @@ export function LoginPage({ portal }: { portal: Portal }) {
         rejectWith(throttledText(err.retryAfterSeconds));
       } else if (err instanceof ApiError && err.status === 403 && err.code === ACCOUNT_DISABLED_CODE) {
         rejectWith(err.message !== "" ? err.message : ACCOUNT_DISABLED_FALLBACK_TEXT);
+      } else if (err instanceof ApiError && err.status === 403 && err.code === IP_NOT_ALLOWED_CODE) {
+        // 只在密码正确时才会说（ADR 0030），不泄露邮箱是否存在
+        rejectWith(IP_NOT_ALLOWED_TEXT);
       } else if (err instanceof ApiError && err.status < 500) {
         rejectWith(LOGIN_REJECTED_TEXT);
       } else {
@@ -144,13 +150,16 @@ export function LoginPage({ portal }: { portal: Portal }) {
     // 跳转放在 try 外面：登录已经成功，跳转本身出的错不能被当成「系统无法登录」
     sessionStore.set(portal, { accessToken: result.access_token, expiresAt: result.expires_at });
     sessionStore.setMustChangePassword(portal, result.must_change_password);
+    // 运营后台：密码对了还要做两步验证（ADR 0030）。带着提示进去，后台框架先显示两步验证，完成后才是要去的页面
+    const status = "second_factor" in result ? result.second_factor?.status : undefined;
+    const secondFactor: ShellLocationState = status === "enrollment_required" || status === "verify_required" ? { secondFactor: status } : {};
     if (result.must_change_password) {
       // 临时密码：不管原来想去哪，先去修改密码页（ADR 0013）
-      const state: ShellLocationState = { passwordChangeRequired: true };
+      const state: ShellLocationState = { passwordChangeRequired: true, ...secondFactor };
       void navigate(config.paths.changePassword, { replace: true, state });
       return;
     }
-    void navigate(destination, { replace: true });
+    void navigate(destination, { replace: true, state: secondFactor });
   };
 
   /** 被后端拒绝：显示原因，保留邮箱、清空密码、焦点回到密码框。 */

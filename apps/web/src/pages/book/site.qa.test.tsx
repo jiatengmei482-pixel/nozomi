@@ -8,7 +8,7 @@
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
@@ -146,7 +146,8 @@ test("令牌去向：看订单、试算、取消的整个过程里，令牌只�
   );
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
-  assert.equal(document.title, "订单 NZ20261026QAQA2345 · NOZOMI 用车");
+  // 标题在标题行渲染之后的 effect 里设置，负载高时要等一下
+  await waitFor(() => assert.equal(document.title, "订单 NZ20261026QAQA2345 · NOZOMI 用车"));
   assert.ok(!document.body.textContent?.includes(TOKEN.slice(4)), "不是刚下单：页面上不显示链接");
   await actor.click(screen.getByRole("button", { name: "取消订单" }));
   await actor.click(await screen.findByRole("button", { name: "确认取消订单" }));
@@ -196,7 +197,7 @@ test("地址里 # 后面不是合法令牌（太短、多了字符、写成 toke
     const calls = open({ pathname: "/book/order", hash }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
     await screen.findByRole("heading", { level: 1, name: "查订单" });
     assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/order")).length, 0, hash);
-    assert.equal(document.title, "查订单 · NOZOMI 用车");
+    await waitFor(() => assert.equal(document.title, "查订单 · NOZOMI 用车"));
     resetBrowser();
   }
 });

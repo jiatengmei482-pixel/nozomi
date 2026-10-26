@@ -8,6 +8,7 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
 import { adminCredentials, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { platformApiLogin } from "./mfa.ts";
 
 async function expectAccessible(page: Page, what: string): Promise<void> {
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
@@ -23,8 +24,7 @@ async function createStaff(request: APIRequestContext, role: string, name: strin
   const password = newPassword();
   const accepted = await request.post("/platform/v1/auth/accept-invite", { data: { token: ((await created.json()) as { invite: { token: string } }).invite.token, password } });
   expect(accepted.ok(), "接受邀请").toBe(true);
-  const login = await request.post("/platform/v1/auth/login", { data: { email, password } });
-  return { email, password, headers: { authorization: `Bearer ${((await login.json()) as { access_token: string }).access_token}` } };
+  return { email, password, headers: { authorization: `Bearer ${await platformApiLogin(request, email, password)}` } };
 }
 
 /** 一个渠道，带一条已经生效的规则、一个 API 客户端，以及另一位渠道经理发起的一条待审核 */
