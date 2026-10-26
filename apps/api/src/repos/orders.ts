@@ -225,6 +225,16 @@ export async function findOrderOfTenant(db: Db, tenantId: string, orderId: strin
   return row === undefined ? null : toOrder(row);
 }
 
+/** 平台事务：几个供应商各自的那一行（一条查询）。键是「租户编号|订单编号」。 */
+export async function findOrdersOfTenants(db: Db, keys: readonly { tenantId: string; orderId: string }[]): Promise<Map<string, Order>> {
+  if (keys.length === 0) return new Map();
+  const result = await db.query<Row>(
+    `select ${ORDER_COLUMNS} from orders o join unnest($1::uuid[], $2::uuid[]) as wanted(tenant_id, id) on wanted.tenant_id = o.tenant_id and wanted.id = o.id`,
+    [keys.map((key) => key.tenantId), keys.map((key) => key.orderId)],
+  );
+  return new Map(result.rows.map((row) => [`${row["tenant_id"]}|${row["id"]}`, toOrder(row)]));
+}
+
 export async function updateOrderStatus(
   db: Db,
   order: Pick<Order, "tenantId" | "id">,

@@ -40,7 +40,7 @@ import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/
 import { AppError } from "../errors.ts";
 import type { Approval } from "../repos/approvals.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
-import { type Order, type OrderEventActor, type OrderSale, findOrderForPlatform, findSale, insertOrderEvent, releaseSoldInventory, sellInventoryOnDay, updateOrderStatus } from "../repos/orders.ts";
+import { type Order, type OrderEventActor, type OrderSale, findOrderForPlatform, findOrdersOfTenants, findSale, insertOrderEvent, releaseSoldInventory, sellInventoryOnDay, updateOrderStatus } from "../repos/orders.ts";
 import {
   type Deduction,
   type Rescue,
@@ -59,11 +59,16 @@ import {
   insertRescueOffer,
   insertRescueQuote,
   insertRescuedOrder,
+  listDriverAlerts,
   listExpiredOffers,
   listFutureOrdersOfTenant,
+  listOffersOfRescues,
+  listOrderRescues,
   listRescueDeductions,
   listRescueOffers,
   listRescueQuotes,
+  listRescues,
+  listSuspendedTenantsWithFutureOrders,
   listTenantDeductions,
   listTenantOffers,
   markDriverMissingReported,
@@ -905,4 +910,67 @@ export async function tenantRescueOf(db: Db, order: Pick<Order, "tenantId" | "id
   if (original !== null) return { role: "original", rescue: original, deductions: (await listRescueDeductions(db, [original.id])).filter((entry) => entry.tenantId === order.tenantId) };
   const rescuer = await findRescueOfRescuer(db, order.tenantId, order.id);
   return rescuer === null ? null : { role: "rescuer", rescue: rescuer, deductions: [] };
+}
+
+export interface PlatformRescueView {
+  rescue: Rescue;
+  order: Order;
+  originalTenantName: string;
+  rescueTenantName: string | null;
+  offers: { offer: RescueOffer; tenantName: string; quote: RescueQuote | null }[];
+  deductions: Deduction[];
+}
+
+/** 运营后台看的救援（含救援单、它们的对外价和名次、应扣款项、各家的名字）。每类数据一条查询。 */
+export async function platformRescueViews(db: Db, rescues: readonly Rescue[]): Promise<PlatformRescueView[]> {
+  if (rescues.length === 0) return [];
+  const ids = rescues.map((rescue) => rescue.id);
+  const offers = await listOffersOfRescues(db, ids);
+  const quotes = await listRescueQuotes(db, ids);
+  const orders = await findOrdersOfTenants(db, rescues.map((rescue) => ({ tenantId: rescue.originalTenantId, orderId: rescue.orderId })));
+  const tenantIds = [...new Set([...rescues.flatMap((rescue) => [rescue.originalTenantId, ...(rescue.rescueTenantId === null ? [] : [rescue.rescueTenantId])]), ...offers.map((offer) => offer.tenantId)])];
+  const names = new Map((await db.query<{ id: string; name: string }>("select id, name from tenants where id = any($1::uuid[])", [tenantIds])).rows.map((row) => [row.id, row.name]));
+  const deductions = await listRescueDeductions(db, ids);
+  const views: PlatformRescueView[] = [];
+  for (const rescue of rescues) {
+    const order = orders.get(`${rescue.originalTenantId}|${rescue.orderId}`) as Order;
+    views.push({
+      rescue,
+      order,
+      originalTenantName: names.get(rescue.originalTenantId) ?? "",
+      rescueTenantName: rescue.rescueTenantId === null ? null : (names.get(rescue.rescueTenantId) ?? ""),
+      offers: offers.filter((offer) => offer.rescueId === rescue.id).map((offer) => ({ offer, tenantName: names.get(offer.tenantId) ?? "", quote: quotes.get(offer.id) ?? null })),
+      deductions: deductions.filter((entry) => entry.rescueId === rescue.id),
+    });
+  }
+  return views;
+}
+
+export interface RescueQueue {
+  items: PlatformRescueView[];
+  alerts: { tenantId: string; tenantName: string; id: string; orderNo: string; status: OrderStatus; serviceAt: Date; arrivalOverdueAt: Date | null; driverMissingReportedAt: Date | null }[];
+  suspendedTenants: { tenantId: string; name: string; orders: number }[];
+}
+
+/** 运营后台的救援队列：没有结论的救援（或最近有结论的）、司机未到的提醒、暂停中还有未来订单的供应商。 */
+export async function rescueQueue(ctx: AppContext, state: "open" | "closed"): Promise<RescueQueue> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const rescues = await listRescues(db, { state, limit: 200 });
+      const alerts = state === "open" ? await listDriverAlerts(db, 200) : [];
+      const names = new Map((await db.query<{ id: string; name: string }>("select id, name from tenants where id = any($1::uuid[])", [[...new Set(alerts.map((alert) => alert.tenantId))]])).rows.map((row) => [row.id, row.name]));
+      return {
+        items: await platformRescueViews(db, rescues),
+        alerts: alerts.map((alert) => ({ ...alert, tenantName: names.get(alert.tenantId) ?? "" })),
+        suspendedTenants: state === "open" ? await listSuspendedTenantsWithFutureOrders(db, ctx.now()) : [],
+      };
+    },
+    { snapshot: true },
+  );
+}
+
+/** 一张单的全部救援（运营后台订单详情）。 */
+export async function orderRescueViews(db: Db, orderId: string): Promise<PlatformRescueView[]> {
+  return platformRescueViews(db, await listOrderRescues(db, orderId));
 }

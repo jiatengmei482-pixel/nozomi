@@ -263,6 +263,13 @@ export async function findTenantOffer(db: Db, tenantId: string, offerId: string,
   return row === undefined ? null : toOffer(row);
 }
 
+/** 几次救援发过的全部救援单（运营后台一页救援用，一条查询），按发出的先后。 */
+export async function listOffersOfRescues(db: Db, rescueIds: readonly string[]): Promise<RescueOffer[]> {
+  if (rescueIds.length === 0) return [];
+  const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = any($1::uuid[]) order by f.offered_at, f.id`, [[...rescueIds]]);
+  return result.rows.map(toOffer);
+}
+
 /** 一次救援发过的全部救援单，按发出的先后。 */
 export async function listRescueOffers(db: Db, rescueId: string, options: { lock?: boolean } = {}): Promise<RescueOffer[]> {
   const result = await db.query<Row>(`select ${OFFER_COLUMNS} from order_rescue_offers f where f.rescue_id = $1 order by f.offered_at, f.id ${options.lock ? "for update" : ""}`, [rescueId]);
@@ -324,8 +331,9 @@ export async function insertRescueQuote(db: Db, quote: RescueQuote): Promise<voi
   );
 }
 
-export async function listRescueQuotes(db: Db, rescueId: string): Promise<Map<string, RescueQuote>> {
-  const result = await db.query<Row>("select offer_id, supplier_tenant_id, rescue_id, currency, sell_minor, markup_bp, fx, position, candidates, quoted_at from order_rescue_quotes where rescue_id = $1", [rescueId]);
+export async function listRescueQuotes(db: Db, rescueId: string | readonly string[]): Promise<Map<string, RescueQuote>> {
+  const ids = typeof rescueId === "string" ? [rescueId] : [...rescueId];
+  const result = await db.query<Row>("select offer_id, supplier_tenant_id, rescue_id, currency, sell_minor, markup_bp, fx, position, candidates, quoted_at from order_rescue_quotes where rescue_id = any($1::uuid[])", [ids]);
   return new Map(
     result.rows.map((row) => [
       row["offer_id"] as string,
