@@ -56,6 +56,8 @@ function open(path: string, role: string, world: World = {}, routes: Route = () 
     if (at === "/platform/v1/roles") return json(200, { items: [] });
     if (at === "/platform/v1/audit-logs") return json(200, { items: world.logs ?? [logOf()], next_cursor: null });
     if (at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
+    // 系统状态页下方的「第三方密钥」（M4-09）：这里的用例不关心它，给一份只读、没有项目的
+    if (at === "/platform/v1/integration-secrets") return json(200, { precedence_note: "运营后台填写的优先；后台没填（或清空后）才用服务器配置文件里的值。", can_manage: false, encryption_configured: true, items: [] });
     if (at === "/platform/v1/integrations") return json(200, { items: [{ key: "database", label: "数据库", state: "configured", detail: "postgres://nozomi_app:••••@db:5432/nozomi" }, { key: "stripe", label: "Stripe", state: "missing", detail: "" }], fx_center: FX_FRESH });
     return null;
   });
