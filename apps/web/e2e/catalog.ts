@@ -4,7 +4,7 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import { type APIRequestContext, type Locator, type Page, expect } from "@playwright/test";
-import { createActiveTenant, newPassword, platformAdminHeaders, randomLetters, uniqueEmail } from "./support.ts";
+import { createActiveTenant, newPassword, platformAdminHeaders, randomLetters, uniqueEmail, settleAnimations } from "./support.ts";
 
 export const CENTER = { lat: 35.6895, lng: 139.6917 };
 
@@ -101,6 +101,7 @@ export const checkItem = (page: Page, key: string): Locator => page.locator(`[da
 export const productIdOf = (page: Page): string => /\/products\/([0-9a-f-]{36})/.exec(page.url())?.[1] ?? "";
 
 export async function expectAccessible(page: Page, what: string): Promise<void> {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
   const summary = results.violations.map((violation) => `${violation.id}: ${violation.help}（${violation.nodes.map((node) => node.target.join(" ")).join("；")}）`);
   expect(summary, `${what} 的无障碍问题`).toEqual([]);

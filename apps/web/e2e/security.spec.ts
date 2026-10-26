@@ -39,8 +39,6 @@ async function signOut(page: Page): Promise<void> {
 }
 
 test("邀请令牌、访问令牌、密码：不进任何请求的网址和 Referer，不进 localStorage 和 Cookie；全程不请求站外", async ({ page, request, context, baseURL }) => {
-  // 平台登录多了两步验证这一步，整条流程比原来的 60 秒上限长
-  test.setTimeout(120_000);
   const origin = new URL(baseURL ?? "").origin;
   const tenant = await createTenant(request);
   const password = newPassword();
@@ -79,6 +77,7 @@ test("邀请令牌、访问令牌、密码：不进任何请求的网址和 Refe
   expect(await context.cookies(), "后端和前端都不种 Cookie").toEqual([]);
 
   await signOut(page);
+  expect(await context.cookies(), "退出以后也没有任何 Cookie").toEqual([]);
 
   expect(requests.length).toBeGreaterThan(8);
   const secrets = [tenant.inviteToken, accessToken, password, encodeURIComponent(password)];
@@ -87,10 +86,12 @@ test("邀请令牌、访问令牌、密码：不进任何请求的网址和 Refe
     const url = sent.url();
     expect(new URL(url).origin, `请求了站外地址 ${url}`).toBe(origin);
     for (const secret of secrets) expect(url.includes(secret), `令牌或密码出现在请求网址里：${sent.method()} ${new URL(url).pathname}`).toBe(false);
-    const headers = await sent.allHeaders();
+    // 不用 allHeaders()：它等的是网络层补报的原始请求头（CDP 的 requestWillBeSentExtraInfo），刷新、跳转时还在路上的请求偶尔收不到这条事件，
+    // Playwright 就一直等到用例超时（CI 上出现过两次）。Referer、Authorization 在浏览器发出请求时就定了，headers() 里就有；
+    // Cookie 只在网络层才加上，改为核对浏览器里从头到尾没有 Cookie 可带（上面登录后和退出后 context.cookies() 都为空）。
+    const headers = sent.headers();
     const referer = headers["referer"] ?? "";
     expect(referer, `${new URL(url).pathname} 带了 Referer`).toBe("");
-    expect(headers["cookie"] ?? "").toBe("");
     const authorization = headers["authorization"];
     if (authorization !== undefined) {
       withBearer += 1;

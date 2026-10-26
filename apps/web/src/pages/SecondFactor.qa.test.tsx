@@ -75,6 +75,8 @@ test("绑定：密钥和恢复码不进存储、地址、路由状态；离开�
   await actor.type(screen.getByLabelText("密码"), "Quiet-Harbor-2026");
   await actor.click(screen.getByRole("button", { name: "登录" }));
   assert.ok(await screen.findByRole("heading", { level: 1, name: "绑定两步验证" }));
+  // 标题先出来，密钥要等「开始绑定」的应答回来才显示（之前是占位的骨架）：等密钥真的在页面上了再查存储，也免得找不到「动态码」
+  assert.ok(await screen.findByText(SECRET.match(/.{4}/g)?.join(" ") ?? SECRET));
   assertNoSecrets(traces());
   await actor.type(screen.getByLabelText("动态码"), "123456");
   await actor.click(screen.getByRole("button", { name: "完成绑定" }));

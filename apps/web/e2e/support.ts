@@ -393,7 +393,17 @@ export async function importAirportNames(country: string, airports: readonly Sam
   }
 }
 
-/** 等页面上的过渡和动画结束（切换亮暗主题后颜色有短暂过渡，过渡中测对比度会得到中间色）。 */
+/**
+ * 等页面上的过渡和动画结束（切换亮暗主题后按钮等的颜色有短暂过渡，过渡中测对比度会得到中间色，axe 偶发报对比度不够）。
+ * 每个无障碍检查之前都要调用。一直转的动画（加载中的转圈）没有结束的时候，不等它。
+ */
 export async function settleAnimations(page: Page): Promise<void> {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))));
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime ?? 0)))
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
 }
