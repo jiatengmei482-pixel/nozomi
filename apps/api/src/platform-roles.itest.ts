@@ -241,7 +241,7 @@ test("数据范围（订单的推送记录、照片，M3-02 的接口）：范�
   const testEvent = await deliver(saleA.tenant_id, null, "webhook.test");
 
   const role = await ok(createRole({ name: "甲渠道推送", grants: ["orders:view", "orders:edit"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
-  assert.deepEqual(role.permissions, ["order.read", "order.resend", "order.manage", "exception.manage"]);
+  assert.deepEqual(role.permissions, ["order.read", "order.resend", "order.manage"]);
   const a = await addStaff("deliveries-a@platform.test", role.key);
   const list = await ok(api.call("GET", "/platform/v1/webhook-deliveries?status=failed", { token: a.token }));
   assert.deepEqual(list.items.map((d: any) => d.id), [inA]);
@@ -280,7 +280,7 @@ test("数据范围（取消、改单、加收、退款，M3-03 的接口；代�
   const orderA = sales.find((r) => r.channel_id === channelA)!.order_id;
   const orderB = sales.find((r) => r.channel_id === channelB)!.order_id;
   const role = await ok(createRole({ name: "甲渠道售后", grants: ["orders:view", "orders:edit", "orders:review", "approvals:view", "cancellation_policy:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
-  assert.deepEqual(role.permissions, ["master_data.read", "approval.read", "order.read", "order.resend", "order.manage", "payment.manage", "exception.manage"]);
+  assert.deepEqual(role.permissions, ["master_data.read", "approval.read", "order.read", "order.resend", "order.manage", "payment.manage"]);
   const staff = await addStaff("aftersales-a@platform.test", role.key);
   const missing = randomUUID();
   const child = randomUUID();
@@ -422,7 +422,7 @@ test("数据范围（订单中心的异常队列、工单，M4-02 的接口；�
     )).rows[0]!.id;
   const exceptionA = await exceptionOf(saleA);
   const exceptionB = await exceptionOf(saleB);
-  const role = await ok(createRole({ name: "甲渠道工单", grants: ["orders:view", "orders:edit", "orders:review", "tickets:view", "tickets:edit", "tickets:review", "approvals:view", "compensation_table:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
+  const role = await ok(createRole({ name: "甲渠道工单", grants: ["orders:view", "orders:edit", "orders:review", "exceptions:view", "exceptions:edit", "tickets:view", "tickets:edit", "tickets:review", "approvals:view", "compensation_table:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
   assert.ok(["exception.manage", "ticket.read", "ticket.manage", "ticket.review"].every((action) => role.permissions.includes(action)), JSON.stringify(role.permissions));
   const staff = await addStaff("tickets-a@platform.test", role.key);
 

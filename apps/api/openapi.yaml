@@ -14522,15 +14522,15 @@ components:
         - cancellation_policy.review
         - rescue.manage
         - rescue.review
-        - role.read
-        - role.manage
-        - role.review
         - exception.manage
         - ticket.read
         - ticket.manage
         - ticket.review
         - compensation_table.manage
         - compensation_table.review
+        - role.read
+        - role.manage
+        - role.review
     TenantAction:
       type: string
       enum: [ user.read, user.manage, audit_log.read, master_data.read, area.read, area.manage, product.read, product.manage, brand.manage, order.read, order.dispatch, order.extra_charge, fleet.read, fleet.manage, webhook.read, webhook.manage, company.read, company.manage, performance.read, ticket.read, ticket.manage ]

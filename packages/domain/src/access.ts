@@ -291,8 +291,9 @@ export const PLATFORM_MENUS = [
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
-  // 异常队列（M4-02）是订单中心的一部分：看和看订单是同一个操作，认领和关闭算编辑
-  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage", "exception.manage"], review: ["payment.manage"] } },
+  { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 异常队列（M4-02，ADR 0034）：看和看订单是同一个操作（和救援一样），认领和关闭算编辑——单独一格，财务处理支付异常不用拿到代取消、改单
+  { key: "exceptions", name: "异常队列", operations: { view: ["order.read"], edit: ["exception.manage"] } },
   // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核
   { key: "rescues", name: "救援", operations: { view: ["order.read"], edit: ["rescue.manage"], review: ["rescue.review"] } },
   // 平台取消政策（M3-03）：看政策和看主数据是同一个操作（每个角色都能看）；发起修改算编辑，审核修改算审核
