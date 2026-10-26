@@ -276,17 +276,17 @@
       "tasks": [
         { "id": "M3-01", "title": "下单与 Stripe 付款（保存支付方式）", "role": "backend", "status": "blocked",
           "blockedBy": "只差「Stripe 测试卡真实付款成功」一条：要等你注册 Stripe 并把测试密钥（sk_test_、pk_test_、Webhook 签名密钥）填进测试环境的设置（见 docs/secrets.md）。下单、订单状态、库存预占、待支付超时、支付通知的签名校验与幂等都已完成并合并", "acceptance": ["Stripe 测试卡真实付款成功", "Webhook 签名校验"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/35 ；单元 1182、前端组件 419、集成 981 个通过；Webhook 签名校验按 Stripe 算法实现并完整测试；测试角色发现的 3 个缺陷已修复", "updated": "2026-10-25" },
-        { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "review", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/41 ；单元 1284、前端组件 442、集成 1047 个通过；测试角色补了 42 个测试（含 SSRF 防护、司机令牌、上传伪装、并发状态流转），发现的 3 个缺陷已修复", "updated": "2026-10-26" },
-        { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "review", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/43 ；本地单元 1324 个通过，相关集成测试全部通过，完整检查以 PR 的 CI 为准；测试角色补了 34 个测试（金额与独立实现比对、时间边界到毫秒、并发），发现的 3 个缺陷已修复", "updated": "2026-10-26" },
-        { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "review", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/45 ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 30 个测试（违约金阶梯与差价与独立实现比对、时间边界到毫秒、并发），发现的 2 个缺陷已修复", "updated": "2026-10-26" },
-        { "id": "M3-05", "title": "官网下单页与订单页", "role": "frontend", "status": "review", "acceptance": ["客人可点「我已落地」"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/46 ；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 3 个缺陷已修复", "updated": "2026-10-26" },
+        { "id": "M3-02", "title": "租户 Webhook 推送、派车、司机 H5", "role": "backend", "status": "done", "acceptance": ["推送失败自动重试", "落地时间取证规则"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/41 ；单元 1284、前端组件 442、集成 1047 个通过；测试角色补了 42 个测试（含 SSRF 防护、司机令牌、上传伪装、并发状态流转），发现的 3 个缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）", "updated": "2026-10-26" },
+        { "id": "M3-03", "title": "取消、改单、事后加收", "role": "backend", "status": "done", "acceptance": ["平台统一取消政策", "48 小时异议期"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/43 ；本地单元 1324 个通过，相关集成测试全部通过，完整检查以 PR 的 CI 为准；测试角色补了 34 个测试（金额与独立实现比对、时间边界到毫秒、并发），发现的 3 个缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）", "updated": "2026-10-26" },
+        { "id": "M3-04", "title": "救援改派与违约金", "role": "backend", "status": "done", "acceptance": ["4 种触发情形", "违约金阶梯 0 / 30% / 100%"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/45 ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 30 个测试（违约金阶梯与差价与独立实现比对、时间边界到毫秒、并发），发现的 2 个缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）", "updated": "2026-10-26" },
+        { "id": "M3-05", "title": "官网下单页与订单页", "role": "frontend", "status": "done", "acceptance": ["客人可点「我已落地」"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/46 ；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 3 个缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）", "updated": "2026-10-26" },
         {
           "id": "M3-07",
           "title": "加价规则生效前试算近 30 天的毛利影响",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["发起加价规则或渠道定价参数的修改时，可以看到按近 30 天询价和订单重算的毛利变化", "审核人在批准前能看到同样的试算结果"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/48 ；本地相关单元、组件、集成（36 通过 1 按需跳过）、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色发现的 2 个问题（界面旧失败原因不作废、10 万报价时偶发接近语句超时）已修复",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/48 ；本地相关单元、组件、集成（36 通过 1 按需跳过）、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色发现的 2 个问题（界面旧失败原因不作废、10 万报价时偶发接近语句超时）已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
         {
@@ -303,27 +303,27 @@
           "id": "M3-09",
           "title": "官网下单页的页面规范",
           "role": "designer",
-          "status": "review",
+          "status": "done",
           "acceptance": ["docs/design/pages/site-booking.md 写明官网询价、下单、订单页的布局与交互", "现有页面按规范核对、差异列出并修正"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/47 ；规范见 docs/design/pages/site-booking.md（第 11 节列出与实现的差异），小的样式与文案差异已在本 PR 修正，较大的差异由 M3-11 处理；相关组件测试通过",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/47 ；规范见 docs/design/pages/site-booking.md（第 11 节列出与实现的差异），小的样式与文案差异已在本 PR 修正，较大的差异由 M3-11 处理；相关组件测试通过；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
         {
           "id": "M3-11",
           "title": "官网页面按规范逐项修正",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["docs/design/pages/site-booking.md 第 11.2 节列出的差异（F1–F12）逐项修正并标注完成", "320 / 360 / 768 宽度不横向滚动，亮色、暗色通过无障碍检查"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/49 ；测试角色补 32 个测试，发现的 5 个缺陷已修复；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；「需要帮助」客服区块等负责人提供客服电话（SITE_SUPPORT_PHONE）后显示",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/49 ；测试角色补 32 个测试，发现的 5 个缺陷已修复；本地相关单元、组件、集成、端到端测试通过，完整检查以 PR 的 CI 为准；「需要帮助」客服区块等负责人提供客服电话（SITE_SUPPORT_PHONE）后显示；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
         {
           "id": "M3-10",
           "title": "官网后续功能：点对点、包车下单",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["点对点和包车也能在官网下单", "地址可从城市的常用地点（机场、车站、地标）里选，不依赖外部地图服务"],
-          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/51 ；测试角色补 29 个测试，发现的 4 个缺陷已修复；本地相关单元、组件（894）、集成（76）、官网端到端（11）通过，完整检查以 PR 的 CI 为准。原验收标准里的「地图选点 / 地址搜索」拆到 M3-12，「确认邮件里带订单查看链接」拆到 M4-08，都在等负责人",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/51 ；测试角色补 29 个测试，发现的 4 个缺陷已修复；本地相关单元、组件（894）、集成（76）、官网端到端（11）通过，完整检查以 PR 的 CI 为准。原验收标准里的「地图选点 / 地址搜索」拆到 M3-12，「确认邮件里带订单查看链接」拆到 M4-08，都在等负责人；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
         { "id": "M3-12", "title": "官网地图选点与地址搜索", "role": "frontend", "status": "blocked", "blockedBy": "要等谷歌地图密钥填进测试环境（同 M2-02，见 docs/secrets.md）。在那之前官网用「从常用地点选」（城市的机场、车站、地标）代替，是 M3-10 的临时方案", "acceptance": ["官网的地址可以在地图上选点、按关键字搜索", "选出的地址带坐标，报价按坐标判断服务区"], "evidence": "", "updated": "2026-10-26" },
@@ -335,13 +335,14 @@
       "name": "平台运营后台",
       "goal": "租户管理、渠道、订单中心、工单、风控、通知、审计",
       "tasks": [
-        { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "review", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/42 ；本地单元 1321、前端组件 448 个通过，集成与端到端以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 2 个缺陷已修复", "updated": "2026-10-26" },
+        { "id": "M4-01", "title": "租户入驻、资质审核、评分与状态", "role": "backend", "status": "done", "acceptance": ["90 天滚动评分", "观察 / 暂停自动触发"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/42 ；本地单元 1321、前端组件 448 个通过，集成与端到端以 PR 的 CI 为准；测试角色补了 28 个测试，发现的 2 个缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M4.md）", "updated": "2026-10-26" },
         { "id": "M4-02", "title": "订单中心、异常队列、工单与赔付表", "role": "backend", "status": "review", "acceptance": ["赔付按统一表计算"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/53 ；赔付金额全部由同一个纯函数按赔付表计算（判定、试算、复核批准三处一致）；测试角色补 55 个测试（独立对照实现核对 5,000 组随机输入），发现的 3 个缺陷已修复；本地单元 1600、相关集成 248 个通过，完整检查以 PR 的 CI 为准；3 项默认值写在 ADR 0034 待负责人确认", "updated": "2026-10-26" },
         { "id": "M4-03", "title": "运营后台页面", "role": "frontend", "status": "todo", "acceptance": ["全部操作留审计"], "evidence": "", "updated": "2026-10-07" },
-        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "review", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/44 ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 39 个测试（时间窗边界、防重放、并发恢复码、遍历全部路由、IP 伪造、范围外 404 不可区分），没有发现可绕过的缺陷，4 个小缺陷已修复", "updated": "2026-10-26" },
+        { "id": "M4-05", "title": "平台账号安全：两步验证、IP 白名单、自建角色与数据范围", "role": "backend", "status": "done", "acceptance": ["平台员工必须开启两步验证才能登录", "可按角色配置菜单 × 操作权限和数据范围"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/44 ；本地相关单元、组件、集成测试通过，完整检查以 PR 的 CI 为准；测试角色补了 39 个测试（时间窗边界、防重放、并发恢复码、遍历全部路由、IP 伪造、范围外 404 不可区分），没有发现可绕过的缺陷，4 个小缺陷已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M4.md）", "updated": "2026-10-26" },
         { "id": "M4-06", "title": "公司统一登录（SSO）", "role": "backend", "status": "blocked", "blockedBy": "等你确定用 Google Workspace 还是 Microsoft，并在其管理后台创建登录应用", "acceptance": ["平台员工可用公司账号登录"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M4-08", "title": "通知中心：邮件（含官网确认邮件里的订单查看链接）", "role": "backend", "status": "blocked", "blockedBy": "要等你选定并注册一个发邮件的服务（例如 Amazon SES、SendGrid、Postmark），把发信账号的密钥填进测试环境的设置；同时确定发件人地址和域名（要在域名服务商那里加几条验证记录）", "acceptance": ["按「事件 × 接收方 × 语言 × 通道」维护模板，每条发送有记录（已发送 / 已送达 / 失败），可按订单查", "官网下单后客人收到确认邮件，里面带订单查看链接"], "evidence": "", "updated": "2026-10-26" },
         { "id": "M4-09", "title": "运营后台填写第三方密钥（谷歌地图、Stripe 测试密钥）", "role": "backend", "status": "review", "acceptance": ["只有超级管理员能在运营后台填写、更换、清空谷歌地图和 Stripe 密钥，不用登录服务器", "密钥用数据加密密钥加密后存数据库，页面和接口只显示打码后的末 4 位，任何地方都不返回、不记录原文", "每次修改写审计日志（谁、何时、哪一项、动作），不记原文", "保存后立即生效，「测试一下」能验证密钥是否可用", "后台填写的优先于服务器 .env，页面显示每项当前生效的来源并说明顺序"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/54 ；后端 + 运营后台页面；测试角色做了安全测试补 23 个测试（接口、审计、日志、页面、存储里都没有密钥原文和片段；权限；加密；并发；「测试一下」不跟随跳转、不回显），发现的 1 个缺陷已修复，限速等 5 条建议已做；本地相关集成 142 个、组件、端到端通过，完整检查以 PR 的 CI 为准", "updated": "2026-10-26" },
+        { "id": "M4-10", "title": "验收发现的小问题（M3、M4）", "role": "frontend", "status": "todo", "acceptance": ["格式不对的订单链接也提示「订单链接无效或已过期」（页面规范第 6 节）", "没有权限的菜单项（如只勾了「订单 · 查看」时的「取消政策」）不显示", "邀请员工对话框里自建角色显示角色名而不是内部编号", "待付款的单发起救援时提示说法准确；资质审核里能看到供应商填的到期日；未付款单取消的原因不写「按取消政策退款」；「按JP的必交清单」补空格", "运营后台订单详情的包车行程不显示「→ —」，收款状态显示中文；加价规则弹窗的日期示例不像已填的值", "包车的免费等待按需求固定为 0（商品配置不允许填其他值）"], "evidence": "", "updated": "2026-10-26" },
         { "id": "M4-07", "title": "端到端与组件测试去偶发", "role": "tester", "status": "todo", "acceptance": ["CI 报告里标为 flaky 的用例逐个找到原因并修复（时序、共享数据、动画过渡、限速）", "连续 5 次 CI 的端到端测试没有 flaky，之后把 CI 的重跑次数改回 0"], "evidence": "", "updated": "2026-10-26" },
         { "id": "M4-04", "title": "M4 验收", "role": "acceptance", "status": "todo", "acceptance": ["运营人员从零审核一个新租户并处理一张工单"], "evidence": "", "updated": "2026-10-07" }
       ]
@@ -351,7 +352,7 @@
       "name": "财务结算",
       "goal": "月结账单、银行转账批量文件、违约金扣减、对账、汇兑损益",
       "tasks": [
-        { "id": "M5-01", "title": "账单生成与双人复核", "role": "backend", "status": "review", "acceptance": ["次月 20 日付款批次"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/52 ；测试角色补 36 个测试（独立对照实现核对 500 组随机应付与 40 张真实订单），发现的 2 个缺陷已修复；本地单元、相关集成 171 个通过，完整检查以 PR 的 CI 为准；6 项口径默认值写在 ADR 0040 待负责人确认", "updated": "2026-10-26" },
+        { "id": "M5-01", "title": "账单生成与双人复核", "role": "backend", "status": "done", "acceptance": ["次月 20 日付款批次"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/52 ；测试角色补 36 个测试（独立对照实现核对 500 组随机应付与 40 张真实订单），发现的 2 个缺陷已修复；本地单元、相关集成 171 个通过，完整检查以 PR 的 CI 为准；6 项口径默认值写在 ADR 0040 待负责人确认；测试环境验收通过（2026-10-26，报告 docs/acceptance/M5.md）", "updated": "2026-10-26" },
         { "id": "M5-02", "title": "银行转账批量文件与流水号回填", "role": "backend", "status": "todo", "acceptance": ["导出文件格式由你提供的银行模板确定"], "evidence": "", "updated": "2026-10-07" },
         { "id": "M5-03", "title": "M5 验收", "role": "acceptance", "status": "todo", "acceptance": ["一个月真实测试订单生成正确账单"], "evidence": "", "updated": "2026-10-07" }
       ]
@@ -642,6 +643,11 @@
       "date": "2026-10-26",
       "by": "Claude",
       "summary": "M4-09 待验收：超级管理员可以在运营后台「系统设置 → 系统状态 → 第三方密钥」直接填写、更换、清空谷歌地图和 Stripe 密钥，加密后存数据库，页面只显示末 4 位，保存后马上生效，「测试一下」能验证密钥是否可用（每项 5 秒最多一次）；每次改动写审计（不记原文）。后台填写的优先于服务器配置文件。"
+    },
+    {
+      "date": "2026-10-26",
+      "by": "Claude",
+      "summary": "测试环境验收：M3-02、M3-03、M3-04、M3-05、M3-07、M3-09、M3-10、M3-11、M4-01、M4-05、M5-01 共 11 项通过，标为已验收（报告在 docs/acceptance/M3.md、M4.md、M5.md）。测试环境没有 Stripe，付款之后才有的环节（派车、落地、加收、救援、出账）按各 PR 的自动化测试判定。验收发现的小问题合并为 M4-10。"
     }
   ]
 }
