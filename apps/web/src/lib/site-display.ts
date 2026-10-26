@@ -3,7 +3,8 @@
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
 import { type ExtraChargeStatus, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays } from "@nozomi/domain";
-import type { SiteOrder, SiteUnavailableReason } from "../api/site.ts";
+import type { CancelTier } from "../api/order-money.ts";
+import type { SiteOrder, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
 export const SITE_HOME_PATH = "/book";
@@ -151,3 +152,80 @@ export const GUEST_CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, Badg
   failed: { tone: "danger", label: "没有改成" },
   cancelled: { tone: "neutral", label: "已作废" },
 };
+
+/** 基点写成百分数（只用于显示，整数运算）：`5000` → `50%`，`1250` → `12.5%`。 */
+function percentOfBp(bp: number): string {
+  const whole = Math.trunc(bp / 100);
+  const rest = String(bp % 100).padStart(2, "0").replace(/0+$/, "");
+  return `${whole}${rest === "" ? "" : `.${rest}`}%`;
+}
+
+/**
+ * 客人看的取消政策（pages/site-booking.md 第 11 节 F7）：不用 ≥ < 符号、不说「扣 100%」。
+ * 「用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额」。每档是「离用车不少于 N 小时」，后一档的上限是前一档的下限。
+ */
+export function guestCancelPolicyText(tiers: readonly CancelTier[]): string {
+  return tiers
+    .map((tier, index) => {
+      const upper = index === 0 ? null : (tiers[index - 1] as CancelTier).min_hours_before;
+      const when = upper === null ? (tier.min_hours_before === 0 ? "任何时候取消" : `用车前 ${tier.min_hours_before} 小时以上取消`) : tier.min_hours_before === 0 ? `${upper} 小时内取消` : `${tier.min_hours_before}–${upper} 小时内取消`;
+      const fee = tier.fee_bp === 0 ? "免费" : tier.fee_bp >= 10_000 ? "收全额" : `收 ${percentOfBp(tier.fee_bp)}`;
+      return `${when}${fee}`;
+    })
+    .join("；");
+}
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+
+/**
+ * 客人看的日期时间（F8）：城市当地的 `YYYY-MM-DDTHH:mm` 写成「10月26日（周一）17:45」；不在当地今年的带上年份「2027年1月3日（周日）09:00」。
+ * 「当地时间」由调用处写在前面或后面。
+ */
+export function guestLocalText(local: string, timeZone: string, now: Date): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(local);
+  if (match === null) return local;
+  const [, year = "", month = "", day = "", time = ""] = match;
+  const weekday = WEEKDAYS[new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay()] as string;
+  const thisYear = localDateTimeIn(timeZone, now).slice(0, 4);
+  return `${year === thisYear ? "" : `${year}年`}${Number(month)}月${Number(day)}日（${weekday}）${time}`;
+}
+
+/** 某个时刻在城市当地的客人说法（见 guestLocalText）；没有时刻时写「—」。 */
+export function guestInstantText(iso: string | null, timeZone: string, now: Date): string {
+  if (iso === null) return "—";
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? "—" : guestLocalText(localDateTimeIn(timeZone, at), timeZone, now);
+}
+
+/** 十进制金额字符串按数值比较（不经浮点）：小数位补齐后当整数比。 */
+function compareDecimal(a: string, b: string): number {
+  const [aWhole = "0", aFraction = ""] = a.split(".");
+  const [bWhole = "0", bFraction = ""] = b.split(".");
+  const digits = Math.max(aFraction.length, bFraction.length);
+  const diff = BigInt(`${aWhole}${aFraction.padEnd(digits, "0")}`) - BigInt(`${bWhole}${bFraction.padEnd(digits, "0")}`);
+  return diff < 0n ? -1 : diff > 0n ? 1 : 0;
+}
+
+/** 报价按总价从低到高（F6）；同价保持接口的顺序。同一次询价的报价是同一个币种。 */
+export function quotesByTotal(quotes: readonly SiteQuote[]): SiteQuote[] {
+  return [...quotes].sort((a, b) => compareDecimal(a.price.total.amount, b.price.total.amount));
+}
+
+/** 订单页上的区块（F1）：默认的先后顺序。 */
+export const ORDER_SECTION_ORDER = ["trip", "timeline", "driver", "landing", "charges", "change", "cancel", "help"] as const;
+export type OrderSectionKey = "payment" | (typeof ORDER_SECTION_ORDER)[number];
+
+/**
+ * 客人进来要做的那件事（pages/site-booking.md 5.1）：待付款 → 付款；「我已落地」能点 → 航班落地；有还在异议期内的服务后费用 → 服务后的费用；其他 → 行程。
+ */
+export function primaryOrderSection(order: Pick<SiteOrder, "status" | "landing" | "extra_charges">, now: Date): OrderSectionKey {
+  if (order.status === "pending_payment") return "payment";
+  if (landingAvailability(order, now).kind === "open") return "landing";
+  if (order.extra_charges.some((charge) => charge.dispute_open)) return "charges";
+  return "trip";
+}
+
+/** 区块的先后：排第一的那块放最前，其余按默认顺序。付款区块只在待付款时有，总在第一。 */
+export function orderSectionSequence(primary: OrderSectionKey): OrderSectionKey[] {
+  return [primary, ...ORDER_SECTION_ORDER.filter((key) => key !== primary)];
+}

@@ -4,7 +4,7 @@
  * 选中的报价从询价页带过来；直接打开这一页（刷新、收藏）没有报价，提示回去重新查询。
  * 提交用一个幂等键：网络失败再点一次不会下出两张单；改了内容就换一个新的。
  */
-import { MESSAGING_APPS, type MessagingApp, isFlightNo, isInternationalPhone } from "@nozomi/domain";
+import { MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone } from "@nozomi/domain";
 import { type FormEvent, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -15,10 +15,9 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
+import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
-import { tiersText } from "../../lib/order-money-display.ts";
-import { SITE_HOME_PATH, newIdempotencyKey, siteOrderUrl } from "../../lib/site-display.ts";
+import { SITE_HOME_PATH, guestCancelPolicyText, guestInstantText, guestLocalText, newIdempotencyKey, siteOrderUrl } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import type { CheckoutState } from "./BookPage.tsx";
 import { SiteLayout, siteFailureText } from "./SiteLayout.tsx";
@@ -158,7 +157,7 @@ export function CheckoutPage() {
           <div className="site-facts__item">
             <dt>{pickup ? "航班计划到达" : "上车时间"}</dt>
             <dd>
-              {draft.date} {draft.time}（{displayName(city.name).text}当地时间）
+              {guestLocalText(`${draft.date}T${draft.time}`, city.timezone, new Date())}（{displayName(city.name).text}当地时间）
             </dd>
           </div>
           <div className="site-facts__item">
@@ -177,10 +176,10 @@ export function CheckoutPage() {
           </div>
           <div className="site-facts__item">
             <dt>取消政策</dt>
-            <dd>{tiersText(quote.cancel_policy.tiers)}</dd>
+            <dd>{guestCancelPolicyText(quote.cancel_policy.tiers)}</dd>
           </div>
         </dl>
-        <p className="site-muted">报价有效到当地时间 {formatInZone(quote.expires_at, city.timezone)}。</p>
+        <p className="site-muted">报价有效到当地时间 {guestInstantText(quote.expires_at, city.timezone, new Date())}。</p>
         <LinkButton to={SITE_HOME_PATH} state={{ draft }} variant="text">
           返回修改行程
         </LinkButton>
@@ -208,7 +207,7 @@ export function CheckoutPage() {
           <label className="field__label" htmlFor="site-notes">
             备注（选填）
           </label>
-          <textarea id="site-notes" className="input textarea" rows={3} maxLength={2000} value={form.notes} onChange={(event) => update({ notes: event.target.value })} />
+          <textarea id="site-notes" className="input textarea" rows={3} maxLength={ORDER_FIELD_LIMITS.notesMax} value={form.notes} onChange={(event) => update({ notes: event.target.value })} />
         </div>
         <div className="field">
           <label className="choice site-consent">

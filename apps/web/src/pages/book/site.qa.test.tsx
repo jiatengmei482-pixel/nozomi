@@ -22,7 +22,7 @@ afterEach(resetBrowser);
 const TOKEN = `nzo_${"Q".repeat(20)}_${"a".repeat(22)}`;
 const NEW_TOKEN = `nzo_${"N".repeat(43)}`;
 const HOUR = 3_600_000;
-const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null };
+const openConfig: SiteConfig = { open: true, currency: "JPY", payments: null, support_phone: null };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const landingOf = (scheduledAt: string, reported: string | null = null): NonNullable<SiteOrder["landing"]> => ({
   scheduled_at: scheduledAt,
@@ -229,7 +229,7 @@ test("「我已落地」在页面上：送机单不出这一块；接机单取�
   resetBrowser();
 
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, orderRoutes(orderOf({ status: "assigned", landing: landingOf(soon, "2030-11-20T00:50:00.000Z") })));
-  assert.ok(await screen.findByText("您已确认落地：当地时间 2030-11-20 09:50。"));
+  assert.ok(await screen.findByText("您已确认落地：当地时间 2030年11月20日（周三）09:50。"));
   assertAbsent(screen.queryByRole("button", { name: "我已落地" }));
 });
 
@@ -250,7 +250,7 @@ test("改单：后端回 422 NO_CHANGE 时页面提示「没有改动」，不�
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
   await actor.click(screen.getByRole("button", { name: "修改订单" }));
-  await actor.type(screen.getByLabelText("备注"), "带婴儿座椅");
+  await actor.type(screen.getByLabelText("备注（选填）"), "带婴儿座椅");
   await actor.click(screen.getByRole("button", { name: "提交修改" }));
   assert.ok(await screen.findByText("没有改动。"));
   assert.equal(screen.queryByText(/修改订单失败|修改失败/), null);

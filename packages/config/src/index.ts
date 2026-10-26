@@ -224,6 +224,15 @@ const rawSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
     z.string().regex(/^nzc_[0-9a-f]{24}$/, "SITE_CLIENT_ID 应当是运营后台「API 客户端与密钥」里显示的 client_id（nzc_ 加 24 位十六进制）").optional(),
   ),
+  // 官网订单页「需要帮助」里的客服电话（ADR 0032 待定事项 6；公开值，不是密钥）。不配 = 订单页不显示客服区块
+  SITE_SUPPORT_PHONE: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
+    z
+      .string()
+      // 和客人手机号同口径（domain 的 isInternationalPhone，E.164）：+ 国家码不以 0 开头，共 8–15 位数字；写法上只允许空格和连字符分隔
+      .refine((value) => /^\+[0-9][0-9 -]*[0-9]$/.test(value) && /^[1-9]\d{7,14}$/.test(value.replace(/[ -]/g, "").slice(1)), "SITE_SUPPORT_PHONE 应当是带国家码的电话号码：以 + 开头，国家码不以 0 开头，共 8–15 位数字，只用空格和连字符分隔，如 +81 3-1234-5678")
+      .optional(),
+  ),
 });
 
 export type RawEnv = z.input<typeof rawSchema>;
@@ -260,6 +269,8 @@ export interface AppConfig {
   site: { clientId: string } | null;
   /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
   loginThrottle: { maxAttemptsPerIp: number };
+  /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
+  siteSupportPhone: string | null;
 }
 
 export class ConfigError extends Error {
@@ -353,6 +364,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
     loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
+    siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
   };
 }
 

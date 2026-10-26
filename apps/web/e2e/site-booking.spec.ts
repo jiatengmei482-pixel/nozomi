@@ -3,10 +3,13 @@
  * 客人在 /book 询价（日期时间按东京的「现在」往后推）→ 选车 → 填订单 → 订单页：端到端测试里没有 Stripe，页面写「付款暂未开放」、订单待支付；
  * 「付款」由用例用迁移账号直接在库里把这一单记成已付款、已确认（支付替身：等同于收到 Stripe 的付款成功通知，只在测试里构造）→ 刷新后点「我已落地」（验收标准）。
  * 另外用订单号 + 邮箱找回订单；每一步在 320 / 360 / 400 宽不横向滚动，亮色、暗色各过一遍 axe。
+ * M3-11（pages/site-booking.md 11.2）：查询后焦点到结果、订单页「当下要做的事」排第一、取消政策的客人说法和「不退款」、
+ * 日期「…月…日（周…）」、「复制链接」按钮、改单表单的字段级错误、顶栏当前页和 320px 的两行排法。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
+import { E2E_SUPPORT_PHONE } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -74,6 +77,25 @@ async function expectNoOverflow(page: Page, what: string): Promise<void> {
   await page.setViewportSize(viewport);
 }
 
+/** 订单页第一个区块的标题。 */
+async function firstSection(page: Page): Promise<string> {
+  return ((await page.locator("main h2").first().textContent()) ?? "").trim();
+}
+
+/** 320px 宽时顶栏：品牌和主题切换在第一行两端，入口在第二行（F10）。 */
+async function expectHeaderRowsAt320(page: Page): Promise<void> {
+  const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+  await page.setViewportSize({ width: 320, height: 640 });
+  const brand = await page.locator(".site__brand").boundingBox();
+  const theme = await page.getByRole("button", { name: "切换主题" }).boundingBox();
+  const nav = await page.getByRole("navigation", { name: "官网" }).boundingBox();
+  if (brand === null || theme === null || nav === null) throw new Error("顶栏没有显示出来");
+  expect(Math.abs(brand.y + brand.height / 2 - (theme.y + theme.height / 2)), "品牌和主题切换在同一行").toBeLessThan(8);
+  expect(theme.x + theme.width, "主题切换在右端").toBeGreaterThan(320 - 40);
+  expect(nav.y, "入口在第二行").toBeGreaterThanOrEqual(Math.max(brand.y + brand.height, theme.y + theme.height) - 1);
+  await page.setViewportSize(viewport);
+}
+
 async function expectAccessibleBothThemes(page: Page, what: string): Promise<void> {
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -96,6 +118,8 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await expect(page.getByRole("heading", { level: 1, name: "预订接送机" })).toBeVisible();
   await expect(page.getByText(/GeoNames/)).toBeVisible();
   await expect(page.getByText(/OurAirports/)).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "官网" }).getByRole("link", { name: "预订接送机" })).toHaveAttribute("aria-current", "page");
+  await expectHeaderRowsAt320(page);
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
   await expect(page.getByLabel(/^机场/)).toHaveValue(world.airport.id);
   await page.getByLabel("下车地址或酒店名").fill("新宿站南口");
@@ -106,9 +130,15 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await expectNoOverflow(page, "询价页");
   await expectAccessibleBothThemes(page, "询价页");
   await page.getByRole("button", { name: "查询价格" }).click();
+  // 结果在长表单下面：焦点和屏幕都到结果标题（F4）
+  const results = page.getByRole("heading", { level: 2, name: /可预订的车/ });
+  await expect(results).toBeFocused();
+  await expect(results).toBeInViewport();
   const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
   await expect(card).toContainText("22,000 JPY");
   await expect(card).toContainText("60 分钟（从航班落地起算）");
+  await expect(card).toContainText("24 小时内取消收全额");
+  await expect(card).not.toContainText(/≥|扣 100%/);
   await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|20,000/);
   await expectNoOverflow(page, "询价结果");
   await expectAccessibleBothThemes(page, "询价结果");
@@ -134,6 +164,12 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   const orderNo = ((await heading.textContent()) ?? "").replace("订单 ", "").trim();
   expect(page.url()).toMatch(/\/book\/order#nzo_/);
   await expect(page.getByText("待付款", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "复制链接" })).toBeVisible();
+  expect(await firstSection(page), "待付款时付款排第一").toBe("付款");
+  // 登记了客服电话：最后一个区块是「需要帮助」，电话可以直接拨
+  expect(((await page.locator("main h2").last().textContent()) ?? "").trim()).toBe("需要帮助");
+  await expect(page.getByRole("link", { name: `打电话给客服 ${E2E_SUPPORT_PHONE}` })).toHaveAttribute("href", `tel:${E2E_SUPPORT_PHONE.replace(/[^+\d]/g, "")}`);
+  await expect(page.getByText(`联系时请提供订单号 ${orderNo}。`)).toBeVisible();
   await expect(page.getByText(/付款暂未开放：订单已为您保留到当地时间/)).toBeVisible();
   await expect(page.getByText("已下单，等待付款")).toBeVisible();
   await expect(page.getByText(/付款后，航班落地时可以在这里点「我已落地」/)).toBeVisible();
@@ -146,19 +182,33 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await page.reload();
   await expect(page.getByText("已确认", { exact: true })).toBeVisible();
   await expect(page.getByText("付款成功，订单已确认")).toBeVisible();
+  expect(await firstSection(page), "「我已落地」能点时航班落地排第一").toBe("航班落地");
   await page.getByRole("button", { name: "我已落地" }).click();
   await expect(page.getByText("确认您的航班已经落地？时间按现在记录，提交后不能修改。")).toBeVisible();
   await page.getByRole("button", { name: "确认已落地" }).click();
-  await expect(page.getByText(/您已确认落地：当地时间 \d{4}-\d{2}-\d{2} \d{2}:\d{2}。/)).toBeVisible();
+  await expect(page.getByText(/您已确认落地：当地时间 (\d{4}年)?\d{1,2}月\d{1,2}日（周[一二三四五六日]）\d{2}:\d{2}。/)).toBeVisible();
   await expect(page.getByRole("button", { name: "我已落地" })).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
   await expectNoOverflow(page, "订单页（已落地）");
   await expectAccessibleBothThemes(page, "订单页（已落地）");
 
   // 取消先看退多少（不真的取消）
   await page.getByRole("button", { name: "取消订单" }).click();
-  await expect(page.getByRole("group", { name: "确认取消订单" })).toContainText(/按取消政策，现在取消/);
+  // 离用车不到 24 小时：扣全额，写「不退款」而不是「退还 0 JPY」（F7）
+  await expect(page.getByRole("group", { name: "确认取消订单" })).toContainText("按取消政策，现在取消不退款（取消费 22,000 JPY）。");
+  await expectNoOverflow(page, "订单页（确认取消）");
   await expectAccessibleBothThemes(page, "订单页（确认取消）");
   await page.getByRole("button", { name: "不取消了" }).click();
+
+  // 修改订单：字段级错误（F12），展开的表单在窄屏不横向滚动、两色过 axe；不提交
+  await page.getByRole("button", { name: "修改订单" }).click();
+  await page.getByLabel("手机号（带国家码）").fill("090-1234-5678");
+  await page.getByRole("button", { name: "提交修改" }).click();
+  await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
+  await expect(page.getByLabel("手机号（带国家码）")).toHaveAttribute("aria-invalid", "true");
+  await expectNoOverflow(page, "订单页（改单表单出错）");
+  await expectAccessibleBothThemes(page, "订单页（改单表单出错）");
+  await page.getByRole("button", { name: "不改了" }).click();
 
   // 换一个浏览器上下文：没有链接，用订单号 + 邮箱找回
   const otherContext = await browser.newContext();

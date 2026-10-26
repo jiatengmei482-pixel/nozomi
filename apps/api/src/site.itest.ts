@@ -84,7 +84,7 @@ test("没配置官网的 API 客户端：config 说没开，城市、询价、�
   try {
     const config = await closed.call("GET", "/site/v1/config");
     assertMatchesOpenApi("GET", "/site/v1/config", config);
-    assert.deepEqual(config.body, { open: false, currency: null, payments: null });
+    assert.deepEqual(config.body, { open: false, currency: null, payments: null, support_phone: null });
     for (const [method, url, body] of [["GET", "/site/v1/cities", undefined], ["POST", "/site/v1/quotes", quoteBody()], ["POST", "/site/v1/orders/lookup", { order_no: "NZ20261007ABCDEFGH", contact: "a@b.c" }]] as const) {
       const res = await closed.call(method, url, body === undefined ? {} : { body });
       assert.deepEqual([res.status, res.body.error.code], [503, "SITE_NOT_OPEN"], url);
@@ -95,9 +95,26 @@ test("没配置官网的 API 客户端：config 说没开，城市、询价、�
   }
 });
 
+test("客服电话（SITE_SUPPORT_PHONE）登记了：config 原样下发，官网没开时也给（已下单的客人要能联系客服）；没登记是 null", async () => {
+  const clientId = (await api.db.owner.query<{ client_id: string }>("select client_id from channel_api_clients where channel_id = $1", [siteChannelId])).rows[0]!.client_id;
+  const withPhone = await siteApi(api, clientId, pay, { SITE_SUPPORT_PHONE: " +81 3-1234-5678 " });
+  const closedWithPhone = await siteApi(api, null, pay, { SITE_SUPPORT_PHONE: "+81 3-1234-5678" });
+  try {
+    const open = await withPhone.call("GET", "/site/v1/config", { ip: "198.51.100.140" });
+    assertMatchesOpenApi("GET", "/site/v1/config", open);
+    assert.deepEqual([open.body.open, open.body.support_phone], [true, "+81 3-1234-5678"]);
+    const closed = await closedWithPhone.call("GET", "/site/v1/config", { ip: "198.51.100.141" });
+    assertMatchesOpenApi("GET", "/site/v1/config", closed);
+    assert.deepEqual(closed.body, { open: false, currency: null, payments: null, support_phone: "+81 3-1234-5678" });
+  } finally {
+    await withPhone.close();
+    await closedWithPhone.close();
+  }
+});
+
 test("开着：config 给币种和 Stripe 的 publishable key（只有它）；城市、机场只列能预订的；名称来自主数据", async () => {
   const config = await site.call("GET", "/site/v1/config");
-  assert.deepEqual(config.body, { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: pay.publishableKey } });
+  assert.deepEqual(config.body, { open: true, currency: "JPY", payments: { provider: "stripe", publishable_key: pay.publishableKey }, support_phone: null });
   assert.doesNotMatch(config.text, /sk_|whsec_/);
   const cities = await site.call("GET", "/site/v1/cities");
   assertMatchesOpenApi("GET", "/site/v1/cities", cities);
@@ -233,7 +250,7 @@ test("Stripe 没配置：照样建单（待支付、没有付款信息）；接�
   const noStripe = await siteApi(api, (await api.db.owner.query<{ client_id: string }>("select client_id from channel_api_clients where channel_id = $1", [siteChannelId])).rows[0]!.client_id, null);
   try {
     const config = await noStripe.call("GET", "/site/v1/config");
-    assert.deepEqual(config.body, { open: true, currency: "JPY", payments: null });
+    assert.deepEqual(config.body, { open: true, currency: "JPY", payments: null, support_phone: null });
     const created = await placeOrder(noStripe, "198.51.100.120");
     assertMatchesOpenApi("POST", "/site/v1/orders", created);
     assert.deepEqual([created.body.order.status, created.body.payment, created.body.order.payment_status], ["pending_payment", null, "creating"]);
