@@ -67,7 +67,7 @@ roadmap 的验收标准：客人可点「我已落地」。
 - `createSiteOrder`：建单、占库存、写销售端一侧和收款记录（`creating`），**不调收款服务**；应答里 `payment: null`。订单停在待支付，到付款期限由现有的超时检查取消、释放库存（`order-jobs` 对「还没建付款」的单本来就就地取消）。页面写「付款暂未开放：订单已保留到 HH:mm，未付款将自动取消」。
 - 为什么还要建单而不是在询价页就挡住：负责人要在测试环境走完「询价 → 下单 → 订单页」，确认下单信息、库存预占、超时释放都对；付款打开后同一张页面只多一个付款区块。
 - Stripe 配置后：`GET /site/v1/config` 给出 `publishable_key`（只有它，`sk_` / `whsec_` 永远不下发），下单应答和 `GET /site/v1/order/payment` 给 `client_secret`，页面用 Stripe Elements 确认付款。付款结果只认 Stripe 的通知（ADR 0026），页面付完只显示「正在确认付款」并刷新订单。
-- 前端的接入点是 `PaymentDriver` 接口（加载 Stripe.js、挂 Payment Element、确认付款）；组件测试用替身。**上线前还要做**（新任务）：内容安全策略放行 `https://js.stripe.com`（script-src、frame-src）、`https://api.stripe.com`（connect-src）、`https://hooks.stripe.com`（frame-src，3DS），并用测试卡在测试环境走一遍（ADR 0026「拿到 Stripe 测试密钥后的验证步骤」）。
+- 前端的接入点是 `PaymentDriver` 接口（挂付款表单、确认付款、拆掉）；组件测试用替身。**现在的默认实现不加载 Stripe.js**（挂表单时直接告诉客人「在线付款还在接入中」）：前端有一条守则——不加载任何站外脚本、站外地址只登记在 `lib/external-links.ts`（`styles.edge.test.ts`），放开它属于安全策略的改动，和 Stripe 上线一起做。**上线时要做**（新任务）：写 Stripe Elements 的实现换掉默认值；内容安全策略放行 `https://js.stripe.com`（script-src、frame-src）、`https://api.stripe.com`（connect-src）、`https://hooks.stripe.com`（frame-src，3DS），并相应调整那条守则；用测试卡在测试环境走一遍（ADR 0026「拿到 Stripe 测试密钥后的验证步骤」）。
 
 ### 表（迁移 0045）
 
