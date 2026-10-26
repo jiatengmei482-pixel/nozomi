@@ -116,7 +116,7 @@ test("复核批准时再校验：期间角色被删了 → 404，期间名字被
   assert.equal((await api.db.owner.query("select status from approvals where id = $1", [rename.approval.id])).rows[0].status, "pending");
 });
 
-// 缺陷复现（当前失败）：removeRole 锁住角色行后用同一条语句的快照数人数，等到锁时看不到刚提交的账号，删除撞上外键 platform_users_role_fkey（23503）→ 500
+// removeRole 锁住角色行之后另发一条语句数人数（同一条语句的子查询用的是等锁之前的快照，看不到刚提交的账号）；外键冲突 23503 兜底转成 409 ROLE_IN_USE
 test("并发：删除角色时恰好有人被改成这个角色（改人的事务先拿到锁）→ 删除应答 409 ROLE_IN_USE，不是 500；账号没有指着不存在的角色", async () => {
   const role = await ok(createRole({ name: "并发删除甲", grants: ["orders:view"] }), 201);
   const staff = await addStaff("race-del@platform.test", "readonly");
@@ -142,7 +142,7 @@ test("并发：删除角色时恰好有人被改成这个角色（改人的事�
   assert.equal(orphan.rows[0].n, 0);
 });
 
-// 缺陷复现（当前失败）：updateStaff 先查到角色存在，写账号时外键检查等锁，角色随后被删 → 外键冲突（23503）没有转换，500
+// updateStaff 查角色时加共享锁（和删除排好先后）；写账号时角色已被删的外键冲突 23503 转成「没有这个角色」（400 UNKNOWN_ROLE）
 test("并发：改人到某个角色时恰好这个角色被删（删除的事务先拿到锁）→ 改人的应答是 4xx（角色不存在），不是 500", async () => {
   const role = await ok(createRole({ name: "并发删除乙", grants: ["orders:view"] }), 201);
   const staff = await addStaff("race-patch@platform.test", "readonly");
@@ -228,7 +228,7 @@ test("列表的筛选参数绕不过数据范围：按范围外的渠道、订�
   assert.equal((await api.call("GET", `/platform/v1/orders/${orderA}`, { token: staff.token })).status, 200, "范围内的照常");
 });
 
-// 缺陷复现（当前失败）：quotes.ts 的 assertChannelPreviewAllowed 直接拿请求里的写法比数据范围（库里是小写），渠道接口那边是先转小写再比
+// 数据范围按 UUID 比较、不分大小写（domain 的 scopeAllowsChannel 统一转小写），渠道接口和按渠道试算一致
 test("渠道编号的大小写：范围内的渠道写成大写，渠道详情和按渠道试算都认得（和不限范围的人一致）", async () => {
   const role = await ok(createRole({ name: "甲渠道试算", grants: ["channels:view", "quote_preview:view"], data_scope: { city_ids: null, channel_ids: [channelA] } }), 201);
   const staff = await addStaff("scope-case@platform.test", role.key);

@@ -331,12 +331,16 @@ export interface PlatformDataScope {
 
 export const UNRESTRICTED_SCOPE: PlatformDataScope = { cityIds: null, channelIds: null };
 
+/**
+ * 编号是 UUID，大小写不同是同一个（数据库的 uuid 类型就这样认）；范围里存的是数据库读出的小写写法，所以比较前把传入的转成小写。
+ * 请求里的编号（路径、请求体）不用各自记得先规范写法。
+ */
 export function scopeAllowsCity(scope: PlatformDataScope, cityId: string): boolean {
-  return scope.cityIds === null || scope.cityIds.includes(cityId);
+  return scope.cityIds === null || scope.cityIds.includes(cityId.toLowerCase());
 }
 
 export function scopeAllowsChannel(scope: PlatformDataScope, channelId: string): boolean {
-  return scope.channelIds === null || scope.channelIds.includes(channelId);
+  return scope.channelIds === null || scope.channelIds.includes(channelId.toLowerCase());
 }
 
 export function scopeIsRestricted(scope: PlatformDataScope): boolean {

@@ -97,3 +97,11 @@ test("数据范围：null 不限制，数组只放行列出的，空数组一个
   assert.equal(scopeIsRestricted(scope), true);
   assert.equal(scopeIsRestricted({ cityIds: null, channelIds: ["x"] }), true);
 });
+
+test("数据范围：编号（UUID）不分大小写——请求里写成大写的也认得", () => {
+  const id = "0b9f6c2e-4d1a-4c3b-9a7e-1f2d3c4b5a69";
+  const scope = { cityIds: [id], channelIds: [id] };
+  assert.equal(scopeAllowsCity(scope, id.toUpperCase()), true);
+  assert.equal(scopeAllowsChannel(scope, id.toUpperCase()), true);
+  assert.equal(scopeAllowsChannel(scope, "0B9F6C2E-4D1A-4C3B-9A7E-1F2D3C4B5A60"), false);
+});

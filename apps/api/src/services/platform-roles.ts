@@ -18,13 +18,14 @@ import {
   scopeAllowsChannel,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
+import { type Db, isForeignKeyViolation, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import { validationFailed } from "../validation.ts";
 import type { Approval } from "../repos/approvals.ts";
 import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   type CustomRoleFields,
   type PlatformRoleRecord,
+  countRoleStaff,
   deleteCustomRole,
   findPlatformRole,
   insertCustomRole,
@@ -193,16 +194,24 @@ export async function requestRoleChange(ctx: AppContext, principal: PlatformPrin
 
 export async function removeRole(ctx: AppContext, principal: PlatformPrincipal, key: string, ip: string): Promise<void> {
   const now = ctx.now();
-  await withPlatformTx(ctx.pool, async (db) => {
-    const role = await loadCustomRole(db, key, true);
-    // 锁住角色这一行之后再数：同时把人改成这个角色的请求要等这一行（外键检查会给角色行加共享锁）
-    if (role.staffCount > 0) throw roleInUse(role.staffCount);
-    await deleteCustomRole(db, key);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "platform_role", resourceId: key, action: "delete", before: roleValues(currentFields(role)), after: null });
-  });
+  try {
+    await withPlatformTx(ctx.pool, async (db) => {
+      const role = await loadCustomRole(db, key, true);
+      // 锁住角色这一行之后另发一条语句数人：同时把人改成这个角色的事务（外键检查给角色行加了共享锁）提交之后才轮到这里，
+      // 读已提交级别下新的语句看得到它刚写的账号；锁行那条语句里的子查询用的是等锁之前的快照，看不到
+      const staffCount = await countRoleStaff(db, key);
+      if (staffCount > 0) throw roleInUse(staffCount);
+      await deleteCustomRole(db, key);
+      await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "platform_role", resourceId: key, action: "delete", before: roleValues(currentFields(role)), after: null });
+    });
+  } catch (err) {
+    // 兜底：数完人之后仍有账号指了过来（外键 platform_users.role），按「还有人在用」回答
+    if (isForeignKeyViolation(err)) throw roleInUse(1);
+    throw err;
+  }
 }
 
 /** 一个渠道在不在这个人的数据范围里（渠道的接口、订单、复核都用）。范围外的和不存在一样。 */
 export function assertChannelInScope(principal: PlatformPrincipal, channelId: string): void {
-  if (!scopeAllowsChannel(principal.grant.scope, channelId.toLowerCase())) throw notFound("渠道");
+  if (!scopeAllowsChannel(principal.grant.scope, channelId)) throw notFound("渠道");
 }

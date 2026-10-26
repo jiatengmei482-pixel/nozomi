@@ -4,7 +4,7 @@ import { newInvite } from "../auth/invite-token.ts";
 import { newPlatformResetToken } from "../auth/reset-token.ts";
 import { hashPassword, sameStoredPassword } from "../auth/password.ts";
 import type { AppContext } from "../context.ts";
-import { isUniqueViolation, withPlatformTx } from "../db/context.ts";
+import { isForeignKeyViolation, isUniqueViolation, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
@@ -65,8 +65,15 @@ export interface StaffInput {
   role: string;
 }
 
+/** 角色存在，并加共享锁到事务结束：同时删这个角色的请求要等这边提交（之后它数得到这个账号，回答 ROLE_IN_USE）。 */
 async function assertRoleExists(db: Db, role: string): Promise<void> {
-  if (!(await findPlatformRole(db, role))) throw roleNotFound();
+  if (!(await findPlatformRole(db, role, { lock: "share" }))) throw roleNotFound();
+}
+
+/** 写账号时角色已经被删（外键 platform_users.role）：和「没有这个角色」一样回答。 */
+function roleGoneAsNotFound(err: unknown): never {
+  if (isForeignKeyViolation(err, "platform_users_role_fkey")) throw roleNotFound();
+  throw err;
 }
 
 export interface IssuedInvite {
@@ -113,7 +120,7 @@ export async function inviteStaff(
   } catch (err) {
     // 两个请求同时创建同一个邮箱：后到的那个撞上唯一约束
     if (isUniqueViolation(err, "platform_users_email_key")) throw emailTaken();
-    throw err;
+    roleGoneAsNotFound(err);
   }
 }
 
@@ -339,7 +346,7 @@ export async function updateStaff(ctx: AppContext, principal: PlatformPrincipal,
     }
     const roleIpAllowlist = (await findPlatformRole(db, user.role))?.ipAllowlist ?? [];
     return { user, recoveryCodesRemaining: await countUnusedRecoveryCodes(db, userId), roleIpAllowlist };
-  });
+  }).catch(roleGoneAsNotFound);
 }
 
 /**

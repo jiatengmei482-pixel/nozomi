@@ -64,8 +64,13 @@ export async function listPlatformRoles(db: Db): Promise<PlatformRoleRecord[]> {
   return result.rows.map(toRole);
 }
 
-export async function findPlatformRole(db: Db, key: string, options: { lock?: boolean } = {}): Promise<PlatformRoleRecord | null> {
-  const result = await db.query<RoleRow>(`select ${COLUMNS} from platform_roles where key = $1 ${options.lock ? "for update" : ""}`, [key]);
+/**
+ * `lock`：`true` / `"update"` 锁住这一行（改、删角色）；`"share"` 共享锁（把人改成这个角色时：和删除排好先后）。
+ * 注意 `staffCount` 是同一条语句里的子查询，等锁之后看不到等锁期间别的事务刚提交的账号；要准确的人数在锁住之后用 `countRoleStaff` 另查。
+ */
+export async function findPlatformRole(db: Db, key: string, options: { lock?: boolean | "update" | "share" } = {}): Promise<PlatformRoleRecord | null> {
+  const lock = options.lock === true || options.lock === "update" ? "for update" : options.lock === "share" ? "for share" : "";
+  const result = await db.query<RoleRow>(`select ${COLUMNS} from platform_roles where key = $1 ${lock}`, [key]);
   const row = result.rows[0];
   return row ? toRole(row) : null;
 }
@@ -96,6 +101,12 @@ export async function updateCustomRole(db: Db, key: string, fields: CustomRoleFi
       where key = $1 and not builtin`,
     [key, fields.name, fields.description, fields.grants, fields.scope.cityIds, fields.scope.channelIds, fields.ipAllowlist, now],
   );
+}
+
+/** 有多少账号（含待激活、已停用）指着这个角色。单独一条语句：读已提交级别下看得到等锁期间别的事务刚提交的账号。 */
+export async function countRoleStaff(db: Db, key: string): Promise<number> {
+  const result = await db.query<{ n: number }>("select count(*)::int as n from platform_users where role = $1", [key]);
+  return (result.rows[0] as { n: number }).n;
 }
 
 export async function deleteCustomRole(db: Db, key: string): Promise<void> {
