@@ -63,7 +63,7 @@ function TicketItem({ ticket, timeZone }: { ticket: SiteTicket; timeZone: string
   );
 }
 
-export function FeedbackSection({ token, order }: { token: string; order: Pick<SiteOrder, "id" | "timezone" | "status"> }) {
+export function FeedbackSection({ token, order }: { token: string; order: Pick<SiteOrder, "id" | "timezone" | "status" | "confirmed_at"> }) {
   const [tickets, setTickets] = useState<SiteTicket[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -82,7 +82,11 @@ export function FeedbackSection({ token, order }: { token: string; order: Pick<S
       () => setLoadFailed(true),
     );
   }, [token]);
-  useEffect(load, [load]);
+  // 没付过款的单（待付款、没付款就取消）不能建工单，也就没有可看的：不去取（M4-10）
+  const confirmed = order.confirmed_at !== null;
+  useEffect(() => {
+    if (confirmed) load();
+  }, [confirmed, load]);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -111,7 +115,8 @@ export function FeedbackSection({ token, order }: { token: string; order: Pick<S
     }
   };
 
-  if (order.status === "pending_payment") return null;
+  // 和运营后台的「新建工单」一致：订单确认过（付过款）才有投诉和反馈；没付款就取消的单后端也拒绝建（409 NOT_CONFIRMED）
+  if (!confirmed) return null;
   return (
     <section className="site-section" aria-labelledby="site-feedback-title">
       <h2 id="site-feedback-title" className="site-section__title">

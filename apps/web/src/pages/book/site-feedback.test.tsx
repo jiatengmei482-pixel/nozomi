@@ -195,7 +195,7 @@ test("读不出已提交的反馈：说明并能重试；待付款的单没有�
   await user().click(within(block).getByRole("button", { name: "重试" }));
   await within(block).findByText("投诉服务：司机迟到了 40 分钟");
   resetBrowser();
-  open(orderOf({ status: "pending_payment", payment_status: "creating" }), () => null);
+  open(orderOf({ status: "pending_payment", payment_status: "creating", confirmed_at: null }), () => null);
   await screen.findByRole("heading", { level: 1, name: /订单 NZ/ });
   await waitFor(() => assert.ok(screen.getAllByRole("heading", { level: 2 }).length > 0));
   assertAbsent(screen.queryByRole("heading", { level: 2, name: "投诉和反馈" }));
