@@ -26,8 +26,8 @@ import { E2E_FX_RATES } from "./support.ts";
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const WEB_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const START_TIMEOUT_MS = 30_000;
-/** 准备几个超级管理员：每个用例按编号固定用其中一个（见 support.ts 的 adminCredentials） */
-const E2E_ADMIN_SLOTS = 24;
+/** 准备几个超级管理员：每个用例按编号固定用其中一个（见 support.ts 的 adminCredentials）。不多准备：平台员工列表一页 50 人，有的用例要在第一页找到自己刚建的人 */
+const E2E_ADMIN_SLOTS = 6;
 
 interface Running {
   name: string;
