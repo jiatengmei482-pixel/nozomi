@@ -389,3 +389,8 @@ export async function importAirportNames(country: string, airports: readonly Sam
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+/** 等页面上的过渡和动画结束（切换亮暗主题后颜色有短暂过渡，过渡中测对比度会得到中间色）。 */
+export async function settleAnimations(page: Page): Promise<void> {
+  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))));
+}
