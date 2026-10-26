@@ -170,7 +170,7 @@ export function salesOrderJson(view: SalesOrderView, now: Date): Record<string, 
   };
 }
 
-function paymentJson(payment: SalesOrderPayment): Record<string, unknown> {
+export function paymentJson(payment: SalesOrderPayment): Record<string, unknown> {
   return { provider: payment.provider, status: payment.status, client_secret: payment.clientSecret, publishable_key: payment.publishableKey };
 }
 

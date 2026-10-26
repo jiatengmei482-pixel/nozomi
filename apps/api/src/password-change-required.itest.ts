@@ -122,6 +122,16 @@ async function walkRoutes(tokens: Record<Entry, string>): Promise<{ blocked: str
       salesRoutes.push(key);
       continue;
     }
+    // 官网（/site/v1）是给客人的公开接口，订单页用下单时发的查看令牌，没有账号也就没有「临时密码」这回事；
+    // 平台、租户的令牌在那里不起作用，不能返回「必须先改密码」（M3-05）
+    if (route.path.startsWith("/site/v1/")) {
+      const res = await api.call(route.method as HttpMethod, route.path.replace(/:[A-Za-z_]+/g, randomUUID()), { token: tokens.tenant });
+      // 测试里没配置官网渠道时这些接口回 503「暂未开放」，也是正常的；只要不是 500、不要求改密码
+      assert.notEqual(res.status, 500, `${key}：${res.status}`);
+      assert.notEqual(res.body?.error?.code, CODE, key);
+      salesRoutes.push(key);
+      continue;
+    }
     const entry: Entry | null = route.path.startsWith("/platform/v1/")
       ? "platform"
       : route.path.startsWith("/tenant/v1/")

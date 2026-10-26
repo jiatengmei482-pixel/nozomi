@@ -95,7 +95,7 @@ export function lastUsedIsStale(lastUsedAt: Date | null, now: Date): boolean {
 /**
  * 核对访问令牌并占用一次限流额度（按渠道计）。令牌无效、客户端已吊销、密钥代次已失效：401；渠道暂停：403；超限：429。
  */
-export async function authenticateSales(ctx: AppContext, token: string | null, scope: Exclude<SalesRateScope, "token">): Promise<SalesPrincipal> {
+export async function authenticateSales(ctx: AppContext, token: string | null, scope: Extract<SalesRateScope, "quote" | "other">): Promise<SalesPrincipal> {
   const now = ctx.now();
   const claims = token === null ? null : verifySalesToken(ctx.config.authJwtSecret, token, now);
   if (!claims) throw invalidToken();

@@ -82,6 +82,12 @@
 | `MAP_TILE_URL_TEMPLATE` | 地图底图的图片地址 | 测试环境填 `https://tile.openstreetmap.org/{z}/{x}/{y}.png`（OpenStreetMap 的免费底图，不要密钥、不保证可用，只适合测试）。正式环境换成你选定的付费底图服务给的地址。不填 = 没有底图：区域页面照样能用，只是图形画在空白背景上 |
 | `MAP_TILE_ATTRIBUTION` | 地图右下角必须显示的版权署名 | 填了上一项就必须填这一项（底图服务的使用条款要求）。写法 `文字|链接`，多条用 `;;` 隔开。OpenStreetMap 填 `© OpenStreetMap 贡献者|https://www.openstreetmap.org/copyright` |
 
+还有一项**不是密钥**的配置——官网用哪个渠道（ADR 0032）：
+
+| 名称 | 是什么 | 怎么填 |
+| --- | --- | --- |
+| `SITE_CLIENT_ID` | 官网以哪个 API 客户端的身份询价、下单 | 运营后台 → 渠道 → 新建一个「自营」渠道（官网）→ 详情页「API 客户端与密钥」→ 新建客户端，复制显示的 client_id（`nzc_` 开头；同时显示的密钥官网用不到，不用保存）。不填 = 官网显示「暂未开放」。要临时停止官网接单：暂停这个渠道或吊销这个客户端 |
+
 填好后重新部署一次即可生效；网页的安全策略会自动放行这一个图片来源，不用另外设置。还有几项一般不用动、有默认值的（暗色底图地址 `MAP_TILE_DARK_URL_TEMPLATE`、缩放范围 `MAP_TILE_MIN_ZOOM` / `MAP_TILE_MAX_ZOOM`、图片尺寸 `MAP_TILE_SIZE`、来源页策略 `MAP_TILE_REFERRER_POLICY`），说明见 `docs/adr/0015-areas.md`。
 
 **什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境必须全部填好**，否则程序拒绝启动。

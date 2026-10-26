@@ -320,6 +320,14 @@ test("数据加密密钥：至少 32 个字符、不能和登录签名密钥相�
   assert.equal(loadConfig({ ...base, DATA_ENCRYPTION_KEY: "  " }).dataEncryptionKey, null, "空白视为未填写");
 });
 
+test("官网的 API 客户端（ADR 0032）：不配 = 官网暂未开放；配了必须是 nzc_ 加 24 位十六进制，首尾空白去掉", () => {
+  assert.equal(loadConfig(base).site, null);
+  assert.equal(loadConfig({ ...base, SITE_CLIENT_ID: " " }).site, null);
+  const id = `nzc_${"0a1b2c".repeat(4)}`;
+  assert.deepEqual(loadConfig({ ...base, SITE_CLIENT_ID: ` ${id} ` }).site, { clientId: id });
+  for (const wrong of ["nzs_0a1b2c0a1b2c0a1b2c0a1b2c", "nzc_0A1B2C0A1B2C0A1B2C0A1B2C", "nzc_123", `${id}0`]) {
+    assert.ok(issuesOf({ ...base, SITE_CLIENT_ID: wrong }).some((issue) => issue.includes("SITE_CLIENT_ID")), wrong);
+  }
 test("登录限速的来源地址上限（ADR 0030）：默认 50（和 domain 的常量一致）；local / ci 可以调高给端到端测试用，staging / production 不能调高", () => {
   assert.equal(DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP, 50);
   assert.deepEqual(loadConfig(base).loginThrottle, { maxAttemptsPerIp: 50 });
@@ -329,4 +337,6 @@ test("登录限速的来源地址上限（ADR 0030）：默认 50（和 domain �
   assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production", LOGIN_MAX_ATTEMPTS_PER_IP: "1000" }).some((i) => i.includes("LOGIN_MAX_ATTEMPTS_PER_IP")));
   assert.deepEqual(loadConfig({ ...base, APP_ENV: "staging", LOGIN_MAX_ATTEMPTS_PER_IP: "20" }).loginThrottle, { maxAttemptsPerIp: 20 }, "调低可以");
   assert.ok(issuesOf({ ...base, LOGIN_MAX_ATTEMPTS_PER_IP: "0" }).length > 0);
+});
+
 });

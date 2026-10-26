@@ -3,7 +3,8 @@
  * 1. 在数据库里新建一个随机名字的 schema 并用迁移账号执行全部迁移（做法同后端集成测试）；API 进程只用应用账号；
  * 2. 用 `admin:create` 的命令行创建平台超级管理员，密码走标准输入；
  * 3. 起一个本机的假瓦片服务（地图底图；测试从不请求任何真实的底图服务）和一个假汇率源（汇率中心定时拉取、立即拉取都指向它，
- *    给的是「一小时前」的一批，日期跟着今天走），再起 API 进程和前端
+ *    给的是「一小时前」的一批，日期跟着今天走），先起不配置底图的那个 API、经它建官网的渠道和 API 客户端（ADR 0032），
+ *    再带着官网的 client_id 起主 API，最后起前端
  *    （vite preview，把 API 前缀代理给刚起的 API）。API 的底图配置指向假瓦片服务；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
@@ -134,8 +135,8 @@ function runAdminCreate(env: NodeJS.ProcessEnv, email: string, name: string, pas
   });
 }
 
-/** 经接口给管理员绑定两步验证，返回密钥（Base32）。 */
-async function enrollAdmin(apiOrigin: string, email: string, password: string): Promise<string> {
+/** 经接口给管理员绑定两步验证，返回密钥（Base32）和绑定后已通过两步验证的登录令牌。 */
+async function enrollAdmin(apiOrigin: string, email: string, password: string): Promise<{ secret: string; token: string }> {
   const post = async (path: string, body: unknown, token?: string): Promise<Record<string, unknown>> => {
     const response = await fetch(`${apiOrigin}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error(`${path} 失败：HTTP ${response.status} ${await response.text()}`);
@@ -147,7 +148,18 @@ async function enrollAdmin(apiOrigin: string, email: string, password: string): 
   const secret = started["secret"] as string;
   const { code } = await nextCode(secret);
   await post("/platform/v1/auth/mfa/enrollment/confirm", { code }, token);
-  return secret;
+  return { secret, token };
+}
+
+/** 经运营后台的接口建一个自营渠道（官网）并发一个 API 客户端，返回它的 client_id。密钥只在应答里出现一次，官网用不到，不保存。 */
+async function createSiteChannel(origin: string, token: string): Promise<string> {
+  const post = async (path: string, body: unknown, token?: string): Promise<any> => {
+    const response = await fetch(`${origin}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token === undefined ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(`准备官网渠道失败：${path} → HTTP ${response.status} ${await response.text()}`);
+    return response.json();
+  };
+  const channel = await post("/platform/v1/channels", { type: "own", settle_currency: "JPY", name: "NOZOMI 官网（端到端测试）" }, token);
+  return (await post(`/platform/v1/channels/${channel.channel.id}/api-clients`, { name: "官网" }, token)).api_client.client_id as string;
 }
 
 export default async function globalSetup(config: FullConfig): Promise<() => Promise<void>> {
@@ -212,18 +224,33 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
 
     const tileOrigin = `http://127.0.0.1:${E2E_TILE_PORT}`;
     tileServer = await startTileServer(E2E_TILE_PORT);
-    const api = start("API", ["apps/api/src/server.ts"], REPO_ROOT, {
-      ...apiEnv,
-      MAP_TILE_URL_TEMPLATE: `${tileOrigin}/{z}/{x}/{y}.png`,
-      MAP_TILE_ATTRIBUTION: "© 端到端测试底图|https://tiles.e2e.example.com/copyright",
-    });
-    started.push(api);
-    await waitUntilUp(api, `${apiOrigin}/health`);
-
+    // 先起没有配置底图的那个 API：用它经运营后台的接口建官网的渠道和 API 客户端（ADR 0032），
+    // 主 API 再带着这个客户端的 client_id（SITE_CLIENT_ID，不是密钥）启动，官网的页面才是「开着」的
     const noMapOrigin = `http://127.0.0.1:${E2E_API_NO_MAP_PORT}`;
     const noMapApi = start("API（没有配置底图）", ["apps/api/src/server.ts"], REPO_ROOT, { ...apiEnv, PORT: String(E2E_API_NO_MAP_PORT), PUBLIC_BASE_URL: noMapOrigin });
     started.push(noMapApi);
     await waitUntilUp(noMapApi, `${noMapOrigin}/health`);
+    // 每把两步验证密钥用过的最晚时间窗记在这个目录里（mfa.ts）：绑定时用掉的时间窗、测试进程失败退出重启前用掉的时间窗，
+    // 之后都不会再用一次（再用就是 MFA_CODE_REUSED，算一次失败，累计会触发登录限速）
+    totpStateDir = await mkdtemp(join(tmpdir(), "nozomi-e2e-totp-"));
+    process.env["E2E_TOTP_STATE_DIR"] = totpStateDir;
+    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码；两个 API 进程连同一个库，在哪个上绑定都一样
+    let firstAdminToken = "";
+    for (const admin of admins) {
+      const enrolled = await enrollAdmin(noMapOrigin, admin.email, admin.password);
+      admin.secret = enrolled.secret;
+      if (firstAdminToken === "") firstAdminToken = enrolled.token;
+    }
+    const siteClientId = await createSiteChannel(noMapOrigin, firstAdminToken);
+
+    const api = start("API", ["apps/api/src/server.ts"], REPO_ROOT, {
+      ...apiEnv,
+      MAP_TILE_URL_TEMPLATE: `${tileOrigin}/{z}/{x}/{y}.png`,
+      MAP_TILE_ATTRIBUTION: "© 端到端测试底图|https://tiles.e2e.example.com/copyright",
+      SITE_CLIENT_ID: siteClientId,
+    });
+    started.push(api);
+    await waitUntilUp(api, `${apiOrigin}/health`);
 
     const web = start(
       "前端",
@@ -234,12 +261,6 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     started.push(web);
     await waitUntilUp(web, `http://127.0.0.1:${E2E_WEB_PORT}/login`);
 
-    // 每把两步验证密钥用过的最晚时间窗记在这个目录里（mfa.ts）：绑定时用掉的时间窗、测试进程失败退出重启前用掉的时间窗，
-    // 之后都不会再用一次（再用就是 MFA_CODE_REUSED，算一次失败，累计会触发登录限速）
-    totpStateDir = await mkdtemp(join(tmpdir(), "nozomi-e2e-totp-"));
-    process.env["E2E_TOTP_STATE_DIR"] = totpStateDir;
-    // 管理员第一次登录就绑定两步验证（ADR 0030），把密钥交给测试进程，它们登录时自己算动态码
-    for (const admin of admins) admin.secret = await enrollAdmin(apiOrigin, admin.email, admin.password);
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
     process.env["E2E_ADMINS"] = JSON.stringify(admins);

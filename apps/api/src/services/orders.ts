@@ -356,9 +356,22 @@ async function ensurePayment(ctx: AppContext, provider: PaymentProvider, orderId
   }
 }
 
-/** 下单。返回订单和给前端的付款信息；同一个幂等键再来一次返回同一张单（`replayed`）。 */
+/** 下单。返回订单和给前端的付款信息；同一个幂等键再来一次返回同一张单（`replayed`）。没配置 Stripe 时 503（`/sales/v1`）。 */
 export async function createSalesOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment; replayed: boolean }> {
   const provider = requirePayments(ctx);
+  const created = await createOrder(ctx, principal, input, provider, log);
+  return { ...created, payment: created.payment as SalesOrderPayment };
+}
+
+/**
+ * 官网下单（ADR 0032）：和渠道下单同一个流程。唯一的不同是没配置 Stripe 时照样建单——订单停在待支付、`payment` 为 null，
+ * 到付款期限由超时检查取消、释放库存（还没建付款的单在那里就地取消）。不伪造付款成功。
+ */
+export async function createSiteOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
+  return createOrder(ctx, principal, input, ctx.payments, log);
+}
+
+async function createOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, provider: PaymentProvider | null, log: OrderLog): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
   const hash = requestHash({ quote_id: input.quoteId, details: input.details });
   let placed: { orderId: string; replayed: boolean };
   try {
@@ -369,14 +382,27 @@ export async function createSalesOrder(ctx: AppContext, principal: SalesPrincipa
     if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash);
     else throw err;
   }
-  const intent = await ensurePayment(ctx, provider, placed.orderId, log);
+  const intent = provider === null ? null : await ensurePayment(ctx, provider, placed.orderId, log);
   const view = await getSalesOrderView(ctx, principal.channelId, placed.orderId);
   if (view === null) throw new Error("刚建的订单读不到");
-  return {
-    view,
-    payment: { provider: "stripe", status: view.payment?.status ?? "creating", clientSecret: view.order.status === "pending_payment" ? (intent?.clientSecret ?? null) : null, publishableKey: provider.publishableKey },
-    replayed: placed.replayed,
-  };
+  return { view, payment: provider === null ? null : paymentFor(view, intent, provider), replayed: placed.replayed };
+}
+
+function paymentFor(view: SalesOrderView, intent: ProviderPayment | null, provider: PaymentProvider): SalesOrderPayment {
+  return { provider: "stripe", status: view.payment?.status ?? "creating", clientSecret: view.order.status === "pending_payment" ? (intent?.clientSecret ?? null) : null, publishableKey: provider.publishableKey };
+}
+
+/**
+ * 客人回到订单页接着付款（官网，ADR 0032）：待支付的单还没建付款就建，建好了就查出前端确认付款用的凭据（和下单时同一个 `ensurePayment`）。
+ * 没配置 Stripe 503；别的渠道的单和不存在一样。
+ */
+export async function orderPaymentForChannel(ctx: AppContext, channelId: string, orderId: string, log: OrderLog = SILENT_ORDER_LOG): Promise<SalesOrderPayment> {
+  const provider = requirePayments(ctx);
+  const before = await getSalesOrderView(ctx, channelId, orderId);
+  if (before === null) throw notFound("订单");
+  const intent = await ensurePayment(ctx, provider, orderId, log);
+  const view = (await getSalesOrderView(ctx, channelId, orderId)) as SalesOrderView;
+  return paymentFor(view, intent, provider);
 }
 
 /** 渠道查自己的一张订单；别的渠道的和不存在一样。 */

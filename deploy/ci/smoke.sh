@@ -265,7 +265,7 @@ check_frontend() {
   if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"${policy//$expected_tile_origin/}"; then fail "$label：内容安全策略不应放行内联、eval 或底图之外的任何站外来源：$policy"; fi
 
   # 刷新任意前端地址：没有对应的文件，一律拿到 index.html。最后两个长得像接口前缀但不是，也归前端。
-  for path in /login /platform/login /accept-invite /platform/reset-password /platform "/login?next=%2Faccount" /some/deep/page /healthz /platform/v1x; do
+  for path in /login /platform/login /accept-invite /platform/reset-password /platform "/login?next=%2Faccount" /some/deep/page /healthz /platform/v1x /book /book/order; do
     [[ "$(status_of "$path")" == "200" ]] || fail "$label：刷新前端地址 $path 应返回 200"
     [[ "$(request --max-time 10 "$base_url$path")" == "$index" ]] || fail "$label：前端地址 $path 应返回 index.html"
     grep -q '^cache-control: no-cache$' <<<"$(headers_of "$path")" || fail "$label：前端地址 $path 的响应不应被缓存"
@@ -273,7 +273,7 @@ check_frontend() {
 
   # 接口前缀仍然到 API：前缀本身、带查询串、带下级路径。API 对不存在的路径返回统一格式的 JSON 错误。
   [[ "$(status_of "/health?probe=1")" == "200" ]] || fail "$label：/health 带查询串应仍由 API 返回 200"
-  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
+  for path in /platform/v1 "/platform/v1?probe=1" /tenant/v1 "/tenant/v1?probe=1" /sales/v1 "/sales/v1?probe=1" /driver/v1 "/driver/v1?probe=1" /site/v1 "/site/v1?probe=1" /webhooks "/webhooks?probe=1" /health/nothing /sales/v1/nothing/here; do
     body="$(request --max-time 10 "$base_url$path")"
     [[ "$body" == '{"error":{"code":'* ]] || fail "$label：$path 应由 API 回答（统一格式的 JSON 错误），实际是：${body:0:120}"
     [[ "$(status_of "$path")" == "404" ]] || fail "$label：$path 在 API 里不存在，应返回 404"
