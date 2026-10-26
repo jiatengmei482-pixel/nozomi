@@ -10778,6 +10778,8 @@ paths:
           $ref: "#/components/responses/ChannelTicketList"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
     post:
       tags: [ 工单 ]
       operationId: createSalesOrderTicket
@@ -10821,6 +10823,8 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           $ref: "#/components/responses/TicketConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /site/v1/order/tickets:
     get:
       tags: [ 官网 ]

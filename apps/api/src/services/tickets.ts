@@ -10,6 +10,7 @@ import {
   CANCELLABLE_STATUSES,
   COMPENSATION_SCENARIO_RULES,
   type CompensationAmounts,
+  type CompensationInputIssue,
   type CompensationScenario,
   type CurrencyCode,
   type FxQuote,
@@ -21,6 +22,7 @@ import {
   type TicketType,
   appealRefusal,
   compensationAmounts,
+  compensationInputIssues,
   complaintWindowOpen,
   defaultTicketPriority,
   firstResponseDueAt,
@@ -468,6 +470,23 @@ async function compensationContext(db: Db, ticket: Ticket, lock: boolean): Promi
   return { order, current, sale, fx, alreadyDeducted: (penalty.rowCount ?? 0) > 0 };
 }
 
+const INPUT_PATHS: Readonly<Record<CompensationInputIssue, string>> = {
+  DOWNGRADE_DIFFERENCE_REQUIRED: "/compensation/downgrade_settlement_difference",
+  DOWNGRADE_DIFFERENCE_NOT_ALLOWED: "/compensation/downgrade_settlement_difference",
+  REIMBURSEMENT_NOT_ALLOWED: "/compensation/reimbursement_amount",
+  AMOUNT_INVALID: "/compensation",
+};
+const INPUT_MESSAGES: Readonly<Record<CompensationInputIssue, string>> = {
+  DOWNGRADE_DIFFERENCE_REQUIRED: "车型降级要填两个车型组的结算价之差（大于 0）",
+  DOWNGRADE_DIFFERENCE_NOT_ALLOWED: "只有车型降级要填差价",
+  REIMBURSEMENT_NOT_ALLOWED: "只有司机未到可以报销替代交通",
+  AMOUNT_INVALID: "金额要是最小货币单位的非负整数",
+};
+
+function compensationInputInvalid(issue: CompensationInputIssue): AppError {
+  return validationFailed("body", [{ path: INPUT_PATHS[issue], reason: issue, message: INPUT_MESSAGES[issue] }]);
+}
+
 function notApplicable(reason: string, message: string, status: string): AppError {
   return new AppError(409, "COMPENSATION_NOT_APPLICABLE", message, { reason, status });
 }
@@ -477,6 +496,9 @@ function notApplicable(reason: string, message: string, status: string): AppErro
  * 而且已经开始服务（服务中、已完成）。
  */
 async function computeCompensation(db: Db, ticket: Ticket, request: CompensationRequest, minimumFx: FxQuote | null, lock = true): Promise<{ amounts: CompensationAmounts; context: CompensationContext; minimumFx: FxQuote | null; willCancel: boolean }> {
+  // 先看填的对不对得上情形（400），再看这一单适不适用（409）
+  const inputIssues = compensationInputIssues({ scenario: request.scenario, downgradeSettlementDifferenceMinor: request.downgradeSettlementDifferenceMinor, reimbursementClaimedMinor: request.reimbursementClaimedMinor });
+  if (inputIssues.length > 0) throw compensationInputInvalid(inputIssues[0] as CompensationInputIssue);
   const context = await compensationContext(db, ticket, lock);
   const { order, current, sale } = context;
   const rules = COMPENSATION_SCENARIO_RULES[request.scenario];
@@ -517,14 +539,7 @@ async function computeCompensation(db: Db, ticket: Ticket, request: Compensation
   );
   if (!outcome.ok) {
     if (outcome.reason === "FX_RATE_UNAVAILABLE") throw new AppError(409, "FX_RATE_UNAVAILABLE", "这一单的报价快照里没有对得上的汇率，算不出客人那边的金额", {});
-    const paths: Record<string, string> = { DOWNGRADE_DIFFERENCE_REQUIRED: "/compensation/downgrade_settlement_difference", DOWNGRADE_DIFFERENCE_NOT_ALLOWED: "/compensation/downgrade_settlement_difference", REIMBURSEMENT_NOT_ALLOWED: "/compensation/reimbursement_amount", AMOUNT_INVALID: "/compensation" };
-    const messages: Record<string, string> = {
-      DOWNGRADE_DIFFERENCE_REQUIRED: "车型降级要填两个车型组的结算价之差（大于 0）",
-      DOWNGRADE_DIFFERENCE_NOT_ALLOWED: "只有车型降级要填差价",
-      REIMBURSEMENT_NOT_ALLOWED: "只有司机未到可以报销替代交通",
-      AMOUNT_INVALID: "金额要是最小货币单位的非负整数",
-    };
-    throw validationFailed("body", [{ path: paths[outcome.reason] as string, reason: outcome.reason, message: messages[outcome.reason] as string }]);
+    throw compensationInputInvalid(outcome.reason);
   }
   return { amounts: outcome.amounts, context, minimumFx, willCancel };
 }
