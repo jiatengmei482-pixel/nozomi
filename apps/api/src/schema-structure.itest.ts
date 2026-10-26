@@ -21,7 +21,8 @@ import { type TestDatabase, createMigratedTestDatabase } from "./testing/db.ts";
  * 以及渠道、加价规则、双人复核、API 客户端、报价快照、询价日志、销售端限流（ADR 0023：平台的配置和交易记录，租户一律碰不到），
  * 以及订单的销售端一侧、收款、支付通知（ADR 0026：渠道、对外价、加价比例、支付服务的编号，租户一律碰不到），
  * 以及平台统一取消政策（ADR 0029：全平台一份，租户只读）、改期的对外价、退款（ADR 0029：客人那边的金额，租户碰不到），
- * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到）。新增平台表时加到这里。
+ * 以及救援、救援单的平台一侧（ADR 0031：涉及几家供应商、有对外价和加价比例，租户碰不到），
+ * 以及付款批次（ADR 0040：一个批次里有几家供应商的账单）。新增平台表时加到这里。
  */
 const PLATFORM_TABLES = [
   "addons",
@@ -45,6 +46,7 @@ const PLATFORM_TABLES = [
   "order_rescues",
   "order_sales",
   "payment_events",
+  "payout_batches",
   "places",
   "platform_recovery_codes",
   "platform_roles",
@@ -98,6 +100,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 救援单、应扣款项（ADR 0031）：供应商只看；接 / 拒救援单在平台事务里做（租户编号只来自令牌）
     order_rescue_offers: ["SELECT"],
     tenant_deductions: ["SELECT"],
+    // 账单、明细、经过（ADR 0040）：供应商只看；确认、提异议在平台事务里做（租户编号只来自令牌）
+    statement_events: ["SELECT"],
+    statement_lines: ["SELECT"],
+    statements: ["SELECT"],
     // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
     order_assignments: ["INSERT", "SELECT"],
     order_contacts: ["INSERT", "SELECT"],
@@ -188,6 +194,11 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_rescue_quotes: ["INSERT", "SELECT"],
     order_rescues: ["INSERT", "SELECT", "UPDATE"],
     tenant_deductions: ["INSERT", "SELECT", "UPDATE"],
+    // 账单与付款批次（ADR 0040）：都不删；明细只改作废时间（触发器按语句检查），经过只追加
+    payout_batches: ["INSERT", "SELECT", "UPDATE"],
+    statement_events: ["INSERT", "SELECT"],
+    statement_lines: ["INSERT", "SELECT", "UPDATE"],
+    statements: ["INSERT", "SELECT", "UPDATE"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
@@ -285,6 +296,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 救援单、应扣款项：发救援单、供应商接 / 拒、超时顺延、记违约金和差价、不可抗力免除、运营后台查看（ADR 0031）
   "order_rescue_offers.order_rescue_offers_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "tenant_deductions.tenant_deductions_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 账单（ADR 0040）：出账、确认期满、复核、付款批次都是平台跨供应商做的
+  ...Object.fromEntries(["statements", "statement_lines", "statement_events"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
@@ -329,6 +342,11 @@ const INDEX_EXCEPTIONS = [
   "orders_rescue_due_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
+  // 账单号全平台唯一；确认期满自动确认跨供应商扫；运营后台跨供应商的账单列表、付款批次里的账单（ADR 0040）
+  "statements_batch_idx",
+  "statements_confirm_due_idx",
+  "statements_no_key",
+  "statements_platform_idx",
   // 资质审核队列跨供应商找待审核的（ADR 0028）
   "tenant_documents_pending_idx",
   "tenant_users_email_key",

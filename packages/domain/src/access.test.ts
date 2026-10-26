@@ -54,11 +54,11 @@ test("租户管理归招商和运营；只读角色只能看；技术只能看�
   for (const role of ["operations", "tenant_onboarding"] as const) {
     assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review"] : [])]);
   }
-  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
+  assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read", "statement.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
   assert.equal(platformRoleCan("readonly", "tenant.create"), false);
   assert.equal(platformRoleCan("operations", "integration.read"), false);
-  assert.deepEqual(platformPermissions("finance"), ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"]);
+  assert.deepEqual(platformPermissions("finance"), ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review", "statement.read", "statement.manage", "statement.review"]);
   assert.deepEqual(platformPermissions("risk"), ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
   // 报价试算（M2-01）：运营、招商、渠道经理、客服；里面有各供应商的结算价和加价比例，财务、风控、主数据、技术、只读不给
   assert.deepEqual(platformPermissions("customer_service"), ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"]);
@@ -108,7 +108,7 @@ test("汇率人工锁定（M2-06，ADR 0025）：发起沿用 fx.manage，审核
 
 test("租户：操作日志只有管理员能看", () => {
   for (const { key } of TENANT_ROLES) assert.equal(tenantRoleCan(key, "audit_log.read"), key === "admin", key);
-  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read"]);
+  assert.deepEqual(tenantPermissions("readonly"), ["user.read", "master_data.read", "area.read", "product.read", "order.read", "fleet.read", "webhook.read", "company.read", "performance.read", "statement.read"]);
 });
 
 test("租户：账号管理只归管理员，只读角色只能看账号列表，其他角色都不行", () => {
@@ -120,7 +120,7 @@ test("租户：账号管理只归管理员，只读角色只能看账号列表�
     const expected: Record<typeof role, string[]> = {
       pricing: ["master_data.read", "area.read", "area.manage", "product.read", "product.manage", "performance.read"],
       dispatch: ["master_data.read", "order.read", "order.dispatch", "order.extra_charge", "fleet.read", "fleet.manage", "webhook.read", "performance.read"],
-      finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read"],
+      finance: ["master_data.read", "order.read", "order.extra_charge", "company.read", "performance.read", "statement.read", "statement.confirm"],
     };
     assert.deepEqual(tenantPermissions(role), expected[role]);
     assert.equal(tenantRoleCan(role, "user.read"), false);
@@ -230,4 +230,14 @@ test("救援改派（M3-04，ADR 0031）：发起、发救援单、不可抗力�
   assert.deepEqual(platform("rescue.review"), ["super_admin", "operations"]);
   for (const role of [...platform("rescue.manage"), ...platform("rescue.review")]) assert.equal(platformRoleCan(role as never, "order.read"), true, `${role} 能处理救援就能看订单`);
   assert.deepEqual(TENANT_ROLES.filter(({ key }) => tenantRoleCan(key, "order.dispatch")).map(({ key }) => key), ["admin", "dispatch"]);
+});
+
+test("账单与付款批次（M5-01，ADR 0040）：平台财务出账、答复、作废、发起和审核付款复核，只读能看；供应商的管理员、财务能确认和提异议，只读能看", () => {
+  const platform = (action: Parameters<typeof platformRoleCan>[1]): string[] => PLATFORM_ROLES.filter(({ key }) => platformRoleCan(key, action)).map(({ key }) => key);
+  assert.deepEqual(platform("statement.read"), ["super_admin", "finance", "readonly"]);
+  assert.deepEqual(platform("statement.manage"), ["super_admin", "finance"]);
+  assert.deepEqual(platform("statement.review"), ["super_admin", "finance"]);
+  const tenant = (action: Parameters<typeof tenantRoleCan>[1]): string[] => TENANT_ROLES.filter(({ key }) => tenantRoleCan(key, action)).map(({ key }) => key);
+  assert.deepEqual(tenant("statement.read"), ["admin", "finance", "readonly"]);
+  assert.deepEqual(tenant("statement.confirm"), ["admin", "finance"]);
 });
