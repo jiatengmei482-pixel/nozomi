@@ -1,0 +1,153 @@
+/**
+ * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
+ * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
+ */
+import { type ExtraChargeStatus, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays } from "@nozomi/domain";
+import type { SiteOrder, SiteUnavailableReason } from "../api/site.ts";
+import type { BadgeSpec } from "../components/StatusBadge.tsx";
+
+export const SITE_HOME_PATH = "/book";
+export const SITE_CHECKOUT_PATH = "/book/checkout";
+export const SITE_ORDER_PATH = "/book/order";
+
+/** 订单页的地址：令牌在 `#` 后面，不会发给服务器、不进访问日志。 */
+export function siteOrderUrl(token: string): string {
+  return `${SITE_ORDER_PATH}#${token}`;
+}
+
+/** 地址里 `#` 后面的查看令牌；格式不对返回 null。 */
+export function siteTokenFromHash(hash: string): string | null {
+  const token = hash.replace(/^#/, "").trim();
+  return /^nzo_[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
+}
+
+/** 客人看到的订单状态：状态 = 颜色 + 文字；要客人去做事的（待付款）是提示色。 */
+export const GUEST_STATUS_BADGES: Readonly<Record<OrderStatus, BadgeSpec>> = {
+  pending_payment: { tone: "warning", label: "待付款" },
+  confirmed: { tone: "success", label: "已确认" },
+  assigned: { tone: "info", label: "已派车" },
+  departed: { tone: "info", label: "司机已出发" },
+  arrived: { tone: "info", label: "司机已到达" },
+  in_service: { tone: "info", label: "服务中" },
+  completed: { tone: "success", label: "已完成" },
+  no_show_claimed: { tone: "warning", label: "司机报告未接到您（审核中）" },
+  no_show: { tone: "neutral", label: "未接到乘客" },
+  cancelled: { tone: "neutral", label: "已取消" },
+  rescue_pending: { tone: "warning", label: "正在为您重新安排车辆" },
+  // 原供应商那一行转给救援供应商后的状态；客人看的是当前那一行，一般看不到它，兜底写成已重新安排
+  rescued: { tone: "info", label: "已为您重新安排车辆" },
+};
+
+/** 时间线上每一步的说法。 */
+export const TIMELINE_NAMES: Readonly<Record<OrderStatus, string>> = {
+  pending_payment: "已下单，等待付款",
+  confirmed: "付款成功，订单已确认",
+  assigned: "已安排司机和车辆",
+  departed: "司机已出发",
+  arrived: "司机已到达上车点",
+  in_service: "已上车",
+  completed: "服务完成",
+  no_show_claimed: "司机报告未接到您，平台审核中",
+  no_show: "审核结果：未接到乘客",
+  cancelled: "订单已取消",
+  rescue_pending: "正在为您重新安排车辆",
+  rescued: "已为您重新安排车辆",
+};
+
+export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
+  PAYMENT_TIMEOUT: "超过付款期限没有付款，系统自动取消",
+  PAYMENT_CANCELED: "付款被取消",
+  GUEST_REQUEST: "您取消了订单（按取消政策退款）",
+  CHANGE_NOT_CONFIRMED: "改期没有被确认，免费取消",
+  FLIGHT_CANCELLED: "航班取消，免费取消",
+  FORCE_MAJEURE: "不可抗力，免费取消",
+  SUPPLIER_FAULT: "服务方原因，免费取消",
+  PLATFORM_FAULT: "平台原因，免费取消",
+};
+
+/** 报不出价的原因：告诉客人可以怎么改。 */
+export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, string>> = {
+  NO_PRODUCT: "这个机场暂时没有可预订的车。",
+  OUT_OF_SERVICE_AREA: "这个地址不在服务范围内，请换一个更靠近市区的地址。",
+  LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
+  SOLD_OUT: "这一天已经订满了，请换一天。",
+  OUTSIDE_SERVICE_TIME: "这个时间不在服务时间内，请换一个时间。",
+  SERVICE_TIME_PASSED: "用车时间已经过了，请选一个以后的时间。",
+  CAPACITY_EXCEEDED: "人数或行李超出了车辆能坐下的数量，请减少人数或行李。",
+  ADDON_NOT_OFFERED: "所选的附加服务暂不提供。",
+  DRIVER_LANGUAGE_NOT_OFFERED: "所选的司机语言暂不提供。",
+  NOT_AVAILABLE: "暂时没有可预订的车，请换一个时间再试。",
+};
+
+const GUEST_LANDING_STATUSES: ReadonlySet<OrderStatus> = new Set(["confirmed", "assigned", "departed", "arrived"]);
+
+export type LandingAvailability =
+  | { kind: "not_applicable" }
+  | { kind: "reported"; at: string }
+  | { kind: "unpaid" }
+  | { kind: "too_early"; opensAt: Date }
+  | { kind: "closed" }
+  | { kind: "open" };
+
+/**
+ * 「我已落地」现在能不能点（和后端同一条规则：接机单、付款后、接到客人之前；计划到达前 3 小时起）。
+ * 后端是最终的判断，这里只决定按钮要不要出现、旁边写什么。
+ */
+export function landingAvailability(order: Pick<SiteOrder, "landing" | "status">, now: Date): LandingAvailability {
+  const landing = order.landing;
+  if (landing === null) return { kind: "not_applicable" };
+  if (landing.guest_reported_at !== null) return { kind: "reported", at: landing.guest_reported_at };
+  if (order.status === "pending_payment") return { kind: "unpaid" };
+  if (!GUEST_LANDING_STATUSES.has(order.status)) return { kind: "closed" };
+  const opensAt = new Date(new Date(landing.scheduled_at).getTime() - LANDING_RULES.earliestHoursBeforeScheduled * 3_600_000);
+  return now.getTime() < opensAt.getTime() ? { kind: "too_early", opensAt } : { kind: "open" };
+}
+
+/** 某个时刻在城市当地的 `YYYY-MM-DDTHH:mm`。 */
+export function localDateTimeIn(timeZone: string, at: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+      .formatToParts(at)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts["year"]}-${parts["month"]}-${parts["day"]}T${parts["hour"]}:${parts["minute"]}`;
+}
+
+/** 询价表单默认的用车日期：城市当地的明天。 */
+export function defaultServiceDate(timeZone: string, now: Date): string {
+  return addDays(localDateTimeIn(timeZone, now).slice(0, 10), 1);
+}
+
+/** 千分位的整数：`2` → `2`，`12000` → `12,000`。 */
+export function countText(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** 新的幂等键：每次「提交」一个，网络失败重试用同一个。 */
+export function newIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+/** 客人看到的事后加收状态。 */
+export const GUEST_EXTRA_STATUS_BADGES: Readonly<Record<ExtraChargeStatus, BadgeSpec>> = {
+  in_window: { tone: "warning", label: "可提异议" },
+  review: { tone: "info", label: "平台审核中" },
+  disputed: { tone: "info", label: "已提异议，平台审核中" },
+  approved: { tone: "info", label: "审核通过，等待扣款" },
+  charging: { tone: "info", label: "扣款中" },
+  charged: { tone: "neutral", label: "已扣款" },
+  charge_failed: { tone: "danger", label: "扣款没有成功，平台会联系您" },
+  rejected: { tone: "success", label: "不收取" },
+  withdrawn: { tone: "neutral", label: "已撤回" },
+};
+
+/** 客人看到的改单状态。 */
+export const GUEST_CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, BadgeSpec>> = {
+  awaiting_payment: { tone: "info", label: "正在补收差价" },
+  pending_confirmation: { tone: "warning", label: "等待确认（30 分钟内）" },
+  applied: { tone: "success", label: "已修改" },
+  rejected: { tone: "neutral", label: "没有被接受，可以免费取消" },
+  expired: { tone: "neutral", label: "超时没有确认，可以免费取消" },
+  failed: { tone: "danger", label: "没有改成" },
+  cancelled: { tone: "neutral", label: "已作废" },
+};

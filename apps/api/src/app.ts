@@ -43,6 +43,7 @@ import { registerFleetRoutes } from "./routes/fleet.ts";
 import { registerDispatchRoutes } from "./routes/dispatch.ts";
 import { registerDriverRoutes } from "./routes/driver.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
+import { registerSiteRoutes } from "./routes/site.ts";
 
 export interface AppDeps {
   config: AppConfig;
@@ -180,7 +181,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // 带令牌或账号数据的响应不允许被任何缓存保存
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
-    if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/")) reply.header("cache-control", "no-store");
+    if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
   app.get("/health", async (_request, reply) => {
@@ -248,6 +249,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerDriverRoutes(app, context);
   registerTenantWebhookRoutes(app, context);
   registerTenantOnboardingRoutes(app, context);
+  registerSiteRoutes(app, context);
 
   return app;
 }

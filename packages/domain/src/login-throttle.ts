@@ -51,3 +51,15 @@ export function combineThrottleDecisions(decisions: readonly ThrottleDecision[])
   if (blocked.length === 0) return { allowed: true, retryAfterSeconds: 0 };
   return { allowed: false, retryAfterSeconds: Math.max(...blocked.map((decision) => decision.retryAfterSeconds)) };
 }
+
+/**
+ * 滚动时间窗：过去 `windowMs` 里已经有 `maxAttempts` 次（或更多）就拦下。`times` 是窗口里各次的时间（可以含窗口外的，会被忽略）。
+ * 等待时间 = 要等到足够多的旧记录滑出窗口、剩下的少于 `maxAttempts` 次（至少 1 秒）。
+ */
+export function evaluateRollingWindow(times: readonly Date[], maxAttempts: number, windowMs: number, now: Date): ThrottleDecision {
+  const since = now.getTime() - windowMs;
+  const inWindow = times.map((time) => time.getTime()).filter((time) => time > since).sort((a, b) => a - b);
+  if (inWindow.length < maxAttempts) return { allowed: true, retryAfterSeconds: 0 };
+  const dropsOutAt = (inWindow[inWindow.length - maxAttempts] as number) + windowMs;
+  return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((dropsOutAt - now.getTime()) / 1000)) };
+}
