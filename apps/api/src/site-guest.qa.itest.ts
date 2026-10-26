@@ -391,6 +391,52 @@ test("找回限速只记失败：订单号的额度被别人用错的联系方�
   assert.deepEqual(statuses, [...Array(10).fill(200), 429], "同一个地址成功 10 次后第 11 次也挡");
 });
 
+test("找回硬上限：订单号滚动 24 小时失败满 100 次后，正确的联系方式也 429（和不存在的订单号、猜错的应答一模一样），记一条服务日志；最早的失败满 24 小时后恢复", async () => {
+  const logged = await makeSite({ clientId: siteClient.clientId, payments: pay });
+  try {
+    const placed = await place({ on: logged });
+    const no = placed.body.order.order_no as string;
+    const ghost = "NZ20261007CEILQQQQ";
+    const start = api.clock.now().getTime();
+    for (const orderNo of [no, ghost]) {
+      const statuses: number[] = [];
+      for (let i = 0; i < 99; i += 1) statuses.push((await lookup({ order_no: orderNo, contact: `guess${i}@example.com` }, nextIp(), logged)).status);
+      assert.deepEqual(statuses, [...Array(10).fill(404), ...Array(89).fill(429)], "每小时 10 次失败后 429，之后的失败照样记下");
+    }
+    assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged)).status, 200, "失败 99 次：对上的还能找回");
+    assert.ok(!logged.logs().includes("site_lookup_ceiling_reached"));
+
+    api.clock.advance(HOUR);
+    const hundredth = await lookup({ order_no: no, contact: "guess-100@example.com" }, nextIp(), logged);
+    assert.equal(hundredth.status, 404, "第 100 次失败本身照常 404（新的一小时）");
+    assert.equal((await lookup({ order_no: ghost, contact: "guess-100@example.com" }, nextIp(), logged)).status, 404);
+    const warnings = logged.logs().split("\n").filter((line) => line.includes("site_lookup_ceiling_reached"));
+    assert.equal(warnings.length, 2, "满 100 次时各记一条");
+    assert.ok(warnings.some((line) => line.includes(placed.body.order.id)), "存在的订单带订单编号，运营能找到");
+    assert.ok(!logged.logs().includes(no) && !logged.logs().includes(PASSENGER.email), "订单号原文和联系方式不进日志");
+
+    const correct = await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged);
+    const correctPhone = await lookup({ order_no: no, contact: "+81 90-8765-4321" }, nextIp(), logged);
+    const wrong = await lookup({ order_no: no, contact: "guess-101@example.com" }, nextIp(), logged);
+    const missing = await lookup({ order_no: ghost, contact: PASSENGER.email }, nextIp(), logged);
+    assert.deepEqual([correct.status, correct.body.error.code], [429, "RATE_LIMITED"], "满 100 次后对上的也挡");
+    assert.equal(Number(correct.headers["retry-after"]), 23 * 3600, "等到最早的失败满 24 小时");
+    for (const [name, res] of Object.entries({ correctPhone, wrong, missing })) {
+      assert.equal(res.text, correct.text, `${name} 的正文和对上的不一样`);
+      assert.deepEqual(stableHeaders(res), stableHeaders(correct), `${name} 的响应头和对上的不一样`);
+    }
+
+    api.clock.advance(23 * HOUR - 1_000);
+    assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged)).status, 429, "差 1 秒满 24 小时仍挡");
+    moveTo(new Date(start + 24 * HOUR));
+    const back = await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged);
+    assert.equal(back.status, 200, `最早的失败满 24 小时后恢复：${back.text}`);
+    assert.equal((await site.call("GET", "/site/v1/order", { token: back.body.link.token, ip: nextIp() })).status, 200);
+  } finally {
+    await logged.close();
+  }
+});
+
 // ---- 来源地址 ----
 
 test("限速按来源地址：TRUST_PROXY_HOPS=0 时伪造的 X-Forwarded-For 不算数；=1 时只认反向代理追加的最后一个地址，伪造最左边的绕不过", async () => {

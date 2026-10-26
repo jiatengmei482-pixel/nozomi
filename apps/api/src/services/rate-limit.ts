@@ -22,7 +22,7 @@ export const SALES_RATE_LIMITS = {
   site_order: { max: 10, windowMs: 600_000 },
   /** 用订单号找回订单：每个地址 15 分钟 10 次 */
   site_lookup: { max: 10, windowMs: 900_000 },
-  /** 用订单号找回订单：每个订单号每小时 10 次（换着地址猜同一张单也挡得住） */
+  /** 用订单号找回订单：每个订单号每小时 10 次**失败**（换着地址猜同一张单也挡得住；对上的不计，ADR 0032 方案 A） */
   site_lookup_order: { max: 10, windowMs: 3_600_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
@@ -43,6 +43,14 @@ export async function takeRateSlot(db: Db, bucket: string, scope: SalesRateScope
   );
   const row = result.rows[0] as { attempt_count: number; window_started_at: Date };
   return evaluateFixedWindow({ attemptCount: row.attempt_count, windowStartedAt: row.window_started_at }, max, windowMs, now);
+}
+
+/** 只看不占：如果现在占一次，会不会被拦下（和 `takeRateSlot` 的结论一致，但不改计数）。 */
+export async function peekRateSlot(db: Db, bucket: string, scope: SalesRateScope, now: Date): Promise<ThrottleDecision> {
+  const { max, windowMs } = SALES_RATE_LIMITS[scope];
+  const row = (await db.query<{ attempt_count: number; window_started_at: Date }>("select attempt_count, window_started_at from sales_rate_limits where bucket = $1", [`${scope}:${bucket}`])).rows[0];
+  if (row === undefined || row.window_started_at.getTime() <= now.getTime() - windowMs) return { allowed: true, retryAfterSeconds: 0 };
+  return evaluateFixedWindow({ attemptCount: row.attempt_count + 1, windowStartedAt: row.window_started_at }, max, windowMs, now);
 }
 
 export function rateLimited(retryAfterSeconds: number): AppError {

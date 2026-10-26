@@ -50,6 +50,7 @@ const PLATFORM_TABLES = [
   "quotes",
   "sales_rate_limits",
   "schema_migrations",
+  "site_lookup_failures",
   "site_order_links",
   "tenant_roles",
   "vehicle_groups",
@@ -207,6 +208,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 官网的订单查看链接（ADR 0032）：只追加，到有效期自然失效
     site_order_links: ["INSERT", "SELECT"],
+    // 官网找回订单的失败记录（ADR 0032）：一次失败一行，超过 24 小时的写入时顺手删
+    site_lookup_failures: ["DELETE", "INSERT", "SELECT"],
     // 供应商入驻（ADR 0028）：合同版本、状态记录、履约事件、提醒只追加；资质只改审核结论；每日评分同一天重算时覆盖；企业信息只读；文件只追加
     tenant_contracts: ["INSERT", "SELECT"],
     tenant_documents: ["SELECT", "UPDATE"],

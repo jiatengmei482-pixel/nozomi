@@ -172,7 +172,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post("/site/v1/orders/lookup", async (request) => {
     await takeSiteSlot(ctx, "site_lookup", { ip: request.ip });
     const input = parseInput(lookupSchema, request.body, "body");
-    return { link: linkJson(await lookupSiteOrder(ctx, input.order_no, input.contact)) };
+    return { link: linkJson(await lookupSiteOrder(ctx, input.order_no, input.contact, request.log)) };
   });
 
   app.get("/site/v1/order", async (request) => orderView(await guest(request)));

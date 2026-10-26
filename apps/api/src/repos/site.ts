@@ -142,3 +142,15 @@ export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: s
   ).rows[0];
   return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at };
 }
+
+/** 这个订单号（哈希）在 `since` 之后各次找回失败的时间。 */
+export async function listLookupFailures(db: Db, bucket: string, since: Date): Promise<Date[]> {
+  const rows = await db.query<{ failed_at: Date }>("select failed_at from site_lookup_failures where bucket = $1 and failed_at > $2 order by failed_at", [bucket, since]);
+  return rows.rows.map((row) => row.failed_at);
+}
+
+/** 记一次找回失败；顺手删掉所有超过窗口的旧记录（它们已经不影响任何判断）。 */
+export async function insertLookupFailure(db: Db, bucket: string, failedAt: Date, expiredBefore: Date): Promise<void> {
+  await db.query("delete from site_lookup_failures where failed_at <= $1", [expiredBefore]);
+  await db.query("insert into site_lookup_failures (bucket, failed_at) values ($1, $2)", [bucket, failedAt]);
+}

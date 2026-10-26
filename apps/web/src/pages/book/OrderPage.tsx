@@ -18,6 +18,13 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { CancelSection, ChangeSection, DriverSection, ExtraChargesSection, LandingSection, PaymentSection, TimelineSection, TripSection } from "./OrderSections.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
 
+/** 找回被限速（可能是这个订单号被别人试了太多次，要等几个小时）：告诉客人等多久，也可以联系客服。 */
+export function lookupThrottledText(retryAfterSeconds: number | null): string {
+  if (retryAfterSeconds === null || retryAfterSeconds <= 0) return "尝试次数过多，请稍后再试，或联系客服。";
+  const wait = retryAfterSeconds < 60 ? `${retryAfterSeconds} 秒` : retryAfterSeconds < 3600 ? `${Math.ceil(retryAfterSeconds / 60)} 分钟` : `${Math.ceil(retryAfterSeconds / 3600)} 小时`;
+  return `尝试次数过多，请 ${wait}后再试，或联系客服。`;
+}
+
 function LookupForm({ expired }: { expired: boolean }) {
   const navigate = useNavigate();
   const [orderNo, setOrderNo] = useState("");
@@ -43,7 +50,7 @@ function LookupForm({ expired }: { expired: boolean }) {
       const { link } = await lookupSiteOrder(no, given);
       navigate(siteOrderUrl(link.token), { replace: true });
     } catch (err) {
-      setNotice({ kind: "danger", text: err instanceof ApiError && err.code === "ORDER_NOT_FOUND" ? "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。" : siteFailureText(err, "查找订单") });
+      setNotice({ kind: "danger", text: err instanceof ApiError && err.code === "ORDER_NOT_FOUND" ? "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。" : err instanceof ApiError && err.status === 429 ? lookupThrottledText(err.retryAfterSeconds) : siteFailureText(err, "查找订单") });
     } finally {
       setBusy(false);
     }

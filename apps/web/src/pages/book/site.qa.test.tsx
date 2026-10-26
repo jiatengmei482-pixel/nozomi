@@ -289,3 +289,17 @@ test("异议期过了：加收项不出「提异议」；订单页底部有 GeoN
   assert.match(footer, /GeoNames/);
   assert.match(footer, /OurAirports/);
 });
+
+test("找回被限速：提示尝试次数过多、要等多久，或联系客服（订单号被别人试满时要等几个小时）", async () => {
+  open({ pathname: "/book/order" }, (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return apiError(429, "RATE_LIMITED", "请求过于频繁，请稍后再试", { retry_after_seconds: 7_300 }, { "retry-after": "7300" });
+    return null;
+  });
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "查订单" });
+  await actor.type(screen.getByLabelText("订单号"), "NZ20261026QAQA2345");
+  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "qa@example.com");
+  await actor.click(screen.getByRole("button", { name: "查找订单" }));
+  assert.ok(await screen.findByText("尝试次数过多，请 3 小时后再试，或联系客服。"));
+});

@@ -16,6 +16,8 @@ import {
   cancellationRuleFor,
   channelScopeRefusal,
   channelSellsTenant,
+  combineThrottleDecisions,
+  evaluateRollingWindow,
   localDateTimeToInstant,
   normalizePhone,
   tenantBids,
@@ -37,13 +39,15 @@ import {
   findOrderNames,
   findSiteClient,
   findVehicleGroups,
+  insertLookupFailure,
   insertSiteOrderLink,
   listBookableAirports,
   listBookableCities,
+  listLookupFailures,
 } from "../repos/site.ts";
 import { validationFailed } from "../validation.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
-import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
+import { type SalesRateScope, peekRateSlot, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
@@ -57,6 +61,9 @@ export const SITE_LINK_RULES = {
   /** 至少能用多久（用车时间早已过去的单找回时）：1 天 */
   minimumMs: 24 * 3_600_000,
 } as const;
+
+/** 找回的硬上限：每个订单号滚动 24 小时里失败满 100 次后，联系方式对上的也挡（ADR 0032「找回按订单号限速」）。 */
+export const SITE_LOOKUP_CEILING = { maxFailures: 100, windowMs: 24 * 3_600_000 } as const;
 
 const LINK_PREFIX = "nzo_";
 const LINK_FORMAT = /^nzo_[A-Za-z0-9_-]{43}$/;
@@ -300,14 +307,42 @@ export function contactMatches(contact: string, passenger: { email: string; phon
 
 /**
  * 用订单号 + 下单时的邮箱或电话找回订单：对上了发一个新链接；订单号不存在、联系方式不对、不是官网的单一律同一个 404。
- * 订单号这一层的额度只记**失败**的尝试（ADR 0032 已知限制方案 A）：别人用错的联系方式刷满了，真客人对上的那次照样放行；
- * 失败的一次先计数（单独提交）再决定 429 还是 404——不存在的订单号和对不上的走同一条路，应答分不出来。
+ * 按订单号有两层额度（ADR 0032「找回按订单号限速」）：
+ * - 每小时 10 次**失败**（方案 A）：别人用错的联系方式刷满了，真客人对上的那次照样放行；
+ * - 硬上限：滚动 24 小时失败满 100 次后，对上的也挡（否则刷满后「429 = 猜错、200 = 猜对」，等于不限猜测次数）。
+ * 失败的一次先记下（单独提交）再决定 429 还是 404；被挡时不论对没对上，应答（含 Retry-After）都按「这一次如果算失败」计算，
+ * 不存在的订单号和对不上的走同一条路，借应答分不出订单号存不存在、联系方式对没对。
  */
-export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact: string): Promise<SiteLink> {
+export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact: string, log: OrderLog = SILENT_ORDER_LOG): Promise<SiteLink> {
   const channelId = await requireSiteChannelId(ctx);
+  const now = ctx.now();
+  const bucket = bucketOf("order", orderNo);
+  const since = new Date(now.getTime() - SITE_LOOKUP_CEILING.windowMs);
+  const ceilingOf = (times: readonly Date[]) => evaluateRollingWindow(times, SITE_LOOKUP_CEILING.maxFailures, SITE_LOOKUP_CEILING.windowMs, now);
   const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
-  if (found !== null && contactMatches(contact, found)) return issueLink(ctx, found.orderId, found.serviceAt, "lookup");
-  await takeSiteSlot(ctx, "site_lookup_order", { orderNo });
+  if (found !== null && contactMatches(contact, found)) {
+    const blocked = await withPlatformTx(ctx.pool, async (db) => {
+      const ceiling = ceilingOf(await listLookupFailures(db, bucket, since));
+      if (ceiling.allowed) return null;
+      return combineThrottleDecisions([ceiling, await peekRateSlot(db, bucket, "site_lookup_order", now)]);
+    });
+    if (blocked !== null) throw rateLimited(blocked.retryAfterSeconds);
+    return issueLink(ctx, found.orderId, found.serviceAt, "lookup");
+  }
+  const decision = await withPlatformTx(ctx.pool, async (db) => {
+    const hourly = await takeRateSlot(db, bucket, "site_lookup_order", now);
+    const before = await listLookupFailures(db, bucket, since);
+    const ceiling = ceilingOf(before);
+    // 硬上限已满时不再记（每个订单号最多留 100 行）；这一次正好记满时留一条服务日志给运营
+    if (ceiling.allowed) {
+      await insertLookupFailure(db, bucket, now, since);
+      if (before.length + 1 === SITE_LOOKUP_CEILING.maxFailures) {
+        log.warn({ event: "site_lookup_ceiling_reached", order_id: found?.orderId ?? null, order_bucket: bucket.slice(0, 16), failures: SITE_LOOKUP_CEILING.maxFailures, window_hours: 24 }, "官网找回：这个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜");
+      }
+    }
+    return combineThrottleDecisions([hourly, ceiling]);
+  });
+  if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
   throw orderNotFound();
 }
 
