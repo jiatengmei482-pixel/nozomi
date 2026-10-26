@@ -188,7 +188,7 @@ test("订单详情（运营后台）：审核加收可以部分通过；客服�
   let decided: unknown = null;
   const detail = platformDetail(platformOrder({ status: "completed" }), {
     extra_charges: [extraOf()],
-    refunds: [{ id: REFUND_ID, payment_id: "pay1", purpose: "cancellation", change_id: null, amount: money("100"), status: "failed", provider_refund_id: null, retry_of: null, attempts: 5, next_attempt_at: null, last_error: { code: "expired_or_canceled_card" }, succeeded_at: null, failed_at: stamps.updated_at, created_at: stamps.created_at }],
+    refunds: [{ id: REFUND_ID, payment_id: "pay1", purpose: "cancellation", change_id: null, amount: money("100"), status: "failed", provider_refund_id: null, retry_of: null, attempts: 5, next_attempt_at: null, last_error: { code: "expired_or_canceled_card" }, succeeded_at: null, failed_at: stamps.updated_at, superseded_at: null, created_at: stamps.created_at }],
   });
   open(`/platform/orders/${ORDER_ID}`, "customer_service", (call) => {
     if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, detail);
