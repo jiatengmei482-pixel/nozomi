@@ -5,12 +5,12 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type ComparisonRefusal, type FxQuote, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type ComparisonRefusal, type FxQuote, ROUTE_FAILURE_MESSAGES, guestRouteReason, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
 import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
-import { type QuotePreviewInput, markupKey, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
+import { type QuotePreviewInput, type RouteOutcome, markupKey, previewPlatformQuote, previewTenantQuote } from "../services/quotes.ts";
 import { type TenantPrincipal, authenticateTenant } from "../services/tenant-auth.ts";
 import { bearerToken } from "../auth/token.ts";
 import { forbidden, notFound } from "../services/errors.ts";
@@ -27,6 +27,26 @@ export function fxJson(fx: FxQuote): Json {
     as_of: fx.asOf,
     lock: fx.lock === undefined ? null : { legs: fx.lock.legs.map((leg) => ({ currency: leg.currency, rate: leg.rate, lock_id: leg.lockId, expires_at: leg.expiresAt })), uses_source: fx.lock.usesSource },
   };
+}
+
+/**
+ * 路线的情况（M2-02，ADR 0042）：`status` 是 not_needed / assumed / ok / unavailable；取到了给来源，取不到给原因代码和说明。
+ * 平台侧给完整的原因（密钥没配、到了每日上限、配额、超时……），运营据此排查。
+ */
+export function routeStatusJson(outcome: RouteOutcome): Json {
+  return {
+    status: outcome.status,
+    source: outcome.status === "ok" ? outcome.source : null,
+    code: outcome.status === "unavailable" ? outcome.code : null,
+    message: outcome.status === "unavailable" ? ROUTE_FAILURE_MESSAGES[outcome.code] : null,
+  };
+}
+
+/** 供应商看的路线情况：只有「没有路线」或「暂时无法报价」，平台的密钥、配额这些内部原因不告诉供应商。 */
+const GUEST_ROUTE_MESSAGES = { NO_ROUTE: "这两个地点之间没有可行驶的路线", TEMPORARILY_UNAVAILABLE: "路线预估暂时不可用，里程 + 时长的价格暂时无法报价，请稍后再试" } as const;
+function tenantRouteStatusJson(outcome: RouteOutcome): Json {
+  const code = outcome.status === "unavailable" ? guestRouteReason(outcome.code) : null;
+  return { status: outcome.status, source: outcome.status === "ok" ? outcome.source : null, code, message: code === null ? null : GUEST_ROUTE_MESSAGES[code] };
 }
 
 const pointSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict();
@@ -158,6 +178,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
       markup_floor_bp: preview.markupFloorBp,
       channel: preview.channel === null ? null : { id: preview.channel.id, name: preview.channel.name, status: preview.channel.status, min_margin: preview.channel.pricing.minMarginMinor, settle_currency: preview.channel.settleCurrency, rounding_unit: preview.channel.pricing.sellRounding[preview.currency] ?? 1 },
       route: preview.route,
+      route_status: routeStatusJson(preview.routeOutcome),
       candidate_count: preview.candidates.length,
       groups: preview.comparison.groups.map((group) => ({
         vehicle_group_id: group.vehicleGroupId,
@@ -194,7 +215,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await tenant(request, "product.read");
     const productId = resourceId(request.params, "商品");
     const input = parseInput(tenantPreviewSchema, request.body, "body");
-    const { candidate, quote, route } = await previewTenantQuote(ctx, principal.tenantId, productId, previewInput(input), { log: request.log });
+    const { candidate, quote, route, routeOutcome } = await previewTenantQuote(ctx, principal.tenantId, productId, previewInput(input), { log: request.log });
     return {
       product_id: candidate.product.productId,
       code: candidate.code,
@@ -203,6 +224,7 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
       currency: candidate.product.currency,
       rounding_unit: candidate.product.roundingUnit,
       route,
+      route_status: tenantRouteStatusJson(routeOutcome),
       // 商品层面就报不出（对所有车型组都一样）时给原因；否则每个车型组各有一个价或一个原因
       refusal: quote.ok ? null : { reason: quote.reason, message: REFUSAL_MESSAGES[quote.reason] },
       service_date: quote.ok ? quote.serviceDate : null,

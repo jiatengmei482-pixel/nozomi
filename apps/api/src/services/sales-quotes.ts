@@ -10,13 +10,13 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, type CurrencyCode, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { findQuoteCity, findQuotePlace } from "../repos/quotes.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { type PlatformQuotePreview, type QuoteLog, markupKey, previewPlatformQuote } from "./quotes.ts";
+import { type PlatformQuotePreview, type QuoteLog, type RouteOutcome, markupKey, previewPlatformQuote } from "./quotes.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 
 /** 起点 / 终点：坐标，或主数据里的地点（机场、车站、POI）编号——给了地点就用地点的坐标。 */
@@ -41,11 +41,17 @@ export interface SalesQuoteInput {
 }
 
 /** 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。 */
-export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NOT_AVAILABLE"] as const;
+/**
+ * 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。
+ * 里程 + 时长的价格取不到路线时（ADR 0042）：`NO_ROUTE`（两点之间没有可行驶的路线）或 `TEMPORARILY_UNAVAILABLE`（路线服务暂时不可用，稍后再试）。
+ */
+export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
 export type SalesUnavailableReason = (typeof SALES_UNAVAILABLE_REASONS)[number];
 
-function salesReason(reason: ComparisonRefusal): SalesUnavailableReason {
+function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnavailableReason {
   switch (reason) {
+    case "ROUTE_UNAVAILABLE":
+      return route.status === "unavailable" ? guestRouteReason(route.code) : "TEMPORARILY_UNAVAILABLE";
     case "OUT_OF_SERVICE_AREA":
     case "IN_FORBIDDEN_AREA":
       return "OUT_OF_SERVICE_AREA";
@@ -188,8 +194,8 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
-      `insert into quote_logs (channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms)
-       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12) returning id`,
+      `insert into quote_logs (channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms, route)
+       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13::jsonb) returning id`,
       [
         principal.channelId,
         principal.apiClientId,
@@ -206,6 +212,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
           ...preview.excluded.map((candidate) => ({ tenant_id: candidate.product.tenantId, product_id: candidate.product.productId, vehicle_group_id: null, reason: "NOT_IN_CHANNEL_SCOPE" })),
         ]),
         durationMs,
+        JSON.stringify(routeLogJson(preview.routeOutcome)),
       ],
     );
     const logId = (log.rows[0] as { id: string }).id;
@@ -224,6 +231,20 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
     }
   });
   return result;
+}
+
+/** 询价日志里的路线（ADR 0042）：用没用到、来源和里程时长，或取不到的原因代码（降级原因）。 */
+export function routeLogJson(outcome: RouteOutcome): Record<string, unknown> {
+  switch (outcome.status) {
+    case "not_needed":
+      return { status: outcome.status };
+    case "assumed":
+      return { status: outcome.status, meters: outcome.route.meters, minutes: outcome.route.minutes };
+    case "ok":
+      return { status: outcome.status, source: outcome.source, meters: outcome.route.meters, minutes: outcome.route.minutes };
+    case "unavailable":
+      return { status: outcome.status, code: outcome.code };
+  }
 }
 
 function storedSnapshots(preview: PlatformQuotePreview, now: Date): StoredQuoteSnapshot[] {
@@ -247,7 +268,7 @@ function unavailable(preview: PlatformQuotePreview, requested: readonly string[]
   const quoted = new Set(preview.comparison.groups.map((group) => group.vehicleGroupId));
   const reasonsFor = (vehicleGroupId: string | null): SalesUnavailableReason[] => {
     if (preview.candidates.length === 0) return ["NO_PRODUCT"];
-    const reasons = preview.comparison.refused.filter((entry) => entry.vehicleGroupId === null || entry.vehicleGroupId === vehicleGroupId || vehicleGroupId === null).map((entry) => salesReason(entry.reason));
+    const reasons = preview.comparison.refused.filter((entry) => entry.vehicleGroupId === null || entry.vehicleGroupId === vehicleGroupId || vehicleGroupId === null).map((entry) => salesReason(entry.reason, preview.routeOutcome));
     const distinct = [...new Set(reasons)].sort();
     return distinct.length === 0 ? ["NOT_AVAILABLE"] : distinct;
   };

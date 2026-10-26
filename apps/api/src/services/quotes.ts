@@ -21,6 +21,8 @@ import {
   type QuoteComparison,
   type QuoteRequest,
   type RouteEstimate,
+  type RouteFailureCode,
+  type RouteSource,
   type ServiceCategory,
   type TripDirection,
   type ChannelSellRules,
@@ -122,10 +124,10 @@ export class QuoteDependencyTimeout extends Error {
 }
 
 /**
- * 调一次外部服务（路线预估、汇率）：限时（`ctx.quote.externalTimeoutMs`），超时或抛异常都记一条日志、当作「取不到」（null）——
+ * 调一次外部服务（路线预估、汇率）：限时（`ctx.quote.externalTimeoutMs`），超时或抛异常都记一条日志、换成 `fallback` 给的「取不到」——
  * 一个外部服务出问题只让用得到它的商品报不出（`ROUTE_UNAVAILABLE` / `FX_RATE_UNAVAILABLE`），不让整次比价失败。
  */
-async function callExternal<T>(ctx: AppContext, log: QuoteLog, dependency: QuoteDependency, run: () => Promise<T | null>): Promise<T | null> {
+async function callExternal<T>(ctx: AppContext, log: QuoteLog, dependency: QuoteDependency, run: () => Promise<T>, fallback: (timedOut: boolean) => T): Promise<T> {
   const timeoutMs = ctx.quote.externalTimeoutMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -135,24 +137,43 @@ async function callExternal<T>(ctx: AppContext, log: QuoteLog, dependency: Quote
     return await Promise.race([run(), timeout]);
   } catch (err) {
     log.warn({ err, dependency }, dependency === "route" ? "路线预估取不到，用得到它的商品报 ROUTE_UNAVAILABLE" : "汇率取不到，跨币种的报价报 FX_RATE_UNAVAILABLE");
-    return null;
+    return fallback(err instanceof QuoteDependencyTimeout);
   } finally {
     clearTimeout(timer);
   }
 }
 
 /**
- * 这次用车的路线预估（报价引擎第 6 步）：只有里程 + 时长的价格、按小时的夜间费、按时长的附加服务用得到。
- * 接送机：机场 / 车站那一端用接送点的坐标。包车不估（按套餐时长）。两端的坐标不全、或路线服务取不到（含超时、出错），返回 null。
- * 在数据库事务之外调用：不占着连接等外部服务。
+ * 这次询价的路线情况（M2-02，ADR 0042）：
+ * - `not_needed`：候选商品都用不到路线（一口价、包车），或两端坐标不全——没有调用路线服务；
+ * - `assumed`：试算时给了假定的里程和时长；
+ * - `ok`：路线预估取到了（来源：缓存 / 谷歌 / 起终点是同一个点）；
+ * - `unavailable`：取不到，`code` 是原因（降级：里程 + 时长的商品报 `ROUTE_UNAVAILABLE`，别的照常）。
  */
-async function estimateRoute(ctx: AppContext, log: QuoteLog, request: QuoteRequest, placeLocation: LatLng | null, departAt: Date, assumeRoute: RouteEstimate | null): Promise<RouteEstimate | null> {
-  if (assumeRoute !== null) return assumeRoute;
-  if (request.category === "charter") return null;
+export type RouteOutcome =
+  | { status: "not_needed" }
+  | { status: "assumed"; route: RouteEstimate }
+  | { status: "ok"; route: RouteEstimate; source: RouteSource }
+  | { status: "unavailable"; code: RouteFailureCode };
+
+/** 报价引擎要的路线：取不到、没用到都是 null。 */
+export function routeOf(outcome: RouteOutcome): RouteEstimate | null {
+  return outcome.status === "ok" || outcome.status === "assumed" ? outcome.route : null;
+}
+
+/**
+ * 这次用车的路线预估（报价引擎第 6 步）：只有里程 + 时长的价格、按小时的夜间费、按时长的附加服务用得到。
+ * 接送机：机场 / 车站那一端用接送点的坐标。包车不估（按套餐时长）。
+ * 在数据库事务之外调用：不占着连接等外部服务。报价这一层的兜底：超时是 `TIMEOUT`，路线服务抛了异常是 `UNEXPECTED`。
+ */
+async function estimateRoute(ctx: AppContext, log: QuoteLog, request: QuoteRequest, placeLocation: LatLng | null, assumeRoute: RouteEstimate | null, needed: boolean): Promise<RouteOutcome> {
+  if (assumeRoute !== null) return { status: "assumed", route: assumeRoute };
+  if (!needed || request.category === "charter") return { status: "not_needed" };
   const from = request.category === "airport_transfer" && request.direction === "pickup" ? placeLocation : request.pickup;
   const to = request.category === "airport_transfer" && request.direction === "dropoff" ? placeLocation : request.dropoff;
-  if (from === null || to === null) return null;
-  return callExternal(ctx, log, "route", () => ctx.quote.routes.estimate({ from, to, departAt }));
+  if (from === null || to === null) return { status: "not_needed" };
+  const lookup = await callExternal(ctx, log, "route", () => ctx.quote.routes.estimate({ from, to }), (timedOut) => ({ ok: false, code: timedOut ? "TIMEOUT" : "UNEXPECTED" }) as const);
+  return lookup.ok ? { status: "ok", route: lookup.route, source: lookup.source } : { status: "unavailable", code: lookup.code };
 }
 
 /** 这批商品有没有哪个用得到路线预估（用不到就不去调路线服务）。 */
@@ -233,6 +254,8 @@ export interface PlatformQuotePreview {
   markupFloorBp: number;
   /** 这次试算用到的路线预估；没用到、或取不到为 null */
   route: RouteEstimate | null;
+  /** 路线的情况：来源，或取不到的原因（降级原因，ADR 0042） */
+  routeOutcome: RouteOutcome;
   /** 找到了几个候选商品（已上架、同城市同品类同接送点；带渠道时只算渠道卖的租户） */
   candidates: QuoteCandidate[];
   comparison: QuoteComparison;
@@ -309,12 +332,12 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   // 渠道结算币种的汇率不论有没有最低毛利都取：快照里要记（试算换算毛利用，ADR 0033）
   const settleCurrency = channel !== null && channel.channel.settleCurrency !== currency ? channel.channel.settleCurrency : null;
 
-  const departAt = localDateTimeToInstant(request.serviceLocal, city.timezone) as Date;
   const currencies = [...new Set([...candidates.map((candidate) => candidate.product.currency), ...(settleCurrency === null ? [] : [settleCurrency])].filter((from) => from !== currency))];
-  const [route, fxQuotes] = await Promise.all([
-    input.assumeRoute !== null || needsRoute(candidates) ? estimateRoute(ctx, log, request, place?.location ?? null, departAt, input.assumeRoute) : Promise.resolve(null),
-    Promise.all(currencies.map(async (from) => [from, await callExternal(ctx, log, "fx", () => ctx.quote.fx.quote(from, currency, now))] as const)),
+  const [routeOutcome, fxQuotes] = await Promise.all([
+    estimateRoute(ctx, log, request, place?.location ?? null, input.assumeRoute, needsRoute(candidates)),
+    Promise.all(currencies.map(async (from) => [from, await callExternal(ctx, log, "fx", () => ctx.quote.fx.quote(from, currency, now), () => null)] as const)),
   ]);
+  const route = routeOf(routeOutcome);
   const rates = new Map(fxQuotes);
   const quoted = quoteCandidates(candidates, facts, request, now, route, false);
   const markups = new Map<string, MarkupMatch>();
@@ -342,7 +365,7 @@ export async function previewPlatformQuote(ctx: AppContext, input: PlatformQuote
   const comparison = compareQuotes({ request, currency, entries, now, bandBp, markupFloorBp, fxBufferBp: ctx.config.fx.bufferBp, ...(sellRules === undefined ? {} : { channel: sellRules }) });
   const settleRate = settleCurrency === null ? null : (rates.get(settleCurrency) ?? null);
   const settleFx = settleRate !== null && fxQuoteUsable(settleRate, now) ? settleRate : null;
-  return { currency, bandBp, markupFloorBp, route, candidates, comparison, channel: channel?.channel ?? null, excluded, markups, settleFx };
+  return { currency, bandBp, markupFloorBp, route, routeOutcome, candidates, comparison, channel: channel?.channel ?? null, excluded, markups, settleFx };
 }
 
 // ---- 租户侧试算 ----
@@ -351,6 +374,7 @@ export interface TenantQuotePreview {
   candidate: QuoteCandidate;
   quote: ProductQuote;
   route: RouteEstimate | null;
+  routeOutcome: RouteOutcome;
 }
 
 /** 租户侧试算：供应商自己的一个商品（任何状态）。只算结算价。别的供应商的商品当作不存在（404）。 */
@@ -374,8 +398,8 @@ export async function previewTenantQuote(ctx: AppContext, tenantId: string, prod
     { snapshot: true },
   );
   const candidate = candidates[0] as QuoteCandidate;
-  const departAt = localDateTimeToInstant(request.serviceLocal, candidate.product.timeZone) as Date;
-  const route = input.assumeRoute !== null || needsRoute(candidates) ? await estimateRoute(ctx, options.log ?? SILENT, request, candidate.pickupPlaceLocation, departAt, input.assumeRoute) : null;
+  const routeOutcome = await estimateRoute(ctx, options.log ?? SILENT, request, candidate.pickupPlaceLocation, input.assumeRoute, needsRoute(candidates));
+  const route = routeOf(routeOutcome);
   const [quoted] = quoteCandidates(candidates, facts, request, now, route, true);
-  return { candidate, quote: (quoted as Quoted).quote, route };
+  return { candidate, quote: (quoted as Quoted).quote, route, routeOutcome };
 }

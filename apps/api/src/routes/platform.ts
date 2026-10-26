@@ -6,11 +6,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { integrationStatus } from "@nozomi/config";
-import { type PlatformAction, fxTableState } from "@nozomi/domain";
+import { type PlatformAction, ROUTE_FAILURE_MESSAGES, type RouteFailureCode, fxTableState, routeCallAllowed, routeUsageDay } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
+import { routeUsageStatus } from "../repos/route-estimates.ts";
 import { latestFetch, latestRateSet } from "../repos/fx.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
 import { type DashboardSummary, type StatusCounts, getDashboardSummary } from "../services/dashboard.ts";
@@ -300,7 +301,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
         after: null,
       });
       const current = await latestRateSet(db);
-      return { current, last: await latestFetch(db) };
+      return { current, last: await latestFetch(db), routes: await routeUsageStatus(db, routeUsageDay(now)) };
     });
     return {
       // 谷歌地图、Stripe 按生效的值、标出来源（ADR 0041）；打码后的末 4 位只给能管理密钥的人（超级管理员）
@@ -313,6 +314,20 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
         last_attempt_status: fx.last?.status ?? null,
         last_attempt_at: fx.last?.startedAt.toISOString() ?? null,
         last_error_code: fx.last?.errorCode ?? null,
+      },
+      // 路线预估（谷歌地图 Routes API，ADR 0042）：今天（东京时间）调用了几次、每日上限、失败和被上限挡下的次数，最近一次成功和失败
+      routes: {
+        day: fx.routes.day,
+        calls: fx.routes.calls,
+        daily_limit: ctx.config.routes.dailyLimit,
+        daily_limit_reached: !routeCallAllowed(fx.routes.calls, ctx.config.routes.dailyLimit),
+        failures: fx.routes.failures,
+        refused: fx.routes.refused,
+        last_success_at: fx.routes.lastSuccessAt?.toISOString() ?? null,
+        last_failure:
+          fx.routes.lastFailure === null
+            ? null
+            : { code: fx.routes.lastFailure.code, message: ROUTE_FAILURE_MESSAGES[fx.routes.lastFailure.code as RouteFailureCode] ?? null, at: fx.routes.lastFailure.at.toISOString() },
       },
     };
   });

@@ -5,7 +5,7 @@ import {
   ROUTE_FAILURE_MESSAGES,
   ROUTE_RULES,
   guestRouteReason,
-  roundCoordinate,
+  routeCoordinateText,
   routeCacheExpiry,
   routeCacheKey,
   routeCallAllowed,
@@ -17,17 +17,17 @@ import {
 } from "./route-estimate.ts";
 
 test("坐标取整：3 位小数、四舍五入、离 0 远的方向进位，不受二进制误差影响", () => {
-  assert.equal(roundCoordinate(35.6812), "35.681");
-  assert.equal(roundCoordinate(139.7675), "139.768");
-  assert.equal(roundCoordinate(139.7674999), "139.767");
-  assert.equal(roundCoordinate(35.6815), "35.682");
-  assert.equal(roundCoordinate(-33.8675), "-33.868");
-  assert.equal(roundCoordinate(-0.0004), "0.000");
-  assert.equal(roundCoordinate(0), "0.000");
-  assert.equal(roundCoordinate(179.9996), "180.000");
-  assert.equal(roundCoordinate(1.2345, 2), "1.23");
-  assert.equal(roundCoordinate(9.5, 0), "10");
-  assert.throws(() => roundCoordinate(Number.NaN), RangeError);
+  assert.equal(routeCoordinateText(35.6812), "35.681");
+  assert.equal(routeCoordinateText(139.7675), "139.768");
+  assert.equal(routeCoordinateText(139.7674999), "139.767");
+  assert.equal(routeCoordinateText(35.6815), "35.682");
+  assert.equal(routeCoordinateText(-33.8675), "-33.868");
+  assert.equal(routeCoordinateText(-0.0004), "0.000");
+  assert.equal(routeCoordinateText(0), "0.000");
+  assert.equal(routeCoordinateText(179.9996), "180.000");
+  assert.equal(routeCoordinateText(1.2345, 2), "1.23");
+  assert.equal(routeCoordinateText(9.5, 0), "10");
+  assert.throws(() => routeCoordinateText(Number.NaN), RangeError);
 });
 
 test("缓存键：取整后的起终点、有方向；同一个约 100 米格子里的点共用一个键", () => {

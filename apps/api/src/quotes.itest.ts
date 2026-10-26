@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { type FxQuote, PLATFORM_ROLES, type RouteEstimate, type TenantStanding, platformRoleCan } from "@nozomi/domain";
+import { routeLookup } from "./testing/routes.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, addTenantUser, createTestApi, resumeTenantNow, suspendTenantApproved } from "./testing/api.ts";
 
 let api: TestApi;
@@ -90,7 +91,7 @@ before(async () => {
       routes: {
         estimate: async () => {
           routeCalls += 1;
-          return route;
+          return routeLookup(route);
         },
       },
       fx: { quote: async (from, to): Promise<FxQuote | null> => (rates.has(`${from}>${to}`) ? { from, to, rate: rates.get(`${from}>${to}`) as string, asOf: fxAsOf } : null) },
@@ -277,7 +278,7 @@ test("租户侧试算：供应商对自己的商品（没上架的也可以）�
   walk(own);
   assert.deepEqual(keys.filter((key) => /sell|markup|margin|rank|band|fx|score|winner|candidate|tenant|channel/i.test(key)), []);
   assert.doesNotMatch(JSON.stringify(own), /对外价|加价|中标|乙车队/);
-  assert.deepEqual(Object.keys(own).sort(), ["code", "currency", "offers", "product_id", "refusal", "refused", "rounding_unit", "route", "service_date", "status", "urgent", "version"]);
+  assert.deepEqual(Object.keys(own).sort(), ["code", "currency", "offers", "product_id", "refusal", "refused", "rounding_unit", "route", "route_status", "service_date", "status", "urgent", "version"]);
   // 没上架的商品也能试算（需求文档 quote-preview：用未上架商品试算）；被暂停的供应商照常能试算
   const draft = await transfer(a, ids["brandA"] as string, [ids["aWest"] as string]);
   await addPrice(a, draft, { area_id: ids["aWest"], base_price: 15_000 });

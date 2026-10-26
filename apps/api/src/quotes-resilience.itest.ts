@@ -9,7 +9,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import type { FxQuote, RouteEstimate } from "@nozomi/domain";
+import type { FxQuote, RouteLookup } from "@nozomi/domain";
+import { routeLookup } from "./testing/routes.ts";
 import { type ApiResponse, type HttpMethod, type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
 
@@ -72,11 +73,11 @@ before(async () => {
     quote: {
       externalTimeoutMs: 100,
       routes: {
-        estimate: async (): Promise<RouteEstimate | null> => {
+        estimate: async (): Promise<RouteLookup> => {
           busyDuringCall.push(busy());
           if (routeMode === "throw") throw leakyError();
           if (routeMode === "hang") return hang();
-          return { meters: 12_500, minutes: 45 };
+          return routeLookup({ meters: 12_500, minutes: 45 });
         },
       },
       fx: {

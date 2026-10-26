@@ -80,7 +80,7 @@ export type RouteLookup = { ok: true; route: RouteEstimate; source: RouteSource 
  * 一个坐标值取整到 `decimals` 位小数，四舍五入（离 0 远的方向），写成固定位数的十进制字符串。
  * 先按 9 位小数写出来再在字符串上进位，不用「乘 1000 再取整」——那样 139.7675 会因为二进制误差被舍掉。
  */
-export function roundCoordinate(value: number, decimals: number = ROUTE_RULES.coordinateDecimals): string {
+export function routeCoordinateText(value: number, decimals: number = ROUTE_RULES.coordinateDecimals): string {
   if (!Number.isFinite(value)) throw new RangeError("坐标必须是有限的数");
   const negative = value < 0;
   const [whole, fraction = ""] = Math.abs(value).toFixed(9).split(".") as [string, string?];
@@ -107,7 +107,7 @@ export interface RouteCacheKey {
  */
 export function routeCacheKey(from: LatLng, to: LatLng): RouteCacheKey {
   if (!isValidLatLng(from) || !isValidLatLng(to)) throw new RangeError("无效坐标");
-  const parts = [roundCoordinate(from.lat), roundCoordinate(from.lng), roundCoordinate(to.lat), roundCoordinate(to.lng)] as [string, string, string, string];
+  const parts = [routeCoordinateText(from.lat), routeCoordinateText(from.lng), routeCoordinateText(to.lat), routeCoordinateText(to.lng)] as [string, string, string, string];
   return {
     key: `v1:${parts[0]},${parts[1]}>${parts[2]},${parts[3]}`,
     from: { lat: Number(parts[0]), lng: Number(parts[1]) },

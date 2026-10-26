@@ -34,19 +34,15 @@ export async function saveRouteEstimate(db: Db, key: string, route: CachedRoute,
 }
 
 /**
- * 占一次今天的调用名额：今天已经调用的次数小于上限才加一并返回 true；否则记一次「被挡下」，返回 false。
- * 判断和加一在同一条语句里（行锁），几个请求同时来也不会超过上限。
+ * 占一次今天的调用名额：锁住今天的那一行，读出已经调用的次数，由 `allowed`（domain 的 `routeCallAllowed`）判断；
+ * 允许就加一，不允许就记一次「被挡下」。行锁让几个请求同时来也不会超过上限。在一个事务里调用。
  */
-export async function reserveRouteCall(db: Db, day: string, dailyLimit: number): Promise<boolean> {
-  const reserved = await db.query(
-    `insert into route_api_usage (day, calls) select $1::date, 1 where $2::integer > 0
-     on conflict (day) do update set calls = route_api_usage.calls + 1 where route_api_usage.calls < $2::integer
-     returning calls`,
-    [day, dailyLimit],
-  );
-  if (reserved.rows.length > 0) return true;
-  await db.query("insert into route_api_usage (day, refused) values ($1, 1) on conflict (day) do update set refused = route_api_usage.refused + 1", [day]);
-  return false;
+export async function reserveRouteCall(db: Db, day: string, allowed: (used: number) => boolean): Promise<boolean> {
+  await db.query("insert into route_api_usage (day) values ($1) on conflict (day) do nothing", [day]);
+  const current = await db.query<{ calls: number }>("select calls from route_api_usage where day = $1 for update", [day]);
+  const ok = allowed((current.rows[0] as { calls: number }).calls);
+  await db.query(ok ? "update route_api_usage set calls = calls + 1 where day = $1" : "update route_api_usage set refused = refused + 1 where day = $1", [day]);
+  return ok;
 }
 
 /** 记下一次调用的结果：成功记时间；失败记次数、时间和原因代码。 */
