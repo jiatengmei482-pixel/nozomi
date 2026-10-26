@@ -11875,7 +11875,8 @@ paths:
       operationId: addPlatformTicketMessage
       summary: 留言或写内部备注
       description: |
-        需要操作 `ticket.manage`。`internal: true` 是内部备注（只有平台看得到，判定之后、关闭之前也能写）；否则是给供应商看的对话（只在判定之前）。
+        需要操作 `ticket.manage`。`internal: true` 是内部备注（只有平台看得到，判定之后、关闭之前也能写）；`to_guest: true` 是给客人的回复（M4-03：只有客人、渠道提的工单，关闭之前；
+        官网订单页和渠道的工单列表里看得到，供应商看不到；两者不能同时为真）；否则是给供应商看的对话（只在判定之前）。
         待处理的变成处理中；算首次响应。
       security:
         - platformToken: []
@@ -11897,9 +11898,18 @@ paths:
                 internal:
                   type: boolean
                   default: false
+                to_guest:
+                  type: boolean
+                  default: false
       responses:
         "201":
           $ref: "#/components/responses/PlatformTicketDetail"
+        "400":
+          description: "`VALIDATION_FAILED`：`internal` 和 `to_guest` 同时为真；不是客人、渠道提的工单却要回复客人（`NOT_GUEST_TICKET`）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -13130,15 +13140,18 @@ components:
                   $ref: "#/components/schemas/TicketMessage"
               notes:
                 type: array
-                description: 内部备注（只有平台看得到）
+                description: 内部备注（只有平台看得到）和给客人的回复（`to_guest`）
                 items:
                   type: object
                   additionalProperties: false
-                  required: [ id, author, body, created_at ]
+                  required: [ id, author, body, to_guest, created_at ]
                   properties:
                     id:
                       type: string
                       format: uuid
+                    to_guest:
+                      type: boolean
+                      description: 给客人的回复（官网订单页、渠道看得到，供应商看不到）；false 是内部备注
                     author:
                       type: object
                       additionalProperties: false
@@ -24659,8 +24672,8 @@ components:
     ChannelTicket:
       type: object
       additionalProperties: false
-      description: 渠道和客人看到的工单：类型、状态、结论、客人这边的赔付
-      required: [ id, ticket_no, type, source, subject, status, outcome, decided_at, created_at, compensation ]
+      description: 渠道和客人看到的工单：类型、状态、结论、平台写给客人的回复、客人这边的赔付
+      required: [ id, ticket_no, type, source, subject, status, outcome, decided_at, created_at, replies, compensation ]
       properties:
         id:
           type: string
@@ -24684,6 +24697,19 @@ components:
         created_at:
           type: string
           format: date-time
+        replies:
+          type: array
+          description: 平台写给客人的回复（M4-03），按时间先后；不带是哪位员工
+          items:
+            type: object
+            additionalProperties: false
+            required: [ body, created_at ]
+            properties:
+              body:
+                type: string
+              created_at:
+                type: string
+                format: date-time
         compensation:
           oneOf:
             - type: object
