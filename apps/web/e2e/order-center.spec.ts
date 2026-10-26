@@ -123,8 +123,12 @@ async function createStaff(request: APIRequestContext, role: string, name: strin
   return { email, password };
 }
 
+/** 亮色、暗色各过一遍 axe；320、768 宽不横向滚动。 */
 async function checkLayout(page: Page, what: string): Promise<void> {
-  await expectAccessible(page, what);
+  await expectAccessible(page, `${what}（亮色）`);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAccessible(page, `${what}（暗色）`);
+  await page.emulateMedia({ colorScheme: "light" });
   for (const width of [320, 768]) {
     await page.setViewportSize({ width, height: 800 });
     await expectNoHorizontalOverflow(page, `${what}（${width}px）`);
@@ -285,7 +289,7 @@ test("财务结算：手工出上个月的账 → 供应商确认 → 财务发�
   await loginAs(page, "platform", admin.email, admin.password);
   await menu(page).getByRole("link", { name: "账单" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "账单" })).toBeVisible();
-  await page.getByRole("button", { name: "手工出账" }).click();
+  await page.getByRole("button", { name: "手工出账" }).first().click();
   const generate = page.getByRole("dialog", { name: "手工出账" });
   await generate.getByLabel(/周期/).fill(period);
   await generate.getByRole("button", { name: "出账" }).click();
