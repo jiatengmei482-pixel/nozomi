@@ -374,7 +374,7 @@ test("平台员工：新增（角色说明）拿到链接 → 对方设密码登
   await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "系统状态" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "系统状态" })).toBeVisible();
   await expect(page.getByText("每次打开这一页都会记入审计日志。", { exact: false })).toBeVisible();
-  await expect(page.getByRole("region", { name: "系统状态" }).getByRole("row")).toHaveCount(6);
+  await expect(page.getByRole("region", { name: "系统状态" }).getByRole("row")).toHaveCount(7);
   await expect(page.getByRole("region", { name: "系统状态" })).toContainText("数据库");
   await page.getByRole("button", { name: "重新检查" }).click();
   await expect(page.getByRole("status").filter({ hasText: /已重新检查，\d+ 项未配置/ })).toHaveCount(1);

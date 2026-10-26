@@ -108,7 +108,11 @@ export async function uiSecondFactor(page: Page, email: string, status: string):
     const responded = page.waitForResponse((response) => response.url().endsWith("/platform/v1/auth/mfa/verify"));
     await page.getByRole("button", { name: "验证", exact: true }).click();
     const response = await responded;
-    if (response.status() === 400 && ((await response.json()) as { error: { code: string } }).error.code === "MFA_CODE_REUSED") return { reused: true };
+    if (response.status() === 400 && ((await response.json()) as { error: { code: string } }).error.code === "MFA_CODE_REUSED") {
+      // 页面收到错误后会清空输入框：等它清完再填下一个，免得刚填的又被清掉
+      await expect(page.getByLabel("动态码")).toHaveValue("");
+      return { reused: true };
+    }
     return { reused: false, value: undefined };
   });
 }
