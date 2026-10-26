@@ -237,7 +237,14 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
 async function trigger(ctx: AppContext, orderId: string, input: TriggerInput, log: OrderLog): Promise<Triggered> {
   const result = await withPlatformTx(ctx.pool, async (db) => {
     const order = await findOrderForPlatform(db, orderId, { lock: true });
-    if (order === null || order.confirmedAt === null || (input.tenantId !== undefined && order.tenantId !== input.tenantId)) throw notFound("订单");
+    if (order === null || (input.tenantId !== undefined && order.tenantId !== input.tenantId)) throw notFound("订单");
+    if (order.confirmedAt === null) {
+      // 还没确认的单供应商看不到（按供应商的入口一律 404）；运营看得到这张单，说清为什么不能救援
+      if (input.tenantId !== undefined) throw notFound("订单");
+      if (order.status === "pending_payment") throw new AppError(409, "ORDER_STATE_INVALID", "这张订单还没付款：付款完成、订单确认后才能发起救援改派", { reason: "NOT_CONFIRMED", status: order.status, trigger: input.trigger });
+      const refusal = TRIGGER_REFUSALS.ORDER_STATE_INVALID;
+      throw new AppError(refusal.status, refusal.code, refusal.message, { reason: "ORDER_STATE_INVALID", status: order.status, trigger: input.trigger });
+    }
     return triggerRescueInTx(db, order, input, log, ctx.now());
   });
   await processRefunds(ctx, result.refunds, log);

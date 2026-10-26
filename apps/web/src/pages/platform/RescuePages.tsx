@@ -9,6 +9,7 @@
 import { type OrderStatus, RESCUE_TRIGGERS, type RescueTrigger } from "@nozomi/domain";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
+import { ApiError } from "../../api/client.ts";
 import type { PlatformOrder } from "../../api/order-money.ts";
 import {
   type PlatformRescue,
@@ -223,6 +224,12 @@ export function RescueQueuePage() {
 
 type DialogKind = "trigger" | "candidates" | "manual" | "force" | null;
 
+/** 发起救援被拒的说法：还没付款的单（页面停留期间状态没刷新时会碰到）说清要等付款完成，不说成订单不存在。 */
+function triggerFailureText(err: unknown): string {
+  if (err instanceof ApiError && err.code === "ORDER_STATE_INVALID" && err.details["reason"] === "NOT_CONFIRMED") return "这张订单还没付款：付款完成、订单确认后才能发起救援改派。请刷新页面看订单现在的状态。";
+  return failureText(err, "发起救援");
+}
+
 function TriggerDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const [trigger, setTrigger] = useState<RescueTrigger>("driver_no_show");
@@ -240,7 +247,7 @@ function TriggerDialog({ order, onClose, onDone }: { order: PlatformOrder; onClo
       const { rescue } = await triggerRescue(token, order.id, { trigger, note: note.trim() });
       onDone(`已进入救援改派，违约金 ${rescue.penalty_bp / 100}%：请看候选、发救援单`);
     } catch (err) {
-      if (!handleAuthFailure(err)) setProblem(failureText(err, "发起救援"));
+      if (!handleAuthFailure(err)) setProblem(triggerFailureText(err));
     } finally {
       setBusy(false);
     }

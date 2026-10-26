@@ -9555,6 +9555,7 @@ paths:
         `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
         违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
         限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
+        还没付款确认的单（待付款）返回 409 `ORDER_STATE_INVALID`，`details.reason` 为 `NOT_CONFIRMED`（付款完成后才能发起）。
       security:
         - platformToken: []
       parameters:

@@ -12,7 +12,7 @@ import { App } from "../../App.tsx";
 import type { TenantOrder, TenantOrderDetail } from "../../api/dispatch.ts";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
 import type { PlatformRescue, RescueQueue, TenantDeduction, TenantRescueOffer } from "../../api/rescues.ts";
-import { type ApiCall, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
 
@@ -224,6 +224,26 @@ test("订单详情（运营后台）：没有救援的已派车单，运营能�
   open(`/platform/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder({ status: "assigned" }), [])) : null), "platform");
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
   assert.equal(screen.queryByRole("heading", { name: "救援改派" }), null);
+});
+
+test("订单详情（运营后台）：待付款的单没有「发起救援改派」；页面上还是旧状态时发起，后端说还没付款 → 提示付款完成后才能发起，不说订单不存在", async () => {
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder({ status: "pending_payment" }), [])) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(screen.queryByRole("button", { name: "发起救援改派" }), null);
+
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, platformDetail(platformOrder({ status: "confirmed" }), []));
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/rescue`) return apiError(409, "ORDER_STATE_INVALID", "x", { reason: "NOT_CONFIRMED", status: "pending_payment" });
+    return null;
+  }, "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  await user().click(screen.getByRole("button", { name: "发起救援改派" }));
+  const dialog = await screen.findByRole("dialog", { name: "发起救援改派" });
+  await user().type(within(dialog).getByLabelText("情况说明"), "司机电话打不通");
+  await user().click(within(dialog).getByRole("button", { name: "发起" }));
+  assert.ok(await within(dialog).findByText(/这张订单还没付款：付款完成、订单确认后才能发起救援改派/));
+  assert.doesNotMatch(dialog.textContent ?? "", /订单不存在/);
 });
 
 const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
