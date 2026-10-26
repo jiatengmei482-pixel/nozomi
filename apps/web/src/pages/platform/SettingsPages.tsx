@@ -22,7 +22,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { IntegrationSecretsSection } from "./IntegrationSecretsSection.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
-import { ACTION_NAMES, ACTOR_TYPE_NAMES, type DiffRow, FIELD_NAMES, RESOURCE_NAMES, SOURCE_NAMES, actionName, auditDiff, foldable, localDate, localDayInstant, localOffsetLabel, localSecond, objectName, resourceName, shortId, shownValue, utcSecond } from "../../lib/audit-display.ts";
+import { ACTION_FILTER_OPTIONS, ACTOR_TYPE_NAMES, type DiffRow, RESOURCE_NAMES, SOURCE_NAMES, actionName, actionFilterOption, auditDiff, fieldName, foldable, isActionFilter, localDate, localDayInstant, localOffsetLabel, localSecond, objectName, resourceName, shortId, shownValue, utcSecond } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { FX_FETCH_BADGES, FX_PATH, FX_STATE_BADGES, fxErrorText } from "../../lib/fx-display.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
@@ -59,8 +59,12 @@ function ValueView({ field, value, resource }: { field: string; value: unknown; 
   );
 }
 
-function FieldName({ field }: { field: string }) {
-  const known = FIELD_NAMES[field];
+/** 选中的「操作」在下拉里对应的选项（以前的链接只带一个动作时对上它所在的那一组）。 */
+const actionFilterValue = (value: string | null): string | null => (value === null ? null : actionFilterOption(value));
+const RESOURCE_OPTIONS = Object.entries(RESOURCE_NAMES).map(([value, label]) => ({ value, label }));
+
+function FieldName({ field, resource }: { field: string; resource: string }) {
+  const known = fieldName(field, resource);
   return known ? (
     <>
       {known}
@@ -99,7 +103,7 @@ function DiffView({ log }: { log: AuditLog }) {
             {rows.map((row) => (
               <tr key={row.key}>
                 <th scope="row">
-                  <FieldName field={row.key} />
+                  <FieldName field={row.key} resource={log.resource} />
                 </th>
                 {both ? (
                   <>
@@ -188,7 +192,7 @@ export function AuditLogPage() {
   const from = pick("from", (value) => localDayInstant(value, false) !== null);
   const to = pick("to", (value) => localDayInstant(value, true) !== null);
   const resource = pick("resource", (value) => /^[a-z_]{1,40}$/.test(value));
-  const action = pick("action", (value) => /^[a-z_]{1,40}$/.test(value));
+  const action = pick("action", isActionFilter);
   const tenant = pick("tenant", (value) => UUID_PATTERN.test(value));
   const actor = pick("actor", (value) => UUID_PATTERN.test(value));
   const rid = resource === null ? null : pick("rid", (value) => value.length <= 100);
@@ -455,15 +459,15 @@ export function AuditLogPage() {
         </label>
       );
     };
-    const select = (name: "resource" | "action", label: string, value: string | null, names: Readonly<Record<string, string>>): ReactNode => (
+    const select = (name: "resource" | "action", label: string, value: string | null, options: readonly { value: string; label: string }[]): ReactNode => (
       <label className="audit-filters__item" htmlFor={`${prefix}-${name}`}>
         <span className="audit-filters__label">{label}</span>
         <select className={`input${size} select`} id={`${prefix}-${name}`} value={value ?? ""} onChange={(event) => change({ [name]: event.target.value === "" ? null : event.target.value })}>
           <option value="">全部</option>
-          {value !== null && names[value] === undefined && <option value={value}>{value}</option>}
-          {Object.entries(names).map(([key, text]) => (
-            <option key={key} value={key}>
-              {text}
+          {value !== null && !options.some((option) => option.value === value) && <option value={value}>{value}</option>}
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -486,8 +490,8 @@ export function AuditLogPage() {
             </Button>
           ))}
         </span>
-        {select("resource", "对象类型", draft === null ? resource : draft.resource, RESOURCE_NAMES)}
-        {select("action", "操作", draft === null ? action : draft.action, ACTION_NAMES)}
+        {select("resource", "对象类型", draft === null ? resource : draft.resource, RESOURCE_OPTIONS)}
+        {select("action", "操作", actionFilterValue(draft === null ? action : draft.action), ACTION_FILTER_OPTIONS)}
         {canSeeTenants && (
           <Combobox
             inline

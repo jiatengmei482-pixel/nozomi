@@ -713,6 +713,18 @@ test("邮箱过了页面的格式检查、却被后端判为不合规：新建�
   assert.equal(document.getElementById("staff-email-error")?.textContent ?? "", "");
 });
 
+test("审计日志详情：双人复核的 kind、resource_id 写中文字段名，复核类别写中文并带原值（M4-10）", async () => {
+  const actor = user();
+  const approval = logOf({ id: "9", tenant_id: null, resource: "approval", resource_id: "a1", action: "approve", before: { status: "pending" }, after: { status: "approved", kind: "compensation_table.update", resource_id: "default", note: null } });
+  open("/platform/settings/audit-logs", "super_admin", { logs: [approval] });
+  await actor.click(await screen.findByRole("button", { name: "第 9 条记录的详情" }));
+  const detail = await screen.findByRole("dialog");
+  const heads = within(within(detail).getByRole("table")).getAllByRole("rowheader").map((cell) => cell.textContent);
+  assert.ok(heads.includes("复核类别kind"), heads.join("|"));
+  assert.ok(heads.includes("复核对象的编号resource_id"), heads.join("|"));
+  assert.match(within(detail).getByRole("row", { name: /复核类别/ }).textContent ?? "", /修改客人赔付表compensation_table\.update/);
+});
+
 test("审计日志的「筛选」面板（手机宽度用）：面板里改的是草稿，不发请求；日期写错不关面板并指出是哪一个；点「查看结果」才一起生效并关闭；「清空」清掉面板里的条件；直接关掉不生效", async () => {
   const actor = user();
   const calls = open("/platform/settings/audit-logs?action=suspend", "super_admin");
@@ -722,7 +734,7 @@ test("审计日志的「筛选」面板（手机宽度用）：面板里改的�
   await actor.click(screen.getByRole("button", { name: "筛选 · 1" }));
   const panel = screen.getByRole("dialog", { name: "筛选" });
   const field = (id: string): HTMLInputElement => panel.querySelector(`#audit-panel-${id}`) as HTMLInputElement;
-  assert.equal(field("action").value, "suspend", "面板打开时带着现在生效的条件");
+  assert.equal(field("action").value, "suspend,pause", "面板打开时带着现在生效的条件（网址里只有 suspend：对上同名的「暂停」那一项）");
   await actor.selectOptions(field("resource"), "tenant");
   await actor.type(field("from"), "2026/10/1");
   await actor.type(field("to"), "2026-02-31");

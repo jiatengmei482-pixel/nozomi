@@ -1261,9 +1261,10 @@ paths:
             type: string
         - name: action
           in: query
-          description: 动作，见 `AuditLog.action`
+          description: 动作，见 `AuditLog.action`；几个用逗号分隔，符合任一个（最多 10 个）
           schema:
             type: string
+            maxLength: 500
         - name: from
           in: query
           description: 起始时间（含），ISO 8601 带时区
@@ -2925,9 +2926,10 @@ paths:
             type: string
         - name: action
           in: query
-          description: 动作，见 `AuditLog.action`
+          description: 动作，见 `AuditLog.action`；几个用逗号分隔，符合任一个（最多 10 个）
           schema:
             type: string
+            maxLength: 500
         - name: from
           in: query
           description: 起始时间（含），ISO 8601 带时区

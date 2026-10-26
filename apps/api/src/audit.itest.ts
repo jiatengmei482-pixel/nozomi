@@ -268,6 +268,20 @@ test("按人查、按租户查、按时间查，条件可以组合；从新到�
   assert.deepEqual(paged, (await logs("")).map((l) => l.id));
 });
 
+test("按动作查可以给几个（逗号分隔，符合任一个）：「启用」在账号上是 enable——和 suspend 一起查得到两种；超过 10 个或有空的 400", async () => {
+  const enable = await logs("action=enable");
+  const suspend = await logs("action=suspend");
+  assert.ok(enable.length > 0 && suspend.length > 0);
+  const both = await logs("action=enable,suspend");
+  assert.deepEqual(both.map((l) => l.id).sort(), [...enable, ...suspend].map((l) => l.id).sort());
+  assert.deepEqual(new Set(both.map((l) => l.action)), new Set(["enable", "suspend"]));
+  assert.deepEqual((await logs("action=enable,not_an_action")).map((l) => l.id), enable.map((l) => l.id));
+  for (const query of [`action=${Array.from({ length: 11 }, () => "enable").join(",")}`, "action=enable,,suspend", `action=${"a".repeat(51)}`]) {
+    const res = await api.call("GET", `/platform/v1/audit-logs?${query}`, { token: rootToken });
+    assert.equal(res.status, 400, query);
+  }
+});
+
 test("查询参数校验：编号、时间格式不对返回 400", async () => {
   for (const query of ["actor_id=abc", "tenant_id=1", "from=yesterday", "to=2026-10-07", "from=2026-10-07T00:00:00", "limit=0", "cursor=xyz"]) {
     const res = await api.call("GET", `/platform/v1/audit-logs?${query}`, { token: rootToken });
