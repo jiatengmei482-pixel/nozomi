@@ -254,11 +254,17 @@ export async function createTicketForTenant(
 /** 系统：给还没有审核工单的 no-show 申请建工单（异常队列的定时任务调，「no-show 待审核：转工单审核」）。返回建了几张。 */
 export async function createNoShowReviewTickets(db: Db, now: Date): Promise<number> {
   const pending = await listNoShowClaimsWithoutTicket(db, 50);
+  let created = 0;
   for (const claim of pending) {
+    // 定时任务的几轮可能同时跑：按订单排队，拿到锁后再看一次，别的那轮已经建了就跳过（否则撞唯一约束，整轮失败）
+    await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`no-show-review-ticket:${claim.orderId}`]);
+    const exists = await db.query("select 1 from tickets where tenant_id = $1 and order_id = $2 and type = 'no_show_review'", [claim.tenantId, claim.orderId]);
+    if (exists.rowCount !== 0) continue;
     const order = (await findOrderOfTenant(db, claim.tenantId, claim.orderId)) as Order;
     await createInTx(db, order, { type: "no_show_review", subject: `no-show 审核：订单 ${order.orderNo}`, description: "司机提交了客人未出现（no-show），5 项证据已在提交时核对，请审核。", language: null, priority: null, source: "system", createdByType: "system", createdBy: null, parentTicketId: null }, now);
+    created += 1;
   }
-  return pending.length;
+  return created;
 }
 
 // ---- 查看 ----
