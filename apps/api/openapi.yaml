@@ -1261,9 +1261,10 @@ paths:
             type: string
         - name: action
           in: query
-          description: 动作，见 `AuditLog.action`
+          description: 动作，见 `AuditLog.action`；几个用逗号分隔，符合任一个（最多 10 个）
           schema:
             type: string
+            maxLength: 500
         - name: from
           in: query
           description: 起始时间（含），ISO 8601 带时区
@@ -2961,9 +2962,10 @@ paths:
             type: string
         - name: action
           in: query
-          description: 动作，见 `AuditLog.action`
+          description: 动作，见 `AuditLog.action`；几个用逗号分隔，符合任一个（最多 10 个）
           schema:
             type: string
+            maxLength: 500
         - name: from
           in: query
           description: 起始时间（含），ISO 8601 带时区
@@ -9626,6 +9628,7 @@ paths:
         `driver_no_show` 司机未到（到点 15 分钟后、司机还没「已到达」，运营判定联系不上；改派转来的单到点不早于改派后 60 分钟）；`tenant_suspended` 供应商暂停中、这一单是未来订单。
         违约金按阶梯定下来（`tenant_declared`、`tenant_suspended` 按距用车时间 0 / 30% / 100%；另两种 100%）。写审计日志。
         限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
+        还没付款确认的单（待付款）返回 409 `ORDER_STATE_INVALID`，`details.reason` 为 `NOT_CONFIRMED`（付款完成后才能发起）。
       security:
         - platformToken: []
       parameters:
@@ -11943,7 +11946,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`COMPLAINT_WINDOW_CLOSED`：超过投诉时限"
+          description: "`COMPLAINT_WINDOW_CLOSED`：超过投诉时限；`ORDER_STATE_INVALID`（`details.reason` 为 `NOT_CONFIRMED`）：订单还没付款（或没付款就取消了），不能建工单"
           content:
             application/json:
               schema:
@@ -13137,7 +13140,7 @@ components:
         `UNKNOWN_AREA`（区域不存在，别的供应商的区域也是这个结果）、`AREA_OTHER_CITY`、`AREA_NOT_USABLE`、`AREA_DISABLED`、
         `UNKNOWN_VEHICLE_GROUP`、`VEHICLE_GROUP_DISABLED`、`VEHICLE_COMBO_NOT_OFFERED`、`INVALID_PHONE`、`DUPLICATE`、`TOO_MANY`、`REQUIRED`、`NOT_APPLICABLE`。
         服务规则和商品详情：`INVALID_DATE`、`DATE_RANGE_REVERSED`、`INVALID_TIME`、`EMPTY_WINDOW`、`OUT_OF_RANGE`、`NOT_INTEGER`、`TOO_MANY`、`TOO_LONG`、`DUPLICATE`、
-        `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
+        `TIER_NOT_WITHIN_LEAD_TIME`、`BELOW_PLATFORM_MINIMUM`、`FIXED_BY_PLATFORM`（包车的免费等待只能是 0 分钟）、`NOT_APPLICABLE`、`INVALID_LANGUAGE`、`UNKNOWN_ADDON`、`ADDON_DISABLED`、`ADDON_NOT_APPLICABLE`、`REQUIRED`。
         这些代码和 `@nozomi/domain` 的 `serviceRuleIssues` / `contentIssues` 返回的是同一套。子品牌的币种不支持时是 `UNSUPPORTED_CURRENCY`。
       content:
         application/json:
@@ -13249,7 +13252,7 @@ components:
     TicketConflict:
       description: |
         `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
-        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`；`APPEAL_SAME_REVIEWER`；
+        `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`（建工单时 `details.reason` 为 `NOT_CONFIRMED`：订单还没付款，或没付款就取消了）；`APPEAL_SAME_REVIEWER`；
         `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
       content:
         application/json:

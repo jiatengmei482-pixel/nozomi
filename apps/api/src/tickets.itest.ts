@@ -451,6 +451,26 @@ test("投诉时限：服务后 14 天内（正好 14 天还行）；渠道、客
   assert.equal(resolved.body.ticket.outcome, "resolved");
 });
 
+test("还没付款的单：客服建工单得到 409 ORDER_STATE_INVALID「付款完成后才能建工单」（不是「订单不存在」）；没付款就取消的单说明不能建；不存在的单仍是 404", async () => {
+  const unpaid = await flow.unpaidOrder({ serviceTime: iso(api.clock.now().getTime() + 5 * DAY) });
+  const body = (orderId: string) => ({ type: "other", order_id: orderId, subject: "客人来电", description: "问付款方式" });
+  const refused = await platformCall("POST", "/platform/v1/tickets", await cs(), body(unpaid.id), "/platform/v1/tickets");
+  assert.equal(refused.status, 409, refused.text);
+  assert.equal(refused.body.error.code, "ORDER_STATE_INVALID");
+  assert.deepEqual([refused.body.error.details.reason, refused.body.error.details.status], ["NOT_CONFIRMED", "pending_payment"]);
+  assert.match(refused.body.error.message, /付款完成后才能建工单/);
+  assert.equal((await api.db.owner.query("select 1 from tickets where order_id = $1", [unpaid.id])).rowCount, 0);
+
+  await ok(api.call("POST", `/platform/v1/orders/${unpaid.id}/cancel`, { token: await ops(), body: { reason: "GUEST_REQUEST", note: "客人不要了" } }));
+  const cancelled = await platformCall("POST", "/platform/v1/tickets", await cs(), body(unpaid.id), "/platform/v1/tickets");
+  assert.equal(cancelled.status, 409, cancelled.text);
+  assert.equal(cancelled.body.error.details.status, "cancelled");
+  assert.match(cancelled.body.error.message, /没有付过款就取消了/);
+
+  const missing = await platformCall("POST", "/platform/v1/tickets", await cs(), body(randomUUID()), "/platform/v1/tickets");
+  assert.equal(missing.status, 404, missing.text);
+});
+
 test("每单最多 10 张工单的上限在并发下也不会超过：已有 8 张时同时提 5 张，只成功 2 张", async () => {
   const order = await completedOrder();
   for (let i = 0; i < 8; i++) {

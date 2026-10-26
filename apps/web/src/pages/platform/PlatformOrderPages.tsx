@@ -59,6 +59,8 @@ import {
   changeValueText,
   extraTypeName,
   levelName,
+  orderCancelReasonText,
+  paymentStatusName,
   platformOrderPath,
   tiersText,
 } from "../../lib/order-money-display.ts";
@@ -495,7 +497,7 @@ export function PlatformOrderDetailPage() {
         <section className="card">
           <h2 className="card__title">取消</h2>
           <dl className="details">
-            <Detail label="原因">{cancelReasonName(cancelled.reason)}</Detail>
+            <Detail label="原因">{orderCancelReasonText(cancelled.reason, order.confirmed_at !== null)}</Detail>
             {cancelled.note && <Detail label="说明">{cancelled.note}</Detail>}
             <Detail label="扣款比例">{cancelled.fee_bp === null ? "付款前取消，不涉及钱" : `${cancelled.fee_bp / 100}%`}</Detail>
             {cancelled.customer_fee && <Detail label="客人被扣">{moneyText(cancelled.customer_fee)}</Detail>}
@@ -508,7 +510,7 @@ export function PlatformOrderDetailPage() {
         <h2 className="card__title">收款与退款</h2>
         <ul className="plain-list">
           {detail.payments.map((payment) => (
-            <li key={payment.id}>{`${payment.kind === "order" ? "下单付款" : payment.kind === "change" ? "改期补差价" : "事后加收"} · ${moneyText(payment.amount)} · ${payment.status}${payment.refunded.amount !== "0" && payment.refunded.amount !== "0.00" ? ` · 已退 ${moneyText(payment.refunded)}` : ""}${payment.last_error?.decline_code ? ` · 被拒：${payment.last_error.decline_code}` : ""}`}</li>
+            <li key={payment.id}>{`${payment.kind === "order" ? "下单付款" : payment.kind === "change" ? "改期补差价" : "事后加收"} · ${moneyText(payment.amount)} · ${paymentStatusName(payment.status)}${payment.refunded.amount !== "0" && payment.refunded.amount !== "0.00" ? ` · 已退 ${moneyText(payment.refunded)}` : ""}${payment.last_error?.decline_code ? ` · 被拒：${payment.last_error.decline_code}` : ""}`}</li>
           ))}
         </ul>
         {detail.refunds.length > 0 && (
@@ -647,7 +649,7 @@ export function PlatformOrderDetailPage() {
           <h2 className="card__title" id="order-tickets">
             工单
           </h2>
-          {canTicket && (
+          {canTicket && order.confirmed_at !== null && (
             <LinkButton variant="secondary" to={newPlatformTicketPath(order.id)}>
               新建工单
             </LinkButton>
@@ -684,7 +686,7 @@ export function PlatformOrderDetailPage() {
           {detail.events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>
               <time dateTime={event.occurred_at}>{formatLocalDateTime(event.occurred_at)}</time>
-              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${event.reason ? `（${cancelReasonName(event.reason)}）` : ""}`}
+              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${event.reason ? `（${event.to_status === "cancelled" ? orderCancelReasonText(event.reason, order.confirmed_at !== null) : cancelReasonName(event.reason)}）` : ""}`}
             </li>
           ))}
         </ul>

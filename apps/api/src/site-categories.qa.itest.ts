@@ -59,7 +59,7 @@ async function product(who: TenantFixture, cityId: string, polygon: number[][][]
   api.clock.advance(1_000);
   const area = (await call("POST", "/areas", { city_id: cityId, name: { zh: `QA-${category}-${randomUUID().slice(0, 4)}` }, biz_type: "general", polygons: [{ kind: "operate", geometry: { type: "Polygon", coordinates: polygon } }] }, undefined, 201)).id;
   const created = await call("POST", "/products", { brand_id: brand, city_id: cityId, category, areas: [{ area_id: area }], vehicle_groups: [{ vehicle_group_id: m.ids.biz7, passengers: 6, luggage: 4 }], dispatchers: [{ name: "调度", phone: "0312345678" }] }, undefined, 201);
-  const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: leadTimeHours }, free_wait: { general: { mode: "limited", minutes: 30 } } }, 1);
+  const rules = await call("PUT", `/products/${created.id}/service-rules`, { booking: { service_time: { start: "00:00", end: "24:00" }, lead_time_hours: leadTimeHours }, free_wait: { general: category === "charter" ? { mode: "limited", minutes: 0 } : { mode: "limited", minutes: 30 } } }, 1);
   let version = (await call("PUT", `/products/${created.id}/content`, { zh: { title: category === "charter" ? "QA 包车" : "QA 市内用车" } }, rules.version)).version as number;
   for (const price of prices) {
     await call("POST", `/products/${created.id}/price-rules`, { area_id: area, vehicle_group_id: m.ids.biz7, valid_from: "2026-01-01", ...price }, version, 201);

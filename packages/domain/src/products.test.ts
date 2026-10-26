@@ -13,7 +13,10 @@ import {
   contentIssues,
   contentMissing,
   contentTitles,
+  effectiveFreeWait,
   emptyServiceRules,
+  fixedFreeWaitIssues,
+  fixedFreeWaitMinutes,
   freeWaitItems,
   isPhoneNumber,
   isPickupPlaceType,
@@ -146,6 +149,21 @@ test("服务规则：免等——只能填这个品类该填的项；有限时�
   assert.deepEqual(reasons(wait({ pickup: { mode: "unlimited" }, dropoff: { mode: "unlimited" }, general: { mode: "unlimited" } }), airport), ["/free_wait/general NOT_APPLICABLE"]);
   assert.deepEqual(reasons(wait({ pickup: null, dropoff: null, general: { mode: "limited", minutes: 1441 } }), charter), ["/free_wait/general/minutes OUT_OF_RANGE"]);
   assert.deepEqual(reasons(wait({ pickup: null, dropoff: null, general: { mode: "limited", minutes: 2.5 } }), charter), ["/free_wait/general/minutes NOT_INTEGER"]);
+});
+
+test("免等：包车由平台固定为 0（需求「免费等待与 no-show」表）——保存时填别的值被拒；上架检查不因以前存下的值拦住；报价按 0", () => {
+  const wait = (general: ServiceRules["freeWait"]["general"]): ServiceRules => ({ ...complete(), freeWait: { pickup: null, dropoff: null, general } });
+  assert.deepEqual([fixedFreeWaitMinutes("charter"), fixedFreeWaitMinutes("point_to_point"), fixedFreeWaitMinutes("airport_transfer")], [0, null, null]);
+  assert.deepEqual(fixedFreeWaitIssues(wait({ mode: "limited", minutes: 0 }), "charter"), []);
+  assert.deepEqual(fixedFreeWaitIssues(wait(null), "charter"), [], "没填的由上架检查报缺");
+  assert.deepEqual(fixedFreeWaitIssues(wait({ mode: "limited", minutes: 15 }), "charter"), [{ path: "/free_wait/general/minutes", reason: "FIXED_BY_PLATFORM", detail: { minutes: 0 } }]);
+  assert.deepEqual(fixedFreeWaitIssues(wait({ mode: "unlimited" }), "charter"), [{ path: "/free_wait/general", reason: "FIXED_BY_PLATFORM", detail: { minutes: 0 } }]);
+  assert.deepEqual(fixedFreeWaitIssues(wait({ mode: "limited", minutes: 15 }), "point_to_point"), [], "别的品类不固定");
+  assert.deepEqual(reasons(wait({ mode: "limited", minutes: 15 }), charter), [], "serviceRuleIssues（也用于上架检查）不报：以前存下的值不让已上架的商品变成不能上架");
+  assert.deepEqual(effectiveFreeWait("charter", { mode: "limited", minutes: 15 }), { mode: "limited", minutes: 0 });
+  assert.deepEqual(effectiveFreeWait("charter", { mode: "unlimited" }), { mode: "limited", minutes: 0 });
+  assert.deepEqual(effectiveFreeWait("point_to_point", { mode: "unlimited" }), { mode: "unlimited" });
+  assert.equal(effectiveFreeWait("airport_transfer", null), null);
 });
 
 test("服务规则：附加服务和司机语言——不重复、单价不为负（0 = 免费提供）、语言是两位小写代码", () => {

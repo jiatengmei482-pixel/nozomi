@@ -111,7 +111,7 @@ test("没有子品牌时的引导 → 建子品牌 → 新建接送机商品 →
   await page.getByRole("checkbox", { name: new RegExp(world.seat.name) }).check();
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByText("有 2 处需要修改")).toBeVisible();
-  await expect(page.getByText("JPY没有小数，请填整数").first()).toBeVisible();
+  await expect(page.getByText("JPY 没有小数，请填整数").first()).toBeVisible();
   await expect(page.getByText("请填单价，免费提供请填 0").first()).toBeVisible();
   await page.getByLabel("夜间加价的金额").fill("2000");
   await page.getByLabel(`${world.seat.name}的单价`).fill("1000");
@@ -233,7 +233,11 @@ test("包车和点对点：没有接送点；各自的服务规则只显示该�
     await expect(page).toHaveURL(/\/service-rules$/);
     await expect(page.getByRole("heading", { level: 1, name: `未命名的${category}商品` })).toBeVisible();
     await expect(step(page, "基础信息")).toContainText("还差 1 项");
-    await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveValue(category === "包车" ? "0" : "15");
+    if (category === "包车") {
+      // 包车的免费等待由平台固定为 0：没有输入框，写明原因
+      await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveCount(0);
+      await expect(page.getByText(/包车不另外免费等待/)).toBeVisible();
+    } else await expect(page.getByLabel("上车点免费等待的分钟数")).toHaveValue("15");
     await expect(page.getByLabel("接机免费等待的分钟数")).toHaveCount(0);
     await page.getByRole("checkbox", { name: "收夜间加价" }).check();
     await expect(page.getByRole("radio", { name: new RegExp(`^${unit}`) })).toBeChecked();

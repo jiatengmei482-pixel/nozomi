@@ -104,7 +104,8 @@ export interface AuditLogFilter {
   tenantId?: string | undefined;
   resource?: string | undefined;
   resourceId?: string | undefined;
-  action?: string | undefined;
+  /** 任一个动作（逗号分隔传进来的几个） */
+  action?: readonly string[] | undefined;
   /** 起始时间（含） */
   from?: Date | undefined;
   /** 结束时间（不含） */
@@ -128,7 +129,7 @@ export async function listAuditLogsAcrossTenants(
   if (filter.tenantId !== undefined) add("tenant_id = ?", filter.tenantId);
   if (filter.resource !== undefined) add("resource = ?", filter.resource);
   if (filter.resourceId !== undefined) add("resource_id = ?", filter.resourceId);
-  if (filter.action !== undefined) add("action = ?", filter.action);
+  if (filter.action !== undefined) add("action = any(?::text[])", filter.action);
   if (filter.from !== undefined) add("occurred_at >= ?", filter.from);
   if (filter.to !== undefined) add("occurred_at < ?", filter.to);
   if (after !== null) add("id < ?", after.id);
@@ -171,7 +172,7 @@ export async function listTenantAuditLogs(
   if (filter.actorId !== undefined) add("actor_id = ?", filter.actorId);
   if (filter.resource !== undefined) add("resource = ?", filter.resource);
   if (filter.resourceId !== undefined) add("resource_id = ?", filter.resourceId);
-  if (filter.action !== undefined) add("action = ?", filter.action);
+  if (filter.action !== undefined) add("action = any(?::text[])", filter.action);
   if (filter.from !== undefined) add("occurred_at >= ?", filter.from);
   if (filter.to !== undefined) add("occurred_at < ?", filter.to);
   if (after !== null) add("id < ?", after.id);

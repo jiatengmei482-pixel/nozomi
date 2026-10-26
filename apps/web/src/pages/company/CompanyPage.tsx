@@ -34,7 +34,7 @@ import { useToast } from "../../components/Toast.tsx";
 import { saveFile } from "../../lib/download.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, TENANT_STATUS_HINTS, fileSizeText, issueText, noticeText, standingNotice } from "../../lib/onboarding-display.ts";
+import { ACCEPTED_FILE_TYPES, MAX_FILE_BYTES, REQUIREMENT_BADGES, fileSizeText, issueText, noticeText, progressHint, requirementExpiryText, standingNotice } from "../../lib/onboarding-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
@@ -249,7 +249,7 @@ function DocumentsCard({ company, canManage, onChanged }: { company: CompanyOver
           </Button>
         )}
       </div>
-      <p className="page-intro">{company.profile?.country_code ? `按${company.profile.country_code}的必交清单。` : "先在上面填所在国家，清单会按国家调整。"}营运许可和保险要填到期日；到期前 30 天、7 天各提醒一次。</p>
+      <p className="page-intro">{company.profile?.country_code ? `按 ${company.profile.country_code} 的必交清单。` : "先在上面填所在国家，清单会按国家调整。"}营运许可和保险要填到期日；到期前 30 天、7 天各提醒一次。</p>
       <div className="table-wrap">
         <div className="table-scroll" tabIndex={0} role="region" aria-label="资质清单">
           <table className="table">
@@ -277,7 +277,7 @@ function DocumentsCard({ company, canManage, onChanged }: { company: CompanyOver
                       <StatusBadge {...REQUIREMENT_BADGES[item.state]} />
                       {renewing && <span className="table__muted">（新的一份审核中）</span>}
                     </td>
-                    <td>{item.expires_on === null ? (item.expiry === "none" ? "无到期日" : "—") : `${item.expires_on}${item.days_left !== null && item.days_left > 0 ? `（还有 ${item.days_left} 天）` : ""}`}</td>
+                    <td>{requirementExpiryText(item, latest)}</td>
                     <td>{latest?.review_reason ?? "—"}</td>
                     <td>
                       <span className="table__actions">
@@ -392,7 +392,7 @@ export function CompanyPage() {
         <h2 className="card__title" id="company-progress-title">
           入驻进度
         </h2>
-        <p>{TENANT_STATUS_HINTS[tenant.status]}</p>
+        <p>{progressHint(data, "tenant")}</p>
         {data.next_step_issues.length > 0 && tenant.status === "applying" && (
           <>
             <p>提交审核前还缺：</p>

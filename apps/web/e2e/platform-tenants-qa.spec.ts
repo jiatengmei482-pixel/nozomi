@@ -997,7 +997,7 @@ test("审计日志连真实后端：游标翻页不重不漏、从新到旧；�
   // 「今天」：刚发生的都在（到今天 = 明天零点之前）；只看暂停有 12 条
   await page.getByRole("button", { name: "今天", exact: true }).click();
   await expect(page.getByText("本页 20 条")).toBeVisible();
-  await page.locator("#audit-action").selectOption("suspend");
+  await page.locator("#audit-action").selectOption({ label: "暂停" });
   await expect(page.getByText("本页 12 条")).toBeVisible();
   const today = await page.evaluate(() => {
     const now = new Date();
