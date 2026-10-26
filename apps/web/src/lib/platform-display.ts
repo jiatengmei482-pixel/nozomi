@@ -70,6 +70,8 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "payment.manage": "处理退款和扣款的异常、审核多退给客人的取消",
   "cancellation_policy.manage": "修改平台取消政策（要另一位同事审核）",
   "cancellation_policy.review": "审核平台取消政策的修改",
+  "rescue.manage": "发起救援改派、给候选供应商发救援单、认定不可抗力",
+  "rescue.review": "审核人工指定的救援供应商",
   "staff.read": "看平台员工",
   "staff.manage": "管理平台员工",
   "audit_log.read": "看审计日志",

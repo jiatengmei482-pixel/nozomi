@@ -52,7 +52,7 @@ test("平台账号管理和审计日志只有超级管理员能碰", () => {
 
 test("租户管理归招商和运营；只读角色只能看；技术只能看集成状态", () => {
   for (const role of ["operations", "tenant_onboarding"] as const) {
-    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review"] : [])]);
+    assert.deepEqual(platformPermissions(role), ["tenant.read", "tenant.create", "tenant.change_status", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", ...(role === "operations" ? ["order.read", "order.resend", "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review"] : [])]);
   }
   assert.deepEqual(platformPermissions("readonly"), ["tenant.read", "master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
   assert.deepEqual(platformPermissions("tech"), ["integration.read", "master_data.read", "channel.read", "approval.read"]);
@@ -61,7 +61,7 @@ test("租户管理归招商和运营；只读角色只能看；技术只能看�
   assert.deepEqual(platformPermissions("finance"), ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review"]);
   assert.deepEqual(platformPermissions("risk"), ["master_data.read", "product.read", "channel.read", "approval.read", "order.read"]);
   // 报价试算（M2-01）：运营、招商、渠道经理、客服；里面有各供应商的结算价和加价比例，财务、风控、主数据、技术、只读不给
-  assert.deepEqual(platformPermissions("customer_service"), ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage"]);
+  assert.deepEqual(platformPermissions("customer_service"), ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage"]);
   for (const role of ["channel_manager", "customer_service"] as const) assert.equal(platformRoleCan(role, "quote.preview"), true);
   for (const role of ["finance", "risk", "master_data", "tech", "readonly"] as const) assert.equal(platformRoleCan(role, "quote.preview"), false);
 });
@@ -209,4 +209,12 @@ test("取消、改单、事后加收（M3-03，ADR 0029）：代取消改单归�
   for (const action of ["order.manage", "payment.manage"] as const) for (const role of platform(action)) assert.equal(platformRoleCan(role as never, "order.read"), true, `${role} 能处理订单的钱就能看订单`);
   const tenant = TENANT_ROLES.filter(({ key }) => tenantRoleCan(key, "order.extra_charge")).map(({ key }) => key);
   assert.deepEqual(tenant, ["admin", "dispatch", "finance"]);
+});
+
+test("救援改派（M3-04，ADR 0031）：发起、发救援单、不可抗力归运营和客服；人工指定的审核归运营（两位运营互审或超级管理员）；供应商声明和接单用 order.dispatch", () => {
+  const platform = (action: Parameters<typeof platformRoleCan>[1]): string[] => PLATFORM_ROLES.filter(({ key }) => platformRoleCan(key, action)).map(({ key }) => key);
+  assert.deepEqual(platform("rescue.manage"), ["super_admin", "operations", "customer_service"]);
+  assert.deepEqual(platform("rescue.review"), ["super_admin", "operations"]);
+  for (const role of [...platform("rescue.manage"), ...platform("rescue.review")]) assert.equal(platformRoleCan(role as never, "order.read"), true, `${role} 能处理救援就能看订单`);
+  assert.deepEqual(TENANT_ROLES.filter(({ key }) => tenantRoleCan(key, "order.dispatch")).map(({ key }) => key), ["admin", "dispatch"]);
 });
