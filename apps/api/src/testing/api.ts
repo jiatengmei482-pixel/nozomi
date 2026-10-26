@@ -18,7 +18,7 @@ import { loadMigrationFiles } from "../db/migrate.ts";
 import { createSuperAdmin } from "../services/platform-staff.ts";
 import { type TestDatabase, createMigratedTestDatabase } from "./db.ts";
 import { loadConfig } from "@nozomi/config";
-import { testConfig, testEnv } from "./fixtures.ts";
+import { UNREACHABLE_INTEGRATIONS, testEnv } from "./fixtures.ts";
 import { totpAt } from "./totp.ts";
 
 /** 测试里的 Webhook 接收地址用的主机名：经接口保存时它是合格的 https 地址；测试的发送器把它换成本机的假接收方。 */
@@ -127,7 +127,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
   let logs = "";
   const totpSecrets = new Map<string, string>();
   const app = buildApp({
-    config: options.env === undefined ? testConfig(db.url) : loadConfig({ ...testEnv(db.url), ...options.env }),
+    config: loadConfig({ ...testEnv(db.url), ...UNREACHABLE_INTEGRATIONS, ...options.env }),
     pool: db.pool,
     migrationFiles,
     now: clock.now,

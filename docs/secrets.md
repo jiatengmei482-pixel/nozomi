@@ -1,6 +1,6 @@
 # 账号与密钥存放规则
 
-**一句话**：密钥只存在下面 4 个地方，代码仓库里永远没有密钥原文。也不要把密钥发在和 Claude 的聊天里——请你自己在对应的设置页面或服务器上填写。
+**一句话**：密钥只存在下面 4 个地方（谷歌地图、Stripe 还可以在运营后台填写，加密存在数据库里，见「二、放在 VPS 上的」末尾），代码仓库里永远没有密钥原文。也不要把密钥发在和 Claude 的聊天里——请你自己在对应的设置页面或服务器上填写。
 
 测试环境和正式环境都部署在你自己的 VPS 上（见 ADR 0007）。
 
@@ -70,10 +70,10 @@
 | `POSTGRES_APP_PASSWORD` | 数据库「应用账号」的密码：程序平时运行用的账号，权限最小（不能改数据库结构，不能改、删操作日志） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除 |
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
 | `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥（ADR 0027）和平台员工的两步验证密钥（ADR 0030）在数据库里是用它加密保存的 | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开——每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥，每个平台员工都要重新绑定两步验证（在服务器上运行 `pnpm admin:reset-2fa`） |
-| `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
+| `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
-| `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
+| `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Google Cloud Console → 新建项目 → 启用 Routes API 和 Places API → 凭据 → 创建 API 密钥，并限制只能调用这两个 API |
 
 同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：
 
@@ -91,7 +91,15 @@
 
 填好后重新部署一次即可生效；网页的安全策略会自动放行这一个图片来源，不用另外设置。还有几项一般不用动、有默认值的（暗色底图地址 `MAP_TILE_DARK_URL_TEMPLATE`、缩放范围 `MAP_TILE_MIN_ZOOM` / `MAP_TILE_MAX_ZOOM`、图片尺寸 `MAP_TILE_SIZE`、来源页策略 `MAP_TILE_REFERRER_POLICY`），说明见 `docs/adr/0015-areas.md`。
 
-**什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境必须全部填好**，否则程序拒绝启动。
+**什么时候必须填**：Stripe 的三项要么都填、要么都不填。测试环境、正式环境都可以先不填就上线，对应功能在 `/health` 里显示「未配置」；**正式环境开始接单之前必须填好**（收款要 Stripe，里程报价要谷歌地图）。
+
+**谷歌地图、Stripe 还可以在运营后台填（推荐，不用登录服务器）**：用超级管理员账号登录运营后台 → 系统设置 → 系统状态 → 在「谷歌地图」或「Stripe 支付」这一行点「填写」，粘贴密钥保存，再点「测试一下」。
+
+- **优先顺序：运营后台填写的优先；后台没填（或清空后）才用服务器 `.env` 里的值。** 页面上每一项写着现在用的是哪一份：「后台设置（••••1234）」「服务器配置文件（••••5678）」或「未配置」。
+- 保存后立即生效，不用重新部署。在后台点「清空」就回到 `.env` 里的值（`.env` 里也没有就是未配置）。
+- 后台填的密钥用数据加密密钥（`DATA_ENCRYPTION_KEY`）加密后存在数据库里；页面上永远只显示末 4 位，谁都看不到原文。只有超级管理员能填、能换、能清空、能测试，每次操作都记在审计日志里（只记末 4 位）。
+- 规则和 `.env` 一样：Stripe 三项一起填；测试环境只收测试密钥（`sk_test_`、`pk_test_` 开头），正式环境只收正式密钥（`sk_live_`、`pk_live_` 开头）。
+- 「测试一下」：谷歌地图会调用一次 Routes API（最便宜的一档，费用极少）；Stripe 只查一次余额（不产生费用）。结果显示「可用」或「不可用」和原因（密钥无效、没开通 API、网络不通等）。
 
 不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、程序前面有几层反向代理（由 `EDGE_MODE` 自动决定）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源（`FX_SOURCE_URL`）和跨币种汇率缓冲（`FX_BUFFER_PERCENT`，百分比，默认 1.5，程序按十进制精确换成基点）有默认值。
 
@@ -114,8 +122,8 @@
 
 | 账号 | 用途 | 去哪里注册 | 必需于 |
 | --- | --- | --- | --- |
-| Stripe | 客人付款、退款、事后加收 | stripe.com，先用 Test mode | production（staging 可以先不配就上线） |
-| Google Cloud | 里程 + 时长报价、地址搜索 | console.cloud.google.com，需要绑定付款方式 | production（staging 可以先不配就上线） |
+| Stripe | 客人付款、退款、事后加收 | stripe.com，先用 Test mode | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
+| Google Cloud | 里程 + 时长报价、地址搜索 | console.cloud.google.com，需要绑定付款方式；启用 Routes API 和 Places API | 正式环境接单前（可以填在服务器 `.env` 或运营后台） |
 | 汇率 | 中央换算中心 | 免费源 open.er-api.com，无需注册 | 已有默认值 |
 
 ## 规则
