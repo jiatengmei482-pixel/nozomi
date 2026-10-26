@@ -126,6 +126,11 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
   return calls;
 }
 const user = () => userEvent.setup();
+/**
+ * 首页的商品卡片。等它的数时只用选择器，不用 findByRole：按角色找要把整页的无障碍树（名称、描述、是否隐藏）重算一遍，
+ * 每次 DOM 变化都重算一次，和首次渲染整个后台抢同一个线程，负载高时撑过 1 秒的等待上限；数出来以后再按角色核对一次。
+ */
+const productCard = (): Element | null => document.querySelector(".entry-card:has(a[href^='/platform/products'])");
 const menuLabels = (): string[] => [...new Set([...document.querySelectorAll('nav[aria-label="主菜单"] .nav-item')].map((node) => node.textContent ?? ""))];
 const productCalls = (calls: ApiCall[]): URLSearchParams[] => calls.filter((call) => call.method === "GET" && call.path.startsWith("/platform/v1/products?")).map((call) => new URL(call.path, "http://localhost").searchParams);
 
@@ -154,9 +159,9 @@ function assertNoEditing(calls: ApiCall[], what: string): void {
 
 test("菜单和首页按权限：超级管理员有「商品」「报价试算」，首页商品卡片是已上架数、报不出价的提醒去筛好的列表；只读角色有商品没有试算；财务两个都没有", async () => {
   const calls = open("/platform", "super_admin", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/products" ? page([], call.url.searchParams.get("has_active_price") === "false" ? 2 : 7) : null));
-  const card = (await screen.findByRole("link", { name: "商品", description: /已上架/ })) as HTMLAnchorElement;
+  await waitFor(() => assert.match(productCard()?.textContent ?? "", /已上架7/));
+  const card = screen.getByRole("link", { name: "商品", description: /^已上架 7/ });
   assert.equal(card.getAttribute("href"), "/platform/products?status=published");
-  await waitFor(() => assert.match(card.closest(".entry-card")?.textContent ?? "", /已上架7/));
   const reminder = screen.getByRole("link", { name: "2 个已上架的商品报不出价" });
   assert.equal(reminder.getAttribute("href"), "/platform/products?status=published&priced=no");
   assert.deepEqual(
@@ -171,12 +176,13 @@ test("菜单和首页按权限：超级管理员有「商品」「报价试算�
   // 一个都没有报不出价的：没有提醒行
   resetBrowser();
   open("/platform", "operations", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/products" ? page([], call.url.searchParams.get("has_active_price") === "false" ? 0 : 3) : null));
-  await waitFor(() => assert.match(document.querySelector(".entry-card:has(a[href^='/platform/products'])")?.textContent ?? "", /已上架3/));
+  await waitFor(() => assert.match(productCard()?.textContent ?? "", /已上架3/));
   assertAbsent(screen.queryByText(/报不出价/));
 
   resetBrowser();
   open("/platform", "readonly");
-  await screen.findByRole("link", { name: "商品", description: /已上架/ });
+  await waitFor(() => assert.match(productCard()?.textContent ?? "", /已上架2/));
+  assert.ok(screen.getByRole("link", { name: "商品", description: /^已上架 2/ }));
   assert.ok(menuLabels().includes("商品"));
   assert.ok(!menuLabels().includes("报价试算"), "只读角色看不到报价试算");
 
