@@ -40,7 +40,7 @@ import { amountToMinor, platformOrderPath } from "../../lib/order-money-display.
 import { DEDUCTION_STATUS_BADGES, OFFER_STATUS_BADGES, PLATFORM_TRIGGER_HINTS, RESCUE_STATUS_BADGES, deductionBasisText, deductionKindName, penaltyText, triggerName } from "../../lib/rescue-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
-import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { usePlatformCan, usePlatformScopeDenies } from "../../lib/use-master-access.ts";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 /** 能发起救援的订单状态（和后端的触发规则同一份：服务开始之前、司机还没到上车点） */
@@ -68,6 +68,9 @@ export function RescueQueuePage() {
   useDocumentTitle(`救援 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("order.read");
   const canManage = usePlatformCan("rescue.manage");
+  // 按供应商批量发起会动到它名下全部未来订单：限定了数据范围的人不能做（ADR 0030，接口 403 `DATA_SCOPE_DENIED`），不放按钮，说明原因
+  const scopeDeniesBatch = usePlatformScopeDenies("tenant.rescue");
+  const canBatch = canManage && !scopeDeniesBatch;
   const toast = useToast();
   const [state, setState] = useState<"open" | "closed">("open");
   const { state: loaded, reload } = useLoad<RescueQueue>(`rescues|${state}`, canRead ? (t) => getRescueQueue(t, state) : null);
@@ -174,6 +177,9 @@ export function RescueQueuePage() {
             </section>
           )}
 
+          {state === "open" && canManage && scopeDeniesBatch && (
+            <p className="field__hint">你的角色限定了数据范围：暂停中供应商的批量救援不在这里（会动到这家供应商在各城市、各渠道的全部订单）。单张订单可以在订单详情里发起救援；需要批量发起时，请不限数据范围的同事处理。</p>
+          )}
           {state === "open" && queue.suspended_tenants.length > 0 && (
             <section className="card" aria-labelledby="rescue-suspended-title">
               <h2 className="card__title" id="rescue-suspended-title">暂停中、还有未来订单的供应商</h2>
@@ -182,7 +188,7 @@ export function RescueQueuePage() {
                 {queue.suspended_tenants.map((entry) => (
                   <li key={entry.tenant.id}>
                     {`${entry.tenant.name}：${entry.future_orders} 张未来订单 `}
-                    {canManage && (
+                    {canBatch && (
                       <Button variant="secondary" size="sm" onClick={() => setBatch({ id: entry.tenant.id, name: entry.tenant.name, orders: entry.future_orders })}>
                         {`批量发起救援：${entry.tenant.name}`}
                       </Button>

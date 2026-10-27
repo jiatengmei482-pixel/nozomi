@@ -3,7 +3,7 @@
  * - 账单（`statement.read`）：列表（按状态、周期筛）、详情（小计、明细、经过）；
  *   `statement.manage`（财务）：手工出账、答复异议、作废并重出、发起付款复核（另一位有 `statement.review` 的同事在「待审核」里批准）；
  * - 付款批次（`statement.read`）：列表、详情（按币种的合计、里面的账单）；`statement.manage` 锁定批次（之后批准的进下个月同一天）。
- * 限定了数据范围的员工不能用财务结算（账单跨城市、跨渠道，切不开）：接口 403，页面写「没有权限」。
+ * 限定了数据范围的员工不能用财务结算（账单跨城市、跨渠道，切不开）：菜单和首页不给入口；直接打开地址时不发请求，页面写「没有权限」和原因（接口同样 403）。
  * 金额是供应商的结算币种，有正有负；不同币种不相加，批次的合计按币种分开写。
  */
 import { type PayoutBatchStatus, STATEMENT_STATUSES, type StatementStatus, billingToday, isBillingPeriod, periodOfDate, shiftPeriod } from "@nozomi/domain";
@@ -51,7 +51,7 @@ import { useColleagues } from "../../lib/use-colleagues.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
-import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { usePlatformCan, usePlatformScopeBlocks } from "../../lib/use-master-access.ts";
 import { Detail, LocalTime, NO_ACCESS, tableStateOf } from "./order-center-parts.tsx";
 
 const SCOPE_DENIED = <StateBlock tone="neutral" title="你没有权限查看这里" description="财务结算只给不限数据范围的账号用（一张账单包含供应商在各城市、各渠道的订单）。需要的话，请联系管理员。" />;
@@ -169,6 +169,7 @@ export function StatementListPage() {
   const { portal, account } = usePortalSession();
   useDocumentTitle(`账单 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("statement.read");
+  const scopeBlocked = usePlatformScopeBlocks("statement.read");
   const canManage = usePlatformCan("statement.manage");
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -194,7 +195,7 @@ export function StatementListPage() {
       </Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canRead) return shell(NO_ACCESS, false);
+  if (account.status === "ready" && !canRead) return shell(scopeBlocked ? SCOPE_DENIED : NO_ACCESS, false);
   if (state.status === "forbidden") return shell(SCOPE_DENIED, false);
   const setParam = (changes: Record<string, string | null>): void => {
     const next = new URLSearchParams(params);
@@ -271,6 +272,7 @@ export function StatementDetailPage() {
   const { id = "" } = useParams();
   const { portal, account, token } = usePortalSession();
   const canRead = usePlatformCan("statement.read");
+  const scopeBlocked = usePlatformScopeBlocks("statement.read");
   const canManage = usePlatformCan("statement.manage");
   const canApprovals = usePlatformCan("approval.read");
   const canAudit = usePlatformCan("audit_log.read");
@@ -287,7 +289,7 @@ export function StatementDetailPage() {
       <Page title={title}>{content}</Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
+  if (account.status === "ready" && !canRead) return shell(scopeBlocked ? SCOPE_DENIED : NO_ACCESS);
   if (state.status === "forbidden") return shell(SCOPE_DENIED);
   if (state.status === "not-found") return shell(<StateBlock tone="neutral" title="找不到这张账单" description="链接可能有误。" />);
   if (statement === null) {
@@ -590,6 +592,7 @@ export function PayoutBatchListPage() {
   const { portal, account } = usePortalSession();
   useDocumentTitle(`付款批次 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("statement.read");
+  const scopeBlocked = usePlatformScopeBlocks("statement.read");
   const [params, setParams] = useSearchParams();
   const statusParam = params.get("status");
   const status = statusParam === "open" || statusParam === "closed" || statusParam === "paid" ? (statusParam as PayoutBatchStatus) : null;
@@ -599,7 +602,7 @@ export function PayoutBatchListPage() {
       <Page title="付款批次">{content}</Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
+  if (account.status === "ready" && !canRead) return shell(scopeBlocked ? SCOPE_DENIED : NO_ACCESS);
   if (state.status === "forbidden") return shell(SCOPE_DENIED);
   const columns: Column<PayoutBatch>[] = [
     { key: "date", header: "付款日", cell: (row) => <Link className="link" to={payoutBatchPath(row.id)}>{row.pay_date}</Link> },
@@ -633,6 +636,7 @@ export function PayoutBatchDetailPage() {
   const { id = "" } = useParams();
   const { portal, account } = usePortalSession();
   const canRead = usePlatformCan("statement.read");
+  const scopeBlocked = usePlatformScopeBlocks("statement.read");
   const canManage = usePlatformCan("statement.manage");
   const toast = useToast();
   const { names, me } = useColleagues();
@@ -646,7 +650,7 @@ export function PayoutBatchDetailPage() {
       <Page title={title}>{content}</Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
+  if (account.status === "ready" && !canRead) return shell(scopeBlocked ? SCOPE_DENIED : NO_ACCESS);
   if (state.status === "forbidden") return shell(SCOPE_DENIED);
   if (state.status === "not-found") return shell(<StateBlock tone="neutral" title="找不到这个付款批次" description="链接可能有误。" />);
   if (batch === null) {

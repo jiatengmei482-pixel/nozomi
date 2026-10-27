@@ -31,7 +31,7 @@ import { CURRENCY_OPTIONS, amountText, readAmount } from "../../lib/product-disp
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
-import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { usePlatformCan, usePlatformScopeDenies } from "../../lib/use-master-access.ts";
 import { useAllCities } from "../master/shared.tsx";
 import { ChannelDetailSections } from "./ChannelSections.tsx";
 
@@ -53,11 +53,16 @@ function ChannelStatusFilter() {
   );
 }
 
+const CREATE_SCOPE_DENIED = "你的角色限定了渠道范围，不能新建渠道：新渠道不在你的范围里，建了也看不到。需要新渠道时，请不限渠道范围的同事来建，或请管理员调整你的角色。";
+
 export function ChannelListPage() {
   const { portal, account } = usePortalSession();
   useDocumentTitle(`渠道 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("channel.read");
   const canManage = usePlatformCan("channel.manage");
+  // 限定了渠道范围的人不能新建渠道（ADR 0030，接口 403 `DATA_SCOPE_DENIED`）：不放「新建渠道」，说明原因
+  const scopeDeniesCreate = usePlatformScopeDenies("channel.create");
+  const canCreate = canManage && !scopeDeniesCreate;
   const loaded = useLoad<{ items: Channel[]; truncated: boolean }>("platform-channels", canRead ? listAllChannels : null);
   const [params, setParams] = useSearchParams();
   const q = (params.get("q") ?? "").slice(0, 100);
@@ -121,11 +126,12 @@ export function ChannelListPage() {
       }
     />
   ) : (
-    <StateBlock tone="neutral" title="还没有渠道" description="渠道是卖平台用车服务的一方：自己的官网、API 分销商、OTA。新建一个，设置它能卖哪些供应商和城市、加价多少，再给它发 API 密钥。第一个通常是自营官网。" {...(canManage ? { action: newButton } : {})} />
+    <StateBlock tone="neutral" title="还没有渠道" description="渠道是卖平台用车服务的一方：自己的官网、API 分销商、OTA。新建一个，设置它能卖哪些供应商和城市、加价多少，再给它发 API 密钥。第一个通常是自营官网。" {...(canCreate ? { action: newButton } : {})} />
   );
   return shell(
     <>
       {account.status === "ready" && !canManage && <Alert kind="info">你可以查看渠道，但不能修改。</Alert>}
+      {account.status === "ready" && canManage && scopeDeniesCreate && <Alert kind="info">{CREATE_SCOPE_DENIED}</Alert>}
       <FilterBar search={<SearchBox label="按名称或公司搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={["status"]} active={filtered} onClear={clear}>
         <ChannelStatusFilter />
       </FilterBar>
@@ -133,7 +139,7 @@ export function ChannelListPage() {
         <DataTable label="渠道列表" columns={columns} rows={rows} rowKey={(row) => row.id} state={tableState} onRetry={loaded.reload} empty={empty} />
       </div>
     </>,
-    canManage ? newButton : undefined,
+    canCreate ? newButton : undefined,
   );
 }
 
@@ -370,6 +376,7 @@ export function ChannelNewPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   useDocumentTitle(`新建渠道 · NOZOMI ${portal.name}`);
   const canManage = usePlatformCan("channel.manage");
+  const scopeDeniesCreate = usePlatformScopeDenies("channel.create");
   const navigate = useNavigate();
   const toast = useToast();
   const shell = (content: ReactNode): ReactNode => (
@@ -380,6 +387,7 @@ export function ChannelNewPage() {
     </AppShell>
   );
   if (account.status === "ready" && !canManage) return shell(NO_ACCESS);
+  if (account.status === "ready" && scopeDeniesCreate) return shell(<StateBlock tone="neutral" title="不能新建渠道" description={CREATE_SCOPE_DENIED} action={<LinkButton variant="secondary" to={CHANNELS_PAGE_PATH}>回渠道列表</LinkButton>} />);
   return shell(
     <>
       <ChannelForm

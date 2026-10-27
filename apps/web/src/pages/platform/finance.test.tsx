@@ -99,6 +99,24 @@ test("限定了数据范围的员工：财务结算接口 403，页面说明为�
   await screen.findByText(/财务结算只给不限数据范围的账号用/);
 });
 
+test("限定了数据范围的员工（M4-10）：菜单没有财务结算、首页没有财务结算分区；直接打开账单和付款批次的地址不发请求，说明原因", async () => {
+  const scoped = { city_ids: ["c0c0c0c0-0000-4000-8000-000000000001"], channel_ids: null };
+  const calls = openApp("/platform", "platform", "custom_0123456789abcdef", () => null, ["order.read", "statement.read"], scoped);
+  const nav = (await screen.findAllByRole("navigation", { name: "主菜单" }))[0];
+  assert.ok(nav);
+  await within(nav).findByRole("link", { name: "订单" });
+  assertAbsent(within(nav).queryByRole("button", { name: "财务结算" }));
+  assertAbsent(within(nav).queryByRole("link", { name: "账单" }));
+  assertAbsent(screen.queryByRole("heading", { level: 2, name: "财务结算" }));
+  for (const path of ["/platform/finance/statements", "/platform/finance/payout-batches", `/platform/finance/statements/${STATEMENT_ID}`, `/platform/finance/payout-batches/${BATCH_ID}`]) {
+    resetBrowser();
+    const opened = openApp(path, "platform", "custom_0123456789abcdef", () => null, ["statement.read"], { city_ids: null, channel_ids: ["c4c4c4c4-0000-4000-8000-000000000002"] });
+    await screen.findByText(/财务结算只给不限数据范围的账号用/);
+    assert.deepEqual(opened.filter((call) => /statements|payout-batches/.test(call.path)), [], path);
+  }
+  assert.deepEqual(calls.filter((call) => /statements|payout-batches/.test(call.path)), [], "首页不取财务结算的数量");
+});
+
 test("付款批次：按币种分开写合计；锁定前要确认，锁定后不再显示按钮", async () => {
   const batch: PayoutBatchDetail = { id: BATCH_ID, pay_date: "2026-10-20", status: "open", created_at: "2026-10-09T00:00:00.000Z", closed_at: null, closed_by: null, paid_at: null, statement_count: 2, totals: [{ currency: "CNY", count: 1, total: { amount: "450.50", currency: "CNY" } }, { currency: "JPY", count: 1, total: { amount: "38600", currency: "JPY" } }], version: 1, statements: [platformStatementOf({ status: "in_payout", payout_batch_id: BATCH_ID, payout_on: "2026-10-20" })] };
   let closed = false;

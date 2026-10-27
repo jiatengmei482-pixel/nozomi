@@ -451,3 +451,25 @@ test("数据来源署名（M1-18）：新建渠道、编辑授权范围、渠道
   await screen.findByRole("heading", { level: 1, name: "NOZOMI 官网" });
   assert.deepEqual(lines(), geonames);
 });
+
+test("限定了渠道范围的渠道经理（M4-10）：列表没有「新建渠道」并说明原因，直接打开新建页也说明原因、不显示表单；只限城市的照常能建", async () => {
+  const meWith = (scope: { city_ids: string[] | null; channel_ids: string[] | null }) => (call: ApiCall & { url: URL }) =>
+    call.method === "GET" && call.url.pathname === "/platform/v1/auth/me" ? json(200, { user: { ...meOf("custom_0123456789abcdef"), role_name: "渠道专员" }, permissions: ["channel.read", "channel.manage"], data_scope: scope, must_change_password: false }) : null;
+  const channelScoped = { city_ids: null, channel_ids: [CHANNEL_ID] };
+  open("/platform/channels", "custom_0123456789abcdef", meWith(channelScoped));
+  await screen.findByRole("heading", { level: 1, name: "渠道" });
+  assert.ok(await screen.findByText(/你的角色限定了渠道范围，不能新建渠道/));
+  assertAbsent(screen.queryByRole("link", { name: "新建渠道" }));
+
+  resetBrowser();
+  const calls = open("/platform/channels/new", "custom_0123456789abcdef", meWith(channelScoped));
+  assert.ok(await screen.findByRole("heading", { level: 2, name: "不能新建渠道" }));
+  assert.ok(screen.getByRole("link", { name: "回渠道列表" }));
+  assertAbsent(screen.queryByRole("button", { name: "新建" }));
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0);
+
+  resetBrowser();
+  open("/platform/channels", "custom_0123456789abcdef", meWith({ city_ids: ["c0c0c0c0-0000-4000-8000-000000000001"], channel_ids: null }));
+  assert.ok(await screen.findByRole("link", { name: "新建渠道" }));
+  assertAbsent(screen.queryByText(/你的角色限定了渠道范围/));
+});

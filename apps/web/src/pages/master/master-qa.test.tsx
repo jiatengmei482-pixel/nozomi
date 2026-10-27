@@ -108,9 +108,10 @@ test("首页：数据量全是 0 时照常显示「0 启用 · 0 已停用」，
 });
 
 test("首页：接口说两个模块都不能看时，不留空白页——主数据运营从 M2-06 起还有「待审核」（审核汇率锁定）", async () => {
-  // 主数据运营：接口说主数据也不能看时，只剩「待审核」一张卡片（财务、只读等从 M2-04 起还能看渠道）
+  // 主数据运营：接口说主数据也不能看时，剩「待审核」和「赔付表」（财务、只读等从 M2-04 起还能看渠道）。
+  // 赔付表的卡片和菜单、页面同一个条件——看主数据的权限（M4-10），不跟首页数量接口走
   open("/platform", "master_data", (call) => (call.url.pathname === "/platform/v1/dashboard/summary" ? json(200, { tenants: null, master_data: null }) : null));
-  await waitFor(() => assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["待审核"]));
+  await waitFor(() => assert.deepEqual([...main().querySelectorAll(".entry-card__title")].map((node) => node.textContent), ["待审核", "赔付表"]));
   assertAbsent(screen.queryByText("这里暂时没有你可以使用的模块"));
 });
 

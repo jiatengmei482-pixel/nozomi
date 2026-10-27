@@ -3,7 +3,9 @@
  * 数量全部来自 `dashboard/summary`；入口不等数量，数量加载失败时入口照常可用。
  * 汇率超过 48 小时没更新（跨币种报价已暂停）时，页面顶部一条危险提示条（M2-03）。
  * M4-03 起「运营」分区加异常队列、工单、赔付表三张卡片，另加「财务结算」分区（账单、付款批次）。
+ * 卡片的显示条件见 `platformHomeAccess`（和菜单、页面一致，含数据范围）。
  */
+import type { PlatformAction } from "@nozomi/domain";
 import { TENANT_LIST_PATH, platformProductListPath } from "../lib/platform-paths.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -26,7 +28,7 @@ import { type CompensationTableView, countExceptions, countPlatformTickets, getC
 import { type PayoutBatch, countPlatformStatements, listPayoutBatches } from "../api/billing.ts";
 import { COMPENSATION_TABLE_PAGE, EXCEPTION_QUEUE_PATH, PLATFORM_TICKETS_PAGE } from "../lib/order-center-display.ts";
 import { PAYOUT_BATCHES_PAGE, STATEMENTS_PAGE } from "../lib/billing-display.ts";
-import { usePlatformCan } from "../lib/use-master-access.ts";
+import { platformAccountCan, usePlatformCan } from "../lib/use-master-access.ts";
 
 /** 窗口重新获得焦点时，距上次请求超过这么久才重新取。 */
 const REFRESH_AFTER_MS = 60_000;
@@ -35,22 +37,54 @@ function statusCounts(counts: { active: number; disabled: number }): EntryCounts
   return { status: "ready", counts: [{ value: counts.active, label: "启用" }, { value: counts.disabled, label: "已停用" }] };
 }
 
+/**
+ * 首页各张入口卡片的显示条件，和菜单、页面同一个口径（`platformAccountCan`，含数据范围，M4-10）：卡片点进去都看得了。
+ * 赔付表的页面要的是「看主数据」（和菜单一样）；财务结算限定了数据范围就没有（ADR 0040）。
+ * 供应商卡片和主数据分区以首页数量接口给没给为准，数量回来之前按这里。
+ */
+export function platformHomeAccess(can: (action: PlatformAction) => boolean) {
+  return {
+    master: can("master_data.read"),
+    tenants: can("tenant.read"),
+    products: can("product.read"),
+    channels: can("channel.read"),
+    approvals: can("approval.read"),
+    orders: can("order.read"),
+    tickets: can("ticket.read"),
+    compensation: can("master_data.read"),
+    statements: can("statement.read"),
+  };
+}
+
+/** 每组卡片点进去是哪些页面（AppShell.nav.test.tsx 按它核对「首页的卡片点进去都看得了」）。 */
+export const PLATFORM_HOME_CARD_PAGES: Readonly<Record<keyof ReturnType<typeof platformHomeAccess>, readonly string[]>> = {
+  master: [masterListPath("cities"), masterListPath("places"), masterListPath("vehicle-groups"), masterListPath("addons"), FX_PATH],
+  tenants: [TENANT_LIST_PATH],
+  products: [platformProductListPath()],
+  channels: [CHANNELS_PAGE_PATH],
+  approvals: [APPROVALS_PAGE_PATH],
+  orders: [EXCEPTION_QUEUE_PATH],
+  tickets: [PLATFORM_TICKETS_PAGE],
+  compensation: [COMPENSATION_TABLE_PAGE],
+  statements: [STATEMENTS_PAGE, PAYOUT_BATCHES_PAGE],
+};
+
 export function PlatformHomePage() {
-  const { portal } = usePortalSession();
+  const { portal, account } = usePortalSession();
   useDocumentTitle(`首页 · NOZOMI ${portal.name}`);
-  const canSeeMaster = usePlatformCan("master_data.read");
+  const ready = account.status === "ready" ? account.account : null;
+  const access = platformHomeAccess((action) => ready !== null && platformAccountCan(ready, action));
+  const canSeeMaster = access.master;
   const canManageMaster = usePlatformCan("master_data.manage");
-  const canSeeTenants = usePlatformCan("tenant.read");
-  const canSeeProducts = usePlatformCan("product.read");
-  const canSeeChannels = usePlatformCan("channel.read");
-  const canSeeApprovals = usePlatformCan("approval.read");
+  const canSeeTenants = access.tenants;
+  const canSeeProducts = access.products;
+  const canSeeChannels = access.channels;
+  const canSeeApprovals = access.approvals;
   // 订单中心、财务结算（M4-03）：数量用列表接口的 total；没取到只影响这几张卡片
-  const canSeeOrders = usePlatformCan("order.read");
-  const canSeeTickets = usePlatformCan("ticket.read");
-  const canManageCompensation = usePlatformCan("compensation_table.manage");
-  const canReviewCompensation = usePlatformCan("compensation_table.review");
-  const canSeeCompensation = canSeeTickets || canManageCompensation || canReviewCompensation;
-  const canSeeStatements = usePlatformCan("statement.read");
+  const canSeeOrders = access.orders;
+  const canSeeTickets = access.tickets;
+  const canSeeCompensation = access.compensation;
+  const canSeeStatements = access.statements;
   const { state, reload: reloadSummary } = useLoad<DashboardSummary>("summary", fetchDashboardSummary);
   // 商品的两个数：已上架的、其中报不出价的（ADR 0021：用列表接口的 total，不在首页数量接口里）
   const products = useLoad<{ published: number; unpriced: number }>(
