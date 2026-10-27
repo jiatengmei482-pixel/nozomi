@@ -25,8 +25,8 @@ const GROUP_ID = "33333333-3333-4333-8333-333333333333";
 /** 下单时地址最多 300 个字（domain 的 ORDER_FIELD_LIMITS.addressMax） */
 const ADDRESS_MAX = 300;
 
-const tokyo: SiteCity = { id: TOKYO_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", categories: ["airport_transfer", "point_to_point", "charter"] };
-const osaka: SiteCity = { id: OSAKA_ID, code: "CTY-JP-OSA", name: { zh: "大阪" }, timezone: "Asia/Tokyo", country_code: "JP", categories: ["charter"] };
+const tokyo: SiteCity = { id: TOKYO_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["airport_transfer", "point_to_point", "charter"] };
+const osaka: SiteCity = { id: OSAKA_ID, code: "CTY-JP-OSA", name: { zh: "大阪" }, timezone: "Asia/Tokyo", country_code: "JP", center: { lat: 35.6895, lng: 139.6917 }, categories: ["charter"] };
 const station: SitePlace = { id: "66666666-6666-4666-8666-666666666666", type: "station", code: "STN-JP-TOKYO", name: { zh: "东京站" }, address: null, location: { lng: 139.7671, lat: 35.6812 } };
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const quote: SiteQuote = {

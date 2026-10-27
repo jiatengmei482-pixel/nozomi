@@ -5,6 +5,7 @@
  */
 import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
+import type { MapTiles } from "./areas.ts";
 import type { CancelTier, OrderCancelPolicy } from "./order-money.ts";
 
 export const SITE_BASE = "/site/v1";
@@ -20,6 +21,10 @@ export interface SiteConfig {
   payments: { provider: "stripe"; publishable_key: string } | null;
   /** 客服电话（登记了才有，原样显示）；null 时订单页不显示「需要帮助」区块 */
   support_phone: string | null;
+  /** 显示地址搜索（谷歌，后端代调；M3-12，ADR 0044）；false 时只有常用地点、地图和手填 */
+  address_search: boolean;
+  /** 地图底图（和供应商区域页同一份配置）；null 时不显示地图选点 */
+  map_tiles: MapTiles | null;
 }
 
 /** 官网卖的品类：接送机、点对点、包车（M3-10）。 */
@@ -31,6 +36,8 @@ export interface SiteCity {
   name: LocalizedText;
   timezone: string;
   country_code: string;
+  /** 城市中心：地图打开时先看这里 */
+  center: { lat: number; lng: number };
   /** 这个城市能在官网预订的品类（顺序固定：接送机、点对点、包车） */
   categories: SiteCategory[];
 }
@@ -291,8 +298,9 @@ export interface SiteChangeRequest {
 
 /** 契约测试用：这些类型的字段要和 openapi.yaml 里的定义完全一致。 */
 export const SITE_SCHEMA_FIELDS = {
-  SiteConfig: ["open", "currency", "payments", "support_phone"],
-  SiteCity: ["id", "code", "name", "timezone", "country_code", "categories"],
+  SiteConfig: ["open", "currency", "payments", "support_phone", "address_search", "map_tiles"],
+  SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
+  SitePlaceCandidate: ["id", "name", "address", "location"],
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
@@ -332,6 +340,34 @@ export function listSiteCharterPackages(cityId: string): Promise<{ items: SiteCh
 
 export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> {
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
+}
+
+/** 地址搜索的一个候选（谷歌给的名称、地址、坐标）。 */
+export interface SitePlaceCandidate {
+  id: string;
+  name: string;
+  address: string;
+  location: { lat: number; lng: number };
+}
+
+/** `available` 为 false：这次用不了（没配置、到了每日上限、谷歌出错），页面退回常用地点、地图和手填。 */
+export interface SitePlaceSearchResult {
+  available: boolean;
+  items: SitePlaceCandidate[];
+}
+
+export interface SiteReverseResult {
+  available: boolean;
+  /** 这个位置的地址；查不到为 null */
+  address: string | null;
+}
+
+export function searchSitePlaces(cityId: string, query: string): Promise<SitePlaceSearchResult> {
+  return apiRequest("GET", `${SITE_BASE}/places/search?city_id=${encodeURIComponent(cityId)}&q=${encodeURIComponent(query)}`);
+}
+
+export function reverseSitePlace(cityId: string, point: { lat: number; lng: number }): Promise<SiteReverseResult> {
+  return apiRequest("GET", `${SITE_BASE}/places/reverse?city_id=${encodeURIComponent(cityId)}&lat=${point.lat}&lng=${point.lng}`);
 }
 
 export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResult> {

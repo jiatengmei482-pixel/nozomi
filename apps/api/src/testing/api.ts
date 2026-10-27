@@ -11,6 +11,7 @@ import { FxCenter } from "../services/fx-center.ts";
 import { NO_ROUTES, type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import { SecretBox } from "../integrations/secret-box.ts";
+import { GooglePlaceSearch } from "../services/place-search.ts";
 import { IntegrationSecretCache } from "../services/integration-secrets.ts";
 import { HttpsWebhookSender, type WebhookSender } from "../integrations/webhook-sender.ts";
 import type { AppConfig } from "@nozomi/config";
@@ -270,6 +271,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     quote: { ...defaultQuoteDeps(config, fx.rates, NO_ROUTES, now), ...quote },
     secretBox,
     webhookSender: localWebhookSender(),
+    places: new GooglePlaceSearch({ pool, now, apiKey: () => null, dailyLimit: 0, search: async () => ({ ok: false, code: "UNREACHABLE" }), reverse: async () => ({ ok: false, code: "UNREACHABLE" }), log: silent }),
   };
 }
 

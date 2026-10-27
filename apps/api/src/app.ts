@@ -38,6 +38,8 @@ import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
+import { reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
+import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
@@ -80,6 +82,8 @@ export interface AppDeps {
   webhookSender?: WebhookSender;
   /** 运营后台填写的第三方密钥在本进程的缓存多久重读一次（毫秒，ADR 0041）；不给用 5 秒。测试用它模拟「另一个进程改了密钥」 */
   integrationSecretsTtlMs?: number;
+  /** 官网地址搜索、反查的进程内短时缓存保留多久（毫秒，ADR 0044）；不给用 10 分钟。测试用它验证过期 */
+  placeCacheTtlMs?: number;
   /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
@@ -248,6 +252,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
     log: app.log,
   });
+  // 官网的地址搜索和反查（ADR 0044）：同样每次现取生效的谷歌密钥；每日上限和路线分开计
+  const places = new GooglePlaceSearch({
+    pool,
+    now,
+    apiKey: () => secretCache.effective.googleMaps.apiKey,
+    dailyLimit: config.places.dailyLimit,
+    search: (apiKey, request, beforeAttempt) => searchPlaces(apiKey, request, { url: config.integrationEndpoints.googlePlacesSearchUrl, beforeAttempt }),
+    reverse: (apiKey, point, regionCode, beforeAttempt) => reverseGeocode(apiKey, point, regionCode, { url: config.integrationEndpoints.googleGeocodeUrl, beforeAttempt }),
+    log: app.log,
+    ...(deps.placeCacheTtlMs === undefined ? {} : { cacheTtlMs: deps.placeCacheTtlMs }),
+  });
   const context: AppContext = {
     config,
     pool,
@@ -261,6 +276,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     quote: { ...defaultQuoteDeps(config, fx.rates, routes, now), ...deps.quote },
     secretBox,
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
+    places,
   };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);

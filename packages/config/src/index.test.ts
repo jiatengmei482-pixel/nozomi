@@ -362,3 +362,11 @@ test("路线预估的每日调用上限（ADR 0042）：默认 1000，空值按�
   assert.equal(loadConfig({ ...base, APP_ENV: "staging", GOOGLE_ROUTES_DAILY_LIMIT: "250" }).routes.dailyLimit, 250);
   for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_ROUTES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_ROUTES_DAILY_LIMIT")), bad);
 });
+
+test("官网地址搜索和反查的每日调用上限（ADR 0044）：默认 500，空值按默认，0 = 不调用；负数、小数、超过 100 万报错；和路线的上限互不影响", () => {
+  assert.equal(loadConfig(base).places.dailyLimit, 500);
+  assert.equal(loadConfig({ ...base, GOOGLE_PLACES_DAILY_LIMIT: "" }).places.dailyLimit, 500);
+  assert.equal(loadConfig({ ...base, GOOGLE_PLACES_DAILY_LIMIT: "0" }).places.dailyLimit, 0);
+  assert.deepEqual([loadConfig({ ...base, APP_ENV: "staging", GOOGLE_PLACES_DAILY_LIMIT: "50", GOOGLE_ROUTES_DAILY_LIMIT: "7" })].map((config) => [config.places.dailyLimit, config.routes.dailyLimit])[0], [50, 7]);
+  for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_PLACES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_PLACES_DAILY_LIMIT")), bad);
+});

@@ -51,7 +51,7 @@ export class GoogleRouteEstimator implements RouteEstimator {
   /** 正在查的缓存键：同一组起终点同时来几次，只查一次、只调一次谷歌 */
   readonly #inflight = new Map<string, Promise<RouteLookup>>();
   /** 上一次失败带来的冷却：哪把密钥、什么原因、到什么时候（单调时钟） */
-  #cooldown: { key: string; code: RouteFailureCode; until: number } | null = null;
+  #cooldown: { key: string; code: RouteFailureCode; until: number; day: string } | null = null;
 
   constructor(deps: GoogleRouteEstimatorDeps) {
     this.#deps = deps;
@@ -79,7 +79,8 @@ export class GoogleRouteEstimator implements RouteEstimator {
     if (apiKey === null) return fail("NOT_CONFIGURED");
     const keyId = fingerprint(apiKey);
     const cooling = this.#cooldown;
-    if (cooling !== null && cooling.key === keyId && performance.now() < cooling.until) {
+    // 冷却只在记下它的那一天（东京时间）有效：0 点换了新的一天，前一天的「到了上限」不再挡人，也不记到新的一天
+    if (cooling !== null && cooling.key === keyId && cooling.day === routeUsageDay(this.#deps.now()) && performance.now() < cooling.until) {
       // 到了每日上限后的冷却期里直接挡下的，同样记一次「被挡下」（记不了不影响报价）
       if (cooling.code === "DAILY_LIMIT_REACHED") {
         await withPlatformTx(pool, (db) => recordRouteRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败"));
@@ -105,7 +106,7 @@ export class GoogleRouteEstimator implements RouteEstimator {
 
     if (!result.ok) {
       const cooldownMs = routeFailureCooldownMs(result.code);
-      if (cooldownMs > 0) this.#cooldown = { key: keyId, code: result.code, until: performance.now() + cooldownMs };
+      if (cooldownMs > 0) this.#cooldown = { key: keyId, code: result.code, until: performance.now() + cooldownMs, day };
       log.warn({ routeFailure: result.code }, "路线预估取不到（谷歌地图），用得到它的商品暂时无法报价");
     } else if (this.#cooldown?.key === keyId) {
       this.#cooldown = null;

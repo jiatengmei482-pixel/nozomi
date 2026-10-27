@@ -24,6 +24,10 @@ export const SALES_RATE_LIMITS = {
   site_lookup: { max: 10, windowMs: 900_000 },
   /** 用订单号找回订单：每个订单号每小时 10 次**失败**（换着地址猜同一张单也挡得住；对上的不计，ADR 0032 方案 A） */
   site_lookup_order: { max: 10, windowMs: 3_600_000 },
+  /** 官网的地址搜索和反查（ADR 0044，每次可能花钱调谷歌）：每个地址每分钟 20 次 */
+  site_places: { max: 20, windowMs: 60_000 },
+  /** 同上，每个地址每天 300 次：一个人刷不光全站的每日上限 */
+  site_places_day: { max: 300, windowMs: 86_400_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
 } as const;

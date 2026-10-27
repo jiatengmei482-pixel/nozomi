@@ -41,11 +41,13 @@ export function testEnv(databaseUrl: string): Record<string, string> {
 }
 
 /**
- * 接口集成测试（`createTestApi`）的服务进程里：谷歌地图的「测试一下」和 Stripe（收款、「测试一下」）都指向本机连不上的端口（ADR 0041），
+ * 接口集成测试（`createTestApi`）的服务进程里：谷歌地图的「测试一下」、路线、地址搜索、反查和 Stripe（收款、「测试一下」）都指向本机连不上的端口（ADR 0041），
  * 要用的测试换成本机的假服务器。只有 ci / local 认这两项，所以不放进 `testEnv`（有的测试拿它改成 staging、production 用）。
  */
 export const UNREACHABLE_INTEGRATIONS: Record<string, string> = {
   GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:1/directions/v2:computeRoutes",
+  GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:1/v1/places:searchText",
+  GOOGLE_GEOCODE_URL: "http://127.0.0.1:1/v4beta/geocode/location",
   STRIPE_API_URL: "http://127.0.0.1:1",
 };
 

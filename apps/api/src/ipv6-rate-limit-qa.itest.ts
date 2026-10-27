@@ -108,10 +108,14 @@ test("凭链接看订单、看工单（site / order-center 两处的 guest）和
 });
 
 test("ADR「窗口最长 15 分钟」属实：按来源地址的额度窗口都不超过 15 分钟（按订单号的两层不按地址，不在此列）", () => {
-  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read"] as const;
+  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read", "site_places"] as const;
   const longest = Math.max(...perAddress.map((scope) => SALES_RATE_LIMITS[scope].windowMs), LOGIN_THROTTLE_WINDOW_MS);
   assert.equal(longest, 15 * 60_000);
-  const addressScopes = Object.keys(SALES_RATE_LIMITS).filter((scope) => scope !== "quote" && scope !== "other" && scope !== "site_lookup_order");
+  // 官网地址搜索每个地址每天的额度（M3-12，ADR 0044）窗口是 24 小时，但它和 /64 的限流键同时上线（合并在 M4-11 之后），
+  // 从来没有按旧算法写过计数，ADR 0045 说的「上线时 IPv6 计数从零开始」对它不适用
+  const bornWithSlash64 = ["site_places_day"];
+  assert.equal(SALES_RATE_LIMITS.site_places_day.windowMs, 24 * 3_600_000);
+  const addressScopes = Object.keys(SALES_RATE_LIMITS).filter((scope) => scope !== "quote" && scope !== "other" && scope !== "site_lookup_order" && !bornWithSlash64.includes(scope));
   assert.deepEqual(addressScopes.sort(), [...perAddress].sort(), "新增按地址的额度时要重新核对 ADR 0045 的说法");
 });
 

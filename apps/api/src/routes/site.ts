@@ -7,6 +7,8 @@
  * - `GET /site/v1/cities`：能预订的城市和各自能订的品类（接送机、点对点、包车）；
  * - `GET /site/v1/cities/{id}/airports`：能预订接送机的机场；`GET …/charter-packages`：能选的包车套餐时长（M3-10）；
  * - `GET /site/v1/cities/{id}/places`：地址输入辅助——城市里的机场、车站、地标（主数据，不调外部地图服务，M3-10）；
+ * - `GET /site/v1/places/search`、`GET /site/v1/places/reverse`：地址搜索、地图上那一点的地址（后端代调谷歌，密钥不进浏览器；
+ *   每个地址每分钟 20 次、每天 300 次；谷歌出问题时 200 + `available: false`，页面退回常用地点和手填，M3-12，ADR 0044）；
  * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
@@ -18,7 +20,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES } from "@nozomi/domain";
+import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES, normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -26,11 +28,12 @@ import { cancelForChannel, previewCancellation } from "../services/cancellations
 import { disputeExtraCharge } from "../services/extra-charges.ts";
 import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
-import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, takeSiteSlot } from "../services/site.ts";
+import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { paymentJson, salesOrderJson } from "./sales.ts";
+import { mapConfigJson } from "./areas.ts";
 
 type Json = Record<string, unknown>;
 
@@ -88,6 +91,17 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
       return { category: "charter", pickup: pickup as { lng: number; lat: number }, packageHours: packageHours as number };
   }
 }
+
+/** 地址搜索：城市 + 关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`）。 */
+const placeSearchSchema = z.object({ city_id: uuidSchema, q: z.string().max(400) }).strict();
+/** 地图上一个位置：城市 + 坐标。 */
+const placeReverseSchema = z
+  .object({
+    city_id: uuidSchema,
+    lat: z.coerce.number().finite().min(-90).max(90),
+    lng: z.coerce.number().finite().min(-180).max(180),
+  })
+  .strict();
 
 const text = (max: number) => z.string().max(max).nullable().default(null);
 const orderSchema = z
@@ -172,13 +186,16 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
       currency: config.currency,
       payments: config.payments === null ? null : { provider: config.payments.provider, publishable_key: config.payments.publishableKey },
       support_phone: ctx.config.siteSupportPhone,
+      // 地址搜索（谷歌，后端代调）和地图底图（ADR 0044、0015）：页面按这两项决定显示哪几种选地址的方式
+      address_search: config.addressSearch,
+      map_tiles: config.open ? mapConfigJson(ctx.config.mapTiles)["tiles"] : null,
     };
   });
 
   app.get("/site/v1/cities", async (request) => {
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const cities = await siteCities(ctx);
-    return { items: cities.map((city) => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone, country_code: city.countryCode, categories: city.categories })) };
+    return { items: cities.map((city) => ({ id: city.id, code: city.code, name: city.name, timezone: city.timezone, country_code: city.countryCode, center: { lat: city.center.lat, lng: city.center.lng }, categories: city.categories })) };
   });
 
   app.get("/site/v1/cities/:id/airports", async (request) => {
@@ -197,6 +214,32 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
     return { items: places.map((place) => ({ id: place.id, type: place.type, code: place.code, name: place.name, address: place.address, location: { lng: place.lng, lat: place.lat } })) };
+  });
+
+  /** 地址搜索、反查的限速：每个地址每分钟、每天各一份额度（每次都可能花钱调谷歌） */
+  const placeSlot = async (request: FastifyRequest): Promise<void> => {
+    await takeSiteSlot(ctx, "site_places", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
+  };
+
+  app.get("/site/v1/places/search", async (request) => {
+    await placeSlot(request);
+    const input = parseInput(placeSearchSchema, request.query, "querystring");
+    const query = normalizePlaceQuery(input.q);
+    const issue = placeQueryIssue(query);
+    if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
+    const found = await siteSearchPlaces(ctx, input.city_id, query);
+    return { available: found.available, items: found.items.map((item) => ({ id: item.id, name: item.name, address: item.address, location: { lat: item.location.lat, lng: item.location.lng } })) };
+  });
+
+  app.get("/site/v1/places/reverse", async (request) => {
+    await placeSlot(request);
+    // 留空的坐标是「没填」，不能被当成 0（数字转换会把空字符串变成 0）
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const missing = (["lat", "lng"] as const).filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
+    if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: name === "lat" ? "请给出纬度" : "请给出经度" })));
+    const input = parseInput(placeReverseSchema, request.query, "querystring");
+    return siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng });
   });
 
   app.post("/site/v1/quotes", async (request) => {

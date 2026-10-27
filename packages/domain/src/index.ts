@@ -43,3 +43,4 @@ export * from "./pricing-impact.ts";
 export * from "./billing.ts";
 export * from "./audit.ts";
 export * from "./route-estimate.ts";
+export * from "./place-search.ts";

@@ -37,20 +37,28 @@ export interface BookableCity extends BookableRow {
   name: LocalizedText;
   timezone: string;
   countryCode: string;
+  /** 城市中心（地图打开时的位置，ADR 0044） */
+  center: { lat: number; lng: number };
   category: ServiceCategory;
 }
 
 /** 启用的城市里有哪些供应商上架了哪些品类的商品（每个城市 × 品类 × 供应商一行）。 */
 export async function listBookableCities(db: Db): Promise<BookableCity[]> {
-  const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; category: ServiceCategory; tenant_id: string; tenant_status: TenantStatus }>(
-    `select distinct c.id, c.code, c.name, c.timezone, c.country_code, p.category, p.tenant_id, t.status as tenant_status
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; center_lat: string; center_lng: string; category: ServiceCategory; tenant_id: string; tenant_status: TenantStatus }>(
+    `select distinct c.id, c.code, c.name, c.timezone, c.country_code, c.center_lat, c.center_lng, p.category, p.tenant_id, t.status as tenant_status
        from cities c
        join products p on p.city_id = c.id and p.status = 'published'
        join tenants t on t.id = p.tenant_id
       where c.status = 'active'
       order by c.code, p.category`,
   );
-  return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, category: row.category, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+  return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, center: { lat: Number(row.center_lat), lng: Number(row.center_lng) }, category: row.category, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
+}
+
+/** 地址搜索、反查用的城市信息（ADR 0044）：启用没有、国家、中心坐标。不存在为 null。 */
+export async function findSiteCityCenter(db: Db, cityId: string): Promise<{ active: boolean; countryCode: string; center: { lat: number; lng: number } } | null> {
+  const row = (await db.query<{ status: string; country_code: string; center_lat: string; center_lng: string }>("select status, country_code, center_lat, center_lng from cities where id = $1", [cityId])).rows[0];
+  return row === undefined ? null : { active: row.status === "active", countryCode: row.country_code, center: { lat: Number(row.center_lat), lng: Number(row.center_lng) } };
 }
 
 /** 一个包车套餐时长，带报这个时长的供应商（按渠道的授权范围过滤在调用方做）。 */

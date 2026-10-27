@@ -25,7 +25,7 @@ export const GOOGLE_MAPS_ATTEMPTS = 2;
 export const MAX_RESPONSE_BYTES = 64 * 1024;
 
 /** 读应答体的前 `MAX_RESPONSE_BYTES` 字节，够了就取消剩下的。 */
-async function readCapped(res: Response): Promise<string> {
+export async function readCapped(res: Response): Promise<string> {
   if (res.body === null) return "";
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -73,7 +73,7 @@ function errorReasons(text: string): { status: string | null; reasons: string[] 
 }
 
 /** 谷歌的错误应答归类（「测试一下」和路线预估共用）。 */
-function classifyCode(httpStatus: number, text: string): IntegrationCheckCode {
+export function classifyCode(httpStatus: number, text: string): IntegrationCheckCode {
   const { status, reasons } = errorReasons(text);
   const has = (...names: string[]): boolean => names.some((name) => reasons.includes(name));
   if (has("API_KEY_INVALID", "API_KEY_EXPIRED") || httpStatus === 401) return "KEY_INVALID";
@@ -90,7 +90,7 @@ function classify(httpStatus: number, text: string): IntegrationCheckResult {
   return checkFailed(classifyCode(httpStatus, text));
 }
 
-function isTimeout(err: unknown): boolean {
+export function isTimeout(err: unknown): boolean {
   return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
 }
 

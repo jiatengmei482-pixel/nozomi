@@ -190,8 +190,12 @@ const rawSchema = z.object({
   GOOGLE_MAPS_API_KEY: optionalString,
   // 路线预估每天（东京时间）最多调用谷歌 Routes API 几次（ADR 0042，费用控制；不是密钥）。默认 1000，0 = 不调用（里程 + 时长的商品暂时无法报价）
   GOOGLE_ROUTES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(1_000)),
-  // 「测试一下」和收款连到哪里（ADR 0041）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
+  // 官网的地址搜索和坐标反查每天（东京时间）最多调用谷歌几次（两者合计，ADR 0044，费用控制；不是密钥）。默认 500，0 = 不调用（官网只能从常用地点选、在地图上点选或手填）
+  GOOGLE_PLACES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(500)),
+  // 「测试一下」、路线、地址搜索、反查和收款连到哪里（ADR 0041、0044）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
   GOOGLE_MAPS_ROUTES_URL: optionalString,
+  GOOGLE_PLACES_SEARCH_URL: optionalString,
+  GOOGLE_GEOCODE_URL: optionalString,
   STRIPE_API_URL: optionalString,
 
   // 地图底图（栅格瓦片）。不是密钥：这些值会经接口下发给浏览器。没配 = 这个环境没有底图。见 ADR 0015。
@@ -254,6 +258,10 @@ export interface StripeConfig {
 export interface IntegrationEndpoints {
   /** 谷歌地图 Routes API 的 computeRoutes 地址 */
   googleMapsRoutesUrl: string;
+  /** 谷歌 Places API (New) 的 Text Search 地址（官网地址搜索，ADR 0044） */
+  googlePlacesSearchUrl: string;
+  /** 谷歌 Geocoding API 反查的地址前缀（后面接 `/纬度,经度`，ADR 0044） */
+  googleGeocodeUrl: string;
   /** Stripe 接口的主机；null = Stripe 官方地址 */
   stripeApi: { host: string; port: number; protocol: "http" | "https" } | null;
 }
@@ -275,6 +283,8 @@ export interface AppConfig {
   googleMapsApiKey: string | null;
   /** 路线预估（ADR 0042）：每天（东京时间）最多调用谷歌 Routes API 几次；0 = 不调用 */
   routes: { dailyLimit: number };
+  /** 官网的地址搜索和反查（ADR 0044）：每天（东京时间）最多调用谷歌几次（两者合计）；0 = 不调用 */
+  places: { dailyLimit: number };
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
   /** 汇率：数据源地址、跨币种缓冲（基点整数，150 = 1.5%）、服务进程是否定时拉取 */
@@ -335,6 +345,8 @@ function parseStripe(
 }
 
 const DEFAULT_GOOGLE_MAPS_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
+const DEFAULT_GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const DEFAULT_GOOGLE_GEOCODE_URL = "https://geocode.googleapis.com/v4beta/geocode/location";
 
 /**
  * 「测试一下」和收款连到哪里（ADR 0041）。正式的地址是默认值；只有 local / ci 可以改到本机的假服务器上（端到端测试用），
@@ -345,6 +357,14 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const routesUrl = env.GOOGLE_MAPS_ROUTES_URL ?? DEFAULT_GOOGLE_MAPS_ROUTES_URL;
   if (routesUrl !== DEFAULT_GOOGLE_MAPS_ROUTES_URL && !local) issues.push(`${env.APP_ENV} 环境不能修改 GOOGLE_MAPS_ROUTES_URL（只给本机和 CI 的测试用）`);
   if (!URL.canParse(routesUrl)) issues.push("GOOGLE_MAPS_ROUTES_URL 不是合法的网址");
+  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_GEOCODE_URL", fallback: string): string => {
+    const value = env[name] ?? fallback;
+    if (value !== fallback && !local) issues.push(`${env.APP_ENV} 环境不能修改 ${name}（只给本机和 CI 的测试用）`);
+    if (!URL.canParse(value)) issues.push(`${name} 不是合法的网址`);
+    return value;
+  };
+  const placesSearchUrl = fixed("GOOGLE_PLACES_SEARCH_URL", DEFAULT_GOOGLE_PLACES_SEARCH_URL);
+  const geocodeUrl = fixed("GOOGLE_GEOCODE_URL", DEFAULT_GOOGLE_GEOCODE_URL);
   let stripeApi: IntegrationEndpoints["stripeApi"] = null;
   if (env.STRIPE_API_URL !== undefined) {
     if (!local) issues.push(`${env.APP_ENV} 环境不能配置 STRIPE_API_URL（只给本机和 CI 的测试用）`);
@@ -355,7 +375,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
       stripeApi = { host: url.hostname, port: url.port === "" ? (protocol === "https" ? 443 : 80) : Number(url.port), protocol };
     }
   }
-  return { googleMapsRoutesUrl: routesUrl, stripeApi };
+  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googleGeocodeUrl: geocodeUrl, stripeApi };
 }
 
 /** 从环境变量构建配置；有任何问题都抛出 ConfigError，列出全部问题。 */
@@ -402,6 +422,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     stripe,
     googleMapsApiKey,
     routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
+    places: { dailyLimit: env.GOOGLE_PLACES_DAILY_LIMIT },
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },

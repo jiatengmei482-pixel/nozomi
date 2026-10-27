@@ -3,6 +3,7 @@
  * 记下收到的每个请求（方法、路径、请求头），回什么由测试随时改（`respond`），可以模拟密钥无效、没开通 API、出错、超时。
  * 默认应答是「可用」：谷歌给一条路线（6.8 公里、18 分钟），Stripe 给一份测试模式的余额。
  * 路线预估的测试（ADR 0042）看请求体（起终点、字段掩码）和请求次数（并发同一组只调一次、缓存命中不调用）。
+ * 官网地址搜索、反查（ADR 0044）：假 Places Text Search 默认找到一个地点（东京站），假 Geocoding 反查默认给一个地址。
  */
 import { type IncomingHttpHeaders, type Server, createServer } from "node:http";
 
@@ -91,4 +92,28 @@ export function startFakeGoogleRoutes(port = 0): Promise<FakeService> {
 
 export function startFakeStripe(port = 0): Promise<FakeService> {
   return startFake("", { body: stripeBalanceBody() }, port);
+}
+
+/** 谷歌 Places Text Search 的一个地点。 */
+export function googlePlace(id: string, name: string, lat: number, lng: number, address: string): unknown {
+  return { id, displayName: { text: name, languageCode: "ja" }, formattedAddress: address, location: { latitude: lat, longitude: lng } };
+}
+
+/** 谷歌 Places Text Search 的成功应答；没有地点时谷歌回空对象。 */
+export function googlePlacesBody(places: unknown[]): unknown {
+  return places.length === 0 ? {} : { places };
+}
+
+/** 谷歌 Geocoding 反查的成功应答；null = 这里没有地址（空对象）。 */
+export function googleGeocodeBody(address: string | null): unknown {
+  return address === null ? {} : { results: [{ formattedAddress: address }] };
+}
+
+export function startFakeGooglePlaces(port = 0): Promise<FakeService> {
+  return startFake("/v1/places:searchText", { body: googlePlacesBody([googlePlace("ChIJfakeTokyoStation", "東京駅", 35.6812, 139.7671, "日本、〒100-0005 東京都千代田区丸の内１丁目")]) }, port);
+}
+
+/** 假 Geocoding：`url` 是反查的前缀，请求是 `前缀/纬度,经度?…`。 */
+export function startFakeGoogleGeocode(port = 0): Promise<FakeService> {
+  return startFake("/v4beta/geocode/location", { body: googleGeocodeBody("日本、〒100-0005 東京都千代田区丸の内１丁目９") }, port);
 }

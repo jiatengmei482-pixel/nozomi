@@ -2,7 +2,8 @@
  * 官网首页：询价（M3-05 接送机；M3-10 加上点对点、包车，ADR 0032 及其补充）。
  * 客人选城市、服务（这个城市能订的那几种）、各服务自己的行程（接送机：接机 / 送机、机场、地址；点对点：上车点、下车点；包车：上车点、套餐时长）、
  * 城市当地的日期时间、人数、行李，看到各车型组的对外价、免费等待、取消政策摘要（包车还有套餐时长和公里），选一个去下单。
- * 地址可以从城市的常用地点（机场、车站、地标，主数据）里选，也可以自己写地址和坐标——不调用外部地图服务。
+ * 地址可以搜索（后端代调谷歌，M3-12）、从城市的常用地点（机场、车站、地标，主数据）里选、在地图上选点（有底图时），也可以自己写地址和坐标；
+ * 报价只看坐标（服务区按坐标判断）。浏览器不连谷歌，也不加载谷歌地图的脚本（ADR 0044）。
  * 页面上没有供应商、结算价、加价比例（接口里本来就没有）。
  * 四种状态：加载中（骨架）、官网没开 / 没有可预订的城市（空）、出错（说明怎么办 + 重试）、正常。
  */
@@ -46,7 +47,7 @@ import {
   serviceTimeLabels,
 } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
-import { AddressFields, type PlacesState, type PointDraft, type PointErrors, emptyPoint } from "./AddressFields.tsx";
+import { AddressFields, type AddressLookup, type PlacesState, type PointDraft, type PointErrors, emptyPoint } from "./AddressFields.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
 
 /** 询价时客人填的内容：带到下单页，返回修改时再带回来。 */
@@ -372,8 +373,11 @@ export function BookPage() {
   } else {
     const transfer = draft.category === "airport_transfer";
     const labels = serviceTimeLabels(draft.category, draft.direction);
+    // 地址搜索、地图选点要先选城市（搜索只在城市附近，地图从城市中心打开）
+    const lookup: AddressLookup | null =
+      city === undefined ? null : { cityId: city.id, cityName: displayName(city.name).text, center: city.center, search: config.config.address_search === true, tiles: config.config.map_tiles ?? null };
     const pointFields = pointsOf(draft).map(({ key, end }) => (
-      <AddressFields key={key} end={end} label={ADDRESS_LABELS[end]} value={draft[key]} errors={errors[key] ?? {}} places={places} onChange={(point) => update({ [key]: point })} />
+      <AddressFields key={`${key}-${draft.cityId}`} end={end} label={ADDRESS_LABELS[end]} value={draft[key]} errors={errors[key] ?? {}} places={places} lookup={lookup} onChange={(point) => update({ [key]: point })} />
     ));
     body = (
       <>

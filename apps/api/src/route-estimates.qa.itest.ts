@@ -436,6 +436,24 @@ test("每日上限按东京日期：东京 23:59:59.999 还算当天（已满、
   assert.deepEqual(rows.map((row) => [row.day, row.calls, row.refused]), [["2030-08-31", 5, 1], ["2030-09-01", 1, 0]]);
 });
 
+test("每日上限跨午夜（同一个进程、同一把密钥）：东京 23:59:59 到了上限（冷却 60 秒）后，0 点整换了新的一天立即恢复调用；前一天的冷却不挡、不把新一天记成被挡下", async (t) => {
+  t.after(cleanupFuture);
+  await withMonotonic(5_000_000, async (setNow) => {
+    let now = new Date("2030-09-24T14:59:59.000Z");
+    const google = countingCompute(() => ({ ok: true, meters: 3_000, seconds: 400 }));
+    const routes = estimator({ now: () => now, dailyLimit: 1, compute: google.compute, apiKey: () => "AIzaQaMidnightSameKey0000000001" });
+    assert.equal((await routes.estimate({ from: { lat: 27.1, lng: 128.1 }, to: { lat: 27.2, lng: 128.2 } })).ok, true);
+    assert.deepEqual(await routes.estimate({ from: { lat: 27.3, lng: 128.3 }, to: { lat: 27.4, lng: 128.4 } }), { ok: false, code: "DAILY_LIMIT_REACHED" });
+    // 单调时钟只过了 1 秒（还在 60 秒的冷却里），东京已经是 9 月 25 日 0 点
+    now = new Date("2030-09-24T15:00:00.000Z");
+    setNow(5_001_000);
+    assert.equal((await routes.estimate({ from: { lat: 27.5, lng: 128.5 }, to: { lat: 27.6, lng: 128.6 } })).ok, true);
+    assert.equal(google.calls(), 2);
+    const rows = (await api.db.owner.query("select day::text, calls, refused from route_api_usage where day in ('2030-09-24', '2030-09-25') order by day")).rows;
+    assert.deepEqual(rows.map((row) => [row.day, row.calls, row.refused]), [["2030-09-24", 1, 1], ["2030-09-25", 1, 0]]);
+  });
+});
+
 test("每日上限含重试：上限 3，两组点同时问、谷歌每组第一次 503 第二次成功——总共只发出 3 次请求（计数 3、被挡下 1），不超", async (t) => {
   t.after(cleanupFuture);
   const attempts = new Map<string, number>();
