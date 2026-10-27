@@ -26,7 +26,7 @@ import { ACTION_FILTER_OPTIONS, ACTOR_TYPE_NAMES, type DiffRow, RESOURCE_NAMES, 
 import { failureText } from "../../lib/failure.ts";
 import { FX_FETCH_BADGES, FX_PATH, FX_STATE_BADGES, fxErrorText } from "../../lib/fx-display.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { routeFailureText, routeUsageBadge } from "../../lib/route-display.ts";
+import { isAddressRouteFailure, routeFailureText, routeUsageBadge } from "../../lib/route-display.ts";
 import { tidyDate } from "../../lib/time-input.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -763,7 +763,7 @@ function RouteUsageCard({ routes }: { routes: RouteUsageStatus }) {
               <span className="route-failure">
                 <span>{when(failure.at)}</span>
                 <span className="product-code">{failure.code}</span>
-                <span className="route-failure__detail">{routeFailureText(failure.code, failure.message)}</span>
+                <span className="route-failure__detail">{`${isAddressRouteFailure(failure.code) ? "地址问题，不是服务故障：" : ""}${routeFailureText(failure.code, failure.message)}`}</span>
               </span>
             )}
           </dd>

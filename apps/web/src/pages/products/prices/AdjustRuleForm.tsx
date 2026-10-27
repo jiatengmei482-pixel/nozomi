@@ -777,8 +777,8 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
                     autoComplete="off"
                     aria-label="要添加的日期"
                     aria-invalid={bad("adjust-date-add")}
-                    aria-describedby="adjust-date-note"
-                    placeholder="2027-01-01"
+                    aria-describedby="adjust-date-example adjust-date-note"
+                    placeholder="年-月-日"
                     readOnly={saving}
                     value={dateText}
                     onChange={(event) => {
@@ -795,6 +795,9 @@ export function AdjustRuleForm({ shared, ruleId }: { shared: PricesShared; ruleI
                     添加
                   </Button>
                 </div>
+                <p className="field__hint" id="adjust-date-example">
+                  写成 2026-01-31 这样，一次加一天。
+                </p>
                 <p className="field__hint" id="adjust-date-note" role="status">
                   {dateNote}
                 </p>

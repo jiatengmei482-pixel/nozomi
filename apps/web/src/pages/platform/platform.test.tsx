@@ -945,6 +945,20 @@ test("M2-02 系统状态：路线预估卡片显示今天的调用、上限、�
   resetBrowser();
   open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, last_failure: { code: "SOMETHING_NEW", message: "新的原因", at: success } }));
   assert.match((await card()).textContent ?? "", /SOMETHING_NEW新的原因/);
+  assert.ok(within(await card()).getByText("最近一次失败", { selector: ".badge" }), "不认识的码按服务故障算");
+
+  // M4-12 地址问题（没有路线、坐标无效）不是服务故障：徽标照旧「正常」，最近一次失败那一行如实显示并标明
+  for (const [code, detail] of [["NO_ROUTE", "这两个地点之间没有可行驶的路线"], ["INVALID_POINTS", "谷歌地图认为起点或终点无效"]] as const) {
+    resetBrowser();
+    open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, calls: 5, failures: 1, last_success_at: failedAt, last_failure: { code, message: null, at: success } }));
+    const address = await card();
+    assert.ok(within(address).getByText("正常", { selector: ".badge" }), code);
+    assertAbsent(within(address).queryByText("最近一次失败", { selector: ".badge" }));
+    assert.match(address.textContent ?? "", new RegExp(`最近一次失败${time(success)}${code}地址问题，不是服务故障：${detail}`), code);
+  }
+  resetBrowser();
+  open("/platform/settings/integrations", "tech", {}, integrations({ ...ROUTES_IDLE, calls: 5, failures: 1, last_success_at: failedAt, last_failure: { code: "TIMEOUT", message: null, at: success } }));
+  assert.doesNotMatch((await card()).textContent ?? "", /地址问题/);
 
   // 到了每日上限：顶部警示提示条 + 徽标；被挡下的次数说清后果
   resetBrowser();

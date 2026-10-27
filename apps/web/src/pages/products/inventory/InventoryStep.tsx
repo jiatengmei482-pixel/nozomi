@@ -743,7 +743,7 @@ function BatchDialog({ initial, productId, today, mode, onClose, onJump, onSubmi
         autoComplete="off"
         aria-label={label}
         aria-invalid={errors(id).length > 0 || undefined}
-        placeholder="2026-10-08"
+        placeholder="年-月-日"
         readOnly={saving}
         {...(key === (initial.to === "" && initial.from !== "" ? "to" : "from") ? { "data-autofocus": true } : {})}
         value={form[key]}
@@ -812,7 +812,7 @@ function BatchDialog({ initial, productId, today, mode, onClose, onJump, onSubmi
             {dateInput("batch-to", "to", "日期到")}
           </div>
           <FieldErrors id="batch-date-error" errors={errors("batch-from", "batch-to")} />
-          <p className="field__hint">用车日期，两头都算。</p>
+          <p className="field__hint">用车日期，两头都算；写成 2026-01-31 这样。</p>
         </fieldset>
         <fieldset className="field fieldset">
           <legend className="field__label">

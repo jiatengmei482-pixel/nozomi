@@ -27,6 +27,7 @@ import {
 } from "@nozomi/domain";
 import type { PriceRuleBatch, PriceRuleBody, PriceRuleInput } from "../api/prices.ts";
 import { GROUPING_PROBLEM, otherCurrencyProblem, plainDigits, tidyAmountText } from "./amount-input.ts";
+import { kmText } from "./distance.ts";
 import { CURRENCY_NAMES, amountText, moneyText, readAmount } from "./product-display.ts";
 import { tidyDate } from "./time-input.ts";
 
@@ -87,7 +88,7 @@ export function isStationPlace(type: PlaceType | null | undefined): boolean {
 const EMPTY_VALUES: Record<PriceField, string> = { base: "", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "" };
 const halfWidth = (text: string): string => text.replace(/[０-９．，]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0xfee0));
 
-/** 整数米 → 公里的写法（最多 1 位小数），用字符串换算。 */
+/** 整数米 → 填进输入框的公里写法（最多 1 位小数），用字符串换算。只用来回填表单；显示用 distance.ts 的 `kmText`（四舍五入、千分位）。 */
 export function metersToKmText(meters: number): string {
   const tenths = Math.trunc(meters / 100);
   return tenths % 10 === 0 ? String(tenths / 10) : `${Math.trunc(tenths / 10)}.${tenths % 10}`;
@@ -408,11 +409,11 @@ export function pricingSentence(pricing: Pricing, packageHours: number | null, c
   const money = (minor: number): string => moneyText(minor, currency);
   if (pricing.model === "fixed") return `每单 ${money(pricing.basePriceMinor)}，不看里程和时长。`;
   if (pricing.model === "mileage_time") {
-    const included = [pricing.startMeters === 0 ? "起步价里不含里程" : `${metersToKmText(pricing.startMeters)} 公里`, pricing.startMinutes === 0 ? "起步价里不含时长" : `${pricing.startMinutes} 分钟`];
+    const included = [pricing.startMeters === 0 ? "起步价里不含里程" : `${kmText(pricing.startMeters)} 公里`, pricing.startMinutes === 0 ? "起步价里不含时长" : `${pricing.startMinutes} 分钟`];
     const within = pricing.startMeters === 0 && pricing.startMinutes === 0 ? `起步价 ${money(pricing.startPriceMinor)}（不含里程和时长）` : `${included.join("、")}${pricing.startMeters > 0 || pricing.startMinutes > 0 ? "以内" : ""} ${money(pricing.startPriceMinor)}`;
     const over = [pricing.perKmMinor === 0 ? "超出里程不另收" : `每公里 ${money(pricing.perKmMinor)}（不足 1 公里按比例）`, pricing.perMinuteMinor === 0 ? "超出时长不另收" : `每分钟 ${money(pricing.perMinuteMinor)}`];
     const example = basePrice(pricing, { meters: pricing.startMeters + 10_000, minutes: pricing.startMinutes + 20 });
-    return `${within}；超出的部分${over.join("、")}${pricing.minPriceMinor !== null ? `；最少收 ${money(pricing.minPriceMinor)}` : ""}。按预估的里程和时长报价，不按实际跑的结算。例：预估 ${metersToKmText(pricing.startMeters + 10_000)} 公里、${pricing.startMinutes + 20} 分钟 = ${exactMoney(example, currency)}。`;
+    return `${within}；超出的部分${over.join("、")}${pricing.minPriceMinor !== null ? `；最少收 ${money(pricing.minPriceMinor)}` : ""}。按预估的里程和时长报价，不按实际跑的结算。例：预估 ${kmText(pricing.startMeters + 10_000)} 公里、${pricing.startMinutes + 20} 分钟 = ${exactMoney(example, currency)}。`;
   }
   const over = [pricing.overtimePerHourMinor === 0 ? "超时不另收" : `超时每小时 ${money(pricing.overtimePerHourMinor)}`, pricing.overKmPerKmMinor === 0 ? "超公里不另收" : `超公里每公里 ${money(pricing.overKmPerKmMinor)}`];
   return `${packageHours ?? ""} 小时、${pricing.packageKm} 公里以内 ${money(pricing.packagePriceMinor)}；${over.join("，")}（超出的部分服务结束后按实际结算，不足 1 小时、1 公里的按比例算）。`;
