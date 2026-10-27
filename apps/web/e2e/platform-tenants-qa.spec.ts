@@ -543,6 +543,8 @@ test("平台员工的重新邀请：从列表带着邮箱（只读）、姓名�
   await expect(page).toHaveURL(/\/platform\/settings\/staff$/);
   await expect(toast(page, `已邀请「${invited.name}」`)).toBeVisible();
   expect(await leaks(page, second.token), "回到列表以后").toEqual([]);
+  // 员工越来越多，列表第一页不一定有这个人：按邮箱搜出来再看（和本文件其他用例一样）
+  await page.goto(`/platform/settings/staff?q=${encodeURIComponent(invited.email)}`);
   await expect(page.getByRole("row").filter({ hasText: invited.email })).toContainText("技术");
   const origin = new URL(page.url()).origin;
   await expectDeadLink(browser, `${origin}/platform/accept-invite#token=${invited.inviteToken}`, "邀请");
