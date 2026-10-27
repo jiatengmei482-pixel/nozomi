@@ -65,11 +65,10 @@ import {
   tiersText,
 } from "../../lib/order-money-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
-import { useCityOptions } from "../../lib/use-city-options.ts";
+import { filterCityLabel, useFilterCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { localDayInstant } from "../../lib/audit-display.ts";
-import { displayName } from "../../lib/master-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
@@ -109,8 +108,8 @@ export function PlatformOrderListPage() {
   useDocumentTitle(`订单 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("order.read");
   const [params, setParams] = useSearchParams();
-  const cities = useCityOptions(canRead);
-  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
+  const cities = useFilterCityOptions(canRead);
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: filterCityLabel(entry), detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const status = (ORDER_STATUSES as readonly string[]).includes(params.get("status") ?? "") ? (params.get("status") as OrderStatus) : null;
   const q = params.get("q") ?? "";
   const date = (name: string): string | null => {

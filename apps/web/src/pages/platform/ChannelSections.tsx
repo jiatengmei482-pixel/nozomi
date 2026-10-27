@@ -31,7 +31,7 @@ import {
 } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
 import type { SelectableCity } from "../../api/city-options.ts";
-import { type VehicleGroup, listAllMaster } from "../../api/master.ts";
+import { type VehicleGroupOption, listVehicleGroupOptions } from "../../api/master-options.ts";
 import { listAllTenants } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -192,7 +192,7 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
   const tenants = useLoad<{ items: Tenant[]; truncated: boolean }>("rule-tenants", canSeeTenants ? listAllTenants : null);
   const cities = useCityOptions();
   const myScope = useScopeCityIds();
-  const groups = useLoad<VehicleGroup[]>("rule-vehicle-groups", (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }));
+  const groups = useLoad<VehicleGroupOption[]>("rule-vehicle-groups", listVehicleGroupOptions);
   const [form, setForm] = useState<RuleForm>(() => ruleFormOf(rule));
   const [attempted, setAttempted] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -207,7 +207,14 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
   const option = (value: string, label: string) => ({ value, label });
   const tenantOptions = [option("", "请选择"), ...(tenants.state.data?.items ?? []).map((tenant) => option(tenant.id, tenant.name))];
   const cityOptions = ruleCityOptions(cities.state.data ?? [], scopeCities, rule?.city ?? null, myScope);
-  const groupOptions = [option("", "请选择"), ...(groups.state.data ?? []).filter((group) => group.status === "active" || group.id === form.vehicleGroupId).map((group) => option(group.id, `${displayName(group.name).text}（${group.code}）`))];
+  // 选项只有启用中的车型组；修改的规则原来的车型组已停用时，名称取自规则本身，标「已停用」
+  const activeGroups = (groups.state.data ?? []).map((group) => option(group.id, `${displayName(group.name).text}（${group.code}）`));
+  const originalGroup = rule?.vehicle_group ?? null;
+  const groupOptions = [
+    option("", "请选择"),
+    ...activeGroups,
+    ...(groups.state.data !== null && originalGroup !== null && !activeGroups.some((entry) => entry.value === originalGroup.id) ? [option(originalGroup.id, `${originalGroup.name ?? "（名称没有取到）"}（已停用）`)] : []),
+  ];
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     setAttempted(true);

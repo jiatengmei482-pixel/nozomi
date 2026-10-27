@@ -8,8 +8,8 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } 
 import { Link } from "react-router";
 import { type Channel, listAllChannels } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
-import { type Place, type VehicleGroup, listAllMaster } from "../../api/master.ts";
-import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, listQuotePlaces, previewPlatformQuote } from "../../api/quotes.ts";
+import { type PlaceOption, type VehicleGroupOption, listPlaceOptions, listVehicleGroupOptions } from "../../api/master-options.ts";
+import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, previewPlatformQuote } from "../../api/quotes.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -257,10 +257,14 @@ function RouteUnavailable({ code, message }: { code: string | null; message: str
   );
 }
 
-function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string>; form: QuoteForm; cityName: string }) {
+/**
+ * `groupNames` 只有启用中的车型组（车型组选项接口）。报出价的一定是启用中的；「没报出价的」里不在其中的是停用了的（原因一栏写着 VEHICLE_GROUP_DISABLED 的说明）。
+ * 车型组没取到时 `groupNames` 为 null。
+ */
+function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string> | null; form: QuoteForm; cityName: string }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [result]);
-  const groupName = (id: string | null): string => (id === null ? "整个商品" : (groupNames.get(id) ?? "车型组（名称没有加载出来）"));
+  const groupName = (id: string | null): string => (id === null ? "整个商品" : groupNames === null ? "车型组（名称没有加载出来）" : (groupNames.get(id) ?? "已停用的车型组"));
   const refusedProducts = new Set(result.refused.map((entry) => entry.product_id)).size;
   const listLink = platformProductListPath({ ...(form.cityId ? { city: form.cityId } : {}), ...(form.category ? { category: form.category } : {}), status: "published" });
   return (
@@ -364,9 +368,9 @@ export function QuotePreviewPage() {
   const canSeeChannels = usePlatformCan("channel.read");
   const channels = useLoad<{ items: Channel[]; truncated: boolean }>("quote-channels", canPreview && canSeeChannels ? listAllChannels : null);
   const cities = useCityOptions(canPreview);
-  const groups = useLoad<VehicleGroup[]>("quote-vehicle-groups", canPreview ? (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }) : null);
+  const groups = useLoad<VehicleGroupOption[]>("quote-vehicle-groups", canPreview ? listVehicleGroupOptions : null);
   const [form, setForm] = useState<QuoteForm>(emptyQuoteForm);
-  const places = useLoad<Place[]>(`quote-places:${form.cityId ?? ""}`, canPreview && form.cityId !== null && form.category === "airport_transfer" ? (session) => listQuotePlaces(session, form.cityId as string) : null);
+  const places = useLoad<PlaceOption[]>(`quote-places:${form.cityId ?? ""}`, canPreview && form.cityId !== null && form.category === "airport_transfer" ? (session) => listPlaceOptions(session, form.cityId as string, ["airport", "station"]) : null);
   const [attempted, setAttempted] = useState(false);
   const [server, setServer] = useState<Partial<Record<QuoteField, string>>>({});
   const [notice, setNotice] = useState<string | null>(null);
@@ -386,7 +390,7 @@ export function QuotePreviewPage() {
   const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: `${entry.code} · ${entry.timezone}`, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const placeOptions = useMemo(() => (places.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: `${Object.values(entry.name).join(" ")} ${entry.code}` })), [places.state.data]);
   const station = (places.state.data ?? []).find((entry) => entry.id === form.placeId)?.type === "station";
-  const groupNames = useMemo(() => new Map((groups.state.data ?? []).map((group) => [group.id, displayName(group.name).text])), [groups.state.data]);
+  const groupNames = useMemo(() => (groups.state.data === null ? null : new Map(groups.state.data.map((group) => [group.id, displayName(group.name).text]))), [groups.state.data]);
   const needed = pointsNeeded(form);
 
   const submit = async (event: FormEvent): Promise<void> => {

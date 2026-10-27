@@ -26,7 +26,7 @@ import { PRODUCT_STATUS_BADGES, brandLabel, productName } from "../../lib/produc
 import { PRODUCT_STEP_SLUGS, type ProductStepSlug } from "../../lib/product-paths.ts";
 import { PLATFORM_PRODUCT_LIST_PATH, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
-import { useCityOptions } from "../../lib/use-city-options.ts";
+import { filterCityLabel, useFilterCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { type ReturnState, readListPage } from "../master/shared.tsx";
@@ -129,8 +129,8 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
   const [params, setParams] = useSearchParams();
   const canSeeTenants = usePlatformCan("tenant.read");
   const tenants = useLoad<{ items: Tenant[]; truncated: boolean }>("platform-product-tenants", !fixedTenant && canSeeTenants ? listAllTenants : null);
-  const cities = useCityOptions();
-  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
+  const cities = useFilterCityOptions();
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: filterCityLabel(entry), detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
 
   const q = (params.get("q") ?? "").trim().slice(0, 100);
   const tenant = fixedTenant?.id ?? uuidOrNull(params.get("tenant"));

@@ -5,9 +5,7 @@
  * 金额是最小货币单位整数；`exact`、`rank_price`、`sell_exact` 等是取整之前的精确值（十进制字符串）。
  */
 import type { RouteSource, ServiceCategory } from "@nozomi/domain";
-import { listAll } from "./areas.ts";
 import { apiRequest } from "./client.ts";
-import { MASTER_BASE, type Place } from "./master.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 
 export const QUOTE_PREVIEW_PATH = `${PLATFORM_BASE}/quotes/preview`;
@@ -150,11 +148,6 @@ export interface PlatformQuotePreview {
 
 export function previewPlatformQuote(token: string, body: PlatformQuotePreviewRequest): Promise<PlatformQuotePreview> {
   return apiRequest("POST", QUOTE_PREVIEW_PATH, { token, body });
-}
-
-/** 一个城市里启用中的机场和车站（接送机试算的接送点）。 */
-export function listQuotePlaces(token: string, cityId: string): Promise<Place[]> {
-  return listAll(`${MASTER_BASE}/places`, token, { city_id: cityId, type: "airport,station", status: "active", sort: "code" });
 }
 
 /** 对账用：字段名清单。 */
