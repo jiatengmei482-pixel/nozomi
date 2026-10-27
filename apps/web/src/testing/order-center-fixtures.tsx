@@ -22,15 +22,15 @@ export const BATCH_ID = "b2b2b2b2-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
 export type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
 /**
- * 打开一个页面：运营后台的 `role` 是内置角色键，或自建角色（`custom_…`，权限按 `permissions` 给）；供应商后台是租户角色键。
+ * 打开一个页面：运营后台的 `role` 是内置角色键，或自建角色（`custom_…`，权限按 `permissions` 给，数据范围按 `dataScope` 给，默认不限）；供应商后台是租户角色键。
  * 同事名单默认有「我」和一位同事。
  */
-export function openApp(path: string, portal: "tenant" | "platform", role: string, routes: Route, permissions: string[] = []): ApiCall[] {
+export function openApp(path: string, portal: "tenant" | "platform", role: string, routes: Route, permissions: string[] = [], dataScope: { city_ids: string[] | null; channel_ids: string[] | null } = { city_ids: null, channel_ids: null }): ApiCall[] {
   signIn(portal, "the-token");
   const calls = stubApiWith((call) => {
     const custom = routes(call);
     if (custom !== null) return custom;
-    if (call.method === "GET" && call.url.pathname === "/platform/v1/auth/me") return json(200, { user: { id: ME, email: "me@platform.example", name: "测试员工", role, role_name: role.startsWith("custom_") ? "自建角色" : null, status: "active", ...stamps }, permissions, must_change_password: false });
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/auth/me") return json(200, { user: { id: ME, email: "me@platform.example", name: "测试员工", role, role_name: role.startsWith("custom_") ? "自建角色" : null, status: "active", ...stamps }, permissions, data_scope: dataScope, must_change_password: false });
     if (call.method === "GET" && call.url.pathname === "/tenant/v1/auth/me") return json(200, { user: { id: "u1", email: "user@supplier.example", name: "供应商用户", role, status: "active", ...stamps }, tenant: { id: TENANT_ID, name: "乙车队", status: "active", ...stamps }, permissions: [], must_change_password: false });
     if (call.method === "GET" && call.url.pathname === "/platform/v1/colleagues") return json(200, { items: [{ id: ME, name: "测试员工", active: true }, { id: COLLEAGUE, name: "佐藤", active: true }] });
     return null;

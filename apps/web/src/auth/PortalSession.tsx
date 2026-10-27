@@ -9,6 +9,7 @@
  *   以每次 `auth/me` 的结果为准；任何接口返回 403 `MFA_REQUIRED` 也走同一条路。两步验证在前，必须先改密码在后。
  * - 账号资料只放在内存里，不写进浏览器存储。
  */
+import { type PlatformDataScope, UNRESTRICTED_SCOPE } from "@nozomi/domain";
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { fetchMe, logout } from "../api/client.ts";
@@ -58,8 +59,19 @@ export interface CurrentAccount {
   roleName: string | null;
   /** `auth/me` 给的操作清单（运营后台的自建角色按它判断权限） */
   permissions: readonly string[];
+  /**
+   * 运营后台的数据范围（ADR 0030，`auth/me` 的 `data_scope`）：null = 不限。供应商后台、内置角色都是不限。
+   * 只决定显示什么（限定了范围的人看不到财务结算的入口，ADR 0040），真正的检查在后端。
+   */
+  dataScope: PlatformDataScope;
   /** 只有供应商后台有 */
   tenant: Tenant | null;
+}
+
+/** `auth/me` 的 `data_scope` 换成 domain 的写法；没给（旧版本后端）按不限处理——限定了范围的人点进去仍由后端拦下、页面说明原因。 */
+function dataScopeOf(scope: { city_ids?: unknown; channel_ids?: unknown } | null | undefined): PlatformDataScope {
+  const ids = (value: unknown): string[] | null => (Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : null);
+  return { cityIds: ids(scope?.city_ids), channelIds: ids(scope?.channel_ids) };
 }
 
 export type AccountState = { status: "loading" } | { status: "error" } | { status: "ready"; account: CurrentAccount };
@@ -172,7 +184,8 @@ function ActiveSession({ portal, token, children }: { portal: Portal; token: str
         const tenant = "tenant" in me ? me.tenant : null;
         const roleName = "role_name" in me.user && typeof me.user.role_name === "string" ? me.user.role_name : null;
         const permissions = Array.isArray(me.permissions) ? me.permissions : [];
-        setAccount({ status: "ready", account: { id: me.user.id, name: me.user.name, email: me.user.email, role: me.user.role, roleName, permissions, tenant } });
+        const dataScope = "data_scope" in me ? dataScopeOf(me.data_scope) : UNRESTRICTED_SCOPE;
+        setAccount({ status: "ready", account: { id: me.user.id, name: me.user.name, email: me.user.email, role: me.user.role, roleName, permissions, dataScope, tenant } });
         // 只认布尔值；给的不是布尔值时保持原样（未知就继续不显示导航）
         if (typeof me.must_change_password === "boolean") setMustChange(me.must_change_password);
         // 运营后台：两步验证的状态；后端没给（只有旧版本会这样）按已通过处理——真正的拦截在后端
