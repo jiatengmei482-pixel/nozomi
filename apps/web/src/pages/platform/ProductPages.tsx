@@ -26,9 +26,10 @@ import { PRODUCT_STATUS_BADGES, brandLabel, productName } from "../../lib/produc
 import { PRODUCT_STEP_SLUGS, type ProductStepSlug } from "../../lib/product-paths.ts";
 import { PLATFORM_PRODUCT_LIST_PATH, tenantPath } from "../../lib/platform-paths.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { type ReturnState, readListPage, useAllCities } from "../master/shared.tsx";
+import { type ReturnState, readListPage } from "../master/shared.tsx";
 import type { ProductFrame } from "../products/frame.ts";
 import { PRODUCT_STEP_TITLES, ProductSteps, checkContextOf } from "../products/ProductSteps.tsx";
 import { platformProductSource } from "../products/source.ts";
@@ -76,7 +77,7 @@ function TenantCell({ tenant, canOpen }: { tenant: ProductTenantRef; canOpen: bo
   );
 }
 
-function Filters({ fixedTenant, tenants, tenantsState, cityOptions, citiesState }: { fixedTenant: boolean; tenants: readonly Tenant[] | null; tenantsState: string | null; cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string }) {
+function Filters({ fixedTenant, tenants, tenantsState, cityOptions, citiesState, citiesEmptyText }: { fixedTenant: boolean; tenants: readonly Tenant[] | null; tenantsState: string | null; cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string; citiesEmptyText: string }) {
   const [tenant, setTenant] = useFilterParam("tenant");
   const [city, setCity] = useFilterParam("city");
   const [category, setCategory] = useFilterParam("category");
@@ -88,7 +89,7 @@ function Filters({ fixedTenant, tenants, tenantsState, cityOptions, citiesState 
       {!fixedTenant && tenantsState !== null && (
         <Combobox inline label="供应商" clearLabel="全部" placeholder="全部" options={tenantOptions} value={uuidOrNull(tenant)} onChange={setTenant} loading={tenants === null && tenantsState === "loading"} loadFailed={tenants === null && tenantsState === "error"} />
       )}
-      <Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={uuidOrNull(city)} onChange={setCity} loading={cityOptions.length === 0 && citiesState === "loading"} loadFailed={cityOptions.length === 0 && citiesState === "error"} />
+      <Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={uuidOrNull(city)} onChange={setCity} loading={cityOptions.length === 0 && citiesState === "loading"} loadFailed={cityOptions.length === 0 && citiesState === "error"} emptyText={citiesEmptyText} />
       <SelectField
         inline
         label="品类"
@@ -128,8 +129,8 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
   const [params, setParams] = useSearchParams();
   const canSeeTenants = usePlatformCan("tenant.read");
   const tenants = useLoad<{ items: Tenant[]; truncated: boolean }>("platform-product-tenants", !fixedTenant && canSeeTenants ? listAllTenants : null);
-  const cities = useAllCities();
-  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: `${displayName(entry.name).text}${entry.status === "disabled" ? "（已停用）" : ""}`, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
+  const cities = useCityOptions();
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
 
   const q = (params.get("q") ?? "").trim().slice(0, 100);
   const tenant = fixedTenant?.id ?? uuidOrNull(params.get("tenant"));
@@ -265,7 +266,7 @@ export function PlatformProductTable({ fixedTenant }: { fixedTenant?: { id: stri
   return (
     <>
       <FilterBar search={<SearchBox label="按商品名或商品编号搜索" value={q} onSearch={(value) => setParam({ q: value })} />} paramNames={filterParams.filter((key) => key !== "q" && key !== "brand" && !(key === "tenant" && !canSeeTenants))} active={filtered} onClear={clearFilters}>
-        <Filters fixedTenant={fixedTenant !== undefined} tenants={tenants.state.data?.items ?? null} tenantsState={!fixedTenant && canSeeTenants ? tenants.state.status : null} cityOptions={cityOptions} citiesState={cities.state.status} />
+        <Filters fixedTenant={fixedTenant !== undefined} tenants={tenants.state.data?.items ?? null} tenantsState={!fixedTenant && canSeeTenants ? tenants.state.status : null} cityOptions={cityOptions} citiesState={cities.state.status} citiesEmptyText={cities.emptyText} />
       </FilterBar>
       {(brandChip !== null || fixedTenantFilter !== null) && (
         <p className="filter-chips">

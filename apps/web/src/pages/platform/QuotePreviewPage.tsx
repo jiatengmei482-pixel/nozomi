@@ -32,9 +32,9 @@ import { ROUTE_SOURCE_TEXT, routeFailureText } from "../../lib/route-display.ts"
 import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
 import { tidyDate, tidyTime } from "../../lib/time-input.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { useAllCities } from "../master/shared.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 /** 页面上从上到下的顺序：提交有错时焦点落在第一处。 */
@@ -363,7 +363,7 @@ export function QuotePreviewPage() {
   const canPreview = usePlatformCan("quote.preview");
   const canSeeChannels = usePlatformCan("channel.read");
   const channels = useLoad<{ items: Channel[]; truncated: boolean }>("quote-channels", canPreview && canSeeChannels ? listAllChannels : null);
-  const cities = useAllCities();
+  const cities = useCityOptions(canPreview);
   const groups = useLoad<VehicleGroup[]>("quote-vehicle-groups", canPreview ? (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }) : null);
   const [form, setForm] = useState<QuoteForm>(emptyQuoteForm);
   const places = useLoad<Place[]>(`quote-places:${form.cityId ?? ""}`, canPreview && form.cityId !== null && form.category === "airport_transfer" ? (session) => listQuotePlaces(session, form.cityId as string) : null);
@@ -381,10 +381,9 @@ export function QuotePreviewPage() {
     setServer({});
   };
 
-  const activeCities = useMemo(() => (cities.state.data ?? []).filter((city) => city.status === "active"), [cities.state.data]);
   const city = (cities.state.data ?? []).find((entry) => entry.id === form.cityId) ?? null;
   const cityName = city ? displayName(city.name).text : "";
-  const cityOptions = useMemo(() => activeCities.map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: `${entry.code} · ${entry.timezone}`, keywords: Object.values(entry.name).join(" ") })), [activeCities]);
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: `${entry.code} · ${entry.timezone}`, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const placeOptions = useMemo(() => (places.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: `${Object.values(entry.name).join(" ")} ${entry.code}` })), [places.state.data]);
   const station = (places.state.data ?? []).find((entry) => entry.id === form.placeId)?.type === "station";
   const groupNames = useMemo(() => new Map((groups.state.data ?? []).map((group) => [group.id, displayName(group.name).text])), [groups.state.data]);
@@ -475,9 +474,9 @@ export function QuotePreviewPage() {
               onChange={(value) => change({ cityId: value, placeId: null })}
               placeholder="输入城市名或编码"
               errors={errorOf("city")}
-              loading={cities.state.data === null && cities.state.status === "loading"}
-              loadFailed={cities.state.data === null && cities.state.status === "error"}
-              emptyText="没有启用中的城市"
+              loading={cities.loading}
+              loadFailed={cities.loadFailed}
+              emptyText={cities.emptyText}
             />
           </div>
           <div id="quote-category">

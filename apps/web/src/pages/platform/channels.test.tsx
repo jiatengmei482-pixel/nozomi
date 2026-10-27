@@ -11,6 +11,7 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { ApiClient, Approval, Channel, ChannelDetail, MarkupRule } from "../../api/channels.ts";
+import type { SelectableCity } from "../../api/city-options.ts";
 import type { City, VehicleGroup } from "../../api/master.ts";
 import type { PlatformUser, Tenant } from "../../api/types.ts";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith, TENANT_EXTRAS } from "../../testing/harness.tsx";
@@ -31,6 +32,8 @@ const SECRET = "nzs_THIS-IS-THE-ONE-TIME-SECRET-0123456789abcd";
 
 const meOf = (role: string): PlatformUser => ({ id: ME_ID, email: "kato@example.com", name: "加藤", role, role_name: roleName("platform", role) ?? role, status: "active", ...stamps });
 const tenant: Tenant = { id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...TENANT_EXTRAS, ...stamps };
+/** 城市选项接口给的样子：只有编号、编码、名称、国家、时区 */
+const selectable = (city: City): SelectableCity => ({ id: city.id, code: city.code, name: city.name, country_code: city.country_code, timezone: city.timezone });
 const tokyo: City = { id: CITY_ID, code: "CTY-JP-TYO", country_code: "JP", name: { zh: "东京" }, timezone: "Asia/Tokyo", center: { lng: 139.7, lat: 35.7 }, boundary: null, status: "active", version: 1, ...stamps };
 const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business", seats: 7, name: { zh: "商务七座" }, sample_models: [], power: "fuel", combos: [{ passengers: 6, luggage: 4 }], status: "active", version: 1, ...stamps };
 const channelOf = (changes: Partial<Channel> = {}): Channel => ({
@@ -97,7 +100,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (at === `/platform/v1/channels/${CHANNEL_ID}/api-clients`) return page([clientOf()]);
     if (at === `/platform/v1/channels/${CHANNEL_ID}/quote-logs`) return json(200, { items: [], next_cursor: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [tenant], next_cursor: null });
-    if (at === "/platform/v1/master/cities") return page([tokyo]);
+    if (at === "/platform/v1/city-options") return json(200, { items: [selectable(tokyo)] });
     if (at === "/platform/v1/master/vehicle-groups") return page([group]);
     return null;
   });
@@ -277,15 +280,15 @@ test("M1-17 待审核：改对外价取整时「改之后」只写一遍币种�
   assert.doesNotMatch(document.body.textContent ?? "", /JPY JPY/);
 });
 
-const cityOf = (id: string, code: string, country: string, name: City["name"], status: City["status"] = "active"): City => ({ ...tokyo, id, code, country_code: country, name, status });
+const cityOf = (id: string, code: string, country: string, name: City["name"]): City => ({ ...tokyo, id, code, country_code: country, name });
 const OSAKA = cityOf("22222222-2222-4222-8222-222222222222", "CTY-JP-OSA", "JP", { zh: "大阪", ja: "大阪", en: "Osaka" });
 const SAPPORO = cityOf("33333333-3333-4333-8333-333333333333", "CTY-JP-SPK", "JP", { zh: "札幌", en: "Sapporo" });
 const SEOUL = cityOf("44444444-4444-4444-8444-444444444444", "CTY-KR-SEL", "KR", { en: "Seoul", ko: "서울" });
-const NAGOYA_OFF = cityOf("66666666-6666-4666-8666-666666666666", "CTY-JP-NGO", "JP", { zh: "名古屋" }, "disabled");
-const manyCities = (call: ApiCall & { url: URL }): Response | null => (call.method === "GET" && call.url.pathname === "/platform/v1/master/cities" ? page([SAPPORO, tokyo, SEOUL, NAGOYA_OFF, OSAKA]) : null);
+/** 城市选项接口（M4-13）只给启用中的城市，停用的由后端去掉 */
+const manyCities = (call: ApiCall & { url: URL }): Response | null => (call.method === "GET" && call.url.pathname === "/platform/v1/city-options" ? json(200, { items: [SAPPORO, tokyo, SEOUL, OSAKA].map(selectable) }) : null);
 const optionNames = (listbox: HTMLElement): string[] => within(listbox).queryAllByRole("option").map((option) => option.querySelector(".combobox__option-label")?.textContent ?? "");
 
-test("M1-17 新建渠道「只卖选中的城市」：城市按国家分组、按名称排，可以输入名称或编码找，选上的是可以去掉的标签；停用的不列", async () => {
+test("M1-17 新建渠道「只卖选中的城市」：城市按国家分组、按名称排，可以输入名称或编码找，选上的是可以去掉的标签", async () => {
   const actor = user();
   const calls = open("/platform/channels/new", "channel_manager", (call) => manyCities(call) ?? (call.method === "POST" && call.url.pathname === "/platform/v1/channels" ? json(201, detailOf()) : null));
   await actor.type(await screen.findByRole("textbox", { name: "名称" }), "NOZOMI 官网");
@@ -348,7 +351,7 @@ test("M1-17 加价规则的城市：只列渠道授权的城市（按名称排�
   await actor.click(screen.getByRole("button", { name: /新增加价规则/ }));
   const all = await screen.findByRole("dialog", { name: "新增加价规则" });
   await actor.click(within(all).getByRole("combobox", { name: /城市/ }));
-  await waitFor(() => assert.deepEqual(optionNames(within(all).getByRole("listbox", { name: "城市" })), ["Seoul", "大阪", "东京", "札幌"], "停用的名古屋不列"));
+  await waitFor(() => assert.deepEqual(optionNames(within(all).getByRole("listbox", { name: "城市" })), ["Seoul", "大阪", "东京", "札幌"]));
 });
 
 test("M1-17 申请调高下限被拦（RULES_BELOW_FLOOR）：列出是哪几条规则、怎么办", async () => {

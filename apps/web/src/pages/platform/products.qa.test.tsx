@@ -113,7 +113,7 @@ function open(path: string | { pathname: string; search?: string; state?: unknow
     if (at === "/platform/v1/auth/me") return json(200, { user: meOf(role), permissions: [], must_change_password: false });
     if (at === "/platform/v1/dashboard/summary") return json(200, { tenants: { active: 2, suspended: 0 }, master_data: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [{ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps }], next_cursor: null });
-    if (at === "/platform/v1/master/cities") return page([tokyo, la]);
+    if (at === "/platform/v1/city-options") return json(200, { items: [tokyo, la].map(({ id, code, name, country_code, timezone }) => ({ id, code, name, country_code, timezone })) });
     if (at === "/platform/v1/master/places") return page([haneda]);
     if (at === "/platform/v1/master/vehicle-groups") return page([group]);
     if (at === "/platform/v1/master/addons") return page([seat]);

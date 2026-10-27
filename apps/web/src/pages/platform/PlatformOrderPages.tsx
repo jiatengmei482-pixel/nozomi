@@ -65,13 +65,13 @@ import {
   tiersText,
 } from "../../lib/order-money-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { localDayInstant } from "../../lib/audit-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
-import { useAllCities } from "../master/shared.tsx";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
 import { RescueSection } from "./RescuePages.tsx";
 
@@ -84,7 +84,7 @@ const CHANGEABLE: readonly OrderStatus[] = ["confirmed", "assigned", "departed",
 /** 订单中心的筛选条件（网址参数名 → 说明）；状态、订单号原来就有，其余是 M4-02 加的。 */
 const ORDER_FILTERS = ["status", "service_from", "service_to", "created_from", "created_to", "city", "category", "exception", "passenger"] as const;
 
-function OrderFilters({ cityOptions, citiesState }: { cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string }) {
+function OrderFilters({ cityOptions, citiesState, citiesEmptyText }: { cityOptions: { value: string; label: string; detail?: string; keywords?: string }[]; citiesState: string; citiesEmptyText: string }) {
   const [status, setStatus] = useFilterParam("status");
   const [city, setCity] = useFilterParam("city");
   const [category, setCategory] = useFilterParam("category");
@@ -97,7 +97,7 @@ function OrderFilters({ cityOptions, citiesState }: { cityOptions: { value: stri
       <DateFilter name="service_to" label="到" />
       <DateFilter name="created_from" label="下单日期从" />
       <DateFilter name="created_to" label="到" />
-      <Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={uuidOrNull(city)} onChange={setCity} loading={cityOptions.length === 0 && citiesState === "loading"} loadFailed={cityOptions.length === 0 && citiesState === "error"} />
+      <Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={cityOptions} value={uuidOrNull(city)} onChange={setCity} loading={cityOptions.length === 0 && citiesState === "loading"} loadFailed={cityOptions.length === 0 && citiesState === "error"} emptyText={citiesEmptyText} />
       <SelectField inline label="品类" value={(SERVICE_CATEGORIES as readonly string[]).includes(category ?? "") ? (category as ServiceCategory) : "all"} options={[{ value: "all", label: "全部" }, ...SERVICE_CATEGORIES.map((value) => ({ value, label: POLICY_CATEGORY_NAMES[value] }))]} onChange={(value) => setCategory(value === "all" ? null : value)} />
       <TextFilter name="passenger" label="乘客" minLength={2} />
     </>
@@ -109,8 +109,8 @@ export function PlatformOrderListPage() {
   useDocumentTitle(`订单 · NOZOMI ${portal.name}`);
   const canRead = usePlatformCan("order.read");
   const [params, setParams] = useSearchParams();
-  const cities = useAllCities();
-  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: `${displayName(entry.name).text}${entry.status === "disabled" ? "（已停用）" : ""}`, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
+  const cities = useCityOptions(canRead);
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const status = (ORDER_STATUSES as readonly string[]).includes(params.get("status") ?? "") ? (params.get("status") as OrderStatus) : null;
   const q = params.get("q") ?? "";
   const date = (name: string): string | null => {
@@ -209,7 +209,7 @@ export function PlatformOrderListPage() {
         active={filtered}
         onClear={clear}
       >
-        <OrderFilters cityOptions={cityOptions} citiesState={cities.state.status} />
+        <OrderFilters cityOptions={cityOptions} citiesState={cities.state.status} citiesEmptyText={cities.emptyText} />
       </FilterBar>
       <div className="card-table">
         <DataTable

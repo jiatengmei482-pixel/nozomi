@@ -176,7 +176,8 @@ test("新建角色：勾「编辑」自动带上「查看」，去掉「查看�
   stubApiWith((call) => {
     const at = `${call.method} ${call.url.pathname}`;
     if (at === "GET /platform/v1/auth/me") return me("verified")();
-    if (at === "GET /platform/v1/master/cities" || at === "GET /platform/v1/channels") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (at === "GET /platform/v1/city-options") return json(200, { items: [] });
+    if (at === "GET /platform/v1/channels") return json(200, { items: [], next_cursor: null, total: 0 });
     if (at === "POST /platform/v1/roles") {
       created.push(call.body);
       return apiError(409, "ROLE_NAME_TAKEN", "已经有同名的角色");

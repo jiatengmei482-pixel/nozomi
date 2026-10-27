@@ -30,7 +30,8 @@ import {
   rotateApiClient,
 } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
-import { type City, type VehicleGroup, listAllMaster } from "../../api/master.ts";
+import type { SelectableCity } from "../../api/city-options.ts";
+import { type VehicleGroup, listAllMaster } from "../../api/master.ts";
 import { listAllTenants } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -50,8 +51,8 @@ import { SERVICE_CATEGORY_NAMES, displayName, formatLocalDateTime } from "../../
 import { CURRENCY_OPTIONS, amountText, moneyText, readAmount } from "../../lib/product-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
+import { unlistedCityLabel, useCityOptions, useScopeCityIds } from "../../lib/use-city-options.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { useAllCities } from "../master/shared.tsx";
 import { ImpactPreview } from "./PricingImpactPanel.tsx";
 
 const SUBMITTED = "已提交审核：另一位有审核权限的同事批准后才生效。可以在「待审核」里看进度。";
@@ -91,10 +92,11 @@ export function BelowFloorAlert({ message, lines, then }: { message: string; lin
 
 /**
  * 发起前提醒：同一渠道上已经有会和这次互相「过时」的待审核改动（M1-17）。对话框打开时取一次这个渠道待审核的改动；
- * 取不到就不提醒（不挡发起，批准时后端照样会核对版本）。
+ * 取不到就不提醒（不挡发起，批准时后端照样会核对版本）；角色没有「待审核」权限时不去取（M4-13）。
  */
 function PendingNotice({ channelId, target }: { channelId: string; target: Parameters<typeof relatedPending>[0] }) {
-  const loaded = useLoad(`channel-pending:${channelId}`, (token) => listApprovals(token, { status: "pending", resource_id: channelId, limit: 100 }));
+  const canReadApprovals = usePlatformCan("approval.read");
+  const loaded = useLoad(`channel-pending:${channelId}`, canReadApprovals ? (token) => listApprovals(token, { status: "pending", resource_id: channelId, limit: 100 }) : null);
   const related = relatedPending(target, loaded.state.data?.items ?? []);
   if (related.length === 0) return null;
   return (
@@ -171,11 +173,16 @@ function readRuleForm(form: RuleForm, floorBp: number): { errors: Partial<Record
   };
 }
 
-/** 加价规则里能选的城市：渠道授权卖的（「全部城市」= 平台启用中的全部）；修改时原来那个城市即使不在里面也留着，标出来（M1-17）。 */
-function ruleCityOptions(cities: readonly City[], scopeCities: readonly NamedRef[] | null, currentId: string): ComboboxOption[] {
+/**
+ * 加价规则里能选的城市：可选城市（启用中、自己数据范围里的，M4-13）里渠道授权卖的（「全部城市」= 全部可选城市）；
+ * 修改时原来那个城市即使不在里面也留着，标出原因（M1-17）：渠道没有授权、已停用、不在自己的数据范围里。
+ */
+function ruleCityOptions(cities: readonly SelectableCity[], scopeCities: readonly NamedRef[] | null, original: NamedRef | null, myScope: ReadonlySet<string> | null): ComboboxOption[] {
   const allowed = scopeCities === null ? null : new Set(scopeCities.map((city) => city.id));
-  const usable = cities.filter((city) => city.id === currentId || (city.status === "active" && (allowed === null || allowed.has(city.id))));
-  return cityChoices(usable).map((option) => (option.value === currentId && allowed !== null && !allowed.has(currentId) ? { ...option, label: `${option.label}（渠道没有授权）` } : option));
+  const options = cityChoices(cities.filter((city) => allowed === null || allowed.has(city.id)));
+  if (original === null || options.some((option) => option.value === original.id)) return options;
+  const selectable = cityChoices(cities.filter((city) => city.id === original.id))[0];
+  return [...options, selectable ? { ...selectable, label: `${selectable.label}（渠道没有授权）` } : { value: original.id, label: unlistedCityLabel(original.id, original.name, myScope) }];
 }
 
 function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: { channelId: string; floorBp: number; scopeCities: readonly NamedRef[] | null; rule: MarkupRule | null; onClose(): void; onDone(): void }) {
@@ -183,7 +190,8 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
   const toast = useToast();
   const canSeeTenants = usePlatformCan("tenant.read");
   const tenants = useLoad<{ items: Tenant[]; truncated: boolean }>("rule-tenants", canSeeTenants ? listAllTenants : null);
-  const cities = useAllCities();
+  const cities = useCityOptions();
+  const myScope = useScopeCityIds();
   const groups = useLoad<VehicleGroup[]>("rule-vehicle-groups", (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }));
   const [form, setForm] = useState<RuleForm>(() => ruleFormOf(rule));
   const [attempted, setAttempted] = useState(false);
@@ -198,7 +206,7 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
   const change = (changes: Partial<RuleForm>): void => setForm((current) => ({ ...current, ...changes }));
   const option = (value: string, label: string) => ({ value, label });
   const tenantOptions = [option("", "请选择"), ...(tenants.state.data?.items ?? []).map((tenant) => option(tenant.id, tenant.name))];
-  const cityOptions = ruleCityOptions(cities.state.data ?? [], scopeCities, form.cityId);
+  const cityOptions = ruleCityOptions(cities.state.data ?? [], scopeCities, rule?.city ?? null, myScope);
   const groupOptions = [option("", "请选择"), ...(groups.state.data ?? []).filter((group) => group.status === "active" || group.id === form.vehicleGroupId).map((group) => option(group.id, `${displayName(group.name).text}（${group.code}）`))];
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -239,11 +247,11 @@ function RuleDialog({ channelId, floorBp, scopeCities, rule, onClose, onDone }: 
             options={cityOptions}
             value={form.cityId === "" ? null : form.cityId}
             placeholder="输入城市名称或编码查找"
-            emptyText={scopeCities === null ? "平台还没有启用中的城市" : "这个渠道授权的城市都已停用"}
-            loading={cities.state.data === null && cities.state.status === "loading"}
-            loadFailed={cities.state.data === null && cities.state.status === "error"}
+            emptyText={scopeCities === null || cities.state.status === "forbidden" ? cities.emptyText : myScope === null ? "这个渠道授权的城市都已停用" : "这个渠道授权的城市都已停用，或不在你的数据范围里"}
+            loading={cities.loading}
+            loadFailed={cities.loadFailed}
             errors={errorOf("cityId")}
-            hint={scopeCities === null ? "这个渠道可以卖全部城市，这里列出平台启用中的城市。" : `只列这个渠道授权卖的 ${scopeCities.length} 个城市。要加别的城市，先在「编辑基本信息和授权范围」里授权。`}
+            hint={scopeCities === null ? (myScope === null ? "这个渠道可以卖全部城市，这里列出平台启用中的城市。" : "这个渠道可以卖全部城市，这里列出你的数据范围里启用中的城市。") : `只列这个渠道授权卖的 ${scopeCities.length} 个城市${myScope === null ? "" : "里你的数据范围内的"}。要加别的城市，先在「编辑基本信息和授权范围」里授权。`}
             onChange={(value) => change({ cityId: value ?? "" })}
           />
         )}
@@ -609,8 +617,11 @@ function ApiClientsCard({ channelId, canManage }: { channelId: string; canManage
 
 // ───────────── 复核记录、询价日志 ─────────────
 
+/** 这个渠道的复核记录。角色没有「待审核」权限时不去取（会被拒），说明为什么看不到（M4-13）。 */
 function ChannelApprovals({ channelId, version }: { channelId: string; version: number }) {
-  const loaded = useLoad(`channel-approvals:${channelId}:${version}`, (token) => listApprovals(token, { status: "all", resource_id: channelId, limit: 20 }));
+  const accountReady = usePortalSession().account.status === "ready";
+  const canReadApprovals = usePlatformCan("approval.read");
+  const loaded = useLoad(`channel-approvals:${channelId}:${version}`, canReadApprovals ? (token) => listApprovals(token, { status: "all", resource_id: channelId, limit: 20 }) : null);
   const items: Approval[] = loaded.state.data?.items ?? [];
   const pending = items.filter((item) => item.status === "pending").length;
   return (
@@ -619,12 +630,18 @@ function ChannelApprovals({ channelId, version }: { channelId: string; version: 
         <h2 className="card__title" id="channel-approvals-title">
           {`复核记录${pending > 0 ? `（${pending} 条待审核）` : ""}`}
         </h2>
-        <Link className="link" to={APPROVALS_PAGE_PATH}>
-          去待审核
-          <Icon name="chevron-right" />
-        </Link>
+        {canReadApprovals && (
+          <Link className="link" to={APPROVALS_PAGE_PATH}>
+            去待审核
+            <Icon name="chevron-right" />
+          </Link>
+        )}
       </div>
-      {loaded.state.data === null ? (
+      {!accountReady ? (
+        <Skeleton lines={["long"]} />
+      ) : !canReadApprovals ? (
+        <p className="table__muted">你的角色没有「看待审核的改动」这项权限，看不到这个渠道的复核记录。需要的话，请联系管理员调整角色。</p>
+      ) : loaded.state.data === null ? (
         loaded.state.status === "error" ? <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={loaded.reload}>重试</Button>} /> : <Skeleton lines={["long"]} />
       ) : items.length === 0 ? (
         <p className="table__muted">还没有发起过复核。</p>

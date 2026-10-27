@@ -109,7 +109,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (at === "/platform/v1/dashboard/summary") return json(200, { tenants: { active: 2, suspended: 0 }, master_data: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [tenantOf(), tenantOf({ id: TENANT2_ID, name: "Relaxcar" })], next_cursor: null });
     if (at === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenantOf());
-    if (at === "/platform/v1/master/cities") return page([tokyo]);
+    if (at === "/platform/v1/city-options") return json(200, { items: [tokyo].map(({ id, code, name, country_code, timezone }) => ({ id, code, name, country_code, timezone })) });
     if (at === "/platform/v1/master/places") return page([haneda]);
     if (at === "/platform/v1/master/vehicle-groups") return page([group]);
     if (at === "/platform/v1/master/addons") return page([seat]);

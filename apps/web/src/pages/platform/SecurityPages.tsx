@@ -34,9 +34,9 @@ import { ROLE_LIST_PATH, ROLE_NEW_PATH, STAFF_LIST_PATH, rolePath } from "../../
 import { roleName } from "../../lib/portal.ts";
 import { allowlistProblems, permissionMatrix, splitAllowlist, toggleGrant } from "../../lib/role-form.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { unlistedCityLabel, useCityOptions, useScopeCityIds } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { useAllCities } from "../master/shared.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 const SETTINGS = { label: "系统设置" };
@@ -588,10 +588,12 @@ export function RoleEditorPage() {
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const cities = useAllCities();
+  const cities = useCityOptions(canManage);
+  const myScope = useScopeCityIds();
   const canSeeChannels = usePlatformCan("channel.read");
   const channels = useLoad("role-editor-channels", canSeeChannels ? listAllChannels : null);
   const cityOptions = useMemo(() => cityChoices(cities.state.data ?? []), [cities.state.data]);
+  const unlistedCity = (id: string): string => unlistedCityLabel(id, (role ?? template.state.data)?.data_scope.cities.find((city) => city.id === id)?.name ?? null, myScope);
   const channelOptions = useMemo(() => (channels.state.data?.items ?? []).map((channel) => ({ value: channel.id, label: channel.name })), [channels.state.data]);
   const title = isNew ? "新建角色" : (role?.name ?? "角色");
   useDocumentTitle(`${title} · NOZOMI ${portal.name}`);
@@ -665,7 +667,7 @@ export function RoleEditorPage() {
       <RadioGroup legend="城市" name="role-city-scope" readOnly={!editable} options={[{ value: "all", label: "不限" }, { value: "listed", label: "只看选中的城市" }]} value={current.allCities ? "all" : "listed"} onChange={(value: "all" | "listed") => change({ allCities: value === "all" })} />
       {!current.allCities &&
         (editable ? (
-          <MultiCombobox label="城市" options={cityOptions} value={current.cityIds} placeholder="输入城市名称或编码查找" loading={cities.state.data === null && cities.state.status === "loading"} loadFailed={cities.state.data === null && cities.state.status === "error"} onChange={(value) => change({ cityIds: value })} />
+          <MultiCombobox label="城市" options={cityOptions} value={current.cityIds} placeholder="输入城市名称或编码查找" emptyText={cities.emptyText} allChosenText="可选的城市都已经选上了" unknownLabel={unlistedCity} loading={cities.loading} loadFailed={cities.loadFailed} onChange={(value) => change({ cityIds: value })} />
         ) : (
           <StaticField label="选中的城市">{(role?.data_scope.cities ?? []).map((city) => city.name ?? city.id).join("、") || "一个都不看"}</StaticField>
         ))}
