@@ -258,13 +258,14 @@ function RouteUnavailable({ code, message }: { code: string | null; message: str
 }
 
 /**
- * `groupNames` 只有启用中的车型组（车型组选项接口）。报出价的一定是启用中的；「没报出价的」里不在其中的是停用了的（原因一栏写着 VEHICLE_GROUP_DISABLED 的说明）。
+ * `groupNames` 只有启用中的车型组（车型组选项接口）。「没报出价的」里不在其中的是停用了的（原因一栏写着 VEHICLE_GROUP_DISABLED 的说明）；
+ * 报出价的本该都在其中，不在（如取完选项后才启用的）就写「名称没有加载出来」。
  * 车型组没取到时 `groupNames` 为 null。
  */
 function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string> | null; form: QuoteForm; cityName: string }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [result]);
-  const groupName = (id: string | null): string => (id === null ? "整个商品" : groupNames === null ? "车型组（名称没有加载出来）" : (groupNames.get(id) ?? "已停用的车型组"));
+  const groupName = (id: string | null, refused = false): string => (id === null ? "整个商品" : (groupNames?.get(id) ?? (refused && groupNames !== null ? "已停用的车型组" : "车型组（名称没有加载出来）")));
   const refusedProducts = new Set(result.refused.map((entry) => entry.product_id)).size;
   const listLink = platformProductListPath({ ...(form.cityId ? { city: form.cityId } : {}), ...(form.category ? { category: form.category } : {}), status: "published" });
   return (
@@ -345,7 +346,7 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
                           <span className="product-code">{entry.product_code ?? "—"}</span>
                         </span>
                       </th>
-                      <td>{groupName(entry.vehicle_group_id)}</td>
+                      <td>{groupName(entry.vehicle_group_id, true)}</td>
                       <td className="table__cell--wrap">{entry.message}</td>
                     </tr>
                   ))}

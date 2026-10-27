@@ -114,9 +114,9 @@ function open(path: string | { pathname: string; search?: string; state?: unknow
     if (at === "/platform/v1/dashboard/summary") return json(200, { tenants: { active: 2, suspended: 0 }, master_data: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [{ id: TENANT_ID, name: "NOZOMI 自营车队", status: "active", ...stamps }], next_cursor: null });
     if (at === "/platform/v1/city-options") return json(200, { items: [tokyo, la].map(({ id, code, name, country_code, timezone }) => ({ id, code, name, country_code, timezone })) });
-    if (at === "/platform/v1/master/places") return page([haneda]);
-    if (at === "/platform/v1/master/vehicle-groups") return page([group]);
-    if (at === "/platform/v1/master/addons") return page([seat]);
+    if (at === "/platform/v1/place-options") return json(200, { items: [haneda].map(({ id, code, type, name }) => ({ id, code, type, name })) });
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [group].map(({ id, code, name }) => ({ id, code, name })) });
+    if (at === "/platform/v1/addon-options") return json(200, { items: [seat].map(({ id, code, name, description, categories, charge_unit, status }) => ({ id, code, name, description, categories, charge_unit, status })) });
     if (at === "/platform/v1/holidays") return json(200, { items: [], countries: [] });
     if (at === "/platform/v1/products") return page([rowOf()], 1);
     if (at === `/platform/v1/products/${PRODUCT_ID}`) return json(200, detailOf());

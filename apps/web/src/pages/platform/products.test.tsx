@@ -110,9 +110,9 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (at === "/platform/v1/tenants") return json(200, { items: [tenantOf(), tenantOf({ id: TENANT2_ID, name: "Relaxcar" })], next_cursor: null });
     if (at === `/platform/v1/tenants/${TENANT_ID}`) return json(200, tenantOf());
     if (at === "/platform/v1/city-options") return json(200, { items: [tokyo].map(({ id, code, name, country_code, timezone }) => ({ id, code, name, country_code, timezone })) });
-    if (at === "/platform/v1/master/places") return page([haneda]);
-    if (at === "/platform/v1/master/vehicle-groups") return page([group]);
-    if (at === "/platform/v1/master/addons") return page([seat]);
+    if (at === "/platform/v1/place-options") return json(200, { items: [haneda].map(({ id, code, type, name }) => ({ id, code, type, name })) });
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [group].map(({ id, code, name }) => ({ id, code, name })) });
+    if (at === "/platform/v1/addon-options") return json(200, { items: [seat].map(({ id, code, name, description, categories, charge_unit, status }) => ({ id, code, name, description, categories, charge_unit, status })) });
     if (at === "/platform/v1/holidays") return json(200, { items: [], countries: [] });
     if (at === "/platform/v1/products") return page([rowOf(), rowOf({ id: PRODUCT2_ID, code: "PRD202610091200000002", title: {}, category: "charter", poi: null, poi_id: null, status: "draft", published_at: null, tenant_id: TENANT2_ID, tenant: { id: TENANT2_ID, name: "Relaxcar", status: "suspended" }, has_active_price: false, active_price_rule_count: 0 })], 2);
     if (at === `/platform/v1/products/${PRODUCT_ID}`) return json(200, detailOf());
@@ -632,7 +632,7 @@ test("报价试算的权限：只读、风控没有 quote.preview——直接打
   for (const role of ["readonly", "risk"]) {
     const calls = open("/platform/quote-preview", role);
     await screen.findByText("你没有权限查看这里");
-    assert.deepEqual(calls.filter((call) => call.path.startsWith("/platform/v1/master/vehicle-groups") || call.method === "POST"), []);
+    assert.deepEqual(calls.filter((call) => call.path.startsWith("/platform/v1/master/vehicle-groups") || call.path.startsWith("/platform/v1/vehicle-group-options") || call.method === "POST"), []);
     resetBrowser();
   }
 });
@@ -760,4 +760,47 @@ test("子品牌名自己带了币种时不重复（M1-18）：列表的子品牌
   assert.match(document.querySelector(".page__meta")?.textContent ?? "", /子品牌 测试（JPY）/);
   await waitFor(() => assert.match(document.body.textContent ?? "", /测试（JPY）/));
   assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
+});
+
+// ───────────── 下拉框改用选项接口（M4-13，ADR 0046） ─────────────
+
+/** 自建角色：权限按 auth/me 给的清单 */
+const customMe = (permissions: string[]): Route => (call) =>
+  call.method === "GET" && call.url.pathname === "/platform/v1/auth/me" ? json(200, { user: meOf("custom_m413"), permissions, data_scope: { city_ids: null, channel_ids: null }, must_change_password: false }) : null;
+const masterCalls = (calls: ApiCall[]): string[] => calls.map((call) => call.path).filter((path) => path.startsWith("/platform/v1/master/"));
+
+test("M4-13 自建角色只有报价试算：城市、机场车站、车型组都来自选项接口（机场车站按城市和类型取），不请求主数据；没报出价的停用车型组写「已停用的车型组」", async () => {
+  const OLD_GROUP = "56565656-5656-4565-8565-565656565656";
+  const refused = { tenant_id: TENANT_ID, tenant_name: "NOZOMI 自营车队", product_id: PRODUCT_ID, product_code: "PRD-A", vehicle_group_id: OLD_GROUP, reason: "VEHICLE_GROUP_DISABLED", message: "这个车型组已被平台停用" };
+  const me = customMe(["quote.preview"]);
+  const calls = open("/platform/quote-preview", "custom_m413", (call) => me(call) ?? (call.method === "POST" && call.url.pathname === "/platform/v1/quotes/preview" ? json(200, previewOf({ refused: [refused] })) : null));
+  await fillTransfer();
+  await user().click(screen.getByRole("button", { name: "试算" }));
+  await screen.findByRole("heading", { level: 3, name: "商务七座" });
+  const table = (screen.getByRole("heading", { level: 3, name: "没报出价的（1）" }).closest("section") as HTMLElement).textContent ?? "";
+  assert.match(table, /已停用的车型组这个车型组已被平台停用/);
+  assert.ok(calls.some((call) => call.path === `/platform/v1/place-options?city_id=${CITY_ID}&type=airport%2Cstation`), calls.map((call) => call.path).join("\n"));
+  assert.ok(calls.some((call) => call.path === "/platform/v1/vehicle-group-options"));
+  assert.deepEqual(masterCalls(calls), []);
+});
+
+test("M4-13 自建角色只有商品查看：商品详情的附加服务来自附加服务选项（连已停用的），商品里勾着、已停用的写「平台已停用」；列表的城市筛选列出已停用的城市并标出", async () => {
+  const me = customMe(["product.read"]);
+  const NAGOYA = { id: "12121212-1212-4121-8121-121212121212", code: "CTY-JP-NGO", name: { zh: "名古屋" }, country_code: "JP", timezone: "Asia/Tokyo", status: "disabled" };
+  const routes: Route = (call) =>
+    me(call) ??
+    (call.method === "GET" && call.url.pathname === "/platform/v1/addon-options" ? json(200, { items: [{ id: seat.id, code: seat.code, name: seat.name, description: seat.description, categories: seat.categories, charge_unit: seat.charge_unit, status: "disabled" }] }) : null) ??
+    (call.method === "GET" && call.url.pathname === "/platform/v1/city-options" ? json(200, { items: [{ id: CITY_ID, code: "CTY-JP-TYO", name: { zh: "东京" }, country_code: "JP", timezone: "Asia/Tokyo", status: "active" }, NAGOYA] }) : null);
+  const calls = open(`/platform/products/${PRODUCT_ID}/service-rules`, "custom_m413", routes);
+  await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
+  await waitFor(() => assert.match(document.body.textContent ?? "", /儿童座椅[\s\S]*平台已停用/));
+  assert.ok(calls.some((call) => call.path === "/platform/v1/addon-options?include_disabled=true"));
+  assert.deepEqual(masterCalls(calls), []);
+  resetBrowser();
+
+  const listCalls = open("/platform/products", "custom_m413", routes);
+  await user().click(await screen.findByRole("combobox", { name: "城市" }));
+  await waitFor(() => assert.deepEqual(within(screen.getByRole("listbox", { name: "城市" })).getAllByRole("option").map((option) => option.querySelector(".combobox__option-label")?.textContent), ["全部", "东京", "名古屋（已停用）"]));
+  assert.ok(listCalls.some((call) => call.path === "/platform/v1/city-options?include_disabled=true"));
+  assert.deepEqual(masterCalls(listCalls), []);
 });

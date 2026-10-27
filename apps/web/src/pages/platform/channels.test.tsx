@@ -101,7 +101,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (at === `/platform/v1/channels/${CHANNEL_ID}/quote-logs`) return json(200, { items: [], next_cursor: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [tenant], next_cursor: null });
     if (at === "/platform/v1/city-options") return json(200, { items: [selectable(tokyo)] });
-    if (at === "/platform/v1/master/vehicle-groups") return page([group]);
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [group].map(({ id, code, name }) => ({ id, code, name })) });
     return null;
   });
   render(

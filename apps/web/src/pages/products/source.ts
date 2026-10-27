@@ -5,8 +5,8 @@
  * 运营后台里只读查看某个供应商的商品（数据来自 `GET /platform/v1/products/{id}` 一次取回的详情，ADR 0021）。
  * 步骤组件不直接调接口、不直接拼地址，都经由这里。
  */
-import type { Addon, VehicleGroup } from "../../api/master.ts";
-import { listAllMaster } from "../../api/master.ts";
+import type { VehicleGroup } from "../../api/master.ts";
+import { type AddonOption, listAddonOptions } from "../../api/master-options.ts";
 import { getPlatformHolidays } from "../../api/platform-products.ts";
 import { type AdjustRules, type Holidays, type PriceRules, getAdjustRules, getHolidays, getPriceRules } from "../../api/prices.ts";
 import { type ProductContentResponse, type ProductServiceRules, getProductContent, getServiceRules, listTenantAddons, listTenantVehicleGroups } from "../../api/products.ts";
@@ -26,8 +26,8 @@ export interface ProductSource {
   adjustRules(token: string, id: string): Promise<AdjustRules>;
   /** 平台的车型组（连已停用的）；不需要时为 null（只读查看时商品里已经带着所选车型组的全部信息） */
   vehicleGroups: ((token: string) => Promise<VehicleGroup[]>) | null;
-  /** 平台的附加服务目录（连已停用的） */
-  addons(token: string): Promise<Addon[]>;
+  /** 平台的附加服务目录（连已停用的）：供应商后台走租户的主数据，运营后台走附加服务选项接口（ADR 0046） */
+  addons(token: string): Promise<AddonOption[]>;
   holidays(token: string, values: { from: string; to: string }): Promise<Holidays>;
 }
 
@@ -66,7 +66,7 @@ export function platformProductSource(base: string, parts: PlatformProductParts)
     priceRules: () => Promise.resolve(parts.priceRules),
     adjustRules: () => Promise.resolve(parts.adjustRules),
     vehicleGroups: null,
-    addons: (token) => listAllMaster("addons", token, { status: "all", sort: "code" }),
+    addons: listAddonOptions,
     holidays: getPlatformHolidays,
   };
 }

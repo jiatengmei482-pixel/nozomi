@@ -88,7 +88,7 @@ function open(path: string, role: string, routes: Route = () => null): ApiCall[]
     if (at === `/platform/v1/channels/${CHANNEL_ID}/api-clients`) return page([clientOf()]);
     if (at === `/platform/v1/channels/${CHANNEL_ID}/quote-logs`) return json(200, { items: [], next_cursor: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [], next_cursor: null });
-    if (at === "/platform/v1/master/vehicle-groups") return page([]);
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [] });
     if (at === "/platform/v1/city-options") return json(200, { items: [] });
     return null;
   });

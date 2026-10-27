@@ -120,7 +120,7 @@ function open(path: string, role: string, routes: Route = () => null, approvals:
     if (at === `/platform/v1/channels/${CHANNEL_ID}/quote-logs`) return json(200, { items: [], next_cursor: null });
     if (at === "/platform/v1/tenants") return json(200, { items: [tenant], next_cursor: null });
     if (at === "/platform/v1/city-options") return json(200, { items: [tokyo].map(({ id, code, name, country_code, timezone }) => ({ id, code, name, country_code, timezone })) });
-    if (at === "/platform/v1/master/vehicle-groups") return page([group]);
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [group].map(({ id, code, name }) => ({ id, code, name })) });
     return null;
   });
   render(

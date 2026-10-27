@@ -61,7 +61,7 @@ function routes(cities: SelectableCity[], detail: ChannelDetail = { channel: cha
     if (at === `/platform/v1/channels/${CHANNEL_ID}/api-clients`) return json(200, { items: [], next_cursor: null });
     if (at === `/platform/v1/channels/${CHANNEL_ID}/quote-logs`) return json(200, { items: [], next_cursor: null });
     if (at === "/platform/v1/orders" || at === "/platform/v1/products") return json(200, { items: [], next_cursor: null, total: 0 });
-    if (at === "/platform/v1/master/vehicle-groups") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (at === "/platform/v1/vehicle-group-options") return json(200, { items: [] });
     return null;
   };
 }
@@ -156,7 +156,7 @@ test("自建角色只有订单查看：订单列表的城市筛选列出城市�
   const box = await screen.findByRole("combobox", { name: "城市" });
   await actor.click(box);
   await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["全部", "大阪"]));
-  assert.ok(calls.some((call) => call.path === "/platform/v1/city-options"));
+  assert.ok(calls.some((call) => call.path === "/platform/v1/city-options?include_disabled=true"), "列表筛选连已停用的城市也要");
   assert.deepEqual(masterCityCalls(calls), []);
 });
 
@@ -188,4 +188,24 @@ test("自建角色只有角色查看和编辑：编辑角色的数据范围时�
   await actor.click(screen.getByRole("combobox", { name: /城市/ }));
   await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["大阪"]));
   assert.deepEqual(masterCityCalls(calls), []);
+});
+
+test("修改加价规则：原来的车型组已停用（车型组选项里没有），仍选着并写明「已停用」；车型组来自车型组选项、不请求主数据", async () => {
+  const actor = userEvent.setup();
+  const LUX = { id: "35353535-3535-4535-8535-353535353535", name: "豪华四座" };
+  const calls = openApp(`/platform/channels/${CHANNEL_ID}`, "platform", CUSTOM, routes([TOKYO], { channel: channelOf(), markup_rules: [ruleOf({ level: 3, city: { id: TOKYO.id, name: "东京" }, vehicle_group: LUX })] }), CHANNEL_EDITOR);
+  await actor.click(await screen.findByRole("button", { name: /^修改 / }));
+  const dialog = await screen.findByRole("dialog", { name: "修改加价规则" });
+  const select = within(dialog).getByRole("combobox", { name: /车型组/ }) as HTMLSelectElement;
+  await waitFor(() => assert.equal(select.selectedOptions[0]?.textContent, "豪华四座（已停用）"));
+  assert.ok(calls.some((call) => call.path === "/platform/v1/vehicle-group-options"));
+  assert.ok(!calls.some((call) => call.path.startsWith("/platform/v1/master/")));
+});
+
+test("订单列表的城市筛选：连已停用的城市也列出（筛历史订单），名字后面标「（已停用）」", async () => {
+  const actor = userEvent.setup();
+  const nagoya = { id: NAGOYA.id, code: "CTY-JP-NGO", name: { zh: "名古屋" }, country_code: "JP", timezone: "Asia/Tokyo", status: "disabled" as const };
+  openApp("/platform/orders", "platform", CUSTOM, routes([{ ...TOKYO, status: "active" } as SelectableCity, nagoya]), ["order.read"]);
+  await actor.click(await screen.findByRole("combobox", { name: "城市" }));
+  await waitFor(() => assert.deepEqual(optionNames(screen.getByRole("listbox", { name: "城市" })), ["全部", "东京", "名古屋（已停用）"]));
 });
