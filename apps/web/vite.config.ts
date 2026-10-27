@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { type Plugin, type ProxyOptions, defineConfig } from "vite";
-import { contentSecurityPolicy, inlineScriptHashes } from "./build/edge-config.ts";
+import { contentSecurityPolicy, inlineScriptHashes, isSitePagePath } from "./build/edge-config.ts";
 import { API_PATH_PREFIXES } from "./src/lib/api-prefixes.ts";
 
 const apiOrigin = process.env["NOZOMI_API_ORIGIN"] ?? "http://localhost:8080";
@@ -20,6 +20,7 @@ const proxy: Record<string, ProxyOptions> = Object.fromEntries(
 /**
  * `vite preview`（端到端测试用它提供构建好的前端）带上和正式环境同一条内容安全策略：
  * 策略由同一个函数从同一份构建产物算出，所以策略一旦会拦掉页面需要的东西，端到端测试先失败。
+ * 官网页面（/book…）用放行了 Stripe.js 的那一条（ADR 0046），其余页面不放行，和正式环境一致。
  * 开发服务器（`vite`）不加：热更新要用内联脚本。
  * 地图底图的图片来源在正式环境由部署时的 MAP_TILE_CSP_SOURCES 填进策略（ADR 0015）；这里对应的是 NOZOMI_MAP_TILE_CSP_SOURCES
  *（空格分隔），端到端测试把本机的假瓦片服务填进来。没设就是只认同源。
@@ -30,9 +31,11 @@ function previewContentSecurityPolicy(): Plugin {
     configurePreviewServer(server) {
       const indexHtml = readFileSync(new URL("./dist/index.html", import.meta.url), "utf8");
       const imageSources = (process.env["NOZOMI_MAP_TILE_CSP_SOURCES"] ?? "").split(/\s+/).filter((source) => source !== "");
-      const policy = imageSources.length === 0 ? contentSecurityPolicy(inlineScriptHashes(indexHtml)) : contentSecurityPolicy(inlineScriptHashes(indexHtml), imageSources);
-      server.middlewares.use((_request, response, next) => {
-        response.setHeader("Content-Security-Policy", policy);
+      const policy = contentSecurityPolicy(inlineScriptHashes(indexHtml), imageSources);
+      // 官网页面（/book…）多放行 Stripe.js 的来源（ADR 0046），和正式环境 Caddy 的两条一致
+      const sitePolicy = contentSecurityPolicy(inlineScriptHashes(indexHtml), imageSources, { payments: true });
+      server.middlewares.use((request, response, next) => {
+        response.setHeader("Content-Security-Policy", isSitePagePath(request.url ?? "") ? sitePolicy : policy);
         next();
       });
     },

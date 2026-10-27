@@ -7,6 +7,7 @@
  *    不手抄：改了那段脚本、或构建工具改了它的输出，策略自动跟着变。
  *    唯一按环境变的部分是地图底图的图片来源（ADR 0015）：同一份镜像要部署到底图不同的环境，所以片段里留一个
  *    Caddy 的环境变量占位，由部署时的 `MAP_TILE_CSP_SOURCES` 填入；没配就是只认同源。
+ *    策略分两条（ADR 0046）：官网页面（`/book` 和它下面）多放行 Stripe.js 必需的几个来源（付款），其余页面（两个后台、登录等）不放行。
  *
  * 纯函数，不读写文件；命令行入口在同目录的 edge-config-cli.ts。
  */
@@ -50,25 +51,52 @@ const MAP_TILE_CSP_PLACEHOLDER = `{$${MAP_TILE_CSP_SOURCES_ENV}}`;
 const IMAGE_SOURCE = /^(https:\/\/[A-Za-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost))(:[0-9]{1,5})?$/;
 
 /**
- * 全站的内容安全策略。前端不加载任何站外的脚本、样式、字体，不用内联样式（ADR 0011），所以除了按哈希放行的内联脚本，一律只认同源。
- * 例外只有一个：地图底图的瓦片图片（ADR 0015）——`imageSources` 里的来源加进 `img-src`，别的指令不动。
+ * 官网页面的路径前缀（前端路由 `SITE_HOME_PATH`，src/lib/site-display.ts；site-csp.test.ts 核对两边一致）。
+ * 只有这些页面的策略放行 Stripe：这个前缀本身和它下面的全部路径，与 Caddy `path /book /book/*` 的匹配一致。
+ */
+export const SITE_PAGE_PREFIX = "/book";
+
+export function isSitePagePath(url: string): boolean {
+  const path = url.split(/[?#]/)[0] ?? "";
+  return path === SITE_PAGE_PREFIX || path.startsWith(`${SITE_PAGE_PREFIX}/`);
+}
+
+/**
+ * Stripe.js（付款表单、3D 验证）必需的来源，按 Stripe 官方文档「Content Security Policy」的清单取最小集（ADR 0046）：
+ * - script-src：Stripe.js 本身（js.stripe.com，及它按版本拆出去的 *.js.stripe.com）；
+ * - frame-src：付款表单的 iframe（js.stripe.com、*.js.stripe.com）、3D 验证的 iframe（hooks.stripe.com）；
+ * - connect-src：Stripe.js 调 Stripe 的接口（api.stripe.com）。
+ * 不放 Stripe 文档里给地址自动补全用的 maps.googleapis.com（本站不用 Stripe 的地址表单）；不放 img-src（Stripe 的图片都在它自己的 iframe 里）。
+ */
+export const STRIPE_CSP_SOURCES = {
+  script: ["https://js.stripe.com", "https://*.js.stripe.com"],
+  frame: ["https://js.stripe.com", "https://*.js.stripe.com", "https://hooks.stripe.com"],
+  connect: ["https://api.stripe.com"],
+} as const;
+
+/**
+ * 内容安全策略。前端不加载任何站外的脚本、样式、字体，不用内联样式（ADR 0011），所以除了按哈希放行的内联脚本，一律只认同源。
+ * 例外两个：地图底图的瓦片图片（ADR 0015）——`imageSources` 里的来源加进 `img-src`；
+ * 官网页面的付款（ADR 0046）——`payments` 为真时按 `STRIPE_CSP_SOURCES` 加进 script-src、connect-src，另加一条 frame-src。
  * `frame-ancestors 'none'` 与 X-Frame-Options: DENY 同义，两个都留：老浏览器只认后者。
  */
-export function contentSecurityPolicy(scriptHashes: readonly string[], imageSources: readonly string[] = []): string {
+export function contentSecurityPolicy(scriptHashes: readonly string[], imageSources: readonly string[] = [], options: { payments?: boolean } = {}): string {
   for (const hash of scriptHashes) {
     if (!/^sha256-[A-Za-z0-9+/]{43}=$/.test(hash)) throw new Error(`不是合法的 sha256 哈希：${hash}`);
   }
   for (const source of imageSources) {
     if (source !== MAP_TILE_CSP_PLACEHOLDER && !IMAGE_SOURCE.test(source)) throw new Error(`不能放进 img-src 的图片来源：${source}`);
   }
-  const scriptSources = ["'self'", ...scriptHashes.map((hash) => `'${hash}'`)];
+  const payments = options.payments === true;
+  const scriptSources = ["'self'", ...scriptHashes.map((hash) => `'${hash}'`), ...(payments ? STRIPE_CSP_SOURCES.script : [])];
   return [
     "default-src 'self'",
     `script-src ${scriptSources.join(" ")}`,
     "style-src 'self'",
     ["img-src 'self'", ...imageSources].join(" "),
     "font-src 'self'",
-    "connect-src 'self'",
+    ["connect-src 'self'", ...(payments ? STRIPE_CSP_SOURCES.connect : [])].join(" "),
+    ...(payments ? [`frame-src ${STRIPE_CSP_SOURCES.frame.join(" ")}`] : []),
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -85,13 +113,23 @@ export function apiPathPatterns(prefixes: readonly string[] = API_PATH_PREFIXES)
   });
 }
 
-/** 生成给 deploy/Caddyfile import 的片段：`@api` 匹配器和 CSP 响应头。参数是构建好的 index.html 的内容。 */
+/** Caddy 的 path 匹配器参数：官网页面（前缀本身和它下面的全部路径）。 */
+export const SITE_PAGE_PATTERNS = [SITE_PAGE_PREFIX, `${SITE_PAGE_PREFIX}/*`] as const;
+
+/**
+ * 生成给 deploy/Caddyfile import 的片段：`@api` 匹配器和 CSP 响应头。参数是构建好的 index.html 的内容。
+ * CSP 两条：官网页面（`@site_pages`）带 Stripe 的来源，其余（`@other_pages`）不带；两个匹配器互斥，每个响应恰好一条。
+ */
 export function renderEdgeConfig(indexHtml: string): string {
   const hashes = inlineScriptHashes(indexHtml);
+  const site = SITE_PAGE_PATTERNS.join(" ");
   return [
     "# 构建前端镜像时由 apps/web/build/edge-config.ts 生成，不要手工修改。",
     `@api path ${apiPathPatterns().join(" ")}`,
-    `header Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER])}"`,
+    `@site_pages path ${site}`,
+    `@other_pages not path ${site}`,
+    `header @site_pages Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER], { payments: true })}"`,
+    `header @other_pages Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER])}"`,
     "",
   ].join("\n");
 }

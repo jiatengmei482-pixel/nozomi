@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import {
   EDGE_CONFIG_PATH,
+  SITE_PAGE_PATTERNS,
   WEB_ROOT_PATH,
   apiPathPatterns,
   contentSecurityPolicy,
@@ -115,14 +116,22 @@ test("归 API 的路径：Caddy 的匹配器、前端的 isApiPath、Vite 代理
   assert.throws(() => apiPathPatterns([]), /空的/);
 });
 
-test("生成的 Caddy 片段：只有 @api 匹配器和内容安全策略两条指令，策略里的哈希来自传入的页面", () => {
+test("生成的 Caddy 片段：@api 匹配器、官网页面和其余页面两个互斥的匹配器、各一条内容安全策略，策略里的哈希来自传入的页面", () => {
   const lines = codeOf(renderEdgeConfig(indexHtml)).split("\n").filter(Boolean);
-  assert.equal(lines.length, 2);
+  assert.equal(lines.length, 5);
   assert.equal(lines[0], `@api path ${apiPathPatterns().join(" ")}`);
+  // 官网页面（/book 和它下面）的策略多放行 Stripe.js（ADR 0046）；其余页面（两个后台、登录）不放行
+  assert.deepEqual([...SITE_PAGE_PATTERNS], ["/book", "/book/*"]);
+  assert.equal(lines[1], "@site_pages path /book /book/*");
+  assert.equal(lines[2], "@other_pages not path /book /book/*");
   // 图片来源里有一个 Caddy 的环境变量占位：部署时由 MAP_TILE_CSP_SOURCES 填入（地图底图的来源，ADR 0015），没配就是空
-  assert.equal(lines[1], `header Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"])}"`);
-  assert.match(lines[1] ?? "", /; img-src 'self' \{\$MAP_TILE_CSP_SOURCES\}; font-src 'self';/);
-  assert.equal((lines[1] ?? "").split("{$").length, 2, "整条策略里只有这一处按环境变化");
+  assert.equal(lines[3], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
+  assert.equal(lines[4], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"])}"`);
+  assert.ok(!/stripe/.test(lines[4] ?? ""), "后台和登录页的策略不放行 Stripe");
+  for (const line of lines.slice(3)) {
+    assert.match(line, /; img-src 'self' \{\$MAP_TILE_CSP_SOURCES\}; font-src 'self';/);
+    assert.equal(line.split("{$").length, 2, "整条策略里只有这一处按环境变化");
+  }
   assert.notEqual(renderEdgeConfig(indexHtml.replace("nozomi.theme", "nozomi.theme2")), renderEdgeConfig(indexHtml), "页面里的脚本变了，策略跟着变");
 });
 
@@ -268,9 +277,9 @@ test("冒烟：两种入口模式都经反向代理检查前端、接口前缀�
 
 test("端到端测试用的 vite preview 带同一条内容安全策略（同一个函数、同一份构建产物）；文档写明了做法", async () => {
   const viteConfig = await readText("apps/web/vite.config.ts");
-  assert.match(viteConfig, /import \{ contentSecurityPolicy, inlineScriptHashes \} from "\.\/build\/edge-config\.ts";/);
-  // 第一个参数必须是这份构建产物的脚本哈希；可以带第二个参数（图片来源，地图底图用，ADR 0015）
-  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*contentSecurityPolicy\(inlineScriptHashes\(indexHtml\)(?:, [A-Za-z]+)?\)[\s\S]*response\.setHeader\("Content-Security-Policy", policy\)/);
+  assert.match(viteConfig, /import \{ contentSecurityPolicy, inlineScriptHashes, isSitePagePath \} from "\.\/build\/edge-config\.ts";/);
+  // 第一个参数必须是这份构建产物的脚本哈希；可以带第二个参数（图片来源，地图底图用，ADR 0015）；官网页面那一条带 payments（ADR 0046）
+  assert.match(viteConfig, /configurePreviewServer\(server\) \{[\s\S]*const policy = contentSecurityPolicy\(inlineScriptHashes\(indexHtml\)(?:, [A-Za-z]+)?\);[\s\S]*const sitePolicy = contentSecurityPolicy\(inlineScriptHashes\(indexHtml\), [A-Za-z]+, \{ payments: true \}\);[\s\S]*response\.setHeader\("Content-Security-Policy", isSitePagePath\(request\.url \?\? ""\) \? sitePolicy : policy\)/);
   assert.match(viteConfig, /plugins: \[react\(\), previewContentSecurityPolicy\(\)\]/);
 
   const adr = await readText("docs/adr/0007-vps-deployment.md");
