@@ -20,6 +20,11 @@ export function forbidden(required: string): AppError {
   return new AppError(403, "FORBIDDEN", "当前角色没有这个操作的权限", { required });
 }
 
+/** 接口允许几种操作中的任一种（如选项接口，ADR 0046）而当前角色一种都没有：`details.required_any` 列出这几种。 */
+export function forbiddenAny(requiredAny: readonly string[]): AppError {
+  return new AppError(403, "FORBIDDEN", "当前角色没有这个操作的权限", { required_any: [...requiredAny] });
+}
+
 /** 账号正在用临时密码：除了查看自己、修改密码、退出，其余接口都先返回这个错误（ADR 0013）。 */
 export function passwordChangeRequired(): AppError {
   return new AppError(403, "PASSWORD_CHANGE_REQUIRED", "请先修改密码，再继续使用");

@@ -7,6 +7,7 @@ import { PLATFORM_ACTIONS, PLATFORM_ROLES, type PlatformAction, type PlatformRol
 import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { FAKE_SECRETS, leakedSecrets } from "./testing/fixtures.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
+import { OPTION_ACTIONS } from "./routes/master-options.ts";
 
 let api: TestApi;
 let rootToken: string;
@@ -198,6 +199,15 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   ]),
 ];
 
+/**
+ * 允许几种操作中任一种的接口（运营后台的选项接口，ADR 0046）：一种都没有的 403，`details.required_any` 列出这几种。
+ * 内置角色都有 `master_data.read`，所以这里全部放行；自建角色缺权限的情况在 master-options.itest.ts。
+ */
+const ANY_OF: { url: string; actions: readonly PlatformAction[] }[] = Object.entries(OPTION_ACTIONS).map(([url, actions]) => ({
+  url: url === "/platform/v1/place-options" ? `${url}?city_id=${MISSING}&type=airport` : url,
+  actions,
+}));
+
 test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对应操作的一律 403，有的不是 403", async () => {
   for (const { key: role } of PLATFORM_ROLES) {
     for (const route of PROTECTED) {
@@ -215,6 +225,12 @@ test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对�
         });
       }
     }
+    for (const route of ANY_OF) {
+      const res = await api.call("GET", route.url, { token: tokens.get(role)! });
+      const label = `${role} → GET ${route.url}`;
+      if (route.actions.some((action) => platformRoleCan(role, action))) assert.equal(res.status, 200, label);
+      else assert.deepEqual([res.status, res.body.error], [403, { code: "FORBIDDEN", message: "当前角色没有这个操作的权限", details: { required_any: route.actions } }], label);
+    }
   }
 });
 
@@ -231,6 +247,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
   const tested = [
     ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
+    ...ANY_OF.map((r) => `GET ${r.url.split("?")[0]}`),
   ].sort();
   assert.deepEqual(tested, registered);
 });

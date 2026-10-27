@@ -245,6 +245,11 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/approvals/${ids.userId}/approve`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/reject`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/withdraw`, {}],
+      // 运营后台下拉框的选项（M4-13，ADR 0046）
+      ["GET", "/platform/v1/city-options"],
+      ["GET", "/platform/v1/vehicle-group-options"],
+      ["GET", `/platform/v1/place-options?city_id=${ids.userId}&type=airport`],
+      ["GET", "/platform/v1/addon-options"],
       ...MASTER_RESOURCES.flatMap((resource): [HttpMethod, string, unknown?][] => [
         ["GET", `/platform/v1/master/${resource}`],
         ["POST", `/platform/v1/master/${resource}`, {}],
@@ -395,7 +400,7 @@ test("清单没有漏：上面手写的「业务接口」覆盖了全部已注�
     .map((route) => `${route.method} ${route.path.replace(/:[A-Za-z]+/g, ":id")}`)
     .sort();
   const listed = (["platform", "tenant"] as const)
-    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id", holiday: { country: ":id", date: ":id" }, integration: ":id" }).map(([method, url]) => `${method} ${url}`))
+    .flatMap((entry) => generalRequests(entry, { tenantId: ":id", userId: ":id", holiday: { country: ":id", date: ":id" }, integration: ":id" }).map(([method, url]) => `${method} ${url.split("?")[0]}`))
     .sort();
   assert.deepEqual(listed, registered, "新增了业务接口：请把它加进 generalRequests，让下面的用例也覆盖到它");
 });

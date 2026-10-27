@@ -44,6 +44,7 @@ import {
   accountDisabled,
   currentPasswordIncorrect,
   forbidden,
+  forbiddenAny,
   invalidCredentials,
   inviteInvalid,
   ipNotAllowed,
@@ -164,6 +165,8 @@ export function principalCan(principal: PlatformPrincipal, action: PlatformActio
 /** 一次已登录的平台请求要做什么：需要哪个操作的权限；用途（见 domain 的 `PlatformSessionPurpose`）。 */
 export interface PlatformAccess {
   action?: PlatformAction;
+  /** 有其中任一个操作即可（选项接口，ADR 0046）；一个都没有时 403 `FORBIDDEN`，`details.required_any` 列出这几个。不和 `action` 同时用。 */
+  anyOf?: readonly PlatformAction[];
   /**
    * 不写就是 `general`：两步验证没完成、账号必须先修改密码时都会被拦下。
    * 查看自己、退出写 `self_service`；两步验证本身写 `second_factor`；修改密码写 `password_change`。
@@ -187,7 +190,7 @@ export function platformCredentials(request: { headers: { authorization?: string
  * 2. 来源地址不在这个账号的 IP 白名单里（员工自己的不空用自己的，否则用角色的；都空不限制）：403 `IP_NOT_ALLOWED`；
  * 3. 两步验证没完成：除 `self_service`、`second_factor` 外一律 403 `MFA_REQUIRED`；
  * 4. 必须先修改密码：除 `self_service`、`password_change` 外一律 403 `PASSWORD_CHANGE_REQUIRED`（ADR 0013）；
- * 5. 传了 `action` 时检查当前角色有没有这个操作的权限，没有则 403 `FORBIDDEN`。
+ * 5. 传了 `action` 时检查当前角色有没有这个操作的权限，没有则 403 `FORBIDDEN`；传了 `anyOf` 时有其中任一个即可。
  * 都在这里统一判断，接口不用各自记得；新接口不声明用途就默认被拦。
  */
 export async function authenticatePlatform(
@@ -195,7 +198,7 @@ export async function authenticatePlatform(
   credentials: PlatformCredentials,
   access: PlatformAccess = {},
 ): Promise<PlatformPrincipal> {
-  const { action, purpose = "general" } = access;
+  const { action, anyOf, purpose = "general" } = access;
   const now = ctx.now();
   const claims = credentials.token === null ? null : verifyAccessToken(ctx.config.authJwtSecret, "platform", credentials.token, now);
   if (!claims) throw unauthenticated();
@@ -208,6 +211,7 @@ export async function authenticatePlatform(
   if (refusal === "PASSWORD_CHANGE_REQUIRED") throw passwordChangeRequired();
   const grant = resolvePlatformGrant(found.role);
   if (action !== undefined && !grantCan(grant, action)) throw forbidden(action);
+  if (anyOf !== undefined && !anyOf.some((candidate) => grantCan(grant, candidate))) throw forbiddenAny(anyOf);
   return { sessionId: claims.sid, user: found.user, grant, secondFactor: state, tokenExpiresAt: new Date(claims.exp * 1000) };
 }
 
