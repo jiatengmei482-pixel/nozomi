@@ -110,6 +110,28 @@ test("救援队列：待处理的救援写出情形、违约金、进展；司�
   assert.equal(screen.queryByRole("button", { name: /批量发起救援/ }), null, "只读不能批量发起");
 });
 
+test("救援队列：限定了数据范围的运营（M4-10）没有「批量发起救援」按钮（接口会 403），写明原因；不限范围的照常有", async () => {
+  const queue: RescueQueue = { items: [rescueOf()], alerts: [], suspended_tenants: [{ tenant: { id: TENANT_B, name: "乙车队" }, future_orders: 3 }] };
+  const scopedMe = (scope: { city_ids: string[] | null; channel_ids: string[] | null }) => json(200, { user: { id: "p1", email: "staff@platform.example", name: "测试员工", role: "custom_0123456789abcdef", role_name: "夜班运营", status: "active", ...stamps }, permissions: ["order.read", "rescue.manage"], data_scope: scope, must_change_password: false });
+  for (const scope of [{ city_ids: ["c0c0c0c0-0000-4000-8000-000000000001"], channel_ids: null }, { city_ids: null, channel_ids: ["c4c4c4c4-0000-4000-8000-000000000002"] }]) {
+    resetBrowser();
+    open("/platform/rescues", "custom_0123456789abcdef", (call) => {
+      if (call.method === "GET" && call.url.pathname === "/platform/v1/auth/me") return scopedMe(scope);
+      return call.method === "GET" && call.url.pathname === "/platform/v1/rescues" ? json(200, queue) : null;
+    }, "platform");
+    await screen.findByRole("table", { name: "救援" });
+    assert.ok(await screen.findByText(/你的角色限定了数据范围：暂停中供应商的批量救援不在这里/));
+    assert.equal(screen.queryByRole("button", { name: /批量发起救援/ }), null, JSON.stringify(scope));
+  }
+  resetBrowser();
+  open("/platform/rescues", "custom_0123456789abcdef", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/auth/me") return scopedMe({ city_ids: null, channel_ids: null });
+    return call.method === "GET" && call.url.pathname === "/platform/v1/rescues" ? json(200, queue) : null;
+  }, "platform");
+  assert.ok(await screen.findByRole("button", { name: "批量发起救援：乙车队" }));
+  assert.equal(screen.queryByText(/你的角色限定了数据范围/), null);
+});
+
 const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => ({
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",

@@ -3,7 +3,7 @@
  * - 新员工第一次登录必须绑定两步验证（扫码页面、输一次动态码、恢复码只显示一次），之后每次登录输入动态码，也可以用恢复码；
  * - 超级管理员新建自建角色（勾选菜单 × 操作），把员工改成这个角色：他的菜单立即按勾选变化；
  * - IP 白名单：员工的名单不含本机地址时，密码正确也登录不了，页面说明原因；
- * - 数据范围 × 财务结算（M4-10）：限定了范围的人菜单和首页没有财务结算，直接打开地址说明原因。
+ * - 数据范围（M4-10）：限定了范围的人菜单和首页没有财务结算，直接打开地址说明原因；限定了渠道范围的人没有「新建渠道」。
  * 全部数据经真实接口创建在本次运行的临时 schema 里。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
@@ -140,4 +140,23 @@ test("数据范围 × 财务结算：自建角色勾了「财务结算 · 查看
     await expect(page.getByText("你没有权限查看这里")).toBeVisible();
     await expect(page.getByText(/财务结算只给不限数据范围的账号用/)).toBeVisible();
   }
+});
+
+test("数据范围 × 新建渠道：限定了渠道范围的渠道专员看不到「新建渠道」，页面说明原因；直接打开新建页也一样（M4-10）", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const staff = await invitedStaff(request, "readonly");
+  const headers = await platformAdminHeaders(request);
+  const created = await request.post("/platform/v1/roles", { headers, data: { name: `限渠道专员 ${crypto.randomUUID().slice(0, 6)}`, grants: ["channels:view", "channels:edit"], data_scope: { city_ids: null, channel_ids: [] } } });
+  expect(created.status(), await created.text()).toBe(201);
+  const role = (await created.json()) as { key: string };
+  expect((await request.patch(`/platform/v1/staff/${staff.id}`, { headers, data: { role: role.key } })).ok()).toBe(true);
+
+  await loginAs(page, "platform", staff.email, staff.password);
+  await menu(page).getByRole("link", { name: "渠道" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "渠道" })).toBeVisible();
+  await expect(page.getByText(/你的角色限定了渠道范围，不能新建渠道/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "新建渠道" })).toHaveCount(0);
+  await page.goto("/platform/channels/new");
+  await expect(page.getByRole("heading", { level: 2, name: "不能新建渠道" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建" })).toHaveCount(0);
 });
