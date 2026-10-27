@@ -19,6 +19,12 @@ export const E2E_FX_PORT = E2E_API_PORT + 2;
  */
 export const E2E_API_PLACES_PORT = E2E_API_PORT + 3;
 export const E2E_WEB_PLACES_PORT = E2E_WEB_PORT + 2;
+/**
+ * 官网付款（M3-08，ADR 0046）专用的一组：配置文件里有一套本次运行随机生成的 Stripe 测试密钥（sk_test_ / pk_test_ / whsec_）的 API 进程和指向它的前端。
+ * 主 API 不配 Stripe（别的官网用例要「付款暂未开放」）；这组的 Stripe 指向本机的假 Stripe（e2e/fake-stripe.ts），从不调用真实的 Stripe。
+ */
+export const E2E_API_STRIPE_PORT = E2E_API_PORT + 4;
+export const E2E_WEB_STRIPE_PORT = E2E_WEB_PORT + 3;
 
 export default defineConfig({
   testDir: "./e2e",
