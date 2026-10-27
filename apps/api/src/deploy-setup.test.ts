@@ -450,7 +450,7 @@ test("服务器脚本：都有 set -euo pipefail，没有命令回显，仓库�
 
 /** 文档和脚本里允许出现的真实主机名：本项目用到的公开服务（镜像仓库、软件源、第三方平台的网址）。 */
 const ALLOWED_HOSTNAME =
-  /^((.*\.)?example\.(com|net|org)|ghcr\.io|quay\.io|download\.docker\.com|containerd\.io|(.*\.)?github\.com|stripe\.com|console\.cloud\.google\.com|claude\.ai|open\.er-api\.com|(tile|www)\.openstreetmap\.org)$/;
+  /^((.*\.)?example\.(com|net|org)|ghcr\.io|quay\.io|download\.docker\.com|containerd\.io|(.*\.)?github\.com|(.*\.)?stripe\.com|console\.cloud\.google\.com|claude\.ai|open\.er-api\.com|(tile|www)\.openstreetmap\.org)$/;
 
 test("部署相关的文件和文档里没有密钥原文，也没有写死的服务器 IP 和真实域名", async () => {
   const files = [
