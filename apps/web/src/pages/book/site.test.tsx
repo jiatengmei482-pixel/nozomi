@@ -1,6 +1,6 @@
 /**
  * 官网页面的组件测试（M3-05，ADR 0032）：询价（暂未开放、没有城市、出错、校验、结果里没有供应商和结算价、报不出价的原因）→ 下单（校验、请求体、
- * 幂等键重试不变、报价过期）→ 订单页（令牌只在请求头、付款暂未开放 / 付款替身、我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。
+ * 幂等键重试不变、报价过期）→ 订单页（令牌只在请求头、付款暂未开放 / Stripe.js 的假实现、我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。
  * 接口用测试替身；真实后端由集成测试 site.itest.ts 和端到端测试 e2e/site-booking.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
@@ -10,7 +10,8 @@ import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { SiteCity, SiteConfig, SiteOrder, SiteOrderEnvelope, SiteQuote } from "../../api/site.ts";
-import { type PaymentDriver, PaymentDriverContext } from "../../lib/payment-driver.ts";
+import { type PaymentDriver, PaymentDriverContext, createStripePaymentDriver } from "../../lib/payment-driver.ts";
+import { fakeStripeJs } from "../../testing/fake-stripe-js.ts";
 import { changeRequestOf } from "./OrderSections.tsx";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
 
@@ -259,15 +260,9 @@ test("下单：报价过期时说明并只给「重新查询价格」；直接�
   assert.ok(await screen.findByRole("heading", { name: "还没有选车" }));
 });
 
-test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable key 和 client_secret），付款前页面内确认，付完刷新订单；组件没接入时说明订单保留到什么时候", async () => {
-  const mounts: { publishableKey: string; clientSecret: string }[] = [];
-  let confirmed = 0;
-  const driver: PaymentDriver = {
-    mount: async (_container, options) => {
-      mounts.push(options);
-      return { confirm: async () => ((confirmed += 1), { ok: true }), destroy: () => undefined };
-    },
-  };
+test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable key 和 client_secret），付款前页面内确认，付完刷新订单直到确认", async () => {
+  const stripe = fakeStripeJs();
+  const driver = createStripePaymentDriver(stripe.load);
   let paid = false;
   const pending = orderOf({ status: "pending_payment", confirmed_at: null, payment_status: "requires_payment_method", payment_due_at: "2026-10-26T01:30:00.000Z" });
   const calls = open(
@@ -282,23 +277,15 @@ test("订单页付款：Stripe 配置了时用付款组件（只拿 publishable 
   );
   const actor = user();
   await actor.click(await screen.findByRole("button", { name: "付款 21,780 JPY" }));
-  assert.deepEqual(mounts, [{ publishableKey: "pk_test_abc", clientSecret: "pi_1_secret_2" }]);
-  assert.ok(screen.getByText("确认支付 21,780 JPY？"));
-  assert.equal(confirmed, 0, "先确认");
+  assert.deepEqual(stripe.calls.stripe, [{ publishableKey: "pk_test_abc", locale: "zh" }]);
+  assert.deepEqual(stripe.calls.elements.map((entry) => entry.clientSecret), ["pi_1_secret_2"]);
+  assert.ok(await screen.findByText("确认支付 21,780 JPY？"));
+  assert.equal(stripe.calls.confirm.length, 0, "先确认");
   paid = true;
   await actor.click(screen.getByRole("button", { name: "确认支付" }));
   await screen.findByText("付款成功，订单已确认");
-  assert.equal(confirmed, 1);
-  assert.equal(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length, 2);
-
-  resetBrowser();
-  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
-    if (call.url.pathname === "/site/v1/config") return json(200, { ...openConfig, payments: { provider: "stripe", publishable_key: "pk_test_abc" } });
-    if (call.url.pathname === "/site/v1/order") return json(200, envelopeOf(pending));
-    if (call.url.pathname === "/site/v1/order/payment") return json(200, { payment: { provider: "stripe", status: "requires_payment_method", client_secret: "pi_1_secret_2", publishable_key: "pk_test_abc" } });
-    return null;
-  });
-  assert.ok(await screen.findByText(/在线付款还在接入中，订单已为您保留到当地时间 (2026年)?10月26日（周一）10:30/));
+  assert.equal(stripe.calls.confirm.length, 1);
+  assert.ok(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length >= 2);
 });
 
 test("我已落地：离计划到达 3 小时以上不出按钮、写明几点起能点；能点时先确认，提交后显示确认的时间、按钮消失", async () => {

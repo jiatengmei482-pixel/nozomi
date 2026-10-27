@@ -1,9 +1,11 @@
 /**
  * 官网订单页（M3-05，ADR 0032）：客人凭链接（`/book/order#<令牌>`）看自己的这一张单——状态时间线、行程、付款、司机和车辆（派车后）、
- * 「我已落地」（接机）、取消（先看按政策退多少）、改单、事后加收和异议、投诉和反馈（M4-03）。令牌只在地址的 `#` 后面和请求头里，不存进任何存储。
+ * 「我已落地」（接机）、取消（先看按政策退多少）、改单、事后加收和异议、投诉和反馈（M4-03）。令牌只在地址的 `#` 后面和请求头里；
+ * 唯一的例外是付款时被 Stripe 整页带去银行验证（M3-08，ADR 0046）：令牌临时放在本标签页的 sessionStorage，回到 `/book/order?payment_intent=…`
+ * 时按付款编号取回、立刻删掉，地址换回 `#<令牌>`（Stripe 加在地址上的参数含 client_secret，一并去掉）。
  * 没有令牌（直接打开「查订单」）或令牌失效：用订单号 + 下单时的邮箱或手机号找回，换一个新链接。
  */
-import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type SiteOrderEnvelope, type SitePayment, getSiteOrder, lookupSiteOrder } from "../../api/site.ts";
@@ -13,7 +15,8 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
-import { GUEST_STATUS_BADGES, type OrderSectionKey, orderSectionSequence, primaryOrderSection, siteOrderUrl, siteTokenFromHash } from "../../lib/site-display.ts";
+import { paymentReturnParams, takePaymentReturn } from "../../lib/payment-return.ts";
+import { GUEST_STATUS_BADGES, type OrderSectionKey, SITE_ORDER_PATH, orderSectionSequence, primaryOrderSection, siteOrderUrl, siteTokenFromHash } from "../../lib/site-display.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { CancelSection, ChangeSection, DriverSection, ExtraChargesSection, HelpSection, LandingSection, PaymentSection, TimelineSection, TripSection } from "./OrderSections.tsx";
@@ -27,12 +30,17 @@ export function lookupThrottledText(retryAfterSeconds: number | null): string {
   return `尝试次数过多，请 ${wait}后再试，或联系客服。`;
 }
 
-function LookupForm({ expired }: { expired: boolean }) {
+/** 从银行验证页回来却取不回令牌（换了标签页或浏览器、存储被清）：付款结果以 Stripe 通知平台为准，客人用订单号找回订单就能看到。 */
+const RETURN_LOST_TEXT = "付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。";
+
+function LookupForm({ expired, paymentReturnLost = false }: { expired: boolean; paymentReturnLost?: boolean }) {
   const navigate = useNavigate();
   const [orderNo, setOrderNo] = useState("");
   const [contact, setContact] = useState("");
   const [errors, setErrors] = useState<{ orderNo?: string; contact?: string }>({});
-  const [notice, setNotice] = useState<Notice | null>(expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null);
+  const [notice, setNotice] = useState<Notice | null>(
+    paymentReturnLost ? { kind: "warning", text: RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
+  );
   const [busy, setBusy] = useState(false);
 
   const submit = async (event: FormEvent): Promise<void> => {
@@ -94,21 +102,42 @@ export function OrderPage() {
   const token = siteTokenFromHash(location.hash);
   // `#` 后面有内容却不是令牌的格式（被截断、改坏）：和失效的链接一样提示，不说是哪种失效（页面规范第 6 节）
   const malformed = token === null && location.hash.replace(/^#/, "").trim() !== "";
-  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null } | null;
+  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: boolean } | null;
+  const navigate = useNavigate();
+  const returnIntent = token === null ? (paymentReturnParams(location.search)?.intentId ?? null) : null;
   const { state: config } = useSiteConfig();
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [round, setRound] = useState(0);
+  // 这次看页面时订单从「待付款」变成了已确认（客人刚在这里付完款）：顶部说一句，付款区块消失后客人知道结果
+  const [justPaid, setJustPaid] = useState(false);
+  const lastStatus = useRef<string | null>(null);
+  const handledReturn = useRef(false);
   // 客人在排第一的区块里刚做完事（点了「我已落地」、提了异议）：这次看页面时它留在原位，结果提示不会跟着区块跑到下面去
   const [pinned, setPinned] = useState<OrderSectionKey | null>(null);
   const orderNo = loaded.kind === "ready" ? loaded.envelope.order.order_no : null;
   useDocumentTitle(orderNo === null ? "查订单 · NOZOMI 用车" : `订单 ${orderNo} · NOZOMI 用车`);
+
+  // 从银行验证页回来：按付款编号取回令牌（取一次就删），地址换回 `#<令牌>`、去掉 Stripe 加的参数；取不回就去「查订单」
+  useEffect(() => {
+    if (returnIntent === null || handledReturn.current) return;
+    handledReturn.current = true;
+    const saved = takePaymentReturn(returnIntent);
+    if (saved !== null && siteTokenFromHash(saved) !== null) navigate(siteOrderUrl(saved), { replace: true });
+    else navigate(SITE_ORDER_PATH, { replace: true, state: { paymentReturnLost: true } });
+  }, [returnIntent, navigate]);
 
   useEffect(() => {
     if (token === null) return;
     let alive = true;
     setLoaded((current) => (current.kind === "ready" ? current : { kind: "loading" }));
     getSiteOrder(token).then(
-      (envelope) => alive && setLoaded({ kind: "ready", envelope }),
+      (envelope) => {
+        if (!alive) return;
+        const status = envelope.order.status;
+        if (lastStatus.current === "pending_payment" && status !== "pending_payment" && status !== "cancelled") setJustPaid(true);
+        lastStatus.current = status;
+        setLoaded({ kind: "ready", envelope });
+      },
       (err: unknown) => {
         if (!alive) return;
         if (err instanceof ApiError && err.status === 401) setLoaded({ kind: "invalid" });
@@ -127,12 +156,20 @@ export function OrderPage() {
     replace(envelope);
   };
 
+  if (returnIntent !== null) {
+    return (
+      <SiteLayout attribution={false}>
+        <h1 className="site__title">订单</h1>
+        <Skeleton lines={["medium", "long", "long", "control"]} label="正在读取订单" />
+      </SiteLayout>
+    );
+  }
   if (token === null || loaded.kind === "invalid") {
     return (
       <SiteLayout attribution={false}>
         <h1 className="site__title">查订单</h1>
         <p className="site-muted">输入订单号和下单时填的邮箱或手机号，就能查看订单、付款、取消或修改。</p>
-        <LookupForm key={token ?? (malformed ? "malformed" : "none")} expired={malformed || loaded.kind === "invalid"} />
+        <LookupForm key={token ?? (malformed ? "malformed" : arrival?.paymentReturnLost === true ? "return-lost" : "none")} expired={malformed || loaded.kind === "invalid"} paymentReturnLost={token === null && arrival?.paymentReturnLost === true} />
       </SiteLayout>
     );
   }
@@ -161,7 +198,7 @@ export function OrderPage() {
   const computed = primaryOrderSection(order, new Date());
   const primary = pinned !== null && computed === "trip" ? pinned : computed;
   const sections: Readonly<Record<OrderSectionKey, ReactNode>> = {
-    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} onPaid={refresh} />,
+    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} onRefresh={refresh} />,
     trip: <TripSection order={order} names={names} />,
     timeline: <TimelineSection order={order} timeline={timeline} />,
     driver: <DriverSection order={order} />,
@@ -178,6 +215,7 @@ export function OrderPage() {
         <h1 className="site__title site-order__no">订单 {order.order_no}</h1>
         <StatusBadge {...GUEST_STATUS_BADGES[order.status]} />
       </div>
+      <div role="status">{justPaid && <Alert kind="success">付款成功，订单已确认。派车后这里会显示司机和车辆。</Alert>}</div>
       {arrival?.placed === true && (
         <Alert kind="success">
           <p>订单已提交。请收藏这个页面，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。</p>

@@ -127,14 +127,18 @@ test("组件代码不把字符串当 HTML 用，不用 eval，不留调试输出
 const EXTERNAL_LINK_REGISTRY = "lib/external-links.ts";
 const EXTERNAL_LINK_COMPONENT = "components/ExternalLink.tsx";
 const AREA_DRAFT_STORE = "lib/area-draft.ts";
+const PAYMENT_RETURN_STORE = "lib/payment-return.ts";
+const EXTERNAL_SCRIPT_REGISTRY = "lib/external-scripts.ts";
+const EXTERNAL_SCRIPT_LOADER = "lib/stripe-js.ts";
 const NEW_TAB_LINK_COMPONENT = "components/NewTabLink.tsx";
 
 test("令牌不进 localStorage、不进 Cookie、不进网址：只有主题用 localStorage，登录状态只用 sessionStorage", () => {
   for (const { name, text: withComments } of sources) {
     const text = stripComments(withComments);
     if (/\blocalStorage\b/.test(text)) assert.equal(name, "theme/theme.ts", `${name} 用了 localStorage`);
-    // 例外只有一个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行；下面另有一条核对它只碰自己的键）
-    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE, `${name} 用了 sessionStorage`);
+    // 例外两个：区域编辑页的草稿（lib/area-draft.ts，负责人批准的最小放行）；付款时被带去银行验证再回来要取回订单令牌（lib/payment-return.ts，ADR 0046）。
+    // 下面各有一条核对它们只碰自己的键
+    if (/\bsessionStorage\b/.test(text)) assert.ok(name === "auth/session-store.ts" || name === AREA_DRAFT_STORE || name === PAYMENT_RETURN_STORE, `${name} 用了 sessionStorage`);
     assert.doesNotMatch(text, /document\.cookie|indexedDB|BroadcastChannel|postMessage\(/, `${name} 用了别的存放或传递途径`);
     assert.doesNotMatch(text, /[?&](token|access_token|password)=/, `${name} 把令牌或密码拼进了查询串`);
     assert.doesNotMatch(text, /window\.open\(/, `${name} 打开新窗口（会带出 opener / Referer）`);
@@ -169,6 +173,39 @@ test("区域草稿只用自己的键前缀：不读写登录状态的键，草�
   assert.match(text, /return `\$\{DRAFT_PREFIX\}\$\{owner\.tenantId\}\.\$\{owner\.userId\}\.\$\{area\}`;/);
 });
 
+test("付款回跳只用自己的一个键：令牌只在确认付款前写入，取回时核对付款编号、过期时间，取一次就删", () => {
+  const store = sources.find((source) => source.name === PAYMENT_RETURN_STORE);
+  assert.ok(store, `找不到 ${PAYMENT_RETURN_STORE}`);
+  const text = stripComments(store.text);
+  const keys = [...text.matchAll(/["'`](nozomi\.[^"'`$]*)/g)].map((match) => match[1]);
+  assert.deepEqual(keys, ["nozomi.payment-return"], "这个文件里只能有这一个键");
+  assert.equal((text.match(/sessionStorage\.(getItem|setItem|removeItem)\(RETURN_KEY/g) ?? []).length, 3, "每次读、写、删都只针对这个键");
+  assert.doesNotMatch(text, /sessionStorage\.(clear|key)\(|localStorage|session-store/);
+  // 读出来以后先删再判断：对不上、过期的也不会留下
+  assert.match(text, /raw = sessionStorage\.getItem\(RETURN_KEY\);[\s\S]*?forgetPaymentReturn\(\);\s*if \(raw === null\) return null;/);
+  // 唯一写入它的是订单页付款区块确认付款之前；唯一取出它的是订单页
+  for (const { name, text: code } of sources) {
+    const used = stripComments(code);
+    if (/\brememberPaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderSections.tsx");
+    if (/\btakePaymentReturn\(/.test(used) && name !== PAYMENT_RETURN_STORE) assert.equal(name, "pages/book/OrderPage.tsx");
+  }
+});
+
+test("站外脚本：只登记了 Stripe.js（js.stripe.com，Stripe 要求不能打包、不能自托管），只有 lib/stripe-js.ts 插 <script>，地址只来自登记", () => {
+  const registry = sources.find((source) => source.name === EXTERNAL_SCRIPT_REGISTRY);
+  assert.ok(registry, `找不到 ${EXTERNAL_SCRIPT_REGISTRY}`);
+  const urls = [...stripComments(registry.text).matchAll(/["'](https?:\/\/[^"']+)["']/g)].map((match) => match[1]);
+  assert.deepEqual(urls, ["https://js.stripe.com/v3/"]);
+  for (const { name, text } of sources) {
+    const code = stripComments(text);
+    if (/createElement\(\s*["'`]script/i.test(code) || /\.src\s*=/.test(code)) assert.equal(name, EXTERNAL_SCRIPT_LOADER, `${name} 自己插脚本或改 src`);
+    if (/EXTERNAL_SCRIPTS\b/.test(code) && name !== EXTERNAL_SCRIPT_REGISTRY) assert.equal(name, EXTERNAL_SCRIPT_LOADER, `${name} 用了站外脚本的地址`);
+  }
+  const loader = stripComments(sources.find((source) => source.name === EXTERNAL_SCRIPT_LOADER)?.text ?? "");
+  assert.match(loader, /script\.src = EXTERNAL_SCRIPTS\.stripe;/);
+  assert.doesNotMatch(loader, /integrity|crossOrigin/, "Stripe 不支持 SRI，也不需要 CORS 模式");
+});
+
 test("站外链接组件写死了 noopener noreferrer：对方页面拿不到本站窗口，也看不到来源地址", () => {
   const component = sources.find((source) => source.name === EXTERNAL_LINK_COMPONENT);
   assert.ok(component, `找不到 ${EXTERNAL_LINK_COMPONENT}`);
@@ -190,8 +227,8 @@ test("站外地址只登记在 lib/external-links.ts：恰好是预期的三个�
 test("前端只用相对路径调接口：代码里没有写死的站点地址、没有环境变量", () => {
   for (const { name, text } of sources) {
     const withoutComments = stripComments(text);
-    // 站外地址只允许集中登记在这一个文件里（下面另有一条核对它的内容）
-    if (name !== EXTERNAL_LINK_REGISTRY) assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
+    // 站外地址只允许集中登记在这两个文件里（上面各有一条核对它们的内容）
+    if (name !== EXTERNAL_LINK_REGISTRY && name !== EXTERNAL_SCRIPT_REGISTRY) assert.doesNotMatch(withoutComments, /https?:\/\//, `${name} 里有写死的网址`);
     assert.doesNotMatch(withoutComments, /import\.meta\.env|process\.env/, `${name} 读了环境变量；密钥和配置不能进前端产物`);
   }
 });

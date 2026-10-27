@@ -30,12 +30,14 @@ import { TextField } from "../../components/TextField.tsx";
 import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { CHANGE_FIELD_NAMES, extraTypeName } from "../../lib/order-money-display.ts";
-import { PaymentNotIntegratedError, type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts";
+import { type PaymentMount, usePaymentDriver } from "../../lib/payment-driver.ts";
+import { forgetPaymentReturn, intentIdOf, rememberPaymentReturn } from "../../lib/payment-return.ts";
 import {
   ADDRESS_LABELS,
   GUEST_CANCEL_REASON_NAMES,
   GUEST_CHANGE_STATUS_BADGES,
   GUEST_EXTRA_STATUS_BADGES,
+  SITE_ORDER_PATH,
   TIMELINE_NAMES,
   addressEnds,
   freeWaitText,
@@ -77,76 +79,176 @@ const placeName = (names: SiteOrderNames): string => (names.place === null ? "�
 
 // ---- 付款 ----
 
-function PaymentPanel({ token, order, initial, onPaid }: { token: string; order: SiteOrder; initial: SitePayment | null; onPaid(): void }) {
+/** 付款提交后多久刷新一次订单，等平台收到 Stripe 的通知把订单改成已确认。超过 `slowAfterMs` 还没确认就放慢，并告诉客人别重复付款。 */
+export interface PaymentPolling {
+  fastMs: number;
+  slowMs: number;
+  slowAfterMs: number;
+}
+
+export const PAYMENT_POLLING: PaymentPolling = { fastMs: 3_000, slowMs: 15_000, slowAfterMs: 120_000 };
+
+type PanelState =
+  | { kind: "loading" }
+  | { kind: "ready" }
+  /** 付款组件没加载出来：可以重新加载 */
+  | { kind: "failed" }
+  /** 这张单已经不能付款（过了付款期限、付款已取消）：等订单状态更新 */
+  | { kind: "ended" }
+  /** 付款已提交，等平台确认 */
+  | { kind: "submitted"; outcome: "succeeded" | "processing" };
+
+const NETWORK_TEXT = "没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。";
+
+function submittedText(outcome: "succeeded" | "processing", slow: boolean): string {
+  const head = outcome === "succeeded" ? "付款成功，等待确认。订单通常几秒钟内确认，页面会自动更新，请不要重复付款。" : "银行正在处理这笔付款，处理完订单会自动确认（通常几分钟内），页面会自动更新，请不要重复付款。";
+  return slow ? `${head}确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服。` : head;
+}
+
+function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: string; order: SiteOrder; initial: SitePayment | null; onRefresh(): void; polling: PaymentPolling }) {
   const driver = usePaymentDriver();
   const container = useRef<HTMLDivElement>(null);
   const mounted = useRef<PaymentMount | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "failed" | "unavailable">("loading");
+  const intentId = useRef<string | null>(null);
+  const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [round, setRound] = useState(0);
+  const [slow, setSlow] = useState(false);
+  const refresh = useRef(onRefresh);
+  refresh.current = onRefresh;
   const due = local(order, order.payment_due_at);
+  const submitted = state.kind === "submitted" ? state.outcome : null;
+
+  const settle = (outcome: "succeeded" | "processing"): void => {
+    mounted.current?.destroy();
+    mounted.current = null;
+    setConfirming(false);
+    setNotice(null);
+    setState({ kind: "submitted", outcome });
+  };
 
   useEffect(() => {
     let alive = true;
-    setState("loading");
+    setState({ kind: "loading" });
+    setNotice(null);
     const load = async (): Promise<void> => {
       const payment = initial?.client_secret ? initial : (await getSiteOrderPayment(token)).payment;
-      if (payment.client_secret === null) throw new Error("付款已经结束");
-      if (!alive || container.current === null) return;
+      if (!alive) return;
+      if (payment.client_secret === null) {
+        setState({ kind: "ended" });
+        setNotice({ kind: "warning", text: "这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。" });
+        refresh.current();
+        return;
+      }
+      if (container.current === null) return;
+      intentId.current = intentIdOf(payment.client_secret);
       const mount = await driver.mount(container.current, { publishableKey: payment.publishable_key, clientSecret: payment.client_secret });
       if (!alive) {
         mount.destroy();
         return;
       }
+      if (mount.state === "succeeded" || mount.state === "processing") {
+        mount.destroy();
+        setState({ kind: "submitted", outcome: mount.state });
+        return;
+      }
+      if (mount.state === "canceled") {
+        mount.destroy();
+        setState({ kind: "ended" });
+        setNotice({ kind: "warning", text: "这笔付款已经取消，订单状态马上会更新。" });
+        refresh.current();
+        return;
+      }
       mounted.current = mount;
-      setState("ready");
+      setState({ kind: "ready" });
+      if (mount.lastError !== null) setNotice({ kind: "danger", text: `上次付款没有成功：${mount.lastError}请换一张卡，或检查后再付。` });
     };
     load().catch((err: unknown) => {
       if (!alive) return;
-      setState(err instanceof PaymentNotIntegratedError ? "unavailable" : "failed");
-      setNotice(
-        err instanceof PaymentNotIntegratedError
-          ? { kind: "warning", text: `在线付款还在接入中，订单已为您保留到当地时间 ${due}，到时没有付款会自动取消。` }
-          : { kind: "danger", text: err instanceof ApiError ? siteFailureText(err, "准备付款") : "付款组件没有加载出来，请检查网络后点「重新加载」。" },
-      );
+      setState({ kind: "failed" });
+      setNotice({ kind: "danger", text: err instanceof ApiError ? siteFailureText(err, "准备付款") : "付款组件没有加载出来，请检查网络后点「重新加载」。" });
     });
     return () => {
       alive = false;
       mounted.current?.destroy();
       mounted.current = null;
     };
-  }, [driver, token, initial, round, due]);
+  }, [driver, token, initial, round]);
 
-  const pay = async (): Promise<void> => {
+  // 付款提交后：马上刷新一次，之后定时刷新，直到平台收到通知、订单不再是待付款（这个区块随之消失，定时器跟着停）
+  useEffect(() => {
+    if (submitted === null) return;
+    const started = Date.now();
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = (): void => {
+      refresh.current();
+      const late = Date.now() - started >= polling.slowAfterMs;
+      if (late) setSlow(true);
+      timer = setTimeout(tick, late ? polling.slowMs : polling.fastMs);
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [submitted, polling]);
+
+  const askToPay = async (): Promise<void> => {
     if (mounted.current === null || busy) return;
     setBusy(true);
     setNotice(null);
     try {
-      const result = await mounted.current.confirm();
-      if (!result.ok) {
-        setNotice({ kind: "danger", text: result.message });
-        return;
-      }
-      setConfirming(false);
-      setNotice({ kind: "info", text: "已提交付款，正在确认（通常几秒钟），订单状态会自动更新。" });
-      onPaid();
+      const checked = await mounted.current.validate();
+      if (checked.ok) setConfirming(true);
+      else setNotice({ kind: "danger", text: checked.message });
     } finally {
       setBusy(false);
     }
   };
 
+  const pay = async (): Promise<void> => {
+    if (mounted.current === null || busy) return;
+    setBusy(true);
+    setNotice(null);
+    // 少数情况 Stripe 会整页跳去银行验证：令牌不进 return_url，先放进本标签页的 sessionStorage，回来时按付款编号取回（payment-return.ts）
+    if (intentId.current !== null) rememberPaymentReturn(intentId.current, token);
+    try {
+      const outcome = await mounted.current.confirm(`${window.location.origin}${SITE_ORDER_PATH}`);
+      forgetPaymentReturn();
+      if (outcome.kind === "succeeded" || outcome.kind === "processing") {
+        settle(outcome.kind);
+        return;
+      }
+      setConfirming(false);
+      setNotice({
+        kind: "danger",
+        text:
+          outcome.kind === "declined"
+            ? `付款没有成功：${outcome.message}请换一张卡，或检查后再付。`
+            : outcome.kind === "network"
+              ? NETWORK_TEXT
+              : `付款没有完成${outcome.message === null ? "" : `：${outcome.message}`}。请稍后再试；一直不行请联系客服。`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 提交后的提示和出错提示用同一个播报位置（一开始就在页面里），读屏能读出状态的变化
+  const shown: Notice | null = state.kind === "submitted" ? { kind: state.outcome === "succeeded" ? "success" : "info", text: submittedText(state.outcome, slow) } : notice;
   return (
     <>
-      <AlertSlot notice={notice} />
-      <div ref={container} className="site-payment" />
-      {state === "loading" && <Skeleton lines={["control", "control"]} label="正在加载付款组件" />}
-      {state === "failed" && <Button onClick={() => setRound((value) => value + 1)}>重新加载</Button>}
-      {state === "ready" &&
+      {(state.kind === "loading" || state.kind === "ready" || state.kind === "failed") && (
+        <p className="site-muted">请在当地时间 {due} 前付款，过时订单会自动取消。付款信息由 Stripe 处理，本站不保存卡号。</p>
+      )}
+      <AlertSlot notice={shown} />
+      {state.kind !== "submitted" && <div ref={container} className="site-payment" aria-busy={state.kind === "loading"} />}
+      {state.kind === "loading" && <Skeleton lines={["control", "control"]} label="正在加载付款组件" />}
+      {state.kind === "failed" && <Button size="lg" onClick={() => setRound((value) => value + 1)}>重新加载</Button>}
+      {state.kind === "ready" &&
         (confirming ? (
           <div className="site-confirm" role="group" aria-label="确认付款">
             <p>确认支付 {moneyText(order.price.total)}？</p>
+            <p className="site-muted">如果银行要求验证，会弹出银行的验证窗口，请按提示完成。</p>
             <div className="site-actions site-actions--inline">
               <Button variant="primary" size="lg" loading={busy} loadingText="正在付款" onClick={() => void pay()}>
                 确认支付
@@ -158,7 +260,7 @@ function PaymentPanel({ token, order, initial, onPaid }: { token: string; order:
           </div>
         ) : (
           <div className="site-actions">
-            <Button variant="primary" size="lg" block onClick={() => setConfirming(true)}>
+            <Button variant="primary" size="lg" block loading={busy} loadingText="正在检查" onClick={() => void askToPay()}>
               付款 {moneyText(order.price.total)}
             </Button>
           </div>
@@ -168,7 +270,21 @@ function PaymentPanel({ token, order, initial, onPaid }: { token: string; order:
 }
 
 /** `configPayments`：undefined 还在读配置；null 没配置 Stripe（付款暂未开放）。 */
-export function PaymentSection({ token, order, configPayments, initial, onPaid }: { token: string; order: SiteOrder; configPayments: { publishable_key: string } | null | undefined; initial: SitePayment | null; onPaid(): void }) {
+export function PaymentSection({
+  token,
+  order,
+  configPayments,
+  initial,
+  onRefresh,
+  polling = PAYMENT_POLLING,
+}: {
+  token: string;
+  order: SiteOrder;
+  configPayments: { publishable_key: string } | null | undefined;
+  initial: SitePayment | null;
+  onRefresh(): void;
+  polling?: PaymentPolling;
+}) {
   const due = local(order, order.payment_due_at);
   return (
     <Section id="site-payment-title" title="付款">
@@ -179,10 +295,7 @@ export function PaymentSection({ token, order, configPayments, initial, onPaid }
           付款暂未开放：订单已为您保留到当地时间 {due}，到时没有付款会自动取消。付款开放后可以回到这个页面付款。
         </Alert>
       ) : (
-        <>
-          <p className="site-muted">请在当地时间 {due} 前付款，过时订单会自动取消。付款信息由 Stripe 处理，本站不保存卡号。</p>
-          <PaymentPanel token={token} order={order} initial={initial} onPaid={onPaid} />
-        </>
+        <PaymentPanel token={token} order={order} initial={initial} onRefresh={onRefresh} polling={polling} />
       )}
     </Section>
   );
