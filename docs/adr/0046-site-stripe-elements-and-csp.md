@@ -60,10 +60,10 @@ Stripe 的要求：Stripe.js 必须从 `js.stripe.com` 加载，不能打包进�
 | --- | --- |
 | 令牌在哪里 | 在 Stripe 的 iframe 地址的 `#` 后面：`controller-with-preconnect`、`elements-inner-*` 的 `referrer=`，`m-outer`、`m.stripe.network/inner.html` 的 `url=`。iframe 内的脚本读得到，HTTP 请求本身不带 `#` 后面的内容 |
 | 令牌原文有没有发到 Stripe | **这次实测没有**：所有请求的网址、请求头、请求体都搜不到。接口上只带站点：`elements/sessions` 的 `referrer_host`，`payment_methods`、`confirm` 的 `referrer` 和 `r.stripe.com/b` 的 `referrer` 都只有 `https://<本站>`，`Referer` 是 Stripe 自己的域名（本站发 `no-referrer`） |
-| 令牌的哈希有没有发到 Stripe | **有**：`m.stripe.com/6`（Stripe 的风控指纹）的 `b.b`、`url` 里是页面地址按段分开算的哈希值，含 `#` 这一段，和令牌一一对应。读 `m.stripe.network/out-4.5.45.js`：每段用 `sha256WithSalt` 算，盐在脚本里，同一个令牌每次得到同样的值。令牌有 256 位随机量，从哈希还原不出令牌；但 Stripe 手里有一个能认出同一张单、只要令牌不换就不变的标识 |
+| 令牌的哈希有没有发到 Stripe | **有**：`m.stripe.com/6`（Stripe 的风控指纹）的 `b.b`、`url` 里是页面地址按段分开算的哈希值，含 `#` 这一段，和令牌一一对应。读 `m.stripe.network/out-4.5.45.js`：每段用 `sha256WithSalt` 算；实测同一个令牌在不同的浏览器会话里得到同样的值。令牌有 256 位随机量，从哈希还原不出令牌；但 Stripe 手里有一个能认出同一张单、只要令牌不换就不变的标识 |
 | Stripe.js 什么时候读地址 | 不是加载脚本时：加载后、`Stripe()` 之前去掉片段，iframe 和请求里都没有。`Stripe()` 时建控制 iframe 就读（`Stripe()` 之后才去掉：控制 iframe 和 `m.stripe.com` 已经带上）。**之后还会再读**：表单挂好后把令牌放回地址，点确认付款时 `m.stripe.com` 又发了含 `#` 段的哈希 |
 | 历史上的订单 | 查不清 Stripe 怎样保存、使用收到的哈希（服务端看不到）。本次之前的订单，付款页都发送过上述哈希。本站不认为令牌原文泄露，令牌不需要因此作废 |
-| 没验证到的 | 真实 3D 验证弹窗和整页跳转银行（`hooks.stripe.com` 和发卡行页面）的请求没有测；`r.stripe.com/b` 按当时的版本观察，Stripe 随时可能改脚本。`m.stripe.com` 的页面标题字段同样是加盐哈希，标题里有订单号 |
+| 没验证到的 | 实测用的是 deferred 模式，没有用真实订单的 client_secret，`retrievePaymentIntent` 没有实测，确认付款的请求被拦下、没有看到之后的步骤；真实 3D 验证弹窗和整页跳转银行（`hooks.stripe.com` 和发卡行页面）的请求没有测；`r.stripe.com/b` 按当时的版本观察，Stripe 随时可能改脚本。`m.stripe.com` 的页面标题字段同样是加盐哈希，标题里有订单号 |
 
 **决定**：Stripe.js 加载之前令牌就离开地址，这个文档里加载过就不再放回去。只在挂载期间去掉不够：实测确认付款时它还会重读地址。
 
