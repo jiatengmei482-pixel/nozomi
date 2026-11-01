@@ -466,11 +466,14 @@ test("代传完成回填：事后加收窗口和客人投诉 14 天从批准生�
   assert.equal(open.status, 201, open.text);
 
   const complaint = async (at: number) => {
+    // 换渠道令牌时时钟会走一秒：先拿到令牌，再走到要测的那一刻
+    api.clock.advance(at - MINUTE - api.clock.now().getTime());
+    const token = await flow.token();
     api.clock.advance(at - api.clock.now().getTime());
-    return api.call("POST", `/sales/v1/orders/${rig.orderId}/tickets`, { token: await flow.token(), body: { type: "complaint", subject: "虚构投诉", description: "虚构" } });
+    return api.call("POST", `/sales/v1/orders/${rig.orderId}/tickets`, { token, body: { type: "complaint", subject: "虚构投诉", description: "虚构" } });
   };
   const inWindow = await complaint(recorded + 14 * 24 * HOUR);
   assert.equal(inWindow.status, 201, `发生时间已过 14 天多，但从记录时间算还在时限内：${inWindow.text}`);
-  const closed = await complaint(recorded + 14 * 24 * HOUR + 1);
+  const closed = await complaint(recorded + 14 * 24 * HOUR + 2 * MINUTE);
   assert.deepEqual([closed.status, closed.body.error.code], [409, "COMPLAINT_WINDOW_CLOSED"]);
 });

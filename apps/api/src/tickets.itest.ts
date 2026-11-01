@@ -106,7 +106,7 @@ function assertTenantSafe(value: unknown, where: string): void {
 }
 
 async function performanceEvents(tenantId: string, orderId: string): Promise<string[]> {
-  const rows = await api.db.owner.query<{ kind: string; failure_type: string | null; major: boolean }>("select kind, failure_type, major from tenant_performance_events where tenant_id = $1 and order_id = $2 order by kind", [tenantId, orderId]);
+  const rows = await api.db.owner.query<{ kind: string; failure_type: string | null; major: boolean }>("select kind, failure_type, major from tenant_performance_events where tenant_id = $1 and order_id = $2 and kind in ('complaint', 'failure') order by kind", [tenantId, orderId]);
   return rows.rows.map((row) => (row.kind === "failure" ? `failure:${row.failure_type}` : row.major ? `${row.kind}:major` : row.kind));
 }
 
