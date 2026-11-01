@@ -113,7 +113,7 @@ const extraOf = (changes: Partial<PlatformExtraCharge> = {}): PlatformExtraCharg
 
 const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({
   order,
-  events: [{ from_status: "pending_payment", to_status: "confirmed", actor: "payment", reason: "PAYMENT_SUCCEEDED", occurred_at: stamps.created_at }],
+  events: [{ from_status: "pending_payment", to_status: "confirmed", actor: "payment", reason: "PAYMENT_SUCCEEDED", occurred_at: stamps.created_at, source: null, recorded_at: null }],
   payments: [],
   refunds: [],
   changes: [],
@@ -121,6 +121,7 @@ const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail
   rescues: [],
   exceptions: [],
   tickets: [],
+  pending_proxy_completion: null,
   ...extra,
 });
 
@@ -214,7 +215,7 @@ test("订单详情（运营后台）：还没付款的单没有「新建工单�
 
 test("订单详情（运营后台）：没付款就取消的单，取消原因写「客人取消了订单」，不写「按取消政策扣款」；付过款的照旧", async () => {
   const unpaid = platformOrder({ status: "cancelled", confirmed_at: null, cancel_reason: "GUEST_REQUEST", cancellation: { reason: "GUEST_REQUEST", note: null, fee_bp: null, customer_fee: null, tenant_share: null } });
-  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(unpaid, { events: [{ from_status: "pending_payment", to_status: "cancelled", actor: "platform_user", reason: "GUEST_REQUEST", occurred_at: stamps.created_at }] })) : null), "platform");
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(unpaid, { events: [{ from_status: "pending_payment", to_status: "cancelled", actor: "platform_user", reason: "GUEST_REQUEST", occurred_at: stamps.created_at, source: null, recorded_at: null }] })) : null), "platform");
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
   assert.ok(screen.getAllByText(/客人取消了订单/).length >= 1);
   assert.doesNotMatch(document.body.textContent ?? "", /按取消政策扣款/);

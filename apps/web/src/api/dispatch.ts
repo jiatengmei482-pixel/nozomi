@@ -184,6 +184,12 @@ export interface OrderEvent {
   actor: string;
   reason: string | null;
   occurred_at: string;
+  /** `platform_proxy`：平台代供应商回传（M4-18，ADR 0052），`occurred_at` 是运营填的发生时间 */
+  source: "platform_proxy" | null;
+  /** 平台代传时系统收到的时间 */
+  recorded_at: string | null;
+  /** 只有运营后台有，且只有代传的事件才有 */
+  proxy?: { reason: string | null; requested_by: string | null; approved_by: string | null; approval_id: string | null };
 }
 
 export type OrderFileKind = "arrival_screen" | "signboard" | "contact_screenshot" | "receipt";

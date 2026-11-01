@@ -3,7 +3,7 @@
  * 字段与 `apps/api/openapi.yaml` 对齐，由 order-money.contract.test.ts 保证。
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
-import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel } from "@nozomi/domain";
+import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
 import type { ListPage, Money, OrderEvent, OrderFile } from "./dispatch.ts";
@@ -246,6 +246,8 @@ export interface PlatformOrderDetail {
   rescues: PlatformRescue[];
   exceptions: OrderExceptionRef[];
   tickets: OrderTicketRef[];
+  /** 代传「已完成」在等复核（M4-18）；没有为 null */
+  pending_proxy_completion: { approval_id: string; requested_at: string } | null;
 }
 
 export interface PlatformOrderQuery {
@@ -317,6 +319,18 @@ export interface OrderChangeRequest {
 
 export function changePlatformOrder(token: string, id: string, version: number, body: OrderChangeRequest): Promise<{ change: OrderChange }> {
   return apiRequest("PATCH", platformOrder(id), { token, body, headers: { "if-match": `"${version}"` } });
+}
+
+export interface ProxyFulfilmentRequest {
+  type: FulfilmentEventType;
+  occurred_at: string;
+  reason: string;
+  actual?: { minutes: number; km: number };
+}
+
+/** 代供应商回传履约（M4-18）：出发、到达、接到客人立即生效；完成返回一条复核。 */
+export function reportProxyFulfilment(token: string, id: string, version: number, body: ProxyFulfilmentRequest): Promise<{ order_id: string; status: OrderStatus; version: number } | { approval: Approval }> {
+  return apiRequest("POST", `${platformOrder(id)}/events`, { token, body, headers: { "if-match": `"${version}"` } });
 }
 
 export function decideExtraCharge(token: string, orderId: string, chargeId: string, body: { decision: "approve" | "reject"; approved_amount: number | null; note: string | null }): Promise<{ extra_charge: ExtraCharge }> {

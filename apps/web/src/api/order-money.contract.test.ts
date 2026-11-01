@@ -34,6 +34,7 @@ test("前端用到的取消、改单、加收、取消政策接口都在 openapi
     ["patch", `${PLATFORM_ORDERS_PATH}/{id}`],
     ["get", `${PLATFORM_ORDERS_PATH}/{id}/cancel-fee`],
     ["post", `${PLATFORM_ORDERS_PATH}/{id}/cancel`],
+    ["post", `${PLATFORM_ORDERS_PATH}/{id}/events`],
     ["post", `${PLATFORM_ORDERS_PATH}/{id}/extra-charges/{chargeId}/decide`],
     ["post", `${PLATFORM_ORDERS_PATH}/{id}/extra-charges/{chargeId}/retry`],
     ["post", `${PLATFORM_ORDERS_PATH}/{id}/refunds/{refundId}/retry`],

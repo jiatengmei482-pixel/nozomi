@@ -137,6 +137,7 @@ export type ApprovalKind =
   | "tenant.contract"
   | "cancellation_policy.update"
   | "order.cancel_refund"
+  | "order.proxy_complete"
   | "rescue.manual_assign"
   | "compensation_table.update"
   | "ticket.decision"

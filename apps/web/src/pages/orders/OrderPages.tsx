@@ -518,6 +518,13 @@ export function OrderDetailPage() {
             <li key={`${event.occurred_at}-${index}`}>
               <time dateTime={event.occurred_at}>{formatLocalDateTime(event.occurred_at)}</time>
               {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}`}
+              {event.source === "platform_proxy" && (
+                <>
+                  {" "}
+                  <span className="tag">平台代传</span>
+                  <span className="table__muted">{` 系统记录 ${event.recorded_at === null ? "—" : formatLocalDateTime(event.recorded_at)}`}</span>
+                </>
+              )}
             </li>
           ))}
         </ul>
