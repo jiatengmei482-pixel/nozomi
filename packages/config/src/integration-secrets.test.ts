@@ -21,6 +21,11 @@ const liveStripe = { secretKey: "sk_live_ADMINadminADMIN0003", publishableKey: "
 const ENV_MAPS = "AIzaEnvEnvEnvEnvEnvEnv000005678";
 const ADMIN_MAPS = "AIzaAdminAdminAdminAdmin0001234";
 
+test("打码：末 4 位按完整字符算，不切开表情；孤立代理项换成替换符（否则写不进 jsonb）", () => {
+  assert.equal(maskLast4("0123456789abcdef😀😀a"), "••••f😀😀a");
+  assert.equal(maskLast4("0123456789abcdef\ud83da"), "••••ef\ufffda");
+});
+
 test("打码：只露末 4 位；太短的值只有圆点，不露任何字符", () => {
   assert.equal(maskLast4(ADMIN_MAPS), "••••1234");
   assert.equal(maskLast4("sk_test_ADMINadminADMIN0002"), "••••0002");

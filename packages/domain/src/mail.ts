@@ -37,10 +37,10 @@ export function mailMessageIssues(message: MailMessage): MailMessageIssue[] {
   const issues: MailMessageIssue[] = [];
   if (message.to === "") issues.push({ field: "to", reason: "REQUIRED" });
   else if (!isSingleMailAddress(message.to)) issues.push({ field: "to", reason: "FORMAT" });
-  if (message.subject === "") issues.push({ field: "subject", reason: "REQUIRED" });
+  if (message.subject.trim() === "") issues.push({ field: "subject", reason: "REQUIRED" });
   else if (HEADER_FORBIDDEN.test(message.subject)) issues.push({ field: "subject", reason: "FORMAT" });
   else if (message.subject.length > MAIL_RULES.subjectMaxLength) issues.push({ field: "subject", reason: "TOO_LONG" });
-  if (message.text === "") issues.push({ field: "text", reason: "REQUIRED" });
+  if (message.text.trim() === "") issues.push({ field: "text", reason: "REQUIRED" });
   return issues;
 }
 

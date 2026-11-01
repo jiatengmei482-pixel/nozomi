@@ -338,16 +338,23 @@ function SecretCard({ item, canManage, encryptionReady, encryptionNoteId, onFill
     setSeen(version);
     setOutcome(null);
   }
+  const latestVersion = useRef(version);
+  latestVersion.current = version;
   const titleId = useId();
   const runTest = async (): Promise<void> => {
     if (testing) return;
     setTesting(true);
     setOutcome(null);
+    // 测试进行中配置换了：回来的结果说的是旧的那一份，不显示
+    const testedVersion = version;
+    const showOutcome = (next: TestOutcome): void => {
+      if (latestVersion.current === testedVersion) setOutcome(next);
+    };
     try {
-      setOutcome({ kind: "result", result: await testIntegrationSecret(token, item.key) });
+      showOutcome({ kind: "result", result: await testIntegrationSecret(token, item.key) });
     } catch (err) {
       if (handleAuthFailure(err)) return;
-      setOutcome({ kind: "failed", text: testFailureText(item.key, err) });
+      showOutcome({ kind: "failed", text: testFailureText(item.key, err) });
     } finally {
       setTesting(false);
     }

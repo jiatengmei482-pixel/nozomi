@@ -31,9 +31,9 @@ const MASK_DOTS = "••••";
 /** 短于这个长度的值只显示圆点：末 4 位占比太大。后台填写的值至少 20 个字符，所以后台的值总能显示末 4 位。 */
 const LAST4_MIN_LENGTH = 16;
 
-/** 打码：`••••` + 末 4 位。值太短时只有圆点，不露任何字符。 */
+/** 打码：`••••` + 末 4 个字符（按完整字符数，不切开表情；孤立代理项换成替换符，否则写不进 jsonb）。值太短时只有圆点，不露任何字符。 */
 export function maskLast4(secret: string): string {
-  return secret.length < LAST4_MIN_LENGTH ? MASK_DOTS : `${MASK_DOTS}${secret.slice(-4)}`;
+  return secret.length < LAST4_MIN_LENGTH ? MASK_DOTS : `${MASK_DOTS}${Array.from(secret).slice(-4).join("").replace(/\p{Cs}/gu, "\uFFFD")}`;
 }
 
 export type SecretFieldIssueReason =
