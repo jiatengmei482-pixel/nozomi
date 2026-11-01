@@ -69,6 +69,30 @@ const get = (url: string, token: string): Promise<ApiResponse> => api.call("GET"
 const codes = async (url: string, token: string): Promise<string[]> => (await ok(get(url, token))).items.map((item: any) => item.code);
 const placeUrl = (cityId: string, type = "airport,station,poi"): string => `${PLACE}?city_id=${cityId}&type=${type}`;
 
+test("M4-15 平台取消政策：只勾商品查看也能读，内容和供应商看到的相同、没有多余字段；别的操作不放行，改政策、赔付表、主数据列表仍然 403", async () => {
+  const productOnly = await staffWith("只看商品的取消政策", ["products:view"]);
+  const res = await get("/platform/v1/cancellation-policy", productOnly);
+  assert.equal(res.status, 200, res.text);
+  assertMatchesOpenApi("GET", "/platform/v1/cancellation-policy", res);
+  assert.deepEqual(Object.keys(res.body), ["policy"]);
+  assert.deepEqual(Object.keys(res.body.policy).sort(), ["effective_at", "rules", "version"]);
+  for (const rule of res.body.policy.rules) {
+    assert.deepEqual(Object.keys(rule).sort(), ["category", "level", "tiers"]);
+    for (const tier of rule.tiers) assert.deepEqual(Object.keys(tier).sort(), ["fee_bp", "min_hours_before"]);
+  }
+  assert.deepEqual(res.body, await ok(api.call("GET", "/tenant/v1/cancellation-policy", { token: m.a.adminToken })), "和供应商后台看到的是同一份");
+
+  assert.deepEqual((await api.call("POST", "/platform/v1/cancellation-policy/changes", { token: productOnly, body: { rules: [] } })).body.error.details, { required: "cancellation_policy.manage" });
+  for (const path of ["/platform/v1/compensation-table", "/platform/v1/master/cities"]) assert.equal((await get(path, productOnly)).status, 403, path);
+
+  for (const [name, grants] of [["只看订单的取消政策", ["orders:view"]], ["只看渠道的取消政策", ["channels:view"]], ["没有权限的取消政策", []]] as [string, string[]][]) {
+    const denied = await get("/platform/v1/cancellation-policy", await staffWith(name, grants));
+    assert.deepEqual([denied.status, denied.body.error], [403, { code: "FORBIDDEN", message: "当前角色没有这个操作的权限", details: { required_any: ["master_data.read", "product.read"] } }], name);
+    assertMatchesOpenApi("GET", "/platform/v1/cancellation-policy", denied);
+  }
+  assert.equal((await api.call("GET", "/platform/v1/cancellation-policy", { token: m.a.adminToken })).status, 401, "供应商的令牌进不了平台接口");
+});
+
 test("权限：自建角色有允许的任一个操作就能调，一个都没有 403 FORBIDDEN（details.required_any）；不勾主数据查看也拿得到自己页面的选项", async () => {
   const roles: [string, string[]][] = [
     ["渠道编辑", ["channels:view", "channels:edit"]],

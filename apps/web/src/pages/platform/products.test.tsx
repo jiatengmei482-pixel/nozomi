@@ -804,3 +804,53 @@ test("M4-13 自建角色只有商品查看：商品详情的附加服务来自�
   assert.ok(listCalls.some((call) => call.path === "/platform/v1/city-options?include_disabled=true"));
   assert.deepEqual(masterCalls(listCalls), []);
 });
+
+const POLICY_PATH = "/platform/v1/cancellation-policy";
+const policyOk = json(200, { policy: { version: 3, effective_at: null, rules: [{ category: "airport_transfer", level: "business", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] }, { category: "charter", level: "business", tiers: [{ min_hours_before: 0, fee_bp: 5000 }] }] } });
+const serviceRulesPath = `/platform/products/${PRODUCT_ID}/service-rules`;
+const POLICY_LOADING = "正在取平台的取消政策…";
+
+test("M4-15 只有商品查看的角色打开服务规则：看得到这个品类的取消规则，不请求主数据，不停在加载中", async () => {
+  const me = customMe(["product.read"]);
+  const calls = open(serviceRulesPath, "custom_m413", (call) => me(call) ?? (call.url.pathname === POLICY_PATH ? policyOk.clone() : null));
+  const lines = await screen.findByRole("list", { name: "平台的取消政策" });
+  assert.equal(within(lines).getAllByRole("listitem").length, 1, "只列这个商品的品类");
+  assert.equal(screen.queryByText(POLICY_LOADING), null);
+  assert.deepEqual(masterCalls(calls), []);
+});
+
+test("M4-15 取消政策接口 403：写明角色不能看；其他错误：写明没加载出来，重试能取到。都不停在加载中", async () => {
+  const me = customMe(["product.read"]);
+  const denied = open(serviceRulesPath, "custom_m413", (call) => me(call) ?? (call.url.pathname === POLICY_PATH ? json(403, { error: { code: "FORBIDDEN", message: "当前角色没有这个操作的权限", details: { required_any: ["master_data.read", "product.read"] } } }) : null));
+  assert.ok(await screen.findByText(/你的角色不能查看平台的取消政策/));
+  assert.equal(screen.queryByText(POLICY_LOADING), null);
+  assert.equal(denied.filter((call) => call.path === POLICY_PATH).length, 1, "没有权限不反复请求");
+  resetBrowser();
+
+  let attempts = 0;
+  open(serviceRulesPath, "custom_m413", (call) => {
+    const mine = me(call);
+    if (mine !== null) return mine;
+    if (call.url.pathname !== POLICY_PATH) return null;
+    attempts += 1;
+    return attempts === 1 ? json(500, { error: { code: "INTERNAL_ERROR", message: "出错了", details: {} } }) : policyOk.clone();
+  });
+  const failed = (await screen.findByText(/平台的取消政策没有加载出来/)) as HTMLElement;
+  await user().click(within(failed).getByRole("button", { name: "重试" }));
+  assert.ok(await screen.findByRole("list", { name: "平台的取消政策" }));
+});
+
+test("M4-15 取不到账号信息：商品页给重试，不停在骨架屏；重试后正常打开", async () => {
+  let attempts = 0;
+  const me = customMe(["product.read"]);
+  open(serviceRulesPath, "custom_m413", (call) => {
+    if (call.url.pathname === POLICY_PATH) return policyOk.clone();
+    if (call.url.pathname !== "/platform/v1/auth/me") return null;
+    attempts += 1;
+    return attempts === 1 ? json(500, { error: { code: "INTERNAL_ERROR", message: "出错了", details: {} } }) : me(call);
+  });
+  await screen.findByRole("heading", { name: "加载失败" });
+  assert.equal(document.querySelector(".skeleton"), null);
+  await user().click(screen.getByRole("button", { name: "重试" }));
+  await screen.findByRole("heading", { level: 2, name: "② 服务规则" });
+});

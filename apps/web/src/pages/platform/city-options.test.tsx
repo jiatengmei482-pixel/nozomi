@@ -167,6 +167,28 @@ test("没有订单查看的人打开订单列表：不请求城市选项", async
   assert.ok(calls.some((call) => call.path === "/platform/v1/auth/me"));
 });
 
+test("M4-15 只有渠道查看的人手改地址打开新建渠道：写没有权限，账号信息到手前后都不请求城市选项", async () => {
+  const calls = openApp("/platform/channels/new", "platform", CUSTOM, routes([TOKYO]), ["channel.read"]);
+  assert.ok(document.querySelector(".skeleton") !== null, "账号信息到手前先是骨架屏，不放出表单");
+  assert.ok(await screen.findByText("你没有权限查看这里"));
+  assert.ok(!calls.some((call) => call.path.startsWith("/platform/v1/city-options")));
+});
+
+test("M4-15 取不到账号信息时打开新建渠道：不放出表单、不请求城市选项，给重试，重试后有权限的人看到表单", async () => {
+  const actor = userEvent.setup();
+  let attempts = 0;
+  const calls = openApp("/platform/channels/new", "platform", CUSTOM, routes([TOKYO], undefined, (call) => {
+    if (call.url.pathname !== "/platform/v1/auth/me") return null;
+    attempts += 1;
+    return attempts === 1 ? json(500, { error: { code: "INTERNAL_ERROR", message: "出错了", details: {} } }) : null;
+  }), CHANNEL_EDITOR);
+  await screen.findByRole("heading", { name: "加载失败" });
+  assert.ok(!calls.some((call) => call.path.startsWith("/platform/v1/city-options")));
+  await actor.click(screen.getByRole("button", { name: "重试" }));
+  assert.ok(await screen.findByRole("radio", { name: "只卖选中的城市" }));
+  await waitFor(() => assert.ok(calls.some((call) => call.path === "/platform/v1/city-options")));
+});
+
 test("自建角色只有角色查看和编辑：编辑角色的数据范围时城市选项来自城市选项接口；角色原来选的、已停用的城市写明「已停用」", async () => {
   const actor = userEvent.setup();
   const role = {

@@ -679,3 +679,9 @@ test("M1-14 手机上打开本月：今天那一行滚到屏幕中间；看别�
   await waitFor(() => assert.ok(dayCell(TODAY)));
   assert.deepEqual(visible, [], "今天已经在屏幕上半部分");
 });
+
+test("M4-15 库存接口 403：写没有权限，不停在骨架屏", async () => {
+  open(`/products/${PRODUCT_ID}${MONTH}`, "admin", {}, (call) => (call.method === "GET" && call.url.pathname === `${BASE}/inventory` ? apiError(403, "FORBIDDEN", "没有权限") : null));
+  await screen.findByRole("heading", { name: "你没有权限查看这里" });
+  assert.equal(document.querySelector(".skeleton"), null);
+});

@@ -8,6 +8,7 @@ import { TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
 import { FAKE_SECRETS, leakedSecrets } from "./testing/fixtures.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { OPTION_ACTIONS } from "./routes/master-options.ts";
+import { CANCELLATION_POLICY_READ_ACTIONS } from "./routes/order-actions.ts";
 
 let api: TestApi;
 let rootToken: string;
@@ -147,7 +148,6 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/decide`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/retry`, action: "payment.manage" },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/refunds/${MISSING_CHILD}/retry`, action: "payment.manage" },
-  { method: "GET", url: "/platform/v1/cancellation-policy", action: "master_data.read" },
   { method: "POST", url: "/platform/v1/cancellation-policy/changes", action: "cancellation_policy.manage", body: {} },
   // 救援改派（M3-04，ADR 0031）：队列用 order.read 看；发起、候选、发救援单、人工指定、不可抗力、批量发起要 rescue.manage
   { method: "GET", url: "/platform/v1/rescues", action: "order.read" },
@@ -214,13 +214,16 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
 ];
 
 /**
- * 允许几种操作中任一种的接口（运营后台的选项接口，ADR 0047）：一种都没有的 403，`details.required_any` 列出这几种。
+ * 允许几种操作中任一种的接口（运营后台的选项接口、平台取消政策，ADR 0047）：一种都没有的 403，`details.required_any` 列出这几种。
  * 内置角色都有 `master_data.read`，所以这里全部放行；自建角色缺权限的情况在 master-options.itest.ts。
  */
-const ANY_OF: { url: string; actions: readonly PlatformAction[] }[] = Object.entries(OPTION_ACTIONS).map(([url, actions]) => ({
-  url: url === "/platform/v1/place-options" ? `${url}?city_id=${MISSING}&type=airport` : url,
-  actions,
-}));
+const ANY_OF: { url: string; actions: readonly PlatformAction[] }[] = [
+  ...Object.entries(OPTION_ACTIONS).map(([url, actions]) => ({
+    url: url === "/platform/v1/place-options" ? `${url}?city_id=${MISSING}&type=airport` : url,
+    actions,
+  })),
+  { url: "/platform/v1/cancellation-policy", actions: CANCELLATION_POLICY_READ_ACTIONS },
+];
 
 test("权限矩阵：10 个平台角色 × 每个受保护的接口，没有对应操作的一律 403，有的不是 403", async () => {
   for (const { key: role } of PLATFORM_ROLES) {

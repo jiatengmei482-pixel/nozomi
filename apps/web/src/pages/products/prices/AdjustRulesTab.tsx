@@ -13,7 +13,9 @@ import { Button, IconButton, LinkButton } from "../../../components/Button.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
 import { Dropdown } from "../../../components/Dropdown.tsx";
 import { Icon } from "../../../components/Icon.tsx";
-import { Skeleton, StateBlock } from "../../../components/States.tsx";
+import { StateBlock } from "../../../components/States.tsx";
+import type { LoadState } from "../../../lib/use-load.ts";
+import { StepLoadState } from "../StepLoadState.tsx";
 import { StatusBadge } from "../../../components/StatusBadge.tsx";
 import { useToast } from "../../../components/Toast.tsx";
 import { cycleText, exactMoneyText, firstAndCount, reachWarning, ruleFromBody, slotText, stepsText, travelText, tripDirectionsText } from "../../../lib/adjust-form.ts";
@@ -51,7 +53,7 @@ export function resultTooLarge(err: unknown): boolean {
 }
 export const TOO_LARGE_TEXT = "按适用范围内的价格算，调完超过了结算价的上限。请检查是不是多打了几个零。";
 
-export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; loadStatus: string }) {
+export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; loadStatus: LoadState<unknown>["status"] }) {
   const { frame, product, prices, adjusts } = shared;
   const { step: productPath, price: pricePath } = frame.source.paths;
   const { token, handleAuthFailure } = usePortalSession();
@@ -288,19 +290,7 @@ export function AdjustRulesTab({ shared, loadStatus }: { shared: PricesShared; l
       <>
         {intro}
         <section className="card">
-          {loadStatus === "error" ? (
-            <StateBlock
-              title="加载失败"
-              description="请检查网络后重试。"
-              action={
-                <Button variant="secondary" onClick={shared.reloadAdjusts}>
-                  重试
-                </Button>
-              }
-            />
-          ) : (
-            <Skeleton lines={["long", "long", "long"]} />
-          )}
+          <StepLoadState status={loadStatus} reload={shared.reloadAdjusts} lines={["long", "long", "long"]} />
         </section>
       </>
     );

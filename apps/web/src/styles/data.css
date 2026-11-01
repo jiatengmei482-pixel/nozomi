@@ -539,8 +539,10 @@
   font-size: var(--font-size-sm);
 }
 
+/* 名称放不下时次要文字（编码等）换到下一行，名称不在单词中间折行；一个词比整行还长才折 */
 .combobox__option {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--control-height-md);
@@ -560,12 +562,13 @@
 }
 
 .combobox__option-label {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .combobox__option-detail {
+  min-width: 0;
   color: var(--color-text-secondary);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);

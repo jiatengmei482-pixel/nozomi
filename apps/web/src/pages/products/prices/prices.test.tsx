@@ -1047,3 +1047,12 @@ test("M1-14 再加一段日期：上一段一直有效时开始日期留空并�
   const batch = writes(calls).at(-1)?.body as { create: Record<string, unknown>[]; update: Record<string, unknown>[] };
   assert.deepEqual([batch.create[0]?.["valid_from"], batch.create[0]?.["base_price"], batch.update[0]?.["valid_to"]], ["2026-12-20", 25000, "2026-12-19"]);
 });
+
+test("M4-15 调价规则、价格日历的接口 403：写没有权限，不停在骨架屏", async () => {
+  for (const [tab, api] of [["adjust", "adjust-rules"], ["calendar?month=2026-10", "price-calendar"]] as const) {
+    open(`/products/${PRODUCT_ID}/prices/${tab}`, "admin", {}, (call) => (call.method === "GET" && call.url.pathname === `${BASE}/${api}` ? apiError(403, "FORBIDDEN", "没有权限") : null));
+    await screen.findByRole("heading", { name: "你没有权限查看这里" });
+    assert.equal(document.querySelector(".skeleton"), null, tab);
+    resetBrowser();
+  }
+});
