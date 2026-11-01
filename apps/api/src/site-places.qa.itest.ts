@@ -15,6 +15,7 @@
  * - 安全：日志里没有关键字、坐标、密钥（谷歌错误应答回显了密钥也一样）；计数表、限流表里没有来源地址原文和密钥。
  * 测试数据全在本文件里建出来，随测试 schema 一起删除；用 2030 年时钟的直接调用测试结束后删掉自己写的计数。
  */
+import { PLACE_SEARCH_RULES } from "@nozomi/domain";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -107,8 +108,10 @@ const adminKeys: string[] = [];
 const TOKYO_CENTER = { lng: 139.6917, lat: 35.6895 };
 
 const googleEnv = (): Record<string, string> => ({ GOOGLE_PLACES_SEARCH_URL: `${origin}/v1/places:searchText`, GOOGLE_GEOCODE_URL: `${origin}/v4beta/geocode/location`, GOOGLE_MAPS_API_KEY: "" });
+/** 默认不缓存（ADR 0053）；这些用例测的是缓存机制本身，明确给一个时长 */
+const CACHE_MECHANISM_TTL_MS = 10 * 60_000;
 const openSite = async (env: Record<string, string> = {}, deps: Parameters<typeof siteApi>[4] = {}, clientId = siteClientId): Promise<SiteApi> => {
-  const app = await siteApi(api, clientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) }, ...deps });
+  const app = await siteApi(api, clientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, placeCacheTtlMs: CACHE_MECHANISM_TTL_MS, logDestination: { write: (line) => void (logs += line) }, ...deps });
   opened.push(app);
   return app;
 };
@@ -160,7 +163,7 @@ function service(options: { now: () => Date; search?: SearchFn; dailyLimit?: num
     search: options.search ?? (async () => ({ ok: true, value: [] })),
     reverse: async (_key, _point, _region, beforeAttempt) => ((await beforeAttempt()) ? { ok: true, value: "替身地址" } : { ok: false, code: "DAILY_LIMIT_REACHED" }),
     log: { warn: (obj, msg) => void warnings.push({ obj, msg }) },
-    ...(options.cacheTtlMs === undefined ? {} : { cacheTtlMs: options.cacheTtlMs }),
+    cacheTtlMs: options.cacheTtlMs ?? CACHE_MECHANISM_TTL_MS,
   });
 }
 /** 不联网的谷歌替身：照真实实现，发请求前先占名额；记下调用次数 */
@@ -191,6 +194,17 @@ async function withMonotonic<T>(start: number, fn: (set: (ms: number) => void) =
     delete (performance as unknown as { now?: unknown }).now;
   }
 }
+
+test("默认不缓存结果（ADR 0053，谷歌条款）：同一个关键字问两次，调两次谷歌；并发的才只调一次", async () => {
+  assert.equal(PLACE_SEARCH_RULES.cacheTtlMs, 0);
+  const google = counting();
+  const places = service({ now: () => new Date("2030-09-02T03:00:00.000Z"), search: google.search, cacheTtlMs: PLACE_SEARCH_RULES.cacheTtlMs, apiKey: () => "AIzaQaNoCacheDefault00000000001" });
+  await ask(places, "渋谷 ホテル");
+  await ask(places, "渋谷 ホテル");
+  assert.equal(google.calls(), 2);
+  await Promise.all([ask(places, "新宿 ホテル"), ask(places, "新宿 ホテル"), ask(places, "新宿 ホテル")]);
+  assert.equal(google.calls(), 3);
+});
 
 test("每日上限按东京日期：东京 23:59:59.999 还算当天（已满、被挡下、不调用），东京 0 点整换新的一天、从 1 开始计（和路线的表无关）", async () => {
   let now = new Date("2030-08-31T14:59:59.999Z");
