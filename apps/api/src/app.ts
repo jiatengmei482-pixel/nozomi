@@ -16,6 +16,7 @@ import { FxCenter } from "./services/fx-center.ts";
 import { REDACTED, pathOnly, secretValues, serializeError, serializeRequest } from "./logging.ts";
 import { registerAreaRoutes } from "./routes/areas.ts";
 import { registerMasterDataRoutes } from "./routes/master-data.ts";
+import { registerMasterOptionRoutes } from "./routes/master-options.ts";
 import { registerImportExportRoutes } from "./routes/import-export.ts";
 import { registerQuoteRoutes } from "./routes/quotes.ts";
 import { registerFxRoutes } from "./routes/fx.ts";
@@ -303,6 +304,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerIntegrationSecretRoutes(app, context);
   registerTenantRoutes(app, context);
   registerMasterDataRoutes(app, context);
+  registerMasterOptionRoutes(app, context);
   registerAreaRoutes(app, context);
   registerProductRoutes(app, context);
   registerPriceRoutes(app, context);
