@@ -142,6 +142,18 @@ test("重试连点：请求没回来前再点不会发第二次；回来后状�
   assert.equal(calls.filter((call) => urlOf(call).pathname.endsWith("/retry")).length, 1);
 });
 
+test("通知记录里的拒收原因：分不清时同时提发件人和收件人；暂时不接收、等待重试的看得到下次时间；不显示错误代码", async () => {
+  const both = "邮件服务器拒绝了这封邮件，分不清是发件人还是收件人的问题：请确认这个账号可以用这个发件人地址发信，并核对收件人邮箱地址";
+  const later = "邮件服务器暂时不接收这封邮件（可能是限流或对方暂时不可用），通常过一会儿就好";
+  openPlatform("/platform/notifications", "operations", (call) => {
+    if (call.url.pathname === "/platform/v1/notifications") return list([rowOf({ id: "n-1", status: "failed", retryable: true, last_error: { code: "MESSAGE_REJECTED", message: both } }), rowOf({ id: "n-2", status: "pending", retryable: false, next_attempt_at: "2999-01-01T00:00:00.000Z", last_error: { code: "TEMPORARILY_REJECTED", message: later } })]);
+    return null;
+  });
+  assert.ok(await screen.findByText(both));
+  assert.ok(screen.getByText(later));
+  assert.equal(screen.queryByText(/MESSAGE_REJECTED|TEMPORARILY_REJECTED/), null);
+});
+
 test("重试还是失败：提示里有中文原因，不是错误代码；网络断了也有中文提示", async () => {
   let attempt = 0;
   openPlatform("/platform/notifications", "operations", (call) => {

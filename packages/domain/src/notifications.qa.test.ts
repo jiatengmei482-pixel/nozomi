@@ -109,7 +109,7 @@ test("紧急判断按城市当地日期：东京午夜整点切换；同一时�
 test("退避每一档：第 1–5 次失败按 1 分钟、5 分钟、30 分钟、2 小时、6 小时；第 6 次起最终失败", () => {
   const expected = [60, 300, 1800, 7200, 21600];
   assert.deepEqual([...NOTIFICATION_RULES.retryDelaysSeconds], expected);
-  for (const code of ["UNREACHABLE", "TIMEOUT", "SENDER_REJECTED", "UNEXPECTED"]) {
+  for (const code of ["UNREACHABLE", "TIMEOUT", "TEMPORARILY_REJECTED", "UNEXPECTED"]) {
     expected.forEach((delaySeconds, index) => assert.deepEqual(notificationFailureAction(code, index + 1), { kind: "retry", delaySeconds }, `${code} 第 ${index + 1} 次`));
     assert.deepEqual(notificationFailureAction(code, 6), { kind: "fail" }, code);
     assert.deepEqual(notificationFailureAction(code, 7), { kind: "fail" }, code);
