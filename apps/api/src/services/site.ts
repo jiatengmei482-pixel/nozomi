@@ -28,12 +28,13 @@ import {
   rateLimitKeyOf,
   tenantBids,
   vehicleLevel,
+  type PassengerContact,
   contactLookupKey,
   normalizeEmailForIndex,
   normalizePhoneForIndex,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import type { PassengerCrypto } from "../integrations/passenger-crypto.ts";
+import { type PassengerCrypto, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
@@ -454,15 +455,33 @@ export function contactMatches(contact: string, passenger: { email: string; phon
   return key.kind === "email" ? key.value === normalizeEmailForIndex(passenger.email) : key.value === normalizePhoneForIndex(passenger.phone);
 }
 
-/**
- * 核对这张单（ADR 0057）：这一行有当前密钥算的盲索引就比盲索引，不用解密；还没回填、密钥换过的按解密或明文的内容比，规则相同。
- */
-export function contactMatchesOrder(crypto: PassengerCrypto, contact: string, found: { tenantId: string; email: string; phone: string; emailBidx: string | null; phoneBidx: string | null }): boolean {
+/** 盲索引的结论：这一行有当前密钥算的盲索引就有结论，不用解密；没回填、密钥换过、读明文模式时是 null。 */
+function indexVerdict(crypto: PassengerCrypto, contact: string, found: { tenantId: string; emailBidx: string | null; phoneBidx: string | null }): boolean | null {
   const key = contactLookupKey(contact);
   if (key === null) return false;
   const stored = key.kind === "email" ? found.emailBidx : found.phoneBidx;
-  if (crypto.readsCiphertext && crypto.isCurrent(stored)) return crypto.index(found.tenantId, key.kind, key.value) === stored;
-  return contactMatches(contact, found);
+  return crypto.readsCiphertext && crypto.isCurrent(stored) ? crypto.index(found.tenantId, key.kind, key.value) === stored : null;
+}
+
+/** 核对这张单（ADR 0057）：有盲索引比盲索引，否则按内容比，规则相同。 */
+export function contactMatchesOrder(crypto: PassengerCrypto, contact: string, found: { tenantId: string; email: string; phone: string; emailBidx: string | null; phoneBidx: string | null }): boolean {
+  return indexVerdict(crypto, contact, found) ?? contactMatches(contact, found);
+}
+
+/**
+ * 找回订单时的核对：先比盲索引再解密（ADR 0057）。对不上的不解密，和订单号不存在一样走 404，解不开也看不出来；
+ * 对得上却解不开才是 503（这时对方已经证明知道联系方式）。没有盲索引又解不开的，分不出对没对，按对不上算。
+ */
+function lookupMatches(crypto: PassengerCrypto, contact: string, found: { orderId: string; tenantId: string; passengerEnc: string | null; passengerPlain: PassengerContact; emailBidx: string | null; phoneBidx: string | null }): boolean {
+  const verdict = indexVerdict(crypto, contact, found);
+  if (verdict === false) return false;
+  try {
+    const passenger = crypto.readOrderPassenger(found.tenantId, found.orderId, found.passengerEnc, found.passengerPlain);
+    return verdict ?? contactMatches(contact, passenger);
+  } catch (err) {
+    if (verdict === null && isPassengerDecryptFailure(err)) return false;
+    throw err;
+  }
 }
 
 /**
@@ -481,7 +500,7 @@ export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact:
   const ceilingOf = (times: readonly Date[]) => evaluateRollingWindow(times, SITE_LOOKUP_CEILING.maxFailures, SITE_LOOKUP_CEILING.windowMs, now);
   const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
   // 脱敏后的单永远对不上（ADR 0055）：走和「对不上」同一条路，应答分不出订单号存不存在
-  if (found !== null && !found.anonymized && contactMatchesOrder(passengerCryptoOfPool(ctx.pool), contact, found)) {
+  if (found !== null && !found.anonymized && lookupMatches(passengerCryptoOfPool(ctx.pool), contact, found)) {
     const blocked = await withPlatformTx(ctx.pool, async (db) => {
       const ceiling = ceilingOf(await listLookupFailures(db, bucket, since));
       if (ceiling.allowed) return null;

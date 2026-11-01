@@ -85,3 +85,8 @@ create trigger orders_tenant_columns
                    passenger_anonymized_at, passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx
   on orders
   for each statement execute function reject_tenant_column_update();
+
+-- 供应商的角色能手动重推（改 webhook_deliveries），但不能动推送内容的密文，否则能把自己的推送改成解不开
+create trigger webhook_deliveries_tenant_columns
+  before update of event_data_enc on webhook_deliveries
+  for each statement execute function reject_tenant_column_update();

@@ -51,6 +51,7 @@ import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { findExtraChargeForPlatform } from "../repos/extra-charges.ts";
 import { findDriver, findVehicle } from "../repos/fleet.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import {
   type Notification,
   type NotificationOutcome,
@@ -375,6 +376,8 @@ export class NotificationJobs {
     try {
       prepared = await withPlatformTx(this.ctx.pool, (db) => this.prepare(db, notification, manual));
     } catch (err) {
+      // 这单解不开：重试也没用，记失败（错误码，不带内容），不占队列（ADR 0057）
+      if (isPassengerDecryptFailure(err)) return this.finish(notification, { status: "failed", attempts: attemptNo, code: PASSENGER_DECRYPT_FAILED, message: null });
       // 不记错误对象本身：数据库错误的详情里可能带着行内容（收件人）
       this.log.warn({ event: "notification.prepare_failed", notificationId: notification.id, dbCode: dbCodeOf(err) }, "准备邮件内容时出错，稍后再试");
       return this.finish(notification, this.afterFailure(notification, "UNEXPECTED", null, attemptNo, manual));

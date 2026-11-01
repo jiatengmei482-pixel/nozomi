@@ -383,6 +383,7 @@ export const NOTIFICATION_ERROR_NAMES: Readonly<Record<string, string>> = {
   ORDER_STATE_CHANGED: "订单情况变了，再发只会误导，不再发送",
   OUTCOME_UNKNOWN: "发送途中服务中断，不知道发出去了没有；可能已发出，重试前请先确认",
   RENDER_FAILED: "邮件内容生成失败（程序问题）",
+  PASSENGER_DECRYPT_FAILED: "乘客信息解不开，没有发送；不会自动重试，请联系技术",
   MESSAGE_INVALID: "收件人地址或邮件内容不合格",
   UNEXPECTED: "准备或发送邮件时出错，系统会自动重试；一直不好请联系技术",
 };

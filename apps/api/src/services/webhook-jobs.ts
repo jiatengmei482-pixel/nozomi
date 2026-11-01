@@ -14,9 +14,10 @@
 import { webhookRetryDelaySeconds } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { SecretBoxError } from "../integrations/secret-box.ts";
 import type { WebhookResult } from "../integrations/webhook-sender.ts";
-import { type WebhookAttempt, type WebhookDelivery, abandonDelivery, claimDueDeliveries, findDelivery, findTenantWebhook, finishDeliveryAttempt, insertAttempt } from "../repos/webhooks.ts";
+import { type TenantWebhook, type WebhookAttempt, type WebhookDelivery, abandonDelivery, claimDueDeliveries, findDelivery, findTenantWebhook, finishDeliveryAttempt, insertAttempt } from "../repos/webhooks.ts";
 import type { OrderLog } from "./orders.ts";
 import { type SignedRequest, attemptRecord, deliveryBody, signedRequest } from "./tenant-webhooks.ts";
 
@@ -94,11 +95,24 @@ export class WebhookJobs {
   private async deliver(delivery: WebhookDelivery, trigger: WebhookAttempt["trigger"]): Promise<{ delivery: WebhookDelivery; result: DeliverResult }> {
     const startedAt = this.ctx.now();
     const attemptNo = delivery.attempts + 1;
-    const prepared = await withPlatformTx(this.ctx.pool, async (db) => {
-      const webhook = await findTenantWebhook(db, delivery.tenantId);
-      if (webhook === null || webhook.status !== "active") return null;
-      return { webhook, body: await deliveryBody(db, delivery, startedAt) };
-    });
+    // 这条推送或它的订单解不开：只这一条记失败（错误码，不带内容），不影响这一轮别的推送，手动重推也不会把「无法读取」发给供应商（ADR 0057）
+    const abandonUnreadable = async (): Promise<{ delivery: WebhookDelivery; result: DeliverResult }> => {
+      this.log.error({ event: "webhook.delivery_failed", tenantId: delivery.tenantId, eventId: delivery.eventId, errorCode: PASSENGER_DECRYPT_FAILED }, "这条推送的乘客信息解不开，不再发送");
+      const abandoned = await withPlatformTx(this.ctx.pool, (db) => abandonDelivery(db, delivery, PASSENGER_DECRYPT_FAILED, startedAt));
+      return abandoned === null ? { delivery: await this.leaseLost(delivery), result: "in_flight" } : { delivery: abandoned, result: "not_configured" };
+    };
+    if (delivery.eventDataUnreadable) return abandonUnreadable();
+    let prepared: { webhook: TenantWebhook; body: string } | null;
+    try {
+      prepared = await withPlatformTx(this.ctx.pool, async (db) => {
+        const webhook = await findTenantWebhook(db, delivery.tenantId);
+        if (webhook === null || webhook.status !== "active") return null;
+        return { webhook, body: await deliveryBody(db, delivery, startedAt) };
+      });
+    } catch (err) {
+      if (isPassengerDecryptFailure(err)) return abandonUnreadable();
+      throw err;
+    }
     if (prepared === null) {
       this.log.warn({ event: "webhook.delivery_abandoned", tenantId: delivery.tenantId, eventId: delivery.eventId }, "供应商的 Webhook 已删除或暂停，这条推送不再发送");
       const abandoned = await withPlatformTx(this.ctx.pool, (db) => abandonDelivery(db, delivery, "WEBHOOK_NOT_CONFIGURED", startedAt));

@@ -7,8 +7,9 @@
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
 import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
-import { type ContactIndexKind, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
+import { type ContactIndexKind, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -121,7 +122,17 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
   o.driver_missing_reported_at`;
 
-function toOrder(db: Db, row: Row): Order {
+/** 这一行解不开时：单张的抛 503；列表（`tolerant`）里只这一行显示「无法读取」，别的行正常（ADR 0057）。 */
+function readPassenger(db: Db, row: Row, tolerant: boolean): Order["passenger"] {
+  try {
+    return passengerCryptoOf(db).readOrderPassenger(row["tenant_id"], row["id"], row["passenger_enc"], row["passenger"]);
+  } catch (err) {
+    if (tolerant && isPassengerDecryptFailure(err)) return { ...UNREADABLE_PASSENGER };
+    throw err;
+  }
+}
+
+function toOrder(db: Db, row: Row, tolerant = false): Order {
   return {
     tenantId: row["tenant_id"],
     id: row["id"],
@@ -147,7 +158,7 @@ function toOrder(db: Db, row: Row): Order {
     addons: row["addons"],
     driverLanguage: row["driver_language"],
     flightNo: row["flight_no"],
-    passenger: passengerCryptoOf(db).readOrderPassenger(row["tenant_id"], row["id"], row["passenger_enc"], row["passenger"]),
+    passenger: readPassenger(db, row, tolerant),
     passengerAnonymizedAt: row["passenger_anonymized_at"],
     messaging: row["messaging"],
     notes: row["notes"],
@@ -242,7 +253,7 @@ export async function findOrdersOfTenants(db: Db, keys: readonly { tenantId: str
     `select ${ORDER_COLUMNS} from orders o join unnest($1::uuid[], $2::uuid[]) as wanted(tenant_id, id) on wanted.tenant_id = o.tenant_id and wanted.id = o.id`,
     [keys.map((key) => key.tenantId), keys.map((key) => key.orderId)],
   );
-  return new Map(result.rows.map((row) => [`${row["tenant_id"]}|${row["id"]}`, toOrder(db, row)]));
+  return new Map(result.rows.map((row) => [`${row["tenant_id"]}|${row["id"]}`, toOrder(db, row, true)]));
 }
 
 export async function updateOrderStatus(
@@ -628,7 +639,7 @@ export async function listTenantOrders(db: Db, tenantId: string, filter: TenantO
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o where ${where}`, params);
-  return { ...toPage(result.rows, limit, (row: Row) => toOrder(db, row), (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
+  return { ...toPage(result.rows, limit, (row: Row) => toOrder(db, row, true), (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
 }
 
 /** 租户自己的一张订单（付过款的）；别的租户的、没付款的都当作不存在。 */
@@ -673,7 +684,7 @@ async function passengerFilterIndexes(db: Db, tenantId: string | null, query: st
   if (!crypto.configured) return { email: [], phone: [], name: [] };
   const tenants = tenantId !== null ? [tenantId] : (await db.query<{ id: string }>("select id from tenants")).rows.map((row) => row.id);
   const each = (kind: ContactIndexKind, value: string): string[] => (value === "" ? [] : tenants.map((tenant) => crypto.index(tenant, kind, value)));
-  return { email: query.includes("@") ? each("email", normalizeEmailForIndex(query)) : [], phone: each("phone", normalizePhoneForIndex(query)), name: each("name", normalizeNameForIndex(query)) };
+  return { email: normalizeEmailForIndex(query).includes("@") ? each("email", normalizeEmailForIndex(query)) : [], phone: each("phone", normalizePhoneForIndex(query)), name: each("name", normalizeNameForIndex(query)) };
 }
 
 /** 运营后台的订单列表：跨租户、跨渠道，按下单时间从新到旧；一个订单一行（「现在的」供应商那一行，ADR 0031）。`q` 按订单号、渠道订单号精确找。销售端一侧、收款、租户和渠道的名字按这一页的订单各一条查询取回。 */
@@ -702,7 +713,7 @@ export async function listPlatformOrders(db: Db, filter: PlatformOrderFilter, li
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where ${where}`, params);
-  const page = toPage(result.rows, limit, (row: Row) => toOrder(db, row), (row) => ({ t: row["cursor_time"], id: row["id"] }));
+  const page = toPage(result.rows, limit, (row: Row) => toOrder(db, row, true), (row) => ({ t: row["cursor_time"], id: row["id"] }));
   const ids = page.items.map((order) => order.id);
   const sales = new Map((await db.query<Row>(`select ${SALE_COLUMNS} from order_sales s where s.order_id = any($1::uuid[])`, [ids])).rows.map((row) => [row["order_id"] as string, toSale(row)]));
   const payments = new Map((await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = any($1::uuid[]) and p.kind = 'order'`, [ids])).rows.map((row) => [row["order_id"] as string, toPayment(row)]));

@@ -2,8 +2,9 @@
  * 推送给供应商（租户 Webhook，M3-02，ADR 0027）的数据访问：订阅、投递、每一次尝试。
  * 三张都是租户表：供应商后台在租户事务里读写自己的；推送任务、付款确认时排队、运营后台在平台事务里跨租户读写（查询自己带好条件）。
  */
-import { type PlatformDataScope, type TenantWebhookEvent, type WebhookEventType, scopeIsRestricted } from "@nozomi/domain";
+import { type PlatformDataScope, type TenantWebhookEvent, UNREADABLE_PASSENGER, type WebhookEventType, replacePassengers, scopeIsRestricted } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -84,6 +85,8 @@ export interface WebhookDelivery {
   eventType: WebhookEventType;
   orderId: string | null;
   eventData: Record<string, unknown>;
+  /** 推送内容的密文解不开（ADR 0057）：不发，记失败 */
+  eventDataUnreadable: boolean;
   status: DeliveryStatus;
   attempts: number;
   nextAttemptAt: Date | null;
@@ -101,7 +104,18 @@ export interface WebhookDelivery {
 const DELIVERY_COLUMNS = `d.tenant_id, d.id, d.seq, d.event_id, d.event_type, d.order_id, d.event_data, d.event_data_enc, d.status, d.attempts, d.next_attempt_at, d.last_attempt_at, d.last_status_code,
   d.last_error_code, d.last_duration_ms, d.succeeded_at, d.failed_at, d.created_at, d.lease_token`;
 
+/** 推送内容读出来；解不开时只这一行受影响，乘客换成「无法读取」，不会发出去（ADR 0057）。 */
+function readEventData(db: Db, row: Row): { data: Record<string, unknown>; unreadable: boolean } {
+  try {
+    return { data: passengerCryptoOf(db).readValues("webhook_delivery", row["tenant_id"], row["event_id"], row["event_data_enc"], row["event_data"]), unreadable: false };
+  } catch (err) {
+    if (isPassengerDecryptFailure(err)) return { data: replacePassengers(row["event_data"], UNREADABLE_PASSENGER), unreadable: true };
+    throw err;
+  }
+}
+
 function toDelivery(db: Db, row: Row): WebhookDelivery {
+  const event = readEventData(db, row);
   return {
     tenantId: row["tenant_id"],
     id: row["id"],
@@ -109,7 +123,8 @@ function toDelivery(db: Db, row: Row): WebhookDelivery {
     eventId: row["event_id"],
     eventType: row["event_type"],
     orderId: row["order_id"],
-    eventData: passengerCryptoOf(db).readValues("webhook_delivery", row["tenant_id"], row["event_id"], row["event_data_enc"], row["event_data"]),
+    eventData: event.data,
+    eventDataUnreadable: event.unreadable,
     status: row["status"],
     attempts: row["attempts"],
     nextAttemptAt: row["next_attempt_at"],
@@ -167,7 +182,13 @@ export async function claimDueDeliveries(db: Db, now: Date, leaseUntil: Date, li
      returning ${DELIVERY_COLUMNS}`,
     [now, leaseUntil, limit],
   );
-  return result.rows.map((row) => toDelivery(db, row)).sort((a, b) => a.seq - b.seq);
+  const claimed = result.rows.map((row) => toDelivery(db, row));
+  // 解不开的这一条记失败（看得到错误码），不回滚这一批，也不再重试；同一单后面的推送下一轮就能发（ADR 0057）
+  const unreadable = claimed.filter((item) => item.eventDataUnreadable).map((item) => item.id);
+  if (unreadable.length > 0) {
+    await db.query("update webhook_deliveries set status = 'failed', next_attempt_at = null, failed_at = $2, last_error_code = $3, lease_token = null where id = any($1::uuid[])", [unreadable, now, PASSENGER_DECRYPT_FAILED]);
+  }
+  return claimed.filter((item) => !item.eventDataUnreadable).sort((a, b) => a.seq - b.seq);
 }
 
 export interface AttemptOutcome {

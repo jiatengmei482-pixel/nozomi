@@ -7781,6 +7781,8 @@ paths:
                           type: string
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
       tags:
@@ -8122,6 +8124,8 @@ paths:
                       $ref: "#/components/schemas/ExtraCharge"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/orders:
     get:
       tags: [ 订单 ]
@@ -8504,6 +8508,8 @@ paths:
                           format: date-time
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
     patch:
       tags:
         - 订单
@@ -23514,7 +23520,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:
@@ -23562,7 +23568,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:
@@ -23611,7 +23617,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:

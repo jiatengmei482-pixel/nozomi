@@ -4,6 +4,7 @@
  */
 import { HANDWRITTEN_KEYS, type PassengerContact, isPassengerPlaceholder, scrubContactsInText } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { readChangeValues } from "./order-changes.ts";
 
 export const HANDWRITTEN_SOURCES = [
@@ -49,9 +50,19 @@ export async function listPassengerNames(db: Db, orderIds: readonly string[]): P
     if (typeof name !== "string" || isPassengerPlaceholder(name)) return;
     found.set(orderId, (found.get(orderId) ?? new Set()).add(name));
   };
-  for (const row of orders.rows) add(row.id, crypto.readOrderPassenger(row.tenant_id, row.id, row.passenger_enc, row.passenger).name);
+  // 打码用的，一行解不开只是少认一个姓名（电话、邮箱照样打码），不能拖垮整页（ADR 0057）
+  const readable = <T>(read: () => T): T | null => {
+    try {
+      return read();
+    } catch (err) {
+      if (isPassengerDecryptFailure(err)) return null;
+      throw err;
+    }
+  };
+  for (const row of orders.rows) add(row.id, readable(() => crypto.readOrderPassenger(row.tenant_id, row.id, row.passenger_enc, row.passenger))?.name);
   for (const row of changes.rows) {
-    const values = readChangeValues(db, row);
+    const values = readable(() => readChangeValues(db, row));
+    if (values === null) continue;
     for (const side of [values.before, values.after]) add(row.order_id, (side["passenger"] as { name?: unknown } | undefined)?.name);
   }
   return new Map([...found].map(([orderId, names]) => [orderId, [...names]]));

@@ -2,8 +2,9 @@
  * 通知中心（M4-08，ADR 0049）的数据访问：发件箱、发送记录、免打扰设置。
  * `enqueueNotification` 在业务自己的事务里调用（平台事务、租户事务都可以）；其余是后台任务和接口用的。
  */
-import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
+import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, UNREADABLE_TEXT, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -71,6 +72,8 @@ export interface Notification {
   locale: string;
   channel: string;
   recipient: string;
+  /** 收件地址的密文解不开（ADR 0057）：不发，记失败 */
+  recipientUnreadable: boolean;
   orderId: string | null;
   orderNo: string | null;
   status: NotificationStatus;
@@ -87,7 +90,18 @@ export interface Notification {
 
 const COLUMNS = "n.id, n.event_id, n.tenant_id, n.event, n.audience, n.locale, n.channel, n.recipient, n.recipient_enc, n.order_id, n.order_no, n.status, n.attempts, n.next_attempt_at, n.lease_token, n.last_error_code, n.last_error_message, n.sent_at, n.expires_at, n.created_at, n.updated_at";
 
+/** 收件地址读出来；解不开时只这一行受影响（ADR 0057）。 */
+function readRecipient(db: Db, row: Row): { recipient: string; unreadable: boolean } {
+  try {
+    return { recipient: passengerCryptoOf(db).readRecipient(row["tenant_id"], row["event_id"], row["recipient_enc"], row["recipient"]), unreadable: false };
+  } catch (err) {
+    if (isPassengerDecryptFailure(err)) return { recipient: UNREADABLE_TEXT, unreadable: true };
+    throw err;
+  }
+}
+
 function toNotification(db: Db, row: Row): Notification {
+  const recipient = readRecipient(db, row);
   return {
     id: row["id"],
     eventId: row["event_id"],
@@ -96,7 +110,8 @@ function toNotification(db: Db, row: Row): Notification {
     audience: row["audience"],
     locale: row["locale"],
     channel: row["channel"],
-    recipient: passengerCryptoOf(db).readRecipient(row["tenant_id"], row["event_id"], row["recipient_enc"], row["recipient"]),
+    recipient: recipient.recipient,
+    recipientUnreadable: recipient.unreadable,
     orderId: row["order_id"],
     orderNo: row["order_no"],
     status: row["status"],
@@ -166,7 +181,13 @@ export async function claimDueNotifications(db: Db, now: Date, leaseUntil: Date,
       returning ${COLUMNS}`,
     [now, leaseUntil, limit, options.preparing === true],
   );
-  return result.rows.map((row) => toNotification(db, row));
+  const claimed = result.rows.map((row) => toNotification(db, row));
+  // 解不开的这一条记失败（运营后台看得到错误码），不回滚这一批，也不再重试：否则每一轮都卡在它身上（ADR 0057）
+  const unreadable = claimed.filter((item) => item.recipientUnreadable).map((item) => item.id);
+  if (unreadable.length > 0) {
+    await db.query("update notifications set status = 'failed', last_error_code = $3, last_error_message = null, lease_token = null, lease_until = null, prepared_only = false, updated_at = $2, version = version + 1 where id = any($1::uuid[])", [unreadable, now, PASSENGER_DECRYPT_FAILED]);
+  }
+  return claimed.filter((item) => !item.recipientUnreadable);
 }
 
 /**
