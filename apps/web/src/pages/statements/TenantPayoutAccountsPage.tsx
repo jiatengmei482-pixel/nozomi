@@ -4,7 +4,7 @@
  * - 提交、撤回（`company.manage`：只有管理员）：要重新输入当前密码；平台两位财务审核后生效，批准之前旧账户继续有效。
  * 账号和密码只在对话框的状态里，提交成功或关闭后就没了；不写进网址、本地存储。
  */
-import { CURRENCIES, PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountIssueReason, type PayoutAccountKind, accountNumberIssue, isValidSwiftBic, normalizeAccountNumber, normalizeSwiftBic } from "@nozomi/domain";
+import { CURRENCIES, PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountIssueReason, type PayoutAccountKind, accountNumberIssue, normalizeAccountNumber, normalizeSwiftBic, normalizeSwiftText, payoutAccountFieldIssues } from "@nozomi/domain";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 import { type TenantPayoutAccount, listTenantPayoutAccounts, submitPayoutAccount, withdrawPayoutAccount } from "../../api/bank-files.ts";
@@ -49,7 +49,18 @@ function SubmitDialog({ onClose, onDone }: { onClose(): void; onDone(): void }) 
   const submit = async (): Promise<void> => {
     const next: FieldErrors = {};
     for (const name of FIELDS) if (values[name].trim() === "") next[name] = ["必填"];
-    if (values.swift_bic.trim() !== "" && !isValidSwiftBic(normalizeSwiftBic(values.swift_bic))) next.swift_bic = [PAYOUT_ACCOUNT_ISSUE_MESSAGES.SWIFT_BIC_INVALID];
+    // 和后端同一份规则一次查完：别让客户改完一处才看到下一处
+    const fieldIssues = payoutAccountFieldIssues({
+      beneficiaryName: normalizeSwiftText(values.beneficiary_name),
+      beneficiaryAddress: normalizeSwiftText(values.beneficiary_address),
+      bankName: normalizeSwiftText(values.bank_name),
+      bankAddress: normalizeSwiftText(values.bank_address),
+      swiftBic: normalizeSwiftBic(values.swift_bic),
+    });
+    for (const issue of fieldIssues) {
+      const name = issue.path.slice(1) as FieldName;
+      if (next[name] === undefined) next[name] = [PAYOUT_ACCOUNT_ISSUE_MESSAGES[issue.reason]];
+    }
     const numberIssue = accountNumberIssue(kind, normalizeAccountNumber(values.account_number));
     if (numberIssue !== null && numberIssue !== "REQUIRED") next.account_number = [PAYOUT_ACCOUNT_ISSUE_MESSAGES[numberIssue]];
     setErrors(next);
