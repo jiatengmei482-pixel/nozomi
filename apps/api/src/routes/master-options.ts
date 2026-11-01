@@ -1,5 +1,5 @@
 /**
- * 运营后台下拉框的主数据选项（M4-13，ADR 0046）：
+ * 运营后台下拉框的主数据选项（M4-13，ADR 0047）：
  *
  * - `GET /platform/v1/city-options`：选城市（渠道、加价规则、订单和商品的城市筛选、报价试算、角色的数据范围）；
  * - `GET /platform/v1/vehicle-group-options`：选车型组（加价规则、报价试算）；
@@ -18,7 +18,7 @@ import { listAddonOptions, listCityOptions, listPlaceOptions, listVehicleGroupOp
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { parseInput, uuidSchema } from "../validation.ts";
 
-/** 每个选项接口允许的操作（有任一个即可）；权限矩阵测试和 ADR 0046 用同一份。 */
+/** 每个选项接口允许的操作（有任一个即可）；权限矩阵测试和 ADR 0047 用同一份。 */
 export const OPTION_ACTIONS = {
   "/platform/v1/city-options": ["channel.manage", "order.read", "product.read", "quote.preview", "role.manage", "master_data.read"],
   "/platform/v1/vehicle-group-options": ["channel.manage", "quote.preview", "master_data.read"],

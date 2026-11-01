@@ -1,4 +1,4 @@
-/** 运营后台下拉框的选项接口（M4-13，ADR 0046）：手写类型、路径、查询参数与 `apps/api/openapi.yaml` 对账。 */
+/** 运营后台下拉框的选项接口（M4-13，ADR 0047）：手写类型、路径、查询参数与 `apps/api/openapi.yaml` 对账。 */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

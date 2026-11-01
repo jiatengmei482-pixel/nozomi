@@ -762,7 +762,7 @@ test("子品牌名自己带了币种时不重复（M1-18）：列表的子品牌
   assert.doesNotMatch(document.body.textContent ?? "", /（JPY）（JPY）/);
 });
 
-// ───────────── 下拉框改用选项接口（M4-13，ADR 0046） ─────────────
+// ───────────── 下拉框改用选项接口（M4-13，ADR 0047） ─────────────
 
 /** 自建角色：权限按 auth/me 给的清单 */
 const customMe = (permissions: string[]): Route => (call) =>

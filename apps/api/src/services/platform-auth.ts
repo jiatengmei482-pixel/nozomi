@@ -165,7 +165,7 @@ export function principalCan(principal: PlatformPrincipal, action: PlatformActio
 /** 一次已登录的平台请求要做什么：需要哪个操作的权限；用途（见 domain 的 `PlatformSessionPurpose`）。 */
 export interface PlatformAccess {
   action?: PlatformAction;
-  /** 有其中任一个操作即可（选项接口，ADR 0046）；一个都没有时 403 `FORBIDDEN`，`details.required_any` 列出这几个。不和 `action` 同时用。 */
+  /** 有其中任一个操作即可（选项接口，ADR 0047）；一个都没有时 403 `FORBIDDEN`，`details.required_any` 列出这几个。不和 `action` 同时用。 */
   anyOf?: readonly PlatformAction[];
   /**
    * 不写就是 `general`：两步验证没完成、账号必须先修改密码时都会被拦下。

@@ -1,5 +1,5 @@
 /**
- * 运营后台下拉框用的主数据选项（M4-13，ADR 0046）：只取下拉需要的几列，不分页，按编码排序。
+ * 运营后台下拉框用的主数据选项（M4-13，ADR 0047）：只取下拉需要的几列，不分页，按编码排序。
  * 城市范围（数据范围限定了城市时）在 SQL 里过滤：`cityIds` 为 null 不限，数组为只要这几个城市的（空数组一个都没有）。
  */
 import type { AddonChargeUnit, LocalizedText, MasterDataStatus, PlaceType, ServiceCategory } from "@nozomi/domain";

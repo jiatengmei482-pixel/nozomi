@@ -200,7 +200,7 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
 ];
 
 /**
- * 允许几种操作中任一种的接口（运营后台的选项接口，ADR 0046）：一种都没有的 403，`details.required_any` 列出这几种。
+ * 允许几种操作中任一种的接口（运营后台的选项接口，ADR 0047）：一种都没有的 403，`details.required_any` 列出这几种。
  * 内置角色都有 `master_data.read`，所以这里全部放行；自建角色缺权限的情况在 master-options.itest.ts。
  */
 const ANY_OF: { url: string; actions: readonly PlatformAction[] }[] = Object.entries(OPTION_ACTIONS).map(([url, actions]) => ({

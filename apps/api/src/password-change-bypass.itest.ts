@@ -245,7 +245,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/approvals/${ids.userId}/approve`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/reject`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/withdraw`, {}],
-      // 运营后台下拉框的选项（M4-13，ADR 0046）
+      // 运营后台下拉框的选项（M4-13，ADR 0047）
       ["GET", "/platform/v1/city-options"],
       ["GET", "/platform/v1/vehicle-group-options"],
       ["GET", `/platform/v1/place-options?city_id=${ids.userId}&type=airport`],

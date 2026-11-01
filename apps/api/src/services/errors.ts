@@ -20,7 +20,7 @@ export function forbidden(required: string): AppError {
   return new AppError(403, "FORBIDDEN", "当前角色没有这个操作的权限", { required });
 }
 
-/** 接口允许几种操作中的任一种（如选项接口，ADR 0046）而当前角色一种都没有：`details.required_any` 列出这几种。 */
+/** 接口允许几种操作中的任一种（如选项接口，ADR 0047）而当前角色一种都没有：`details.required_any` 列出这几种。 */
 export function forbiddenAny(requiredAny: readonly string[]): AppError {
   return new AppError(403, "FORBIDDEN", "当前角色没有这个操作的权限", { required_any: [...requiredAny] });
 }

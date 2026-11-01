@@ -26,7 +26,7 @@ export interface ProductSource {
   adjustRules(token: string, id: string): Promise<AdjustRules>;
   /** 平台的车型组（连已停用的）；不需要时为 null（只读查看时商品里已经带着所选车型组的全部信息） */
   vehicleGroups: ((token: string) => Promise<VehicleGroup[]>) | null;
-  /** 平台的附加服务目录（连已停用的）：供应商后台走租户的主数据，运营后台走附加服务选项接口（ADR 0046） */
+  /** 平台的附加服务目录（连已停用的）：供应商后台走租户的主数据，运营后台走附加服务选项接口（ADR 0047） */
   addons(token: string): Promise<AddonOption[]>;
   holidays(token: string, values: { from: string; to: string }): Promise<Holidays>;
 }
