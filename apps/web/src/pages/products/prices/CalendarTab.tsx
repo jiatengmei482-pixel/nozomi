@@ -12,6 +12,7 @@ import { Button, IconButton, LinkButton } from "../../../components/Button.tsx";
 import { Dialog } from "../../../components/Dialog.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { StateBlock } from "../../../components/States.tsx";
+import { StepLoadState } from "../StepLoadState.tsx";
 import { stepText } from "../../../lib/adjust-form.ts";
 import { displayName, shortName } from "../../../lib/master-display.ts";
 import { TREND_NAMES, addMonths, cellView, clampMonth, daysInRange, exactTextMoney, isWholeText, monthDates, monthOf, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, rangeMark, sameDayIn, segmentAt, spokenDate, weekdayName } from "../../../lib/price-calendar.ts";
@@ -535,17 +536,9 @@ export function CalendarTab({ shared }: { shared: PricesShared }) {
           </>
         )}
       </div>
-      {loaded.state.status === "error" && data === null ? (
+      {loaded.state.status !== "loading" && data === null ? (
         <section className="card">
-          <StateBlock
-            title="加载失败"
-            description="请检查网络后重试。"
-            action={
-              <Button variant="secondary" onClick={loaded.reload}>
-                重试
-              </Button>
-            }
-          />
+          <StepLoadState status={loaded.state.status} reload={loaded.reload} lines={["long"]} />
         </section>
       ) : (
         <div className="calendar-layout">

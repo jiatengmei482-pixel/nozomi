@@ -7,6 +7,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { type Product, type PublishCheckResult, getProduct, getPublishCheck } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
+import { AccountLoadFailed } from "../../components/AccountLoadFailed.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
@@ -110,6 +111,7 @@ export function ProductEditorPage() {
     </AppShell>
   );
   const forbidden = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系你们的管理员开通。" />;
+  if (account.status === "error") return shell(<section className="card"><AccountLoadFailed /></section>);
   if (account.status === "ready" && (!canRead || (isNew && !canManage))) return shell(forbidden);
   if (!validId || loaded.state.status === "not-found") {
     return shell(

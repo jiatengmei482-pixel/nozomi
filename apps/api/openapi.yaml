@@ -37,7 +37,7 @@ info:
       本人凭它在 `auth/reset-password` 设置新密码。
     - 需要登录的接口共有的错误（不在每个接口下重复列出）：
       - 401 `UNAUTHENTICATED`：没带令牌、令牌无效或已过期、会话已失效
-      - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作；允许几种操作中任一种的接口（运营后台的选项接口）是 `details.required_any`（这几种操作的列表）
+      - 403 `FORBIDDEN`：当前角色没有这个操作的权限，`details.required` 是所需的操作；允许几种操作中任一种的接口（运营后台的选项接口、平台取消政策）是 `details.required_any`（这几种操作的列表）
       - 403 `PASSWORD_CHANGE_REQUIRED`：这个账号正在用临时密码，必须先修改密码（见下一条）
     - 临时密码与强制修改密码：平台超级管理员可以在服务器上用命令行生成一次性显示的随机临时密码
       （`pnpm admin:create --temporary-password`、`pnpm admin:reset-password --temporary-password`）。
@@ -7470,7 +7470,9 @@ paths:
       tags: [ 订单 ]
       operationId: getPlatformCancellationPolicy
       summary: 平台统一取消政策
-      description: 每个平台角色都能看（`master_data.read`）。
+      description: |
+        有 `master_data.read`、`product.read` 任一操作即可（一个都没有：403 `FORBIDDEN`，`details.required_any`）。内置角色都有 `master_data.read`；
+        自建角色只勾「商品 · 查看」也要能看，商品「服务规则」里的取消规则就是它（M4-15，ADR 0047 补充）。只有政策本身，和供应商看到的相同，不按数据范围过滤。
       security:
         - platformToken: []
       responses:
