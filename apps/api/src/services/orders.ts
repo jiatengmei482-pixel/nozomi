@@ -80,6 +80,7 @@ import { countOrdersSince } from "../repos/tenant-onboarding.ts";
 import { idempotencyKeyReused, notFound } from "./errors.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { QuoteExpired, type StoredQuoteSnapshot } from "./sales-quotes.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 import { type Driver, type Vehicle, findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
 import { orderLandingApplies } from "./order-views.ts";
@@ -503,6 +504,8 @@ export async function confirmPaidOrder(db: Db, payment: OrderPayment, paid: Prov
   await insertOrderEvent(db, order, { fromStatus: "pending_payment", toStatus: "confirmed", actor, reason: "PAYMENT_SUCCEEDED", occurredAt: now });
   // 推单给中标租户（需求「下单转单：通过 Webhook 推送到租户调度系统」）：和确认在同一个事务里排队，确认了就一定会推（ADR 0027）
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.confirmed", orderId: order.id, data: {} }, now);
+  // 确认邮件（ADR 0049）：只写发件箱，发信在后台任务里，邮件没配置、发不出去都不影响确认
+  await enqueueNotification(db, { event: "order.confirmed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.confirmed:${order.tenantId}:${order.id}` }, now);
   return "confirmed";
 }
 

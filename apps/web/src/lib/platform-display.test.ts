@@ -48,6 +48,8 @@ const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "statement.read": "供应商账单",
   "statement.manage": "出账",
   "statement.review": "审核付款",
+  "notification.read": "通知记录",
+  "notification.retry": "重试",
 };
 
 /** 没有这项权限时，说明里绝不能出现的字眼（「供应商」「主数据」「平台员工」会出现在别的说法里，不在此列）。 */

@@ -66,6 +66,7 @@ import {
 } from "../../lib/order-money-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { filterCityLabel, useFilterCityOptions } from "../../lib/use-city-options.ts";
+import { platformOrderNotificationsPath } from "../../lib/notification-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { localDayInstant } from "../../lib/audit-display.ts";
@@ -422,6 +423,7 @@ export function PlatformOrderDetailPage() {
   const canRead = usePlatformCan("order.read");
   const canManage = usePlatformCan("order.manage");
   const canPayment = usePlatformCan("payment.manage");
+  const canSeeNotifications = usePlatformCan("notification.read");
   const canTicket = usePlatformCan("ticket.manage");
   const canSeeTickets = usePlatformCan("ticket.read");
   const toast = useToast();
@@ -616,6 +618,19 @@ export function PlatformOrderDetailPage() {
             </div>
           </div>
           <p className="field__hint">提交后 48 小时是客人的异议期，期间不扣款；之后没有异议、不超过对外价 50%、有凭证的自动从客人保存的卡上扣，其余在这里审核。</p>
+        </section>
+      )}
+
+      {canSeeNotifications && (
+        <section className="card" aria-labelledby="order-notifications">
+          <h2 className="card__title" id="order-notifications">
+            通知
+          </h2>
+          <div className="action-row">
+            <Link className="link" to={platformOrderNotificationsPath(order.id)}>
+              看这一单发过哪些通知
+            </Link>
+          </div>
         </section>
       )}
 

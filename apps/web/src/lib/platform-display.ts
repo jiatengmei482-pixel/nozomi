@@ -91,6 +91,8 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "statement.read": "看供应商账单和付款批次",
   "statement.manage": "出账、答复供应商的异议、作废重出、发起付款（要另一位同事审核）、锁定付款批次",
   "statement.review": "审核付款给供应商",
+  "notification.read": "看通知记录和通知模板",
+  "notification.retry": "手动重试发送失败的通知",
 };
 
 /**

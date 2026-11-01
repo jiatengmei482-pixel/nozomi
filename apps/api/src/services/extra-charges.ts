@@ -37,6 +37,7 @@ import { AppError } from "../errors.ts";
 import { PaymentProviderError } from "../integrations/payments.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { type OrderFile, insertOrderFile, listOrderFiles } from "../repos/dispatch.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { type ExtraCharge, findExtraCharge, findExtraChargeForPlatform, insertExtraCharge, listDueCharges, listExtraCharges, listWindowClosedCharges, updateExtraCharge, withdrawExtraCharge } from "../repos/extra-charges.ts";
 import { type Order, type OrderPayment, type OrderSale, findOrderForPlatform, findOrderPayment, findSale, findTenantOrder, insertOffSessionPayment, insertOrderEvent, listOrderPayments, updateOrderPayment } from "../repos/orders.ts";
 import { validationFailed } from "../validation.ts";
@@ -128,6 +129,7 @@ export async function submitExtraCharge(ctx: AppContext, principal: TenantPrinci
       before: null,
       after: { order_id: orderId, type: input.type, amount_minor: input.amountMinor, currency: order.settlementCurrency, file_count: input.fileIds.length, review_reasons: reviewReasons, dispute_until: charge.disputeUntil.toISOString() },
     });
+    await enqueueNotification(db, { event: "extra_charge.submitted", tenantId: principal.tenantId, orderId, dedupeKey: `extra_charge.submitted:${charge.id}`, data: { charge_id: charge.id, dispute_until: charge.disputeUntil.toISOString() } }, now);
     return charge;
   });
 }

@@ -84,6 +84,7 @@ import { type ApprovalKind, requestApproval } from "./approvals.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { cancelPaidOrderInTx } from "./cancellations.ts";
 import { notFound } from "./errors.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { recordStatusChange } from "./fulfilment.ts";
 import { orderInScope } from "./order-queries.ts";
 import { netPaidMinor, processRefunds, scheduleRefund } from "./order-money.ts";
@@ -413,6 +414,7 @@ export async function addPlatformMessage(ctx: AppContext, principal: PlatformPri
     if (toGuest && ticket.source !== "guest" && ticket.source !== "channel") throw validationFailed("body", [{ path: "/to_guest", reason: "NOT_GUEST_TICKET", message: "只有客人、渠道提的工单能回复客人" }]);
     if (input.internal || toGuest) await insertTicketNote(db, ticket.id, principal.user.id, input.body, now, toGuest);
     else await insertTicketMessage(db, ticket, { authorType: "platform_user", authorId: principal.user.id, body: input.body, fileIds: [] }, now);
+    if (toGuest && ticket.orderId !== null) await enqueueNotification(db, { event: "ticket.guest_reply", tenantId: ticket.tenantId, orderId: ticket.orderId, dedupeKey: `ticket.guest_reply:${ticket.id}:${now.getTime()}`, data: { ticket_no: ticket.ticketNo } }, now);
     const updated = await mustUpdate(db, ticket, { status: ticket.status === "open" ? "in_progress" : ticket.status, firstRespondedAt: ticket.firstRespondedAt ?? now }, now);
     await auditTicket(db, origin, updated, toGuest ? "reply" : input.internal ? "note" : "reply", null, { ticket_no: ticket.ticketNo, internal: input.internal, to_guest: toGuest, body: input.body });
     return updated;
@@ -430,6 +432,7 @@ export async function requestTenantReply(ctx: AppContext, principal: PlatformPri
     const due = tenantReplyDueAt(now);
     const updated = await mustUpdate(db, ticket, { status: "awaiting_tenant", tenantReplyRequestedAt: now, tenantReplyDueAt: due, tenantRepliedAt: null, firstRespondedAt: ticket.firstRespondedAt ?? now }, now);
     await auditTicket(db, origin, updated, "request_reply", ticketAudit(ticket), { ...ticketAudit(updated), tenant_reply_due_at: due.toISOString(), body });
+    if (ticket.tenantId !== null) await enqueueNotification(db, { event: "ticket.reply_requested", tenantId: ticket.tenantId, orderId: ticket.orderId, dedupeKey: `ticket.reply_requested:${ticket.id}:${now.getTime()}`, data: { ticket_no: ticket.ticketNo } }, now);
     return updated;
   });
 }

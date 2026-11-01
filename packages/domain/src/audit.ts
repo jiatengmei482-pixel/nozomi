@@ -50,6 +50,8 @@ export const AUDIT_RESOURCES = [
   "platform_role",
   "statement",
   "payout_batch",
+  "notification",
+  "notification_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

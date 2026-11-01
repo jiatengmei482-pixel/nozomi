@@ -9199,6 +9199,216 @@ paths:
                 format: binary
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/notifications:
+    get:
+      tags: [ Notification ]
+      operationId: listPlatformNotifications
+      summary: 通知的发送记录（运营后台）
+      description: 需要操作 `notification.read`（超级管理员、运营、客服）。从新到旧。收件人打码；没有正文、没有令牌（ADR 0049）。`sent` 表示邮件服务器已接收，不等于已送达。限定了数据范围的员工只列范围内订单的记录，不属于订单的不列。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/NotificationStatus"
+        - name: event
+          in: query
+          schema:
+            $ref: "#/components/schemas/NotificationEvent"
+        - name: audience
+          in: query
+          schema:
+            $ref: "#/components/schemas/NotificationAudience"
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: order_no
+          in: query
+          schema:
+            type: string
+            maxLength: 32
+      responses:
+        "200":
+          description: 一页发送记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total, summary ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+                  summary:
+                    type: object
+                    additionalProperties: false
+                    required: [ mail_configured, waiting, failed_events ]
+                    properties:
+                      mail_configured:
+                        type: boolean
+                        description: 邮件发送配置了没有。没配置时记录留在等待发送，配好后自动发
+                      waiting:
+                        type: integer
+                        description: 等待发送的条数；限定了数据范围的员工固定为 0
+                      failed_events:
+                        type: integer
+                        description: 内容有问题、展开不了的通知事件数（请技术处理）；限定了数据范围的员工固定为 0
+  /platform/v1/notifications/{id}/retry:
+    post:
+      tags: [ Notification ]
+      operationId: retryPlatformNotification
+      summary: 手动重试一条通知
+      description: 需要操作 `notification.retry`（超级管理员、运营、客服）。马上发一次，失败回到 `failed`，不再自动重试；写审计日志。只有失败的、过了有效期（`EXPIRED`）的能重试；订单情况变了的不能。数据范围外的和不存在一样（404）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 重试之后的记录（成败看 `status`）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ notification ]
+                properties:
+                  notification:
+                    $ref: "#/components/schemas/Notification"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: 现在不能重试（`NOTIFICATION_NOT_RETRYABLE`），或邮件没配置（`MAIL_NOT_CONFIGURED`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/notification-templates:
+    get:
+      tags: [ Notification ]
+      operationId: listNotificationTemplates
+      summary: 通知模板（只读）
+      description: 需要操作 `notification.read`。按「事件 × 接收方 × 语言 × 通道」列出。模板是代码常量（ADR 0049），本期不能在线修改。
+      security:
+        - platformToken: []
+      responses:
+        "200":
+          description: 全部模板
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NotificationTemplate"
+  /tenant/v1/notifications:
+    get:
+      tags: [ Notification ]
+      operationId: listTenantNotifications
+      summary: 发给自己这家的通知记录
+      description: 需要操作 `notification.read`（管理员、调度、只读）。租户只从登录令牌取；发给客人的、发给别家的都读不到。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/NotificationStatus"
+        - name: order_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 一页记录
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor, total ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Notification"
+                  next_cursor:
+                    type: [ string, "null" ]
+                  total:
+                    type: integer
+  /tenant/v1/notification-settings:
+    get:
+      tags: [ Notification ]
+      operationId: getTenantNotificationSettings
+      summary: 免打扰设置
+      description: 需要操作 `notification.read`。`version` 为 0 表示还没有设置过。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 现在的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantNotificationSettings"
+    put:
+      tags: [ Notification ]
+      operationId: updateTenantNotificationSettings
+      summary: 改免打扰时段
+      description: 需要操作 `notification.manage`（管理员）。时段是东京时间，可以跨午夜；`null` 表示不设。用车当天的通知不受限。已经设置过的要带 `If-Match`（版本号）。写审计日志。
+      security:
+        - tenantToken: []
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ quiet_hours ]
+              properties:
+                quiet_hours:
+                  oneOf:
+                    - type: "null"
+                    - $ref: "#/components/schemas/QuietHours"
+      responses:
+        "200":
+          description: 保存后的设置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantNotificationSettings"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "409":
+          description: 版本对不上（`VERSION_CONFLICT`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/webhook-deliveries:
     get:
       tags:
@@ -15909,6 +16119,8 @@ components:
         - statement.read
         - statement.manage
         - statement.review
+        - notification.read
+        - notification.retry
     TenantAction:
       type: string
       enum:
@@ -15935,6 +16147,8 @@ components:
         - ticket.manage
         - statement.read
         - statement.confirm
+        - notification.read
+        - notification.manage
     LoginRequest:
       type: object
       additionalProperties: false
@@ -22351,6 +22565,147 @@ components:
       description: |
         手动重推的结果。`sent`：发了一次（成败看 `delivery.status`）；`in_flight`：推送任务正在发这一条（租约中），这次什么都没做；
         `not_configured`：供应商的 Webhook 设置已删除或暂停，没发，记为最终失败。
+    NotificationStatus:
+      type: string
+      enum: [ pending, sending, sent, failed, expired ]
+      description: "`sent` 是邮件服务器已接收；`expired` 是过了有效期或订单情况变了，不再发送"
+    NotificationAudience:
+      type: string
+      enum: [ guest, tenant, staff ]
+    NotificationEvent:
+      type: string
+      enum:
+        - order.confirmed
+        - order.assigned
+        - order.service_reminder
+        - order.driver_arrived
+        - order.changed
+        - order.change_pending
+        - order.change_declined
+        - order.cancelled
+        - extra_charge.submitted
+        - ticket.guest_reply
+        - order.rescue_assigned
+        - order.dispatch_overdue
+        - order.departure_overdue
+        - ticket.reply_requested
+        - tenant.document_expiring
+        - tenant.document_expired
+        - tenant.observation_started
+        - tenant.status_changed
+        - exception.opened
+        - fx.alert
+        - site.lookup_ceiling
+    Notification:
+      type: object
+      additionalProperties: false
+      required: [ id, event, audience, locale, channel, recipient, order, status, attempts, last_error, retryable, next_attempt_at, expires_at, sent_at, created_at, updated_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/NotificationEvent"
+        audience:
+          $ref: "#/components/schemas/NotificationAudience"
+        locale:
+          type: string
+        channel:
+          type: string
+          enum: [ email ]
+        recipient:
+          type: string
+          description: 打码后的收件人，如 `ab***@example.com`
+        order:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, order_no ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                order_no:
+                  type: [ string, "null" ]
+        status:
+          $ref: "#/components/schemas/NotificationStatus"
+        attempts:
+          type: integer
+        last_error:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ code, message ]
+              properties:
+                code:
+                  type: string
+                message:
+                  type: [ string, "null" ]
+        retryable:
+          type: boolean
+        next_attempt_at:
+          type: [ string, "null" ]
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        sent_at:
+          type: [ string, "null" ]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NotificationTemplate:
+      type: object
+      additionalProperties: false
+      required: [ event, audience, locale, channel, subject, body, variables ]
+      properties:
+        event:
+          $ref: "#/components/schemas/NotificationEvent"
+        audience:
+          $ref: "#/components/schemas/NotificationAudience"
+        locale:
+          type: string
+        channel:
+          type: string
+          enum: [ email ]
+        subject:
+          type: string
+        body:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+    QuietHours:
+      type: object
+      additionalProperties: false
+      required: [ start, end ]
+      properties:
+        start:
+          type: string
+          description: 东京时间 HH:mm
+        end:
+          type: string
+          description: 东京时间 HH:mm
+    TenantNotificationSettings:
+      type: object
+      additionalProperties: false
+      required: [ quiet_hours, time_zone, version ]
+      properties:
+        quiet_hours:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/QuietHours"
+        time_zone:
+          type: string
+        version:
+          type: integer
     WebhookDelivery:
       type: object
       additionalProperties: false

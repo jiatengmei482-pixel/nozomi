@@ -31,6 +31,7 @@ import { type Db, withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import { AppError } from "../errors.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import type { PlatformUser } from "../repos/platform-users.ts";
 import {
   type FetchOutcome,
@@ -207,6 +208,7 @@ export class FxCenter {
       await finishFetch(db, id, outcome);
       if (outcome.status === "held") {
         await insertAuditLog(db, origin(actor, now), { tenantId: null, resource: "fx_fetch", resourceId: id, action: "hold", before: null, after: { as_of: outcome.sourceAsOf?.toISOString() ?? null, jumps: (outcome.jumps ?? []).map((jump) => ({ currency: jump.currency, previous: jump.previous, next: jump.next, change_bp: jump.changeBp })) } });
+        await enqueueNotification(db, { event: "fx.alert", tenantId: null, orderId: null, dedupeKey: `fx.alert:held:${id}`, data: { kind: "held", currencies: (outcome.jumps ?? []).map((jump) => jump.currency) } }, now);
       }
       if (trigger === "manual") {
         await insertAuditLog(db, origin(actor, now), { tenantId: null, resource: "fx_fetch", resourceId: id, action: "fetch", before: null, after: { status: outcome.status, error_code: outcome.errorCode ?? null, as_of: outcome.sourceAsOf?.toISOString() ?? null } });
@@ -308,6 +310,7 @@ export class FxCenter {
       const seen = await db.query("select 1 from audit_logs where resource = 'fx_rate' and action = 'stale' and resource_id = $1 limit 1", [asOf]);
       if (seen.rowCount !== 0) return { state, alerted: null };
       await insertAuditLog(db, origin({ kind: "job" }, now), { tenantId: null, resource: "fx_rate", resourceId: asOf, action: "stale", before: null, after: { as_of: asOf, stale_at: fxStaleAt(asOf).toISOString() } });
+      await enqueueNotification(db, { event: "fx.alert", tenantId: null, orderId: null, dedupeKey: `fx.alert:stale:${asOf}`, data: { kind: "stale", as_of: asOf } }, now);
       return { state, alerted: asOf };
     });
     if (result.alerted !== null) this.log.error({ event: "fx.stale", asOf: result.alerted }, "汇率超过 48 小时没有更新，已暂停跨币种报价");

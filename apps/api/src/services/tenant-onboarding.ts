@@ -8,6 +8,7 @@
  * - 每次状态、暂停原因、观察期变化：改主体（版本加一）+ 一行状态记录 + 一条审计 + 需要时一条给供应商的提醒，同一个事务。
  */
 import { createHash } from "node:crypto";
+import { enqueueNotification } from "../repos/notifications.ts";
 import {
   CONTRACT_TERMS,
   type DocumentFact,
@@ -180,9 +181,11 @@ export async function applyTenantChange(db: Db, before: Tenant, next: TenantStat
   const key = `${after.version}`;
   if (before.status !== after.status || !same(before.suspensionReasons, after.suspensionReasons)) {
     await insertNotice(db, before.id, { kind: "status_changed", dedupeKey: `status:${key}`, data: { from: before.status, to: after.status, suspension_reasons: after.suspensionReasons }, now });
+    if (before.status !== after.status) await enqueueNotification(db, { event: "tenant.status_changed", tenantId: before.id, orderId: null, dedupeKey: `tenant.status_changed:${before.id}:${key}`, data: { status: after.status } }, now);
   }
   if (before.observationReasons.length === 0 && after.observationReasons.length > 0) {
     await insertNotice(db, before.id, { kind: "observation_started", dedupeKey: `observation:${key}`, data: { reasons: after.observationReasons }, now });
+    await enqueueNotification(db, { event: "tenant.observation_started", tenantId: before.id, orderId: null, dedupeKey: `tenant.observation_started:${before.id}:${key}`, data: { reasons: after.observationReasons } }, now);
   } else if (before.observationReasons.length > 0 && after.observationReasons.length === 0) {
     await insertNotice(db, before.id, { kind: "observation_ended", dedupeKey: `observation:${key}`, data: {}, now });
   }

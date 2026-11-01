@@ -50,6 +50,7 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   roles: ["/platform/settings/roles"],
   audit_logs: ["/platform/settings/audit-logs"],
   integrations: ["/platform/settings/integrations"],
+  notifications: ["/platform/notifications", "/platform/notification-templates"],
 };
 
 test("角色页的每个菜单都登记了对应页面（新加菜单要在这里登记）", () => {
@@ -90,6 +91,8 @@ const PAGE_GUARDS: readonly [string, string, PlatformAction][] = [
   ["/platform/rescues", "../pages/platform/RescuePages.tsx", "order.read"],
   ["/platform/exceptions", "../pages/platform/ExceptionPages.tsx", "order.read"],
   ["/platform/webhook-deliveries", "../pages/webhooks/WebhookPages.tsx", "order.read"],
+  ["/platform/notifications", "../pages/notifications/NotificationPages.tsx", "notification.read"],
+  ["/platform/notification-templates", "../pages/notifications/NotificationPages.tsx", "notification.read"],
   ["/platform/tenant-documents", "../pages/platform/DocumentQueuePage.tsx", "tenant.read"],
   ["/platform/tickets", "../pages/platform/TicketPages.tsx", "ticket.read"],
   ["/platform/finance/statements", "../pages/platform/FinancePages.tsx", "statement.read"],

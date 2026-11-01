@@ -40,6 +40,7 @@ import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { tenantOrderNotificationsPath } from "../../lib/notification-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { DECLARABLE, DeclareUnableDialog, TenantRescueSection } from "../rescues/TenantRescuePages.tsx";
@@ -305,6 +306,7 @@ export function OrderDetailPage() {
   const canDispatch = useTenantCan("order.dispatch");
   const canExtraCharge = useTenantCan("order.extra_charge");
   const canSeeTickets = useTenantCan("ticket.read");
+  const canSeeNotifications = useTenantCan("notification.read");
   const canManageTickets = useTenantCan("ticket.manage");
   const toast = useToast();
   const { state, reload } = useLoad<TenantOrderDetail>(`order|${id}`, canRead ? (t) => getOrder(t, id) : null);
@@ -476,6 +478,19 @@ export function OrderDetailPage() {
       <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} onChanged={reload} />
       <ExtraChargesSection order={order} charges={detail.extra_charges} canSubmit={canExtraCharge} onChanged={reload} />
       <CancellationSection order={order} />
+
+      {canSeeNotifications && (
+        <section className="card" aria-labelledby="order-notifications">
+          <h2 className="card__title" id="order-notifications">
+            通知
+          </h2>
+          <div className="action-row">
+            <Link className="link" to={tenantOrderNotificationsPath(order.id)}>
+              看这一单发给我们的通知
+            </Link>
+          </div>
+        </section>
+      )}
 
       {canSeeTickets && (
         <section className="card" aria-labelledby="order-tickets">

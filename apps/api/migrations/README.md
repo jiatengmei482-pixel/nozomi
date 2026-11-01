@@ -71,6 +71,7 @@
 | `0110_route_estimates.sql` | 路线预估（M2-02，ADR 0042；0091–0109 留给别的任务，0100 是 M4-03 的）：路线缓存 `route_estimates`（取整后的起终点一行，成功的有里程和时长、保留 7 天，没有路线 / 坐标无效只有原因、保留 1 天）、每日调用计数 `route_api_usage`（东京时间的日期一行：调用、失败、被每日上限挡下的次数，最近一次成功和失败）；询价日志加 `route`（这次的路线或降级原因）。平台表，租户角色没有任何权限。不含任何数据 |
 | `0120_place_api_usage.sql` | 官网的地址搜索和坐标反查（M3-12，ADR 0044；0111–0119 留给别的任务）：每日调用计数 `place_api_usage`（东京时间的日期一行：搜索和反查合计的调用、失败、被每日上限挡下的次数，最近一次成功和失败）。和路线预估的计数分开。谷歌返回的名称、地址不存库。平台表，租户角色没有任何权限。不含任何数据 |
 | `0130_integration_secrets_email.sql` | 运营后台填写邮件发送（M4-14，ADR 0048；0121–0129 留给别的任务）：`integration_secrets` 的 `integration` 多一个取值 `email`，结构不变。不含任何数据 |
+| `0140_notification_center.sql` | 通知中心（M4-08，ADR 0049；0131–0139 留给别的任务）：发件箱 `notification_events`（租户角色只能追加自己的，读不了；平台读写）、发送记录 `notifications`（没有主题和正文；供应商只读得到发给自己的；平台读写）、免打扰 `tenant_notification_settings`（租户读写，平台只读）；`site_order_links.issued_via` 多一个取值 `email`。不含任何数据：模板是代码常量 |
 | `0150_email_login_codes.sql` | 邮箱验证码登录（M4-06，ADR 0050；0131–0149 留给别的任务）：`email_login_codes` 一个邮箱一行（只有 HMAC，没有邮箱和验证码原文），只授权给 `nozomi_preauth`（登录前就要读写，和 `login_throttles` 同理）。不含任何数据 |
 
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
