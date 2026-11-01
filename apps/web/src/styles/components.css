@@ -380,6 +380,11 @@
   margin-bottom: calc(var(--space-4) * -1);
 }
 
+/* 会被滚进视野、拿到焦点的提示位：上下留点空，提示和聚焦环不贴着屏幕边 */
+.alert-slot[tabindex] {
+  scroll-margin-block: var(--space-4);
+}
+
 .alert {
   display: flex;
   align-items: flex-start;

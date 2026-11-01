@@ -266,6 +266,23 @@ test("Stripe 没配置：照样建单（待支付、没有付款信息）；接�
   }
 });
 
+test("付款失败的原因不经官网接口给客人：Stripe 通知里的英文原话和错误代码只留在平台，客人的订单和付款凭据里都没有（页面按 Stripe.js 查到的代码显示中文，ADR 0046）", async () => {
+  const placed = (await placeOrder(site, "198.51.100.133")).body;
+  const intent = pay.intentOf(placed.order.id);
+  assert.ok(intent);
+  const reason = "The provided PaymentMethod has failed authentication.";
+  const raw = pay.event("payment_intent.payment_failed", pay.intentObject(intent.id, { status: "requires_payment_method", last_payment_error: { code: "payment_intent_authentication_failure", message: reason } }), { created: api.clock.now() });
+  const delivered = await deliverWebhook(api.app, raw, pay.sign(raw, api.clock.now()));
+  assert.equal(delivered.status, 200, JSON.stringify(delivered.body));
+  for (const url of ["/site/v1/order", "/site/v1/order/payment"]) {
+    const res = await guest(placed.link.token, "GET", url);
+    assert.equal(res.status, 200, res.text);
+    assert.doesNotMatch(res.text, /failed authentication|payment_intent_authentication_failure|last_error/, url);
+  }
+  const order = await guest(placed.link.token);
+  assert.equal(order.body.order.status, "pending_payment", "付款失败订单还是待付款，可以再付");
+});
+
 test("付款后：自动确认，时间线有确认，付款后才显示中标供应商；取消试算 → 改单（If-Match）→ 取消；渠道暂停后不能接新单，已下的单照样能看", async () => {
   const placed = (await placeOrder(site, "198.51.100.130")).body;
   const token = placed.link.token;

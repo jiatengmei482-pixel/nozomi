@@ -273,22 +273,22 @@ test("回跳：伪造别人的付款编号（本标签页没有记录、或记�
 test("回跳：地址上的 redirect_status 不算数——写 succeeded 但 Stripe 说没付成：仍显示表单和原因，不说付款成功、不轮询", async () => {
   sessionStorage.setItem(RETURN_KEY, JSON.stringify({ intentId: "pi_AAA", token: TOKEN_A, at: Date.now() }));
   const stripe = fakeStripeJs();
-  stripe.intent = intentOf("requires_payment_method", "您的卡被拒绝了。");
+  stripe.intent = intentOf("requires_payment_method", "Your card was declined.");
   const { calls } = openApp(stripe, returnEntry("pi_AAA", "succeeded"));
-  assert.ok(await screen.findByText("上次付款没有成功：您的卡被拒绝了。请换一张卡，或检查后再付。"));
+  assert.ok(await screen.findByText("上次付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。"));
   assert.ok(screen.getByRole("button", { name: payName }));
   assertAbsent(screen.queryByText(/付款成功/));
   assert.equal(calls.filter((call) => call.method !== "GET").length, 0);
   assert.equal(calls.filter((call) => call.path === "/site/v1/order").length, 1, "没有开始轮询订单");
 });
 
-test("回跳：redirect_status=failed / requires_payment_method，Stripe 给了原因时显示原话、表单留着；反过来地址说 failed 而 Stripe 说已成功时按 Stripe", async () => {
+test("回跳：redirect_status=failed / requires_payment_method，Stripe 给了原因时显示中文原因、表单留着；反过来地址说 failed 而 Stripe 说已成功时按 Stripe", async () => {
   for (const redirectStatus of ["failed", "requires_payment_method"]) {
     sessionStorage.setItem(RETURN_KEY, JSON.stringify({ intentId: "pi_AAA", token: TOKEN_A, at: Date.now() }));
     const stripe = fakeStripeJs();
-    stripe.intent = intentOf("requires_payment_method", "验证没有通过。");
+    stripe.intent = intentOf("requires_payment_method", "We are unable to authenticate your payment method.", { code: "payment_intent_authentication_failure" });
     openApp(stripe, returnEntry("pi_AAA", redirectStatus));
-    assert.ok(await screen.findByText("上次付款没有成功：验证没有通过。请换一张卡，或检查后再付。"), redirectStatus);
+    assert.ok(await screen.findByText("上次付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。"), redirectStatus);
     assert.ok(screen.getByRole("button", { name: payName }));
     resetBrowser();
   }

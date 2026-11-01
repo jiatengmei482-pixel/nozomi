@@ -5,15 +5,15 @@
  *
  * - 下单 → 订单页的 Stripe 表单 → 卡号不完整 → 测试卡 4242 付款 → 「付款成功，等待确认」→ 通知到了自动变成已确认；
  *   全程内容安全策略一样都没拦下，只请求本站和 Stripe 的三个域名，令牌不进 Stripe 的任何请求、不进 return_url；400 / 320 宽不横向滚动，亮暗两色过 axe；
- * - 3D 验证卡：弹出 hooks.stripe.com 的验证框，验证失败显示原因、能再付；验证通过 → 已确认；
- * - 失败卡（被拒、余额不足）显示 Stripe 给的原因，表单留着；Stripe.js 加载不出来时能重新加载；换 4242 付款成功；
+ * - 3D 验证卡：弹出 hooks.stripe.com 的验证框，验证失败的提示滚进视野、拿到焦点，刷新后还是中文，能再付；验证通过 → 已确认；
+ * - 失败卡（被拒、余额不足）按错误代码显示中文原因，刷新后也不出现 Stripe 的英文，表单留着；Stripe.js 加载不出来时能重新加载；换 4242 付款成功；
  * - 从银行页面回来（/book/order?payment_intent=…）：按付款编号从本标签页取回令牌，地址换回 #令牌、去掉 Stripe 的参数，「后退」也回不到带 client_secret 的地址。
  * 每条用例用一个文档专用的来源地址（这组 API 信任一层代理），官网的限流额度不和别的用例抢。
  */
 import { type APIRequestContext, type Page, type Request, expect, test } from "@playwright/test";
 import { E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
-import { FAKE_STRIPE_MESSAGES, TEST_CARDS, routeStripe } from "./fake-stripe.ts";
+import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
 const STRIPE_ORIGINS = ["https://js.stripe.com", "https://api.stripe.com", "https://hooks.stripe.com"];
@@ -176,13 +176,15 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
   const stripeSeen = await page.evaluate(() => (window as unknown as { __fakeStripe: { publishableKey: string; locale: string } }).__fakeStripe);
   expect(stripeSeen.publishableKey, "用后端给的 publishable key").toMatch(/^pk_test_e2e/);
   expect(stripeSeen.locale).toBe("zh");
+  // 真实表单上 Link 是否消失要到真实 Stripe 上看；这里核对构建产物确实把关闭的选项交给了 Stripe.js
+  expect(await page.evaluate(() => (window as unknown as { __fakeStripe: { paymentElement: unknown } }).__fakeStripe.paymentElement)).toEqual({ layout: "tabs", wallets: { applePay: "never", googlePay: "never", link: "never" } });
   await expectNoOverflow(page, "订单页（付款表单）");
   await expectAccessibleBothThemes(page, "订单页（付款表单）");
 
-  // 卡号没填完：Stripe 的校验原话，不出确认框
+  // 卡号没填完：按代码给中文，不出确认框
   await cardField(page).fill("4242 4242");
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
-  await expect(paymentSection(page).getByRole("alert")).toContainText(FAKE_STRIPE_MESSAGES.incomplete);
+  await expect(paymentSection(page).getByRole("alert")).toHaveText("卡号不完整。请检查后再付。");
   await expect(page.getByRole("group", { name: "确认付款" })).toHaveCount(0);
 
   // 测试卡 4242：页面内确认 → 付款成功，等待确认 → 通知到了 → 已确认
@@ -229,16 +231,49 @@ test("3D 验证卡：弹出银行的验证框（hooks.stripe.com），验证失�
   await page.goto(`${SITE}/book/order#${placed.token}`);
   await expect(cardField(page)).toBeVisible();
 
-  await pay(page, TEST_CARDS.threeDs);
+  // 验收时的情形：1280×900，滚到下面点「确认支付」，提示的位置已经在屏幕上方
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await cardField(page).fill(TEST_CARDS.threeDs);
+  await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
+  const confirmPay = page.getByRole("button", { name: "确认支付" });
+  await confirmPay.evaluate((button) => button.scrollIntoView({ block: "start" }));
+  await expect(paymentSection(page).getByRole("heading", { name: "付款" })).not.toBeInViewport();
+  await confirmPay.click();
   const bank = page.frameLocator('iframe[title="银行验证（假）"]');
   await expect(bank.getByRole("heading", { name: "银行验证（假 Stripe）" })).toBeVisible();
   // 验证框开着的时候：页面上的按钮在忙
   await expect(page.getByRole("button", { name: /正在付款/ })).toBeVisible();
+  // 每一帧记下提示的位置和滚动位置：提示一出现就要在屏幕里，页面只跳一次，来回跳就是闪动
+  await page.evaluate(() => {
+    const frames: { y: number; top: number | null; bottom: number }[] = [];
+    (window as unknown as { __noticeFrames: typeof frames }).__noticeFrames = frames;
+    const sample = (): void => {
+      const box = document.querySelector("#site-payment-title")?.closest("section")?.querySelector('[role="alert"] .alert')?.getBoundingClientRect();
+      frames.push({ y: window.scrollY, top: box?.top ?? null, bottom: box?.bottom ?? 0 });
+      if (frames.length < 600) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
   await bank.getByRole("button", { name: "验证失败" }).click();
-  await expect(paymentSection(page).getByRole("alert")).toContainText(`付款没有成功：${FAKE_STRIPE_MESSAGES.authenticationFailed}请换一张卡，或检查后再付。`);
+  const failedAlert = paymentSection(page).getByRole("alert");
+  await expect(failedAlert).toHaveText("付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。");
   await expect(page.locator('iframe[title="银行验证（假）"]')).toHaveCount(0);
+  await expect(failedAlert).toBeInViewport({ ratio: 1 });
+  await expect(paymentSection(page).locator(".alert-slot")).toBeFocused();
+  await page.waitForTimeout(300);
+  const frames = await page.evaluate(() => (window as unknown as { __noticeFrames: { y: number; top: number | null; bottom: number }[] }).__noticeFrames);
+  const shown = frames.filter((frame) => frame.top !== null);
+  expect(shown.length, "记到了提示出现后的画面").toBeGreaterThan(0);
+  const viewportHeight = page.viewportSize()?.height ?? 0;
+  for (const frame of shown) expect((frame.top ?? -1) >= 0 && frame.bottom <= viewportHeight, `提示一出现就在屏幕里：${JSON.stringify(frame)}`).toBe(true);
+  expect(new Set(shown.map((frame) => frame.y)).size, "提示出现后页面不再跳动").toBe(1);
   await expect(cardField(page)).toBeVisible();
+  await expectNoOverflow(page, "订单页（验证没通过）");
   await expectAccessibleBothThemes(page, "订单页（验证没通过）");
+
+  // 刷新：Stripe 记着的是开发者英文，页面只说中文
+  await page.reload();
+  await expect(paymentSection(page).getByRole("alert")).toHaveText("上次付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。");
 
   await pay(page, TEST_CARDS.threeDs);
   await bank.getByRole("button", { name: "完成验证" }).click();
@@ -269,16 +304,16 @@ test("失败卡：Stripe.js 加载不出来时能重新加载；被拒、余额�
   await expect(paymentSection(page).getByRole("alert")).toBeEmpty();
 
   await pay(page, TEST_CARDS.declined);
-  await expect(paymentSection(page).getByRole("alert")).toContainText(`付款没有成功：${FAKE_STRIPE_MESSAGES.declined}请换一张卡，或检查后再付。`);
+  await expect(paymentSection(page).getByRole("alert")).toHaveText("付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。");
   await expect(cardField(page)).toBeVisible();
   await pay(page, TEST_CARDS.insufficientFunds);
-  await expect(paymentSection(page).getByRole("alert")).toContainText(`付款没有成功：${FAKE_STRIPE_MESSAGES.insufficientFunds}`);
+  await expect(paymentSection(page).getByRole("alert")).toHaveText("付款没有成功：您的银行卡余额不足。请换一张卡。");
   await expectNoOverflow(page, "订单页（卡被拒）");
   await expectAccessibleBothThemes(page, "订单页（卡被拒）");
 
-  // 刷新：Stripe 说上次没付成，原因还在
+  // 刷新：Stripe 说上次没付成，原因还在；它记着的是英文，页面只说中文
   await page.reload();
-  await expect(paymentSection(page).getByRole("alert")).toContainText(`上次付款没有成功：${FAKE_STRIPE_MESSAGES.insufficientFunds}`);
+  await expect(paymentSection(page).getByRole("alert")).toHaveText("上次付款没有成功：您的银行卡余额不足。请换一张卡。");
 
   await pay(page, TEST_CARDS.success);
   await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
@@ -318,5 +353,13 @@ test("从银行页面回来（/book/order?payment_intent=…）：按付款编�
   await expect(other.getByText("付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。")).toBeVisible();
   expect(other.url()).toBe(`${SITE}/book/order`);
   await expectAccessibleBothThemes(other, "查订单（从银行页面回来却取不回订单）");
+
+  // 地址上说失败：不说「已交给银行」「别重复付款」，说没成功、怎样找回订单
+  await other.goto(returnTo.replace("redirect_status=succeeded", "redirect_status=failed"));
+  await expect(other.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
+  await expect(other.getByRole("alert")).toHaveText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
+  expect(other.url()).toBe(`${SITE}/book/order`);
+  await expectNoOverflow(other, "查订单（银行说付款失败、取不回订单）");
+  await expectAccessibleBothThemes(other, "查订单（银行说付款失败、取不回订单）");
   await other.close();
 });

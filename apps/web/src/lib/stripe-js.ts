@@ -12,7 +12,7 @@ export interface StripeJsError {
   type: string;
   code?: string;
   decline_code?: string;
-  /** Stripe 写给付款人看的话，已按 `locale` 翻译 */
+  /** Stripe 的说明。不直接给客人看：查付款时给的是开发者英文，页面按代码显示中文（`payment-errors.ts`） */
   message?: string;
   payment_intent?: StripeJsPaymentIntent;
 }
@@ -21,7 +21,7 @@ export interface StripeJsPaymentIntent {
   id: string;
   /** requires_payment_method / requires_confirmation / requires_action / processing / requires_capture / canceled / succeeded */
   status: string;
-  last_payment_error?: { code?: string; message?: string } | null;
+  last_payment_error?: { type?: string; code?: string; decline_code?: string; message?: string } | null;
 }
 
 export type StripeJsResult = { paymentIntent?: StripeJsPaymentIntent; error?: StripeJsError };
@@ -33,6 +33,12 @@ export interface StripeAppearance {
   rules: Record<string, Record<string, string>>;
 }
 
+/** Payment Element 的选项（只写本站用到的）。`wallets` 见 Stripe.js 文档 create_payment_element：钱包不算付款方式，付款允许银行卡时默认就会出现，只能在这里关。 */
+export interface StripePaymentElementOptions {
+  layout: "tabs";
+  wallets: { applePay: "never"; googlePay: "never"; link: "never" };
+}
+
 export interface StripeJsElement {
   mount(container: HTMLElement): void;
   on(event: "ready" | "loaderror" | "change", handler: (event: { error?: StripeJsError; complete?: boolean }) => void): void;
@@ -41,7 +47,7 @@ export interface StripeJsElement {
 }
 
 export interface StripeJsElements {
-  create(type: "payment", options: Record<string, unknown>): StripeJsElement;
+  create(type: "payment", options: StripePaymentElementOptions): StripeJsElement;
   /** 校验表单（卡号不完整等由 Stripe 在表单里标出来） */
   submit(): Promise<{ error?: StripeJsError }>;
   update(options: { appearance: StripeAppearance }): void;
