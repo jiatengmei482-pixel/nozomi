@@ -188,10 +188,14 @@ export async function insertDeduction(api: TestApi, order: Seeded, ticketId: str
 }
 
 /** 一张账单，带一行明细。默认 issued；其他状态的列由 setStatementStatus 补。 */
+let statementPeriodSeq = 0;
+
 export async function insertStatement(api: TestApi, tenantId: string, line: { kind: string; sourceKey: string; orderId: string | null; orderNo: string | null; amount?: number }, total = 20000): Promise<string> {
   const now = api.clock.now();
   const statementNo = `ST202601${randomNo(8)}`;
-  const period = `20${String(10 + Math.floor(Math.random() * 80))}-${String(1 + Math.floor(Math.random() * 12)).padStart(2, "0")}`;
+  // 一个供应商、一种币种、一期只能有一张有效账单：按顺序发，随机会偶发撞号
+  statementPeriodSeq += 1;
+  const period = `${2100 + Math.floor(statementPeriodSeq / 12)}-${String(1 + (statementPeriodSeq % 12)).padStart(2, "0")}`;
   const rows = await api.db.owner.query(
     `insert into statements (tenant_id, statement_no, period, currency, status, total_minor, line_count, pay_due_on, confirm_due_at, issued_at, created_at, updated_at)
      values ($1, $2, $3, 'JPY', 'issued', $4, 1, '2030-01-20', $5, $5, $5, $5) returning id`,
