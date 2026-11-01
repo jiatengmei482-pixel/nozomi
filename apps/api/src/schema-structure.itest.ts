@@ -417,6 +417,10 @@ const INDEX_EXCEPTIONS = [
   "orders_dispatch_due_idx",
   // 订单号全平台唯一（ADR 0026；改派后原供应商的行不算，ADR 0031）；超时未付款的自动取消跨租户扫到期的单（ADR 0026）
   "orders_order_no_key",
+  // 运营跨供应商按乘客精确筛选；盲索引的值已经按租户隔离（ADR 0057）
+  "orders_passenger_email_bidx_idx",
+  "orders_passenger_name_bidx_idx",
+  "orders_passenger_phone_bidx_idx",
   "orders_payment_due_idx",
   // 用车前 6 小时仍未派车的自动救援跨租户扫（ADR 0031）
   "orders_rescue_due_idx",

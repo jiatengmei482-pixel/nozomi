@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, isAnonymizedPassenger, isOrderApproval, isOrderAudit, maskContactsInText, maskName, maskOrderValues, maskPassenger, maskPhone, maskedTicketTexts, passengerRetentionCutoff, scrubContactsInText, scrubOrderValues } from "./privacy.ts";
+import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, ENCRYPTED_PASSENGER, contactLookupKey, containsPassenger, isAnonymizedPassenger, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex, passengersArePlaceholders, replacePassengers, isOrderApproval, isOrderAudit, maskContactsInText, maskName, maskOrderValues, maskPassenger, maskPhone, maskedTicketTexts, passengerRetentionCutoff, scrubContactsInText, scrubOrderValues } from "./privacy.ts";
 
 test("姓名留第一个字；一个字的全打码；表情不会被切成半个", () => {
   assert.equal(maskName("王小明"), "王**");
@@ -141,4 +141,31 @@ test("工单被打码的文字：只列打码前后不一样的，内部备注�
 test("工单被打码的文字：判断来自实际打码，内容里别处带的姓名也算（标记和页面收到的内容不会不一致）", () => {
   const raw = { ticket: { subject: "李大伟投诉", description: "无", decision_note: null, close_note: null }, messages: [], notes: [], approval: { payload: { passenger: { name: "李大伟" } } } };
   assert.deepEqual(maskedTicketTexts(raw, maskOrderValues(raw, [])), [{ source: "ticket_subject", text: "李大伟投诉" }]);
+});
+
+test("盲索引的规范化：邮箱不分大小写、去首尾空白、全角转半角；电话去掉分隔；姓名去空白不分大小写", () => {
+  assert.equal(normalizeEmailForIndex("  Guest＠Example.COM "), "guest@example.com");
+  assert.equal(normalizePhoneForIndex("＋８１ 90-1234-5678"), "+819012345678");
+  assert.equal(normalizePhoneForIndex("+81 (90) 1234.5678"), "+819012345678");
+  assert.equal(normalizeNameForIndex(" Wang　Xiao Ming "), "wangxiaoming");
+  assert.equal(normalizeNameForIndex("王 小明"), normalizeNameForIndex("王小明"));
+});
+
+test("找回订单的联系方式：有 @ 按邮箱，其余按电话，太短和空的不算", () => {
+  assert.deepEqual(contactLookupKey(" Guest＠Example.com"), { kind: "email", value: "guest@example.com" });
+  assert.deepEqual(contactLookupKey("090-1234-5678"), { kind: "phone", value: "09012345678" });
+  assert.equal(contactLookupKey("12345"), null);
+  assert.equal(contactLookupKey("   "), null);
+});
+
+test("内容里的乘客：任何一层都认得，换占位时别的字段不动", () => {
+  const value = { change_id: "c1", before: { passenger: { name: "虚构", phone: "1", email: "e" }, notes: "n" }, list: [{ passenger: { name: "虚构二", phone: "2", email: "f" } }] };
+  assert.equal(containsPassenger(value), true);
+  assert.equal(containsPassenger({ passengers: 2, before: { flight_no: "x" } }), false);
+  const replaced = replacePassengers(value, ENCRYPTED_PASSENGER);
+  assert.deepEqual(replaced.before, { passenger: ENCRYPTED_PASSENGER, notes: "n" });
+  assert.deepEqual(replaced.list[0]?.passenger, ENCRYPTED_PASSENGER);
+  assert.equal(replaced.change_id, "c1");
+  assert.equal(passengersArePlaceholders(replaced), true);
+  assert.equal(passengersArePlaceholders(value), false);
 });
