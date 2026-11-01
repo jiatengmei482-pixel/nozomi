@@ -35,6 +35,7 @@ export interface TenantStatement {
   dispute_reason: string | null;
   approved_at: string | null;
   paid_at: string | null;
+  bank_reference: string | null;
   voided_at: string | null;
   void_reason: string | null;
   version: number;
@@ -186,14 +187,14 @@ export function disputeStatement(token: string, id: string, reason: string): Pro
 
 /** 合同测试用：前端读的字段（必须和 openapi.yaml 里这几个结构的字段一模一样）。 */
 export const BILLING_SCHEMA_FIELDS = {
-  TenantStatement: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "voided_at", "void_reason", "version"],
-  PlatformStatement: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "voided_at", "void_reason", "version", "tenant", "confirmed_by", "approval_id", "payout_batch_id", "voided_by"],
+  TenantStatement: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "bank_reference", "voided_at", "void_reason", "version"],
+  PlatformStatement: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "bank_reference", "voided_at", "void_reason", "version", "tenant", "confirmed_by", "approval_id", "payout_batch_id", "voided_by"],
   StatementLine: ["id", "kind", "order_id", "order_no", "service_date", "prior_period", "amount", "detail", "voided"],
   StatementSummaryEntry: ["kind", "count", "amount"],
   TenantStatementEvent: ["action", "actor_type", "note", "at"],
   PlatformStatementEvent: ["action", "actor_type", "actor_id", "note", "at"],
-  TenantStatementDetail: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "voided_at", "void_reason", "version", "summary", "lines", "events"],
-  PlatformStatementDetail: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "voided_at", "void_reason", "version", "tenant", "confirmed_by", "approval_id", "payout_batch_id", "voided_by", "pending_approval_id", "summary", "lines", "events"],
+  TenantStatementDetail: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "bank_reference", "voided_at", "void_reason", "version", "summary", "lines", "events"],
+  PlatformStatementDetail: ["id", "statement_no", "period", "currency", "status", "total", "line_count", "pay_due_on", "payout_on", "issued_at", "confirm_due_at", "confirmed_at", "confirmed_by_type", "disputed_at", "dispute_reason", "approved_at", "paid_at", "bank_reference", "voided_at", "void_reason", "version", "tenant", "confirmed_by", "approval_id", "payout_batch_id", "voided_by", "pending_approval_id", "summary", "lines", "events"],
   PayoutBatch: ["id", "pay_date", "status", "created_at", "closed_at", "closed_by", "paid_at", "statement_count", "totals", "version"],
   PayoutBatchDetail: ["id", "pay_date", "status", "created_at", "closed_at", "closed_by", "paid_at", "statement_count", "totals", "version", "statements"],
 } as const satisfies {

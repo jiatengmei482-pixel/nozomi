@@ -175,6 +175,17 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/tickets/${MISSING}/decide`, action: "ticket.manage", body: {} },
   { method: "POST", url: `/platform/v1/tickets/${MISSING}/close`, action: "ticket.manage", body: {} },
   { method: "POST", url: `/platform/v1/tickets/${MISSING}/payout`, action: "payment.manage", body: {} },
+  // 收款账户、银行转账文件（M5-02，ADR 0051）
+  { method: "GET", url: "/platform/v1/payout-accounts", action: "statement.read" },
+  { method: "POST", url: `/platform/v1/payout-accounts/${MISSING}/approval`, action: "statement.manage", body: {} },
+  { method: "POST", url: `/platform/v1/payout-accounts/${MISSING}/reject`, action: "statement.manage", body: {} },
+  { method: "GET", url: `/platform/v1/payout-batches/${MISSING}/bank-file-preview`, action: "statement.read" },
+  { method: "POST", url: `/platform/v1/payout-batches/${MISSING}/bank-files`, action: "statement.manage", body: {} },
+  { method: "GET", url: "/platform/v1/bank-files", action: "statement.read" },
+  { method: "GET", url: `/platform/v1/bank-files/${MISSING}`, action: "statement.read" },
+  { method: "POST", url: `/platform/v1/bank-files/${MISSING}/download`, action: "statement.manage", body: {} },
+  { method: "POST", url: `/platform/v1/bank-files/${MISSING}/payments`, action: "statement.manage", body: {} },
+  { method: "POST", url: `/platform/v1/bank-files/${MISSING}/void`, action: "statement.manage", body: {} },
   // 账单与付款批次（M5-01，ADR 0040）：看用 statement.read；出账、答复、作废、发起付款复核、锁定批次要 statement.manage
   { method: "GET", url: "/platform/v1/statements", action: "statement.read" },
   { method: "POST", url: "/platform/v1/statements/generate", action: "statement.manage", body: {} },
@@ -248,7 +259,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`files/${MISSING}`, "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(new RegExp(`(?<!bank-)files/${MISSING}`), "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
     ...ANY_OF.map((r) => `GET ${r.url.split("?")[0]}`),
   ].sort();

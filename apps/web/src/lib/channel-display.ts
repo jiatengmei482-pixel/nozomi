@@ -57,6 +57,8 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "platform_role.update": "修改角色",
   "staff.mfa_reset": "重置两步验证",
   "statement.payout": "付款给供应商",
+  "payout_account.activate": "启用供应商收款账户",
+  "bank_file.generate": "生成银行转账文件",
 };
 
 /** 供应商的复核（M4-01，ADR 0028）：对象是供应商，页面链接去供应商详情。 */
@@ -245,6 +247,39 @@ function payoutChanges(after: Record<string, unknown>): { label: string; before:
   ];
 }
 
+/** 启用收款账户（M5-02，ADR 0051）：只有账号末 4 位。 */
+function payoutAccountChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const text = (side: Record<string, unknown> | null, key: string): string => (side !== null && typeof side[key] === "string" ? side[key] : "—");
+  return [
+    { label: "供应商", before: "—", after: text(after, "tenant_name") },
+    { label: "币种", before: "—", after: text(after, "currency") },
+    { label: "收款人", before: text(before, "beneficiary_name"), after: text(after, "beneficiary_name") },
+    { label: "收款人地址", before: "—", after: text(after, "beneficiary_address") },
+    { label: "银行", before: text(before, "bank_name"), after: text(after, "bank_name") },
+    { label: "银行地址", before: "—", after: text(after, "bank_address") },
+    { label: "SWIFT/BIC", before: text(before, "swift_bic"), after: text(after, "swift_bic") },
+    { label: "账号", before: text(before, "account"), after: text(after, "account") },
+  ];
+}
+
+/** 生成转账文件（M5-02，ADR 0051）：每一笔一行（只有账号末 4 位），排除的账单也列出来。 */
+function bankFileChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const text = (key: string): string => (typeof after[key] === "string" ? after[key] : "—");
+  const currency = text("currency");
+  const rows = (key: string): Record<string, unknown>[] => (Array.isArray(after[key]) ? (after[key] as Record<string, unknown>[]) : []);
+  return [
+    { label: "付款日", before: "—", after: text("pay_date") },
+    { label: "合计", before: "—", after: `${currency} ${text("total")}（${rows("items").length} 笔）` },
+    { label: "手续费", before: "—", after: text("charge_bearer") },
+    ...rows("items").map((item) => ({
+      label: `付款：${String(item["statement_no"])}`,
+      before: "—",
+      after: `${String(item["tenant_name"])} · ${String(item["beneficiary_name"])} · ${String(item["swift_bic"])} · ${String(item["account"])} · ${currency} ${String(item["amount"])}${item["recently_changed"] === true ? " · 账户最近变更，请核实" : ""}`,
+    })),
+    ...rows("excluded").map((item) => ({ label: `排除：${String(item["statement_no"])}`, before: "—", after: `${String(item["tenant_name"])}：${String(item["message"])}` })),
+  ];
+}
+
 /** 改赔付表（M4-02，ADR 0034）：只列改了的项。比例是对外价的百分比；报销上限是对外价的倍数。 */
 function compensationTableChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const rules = (side: Record<string, unknown> | null): Record<string, unknown> | null => (side !== null && typeof side["rules"] === "object" && side["rules"] !== null ? (side["rules"] as Record<string, unknown>) : null);
@@ -291,6 +326,8 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (kind === "platform_role.update") return roleChanges(before, after);
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];
   if (kind === "statement.payout") return payoutChanges(after);
+  if (kind === "payout_account.activate") return payoutAccountChanges(before, after);
+  if (kind === "bank_file.generate") return bankFileChanges(after);
   if (kind === "compensation_table.update") return compensationTableChanges(before, after);
   if (kind === "ticket.decision") return ticketDecisionChanges(before, after);
   const pct = (value: unknown): string => (typeof value === "number" ? percentText(value) : "—");

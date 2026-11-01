@@ -17,10 +17,11 @@ export const CURRENCY_NAMES: Readonly<Record<CurrencyCode, string>> = {
   HKD: "港币",
   TWD: "新台币",
   THB: "泰铢",
+  SGD: "新加坡元",
 };
 
 /** 汇率表、互换表里的币种顺序：常用的在前。 */
-export const FX_DISPLAY_ORDER: readonly CurrencyCode[] = ["JPY", "CNY", "USD", "KRW", "HKD", "TWD", "THB"];
+export const FX_DISPLAY_ORDER: readonly CurrencyCode[] = ["JPY", "CNY", "USD", "KRW", "HKD", "TWD", "THB", "SGD"];
 
 export const FX_STATE_BADGES: Readonly<Record<FxTableState, BadgeSpec>> = {
   fresh: { tone: "success", label: "正常" },

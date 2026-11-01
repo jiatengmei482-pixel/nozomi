@@ -30,6 +30,9 @@ export const NOTIFICATION_EVENTS = [
   "tenant.document_expired",
   "tenant.observation_started",
   "tenant.status_changed",
+  "payout_account.submitted",
+  "payout_account.approved",
+  "payout_account.rejected",
   "exception.opened",
   "fx.alert",
   "site.lookup_ceiling",
@@ -59,6 +62,9 @@ export const NOTIFICATION_EVENT_NAMES: Readonly<Record<NotificationEvent, string
   "tenant.document_expired": "资质已到期",
   "tenant.observation_started": "进入观察期",
   "tenant.status_changed": "供应商状态变化",
+  "payout_account.submitted": "收款账户已提交",
+  "payout_account.approved": "收款账户已生效",
+  "payout_account.rejected": "收款账户被驳回",
   "exception.opened": "新的异常",
   "fx.alert": "汇率告警",
   "site.lookup_ceiling": "官网找回告警",
@@ -78,7 +84,7 @@ export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 /** 客人邮件能用的变量。 */
 export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
-export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons"] as const;
+export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
@@ -130,6 +136,11 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("tenant.document_expired", "tenant", "资质已到期：{{document_type}}", `你的「{{document_type}}」已在 {{expires_on}} 到期，请尽快上传新的证件。${COMPANY_FOOTER}`),
   zhEmail("tenant.observation_started", "tenant", "进入观察期，请整改", `你的账号已进入观察期，原因：{{reasons}}。观察期内排序会受影响，请尽快整改。${COMPANY_FOOTER}`),
   zhEmail("tenant.status_changed", "tenant", "供应商状态变化：{{tenant_status}}", `你的供应商状态已变为「{{tenant_status}}」。${COMPANY_FOOTER}`),
+
+  // 账号只有末 4 位（ADR 0051）。发给供应商的管理员：账号被盗用时，管理员能从这封邮件发现异常提交
+  zhEmail("payout_account.submitted", "tenant", "收款账户变更已提交：{{payout_currency}}", `你们提交了新的 {{payout_currency}} 收款账户（账号 {{payout_account}}），平台审核通过后生效，批准之前现在的账户继续有效。\n\n如果不是你们提交的，请马上联系平台，并修改管理员密码。${COMPANY_FOOTER}`),
+  zhEmail("payout_account.approved", "tenant", "收款账户已生效：{{payout_currency}}", `你们的 {{payout_currency}} 收款账户（账号 {{payout_account}}）已通过审核，之后的转账付到这个账户。\n\n如果不是你们提交的，请马上联系平台。${COMPANY_FOOTER}`),
+  zhEmail("payout_account.rejected", "tenant", "收款账户被驳回：{{payout_currency}}", `你们提交的 {{payout_currency}} 收款账户（账号 {{payout_account}}）没有通过审核，原因：{{reject_reason}}。请核对后重新提交。${COMPANY_FOOTER}`),
 
   zhEmail("exception.opened", "staff", "新的异常：{{exception_type}}（{{order_no}}）", `异常队列新增一条，请处理。\n\n类型：{{exception_type}}\n订单号：{{order_no}}${COMPANY_FOOTER}`),
   zhEmail("fx.alert", "staff", "汇率告警：{{alert_kind}}", `{{alert_kind}}\n\n{{detail}}${COMPANY_FOOTER}`),

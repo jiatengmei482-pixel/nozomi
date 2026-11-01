@@ -74,6 +74,7 @@ import {
   rebaseServiceExpiry,
   recordExpandFailure,
   releaseQuietHeld,
+  tenantAdminRecipients,
   tenantRecipients,
   updateRecipient,
 } from "../repos/notifications.ts";
@@ -196,6 +197,9 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
   if (typeof data["expires_on"] === "string") out["expires_on"] = data["expires_on"];
   if (typeof data["days_left"] === "number") out["days_left"] = String(data["days_left"]);
   if (typeof data["status"] === "string") out["tenant_status"] = TENANT_STATUS_NAMES[data["status"] as TenantStatus] ?? data["status"];
+  if (typeof data["payout_currency"] === "string") out["payout_currency"] = data["payout_currency"];
+  if (typeof data["payout_account"] === "string") out["payout_account"] = data["payout_account"];
+  if (typeof data["reject_reason"] === "string") out["reject_reason"] = data["reject_reason"];
   if (Array.isArray(data["reasons"])) out["reasons"] = data["reasons"].map((reason) => OBSERVATION_REASON_NAMES[String(reason)] ?? String(reason)).join("、");
   return out;
 }
@@ -207,6 +211,9 @@ function staffVariables(ctx: AppContext, notification: Notification, event: Stor
     return { order_no: notification.orderNo ?? "", exception_type: EXCEPTION_TYPE_NAMES[data["type"] as ExceptionType] ?? "请到异常队列查看", console_url: `${base}/platform/exceptions` };
   }
   if (event.event === "fx.alert") {
+    if (data["kind"] === "source_rejected") {
+      return { alert_kind: "汇率源缺币种，这批整批拒收，继续用上一批", detail: typeof data["detail"] === "string" ? data["detail"] : "见汇率中心的拉取记录", console_url: `${base}/platform/master/fx-rates` };
+    }
     const held = data["kind"] === "held";
     return {
       alert_kind: held ? "汇率变动超过 3%，已挂起，等待人工确认" : "汇率超过 48 小时没有更新，已暂停跨币种报价",
@@ -323,7 +330,7 @@ export class NotificationJobs {
       }
       case "tenant": {
         if (event.tenantId === null) return [];
-        const emails = await tenantRecipients(db, event.tenantId);
+        const emails = event.event.startsWith("payout_account.") ? await tenantAdminRecipients(db, event.tenantId) : await tenantRecipients(db, event.tenantId);
         return emails.map((recipient) => ({ audience, recipient, tenantId: event.tenantId, orderNo: order?.orderNo ?? null }));
       }
       case "staff":

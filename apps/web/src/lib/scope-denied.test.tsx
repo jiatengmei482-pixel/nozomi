@@ -14,6 +14,7 @@ const read = (relative: string, base: URL = API_SRC): string => readFileSync(fil
 
 /** 后端每一处 `dataScopeDenied()` 对应前端清单里的哪个操作。 */
 const BACKEND_SITES: Readonly<Record<string, ScopeDeniedOperation>> = {
+  "routes/bank-files.ts platform()": "finance",
   "routes/billing.ts platform()": "finance",
   "routes/channels.ts POST /platform/v1/channels": "channel.create",
   "routes/rescues.ts POST /platform/v1/tenants/:id/rescue": "tenant.rescue",
