@@ -337,7 +337,7 @@ test("失败卡：Stripe.js 加载不出来时能重新加载；被拒、余额�
   expect(routed.unexpected).toEqual([]);
 });
 
-test("从银行页面回来（/book/order?payment_intent=…）：按付款编号从本标签页取回令牌并删掉，地址换回 #令牌、去掉 Stripe 的参数，「后退」也回不到带 client_secret 的地址；取不回时去「查订单」", async ({ page, request }) => {
+test("从银行页面回来（/book/order?payment_intent=…）：按付款编号从本标签页取回令牌并删掉，令牌移进历史记录、去掉 Stripe 的参数，「后退」也回不到带 client_secret 的地址；取不回时去「查订单」", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await sellableWorld(request);
   const source = sourceAddress();

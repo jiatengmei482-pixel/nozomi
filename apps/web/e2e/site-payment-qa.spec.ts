@@ -118,7 +118,7 @@ async function toBank(page: Page): Promise<void> {
 
 const confirms = (seen: string[]): string[] => seen.filter((entry) => entry.endsWith("/confirm"));
 
-test("整页跳去银行再回来：令牌由页面记下、不进 Stripe 的任何请求；回来后换回 #令牌并删掉记录，Stripe 的参数不留在地址栏、历史和页面里", async ({ page, request }) => {
+test("整页跳去银行再回来：令牌由页面记下、不进 Stripe 的任何请求；回来后令牌移进历史记录并删掉 Web 存储里的记录，Stripe 的参数不留在地址栏、历史和页面里", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await sellableWorld(request);
   const source = sourceAddress();
