@@ -293,9 +293,10 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"), principal.grant.scope);
     const now = ctx.now();
     return {
-      order: platformOrderJson(found, now),
-      // 改单的前后值、手写的说明、工单、异常、救援都打码（ADR 0055），看原文走 reveal；键的白名单见 `HANDWRITTEN_KEYS`
+      // 改单的前后值、手写的说明、工单、异常、救援都打码（ADR 0055），看原文走 reveal；键的白名单见 `HANDWRITTEN_KEYS`。
+      // 内容里的旧姓名（改单前的）也一起找，所以订单本身也放进来再打一次
       ...maskOrderValues({
+      order: platformOrderJson(found, now),
       events: found.events.map((event) => eventJson(event, "platform")),
       pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
       // 司机手写的联系备注可能抄了客人的联系方式：运营这边同样打码（ADR 0054）

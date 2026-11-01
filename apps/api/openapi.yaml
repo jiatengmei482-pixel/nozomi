@@ -7754,16 +7754,14 @@ paths:
                   passenger:
                     $ref: "#/components/schemas/OrderPassenger"
                   messaging:
-                    nullable: true
-                    allOf:
+                    oneOf:
                       - $ref: "#/components/schemas/OrderMessaging"
+                      - type: "null"
                   notes:
-                    type: string
-                    nullable: true
+                    type: [ string, "null" ]
                   anonymized_at:
-                    type: string
+                    type: [ string, "null" ]
                     format: date-time
-                    nullable: true
                   texts:
                     type: array
                     items:
@@ -7775,8 +7773,7 @@ paths:
                           type: string
                           enum: [ order_cancel_note, contact_note, event_proxy_reason, change_before, change_after, change_decision_note, extra_charge_description, extra_charge_dispute_reason, extra_charge_decision_note, rescue_reason, rescue_force_majeure_note, exception_resolution, ticket_subject, ticket_description, ticket_decision_note, ticket_close_note, ticket_message, ticket_note, approval_request_note, approval_decision_note, approval_payload ]
                         source_id:
-                          type: string
-                          nullable: true
+                          type: [ string, "null" ]
                           description: 来源对象的编号（工单、改单、复核……）；订单本身的为空
                         text:
                           type: string
@@ -21553,9 +21550,8 @@ components:
           type: boolean
           description: 备注里有联系方式被打了码（ADR 0055）。为真时编辑不能用 `notes` 做初始值，否则打码后的内容会被存回去
         passenger_anonymized_at:
-          type: string
+          type: [ string, "null" ]
           format: date-time
-          nullable: true
           description: 乘客信息什么时候脱敏的（ADR 0055，订单结束超过保存期限后自动做，不可逆）；没有脱敏为空。脱敏后 `passenger` 的三项都是占位 `[已脱敏]`
         id:
           type: string

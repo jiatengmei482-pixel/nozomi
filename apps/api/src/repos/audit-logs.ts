@@ -45,14 +45,24 @@ export interface AuditLog extends AuditOrigin, AuditEvent {
   id: string;
 }
 
-/** 这条审计是哪一单的：对象就是订单，或者前后值里写了 `order_id`；工单、复核写的是对象自己的编号。 */
-export function auditOrderId(event: Pick<AuditEvent, "resource" | "resourceId" | "before" | "after">): string | null {
-  if (event.resource === "order") return event.resourceId;
-  for (const values of [event.after, event.before]) {
-    const id = values?.["order_id"];
-    if (typeof id === "string") return id;
-  }
-  return null;
+/** 这条审计是哪一单的：对象就是订单，或者前后值里写了 `order_id`；工单、复核可能只写了对象自己的编号，要查一次。 */
+export async function auditPassengerName(db: Db, event: Pick<AuditEvent, "resource" | "resourceId" | "before" | "after">): Promise<string | null> {
+  const written = [event.after?.["order_id"], event.before?.["order_id"]].find((id) => typeof id === "string") as string | undefined;
+  const approved = event.resource === "approval" ? event.after : null;
+  let orderId: string | null = written ?? null;
+  let ticketId: string | null = null;
+  if (event.resource === "order") orderId = event.resourceId;
+  else if (event.resource === "ticket" && orderId === null) ticketId = event.resourceId;
+  else if (approved?.["resource"] === "order" && typeof approved["resource_id"] === "string") orderId = approved["resource_id"];
+  else if (approved?.["resource"] === "ticket" && typeof approved["resource_id"] === "string") ticketId = approved["resource_id"];
+  if (orderId === null && ticketId === null) return null;
+  const rows = await db.query<{ name: string }>(
+    `select o.passenger ->> 'name' as name from orders o
+      where o.passenger_anonymized_at is null and o.id = coalesce($1::uuid, (select t.order_id from tickets t where t.id = $2::uuid limit 1))
+      limit 1`,
+    [orderId, ticketId],
+  );
+  return rows.rows[0]?.name ?? null;
 }
 
 /**
@@ -61,9 +71,7 @@ export function auditOrderId(event: Pick<AuditEvent, "resource" | "resourceId" |
  */
 async function maskedAuditValues(db: Db, event: AuditEvent): Promise<Pick<AuditEvent, "before" | "after">> {
   if (!isOrderAudit(event)) return { before: event.before, after: event.after };
-  const orderId = auditOrderId(event);
-  const name = orderId === null ? null : ((await db.query<{ name: string }>("select passenger ->> 'name' as name from orders where id = $1 limit 1", [orderId])).rows[0]?.name ?? null);
-  return { before: maskOrderValues(event.before, name), after: maskOrderValues(event.after, name) };
+  return maskOrderValues({ before: event.before, after: event.after }, await auditPassengerName(db, event));
 }
 
 export async function insertAuditLog(db: Db, origin: AuditOrigin, unmasked: AuditEvent): Promise<void> {

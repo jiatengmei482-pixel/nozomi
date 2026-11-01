@@ -163,11 +163,21 @@ function mapOrderValues(value: JsonLike, onPassenger: (passenger: Record<string,
 
 const textOf = (value: unknown): string => (typeof value === "string" ? value : "");
 
-/** 前后值、复核内容里的乘客、即时通讯账号和手写内容打码（ADR 0055）。别的键原样。`name` 是这单现在的乘客姓名，`passenger` 里带的姓名也会一起找。 */
+/** 内容里任何一层 `passenger.name` 写的姓名：改单前的旧姓名也要从手写内容里找出来。 */
+function passengerNamesIn(value: JsonLike): string[] {
+  if (Array.isArray(value)) return value.flatMap(passengerNamesIn);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, item]) => {
+    if (key !== "passenger") return passengerNamesIn(item);
+    const name = (item as { name?: unknown } | null)?.name;
+    return typeof name === "string" ? [name] : [];
+  });
+}
+
+/** 前后值、复核内容里的乘客、即时通讯账号和手写内容打码（ADR 0055）。别的键原样。`name` 是这单现在的乘客姓名，内容里带的姓名也会一起找。 */
 export function maskOrderValues<T>(values: T, name: string | null = null): T {
-  const known = (values as { passenger?: { name?: unknown } } | null)?.passenger?.name;
   // 已经打过码的姓名（旧审计再打一次时带的）不能再当姓名找，否则星号会被当成姓名的一部分
-  const names = [...new Set([name, typeof known === "string" ? known : null])].filter((item): item is string => item !== null && item !== ANONYMIZED_TEXT && !item.includes("*"));
+  const names = [...new Set([name, ...passengerNamesIn(values)])].filter((item): item is string => item !== null && item !== ANONYMIZED_TEXT && item !== "" && !item.includes("*"));
   return mapOrderValues(
     values,
     (passenger) => maskPassenger({ name: textOf(passenger["name"]), phone: textOf(passenger["phone"]), email: textOf(passenger["email"]) }),

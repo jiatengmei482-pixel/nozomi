@@ -7,7 +7,7 @@ import { type PassengerContact, grantCan, isOrderApproval, isOrderAudit, maskCon
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import type { Approval } from "../repos/approvals.ts";
-import { type AuditLog, auditOrderId, insertAuditLog } from "../repos/audit-logs.ts";
+import { type AuditLog, auditPassengerName, insertAuditLog } from "../repos/audit-logs.ts";
 import { findOrderForPlatform } from "../repos/orders.ts";
 import { type HandwrittenText, listOrderHandwriting, listPassengerNames } from "../repos/passenger-texts.ts";
 import { APPROVAL_KINDS } from "./approval-kinds.ts";
@@ -74,16 +74,18 @@ export async function approvalPassengerNames(ctx: AppContext, approvals: readonl
   );
 }
 
-/** 审计日志对应的乘客姓名：键是订单编号。工单的审计里有 `order_id`；旧记录打码后查不到姓名的，电话、邮箱照样打码。 */
+/** 审计日志对应的乘客姓名：键是审计的编号。旧记录查不到姓名的，电话、邮箱照样打码。 */
 export async function auditPassengerNames(db: Db, logs: readonly AuditLog[]): Promise<Map<string, string>> {
-  const ids = [...new Set(logs.filter(isOrderAudit).flatMap((log) => auditOrderId(log) ?? []))];
-  return ids.length === 0 ? new Map() : listPassengerNames(db, ids);
+  const names = new Map<string, string>();
+  for (const log of logs.filter(isOrderAudit)) {
+    const name = await auditPassengerName(db, log);
+    if (name !== null) names.set(log.id, name);
+  }
+  return names;
 }
 
 /** 接口读取时再打一次码，兜住这个任务之前写入的旧记录（ADR 0055）；新记录写入时已经打过，再打一次结果不变。 */
 export function maskedAuditLog(log: AuditLog, names: ReadonlyMap<string, string>): AuditLog {
   if (!isOrderAudit(log)) return log;
-  const orderId = auditOrderId(log);
-  const name = orderId === null ? null : (names.get(orderId) ?? null);
-  return { ...log, before: maskOrderValues(log.before, name), after: maskOrderValues(log.after, name) };
+  return { ...log, ...maskOrderValues({ before: log.before, after: log.after }, names.get(log.id) ?? null) };
 }
