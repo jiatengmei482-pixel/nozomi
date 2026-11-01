@@ -204,6 +204,8 @@ export function maskEmail(email: string): string {
 export const NOTIFICATION_RULES = {
   /** 第一次失败后依次等多少秒；次数用完是最终失败 */
   retryDelaysSeconds: [60, 300, 1800, 7200, 21600],
+  /** 邮件服务器明确拒绝（5xx）又不能确定是这个收件人的问题：等待本身解决不了，只留给运营改配置的时间，少试几次（ADR 0049） */
+  rejectedRetryDelaysSeconds: [300, 1800],
   /** 配置问题（密码错、证书错）隔多久再试，不算次数 */
   configRetrySeconds: 300,
   arrivedLifetimeMs: 60 * 60_000,
@@ -217,7 +219,8 @@ export type NotificationFailureAction = { kind: "retry"; delaySeconds: number } 
 export function notificationFailureAction(code: string, attemptsMade: number): NotificationFailureAction {
   if (code === "AUTH_FAILED" || code === "TLS_FAILED" || code === "TARGET_FORBIDDEN") return { kind: "hold", delaySeconds: NOTIFICATION_RULES.configRetrySeconds };
   if (code === "RECIPIENT_REJECTED" || code === "MESSAGE_INVALID" || code === "RENDER_FAILED") return { kind: "fail" };
-  const delay = NOTIFICATION_RULES.retryDelaysSeconds[attemptsMade - 1];
+  const delays: readonly number[] = code === "SENDER_REJECTED" || code === "MESSAGE_REJECTED" ? NOTIFICATION_RULES.rejectedRetryDelaysSeconds : NOTIFICATION_RULES.retryDelaysSeconds;
+  const delay = delays[attemptsMade - 1];
   return delay === undefined ? { kind: "fail" } : { kind: "retry", delaySeconds: delay };
 }
 

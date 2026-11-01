@@ -82,6 +82,16 @@ test("发送失败的处理：永久失败立刻失败；配置问题不算次�
   assert.deepEqual(notificationFailureAction("UNREACHABLE", 6), { kind: "fail" });
 });
 
+test("邮件服务器的拒绝：暂时的按完整退避；永久但说不清是谁的问题的少试两次（给运营留改配置的时间）；能确定是收件人的不重试", () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6].map((n) => notificationFailureAction("TEMPORARILY_REJECTED", n)), [...[60, 300, 1800, 7200, 21600].map((delaySeconds) => ({ kind: "retry", delaySeconds })), { kind: "fail" }]);
+  for (const code of ["SENDER_REJECTED", "MESSAGE_REJECTED"]) {
+    assert.deepEqual([...NOTIFICATION_RULES.rejectedRetryDelaysSeconds], [300, 1800]);
+    assert.deepEqual([1, 2, 3].map((n) => notificationFailureAction(code, n)), [{ kind: "retry", delaySeconds: 300 }, { kind: "retry", delaySeconds: 1800 }, { kind: "fail" }], code);
+    assert.deepEqual(notificationFailureAction(code, 4), { kind: "fail" }, code);
+  }
+  assert.deepEqual(notificationFailureAction("RECIPIENT_REJECTED", 1), { kind: "fail" });
+});
+
 test("能不能手动重试", () => {
   assert.equal(notificationRetryable("failed", "OUTCOME_UNKNOWN"), true);
   assert.equal(notificationRetryable("expired", "EXPIRED"), true);
