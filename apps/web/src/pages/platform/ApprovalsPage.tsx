@@ -30,7 +30,8 @@ import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { BelowFloorAlert } from "./ChannelSections.tsx";
 import { ApprovalImpact } from "./PricingImpactPanel.tsx";
 import { COMPENSATION_TABLE_PAGE, platformTicketPath } from "../../lib/order-center-display.ts";
-import { statementPath } from "../../lib/billing-display.ts";
+import { payoutBatchPath, statementPath } from "../../lib/billing-display.ts";
+import { PLATFORM_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-file-display.ts";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 type Decision = "approve" | "reject" | "withdraw";
@@ -142,6 +143,21 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           账单：
           <Link className="link mono" to={statementPath(approval.resource_id)}>
             {typeof approval.payload["statement_no"] === "string" ? approval.payload["statement_no"] : "去账单详情"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "bank_file.generate" && (
+        <p>
+          付款批次：
+          <Link className="link" to={payoutBatchPath(approval.resource_id)}>
+            {typeof approval.payload["pay_date"] === "string" ? approval.payload["pay_date"] : "去付款批次"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "payout_account.activate" && (
+        <p>
+          <Link className="link" to={PLATFORM_PAYOUT_ACCOUNTS_PAGE}>
+            去收款账户
           </Link>
         </p>
       )}

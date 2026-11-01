@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { ibanCheckDigits } from "@nozomi/domain";
 import { withPlatformTx, withTenantTx } from "./db/context.ts";
 import { readXlsxSheet } from "./integrations/xlsx.ts";
+import { unzipEntry } from "./integrations/zip.ts";
 import { TEST_PASSWORD, type TenantFixture, type TestApi, addTenantUser, createTestApi } from "./testing/api.ts";
 import { deniedByDatabase } from "./testing/db.ts";
 import { seedOrder } from "./testing/dispatch.ts";
@@ -63,6 +64,11 @@ async function activate(accountId: string): Promise<void> {
   assert.equal(requested.status, 202, requested.text);
   assertMatchesOpenApi("POST", "/platform/v1/payout-accounts/{id}/approval", requested);
   await ok(api.call("POST", `/platform/v1/approvals/${requested.body.approval.id}/approve`, { token: await fin2(), body: {} }));
+}
+
+/** 拨到下个月（东京），才能出上个月的账。 */
+function moveToNextMonth(): void {
+  api.clock.advance(new Date("2026-11-05T00:00:00Z").getTime() - api.clock.now().getTime());
 }
 
 const FAKE_ACCOUNT_A = "0012349876";
@@ -488,6 +494,46 @@ test("作废：未付款的账单释放，可以进新文件；作废的文件�
   assert.ok(finished.batch.statements.every((statement: any) => statement.status === "paid" && statement.bank_reference !== null));
   const audit = await api.db.owner.query("select after from audit_logs where resource = 'payout_batch' and action = 'pay' and resource_id = $1", [batchId]);
   assert.equal(audit.rows.length, 1);
+});
+
+test("公式注入：名称以 + 开头（SWIFT 字符集允许）时，CSV 和 Excel 都加单引号；两人复核数据库也保证", async () => {
+  moveToNextMonth();
+  await statementFor("a", "2026-10-10T10:00:00+09:00", 5_000, "THB");
+  const thb = await submit(m.a, accountInput("22223333", { currency: "THB", beneficiary_name: "+1 Fictional Co", swift_bic: "FAKETHBK" }));
+  await activate(thb.id);
+  const { batchId: id } = await batchOf("2026-10");
+  await ok(api.call("POST", `/platform/v1/payout-batches/${id}/close`, { token: await fin1(), body: {} }));
+  const file = await generateFile(id, { currency: "THB" });
+  const csv = await download(file.id, "csv");
+  const line = csv.bytes.toString("utf8").split("\r\n")[1] as string;
+  assert.ok(line.startsWith("1,'+1 Fictional Co,"), line);
+  assert.ok(line.includes(",THB,50.00,"), line);
+  const sheetXml = unzipEntry((await download(file.id, "xlsx")).bytes, "xl/worksheets/sheet1.xml").toString("utf8");
+  assert.ok(sheetXml.includes(">'+1 Fictional Co<"), "Excel 里存的文字带单引号");
+  assert.ok(!sheetXml.includes("<f>"), "没有公式");
+  await assert.rejects(api.db.owner.query("update bank_files set approved_by = requested_by where id = $1", [file.id]), (err: any) => err.constraint === "bank_files_two_person");
+});
+
+test("并发：同一批次同一币种同时发起两次生成，只有一条进复核；同时回填同一笔只记一次", async () => {
+  await statementFor("a", "2026-10-11T10:00:00+09:00", 7_000, "KRW");
+  const krw = await submit(m.a, accountInput("66667777", { currency: "KRW", swift_bic: "FAKEKRSE" }));
+  await activate(krw.id);
+  // 10 月这一期已经出过（THB 那张），KRW 是新币种，再出一次只出它；批次已锁定，顺延到下个月同一天
+  const { batchId: id } = await batchOf("2026-10");
+  await ok(api.call("POST", `/platform/v1/payout-batches/${id}/close`, { token: await fin1(), body: {} }));
+  const results = await Promise.all([requestFile(id, { currency: "KRW" }), requestFile(id, { currency: "KRW" })]);
+  assert.deepEqual(results.map((res: any) => res.status).sort(), [202, 409], results.map((res: any) => res.text).join(" | "));
+  const winner = results.find((res: any) => res.status === 202);
+  await ok(api.call("POST", `/platform/v1/approvals/${winner.body.approval.id}/approve`, { token: await fin2(), body: {} }));
+  const [file] = (await ok(api.call("GET", `/platform/v1/bank-files?payout_batch_id=${id}`, { token: await fin1() }))).items;
+  await download(file.id, "csv");
+  const item = (await fileDetail(file.id)).items[0];
+  const token = await fin1();
+  const pay = (reference: string): Promise<any> => api.call("POST", `/platform/v1/bank-files/${file.id}/payments`, { token, body: { payments: [{ item_id: item.id, bank_reference: reference }] } });
+  const paid = await Promise.all([pay("FT-RACE-1"), pay("FT-RACE-2")]);
+  assert.deepEqual(paid.map((res) => res.status).sort(), [200, 409], paid.map((res) => res.text).join(" | "));
+  const events = await api.db.owner.query("select count(*)::int as n from statement_events where statement_id = $1 and action = 'pay'", [item.statement_id]);
+  assert.equal(events.rows[0].n, 1);
 });
 
 test("金额为 0 或负数：不进批次（ADR 0040 分流），数据库也拦；文件条目金额必须为正", async () => {
