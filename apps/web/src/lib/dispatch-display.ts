@@ -57,6 +57,13 @@ export function directionName(order: Pick<TenantOrder, "category" | "direction">
   return order.direction === "pickup" ? "接机" : "送机";
 }
 
+/** 订单详情的品类一行：接送机写「接送机 · 接机」，其余品类方向名和品类名相同，只写一次。 */
+export function orderCategoryText(order: Pick<TenantOrder, "category" | "direction" | "package_hours">): string {
+  const parts = [...new Set([CATEGORY_NAMES[order.category], directionName(order)])];
+  if (order.package_hours) parts.push(`${order.package_hours} 小时`);
+  return parts.join(" · ");
+}
+
 export function landingSourceName(source: LandingSource): string {
   return LANDING_SOURCE_NAMES[source];
 }
