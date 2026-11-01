@@ -385,3 +385,17 @@ test("官网查订单：脱敏后的单按邮箱、手机都查不到，和对�
     await site.close();
   }
 });
+
+test("数据库防线：已脱敏的单也只能改手写内容那一列", async () => {
+  const paid = await flow.paidOrder({ serviceTime: new Date(api.clock.now().getTime() + 45 * DAY).toISOString().replace(/\.\d{3}Z$/, "Z") });
+  const token = m.staff.operations.token;
+  const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: paid.id, type: "other", subject: "投诉", description: "说明" } }), 201);
+  await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/messages`, { token, body: { body: "对话" } }), 201);
+  await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/close`, { token, body: { note: "结" } }));
+  await endAt(paid.id, tokyoDaysAgo(200));
+  await tick();
+  assert.equal(await isDone(paid.id), true);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update ticket_messages set author_type = 'system', author_id = null where ticket_id = $1", [ticket.ticket.id])), deniedByDatabase);
+  const changed = await withPlatformTx(api.db.pool, (db) => db.query("update ticket_messages set body = '已清除' where ticket_id = $1", [ticket.ticket.id]));
+  assert.equal(changed.rowCount, 1);
+});

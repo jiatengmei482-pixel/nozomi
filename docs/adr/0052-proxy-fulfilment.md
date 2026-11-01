@@ -1,6 +1,7 @@
 # ADR 0052：运营代租户回传履约状态
 
 - 状态：已采纳（2026-11-01，M4-18）
+- 由 ADR 0055 补充（2026-11-01，M4-21）：「还没落实」的打码补全、180 天自动脱敏；`passenger/reveal` 响应加手写内容原文。
 - 补充 ADR 0027：履约回传多一个来源「平台代传」；状态机、包车完成必填、状态流水、Webhook、通知仍是 `applyFulfilmentEvent` 这一份代码。ADR 0027「时间一律用系统收到的时间」对司机和供应商不变，代传带报告时间（见「时间」）。
 - 补充 ADR 0023：双人复核新增两类 `order.proxy_pick_up`、`order.proxy_complete`。
 - 补充 ADR 0030：新增操作 `order.proxy_fulfilment`（发起）、`order.proxy_review`（审核），角色勾选表新增单独一格 `order_proxy`（代传履约）。

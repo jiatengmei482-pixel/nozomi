@@ -18,13 +18,18 @@ create trigger orders_tenant_columns
   on orders
   for each statement execute function reject_tenant_column_update();
 
--- 联系记录、工单对话、内部备注原先只追加。脱敏要清掉手写内容里的联系方式：只放开手写的那一列，而且只有这张单已经标了脱敏才能改，业务代码误改会被拒绝
+-- 联系记录、工单对话、内部备注原先只追加。脱敏要清掉手写内容里的联系方式：平台角色可以 update，但触发器只放行手写的那一列，而且只有这张单已经标了脱敏才行，业务代码误改会被拒绝
+-- （项目不用列级授权，限制列都用触发器，和 reject_tenant_column_update 一样）
 create function reject_text_update_before_anonymized() returns trigger
   language plpgsql
   as $$
 declare
   anonymized boolean;
+  text_column constant text := case tg_table_name when 'order_contacts' then 'note' else 'body' end;
 begin
+  if (to_jsonb(new) - text_column) is distinct from (to_jsonb(old) - text_column) then
+    raise exception '% 只能改手写内容这一列', tg_table_name using errcode = 'insufficient_privilege';
+  end if;
   if tg_table_name = 'order_contacts' then
     select bool_or(o.passenger_anonymized_at is not null) into anonymized from orders o where o.id = new.order_id;
   else
@@ -38,9 +43,9 @@ end
 $$;
 
 create policy order_contacts_platform_anonymize on order_contacts for update to nozomi_platform using (true) with check (true);
-grant update (note) on order_contacts to nozomi_platform;
-grant update (body) on ticket_messages to nozomi_platform;
-grant update (body) on ticket_notes to nozomi_platform;
+grant update on order_contacts to nozomi_platform;
+grant update on ticket_messages to nozomi_platform;
+grant update on ticket_notes to nozomi_platform;
 
 create trigger order_contacts_anonymize_only before update on order_contacts for each row execute function reject_text_update_before_anonymized();
 create trigger ticket_messages_anonymize_only before update on ticket_messages for each row execute function reject_text_update_before_anonymized();
