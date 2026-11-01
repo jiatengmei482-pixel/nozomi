@@ -68,6 +68,20 @@ export function tooManyLoginAttempts(retryAfterSeconds: number): AppError {
   });
 }
 
+/** 邮件发送没配置（ADR 0050）：和邮箱无关，不泄露任何账号信息。 */
+export function emailCodeUnavailable(): AppError {
+  return new AppError(503, "EMAIL_CODE_UNAVAILABLE", "现在不能发送邮箱验证码，请改用密码登录");
+}
+
+/** 邮箱不存在、没发过码、码错、过期、用过、次数用尽共用这一个错误（ADR 0050）。 */
+export function emailCodeInvalid(): AppError {
+  return new AppError(401, "EMAIL_CODE_INVALID", "验证码不正确或已失效");
+}
+
+export function passwordLoginDisabled(): AppError {
+  return new AppError(403, "PASSWORD_LOGIN_DISABLED", "密码登录已关闭，请用邮箱验证码登录");
+}
+
 export function currentPasswordIncorrect(): AppError {
   return new AppError(400, "CURRENT_PASSWORD_INCORRECT", "当前密码不正确");
 }

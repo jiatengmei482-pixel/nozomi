@@ -3,6 +3,7 @@
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口里。
  * 「必须先修改密码」的标记有意不在账号对象里：它只在本人的登录应答和 `auth/me` 的顶层给出（ADR 0013）。
  */
+import { EMAIL_CODE_RESEND_INTERVAL_MS, EMAIL_CODE_TTL_MS, type LoginMethods } from "@nozomi/domain";
 import type { AuditLog } from "../repos/audit-logs.ts";
 import type { PlatformUser } from "../repos/platform-users.ts";
 import type { TenantUser } from "../repos/tenant-users.ts";
@@ -117,4 +118,13 @@ export function pageJson<Item>(
   toJson: (item: Item) => Record<string, unknown>,
 ): Record<string, unknown> {
   return { items: page.items.map(toJson), next_cursor: page.nextCursor };
+}
+
+export function loginMethodsJson(methods: LoginMethods): Record<string, boolean> {
+  return { email_code: methods.emailCode, password: methods.password };
+}
+
+/** 发码请求的应答：不管账号存不存在都是这一份（ADR 0050）。 */
+export function emailCodeSentJson(): Record<string, number> {
+  return { expires_in_seconds: EMAIL_CODE_TTL_MS / 1000, resend_after_seconds: EMAIL_CODE_RESEND_INTERVAL_MS / 1000 };
 }

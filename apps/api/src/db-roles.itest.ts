@@ -213,6 +213,7 @@ test("验收 2：切到租户角色（设成租户甲）后读不到、改不了
     "select * from platform_users",
     "select * from platform_sessions",
     "select * from login_throttles",
+    "select * from email_login_codes",
     "select * from schema_migrations",
     "select * from locate_tenant_user_by_email('admin@b.test')",
   ]);
@@ -267,6 +268,7 @@ test("验收 2（剩余风险，如实记录）：切到平台角色可以跨租
     "select * from tenant_sessions",
     "delete from tenant_sessions",
     "select * from login_throttles",
+    "select * from email_login_codes",
     "select * from schema_migrations",
     "delete from tenants",
     "delete from tenant_users",

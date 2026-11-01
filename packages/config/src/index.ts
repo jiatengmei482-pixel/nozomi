@@ -172,6 +172,8 @@ const rawSchema = z.object({
   // 登录限速里「同一来源地址」这一层的上限（窗口 15 分钟内的失败次数，ADR 0008、0030）。默认 50，staging / production 不能调高；
   // 只给端到端测试用：全部用例都从 127.0.0.1 发起，几百个用例的失败尝试（错码、并行进程用掉的动态码）会把这一层顶满
   LOGIN_MAX_ATTEMPTS_PER_IP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(1).max(100_000).default(DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP)),
+  // 关闭密码登录（ADR 0050）：默认不关闭，只有写明 true 才算；邮件发送没配置时即使写了 true，密码也照常可用
+  PASSWORD_LOGIN_DISABLED: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("false")),
 
   DATABASE_URL: databaseUrlSchema("DATABASE_URL"),
   DATABASE_MIGRATION_URL: z.preprocess(
@@ -306,6 +308,8 @@ export interface AppConfig {
   site: { clientId: string } | null;
   /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
   loginThrottle: { maxAttemptsPerIp: number };
+  /** 负责人明确要求关闭密码登录（ADR 0050）；真正是否关闭还要看邮件发送可不可用，见 domain 的 `resolveLoginMethods` */
+  passwordLoginDisabled: boolean;
   /** 第三方服务的地址（ADR 0041）：正式的地址是默认值，只有 local / ci 能指到本机的假服务器 */
   integrationEndpoints: IntegrationEndpoints;
   /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
@@ -488,6 +492,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
     loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
+    passwordLoginDisabled: env.PASSWORD_LOGIN_DISABLED === "true",
     siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
     integrationEndpoints,
   };

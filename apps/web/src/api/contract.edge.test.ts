@@ -122,8 +122,8 @@ test("auth/me 的 permissions 是字符串枚举的数组；错误体的 code、
   assert.deepEqual(spec.components.schemas["ErrorResponse"]?.required, ["error"]);
 });
 
-test("请求体和响应体都是 application/json；登录、接受邀请、重设密码、核对令牌不需要令牌，其余三个接口需要本后台的 Bearer 令牌", () => {
-  const publicEndpoints: readonly AuthEndpoint[] = ["login", "acceptInvite", "resetPassword", "checkInvite", "checkResetToken"];
+test("请求体和响应体都是 application/json；登录、查登录方式、发和校验邮箱验证码、接受邀请、重设密码、核对令牌不需要令牌，其余三个接口需要本后台的 Bearer 令牌", () => {
+  const publicEndpoints: readonly AuthEndpoint[] = ["login", "loginMethods", "requestEmailCode", "verifyEmailCode", "acceptInvite", "resetPassword", "checkInvite", "checkResetToken"];
   for (const portal of PORTAL_KEYS) {
     for (const endpoint of Object.keys(AUTH_ENDPOINTS) as AuthEndpoint[]) {
       const op = operation(portal, endpoint);

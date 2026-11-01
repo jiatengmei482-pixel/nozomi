@@ -9,6 +9,7 @@ import {
   type SessionPurpose,
   type TenantAction,
   checkPasswordStrength,
+  maskLoginEmail,
   passwordChangeRequiredFirst,
   tenantReadOnly,
   tenantRoleCan,
@@ -22,7 +23,7 @@ import { verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPreAuthTx, withTenantTx } from "../db/context.ts";
 import type { Page, SequenceCursor } from "../pagination.ts";
-import { type AuditLog, type TenantAuditLogFilter, insertAuditLog, listTenantAuditLogs } from "../repos/audit-logs.ts";
+import { type AuditLog, type AuditValues, type TenantAuditLogFilter, insertAuditLog, listTenantAuditLogs } from "../repos/audit-logs.ts";
 import {
   type TenantUser,
   type TenantUserSecrets,
@@ -45,6 +46,7 @@ import { ANONYMOUS_ACTOR, consoleOrigin, tenantActor } from "./audit.ts";
 import {
   accountDisabled,
   currentPasswordIncorrect,
+  emailCodeInvalid,
   forbidden,
   invalidCredentials,
   inviteInvalid,
@@ -54,6 +56,7 @@ import {
   unauthenticated,
   weakPassword,
 } from "./errors.ts";
+import { type EmailLoginLog, type VerifyEmailCodeInput, assertPasswordLoginOpen, settleEmailCodeLogin, verifyEmailCode } from "./email-login.ts";
 import { clearLoginReservation, reserveLogin } from "./login-guard.ts";
 import {
   type AcceptInviteInput,
@@ -79,6 +82,7 @@ interface Located {
 }
 
 export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string): Promise<TenantLoginResult> {
+  await assertPasswordLoginOpen(ctx);
   const now = ctx.now();
   const reservation = await reserveLogin(ctx, "tenant", input.email, ip, now);
   const locator = await withPreAuthTx(ctx.pool, (db) => locateTenantUserByEmailAcrossTenants(db, input.email));
@@ -136,41 +140,83 @@ export async function tenantLogin(ctx: AppContext, input: LoginInput, ip: string
   };
   if (failure !== null || !found) return reject(failure ?? "unknown_email");
 
-  const verified = found.secrets;
-  const tenantId = verified.user.tenantId;
-  const session = issueSession(
-    ctx.config.authJwtSecret,
-    { audience: "tenant", userId: verified.user.id, tenantId, role: verified.user.role },
-    now,
-  );
   // 密码是在事务外验证的（慢计算不持锁）。建会话前锁住用户再核对一次：这期间密码被改过或用户被停用，
   // 刚才的验证就不算数——否则「改密 / 重设让全部会话失效」之后，还会冒出一个用旧密码建的新会话。
+  const verified = found.secrets;
+  const opened = await openTenantSession(ctx, verified.user, found.tenant, ip, now, null, (locked) => sameStoredPassword(verified.passwordHash, locked.passwordHash));
+  if (!opened) return reject("wrong_password");
+  await clearLoginReservation(ctx, reservation);
+  return opened;
+}
+
+/** 凭证（密码或邮箱验证码）核对通过之后建会话：两种登录方式走这同一段。账号不在用、`stillValid` 不成立时返回 null。 */
+async function openTenantSession(
+  ctx: AppContext,
+  account: TenantUser,
+  tenant: Tenant,
+  ip: string,
+  now: Date,
+  auditAfter: AuditValues | null,
+  stillValid: (locked: TenantUserSecrets) => boolean,
+): Promise<TenantLoginResult | null> {
+  const tenantId = account.tenantId;
+  const session = issueSession(ctx.config.authJwtSecret, { audience: "tenant", userId: account.id, tenantId, role: account.role }, now);
   const user = await withTenantTx(ctx.pool, tenantId, async (db) => {
-    const locked = await lockTenantUser(db, tenantId, verified.user.id);
-    if (!locked || locked.user.status !== "active" || !sameStoredPassword(verified.passwordHash, locked.passwordHash)) {
-      return null;
-    }
-    const user = locked.user;
+    const locked = await lockTenantUser(db, tenantId, account.id);
+    if (!locked || locked.user.status !== "active" || !stillValid(locked)) return null;
     await insertTenantSession(db, tenantId, {
       id: session.sessionId,
       tenantId,
-      userId: user.id,
+      userId: locked.user.id,
       createdAt: session.createdAt,
       expiresAt: session.expiresAt,
     });
-    await insertAuditLog(db, consoleOrigin(tenantActor(user), ip, now), {
+    await insertAuditLog(db, consoleOrigin(tenantActor(locked.user), ip, now), {
       tenantId,
       resource: "tenant_user",
-      resourceId: user.id,
+      resourceId: locked.user.id,
       action: "login",
       before: null,
-      after: null,
+      after: auditAfter,
     });
-    return user;
+    return locked.user;
   });
-  if (!user) return reject("wrong_password");
-  await clearLoginReservation(ctx, reservation);
-  return { accessToken: session.accessToken, expiresAt: session.expiresAt, user, tenant: found.tenant };
+  return user ? { accessToken: session.accessToken, expiresAt: session.expiresAt, user, tenant } : null;
+}
+
+/**
+ * 邮箱验证码登录（ADR 0050）：验证码只代替密码这一步。账号定位、租户编号都来自邮箱对应的账号，不来自请求；
+ * 租户暂停、清退的处理和密码登录一样（暂停能登录，清退只读，在鉴权函数里判断）。
+ */
+export async function tenantEmailCodeLogin(ctx: AppContext, log: EmailLoginLog, input: VerifyEmailCodeInput, ip: string): Promise<TenantLoginResult> {
+  const now = ctx.now();
+  const passed = await verifyEmailCode(ctx, log, "tenant", input, ip, now);
+  const locator = await withPreAuthTx(ctx.pool, (db) => locateTenantUserByEmailAcrossTenants(db, input.email));
+  const found: Located | null = locator
+    ? await withTenantTx(ctx.pool, locator.tenantId, async (db) => {
+        const secrets = await findTenantUserSecrets(db, locator.tenantId, locator.userId);
+        const tenant = await findOwnTenant(db, locator.tenantId);
+        return secrets && tenant ? { secrets, tenant } : null;
+      })
+    : null;
+  const reject = async (reason: "unknown_email" | "not_activated" | "account_disabled"): Promise<never> => {
+    const origin = consoleOrigin(ANONYMOUS_ACTOR, ip, now);
+    const entry = { resource: "tenant_user" as const, action: "login_failed" as const, before: null, after: { email: maskLoginEmail(input.email), reason, method: "email_code" } };
+    if (found) {
+      const { tenantId, id } = found.secrets.user;
+      await withTenantTx(ctx.pool, tenantId, (db) => insertAuditLog(db, origin, { ...entry, tenantId, resourceId: id }));
+    } else {
+      await withPreAuthTx(ctx.pool, (db) => insertAuditLog(db, origin, { ...entry, tenantId: null, resourceId: null }));
+    }
+    throw reason === "account_disabled" ? accountDisabled() : emailCodeInvalid();
+  };
+  if (!found) return reject("unknown_email");
+  if (found.secrets.user.status === "invited") return reject("not_activated");
+  if (found.secrets.user.status === "disabled") return reject("account_disabled");
+  const opened = await openTenantSession(ctx, found.secrets.user, found.tenant, ip, now, { method: "email_code" }, () => true);
+  if (!opened) return reject("account_disabled");
+  await settleEmailCodeLogin(ctx, "tenant", input.email, passed);
+  return opened;
 }
 
 export interface TenantPrincipal {

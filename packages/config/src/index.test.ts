@@ -370,3 +370,12 @@ test("官网地址搜索和反查的每日调用上限（ADR 0044）：默认 50
   assert.deepEqual([loadConfig({ ...base, APP_ENV: "staging", GOOGLE_PLACES_DAILY_LIMIT: "50", GOOGLE_ROUTES_DAILY_LIMIT: "7" })].map((config) => [config.places.dailyLimit, config.routes.dailyLimit])[0], [50, 7]);
   for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_PLACES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_PLACES_DAILY_LIMIT")), bad);
 });
+
+test("关闭密码登录（ADR 0050）：默认不关闭；不填、空白、false 都不关闭，只有写明 true 才算；别的写法启动报错", () => {
+  const base = { DATABASE_URL: "postgres://app@localhost/db", AUTH_JWT_SECRET: "x".repeat(48) };
+  for (const value of [undefined, "", "  ", "false"]) {
+    assert.equal(loadConfig(value === undefined ? base : { ...base, PASSWORD_LOGIN_DISABLED: value }).passwordLoginDisabled, false, String(value));
+  }
+  assert.equal(loadConfig({ ...base, PASSWORD_LOGIN_DISABLED: "true" }).passwordLoginDisabled, true);
+  assert.throws(() => loadConfig({ ...base, PASSWORD_LOGIN_DISABLED: "yes" }), ConfigError);
+});

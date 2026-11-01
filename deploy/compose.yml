@@ -67,6 +67,8 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # 关闭密码登录（ADR 0050）：默认不关闭，只有负责人确认后才在 .env 写 true；部署脚本不会设置它
+      PASSWORD_LOGIN_DISABLED: ${PASSWORD_LOGIN_DISABLED:-}
       # 邮件发送（ADR 0048；可以不配，在运营后台填写，后台的优先）。七项一组，只有 SMTP_PASSWORD 是密钥
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}

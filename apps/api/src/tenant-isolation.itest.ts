@@ -23,8 +23,11 @@ let bDispatcher: { id: string; token: string };
 const covered = new Set<string>();
 const cover = (route: string): void => void covered.add(route);
 
+/** 发验证码的替身：只记下收件人和正文（完整的发信流程在 email-login.itest.ts 用假 SMTP 测）。 */
+const sentMails: { to: string; text: string }[] = [];
+
 before(async () => {
-  api = await createTestApi();
+  api = await createTestApi({ mailer: { send: async (_settings, message) => { sentMails.push({ to: message.to, text: message.text }); return { ok: true, messageId: "test" }; } } });
   platformToken = await api.superAdminToken();
   a = await api.tenantWithAdmin(platformToken, "车队甲", "admin@a.test");
   b = await api.tenantWithAdmin(platformToken, "车队乙", "admin@b.test");
@@ -205,6 +208,36 @@ test("POST /tenant/v1/auth/check-reset-token：把甲的令牌里的租户换成
   assert.equal(ok.status, 204, ok.text);
   const used = await api.call("POST", "/tenant/v1/auth/reset-password", { body: { token, password: "Fresh-Harbor-2027" } });
   assert.equal(used.status, 200, used.text);
+});
+
+test("GET /tenant/v1/auth/login-methods：不看令牌、不带任何租户信息，甲乙看到的一样", async () => {
+  cover("GET /tenant/v1/auth/login-methods");
+  const anonymous = await api.call("GET", "/tenant/v1/auth/login-methods");
+  const asA = await api.call("GET", `/tenant/v1/auth/login-methods?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.equal(anonymous.status, 200);
+  assert.deepEqual(Object.keys(anonymous.body).sort(), ["email_code", "password"]);
+  assert.equal(asA.text, anonymous.text);
+});
+
+test("POST /tenant/v1/auth/email-code/request、verify：甲的验证码登录不了乙；请求里写乙的租户编号没有用，令牌仍是甲的；甲读不到、改不了乙", async () => {
+  cover("POST /tenant/v1/auth/email-code/request");
+  cover("POST /tenant/v1/auth/email-code/verify");
+  sentMails.length = 0;
+  const sent = await api.call("POST", "/tenant/v1/auth/email-code/request", { body: { email: "admin@a.test", tenant_id: b.tenantId }, ip: "198.51.100.77" });
+  assert.equal(sent.status, 202, sent.text);
+  await api.app.emailLoginIdle();
+  assert.deepEqual(sentMails.map((mail) => mail.to), ["admin@a.test"]);
+  const code = /^(\d{6})$/m.exec(sentMails[0]?.text ?? "")?.[1] as string;
+
+  const onB = await api.call("POST", "/tenant/v1/auth/email-code/verify", { body: { email: "admin@b.test", code }, ip: "198.51.100.77" });
+  assert.deepEqual([onB.status, onB.body.error.code], [401, "EMAIL_CODE_INVALID"]);
+  const login = await api.call("POST", "/tenant/v1/auth/email-code/verify", { body: { email: "admin@a.test", code, tenant_id: b.tenantId }, ip: "198.51.100.77" });
+  assert.equal(login.status, 200, login.text);
+  assert.equal(login.body.tenant.id, a.tenantId);
+  const token = login.body.access_token as string;
+  assert.ok(!(await api.call("GET", "/tenant/v1/users", { token })).text.includes("admin@b.test"));
+  assert.equal((await api.call("PATCH", `/tenant/v1/users/${b.adminId}`, { token, body: { name: "改掉", role: "admin", status: "active" } })).status, 404);
+  await api.app.emailLoginIdle();
 });
 
 test("POST /tenant/v1/auth/logout：只结束自己的会话，别的租户的会话不受影响", async () => {
@@ -1580,7 +1613,7 @@ test("平台令牌进不了租户接口，租户令牌进不了平台接口", as
   for (const route of api.app.registeredRoutes) {
     if (route.method === "HEAD") continue;
     const url = route.path.replace(":id", b.tenantId);
-    const isPublic = /\/auth\/(login|accept-invite|reset-password|check-invite|check-reset-token)$/.test(route.path);
+    const isPublic = /\/auth\/(login|login-methods|email-code\/request|email-code\/verify|accept-invite|reset-password|check-invite|check-reset-token)$/.test(route.path);
     if (route.path.startsWith("/tenant/v1/") && !isPublic) {
       const res = await api.call(route.method as "GET", url, { token: platformToken, body: {} });
       assert.equal(res.status, 401, `平台令牌访问 ${route.method} ${route.path}`);
