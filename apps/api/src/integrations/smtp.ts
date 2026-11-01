@@ -90,7 +90,7 @@ const failure = (code: SmtpFailureCode): MailSendResult => ({ ok: false, code, m
 const TLS_ERROR_CODE = /^(ERR_TLS_|ERR_SSL_|CERT_|UNABLE_TO_|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|HOSTNAME_MISMATCH|EPROTO$)/;
 const TLS_ERROR_TEXT = /\b(ssl|tls|certificate)\b/i;
 
-/** 应答开头的增强状态码（RFC 3463）的后两段：`550 5.1.1 …` → `1.1`。只留数字，说明文字不看。 */
+/** 一行应答开头的增强状态码（RFC 3463）的后两段：`550 5.1.1 …` → `1.1`。只留数字，说明文字不看。 */
 const ENHANCED_STATUS = /^\d{3}[ -][245]\.(\d{1,3}\.\d{1,3})(?:\s|$)/;
 /** 发件人地址的问题：5.1.7 发件人邮箱写法不对、5.1.8 发件人域名不对。 */
 const SENDER_STATUS = new Set(["1.7", "1.8"]);
@@ -100,18 +100,28 @@ const RECIPIENT_STATUS = new Set(["1.1", "1.2", "1.3", "1.6", "1.10", "2.1", "2.
 const RECIPIENT_REPLY = new Set([550, 551, 552, 553]);
 
 /**
- * 服务器拒收：4xx 都是暂时的；MAIL FROM 的 5xx 一定是发件人；其余看增强状态码。
+ * 多行应答里的增强状态码。RFC 2034 要求每行都带；实际有只在后面某行带的，所以每行都看。
+ * `conflict`：各行说得不一样（不合 RFC），这时不信任何一个，当成说不清，不能因此判成收件人问题就不再重试。
+ */
+function enhancedStatusOf(response: unknown): { status: string | null; conflict: boolean } {
+  if (typeof response !== "string") return { status: null, conflict: false };
+  const found = new Set(response.split(/\r?\n/).flatMap((line) => ENHANCED_STATUS.exec(line)?.[1] ?? []));
+  return { status: [...found][0] ?? null, conflict: found.size > 1 };
+}
+
+/**
+ * 服务器永久拒收（4xx 在调用方已经归为暂时）：MAIL FROM 的 5xx 一定是发件人；其余看增强状态码。
  * 5.7.x 不算收件人：Postfix 默认等到 RCPT TO 才拒发件人，`553 5.7.1 Sender address rejected` 就在这一步，说不清是谁的问题。
- * 判断错了的代价：多试两次（当成说不清），不会把发件人配置错误算成某个收件人的问题而不再重试。
+ * 没有服务器应答码的（本地校验不过）也是说不清。判断错了的代价：多试两次，不会把发件人配置错误算成某个收件人的问题而不再重试。
  */
 function classifyRejection(stage: "MAIL FROM" | "RCPT TO" | "DATA", responseCode: unknown, response: unknown): SmtpFailureCode {
-  if (typeof responseCode === "number" && responseCode >= 400 && responseCode < 500) return "TEMPORARILY_REJECTED";
   if (stage === "MAIL FROM") return "SENDER_REJECTED";
-  const status = typeof response === "string" ? (ENHANCED_STATUS.exec(response)?.[1] ?? null) : null;
+  const { status, conflict } = enhancedStatusOf(response);
+  if (conflict) return "MESSAGE_REJECTED";
   if (status !== null && SENDER_STATUS.has(status)) return "SENDER_REJECTED";
   if (status !== null && RECIPIENT_STATUS.has(status)) return "RECIPIENT_REJECTED";
   const noDetail = status === null || status === "0.0";
-  if (stage === "RCPT TO" && noDetail && (responseCode === undefined || RECIPIENT_REPLY.has(responseCode as number))) return "RECIPIENT_REJECTED";
+  if (stage === "RCPT TO" && noDetail && RECIPIENT_REPLY.has(responseCode as number)) return "RECIPIENT_REJECTED";
   return "MESSAGE_REJECTED";
 }
 
@@ -119,11 +129,14 @@ function classifyRejection(stage: "MAIL FROM" | "RCPT TO" | "DATA", responseCode
  * nodemailer 的错误归类：只看错误码、命令、应答码和增强状态码，错误说明里只找「是不是 TLS 的问题」，不外传。
  * nodemailer 10 的行为（ADR 0049，实测）：MAIL FROM 被拒 `EENVELOPE` + `MAIL FROM`；RCPT TO 全部被拒 `EENVELOPE` + `RCPT TO` + `rejected`、`rejectedErrors`；
  * DATA 命令被拒 `EENVELOPE` + `DATA`；正文发完被拒 `EMESSAGE` + `DATA`。都带 `responseCode` 和 `response`。本地校验不过时 `command` 是 `API`，没有应答码。
+ * 握手阶段的应答也带 `responseCode`：打招呼 `EPROTOCOL` + `CONN`，EHLO 的 421 `ECONNECTION` + `EHLO`，认证 `EAUTH`，STARTTLS `ETLS`。
+ * 所以先看应答码：任何一步的 4xx 都是服务器暂时不接收，不是配置错了。连接层错误没有应答码，认证的 5xx 不是 4xx，都按原来的归类。
  */
 export function classifySmtpError(err: unknown): SmtpFailureCode {
   if (err instanceof SmtpFailure) return err.code;
   if (typeof err !== "object" || err === null) return "UNEXPECTED";
   const { code, command, originalCode, message, responseCode, response } = err as { code?: unknown; command?: unknown; originalCode?: unknown; message?: unknown; responseCode?: unknown; response?: unknown };
+  if (typeof responseCode === "number" && responseCode >= 400 && responseCode < 500) return "TEMPORARILY_REJECTED";
   const isTls = (typeof originalCode === "string" && TLS_ERROR_CODE.test(originalCode)) || (typeof message === "string" && TLS_ERROR_TEXT.test(message));
   switch (code) {
     case "ETIMEDOUT":

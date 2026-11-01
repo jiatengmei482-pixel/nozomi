@@ -117,17 +117,23 @@
 | DATA 命令 | `EENVELOPE` | `DATA` | `responseCode`、`response` |
 | 正文发完（`.` 之后） | `EMESSAGE` | `DATA` | `responseCode`、`response` |
 | 本地校验不过（没连服务器） | `EENVELOPE` / `EMESSAGE` | `API`（超大小时 `MAIL FROM`） | 没有 `responseCode` |
+| 打招呼 | `EPROTOCOL` | `CONN` | `responseCode`、`response` |
+| EHLO 的 421 | `ECONNECTION` | `EHLO` | `responseCode`、`response`（其他 EHLO、HELO 应答是 `EPROTOCOL`） |
+| 认证 | `EAUTH` | `AUTH PLAIN` 等 | `responseCode`、`response` |
+| STARTTLS | `ETLS` | `STARTTLS` | `responseCode`、`response` |
 
 **归类**（`classifySmtpError`，只看阶段、应答码和应答开头的增强状态码 RFC 3463，不看说明文字）：
 
 | 条件（按顺序） | 代码 | 通知中心 |
 | --- | --- | --- |
-| 任何一步的 4xx | `TEMPORARILY_REJECTED` | 完整退避 |
+| 任何一步的 4xx，包括打招呼、EHLO、认证（如 454）、STARTTLS（如 454） | `TEMPORARILY_REJECTED` | 完整退避 |
 | MAIL FROM 的 5xx | `SENDER_REJECTED` | 再试 2 次 |
 | RCPT TO 或 DATA 的 5xx，增强状态码 X.1.7、X.1.8（发件人邮箱、域名） | `SENDER_REJECTED` | 再试 2 次 |
 | RCPT TO 或 DATA 的 5xx，增强状态码 X.1.1、X.1.2、X.1.3、X.1.6、X.1.10、X.2.1、X.2.2（收件人邮箱、域名、写法、搬走、不收信、停用、满了） | `RECIPIENT_REJECTED` | 不重试 |
 | RCPT TO 的 550–553，没有增强状态码或是 X.0.0 | `RECIPIENT_REJECTED` | 不重试 |
-| 其余（DATA 阶段说不清的；RCPT TO 的 X.7.x、554、语法类 5xx；本地校验不过） | `MESSAGE_REJECTED` | 再试 2 次 |
+| 其余（DATA 阶段说不清的；RCPT TO 的 X.7.x、554、语法类 5xx；多行应答里各行状态码不一致；本地校验不过，没有服务器应答码） | `MESSAGE_REJECTED` | 再试 2 次 |
+
+增强状态码每行都看：RFC 2034 要求每行都带，实际有只在后面某行带的。只有一种就用它；各行不一样就不信任何一个，算说不清。认证的 5xx（如 535）仍是 `AUTH_FAILED`，STARTTLS 的 5xx 仍是 `TLS_FAILED`，连接层错误没有应答码，仍是 `UNREACHABLE` 或 `TLS_FAILED`。
 
 判断和取舍：
 

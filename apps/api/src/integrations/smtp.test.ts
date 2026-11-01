@@ -235,7 +235,8 @@ test("错误归类的函数：只看代码；奇怪的错误不抛异常", () =>
   assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "ESOCKET", originalCode: "ERR_SSL_WRONG_VERSION_NUMBER" })), "TLS_FAILED");
   assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EDNS" })), "UNREACHABLE");
   assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EENVELOPE", command: "MAIL FROM" })), "SENDER_REJECTED");
-  assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EENVELOPE", command: "RCPT TO" })), "RECIPIENT_REJECTED");
+  assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EENVELOPE", command: "RCPT TO", responseCode: 550 })), "RECIPIENT_REJECTED");
+  assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EENVELOPE", command: "RCPT TO" })), "MESSAGE_REJECTED", "没有服务器应答码：说不清，不算收件人");
   for (const odd of [null, undefined, "x", 1, {}, new Error("x")]) assert.equal(classifySmtpError(odd), "UNEXPECTED");
 });
 
@@ -296,4 +297,33 @@ test("归类不被说明文字带偏，本地校验不过（没有应答码）�
   assert.equal(rejected({ code: "EMESSAGE", command: "MAIL FROM" }), "MESSAGE_REJECTED", "本地发现邮件超过大小限制");
   assert.equal(rejected({ code: "EMESSAGE", command: "API" }), "MESSAGE_REJECTED");
   assert.equal(rejected({ code: "EENVELOPE", command: "RCPT TO", responseCode: 450, response: "450 5.1.1 odd" }), "TEMPORARILY_REJECTED", "应答码是 4xx 就是暂时的");
+});
+
+test("多行应答：只有后面的行带状态码也认；各行说得不一样的当说不清，不算收件人", () => {
+  const rcpt = (response: string, responseCode = 550): SmtpFailureCode => classifySmtpError(Object.assign(new Error("x"), { code: "EENVELOPE", command: "RCPT TO", responseCode, response }));
+  assert.equal(rcpt("550-Mailbox gone\n550 5.1.1 see help"), "RECIPIENT_REJECTED");
+  assert.equal(rcpt("550-Policy rejection\n550 5.7.1 see help"), "MESSAGE_REJECTED", "第一行没有状态码、后面是 5.7.1：不能按没有增强码算成收件人");
+  assert.equal(rcpt("550-Policy rejection\r\n550-more\r\n550 5.1.8 see help"), "SENDER_REJECTED");
+  assert.equal(rcpt("550-5.1.1 one\n550 5.7.1 other"), "MESSAGE_REJECTED", "各行不一样");
+  assert.equal(rcpt("550-5.1.1 one\n550 5.0.0 other"), "MESSAGE_REJECTED", "有一行没说清");
+  assert.equal(rcpt("550-5.1.1 one\n550 see help"), "RECIPIENT_REJECTED", "只有一行带");
+  assert.equal(rcpt("550-no status\n550 see 5.1.1 help"), "RECIPIENT_REJECTED", "说明文字里的数字不算，这条按没有增强码");
+  assert.equal(rcpt("554-no status\n554 see 5.1.1 help", 554), "MESSAGE_REJECTED");
+  assert.equal(classifySmtpError(Object.assign(new Error("x"), { code: "EMESSAGE", command: "DATA", responseCode: 554, response: "554-no\n554 5.2.2 full" })), "RECIPIENT_REJECTED", "正文之后同样");
+});
+
+test("握手阶段：4xx 是暂时拒绝；5xx 和连接层错误还是配置或连接问题，不算成暂时", () => {
+  const classify = (fields: Record<string, unknown>): SmtpFailureCode => classifySmtpError(Object.assign(new Error("x"), fields));
+  assert.equal(classify({ code: "EPROTOCOL", command: "CONN", responseCode: 421, response: "421 busy" }), "TEMPORARILY_REJECTED");
+  assert.equal(classify({ code: "ECONNECTION", command: "EHLO", responseCode: 421, response: "421 busy" }), "TEMPORARILY_REJECTED");
+  assert.equal(classify({ code: "EAUTH", command: "AUTH PLAIN", responseCode: 454 }), "TEMPORARILY_REJECTED");
+  assert.equal(classify({ code: "ETLS", command: "STARTTLS", responseCode: 454 }), "TEMPORARILY_REJECTED");
+  assert.equal(classify({ code: "EAUTH", command: "AUTH PLAIN", responseCode: 535 }), "AUTH_FAILED");
+  assert.equal(classify({ code: "EAUTH", command: "AUTH PLAIN", responseCode: 534 }), "AUTH_FAILED");
+  assert.equal(classify({ code: "ETLS", command: "STARTTLS", responseCode: 502 }), "TLS_FAILED");
+  assert.equal(classify({ code: "ETLS", message: "certificate has expired" }), "TLS_FAILED");
+  assert.equal(classify({ code: "ECONNECTION", message: "Connection closed" }), "UNREACHABLE");
+  assert.equal(classify({ code: "ESOCKET", originalCode: "ECONNRESET" }), "UNREACHABLE");
+  assert.equal(classify({ code: "ETIMEDOUT" }), "TIMEOUT");
+  assert.equal(classify({ code: "EPROTOCOL", command: "CONN", responseCode: 554 }), "UNEXPECTED");
 });
