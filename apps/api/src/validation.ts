@@ -140,7 +140,8 @@ const limitSchema = z
   .default(String(DEFAULT_PAGE_LIMIT));
 
 /** 单行文字（姓名、地址）：不接受换行、行分隔符等控制字符（这些内容会进通知邮件，ADR 0049）。 */
-export const singleLine = (max: number) => z.string().max(max).refine((value) => !hasControlChars(value), { message: "不能有换行等控制字符" });
+/** 制表符按空白算（只有空白的地址由后面的校验报 REQUIRED），其余控制字符一律拒绝。 */
+export const singleLine = (max: number) => z.string().max(max).refine((value) => !hasControlChars(value.replaceAll("\t", " ")), { message: "不能有换行等控制字符" });
 
 export const pageQuerySchema = z.object({
   limit: limitSchema,
