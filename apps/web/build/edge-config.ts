@@ -50,15 +50,21 @@ const MAP_TILE_CSP_PLACEHOLDER = `{$${MAP_TILE_CSP_SOURCES_ENV}}`;
 /** 能放进 `img-src` 的图片来源：协议 + 主机名（+ 端口），不带路径、通配符、引号。本机地址给端到端测试的假瓦片服务用。 */
 const IMAGE_SOURCE = /^(https:\/\/[A-Za-z0-9.-]+|http:\/\/(127\.0\.0\.1|localhost))(:[0-9]{1,5})?$/;
 
-/**
- * 官网页面的路径前缀（前端路由 `SITE_HOME_PATH`，src/lib/site-display.ts；site-csp.test.ts 核对两边一致）。
- * 只有这些页面的策略放行 Stripe：这个前缀本身和它下面的全部路径，与 Caddy `path /book /book/*` 的匹配一致。
- */
+/** 官网页面的路径前缀（前端路由 `SITE_HOME_PATH`，src/lib/site-display.ts；site-csp.test.ts 核对两边一致）。 */
 export const SITE_PAGE_PREFIX = "/book";
 
+/**
+ * 哪些请求地址算官网页面（只有它们的策略放行 Stripe，ADR 0046）。对着**没解码的原始地址**比，只认字面上就是官网三个页面的
+ * （`/book`、`/book/checkout`、`/book/order`，可带结尾斜杠和查询串）：
+ * - Caddy 的 `path` 匹配器会先解码、规整，`/platform/..%2Fbook` 会被它当成 `/book`，而浏览器和前端路由看到的是后台地址；
+ * - `/book/别的` 前端路由对不上官网，落到供应商后台的页面，同样不能放行。
+ * 不分大小写：前端路由不分大小写，`/Book/order` 渲染的就是订单页。没有反斜杠和花括号：要原样放进 Caddy 的 CEL 表达式。
+ */
+export const SITE_PAGE_URI_PATTERN = `^${SITE_PAGE_PREFIX}(/(order/?|checkout/?)?)?([?#].*)?$`;
+
+/** `url`：请求行里的原始地址（路径 + 查询串）。和 Caddy 片段里的 `@site_pages` 同一个正则。 */
 export function isSitePagePath(url: string): boolean {
-  const path = url.split(/[?#]/)[0] ?? "";
-  return path === SITE_PAGE_PREFIX || path.startsWith(`${SITE_PAGE_PREFIX}/`);
+  return new RegExp(SITE_PAGE_URI_PATTERN, "i").test(url);
 }
 
 /**
@@ -113,21 +119,19 @@ export function apiPathPatterns(prefixes: readonly string[] = API_PATH_PREFIXES)
   });
 }
 
-/** Caddy 的 path 匹配器参数：官网页面（前缀本身和它下面的全部路径）。 */
-export const SITE_PAGE_PATTERNS = [SITE_PAGE_PREFIX, `${SITE_PAGE_PREFIX}/*`] as const;
-
 /**
  * 生成给 deploy/Caddyfile import 的片段：`@api` 匹配器和 CSP 响应头。参数是构建好的 index.html 的内容。
  * CSP 两条：官网页面（`@site_pages`）带 Stripe 的来源，其余（`@other_pages`）不带；两个匹配器互斥，每个响应恰好一条。
+ * 匹配用 `http.request.orig_uri`（请求行里的原始地址，没解码、没规整），不用 `path` 匹配器，原因见 `SITE_PAGE_URI_PATTERN`。
  */
 export function renderEdgeConfig(indexHtml: string): string {
   const hashes = inlineScriptHashes(indexHtml);
-  const site = SITE_PAGE_PATTERNS.join(" ");
+  const isSitePage = `{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")`;
   return [
     "# 构建前端镜像时由 apps/web/build/edge-config.ts 生成，不要手工修改。",
     `@api path ${apiPathPatterns().join(" ")}`,
-    `@site_pages path ${site}`,
-    `@other_pages not path ${site}`,
+    `@site_pages expression \`${isSitePage}\``,
+    `@other_pages expression \`!${isSitePage}\``,
     `header @site_pages Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER], { payments: true })}"`,
     `header @other_pages Content-Security-Policy "${contentSecurityPolicy(hashes, [MAP_TILE_CSP_PLACEHOLDER])}"`,
     "",

@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import {
   EDGE_CONFIG_PATH,
-  SITE_PAGE_PATTERNS,
+  SITE_PAGE_URI_PATTERN,
   WEB_ROOT_PATH,
   apiPathPatterns,
   contentSecurityPolicy,
@@ -120,10 +120,9 @@ test("生成的 Caddy 片段：@api 匹配器、官网页面和其余页面两�
   const lines = codeOf(renderEdgeConfig(indexHtml)).split("\n").filter(Boolean);
   assert.equal(lines.length, 5);
   assert.equal(lines[0], `@api path ${apiPathPatterns().join(" ")}`);
-  // 官网页面（/book 和它下面）的策略多放行 Stripe.js（ADR 0046）；其余页面（两个后台、登录）不放行
-  assert.deepEqual([...SITE_PAGE_PATTERNS], ["/book", "/book/*"]);
-  assert.equal(lines[1], "@site_pages path /book /book/*");
-  assert.equal(lines[2], "@other_pages not path /book /book/*");
+  // 官网页面的策略多放行 Stripe.js（ADR 0046）；其余页面（两个后台、登录）不放行。按没解码的原始地址匹配，不用会解码、规整的 path 匹配器
+  assert.equal(lines[1], `@site_pages expression \`{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")\``);
+  assert.equal(lines[2], `@other_pages expression \`!{http.request.orig_uri}.matches("(?i)${SITE_PAGE_URI_PATTERN}")\``);
   // 图片来源里有一个 Caddy 的环境变量占位：部署时由 MAP_TILE_CSP_SOURCES 填入（地图底图的来源，ADR 0015），没配就是空
   assert.equal(lines[3], `header @site_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"], { payments: true })}"`);
   assert.equal(lines[4], `header @other_pages Content-Security-Policy "${contentSecurityPolicy(inlineScriptHashes(indexHtml), ["{$MAP_TILE_CSP_SOURCES}"])}"`);

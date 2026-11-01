@@ -27,14 +27,14 @@ Stripe 的要求：Stripe.js 必须从 `js.stripe.com` 加载，不能打包进�
 ### 付款流程（`lib/payment-driver.ts` 的 `createStripePaymentDriver`，订单页 `PaymentPanel`）
 
 1. 取付款凭据：刚下单时用下单应答里的，之后用 `GET /site/v1/order/payment`。`client_secret` 为 null（过了付款期限、订单不是待付款）时说「这张订单现在不能付款了」并刷新订单。
-2. `stripe.retrievePaymentIntent(client_secret)` 先查这笔付款：已成功、处理中的**不再显示表单**，直接进第 6 步（刷新页面、从银行页面回来、在另一个标签页付过）；已取消的说明并刷新订单；上次没付成的（`last_payment_error`）把原因显示出来。
+2. `stripe.retrievePaymentIntent(client_secret)` 先查这笔付款：已成功、处理中的**不再显示表单**，直接进第 6 步（刷新页面、从银行页面回来、在另一个标签页付过）；已取消的说「这张订单现在不能付款了」并刷新订单；上次没付成的（`last_payment_error`）把原因显示出来；刚从银行回来、地址上 `redirect_status=failed`、Stripe 查到确实是 `requires_payment_method` 却没写原因（如客人关掉了银行页面）的，提示「上次付款没有完成，请重新付款。」——地址上的参数不单独算数，以 Stripe 查到的状态为准。
 3. 挂 Payment Element（`layout: "tabs"`；只收银行卡由后端建付款时决定）。外观取自设计令牌：Stripe 的表单在 iframe 里读不到本站的 CSS 变量，所以挂表单时把令牌的当前值读出来交给它（主色、底色、文字、出错色、字体、字号、圆角、边框），亮暗主题按当前主题选 `stripe` / `night`；主题切换时重新读一遍交给它。
 4. 客人点「付款 22,000 JPY」：先 `elements.submit()` 校验（卡号不完整等由 Stripe 在表单里标出，页面再给一句原话），通过才出页面内确认「确认支付 22,000 JPY？」——并写明「如果银行要求验证，会弹出银行的验证窗口」。
 5. 「确认支付」：`stripe.confirmPayment({ elements, confirmParams: { return_url }, redirect: "if_required" })`。银行卡的 3D 验证由 Stripe 的弹窗完成，弹窗开着的时候按钮显示「正在付款」、「返回」不能点。结果：
    - 成功 / 处理中 → 第 6 步；
    - 卡被拒、余额不足、验证没通过、填写不对（`card_error`、`validation_error`、`payment_intent_authentication_failure`）→「付款没有成功：〈Stripe 的原话〉请换一张卡，或检查后再付。」表单留着；
    - 没连上 Stripe（`api_connection_error`、请求抛错）→ 先再查一次这笔付款（确认请求其实到了的话按实际结果），仍是待付款就说「没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次」——同一笔 PaymentIntent 只能成功一次；
-   - 其他错误 → 同样先再查一次，仍没付成就说「付款没有完成」+ Stripe 的说明（有的话）。
+   - 其他错误 → 同样先再查一次，已取消（订单被取消、过了付款期限）的拆掉表单，说「这张订单现在不能付款了」并刷新订单；仍没付成就说「付款没有完成」+ Stripe 的说明（有的话）。
 6. 付款已提交：拆掉表单，显示「付款成功，等待确认。订单通常几秒钟内确认，页面会自动更新，请不要重复付款。」（处理中：「银行正在处理这笔付款……」）。马上刷新一次订单，之后每 3 秒一次；2 分钟还没确认就改成每 15 秒，并补一句「确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服」。
 7. 订单不再是待付款时付款区块消失（轮询随之停止）；这次看页面时订单从待付款变成已确认，顶部显示「付款成功，订单已确认。派车后这里会显示司机和车辆。」
 
@@ -52,7 +52,7 @@ Stripe 的要求：Stripe.js 必须从 `js.stripe.com` 加载，不能打包进�
 
 ### 内容安全策略：只在官网页面放行 Stripe
 
-| 指令 | 官网页面（`/book`、`/book/*`） | 其余页面（两个后台、登录、司机页等） |
+| 指令 | 官网页面（字面上是 `/book`、`/book/checkout`、`/book/order`） | 其余页面（两个后台、登录、司机页等） |
 | --- | --- | --- |
 | script-src | `'self'` + 主题脚本哈希 + `https://js.stripe.com https://*.js.stripe.com` | `'self'` + 主题脚本哈希 |
 | frame-src | `https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com` | 不写（按 `default-src 'self'`） |
@@ -61,7 +61,9 @@ Stripe 的要求：Stripe.js 必须从 `js.stripe.com` 加载，不能打包进�
 
 - 来源按 Stripe 官方文档「Content Security Policy」的清单取本站用得到的最小集：Stripe.js 本身（`js.stripe.com`，以及它按版本拆出去的 `*.js.stripe.com`——文档要求两项都放）、付款表单和 3D 验证的 iframe（`js.stripe.com`、`hooks.stripe.com`）、Stripe.js 调的接口（`api.stripe.com`）。**不放**文档里 Address Element 地址补全用的 `maps.googleapis.com`（本站不用 Stripe 的地址表单）；不放 `img-src`、`style-src`（Stripe 的图片和样式都在它自己的 iframe 里，对父页面的样式只用脚本设置，不受 `style-src` 限制）；不放 `unsafe-inline`、`unsafe-eval`。
 - 为什么按路径分两条而不是全站放行：后台页面登录后持有令牌，放行站外脚本来源只会扩大被注入时能做的事；后台用不到 Stripe。官网是一个单页应用，策略按**打开页面时**的路径定：从官网页面打开后在页面内跳到后台路由会沿用官网那一条，但官网页面上没有去后台的链接；直接打开后台的任何地址都是不放行的那一条。
-- 实现：`apps/web/build/edge-config.ts` 的 `contentSecurityPolicy(哈希, 图片来源, { payments })` 和 `STRIPE_CSP_SOURCES`；构建镜像时生成的 Caddy 片段里是两个互斥的匹配器 `@site_pages path /book /book/*`、`@other_pages not path /book /book/*` 各一条 `header`（每个响应恰好一条策略；`caddy validate` 和真实 Caddy 上逐路径核对过）；端到端测试用的 `vite preview` 按同一个函数 `isSitePagePath` 选同样的两条。路径前缀和前端路由 `SITE_HOME_PATH` 由单元测试核对一致。
+- **按没解码的原始地址匹配，只认官网的三个页面**（测试发现的缺陷）：Caddy 的 `path` 匹配器会先解码、规整，`/platform/..%2Fbook`、`/login/..%2Fbook`、`/book%2Forder`、`//book/order` 都会被它当成 `/book`，而浏览器留在原地址，前端渲染的是后台或登录页——后台页面就拿到了放行 Stripe 的策略。所以改用请求行里的原始地址 `{http.request.orig_uri}` 和正则 `SITE_PAGE_URI_PATTERN` 比：只有字面上是 `/book`、`/book/checkout`、`/book/order`（可带结尾斜杠和查询串，从银行回来的 `/book/order?payment_intent=…` 照常）才放行。`/book/别的` 也不放行：前端路由对不上官网，落到的是供应商后台的页面。新增官网页面时要同时改这个正则（`site-csp.test.ts` 核对前端的三个路径）。任何没认出来的写法都落到不放行的那一条：最坏是 Stripe 表单加载不出来，不会多放行。
+- 不分大小写：前端路由不分大小写，`/Book/order` 渲染的就是订单页，要能付款；`isSitePagePath`（vite preview）和 Caddy 用同一个正则，判断一致。
+- 实现：`apps/web/build/edge-config.ts` 的 `contentSecurityPolicy(哈希, 图片来源, { payments })` 和 `STRIPE_CSP_SOURCES`；构建镜像时生成的 Caddy 片段里是两个互斥的表达式匹配器 `@site_pages`、`@other_pages` 各一条 `header`（每个响应恰好一条策略；`deploy-web-csp-paths.qa.test.ts` 在真实的 caddy:2 上逐路径核对，CI 上缺镜像就拉，拉不下来直接失败，不跳过）；端到端测试用的 `vite preview` 按同一个函数 `isSitePagePath` 选同样的两条。路径前缀和前端路由 `SITE_HOME_PATH` 由单元测试核对一致。
 - `Referrer-Policy: no-referrer`、`X-Frame-Options: DENY` 不变（Stripe Elements 不依赖 Referer；本站页面仍不许被别人嵌入）。
 
 ### 测试怎么不碰真实 Stripe

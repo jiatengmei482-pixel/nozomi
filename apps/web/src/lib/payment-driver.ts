@@ -21,6 +21,8 @@ export type ConfirmOutcome =
   | { kind: "declined"; message: string }
   /** 没连上 Stripe：这次付款可能没提交，可以再点（同一笔付款，不会扣两次） */
   | { kind: "network" }
+  /** 这笔付款已经取消（订单被取消、过了付款期限）：不能再付了 */
+  | { kind: "canceled" }
   /** 其他原因没付成；`message` 是 Stripe 给的说明（可能没有） */
   | { kind: "failed"; message: string | null };
 
@@ -28,6 +30,8 @@ export interface PaymentMount {
   readonly state: PaymentIntentState;
   /** 上一次没付成的原因（从银行验证页回来、刷新时 Stripe 告诉的），没有为 null */
   readonly lastError: string | null;
+  /** Stripe 说这笔付款正等着客人（重新）给支付方式（`requires_payment_method`）；从银行回来时用它核实地址上的「失败」 */
+  readonly awaitingPaymentMethod: boolean;
   /** 校验表单；不完整时 Stripe 在表单里标出，`message` 再给一句总的 */
   validate(): Promise<{ ok: true } | { ok: false; message: string }>;
   /** 确认付款（需要时弹出 3D 验证）。`returnUrl`：少数需要整页跳去银行的情况，验证完回到这里 */
@@ -73,6 +77,7 @@ function outcomeOf(intent: StripeJsPaymentIntent): ConfirmOutcome {
   const state = stateOf(intent);
   if (state === "succeeded") return { kind: "succeeded" };
   if (state === "processing") return { kind: "processing" };
+  if (state === "canceled") return { kind: "canceled" };
   const message = intent.last_payment_error?.message ?? null;
   return message === null ? { kind: "failed", message: null } : { kind: "declined", message };
 }
@@ -134,8 +139,8 @@ function watchTheme(onChange: () => void): () => void {
 
 /** 没有表单的挂载（付款已经成功、处理中、已取消）：不能再确认。 */
 function settledMount(state: Exclude<PaymentIntentState, "open">): PaymentMount {
-  const outcome: ConfirmOutcome = state === "succeeded" ? { kind: "succeeded" } : state === "processing" ? { kind: "processing" } : { kind: "failed", message: null };
-  return { state, lastError: null, validate: async () => ({ ok: true }), confirm: async () => outcome, destroy: () => undefined };
+  const outcome: ConfirmOutcome = state === "succeeded" ? { kind: "succeeded" } : state === "processing" ? { kind: "processing" } : { kind: "canceled" };
+  return { state, lastError: null, awaitingPaymentMethod: false, validate: async () => ({ ok: true }), confirm: async () => outcome, destroy: () => undefined };
 }
 
 const connectionError = (): StripeJsResult => ({ error: { type: "api_connection_error" } });
@@ -159,6 +164,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       const state = stateOf(retrieved.paymentIntent);
       if (state !== "open") return settledMount(state);
       const lastError = retrieved.paymentIntent.last_payment_error?.message ?? null;
+      const awaitingPaymentMethod = retrieved.paymentIntent.status === "requires_payment_method";
 
       const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(), locale: STRIPE_LOCALE });
       const element = elements.create("payment", { layout: "tabs" });
@@ -185,6 +191,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       return {
         state,
         lastError,
+        awaitingPaymentMethod,
         async validate() {
           const result: { error?: StripeJsError } = await elements.submit().catch(connectionError);
           if (result.error?.type === "validation_error") return { ok: false, message: result.error.message ?? "请检查银行卡信息" };

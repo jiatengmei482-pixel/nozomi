@@ -98,6 +98,9 @@ type PanelState =
   /** 付款已提交，等平台确认 */
   | { kind: "submitted"; outcome: "succeeded" | "processing" };
 
+const CANNOT_PAY_TEXT = "这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。";
+/** 从银行回来、地址说失败、Stripe 也确实在等客人重新付款，却没写原因（如客人关掉了银行页面）。 */
+const RETURN_FAILED_TEXT = "上次付款没有完成，请重新付款。";
 const NETWORK_TEXT = "没有连上 Stripe，这次付款可能没有提交。请检查网络后再点「付款」；同一张订单不会被扣两次。";
 
 function submittedText(outcome: "succeeded" | "processing", slow: boolean): string {
@@ -105,7 +108,7 @@ function submittedText(outcome: "succeeded" | "processing", slow: boolean): stri
   return slow ? `${head}确认比平时慢：您可以先关掉页面，稍后再打开这个链接查看；有疑问请联系客服。` : head;
 }
 
-function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: string; order: SiteOrder; initial: SitePayment | null; onRefresh(): void; polling: PaymentPolling }) {
+function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling }: { token: string; order: SiteOrder; initial: SitePayment | null; returnFailed: boolean; onRefresh(): void; polling: PaymentPolling }) {
   const driver = usePaymentDriver();
   const container = useRef<HTMLDivElement>(null);
   const mounted = useRef<PaymentMount | null>(null);
@@ -129,6 +132,15 @@ function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: st
     setState({ kind: "submitted", outcome });
   };
 
+  const endPayment = (): void => {
+    mounted.current?.destroy();
+    mounted.current = null;
+    setConfirming(false);
+    setState({ kind: "ended" });
+    setNotice({ kind: "warning", text: CANNOT_PAY_TEXT });
+    refresh.current();
+  };
+
   useEffect(() => {
     let alive = true;
     setState({ kind: "loading" });
@@ -137,9 +149,7 @@ function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: st
       const payment = initial?.client_secret ? initial : (await getSiteOrderPayment(token)).payment;
       if (!alive) return;
       if (payment.client_secret === null) {
-        setState({ kind: "ended" });
-        setNotice({ kind: "warning", text: "这张订单现在不能付款了（可能已超过付款期限），订单状态马上会更新。" });
-        refresh.current();
+        endPayment();
         return;
       }
       if (container.current === null) return;
@@ -156,14 +166,14 @@ function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: st
       }
       if (mount.state === "canceled") {
         mount.destroy();
-        setState({ kind: "ended" });
-        setNotice({ kind: "warning", text: "这笔付款已经取消，订单状态马上会更新。" });
-        refresh.current();
+        endPayment();
         return;
       }
       mounted.current = mount;
       setState({ kind: "ready" });
       if (mount.lastError !== null) setNotice({ kind: "danger", text: `上次付款没有成功：${mount.lastError}请换一张卡，或检查后再付。` });
+      // 地址上的「失败」不单独算数：Stripe 查到确实还在等客人付款才提示
+      else if (returnFailed && mount.awaitingPaymentMethod) setNotice({ kind: "danger", text: RETURN_FAILED_TEXT });
     };
     load().catch((err: unknown) => {
       if (!alive) return;
@@ -175,7 +185,7 @@ function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: st
       mounted.current?.destroy();
       mounted.current = null;
     };
-  }, [driver, token, initial, round]);
+  }, [driver, token, initial, returnFailed, round]);
 
   // 付款提交后：马上刷新一次，之后定时刷新，直到平台收到通知、订单不再是待付款（这个区块随之消失，定时器跟着停）
   useEffect(() => {
@@ -216,6 +226,10 @@ function PaymentPanel({ token, order, initial, onRefresh, polling }: { token: st
       forgetPaymentReturn();
       if (outcome.kind === "succeeded" || outcome.kind === "processing") {
         settle(outcome.kind);
+        return;
+      }
+      if (outcome.kind === "canceled") {
+        endPayment();
         return;
       }
       setConfirming(false);
@@ -275,6 +289,7 @@ export function PaymentSection({
   order,
   configPayments,
   initial,
+  returnFailed = false,
   onRefresh,
   polling = PAYMENT_POLLING,
 }: {
@@ -282,6 +297,8 @@ export function PaymentSection({
   order: SiteOrder;
   configPayments: { publishable_key: string } | null | undefined;
   initial: SitePayment | null;
+  /** 刚从银行页面回来，地址上说付款失败（还要和 Stripe 查到的状态核对） */
+  returnFailed?: boolean;
   onRefresh(): void;
   polling?: PaymentPolling;
 }) {
@@ -295,7 +312,7 @@ export function PaymentSection({
           付款暂未开放：订单已为您保留到当地时间 {due}，到时没有付款会自动取消。付款开放后可以回到这个页面付款。
         </Alert>
       ) : (
-        <PaymentPanel token={token} order={order} initial={initial} onRefresh={onRefresh} polling={polling} />
+        <PaymentPanel token={token} order={order} initial={initial} returnFailed={returnFailed} onRefresh={onRefresh} polling={polling} />
       )}
     </Section>
   );

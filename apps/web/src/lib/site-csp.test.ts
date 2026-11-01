@@ -15,10 +15,10 @@ function directives(policy: string): Map<string, string> {
   return new Map(policy.split("; ").map((part) => [part.slice(0, part.indexOf(" ")), part.slice(part.indexOf(" ") + 1)]));
 }
 
-test("官网页面的路径前缀就是前端路由的 /book；前缀本身、下面的页面、带查询串（从银行验证页回来）都算，长得像的不算", () => {
+test("官网页面的路径前缀就是前端路由的 /book；三个页面、带查询串（从银行验证页回来）都算，长得像的、前端路由对不上官网的（落到后台）不算", () => {
   assert.equal(SITE_PAGE_PREFIX, SITE_HOME_PATH);
   for (const path of [SITE_HOME_PATH, SITE_CHECKOUT_PATH, SITE_ORDER_PATH, `${SITE_ORDER_PATH}?payment_intent=pi_1&redirect_status=succeeded`, "/book/", "/book?x=1", "/book/order#nzo_x"]) assert.equal(isSitePagePath(path), true, path);
-  for (const path of ["/", "/login", "/platform", "/platform/login", "/bookx", "/books/order", "/platform/book", "/assets/book.js", "/driver/abc", "/site/v1/config"]) assert.equal(isSitePagePath(path), false, path);
+  for (const path of ["/", "/login", "/platform", "/platform/login", "/bookx", "/books/order", "/platform/book", "/assets/book.js", "/driver/abc", "/site/v1/config", "/book/nonsense", "/book/order/x", "/book//", "/book/..%2Fplatform/login"]) assert.equal(isSitePagePath(path), false, path);
 });
 
 test("放行付款的那一条：只在 script-src、connect-src 上加 Stripe，另加 frame-src；其余指令和普通页面完全一样", () => {

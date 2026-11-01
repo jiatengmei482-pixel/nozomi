@@ -1,7 +1,7 @@
 /**
  * M3-08 测试角色补充：在真实的 Caddy 上（deploy/Caddyfile + 生成的片段，和正式环境同一个镜像 caddy:2）逐路径核对内容安全策略（ADR 0046）。
  * Caddy 的 path 匹配器不分大小写、会先解码再把路径规整（`..%2F` 算上一级），而前端路由不这样看路径，所以只看片段的文字核对不出这里的差异。
- * 本机或 CI 上没有 docker、没有 caddy:2 镜像时跳过（不主动拉镜像）；容器在测试结束时删掉，用完不留。
+ * 本机没有 docker、没有 caddy:2 镜像时跳过（不主动拉镜像）。CI 上绝不跳过：缺镜像就拉，没有 docker 或拉不下来直接失败。容器在测试结束时删掉，用完不留。
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,7 +13,9 @@ import { join } from "node:path";
 import { renderEdgeConfig } from "../../web/build/edge-config.ts";
 
 const IMAGE = "caddy:2";
-const available = spawnSync("docker", ["image", "inspect", IMAGE], { stdio: "ignore" }).status === 0;
+const hasImage = (): boolean => spawnSync("docker", ["image", "inspect", IMAGE], { stdio: "ignore" }).status === 0;
+if (process.env["CI"] !== undefined && !hasImage()) execFileSync("docker", ["pull", IMAGE], { stdio: "ignore" });
+const available = hasImage();
 const skip = available ? false : `本机没有 docker 或 ${IMAGE} 镜像`;
 const CADDYFILE = new URL("../../../deploy/Caddyfile", import.meta.url).pathname;
 const INDEX = "<!doctype html><html><head><title>x</title><script>1</script></head><body></body></html>";
@@ -95,7 +97,7 @@ test("每个响应恰好一条策略：不会两条叠加，也不会一条都�
 
 test("编码绕过：打开这些地址时前端渲染的是后台或登录页（运营后台 /platform/login、供应商 /login），策略不能放行 Stripe（ADR 0046：直接打开后台的任何地址都是不放行的那一条）", { skip }, async () => {
   const allowed: string[] = [];
-  for (const path of ["/platform/..%2Fbook", "/platform/..%2fbook/order", "/platform/orders/..%2F..%2Fbook", "/platform/login/..%2F..%2Fbook", "/login/..%2Fbook", "/platform%2F..%2Fbook", "/book%2Forder", "//book/order"]) {
+  for (const path of ["/platform/..%2Fbook", "/platform/..%2fbook/order", "/platform/orders/..%2F..%2Fbook", "/platform/login/..%2F..%2Fbook", "/login/..%2Fbook", "/platform%2F..%2Fbook", "/book%2Forder", "//book/order", "/book/nonsense", "/book/..%2Fplatform/login"]) {
     if (await allowsStripe(path)) allowed.push(path);
   }
   assert.deepEqual(allowed, []);

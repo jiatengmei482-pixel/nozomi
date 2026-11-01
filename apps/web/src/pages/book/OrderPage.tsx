@@ -102,9 +102,11 @@ export function OrderPage() {
   const token = siteTokenFromHash(location.hash);
   // `#` 后面有内容却不是令牌的格式（被截断、改坏）：和失效的链接一样提示，不说是哪种失效（页面规范第 6 节）
   const malformed = token === null && location.hash.replace(/^#/, "").trim() !== "";
-  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: boolean } | null;
+  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: boolean; paymentReturnFailed?: boolean } | null;
   const navigate = useNavigate();
-  const returnIntent = token === null ? (paymentReturnParams(location.search)?.intentId ?? null) : null;
+  const returnParams = token === null ? paymentReturnParams(location.search) : null;
+  const returnIntent = returnParams?.intentId ?? null;
+  const returnFailed = returnParams?.redirectStatus === "failed";
   const { state: config } = useSiteConfig();
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [round, setRound] = useState(0);
@@ -122,9 +124,9 @@ export function OrderPage() {
     if (returnIntent === null || handledReturn.current) return;
     handledReturn.current = true;
     const saved = takePaymentReturn(returnIntent);
-    if (saved !== null && siteTokenFromHash(saved) !== null) navigate(siteOrderUrl(saved), { replace: true });
+    if (saved !== null && siteTokenFromHash(saved) !== null) navigate(siteOrderUrl(saved), { replace: true, state: { paymentReturnFailed: returnFailed } });
     else navigate(SITE_ORDER_PATH, { replace: true, state: { paymentReturnLost: true } });
-  }, [returnIntent, navigate]);
+  }, [returnIntent, returnFailed, navigate]);
 
   useEffect(() => {
     if (token === null) return;
@@ -198,7 +200,7 @@ export function OrderPage() {
   const computed = primaryOrderSection(order, new Date());
   const primary = pinned !== null && computed === "trip" ? pinned : computed;
   const sections: Readonly<Record<OrderSectionKey, ReactNode>> = {
-    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} onRefresh={refresh} />,
+    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} returnFailed={arrival?.paymentReturnFailed === true} onRefresh={refresh} />,
     trip: <TripSection order={order} names={names} />,
     timeline: <TimelineSection order={order} timeline={timeline} />,
     driver: <DriverSection order={order} />,
