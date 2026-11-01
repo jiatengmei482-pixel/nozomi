@@ -6,7 +6,7 @@
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
 import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import type { Addon } from "../../api/master.ts";
+import type { AddonOption } from "../../api/master-options.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
@@ -28,7 +28,7 @@ const NIGHT_UNITS: readonly { value: NightChargeUnit; label: string; hint: strin
   { value: "per_order", label: "按次", hint: "用车时间在夜间时段里，就加收一次这个金额。接送机一般用这种。" },
   { value: "per_hour", label: "按小时", hint: "按用车时间和夜间时段重叠的小时数加收。包车一般用这种。" },
 ];
-const UNIT_SUFFIX: Readonly<Record<Addon["charge_unit"], string>> = { per_order: "", per_item: " / 个", per_person: " / 人", per_duration: " / 小时" };
+const UNIT_SUFFIX: Readonly<Record<AddonOption["charge_unit"], string>> = { per_order: "", per_item: " / 个", per_person: " / 人", per_duration: " / 小时" };
 
 function Warning({ children }: { children: ReactNode }) {
   return (
@@ -51,7 +51,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
   const onPlatform = frame.source.portal === "platform";
   const { token } = usePortalSession();
   const loaded = useLoad<ProductServiceRules>(`service-rules:${product.id}`, (authToken) => frame.source.serviceRules(authToken, product.id));
-  const catalog = useLoad<Addon[]>(`${frame.source.portal}-addons`, frame.source.addons);
+  const catalog = useLoad<AddonOption[]>(`${frame.source.portal}-addons`, frame.source.addons);
   const data = loaded.state.data;
   const category = product.category;
   const station = product.poi?.type === "station";

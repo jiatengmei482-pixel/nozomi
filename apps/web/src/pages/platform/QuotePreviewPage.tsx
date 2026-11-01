@@ -8,8 +8,8 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } 
 import { Link } from "react-router";
 import { type Channel, listAllChannels } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
-import { type Place, type VehicleGroup, listAllMaster } from "../../api/master.ts";
-import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, listQuotePlaces, previewPlatformQuote } from "../../api/quotes.ts";
+import { type PlaceOption, type VehicleGroupOption, listPlaceOptions, listVehicleGroupOptions } from "../../api/master-options.ts";
+import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, previewPlatformQuote } from "../../api/quotes.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
@@ -32,9 +32,9 @@ import { ROUTE_SOURCE_TEXT, routeFailureText } from "../../lib/route-display.ts"
 import { type QuoteField, type QuoteForm, emptyQuoteForm, fieldOfPath, pointsNeeded, readQuoteForm } from "../../lib/quote-form.ts";
 import { tidyDate, tidyTime } from "../../lib/time-input.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { useCityOptions } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
-import { useAllCities } from "../master/shared.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 /** 页面上从上到下的顺序：提交有错时焦点落在第一处。 */
@@ -257,10 +257,15 @@ function RouteUnavailable({ code, message }: { code: string | null; message: str
   );
 }
 
-function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string>; form: QuoteForm; cityName: string }) {
+/**
+ * `groupNames` 只有启用中的车型组（车型组选项接口）。「没报出价的」里不在其中的是停用了的（原因一栏写着 VEHICLE_GROUP_DISABLED 的说明）；
+ * 报出价的本该都在其中，不在（如取完选项后才启用的）就写「名称没有加载出来」。
+ * 车型组没取到时 `groupNames` 为 null。
+ */
+function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQuotePreview; groupNames: ReadonlyMap<string, string> | null; form: QuoteForm; cityName: string }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), [result]);
-  const groupName = (id: string | null): string => (id === null ? "整个商品" : (groupNames.get(id) ?? "车型组（名称没有加载出来）"));
+  const groupName = (id: string | null, refused = false): string => (id === null ? "整个商品" : (groupNames?.get(id) ?? (refused && groupNames !== null ? "已停用的车型组" : "车型组（名称没有加载出来）")));
   const refusedProducts = new Set(result.refused.map((entry) => entry.product_id)).size;
   const listLink = platformProductListPath({ ...(form.cityId ? { city: form.cityId } : {}), ...(form.category ? { category: form.category } : {}), status: "published" });
   return (
@@ -341,7 +346,7 @@ function QuoteResult({ result, groupNames, form, cityName }: { result: PlatformQ
                           <span className="product-code">{entry.product_code ?? "—"}</span>
                         </span>
                       </th>
-                      <td>{groupName(entry.vehicle_group_id)}</td>
+                      <td>{groupName(entry.vehicle_group_id, true)}</td>
                       <td className="table__cell--wrap">{entry.message}</td>
                     </tr>
                   ))}
@@ -363,10 +368,10 @@ export function QuotePreviewPage() {
   const canPreview = usePlatformCan("quote.preview");
   const canSeeChannels = usePlatformCan("channel.read");
   const channels = useLoad<{ items: Channel[]; truncated: boolean }>("quote-channels", canPreview && canSeeChannels ? listAllChannels : null);
-  const cities = useAllCities();
-  const groups = useLoad<VehicleGroup[]>("quote-vehicle-groups", canPreview ? (session) => listAllMaster("vehicle-groups", session, { status: "all", sort: "code" }) : null);
+  const cities = useCityOptions(canPreview);
+  const groups = useLoad<VehicleGroupOption[]>("quote-vehicle-groups", canPreview ? listVehicleGroupOptions : null);
   const [form, setForm] = useState<QuoteForm>(emptyQuoteForm);
-  const places = useLoad<Place[]>(`quote-places:${form.cityId ?? ""}`, canPreview && form.cityId !== null && form.category === "airport_transfer" ? (session) => listQuotePlaces(session, form.cityId as string) : null);
+  const places = useLoad<PlaceOption[]>(`quote-places:${form.cityId ?? ""}`, canPreview && form.cityId !== null && form.category === "airport_transfer" ? (session) => listPlaceOptions(session, form.cityId as string, ["airport", "station"]) : null);
   const [attempted, setAttempted] = useState(false);
   const [server, setServer] = useState<Partial<Record<QuoteField, string>>>({});
   const [notice, setNotice] = useState<string | null>(null);
@@ -381,13 +386,12 @@ export function QuotePreviewPage() {
     setServer({});
   };
 
-  const activeCities = useMemo(() => (cities.state.data ?? []).filter((city) => city.status === "active"), [cities.state.data]);
   const city = (cities.state.data ?? []).find((entry) => entry.id === form.cityId) ?? null;
   const cityName = city ? displayName(city.name).text : "";
-  const cityOptions = useMemo(() => activeCities.map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: `${entry.code} · ${entry.timezone}`, keywords: Object.values(entry.name).join(" ") })), [activeCities]);
+  const cityOptions = useMemo(() => (cities.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: `${entry.code} · ${entry.timezone}`, keywords: Object.values(entry.name).join(" ") })), [cities.state.data]);
   const placeOptions = useMemo(() => (places.state.data ?? []).map((entry) => ({ value: entry.id, label: displayName(entry.name).text, detail: entry.code, keywords: `${Object.values(entry.name).join(" ")} ${entry.code}` })), [places.state.data]);
   const station = (places.state.data ?? []).find((entry) => entry.id === form.placeId)?.type === "station";
-  const groupNames = useMemo(() => new Map((groups.state.data ?? []).map((group) => [group.id, displayName(group.name).text])), [groups.state.data]);
+  const groupNames = useMemo(() => (groups.state.data === null ? null : new Map(groups.state.data.map((group) => [group.id, displayName(group.name).text]))), [groups.state.data]);
   const needed = pointsNeeded(form);
 
   const submit = async (event: FormEvent): Promise<void> => {
@@ -475,9 +479,9 @@ export function QuotePreviewPage() {
               onChange={(value) => change({ cityId: value, placeId: null })}
               placeholder="输入城市名或编码"
               errors={errorOf("city")}
-              loading={cities.state.data === null && cities.state.status === "loading"}
-              loadFailed={cities.state.data === null && cities.state.status === "error"}
-              emptyText="没有启用中的城市"
+              loading={cities.loading}
+              loadFailed={cities.loadFailed}
+              emptyText={cities.emptyText}
             />
           </div>
           <div id="quote-category">

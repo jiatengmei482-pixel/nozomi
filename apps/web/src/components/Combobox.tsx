@@ -55,7 +55,7 @@ function matches(option: ComboboxOption, query: string, match: (haystack: string
   return match(`${option.label} ${option.detail ?? ""} ${option.keywords ?? ""}`, query);
 }
 
-export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText = "没有匹配的选项", noMatchText, loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref, match = contains }: ComboboxProps) {
+export function Combobox({ label, options, value, onChange, placeholder, errors = [], hint, emptyText, noMatchText, loading = false, loadFailed = false, required = false, readOnly = false, inline = false, clearLabel, onBlur, ref, match = contains }: ComboboxProps) {
   const id = useId();
   const listId = `${id}-list`;
   const errorId = `${id}-error`;
@@ -212,7 +212,8 @@ export function Combobox({ label, options, value, onChange, placeholder, errors 
         <ul id={listId} role="listbox" aria-label={label} className="combobox__panel" hidden={!open} onPointerDown={(event) => event.preventDefault()}>
           {loading && <li className="combobox__note">加载中…</li>}
           {loadFailed && <li className="combobox__note">加载失败</li>}
-          {!loading && !loadFailed && visible.length === 0 && <li className="combobox__note">{options.length === 0 ? emptyText : (noMatchText?.((query ?? "").trim()) ?? "没有匹配的选项")}</li>}
+          {!loading && !loadFailed && visible.length === 0 && <li className="combobox__note">{options.length === 0 ? (emptyText ?? "没有匹配的选项") : (noMatchText?.((query ?? "").trim()) ?? "没有匹配的选项")}</li>}
+          {!loading && !loadFailed && visible.length > 0 && options.length === 0 && emptyText !== undefined && <li className="combobox__note">{emptyText}</li>}
           {!loading &&
             visible.map((option, index) => {
               const heading = option.group !== undefined && option.group !== lastGroup ? option.group : null;

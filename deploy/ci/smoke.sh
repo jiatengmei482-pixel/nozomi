@@ -234,7 +234,7 @@ running_images() {
 expected_tile_origin=""
 
 check_frontend() {
-  local label="$1" index headers policy script_hash path body asset stylesheet
+  local label="$1" index headers policy site_policy script_hash path body asset stylesheet
   index="$(request --max-time 10 "$base_url/")"
   grep -qF '<div id="root"></div>' <<<"$index" || fail "$label：域名根路径应返回前端的 index.html"
   [[ "$(status_of "/")" == "200" ]] || fail "$label：域名根路径应返回 200"
@@ -263,6 +263,11 @@ check_frontend() {
     grep -qF "img-src 'self' $expected_tile_origin;" <<<"$policy" || fail "$label：img-src 应放行地图底图的来源 $expected_tile_origin，实际策略：$policy"
   fi
   if grep -Eq "unsafe-inline|unsafe-eval|https?:|\*" <<<"${policy//$expected_tile_origin/}"; then fail "$label：内容安全策略不应放行内联、eval 或底图之外的任何站外来源：$policy"; fi
+  # 官网页面（/book…）多放行 Stripe.js 必需的来源（ADR 0046）；上面查的根路径（后台、登录用的那一条）一个 Stripe 来源都没有。
+  site_policy="$(request --max-time 10 --head "$base_url/book/order" | tr -d '\r' | sed -n 's/^[Cc]ontent-[Ss]ecurity-[Pp]olicy: //p')"
+  for directive in "script-src 'self' 'sha256-$script_hash' https://js.stripe.com https://*.js.stripe.com;" "connect-src 'self' https://api.stripe.com;" "frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com;" "frame-ancestors 'none'"; do
+    grep -qF "$directive" <<<"$site_policy" || fail "$label：官网页面的内容安全策略缺少 $directive，实际策略：$site_policy"
+  done
 
   # 刷新任意前端地址：没有对应的文件，一律拿到 index.html。最后两个长得像接口前缀但不是，也归前端。
   for path in /login /platform/login /accept-invite /platform/reset-password /platform "/login?next=%2Faccount" /some/deep/page /healthz /platform/v1x /book /book/order; do

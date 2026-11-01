@@ -6,7 +6,7 @@ import type { CancellationPolicyRule } from "../api/order-money.ts";
 import { POLICY_CATEGORY_NAMES, cancelReasonName, levelName, tiersText } from "./order-money-display.ts";
 import { CHANNEL_RULES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
-import type { City } from "../api/master.ts";
+import type { SelectableCity } from "../api/city-options.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
@@ -330,14 +330,14 @@ export function categoriesText(categories: readonly ServiceCategory[]): string {
 const NAME_ORDER = new Intl.Collator("zh-Hans-CN-u-co-pinyin", { numeric: true });
 
 /**
- * 渠道表单、加价规则里选城市的选项（M1-17）：按国家分组，组里按显示名排（中文按拼音），右边写编码；
- * 用任意一种语言的名称、编码、国家都能筛。
+ * 渠道表单、加价规则、角色的数据范围里选城市的选项（M1-17）：按国家分组，组里按显示名排（中文按拼音），右边写编码；
+ * 用任意一种语言的名称、编码、国家都能筛。城市来自城市选项接口（M4-13），都是启用中的。
  */
-export function cityChoices(cities: readonly City[]): ComboboxOption[] {
+export function cityChoices(cities: readonly SelectableCity[]): ComboboxOption[] {
   return cities
     .map((city) => ({ city, name: displayName(city.name).text, country: countryLabel(city.country_code) }))
     .sort((a, b) => NAME_ORDER.compare(a.country, b.country) || NAME_ORDER.compare(a.name, b.name) || a.city.code.localeCompare(b.city.code))
-    .map(({ city, name, country }) => ({ value: city.id, label: city.status === "active" ? name : `${name}（已停用）`, detail: city.code, group: country, keywords: `${Object.values(city.name).join(" ")} ${country}` }));
+    .map(({ city, name, country }) => ({ value: city.id, label: name, detail: city.code, group: country, keywords: `${Object.values(city.name).join(" ")} ${country}` }));
 }
 
 /**

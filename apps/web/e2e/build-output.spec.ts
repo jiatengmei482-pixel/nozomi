@@ -21,7 +21,7 @@ const relative = (path: string): string => path.slice(DIST.length);
 const textFiles = files.filter((path) => /\.(js|css|html|json|txt|svg)$/.test(path)).map((path) => ({ name: relative(path), text: readFileSync(path, "utf8") }));
 
 /** 库自带的网址：XML 命名空间、React 的报错说明页、react-router 的说明页、解析相对路径用的占位站点、地图库 Leaflet 的官网（它的署名控件用，我们没用那个控件，ADR 0017）。都不会被请求。 */
-const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/];
+const KNOWN_URLS = [/^http:\/\/www\.w3\.org\//, /^https:\/\/react\.dev\/errors\//, /^https:\/\/reactrouter\.com\//, /^https:\/\/github\.com\/ungap\/url-search-params\.$/, /^http:\/\/localhost$/, /^https:\/\/www\.geonames\.org\/$/, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/, /^https:\/\/ourairports\.com\/data\/$/, /^https:\/\/leafletjs\.com$/, /^https:\/\/js\.stripe\.com\/v3\/$/];
 
 test("产物只有 index.html 和带哈希的 JS / CSS，没有 source map", () => {
   const names = files.map(relative).sort();
@@ -42,7 +42,7 @@ test("产物里没有环境变量、密钥、数据库地址、本机路径、�
   }
 });
 
-test("产物不引用任何站外资源：index.html 只引用本站的 /assets/，JS 和 CSS 里没有站外网址", () => {
+test("产物不引用任何站外资源：index.html 只引用本站的 /assets/，JS 和 CSS 里没有站外网址（Stripe.js 的地址是唯一的站外脚本，只在官网要付款时加载，ADR 0046）", () => {
   const html = readFileSync(join(DIST, "index.html"), "utf8");
   const references = [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)].map((match) => match[1] ?? "");
   expect(references.length).toBe(2);

@@ -6,7 +6,7 @@
 import { SERVICE_CATEGORIES, type ServiceCategory } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { type Channel, type ChannelCreate, type ChannelStatus, type ChannelType, type TenantScope, createChannel, getChannel, listAllChannels, updateChannel } from "../../api/channels.ts";
+import { type Channel, type ChannelCreate, type ChannelStatus, type ChannelType, type NamedRef, type TenantScope, createChannel, getChannel, listAllChannels, updateChannel } from "../../api/channels.ts";
 import { ApiError } from "../../api/client.ts";
 import { listAllTenants } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
@@ -30,9 +30,9 @@ import { SERVICE_CATEGORY_NAMES } from "../../lib/master-display.ts";
 import { CURRENCY_OPTIONS, amountText, readAmount } from "../../lib/product-display.ts";
 import { serverIssues } from "../../lib/product-failure.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { unlistedCityLabel, useCityOptions, useScopeCityIds } from "../../lib/use-city-options.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, usePlatformScopeDenies } from "../../lib/use-master-access.ts";
-import { useAllCities } from "../master/shared.tsx";
 import { ChannelDetailSections } from "./ChannelSections.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
@@ -244,11 +244,16 @@ function readForm(form: ChannelFormValue, withPricing: boolean): { errors: FormE
   };
 }
 
-function ChannelForm({ initial, withPricing, submitLabel, onSubmit, cancelTo }: { initial: ChannelFormValue; withPricing: boolean; submitLabel: string; onSubmit(body: ChannelCreate): Promise<string | null>; cancelTo: string }) {
+/**
+ * `savedCities`：渠道原来授权的城市（编辑时）。其中已停用、或不在自己数据范围里的不会出现在可选城市里，用这里的名字标出来；
+ * 留着不动保存时照原样提交，去掉了就选不回来。
+ */
+function ChannelForm({ initial, savedCities = [], withPricing, submitLabel, onSubmit, cancelTo }: { initial: ChannelFormValue; savedCities?: readonly NamedRef[]; withPricing: boolean; submitLabel: string; onSubmit(body: ChannelCreate): Promise<string | null>; cancelTo: string }) {
   const navigate = useNavigate();
   const canSeeTenants = usePlatformCan("tenant.read");
   const tenants = useLoad<{ items: Tenant[]; truncated: boolean }>("channel-form-tenants", canSeeTenants ? listAllTenants : null);
-  const cities = useAllCities();
+  const cities = useCityOptions();
+  const scopeCities = useScopeCityIds();
   const [form, setForm] = useState<ChannelFormValue>(initial);
   const [attempted, setAttempted] = useState(false);
   const [server, setServer] = useState<FormErrors>({});
@@ -262,7 +267,8 @@ function ChannelForm({ initial, withPricing, submitLabel, onSubmit, cancelTo }: 
     setServer({});
   };
   const tenantOptions = useMemo(() => (tenants.state.data?.items ?? []).map((tenant) => ({ value: tenant.id, label: tenant.status === "suspended" ? `${tenant.name}（已暂停）` : tenant.name })), [tenants.state.data]);
-  const cityOptions = useMemo(() => cityChoices((cities.state.data ?? []).filter((city) => city.status === "active" || form.cityIds.includes(city.id))), [cities.state.data, form.cityIds]);
+  const cityOptions = useMemo(() => cityChoices(cities.state.data ?? []), [cities.state.data]);
+  const unlistedCity = (id: string): string => unlistedCityLabel(id, savedCities.find((city) => city.id === id)?.name ?? null, scopeCities);
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -335,10 +341,11 @@ function ChannelForm({ initial, withPricing, submitLabel, onSubmit, cancelTo }: 
             options={cityOptions}
             value={form.cityIds}
             placeholder="输入城市名称或编码查找"
-            emptyText="平台还没有启用中的城市"
-            allChosenText="启用中的城市都已经选上了"
-            loading={cities.state.data === null && cities.state.status === "loading"}
-            loadFailed={cities.state.data === null && cities.state.status === "error"}
+            emptyText={cities.emptyText}
+            allChosenText="可选的城市都已经选上了"
+            loading={cities.loading}
+            loadFailed={cities.loadFailed}
+            unknownLabel={unlistedCity}
             errors={errorOf("cityIds")}
             hint="按国家分组、按名称排。可以连着选几个；选错了点标签上的 × 去掉。"
             onChange={(value) => change({ cityIds: value })}
@@ -439,6 +446,7 @@ export function ChannelEditPage() {
       <Alert kind="info">定价参数和状态不在这里改：在详情页「申请修改定价参数」「申请暂停」，另一位同事批准后生效。</Alert>
       <ChannelForm
         initial={formOf(channel)}
+        savedCities={channel.scope.cities ?? []}
         withPricing={false}
         submitLabel="保存"
         cancelTo={channelPath(channel.id)}

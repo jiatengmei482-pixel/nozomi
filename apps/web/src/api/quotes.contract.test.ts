@@ -109,11 +109,11 @@ test("报不出价的原因：接口列的和 @nozomi/domain 的一致（另有�
   assert.deepEqual(sorted(reasons as string[]), sorted([...QUOTE_REFUSALS, "FX_RATE_UNAVAILABLE", "SELL_PRICE_OVER_LIMIT"]));
 });
 
-test("接送点的选项：地点列表可以一次按机场和车站筛", () => {
-  const filter = spec.components.parameters["PlaceTypeFilter"];
-  assert.ok(filter?.schema?.pattern && new RegExp(filter.schema.pattern).test("airport,station"));
-  const places = spec.paths["/platform/v1/master/places"]?.["get"];
-  assert.ok((places?.parameters ?? []).some((parameter) => parameter.$ref === "#/components/parameters/PlaceTypeFilter"));
+test("接送点的选项：地点选项接口（M4-13）可以一次按机场和车站取，按城市取", () => {
+  const places = spec.paths["/platform/v1/place-options"]?.["get"];
+  const names = (places?.parameters ?? []).map((parameter) => parameter.name);
+  assert.deepEqual([...names].sort(), ["city_id", "type"]);
+  assert.match(JSON.stringify(places?.parameters), /airport,station/);
 });
 
 test("权限：quote.preview 只给超级管理员、运营、招商、渠道经理、客服（ADR 0020 待定事项 10）", () => {
