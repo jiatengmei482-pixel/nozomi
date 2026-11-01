@@ -379,3 +379,11 @@ test("关闭密码登录（ADR 0050）：默认不关闭；不填、空白、fal
   assert.equal(loadConfig({ ...base, PASSWORD_LOGIN_DISABLED: "true" }).passwordLoginDisabled, true);
   assert.throws(() => loadConfig({ ...base, PASSWORD_LOGIN_DISABLED: "yes" }), ConfigError);
 });
+
+test("乘客信息脱敏（ADR 0055）：默认开、180 天；可以调长，不能低于 180，不能关成别的值", () => {
+  assert.deepEqual(loadConfig(base).passengerRetention, { enabled: true, days: 180 });
+  assert.deepEqual(loadConfig({ ...base, PASSENGER_RETENTION_ENABLED: "", PASSENGER_RETENTION_DAYS: "" }).passengerRetention, { enabled: true, days: 180 });
+  assert.deepEqual(loadConfig({ ...base, PASSENGER_RETENTION_ENABLED: "false", PASSENGER_RETENTION_DAYS: "365" }).passengerRetention, { enabled: false, days: 365 });
+  for (const value of ["179", "0", "-1", "abc", "180.5"]) assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_DAYS: value }).some((i) => i.startsWith("PASSENGER_RETENTION_DAYS")), value);
+  assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_ENABLED: "maybe" }).some((i) => i.startsWith("PASSENGER_RETENTION_ENABLED")));
+});

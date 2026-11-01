@@ -22,7 +22,7 @@
 | 订单详情、列表 | `notes`、`messaging.handle`、`cancellation.note`；状态流水的 `reason`、`proxy.reason`；救援的 `reason`、`force_majeure.note`；加收的 `description`、`dispute_reason`、`decision_note`；改单的 `decision_note`、改前改后里的 `notes`、`messaging` |
 | 工单列表、详情（含订单详情里的工单） | `subject`、`description`、`decision_note`、`close_note`、对话的 `body`、内部备注的 `body` |
 | 待审核列表、详情 | 只有和订单有关的（对象是 `order`、`ticket`、`rescue`）：`request_note`、`decision_note`，`payload`、`before` 里的手写键。`summary` 是系统按固定格式生成的，不含乘客信息，不动。其余类别（渠道、供应商、价格）的备注没有乘客信息，不动，审批人要看全文 |
-| 异常队列 | `close_note`，`detail` 里的文字（重试错误里可能带收件地址） |
+| 异常队列 | `resolution`，`detail` 里的文字（重试错误里可能带收件地址） |
 | 审计日志 | 和订单有关的对象：`before`、`after` 里的 `passenger`、`messaging` 和手写键 |
 
 手写键的清单是白名单（`privacy.ts` 的 `HANDWRITTEN_KEYS`），只看字符串值：编号、金额、状态、员工账号的 `email` 和 `name` 不打码。`flight_no`、地址不打码：运营派车、核对行程要用，需求也没有列。
@@ -91,7 +91,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 | `orders.passenger`（所有行） | 姓名、电话、邮箱都换成占位；`passenger_anonymized_at` 记时间 |
 | `order_changes.before / after`、`webhook_deliveries.event_data` | 里面的 `passenger` 换成占位 |
 | `notifications.recipient`（发给客人的）、`last_error_message` | 地址换成占位，错误信息里的联系方式清掉（邮件服务器的拒收信息会带地址） |
-| 手写内容：`orders.notes`、`orders.cancel_note`、`order_contacts.note`、工单四个文字列、工单对话、内部备注、改单的 `notes` 和 `decision_note`、加收的三个文字列、异常的 `close_note` | 用打码同样的规则找出姓名（含改单前的旧姓名）、电话、邮箱，换成占位，其余文字不动 |
+| 手写内容：`orders.notes`、`orders.cancel_note`、`order_contacts.note`、工单四个文字列、工单对话、内部备注、改单的 `notes` 和 `decision_note`、加收的三个文字列、救援的 `reason` 和 `force_majeure_note`、异常的 `resolution` | 用打码同样的规则找出姓名（含改单前的旧姓名）、电话、邮箱，换成占位，其余文字不动 |
 
 保留：金额、币种、汇率、订单号、所有时间、状态、流水、账单明细（明细本来就没有乘客信息）。
 
@@ -110,7 +110,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 
 官网找回用订单号 + 邮箱或手机。脱敏后的单永远对不上（代码里明确判断，不靠占位碰巧不匹配），走和「对不上」同一条路：同样的 404、同样计失败次数。这样应答分不出订单号存不存在（ADR 0032 的要求不变）。
 
-可理解的提示放在 404 的文案和页面上，所有查不到的情况都显示：「如果这张订单已结束超过 180 天，联系方式已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服」。代价是核对错的人也会看到这句话；比起泄露「这个订单号存在且已脱敏」，这个代价可以接受。
+可理解的提示放在 404 的文案和页面上，所有查不到的情况都显示：「如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服」。代价是核对错的人也会看到这句话；比起泄露「这个订单号存在且已脱敏」，这个代价可以接受。
 
 查看链接最多有效到用车后 30 天（ADR 0032），脱敏时早已失效，不用另外处理。
 
@@ -127,11 +127,11 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 - `orders.passenger`（jsonb）里姓名、电话、邮箱是明文；`order_changes.before / after`、`webhook_deliveries.event_data`、`notifications.recipient` 有副本。手写内容里可能夹带。
 - 能读到的：数据库账号、备份、能进 VPS 的人。应用层的打码挡不住这些。
 - 按原文用到它们的地方：官网找回订单（按订单号取出后在代码里比较，不是按邮箱检索）、运营 `passenger=` 筛选（SQL 里对明文做子串匹配）、发通知、司机页、供应商和渠道接口、Stripe 客户。
-- 已有的加密件：`integrations/secret-box.ts`（ADR 0048，集成密钥用）。
+- 已有的加密件：`integrations/secret-box.ts`（ADR 0027，给 Webhook 密钥、两步验证、集成密钥用，主密钥 `DATA_ENCRYPTION_KEY`）。
 
 ### 方案
 
-信封加密。三个字段各自 AES-256-GCM，一把数据密钥（`PASSENGER_DATA_KEY`，只从 `packages/config` 读，不能复用 `SECRET_BOX` 或登录签名的密钥），密文带密钥版本，方便轮换。数据库不做 `pgcrypto`：解密放在数据库里等于把密钥传给数据库，日志里可能留痕。
+信封加密。三个字段各自 AES-256-GCM，一把数据密钥（`PASSENGER_DATA_KEY`，只从 `packages/config` 读，不能复用 `DATA_ENCRYPTION_KEY` 或登录签名的密钥），密文带密钥版本，方便轮换。数据库不做 `pgcrypto`：解密放在数据库里等于把密钥传给数据库，日志里可能留痕。
 
 `passenger` 这一列改成 `{ v, name, phone, email }` 的密文形式；查询用的另存两列带密钥的盲索引：
 
@@ -169,7 +169,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 ## 需要负责人知道（本任务没有处理）
 
 1. **脱敏范围的法务确认**：下面这些没有脱敏，因为需求没有定义，而且脱敏是不可逆的：即时通讯账号（`messaging.handle`）、上下车地址（含门牌）、航班号、司机上传的证据照片、司机定位轨迹。其中即时通讯账号和详细地址是最可能需要加进去的；加的时候已经脱敏过的单需要补一轮。
-2. **手写内容是尽力而为**：只认得出电话、邮箱、已知的姓名，别的写法（LINE 编号、别人的姓名）认不出。
+2. **手写内容是尽力而为**：只认得出电话、邮箱、已知的姓名，别的写法（LINE 编号、别人的姓名）认不出。这些手写内容不清除，接口里仍然打码：状态流水的代传原因（`order_events.detail`，只追加）、复核的备注和 `payload`（复核记录要留作依据）、客人评价。旧审计记录见决定一。
 3. **本系统之外的副本**：Stripe 的客户资料（下单时传过去的姓名、邮箱）、已经发出的邮件、供应商和渠道收到的 Webhook、数据库备份、已有日志，都不在这次脱敏的范围内。Stripe 客户是否要跟着删除，上线前要定。
 4. **`order_sales.request_hash`** 是下单请求（含联系方式）的哈希，只用于幂等比较，不可读；本任务保留，否则重复请求的判断会变。
 5. 法务对跨境传输的评估（需求写明待确认）不在本任务范围。

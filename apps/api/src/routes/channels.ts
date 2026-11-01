@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { APPROVAL_STATUSES, CHANNEL_RULES, type ChannelPricing, CHANNEL_STATUSES, CHANNEL_TYPES, CURRENCIES, type CurrencyCode, PAYMENT_MODES, type PlatformAction, SERVICE_CATEGORIES, TENANT_SCOPES } from "@nozomi/domain";
+import { isOrderApproval, maskOrderValues, APPROVAL_STATUSES, CHANNEL_RULES, type ChannelPricing, CHANNEL_STATUSES, CHANNEL_TYPES, CURRENCIES, type CurrencyCode, PAYMENT_MODES, type PlatformAction, SERVICE_CATEGORIES, TENANT_SCOPES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
@@ -20,6 +20,7 @@ import { type ApiClient, createApiClient, listApiClients, revokeApiClient, rotat
 import { type RuleInput, activateChannel, createChannel, getChannelDetail, listChannelsFor, requestChannelPause, requestPricingChange, requestRuleCreate, requestRuleDelete, requestRuleUpdate, updateChannel } from "../services/channels.ts";
 import { dataScopeDenied, notFound } from "../services/errors.ts";
 import { type PricingProposal, channelPricingImpact, recomputeApprovalImpact } from "../services/pricing-impact.ts";
+import { approvalPassengerNames } from "../services/passenger-privacy.ts";
 import { assertChannelInScope } from "../services/platform-roles.ts";
 import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import type { Db } from "../db/context.ts";
@@ -229,6 +230,12 @@ export function ruleJson(rule: StoredMarkupRule, names: Names): Json {
 }
 
 const person = (value: { id: string; name: string; email: string } | null): Json | null => (value === null ? null : { id: value.id, name: value.name, email: value.email });
+
+/** 待审核列表、详情：和订单有关的复核打码手写内容，其他类别（渠道、供应商、价格）的备注没有乘客信息，审批人要看全文（ADR 0055）。 */
+function maskedApprovalJson(approval: Approval, principal: PlatformPrincipal, names: ReadonlyMap<string, string>): Json {
+  const json = approvalJson(approval, principal);
+  return isOrderApproval(approval) ? maskOrderValues(json, names.get(approval.id) ?? null) : json;
+}
 
 export function approvalJson(approval: Approval, principal: PlatformPrincipal): Json {
   return {
@@ -511,13 +518,14 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
     const principal = await platform(request, "approval.read");
     const query = parseInput(approvalQuery, request.query, "querystring");
     const page = await listApprovalsFor(ctx, APPROVAL_KINDS, principal, { status: query.status === "all" ? null : query.status, resource: null, resourceId: query.resource_id ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
-    return { items: page.items.map((approval) => approvalJson(approval, principal)), next_cursor: page.nextCursor, total: page.total };
+    const names = await approvalPassengerNames(ctx, page.items);
+    return { items: page.items.map((approval) => maskedApprovalJson(approval, principal, names)), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/approvals/:id", async (request) => {
     const principal = await platform(request, "approval.read");
     const approval = await getApproval(ctx, APPROVAL_KINDS, principal, resourceId(request.params, "复核记录"));
-    return { approval: approvalJson(approval, principal) };
+    return { approval: maskedApprovalJson(approval, principal, await approvalPassengerNames(ctx, [approval])) };
   });
 
   // 审核人「按现在的数据再算一次」（ADR 0033）：只读，不改复核记录里发起时存的那一份
@@ -532,7 +540,7 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: AppContext): vo
       const id = resourceId(request.params, "复核记录");
       const input = parseInput(decisionSchema, request.body ?? {}, "body");
       const approval = await decideApproval(ctx, APPROVAL_KINDS, principal, id, decision, input.note, request.ip);
-      return { approval: approvalJson(approval, principal) };
+      return { approval: maskedApprovalJson(approval, principal, await approvalPassengerNames(ctx, [approval])) };
     });
   }
 }

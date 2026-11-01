@@ -25,6 +25,7 @@ import {
 } from "../../api/order-center.ts";
 import { type PlatformOrderDetail, getPlatformOrder } from "../../api/order-money.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
+import { TicketTextReveal } from "./PassengerReveal.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Button } from "../../components/Button.tsx";
@@ -501,6 +502,7 @@ export function TicketDetailPage() {
               </span>
             </div>
             <p className="prewrap">{ticket.description}</p>
+            {canReadOrder && <TicketTextReveal orderId={ticket.order.id} ticketId={ticket.id} />}
             <dl className="details">
               <Detail label="类型">{ticketTypeName(ticket.type)}</Detail>
               <Detail label="谁提出的">{TICKET_SOURCE_NAMES[ticket.source]}</Detail>

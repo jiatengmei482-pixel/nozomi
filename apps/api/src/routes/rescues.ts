@@ -16,7 +16,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { RESCUE_RULES, RESCUE_TRIGGERS, type SettlementBreakdown, scopeIsRestricted } from "@nozomi/domain";
+import { maskOrderValues, RESCUE_RULES, RESCUE_TRIGGERS, type SettlementBreakdown, scopeIsRestricted } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -169,7 +169,12 @@ function platformDeductionJson(deduction: Deduction): Json {
   };
 }
 
+/** 手写的原因、免责说明打码（ADR 0055），看原文走订单的 reveal。 */
 export function platformRescueJson(view: PlatformRescueView): Json {
+  return maskOrderValues(rescueViewJson(view), view.order.passenger.name);
+}
+
+function rescueViewJson(view: PlatformRescueView): Json {
   const { rescue, order } = view;
   return {
     id: rescue.id,

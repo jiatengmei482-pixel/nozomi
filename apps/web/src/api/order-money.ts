@@ -152,6 +152,10 @@ export interface PlatformCancellation {
 export interface PlatformOrder {
   id: string;
   order_no: string;
+  /** 备注里有联系方式被打了码：不能把打码后的内容存回去（ADR 0055） */
+  notes_masked?: boolean;
+  /** 乘客信息什么时候脱敏的（ADR 0055）；没有脱敏为空 */
+  passenger_anonymized_at?: string | null;
   status: OrderStatus;
   /** 派车、履约时间点、落地（M4-19 起页面显示）；不是接机的单 `landing` 为 null */
   dispatch: OrderDispatch;
@@ -328,8 +332,44 @@ export function changePlatformOrder(token: string, id: string, version: number, 
   return apiRequest("PATCH", platformOrder(id), { token, body, headers: { "if-match": `"${version}"` } });
 }
 
-/** 看乘客的完整联系方式：每次记一条审计（M4-19）。 */
-export function revealPlatformPassenger(token: string, id: string): Promise<{ passenger: { name: string; phone: string; email: string } }> {
+/** 手写内容的原文（M4-21，ADR 0055）：只有确实被打了码的。 */
+export interface RevealedText {
+  source:
+    | "order_cancel_note"
+    | "contact_note"
+    | "event_proxy_reason"
+    | "change_before"
+    | "change_after"
+    | "change_decision_note"
+    | "extra_charge_description"
+    | "extra_charge_dispute_reason"
+    | "extra_charge_decision_note"
+    | "rescue_reason"
+    | "rescue_force_majeure_note"
+    | "exception_resolution"
+    | "ticket_subject"
+    | "ticket_description"
+    | "ticket_decision_note"
+    | "ticket_close_note"
+    | "ticket_message"
+    | "ticket_note"
+    | "approval_request_note"
+    | "approval_decision_note"
+    | "approval_payload";
+  source_id: string | null;
+  text: string;
+}
+
+export interface PassengerReveal {
+  passenger: { name: string; phone: string; email: string };
+  messaging: { app: string; handle: string } | null;
+  notes: string | null;
+  anonymized_at: string | null;
+  texts: RevealedText[];
+}
+
+/** 看乘客的完整联系方式和手写内容原文：每次记一条审计（M4-19、M4-21）。 */
+export function revealPlatformPassenger(token: string, id: string): Promise<PassengerReveal> {
   return apiRequest("POST", `${platformOrder(id)}/passenger/reveal`, { token });
 }
 

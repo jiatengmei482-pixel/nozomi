@@ -206,14 +206,14 @@ export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date
 }
 
 /** 用订单号找这个渠道的一张单，带下单时的联系方式（核对用）和用车时间（链接的有效期按它算）。 */
-export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; email: string; phone: string; serviceAt: Date } | null> {
+export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; email: string; phone: string; serviceAt: Date; anonymized: boolean } | null> {
   const row = (
-    await db.query<{ id: string; passenger: { email: string; phone: string }; service_at: Date }>(
-      "select o.id, o.passenger, o.service_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2",
+    await db.query<{ id: string; passenger: { email: string; phone: string }; service_at: Date; passenger_anonymized_at: Date | null }>(
+      "select o.id, o.passenger, o.service_at, o.passenger_anonymized_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2",
       [orderNo, channelId],
     )
   ).rows[0];
-  return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at };
+  return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
 }
 
 /** 这个订单号（哈希）在 `since` 之后各次找回失败的时间。 */

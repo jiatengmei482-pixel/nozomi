@@ -123,6 +123,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   test: "发送测试",
   cancel: "取消",
   view_passenger: "查看乘客联系方式",
+  anonymize_passenger: "乘客信息自动脱敏",
   view_evidence_file: "查看证据照片",
   change: "改单",
   decide: "审核",

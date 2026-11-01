@@ -3,6 +3,7 @@
  * 幂等键重试不变、报价过期）→ 订单页（令牌只在请求头、付款暂未开放 / Stripe.js 的假实现、我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。
  * 接口用测试替身；真实后端由集成测试 site.itest.ts 和端到端测试 e2e/site-booking.spec.ts 覆盖。
  */
+import { LOOKUP_NOT_FOUND_TEXT } from "./OrderPage.tsx";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -417,7 +418,8 @@ test("查订单：没有令牌时填订单号和邮箱找回，换成新链接�
   await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "guest@example.com");
   found = false;
   await actor.click(screen.getByRole("button", { name: "查找订单" }));
-  assert.ok(await screen.findByText("没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。"));
+  assert.ok(await screen.findByText(LOOKUP_NOT_FOUND_TEXT));
+  assert.match(LOOKUP_NOT_FOUND_TEXT, /超过 180 天.*隐私规则清除.*联系客服/);
   found = true;
   await actor.click(screen.getByRole("button", { name: "查找订单" }));
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026ABCD2345" });

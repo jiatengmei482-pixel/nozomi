@@ -240,6 +240,10 @@ const rawSchema = z.object({
   // 报价：渠道和加价规则（M2-04）上线之前，试算用的默认加价比例，基点（1000 = 10%，也是需求里渠道加价的默认下限）。不是密钥
   QUOTE_DEFAULT_MARKUP_BP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(1_000)),
 
+  // 乘客信息自动脱敏（ADR 0055）：开关默认开；保存期限默认 180 天，不能低于 180（需求「订单完成 180 天后自动脱敏」），配小了启动报错，不悄悄改值。不是密钥
+  PASSENGER_RETENTION_ENABLED: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
+  PASSENGER_RETENTION_DAYS: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(180, "PASSENGER_RETENTION_DAYS 不能低于 180").max(36_500).default(180)),
+
   // 官网用哪个渠道（ADR 0032）：运营后台给官网渠道发的那个 API 客户端的 client_id（nzc_ 开头，公开值，不是密钥）。
   // 不配 = 官网显示「暂未开放」
   SITE_CLIENT_ID: z.preprocess(
@@ -304,6 +308,8 @@ export interface AppConfig {
   fx: { sourceUrl: string; bufferBp: number; autoFetch: boolean };
   /** 报价的默认参数（渠道和加价规则上线之前用） */
   quote: { defaultMarkupBp: number };
+  /** 乘客信息自动脱敏（ADR 0055） */
+  passengerRetention: { enabled: boolean; days: number };
   /** 官网（ADR 0032）：以哪个 API 客户端的身份调用询价、下单；没有配置时为 null（官网暂未开放） */
   site: { clientId: string } | null;
   /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
@@ -490,6 +496,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
+    passengerRetention: { enabled: env.PASSENGER_RETENTION_ENABLED === "true", days: env.PASSENGER_RETENTION_DAYS },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
     loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
     passwordLoginDisabled: env.PASSWORD_LOGIN_DISABLED === "true",

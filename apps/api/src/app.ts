@@ -46,6 +46,7 @@ import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
+import { PassengerRetentionJobs } from "./services/passenger-retention.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
@@ -113,6 +114,8 @@ declare module "fastify" {
     orderJobs: OrderJobs;
     /** 供应商的每日检查：资质到期、评分、自动观察 / 暂停 / 转正式（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     tenantJobs: TenantJobs;
+    /** 乘客信息的自动脱敏（ADR 0055；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    passengerRetention: PassengerRetentionJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -297,6 +300,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("webhookJobs", webhookJobs);
   const tenantJobs = new TenantJobs(context, app.log);
   app.decorate("tenantJobs", tenantJobs);
+  const passengerRetention = new PassengerRetentionJobs(context, app.log);
+  app.decorate("passengerRetention", passengerRetention);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
@@ -311,12 +316,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     tenantJobs.start();
     billingJobs.start();
     notificationJobs.start();
+    passengerRetention.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
     app.addHook("onClose", () => tenantJobs.stop());
     app.addHook("onClose", () => billingJobs.stop());
     app.addHook("onClose", () => notificationJobs.stop());
+    app.addHook("onClose", () => passengerRetention.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);

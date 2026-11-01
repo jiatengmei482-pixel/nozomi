@@ -4,7 +4,7 @@
  * 前后值（before / after）由调用方用白名单字段显式组装，这里不接受整行数据，
  * 所以密码哈希、令牌这类字段进不来。
  */
-import type { AuditAction, AuditResource } from "@nozomi/domain";
+import { type AuditAction, type AuditResource, isOrderAudit, maskOrderValues } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type SequenceCursor, toPage } from "../pagination.ts";
 
@@ -45,7 +45,29 @@ export interface AuditLog extends AuditOrigin, AuditEvent {
   id: string;
 }
 
-export async function insertAuditLog(db: Db, origin: AuditOrigin, event: AuditEvent): Promise<void> {
+/** 这条审计是哪一单的：对象就是订单，或者前后值里写了 `order_id`；工单、复核写的是对象自己的编号。 */
+export function auditOrderId(event: Pick<AuditEvent, "resource" | "resourceId" | "before" | "after">): string | null {
+  if (event.resource === "order") return event.resourceId;
+  for (const values of [event.after, event.before]) {
+    const id = values?.["order_id"];
+    if (typeof id === "string") return id;
+  }
+  return null;
+}
+
+/**
+ * 和订单有关的审计从写入时就打码（ADR 0055）：审计要留 3 年、不能改，乘客信息只能留到脱敏，原文不能进这张表。
+ * 调用方不用记：所有写审计的地方都经过这里。姓名按这单现在的乘客找（手写内容里的姓名要靠它认）。
+ */
+async function maskedAuditValues(db: Db, event: AuditEvent): Promise<Pick<AuditEvent, "before" | "after">> {
+  if (!isOrderAudit(event)) return { before: event.before, after: event.after };
+  const orderId = auditOrderId(event);
+  const name = orderId === null ? null : ((await db.query<{ name: string }>("select passenger ->> 'name' as name from orders where id = $1 limit 1", [orderId])).rows[0]?.name ?? null);
+  return { before: maskOrderValues(event.before, name), after: maskOrderValues(event.after, name) };
+}
+
+export async function insertAuditLog(db: Db, origin: AuditOrigin, unmasked: AuditEvent): Promise<void> {
+  const event = { ...unmasked, ...(await maskedAuditValues(db, unmasked)) };
   await db.query(
     `insert into audit_logs
        (occurred_at, tenant_id, actor_type, actor_id, actor_email, ip, source, resource, resource_id, action, before, after)
