@@ -1,4 +1,4 @@
-/** 运营后台「供应商」「资质审核」「商品」「报价试算」「渠道」「待审核」「订单」「异常队列」「工单」「救援」「取消政策」「赔付表」「财务结算」「推送记录」「系统设置」（含角色）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
+/** 运营后台「供应商」「资质审核」「商品」「报价试算」「渠道」「待审核」「订单」「异常队列」「工单」「救援」「取消政策」「赔付表」「财务结算」「推送记录」「通知中心」「系统设置」（含角色）和「账号安全」的路由（地址见 lib/platform-paths.ts、lib/channel-display.ts）。 */
 import { Route } from "react-router";
 import { ACCOUNT_SECURITY_PATH, AUDIT_LOG_PATH, DOCUMENT_QUEUE_PAGE_PATH, INTEGRATIONS_PAGE_PATH, PLATFORM_PRODUCT_LIST_PATH, QUOTE_PREVIEW_PAGE_PATH, ROLE_LIST_PATH, ROLE_NEW_PATH, STAFF_LIST_PATH, STAFF_NEW_PATH, TENANT_LIST_PATH, TENANT_NEW_PATH } from "../../lib/platform-paths.ts";
 import { AccountSecurityPage, RoleEditorPage, RoleListPage, StaffDetailPage } from "./SecurityPages.tsx";
@@ -13,6 +13,8 @@ import { StaffListPage, StaffNewPage } from "./StaffPages.tsx";
 import { TenantDetailPage, TenantListPage, TenantNewPage } from "./TenantPages.tsx";
 import { PLATFORM_DELIVERIES_PAGE } from "../../lib/dispatch-display.ts";
 import { PlatformDeliveriesPage } from "../webhooks/WebhookPages.tsx";
+import { PLATFORM_NOTIFICATIONS_PATH, PLATFORM_NOTIFICATION_TEMPLATES_PATH } from "../../lib/notification-display.ts";
+import { NotificationTemplatesPage, PlatformNotificationsPage } from "../notifications/NotificationPages.tsx";
 import { PLATFORM_ORDER_LIST_PATH, POLICY_PAGE_PATH } from "../../lib/order-money-display.ts";
 import { PlatformOrderDetailPage, PlatformOrderListPage } from "./PlatformOrderPages.tsx";
 import { CancellationPolicyPage } from "./CancellationPolicyPage.tsx";
@@ -51,6 +53,8 @@ export function platformRoutes() {
       <Route path={AUDIT_LOG_PATH} element={<AuditLogPage />} />
       <Route path={INTEGRATIONS_PAGE_PATH} element={<IntegrationsPage />} />
       <Route path={PLATFORM_DELIVERIES_PAGE} element={<PlatformDeliveriesPage />} />
+      <Route path={PLATFORM_NOTIFICATIONS_PATH} element={<PlatformNotificationsPage />} />
+      <Route path={PLATFORM_NOTIFICATION_TEMPLATES_PATH} element={<NotificationTemplatesPage />} />
       <Route path={PLATFORM_ORDER_LIST_PATH} element={<PlatformOrderListPage />} />
       <Route path={`${PLATFORM_ORDER_LIST_PATH}/:id`} element={<PlatformOrderDetailPage />} />
       <Route path={POLICY_PAGE_PATH} element={<CancellationPolicyPage />} />

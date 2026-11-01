@@ -31,6 +31,7 @@ import { validationFailed } from "../validation.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { type FulfilmentInput, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid } from "./fulfilment.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 
@@ -207,6 +208,7 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
     const before: AuditValues | null = isChange ? { driver_id: order.dispatch.driverId, vehicle_id: order.dispatch.vehicleId, status: order.status } : null;
     await insertAuditLog(db, auditOrigin(writer, now), { tenantId, resource: "order", resourceId: orderId, action: isChange ? "reassign" : "assign", before, after: { driver_id: driver.id, vehicle_id: vehicle.id, status: "assigned", conflict_confirmed: conflicts.length > 0 } });
     await enqueueTenantEvent(db, { tenantId, type: "order.assigned", orderId, data: { change: isChange } }, now);
+    await enqueueNotification(db, { event: "order.assigned", tenantId, orderId, dedupeKey: `order.assigned:${assignment.id}`, data: { driver_id: driver.id, vehicle_id: vehicle.id } }, now);
     const saved = (await findTenantOrder(db, tenantId, orderId)) as Order;
     return { order: saved, driver, vehicle, isChange, link };
   });

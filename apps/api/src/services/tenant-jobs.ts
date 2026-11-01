@@ -9,6 +9,7 @@
 import { computeTenantScore, documentRequirements, evaluateTenantStanding, expiryReminderDue, noShowWindowStart, tenantDayStart, requiredDocumentsExpired, scoreWindowStart, trialPromotionDue, TENANT_RULES, daysUntilExpiry } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { findLastDataScore, findProfile, insertNotice, listDocuments, loadScoreInput, loadTrialProgress, markDocumentReminder, upsertScoreDay } from "../repos/tenant-onboarding.ts";
 import { type Tenant, listTenantsToEvaluate, lockTenantToEvaluate, saveTenantEvaluation, tenantState } from "../repos/tenants.ts";
 import { applyTenantChange, systemChangeActor, tenantToday, withObservation, withSuspension, withoutSuspension } from "./tenant-onboarding.ts";
@@ -122,10 +123,12 @@ export async function evaluateTenant(db: Db, tenant: Tenant, now: Date, today: s
     const tier = expiryReminderDue(left, current.remindersSent);
     if (tier !== null) {
       await insertNotice(db, tenant.id, { kind: "document_expiring", dedupeKey: `document_expiring:${current.id}:${tier}`, data: { document_id: current.id, type: current.type, expires_on: current.expiresOn, days_left: left }, now });
+      await enqueueNotification(db, { event: "tenant.document_expiring", tenantId: tenant.id, orderId: null, dedupeKey: `tenant.document_expiring:${current.id}:${tier}`, data: { document_type: current.type, expires_on: current.expiresOn, days_left: left } }, now);
       await markDocumentReminder(db, tenant.id, current.id, { reminder: tier });
     }
     if (left <= 0 && !current.expiredNotified) {
       await insertNotice(db, tenant.id, { kind: "document_expired", dedupeKey: `document_expired:${current.id}`, data: { document_id: current.id, type: current.type, expires_on: current.expiresOn, required: item.required }, now });
+      await enqueueNotification(db, { event: "tenant.document_expired", tenantId: tenant.id, orderId: null, dedupeKey: `tenant.document_expired:${current.id}`, data: { document_type: current.type, expires_on: current.expiresOn } }, now);
       await markDocumentReminder(db, tenant.id, current.id, { expired: true });
     }
   }

@@ -12,6 +12,7 @@ import { AppError } from "../errors.ts";
 import { type FulfilmentChange, type LocationKind, findPlace, insertOrderLocation, updateFulfilment } from "../repos/dispatch.ts";
 import { type Order, type OrderEventActor, insertOrderEvent } from "../repos/orders.ts";
 import { validationFailed } from "../validation.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 export const FULFILMENT_EVENTS = ["departed", "arrived", "picked_up", "completed"] as const;
@@ -92,4 +93,5 @@ export async function applyFulfilmentEvent(db: Db, order: Order, input: Fulfilme
   await updateFulfilment(db, order.tenantId, order.id, change, now);
   if (input.location !== null) await insertOrderLocation(db, order.tenantId, order.id, { kind: input.type as LocationKind, ...input.location, recordedAt: now }, actor.linkId);
   await recordStatusChange(db, order, to, { type: actor.type, detail: actor.type === "driver" ? { link_id: actor.id } : { user_id: actor.id } }, input.type.toUpperCase(), now);
+  if (input.type === "arrived") await enqueueNotification(db, { event: "order.driver_arrived", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.driver_arrived:${order.id}:${order.dispatch.assignedAt?.getTime() ?? 0}` }, now);
 }
