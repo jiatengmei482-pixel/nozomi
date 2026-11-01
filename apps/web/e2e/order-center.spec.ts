@@ -3,6 +3,7 @@
  * 1. 运营从订单详情进异常，认领、写说明关闭；审计日志里按中文名看得到这两步。
  * 2. 渠道替客人提投诉工单 → 客服认领、判定成立（达到复核阈值，提交复核）→ 另一位运营在「待审核」里批准 → 供应商在工单里看到判定和应扣款项、申诉。
  * 3. 财务手工出上个月的账 → 供应商确认 → 财务发起付款复核 → 另一位财务批准 → 账单进付款批次。
+ * 4. 银行转账文件（M5-02）：供应商提交收款账户、两位财务启用，锁定批次、生成、下载、回填流水号。
  * 端到端测试里没有 Stripe：「已经付过款」的订单和它的报价快照、异常由用例用迁移账号直接写进本次运行的 schema（只在测试里构造，运行结束随 schema 删除）。日期跟着今天走。
  */
 import { randomInt } from "node:crypto";
@@ -351,6 +352,128 @@ test("财务结算：手工出上个月的账 → 供应商确认 → 财务发�
   await expect(page.getByRole("heading", { level: 1, name: /^付款批次 \d{4}-\d{2}-20$/ })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: statementNo })).toContainText("JPY 19,800");
   await checkLayout(page, "付款批次详情");
+});
+
+test("银行转账文件：供应商提交收款账户 → 两位财务启用 → 账单进批次、锁定 → 生成（双人复核）→ 下载 → 回填流水号 → 账单已付款（M5-02）", async ({ page, request, browser }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const seed = await prepare(request);
+  const tokyoToday = new Date(Date.now() + 9 * 3_600_000);
+  const lastMonth = new Date(Date.UTC(tokyoToday.getUTCFullYear(), tokyoToday.getUTCMonth() - 1, 16, 1, 0));
+  const period = new Date(lastMonth.getTime() + 9 * 3_600_000).toISOString().slice(0, 7);
+  await seedOrder(seed, { serviceAt: lastMonth, completed: true });
+  const reviewer = await createStaff(request, "finance", "端到端转账复核人");
+  const fakeAccount = `00${randomInt(10_000_000, 99_999_999)}`;
+  const last4 = fakeAccount.slice(-4);
+  const reviewerContext = await browser.newContext();
+  const reviewerPage = await reviewerContext.newPage();
+  await reviewerPage.setViewportSize({ width: 1280, height: 900 });
+  await loginAs(reviewerPage, "platform", reviewer.email, reviewer.password);
+  const approve = async (filter: string, heading: string): Promise<void> => {
+    await reviewerPage.goto("/platform/approvals");
+    const card = reviewerPage.locator("section.approval-card").filter({ hasText: filter });
+    await expect(card.getByRole("heading", { name: heading })).toBeVisible();
+    await expect(card).not.toContainText(fakeAccount);
+    await card.getByRole("button", { name: /^批准/ }).click();
+    await reviewerPage.getByRole("dialog", { name: `批准：${heading}` }).getByRole("button", { name: "批准" }).click();
+    await expect(toast(reviewerPage, "已批准")).toBeVisible();
+  };
+
+  // 供应商管理员提交账户
+  const tenantContext = await browser.newContext();
+  const tenantPage = await tenantContext.newPage();
+  await tenantPage.setViewportSize({ width: 1280, height: 900 });
+  await loginAs(tenantPage, "tenant", seed.adminEmail, seed.password);
+  await menu(tenantPage).getByRole("link", { name: "账单", exact: true }).click();
+  await tenantPage.getByRole("link", { name: "收款账户" }).click();
+  await expect(tenantPage.getByRole("heading", { level: 1, name: "收款账户" })).toBeVisible();
+  await tenantPage.getByRole("button", { name: "提交收款账户" }).click();
+  const form = tenantPage.getByRole("dialog", { name: "提交收款账户" });
+  await form.getByLabel(/币种/).selectOption("JPY");
+  await form.getByLabel(/收款人名称/).fill("Fictional Transport KK");
+  await form.getByLabel(/收款人地址/).fill("1-1 Example Dori, Testville");
+  await form.getByLabel(/银行名称/).fill("Fictional Bank");
+  await form.getByLabel(/银行地址/).fill("2 Sample Street, Testville");
+  await form.getByLabel(/SWIFT/).fill("FAKEJPJT");
+  await form.getByRole("textbox", { name: /^银行账号/ }).fill(fakeAccount);
+  await form.getByLabel(/当前登录密码/).fill(seed.password);
+  await expectAccessible(tenantPage, "提交收款账户");
+  await form.getByRole("button", { name: "提交审核" }).click();
+  await expect(toast(tenantPage, "已提交，平台审核通过后生效")).toBeVisible();
+  await expect(tenantPage.getByRole("row").filter({ hasText: `•••• ${last4}` })).toContainText("待审核");
+  await expect(tenantPage.getByText(fakeAccount)).toHaveCount(0);
+  await checkLayout(tenantPage, "供应商收款账户");
+
+  // 财务核对后发起复核，另一位批准
+  const admin = adminCredentials();
+  await loginAs(page, "platform", admin.email, admin.password);
+  await menu(page).getByRole("button", { name: "财务结算" }).click().catch(() => undefined);
+  await menu(page).getByRole("link", { name: "收款账户" }).click();
+  await page.getByRole("button", { name: `发起复核：${seed.tenantName} JPY` }).click();
+  await page.getByRole("dialog", { name: `发起复核：${seed.tenantName} 的 JPY 账户` }).getByRole("button", { name: "提交复核" }).click();
+  await expect(toast(page, "已提交复核")).toBeVisible();
+  await checkLayout(page, "收款账户队列");
+  await approve(seed.tenantName, "启用供应商收款账户");
+  await tenantPage.reload();
+  await expect(tenantPage.getByRole("row").filter({ hasText: `•••• ${last4}` })).toContainText("生效中");
+
+  // 账单：出账、供应商确认、付款复核通过
+  const headers = await platformAdminHeaders(request);
+  const generated = await post<{ created: { id: string; statement_no: string; tenant: { id: string } }[] }>(request, headers, "/platform/v1/statements/generate", { period }, "出账");
+  const statement = generated.created.find((entry) => entry.tenant.id === seed.tenantId);
+  if (statement === undefined) throw new Error("这家供应商没有出账");
+  const tenantLogin = await post<{ access_token: string }>(request, {}, "/tenant/v1/auth/login", { email: seed.adminEmail, password: seed.password }, "供应商登录");
+  await post(request, { authorization: `Bearer ${tenantLogin.access_token}` }, `/tenant/v1/statements/${statement.id}/confirm`, {}, "确认账单");
+  await post(request, headers, `/platform/v1/statements/${statement.id}/payout-approval`, {}, "发起付款复核");
+  await approve(statement.statement_no, "付款给供应商");
+
+  // 批次：锁定 → 生成 → 另一位批准
+  await page.goto(`/platform/finance/statements/${statement.id}`);
+  await page.locator("dl").getByRole("link").filter({ hasText: /\d{4}-\d{2}-20/ }).click();
+  await expect(page.getByRole("heading", { level: 1, name: /^付款批次 / })).toBeVisible();
+  await expect(page.getByText("先锁定批次，再生成转账文件")).toBeVisible();
+  await page.getByRole("button", { name: "锁定批次" }).click();
+  await page.getByRole("dialog", { name: /^锁定 / }).getByRole("button", { name: "锁定" }).click();
+  await expect(toast(page, "已锁定付款批次")).toBeVisible();
+  const group = page.getByRole("region", { name: "JPY 的转账文件" });
+  await expect(group.getByRole("table", { name: "JPY 能进文件的账单" }).getByRole("row").filter({ hasText: statement.statement_no })).toContainText(`•••• ${last4}`);
+  await group.getByRole("button", { name: "生成 JPY 转账文件" }).click();
+  const generate = page.getByRole("dialog", { name: "生成 JPY 转账文件" });
+  const acknowledge = generate.getByRole("checkbox", { name: /确认这次不付/ });
+  if ((await acknowledge.count()) > 0) await acknowledge.check();
+  await generate.getByRole("button", { name: "提交复核" }).click();
+  await expect(toast(page, "已提交复核，另一位同事批准后文件才生成")).toBeVisible();
+  await checkLayout(page, "付款批次的转账文件");
+  await approve(seed.tenantName, "生成银行转账文件");
+  await reviewerContext.close();
+
+  // 下载、回填
+  await page.reload();
+  await page.getByRole("table", { name: "这个批次的转账文件" }).getByRole("link", { name: /^BF/ }).first().click();
+  await expect(page.getByRole("heading", { level: 1, name: /^转账文件 BF/ })).toBeVisible();
+  await expect(page.getByText(fakeAccount)).toHaveCount(0);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "下载 CSV" }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^nozomi-bank-transfer-\d{4}-\d{2}-\d{2}-JPY-BF[0-9A-Z]+\.csv$/);
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  const csv = Buffer.concat(chunks).toString("utf8");
+  expect(csv.charCodeAt(0)).toBe(0xfeff);
+  expect(csv).toContain(`,FAKEJPJT,${fakeAccount},JPY,19800,`);
+  expect(csv).toContain("TOTAL,");
+  await expect(page.getByText("已下载，待回填")).toBeVisible();
+  await checkLayout(page, "转账文件详情");
+  await page.getByRole("button", { name: "回填流水号" }).click();
+  const payments = page.getByRole("dialog", { name: "回填银行流水号" });
+  await payments.getByLabel(/银行流水号/).fill("FT-E2E-0001");
+  await payments.getByRole("button", { name: "记为已付款" }).click();
+  await expect(toast(page, "已回填流水号")).toBeVisible();
+
+  // 供应商看到已付款和流水号
+  await tenantPage.goto(`/statements/${statement.id}`);
+  await expect(tenantPage.getByText("FT-E2E-0001")).toBeVisible();
+  await expect(tenantPage.getByText("已付款").first()).toBeVisible();
+  await tenantContext.close();
 });
 
 test("官网投诉和反馈：客人在订单页提投诉 → 运营在工单列表看到、回复客人 → 客人在订单页看到回复", async ({ page, request, browser }) => {

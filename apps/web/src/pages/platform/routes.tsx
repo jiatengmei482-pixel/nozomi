@@ -24,6 +24,8 @@ import { ExceptionDetailPage, ExceptionQueuePage } from "./ExceptionPages.tsx";
 import { TicketListPage, TicketNewPage } from "./TicketPages.tsx";
 import { TicketDetailPage } from "./TicketDetailPage.tsx";
 import { CompensationTablePage } from "./CompensationTablePage.tsx";
+import { BankFileDetailPage, PayoutAccountQueuePage } from "./BankFilePages.tsx";
+import { BANK_FILES_PAGE, PLATFORM_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-file-display.ts";
 import { PayoutBatchDetailPage, PayoutBatchListPage, StatementDetailPage, StatementListPage } from "./FinancePages.tsx";
 
 export function platformRoutes() {
@@ -65,6 +67,8 @@ export function platformRoutes() {
       <Route path={`${STATEMENTS_PAGE}/:id`} element={<StatementDetailPage />} />
       <Route path={PAYOUT_BATCHES_PAGE} element={<PayoutBatchListPage />} />
       <Route path={`${PAYOUT_BATCHES_PAGE}/:id`} element={<PayoutBatchDetailPage />} />
+      <Route path={PLATFORM_PAYOUT_ACCOUNTS_PAGE} element={<PayoutAccountQueuePage />} />
+      <Route path={`${BANK_FILES_PAGE}/:id`} element={<BankFileDetailPage />} />
     </>
   );
 }

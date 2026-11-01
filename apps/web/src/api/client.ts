@@ -276,6 +276,21 @@ export function parseFilename(header: string | null): string | null {
   return plain?.[1]?.trim() ?? null;
 }
 
+/** 用 POST 取回一个要下载的文件（下载本身会改状态、写审计的接口，如银行转账文件）。请求体是 JSON；错误处理和 `apiDownload` 一样。 */
+export async function apiPostDownload(url: string, body: unknown, options: FileRequestOptions): Promise<DownloadedFile> {
+  const { response, done, timedOut } = await fileFetch("POST", url, new Blob([JSON.stringify(body)]), `${options.accept ?? XLSX_CONTENT_TYPE}, application/json`, { ...options, contentType: "application/json" });
+  try {
+    if (!response.ok) throw await toApiError(response);
+    if ((response.headers.get("content-type") ?? "").includes("application/json")) throw malformedResponse();
+    return { blob: await response.blob(), filename: parseFilename(response.headers.get("content-disposition")) };
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw timedOut() ? new NetworkError() : malformedResponse();
+  } finally {
+    done();
+  }
+}
+
 /** 取回一个要下载的文件。失败时接口返回的是 JSON 的错误格式；状态是成功、拿到的却不是文件，同样按出错处理。 */
 export async function apiDownload(url: string, options: FileRequestOptions): Promise<DownloadedFile> {
   const { response, done, timedOut } = await fileFetch("GET", url, null, `${options.accept ?? XLSX_CONTENT_TYPE}, application/json`, options);

@@ -198,5 +198,6 @@
 
 - 单元：`packages/domain/src/bank-transfer.test.ts`：IBAN 校验位（用公开算法现算的虚构号码）、SWIFT/BIC、SWIFT 字符集、公式注入、CSV 引号和 BOM、各币种小数位、合计、能否进文件的判断。
 - 集成（真实 PostgreSQL）：`apps/api/src/bank-files.itest.ts`：全流程、双人复核、账户变更过期、数据库层不重复、账户缺失的明确列出、下载的头和审计、不落账号、回填与批次收尾、作废释放、跨租户、规则 4；`schema-structure.itest.ts`、`rls.itest.ts`、`platform-admin.itest.ts`、`password-change-bypass.itest.ts` 登记新接口和新表。
-- 端到端：`apps/web/e2e/bank-files.spec.ts`。
+- 端到端：`apps/web/e2e/order-center.spec.ts`「银行转账文件」。
+- 组件：`apps/web/src/pages/platform/bank-files.test.tsx`；接口对账：`apps/web/src/api/bank-files.contract.test.ts`。
 - 所有账号、IBAN、SWIFT 都是测试里现算的虚构值。

@@ -71,6 +71,7 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
       children: [
         { to: "/platform/finance/statements", label: "账单", prefix: true },
         { to: "/platform/finance/payout-batches", label: "付款批次", prefix: true },
+        { to: "/platform/finance/payout-accounts", label: "收款账户", prefix: true },
       ],
     });
   }

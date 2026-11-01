@@ -27,6 +27,7 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/webhook-deliveries": "order.read",
   "/platform/finance/statements": "statement.read",
   "/platform/finance/payout-batches": "statement.read",
+  "/platform/finance/payout-accounts": "statement.read",
   "/platform/master/cities": "master_data.read",
   "/platform/master/places": "master_data.read",
   "/platform/master/vehicle-groups": "master_data.read",
@@ -39,7 +40,7 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
 };
 
 /** 限定了数据范围（城市或渠道任一维度）就看不了的页面（ADR 0040：财务结算的接口一律 403）。 */
-const UNSCOPED_ONLY_PAGES: ReadonlySet<string> = new Set(["/platform/finance/statements", "/platform/finance/payout-batches"]);
+const UNSCOPED_ONLY_PAGES: ReadonlySet<string> = new Set(["/platform/finance/statements", "/platform/finance/payout-accounts", "/platform/finance/payout-batches"]);
 
 /** 遍历的数据范围：不限、限城市、限渠道，外加两个维度都限、限成空（一个都不看）。编号只在测试里构造。 */
 const SCOPES: readonly { name: string; scope: PlatformDataScope }[] = [

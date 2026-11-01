@@ -138,7 +138,7 @@ test("立即拉取：汇率按数据源的数字原文入库（150.000 → 150�
   assert.deepEqual([board.state, board.as_of, board.base, board.source, board.stale_at], ["fresh", T0.toISOString(), "JPY", new URL(source.url).host, "2026-10-09T00:00:00.001Z"]);
   assert.deepEqual(board.rates.find((item: any) => item.currency === "CNY"), { currency: "CNY", rate: "0.048", central_rate: "0.048", locked: false });
   assert.deepEqual(board.cross.find((item: any) => item.from === "CNY" && item.to === "JPY"), { from: "CNY", to: "JPY", rate: "20.833333333333", locked: false });
-  assert.equal(board.cross.length, 7 * 6);
+  assert.equal(board.cross.length, 8 * 7);
   // 报价：人民币的商品换成日元，快照里记着汇率中心给的汇率和取数时间
   const quote = await preview();
   const candidate = quote.groups[0].candidates[0];

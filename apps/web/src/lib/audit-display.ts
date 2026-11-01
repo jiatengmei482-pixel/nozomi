@@ -53,6 +53,8 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   ticket: "工单",
   statement: "账单",
   payout_batch: "付款批次",
+  payout_account: "收款账户",
+  bank_file: "银行转账文件",
 };
 
 export const ACTION_NAMES: Readonly<Record<string, string>> = {
@@ -131,6 +133,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   pay: "登记已付",
   dispute: "提异议",
   void: "作废",
+  download: "下载",
 };
 
 /**
@@ -163,7 +166,8 @@ export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<s
   ticket: { assign: "认领 / 转交", reply: "留言（供应商看得到）", note: "内部备注", decide: "判定", close: "关闭工单", pay: "登记另付已付", request_reply: "征求供应商意见" },
   order_exception: { claim: "认领 / 转交", close: "写说明关闭" },
   statement: { issue: "出账", confirm: "确认账单", dispute: "提异议", reply: "答复异议", void: "作废并重出" },
-  payout_batch: { close: "锁定" },
+  payout_batch: { close: "锁定", pay: "全部付完" },
+  bank_file: { create: "生成", download: "下载", pay: "收尾（已付款）" },
   extra_charge: { decide: "审核加收" },
   integration_secret: { test: "测试一下" },
 };
@@ -263,6 +267,8 @@ function statusNames(resource: string): Readonly<Record<string, string>> {
   if (resource === "order_exception") return EXCEPTION_STATUS_NAMES;
   if (resource === "statement") return STATEMENT_STATUS_NAMES;
   if (resource === "payout_batch") return { open: "收账单中", closed: "已锁定", paid: "已付款" };
+  if (resource === "bank_file") return { generated: "已生成", downloaded: "已下载", paid: "已付款", void: "已作废" };
+  if (resource === "payout_account") return { pending: "待审核", active: "生效中", superseded: "已被替换", rejected: "已驳回", withdrawn: "已撤回" };
   if (resource === "order") return ORDER_STATUS_NAMES;
   if (resource === "platform_user" || resource === "tenant_user") return { invited: "待激活", active: "在用", disabled: "已停用" };
   if (resource === "product") return PRODUCT_STATUS_NAMES;
