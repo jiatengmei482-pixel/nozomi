@@ -308,7 +308,7 @@ test("集成状态里的缓冲按基点原样写回百分比，不出现浮点�
 test("数据加密密钥（ADR 0027、0030）：local / staging 可以不配（显示未配置，供应商不能设置 Webhook、平台员工不能绑定两步验证）；production 必须配", () => {
   const local = loadConfig(base);
   assert.equal(local.dataEncryptionKey, null);
-  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" });
+  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，不能下新订单和改乘客信息，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" });
   assert.equal(loadConfig({ ...base, APP_ENV: "staging" }).dataEncryptionKey, null);
   assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" }).some((i) => i.includes("DATA_ENCRYPTION_KEY")));
 });

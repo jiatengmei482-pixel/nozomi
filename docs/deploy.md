@@ -238,12 +238,12 @@ ls -lh /opt/nozomi/staging/backups/                                  # 先看有
 
 乘客的姓名、电话、邮箱现在同时存明文和密文，读的是密文。**不用填新的密钥**，用现有的 `DATA_ENCRYPTION_KEY`。新版本部署后，后台任务会在 30 秒内开始把旧数据加密，之后每小时查一次。
 
-**看进度**（在服务器的 API 容器里）：
+**看进度**（用部署用户登录服务器，环境名按实际替换）：
 
 ```bash
-pnpm passenger:backfill            # 默认只看数量，不改数据
-pnpm passenger:backfill --execute  # 手工跑一轮，可以反复运行，可以中断
-pnpm passenger:backfill --verify   # 核对每行密文解得开、和明文一致，只读
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts            # 默认只看数量，不改数据
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts --execute  # 手工跑一轮，可以反复运行，可以中断
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts --verify   # 核对每行密文解得开、和明文一致，只读
 ```
 
 **出问题时退回明文**（第 6 步之前随时可以，不丢数据）：
@@ -255,7 +255,7 @@ pnpm passenger:backfill --verify   # 核对每行密文解得开、和明文一�
 **后续步骤：清掉明文（第 6 步，这一轮没有做，不可逆）**。要满足这些才能做，并且先备份：
 
 1. 至少观察一个发布周期，日志里没有 `passenger.decrypt_failed`、`passenger.cipher_mismatch`。
-2. `pnpm passenger:backfill --verify` 输出「全部一致」。
+2. `passenger-backfill.ts --verify` 输出「全部一致」。
 3. 负责人知道：运营按乘客筛选将只认整串的邮箱、电话、姓名，不能再部分匹配（ADR 0057「运营筛选」）。
 4. 密钥已经和数据库备份分开保管，做过一次「只有备份没有密钥解不开、备份加密钥能恢复」的恢复演练。
 

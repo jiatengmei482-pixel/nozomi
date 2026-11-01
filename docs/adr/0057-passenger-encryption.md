@@ -42,6 +42,8 @@
 | `PASSENGER_BACKFILL_ENABLED` | `true` | 后台回填任务 |
 | `PASSENGER_PLAINTEXT_WRITE` | `true` | 第 6 步的开关：`false` 时明文位置只写占位 `[已加密]`。本轮保持 `true` |
 
+`deploy/compose.yml` 是逐项列环境变量的，这三个开关（以及 ADR 0055 的 `PASSENGER_RETENTION_ENABLED`、`PASSENGER_RETENTION_DAYS`，之前漏了，写在 `.env` 里传不进容器）一并加上，否则回退和停止脱敏都不起作用。
+
 ### 密文和明文不能各说各的
 
 代码回退到旧版本、手工改库时只会改明文。迁移 0200 的 `*_cipher_sync` 触发器：明文变了而密文没跟着变，这一行的密文和盲索引作废，读取回到明文，回填重新加密。`orders` 的触发器还保证脱敏过的行任何人都写不进密文和盲索引。迁移账号同样受这些触发器约束。第 6 步时去掉。

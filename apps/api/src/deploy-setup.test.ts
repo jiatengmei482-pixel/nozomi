@@ -803,3 +803,10 @@ test("RHEL 系的内核模块预检：只检查不修改；缺模块时初始化
   assert.match(deployScript.slice(probe, probe + 600), /die "\$EXIT_NOT_SWITCHED" "容器里解析不了数据库的服务名 db[^"]*kernel-modules-extra[^"]*升级内核并重启服务器/);
   assert.match(await readText("docs/deploy.md"), /kernel-modules-extra-\$\(uname -r\)/);
 });
+
+test("乘客信息的开关能从服务器的 .env 传进 API 容器：回退、停止脱敏靠它们（ADR 0055、0057）", async () => {
+  const compose = await readFile(new URL("../../../deploy/compose.yml", import.meta.url), "utf8");
+  for (const name of ["PASSENGER_READ_SOURCE", "PASSENGER_PLAINTEXT_WRITE", "PASSENGER_BACKFILL_ENABLED", "PASSENGER_RETENTION_ENABLED", "PASSENGER_RETENTION_DAYS"]) {
+    assert.ok(compose.includes(`${name}: \${${name}:-}`), name);
+  }
+});
