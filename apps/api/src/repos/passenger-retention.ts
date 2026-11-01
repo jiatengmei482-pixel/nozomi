@@ -246,6 +246,7 @@ export async function listOrdersWithLateTexts(db: Db, since: Date, limit: number
        ${late("tickets x", "updated_at")}
        union all ${late("order_contacts x", "occurred_at")}
        union all ${late("order_exceptions x", "updated_at")}
+       union all ${late("order_extra_charges x", "updated_at")}
        union all select o.id from ticket_messages m join tickets x on x.tenant_id = m.tenant_id and x.id = m.ticket_id join orders o on o.id = x.order_id where o.passenger_anonymized_at is not null and m.created_at >= $1 and m.created_at >= o.passenger_anonymized_at
        union all select o.id from ticket_notes n join tickets x on x.id = n.ticket_id join orders o on o.id = x.order_id where o.passenger_anonymized_at is not null and n.created_at >= $1 and n.created_at >= o.passenger_anonymized_at
      ) late limit $2`,

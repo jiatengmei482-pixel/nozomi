@@ -23,9 +23,14 @@
 | 工单列表、详情（含订单详情里的工单） | `subject`、`description`、`decision_note`、`close_note`、对话的 `body`、内部备注的 `body` |
 | 待审核列表、详情 | 只有和订单有关的（对象是 `order`、`ticket`、`rescue`）：`request_note`、`decision_note`，`payload`、`before` 里的手写键。`summary` 是系统按固定格式生成的，不含乘客信息，不动。其余类别（渠道、供应商、价格）的备注没有乘客信息，不动，审批人要看全文 |
 | 异常队列 | `resolution`，`detail` 里的文字（重试错误里可能带收件地址） |
+| 救援 | `reason`、`force_majeure.note`、供应商拒绝的原因 |
+| 通知记录 | `last_error.message`（邮件服务器的拒收信息会带地址和姓名） |
+| 推送记录 | `data` 里的乘客和手写内容，只改备注的推送（没有 `passenger` 键）也按这单的姓名找 |
 | 审计日志 | 和订单有关的对象：`before`、`after` 里的 `passenger`、`messaging` 和手写键 |
 
-手写内容里的姓名按这单现在的姓名找；订单详情和审计还会加上改单前的旧姓名。列表、工单、复核只认现在的姓名（电话、邮箱不受影响）：改过姓名、手写内容又写了旧姓名的情况很少，不为此在列表上多查一次。
+手写内容里的姓名按这单用过的所有姓名找（现在的，加上改单前后值里的旧姓名）。例外：救援列表只认现在的姓名（电话、邮箱不受影响）。
+
+手写键一律按手写内容处理：只有一串电话、全大写的姓名、带下划线的账号都要打码，不按形状猜枚举。唯一的例外是 `reason` 键里系统写的原因代码，逐个列在 `privacy.ts` 里。
 
 手写键的清单是白名单（`privacy.ts` 的 `HANDWRITTEN_KEYS`），只看字符串值：编号、金额、状态、员工账号的 `email` 和 `name` 不打码。`flight_no`、地址不打码：运营派车、核对行程要用，需求也没有列。
 
@@ -44,7 +49,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 只有一条路：`POST /platform/v1/orders/{id}/passenger/reveal`（`order.read` + 数据范围，每次记一条审计）。响应在 `passenger` 之外加：
 
 - `messaging`、`notes`；
-- `anonymized_at`：脱敏过的单不为空，这时返回的就是占位；
+- `anonymized_at`：脱敏过的单不为空，这时返回的就是占位，`texts` 为空、`messaging` 为空（不再给任何原文）；
 - `texts[]`：这一单的手写内容里**确实被打了码的**那些原文，每条 `{ source, source_id, text }`。工单的文字要求这个人另有 `ticket.read`，复核的文字要求另有 `approval.read`，否则不返回：不能用 `order.read` 绕过这两个权限。
 
 审计记字段名和条数，不记内容。审计日志本身没有「看原文」：写入时就打码，原文只在业务表里。
@@ -76,8 +81,9 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 | 依据 | 判断 |
 | --- | --- |
 | 未结工单 | `tickets.status <> 'closed'` |
-| 未结账单 | 明细所在账单是 `issued`、`disputed`、`confirmed`、`in_payout`（`paid`、`settled`、`carried`、`void` 算结了）；或者应付还没出账（口径和出账任务相同：已完成、no-show、有偿取消的单没有生效的明细行；已扣款的加收没有明细行；未免除的应扣款项没有明细行） |
+| 未结账单 | 明细所在账单是 `issued`、`disputed`、`confirmed`、`in_payout`（`paid`、`settled`、`void` 算结了）；**`carried`（转入下期）不算结**：顺着 `carry:<账单编号>` 的明细往后找，接到 `paid` 或 `settled` 才算，还没出下一张、下一张又转入下期的都不算；供应商已清退、永远结不了的同样不脱敏，dry-run 单列（`carried_terminated`）让人处理；或者应付还没出账（口径和出账任务相同：已完成、no-show、有偿取消的单没有生效的明细行；已扣款的加收没有明细行；未免除的应扣款项没有明细行） |
 | 争议中 | `order_payments.disputed`（拒付）；取消后才付到钱还没退完；加收在 `in_window`、`review`、`disputed`、`approved`、`charging`、`charge_failed` |
+| 收款没有结果 | 收款在 `creating`、`requires_payment`、`processing`（Stripe 回来可能要退款、联系客人）。长期卡住的宁可不脱敏，dry-run 按原因（`payment_pending`）列数量让人发现。真实的取消会把没付成的收款改成 `canceled`，不受影响 |
 | 钱没走完 | 退款在 `pending`、`processing`，或 `failed` 且没作废、没有重试 |
 | 事情没办完 | 没关的异常；没结论的改单、救援；待审核的复核（对象是这单或这单的工单、救援） |
 | 还在发 | 给客人的通知 `pending`、`sending`；推送 `pending`（否则发出去的内容和占位对不上，或者发到占位地址） |
@@ -93,11 +99,22 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 | `orders.passenger`（所有行） | 姓名、电话、邮箱都换成占位；`passenger_anonymized_at` 记时间 |
 | `order_changes.before / after`、`webhook_deliveries.event_data` | 里面的 `passenger` 换成占位 |
 | `notifications.recipient`（发给客人的）、`last_error_message` | 地址换成占位，错误信息里的联系方式清掉（邮件服务器的拒收信息会带地址） |
-| 手写内容：`orders.notes`、`orders.cancel_note`、`order_contacts.note`、工单四个文字列、工单对话、内部备注、改单的 `notes` 和 `decision_note`、加收的三个文字列、救援的 `reason` 和 `force_majeure_note`、异常的 `resolution` | 用打码同样的规则找出姓名（含改单前的旧姓名）、电话、邮箱，换成占位，其余文字不动 |
+| 手写内容：`orders.notes`、`orders.cancel_note`、`order_contacts.note`、工单四个文字列、工单对话、内部备注、改单的 `notes` 和 `decision_note`、加收的三个文字列、救援的 `reason` 和 `force_majeure_note`、供应商拒绝救援的 `decline_reason`、异常的 `resolution`、免除应扣款项的 `waive_reason`、客人评价 | 用这单脱敏前已知的全部姓名（含改单前的旧姓名）、电话、邮箱，加上打码同样的规则，换成占位，其余文字不动；占位变长时截到列的上限 |
+| 代传原因（`order_events.detail`）、复核的 `request_note`、`decision_note`、`payload`、`before` | 同上。**修订**：这一版原先写「不清除，接口打码」，但脱敏后已经不知道姓名是什么，接口打不了码；所以脱敏时一起清，之后不用再认姓名 |
+| 错误信息：`order_exceptions.detail`、`order_payments.last_error`、`order_refunds.last_error`、`order_extra_charges.last_charge_error`、`notification_events.expand_error`、`payment_events.detail` | 同上 |
+
+全库文本列盘点后**不清**的（都不按订单写、或是系统生成）：账单的 `dispute_reason`、`void_reason`、`statement_events`（账单级，一张账单多单）；赔付的 `payout_reference`（付款凭证号，财务要用）；`bank_file_items`、`payout_accounts`（供应商的收款信息）；`driver_links.revoke_reason`、`tenant_notices`、`order_no_show_claims.checklist`（系统写的）。其中账单的异议说明是供应商手写的，理论上可能写到乘客，见「需要负责人知道」。
 
 保留：金额、币种、汇率、订单号、所有时间、状态、流水、账单明细（明细本来就没有乘客信息）。
 
-`order_contacts`、`ticket_messages`、`ticket_notes` 原先是只追加。这里给平台角色加 `update`（项目不用列级授权，限制列用触发器），触发器只放行手写的那一列，而且**只有订单已经标了脱敏才能改**，业务代码误改会被数据库拒绝。
+`order_contacts`、`ticket_messages`、`ticket_notes`、`order_events`、`order_reviews` 原先是只追加。这里给平台角色加 `update`（项目不用列级授权，限制列用触发器），触发器只放行手写的那一列，而且**只有订单已经标了脱敏才能改**，业务代码误改会被数据库拒绝。`approvals` 平台本来能改：触发器限定发起后的 `payload`、`before`、`request_note`，决定后的 `decision_note`，只有对应的单已脱敏才能改。`orders` 另有触发器：已脱敏的单不能改回乘客三项、不能清标记。这些触发器只管应用用的权限角色，迁移账号（表的所有者）不受限。
+
+### 脱敏之后才写入的手写内容
+
+这单不会再被选中，所以要另外处理，两层：
+
+1. **写入时就清**：工单（建单、对话、内部备注、判定和关闭说明）、异常处理说明、司机联系记录，写之前在同一个事务里给订单加 `for key share` 锁。脱敏事务（`for update`）提交前这里会等，等到之后读到的是脱敏后的状态；已脱敏的单按规则清掉电话、邮箱再存，所以供应商、渠道、客人的接口也看不到原文。这时已经不知道姓名，姓名认不出。
+2. **定时任务补扫**：每轮把「脱敏之后、最近两天写过手写内容」的单再清一遍（幂等），兜住没有走第 1 层的写入（加收等）。
 
 ### 运行
 
@@ -105,7 +122,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 - 跑在 API 进程里（ADR 0022）：启动后 10 秒第一次，之后每小时一轮；每轮最多 10 批，每批最多 200 单。
 - 多实例不重复：批次开始抢一把事务级的 advisory lock，抢不到这一轮就不做；每单再 `for update skip locked` 并在锁内重新判断。
 - 幂等：判断条件里有 `passenger_anonymized_at is null`，跑过的不会再选中。
-- 一批一个事务，每单一个保存点：一单出错只跳过这一单（只记订单编号和错误，不记内容），下一轮再试。
+- 一批一个事务，每单一个保存点：一单出错只跳过这一单（日志只有订单编号和错误码，不带驱动的报错详情，那里可能有这一行的内容；命令行输出连订单编号也没有），下一轮再试。
 - 每批一条审计（`order` / `anonymize_passenger`，`system`、`job`）：只记数量、期限、截止日、结束日期的范围、跳过数，**不记订单编号和内容**。这一批没做任何事不写。
 - 命令：`pnpm privacy:anonymize` 默认 dry-run，只打印数量（可处理的、被挡住的按原因分）；`--execute` 才真正跑一轮。开关关闭时 `--execute` 拒绝。没有 UI。
 
@@ -115,7 +132,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 
 可理解的提示放在 404 的文案和页面上，所有查不到的情况都显示：「如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服」。代价是核对错的人也会看到这句话；比起泄露「这个订单号存在且已脱敏」，这个代价可以接受。
 
-查看链接最多有效到用车后 30 天（ADR 0032），脱敏时早已失效，不用另外处理。
+脱敏时这单的查看链接全部作废：查链接时判断 `passenger_anonymized_at`，不用改链接表（找回得到的链接至少有效 1 天，第 180 天找回、第 181 天脱敏的情况确实存在）。链接失效的页面提示和查订单一致，说明已结束超过 180 天的单可能已清除。
 
 运营按 `passenger=` 筛选对脱敏后的单自然查不到（占位不是任何人的姓名或电话）；按订单号仍然查得到，页面显示「已脱敏」，不再显示「查看」按钮。
 
@@ -172,7 +189,7 @@ ADR 0054 写的是「日期、时间连写也可能被打码，宁可多打」�
 ## 需要负责人知道（本任务没有处理）
 
 1. **脱敏范围的法务确认**：下面这些没有脱敏，因为需求没有定义，而且脱敏是不可逆的：即时通讯账号（`messaging.handle`）、上下车地址（含门牌）、航班号、司机上传的证据照片、司机定位轨迹。其中即时通讯账号和详细地址是最可能需要加进去的；加的时候已经脱敏过的单需要补一轮。
-2. **手写内容是尽力而为**：只认得出电话、邮箱、已知的姓名，别的写法（LINE 编号、别人的姓名）认不出。这些手写内容不清除，接口里仍然打码：状态流水的代传原因（`order_events.detail`，只追加）、复核的备注和 `payload`（复核记录要留作依据）、客人评价。旧审计记录见决定一。
+2. **手写内容是尽力而为**：只认得出电话、邮箱、已知的姓名，别的写法（LINE 编号、别人的姓名）认不出。脱敏之后才写入的内容已经不知道姓名，只清电话、邮箱。账单的异议和作废说明不按订单写，不清。旧审计记录见决定一。
 3. **本系统之外的副本**：Stripe 的客户资料（下单时传过去的姓名、邮箱）、已经发出的邮件、供应商和渠道收到的 Webhook、数据库备份、已有日志，都不在这次脱敏的范围内。Stripe 客户是否要跟着删除，上线前要定。
 4. **`order_sales.request_hash`** 是下单请求（含联系方式）的哈希，只用于幂等比较，不可读；本任务保留，否则重复请求的判断会变。
 5. 法务对跨境传输的评估（需求写明待确认）不在本任务范围。

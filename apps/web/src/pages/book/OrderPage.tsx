@@ -42,6 +42,9 @@ const RETURN_LOST_TEXT = "付款结果已交给银行处理。这个页面没能
 /** 所有查不到的情况都同样显示，不说明这个订单号存不存在（ADR 0055）。 */
 export const LOOKUP_NOT_FOUND_TEXT = "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服。";
 
+/** 链接失效时一起说明：脱敏后这单的链接全部作废（ADR 0055）。 */
+export const EXPIRED_LINK_HINT = "已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服。";
+
 const RETURN_FAILED_LOST_TEXT = "银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。";
 
 function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; paymentReturnLost?: "failed" | "unknown" | null }) {
@@ -50,7 +53,7 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
   const [contact, setContact] = useState("");
   const [errors, setErrors] = useState<{ orderNo?: string; contact?: string }>({});
   const [notice, setNotice] = useState<Notice | null>(
-    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期（已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，需要帮助请联系客服），请用订单号和下单时的邮箱或手机号重新查找。" } : null,
+    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
   );
   const [busy, setBusy] = useState(false);
 
@@ -80,6 +83,7 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
   return (
     <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
       <AlertSlot notice={notice} />
+      {expired && <p className="field__hint">{EXPIRED_LINK_HINT}</p>}
       <TextField label="订单号" size="lg" required autoCapitalize="characters" autoComplete="off" spellCheck={false} hint="NZ 开头的 18 位，在订单页顶部" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />
       <TextField label="下单时的邮箱或手机号" size="lg" required autoComplete="email" value={contact} errors={errors.contact ? [errors.contact] : []} onChange={(event) => setContact(event.target.value)} />
       <div className="site-actions">

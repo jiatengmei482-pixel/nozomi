@@ -77,5 +77,5 @@
 迁移不创建任何账号和租户，也不创建数据库的登录账号。第一个平台超级管理员用 `pnpm admin:create` 创建。
 迁移也不写任何城市、机场、车型：机场用 `pnpm masterdata:import-airports` 从 OurAirports（公有领域）导入，城市用 `pnpm masterdata:import-cities` 从 GeoNames（CC BY 4.0，须注明来源）导入，机场的中文名、日文名用 `pnpm masterdata:import-airport-names` 从 GeoNames 导入，其余由平台在后台录入。
 | `0170_proxy_fulfilment_scoring.sql` | 代传履约的修复（M4-18，ADR 0052）：`orders.completed_recorded_at`（加收窗口、投诉时限的起点）；供应商、司机回传时能写派车和到达这两类评分事件 |
-| `0190_passenger_retention.sql` | 乘客信息自动脱敏（M4-21，ADR 0055）：`orders.passenger_anonymized_at` 和到期扫描的索引；联系记录、工单对话、内部备注给平台角色开放修改，触发器限定只能改手写的那一列、只有已脱敏的单才能改。不含任何数据 |
+| `0190_passenger_retention.sql` | 乘客信息自动脱敏（M4-21，ADR 0055）：`orders.passenger_anonymized_at` 和到期扫描的索引；联系记录、工单对话、内部备注、状态流水、客人评价给平台角色开放修改，触发器限定只能改手写的那一列、只有已脱敏的单才能改；复核的内容同样限定；已脱敏的单不能改回乘客、不能清标记。不含任何数据 |
 | `0160_bank_transfer_files.sql` | 供应商收款账户（账号只存密文和末 4 位，内容不可变）、银行转账文件和文件条目（一张账单同时只在一个未作废的文件里）、账单加银行流水号（M5-02，ADR 0051；0140、0150 被 M4-08、M4-06 占用）。不含任何数据 |

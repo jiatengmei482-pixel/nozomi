@@ -21,6 +21,7 @@ import { FakePaymentProvider } from "./testing/payments.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
+import { blockedBy, insertApproval, insertPayment, insertStatement, setStatementStatus } from "./testing/retention-fixtures.ts";
 
 let api: TestApi;
 let m: Market;
@@ -56,9 +57,9 @@ async function endAt(orderId: string, ended: Date): Promise<void> {
   await owner.query("update order_exceptions set status = 'closed', close_kind = 'cleared', closed_at = $2 where order_id = $1 and status <> 'closed'", [orderId, ended]);
 }
 
-async function aged(days: number, at?: string): Promise<{ id: string; orderNo: string; tenantId: string }> {
+async function aged(days: number, at?: string, side: "a" | "b" = "a"): Promise<{ id: string; orderNo: string; tenantId: string }> {
   const ended = tokyoDaysAgo(days, at);
-  const order = await seedOrder(api, m, "a", { serviceAt: ended, confirmedAt: new Date(ended.getTime() - 3_600_000) });
+  const order = await seedOrder(api, m, side, { serviceAt: ended, confirmedAt: new Date(ended.getTime() - 3_600_000) });
   await endAt(order.id, ended);
   return order;
 }
@@ -398,4 +399,85 @@ test("数据库防线：已脱敏的单也只能改手写内容那一列", async
   await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update ticket_messages set author_type = 'system', author_id = null where ticket_id = $1", [ticket.ticket.id])), deniedByDatabase);
   const changed = await withPlatformTx(api.db.pool, (db) => db.query("update ticket_messages set body = '已清除' where ticket_id = $1", [ticket.ticket.id]));
   assert.equal(changed.rowCount, 1);
+});
+
+// ---- 第二轮修复（ADR 0055）----
+
+test("收款还没有结果的单不脱敏，dry-run 单独列出原因；有结果后才处理", async () => {
+  const order = await aged(205);
+  await insertPayment(api, { id: order.id, orderNo: order.orderNo, tenantId: order.tenantId }, { status: "processing" });
+  assert.ok((await planPassengerRetention(ctx)).summary.blocked.payment_pending >= 1);
+  await tick();
+  assert.equal(await isDone(order.id), false);
+  await api.db.owner.query("update order_payments set status = 'canceled' where order_id = $1", [order.id]);
+  await tick();
+  assert.equal(await isDone(order.id), true);
+});
+
+test("账单转入下期：顺着结转找，接到已付的账单才算结；中间又转入的继续找；供应商已清退结不了的 dry-run 单列", async () => {
+  const q = (sql: string, args: unknown[] = []) => api.db.owner.query(sql, args);
+  const carried = async (statementId: string): Promise<void> => {
+    const approval = await insertApproval(api, "statement.qa", "statement", statementId, { status: "withdrawn" });
+    await q("update statements set status = 'carried', confirmed_at = $2, confirmed_by_type = 'system', approval_id = $3, approved_at = $2 where id = $1", [statementId, api.clock.now(), approval]);
+  };
+  const order = await aged(206);
+  const first = await insertStatement(api, order.tenantId, { kind: "deduction", sourceKey: `deduction:${randomUUID()}`, orderId: order.id, orderNo: order.orderNo, amount: -500 }, -500);
+  await carried(first);
+  assert.ok(await blockedBy(api, order.id, "carried_balance"), "还没出下一张");
+  const second = await insertStatement(api, order.tenantId, { kind: "carry_forward", sourceKey: `carry:${first}`, orderId: null, orderNo: null, amount: -500 }, -500);
+  await carried(second);
+  assert.ok(await blockedBy(api, order.id, "carried_balance"), "下一张又转入下期");
+  const third = await insertStatement(api, order.tenantId, { kind: "carry_forward", sourceKey: `carry:${second}`, orderId: null, orderNo: null, amount: -500 }, 19_500);
+  assert.ok(await blockedBy(api, order.id, "carried_balance"), "第三张还没付");
+  await tick();
+  assert.equal(await isDone(order.id), false);
+  await setStatementStatus(api, third, "paid");
+  assert.equal(await blockedBy(api, order.id, "carried_balance"), false);
+  await tick();
+  assert.equal(await isDone(order.id), true);
+
+  const stuck = await aged(207, undefined, "b");
+  const lone = await insertStatement(api, stuck.tenantId, { kind: "deduction", sourceKey: `deduction:${randomUUID()}`, orderId: stuck.id, orderNo: stuck.orderNo, amount: -500 }, -500);
+  await carried(lone);
+  await q("update tenants set status = 'terminated', terminated_at = $2 where id = $1", [stuck.tenantId, api.clock.now()]);
+  assert.ok(await blockedBy(api, stuck.id, "carried_terminated"));
+  assert.equal(await blockedBy(api, stuck.id, "carried_balance"), false);
+  assert.ok((await planPassengerRetention(ctx)).summary.blocked.carried_terminated >= 1);
+  await q("update tenants set status = 'active', terminated_at = null where id = $1", [stuck.tenantId]);
+  await tick();
+  assert.equal(await isDone(stuck.id), false);
+  await q("update statement_lines set voided_at = $2 where statement_id = $1", [lone, api.clock.now()]);
+});
+
+test("数据库防线：已脱敏的单不能改回乘客、不能清标记；流水、复核的手写内容只有已脱敏才能改，也只能改那几列", async () => {
+  const live = await flow.paidOrder({ serviceTime: new Date(api.clock.now().getTime() + 46 * DAY).toISOString().replace(/\.\d{3}Z$/, "Z") });
+  const token = m.staff.operations.token;
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update order_events set detail = '{}'::jsonb where order_id = $1", [live.id])), deniedByDatabase, "没脱敏的流水不能改");
+  const approval = await insertApproval(api, "order.cancel_refund", "order", live.id, { status: "withdrawn", note: "王小明 09012345678" });
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update approvals set request_note = 'x' where id = $1", [approval])), deniedByDatabase, "没脱敏的复核不能改");
+  await endAt(live.id, tokyoDaysAgo(208));
+  await ok(api.call("GET", `/platform/v1/orders/${live.id}`, { token }));
+  await tick();
+  assert.equal(await isDone(live.id), true);
+  assert.equal((await api.db.owner.query("select request_note from approvals where id = $1", [approval])).rows[0].request_note, `${ANONYMIZED_TEXT} ${ANONYMIZED_TEXT}`);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update orders set passenger = $2::jsonb where id = $1", [live.id, JSON.stringify({ name: "王小明", phone: "+819012345678", email: "guest@example.com" })])), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update orders set passenger_anonymized_at = null where id = $1", [live.id])), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update order_events set occurred_at = now() where order_id = $1", [live.id])), deniedByDatabase, "已脱敏也只能改 detail");
+});
+
+test("补扫：已脱敏的单上绕过写入检查进来的手写内容（并发窗口），下一轮清掉；幂等", async () => {
+  const paid = await flow.paidOrder({ serviceTime: new Date(api.clock.now().getTime() + 47 * DAY).toISOString().replace(/\.\d{3}Z$/, "Z") });
+  const token = m.staff.operations.token;
+  const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: paid.id, type: "other", subject: "投诉", description: "说明" } }), 201);
+  await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/close`, { token, body: { note: "结" } }));
+  await endAt(paid.id, tokyoDaysAgo(209));
+  await tick();
+  assert.equal(await isDone(paid.id), true);
+  api.clock.advance(1_000);
+  await api.db.owner.query("update tickets set description = '客人回电 08077776666', updated_at = $2 where id = $1", [ticket.ticket.id, api.clock.now()]);
+  await tick();
+  const scrubbed = (await api.db.owner.query("select description from tickets where id = $1", [ticket.ticket.id])).rows[0].description;
+  assert.equal(scrubbed, `客人回电 ${ANONYMIZED_TEXT}`);
+  await tick();
+  assert.equal((await api.db.owner.query("select description from tickets where id = $1", [ticket.ticket.id])).rows[0].description, scrubbed);
 });

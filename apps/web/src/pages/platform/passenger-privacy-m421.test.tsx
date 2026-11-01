@@ -5,7 +5,7 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { LOOKUP_NOT_FOUND_TEXT } from "../book/OrderPage.tsx";
+import { EXPIRED_LINK_HINT, LOOKUP_NOT_FOUND_TEXT } from "../book/OrderPage.tsx";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
 import { ACTION_NAMES } from "../../lib/audit-display.ts";
 import { NOT_DISPATCHED, NO_RECORDS, ORDER_ID, TENANT_ID, TICKET_ID, openApp, platformTicketDetailOf } from "../../testing/order-center-fixtures.tsx";
@@ -131,5 +131,25 @@ test("工单详情：有订单查看权限才有「查看原文」，只显示�
 test("官网查订单的提示说得清楚为什么查不到；审计页认得脱敏这个操作", () => {
   assert.match(LOOKUP_NOT_FOUND_TEXT, /请核对订单号/);
   assert.match(LOOKUP_NOT_FOUND_TEXT, /超过 180 天.*隐私规则清除.*联系客服/);
+  assert.match(EXPIRED_LINK_HINT, /超过 180 天.*隐私规则清除.*联系客服/);
   assert.equal(ACTION_NAMES["anonymize_passenger"], "乘客信息自动脱敏");
+});
+
+test("改单框：改过姓名、备注写的是旧姓名（notes_masked 为真）时只改航班号，不发备注，打码内容不会写回", async () => {
+  const user = userEvent.setup();
+  const bodies: unknown[] = [];
+  await openOrder(orderOf({ notes: "王**要儿童座椅", notes_masked: true, passenger: { name: "李**", phone: "+********0000", email: "ne***@example.com" } }), "operations", (call) => {
+    if (call.method === "PATCH" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) {
+      bodies.push(call.body);
+      return json(200, { change: { id: "c9", status: "applied" } });
+    }
+    return null;
+  });
+  await user.click(screen.getByRole("button", { name: "代客人改单" }));
+  assert.equal(((await screen.findByLabelText(/^备注/)) as HTMLInputElement).value, "");
+  await user.clear(screen.getByLabelText("航班号"));
+  await user.type(screen.getByLabelText("航班号"), "JL002");
+  await user.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => assert.equal(bodies.length, 1));
+  assert.deepEqual(bodies[0], { flight_no: "JL002" });
 });
