@@ -1,7 +1,7 @@
 /**
  * 安全相关的端到端检查（真实浏览器 + 真实后端）：
  * 令牌去了哪里、退出后还剩什么、回跳地址能不能跳到站外、两个后台会不会串、后端返回的文字会不会被当成 HTML、
- * 浏览器存储被改坏时页面是否还正常。
+ * 浏览器存储被改坏时页面是否还正常；内容安全策略（只有官网页面放行 Stripe，ADR 0046）。
  */
 import { type Page, type Request, expect, test } from "@playwright/test";
 import { adminCredentials, createActiveTenant, createTenant, detail, expectSignedInAs, fillLogin, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
@@ -420,4 +420,68 @@ test("内容安全策略（和正式环境同一条）：内联的主题脚本�
   });
   expect(executed).toBeNull();
   expect((await blockedSoFar()).some((entry) => entry.startsWith("script-src"))).toBe(true);
+});
+
+test("内容安全策略分两条（ADR 0046）：只有官网页面（/book…）放行 Stripe.js 的来源；登录页、运营后台、供应商后台上插 js.stripe.com 的脚本和框架、连 api.stripe.com 都被拦下，官网页面上照常加载", async ({ page }) => {
+  await page.addInitScript(() => {
+    const blocked: string[] = [];
+    (window as unknown as { __cspBlocked: string[] }).__cspBlocked = blocked;
+    document.addEventListener("securitypolicyviolation", (event) => blocked.push(`${event.violatedDirective} ${event.blockedURI}`));
+  });
+  // Stripe 的地址在网络层拦下、回一段本地的内容（测试从不连 Stripe）；被策略拦下的请求根本到不了这里
+  const reached: string[] = [];
+  await page.route(
+    (url) => url.hostname.endsWith("stripe.com"),
+    (route) => {
+      const url = new URL(route.request().url());
+      reached.push(`${url.hostname}${url.pathname}`);
+      if (url.hostname === "js.stripe.com" && url.pathname === "/v3/") return route.fulfill({ contentType: "application/javascript", body: "window.__stripeLoaded = true;" });
+      if (url.hostname === "api.stripe.com") return route.fulfill({ contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: "{}" });
+      return route.fulfill({ contentType: "text/html", body: '<!doctype html><html lang="zh-CN"><title>stripe</title></html>' });
+    },
+  );
+  /** 在当前页面上试着加载 Stripe 的脚本、框架，连 Stripe 的接口；返回脚本是否执行、接口是否连上。 */
+  const tryStripe = (): Promise<{ script: boolean; api: boolean }> =>
+    page.evaluate(async () => {
+      const script = document.createElement("script");
+      script.src = "https://js.stripe.com/v3/";
+      const loaded = new Promise<boolean>((resolve) => {
+        script.addEventListener("load", () => resolve(true));
+        script.addEventListener("error", () => resolve(false));
+      });
+      document.head.append(script);
+      for (const src of ["https://js.stripe.com/v3/elements-inner.html", "https://hooks.stripe.com/3d_secure/x"]) {
+        const frame = document.createElement("iframe");
+        frame.src = src;
+        frame.title = "stripe";
+        document.body.append(frame);
+      }
+      const api = await fetch("https://api.stripe.com/v1/payment_intents/pi_x").then(
+        () => true,
+        () => false,
+      );
+      return { script: (await loaded) && (window as unknown as { __stripeLoaded?: boolean }).__stripeLoaded === true, api };
+    });
+  const blockedSoFar = (): Promise<string[]> => page.evaluate(() => (window as unknown as { __cspBlocked: string[] }).__cspBlocked);
+
+  for (const path of ["/login", "/platform/login", "/platform", "/bookx"]) {
+    const response = await page.goto(path);
+    const policy = response?.headers()["content-security-policy"] ?? "";
+    expect(policy, `${path} 的策略不放行 Stripe`).not.toMatch(/stripe/);
+    expect(await tryStripe(), `${path} 上 Stripe 的东西应全被拦下`).toEqual({ script: false, api: false });
+    // 被拦下的框架只报来源（不带路径），脚本和接口报完整地址
+    await expect.poll(blockedSoFar).toEqual(
+      expect.arrayContaining(["script-src-elem https://js.stripe.com/v3/", "connect-src https://api.stripe.com/v1/payment_intents/pi_x", "frame-src https://js.stripe.com", "frame-src https://hooks.stripe.com"]),
+    );
+  }
+  expect(reached, "被策略拦下的请求不会发出去").toEqual([]);
+
+  for (const path of ["/book", "/book/order", "/book/checkout"]) {
+    const response = await page.goto(path);
+    expect(response?.headers()["content-security-policy"] ?? "", `${path} 的策略放行 Stripe`).toContain("script-src 'self' 'sha256-");
+    expect(await tryStripe(), `${path} 上 Stripe.js 能加载、能连 Stripe 的接口`).toEqual({ script: true, api: true });
+    await page.waitForTimeout(200);
+    expect(await blockedSoFar(), `${path} 上有东西被策略拦下`).toEqual([]);
+  }
+  expect(reached).toEqual(expect.arrayContaining(["js.stripe.com/v3/", "js.stripe.com/v3/elements-inner.html", "hooks.stripe.com/3d_secure/x", "api.stripe.com/v1/payment_intents/pi_x"]));
 });

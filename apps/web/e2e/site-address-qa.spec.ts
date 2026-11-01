@@ -3,7 +3,7 @@
  * 谷歌是 global-setup 起的本机假服务器，**从不调用真实的谷歌**。用地址搜索专用的那组 API 和前端（配置文件里有一把本次运行随机生成的 `AIzaE2E…` 假密钥）。
  *
  * - 密钥不进浏览器：构建产物、页面、浏览器收到的每个应答、cookie / localStorage / sessionStorage 里都没有 `AIza` 开头的东西，也没有谷歌的接口地址；
- *   浏览器只连本站和底图；内容安全策略的 connect-src 只有 'self'、img-src 只多了底图来源、没有任何谷歌来源，整个流程没有违反策略的事件。
+ *   浏览器只连本站和底图；内容安全策略的 connect-src 只有 'self' 和 Stripe（官网付款，ADR 0046）、img-src 只多了底图来源、没有任何谷歌来源，整个流程没有违反策略的事件。
  * - 键盘：搜索框里回车只搜索、不发询价；地图聚焦后 `+` / `-` 真的缩放（瓦片的层级变了）、方向键平移，Tab 到「选地图中间这个位置」回车选中准星处。
  * - 配置里没有地址搜索也没有底图时：没有搜索框和地图按钮，常用地点和手填照常，浏览器不请求 /site/v1/places。
  *   （只改浏览器收到的 /site/v1/config 这一项来模拟，其余接口都是真的。）
@@ -99,7 +99,8 @@ test("密钥不进浏览器：搜索、选中、地图选点全程，应答、�
   const landing = await page.goto(`${SITE}/book`);
   const csp = (await landing?.allHeaders())?.["content-security-policy"] ?? "";
   const directives = new Map(csp.split(";").map((part) => part.trim().split(/\s+/)).filter((parts) => parts[0] !== "").map((parts) => [parts[0] as string, parts.slice(1)]));
-  expect(directives.get("connect-src"), csp).toEqual(["'self'"]);
+  // 官网页面放行 Stripe 的接口（付款，ADR 0046）；这里要守的是地址搜索不让浏览器直接连谷歌
+  expect(directives.get("connect-src"), csp).toEqual(["'self'", "https://api.stripe.com"]);
   expect(directives.get("img-src"), csp).toEqual(["'self'", TILE_ORIGIN]);
   expect(directives.get("default-src"), csp).toEqual(["'self'"]);
   expect(/google|gstatic/i.test(csp), csp).toBe(false);

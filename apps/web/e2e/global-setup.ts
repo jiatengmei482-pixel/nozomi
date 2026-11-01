@@ -9,6 +9,8 @@
  *    另起本机的假谷歌地图（Routes API）和假 Stripe（ADR 0041：运营后台「测试一下」调的就是它们，测试从不访问真实服务），
  *    谷歌地图和 Stripe 的密钥一律不经配置文件给（运营后台填写的用例自己填、自己清空）；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
+ *    另起一组「配了 Stripe」的 API 和前端（M3-08）：Stripe 的三项是本次运行随机生成的测试值，Stripe 的地址指向本机的假 Stripe 服务（e2e/fake-stripe.ts），
+ *    假 Stripe 付款有结果后给这个 API 发签了名的通知；这组 API 信任一层代理（TRUST_PROXY_HOPS=1），付款用例各用一个文档专用地址，官网限流不和别的用例抢额度；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
  *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
  * 返回的函数在全部测试结束后执行：停掉两个进程，删除整个 schema，不留任何数据。
@@ -26,7 +28,8 @@ import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeService, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
-import { E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
+import { E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { type FakeStripeService, startFakeStripeService } from "./fake-stripe.ts";
 import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES, E2E_SUPPORT_PHONE } from "./support.ts";
 import type { FullConfig } from "@playwright/test";
@@ -175,17 +178,21 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   await assertPortFree(E2E_TILE_PORT, "假瓦片服务", "E2E_WEB_PORT");
   await assertPortFree(E2E_API_NO_MAP_PORT, "没有配置底图的 API", "E2E_API_PORT");
   await assertPortFree(E2E_FX_PORT, "假汇率源", "E2E_API_PORT");
+  await assertPortFree(E2E_API_STRIPE_PORT, "配了 Stripe 的 API", "E2E_API_PORT");
+  await assertPortFree(E2E_WEB_STRIPE_PORT, "配了 Stripe 的前端", "E2E_WEB_PORT");
 
   const database = await createMigratedTestDatabase();
   const started: Running[] = [];
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
   const fakeIntegrations: FakeService[] = [];
+  let fakeStripe: FakeStripeService | null = null;
   let totpStateDir: string | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
     await fxSource?.close();
     for (const fake of fakeIntegrations) await fake.close();
+    await fakeStripe?.close();
     if (tileServer) {
       tileServer.closeAllConnections();
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
@@ -304,6 +311,34 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     );
     started.push(web);
     await waitUntilUp(web, `http://127.0.0.1:${E2E_WEB_PORT}/login`);
+
+    // 官网付款专用的一组（playwright.config.ts 的 E2E_API_STRIPE_PORT）：Stripe 三项是本次运行随机生成的测试值，不是任何真实账号的密钥
+    const stripeOrigin = `http://127.0.0.1:${E2E_API_STRIPE_PORT}`;
+    const stripeKeys = { secret: `sk_test_e2e${randomBytes(16).toString("hex")}`, publishable: `pk_test_e2e${randomBytes(16).toString("hex")}`, webhook: `whsec_e2e${randomBytes(16).toString("hex")}` };
+    fakeStripe = await startFakeStripeService({ webhookUrl: `${stripeOrigin}/webhooks/stripe`, webhookSecret: stripeKeys.webhook, secretKey: stripeKeys.secret });
+    const paymentApi = start("API（官网付款）", ["apps/api/src/server.ts"], REPO_ROOT, {
+      ...apiEnv,
+      PORT: String(E2E_API_STRIPE_PORT),
+      PUBLIC_BASE_URL: stripeOrigin,
+      SITE_CLIENT_ID: siteClientId,
+      SITE_SUPPORT_PHONE: E2E_SUPPORT_PHONE,
+      STRIPE_SECRET_KEY: stripeKeys.secret,
+      STRIPE_PUBLISHABLE_KEY: stripeKeys.publishable,
+      STRIPE_WEBHOOK_SECRET: stripeKeys.webhook,
+      STRIPE_API_URL: fakeStripe.url,
+      TRUST_PROXY_HOPS: "1",
+    });
+    started.push(paymentApi);
+    await waitUntilUp(paymentApi, `${stripeOrigin}/health`);
+    const stripeWeb = start(
+      "前端（官网付款）",
+      ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(E2E_WEB_STRIPE_PORT), "--strictPort"],
+      WEB_ROOT,
+      { ...process.env, NOZOMI_API_ORIGIN: stripeOrigin },
+    );
+    started.push(stripeWeb);
+    await waitUntilUp(stripeWeb, `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}/login`);
+    process.env["E2E_FAKE_STRIPE_URL"] = fakeStripe.url;
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
