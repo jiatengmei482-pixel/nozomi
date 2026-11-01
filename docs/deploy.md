@@ -248,7 +248,7 @@ ls -lh /opt/nozomi/staging/backups/                                  # 先看有
 
 **出问题时退回明文**（第 6 步之前随时可以，不丢数据）：
 
-1. 把 `PASSENGER_READ_SOURCE=plaintext` 写进服务器的 `.env`，重启 API。读取立刻回到明文列，密文继续写。明文列只有占位 `[已加密]` 的行（`PASSENGER_PLAINTEXT_WRITE=false` 那段时间写的）仍读密文，所以来回切读到的内容相同。
+1. 把 `PASSENGER_READ_SOURCE=plaintext` 写进服务器的 `.env`，重启 API。读取立刻回到明文列，密文继续写。明文列只有占位 `[已加密]` 的行（「不再写明文」 那段时间写的）仍读密文，所以来回切读到的内容相同。
 2. 如果要退回旧版本的代码：直接部署旧版本，迁移 0200 只加了列，不影响旧代码。旧代码只改明文，数据库的触发器会让对应的密文作废。
 3. 修好后把 `PASSENGER_READ_SOURCE` 改回 `ciphertext`（或删掉这一行），重新部署新版本。回填任务会把旧版本期间写的内容补上。
 
