@@ -65,6 +65,8 @@ Stripe 的要求：Stripe.js 必须从 `js.stripe.com` 加载，不能打包进�
 | 历史上的订单 | 查不清 Stripe 怎样保存、使用收到的哈希（服务端看不到）。本次之前的订单，付款页都发送过上述哈希。本站不认为令牌原文泄露，令牌不需要因此作废 |
 | 没验证到的 | 实测用的是 deferred 模式，没有用真实订单的 client_secret，`retrievePaymentIntent` 没有实测，确认付款的请求被拦下、没有看到之后的步骤；真实 3D 验证弹窗和整页跳转银行（`hooks.stripe.com` 和发卡行页面）的请求没有测；`r.stripe.com/b` 按当时的版本观察，Stripe 随时可能改脚本。`m.stripe.com` 的页面标题字段同样是加盐哈希，标题里有订单号 |
 
+**修复后复测**（2026-11-01，同样的方法，页面是本地 `vite preview` 跑的这次构建和它的内容安全策略，订单接口是替身，真实 Stripe.js 和测试环境的公开 key）：打开 `/book/order#<虚构令牌>`，地址变成 `/book/order`，所有 iframe 地址和全部 104 个发往 Stripe、hCaptcha 的请求（含被拦下的 `payment_methods`、`confirm`）都搜不到令牌，`m.stripe.com` 的地址字段没有 `#` 段，修复前那个令牌哈希值也不再出现。局限：`client_secret` 和查付款是替身，所以页面自己的表单加载失败，填卡和确认是在同一页面上另建的 deferred 表单做的；没有在测试环境部署后实测。
+
 **决定**：Stripe.js 加载之前令牌就离开地址，这个文档里加载过就不再放回去。只在挂载期间去掉不够：实测确认付款时它还会重读地址。
 
 - 令牌放在**这条历史记录的 state** 里（`history.state.usr.orderToken`，由路由的 `navigate(..., { state })` 写入）：刷新、前进后退都还在，只属于这一条记录，复制地址、换标签页打开都带不走，不用新增存储键。实测放在这里 Stripe.js 没有带走。之前令牌留在浏览器历史的地址里，现在待付款的这一条也没有了。
