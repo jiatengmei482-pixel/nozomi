@@ -108,6 +108,13 @@ async function paidOrder(overrides: Parameters<typeof placeOrder>[0] = {}): Prom
   return placed.order;
 }
 
+function subjectOf(message: FakeSmtpMessage): string {
+  const head = message.data.slice(0, message.data.search(/\r?\n\r?\n/));
+  const raw = /^subject:\s*((?:.*)(?:\r?\n[ \t].*)*)/im.exec(head)?.[1] ?? "";
+  return raw.replace(/\r?\n[ \t]+/g, " ").replace(/=\?utf-8\?(b|q)\?([^?]*)\?=\s*/gi, (_, kind: string, text: string) =>
+    kind.toLowerCase() === "b" ? Buffer.from(text, "base64").toString("utf8") : Buffer.from(text.replace(/_/g, " ").replace(/=([0-9A-F]{2})/gi, (__, hex: string) => String.fromCharCode(Number.parseInt(hex, 16))), "latin1").toString("utf8"));
+}
+
 function bodyOf(message: FakeSmtpMessage): string {
   const split = message.data.search(/\r?\n\r?\n/);
   const head = message.data.slice(0, split);
@@ -577,7 +584,8 @@ test("规则 4：真实流程走一遍（确认、派车提醒、改单、改期
   assert.ok(tenantMails.length >= 11, `只收到 ${tenantMails.length} 封`);
   const leaks = [String(SELL), SELL.toLocaleString("en-US"), String(MARKUP_BP), "43.21", "对外价", "加价", "已付", "实付", "退款", "汇率", "JPY", "USD"];
   for (const mail of tenantMails) {
-    const text = `${mail.data}\n${bodyOf(mail)}`.replaceAll(order.orderNo, "");
+    // 只查主题和正文：Message-ID 和分隔符是随机的，订单号和编号也可能碰巧含这些字符
+    const text = `${subjectOf(mail)}\n${bodyOf(mail)}`.replace(/NZ\d{8}[0-9A-Z]+/g, "").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "");
     subjects.add(bodyOf(mail).split("\n")[0] as string);
     for (const forbidden of leaks) assert.ok(!text.includes(forbidden), `供应商邮件里有 ${forbidden}：\n${bodyOf(mail)}`);
   }
