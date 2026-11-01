@@ -3,7 +3,7 @@
  * 运营后台：发送记录（`notification.read`）、手动重试（`notification.retry`，写审计）、只读看模板。
  * 供应商后台：发给自己这家的记录（`notification.read`）、免打扰（改：`notification.manage`）；`tenant_id` 只从登录令牌取。
  */
-import { NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, NOTIFICATION_TEMPLATES, templatePlaceholders } from "@nozomi/domain";
+import { NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, NOTIFICATION_TEMPLATES, TENANT_RULES, templatePlaceholders } from "@nozomi/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
@@ -28,7 +28,7 @@ const tenantListSchema = pageQuerySchema.extend({ status: z.enum(NOTIFICATION_ST
 
 const settingsSchema = z.object({ quiet_hours: z.object({ start: z.string().max(5), end: z.string().max(5) }).strict().nullable() }).strict();
 
-const settingsJson = (settings: { quietHours: { start: string; end: string } | null; version: number }): Record<string, unknown> => ({ quiet_hours: settings.quietHours, time_zone: "Asia/Tokyo", version: settings.version });
+const settingsJson = (settings: { quietHours: { start: string; end: string } | null; version: number }): Record<string, unknown> => ({ quiet_hours: settings.quietHours, time_zone: TENANT_RULES.timeZone, version: settings.version });
 
 export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/platform/v1/notifications", async (request) => {
