@@ -283,7 +283,7 @@ test("对 no-show 审核的申诉：判定和关闭都要 order.read（关掉等
   const { ticketId } = await reviewTicket();
   await ok(api.call("POST", `/platform/v1/tickets/${ticketId}/decide`, { token: await ops(), body: { outcome: "rejected", note: "照片不清楚" } }));
   const tenantToken = await tenantLogin(api, m.b.adminEmail);
-  const appeal = await ok(api.call("POST", `/tenant/v1/tickets/${ticketId}/appeal`, { token: tenantToken, body: { reason: "司机确实到了" } }), 201);
+  const appeal = await ok(api.call("POST", "/tenant/v1/tickets", { token: tenantToken, body: { type: "tenant_appeal", parent_ticket_id: ticketId, subject: "申诉", description: "司机确实到了" } }), 201);
   const appealId = appeal.ticket.id as string;
   const blind = await staffWithRole("只管工单 3", ["tickets:view", "tickets:edit"], { city_ids: null, channel_ids: null });
   const decided = await api.call("POST", `/platform/v1/tickets/${appealId}/decide`, { token: blind.token, body: { outcome: "rejected", note: "不成立" } });
