@@ -12,7 +12,7 @@
 /**
  * 供应商可以订阅的事件。M3-02 发出前三个；改单、取消在 M3-03 发出；救援的两个在 M3-04 发出——事件名先定下来，供应商可以先订阅。
  */
-export const TENANT_WEBHOOK_EVENTS = ["order.confirmed", "order.assigned", "order.status_changed", "order.changed", "order.cancelled", "rescue.offered", "order.rescued_away"] as const;
+export const TENANT_WEBHOOK_EVENTS = ["order.confirmed", "order.assigned", "order.status_changed", "order.changed", "order.cancelled", "rescue.offered", "order.rescued_away", "payout.paid"] as const;
 export type TenantWebhookEvent = (typeof TENANT_WEBHOOK_EVENTS)[number];
 
 /** 「发送测试事件」用的事件类型：不能订阅，只在测试时发。 */
@@ -27,6 +27,7 @@ export const TENANT_WEBHOOK_EVENT_NAMES: Readonly<Record<TenantWebhookEvent, str
   "order.cancelled": "订单取消",
   "rescue.offered": "收到救援单",
   "order.rescued_away": "订单已转给救援租户",
+  "payout.paid": "账单已付款（银行流水号已回填）",
 };
 
 export const WEBHOOK_RULES = {

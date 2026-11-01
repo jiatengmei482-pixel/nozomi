@@ -19,7 +19,7 @@ import type { Pool, PoolClient } from "./db/pool.ts";
 import { FxCenter } from "./services/fx-center.ts";
 import { type FakeFxReply, type FakeFxSource, fxSourceBody, startFakeFxSource } from "./testing/fx-source.ts";
 
-const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
+const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36", SGD: "1.35" };
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
 /** 数据源的时间精确到秒 */
@@ -128,10 +128,10 @@ test("超长小数、指数写法按原文入库；挂起的一批确认后原�
   await withEnv(async (env) => {
     const { preview, cnyProduct } = await quoteSetup(env);
     const first = env.ago(HOUR);
-    env.serve(first, { JPY: "1.49123456789012345678e2", CNY: "7.000000000000000001", KRW: "14e2", HKD: "7.80000", TWD: "3.2E1", THB: "36.123456789012345678" });
+    env.serve(first, { JPY: "1.49123456789012345678e2", CNY: "7.000000000000000001", KRW: "14e2", HKD: "7.80000", TWD: "3.2E1", THB: "36.123456789012345678", SGD: "1.35" });
     assert.equal((await ok(env.fetchNow())).fetch.status, "accepted");
     const stored = await dbTable(env);
-    assert.deepEqual(stored.rates, { JPY: "149.123456789012345678", CNY: "7.000000000000000001", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36.123456789012345678" });
+    assert.deepEqual(stored.rates, { JPY: "149.123456789012345678", CNY: "7.000000000000000001", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36.123456789012345678", SGD: "1.35" });
     assert.equal(stored.asOf, first.toISOString());
     const table = { base: "USD" as const, asOf: stored.asOf, rates: stored.rates };
     const board = await env.overview("base=CNY");
@@ -142,7 +142,7 @@ test("超长小数、指数写法按原文入库；挂起的一批确认后原�
     assert.deepEqual(candidate.fx, { from: "CNY", to: "JPY", rate: fxQuoteFromTable(table, "CNY", "JPY")?.rate, as_of: stored.asOf, lock: null });
     // 挂起的一批（日元 +5%，超长小数）确认后，库里是原样的十进制
     const second = env.ago(HOUR / 2);
-    env.serve(second, { JPY: "156.579629628462962962", CNY: "7.000000000000000001", KRW: "14e2", HKD: "7.8", TWD: "32", THB: "36.123456789012345678" });
+    env.serve(second, { JPY: "156.579629628462962962", CNY: "7.000000000000000001", KRW: "14e2", HKD: "7.8", TWD: "32", THB: "36.123456789012345678", SGD: "1.35" });
     const held = (await ok(env.fetchNow())).fetch;
     assert.equal(held.status, "held");
     assert.equal((await ok(env.api.call("POST", `/platform/v1/fx-rates/fetches/${held.id}/confirm`, { token: env.root }))).fetch.status, "confirmed");
@@ -161,7 +161,7 @@ test("变动正好 3% 直接生效；多个币种里只有一个超过 3% 也整
     env.serve(env.ago(2.5 * HOUR), { ...RATES, JPY: "154.5", KRW: "1358" });
     assert.deepEqual([(await ok(env.fetchNow())).fetch.status], ["accepted"]);
     // 人民币 +1%、泰铢 +3.1%：整批挂起，人民币也不生效
-    env.serve(env.ago(2 * HOUR), { ...RATES, JPY: "154.5", KRW: "1358", CNY: "7.272", THB: "37.116" });
+    env.serve(env.ago(2 * HOUR), { ...RATES, JPY: "154.5", KRW: "1358", CNY: "7.272", THB: "37.116", SGD: "1.35" });
     const held = (await ok(env.fetchNow())).fetch;
     assert.deepEqual([held.status, held.jumps.map((jump: any) => jump.currency)], ["held", ["THB"]]);
     assert.equal((await dbTable(env)).rates["CNY"], "7.2");
@@ -169,7 +169,7 @@ test("变动正好 3% 直接生效；多个币种里只有一个超过 3% 也整
     await ok(env.api.call("POST", `/platform/v1/fx-rates/fetches/${held.id}/confirm`, { token: env.root }));
     assert.deepEqual([(await dbTable(env)).rates["CNY"], (await dbTable(env)).rates["THB"]], ["7.272", "37.116"]);
     // 下一批泰铢 37.5（相对确认的 37.116 只涨 1%）：直接生效，不再和确认前的 36 比
-    env.serve(env.ago(HOUR), { ...RATES, JPY: "154.5", KRW: "1358", CNY: "7.272", THB: "37.5" });
+    env.serve(env.ago(HOUR), { ...RATES, JPY: "154.5", KRW: "1358", CNY: "7.272", THB: "37.5", SGD: "1.35" });
     assert.equal((await ok(env.fetchNow())).fetch.status, "accepted");
   });
 });
@@ -191,7 +191,7 @@ test("同时确认和放弃同一批：只有一个成功，另一个 409；结�
       const row = (await env.sql("select status from fx_fetches where id = $1", [held.id]))[0];
       assert.equal(row.status, winner.body.fetch.status);
       const written = await env.sql("select count(*)::int as n from fx_rates where fetch_id = $1", [held.id]);
-      assert.equal(written[0].n, row.status === "confirmed" ? 6 : 0, "确认才写、只写一次");
+      assert.equal(written[0].n, row.status === "confirmed" ? 7 : 0, "确认才写、只写一次");
       if (row.status === "confirmed") {
         const audit = await env.sql("select count(*)::int as n from audit_logs where resource = 'fx_fetch' and resource_id = $1 and action in ('confirm', 'dismiss')", [held.id]);
         assert.equal(audit[0].n, 1, "审计只有一条决定");

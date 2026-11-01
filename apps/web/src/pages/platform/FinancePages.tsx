@@ -53,6 +53,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan, usePlatformScopeBlocks } from "../../lib/use-master-access.ts";
 import { Detail, LocalTime, NO_ACCESS, tableStateOf } from "./order-center-parts.tsx";
+import { BankFileSection } from "./BankFilePages.tsx";
 
 const SCOPE_DENIED = <StateBlock tone="neutral" title="你没有权限查看这里" description="财务结算只给不限数据范围的账号用（一张账单包含供应商在各城市、各渠道的订单）。需要的话，请联系管理员。" />;
 
@@ -352,6 +353,7 @@ export function StatementDetailPage() {
           <Detail label="确认">{statement.confirmed_at === null ? "—" : <>{statement.confirmed_by_type === "system" ? "确认期满，视为确认 · " : "供应商确认 · "}<LocalTime iso={statement.confirmed_at} /></>}</Detail>
           <Detail label="应付日">{statement.pay_due_on}</Detail>
           <Detail label="付款日">{statement.payout_on ?? "—"}</Detail>
+          {statement.bank_reference !== null && <Detail label="银行流水号"><span className="mono">{statement.bank_reference}</span></Detail>}
           {statement.payout_batch_id !== null && (
             <Detail label="付款批次">
               <Link className="link" to={payoutBatchPath(statement.payout_batch_id)}>
@@ -688,6 +690,7 @@ export function PayoutBatchDetailPage() {
       <div className="card-table">
         <DataTable label="批次里的账单" columns={columns} rows={batch.statements} rowKey={(row) => row.id} state="ready" onRetry={reload} empty={<StateBlock tone="neutral" title="批次里还没有账单" description="付款复核批准后的账单会进来。" />} />
       </div>
+      <BankFileSection batchId={batch.id} batchStatus={batch.status} canManage={canManage} />
       {closing && (
         <CloseBatchDialog
           batch={batch}
@@ -741,7 +744,7 @@ function CloseBatchDialog({ batch, onClose, onDone }: { batch: PayoutBatchDetail
       }
     >
       <div role="alert">{problem !== null && <Alert kind="danger">{problem.text}</Alert>}</div>
-      <p>锁定后这一天不再收新的账单：之后批准的付款进下个月同一天。锁定后等银行转账。锁定不能撤销。</p>
+      <p>锁定后这一天不再收新的账单：之后批准的付款进下个月同一天。锁定后才能生成银行转账文件。锁定不能撤销。</p>
     </Dialog>
   );
 }

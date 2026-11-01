@@ -26,7 +26,7 @@ import type { CurrencyCode } from "./money.ts";
 
 // ---- 独立的有理数工具（不依赖 money.ts） ----
 
-const DIGITS: Readonly<Record<CurrencyCode, number>> = { JPY: 0, KRW: 0, CNY: 2, USD: 2, HKD: 2, TWD: 2, THB: 2 };
+const DIGITS: Readonly<Record<CurrencyCode, number>> = { JPY: 0, KRW: 0, CNY: 2, USD: 2, HKD: 2, TWD: 2, THB: 2, SGD: 2 };
 const pow10 = (n: number): bigint => 10n ** BigInt(n);
 
 /** 十进制字符串 → 分数（不经过浮点）。 */

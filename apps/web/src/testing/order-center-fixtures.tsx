@@ -196,6 +196,7 @@ export const platformStatementOf = (changes: Partial<PlatformStatement> = {}): P
   dispute_reason: null,
   approved_at: null,
   paid_at: null,
+  bank_reference: null,
   voided_at: null,
   void_reason: null,
   version: 1,

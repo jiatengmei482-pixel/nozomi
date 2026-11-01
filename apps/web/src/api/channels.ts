@@ -142,7 +142,9 @@ export type ApprovalKind =
   | "ticket.decision"
   | "platform_role.update"
   | "staff.mfa_reset"
-  | "statement.payout";
+  | "statement.payout"
+  | "payout_account.activate"
+  | "bank_file.generate";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "withdrawn";
 
 export interface Approval {

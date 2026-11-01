@@ -15,6 +15,7 @@ export const CURRENCIES = {
   HKD: { minorDigits: 2, symbol: "HK$" },
   TWD: { minorDigits: 2, symbol: "NT$" },
   THB: { minorDigits: 2, symbol: "฿" },
+  SGD: { minorDigits: 2, symbol: "S$" },
 } as const;
 
 export type CurrencyCode = keyof typeof CURRENCIES;

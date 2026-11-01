@@ -18,7 +18,7 @@ let m: Market;
 let md2: { id: string; token: string; email: string };
 
 const HOUR = 3_600_000;
-const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
+const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36", SGD: "1.35" };
 let lastAsOf = 0;
 
 const nowMs = (): number => api.clock.now().getTime();
