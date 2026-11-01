@@ -13,7 +13,6 @@ import type { SecretBox } from "./secret-box.ts";
 export type PassengerCopyKind = "order_change" | "webhook_delivery" | "notification";
 
 export interface PassengerCryptoLog {
-  warn(obj: object, msg: string): void;
   error(obj: object, msg: string): void;
 }
 
@@ -33,7 +32,7 @@ export interface OrderPassengerColumns {
 }
 
 const ALERT_INTERVAL_MS = 60_000;
-const SILENT_LOG: PassengerCryptoLog = { warn: () => undefined, error: () => undefined };
+const SILENT_LOG: PassengerCryptoLog = { error: () => undefined };
 
 export function passengerEncryptionNotConfigured(): AppError {
   return new AppError(503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED", "服务器还没有配置数据加密密钥（DATA_ENCRYPTION_KEY），现在不能保存乘客信息。请联系技术人员");

@@ -46,7 +46,7 @@ let alerts: { event?: string }[] = [];
 let counter = 0;
 
 const useCrypto = (settings: PassengerEncryptionSettings, key: SecretBox | null = box): PassengerCrypto => {
-  const crypto = new PassengerCrypto(key, settings, { warn: () => undefined, error: (obj) => void alerts.push(obj as { event?: string }) });
+  const crypto = new PassengerCrypto(key, settings, { error: (obj) => void alerts.push(obj as { event?: string }) });
   attachPassengerCrypto(api.db.pool, crypto);
   return crypto;
 };

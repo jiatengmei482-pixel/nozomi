@@ -25,7 +25,6 @@ import {
   localDateTimeExists,
   localDateTimeToInstant,
   inBounds,
-  normalizePhone,
   rateLimitKeyOf,
   tenantBids,
   vehicleLevel,

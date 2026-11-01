@@ -12,7 +12,7 @@ const T2 = "22222222-2222-4222-8222-222222222222";
 const ORDER = "33333333-3333-4333-8333-333333333333";
 const PASSENGER = { name: "虚构测试", phone: "+819000000000", email: "fictional@example.test" };
 const DUAL: PassengerEncryptionSettings = { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true };
-const make = (settings: PassengerEncryptionSettings = DUAL, key = KEY, log: PassengerCryptoLog = { warn: () => undefined, error: () => undefined }): PassengerCrypto => new PassengerCrypto(new SecretBox(key), settings, log);
+const make = (settings: PassengerEncryptionSettings = DUAL, key = KEY, log: PassengerCryptoLog = { error: () => undefined }): PassengerCrypto => new PassengerCrypto(new SecretBox(key), settings, log);
 
 test("双写：密文解得开，和明文一致；密文里看不到原文；每次加密结果不同", () => {
   const crypto = make();
@@ -40,7 +40,7 @@ test("空的邮箱、电话不建盲索引：空串永远不会和什么相等",
 
 test("密文搬到别的租户、别的单：解不开，退回明文并报警；报警里没有内容；同一种报警一分钟只有一条", () => {
   const alerts: object[] = [];
-  const crypto = make(DUAL, KEY, { warn: () => undefined, error: (obj) => void alerts.push(obj) });
+  const crypto = make(DUAL, KEY, { error: (obj) => void alerts.push(obj) });
   const { enc } = crypto.sealOrderPassenger(T1, ORDER, PASSENGER);
   assert.deepEqual(crypto.readOrderPassenger(T2, ORDER, enc, PASSENGER), PASSENGER);
   assert.deepEqual(crypto.readOrderPassenger(T1, T2, enc, PASSENGER), PASSENGER);
@@ -51,7 +51,7 @@ test("密文搬到别的租户、别的单：解不开，退回明文并报警�
 
 test("解开了但和明文不一样：读密文，报警", () => {
   const alerts: { event: string }[] = [];
-  const crypto = make(DUAL, KEY, { warn: () => undefined, error: (obj) => void alerts.push(obj as { event: string }) });
+  const crypto = make(DUAL, KEY, { error: (obj) => void alerts.push(obj as { event: string }) });
   const { enc } = crypto.sealOrderPassenger(T1, ORDER, PASSENGER);
   const stale = { ...PASSENGER, name: "别的姓名" };
   assert.deepEqual(crypto.readOrderPassenger(T1, ORDER, enc, stale), PASSENGER);
@@ -60,14 +60,14 @@ test("解开了但和明文不一样：读密文，报警", () => {
 
 test("读明文开关：不解密（密文坏了也不报警）", () => {
   const alerts: object[] = [];
-  const crypto = make({ ...DUAL, readSource: "plaintext" }, KEY, { warn: () => undefined, error: (obj) => void alerts.push(obj) });
+  const crypto = make({ ...DUAL, readSource: "plaintext" }, KEY, { error: (obj) => void alerts.push(obj) });
   assert.deepEqual(crypto.readOrderPassenger(T1, ORDER, `${crypto.currentPrefix}坏的`, PASSENGER), PASSENGER);
   assert.deepEqual(alerts, []);
 });
 
 test("没回填、密钥换过：读明文，不报警；核对得出不是当前密钥", () => {
   const alerts: object[] = [];
-  const crypto = make(DUAL, KEY, { warn: () => undefined, error: (obj) => void alerts.push(obj) });
+  const crypto = make(DUAL, KEY, { error: (obj) => void alerts.push(obj) });
   const old = make(DUAL, OTHER_KEY).sealOrderPassenger(T1, ORDER, PASSENGER);
   assert.deepEqual(crypto.readOrderPassenger(T1, ORDER, null, PASSENGER), PASSENGER);
   assert.deepEqual(crypto.readOrderPassenger(T1, ORDER, old.enc, PASSENGER), PASSENGER);
