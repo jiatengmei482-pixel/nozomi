@@ -50,6 +50,8 @@ export const AUDIT_RESOURCES = [
   "platform_role",
   "statement",
   "payout_batch",
+  "payout_account",
+  "bank_file",
   "notification",
   "notification_settings",
 ] as const;
@@ -132,6 +134,8 @@ export const AUDIT_ACTIONS = [
   "clear_ip_allowlist",
   "dispute",
   "void",
+  "download",
+  "integrity_failed",
   "set",
   "replace",
   "clear",

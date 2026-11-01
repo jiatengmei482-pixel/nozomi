@@ -1,6 +1,6 @@
 /**
  * 库里需要还原原文的密钥的加密：供应商的 Webhook 签名密钥（M3-02，ADR 0027）、平台员工的两步验证密钥（M4-05，ADR 0030）、
- * 运营后台填写的第三方密钥（M4-09，ADR 0041）。
+ * 运营后台填写的第三方密钥（M4-09，ADR 0041）、供应商的收款账号（M5-02，ADR 0051）。
  *
  * 为什么不是只存哈希（像登录密码、API 客户端密钥那样）：推送时平台要用密钥原文算 HMAC 签名、验证动态码时要用密钥原文算 HMAC，哈希还原不出原文。
  * 做法：
@@ -10,9 +10,9 @@
  * - 存储格式 `v1.<IV>.<认证标签>.<密文>`（各段 base64url），以后换算法时加 `v2`。
  * 解不开（主密钥换了、密文被改过、搬到了别的行）抛 `SecretBoxError`，调用方按「密钥不可用」处理，不把原因细节往外说。
  */
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
-export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret" | "integration-secret";
+export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret" | "integration-secret" | "payout-account";
 
 export class SecretBoxError extends Error {
   constructor() {
@@ -41,6 +41,12 @@ export class SecretBox {
       this.keys.set(purpose, key);
     }
     return key;
+  }
+
+  /** 这段内容的指纹（HMAC-SHA256，十六进制）：只有持主密钥的人算得出来，改库的人重算不了。和加密用的子密钥分开。 */
+  mac(purpose: SecretPurpose, text: string): string {
+    const key = Buffer.from(hkdfSync("sha256", Buffer.from(this.masterKey, "utf8"), Buffer.from("nozomi.secret-box", "utf8"), Buffer.from(`nozomi.${purpose}.mac.v1`, "utf8"), 32));
+    return createHmac("sha256", key).update(text, "utf8").digest("hex");
   }
 
   /** 加密。`owner` 是这条密文归属的记录（如租户编号、员工编号），解密时必须给同一个值。 */

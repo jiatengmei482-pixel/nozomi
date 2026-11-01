@@ -210,6 +210,10 @@ export class FxCenter {
         await insertAuditLog(db, origin(actor, now), { tenantId: null, resource: "fx_fetch", resourceId: id, action: "hold", before: null, after: { as_of: outcome.sourceAsOf?.toISOString() ?? null, jumps: (outcome.jumps ?? []).map((jump) => ({ currency: jump.currency, previous: jump.previous, next: jump.next, change_bp: jump.changeBp })) } });
         await enqueueNotification(db, { event: "fx.alert", tenantId: null, orderId: null, dedupeKey: `fx.alert:held:${id}`, data: { kind: "held", currencies: (outcome.jumps ?? []).map((jump) => jump.currency) } }, now);
       }
+      // 汇率源缺币种（如缺 SGD）：拒收时就告警，不等 48 小时过期（ADR 0051）。同一天只发一次，定时拉取不会反复发信
+      if (outcome.errorCode === "FX_SOURCE_MISSING_CURRENCY") {
+        await enqueueNotification(db, { event: "fx.alert", tenantId: null, orderId: null, dedupeKey: `fx.alert:source_rejected:${now.toISOString().slice(0, 10)}`, data: { kind: "source_rejected", detail: outcome.errorDetail ?? null } }, now);
+      }
       if (trigger === "manual") {
         await insertAuditLog(db, origin(actor, now), { tenantId: null, resource: "fx_fetch", resourceId: id, action: "fetch", before: null, after: { status: outcome.status, error_code: outcome.errorCode ?? null, as_of: outcome.sourceAsOf?.toISOString() ?? null } });
       }

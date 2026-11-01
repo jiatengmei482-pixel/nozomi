@@ -44,7 +44,7 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   tickets: ["/platform/tickets"],
   compensation_table: ["/platform/compensation-table"],
   approvals: ["/platform/approvals"],
-  finance: ["/platform/finance/statements", "/platform/finance/payout-batches"],
+  finance: ["/platform/finance/statements", "/platform/finance/payout-batches", "/platform/finance/payout-accounts"],
   master_data: ["/platform/master/cities", "/platform/master/places", "/platform/master/vehicle-groups", "/platform/master/addons", "/platform/master/fx-rates"],
   staff: ["/platform/settings/staff"],
   roles: ["/platform/settings/roles"],

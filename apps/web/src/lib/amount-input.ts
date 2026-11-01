@@ -12,7 +12,7 @@ export type AmountText =
   | { ok: false; reason: "empty" | "negative" | "grouping" | "other-currency" | "not-number" };
 
 /** 各币种自己的符号（代码另算）。「¥」日元和人民币都在用。 */
-const SYMBOLS: Readonly<Record<string, readonly string[]>> = { JPY: ["¥", "円"], CNY: ["¥", "元", "RMB", "CN¥"], USD: ["US$", "$"], KRW: ["₩", "원"], HKD: ["HK$", "$"], TWD: ["NT$", "$"], THB: ["฿"] };
+const SYMBOLS: Readonly<Record<string, readonly string[]>> = { JPY: ["¥", "円"], CNY: ["¥", "元", "RMB", "CN¥"], USD: ["US$", "$"], KRW: ["₩", "원"], HKD: ["HK$", "$"], TWD: ["NT$", "$"], THB: ["฿"], SGD: ["S$", "$"] };
 const ALL_MARKS: readonly string[] = [...new Set([...Object.keys(CURRENCIES), ...Object.values(SYMBOLS).flat(), "€", "£"])].sort((x, y) => y.length - x.length);
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const markPattern = (marks: readonly string[]): RegExp => new RegExp(marks.map(escape).join("|"), "gi");

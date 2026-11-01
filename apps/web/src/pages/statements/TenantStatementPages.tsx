@@ -29,6 +29,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
 import { StatementLineTable } from "../platform/FinancePages.tsx";
+import { TENANT_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-file-display.ts";
 import { Detail, LocalTime, NO_ACCESS, tableStateOf } from "../platform/order-center-parts.tsx";
 
 const ACTOR_TEXT: Readonly<Record<"tenant_user" | "platform_user" | "system", string>> = { tenant_user: "你们", platform_user: "平台", system: "系统" };
@@ -64,6 +65,12 @@ export function TenantStatementListPage() {
   return shell(
     <>
       <p className="page__lead">每月 1 日起平台给你们出上个月的账（按订单的服务日期，城市当地日期）：已完成订单的结算价、客人未出现、有偿取消的应得、事后加收，减去违约金、救援差价、客人赔付等应扣款项。出账后 7 天内请核对并确认，有问题提异议；到期不处理视为确认。次月 20 日付款。</p>
+      <p>
+        <Link className="link" to={TENANT_PAYOUT_ACCOUNTS_PAGE}>
+          收款账户
+        </Link>
+        ：平台把钱付到这里，换账户也在这里提交。
+      </p>
       <div className="filter-bar" role="search">
         <SelectField inline label="状态" value={status ?? "all"} options={[{ value: "all", label: "全部" }, ...STATEMENT_STATUSES.map((value) => ({ value, label: STATEMENT_STATUS_BADGES[value].label }))]} onChange={(value) => setParams(value === "all" ? {} : { status: value }, { replace: true })} />
       </div>
@@ -183,6 +190,7 @@ export function TenantStatementDetailPage() {
           <Detail label="确认">{statement.confirmed_at === null ? "—" : <>{statement.confirmed_by_type === "system" ? "确认期满，视为确认 · " : "你们确认 · "}<LocalTime iso={statement.confirmed_at} /></>}</Detail>
           <Detail label="应付日">{statement.pay_due_on}</Detail>
           <Detail label="付款日">{statement.payout_on ?? "—"}</Detail>
+          {statement.bank_reference !== null && <Detail label="银行流水号"><span className="mono">{statement.bank_reference}</span></Detail>}
         </dl>
         {canConfirm && (actions.confirm || actions.dispute) && (
           <div className="action-row">
