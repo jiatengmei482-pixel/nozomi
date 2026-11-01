@@ -11,6 +11,7 @@ test("secretValues：包含各密钥、连接串、连接串里的密码（含�
     FAKE_SECRETS.stripeSecretKey,
     FAKE_SECRETS.stripeWebhookSecret,
     FAKE_SECRETS.googleMapsApiKey,
+    FAKE_SECRETS.smtpPassword,
     FAKE_SECRETS.databasePassword,
   ]) {
     assert.ok(secrets.includes(value), value.slice(0, 6));

@@ -13,6 +13,7 @@ export const FAKE_SECRETS = {
   stripePublishableKey: "pk_test_FAKEfakeFAKEfake0000",
   stripeWebhookSecret: "whsec_FAKEfakeFAKEfake0000",
   googleMapsApiKey: "AIzaFAKEfakeFAKEfakeFAKE0000",
+  smtpPassword: "fake-smtp-password-Zq7",
 } as const;
 
 /** 指向本机 1 号端口的连接串：必然连不上，用来模拟数据库故障。 */
@@ -34,6 +35,14 @@ export function testEnv(databaseUrl: string): Record<string, string> {
     STRIPE_PUBLISHABLE_KEY: FAKE_SECRETS.stripePublishableKey,
     STRIPE_WEBHOOK_SECRET: FAKE_SECRETS.stripeWebhookSecret,
     GOOGLE_MAPS_API_KEY: FAKE_SECRETS.googleMapsApiKey,
+    // `.test` 不解析：万一有测试真的发信，也只会连接失败（测试从不连真实的邮件服务，ADR 0048）
+    SMTP_HOST: "smtp.example.test",
+    SMTP_PORT: "587",
+    SMTP_ENCRYPTION: "starttls",
+    SMTP_USERNAME: "fake-smtp-user",
+    SMTP_PASSWORD: FAKE_SECRETS.smtpPassword,
+    SMTP_FROM_NAME: "NOZOMI 测试",
+    SMTP_FROM_ADDRESS: "noreply@example.test",
     // 测试不访问外网：汇率源指向本机一个连不上的端口，测试启动的服务进程也不定时拉（汇率中心的测试用本机的假数据源）
     FX_SOURCE_URL: "http://127.0.0.1:1/v6/latest/USD",
     FX_AUTO_FETCH: "false",

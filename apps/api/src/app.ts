@@ -48,6 +48,7 @@ import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
+import { type Mailer, SmtpMailer } from "./integrations/smtp.ts";
 import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
 import { registerFleetRoutes } from "./routes/fleet.ts";
 import { registerDispatchRoutes } from "./routes/dispatch.ts";
@@ -83,6 +84,8 @@ export interface AppDeps {
   webhookSender?: WebhookSender;
   /** 运营后台填写的第三方密钥在本进程的缓存多久重读一次（毫秒，ADR 0041）；不给用 5 秒。测试用它模拟「另一个进程改了密钥」 */
   integrationSecretsTtlMs?: number;
+  /** 发邮件的替身（只给测试：本机假 SMTP 的证书、缩短的时限）；不给时用真的，回环地址只有 local / ci 放行 */
+  mailer?: Mailer;
   /** 官网地址搜索、反查的进程内短时缓存保留多久（毫秒，ADR 0044）；不给用 10 分钟。测试用它验证过期 */
   placeCacheTtlMs?: number;
   /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
@@ -274,6 +277,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     },
     integrations: secretCache,
     integrationChecks,
+    mailer: deps.mailer ?? new SmtpMailer({ allowLoopback: config.appEnv === "local" || config.appEnv === "ci", ehloName: new URL(config.publicBaseUrl).hostname }),
     quote: { ...defaultQuoteDeps(config, fx.rates, routes, now), ...deps.quote },
     secretBox,
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),

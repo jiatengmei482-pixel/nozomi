@@ -1436,9 +1436,9 @@ paths:
       operationId: listIntegrationSecrets
       summary: 运营后台填写的第三方密钥：每一项的生效来源（ADR 0041）
       description: |
-        需要操作 `integration.read`（超级管理员、技术）。谷歌地图、Stripe 各一项：现在生效没有（`state`）、生效的来源（`source`：后台设置 / 服务器配置文件 / 未配置）。
+        需要操作 `integration.read`（超级管理员、技术）。谷歌地图、Stripe、邮件发送（ADR 0048）各一项：现在生效没有（`state`）、生效的来源（`source`：后台设置 / 服务器配置文件 / 未配置）。
         优先顺序：**运营后台填写的优先；后台没填（或清空后）才用服务器配置文件里的值**（`precedence_note` 是同一句话）。
-        打码后的末 4 位（`masked`、`admin.hints`）和后台那一份的详情（`admin`）只给有 `integration.manage` 的人（超级管理员）；其他人这两项是 null。
+        打码后的末 4 位（`masked`、`admin.hints`）、后台那一份的详情（`admin`）和邮件发送不是密钥的几项（`settings`）只给有 `integration.manage` 的人（超级管理员）；其他人这几项是 null。
         任何字段都不含密钥原文。
       security:
         - platformToken: []
@@ -1470,12 +1470,14 @@ paths:
       operationId: saveIntegrationSecret
       summary: 填写或更换一项第三方密钥（只限超级管理员）
       description: |
-        需要操作 `integration.manage`（只归超级管理员，自建角色勾不了）。`key` 是 `google-maps` 或 `stripe`。
+        需要操作 `integration.manage`（只归超级管理员，自建角色勾不了）。`key` 是 `google-maps`、`stripe` 或 `email`。
         - 谷歌地图：`{ api_key }`；Stripe：`{ secret_key, publishable_key, webhook_secret }` 三项一起填。首尾的空白会去掉。
+        - 邮件发送（ADR 0048）：`{ host, port, encryption, username, password, from_name, from_address }` 七项一起填，**每次保存都要重新填密码**（防止改了主机后把旧密码发到别处）。
+          `port` 是数字，只能是 25、465、587、2525；`encryption` 是 `tls`、`starttls` 或 `none`（明文，只有 local / ci 允许）；`host` 不能是内网、回环、链路本地地址和只在内网解析的名字；`password` 8–255 个字符；名称、用户名、密码不能有换行等控制字符。
         - 每项 20–255 个字符，只能有英文字母、数字、下划线、连字符。Stripe：secret key `sk_test_` / `sk_live_`、publishable key `pk_test_` / `pk_live_`、webhook signing secret `whsec_` 开头，
           两把密钥同为测试或同为正式；非正式环境只收测试密钥，正式环境只收正式密钥。
-        - 不合格时 400 `VALIDATION_FAILED`，`details.issues[]` 每条有 `path`（如 `/secret_key`）、`message`、`reason`（`REQUIRED`、`FORMAT`、`TOO_SHORT`、`TOO_LONG`、`PREFIX`、`MODE_MISMATCH`、`LIVE_KEY_NOT_ALLOWED`、`TEST_KEY_NOT_ALLOWED`），不回显填的值。
-        - 用数据加密密钥加密后存库，保存后立即生效（本进程马上用上；别的进程最迟 5 秒）。写审计日志（动作 `set` 填写 / `replace` 更换，只记打码后的末 4 位）。
+        - 不合格时 400 `VALIDATION_FAILED`，`details.issues[]` 每条有 `path`（如 `/secret_key`）、`message`、`reason`（`REQUIRED`、`FORMAT`、`TOO_SHORT`、`TOO_LONG`、`PREFIX`、`MODE_MISMATCH`、`LIVE_KEY_NOT_ALLOWED`、`TEST_KEY_NOT_ALLOWED`；邮件发送另有 `PORT_NOT_ALLOWED`、`ENCRYPTION_NOT_ALLOWED`、`HOST_FORBIDDEN`），不回显填的值。
+        - 用数据加密密钥加密后存库，保存后立即生效（本进程马上用上；别的进程最迟 5 秒）。写审计日志（动作 `set` 填写 / `replace` 更换，只记打码后的末 4 位；邮件发送另记主机、端口、加密方式和发件人，不记用户名和密码）。
         返回填写还是更换，和这一项现在的状态（同 `GET` 的一项）。
       security:
         - platformToken: []
@@ -1505,6 +1507,31 @@ paths:
                       type: string
                       maxLength: 1000
                     webhook_secret:
+                      type: string
+                      maxLength: 1000
+                - type: object
+                  description: 邮件发送（通用 SMTP，ADR 0048）
+                  required: [ host, port, encryption, username, password, from_name, from_address ]
+                  properties:
+                    host:
+                      type: string
+                      maxLength: 1000
+                    port:
+                      type: integer
+                    encryption:
+                      type: string
+                      maxLength: 1000
+                      description: "tls、starttls；none（明文）只有 local / ci 允许"
+                    username:
+                      type: string
+                      maxLength: 1000
+                    password:
+                      type: string
+                      maxLength: 1000
+                    from_name:
+                      type: string
+                      maxLength: 1000
+                    from_address:
                       type: string
                       maxLength: 1000
       responses:
@@ -1583,12 +1610,14 @@ paths:
     post:
       tags: [ 平台系统 ]
       operationId: testIntegrationSecret
-      summary: 测试一下：用现在生效的密钥调一次对方的接口（只限超级管理员）
+      summary: 测试一下：用现在生效的密钥调一次对方的接口，邮件发送是发一封测试邮件给自己（只限超级管理员）
       description: |
         需要操作 `integration.manage`。用现在生效的那一份（不论来自后台还是配置文件）：
         - 谷歌地图：Routes API 的 computeRoutes（东京站 → 新宿站、只要距离一个字段，最便宜的一档；每次测试会产生一次调用，费用极少）。
         - Stripe：查余额（只读，不产生费用、不改任何数据），并核对测试 / 正式模式对得上。
-        结果是数据（200）：`ok` 可用 / 不可用，不可用时 `code` 是原因（`KEY_INVALID`、`API_NOT_ENABLED`、`KEY_RESTRICTED`、`BILLING_DISABLED`、`PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE`、`UNAVAILABLE`、`UNEXPECTED`），
+        - 邮件发送（ADR 0048）：发一封测试邮件给**当前操作的超级管理员自己的邮箱**。接口不接受收件人，请求体里写了也不看。最多等 15 秒。`ok: true` 表示邮件服务器已接收，`message` 写明发到了哪个地址。
+        结果是数据（200）：`ok` 可用 / 不可用，不可用时 `code` 是原因（`KEY_INVALID`、`API_NOT_ENABLED`、`KEY_RESTRICTED`、`BILLING_DISABLED`、`PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE`、`UNAVAILABLE`、`UNEXPECTED`；
+        邮件发送另有 `TARGET_FORBIDDEN` 内网地址、`TLS_FAILED`、`AUTH_FAILED`、`SENDER_REJECTED`、`RECIPIENT_REJECTED`、`MESSAGE_INVALID`），
         `message` 是一句话说明（我们自己写的，不带对方返回的原文，更不带密钥）。这一项没有配置时 409 `INTEGRATION_NOT_CONFIGURED`。写审计日志（动作 `test`，记来源和结果）。
         同一项每 5 秒最多测一次（不分人，谷歌地图每次测试都计费）：超了 429 `INTEGRATION_TEST_RATE_LIMITED`。
       security:
@@ -1611,7 +1640,7 @@ paths:
                     type: boolean
                   code:
                     type: [ string, "null" ]
-                    enum: [ KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, MODE_MISMATCH, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, null ]
+                    enum: [ KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, MODE_MISMATCH, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, TARGET_FORBIDDEN, TLS_FAILED, AUTH_FAILED, SENDER_REJECTED, RECIPIENT_REJECTED, MESSAGE_INVALID, null ]
                   message:
                     type: string
                   source:
@@ -13009,10 +13038,10 @@ components:
       name: key
       in: path
       required: true
-      description: "哪一项：google-maps 谷歌地图；stripe Stripe 支付"
+      description: "哪一项：google-maps 谷歌地图；stripe Stripe 支付；email 邮件发送"
       schema:
         type: string
-        enum: [ google-maps, stripe ]
+        enum: [ google-maps, stripe, email ]
     RoleKeyPath:
       name: key
       in: path
@@ -14849,7 +14878,7 @@ components:
       properties:
         key:
           type: string
-          enum: [ database, auth, dataEncryption, stripe, googleMaps, fx ]
+          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, fx ]
         label:
           type: string
         state:
@@ -14857,16 +14886,16 @@ components:
           enum: [ configured, missing ]
     IntegrationSecretKey:
       type: string
-      enum: [ google_maps, stripe ]
+      enum: [ google_maps, stripe, email ]
     SecretSource:
       type: string
       enum: [ admin, env, none ]
       description: "生效的值从哪里来：admin 运营后台填写的；env 服务器配置文件；none 都没有（未配置）"
     IntegrationSecretItem:
       type: object
-      description: 一项第三方密钥（ADR 0041）。任何字段都不含密钥原文
+      description: 一项第三方密钥（ADR 0041、0048）。任何字段都不含密钥原文
       additionalProperties: false
-      required: [ key, label, fields, state, source, source_label, mode, masked, env_configured, admin ]
+      required: [ key, label, fields, state, source, source_label, mode, masked, settings, env_configured, admin ]
       properties:
         key:
           $ref: "#/components/schemas/IntegrationSecretKey"
@@ -14874,7 +14903,7 @@ components:
           type: string
         fields:
           type: array
-          description: 填写时要填的几项（谷歌地图 1 项，Stripe 3 项）
+          description: 填写时要填的几项（谷歌地图 1 项，Stripe 3 项，邮件发送 7 项）
           items:
             type: object
             additionalProperties: false
@@ -14882,7 +14911,7 @@ components:
             properties:
               name:
                 type: string
-                enum: [ api_key, secret_key, publishable_key, webhook_secret ]
+                enum: [ api_key, secret_key, publishable_key, webhook_secret, host, port, encryption, username, password, from_name, from_address ]
               label:
                 type: string
         state:
@@ -14899,8 +14928,13 @@ components:
           description: Stripe 生效的是测试还是正式密钥；谷歌地图和未配置时为 null
         masked:
           type: [ string, "null" ]
-          pattern: "^••••([A-Za-z0-9_-]{4})?$"
-          description: 生效的那一份打码后的样子（`••••` + 末 4 位；Stripe 是 secret key 的）。只给超级管理员，其他人为 null；未配置时为 null
+          pattern: "^••••(.{1,8})?$"
+          description: 生效的那一份打码后的样子（`••••` + 末 4 位；Stripe 是 secret key 的，邮件发送是密码的）。只给超级管理员，其他人为 null；未配置时为 null
+        settings:
+          description: 邮件发送不是密钥的几项（生效的那一份）。只有 `email` 这一项、只给超级管理员，其他情况为 null；未配置时为 null
+          oneOf:
+            - $ref: "#/components/schemas/SmtpSettings"
+            - type: "null"
         env_configured:
           type: boolean
           description: 服务器配置文件里有没有这一项（后台的优先，所以有也不一定生效）
@@ -14917,7 +14951,7 @@ components:
               description: 每一项打码后的样子（字段名 → `••••1234`）
               additionalProperties:
                 type: string
-                pattern: "^••••([A-Za-z0-9_-]{4})?$"
+                pattern: "^••••(.{1,8})?$"
             updated_at:
               type: [ string, "null" ]
               format: date-time
@@ -14929,6 +14963,25 @@ components:
               type: [ string, "null" ]
               enum: [ UNREADABLE, NOT_ALLOWED_IN_ENV, null ]
               description: "后台那一份没有生效的原因：UNREADABLE 解不开（数据加密密钥换了），需要重新填写；NOT_ALLOWED_IN_ENV 不适用于当前环境（如测试密钥到了正式环境）"
+    SmtpSettings:
+      type: object
+      description: 邮件发送不是密钥的几项（ADR 0048）。没有密码
+      additionalProperties: false
+      required: [ host, port, encryption, username, from_name, from_address ]
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+        encryption:
+          type: string
+          enum: [ tls, starttls, none ]
+        username:
+          type: string
+        from_name:
+          type: string
+        from_address:
+          type: string
     IntegrationStatusDetail:
       type: object
       description: 需要平台登录才能看到的集成状态：多一段脱敏说明
@@ -14937,7 +14990,7 @@ components:
       properties:
         key:
           type: string
-          enum: [ database, auth, dataEncryption, stripe, googleMaps, fx ]
+          enum: [ database, auth, dataEncryption, stripe, googleMaps, email, fx ]
         label:
           type: string
         state:
@@ -14945,7 +14998,7 @@ components:
           enum: [ configured, missing ]
         detail:
           type: string
-          description: 脱敏后的说明，例如打码后的数据库地址、谷歌地图、Stripe 的来源（末 4 位只给超级管理员）
+          description: 脱敏后的说明，例如打码后的数据库地址、谷歌地图、Stripe、邮件发送的来源（末 4 位和邮件服务器的主机、端口只给超级管理员）
     Email:
       type: string
       format: email

@@ -839,7 +839,7 @@ export function IntegrationsPage() {
         <Alert kind="warning">
           <strong className="alert__title">{`有 ${missing.length} 项还没有配置：`}</strong>
           <span>
-            {`${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图和 Stripe 支付也可以由超级管理员在下面的「第三方密钥」里直接填写。`}
+            {`${missing.map((item) => item.label).join("、")}。用到它们的功能现在不能用。配置要由技术在服务器上做；谷歌地图、Stripe 支付和邮件发送也可以由超级管理员在下面的「第三方密钥」里直接填写。`}
             <strong>密钥只能由负责人本人填写，不要发在聊天里。</strong>
           </span>
         </Alert>
