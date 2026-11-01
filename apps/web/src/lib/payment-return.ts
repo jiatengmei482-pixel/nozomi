@@ -5,7 +5,7 @@
  * `return_url`（Stripe 在后面加 `?payment_intent=…&payment_intent_client_secret=…&redirect_status=…`）。
  * 订单页的令牌平时只在地址的 `#` 后面和请求头里（ADR 0032），**不能放进 return_url**：return_url 会发给 Stripe、记在这笔付款上。
  * 所以确认付款前把令牌放进本标签页的 sessionStorage（只在这一个标签页、关掉就没），回来时按付款编号核对后取出并立刻删掉；
- * 确认付款有了结果（没跳走）也立刻删掉。这是令牌唯一一次进浏览器存储，键只有这一个。
+ * 确认付款有了结果（没跳走）也立刻删掉。这是令牌唯一一次进 Web 存储，键只有这一个（历史记录的 state 见 ADR 0046）。
  */
 
 const RETURN_KEY = "nozomi.payment-return";
@@ -29,6 +29,12 @@ export function paymentReturnParams(search: string): PaymentReturnParams | null 
   const intentId = params.get("payment_intent");
   if (intentId === null || !/^pi_[A-Za-z0-9]+$/.test(intentId)) return null;
   return { intentId, redirectStatus: params.get("redirect_status") };
+}
+
+/** 地址上有没有银行回跳留下的任何一个参数（不管合不合格）：有就要清掉，里面可能有 client_secret。 */
+export function hasPaymentReturnParams(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return ["payment_intent", "payment_intent_client_secret", "redirect_status"].some((name) => params.has(name));
 }
 
 /** 确认付款前：记下这一笔付款对应哪个订单令牌。 */

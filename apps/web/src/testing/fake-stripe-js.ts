@@ -26,6 +26,8 @@ export interface FakeStripeJs {
     retrieve: string[];
     confirm: { return_url: string; redirect: string }[];
     appearanceUpdates: StripeAppearance[];
+    /** Stripe.js 每一步能读到的页面地址（核对里面没有订单令牌，ADR 0046） */
+    addresses: string[];
     mounted: number;
     destroyed: number;
   };
@@ -43,16 +45,20 @@ export function fakeStripeJs(): FakeStripeJs {
     elementLoads: true,
     submit: async () => ({}),
     confirm: async () => ({ paymentIntent: intentOf("succeeded") }),
-    calls: { stripe: [], elements: [], paymentElement: [], retrieve: [], confirm: [], appearanceUpdates: [], mounted: 0, destroyed: 0 },
+    calls: { stripe: [], elements: [], paymentElement: [], retrieve: [], confirm: [], appearanceUpdates: [], addresses: [], mounted: 0, destroyed: 0 },
     load: async () => {
+      fake.calls.addresses.push(window.location.href);
       if (fake.failLoads > 0) {
         fake.failLoads -= 1;
         throw new Error("Stripe.js 没有加载出来（假）");
       }
+      // 和真的一样留下全局的 Stripe：页面靠它知道这个文档加载过 Stripe.js。resetBrowser 时清掉
+      (globalThis as { Stripe?: StripeJsFactory }).Stripe = factory;
       return factory;
     },
   };
   const factory: StripeJsFactory = (publishableKey, options) => {
+    fake.calls.addresses.push(window.location.href);
     fake.calls.stripe.push({ publishableKey, locale: options.locale });
     return {
       async retrievePaymentIntent(clientSecret) {
@@ -69,6 +75,7 @@ export function fakeStripeJs(): FakeStripeJs {
             return {
               mount(container: HTMLElement) {
                 fake.calls.mounted += 1;
+                fake.calls.addresses.push(window.location.href);
                 node = document.createElement("div");
                 node.setAttribute("data-fake-stripe", "payment-element");
                 node.textContent = "银行卡（Stripe）";
@@ -93,6 +100,7 @@ export function fakeStripeJs(): FakeStripeJs {
         return elements;
       },
       async confirmPayment(options) {
+        fake.calls.addresses.push(window.location.href);
         fake.calls.confirm.push({ return_url: options.confirmParams.return_url, redirect: options.redirect });
         return fake.confirm();
       },

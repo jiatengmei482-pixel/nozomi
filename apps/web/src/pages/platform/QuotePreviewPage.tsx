@@ -11,6 +11,7 @@ import { ApiError } from "../../api/client.ts";
 import { type PlaceOption, type VehicleGroupOption, listPlaceOptions, listVehicleGroupOptions } from "../../api/master-options.ts";
 import { type PlatformQuotePreview, type QuoteCandidate, type QuoteGroup, type QuoteSettlement, previewPlatformQuote } from "../../api/quotes.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
+import { AccountLoadFailed } from "../../components/AccountLoadFailed.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
@@ -440,6 +441,7 @@ export function QuotePreviewPage() {
       <Page title="报价试算">{content}</Page>
     </AppShell>
   );
+  if (account.status === "error") return shell(<AccountLoadFailed />);
   if (account.status !== "ready") return shell(<Skeleton lines={["control", "control", "control"]} />);
   if (!canPreview) return shell(NO_ACCESS);
 

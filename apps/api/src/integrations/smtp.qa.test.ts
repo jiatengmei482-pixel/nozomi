@@ -173,7 +173,7 @@ test("html 也不能走私，也不能借网址、路径让服务器去取内容
 
 // ---- TLS ----
 
-test("STARTTLS：服务器在能力里写了支持，但执行时回 454：失败，不退回明文，密码和发件人都没有发出去", async () => {
+test("STARTTLS：服务器在能力里写了支持，但执行时回 454（暂时不可用，归类见 ADR 0049）：失败，不退回明文，密码和发件人都没有发出去", async () => {
   const server = await scripted((socket, line) => {
     const verb = line.split(" ")[0]?.toUpperCase();
     if (verb === "EHLO") socket.write("250-fake\r\n250-STARTTLS\r\n250 AUTH PLAIN LOGIN\r\n");
@@ -181,7 +181,7 @@ test("STARTTLS：服务器在能力里写了支持，但执行时回 454：失�
     else socket.write("250 ok\r\n");
   });
   try {
-    failedWith(await mailer().send(settings(server.port, "starttls"), MESSAGE), "TLS_FAILED");
+    failedWith(await mailer().send(settings(server.port, "starttls"), MESSAGE), "TEMPORARILY_REJECTED");
     assert.ok(!server.lines.some((line) => /^(AUTH|MAIL|RCPT|DATA)/i.test(line)), server.lines.join(" | "));
     assert.ok(!server.lines.join("\n").includes(Buffer.from(PASSWORD).toString("base64")));
   } finally {
@@ -368,7 +368,7 @@ test("服务器的错误应答回显账号密码：结果里只有我们自己�
     [{ rejectAuth: true, errorDetail: echo }, "AUTH_FAILED"],
     [{ rejectSender: true, errorDetail: echo }, "SENDER_REJECTED"],
     [{ rejectRecipient: true, errorDetail: echo }, "RECIPIENT_REJECTED"],
-    [{ rejectData: true, errorDetail: echo }, "SENDER_REJECTED"],
+    [{ rejectData: true, errorDetail: echo }, "MESSAGE_REJECTED"],
   ] as const;
   for (const [behavior, code] of cases) {
     plain.reset();

@@ -36,8 +36,10 @@ const adminKeys: string[] = [];
 let ipSeq = 0;
 const nextIp = (): string => `10.88.${Math.floor(++ipSeq / 200)}.${ipSeq % 200}`;
 const googleEnv = (): Record<string, string> => ({ GOOGLE_PLACES_SEARCH_URL: places.url, GOOGLE_GEOCODE_URL: geocode.url });
+/** 默认不缓存（ADR 0053）；这些用例测的是缓存机制本身，明确给一个时长 */
+const CACHE_MECHANISM_TTL_MS = 10 * 60_000;
 const openSite = async (env: Record<string, string> = {}, deps: Parameters<typeof siteApi>[4] = {}): Promise<SiteApi> => {
-  const app = await siteApi(api, siteClientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, ...deps });
+  const app = await siteApi(api, siteClientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, placeCacheTtlMs: CACHE_MECHANISM_TTL_MS, ...deps });
   opened.push(app);
   return app;
 };
@@ -73,7 +75,7 @@ before(async () => {
   const channel = await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" });
   siteClientId = (await salesCredentials(api, m, channel.id)).clientId;
   salesToken = (await salesCredentials(api, m, (await newChannel(api, m.staff.cm1.token, { name: "OTA" })).id)).token;
-  site = await siteApi(api, siteClientId, new FakePaymentProvider(), googleEnv(), { integrationSecretsTtlMs: 0, logDestination: { write: (line) => void (logs += line) } });
+  site = await siteApi(api, siteClientId, new FakePaymentProvider(), googleEnv(), { integrationSecretsTtlMs: 0, placeCacheTtlMs: CACHE_MECHANISM_TTL_MS, logDestination: { write: (line) => void (logs += line) } });
   reset();
 });
 after(async () => {

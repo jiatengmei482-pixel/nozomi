@@ -53,6 +53,23 @@ export class PaymentLoadError extends Error {
   }
 }
 
+/** 令牌的样子（大小写都算，后面多几个字符也算）。前面不能紧贴字母数字：`?ref=gonzo_…` 不是令牌。 */
+const ORDER_TOKEN_IN_ADDRESS = /(?<![A-Za-z0-9])nzo_[A-Za-z0-9_-]{43}/i;
+/** 地址被转发时可能编码过不止一次（`%255F`）。层数有上限，解不完的按解到的结果判断。 */
+const ADDRESS_DECODE_LAYERS = 3;
+
+/** 地址里有没有订单令牌：逐层解开百分号编码再看，每个 `%XX` 单独解，写坏的编码不会让检查出错。 */
+export function addressHasOrderToken(address: string): boolean {
+  let text = address;
+  for (let layer = 0; layer <= ADDRESS_DECODE_LAYERS; layer += 1) {
+    if (ORDER_TOKEN_IN_ADDRESS.test(text)) return true;
+    const decoded = text.replace(/%([0-9a-f]{2})/gi, (_all, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
+    if (decoded === text) return false;
+    text = decoded;
+  }
+  return false;
+}
+
 /** 官网是中文界面：Stripe 表单用简体中文。 */
 export const STRIPE_LOCALE = "zh";
 
@@ -158,6 +175,8 @@ const connectionError = (): StripeJsResult => ({ error: { type: "api_connection_
 export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> = () => loadStripeJs()): PaymentDriver {
   return {
     async mount(container, { publishableKey, clientSecret }) {
+      // 最后一道防线（ADR 0046）：订单页会先把令牌移出地址；万一没移，宁可不加载，也不让 Stripe.js 读到令牌
+      if (addressHasOrderToken(window.location.href)) throw new PaymentLoadError("地址里还有订单令牌");
       let factory: StripeJsFactory;
       try {
         factory = await load();

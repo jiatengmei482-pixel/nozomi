@@ -1,6 +1,7 @@
 # ADR 0049：通知中心——事件发件箱、邮件模板、发送记录
 
-- 状态：已采纳（2026-11-01，M4-08）；标了「待负责人确认」的是按推荐先做的决定，汇总在文末。
+- 状态：已采纳（2026-11-01，M4-08）；标了「待负责人确认」的是按推荐先做的决定，汇总在文末。2026-11-01 M4-16：邮件服务器拒收的归类和重试（见「邮件服务器拒收的归类」）。
+- 文中「待负责人确认」的项已由 ADR 0053 落定（2026-11-01）。
 - 实现 ADR 0032、0035 留下的「确认邮件里带订单查看链接」，以及 0022、0025、0027、0028、0029、0031、0034 里写着「通知中心任务」的那几项（范围见「事件清单」和「不做」）。
 - 补充 ADR 0048：发信一律经 `services/mail.ts` 的 `sendMail`；它留给本任务的「过一阵再发」「已送达」在这里定。
 - 补充 ADR 0032：`site_order_links.issued_via` 多一个取值 `email`。
@@ -99,9 +100,50 @@
 | `sendMail` 的结果 | 处理 |
 | --- | --- |
 | `RECIPIENT_REJECTED`、`MESSAGE_INVALID` | 这封永远发不出去，直接最终失败 |
-| `UNREACHABLE`、`TIMEOUT`、`SENDER_REJECTED`、`UNEXPECTED` | 退避重试：1 分钟、5 分钟、30 分钟、2 小时、6 小时；第 6 次仍失败就是最终失败，服务日志 `notification.failed`（错误级别）。准备内容时出错（`UNEXPECTED`）走同一套次数上限 |
+| `SENDER_REJECTED`、`MESSAGE_REJECTED` | 服务器永久拒绝（5xx）、不能确定是这个收件人的问题：等待解决不了，只给运营留改配置的时间。5 分钟、30 分钟后各再试一次（共 3 次），仍失败就是最终失败，服务日志 `notification.failed` |
+| `UNREACHABLE`、`TIMEOUT`、`TEMPORARILY_REJECTED`、`UNEXPECTED` | 退避重试：1 分钟、5 分钟、30 分钟、2 小时、6 小时；第 6 次仍失败就是最终失败，服务日志 `notification.failed`（错误级别）。准备内容时出错（`UNEXPECTED`）走同一套次数上限 |
 | `AUTH_FAILED`、`TLS_FAILED`、`TARGET_FORBIDDEN` | **配置问题**，和这封信无关：不算次数，5 分钟后再试，一直到这条的有效期；否则密码填错一晚上，所有通知都耗尽次数，改对了还要一条条手动重试 |
 | `NOT_CONFIGURED` | 见下一节 |
+
+### 邮件服务器拒收的归类（M4-16）
+
+验收发现：发往 example.com 的通知被 Hostinger 类 SMTP 拒收，因为被记成 `SENDER_REJECTED` 而提示「请确认这个账号可以用这个发件人地址发信」，同一分钟发件人相同的其他通知却正常（`apps/api/src/integrations/smtp.ts` 把 `EMESSAGE` 和 DATA 命令被拒都算成发件人）。没有拿到那台服务器的原始应答，具体是哪一步拒的不知道，下面的归类按各阶段都能分对来做。
+
+**nodemailer 10.1.7 实测报的内容**（真实 nodemailer 对假服务器）：
+
+| 什么时候拒 | `code` | `command` | 其他 |
+| --- | --- | --- | --- |
+| MAIL FROM | `EENVELOPE` | `MAIL FROM` | `responseCode`、`response` |
+| RCPT TO（这封唯一的收件人） | `EENVELOPE` | `RCPT TO` | `responseCode`、`response`、`rejected`、`rejectedErrors`（每项也有 `responseCode`、`recipient`） |
+| DATA 命令 | `EENVELOPE` | `DATA` | `responseCode`、`response` |
+| 正文发完（`.` 之后） | `EMESSAGE` | `DATA` | `responseCode`、`response` |
+| 本地校验不过（没连服务器） | `EENVELOPE` / `EMESSAGE` | `API`（超大小时 `MAIL FROM`） | 没有 `responseCode` |
+| 打招呼 | `EPROTOCOL` | `CONN` | `responseCode`、`response` |
+| EHLO 的 421 | `ECONNECTION` | `EHLO` | `responseCode`、`response`（其他 EHLO、HELO 应答是 `EPROTOCOL`） |
+| 认证 | `EAUTH` | `AUTH PLAIN` 等 | `responseCode`、`response` |
+| STARTTLS | `ETLS` | `STARTTLS` | `responseCode`、`response` |
+
+**归类**（`classifySmtpError`，只看阶段、应答码和应答开头的增强状态码 RFC 3463，不看说明文字）：
+
+| 条件（按顺序） | 代码 | 通知中心 |
+| --- | --- | --- |
+| 任何一步的 4xx，包括打招呼、EHLO、认证（如 454）、STARTTLS（如 454） | `TEMPORARILY_REJECTED` | 完整退避 |
+| MAIL FROM 的 5xx | `SENDER_REJECTED` | 再试 2 次 |
+| RCPT TO 或 DATA 的 5xx，增强状态码 X.1.7、X.1.8（发件人邮箱、域名） | `SENDER_REJECTED` | 再试 2 次 |
+| RCPT TO 或 DATA 的 5xx，增强状态码 X.1.1、X.1.2、X.1.3、X.1.6、X.1.10、X.2.1、X.2.2（收件人邮箱、域名、写法、搬走、不收信、停用、满了） | `RECIPIENT_REJECTED` | 不重试 |
+| RCPT TO 的 550–553，没有增强状态码或是 X.0.0 | `RECIPIENT_REJECTED` | 不重试 |
+| 其余（DATA 阶段说不清的；RCPT TO 的 X.7.x、554、语法类 5xx；多行应答里各行状态码不一致；本地校验不过，没有服务器应答码） | `MESSAGE_REJECTED` | 再试 2 次 |
+
+增强状态码每行都看：RFC 2034 要求每行都带，实际有只在后面某行带的。只有一种就用它；各行不一样就不信任何一个，算说不清。认证的 5xx（如 535）仍是 `AUTH_FAILED`，STARTTLS 的 5xx 仍是 `TLS_FAILED`，连接层错误没有应答码，仍是 `UNREACHABLE` 或 `TLS_FAILED`。
+
+判断和取舍：
+
+- **4xx 和 5xx**：SMTP 的约定是 4xx 暂时、5xx 永久（RFC 5321）。4xx 包括灰名单和限流，到时候再试就可能成功，所以用完整退避。以前 RCPT TO 的 4xx 被当成收件人被拒、直接最终失败，这个改掉了。
+- **5xx 为什么还试两次**：`SENDER_REJECTED`、`MESSAGE_REJECTED` 多半要改配置，改好后这几条能自动发出去；个别服务商也会用 5xx 做临时的策略拦截。上限 3 次，最终失败在页面上看得到，可以手动重试。不用「配置问题」的不限次数：拒收可能只针对这一封，每 5 分钟试到过期是白白打扰对方服务器。
+- **RCPT TO 的 5.7.x 不算收件人**：Postfix 默认等到 RCPT TO 才拒发件人（`smtpd_delay_reject`），`553 5.7.1 Sender address rejected` 就在这一步；「Relay access denied」也是 5.7.1。算成收件人会让发件人配置错误变成一封封不重试的失败，提示还指向收件人。没有增强状态码的 RCPT TO 550–553 也可能出现这种情况，但按 RFC 说的是收件人，这里接受这个误判：记录是最终失败、可以手动重试。
+- **不看说明文字**：各家写法不一样，也可能带着收件人地址。这段文字只在归类这一刻在内存里，不进结果、数据库、日志。库和日志只有错误码和我们写的一句话（`SMTP_FAILURE_MESSAGES`）。
+- **文案**：`MESSAGE_REJECTED` 同时提发件人和收件人两种可能；旧记录的 `SENDER_REJECTED` 保留当时的那句话，不回写。
+- 没有用真实 Hostinger 验证：归类按协议和假服务器测，部署后重新看一次发往 example.com 的通知会归到哪一类。
 
 ### 邮件没配置时
 

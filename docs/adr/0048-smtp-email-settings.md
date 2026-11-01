@@ -76,8 +76,10 @@ SMTP 和前两项有一个本质不同：**地址是人填的**。谷歌、Strip
 | `UNREACHABLE` | 连接失败：连不上、域名解析不了、连接被断开 |
 | `TLS_FAILED` | TLS 失败：证书不对、过期，服务器不支持 STARTTLS，或加密方式和端口不配 |
 | `AUTH_FAILED` | 认证失败：用户名或密码不对 |
-| `SENDER_REJECTED` | 发件人被拒：账号不能用这个发件人地址，或服务器不接受这封邮件 |
-| `RECIPIENT_REJECTED` | 收件人被拒（当前账号的邮箱） |
+| `SENDER_REJECTED` | 能确定发件人被拒：账号不能用这个发件人地址 |
+| `RECIPIENT_REJECTED` | 能确定收件人被拒（当前账号的邮箱） |
+| `MESSAGE_REJECTED` | 服务器永久拒绝了这封邮件，分不清是发件人还是收件人的问题（M4-16，见 ADR 0049） |
+| `TEMPORARILY_REJECTED` | 服务器暂时不接收（4xx，M4-16，见 ADR 0049） |
 | `TARGET_FORBIDDEN` | 主机或解析到的地址是内网地址 |
 | `TIMEOUT` | 超时 |
 | `UNEXPECTED` | 服务器的应答看不懂 |
