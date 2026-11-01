@@ -39,6 +39,8 @@ import {
   ticketCloseRefusal,
   ticketDecisionRefusal,
   ticketTypeAllowed,
+  grantCan,
+  ticketDecisionNeedsEvidence,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -83,7 +85,7 @@ import { validationFailed } from "../validation.ts";
 import { type ApprovalKind, requestApproval } from "./approvals.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { cancelPaidOrderInTx } from "./cancellations.ts";
-import { notFound } from "./errors.ts";
+import { forbidden, notFound } from "./errors.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
 import { recordStatusChange } from "./fulfilment.ts";
 import { orderInScope } from "./order-queries.ts";
@@ -827,11 +829,23 @@ async function applyDecision(db: Db, ticket: Ticket, input: DecisionInput, compu
   return { ticket: updated, refunds: result.refunds };
 }
 
+/** 判定 no-show 要看得到证据（ADR 0054）：没有 `order.read` 的 403。数据范围由接口层的 `assertTicketInScope` 先查（工单和订单同一个范围）。 */
+async function assertCanSeeEvidence(ctx: AppContext, principal: PlatformPrincipal, id: string): Promise<void> {
+  if (grantCan(principal.grant, "order.read")) return;
+  const needs = await withPlatformTx(ctx.pool, async (db) => {
+    const ticket = await findTicket(db, id);
+    const parent = ticket?.parentTicketId === null || ticket === null ? null : await findTicket(db, ticket.parentTicketId);
+    return ticket !== null && ticket.decidedAt === null && ticketDecisionNeedsEvidence(ticket.type, parent?.type ?? null);
+  });
+  if (needs) throw forbidden("order.read");
+}
+
 /**
  * 判定（`ticket.manage`）。投诉 / 履约失败成立要带赔付（按赔付表自动算出金额）；赔给客人的钱达到阈值的，进双人复核（`ticket.review`），
  * 工单变成「判定待复核」，批准时按发起时的内容执行（金额和发起时算的不一样了就 `APPROVAL_STALE`）。
  */
 export async function decideTicket(ctx: AppContext, principal: PlatformPrincipal, id: string, input: DecisionInput, ip: string, log: OrderLog = SILENT_ORDER_LOG): Promise<DecideResult> {
+  await assertCanSeeEvidence(ctx, principal, id);
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   // 汇率中心的汇率在事务之外取（有缓存）；只有赔付要用
@@ -915,6 +929,8 @@ export const TICKET_APPROVAL_KINDS: readonly ApprovalKind[] = [TICKET_DECISION];
 
 /** 关闭（`ticket.manage`）：判定过的；或没判定的直接关（重复、撤回，说明必填），no-show 审核除外。 */
 export async function closeTicket(ctx: AppContext, principal: PlatformPrincipal, id: string, note: string, ip: string): Promise<Ticket> {
+  // 没判定就关掉申诉等于驳回，和判定同样要看得到证据
+  await assertCanSeeEvidence(ctx, principal, id);
   const now = ctx.now();
   const origin = consoleOrigin(platformActor(principal.user), ip, now);
   return withPlatformTx(ctx.pool, async (db) => {

@@ -157,6 +157,7 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * - 异常队列用 `order.read` 看；`exception.manage`（认领、关闭）：运营、客服、财务（支付异常由财务核实）；
  * - `ticket.read`（看工单）：和订单一样——运营、客服、财务、风控、只读；
  * - `ticket.manage`（建工单、认领、留言、征求租户意见、判定、关闭）：运营、客服（需求「判定：客服给出结论和赔付方案」）；
+ *   判定 no-show 审核和对它的申诉（包括没判定就关掉申诉）另外要 `order.read`，证据在订单里，看不到证据不能盲判（ADR 0054）。内置角色都有；只勾「工单 · 编辑」没勾「订单 · 查看」的自建角色 403；
  * - `ticket.review`（赔给客人的钱超过阈值时复核判定，需求「金额超过阈值需主管复核」）：运营——客服判定、运营复核；两位运营互审，或超级管理员审；
  * - `compensation_table.manage`（发起改赔付表）：运营；`compensation_table.review`（审核）：运营、财务——和取消政策同一种分工；
  *   赔付表本身每个角色都能看（和取消政策一样用 `master_data.read`）；

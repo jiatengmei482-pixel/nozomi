@@ -76,6 +76,7 @@ import { localDayInstant } from "../../lib/audit-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
+import { NoShowEvidenceSection } from "./NoShowEvidence.tsx";
 import { OrderFulfilmentSections } from "./OrderFulfilmentSections.tsx";
 import { ProxyFulfilmentSection } from "./ProxyFulfilment.tsx";
 import { RescueSection } from "./RescuePages.tsx";
@@ -531,6 +532,7 @@ export function PlatformOrderDetailPage() {
       </section>
 
       <OrderFulfilmentSections detail={detail} />
+      <NoShowEvidenceSection detail={detail} />
 
       <ProxyFulfilmentSection detail={detail} onChanged={reload} />
 

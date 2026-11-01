@@ -167,6 +167,13 @@ export function outcomeNeedsCompensation(type: TicketType, outcome: TicketOutcom
   return (type === "complaint" || type === "fulfilment_failure") && outcome === "upheld";
 }
 
+/**
+ * 这张工单的判定要看 no-show 证据（ADR 0054）：no-show 审核，以及对它的申诉。判定的人必须看得到证据（`order.read`、订单在数据范围内），不能盲判。
+ */
+export function ticketDecisionNeedsEvidence(type: TicketType, parentType: TicketType | null): boolean {
+  return type === "no_show_review" || (type === "tenant_appeal" && parentType === "no_show_review");
+}
+
 export type TicketDecisionRefusal = "TICKET_STATE_INVALID" | "TENANT_REPLY_PENDING" | "OUTCOME_NOT_ALLOWED";
 
 /**

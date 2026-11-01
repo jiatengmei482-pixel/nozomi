@@ -15,6 +15,7 @@ import { type Order, type OrderEventActor, insertOrderEvent } from "../repos/ord
 import { validationFailed } from "../validation.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
 import { recordPerformanceEvent } from "../repos/tenant-onboarding.ts";
+import { orderLanding } from "./order-views.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 export { FULFILMENT_EVENTS };
@@ -117,7 +118,8 @@ export async function applyFulfilmentEvent(db: Db, order: Order, input: Fulfilme
   await updateFulfilment(db, order.tenantId, order.id, change, now);
   if (input.location !== null) await insertOrderLocation(db, order.tenantId, order.id, { kind: input.type as LocationKind, ...input.location, recordedAt: now }, actor.linkId);
   await recordStatusChange(db, order, to, { type: actor.type, detail: actor.type === "driver" ? { link_id: actor.id } : { user_id: actor.id } }, input.type.toUpperCase(), now, proxy);
-  // 准时到达率（ADR 0028）：供应商和司机自己回传才算；代传的时间是运营填的，不计入，避免被刷（ADR 0052）
-  if (input.type === "arrived" && proxy === null) await recordPerformanceEvent(db, { tenantId: order.tenantId, orderId: order.id, kind: "arrival", onTime: arrivalOnTime(now, order.serviceAt), occurredAt: now, now });
+  // 准时到达率（ADR 0028）：供应商和司机自己回传才算；代传的时间是运营填的，不计入，避免被刷。
+  // 接机单的基准放宽到落地时间，以这一刻（订单行已锁）已知的数据为准，之后才记的落地时间不改已写的结果（ADR 0052）
+  if (input.type === "arrived" && proxy === null) await recordPerformanceEvent(db, { tenantId: order.tenantId, orderId: order.id, kind: "arrival", onTime: arrivalOnTime(now, order.serviceAt, orderLanding(order)?.landedAt ?? null), occurredAt: now, now });
   if (input.type === "arrived") await enqueueNotification(db, { event: "order.driver_arrived", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.driver_arrived:${order.id}:${order.dispatch.assignedAt?.getTime() ?? 0}` }, now);
 }

@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { type PassengerContact, maskPassenger, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
+import { type PassengerContact, maskContactsInText, maskPassenger, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
@@ -254,7 +254,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.get("/platform/v1/orders/:id/files/:fileId", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
-    const file = await getOrderFile(ctx, { platform: principal.grant.scope }, resourceId(request.params, "订单"), fileIdOf(request.params));
+    const file = await getOrderFile(ctx, { platform: principal, ip: request.ip }, resourceId(request.params, "订单"), fileIdOf(request.params));
     return sendFile(reply, file);
   });
 
@@ -302,7 +302,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       order: platformOrderJson(found, now),
       events: found.events.map((event) => eventJson(event, "platform")),
       pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
-      records: recordsJson(found.records, now),
+      // 司机手写的联系备注可能抄了客人的联系方式：运营这边同样打码（ADR 0054）
+      records: recordsJson({ ...found.records, contacts: found.records.contacts.map((contact) => ({ ...contact, note: contact.note === null ? null : maskContactsInText(contact.note, found.order.passenger.name) })) }, now),
       webhook_deliveries: found.deliveries.map((delivery) => ({ ...deliveryJson(delivery), data: maskedDeliveryData(delivery.eventData as Record<string, unknown>) })),
       payment_events: found.paymentEvents.map(paymentEventJson),
       payments: found.payments.map((payment) => paymentJson(payment)),
