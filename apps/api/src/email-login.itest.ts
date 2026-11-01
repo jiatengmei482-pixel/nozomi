@@ -8,7 +8,7 @@ import { EMAIL_CODE_RESEND_INTERVAL_MS, EMAIL_CODE_TTL_MS } from "@nozomi/domain
 import { SmtpMailer } from "./integrations/smtp.ts";
 import { createSuperAdmin } from "./services/platform-staff.ts";
 import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
-import { type FakeSmtp, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { totpAt } from "./testing/totp.ts";
 
@@ -41,21 +41,10 @@ async function verify(portal: "platform" | "tenant", email: string, code: string
 function latestCode(fake: FakeSmtp, email: string): string {
   const message = [...fake.messages].reverse().find((item) => item.to.includes(email));
   assert.ok(message, `${email} 没有收到邮件`);
-  const text = decodedText(message.data);
+  const text = decodedMailText(message.data);
   const code = /^(\d{6})$/m.exec(text)?.[1];
   assert.ok(code, "邮件里没有 6 位验证码");
   return code;
-}
-
-function decodedText(data: string): string {
-  const head = data.split(/\r?\n\r?\n/)[0] ?? "";
-  const body = data.slice(head.length).trim();
-  if (/content-transfer-encoding: base64/i.test(head)) return Buffer.from(body, "base64").toString("utf8");
-  if (/content-transfer-encoding: quoted-printable/i.test(head)) {
-    const bytes = body.replace(/=\r?\n/g, "");
-    return Buffer.from(bytes.replace(/=([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))), "latin1").toString("utf8");
-  }
-  return body;
 }
 
 const wrongCode = (code: string): string => (code === "000000" ? "000001" : "000000");
@@ -90,7 +79,7 @@ test("平台员工：邮件 → 验证码 → 待验证的会话，两步验证�
   assert.deepEqual([sent.status, sent.body], [202, { expires_in_seconds: 600, resend_after_seconds: 60 }]);
   assert.equal(smtp.messages.length, 1);
   assert.deepEqual(smtp.messages[0]?.to, [email]);
-  const text = decodedText(smtp.messages[0]?.data ?? "");
+  const text = decodedMailText(smtp.messages[0]?.data ?? "");
   assert.match(text, /运营后台/);
   assert.match(text, /10 分钟/);
   assert.match(text, /如果不是你本人操作，请忽略/);
@@ -406,7 +395,7 @@ test("租户员工：验证码登录拿到正常会话；暂停的租户照常�
   const tenant = await api.tenantWithAdmin(root, "验证码车队", "code-admin@fleet.test");
   const ip = nextIp();
   await requestCode("tenant", tenant.adminEmail, ip);
-  assert.match(decodedText(smtp.messages[0]?.data ?? ""), /供应商后台/);
+  assert.match(decodedMailText(smtp.messages[0]?.data ?? ""), /供应商后台/);
   const login = await verify("tenant", tenant.adminEmail, latestCode(smtp, tenant.adminEmail), ip);
   assert.equal(login.status, 200, login.text);
   assert.equal(login.body.tenant.id, tenant.tenantId);

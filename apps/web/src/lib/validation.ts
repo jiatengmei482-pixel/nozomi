@@ -17,6 +17,12 @@ export function validateLoginPassword(value: string): string | null {
   return value === "" ? "请输入密码" : null;
 }
 
+export function validateEmailCode(value: string): string | null {
+  const code = value.trim();
+  if (code === "") return "请输入验证码";
+  return /^[0-9]{6}$/.test(code) ? null : "验证码是 6 位数字";
+}
+
 /** 新密码：空，或逐条列出没满足的规则。不知道邮箱时（凭令牌设密码）传空串，「不含邮箱名」由后端把关。 */
 export function validateNewPassword(value: string, email: string): string[] {
   if (value === "") return ["请输入新密码"];

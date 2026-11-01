@@ -26,6 +26,13 @@ export const E2E_WEB_PLACES_PORT = E2E_WEB_PORT + 2;
 export const E2E_API_STRIPE_PORT = E2E_API_PORT + 4;
 export const E2E_WEB_STRIPE_PORT = E2E_WEB_PORT + 3;
 
+/**
+ * 邮箱验证码登录（M4-06，ADR 0050）专用的一组：**单独的 schema**、一个 API、一个前端。主库里别的用例会在运营后台临时填写、清空 SMTP（它们共用一个库），
+ * 这组里「邮件可不可用」只由 email-login.spec.ts 自己决定。
+ */
+export const E2E_API_MAIL_PORT = E2E_API_PORT + 5;
+export const E2E_WEB_MAIL_PORT = E2E_WEB_PORT + 4;
+
 export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/global-setup.ts",
