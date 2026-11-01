@@ -13186,6 +13186,48 @@ paths:
           $ref: "#/components/responses/PlatformTicketDetail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tickets/{id}/texts/reveal:
+    post:
+      tags: [ 工单 ]
+      operationId: revealPlatformTicketTexts
+      summary: 查看这张工单被打码的文字原文
+      description: |
+        ADR 0056：工单详情的「查看原文」。只返回这张工单确实被打了码的文字，不返回乘客联系方式和这单别的手写内容；范围和详情的 `texts_masked` 是同一次比较的结果。
+        需要操作 `ticket.read` 和 `order.read`。有内容时记一条审计（`order` / `view_ticket_text`，写工单编号、来源和条数，不记内容）；没有打码内容的、脱敏过的单返回空的 `texts`，不记审计。限定了数据范围的员工对范围外的工单和对不存在的工单得到同样的 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 被打码的文字原文
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ texts ]
+                properties:
+                  texts:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ source, source_id, text ]
+                      properties:
+                        source:
+                          type: string
+                          enum: [ ticket_subject, ticket_description, ticket_decision_note, ticket_close_note, ticket_message, ticket_note ]
+                        source_id:
+                          type: string
+                          format: uuid
+                          description: 工单编号
+                        text:
+                          type: string
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/tickets/{id}/assign:
     post:
       tags: [ 工单 ]
@@ -14499,8 +14541,11 @@ components:
           schema:
             type: object
             additionalProperties: false
-            required: [ ticket, messages, notes, compensation, deductions, refund_ids, parent, appeal, approval ]
+            required: [ ticket, messages, notes, compensation, deductions, refund_ids, parent, appeal, approval, texts_masked ]
             properties:
+              texts_masked:
+                type: boolean
+                description: 工单的标题、经过、判定和关闭说明、对话、内部备注里有没有被打了码的内容（ADR 0056）。为假时不用调看原文的接口；脱敏过的单为假（不再给原文）
               ticket:
                 $ref: "#/components/schemas/PlatformTicket"
               messages:

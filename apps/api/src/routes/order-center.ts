@@ -31,7 +31,10 @@ import {
   appealDeadline,
   decisionAgainstTenant,
   exceptionOverdue,
+  grantCan,
+  type TicketTextFields,
   maskOrderValues,
+  maskedTicketTexts,
 } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
@@ -43,7 +46,8 @@ import { getCancellationPolicy } from "../services/cancellation-policy.ts";
 import { getCompensationTable, requestCompensationTableChange } from "../services/compensation-table.ts";
 import { assertExceptionInScope, claimException, closeException, getException, listExceptionsForPlatform } from "../services/exceptions.ts";
 import { assertPlatformOrderInScope } from "../services/order-queries.ts";
-import { orderPassengerNames } from "../services/passenger-privacy.ts";
+import { forbidden } from "../services/errors.ts";
+import { orderMaskingInput, orderPassengerNames, revealTicketTexts } from "../services/passenger-privacy.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
@@ -501,13 +505,12 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     return { items: page.items.map((row) => maskOrderValues(platformTicketJson(row, now), names.get(row.orderId) ?? null)), next_cursor: page.nextCursor, total: page.total };
   });
 
-  const platformDetail = async (ticketId: string, principal: Awaited<ReturnType<typeof authenticatePlatform>>): Promise<Json> => {
+  const platformView = async (ticketId: string, principal: Awaited<ReturnType<typeof authenticatePlatform>>) => {
     const found = await getTicketForPlatform(ctx, ticketId);
     const now = ctx.now();
     const row = { ...found.ticket, orderNo: found.orderNo, tenantName: found.tenantName };
-    const names = await orderPassengerNames(ctx, [found.ticket.orderId]);
-    // 工单里的手写内容打码（ADR 0055），看原文走订单的 reveal
-    return maskOrderValues({
+    const { names, anonymized } = await orderMaskingInput(ctx, found.ticket.orderId);
+    const raw = {
       ticket: platformTicketJson(row, now),
       messages: found.messages.map((message) => messageJson(message, "platform")),
       notes: found.notes.map((note) => ({ id: note.id, author: { id: note.authorId, name: note.authorName }, body: note.body, to_guest: note.toGuest, created_at: note.createdAt.toISOString() })),
@@ -517,7 +520,15 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
       parent: found.parent === null ? null : { id: found.parent.id, ticket_no: found.parent.ticketNo, type: found.parent.type, outcome: found.parent.outcome, decided_by: found.parent.decidedBy },
       appeal: found.appeal === null ? null : { id: found.appeal.id, ticket_no: found.appeal.ticketNo, status: found.appeal.status, outcome: found.appeal.outcome },
       approval: found.approval === null ? null : approvalJson(found.approval, principal),
-    }, names.get(found.ticket.orderId) ?? null);
+    };
+    // 工单里的手写内容打码（ADR 0055）。有没有打码内容直接比打码前后，页面标记和看原文用同一份（ADR 0056）
+    const masked = maskOrderValues(raw, names);
+    return { found, masked, maskedTexts: anonymized ? [] : maskedTicketTexts(raw as unknown as TicketTextFields, masked as unknown as TicketTextFields) };
+  };
+
+  const platformDetail = async (ticketId: string, principal: Awaited<ReturnType<typeof authenticatePlatform>>): Promise<Json> => {
+    const view = await platformView(ticketId, principal);
+    return { ...view.masked, texts_masked: view.maskedTexts.length > 0 };
   };
 
   app.post("/platform/v1/tickets", async (request, reply) => {
@@ -532,6 +543,15 @@ export function registerOrderCenterRoutes(app: FastifyInstance, ctx: AppContext)
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.read" });
     await assertTicketInScope(ctx, principal.grant.scope, resourceId(request.params, "工单"));
     return platformDetail(resourceId(request.params, "工单"), principal);
+  });
+
+  app.post("/platform/v1/tickets/:id/texts/reveal", async (request) => {
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "ticket.read" });
+    if (!grantCan(principal.grant, "order.read")) throw forbidden("order.read");
+    const ticketId = resourceId(request.params, "工单");
+    await assertTicketInScope(ctx, principal.grant.scope, ticketId);
+    const view = await platformView(ticketId, principal);
+    return revealTicketTexts(ctx, principal, { id: ticketId, ticketNo: view.found.ticket.ticketNo, orderId: view.found.ticket.orderId, orderNo: view.found.orderNo }, view.maskedTexts, request.ip);
   });
 
   app.post("/platform/v1/tickets/:id/assign", async (request) => {

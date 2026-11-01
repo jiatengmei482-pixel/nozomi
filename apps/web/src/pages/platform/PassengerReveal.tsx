@@ -1,9 +1,9 @@
 /**
  * 运营看手写内容的原文（M4-21，ADR 0055）：接口里默认打码，只有 `POST /platform/v1/orders/{id}/passenger/reveal` 给原文，每次记审计。
- * 订单详情的「查看联系方式」和工单详情的「查看原文」走同一个接口。
+ * 工单详情的「查看原文」走 `POST /platform/v1/tickets/{id}/texts/reveal`，只给这张工单的文字（ADR 0056）。
  */
 import { useState } from "react";
-import { type RevealedText, revealPlatformPassenger } from "../../api/order-money.ts";
+import { type RevealedText, revealPlatformTicketTexts } from "../../api/order-money.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Button } from "../../components/Button.tsx";
 import { useToast } from "../../components/Toast.tsx";
@@ -48,10 +48,8 @@ export function RevealedTexts({ texts }: { texts: readonly RevealedText[] }) {
   );
 }
 
-const TICKET_SOURCES: readonly RevealedText["source"][] = ["ticket_subject", "ticket_description", "ticket_decision_note", "ticket_close_note", "ticket_message", "ticket_note"];
-
-/** 工单详情：这张工单里被打码的手写内容。需要 `order.read`（接口同样检查），没有权限不显示按钮。 */
-export function TicketTextReveal({ orderId, ticketId }: { orderId: string; ticketId: string }) {
+/** 工单详情：这张工单里被打码的手写内容。接口另要 `order.read`，页面没有权限或没有打码内容（`texts_masked`）时不渲染这里。 */
+export function TicketTextReveal({ ticketId }: { ticketId: string }) {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
   const [texts, setTexts] = useState<RevealedText[] | null>(null);
@@ -59,8 +57,7 @@ export function TicketTextReveal({ orderId, ticketId }: { orderId: string; ticke
   const show = async (): Promise<void> => {
     setBusy(true);
     try {
-      const revealed = await revealPlatformPassenger(token, orderId);
-      setTexts(revealed.texts.filter((entry) => entry.source_id === ticketId && TICKET_SOURCES.includes(entry.source)));
+      setTexts((await revealPlatformTicketTexts(token, ticketId)).texts);
     } catch (err) {
       if (!handleAuthFailure(err)) toast(failureText(err, "查看"));
     } finally {

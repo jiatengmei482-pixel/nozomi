@@ -112,11 +112,13 @@ test("改单框：备注被打了码时不拿打码后的内容当初始值；�
   assert.deepEqual(bodies[0], { flight_no: "JL001", notes: "新的备注" });
 });
 
-test("工单详情：有订单查看权限才有「查看原文」，只显示这张工单的；记审计的提示写明", async () => {
+const TICKET_REVEAL = `/platform/v1/tickets/${TICKET_ID}/texts/reveal`;
+
+test("工单详情：有打码内容才有「查看原文」，点了只调工单的接口、只显示工单文字；记审计的提示写明", async () => {
   const user = userEvent.setup();
   const calls = openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => {
-    if (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}`) return json(200, platformTicketDetailOf());
-    if (call.method === "POST" && call.url.pathname.endsWith("/passenger/reveal")) return json(200, FULL);
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}`) return json(200, platformTicketDetailOf(undefined, { texts_masked: true }));
+    if (call.method === "POST" && call.url.pathname === TICKET_REVEAL) return json(200, { texts: [{ source: "ticket_note", source_id: TICKET_ID, text: "内部：客人是王小明" }] });
     return null;
   });
   const button = await screen.findByRole("button", { name: "查看原文" });
@@ -124,8 +126,26 @@ test("工单详情：有订单查看权限才有「查看原文」，只显示�
   assert.equal(screen.queryByText("内部：客人是王小明"), null);
   await user.click(button);
   await screen.findByText("内部：客人是王小明");
-  assert.equal(screen.queryByText("打了 09012345678 没人接"), null, "别的来源不在工单页显示");
-  assert.equal(calls.filter((call) => call.method === "POST").length, 1);
+  const posts = calls.filter((call) => call.method === "POST");
+  assert.deepEqual(posts.map((call) => call.path), [TICKET_REVEAL], "不走订单的 reveal：不多传联系方式");
+});
+
+test("工单详情：没有打码内容时不显示「查看原文」，也不调接口", async () => {
+  const calls = openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}` ? json(200, platformTicketDetailOf(undefined, { texts_masked: false })) : null));
+  await screen.findByRole("heading", { name: platformTicketDetailOf().ticket.subject });
+  assert.equal(screen.queryByRole("button", { name: "查看原文" }), null);
+  assert.equal(screen.queryByText(/查看会记进审计日志/), null);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0);
+});
+
+test("工单详情：有打码内容但没有看订单的权限，不显示「查看原文」", async () => {
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "custom_no_orders", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/tickets/${TICKET_ID}` ? json(200, platformTicketDetailOf(undefined, { texts_masked: true })) : null), ["ticket.read"]);
+  await screen.findByRole("heading", { name: platformTicketDetailOf().ticket.subject });
+  assert.equal(screen.queryByRole("button", { name: "查看原文" }), null);
+});
+
+test("审计页认得看工单文字这个操作", () => {
+  assert.equal(ACTION_NAMES["view_ticket_text"], "查看工单文字原文");
 });
 
 test("官网查订单的提示说得清楚为什么查不到；审计页认得脱敏这个操作", () => {

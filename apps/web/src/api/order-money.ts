@@ -374,6 +374,11 @@ export function revealPlatformPassenger(token: string, id: string): Promise<Pass
   return apiRequest("POST", `${platformOrder(id)}/passenger/reveal`, { token });
 }
 
+/** 看一张工单被打码的文字原文：只给工单文字，有内容时记一条审计（ADR 0056）。 */
+export function revealPlatformTicketTexts(token: string, ticketId: string): Promise<{ texts: RevealedText[] }> {
+  return apiRequest("POST", `/platform/v1/tickets/${encodeURIComponent(ticketId)}/texts/reveal`, { token });
+}
+
 export interface ProxyFulfilmentRequest {
   type: FulfilmentEventType;
   occurred_at: string;

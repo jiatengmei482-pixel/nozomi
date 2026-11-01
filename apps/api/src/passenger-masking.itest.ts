@@ -104,6 +104,82 @@ test("查看：给手写内容的原文，只列确实被打码的；每次记�
   assert.equal((await api.db.owner.query("select count(*)::int as n from audit_logs where action = 'view_passenger' and resource_id = $1", [order.id])).rows[0].n, before);
 });
 
+const revealTicket = (ticketId: string, token: string) => api.call("POST", `/platform/v1/tickets/${ticketId}/texts/reveal`, { token });
+const ticketAudits = async (orderId: string): Promise<any[]> => (await api.db.owner.query("select action, tenant_id, after from audit_logs where resource = 'order' and resource_id = $1 and action in ('view_ticket_text', 'view_passenger') order by id", [orderId])).rows;
+
+test("工单没有打码内容：texts_masked 为假，调看原文也不给内容、不记审计", async () => {
+  const order = await paid();
+  const token = await ops();
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "车没来", description: "司机说堵车" } }), 201);
+  assert.equal(created.texts_masked, false);
+  const detail = await api.call("GET", `/platform/v1/tickets/${created.ticket.id}`, { token });
+  assertMatchesOpenApi("GET", "/platform/v1/tickets/{id}", detail);
+  assert.equal(detail.body.texts_masked, false);
+  const shown = await revealTicket(created.ticket.id, token);
+  assertMatchesOpenApi("POST", "/platform/v1/tickets/{id}/texts/reveal", shown);
+  assert.deepEqual(shown.body, { texts: [] });
+  assert.deepEqual(await ticketAudits(order.id), []);
+});
+
+test("工单有打码内容：只给这张工单的文字（没有联系方式和别的工单），审计写明看的是工单文字，不列联系方式字段", async () => {
+  const order = await paid();
+  const token = await ops();
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "车没来", description: "司机说堵车" } }), 201);
+  const other = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "另一张", description: `另一张工单的文字 ${PHONE}` } }), 201);
+  const noted = await ok(api.call("POST", `/platform/v1/tickets/${created.ticket.id}/messages`, { token, body: { body: WRITTEN, internal: true } }), 201);
+  assert.equal(noted.texts_masked, true, "加了带联系方式的备注之后就有打码内容");
+  assert.equal(other.texts_masked, true);
+  const shown = await revealTicket(created.ticket.id, token);
+  assertMatchesOpenApi("POST", "/platform/v1/tickets/{id}/texts/reveal", shown);
+  assert.deepEqual(shown.body, { texts: [{ source: "ticket_note", source_id: created.ticket.id, text: WRITTEN }] });
+  assert.ok(!shown.text.includes("另一张"));
+  assert.ok(!("passenger" in shown.body) && !("notes" in shown.body) && !("messaging" in shown.body));
+  const audits = await ticketAudits(order.id);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].action, "view_ticket_text");
+  assert.equal(audits[0].tenant_id, null);
+  assert.deepEqual({ ...audits[0].after, order_no: undefined }, { order_no: undefined, ticket_id: created.ticket.id, ticket_no: created.ticket.ticket_no, viewed: "ticket_text", text_count: 1, text_sources: ["ticket_note"] });
+  assert.ok(!("fields" in audits[0].after), "不再固定列 5 个字段");
+  noSecrets(JSON.stringify(audits[0]), "看工单文字的审计");
+});
+
+test("看工单文字的权限：缺 order.read 403，缺 ticket.read 403，数据范围外 404，供应商和没登录 401；这些都不给内容、不记审计", async () => {
+  const order = await paid();
+  const token = await ops();
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "工单", description: WRITTEN } }), 201);
+  const ticketOnly = await revealTicket(created.ticket.id, await staffWith(["tickets:view"]));
+  assert.deepEqual([ticketOnly.status, ticketOnly.body.error.details.required], [403, "order.read"]);
+  const orderOnly = await revealTicket(created.ticket.id, await staffWith(["orders:view"]));
+  assert.deepEqual([orderOnly.status, orderOnly.body.error.details.required], [403, "ticket.read"]);
+  assert.equal((await revealTicket(created.ticket.id, await staffWith(["orders:view", "tickets:view"], { city_ids: [m.ids.osaka], channel_ids: null }))).status, 404);
+  assert.equal((await revealTicket(randomUUID(), token)).status, 404);
+  assert.equal((await revealTicket(created.ticket.id, await tenantLogin(api, m.a.adminEmail))).status, 401);
+  assert.equal((await revealTicket(created.ticket.id, await tenantLogin(api, m.b.adminEmail))).status, 401);
+  assert.equal((await api.call("POST", `/platform/v1/tickets/${created.ticket.id}/texts/reveal`)).status, 401);
+  assert.deepEqual(await ticketAudits(order.id), []);
+});
+
+test("标记和实际打码是同一次比较：详情里的文字和原文不同的条数，就是看原文给的条数", async () => {
+  const order = await paid();
+  const token = await ops();
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "王小明投诉", description: "司机说堵车" } }), 201);
+  const detail = await ok(api.call("GET", `/platform/v1/tickets/${created.ticket.id}`, { token }));
+  assert.equal(detail.texts_masked, true, "只有姓名、没有电话也算打码");
+  assert.notEqual(detail.ticket.subject, "王小明投诉");
+  const shown = await ok(api.call("POST", `/platform/v1/tickets/${created.ticket.id}/texts/reveal`, { token }));
+  assert.deepEqual(shown.texts.map((entry: any) => [entry.source, entry.text]), [["ticket_subject", "王小明投诉"]]);
+});
+
+test("脱敏过的单：工单里即使还有打码规则认得出的文字，texts_masked 也为假，看原文不给内容、不记审计", async () => {
+  const order = await paid();
+  const token = await ops();
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "工单", description: `电话 ${PHONE}` } }), 201);
+  await api.db.owner.query("update orders set passenger = jsonb_build_object('name', $2::text, 'phone', $2::text, 'email', $2::text), passenger_anonymized_at = now() where id = $1", [order.id, "[已脱敏]"]);
+  assert.equal((await ok(api.call("GET", `/platform/v1/tickets/${created.ticket.id}`, { token }))).texts_masked, false);
+  assert.deepEqual(await ok(api.call("POST", `/platform/v1/tickets/${created.ticket.id}/texts/reveal`, { token })), { texts: [] });
+  assert.deepEqual(await ticketAudits(order.id), []);
+});
+
 test("跨租户：别的供应商读不到、回复不了这张工单；它的工单列表里也没有", async () => {
   const order = await paid();
   const token = await ops();

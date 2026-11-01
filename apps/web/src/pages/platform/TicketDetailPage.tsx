@@ -502,7 +502,7 @@ export function TicketDetailPage() {
               </span>
             </div>
             <p className="prewrap">{ticket.description}</p>
-            {canReadOrder && <TicketTextReveal orderId={ticket.order.id} ticketId={ticket.id} />}
+            {canReadOrder && detail.texts_masked && <TicketTextReveal ticketId={ticket.id} />}
             <dl className="details">
               <Detail label="类型">{ticketTypeName(ticket.type)}</Detail>
               <Detail label="谁提出的">{TICKET_SOURCE_NAMES[ticket.source]}</Detail>
