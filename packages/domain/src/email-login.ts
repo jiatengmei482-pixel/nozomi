@@ -44,7 +44,7 @@ export function resolveLoginMethods(input: { mailConfigured: boolean; passwordLo
 }
 
 /** 审计和日志里的邮箱：只留第一个字符和域名（`a***@example.com`）。 */
-export function maskEmail(email: string): string {
+export function maskLoginEmail(email: string): string {
   const at = email.lastIndexOf("@");
   if (at <= 0) return "***";
   return `${email.slice(0, 1)}***${email.slice(at)}`;

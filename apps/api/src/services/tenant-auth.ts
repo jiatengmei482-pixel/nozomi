@@ -9,7 +9,7 @@ import {
   type SessionPurpose,
   type TenantAction,
   checkPasswordStrength,
-  maskEmail,
+  maskLoginEmail,
   passwordChangeRequiredFirst,
   tenantReadOnly,
   tenantRoleCan,
@@ -201,7 +201,7 @@ export async function tenantEmailCodeLogin(ctx: AppContext, log: EmailLoginLog, 
     : null;
   const reject = async (reason: "unknown_email" | "not_activated" | "account_disabled"): Promise<never> => {
     const origin = consoleOrigin(ANONYMOUS_ACTOR, ip, now);
-    const entry = { resource: "tenant_user" as const, action: "login_failed" as const, before: null, after: { email: maskEmail(input.email), reason, method: "email_code" } };
+    const entry = { resource: "tenant_user" as const, action: "login_failed" as const, before: null, after: { email: maskLoginEmail(input.email), reason, method: "email_code" } };
     if (found) {
       const { tenantId, id } = found.secrets.user;
       await withTenantTx(ctx.pool, tenantId, (db) => insertAuditLog(db, origin, { ...entry, tenantId, resourceId: id }));

@@ -18,7 +18,7 @@ import {
   type LoginPortal,
   emailCodeMail,
   evaluateFixedWindow,
-  maskEmail,
+  maskLoginEmail,
   rateLimitKeyOf,
   resolveLoginMethods,
 } from "@nozomi/domain";
@@ -173,7 +173,7 @@ async function deliverCode(ctx: AppContext, log: EmailLoginLog, portal: LoginPor
       expiresAt: new Date(now.getTime() + EMAIL_CODE_TTL_MS),
     }),
   );
-  const masked = maskEmail(email);
+  const masked = maskLoginEmail(email);
   if (!eligible) {
     await auditAnonymous(ctx, portal, account, ip, now, "email_code_request", { email: masked, outcome: account ? "not_active" : "no_account" });
     return;
@@ -217,7 +217,7 @@ export async function verifyEmailCode(ctx: AppContext, log: EmailLoginLog, porta
   const reason = attempt !== null && !matches && attempt.attemptCount >= EMAIL_CODE_MAX_ATTEMPTS ? "exhausted" : "invalid";
   inBackground(ctx, log, async () => {
     const account = await locateAccount(ctx, portal, email);
-    await auditAnonymous(ctx, portal, account, ip, now, "email_code_failed", { email: maskEmail(email), reason });
+    await auditAnonymous(ctx, portal, account, ip, now, "email_code_failed", { email: maskLoginEmail(email), reason });
   });
   throw emailCodeInvalid();
 }

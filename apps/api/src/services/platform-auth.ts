@@ -12,7 +12,7 @@ import {
   effectiveAllowlist,
   grantCan,
   ipAllowed,
-  maskEmail,
+  maskLoginEmail,
   platformSessionRefusal,
   resolvePlatformGrant,
   secondFactorState,
@@ -177,7 +177,7 @@ export async function platformEmailCodeLogin(ctx: AppContext, log: EmailLoginLog
         resourceId: found?.user.id ?? null,
         action: "login_failed",
         before: null,
-        after: { email: maskEmail(input.email), reason, method: "email_code" },
+        after: { email: maskLoginEmail(input.email), reason, method: "email_code" },
       }),
     );
     if (reason === "account_disabled") throw accountDisabled();
