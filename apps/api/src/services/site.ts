@@ -90,7 +90,7 @@ function linkInvalid(): AppError {
 }
 
 function orderNotFound(): AppError {
-  return new AppError(404, "ORDER_NOT_FOUND", "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号");
+  return new AppError(404, "ORDER_NOT_FOUND", "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服");
 }
 
 const hashToken = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
@@ -468,7 +468,8 @@ export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact:
   const since = new Date(now.getTime() - SITE_LOOKUP_CEILING.windowMs);
   const ceilingOf = (times: readonly Date[]) => evaluateRollingWindow(times, SITE_LOOKUP_CEILING.maxFailures, SITE_LOOKUP_CEILING.windowMs, now);
   const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
-  if (found !== null && contactMatches(contact, found)) {
+  // 脱敏后的单永远对不上（ADR 0055）：走和「对不上」同一条路，应答分不出订单号存不存在
+  if (found !== null && !found.anonymized && contactMatches(contact, found)) {
     const blocked = await withPlatformTx(ctx.pool, async (db) => {
       const ceiling = ceilingOf(await listLookupFailures(db, bucket, since));
       if (ceiling.allowed) return null;

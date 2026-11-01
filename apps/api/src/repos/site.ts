@@ -188,7 +188,7 @@ export async function insertSiteOrderLink(db: Db, link: { orderId: string; token
 /**
  * 按令牌的哈希找链接：还在有效期里的才返回（订单编号和它的渠道）。
  * 有效期按订单**现在**的用车时间算（`service_at + afterServiceMs`，至少到发链接后 `minimumMs`），不看发链接时记下的 `expires_at`：
- * 改期以后链接跟着新的用车时间走，不用去改链接（ADR 0032）。
+ * 改期以后链接跟着新的用车时间走，不用去改链接（ADR 0032）。脱敏后这单的链接全部作废（ADR 0055）。
  */
 export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date, rules: { afterServiceMs: number; minimumMs: number }): Promise<{ orderId: string; channelId: string; expiresAt: Date } | null> {
   const row = (
@@ -198,7 +198,7 @@ export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date
          join order_sales s on s.order_id = l.order_id
          join orders o on o.id = l.order_id
          cross join lateral (select greatest(o.service_at + make_interval(secs => $3::double precision / 1000), l.created_at + make_interval(secs => $4::double precision / 1000)) as expires_at) x
-        where l.token_hash = $1 and x.expires_at > $2`,
+        where l.token_hash = $1 and x.expires_at > $2 and o.passenger_anonymized_at is null`,
       [tokenHash, now, rules.afterServiceMs, rules.minimumMs],
     )
   ).rows[0];
@@ -206,14 +206,14 @@ export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date
 }
 
 /** 用订单号找这个渠道的一张单，带下单时的联系方式（核对用）和用车时间（链接的有效期按它算）。 */
-export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; email: string; phone: string; serviceAt: Date } | null> {
+export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; email: string; phone: string; serviceAt: Date; anonymized: boolean } | null> {
   const row = (
-    await db.query<{ id: string; passenger: { email: string; phone: string }; service_at: Date }>(
-      "select o.id, o.passenger, o.service_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2",
+    await db.query<{ id: string; passenger: { email: string; phone: string }; service_at: Date; passenger_anonymized_at: Date | null }>(
+      "select o.id, o.passenger, o.service_at, o.passenger_anonymized_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2",
       [orderNo, channelId],
     )
   ).rows[0];
-  return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at };
+  return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
 }
 
 /** 这个订单号（哈希）在 `since` 之后各次找回失败的时间。 */

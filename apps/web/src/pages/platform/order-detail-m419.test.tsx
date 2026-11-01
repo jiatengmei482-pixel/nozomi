@@ -183,7 +183,7 @@ test("乘客默认打码：只读员工也要点「查看联系方式」才看�
   const masked = { name: "王**", phone: "+********5678", email: "g***@example.com" };
   const calls = openApp(`/platform/orders/${ORDER_ID}`, "platform", "readonly", (call) => {
     if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, detailOf(orderOf({ passenger: masked })));
-    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/passenger/reveal`) return json(200, { passenger: { name: "王小明", phone: "+819012345678", email: "guest@example.com" } });
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/passenger/reveal`) return json(200, { passenger: { name: "王小明", phone: "+819012345678", email: "guest@example.com" }, messaging: null, notes: null, anonymized_at: null, texts: [] });
     return null;
   });
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });

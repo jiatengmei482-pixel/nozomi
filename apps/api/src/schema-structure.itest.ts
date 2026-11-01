@@ -197,9 +197,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 加价规则：软删除，只增改
     markup_rules: ["INSERT", "SELECT", "UPDATE"],
     // 订单（ADR 0026）：销售端下单、支付回调、超时取消都在平台事务里；状态流水只追加；订单的销售端一侧只追加；收款、支付通知要改状态；都不删
-    order_events: ["INSERT", "SELECT"],
+    order_events: ["INSERT", "SELECT", "UPDATE"],
     // 客人评价（ADR 0028）：只追加
-    order_reviews: ["INSERT", "SELECT"],
+    order_reviews: ["INSERT", "SELECT", "UPDATE"],
     order_payments: ["INSERT", "SELECT", "UPDATE"],
     // 改期后对外价按原加价比例重算：平台只改 sell_minor（触发器按语句检查，ADR 0029）
     order_sales: ["INSERT", "SELECT", "UPDATE"],
@@ -231,7 +231,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     driver_links: ["SELECT", "UPDATE"],
     drivers: ["SELECT"],
     order_assignments: ["SELECT"],
-    order_contacts: ["SELECT"],
+    // 脱敏（ADR 0055）：触发器只放行手写的那一列，只有已脱敏的单才能改
+    order_contacts: ["SELECT", "UPDATE"],
     order_files: ["SELECT"],
     order_locations: ["SELECT"],
     // no-show 审核（ADR 0034）：平台只改结论的三列（触发器按语句检查）
@@ -293,8 +294,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_exceptions: ["INSERT", "SELECT", "UPDATE"],
     // 工单（ADR 0034）：工单改状态；对话、内部备注只追加；赔付记录登记另付；都不删
     ticket_compensations: ["INSERT", "SELECT", "UPDATE"],
-    ticket_messages: ["INSERT", "SELECT"],
-    ticket_notes: ["INSERT", "SELECT"],
+    ticket_messages: ["INSERT", "SELECT", "UPDATE"],
+    ticket_notes: ["INSERT", "SELECT", "UPDATE"],
     tickets: ["INSERT", "SELECT", "UPDATE"],
     vehicle_groups: ["INSERT", "SELECT", "UPDATE"],
   },
@@ -348,6 +349,7 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "tenant_deductions.tenant_deductions_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 工单和对话：客服、渠道、系统建工单，供应商回复和申诉（平台事务里，租户编号只来自令牌），运营后台查看（ADR 0034）
   "tickets.tickets_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "order_contacts.order_contacts_platform_anonymize": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "ticket_messages.ticket_messages_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // no-show 审核写结论（ADR 0034）
   "order_no_show_claims.order_no_show_claims_platform_review": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
@@ -418,6 +420,8 @@ const INDEX_EXCEPTIONS = [
   "orders_payment_due_idx",
   // 用车前 6 小时仍未派车的自动救援跨租户扫（ADR 0031）
   "orders_rescue_due_idx",
+  // 乘客信息脱敏跨租户扫到期的单（ADR 0055）
+  "orders_retention_idx",
   // 运营后台跨供应商的收款账户队列（ADR 0051）
   "payout_accounts_platform_idx",
   // 商品编号全平台唯一（ADR 0016）

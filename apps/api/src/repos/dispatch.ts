@@ -5,6 +5,7 @@
  */
 import type { LandingSource, NoShowChecklistItem, OrderStatus } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
+import { textForOrder } from "./passenger-texts.ts";
 
 type Row = Record<string, any>;
 
@@ -252,7 +253,7 @@ export interface OrderContact {
 export async function insertOrderContact(db: Db, tenantId: string, contact: { orderId: string; method: "phone" | "messaging"; fileId: string | null; note: string | null; occurredAt: Date; linkId: string }): Promise<OrderContact> {
   const result = await db.query<Row>(
     "insert into order_contacts (tenant_id, order_id, method, file_id, note, occurred_at, link_id) values ($1, $2, $3, $4, $5, $6, $7) returning id, method, file_id, note, occurred_at",
-    [tenantId, contact.orderId, contact.method, contact.fileId, contact.note, contact.occurredAt, contact.linkId],
+    [tenantId, contact.orderId, contact.method, contact.fileId, contact.note === null ? null : (await textForOrder(db, contact.orderId))(contact.note).slice(0, 200), contact.occurredAt, contact.linkId],
   );
   const row = result.rows[0] as Row;
   return { id: row["id"], method: row["method"], fileId: row["file_id"], note: row["note"], occurredAt: row["occurred_at"] };

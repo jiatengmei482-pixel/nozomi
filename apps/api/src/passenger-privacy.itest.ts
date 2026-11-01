@@ -55,7 +55,7 @@ test("查看：运营、只读都拿到全文，每次记一条审计（谁看�
   assert.deepEqual([ops.status, ops.body.passenger], [200, FULL]);
   assert.deepEqual((await reveal(orderId, await platformLogin(api, m.staff.readonly.email))).body.passenger, FULL);
   const rows = await auditRows(orderId);
-  assert.deepEqual(rows.map((row) => [row.actor_email, row.tenant_id, row.after.fields]), [[m.staff.operations.email, null, ["name", "phone", "email"]], [m.staff.readonly.email, null, ["name", "phone", "email"]]]);
+  assert.deepEqual(rows.map((row) => [row.actor_email, row.tenant_id, row.after.fields]), [[m.staff.operations.email, null, ["name", "phone", "email", "messaging", "notes"]], [m.staff.readonly.email, null, ["name", "phone", "email", "messaging", "notes"]]]);
   for (const secret of SECRETS) assert.ok(!JSON.stringify(rows).includes(secret), secret);
 });
 

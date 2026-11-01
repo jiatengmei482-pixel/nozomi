@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { type PassengerContact, maskContactsInText, maskPassenger, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
+import { maskOrderValues, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
@@ -24,7 +24,7 @@ import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type OrderFulfilmentRecords, assertPlatformOrderInScope, getOrderFile, getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { PLATFORM_PROXY_SOURCE } from "../services/fulfilment.ts";
-import { revealPassenger } from "../services/passenger-privacy.ts";
+import { orderPassengerNames, revealPassenger } from "../services/passenger-privacy.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
@@ -164,24 +164,19 @@ function platformCancellationJson(order: Order, sale: OrderSale): Json | null {
   };
 }
 
-/** 改单的改前改后、推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
-function maskedPassengerValues(values: Record<string, unknown>): Record<string, unknown> {
-  const passenger = values["passenger"] as PassengerContact | undefined;
-  return passenger === undefined ? values : { ...values, passenger: maskPassenger(passenger) };
+/** 推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
+export function maskedDeliveryData(data: Record<string, unknown>, names: readonly string[] | null = null): Record<string, unknown> {
+  return maskOrderValues(data, names);
 }
 
-export function maskedDeliveryData(data: Record<string, unknown>): Record<string, unknown> {
-  const out = { ...data };
-  for (const key of ["before", "after"]) if (typeof out[key] === "object" && out[key] !== null) out[key] = maskedPassengerValues(out[key] as Record<string, unknown>);
-  return out;
-}
-
-function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: OrderPayment | null; tenantName: string; channelName: string; facts?: DispatchFacts }, now: Date): Json {
+function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: OrderPayment | null; tenantName: string; channelName: string; facts?: DispatchFacts }, now: Date, names: readonly string[]): Json {
   const { order, sale } = entry;
-  return {
+  const known = [order.passenger.name, ...names];
+  return maskOrderValues({
     ...orderTripJson(order),
-    // 运营后台默认打码，点「查看」走 `POST …/passenger/reveal` 并记审计（ADR 0052）
-    passenger: maskPassenger(order.passenger),
+    // 运营后台默认打码，点「查看」走 `POST …/passenger/reveal` 并记审计（ADR 0052）。乘客、即时通讯账号、备注、取消说明都在下面统一打码
+    notes_masked: order.notes !== null && maskOrderValues({ notes: order.notes }, known).notes !== order.notes,
+    passenger_anonymized_at: order.passengerAnonymizedAt?.toISOString() ?? null,
     dispatch: dispatchJson(order, entry.facts ?? { driver: null, vehicle: null }, now),
     fulfilment: fulfilmentJson(order),
     landing: landingJson(order),
@@ -201,7 +196,7 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     cancel_policy: cancelPolicyJson(order),
     cancellation: platformCancellationJson(order, sale),
     version: order.version,
-  };
+  }, known);
 }
 
 function paymentEventJson(event: PaymentEventRecord): Json {
@@ -284,33 +279,37 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       decodeTimeCursor(query.cursor ?? null),
     );
     const now = ctx.now();
-    return { items: page.items.map((item) => ({ ...platformOrderJson(item, now), open_exceptions: page.openExceptions.get(item.order.id) ?? 0 })), next_cursor: page.nextCursor, total: page.total };
+    const names = await orderPassengerNames(ctx, page.items.map((item) => item.order.id));
+    return { items: page.items.map((item) => ({ ...platformOrderJson(item, now, names.get(item.order.id) ?? []), open_exceptions: page.openExceptions.get(item.order.id) ?? 0 })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.post("/platform/v1/orders/:id/passenger/reveal", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const orderId = resourceId(request.params, "订单");
     await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
-    return { passenger: await revealPassenger(ctx, principal, orderId, request.ip) };
+    return await revealPassenger(ctx, principal, orderId, request.ip);
   });
 
   app.get("/platform/v1/orders/:id", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"), principal.grant.scope);
     const now = ctx.now();
+    const names = (await orderPassengerNames(ctx, [found.order.id])).get(found.order.id) ?? [];
     return {
-      order: platformOrderJson(found, now),
+      // 改单的前后值、手写的说明、工单、异常、救援都打码（ADR 0055），看原文走 reveal；键的白名单见 `HANDWRITTEN_KEYS`。
+      ...maskOrderValues({
+      order: platformOrderJson(found, now, names),
       events: found.events.map((event) => eventJson(event, "platform")),
       pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
       // 司机手写的联系备注可能抄了客人的联系方式：运营这边同样打码（ADR 0054）
-      records: recordsJson({ ...found.records, contacts: found.records.contacts.map((contact) => ({ ...contact, note: contact.note === null ? null : maskContactsInText(contact.note, found.order.passenger.name) })) }, now),
-      webhook_deliveries: found.deliveries.map((delivery) => ({ ...deliveryJson(delivery), data: maskedDeliveryData(delivery.eventData as Record<string, unknown>) })),
+      records: recordsJson(found.records, now),
+      webhook_deliveries: found.deliveries.map((delivery) => ({ ...deliveryJson(delivery), data: delivery.eventData })),
       payment_events: found.paymentEvents.map(paymentEventJson),
       payments: found.payments.map((payment) => paymentJson(payment)),
       refunds: found.refunds.map(refundJson),
       changes: found.changes.map((change) => {
         const sold = found.changeSales.get(change.id) ?? null;
-        return { ...changeJson(change), before: maskedPassengerValues(change.before as Record<string, unknown>), after: maskedPassengerValues(change.after as Record<string, unknown>), sell_before: sold === null ? null : salesMoney(sold.sellBeforeMinor, sold.currency), sell_after: sold === null ? null : salesMoney(sold.sellAfterMinor, sold.currency) };
+        return { ...changeJson(change), sell_before: sold === null ? null : salesMoney(sold.sellBeforeMinor, sold.currency), sell_after: sold === null ? null : salesMoney(sold.sellAfterMinor, sold.currency) };
       }),
       rescues: found.rescues.map(platformRescueJson),
       exceptions: found.exceptions.map((exception) => ({
@@ -326,6 +325,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       })),
       tickets: found.tickets.map(orderTicketJson),
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
+      }, names),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,

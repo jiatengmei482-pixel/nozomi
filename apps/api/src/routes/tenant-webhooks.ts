@@ -6,6 +6,7 @@
  * 运营后台（`/platform/v1/webhook-deliveries…`）：跨供应商看投递记录（`order.read`），手动重推（`order.resend`：运营、客服）；
  * 限定了数据范围的人只看得到范围内订单的投递（ADR 0030）。
  */
+import { orderPassengerNames } from "../services/passenger-privacy.ts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { TENANT_WEBHOOK_EVENTS, TENANT_WEBHOOK_EVENT_NAMES, type TenantAction, WEBHOOK_MAX_ATTEMPTS, WEBHOOK_RULES } from "@nozomi/domain";
@@ -151,13 +152,15 @@ export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContex
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(platformDeliveryListSchema, request.query, "querystring");
     const page = await listDeliveriesForPlatform(ctx, { tenantId: query.tenant_id ?? null, status: query.status ?? null, orderId: query.order_id ?? null, scope: principal.grant.scope }, query.limit, decodeTimeCursor(query.cursor ?? null));
-    return { items: page.items.map((item) => ({ ...deliveryJson(item), data: maskedDeliveryData(item.eventData as Record<string, unknown>), tenant: { id: item.tenantId, name: item.tenantName } })), next_cursor: page.nextCursor, total: page.total };
+    const names = await orderPassengerNames(ctx, page.items.flatMap((item) => item.orderId ?? []));
+    return { items: page.items.map((item) => ({ ...deliveryJson(item), data: maskedDeliveryData(item.eventData as Record<string, unknown>, item.orderId === null ? null : (names.get(item.orderId) ?? null)), tenant: { id: item.tenantId, name: item.tenantName } })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/webhook-deliveries/:id", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const found = await getDeliveryForPlatform(ctx, resourceId(request.params, "投递记录"), principal.grant.scope);
-    return { delivery: { ...deliveryJson(found.delivery), data: maskedDeliveryData(found.delivery.eventData as Record<string, unknown>), tenant_id: found.delivery.tenantId }, attempts: found.attempts.map(attemptJson) };
+    const names = found.delivery.orderId === null ? null : ((await orderPassengerNames(ctx, [found.delivery.orderId])).get(found.delivery.orderId) ?? null);
+    return { delivery: { ...deliveryJson(found.delivery), data: maskedDeliveryData(found.delivery.eventData as Record<string, unknown>, names), tenant_id: found.delivery.tenantId }, attempts: found.attempts.map(attemptJson) };
   });
 
   app.post("/platform/v1/webhook-deliveries/:id/retry", async (request) => {

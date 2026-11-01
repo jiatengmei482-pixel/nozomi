@@ -15,6 +15,7 @@ import { listColleagues } from "../repos/platform-users.ts";
 import { routeUsageStatus } from "../repos/route-estimates.ts";
 import { latestFetch, latestRateSet } from "../repos/fx.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
+import { auditPassengerNames, maskedAuditLog } from "../services/passenger-privacy.ts";
 import { type DashboardSummary, type StatusCounts, getDashboardSummary } from "../services/dashboard.ts";
 import {
   type PlatformPrincipal,
@@ -307,7 +308,8 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
         decodeSequenceCursor(query.cursor ?? null),
       ),
     );
-    return pageJson(page, auditLogJson);
+    const names = await withPlatformTx(ctx.pool, (db) => auditPassengerNames(db, page.items), { snapshot: true });
+    return pageJson({ ...page, items: page.items.map((log) => maskedAuditLog(log, names)) }, auditLogJson);
   });
 
   app.get("/platform/v1/dashboard/summary", async (request) => {

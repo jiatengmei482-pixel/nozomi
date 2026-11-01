@@ -46,6 +46,7 @@ import {
   type MailMessage,
   type NotificationVariables,
   type PlatformAction,
+  isAnonymizedPassenger,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
@@ -324,6 +325,8 @@ export class NotificationJobs {
         if (event.orderId === null) return [];
         const current = await findOrderForPlatform(db, event.orderId);
         if (current === null || !(await orderHasSiteLink(db, event.orderId))) return [];
+        // 脱敏后没有地址可发（ADR 0055）
+        if (isAnonymizedPassenger(current.passenger)) return [];
         const email = current.passenger.email.trim();
         // tenant_id 记事件那一家（数据库保证发送记录和事件是同一家）；救援后这单换了供应商，发送时看的是现在的行
         return email === "" || event.tenantId === null ? [] : [{ audience, recipient: email, tenantId: event.tenantId, orderNo: current.orderNo }];
@@ -448,6 +451,7 @@ export class NotificationJobs {
     const rendered = renderNotification(template, variables);
     if (rendered === null) return { kind: "render_failed" };
     // 客人的地址按订单现在的乘客邮箱：等待发送期间改了邮箱，旧地址不能再收到查看链接
+    if (notification.audience === "guest" && order !== null && isAnonymizedPassenger(order.passenger)) return { kind: "render_failed" };
     const to = notification.audience === "guest" && order !== null ? order.passenger.email.trim() : notification.recipient;
     if (to !== notification.recipient) await updateRecipient(db, notification.id, to);
     return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };

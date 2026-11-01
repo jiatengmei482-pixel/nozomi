@@ -7727,8 +7727,9 @@ paths:
       tags:
         - 订单
       operationId: revealPlatformOrderPassenger
-      summary: 查看乘客的完整联系方式
+      summary: 查看乘客的完整联系方式和手写内容原文
       description: |
+        M4-21（ADR 0055）：手写内容（工单、备注、复核、异常、改单前后值）在运营接口里同样打码，这里给原文。`texts` 只列确实被打了码的；工单的文字要求另有 `ticket.read`，复核的文字要求另能看那一类复核，否则不返回。脱敏过的单 `anonymized_at` 不为空，返回的是占位 `[已脱敏]`。审计记字段名和条数，不记内容。
         需求「个人信息保护」（ADR 0052）：运营后台的订单列表和详情里，乘客姓名、电话、邮箱默认打码（含改单的改前改后、这一单的推送内容）。点「查看」才调这个接口，每次记一条审计（`order` / `view_passenger`，不含联系方式本身）。
         需要操作 `order.read`，只读员工同样要走这里。限定了数据范围的员工对范围外的订单和对不存在的订单得到同样的 404。
       security:
@@ -7745,9 +7746,37 @@ paths:
                 additionalProperties: false
                 required:
                   - passenger
+                  - messaging
+                  - notes
+                  - anonymized_at
+                  - texts
                 properties:
                   passenger:
                     $ref: "#/components/schemas/OrderPassenger"
+                  messaging:
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderMessaging"
+                      - type: "null"
+                  notes:
+                    type: [ string, "null" ]
+                  anonymized_at:
+                    type: [ string, "null" ]
+                    format: date-time
+                  texts:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ source, source_id, text ]
+                      properties:
+                        source:
+                          type: string
+                          enum: [ order_cancel_note, contact_note, event_proxy_reason, change_before, change_after, change_decision_note, extra_charge_description, extra_charge_dispute_reason, extra_charge_decision_note, rescue_reason, rescue_force_majeure_note, rescue_decline_reason, exception_resolution, ticket_subject, ticket_description, ticket_decision_note, ticket_close_note, ticket_message, ticket_note, approval_request_note, approval_decision_note, approval_payload ]
+                        source_id:
+                          type: [ string, "null" ]
+                          description: 来源对象的编号（工单、改单、复核……）；订单本身的为空
+                        text:
+                          type: string
         "404":
           $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
@@ -11087,7 +11116,7 @@ paths:
       summary: 用订单号找回订单
       description: |
         订单号 + 下单时的邮箱（不分大小写）或手机号（去掉空格、连字符比较）。对上了发一个新的查看令牌。
-        订单号不存在、联系方式对不上、不是官网的单，一律 404 `ORDER_NOT_FOUND`。每个地址 15 分钟 10 次（成功失败都算）；每个订单号每小时 10 次**失败**（对不上、不存在都算；联系方式对上的那次不受这一层限制，别人刷满了也不挡真客人）；硬上限：每个订单号滚动 24 小时失败满 100 次后，对上的也回同一个 429，直到最早的失败满 24 小时。
+        订单号不存在、联系方式对不上、不是官网的单、乘客信息已脱敏（结束超过保存期限，ADR 0055）的单，一律 404 `ORDER_NOT_FOUND`。每个地址 15 分钟 10 次（成功失败都算）；每个订单号每小时 10 次**失败**（对不上、不存在都算；联系方式对上的那次不受这一层限制，别人刷满了也不挡真客人）；硬上限：每个订单号滚动 24 小时失败满 100 次后，对上的也回同一个 429，直到最早的失败满 24 小时。
       requestBody:
         required: true
         content:
@@ -21515,8 +21544,15 @@ components:
       additionalProperties: false
       description: |
         运营后台看到的订单：行程、乘客、中标租户、渠道、对外价、结算价、加价比例、汇率快照、付款状态。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version ]
+      required: [ notes_masked, passenger_anonymized_at, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, dispatch, fulfilment, landing, tenant, channel, quote_id, channel_order_no, product_id, product_version, sell, settlement, markup_bp, fx, fx_buffer_bp, payment_due_at, payment, cancel_policy, cancellation, version ]
       properties:
+        notes_masked:
+          type: boolean
+          description: 备注里有联系方式被打了码（ADR 0055）。为真时编辑不能用 `notes` 做初始值，否则打码后的内容会被存回去
+        passenger_anonymized_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 乘客信息什么时候脱敏的（ADR 0055，订单结束超过保存期限后自动做，不可逆）；没有脱敏为空。脱敏后 `passenger` 的三项都是占位 `[已脱敏]`
         id:
           type: string
           format: uuid

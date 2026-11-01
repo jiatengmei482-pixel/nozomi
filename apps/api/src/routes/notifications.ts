@@ -3,6 +3,8 @@
  * 运营后台：发送记录（`notification.read`）、手动重试（`notification.retry`，写审计）、只读看模板。
  * 供应商后台：发给自己这家的记录（`notification.read`）、免打扰（改：`notification.manage`）；`tenant_id` 只从登录令牌取。
  */
+import { maskOrderValues } from "@nozomi/domain";
+import { orderPassengerNames } from "../services/passenger-privacy.ts";
 import { NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, NOTIFICATION_TEMPLATES, TENANT_RULES, templatePlaceholders } from "@nozomi/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -41,13 +43,16 @@ export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
     );
-    return { items: page.items.map(notificationJson), next_cursor: page.nextCursor, total: page.total, summary: { mail_configured: page.mailConfigured, waiting: page.waiting, failed_events: page.failedEvents } };
+    // 邮件服务器的拒收信息会带地址和姓名（ADR 0055）
+    const names = await orderPassengerNames(ctx, page.items.flatMap((row) => row.orderId ?? []));
+    return { items: page.items.map((row) => maskOrderValues(notificationJson(row), row.orderId === null ? null : (names.get(row.orderId) ?? null))), next_cursor: page.nextCursor, total: page.total, summary: { mail_configured: page.mailConfigured, waiting: page.waiting, failed_events: page.failedEvents } };
   });
 
   app.post("/platform/v1/notifications/:id/retry", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "notification.retry" });
     const leased = await leaseNotificationForRetry(ctx, principal, request.ip, resourceId(request.params, "通知"));
-    return { notification: notificationJson(await app.notificationJobs.deliverNow(leased)) };
+    const delivered = await app.notificationJobs.deliverNow(leased);
+    return { notification: maskOrderValues(notificationJson(delivered), delivered.orderId === null ? null : ((await orderPassengerNames(ctx, [delivered.orderId])).get(delivered.orderId) ?? null)) };
   });
 
   app.get("/platform/v1/notification-templates", async (request) => {

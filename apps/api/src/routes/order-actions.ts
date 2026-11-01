@@ -16,10 +16,11 @@
  * - `POST …/extra-charges/{chargeId}/decide`（审核）、`POST …/extra-charges/{chargeId}/retry`、`POST …/refunds/{refundId}/retry`（财务重试）。
  * 运营后台按订单的接口都先核对数据范围（ADR 0030：订单的城市、渠道），范围外的和不存在一样；取消政策是全平台的，不按范围。
  */
+import { orderPassengerNames } from "../services/passenger-privacy.ts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PlatformAction } from "@nozomi/domain";
-import { EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
+import { maskOrderValues, EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -265,7 +266,7 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const input = parseInput(platformCancelSchema, request.body, "body");
     const result = await cancelForPlatform(ctx, principal, orderId, { reason: input.reason, waiveFee: input.waive_fee, note: input.note }, request.ip, request.log);
-    if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
+    if (result.kind === "approval") return reply.code(202).send({ approval: maskOrderValues(approvalJson(result.approval, principal), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) });
     return { order_id: result.orderId, replayed: result.replayed };
   });
 
@@ -276,7 +277,7 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(proxyFulfilmentSchema, request.body, "body");
     const result = await reportProxyFulfilment(ctx, principal, orderId, version, { type: input.type, occurredAt: input.occurred_at, reason: input.reason, actual: input.actual }, request.ip);
-    if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
+    if (result.kind === "approval") return reply.code(202).send({ approval: maskOrderValues(approvalJson(result.approval, principal), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) });
     return { order_id: orderId, status: result.order.status, version: result.order.version };
   });
 
@@ -287,7 +288,8 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(changeSchema, request.body ?? {}, "body");
     const result = await changeForPlatform(ctx, principal, orderId, version, toChangeInput(input), request.ip, request.log);
-    return { change: changeJson(result.change) };
+    // 响应里的改前值不能绕过「查看」（ADR 0055）
+    return { change: maskOrderValues(changeJson(result.change), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/decide", async (request) => {
@@ -297,7 +299,7 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
     const input = parseInput(decideSchema, request.body, "body");
     const charge = await decideExtraCharge(ctx, principal, orderId, chargeId, { decision: input.decision, approvedMinor: input.approved_amount, note: input.note }, request.ip, request.log);
-    return { extra_charge: extraChargeJson(charge) };
+    return { extra_charge: maskOrderValues(extraChargeJson(charge), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
   });
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/retry", async (request) => {
@@ -305,7 +307,8 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     const orderId = resourceId(request.params, "订单");
     await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const chargeId = resourceId({ id: (request.params as { chargeId?: unknown }).chargeId }, "加收");
-    return { extra_charge: extraChargeJson(await retryExtraCharge(ctx, principal, orderId, chargeId, request.ip, request.log)) };
+    const retried = await retryExtraCharge(ctx, principal, orderId, chargeId, request.ip, request.log);
+    return { extra_charge: maskOrderValues(extraChargeJson(retried), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
   });
 
   app.post("/platform/v1/orders/:id/refunds/:refundId/retry", async (request) => {

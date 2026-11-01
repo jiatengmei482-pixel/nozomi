@@ -4,8 +4,9 @@
  * 前后值（before / after）由调用方用白名单字段显式组装，这里不接受整行数据，
  * 所以密码哈希、令牌这类字段进不来。
  */
-import type { AuditAction, AuditResource } from "@nozomi/domain";
+import { type AuditAction, type AuditResource, isOrderAudit, maskOrderValues } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
+import { listPassengerNames } from "./passenger-texts.ts";
 import { type Page, type SequenceCursor, toPage } from "../pagination.ts";
 
 export type AuditActorType = "platform_user" | "tenant_user" | "system" | "anonymous";
@@ -45,7 +46,31 @@ export interface AuditLog extends AuditOrigin, AuditEvent {
   id: string;
 }
 
-export async function insertAuditLog(db: Db, origin: AuditOrigin, event: AuditEvent): Promise<void> {
+/** 这条审计是哪一单的：对象就是订单，或者前后值里写了 `order_id`；工单、复核可能只写了对象自己的编号，要查一次。返回这单用过的所有姓名（旧姓名也算）。 */
+export async function auditPassengerNames(db: Db, event: Pick<AuditEvent, "resource" | "resourceId" | "before" | "after">): Promise<string[]> {
+  const written = [event.after?.["order_id"], event.before?.["order_id"]].find((id) => typeof id === "string") as string | undefined;
+  const approved = event.resource === "approval" ? event.after : null;
+  let orderId: string | null = written ?? null;
+  let ticketId: string | null = null;
+  if (event.resource === "order") orderId = event.resourceId;
+  else if (event.resource === "ticket" && orderId === null) ticketId = event.resourceId;
+  else if (approved?.["resource"] === "order" && typeof approved["resource_id"] === "string") orderId = approved["resource_id"];
+  else if (approved?.["resource"] === "ticket" && typeof approved["resource_id"] === "string") ticketId = approved["resource_id"];
+  if (orderId === null && ticketId !== null) orderId = (await db.query<{ order_id: string }>("select order_id from tickets where id = $1 limit 1", [ticketId])).rows[0]?.order_id ?? null;
+  return orderId === null ? [] : ((await listPassengerNames(db, [orderId])).get(orderId) ?? []);
+}
+
+/**
+ * 和订单有关的审计从写入时就打码（ADR 0055）：审计要留 3 年、不能改，乘客信息只能留到脱敏，原文不能进这张表。
+ * 调用方不用记：所有写审计的地方都经过这里。姓名按这单现在的乘客找（手写内容里的姓名要靠它认）。
+ */
+async function maskedAuditValues(db: Db, event: AuditEvent): Promise<Pick<AuditEvent, "before" | "after">> {
+  if (!isOrderAudit(event)) return { before: event.before, after: event.after };
+  return maskOrderValues({ before: event.before, after: event.after }, await auditPassengerNames(db, event));
+}
+
+export async function insertAuditLog(db: Db, origin: AuditOrigin, unmasked: AuditEvent): Promise<void> {
+  const event = { ...unmasked, ...(await maskedAuditValues(db, unmasked)) };
   await db.query(
     `insert into audit_logs
        (occurred_at, tenant_id, actor_type, actor_id, actor_email, ip, source, resource, resource_id, action, before, after)

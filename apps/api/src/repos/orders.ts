@@ -85,6 +85,8 @@ export interface Order {
   driverLanguage: string | null;
   flightNo: string | null;
   passenger: { name: string; phone: string; email: string };
+  /** 什么时候脱敏的（ADR 0055）；没有脱敏为空 */
+  passengerAnonymizedAt: Date | null;
   messaging: { app: MessagingApp; handle: string } | null;
   notes: string | null;
   settlementMinor: number;
@@ -112,7 +114,7 @@ export interface Order {
 
 const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.city_id, o.place_id, o.direction, o.product_id, o.product_version, o.vehicle_group_id, o.package_hours,
   o.service_at, o.service_local, o.timezone, o.service_date::text as service_date, o.urgent, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
-  o.passenger, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
+  o.passenger, o.passenger_anonymized_at, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
@@ -145,6 +147,7 @@ function toOrder(row: Row): Order {
     driverLanguage: row["driver_language"],
     flightNo: row["flight_no"],
     passenger: row["passenger"],
+    passengerAnonymizedAt: row["passenger_anonymized_at"],
     messaging: row["messaging"],
     notes: row["notes"],
     settlementMinor: Number(row["settlement_minor"]),
@@ -191,7 +194,7 @@ function toOrder(row: Row): Order {
   };
 }
 
-export type NewOrder = Omit<Order, "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "rescuedAt" | "version" | "updatedAt" | "dispatch">;
+export type NewOrder = Omit<Order, "passengerAnonymizedAt" | "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "rescuedAt" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
   await db.query(

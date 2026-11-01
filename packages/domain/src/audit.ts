@@ -114,6 +114,8 @@ export const AUDIT_ACTIONS = [
   "cancel",
   // 运营点「查看」看乘客的完整联系方式（需求「个人信息保护」，ADR 0052）
   "view_passenger",
+  // 乘客信息自动脱敏（ADR 0055）：每批一条，只有数量和范围
+  "anonymize_passenger",
   "view_evidence_file",
   "change",
   "decide",

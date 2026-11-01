@@ -7,6 +7,8 @@
  * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）；
  * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
+import { ANONYMIZED_TEXT } from "@nozomi/domain";
+import { RevealedTexts } from "./PassengerReveal.tsx";
 import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, SERVICE_CATEGORIES, type ServiceCategory, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
@@ -27,6 +29,7 @@ import {
   getPlatformOrder,
   listPlatformOrders,
   retryExtraCharge,
+  type PassengerReveal,
   revealPlatformPassenger,
   retryRefund,
 } from "../../api/order-money.ts";
@@ -259,22 +262,38 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 function PassengerContact({ order }: { order: PlatformOrder }) {
   const { token, handleAuthFailure } = usePortalSession();
   const toast = useToast();
-  const [revealed, setRevealed] = useState<PlatformOrder["passenger"] | null>(null);
+  const [revealed, setRevealed] = useState<PassengerReveal | null>(null);
   const [busy, setBusy] = useState(false);
   const show = async (): Promise<void> => {
     setBusy(true);
     try {
-      setRevealed((await revealPlatformPassenger(token, order.id)).passenger);
+      setRevealed(await revealPlatformPassenger(token, order.id));
     } catch (err) {
       if (!handleAuthFailure(err)) toast(failureText(err, "查看"));
     } finally {
       setBusy(false);
     }
   };
-  const shown = revealed ?? order.passenger;
+  const shown = revealed?.passenger ?? order.passenger;
+  const anonymized = order.passenger_anonymized_at !== null && order.passenger_anonymized_at !== undefined;
+  if (anonymized) {
+    return (
+      <>
+        {`${ANONYMIZED_TEXT} · ${order.passengers} 人 ${order.luggage} 件行李`}
+        <span className="field__hint">订单结束超过保存期限，乘客姓名、电话、邮箱已按隐私规则清除，无法恢复。</span>
+      </>
+    );
+  }
   return (
     <>
       {`${shown.name} · ${shown.phone}${revealed === null ? "" : ` · ${shown.email}`} · ${order.passengers} 人 ${order.luggage} 件行李`}
+      {revealed !== null && (
+        <>
+          {revealed.messaging !== null && <span className="field__hint">{`即时通讯：${revealed.messaging.app} ${revealed.messaging.handle}`}</span>}
+          {revealed.notes !== null && <span className="field__hint prewrap">{`备注原文：${revealed.notes}`}</span>}
+          <RevealedTexts texts={revealed.texts} />
+        </>
+      )}
       {revealed === null && (
         <>
           {" "}
@@ -352,7 +371,9 @@ function CancelDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
 function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const [flight, setFlight] = useState(order.flight_no ?? "");
-  const [notes, setNotes] = useState(order.notes ?? "");
+  // 备注被打了码时不能当初始值：改一个字保存就会把打码后的内容存回去、原文丢失（ADR 0055）
+  const notesMasked = order.notes_masked === true;
+  const [notes, setNotes] = useState(notesMasked ? "" : (order.notes ?? ""));
   const [passengers, setPassengers] = useState(String(order.passengers));
   const [luggage, setLuggage] = useState(String(order.luggage));
   const [time, setTime] = useState(order.service_local);
@@ -361,7 +382,7 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
   const submit = async (): Promise<void> => {
     const body: OrderChangeRequest = {};
     if (flight.trim() !== (order.flight_no ?? "")) body.flight_no = flight.trim() === "" ? null : flight.trim();
-    if (notes.trim() !== (order.notes ?? "")) body.notes = notes.trim() === "" ? null : notes.trim();
+    if (notesMasked ? notes.trim() !== "" : notes.trim() !== (order.notes ?? "")) body.notes = notes.trim() === "" ? null : notes.trim();
     if (passengers !== String(order.passengers)) body.passengers = Number(passengers);
     if (luggage !== String(order.luggage)) body.luggage = Number(luggage);
     if (time !== order.service_local) {
@@ -393,7 +414,7 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
       {order.category === "airport_transfer" && <TextField label="航班号" value={flight} onChange={(event) => setFlight(event.target.value)} />}
       <TextField label="人数" inputMode="numeric" value={passengers} onChange={(event) => setPassengers(event.target.value)} />
       <TextField label="行李" inputMode="numeric" value={luggage} onChange={(event) => setLuggage(event.target.value)} />
-      <TextField label="备注" value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} />
+      <TextField label="备注" value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} {...(notesMasked ? { hint: "现在的备注含联系方式，已打码。留空不改，填写则整条替换。" } : {})} />
       <p className="field__hint">出了免费取消期只能改航班号和乘客信息；车型、品类、城市、上下车点的位置不能改（请取消后重新下单）。</p>
       {problem !== null && <Alert kind="danger">{problem}</Alert>}
     </Dialog>
