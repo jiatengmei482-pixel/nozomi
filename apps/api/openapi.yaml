@@ -202,7 +202,93 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用；`IP_NOT_ALLOWED`：密码正确，但来源地址不在这个账号的 IP 白名单里"
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用；`IP_NOT_ALLOWED`：密码正确，但来源地址不在这个账号的 IP 白名单里；`PASSWORD_LOGIN_DISABLED`：密码登录已关闭（ADR 0050，和邮箱无关）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /platform/v1/auth/login-methods:
+    get:
+      tags: [ 平台登录 ]
+      operationId: platformLoginMethods
+      summary: 现在哪些登录方式可用
+      description: |
+        登录页据此显示（ADR 0050）。邮件发送配置好了验证码才可用；密码只有服务器明确关闭、且邮件可用时才关闭。不要令牌。
+      security: []
+      responses:
+        "200":
+          description: 可用的登录方式
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginMethods"
+  /platform/v1/auth/email-code/request:
+    post:
+      tags: [ 平台登录 ]
+      operationId: platformRequestEmailCode
+      summary: 给平台员工发登录验证码
+      description: |
+        6 位验证码，10 分钟有效，发新码时旧码作废（ADR 0050）。
+        **不管邮箱存不存在、账号是否停用，应答都是这个 202**：查账号和发信都在应答之后做。
+        同一邮箱 60 秒 1 封、15 分钟 5 封、24 小时 20 封，同一来源地址 15 分钟 20 封，超过 429。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "202":
+          description: 已受理（不代表邮箱存在，也不代表邮件已经发出）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailCodeSent"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          description: "`EMAIL_CODE_UNAVAILABLE`：邮件发送没有配置（和邮箱无关）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/auth/email-code/verify:
+    post:
+      tags: [ 平台登录 ]
+      operationId: platformVerifyEmailCode
+      summary: 用邮箱验证码登录
+      description: |
+        成功的应答和密码登录一样（ADR 0050）。一个码最多试 5 次，用过即作废，同一个码并发提交只有一个成功。
+        限速：同一邮箱 + 同一来源地址 15 分钟 5 次，同一邮箱 20 次，同一来源地址 50 次。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeVerifyRequest"
+      responses:
+        "200":
+          description: 验证通过
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformLoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：验证码正确，但账号已停用；`IP_NOT_ALLOWED`：验证码正确，但来源地址不在这个账号的 IP 白名单里"
           content:
             application/json:
               schema:
@@ -2751,7 +2837,93 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用"
+          description: "`ACCOUNT_DISABLED`：密码正确，但账号已停用；`PASSWORD_LOGIN_DISABLED`：密码登录已关闭（ADR 0050，和邮箱无关）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+  /tenant/v1/auth/login-methods:
+    get:
+      tags: [ 租户登录 ]
+      operationId: tenantLoginMethods
+      summary: 现在哪些登录方式可用
+      description: |
+        登录页据此显示（ADR 0050）。邮件发送配置好了验证码才可用；密码只有服务器明确关闭、且邮件可用时才关闭。不要令牌。
+      security: []
+      responses:
+        "200":
+          description: 可用的登录方式
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginMethods"
+  /tenant/v1/auth/email-code/request:
+    post:
+      tags: [ 租户登录 ]
+      operationId: tenantRequestEmailCode
+      summary: 给租户用户发登录验证码
+      description: |
+        6 位验证码，10 分钟有效，发新码时旧码作废（ADR 0050）。
+        **不管邮箱存不存在、账号是否停用，应答都是这个 202**：查账号和发信都在应答之后做。
+        同一邮箱 60 秒 1 封、15 分钟 5 封、24 小时 20 封，同一来源地址 15 分钟 20 封，超过 429。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "202":
+          description: 已受理（不代表邮箱存在，也不代表邮件已经发出）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailCodeSent"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/TooManyLoginAttempts"
+        "503":
+          description: "`EMAIL_CODE_UNAVAILABLE`：邮件发送没有配置（和邮箱无关）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/auth/email-code/verify:
+    post:
+      tags: [ 租户登录 ]
+      operationId: tenantVerifyEmailCode
+      summary: 用邮箱验证码登录
+      description: |
+        成功的应答和密码登录一样（ADR 0050）。一个码最多试 5 次，用过即作废，同一个码并发提交只有一个成功。
+        限速：同一邮箱 + 同一来源地址 15 分钟 5 次，同一邮箱 20 次，同一来源地址 50 次。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeVerifyRequest"
+      responses:
+        "200":
+          description: 验证通过
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantLoginResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          description: "`EMAIL_CODE_INVALID`：邮箱不存在、没发过码、码错、过期、用过、次数用尽，都是这一个"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCOUNT_DISABLED`：验证码正确，但账号已停用"
           content:
             application/json:
               schema:
@@ -15774,6 +15946,46 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
+    LoginMethods:
+      type: object
+      additionalProperties: false
+      required: [ email_code, password ]
+      properties:
+        email_code:
+          type: boolean
+          description: 邮件发送配置好了就可用
+        password:
+          type: boolean
+          description: 只有服务器明确关闭、且邮件可用时才是 false
+    EmailCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [ email ]
+      properties:
+        email:
+          $ref: "#/components/schemas/Email"
+    EmailCodeSent:
+      type: object
+      additionalProperties: false
+      required: [ expires_in_seconds, resend_after_seconds ]
+      properties:
+        expires_in_seconds:
+          type: integer
+          description: 验证码多少秒内有效
+        resend_after_seconds:
+          type: integer
+          description: 多少秒后可以重新发送
+    EmailCodeVerifyRequest:
+      type: object
+      additionalProperties: false
+      required: [ email, code ]
+      properties:
+        email:
+          $ref: "#/components/schemas/Email"
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: 6 位数字（可以有前导 0）
     TokenCheckRequest:
       type: object
       additionalProperties: false
@@ -16571,6 +16783,8 @@ components:
           enum:
             - login
             - login_failed
+            - email_code_request
+            - email_code_failed
             - logout
             - create
             - invite

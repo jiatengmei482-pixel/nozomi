@@ -12,6 +12,7 @@ import {
   effectiveAllowlist,
   grantCan,
   ipAllowed,
+  maskEmail,
   platformSessionRefusal,
   resolvePlatformGrant,
   secondFactorState,
@@ -23,9 +24,10 @@ import { issueSession } from "../auth/session.ts";
 import { bearerToken, verifyAccessToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
-import { insertAuditLog } from "../repos/audit-logs.ts";
+import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
 import {
   type PlatformUser,
+  type PlatformUserSecrets,
   activatePlatformUser,
   deleteOtherPlatformSessions,
   deletePlatformSession,
@@ -43,6 +45,7 @@ import { ANONYMOUS_ACTOR, consoleOrigin, platformActor } from "./audit.ts";
 import {
   accountDisabled,
   currentPasswordIncorrect,
+  emailCodeInvalid,
   forbidden,
   forbiddenAny,
   invalidCredentials,
@@ -55,6 +58,7 @@ import {
   unauthenticated,
   weakPassword,
 } from "./errors.ts";
+import { type EmailLoginLog, type VerifyEmailCodeInput, assertPasswordLoginOpen, settleEmailCodeLogin, verifyEmailCode } from "./email-login.ts";
 import { clearLoginReservation, reserveLogin } from "./login-guard.ts";
 
 export interface LoginInput {
@@ -74,6 +78,7 @@ export interface PlatformLoginResult {
 type LoginFailure = "unknown_email" | "not_activated" | "wrong_password" | "account_disabled" | "ip_not_allowed";
 
 export async function platformLogin(ctx: AppContext, input: LoginInput, ip: string): Promise<PlatformLoginResult> {
+  await assertPasswordLoginOpen(ctx);
   const now = ctx.now();
   const reservation = await reserveLogin(ctx, "platform", input.email, ip, now);
   const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByEmail(db, input.email));
@@ -111,20 +116,31 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
   };
   if (failure !== null || !found) return reject(failure ?? "unknown_email");
 
-  const session = issueSession(
-    ctx.config.authJwtSecret,
-    { audience: "platform", userId: found.user.id, tenantId: null, role: found.user.role },
-    now,
-  );
   // 密码是在事务外验证的（慢计算不持锁）。建会话前锁住账号再核对一次：这期间密码被改过或账号被停用，
   // 刚才的验证就不算数——否则「改密 / 重设让全部会话失效」之后，还会冒出一个用旧密码建的新会话。
-  const user = await withPlatformTx(ctx.pool, async (db) => {
-    const locked = await lockPlatformUser(db, found.user.id);
-    if (!locked || locked.user.status !== "active" || !sameStoredPassword(found.passwordHash, locked.passwordHash)) {
-      return null;
-    }
+  const opened = await openPlatformSession(ctx, found.user, ip, now, null, (locked) => sameStoredPassword(found.passwordHash, locked.passwordHash));
+  if (!opened) return reject("wrong_password");
+  await clearLoginReservation(ctx, reservation);
+  return opened;
+}
+
+/**
+ * 凭证（密码或邮箱验证码）核对通过之后建会话：两种登录方式走这同一段，所以两步验证、停用的检查一样。
+ * 会话先是「待验证」的，15 分钟内完成两步验证才延长到令牌的 8 小时（ADR 0030）。账号不在用、`stillValid` 不成立时返回 null。
+ */
+async function openPlatformSession(
+  ctx: AppContext,
+  account: PlatformUser,
+  ip: string,
+  now: Date,
+  auditAfter: AuditValues | null,
+  stillValid: (locked: PlatformUserSecrets) => boolean,
+): Promise<PlatformLoginResult | null> {
+  const session = issueSession(ctx.config.authJwtSecret, { audience: "platform", userId: account.id, tenantId: null, role: account.role }, now);
+  const opened = await withPlatformTx(ctx.pool, async (db) => {
+    const locked = await lockPlatformUser(db, account.id);
+    if (!locked || locked.user.status !== "active" || !stillValid(locked)) return null;
     const user = locked.user;
-    // 会话先是「待验证」的，15 分钟内完成两步验证才延长到令牌的 8 小时
     await insertPlatformSession(db, {
       id: session.sessionId,
       userId: user.id,
@@ -137,13 +153,45 @@ export async function platformLogin(ctx: AppContext, input: LoginInput, ip: stri
       resourceId: user.id,
       action: "login",
       before: null,
-      after: null,
+      after: auditAfter,
     });
     return { user, enrolled: locked.totpSecret !== null };
   });
-  if (!user) return reject("wrong_password");
-  await clearLoginReservation(ctx, reservation);
-  return { accessToken: session.accessToken, expiresAt: session.expiresAt, user: user.user, secondFactor: user.enrolled ? "verify_required" : "enrollment_required" };
+  if (!opened) return null;
+  return { accessToken: session.accessToken, expiresAt: session.expiresAt, user: opened.user, secondFactor: opened.enrolled ? "verify_required" : "enrollment_required" };
+}
+
+/**
+ * 邮箱验证码登录（ADR 0050）：验证码只代替密码这一步。通过之后的账号状态、IP 白名单和建会话都和密码登录一样，
+ * 接着仍要两步验证。这些拒绝只有拿到了验证码的人才看得到，所以不泄露邮箱是否存在。
+ */
+export async function platformEmailCodeLogin(ctx: AppContext, log: EmailLoginLog, input: VerifyEmailCodeInput, ip: string): Promise<PlatformLoginResult> {
+  const now = ctx.now();
+  const passed = await verifyEmailCode(ctx, log, "platform", input, ip, now);
+  const found = await withPlatformTx(ctx.pool, (db) => findPlatformUserByEmail(db, input.email));
+  const reject = async (reason: "unknown_email" | "not_activated" | "account_disabled" | "ip_not_allowed"): Promise<never> => {
+    await withPlatformTx(ctx.pool, (db) =>
+      insertAuditLog(db, consoleOrigin(ANONYMOUS_ACTOR, ip, now), {
+        tenantId: null,
+        resource: "platform_user",
+        resourceId: found?.user.id ?? null,
+        action: "login_failed",
+        before: null,
+        after: { email: maskEmail(input.email), reason, method: "email_code" },
+      }),
+    );
+    if (reason === "account_disabled") throw accountDisabled();
+    if (reason === "ip_not_allowed") throw ipNotAllowed();
+    throw emailCodeInvalid();
+  };
+  if (!found) return reject("unknown_email");
+  if (found.user.status === "invited") return reject("not_activated");
+  if (found.user.status === "disabled") return reject("account_disabled");
+  if (!ipAllowed(ip, effectiveAllowlist(found.user.ipAllowlist, found.roleIpAllowlist))) return reject("ip_not_allowed");
+  const opened = await openPlatformSession(ctx, found.user, ip, now, { method: "email_code" }, () => true);
+  if (!opened) return reject("account_disabled");
+  await settleEmailCodeLogin(ctx, "platform", input.email, passed);
+  return opened;
 }
 
 export interface PlatformPrincipal {
