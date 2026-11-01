@@ -407,7 +407,6 @@ test("银行转账文件：供应商提交收款账户 → 两位财务启用 �
   // 财务核对后发起复核，另一位批准
   const admin = adminCredentials();
   await loginAs(page, "platform", admin.email, admin.password);
-  await menu(page).getByRole("button", { name: "财务结算" }).click().catch(() => undefined);
   await menu(page).getByRole("link", { name: "收款账户" }).click();
   await page.getByRole("button", { name: `发起复核：${seed.tenantName} JPY` }).click();
   await page.getByRole("dialog", { name: `发起复核：${seed.tenantName} 的 JPY 账户` }).getByRole("button", { name: "提交复核" }).click();
@@ -419,12 +418,20 @@ test("银行转账文件：供应商提交收款账户 → 两位财务启用 �
 
   // 账单：出账、供应商确认、付款复核通过
   const headers = await platformAdminHeaders(request);
-  const generated = await post<{ created: { id: string; statement_no: string; tenant: { id: string } }[] }>(request, headers, "/platform/v1/statements/generate", { period }, "出账");
-  const statement = generated.created.find((entry) => entry.tenant.id === seed.tenantId);
+  const send = async <T,>(path: string, sendHeaders: Record<string, string>, data: unknown, status: number, what: string): Promise<T> => {
+    const response = await request.post(path, { headers: sendHeaders, data });
+    expect(response.status(), `${what}：${await response.text()}`).toBe(status);
+    return (await response.json()) as T;
+  };
+  // 定时任务可能已经出过了（API 启动后 15 秒第一轮）：手工再出一次不重复，按供应商和周期查
+  await send("/platform/v1/statements/generate", headers, { period }, 200, "出账");
+  const listed = await request.get(`/platform/v1/statements?tenant_id=${seed.tenantId}&period=${period}`, { headers });
+  expect(listed.status(), "查账单").toBe(200);
+  const statement = ((await listed.json()) as { items: { id: string; statement_no: string }[] }).items[0];
   if (statement === undefined) throw new Error("这家供应商没有出账");
-  const tenantLogin = await post<{ access_token: string }>(request, {}, "/tenant/v1/auth/login", { email: seed.adminEmail, password: seed.password }, "供应商登录");
-  await post(request, { authorization: `Bearer ${tenantLogin.access_token}` }, `/tenant/v1/statements/${statement.id}/confirm`, {}, "确认账单");
-  await post(request, headers, `/platform/v1/statements/${statement.id}/payout-approval`, {}, "发起付款复核");
+  const tenantLogin = await send<{ access_token: string }>("/tenant/v1/auth/login", {}, { email: seed.adminEmail, password: seed.password }, 200, "供应商登录");
+  await send(`/tenant/v1/statements/${statement.id}/confirm`, { authorization: `Bearer ${tenantLogin.access_token}` }, {}, 200, "确认账单");
+  await send(`/platform/v1/statements/${statement.id}/payout-approval`, headers, {}, 202, "发起付款复核");
   await approve(statement.statement_no, "付款给供应商");
 
   // 批次：锁定 → 生成 → 另一位批准
@@ -436,7 +443,7 @@ test("银行转账文件：供应商提交收款账户 → 两位财务启用 �
   await page.getByRole("dialog", { name: /^锁定 / }).getByRole("button", { name: "锁定" }).click();
   await expect(toast(page, "已锁定付款批次")).toBeVisible();
   const group = page.getByRole("region", { name: "JPY 的转账文件" });
-  await expect(group.getByRole("table", { name: "JPY 能进文件的账单" }).getByRole("row").filter({ hasText: statement.statement_no })).toContainText(`•••• ${last4}`);
+  await expect(group.getByRole("region", { name: "JPY 能进文件的账单" }).getByRole("row").filter({ hasText: statement.statement_no })).toContainText(`•••• ${last4}`);
   await group.getByRole("button", { name: "生成 JPY 转账文件" }).click();
   const generate = page.getByRole("dialog", { name: "生成 JPY 转账文件" });
   const acknowledge = generate.getByRole("checkbox", { name: /确认这次不付/ });
@@ -449,7 +456,7 @@ test("银行转账文件：供应商提交收款账户 → 两位财务启用 �
 
   // 下载、回填
   await page.reload();
-  await page.getByRole("table", { name: "这个批次的转账文件" }).getByRole("link", { name: /^BF/ }).first().click();
+  await page.getByRole("region", { name: "这个批次的转账文件" }).getByRole("link", { name: /^BF/ }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: /^转账文件 BF/ })).toBeVisible();
   await expect(page.getByText(fakeAccount)).toHaveCount(0);
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "下载 CSV" }).click()]);
