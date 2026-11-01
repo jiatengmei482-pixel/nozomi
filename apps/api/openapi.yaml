@@ -16777,7 +16777,7 @@ components:
       type: object
       additionalProperties: false
       required: [ id, code, name, country_code, timezone ]
-      description: 下拉用的城市（ADR 0046）。`status` 只在 `include_disabled=true` 时出现
+      description: 下拉用的城市（ADR 0047）。`status` 只在 `include_disabled=true` 时出现
       properties:
         id:
           type: string
@@ -16796,7 +16796,7 @@ components:
       type: object
       additionalProperties: false
       required: [ id, code, name ]
-      description: 下拉用的车型组（ADR 0046），只有启用中的
+      description: 下拉用的车型组（ADR 0047），只有启用中的
       properties:
         id:
           type: string
@@ -16809,7 +16809,7 @@ components:
       type: object
       additionalProperties: false
       required: [ id, code, type, name ]
-      description: 下拉用的地点（ADR 0046），只有启用中的
+      description: 下拉用的地点（ADR 0047），只有启用中的
       properties:
         id:
           type: string
@@ -16825,7 +16825,7 @@ components:
       type: object
       additionalProperties: false
       required: [ id, code, name, description, categories, charge_unit ]
-      description: 附加服务目录的一项（ADR 0046）。`status` 只在 `include_disabled=true` 时出现
+      description: 附加服务目录的一项（ADR 0047）。`status` 只在 `include_disabled=true` 时出现
       properties:
         id:
           type: string
