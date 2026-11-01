@@ -202,6 +202,25 @@ test("账户队列：默认看待审核；发起复核、驳回（原因必填�
   assert.deepEqual(posted, [{ path: "approval", body: { note: null } }]);
 });
 
+test("供应商提交账户：名称写中文、SWIFT 也不对时一次都提示，不用改完一处才看到下一处；没有发请求", async () => {
+  let posted = 0;
+  openApp("/statements/payout-accounts", "tenant", "admin", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/tenant/v1/payout-accounts") return json(200, { items: [] });
+    if (call.method === "POST") posted += 1;
+    return null;
+  });
+  const u = user();
+  await screen.findByText("还没有收款账户");
+  await u.click(screen.getByRole("button", { name: "提交收款账户" }));
+  await u.type(screen.getByLabelText(/收款人名称/), "测试公司");
+  await u.type(screen.getByLabelText(/SWIFT\/BIC/), "12345");
+  await u.click(within(screen.getByRole("dialog")).getByRole("button", { name: /提交/ }));
+  const dialog = screen.getByRole("dialog");
+  assert.match(dialog.textContent ?? "", /SWIFT\/BIC 要 8 或 11 位/);
+  assert.equal(within(dialog).getAllByText(/英文|字符/).length > 0, true, "名称的字符问题也要提示");
+  assert.equal(posted, 0);
+});
+
 test("供应商提交账户：先查填没填、SWIFT 和 IBAN 格式；密码错写在密码框下；后端的逐项错误写到对应字段；账号提交后只看到末 4 位", async () => {
   const posted: Record<string, unknown>[] = [];
   let items: unknown[] = [];
