@@ -18,10 +18,12 @@ import {
   ORDER_NO_ALPHABET,
   STATEMENT_FILE_ISSUE_MESSAGES,
   type StatementFileIssue,
+  accountLast4,
   accountNumberIssue,
   accountRecentlyChanged,
   bankFileColumnWidths,
   bankFileCsv,
+  bankFileIntegrityIssue,
   bankFileName,
   bankFileRows,
   bankFileSummaryRows,
@@ -60,7 +62,7 @@ import { type ApprovalKind, approvalStale, requestApproval } from "./approvals.t
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
-import { openAccountNumber } from "./payout-accounts.ts";
+import { openAccountNumber, payoutMac } from "./payout-accounts.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 type BatchStatement = Statement & { tenantName: string };
@@ -133,11 +135,12 @@ function excludedJson(entry: ExcludedStatement): { statement_id: string; stateme
   return { statement_id: entry.statement.id, statement_no: entry.statement.statementNo, tenant_id: entry.statement.tenantId, tenant_name: entry.statement.tenantName, code: entry.code, message: STATEMENT_FILE_ISSUE_MESSAGES[entry.code], amount_minor: entry.statement.totalMinor };
 }
 
-/** 账号解得开、还合规则吗（发起生成时查；解开的账号只在这里用一下）。 */
+/** 账号解得开、还合规则、末 4 位对得上吗（发起生成和批准时都查；解开的账号只在这里用一下）。 */
 function numberProblem(ctx: AppContext, entry: EligibleStatement, sealed: string | undefined): StatementFileIssue | null {
   if (sealed === undefined) return "ACCOUNT_UNREADABLE";
   try {
-    return accountNumberIssue(entry.account.accountKind, openAccountNumber(ctx, entry.account.tenantId, entry.account.id, sealed)) === null ? null : "ACCOUNT_INVALID";
+    const number = openAccountNumber(ctx, entry.account.tenantId, entry.account.id, sealed);
+    return accountNumberIssue(entry.account.accountKind, number) === null && accountLast4(number) === entry.account.accountLast4 ? null : "ACCOUNT_INVALID";
   } catch (err) {
     if (err instanceof SecretBoxError) return "ACCOUNT_UNREADABLE";
     throw err;
@@ -215,6 +218,24 @@ export async function requestBankFile(ctx: AppContext, principal: PlatformPrinci
   });
 }
 
+/**
+ * 文件的内容基准（批准时记下、每次下载核对，CSV 和 Excel 共用）：除了账号明文，写进文件的每一项都算在内，账号算的是密文的哈希。
+ * 用主密钥派生的 HMAC：改库的人重算不了。
+ */
+function contentDigest(
+  ctx: AppContext,
+  file: { fileNo: string; payoutBatchId: string; currency: string; template: string; chargeBearer: string; itemCount: number; totalMinor: number; createdAt: Date },
+  items: readonly { tenantId: string; seq: number; statementId: string; statementNo: string; accountId: string; amountMinor: number; currency: string; beneficiaryName: string; beneficiaryAddress: string; bankName: string; bankAddress: string; swiftBic: string; accountSealed: string; accountLast4: string; reference: string }[],
+): string {
+  return payoutMac(
+    ctx,
+    JSON.stringify({
+      file: [file.fileNo, file.payoutBatchId, file.currency, file.template, file.chargeBearer, file.itemCount, file.totalMinor, file.createdAt.toISOString()],
+      items: items.map((item) => [item.seq, item.tenantId, item.statementId, item.statementNo, item.accountId, createHash("sha256").update(item.accountSealed).digest("hex"), item.accountLast4, item.amountMinor, item.currency, item.beneficiaryName, item.beneficiaryAddress, item.bankName, item.bankAddress, item.swiftBic, item.reference]),
+    }),
+  );
+}
+
 function fileNo(payDate: string): string {
   let random = "";
   for (let i = 0; i < 8; i += 1) random += ORDER_NO_ALPHABET[randomInt(ORDER_NO_ALPHABET.length)];
@@ -234,7 +255,7 @@ export const BANK_FILE_GENERATE: ApprovalKind = {
   requestAction: "statement.manage",
   reviewAction: "statement.review",
   unscopedOnly: true,
-  async apply(db, approval, origin) {
+  async apply(db, approval, origin, ctx) {
     const now = origin.occurredAt;
     const batchId = approval.payload["batch_id"] as string;
     const currency = approval.payload["currency"] as CurrencyCode;
@@ -250,47 +271,49 @@ export const BANK_FILE_GENERATE: ApprovalKind = {
       return entry;
     });
     const sealed = await sealedAccountsOf(db, entries.map((entry) => entry.account));
+    // 解不开的不生成：否则会产生一个永远下载不了的文件。整个批准回滚，复核仍是待审核，审核人看到原因后驳回
+    const unreadable = entries.filter((entry) => numberProblem(ctx, entry, sealed.get(entry.account.id)) !== null).map((entry) => entry.statement.statementNo);
+    if (unreadable.length > 0) throw new AppError(409, "BANK_FILE_ACCOUNT_UNREADABLE", "有账号解不开或不合规则，没有生成文件。请驳回这条复核，让供应商重新提交账户后再发起", { statement_nos: unreadable });
     const id = randomUUID();
     const no = fileNo(batch.payDate);
     const totalMinor = bankFileTotal(entries.map((entry) => ({ amountMinor: entry.statement.totalMinor })));
     const reviewerId = origin.actor.id as string;
+    const chargeBearer = approval.payload["charge_bearer"] as ChargeBearer;
+    const newItems = entries.map(({ statement, account }, index) => ({
+      tenantId: statement.tenantId,
+      fileId: id,
+      seq: index + 1,
+      statementId: statement.id,
+      statementNo: statement.statementNo,
+      accountId: account.id,
+      amountMinor: statement.totalMinor,
+      currency,
+      beneficiaryName: account.beneficiaryName,
+      beneficiaryAddress: account.beneficiaryAddress,
+      bankName: account.bankName,
+      bankAddress: account.bankAddress,
+      swiftBic: account.swiftBic,
+      accountSealed: sealed.get(account.id) as string,
+      accountLast4: account.accountLast4,
+      reference: paymentReference(statement.statementNo, statement.period),
+    }));
     await insertBankFile(db, {
       id,
       fileNo: no,
       payoutBatchId: batchId,
       currency,
       template: DEFAULT_BANK_FILE_TEMPLATE,
-      chargeBearer: approval.payload["charge_bearer"] as ChargeBearer,
+      chargeBearer,
       itemCount: entries.length,
       totalMinor,
       excluded: approval.payload["excluded"] as unknown[],
       approvalId: approval.id,
       requestedBy: approval.requestedBy.id,
       approvedBy: reviewerId,
+      contentDigest: contentDigest(ctx, { fileNo: no, payoutBatchId: batchId, currency, template: DEFAULT_BANK_FILE_TEMPLATE, chargeBearer, itemCount: entries.length, totalMinor, createdAt: now }, newItems),
       now,
     });
-    let seq = 0;
-    for (const { statement, account } of entries) {
-      seq += 1;
-      await insertBankFileItem(db, {
-        tenantId: statement.tenantId,
-        fileId: id,
-        seq,
-        statementId: statement.id,
-        statementNo: statement.statementNo,
-        accountId: account.id,
-        amountMinor: statement.totalMinor,
-        currency,
-        beneficiaryName: account.beneficiaryName,
-        beneficiaryAddress: account.beneficiaryAddress,
-        bankName: account.bankName,
-        bankAddress: account.bankAddress,
-        swiftBic: account.swiftBic,
-        accountSealed: sealed.get(account.id) as string,
-        accountLast4: account.accountLast4,
-        reference: paymentReference(statement.statementNo, statement.period),
-      });
-    }
+    for (const item of newItems) await insertBankFileItem(db, item);
     await insertAuditLog(db, origin, {
       tenantId: null,
       resource: "bank_file",
@@ -333,26 +356,45 @@ export interface DownloadedFile {
   fileName: string;
 }
 
-function renderFile(ctx: AppContext, file: BankFile, items: readonly (BankFileItemRow & { accountSealed: string })[], format: BankFileFormat): Buffer {
+const INTEGRITY_MESSAGE = "文件内容和批准时不一致，已拒绝下载。请联系技术核对，不要转账";
+
+/** 下载前的核对没通过：错误码、原因（给审计），不带账号。事务回滚后另开事务留记录。 */
+class BankFileRefused extends AppError {
+  readonly reason: string;
+  constructor(code: "BANK_FILE_INTEGRITY" | "BANK_FILE_ACCOUNT_UNREADABLE", message: string, reason: string, details: Record<string, unknown> = {}) {
+    super(409, code, message, details);
+    this.reason = reason;
+  }
+}
+
+/** 解出账号、核对（账号解得开、末 4 位、笔数、合计、内容基准），都过了才返回文件内容。 */
+function verifiedContent(ctx: AppContext, file: BankFile, items: readonly (BankFileItemRow & { accountSealed: string })[]): BankFileContent {
   const unreadable: string[] = [];
-  const content: BankFileContent = {
+  const decrypted = items.map((item) => {
+    let accountNumber = "";
+    try {
+      accountNumber = openAccountNumber(ctx, item.tenantId, item.accountId, item.accountSealed);
+    } catch (err) {
+      if (!(err instanceof SecretBoxError)) throw err;
+      unreadable.push(item.statementNo);
+    }
+    return { item, accountNumber };
+  });
+  if (unreadable.length > 0) throw new BankFileRefused("BANK_FILE_ACCOUNT_UNREADABLE", "有账号解不开（数据加密密钥可能换过），没有生成文件。请作废这个文件、让供应商重新提交账户后再生成", "ACCOUNT_UNREADABLE", { statement_nos: unreadable });
+  const issue = bankFileIntegrityIssue(file, decrypted.map(({ item, accountNumber }) => ({ amountMinor: item.amountMinor, accountLast4: item.accountLast4, accountNumber })));
+  if (issue !== null) throw new BankFileRefused("BANK_FILE_INTEGRITY", INTEGRITY_MESSAGE, issue);
+  if (contentDigest(ctx, file, items) !== file.contentDigest) throw new BankFileRefused("BANK_FILE_INTEGRITY", INTEGRITY_MESSAGE, "CONTENT_DIGEST");
+  return {
     fileNo: file.fileNo,
     payDate: file.payDate,
     currency: file.currency,
     chargeBearer: file.chargeBearer,
     generatedAt: file.createdAt.toISOString(),
-    items: items.map((item) => {
-      let accountNumber = "";
-      try {
-        accountNumber = openAccountNumber(ctx, item.tenantId, item.accountId, item.accountSealed);
-      } catch (err) {
-        if (!(err instanceof SecretBoxError)) throw err;
-        unreadable.push(item.statementNo);
-      }
-      return { beneficiaryName: item.beneficiaryName, beneficiaryAddress: item.beneficiaryAddress, bankName: item.bankName, bankAddress: item.bankAddress, swiftBic: item.swiftBic, accountNumber, amountMinor: item.amountMinor, reference: item.reference };
-    }),
+    items: decrypted.map(({ item, accountNumber }) => ({ beneficiaryName: item.beneficiaryName, beneficiaryAddress: item.beneficiaryAddress, bankName: item.bankName, bankAddress: item.bankAddress, swiftBic: item.swiftBic, accountNumber, amountMinor: item.amountMinor, reference: item.reference })),
   };
-  if (unreadable.length > 0) throw new AppError(409, "BANK_FILE_ACCOUNT_UNREADABLE", "有账号解不开（数据加密密钥可能换过），没有生成文件。请作废这个文件、让供应商重新提交账户后再生成", { statement_nos: unreadable });
+}
+
+function renderFile(file: BankFile, content: BankFileContent, format: BankFileFormat): Buffer {
   if (format === "csv") return Buffer.from(bankFileCsv(file.template, content), "utf8");
   return writeXlsx([
     { name: "Payments", rows: bankFileRows(file.template, content), header: true, columnWidths: bankFileColumnWidths(file.template) },
@@ -360,33 +402,56 @@ function renderFile(ctx: AppContext, file: BankFile, items: readonly (BankFileIt
   ]);
 }
 
+export interface BankFileLog {
+  error(obj: object, msg: string): void;
+}
+
 /**
- * 下载（平台事务里，提交之后才把内容交出去）：内容不落盘，从条目快照现生成；第一次记 SHA-256，之后核对。
+ * 下载（平台事务里，提交之后才把内容交出去）：内容不落盘，从条目快照现生成。每次都核对（`verifiedContent`），不依赖「第一次下载」。
+ * 账户在文件生成后换过的（还没付款的条目）：要明确确认（`acknowledgeAccountChanged`），否则 409 `BANK_FILE_ACCOUNT_CHANGED`，审计记下这次是确认后下载的。
  * 审计记谁、格式、哈希、笔数、合计，没有账号。第一次下载把文件记为「已下载」。
+ * 核对不通过：事务回滚（不改状态、不计次数），另开事务留一条审计和错误日志。
  */
-export async function downloadBankFile(ctx: AppContext, principal: PlatformPrincipal, id: string, format: BankFileFormat, ip: string): Promise<DownloadedFile> {
+export async function downloadBankFile(ctx: AppContext, principal: PlatformPrincipal, id: string, format: BankFileFormat, acknowledgeAccountChanged: boolean, ip: string, log: BankFileLog): Promise<DownloadedFile> {
   const now = ctx.now();
-  return withPlatformTx(ctx.pool, async (db) => {
-    const file = await findBankFile(db, id, { lock: true });
-    if (file === null) throw notFound("转账文件");
-    if (file.status !== "generated" && file.status !== "downloaded") throw new AppError(409, "BANK_FILE_STATE_INVALID", "已付款或已作废的文件不能再下载", { status: file.status });
-    const items = await listItemsForDownload(db, id);
-    const content = renderFile(ctx, file, items, format);
-    const sha256 = createHash("sha256").update(content).digest("hex");
-    const known = format === "csv" ? file.csvSha256 : file.xlsxSha256;
-    if (known !== null && known !== sha256) throw new AppError(409, "BANK_FILE_INTEGRITY", "文件内容和第一次下载时不一致，已拒绝下载。请联系技术核对，不要转账");
-    const downloadCount = file.downloadCount + 1;
-    await updateBankFile(db, id, { status: "downloaded", first_downloaded_at: file.firstDownloadedAt ?? now, download_count: downloadCount, ...(format === "csv" ? { csv_sha256: sha256 } : { xlsx_sha256: sha256 }) }, now);
-    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {
-      tenantId: null,
-      resource: "bank_file",
-      resourceId: id,
-      action: "download",
-      before: { status: file.status },
-      after: { status: "downloaded", file_no: file.fileNo, format, sha256, item_count: items.length, total_minor: file.totalMinor, currency: file.currency, download_count: downloadCount },
+  try {
+    return await withPlatformTx(ctx.pool, async (db) => {
+      const file = await findBankFile(db, id, { lock: true });
+      if (file === null) throw notFound("转账文件");
+      if (file.status !== "generated" && file.status !== "downloaded") throw new AppError(409, "BANK_FILE_STATE_INVALID", "已付款或已作废的文件不能再下载", { status: file.status });
+      const items = await listItemsForDownload(db, id);
+      const verified = verifiedContent(ctx, file, items);
+      const changed = items.filter((item) => item.accountChanged && item.paidAt === null).map((item) => item.statementNo);
+      if (changed.length > 0 && !acknowledgeAccountChanged) throw new AppError(409, "BANK_FILE_ACCOUNT_CHANGED", "文件生成后供应商的收款账户换过，文件里还是批准时的账号。确认这个账号仍然可用再下载", { statement_nos: changed });
+      const content = renderFile(file, verified, format);
+      const sha256 = createHash("sha256").update(content).digest("hex");
+      const known = format === "csv" ? file.csvSha256 : file.xlsxSha256;
+      if (known !== null && known !== sha256) throw new BankFileRefused("BANK_FILE_INTEGRITY", INTEGRITY_MESSAGE, "FILE_SHA256");
+      const downloadCount = file.downloadCount + 1;
+      await updateBankFile(db, id, { status: "downloaded", first_downloaded_at: file.firstDownloadedAt ?? now, download_count: downloadCount, ...(format === "csv" ? { csv_sha256: sha256 } : { xlsx_sha256: sha256 }) }, now);
+      await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {
+        tenantId: null,
+        resource: "bank_file",
+        resourceId: id,
+        action: "download",
+        before: { status: file.status },
+        after: { status: "downloaded", file_no: file.fileNo, format, sha256, item_count: items.length, total_minor: file.totalMinor, currency: file.currency, download_count: downloadCount, account_changed_acknowledged: changed.length > 0 },
+      });
+      return { content, contentType: format === "csv" ? "text/csv; charset=utf-8" : XLSX_CONTENT_TYPE, fileName: bankFileName(file, format) };
     });
-    return { content, contentType: format === "csv" ? "text/csv; charset=utf-8" : XLSX_CONTENT_TYPE, fileName: bankFileName(file, format) };
-  });
+  } catch (err) {
+    if (err instanceof BankFileRefused) await recordRefusal(ctx, principal, id, format, err, ip, now, log);
+    throw err;
+  }
+}
+
+async function recordRefusal(ctx: AppContext, principal: PlatformPrincipal, id: string, format: BankFileFormat, refusal: BankFileRefused, ip: string, now: Date, log: BankFileLog): Promise<void> {
+  log.error({ event: "bank_file.integrity_failed", bankFileId: id, code: refusal.code, reason: refusal.reason }, "转账文件下载前核对不通过，已拒绝");
+  try {
+    await withPlatformTx(ctx.pool, (db) => insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "bank_file", resourceId: id, action: "integrity_failed", before: null, after: { code: refusal.code, reason: refusal.reason, format } }));
+  } catch (err) {
+    log.error({ err, bankFileId: id }, "转账文件核对不通过的审计没有写成");
+  }
 }
 
 // ---- 回填流水号 ----

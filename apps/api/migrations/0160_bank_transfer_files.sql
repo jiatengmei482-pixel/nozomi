@@ -67,6 +67,46 @@ create trigger payout_accounts_platform_columns
   on payout_accounts
   for each statement execute function reject_platform_column_update();
 
+-- 状态机（纵深防御，平台角色写 SQL 也绕不过两人复核）：新账户只能是待审核；待审核 → 生效 / 驳回 / 撤回；生效 → 已被替换；别的都拒绝（已被替换的不能退回生效）
+create function payout_accounts_guard_status() returns trigger
+  language plpgsql
+  as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.status <> 'pending' or new.approval_id is not null then
+      raise exception '新的收款账户只能是待审核' using errcode = 'check_violation';
+    end if;
+  elsif new.status is distinct from old.status
+    and not ((old.status = 'pending' and new.status in ('active', 'rejected', 'withdrawn')) or (old.status = 'active' and new.status = 'superseded')) then
+    raise exception '收款账户不能从 % 变成 %', old.status, new.status using errcode = 'check_violation';
+  end if;
+  return new;
+end
+$$;
+
+create trigger payout_accounts_status_machine
+  before insert or update on payout_accounts
+  for each row execute function payout_accounts_guard_status();
+
+-- 生效的账户必须有属于它自己的已批准复核。批准的事务里先生效、后写复核结论，所以提交时才查
+create function payout_accounts_check_approval() returns trigger
+  language plpgsql
+  as $$
+begin
+  if new.status = 'active' and not exists (
+    select 1 from approvals a where a.id = new.approval_id and a.kind = 'payout_account.activate' and a.resource_id = new.id::text and a.status = 'approved'
+  ) then
+    raise exception '生效的收款账户必须有属于它的已批准复核' using errcode = 'check_violation';
+  end if;
+  return null;
+end
+$$;
+
+create constraint trigger payout_accounts_active_approved
+  after insert or update on payout_accounts
+  deferrable initially deferred
+  for each row execute function payout_accounts_check_approval();
+
 -- ---- 转账文件（平台表：租户没有任何权限）：一个文件一个批次、一种币种；内容不存，下载时从条目快照现生成 ----
 
 create table bank_files (
@@ -90,7 +130,9 @@ create table bank_files (
   created_at timestamptz not null,
   first_downloaded_at timestamptz,
   download_count integer not null default 0,
-  -- 第一次下载某种格式时记下的 SHA-256，之后再下载核对
+  -- 批准时记的内容基准（HMAC，两种格式共用）：账户密文、末 4 位、金额、合计、收款人都算在内；改库的人没有主密钥，重算不了
+  content_digest text not null,
+  -- 第一次下载某种格式时记下的 SHA-256，之后再下载核对；记过就不能改（下面的触发器）
   csv_sha256 text,
   xlsx_sha256 text,
   paid_at timestamptz,
@@ -101,6 +143,8 @@ create table bank_files (
   version integer not null default 1,
   updated_at timestamptz not null,
   constraint bank_files_no_key unique (file_no),
+  constraint bank_files_id_currency_key unique (id, currency),
+  constraint bank_files_digest_format check (content_digest ~ '^[0-9a-f]{64}$'),
   constraint bank_files_no_format check (file_no ~ '^BF[0-9]{8}[0-9A-HJ-NP-Z]{8}$'),
   constraint bank_files_currency_format check (currency ~ '^[A-Z]{3}$'),
   constraint bank_files_bearer_check check (charge_bearer in ('OUR', 'SHA', 'BEN')),
@@ -123,16 +167,32 @@ create index bank_files_created_idx on bank_files (created_at desc, id);
 grant select, insert, update on bank_files to nozomi_platform;
 
 create trigger bank_files_platform_columns
-  before update of id, file_no, payout_batch_id, currency, template, charge_bearer, item_count, total_minor, excluded, approval_id, requested_by, approved_by, created_at
+  before update of id, file_no, payout_batch_id, currency, template, charge_bearer, item_count, total_minor, excluded, approval_id, requested_by, approved_by, created_at, content_digest
   on bank_files
   for each statement execute function reject_platform_column_update();
+
+-- 下载指纹只能从空写成值，写过就不能改
+create function bank_files_guard_sha() returns trigger
+  language plpgsql
+  as $$
+begin
+  if current_user = 'nozomi_platform' and ((old.csv_sha256 is not null and new.csv_sha256 is distinct from old.csv_sha256) or (old.xlsx_sha256 is not null and new.xlsx_sha256 is distinct from old.xlsx_sha256)) then
+    raise exception '平台角色不能改已记下的文件指纹' using errcode = 'insufficient_privilege';
+  end if;
+  return new;
+end
+$$;
+
+create trigger bank_files_sha_once
+  before update on bank_files
+  for each row execute function bank_files_guard_sha();
 
 -- ---- 文件条目（带 tenant_id；租户角色没有授权，只给平台）：每笔一行，账户内容是批准时的快照，账号是复制过来的密文 ----
 
 create table bank_file_items (
   tenant_id uuid not null references tenants (id),
   id uuid not null default gen_random_uuid(),
-  file_id uuid not null references bank_files (id),
+  file_id uuid not null,
   seq integer not null,
   statement_id uuid not null,
   statement_no text not null,
@@ -154,6 +214,8 @@ create table bank_file_items (
   -- 文件作废时未付款的条目一起作废，账单释放
   voided_at timestamptz,
   primary key (tenant_id, id),
+  -- 条目的币种一定等于文件的币种
+  constraint bank_file_items_file_currency_fkey foreign key (file_id, currency) references bank_files (id, currency),
   foreign key (tenant_id, statement_id) references statements (tenant_id, id),
   foreign key (tenant_id, account_id) references payout_accounts (tenant_id, id),
   constraint bank_file_items_seq_key unique (file_id, seq),

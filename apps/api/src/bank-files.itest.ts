@@ -221,8 +221,8 @@ async function fileDetail(id: string): Promise<any> {
   return res.body.file;
 }
 
-async function download(id: string, format: "csv" | "xlsx", token?: string): Promise<{ status: number; headers: Record<string, unknown>; bytes: Buffer; json: any }> {
-  const res = await api.app.inject({ method: "POST", url: `/platform/v1/bank-files/${id}/download`, headers: { authorization: `Bearer ${token ?? (await fin1())}`, "content-type": "application/json" }, payload: { format } });
+async function download(id: string, format: "csv" | "xlsx", token?: string, acknowledge = false): Promise<{ status: number; headers: Record<string, unknown>; bytes: Buffer; json: any }> {
+  const res = await api.app.inject({ method: "POST", url: `/platform/v1/bank-files/${id}/download`, headers: { authorization: `Bearer ${token ?? (await fin1())}`, "content-type": "application/json" }, payload: acknowledge ? { format, acknowledge_account_changed: true } : { format } });
   let json: any = null;
   if (String(res.headers["content-type"]).includes("json")) json = res.json();
   return { status: res.statusCode, headers: res.headers, bytes: res.rawPayload, json };
@@ -296,7 +296,7 @@ test("生成走双人复核：驳回不留文件；批准时生成；排除名�
   const item = (await fileDetail(file.id)).items[0];
   const row = (await api.db.owner.query("select * from bank_file_items where id = $1", [item.id])).rows[0];
   const other = (await api.db.owner.query("select * from bank_files where id = $1", [file.id])).rows[0];
-  await api.db.owner.query("insert into bank_files (file_no, payout_batch_id, currency, template, charge_bearer, status, item_count, total_minor, excluded, approval_id, requested_by, approved_by, created_at, updated_at) values ('BF20261020ZZZZZZZZ', $1, 'JPY', $2, 'SHA', 'generated', 1, 1, '[]', $3, $4, $5, now(), now())", [other.payout_batch_id, other.template, other.approval_id, other.requested_by, other.approved_by]);
+  await api.db.owner.query("insert into bank_files (file_no, payout_batch_id, currency, template, charge_bearer, status, item_count, total_minor, excluded, approval_id, requested_by, approved_by, content_digest, created_at, updated_at) values ('BF20261020ZZZZZZZZ', $1, 'JPY', $2, 'SHA', 'generated', 1, 1, '[]', $3, $4, $5, repeat('a', 64), now(), now())", [other.payout_batch_id, other.template, other.approval_id, other.requested_by, other.approved_by]);
   const twin = (await api.db.owner.query("select id from bank_files where file_no = 'BF20261020ZZZZZZZZ'")).rows[0];
   await assert.rejects(
     api.db.owner.query(
@@ -400,7 +400,9 @@ test("文件快照：批准后再改账户，文件内容不变，详情标出�
   const detail = await fileDetail(file.id);
   assert.equal(detail.items[0].account_masked, "•••• 7777");
   assert.equal(detail.items[0].account_changed, true);
-  const csv = await download(file.id, "csv");
+  const refused = await download(file.id, "csv");
+  assert.deepEqual([refused.status, refused.json.error.code], [409, "BANK_FILE_ACCOUNT_CHANGED"]);
+  const csv = await download(file.id, "csv", undefined, true);
   const line = csv.bytes.toString("utf8").split("\r\n")[1] as string;
   assert.ok(line.includes(",88887777,SGD,1234.50,"), line);
   assert.ok(line.endsWith(",BEN"));

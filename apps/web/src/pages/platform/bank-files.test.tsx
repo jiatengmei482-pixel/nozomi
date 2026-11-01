@@ -270,3 +270,80 @@ test("供应商：只读看得到列表没有提交按钮；财务同样不能�
   await screen.findByText("•••• 9876");
   assert.ok(screen.getByRole("button", { name: "撤回 SGD 账户" }));
 });
+
+test("账户换过的文件：下载先弹确认，确认后带上确认参数；取消不发请求；后端说账户刚换过也弹确认", async () => {
+  const bodies: unknown[] = [];
+  const changed = fileOf({ items: fileOf().items.map((item) => ({ ...item, account_changed: true })) });
+  let current = changed;
+  const route = (call: { method: string; url: URL; body: unknown }) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/bank-files/${FILE_ID}`) return json(200, { file: current });
+    if (call.method === "POST" && call.url.pathname.endsWith("/download")) {
+      bodies.push(call.body);
+      return (call.body as Record<string, unknown>)["acknowledge_account_changed"] === true ? new Response("x", { status: 200, headers: { "content-type": "text/csv", "content-disposition": 'attachment; filename="f.csv"' } }) : apiError(409, "BANK_FILE_ACCOUNT_CHANGED", "账户换过");
+    }
+    return null;
+  };
+  openApp(`/platform/finance/bank-files/${FILE_ID}`, "platform", "finance", route);
+  const u = user();
+  await u.click(await screen.findByRole("button", { name: "下载 CSV" }));
+  const dialog = await screen.findByRole("dialog", { name: "收款账户换过，还要下载吗？" });
+  await u.click(within(dialog).getByRole("button", { name: "取消" }));
+  assert.equal(bodies.length, 0);
+  await u.click(screen.getByRole("button", { name: "下载 CSV" }));
+  await u.click(within(await screen.findByRole("dialog", { name: "收款账户换过，还要下载吗？" })).getByRole("button", { name: "确认下载" }));
+  await waitFor(() => assert.deepEqual(bodies, [{ format: "csv", acknowledge_account_changed: true }]));
+
+  resetBrowser();
+  bodies.length = 0;
+  current = fileOf();
+  openApp(`/platform/finance/bank-files/${FILE_ID}`, "platform", "finance", route);
+  await u.click(await screen.findByRole("button", { name: "下载 CSV" }));
+  await screen.findByRole("dialog", { name: "收款账户换过，还要下载吗？" });
+  assert.deepEqual(bodies, [{ format: "csv" }]);
+});
+
+test("超过 500 笔的文件：回填默认只选 500 笔并说明，发出去的不超过上限", async () => {
+  const items = Array.from({ length: 501 }, (_, index) => ({ ...fileOf().items[0]!, id: `f2f2f2f2-0000-4000-8000-${String(index).padStart(12, "0")}`, seq: index + 1 }));
+  const posted: { payments: unknown[] }[] = [];
+  openApp(`/platform/finance/bank-files/${FILE_ID}`, "platform", "finance", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/bank-files/${FILE_ID}`) return json(200, { file: fileOf({ status: "downloaded", first_downloaded_at: "2026-10-12T00:00:00.000Z", download_count: 1, item_count: 501, items }) });
+    if (call.method === "POST" && call.url.pathname.endsWith("/payments")) {
+      posted.push(call.body as { payments: unknown[] });
+      return json(200, { file: fileOf({ status: "downloaded", first_downloaded_at: "2026-10-12T00:00:00.000Z", download_count: 1, item_count: 501, items }) });
+    }
+    return null;
+  });
+  const u = userEvent.setup({ delay: null });
+  await u.click(await screen.findByRole("button", { name: "回填流水号" }));
+  const dialog = await screen.findByRole("dialog", { name: "回填银行流水号" });
+  assert.ok(within(dialog).getByText(/还有 501 笔没回填，一次最多 500 笔/));
+  await u.type(within(dialog).getByLabelText(/银行流水号/), "FT1");
+  await u.click(within(dialog).getByRole("button", { name: "记为已付款" }));
+  await waitFor(() => assert.equal(posted[0]?.payments.length, 500));
+});
+
+test("部分回填后作废的文件：页面标明合计和笔数是生成时的；列表超过上限有提示", async () => {
+  const [item] = fileOf().items;
+  openApp(`/platform/finance/bank-files/${FILE_ID}`, "platform", "finance", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/bank-files/${FILE_ID}` ? json(200, { file: fileOf({ status: "paid", paid_at: "2026-10-20T00:00:00.000Z", void_reason: "第二笔被退回", item_count: 2, items: [{ ...item!, bank_reference: "FT1", paid_at: "2026-10-20T00:00:00.000Z" }, { ...item!, id: "f2f2f2f2-0000-4000-8000-000000000002", seq: 2, voided: true }] }) }) : null));
+  await screen.findByText(/合计和笔数是生成时的。其中 1 笔已作废/);
+  resetBrowser();
+  openApp("/platform/finance/payout-accounts", "platform", "finance", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/payout-accounts" ? json(200, { items: [accountOf()], truncated: true }) : null));
+  await screen.findByText(/只显示最新的 200 条/);
+});
+
+test("发起时账号全部解不开（BANK_FILE_EMPTY）：列出原因，不再让提交", async () => {
+  const onlyEligible = { ...preview, groups: [{ ...preview.groups[0]!, excluded: [] }] };
+  openApp(`/platform/finance/payout-batches/${BATCH_ID}`, "platform", "finance", (call) => {
+    if (call.url.pathname === `/platform/v1/payout-batches/${BATCH_ID}`) return json(200, { batch });
+    if (call.url.pathname.endsWith("/bank-file-preview")) return json(200, { preview: onlyEligible });
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/bank-files") return json(200, { items: [] });
+    if (call.method === "POST" && call.url.pathname.endsWith("/bank-files")) return apiError(409, "BANK_FILE_EMPTY", "没有能进文件的账单", { excluded: [{ statement_no: "ST202609ABCDEFGH", tenant_name: "甲车队", message: "收款账号解不开" }] });
+    return null;
+  });
+  const u = user();
+  await u.click(await screen.findByRole("button", { name: "生成 SGD 转账文件" }));
+  const dialog = await screen.findByRole("dialog", { name: "生成 SGD 转账文件" });
+  await u.click(within(dialog).getByRole("button", { name: "提交复核" }));
+  await within(dialog).findByText(/收款账号解不开/);
+  assertAbsent(within(dialog).queryByRole("button", { name: "提交复核" }));
+});

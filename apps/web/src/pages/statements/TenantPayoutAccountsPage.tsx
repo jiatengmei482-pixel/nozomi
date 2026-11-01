@@ -4,7 +4,7 @@
  * - 提交、撤回（`company.manage`：只有管理员）：要重新输入当前密码；平台两位财务审核后生效，批准之前旧账户继续有效。
  * 账号和密码只在对话框的状态里，提交成功或关闭后就没了；不写进网址、本地存储。
  */
-import { CURRENCIES, PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountIssueReason, type PayoutAccountKind, accountNumberIssue, isValidSwiftBic, normalizeAccountNumber } from "@nozomi/domain";
+import { CURRENCIES, PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountIssueReason, type PayoutAccountKind, accountNumberIssue, isValidSwiftBic, normalizeAccountNumber, normalizeSwiftBic } from "@nozomi/domain";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router";
 import { type TenantPayoutAccount, listTenantPayoutAccounts, submitPayoutAccount, withdrawPayoutAccount } from "../../api/bank-files.ts";
@@ -49,7 +49,7 @@ function SubmitDialog({ onClose, onDone }: { onClose(): void; onDone(): void }) 
   const submit = async (): Promise<void> => {
     const next: FieldErrors = {};
     for (const name of FIELDS) if (values[name].trim() === "") next[name] = ["必填"];
-    if (values.swift_bic.trim() !== "" && !isValidSwiftBic(values.swift_bic.trim().toUpperCase())) next.swift_bic = [PAYOUT_ACCOUNT_ISSUE_MESSAGES.SWIFT_BIC_INVALID];
+    if (values.swift_bic.trim() !== "" && !isValidSwiftBic(normalizeSwiftBic(values.swift_bic))) next.swift_bic = [PAYOUT_ACCOUNT_ISSUE_MESSAGES.SWIFT_BIC_INVALID];
     const numberIssue = accountNumberIssue(kind, normalizeAccountNumber(values.account_number));
     if (numberIssue !== null && numberIssue !== "REQUIRED") next.account_number = [PAYOUT_ACCOUNT_ISSUE_MESSAGES[numberIssue]];
     setErrors(next);
@@ -66,8 +66,16 @@ function SubmitDialog({ onClose, onDone }: { onClose(): void; onDone(): void }) 
       else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
         const issues = (err.details["issues"] ?? []) as { path: string; reason?: PayoutAccountIssueReason; message: string }[];
         const mapped: FieldErrors = {};
-        for (const issue of issues) mapped[issue.path.slice(1) as FieldName] = [issue.reason === undefined ? issue.message : PAYOUT_ACCOUNT_ISSUE_MESSAGES[issue.reason]];
+        const elsewhere: string[] = [];
+        for (const issue of issues) {
+          const text = issue.reason === undefined ? issue.message : PAYOUT_ACCOUNT_ISSUE_MESSAGES[issue.reason];
+          const name = issue.path.slice(1);
+          if (name === "currency") setCurrencyError([text]);
+          else if ((FIELDS as readonly string[]).includes(name)) mapped[name as FieldName] = [text];
+          else elsewhere.push(text);
+        }
         setErrors(mapped);
+        if (elsewhere.length > 0 || issues.length === 0) setProblem(elsewhere.join("；") || err.message);
       } else setProblem(err instanceof ApiError && err.status < 500 ? err.message : failureText(err, "提交"));
     } finally {
       setBusy(false);
@@ -161,7 +169,7 @@ export function TenantPayoutAccountsPage() {
   const canRead = useTenantCan("company.read");
   const canManage = useTenantCan("company.manage");
   const toast = useToast();
-  const { state, reload } = useLoad<{ items: TenantPayoutAccount[] }>("tenant-payout-accounts", canRead ? (t) => listTenantPayoutAccounts(t) : null);
+  const { state, reload } = useLoad<{ items: TenantPayoutAccount[]; truncated?: boolean }>("tenant-payout-accounts", canRead ? (t) => listTenantPayoutAccounts(t) : null);
   const [submitting, setSubmitting] = useState(false);
   const [withdrawing, setWithdrawing] = useState<TenantPayoutAccount | null>(null);
   const shell = (content: ReactNode): ReactNode => (
@@ -195,6 +203,7 @@ export function TenantPayoutAccountsPage() {
       <p className="page__lead">
         平台按账单的币种把钱付到这种币种生效中的账户。没有生效账户的账单付不了款。<Link className="link" to={TENANT_STATEMENTS_PAGE}>回到账单</Link>
       </p>
+      {state.data?.truncated === true && <Alert kind="warning">记录太多，这里只显示最新的 200 条。</Alert>}
       <div className="card-table">
         <DataTable label="收款账户" columns={columns} rows={state.data?.items ?? []} rowKey={(row) => row.id} state={tableStateOf(state.status, state.data !== null)} onRetry={reload} empty={<StateBlock tone="neutral" title="还没有收款账户" description={canManage ? "点右上角提交，平台审核通过后生效。" : "请让管理员提交。"} />} />
       </div>

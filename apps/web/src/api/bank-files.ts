@@ -160,7 +160,7 @@ export interface BankFilePreview {
 
 // ---- 供应商 ----
 
-export function listTenantPayoutAccounts(token: string): Promise<{ items: TenantPayoutAccount[] }> {
+export function listTenantPayoutAccounts(token: string): Promise<{ items: TenantPayoutAccount[]; truncated?: boolean }> {
   return apiRequest("GET", TENANT_PAYOUT_ACCOUNTS_PATH, { token });
 }
 
@@ -174,7 +174,7 @@ export function withdrawPayoutAccount(token: string, id: string): Promise<{ acco
 
 // ---- 运营后台 ----
 
-export function listPlatformPayoutAccounts(token: string, values: { status?: PayoutAccountStatus } = {}): Promise<{ items: PlatformPayoutAccount[] }> {
+export function listPlatformPayoutAccounts(token: string, values: { status?: PayoutAccountStatus } = {}): Promise<{ items: PlatformPayoutAccount[]; truncated?: boolean }> {
   return apiRequest("GET", query(PLATFORM_PAYOUT_ACCOUNTS_PATH, values), { token });
 }
 
@@ -194,7 +194,7 @@ export function requestBankFile(token: string, batchId: string, body: { currency
   return apiRequest("POST", `${PAYOUT_BATCHES_PATH}/${encodeURIComponent(batchId)}/bank-files`, { token, body });
 }
 
-export function listBankFiles(token: string, values: { payout_batch_id?: string } = {}): Promise<{ items: BankFile[] }> {
+export function listBankFiles(token: string, values: { payout_batch_id?: string } = {}): Promise<{ items: BankFile[]; truncated?: boolean }> {
   return apiRequest("GET", query(BANK_FILES_PATH, values), { token });
 }
 
@@ -202,8 +202,8 @@ export function getBankFile(token: string, id: string): Promise<{ file: BankFile
   return apiRequest("GET", `${BANK_FILES_PATH}/${encodeURIComponent(id)}`, { token });
 }
 
-export function downloadBankFile(token: string, id: string, format: BankFileFormat): Promise<DownloadedFile> {
-  return apiPostDownload(`${BANK_FILES_PATH}/${encodeURIComponent(id)}/download`, { format }, format === "csv" ? { token, accept: "text/csv" } : { token });
+export function downloadBankFile(token: string, id: string, format: BankFileFormat, acknowledgeAccountChanged = false): Promise<DownloadedFile> {
+  return apiPostDownload(`${BANK_FILES_PATH}/${encodeURIComponent(id)}/download`, acknowledgeAccountChanged ? { format, acknowledge_account_changed: true } : { format }, format === "csv" ? { token, accept: "text/csv" } : { token });
 }
 
 export function recordBankFilePayments(token: string, id: string, payments: { item_id: string; bank_reference: string }[]): Promise<{ file: BankFileDetail }> {

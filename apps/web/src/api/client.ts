@@ -237,7 +237,7 @@ export interface FileRequestOptions {
   accept?: string;
 }
 
-function fileFetch(method: string, url: string, body: Blob | null, accept: string, options: FileRequestOptions): Promise<Sent> {
+function fileFetch(method: string, url: string, body: Blob | string | null, accept: string, options: FileRequestOptions): Promise<Sent> {
   return send(method, url, { headers: { accept, authorization: `Bearer ${options.token}`, ...(body !== null ? { "content-type": options.contentType ?? XLSX_CONTENT_TYPE } : {}), ...options.headers }, body, timeoutMs: FILE_TIMEOUT_MS, signal: options.signal });
 }
 
@@ -278,7 +278,7 @@ export function parseFilename(header: string | null): string | null {
 
 /** 用 POST 取回一个要下载的文件（下载本身会改状态、写审计的接口，如银行转账文件）。请求体是 JSON；错误处理和 `apiDownload` 一样。 */
 export async function apiPostDownload(url: string, body: unknown, options: FileRequestOptions): Promise<DownloadedFile> {
-  const { response, done, timedOut } = await fileFetch("POST", url, new Blob([JSON.stringify(body)]), `${options.accept ?? XLSX_CONTENT_TYPE}, application/json`, { ...options, contentType: "application/json" });
+  const { response, done, timedOut } = await fileFetch("POST", url, JSON.stringify(body), `${options.accept ?? XLSX_CONTENT_TYPE}, application/json`, { ...options, contentType: "application/json" });
   try {
     if (!response.ok) throw await toApiError(response);
     if ((response.headers.get("content-type") ?? "").includes("application/json")) throw malformedResponse();

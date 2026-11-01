@@ -131,8 +131,8 @@ async function generate(batchId: string, currency: string, extra: Record<string,
   return (await filesOf(batchId)).find((file) => !known.has(file.id));
 }
 
-async function download(id: string, format: "csv" | "xlsx", token?: string, app: TestApi["app"] = api.app): Promise<{ status: number; headers: Record<string, unknown>; bytes: Buffer; code: string | null; text: string }> {
-  const res = await app.inject({ method: "POST", url: `/platform/v1/bank-files/${id}/download`, headers: { authorization: `Bearer ${token ?? (await fin1())}`, "content-type": "application/json" }, payload: { format } });
+async function download(id: string, format: "csv" | "xlsx", token?: string, app: TestApi["app"] = api.app, acknowledge = false): Promise<{ status: number; headers: Record<string, unknown>; bytes: Buffer; code: string | null; text: string }> {
+  const res = await app.inject({ method: "POST", url: `/platform/v1/bank-files/${id}/download`, headers: { authorization: `Bearer ${token ?? (await fin1())}`, "content-type": "application/json" }, payload: acknowledge ? { format, acknowledge_account_changed: true } : { format } });
   const json = String(res.headers["content-type"]).includes("json") ? res.json() : null;
   return { status: res.statusCode, headers: res.headers, bytes: res.rawPayload, code: json?.error?.code ?? null, text: res.body };
 }
@@ -168,14 +168,19 @@ test("全程一致：写进文件的是批准时那一份；批准后才提交�
   const detail = await fileDetail(file.id);
   assert.equal(detail.items[0].account_masked, `•••• ${original.slice(-4)}`);
   assert.equal(detail.items[0].account_changed, true, "已生成未下载的文件要标出账户已变更");
-  const first = await download(file.id, "csv");
+  // 负责人决定：账户换过之后下载要明确确认，不确认不给文件；确认后审计记下来
+  const unconfirmed = await download(file.id, "csv");
+  assert.deepEqual([unconfirmed.status, unconfirmed.code], [409, "BANK_FILE_ACCOUNT_CHANGED"]);
+  assert.equal((await fileDetail(file.id)).download_count, 0, "没确认不算下载");
+  const first = await download(file.id, "csv", undefined, api.app, true);
   assert.equal(first.status, 200, first.text);
+  assert.equal((await owner("select after from audit_logs where resource = 'bank_file' and action = 'download' and resource_id = $1", [file.id])).rows[0].after.account_changed_acknowledged, true);
   assert.equal(csvRows(first.bytes)[1]?.[COL.account], original, "写进文件的是批准时那一份");
   assert.ok(!first.bytes.toString("utf8").includes(pendingNumber));
 
   // 再换一次：已下载的文件照样不变
   await activeAccount(w.a, fakeAccount());
-  const again = await download(file.id, "csv");
+  const again = await download(file.id, "csv", undefined, api.app, true);
   assert.ok(again.bytes.equals(first.bytes), "再下载逐字节相同");
 });
 
@@ -1062,4 +1067,158 @@ test("规则 4：供应商的账户接口、提交、撤回、账单、payout.pa
   }
   assert.doesNotMatch(list.text, /v1\.[A-Za-z0-9_-]+\./, "密文不出现");
   for (const path of ["/tenant/v1/bank-files", `/tenant/v1/bank-files/${file.id}`]) assert.equal((await api.call("GET", path, { token })).status, 404, `${path} 不存在`);
+});
+
+// ---- 修复后补的（测试角色只看代码发现的风险、负责人的决定） ----
+
+test("批准生成时解密校验：账户密文坏了就不生成，复核仍是待审核，不会产生下载不了的文件", async () => {
+  const w = await world();
+  const account = await activeAccount(w.a, fakeAccount());
+  await orderFor(w, "a", 10, 20_000, "JPY");
+  const batch = await batchFor(w);
+  const requested = await requestFile(batch.id, { currency: "JPY" });
+  assert.equal(requested.status, 202, requested.text);
+  await owner("alter table payout_accounts disable trigger payout_accounts_platform_columns");
+  try {
+    await owner("update payout_accounts set account_sealed = 'v1.AAAA.BBBB.CCCC' where id = $1", [account.id]);
+    const res = await approve(requested.body.approval.id);
+    assert.deepEqual([res.status, res.body.error.code], [409, "BANK_FILE_ACCOUNT_UNREADABLE"]);
+    assert.deepEqual(await filesOf(batch.id), [], "没有生成文件");
+    assert.equal((await owner("select status from approvals where id = $1", [requested.body.approval.id])).rows[0].status, "pending");
+  } finally {
+    await owner("alter table payout_accounts enable trigger payout_accounts_platform_columns");
+  }
+});
+
+test("核对不通过留记录：事务回滚后另有一条审计和错误日志（不算下载、没有账号）；换主密钥解不开同样留记录", async () => {
+  const w = await world();
+  const number = fakeAccount();
+  const other = await activeAccount(w.a, fakeAccount());
+  await activeAccount(w.a, number);
+  await orderFor(w, "a", 10, 20_000, "JPY");
+  const batch = await batchFor(w);
+  const file = await generate(batch.id, "JPY");
+  await swapItemAccount((await fileDetail(file.id)).items[0].id, other.id);
+  assert.equal((await download(file.id, "xlsx")).code, "BANK_FILE_INTEGRITY");
+  const audit = await owner("select actor_id, after from audit_logs where resource = 'bank_file' and action = 'integrity_failed' and resource_id = $1", [file.id]);
+  assert.equal(audit.rows.length, 1);
+  assert.equal(audit.rows[0].actor_id, finance1.id);
+  assert.deepEqual([audit.rows[0].after.code, audit.rows[0].after.reason, audit.rows[0].after.format], ["BANK_FILE_INTEGRITY", "ACCOUNT_LAST4", "xlsx"]);
+  assert.ok(!JSON.stringify(audit.rows).includes(number));
+  assert.match(api.logs(), /bank_file\.integrity_failed/);
+  assert.equal((await fileDetail(file.id)).status, "generated", "状态没变");
+
+  const w2 = await world();
+  await activeAccount(w2.a, fakeAccount());
+  await orderFor(w2, "a", 10, 20_000, "JPY");
+  const batch2 = await batchFor(w2);
+  const file2 = await generate(batch2.id, "JPY");
+  const rotated = await appWithKey(ROTATED_KEY);
+  try {
+    assert.equal((await download(file2.id, "csv", await fin1(), rotated)).code, "BANK_FILE_ACCOUNT_UNREADABLE");
+  } finally {
+    await rotated.close();
+  }
+  const second = await owner("select after from audit_logs where resource = 'bank_file' and action = 'integrity_failed' and resource_id = $1", [file2.id]);
+  assert.equal(second.rows[0].after.reason, "ACCOUNT_UNREADABLE");
+});
+
+test("内容基准和下载指纹受保护：平台角色改不了基准；指纹写过就不能改；重算不了（基准是 HMAC，改库后重写哈希也过不了）", async () => {
+  const w = await world();
+  await activeAccount(w.a, fakeAccount());
+  await orderFor(w, "a", 10, 20_000, "JPY");
+  const batch = await batchFor(w);
+  const file = await generate(batch.id, "JPY");
+  assert.match((await owner("select content_digest from bank_files where id = $1", [file.id])).rows[0].content_digest, /^[0-9a-f]{64}$/);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update bank_files set content_digest = repeat('b', 64) where id = $1", [file.id])), deniedByDatabase);
+  assert.equal((await download(file.id, "csv")).status, 200);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update bank_files set csv_sha256 = repeat('b', 64) where id = $1", [file.id])), deniedByDatabase);
+  await assert.rejects(withPlatformTx(api.db.pool, (db) => db.query("update bank_files set csv_sha256 = null where id = $1", [file.id])), deniedByDatabase);
+  assert.equal((await download(file.id, "xlsx")).status, 200, "另一种格式第一次记指纹不受影响");
+
+  // 有库的最高权限：把基准和指纹一起改成别的值，也下载不了
+  await owner("alter table bank_files disable trigger bank_files_platform_columns");
+  await owner("alter table bank_files disable trigger bank_files_sha_once");
+  try {
+    await owner("update bank_files set content_digest = repeat('c', 64), csv_sha256 = null, xlsx_sha256 = null where id = $1", [file.id]);
+  } finally {
+    await owner("alter table bank_files enable trigger bank_files_platform_columns");
+    await owner("alter table bank_files enable trigger bank_files_sha_once");
+  }
+  assert.equal((await download(file.id, "csv")).code, "BANK_FILE_INTEGRITY");
+});
+
+test("数据库保证条目币种等于文件币种", async () => {
+  const w = await world();
+  await activeAccount(w.a, fakeAccount());
+  await orderFor(w, "a", 10, 20_000, "JPY");
+  const batch = await batchFor(w);
+  const file = await generate(batch.id, "JPY");
+  const row = (await owner("select * from bank_file_items where file_id = $1", [file.id])).rows[0];
+  await assert.rejects(
+    owner(
+      "insert into bank_file_items (tenant_id, file_id, seq, statement_id, statement_no, account_id, amount_minor, currency, beneficiary_name, beneficiary_address, bank_name, bank_address, swift_bic, account_sealed, account_last4, reference, voided_at) values ($1, $2, 2, $3, $4, $5, 1, 'USD', 'x', 'x', 'x', 'x', 'x', 'x', 'x', 'x', now())",
+      [row.tenant_id, file.id, row.statement_id, row.statement_no, row.account_id],
+    ),
+    (err: any) => err.constraint === "bank_file_items_file_currency_fkey",
+  );
+});
+
+test("数据库层：待审核的账户不能挂别的账户的复核变成生效；没有复核也不行（提交时检查）", async () => {
+  const w = await world();
+  const reused = await activeAccount(w.b, fakeAccount());
+  const approvalId = (await owner("select approval_id from payout_accounts where id = $1", [reused.id])).rows[0].approval_id;
+  const pending = await submit(w.a, accountBody(fakeAccount()));
+  const activate = (approval: string | null): Promise<unknown> => withPlatformTx(api.db.pool, (db) => db.query("update payout_accounts set status = 'active', activated_at = now(), approval_id = $3 where tenant_id = $1 and id = $2", [w.a.tenantId, pending.id, approval]));
+  await assert.rejects(activate(approvalId), (err: any) => err.code === "23514");
+  await assert.rejects(activate(null), (err: any) => err.code === "23514");
+  assert.equal((await owner("select status from payout_accounts where id = $1", [pending.id])).rows[0].status, "pending");
+});
+
+test("账户变更通知：提交、批准、驳回发给这家的管理员（调度不收）；只有末 4 位；撤回不发；别的供应商收不到", async () => {
+  const w = await world();
+  await addTenantUser(api, await admin(w.a), `dispatch-${randomUUID().slice(0, 8)}@qa-bf.test`, "dispatch");
+  const number = fakeAccount();
+  const approved = await activeAccount(w.a, number);
+  const rejectedNumber = fakeAccount();
+  const rejected = await submit(w.a, accountBody(rejectedNumber, { currency: "USD" }));
+  await ok(api.call("POST", `/platform/v1/payout-accounts/${rejected.id}/reject`, { token: await fin1(), body: { reason: "户名\n不一致" } }));
+  const withdrawn = await submit(w.a, accountBody(fakeAccount(), { currency: "THB" }));
+  await ok(api.call("POST", `/tenant/v1/payout-accounts/${withdrawn.id}/withdraw`, { token: await admin(w.a), body: {} }));
+
+  const events = (await owner("select event, data, tenant_id from notification_events where event like 'payout_account.%' and tenant_id = $1 order by occurred_at, event", [w.a.tenantId])).rows;
+  assert.deepEqual(events.map((row: any) => row.event).sort(), ["payout_account.approved", "payout_account.rejected", "payout_account.submitted", "payout_account.submitted", "payout_account.submitted"]);
+  const text = JSON.stringify(events);
+  assert.ok(!text.includes(number) && !text.includes(rejectedNumber), "事件里没有完整账号");
+  assert.ok(text.includes(`•••• ${number.slice(-4)}`));
+  assert.equal(events.find((row: any) => row.event === "payout_account.rejected").data.reject_reason, "户名 不一致", "换行整理掉，邮件变量不接受换行");
+  assert.equal((await owner("select count(*)::int as n from notification_events where event like 'payout_account.%' and tenant_id = $1", [w.b.tenantId])).rows[0].n, 0);
+  assert.equal(approved.status, "pending");
+
+  // 一轮只展开一批，前面的测试也留了事件：转到这家的都展开为止
+  const expanded = async (): Promise<number> => (await owner("select count(*)::int as n from notification_events where event like 'payout_account.%' and tenant_id = $1 and expanded_at is null", [w.a.tenantId])).rows[0].n;
+  for (let round = 0; round < 20 && (await expanded()) > 0; round += 1) await api.app.notificationJobs.tick();
+  const rows = (await owner("select recipient from notifications where event like 'payout_account.%' and tenant_id = $1", [w.a.tenantId])).rows;
+  assert.equal(rows.length, 5, JSON.stringify(rows));
+  assert.ok(rows.every((row: any) => row.recipient === w.a.adminEmail), JSON.stringify(rows));
+});
+
+test("列表超过 200 条：只返回 200 条并标 truncated；没超过是 false", async () => {
+  const w = await world();
+  await activeAccount(w.a, fakeAccount());
+  await orderFor(w, "a", 10, 20_000, "JPY");
+  const batch = await batchFor(w);
+  const file = await generate(batch.id, "JPY");
+  const list = (): Promise<any> => ok(api.call("GET", `/platform/v1/bank-files?payout_batch_id=${batch.id}`, { token: tokens.get(finance1.email) as string }));
+  await fin1();
+  assert.equal((await list()).truncated, false);
+  await owner(
+    `insert into bank_files (file_no, payout_batch_id, currency, template, charge_bearer, status, item_count, total_minor, excluded, approval_id, requested_by, approved_by, content_digest, created_at, updated_at)
+     select 'BF20261020' || lpad(n::text, 8, '0'), payout_batch_id, currency, template, charge_bearer, 'generated', 1, 1, '[]', approval_id, requested_by, approved_by, content_digest, created_at, updated_at
+       from bank_files, generate_series(1, 200) as n where id = $1`,
+    [file.id],
+  );
+  const body = await list();
+  assert.deepEqual([body.items.length, body.truncated], [200, true]);
+  await owner("delete from bank_files where payout_batch_id = $1 and id <> $2", [batch.id, file.id]);
 });

@@ -519,9 +519,13 @@ test("每个事件都渲染得出来、都有人收到（供应商、平台员�
     { event: "tenant.document_expired", tenantId: m.a.tenantId, orderId: null, data: { document_type: "vehicle_insurance", expires_on: "2026-12-01" } },
     { event: "tenant.observation_started", tenantId: m.a.tenantId, orderId: null, data: { reasons: ["score_below_threshold"] } },
     { event: "tenant.status_changed", tenantId: m.a.tenantId, orderId: null, data: { status: "suspended" } },
+    { event: "payout_account.submitted", tenantId: m.a.tenantId, orderId: null, data: { payout_currency: "SGD", payout_account: "•••• 9876" } },
+    { event: "payout_account.approved", tenantId: m.a.tenantId, orderId: null, data: { payout_currency: "SGD", payout_account: "•••• 9876" } },
+    { event: "payout_account.rejected", tenantId: m.a.tenantId, orderId: null, data: { payout_currency: "SGD", payout_account: "•••• 9876", reject_reason: "户名不一致" } },
     { event: "exception.opened", tenantId: null, orderId: seeded.id, data: { type: "rescue" } },
     { event: "fx.alert", tenantId: null, orderId: null, data: { kind: "held", currencies: ["USD"] } },
     { event: "fx.alert", tenantId: null, orderId: null, data: { kind: "stale", as_of: now.toISOString() } },
+    { event: "fx.alert", tenantId: null, orderId: null, data: { kind: "source_rejected", detail: "缺少币种：SGD" } },
     { event: "site.lookup_ceiling", tenantId: null, orderId: null, data: {} },
   ];
   assert.ok(events.length > 0 && NOTIFICATION_EVENTS.length >= events.length);

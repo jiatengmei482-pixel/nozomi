@@ -136,6 +136,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   dispute: "提异议",
   void: "作废",
   download: "下载",
+  integrity_failed: "下载前核对不通过",
 };
 
 /**

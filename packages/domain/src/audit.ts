@@ -132,6 +132,7 @@ export const AUDIT_ACTIONS = [
   "dispute",
   "void",
   "download",
+  "integrity_failed",
   "set",
   "replace",
   "clear",

@@ -144,3 +144,14 @@ test("SGD 的子品牌、渠道结算币种都能建，EUR 仍不支持；SGD �
   const jpy = await previewIn("JPY");
   assert.ok(jpy.groups.flatMap((group: any) => group.candidates).some((candidate: any) => candidate.tenant_id === m.a.tenantId && candidate.fx === null), "旧的 JPY 商品同币种报价照常");
 });
+
+test("负责人决定：汇率源缺币种，拒收时就发告警（fx.alert），不等过期；一天只发一次；别的拒收原因不发", async () => {
+  assert.equal((await fetchNow(T0, RATES)).status, "accepted");
+  assert.equal((await fetchNow(new Date(T0.getTime() + 0.5 * HOUR), WITHOUT_SGD)).status, "rejected");
+  assert.equal((await fetchNow(new Date(T0.getTime() + 0.6 * HOUR), WITHOUT_SGD)).status, "rejected");
+  const events = await api.db.owner.query("select data from notification_events where event = 'fx.alert'");
+  assert.deepEqual(events.rows.map((row: any) => [row.data.kind, /SGD/.test(row.data.detail)]), [["source_rejected", true]]);
+  await api.app.notificationJobs.tick();
+  const rows = await api.db.owner.query("select audience, recipient from notifications where event = 'fx.alert'");
+  assert.ok(rows.rows.length > 0 && rows.rows.every((row: any) => row.audience === "staff"));
+});

@@ -49,9 +49,19 @@ export const BANK_TRANSFER_RULES = {
 
 // ---- 账号、IBAN、SWIFT/BIC ----
 
+/** 只转 ASCII 字母。`toUpperCase` 会把 ß、ı、ſ、ﬁ 改写成别的字母（SS、I、S、FI），账号就成了另一个；这些字符留着，由校验拒绝。 */
+function asciiUpper(text: string): string {
+  return text.replace(/[a-z]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 32));
+}
+
 /** 规范化账号：去掉空格和连字符，转大写（人常常按 4 位一组抄写）。 */
 export function normalizeAccountNumber(text: string): string {
-  return text.replace(/[\s-]/g, "").toUpperCase();
+  return asciiUpper(text.replace(/[\s-]/g, ""));
+}
+
+/** 规范化 SWIFT/BIC：去首尾空白，转大写。 */
+export function normalizeSwiftBic(text: string): string {
+  return asciiUpper(text.trim());
 }
 
 /** ISO 13616 IBAN 登记表：国家 → 总长度。 */
@@ -83,6 +93,9 @@ export function ibanCheckDigits(country: string, bban: string): string {
 export function isValidIban(iban: string): boolean {
   if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(iban)) return false;
   if (IBAN_LENGTHS[iban.slice(0, 2)] !== iban.length) return false;
+  // 校验位只有 02–98：00、01、99 和 97、98、02 同余，抄错时 mod-97 查不出来（ISO 13616）
+  const check = Number(iban.slice(2, 4));
+  if (check < 2 || check > 98) return false;
   return ibanMod97(`${iban.slice(4)}${iban.slice(0, 4)}`) === 1;
 }
 
@@ -120,14 +133,14 @@ export function normalizeSwiftText(text: string): string {
 }
 
 /**
- * 一段写进 SWIFT 报文的文字是否合格：只能是 X 字符集（`A-Za-z0-9 /-?:().,'+`），不能以 `-`、`:` 开头。
+ * 一段写进 SWIFT 报文的文字是否合格：只能是 X 字符集（`A-Za-z0-9 /-?:().,'+`），不能以 `-`、`:`、`/` 开头（SWIFT 报文的行首规则）。
  * 中文、`&` 银行传不了，提前拦住比转账时被退回好（待负责人确认）。
  */
 export function swiftTextIssue(text: string, maxLength: number): SwiftTextIssue | null {
   if (text === "") return "REQUIRED";
   if (text.length > maxLength) return "TOO_LONG";
   if (!/^[A-Za-z0-9 /\-?:().,'+]+$/.test(text)) return "CHARSET";
-  return /^[-:]/.test(text) ? "LEADING" : null;
+  return /^[-:/]/.test(text) ? "LEADING" : null;
 }
 
 export interface PayoutAccountFields {
@@ -149,7 +162,7 @@ export const PAYOUT_ACCOUNT_ISSUE_MESSAGES: Readonly<Record<PayoutAccountIssueRe
   REQUIRED: "必填",
   TOO_LONG: "太长了",
   CHARSET: "只能用英文字母、数字和 / - ? : ( ) . , ' +（中文、& 银行传不了，请写英文）",
-  LEADING: "不能以 - 或 : 开头",
+  LEADING: "不能以 - : / 开头",
   IBAN_INVALID: "IBAN 不对（国家、长度或校验位），请核对",
   ACCOUNT_FORMAT: "账号要 4–34 位英文字母和数字",
   SWIFT_BIC_INVALID: "SWIFT/BIC 要 8 或 11 位，如 ABCDJPJT 或 ABCDJPJTXXX",
@@ -212,6 +225,20 @@ export function statementFileIssue(
   if (!isCurrencyCode(statement.currency)) return "CURRENCY_UNSUPPORTED";
   if (accounts.active === null) return accounts.hasPending ? "ACCOUNT_PENDING" : "ACCOUNT_MISSING";
   return payoutAccountFieldIssues(accounts.active).length > 0 ? "ACCOUNT_INVALID" : null;
+}
+
+// ---- 下载前的核对 ----
+
+export type BankFileIntegrityIssue = "ITEM_COUNT" | "TOTAL" | "ACCOUNT_LAST4";
+
+/**
+ * 文件和条目对不对得上（下载前每次核对，ADR 0051）：笔数、合计等于条目之和，解出来的账号末 4 位等于快照里的末 4 位。
+ * 内容基准（批准时记的）另外比；这几项不依赖基准，基准本身出问题时仍然有效。
+ */
+export function bankFileIntegrityIssue(file: { itemCount: number; totalMinor: number }, items: readonly { amountMinor: number; accountLast4: string; accountNumber: string }[]): BankFileIntegrityIssue | null {
+  if (items.length !== file.itemCount) return "ITEM_COUNT";
+  if (bankFileTotal(items) !== file.totalMinor) return "TOTAL";
+  return items.every((item) => accountLast4(item.accountNumber) === item.accountLast4) ? null : "ACCOUNT_LAST4";
 }
 
 // ---- 付款参考、流水号 ----
@@ -320,7 +347,7 @@ export function bankFileTotal(items: readonly { amountMinor: number }[]): number
   return sumMinor(items.map((item) => item.amountMinor));
 }
 
-const FORMULA_LEAD = /^[=+\-@\t\r＝＋－＠]/;
+const FORMULA_LEAD = /^[=+\-@\t\r\n＝＋－＠]/;
 
 /** 公式注入防护：表格软件会当成公式执行的开头前面加一个单引号。 */
 export function guardCsvFormula(text: string): string {

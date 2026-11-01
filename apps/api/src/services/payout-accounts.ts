@@ -7,10 +7,10 @@
  * - 没有任何接口返回完整账号；审计、复核内容、错误信息里只有末 4 位。
  */
 import { randomUUID } from "node:crypto";
-import { PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountKind, type PayoutAccountStatus, accountLast4, maskAccount, normalizeAccountNumber, normalizeSwiftText, payoutAccountIssues } from "@nozomi/domain";
+import { PAYOUT_ACCOUNT_ISSUE_MESSAGES, type PayoutAccountKind, type PayoutAccountStatus, accountLast4, maskAccount, normalizeAccountNumber, normalizeSwiftBic, normalizeSwiftText, payoutAccountIssues } from "@nozomi/domain";
 import { verifyPassword, verifyPasswordAgainstNothing } from "../auth/password.ts";
 import type { AppContext } from "../context.ts";
-import { isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
+import { type Db, isUniqueViolation, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import type { Approval } from "../repos/approvals.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
@@ -26,6 +26,7 @@ import {
   pendingAccountReviewOf,
   updatePayoutAccount,
 } from "../repos/payout-accounts.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { findTenantUserSecrets } from "../repos/tenant-users.ts";
 import { validationFailed } from "../validation.ts";
 import { type ApprovalKind, approvalStale, requestApproval } from "./approvals.ts";
@@ -40,6 +41,11 @@ const SEAL_PURPOSE = "payout-account";
 /** 密文的归属：搬到别的行解不开。文件条目复制的密文也用账户的这个归属解。 */
 export function payoutAccountOwner(tenantId: string, accountId: string): string {
   return `${tenantId}:${accountId}`;
+}
+
+/** 内容基准用的指纹（和账号同一个主密钥）。 */
+export function payoutMac(ctx: AppContext, text: string): string {
+  return requireBox(ctx).mac(SEAL_PURPOSE, text);
 }
 
 export function openAccountNumber(ctx: AppContext, tenantId: string, accountId: string, sealed: string): string {
@@ -85,7 +91,7 @@ export async function submitPayoutAccount(ctx: AppContext, principal: TenantPrin
     beneficiaryAddress: normalizeSwiftText(input.beneficiaryAddress),
     bankName: normalizeSwiftText(input.bankName),
     bankAddress: normalizeSwiftText(input.bankAddress),
-    swiftBic: normalizeSwiftText(input.swiftBic).toUpperCase(),
+    swiftBic: normalizeSwiftBic(input.swiftBic),
     accountKind: input.accountKind,
   };
   const accountNumber = normalizeAccountNumber(input.accountNumber);
@@ -108,12 +114,22 @@ export async function submitPayoutAccount(ctx: AppContext, principal: TenantPrin
       await insertPayoutAccount(db, { tenantId, id, ...fields, accountSealed: sealed, accountLast4: last4, submittedBy: user.id, now });
       const account = (await findPayoutAccount(db, id, { tenantId })) as PayoutAccount;
       await insertAuditLog(db, consoleOrigin(tenantActor(user), ip, now), { tenantId, resource: "payout_account", resourceId: id, action: "submit", before: null, after: auditView(account) });
+      await notifyAccount(db, "payout_account.submitted", account, null, now);
       return account;
     });
   } catch (err) {
     if (isUniqueViolation(err, "payout_accounts_pending_key")) throw pendingExists(fields.currency);
     throw err;
   }
+}
+
+/** 发邮件给这家供应商的管理员（通知中心）：账号只有末 4 位。同一个账户同一件事只发一次。 */
+function notifyAccount(db: Db, event: "payout_account.submitted" | "payout_account.approved" | "payout_account.rejected", account: Pick<PayoutAccount, "tenantId" | "id" | "currency" | "accountLast4">, reason: string | null, now: Date): Promise<void> {
+  return enqueueNotification(
+    db,
+    { event, tenantId: account.tenantId, orderId: null, dedupeKey: `${event}:${account.id}`, data: { payout_currency: account.currency, payout_account: maskAccount(account.accountLast4), ...(reason === null ? {} : { reject_reason: normalizeSwiftText(reason) }) } },
+    now,
+  );
 }
 
 function pendingExists(currency: string): AppError {
@@ -177,6 +193,7 @@ export async function rejectPayoutAccount(ctx: AppContext, principal: PlatformPr
     if (pending !== null) throw new AppError(409, "PAYOUT_ACCOUNT_REVIEW_PENDING", "这个账户有一条待审核的复核，先驳回或撤回那条复核", { approval_id: pending });
     await updatePayoutAccount(db, account.tenantId, id, { status: "rejected", rejected_at: now, rejected_by: principal.user.id, reject_reason: reason }, now);
     await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "payout_account", resourceId: id, action: "reject", before: { status: account.status }, after: { status: "rejected", reason } });
+    await notifyAccount(db, "payout_account.rejected", account, reason, now);
     return { ...((await findPayoutAccount(db, id)) as PayoutAccount), tenantName: await tenantName(db, account.tenantId), pendingApprovalId: null };
   });
 }
@@ -204,6 +221,7 @@ export const PAYOUT_ACCOUNT_ACTIVATE: ApprovalKind = {
       before: current === null ? null : auditView(current),
       after: { ...auditView({ ...account, status: "active" }), approval_id: approval.id, requested_by: approval.requestedBy.id },
     });
+    await notifyAccount(db, "payout_account.approved", account, null, now);
   },
 };
 

@@ -130,7 +130,12 @@ function GenerateFileDialog({ batchId, group, onClose, onDone }: { batchId: stri
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [ackError, setAckError] = useState<string[]>([]);
-  const hasExclusions = group.excluded.length > 0;
+  // 账号解没解得开，发起时才知道（预览不解密）：后端把进不了文件的账单列回来，和预览的合在一起给人确认
+  const [lateExcluded, setLateExcluded] = useState<readonly { statement_no: string; tenant_name: string; message: string }[]>([]);
+  const [nothingLeft, setNothingLeft] = useState(false);
+  const previewExcluded = group.excluded.map((entry) => ({ statement_no: entry.statement_no, tenant_name: entry.tenant.name, message: entry.message }));
+  const excluded = [...previewExcluded, ...lateExcluded.filter((entry) => !previewExcluded.some((known) => known.statement_no === entry.statement_no))];
+  const hasExclusions = excluded.length > 0;
   const submit = async (): Promise<void> => {
     if (hasExclusions && acknowledged.length === 0) {
       setAckError(["请确认后再继续"]);
@@ -143,7 +148,13 @@ function GenerateFileDialog({ batchId, group, onClose, onDone }: { batchId: stri
       await requestBankFile(token, batchId, { currency: group.currency, charge_bearer: bearer, allow_exclusions: hasExclusions, note: note.trim() === "" ? null : note.trim() });
       onDone();
     } catch (err) {
-      if (!handleAuthFailure(err)) setProblem(apiText(err, "发起"));
+      if (handleAuthFailure(err)) return;
+      setProblem(apiText(err, "发起"));
+      if (err instanceof ApiError && (err.code === "BANK_FILE_EXCLUSIONS" || err.code === "BANK_FILE_EMPTY")) {
+        setLateExcluded((err.details["excluded"] ?? []) as { statement_no: string; tenant_name: string; message: string }[]);
+        setAcknowledged([]);
+        setNothingLeft(err.code === "BANK_FILE_EMPTY");
+      }
     } finally {
       setBusy(false);
     }
@@ -161,20 +172,29 @@ function GenerateFileDialog({ batchId, group, onClose, onDone }: { batchId: stri
           <Button variant="text" disabled={busy} onClick={onClose}>
             取消
           </Button>
-          <Button variant="primary" loading={busy} loadingText="提交中…" onClick={() => void submit()}>
-            提交复核
-          </Button>
+          {!nothingLeft && (
+            <Button variant="primary" loading={busy} loadingText="提交中…" onClick={() => void submit()}>
+              提交复核
+            </Button>
+          )}
         </>
       }
     >
       <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
       <p>{`${group.eligible.length} 笔，合计 ${moneyLabel(group.total)}。提交后要另一位同事在「待审核」批准，文件才生成。`}</p>
       <SelectField<ChargeBearer> label="手续费（Charges）" value={bearer} options={CHARGE_BEARERS.map((value) => ({ value, label: CHARGE_BEARER_NAMES[value] }))} onChange={setBearer} />
-      {hasExclusions && (
+      {lateExcluded.length > 0 && (
+        <ul>
+          {lateExcluded.map((entry) => (
+            <li key={entry.statement_no}>{`${entry.statement_no} ${entry.tenant_name}：${entry.message}`}</li>
+          ))}
+        </ul>
+      )}
+      {hasExclusions && !nothingLeft && (
         <CheckboxGroup
-          legend={`排除 ${group.excluded.length} 张账单`}
+          legend={`排除 ${excluded.length} 张账单`}
           name="allow-exclusions"
-          options={[{ value: "yes", label: `确认这次不付 ${group.excluded.map((entry) => entry.statement_no).join("、")}` }]}
+          options={[{ value: "yes", label: `确认这次不付 ${excluded.map((entry) => entry.statement_no).join("、")}` }]}
           value={acknowledged}
           onChange={setAcknowledged}
           errors={ackError}
@@ -188,7 +208,7 @@ function GenerateFileDialog({ batchId, group, onClose, onDone }: { batchId: stri
 export function BankFileSection({ batchId, batchStatus, canManage }: { batchId: string; batchStatus: string; canManage: boolean }) {
   const toast = useToast();
   const preview = useLoad<{ preview: BankFilePreview }>(`bank-file-preview|${batchId}|${batchStatus}`, (t) => getBankFilePreview(t, batchId));
-  const files = useLoad<{ items: BankFile[] }>(`bank-files|${batchId}|${batchStatus}`, (t) => listBankFiles(t, { payout_batch_id: batchId }));
+  const files = useLoad<{ items: BankFile[]; truncated?: boolean }>(`bank-files|${batchId}|${batchStatus}`, (t) => listBankFiles(t, { payout_batch_id: batchId }));
   const [generating, setGenerating] = useState<BankFilePreviewGroup | null>(null);
   return (
     <section aria-labelledby="bank-file-section">
@@ -198,6 +218,7 @@ export function BankFileSection({ batchId, batchStatus, canManage }: { batchId: 
       {batchStatus === "open" && <p>先锁定批次，再生成转账文件。一种币种一个文件，走双人复核。</p>}
       {preview.state.status === "error" && <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={preview.reload}>重试</Button>} />}
       {batchStatus !== "open" && (preview.state.data?.preview.groups ?? []).map((group) => <GroupCard key={group.currency} group={group} canGenerate={canManage && batchStatus === "closed"} onGenerate={setGenerating} />)}
+      {files.state.data?.truncated === true && <Alert kind="warning">文件太多，这里只显示最新的 200 个。</Alert>}
       {(files.state.data?.items.length ?? 0) > 0 && (
         <div className="card-table">
           <DataTable label="这个批次的转账文件" columns={fileColumns} rows={files.state.data?.items ?? []} rowKey={(row) => row.id} state="ready" onRetry={files.reload} empty={null} />
@@ -225,14 +246,15 @@ export function BankFileSection({ batchId, batchStatus, canManage }: { batchId: 
 function PaymentsDialog({ file, onClose, onDone }: { file: BankFileDetail; onClose(): void; onDone(next: BankFileDetail): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const unpaid = file.items.filter((item) => item.paid_at === null && !item.voided);
-  const [selected, setSelected] = useState<readonly string[]>(unpaid.map((item) => item.id));
+  const limit = BANK_TRANSFER_RULES.maxPaymentsPerRequest;
+  const [selected, setSelected] = useState<readonly string[]>(unpaid.slice(0, limit).map((item) => item.id));
   const [reference, setReference] = useState("");
   const [errors, setErrors] = useState<{ reference: string[]; selected: string[] }>({ reference: [], selected: [] });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const submit = async (): Promise<void> => {
     const value = reference.trim();
-    const next = { reference: isBankReference(value) ? [] : ["流水号是 1–64 位英文字母、数字和 / _ . : -，要以字母或数字开头"], selected: selected.length > 0 ? [] : ["至少选一笔"] };
+    const next = { reference: isBankReference(value) ? [] : ["流水号是 1–64 位英文字母、数字和 / _ . : -，要以字母或数字开头"], selected: selected.length === 0 ? ["至少选一笔"] : selected.length > limit ? [`一次最多回填 ${limit} 笔`] : [] };
     setErrors(next);
     if (next.reference.length > 0 || next.selected.length > 0) return;
     setBusy(true);
@@ -266,6 +288,7 @@ function PaymentsDialog({ file, onClose, onDone }: { file: BankFileDetail; onClo
     >
       <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
       <p>确认银行已经转出再回填。回填后账单记为已付款，供应商看得到流水号，不能改。</p>
+      {unpaid.length > limit && <Alert kind="info">{`还有 ${unpaid.length} 笔没回填，一次最多 ${limit} 笔：已选好前 ${limit} 笔，提交后再回填剩下的。`}</Alert>}
       <TextField label="银行流水号" required value={reference} maxLength={BANK_TRANSFER_RULES.bankReferenceMaxLength} autoComplete="off" errors={errors.reference} onChange={(event) => setReference(event.target.value)} />
       <CheckboxGroup
         legend="这个流水号对应哪几笔"
@@ -289,6 +312,7 @@ export function BankFileDetailPage() {
   const { state, reload, set } = useLoad<{ file: BankFileDetail }>(`bank-file|${id}`, canRead ? (t) => getBankFile(t, id) : null);
   const [dialog, setDialog] = useState<"payments" | "void" | null>(null);
   const [downloading, setDownloading] = useState<BankFileFormat | null>(null);
+  const [confirmChanged, setConfirmChanged] = useState<BankFileFormat | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const file = state.data?.file ?? null;
   const title = file === null ? "转账文件" : `转账文件 ${file.file_no}`;
@@ -304,15 +328,23 @@ export function BankFileDetailPage() {
   if (file === null) {
     return shell(state.status === "error" ? <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={reload}>重试</Button>} /> : <Skeleton lines={["medium", "long", "long", "medium"]} />);
   }
-  const download = async (format: BankFileFormat): Promise<void> => {
+  const hasChangedAccount = file.items.some((item) => item.account_changed && item.paid_at === null && !item.voided);
+  const download = async (format: BankFileFormat, acknowledged = false): Promise<void> => {
+    if (hasChangedAccount && !acknowledged) {
+      setConfirmChanged(format);
+      return;
+    }
+    setConfirmChanged(null);
     setDownloading(format);
     setProblem(null);
     try {
-      const name = saveFile(await downloadBankFile(token, file.id, format), `${file.file_no}.${format}`);
+      const name = saveFile(await downloadBankFile(token, file.id, format, acknowledged), `${file.file_no}.${format}`);
       toast(`已下载 ${name}`);
       reload();
     } catch (err) {
-      if (!handleAuthFailure(err)) setProblem(apiText(err, "下载"));
+      if (handleAuthFailure(err)) return;
+      if (err instanceof ApiError && err.code === "BANK_FILE_ACCOUNT_CHANGED") setConfirmChanged(format);
+      else setProblem(apiText(err, "下载"));
     } finally {
       setDownloading(null);
     }
@@ -339,6 +371,7 @@ export function BankFileDetailPage() {
           <StatusBadge {...BANK_FILE_STATUS_BADGES[file.status]} />
         </div>
         <div role="alert">{problem !== null && <Alert kind="danger">{problem}</Alert>}</div>
+        {file.items.some((item) => item.voided) && file.status === "paid" && <Alert kind="warning">{`合计和笔数是生成时的。其中 ${file.items.filter((item) => item.voided).length} 笔已作废、没有付款，实际付款看下面每一笔的流水号。`}</Alert>}
         {file.status === "generated" && <Alert kind="info">交给银行用原始下载的 CSV，不要用 Excel 打开后另存（账号开头的 0 会丢）；要查看请下载 Excel 文件。</Alert>}
         <dl className="details">
           <Detail label="合计">
@@ -396,6 +429,25 @@ export function BankFileDetailPage() {
       <div className="card-table">
         <DataTable label="每一笔" columns={columns} rows={file.items} rowKey={(row) => row.id} state="ready" onRetry={reload} empty={null} />
       </div>
+      {confirmChanged !== null && (
+        <Dialog
+          open
+          title="收款账户换过，还要下载吗？"
+          onClose={() => setConfirmChanged(null)}
+          footer={
+            <>
+              <Button variant="text" data-autofocus onClick={() => setConfirmChanged(null)}>
+                取消
+              </Button>
+              <Button variant="primary" onClick={() => void download(confirmChanged, true)}>
+                确认下载
+              </Button>
+            </>
+          }
+        >
+          <p>文件生成后，供应商换过收款账户，文件里还是批准时的旧账号。请先向供应商确认旧账号仍然可用；不确定就作废这个文件、重新生成。这次下载会记入审计。</p>
+        </Dialog>
+      )}
       {dialog === "payments" && (
         <PaymentsDialog
           file={file}
@@ -443,7 +495,7 @@ export function PayoutAccountQueuePage() {
   const [params, setParams] = useSearchParams();
   const statusParam = params.get("status");
   const status: PayoutAccountStatus | null = statusParam === "all" ? null : (PAYOUT_ACCOUNT_STATUSES as readonly string[]).includes(statusParam ?? "") ? (statusParam as PayoutAccountStatus) : "pending";
-  const { state, reload } = useLoad<{ items: PlatformPayoutAccount[] }>(`payout-accounts|${status ?? "all"}`, canRead ? (t) => listPlatformPayoutAccounts(t, status === null ? {} : { status }) : null);
+  const { state, reload } = useLoad<{ items: PlatformPayoutAccount[]; truncated?: boolean }>(`payout-accounts|${status ?? "all"}`, canRead ? (t) => listPlatformPayoutAccounts(t, status === null ? {} : { status }) : null);
   const [dialog, setDialog] = useState<{ kind: "review" | "reject"; account: PlatformPayoutAccount } | null>(null);
   const shell = (content: ReactNode): ReactNode => (
     <AppShell pageName="收款账户" trail={[{ label: "财务结算" }]}>
@@ -490,6 +542,7 @@ export function PayoutAccountQueuePage() {
           onChange={(value) => setParams(value === "pending" ? {} : { status: value })}
         />
       </div>
+      {state.data?.truncated === true && <Alert kind="warning">记录太多，这里只显示最新的 200 条，可以按状态筛选。</Alert>}
       <div className="card-table">
         <DataTable label="收款账户" columns={columns} rows={state.data?.items ?? []} rowKey={(row) => row.id} state={tableStateOf(state.status, state.data !== null)} onRetry={reload} empty={<StateBlock tone="neutral" title="没有符合的账户" description="供应商在自己的后台「账单 → 收款账户」提交后会出现在这里。" />} />
       </div>

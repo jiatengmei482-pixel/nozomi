@@ -23,6 +23,7 @@ export interface BankFile {
   createdAt: Date;
   firstDownloadedAt: Date | null;
   downloadCount: number;
+  contentDigest: string;
   csvSha256: string | null;
   xlsxSha256: string | null;
   paidAt: Date | null;
@@ -60,7 +61,7 @@ export interface BankFileItemRow {
 type Row = Record<string, any>;
 
 const FILE_COLUMNS =
-  "f.id, f.file_no, f.payout_batch_id, b.pay_date::text as pay_date, f.currency, f.template, f.charge_bearer, f.status, f.item_count, f.total_minor, f.excluded, f.approval_id, f.requested_by, f.approved_by, f.created_at, f.first_downloaded_at, f.download_count, f.csv_sha256, f.xlsx_sha256, f.paid_at, f.voided_at, f.voided_by, f.void_reason, f.version";
+  "f.id, f.file_no, f.payout_batch_id, b.pay_date::text as pay_date, f.currency, f.template, f.charge_bearer, f.status, f.item_count, f.total_minor, f.excluded, f.approval_id, f.requested_by, f.approved_by, f.created_at, f.first_downloaded_at, f.download_count, f.content_digest, f.csv_sha256, f.xlsx_sha256, f.paid_at, f.voided_at, f.voided_by, f.void_reason, f.version";
 
 function toFile(row: Row): BankFile {
   return {
@@ -81,6 +82,7 @@ function toFile(row: Row): BankFile {
     createdAt: row["created_at"],
     firstDownloadedAt: row["first_downloaded_at"],
     downloadCount: row["download_count"],
+    contentDigest: row["content_digest"],
     csvSha256: row["csv_sha256"],
     xlsxSha256: row["xlsx_sha256"],
     paidAt: row["paid_at"],
@@ -91,6 +93,9 @@ function toFile(row: Row): BankFile {
   };
 }
 
+/** 列表最多显示多少条；多取一条用来判断还有没有更多（接口返回 `truncated`，页面提示）。 */
+export const BANK_LIST_LIMIT = 200;
+
 export async function findBankFile(db: Db, id: string, options: { lock?: boolean } = {}): Promise<BankFile | null> {
   const result = await db.query(`select ${FILE_COLUMNS} from bank_files f join payout_batches b on b.id = f.payout_batch_id where f.id = $1${options.lock === true ? " for update of f" : ""}`, [id]);
   return result.rows[0] === undefined ? null : toFile(result.rows[0]);
@@ -100,8 +105,8 @@ export async function listBankFiles(db: Db, filter: { payoutBatchId: string | nu
   const result = await db.query(
     `select ${FILE_COLUMNS} from bank_files f join payout_batches b on b.id = f.payout_batch_id
       where ($1::uuid is null or f.payout_batch_id = $1) and ($2::text is null or f.status = $2)
-      order by f.created_at desc, f.id limit 200`,
-    [filter.payoutBatchId, filter.status],
+      order by f.created_at desc, f.id limit $3`,
+    [filter.payoutBatchId, filter.status, BANK_LIST_LIMIT + 1],
   );
   return result.rows.map(toFile);
 }
@@ -119,14 +124,15 @@ export interface NewBankFile {
   approvalId: string;
   requestedBy: string;
   approvedBy: string;
+  contentDigest: string;
   now: Date;
 }
 
 export async function insertBankFile(db: Db, file: NewBankFile): Promise<void> {
   await db.query(
-    `insert into bank_files (id, file_no, payout_batch_id, currency, template, charge_bearer, status, item_count, total_minor, excluded, approval_id, requested_by, approved_by, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, 'generated', $7, $8, $9::jsonb, $10, $11, $12, $13, $13)`,
-    [file.id, file.fileNo, file.payoutBatchId, file.currency, file.template, file.chargeBearer, file.itemCount, file.totalMinor, JSON.stringify(file.excluded), file.approvalId, file.requestedBy, file.approvedBy, file.now],
+    `insert into bank_files (id, file_no, payout_batch_id, currency, template, charge_bearer, status, item_count, total_minor, excluded, approval_id, requested_by, approved_by, content_digest, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6, 'generated', $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $14)`,
+    [file.id, file.fileNo, file.payoutBatchId, file.currency, file.template, file.chargeBearer, file.itemCount, file.totalMinor, JSON.stringify(file.excluded), file.approvalId, file.requestedBy, file.approvedBy, file.contentDigest, file.now],
   );
 }
 
@@ -209,7 +215,12 @@ export async function listBankFileItems(db: Db, fileId: string): Promise<BankFil
 
 /** 下载时用：每一笔和账号密文。只有这里取条目的密文。 */
 export async function listItemsForDownload(db: Db, fileId: string): Promise<(BankFileItemRow & { accountSealed: string })[]> {
-  const result = await db.query(`select ${ITEM_COLUMNS}, i.account_sealed from bank_file_items i join tenants t on t.id = i.tenant_id where i.file_id = $1 and i.voided_at is null order by i.seq`, [fileId]);
+  const result = await db.query(
+    `select ${ITEM_COLUMNS}, i.account_sealed,
+            exists (select 1 from payout_accounts a where a.tenant_id = i.tenant_id and a.currency = i.currency and a.status = 'active' and a.id <> i.account_id) as account_changed
+       from bank_file_items i join tenants t on t.id = i.tenant_id where i.file_id = $1 and i.voided_at is null order by i.seq`,
+    [fileId],
+  );
   return result.rows.map((row) => ({ ...toItem(row), accountSealed: row["account_sealed"] as string }));
 }
 

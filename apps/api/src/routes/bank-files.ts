@@ -21,14 +21,15 @@ import {
   STATEMENT_FILE_ISSUE_MESSAGES,
   accountRecentlyChanged,
   bankFileTotal,
+  isCurrencyCode,
   isBankReference,
   maskAccount,
   scopeIsRestricted,
 } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
-import type { BankFile, BankFileItemRow } from "../repos/bank-files.ts";
-import type { PayoutAccount } from "../repos/payout-accounts.ts";
+import { BANK_LIST_LIMIT, type BankFile, type BankFileItemRow } from "../repos/bank-files.ts";
+import { PAYOUT_LIST_LIMIT, type PayoutAccount } from "../repos/payout-accounts.ts";
 import { type BatchPreview, downloadBankFile, getFileForPlatform, listFilesForPlatform, previewBatch, recordPayments, requestBankFile, voidBankFile } from "../services/bank-files.ts";
 import { dataScopeDenied } from "../services/errors.ts";
 import { listAccountsForPlatform, listAccountsForTenant, rejectPayoutAccount, requestAccountReview, submitPayoutAccount, withdrawPayoutAccount } from "../services/payout-accounts.ts";
@@ -72,7 +73,7 @@ const generateSchema = z
   })
   .strict();
 const fileListSchema = z.object({ payout_batch_id: uuid.optional(), status: z.enum(BANK_FILE_STATUSES).optional() }).strict();
-const downloadSchema = z.object({ format: z.enum(BANK_FILE_FORMATS) }).strict();
+const downloadSchema = z.object({ format: z.enum(BANK_FILE_FORMATS), acknowledge_account_changed: z.boolean().default(false) }).strict();
 const paymentsSchema = z
   .object({
     payments: z
@@ -82,6 +83,16 @@ const paymentsSchema = z
   })
   .strict();
 const voidSchema = z.object({ reason: requiredNote }).strict();
+
+/** 列表多取了一条：超过上限时截掉，告诉页面还有更多。 */
+function listed<T>(rows: readonly T[], limit: number, json: (row: T) => Json): { items: Json[]; truncated: boolean } {
+  return { items: rows.slice(0, limit).map(json), truncated: rows.length > limit };
+}
+
+/** 平台不支持的币种没有小数位可查（不该有这样的账单，有了也要能列出来）：原样写最小单位，不抛错。 */
+function moneyOf(minor: number, currency: string): Json {
+  return isCurrencyCode(currency) ? salesMoney(minor, currency) : { amount: String(minor), currency };
+}
 
 function tenantAccountJson(account: PayoutAccount): Json {
   return {
@@ -168,7 +179,7 @@ function previewJson(preview: BatchPreview): Json {
     statement_id: statement.id,
     statement_no: statement.statementNo,
     tenant: { id: statement.tenantId, name: statement.tenantName },
-    amount: salesMoney(statement.totalMinor, statement.currency),
+    amount: moneyOf(statement.totalMinor, statement.currency),
   });
   return {
     batch_id: preview.batch.id,
@@ -177,7 +188,7 @@ function previewJson(preview: BatchPreview): Json {
     groups: preview.groups.map((group) => ({
       currency: group.currency,
       pending_approval_id: group.pendingApprovalId,
-      total: salesMoney(bankFileTotal(group.eligible.map((entry) => ({ amountMinor: entry.statement.totalMinor }))), group.currency as CurrencyCode),
+      total: moneyOf(bankFileTotal(group.eligible.map((entry) => ({ amountMinor: entry.statement.totalMinor }))), group.currency),
       eligible: group.eligible.map((entry) => ({
         ...statementRef(entry.statement),
         beneficiary_name: entry.account.beneficiaryName,
@@ -203,7 +214,7 @@ export function registerBankFileRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get("/tenant/v1/payout-accounts", async (request) => {
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "company.read" });
-    return { items: (await listAccountsForTenant(ctx, principal.tenantId)).map(tenantAccountJson) };
+    return listed(await listAccountsForTenant(ctx, principal.tenantId), PAYOUT_LIST_LIMIT, tenantAccountJson);
   });
 
   app.post("/tenant/v1/payout-accounts", async (request, reply) => {
@@ -239,7 +250,7 @@ export function registerBankFileRoutes(app: FastifyInstance, ctx: AppContext): v
     await platform(request, "statement.read");
     const query = parseInput(accountListSchema, request.query, "querystring");
     const now = ctx.now();
-    return { items: (await listAccountsForPlatform(ctx, { status: query.status ?? null, tenantId: query.tenant_id ?? null })).map((account) => platformAccountJson(account, now)) };
+    return listed(await listAccountsForPlatform(ctx, { status: query.status ?? null, tenantId: query.tenant_id ?? null }), PAYOUT_LIST_LIMIT, (account) => platformAccountJson(account, now));
   });
 
   app.post("/platform/v1/payout-accounts/:id/approval", async (request, reply) => {
@@ -275,7 +286,7 @@ export function registerBankFileRoutes(app: FastifyInstance, ctx: AppContext): v
   app.get("/platform/v1/bank-files", async (request) => {
     await platform(request, "statement.read");
     const query = parseInput(fileListSchema, request.query, "querystring");
-    return { items: (await listFilesForPlatform(ctx, { payoutBatchId: query.payout_batch_id ?? null, status: query.status ?? null })).map(fileJson) };
+    return listed(await listFilesForPlatform(ctx, { payoutBatchId: query.payout_batch_id ?? null, status: query.status ?? null }), BANK_LIST_LIMIT, fileJson);
   });
 
   app.get("/platform/v1/bank-files/:id", async (request) => {
@@ -288,7 +299,7 @@ export function registerBankFileRoutes(app: FastifyInstance, ctx: AppContext): v
     const principal = await platform(request, "statement.manage");
     const id = resourceId(request.params, "转账文件");
     const input = parseInput(downloadSchema, request.body, "body");
-    const file = await downloadBankFile(ctx, principal, id, input.format, request.ip);
+    const file = await downloadBankFile(ctx, principal, id, input.format, input.acknowledge_account_changed, request.ip, request.log);
     reply.header("content-type", file.contentType);
     reply.header("content-disposition", `attachment; filename="${file.fileName}"`);
     reply.header("pragma", "no-cache");

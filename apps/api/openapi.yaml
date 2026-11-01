@@ -12032,7 +12032,7 @@ paths:
       summary: 发起生成转账文件（双人复核）
       description: |
         需要操作 `statement.manage`。批次要先锁定（409 `BATCH_NOT_CLOSED`）。有账单进不了文件时，不传 `allow_exclusions: true` 就 409 `BANK_FILE_EXCLUSIONS`（`details.excluded` 列出）；一张都进不了 409 `BANK_FILE_EMPTY`；
-        同一批次同一币种同时只有一条待审核（409 `BANK_FILE_REVIEW_PENDING`）。另一位有 `statement.review` 的同事在 `/platform/v1/approvals/{id}/approve` 批准后文件才生成；批准时账单或账户变过 409 `APPROVAL_STALE`。
+        同一批次同一币种同时只有一条待审核（409 `BANK_FILE_REVIEW_PENDING`）。另一位有 `statement.review` 的同事在 `/platform/v1/approvals/{id}/approve` 批准后文件才生成；批准时账单或账户变过 409 `APPROVAL_STALE`；账号解不开 409 `BANK_FILE_ACCOUNT_UNREADABLE`（不生成文件）。
       security:
         - platformToken: []
       parameters:
@@ -12095,12 +12095,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items ]
+                required: [ items, truncated ]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/BankFile"
+                  truncated:
+                    type: boolean
+                    description: 超过上限（200），只返回了最新的 200 条
         "403":
           $ref: "#/components/responses/DataScopeDenied"
   /platform/v1/bank-files/{id}:
@@ -12127,7 +12130,7 @@ paths:
       summary: 下载转账文件（含完整账号）
       description: |
         需要操作 `statement.manage`（只读角色不能下载）。只有已生成、已下载的文件能下载（409 `BANK_FILE_STATE_INVALID`）。文件不落盘，每次在内存里生成；第一次下载把文件记为已下载。
-        每次下载一条审计（谁、格式、SHA-256、笔数、合计），没有账号。账号解不开 409 `BANK_FILE_ACCOUNT_UNREADABLE`；内容和第一次下载不一致 409 `BANK_FILE_INTEGRITY`；没配数据加密密钥 503。
+        每次下载一条审计（谁、格式、SHA-256、笔数、合计），没有账号。账号解不开 409 `BANK_FILE_ACCOUNT_UNREADABLE`；每次都核对账号末 4 位、笔数、合计和批准时记的内容基准，不一致 409 `BANK_FILE_INTEGRITY`（不改状态，另留一条 `integrity_failed` 审计）；没配数据加密密钥 503。
         用 POST：下载会改状态、写审计，不能被预取或缓存。响应头 `Cache-Control: no-store`。
       security:
         - platformToken: []
@@ -12145,6 +12148,10 @@ paths:
                 format:
                   type: string
                   enum: [ csv, xlsx ]
+                acknowledge_account_changed:
+                  type: boolean
+                  default: false
+                  description: 文件生成后供应商的收款账户换过时，确认文件里的旧账号仍然可用。不确认就 409 `BANK_FILE_ACCOUNT_CHANGED`；审计记下这次是确认后下载的
       responses:
         "200":
           description: 文件本身（CSV：UTF-8 带 BOM，CRLF；Excel：单元格都是文字）
@@ -12268,12 +12275,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items ]
+                required: [ items, truncated ]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/PlatformPayoutAccount"
+                  truncated:
+                    type: boolean
+                    description: 超过上限（200），只返回了最新的 200 条
         "403":
           $ref: "#/components/responses/DataScopeDenied"
   /platform/v1/payout-accounts/{id}/approval:
@@ -12363,12 +12373,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items ]
+                required: [ items, truncated ]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/TenantPayoutAccount"
+                  truncated:
+                    type: boolean
+                    description: 超过上限（200），只返回了最新的 200 条
     post:
       tags: [ 财务结算 ]
       operationId: submitPayoutAccount
@@ -22851,6 +22864,9 @@ components:
         - tenant.document_expired
         - tenant.observation_started
         - tenant.status_changed
+        - payout_account.submitted
+        - payout_account.approved
+        - payout_account.rejected
         - exception.opened
         - fx.alert
         - site.lookup_ceiling

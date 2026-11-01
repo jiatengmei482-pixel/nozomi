@@ -87,6 +87,9 @@ export async function insertPayoutAccount(db: Db, input: NewPayoutAccount): Prom
   );
 }
 
+/** 列表最多显示多少条；多取一条用来判断还有没有更多（接口返回 `truncated`，页面提示）。 */
+export const PAYOUT_LIST_LIMIT = 200;
+
 export async function findPayoutAccount(db: Db, id: string, options: { tenantId?: string; lock?: boolean } = {}): Promise<PayoutAccount | null> {
   const result = await db.query(
     `select ${PUBLIC_COLUMNS} from payout_accounts a where a.id = $1 and ($2::uuid is null or a.tenant_id = $2)${options.lock === true ? " for update" : ""}`,
@@ -97,7 +100,7 @@ export async function findPayoutAccount(db: Db, id: string, options: { tenantId?
 
 /** 一家供应商的全部账户（租户事务里按行级安全读）：先生效的、再新的。 */
 export async function listTenantPayoutAccounts(db: Db, tenantId: string): Promise<PayoutAccount[]> {
-  const result = await db.query(`select ${PUBLIC_COLUMNS} from payout_accounts a where a.tenant_id = $1 order by a.submitted_at desc, a.id limit 200`, [tenantId]);
+  const result = await db.query(`select ${PUBLIC_COLUMNS} from payout_accounts a where a.tenant_id = $1 order by a.submitted_at desc, a.id limit ${PAYOUT_LIST_LIMIT + 1}`, [tenantId]);
   return result.rows.map(toAccount);
 }
 
@@ -107,7 +110,7 @@ export async function listPlatformPayoutAccounts(db: Db, filter: { status: Payou
             (select r.id from approvals r where r.kind = 'payout_account.activate' and r.resource_id = a.id::text and r.status = 'pending' limit 1) as pending_approval_id
        from payout_accounts a join tenants t on t.id = a.tenant_id
       where ($1::text is null or a.status = $1) and ($2::uuid is null or a.tenant_id = $2)
-      order by a.submitted_at desc, a.id limit 200`,
+      order by a.submitted_at desc, a.id limit ${PAYOUT_LIST_LIMIT + 1}`,
     [filter.status, filter.tenantId],
   );
   return result.rows.map((row) => ({ ...toAccount(row), tenantName: row["tenant_name"], pendingApprovalId: row["pending_approval_id"] }));

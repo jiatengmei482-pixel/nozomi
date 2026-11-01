@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   BANK_FILE_TEMPLATES,
   type BankFileContent,
+  PAYOUT_ACCOUNT_ISSUE_MESSAGES,
+  bankFileIntegrityIssue,
+  normalizeSwiftBic,
   accountLast4,
   accountNumberIssue,
   accountRecentlyChanged,
@@ -194,4 +197,23 @@ test("同样的内容每次生成都一样（哈希才能核对）；Summary 用
 
 test("文件名只有日期、币种、文件号", () => {
   assert.equal(bankFileName({ payDate: "2026-10-20", currency: "SGD", fileNo: "BF20261020AAAAAAAA" }, "csv"), "nozomi-bank-transfer-2026-10-20-SGD-BF20261020AAAAAAAA.csv");
+});
+
+test("SWIFT 行首规则：名称地址以 / 开头也拒绝；提示写清楚", () => {
+  assert.equal(swiftTextIssue("/Fictional", 70), "LEADING");
+  assert.equal(swiftTextIssue("A/B Co", 70), null);
+  assert.equal(PAYOUT_ACCOUNT_ISSUE_MESSAGES.LEADING, "不能以 - : / 开头");
+});
+
+test("BIC 规范化只转 ASCII：ß、ı、ſ 不被改写成别的字母，校验拒绝", () => {
+  assert.equal(normalizeSwiftBic(" fakejpjt "), "FAKEJPJT");
+  for (const typed of ["fakeßjpt", "fakeıpjt", "fakeſgsg"]) assert.equal(isValidSwiftBic(normalizeSwiftBic(typed)), false, typed);
+});
+
+test("下载前的核对：笔数、合计、末 4 位，一项不对就有原因", () => {
+  const items = [{ amountMinor: 100, accountLast4: "9876", accountNumber: "00129876" }, { amountMinor: 50, accountLast4: "1111", accountNumber: "1111" }];
+  assert.equal(bankFileIntegrityIssue({ itemCount: 2, totalMinor: 150 }, items), null);
+  assert.equal(bankFileIntegrityIssue({ itemCount: 3, totalMinor: 150 }, items), "ITEM_COUNT");
+  assert.equal(bankFileIntegrityIssue({ itemCount: 2, totalMinor: 151 }, items), "TOTAL");
+  assert.equal(bankFileIntegrityIssue({ itemCount: 2, totalMinor: 150 }, [items[0] as (typeof items)[number], { amountMinor: 50, accountLast4: "1111", accountNumber: "2222" }]), "ACCOUNT_LAST4");
 });
