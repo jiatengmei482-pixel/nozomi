@@ -173,6 +173,7 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", `/platform/v1/orders/${ids.userId}/cancel-fee`],
       ["POST", `/platform/v1/orders/${ids.userId}/cancel`, { reason: "FORCE_MAJEURE", note: "不该生效" }],
       ["POST", `/platform/v1/orders/${ids.userId}/passenger/reveal`],
+      ["POST", `/platform/v1/tickets/${ids.userId}/texts/reveal`],
       ["POST", `/platform/v1/orders/${ids.userId}/events`, { type: "departed", occurred_at: "2026-01-01T00:00:00Z", reason: "不该生效" }],
       ["POST", `/platform/v1/orders/${ids.userId}/extra-charges/${ids.userId}/decide`, { decision: "approve" }],
       ["POST", `/platform/v1/orders/${ids.userId}/extra-charges/${ids.userId}/retry`],
