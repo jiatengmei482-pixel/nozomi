@@ -10,6 +10,7 @@ import { listAllTenants } from "../../api/platform.ts";
 import { type PlatformProductDetail, type PlatformProductSummary, type ProductTenantRef, getPlatformProduct, listPlatformProducts } from "../../api/platform-products.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
+import { AccountLoadFailed } from "../../components/AccountLoadFailed.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
@@ -414,6 +415,7 @@ export function PlatformProductDetailPage() {
       </Page>
     </AppShell>
   );
+  if (account.status === "error") return shell(<section className="card"><AccountLoadFailed /></section>);
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
   if (!valid || loaded.state.status === "not-found") {
     return shell(

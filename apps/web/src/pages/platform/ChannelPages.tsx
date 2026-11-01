@@ -11,6 +11,7 @@ import { ApiError } from "../../api/client.ts";
 import { listAllTenants } from "../../api/platform.ts";
 import type { Tenant } from "../../api/types.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
+import { AccountLoadFailed } from "../../components/AccountLoadFailed.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { AppShell, Page } from "../../components/AppShell.tsx";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
@@ -393,8 +394,11 @@ export function ChannelNewPage() {
       </Page>
     </AppShell>
   );
-  if (account.status === "ready" && !canManage) return shell(NO_ACCESS);
-  if (account.status === "ready" && scopeDeniesCreate) return shell(<StateBlock tone="neutral" title="不能新建渠道" description={CREATE_SCOPE_DENIED} action={<LinkButton variant="secondary" to={CHANNELS_PAGE_PATH}>回渠道列表</LinkButton>} />);
+  // 账号信息到手、确定有编辑权限才放出表单：表单一出现就要取城市选项，没有权限的角色不该多发一个 403
+  if (account.status === "loading") return shell(<Skeleton lines={["medium", "long", "long"]} />);
+  if (account.status === "error") return shell(<AccountLoadFailed />);
+  if (!canManage) return shell(NO_ACCESS);
+  if (scopeDeniesCreate) return shell(<StateBlock tone="neutral" title="不能新建渠道" description={CREATE_SCOPE_DENIED} action={<LinkButton variant="secondary" to={CHANNELS_PAGE_PATH}>回渠道列表</LinkButton>} />);
   return shell(
     <>
       <ChannelForm

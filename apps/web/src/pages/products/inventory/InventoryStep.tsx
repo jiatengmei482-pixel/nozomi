@@ -17,7 +17,7 @@ import { Dropdown } from "../../../components/Dropdown.tsx";
 import { FieldErrors } from "../../../components/FormFields.tsx";
 import { Icon, type IconName } from "../../../components/Icon.tsx";
 import { MonthGrid, useDaySelection } from "../../../components/MonthGrid.tsx";
-import { Skeleton, StateBlock } from "../../../components/States.tsx";
+import { StepLoadState } from "../StepLoadState.tsx";
 import { useToast } from "../../../components/Toast.tsx";
 import { WEEKDAY_NAMES } from "../../../lib/adjust-form.ts";
 import {
@@ -183,19 +183,7 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
         {title}
         {intro}
         <section className="card">
-          {loaded.state.status === "error" ? (
-            <StateBlock
-              title="加载失败"
-              description="请检查网络后重试。"
-              action={
-                <Button variant="secondary" onClick={loaded.reload}>
-                  重试
-                </Button>
-              }
-            />
-          ) : (
-            <Skeleton lines={["medium", "long", "control", "control", "control"]} />
-          )}
+          <StepLoadState status={loaded.state.status} reload={loaded.reload} lines={["medium", "long", "control", "control", "control"]} />
         </section>
         {bar}
       </div>

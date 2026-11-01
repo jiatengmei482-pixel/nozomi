@@ -10,7 +10,7 @@ import { Button, IconButton } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { FieldErrors } from "../../components/FormFields.tsx";
 import { Icon, type IconName } from "../../components/Icon.tsx";
-import { Skeleton, StateBlock } from "../../components/States.tsx";
+import { StepLoadState } from "./StepLoadState.tsx";
 import { CONTENT_LANGUAGES, type ContentLanguage, LANGUAGE_NAMES, LANGUAGE_TAGS, checkReasons } from "../../lib/product-display.ts";
 import type { ServerIssue } from "../../lib/product-failure.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -91,19 +91,7 @@ export function ContentStep({ frame, product }: { frame: ProductFrame; product: 
       <div className="step">
         <h2 className="step__title">⑤ 商品详情</h2>
         <section className="card">
-          {loaded.state.status === "error" ? (
-            <StateBlock
-              title="加载失败"
-              description="请检查网络后重试。"
-              action={
-                <Button variant="secondary" onClick={loaded.reload}>
-                  重试
-                </Button>
-              }
-            />
-          ) : (
-            <Skeleton lines={["medium", "control", "long"]} />
-          )}
+          <StepLoadState status={loaded.state.status} reload={loaded.reload} lines={["medium", "control", "long"]} />
         </section>
       </div>
     );

@@ -17,6 +17,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { PlatformAction } from "@nozomi/domain";
 import { EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, MESSAGING_APPS, ORDER_CANCEL_REASONS, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
@@ -99,6 +100,9 @@ export function toChangeInput(body: z.output<typeof changeSchema>): OrderChangeI
   if (body.luggage !== undefined) input.luggage = body.luggage;
   return input;
 }
+
+/** 谁能读平台取消政策（有任一个即可）：主数据查看（取消政策页）；商品查看（商品「服务规则」里的取消规则，M4-15，ADR 0047 补充）。 */
+export const CANCELLATION_POLICY_READ_ACTIONS = ["master_data.read", "product.read"] as const satisfies readonly PlatformAction[];
 
 export function cancellationPolicyJson(policy: StoredCancellationPolicy): Json {
   return {
@@ -223,7 +227,7 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
   // ---- 运营后台 ----
 
   app.get("/platform/v1/cancellation-policy", async (request) => {
-    await authenticatePlatform(ctx, platformCredentials(request), { action: "master_data.read" });
+    await authenticatePlatform(ctx, platformCredentials(request), { anyOf: CANCELLATION_POLICY_READ_ACTIONS });
     return { policy: cancellationPolicyJson(await getCancellationPolicy(ctx, "platform")) };
   });
 

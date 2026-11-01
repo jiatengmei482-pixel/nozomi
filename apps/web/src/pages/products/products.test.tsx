@@ -782,3 +782,36 @@ test("其他步骤和列表也注明数据来源（M1-18）：标题下有城市
   await screen.findByRole("link", { name: "羽田机场接送" });
   assert.equal(lines().length, 2, "列表有城市和接送点两列");
 });
+
+test("M4-15 服务规则取不到时不停在骨架屏：403 说没有权限，404 说找不到，500 给重试且重试能取到", async () => {
+  const failing = (status: number, code: string): Route => productRoutes({}, (call) => (call.path === `${BASE}/service-rules` ? json(status, { error: { code, message: "出错了", details: {} } }) : null));
+  open(`/products/${PRODUCT_ID}/service-rules`, "admin", failing(403, "FORBIDDEN"));
+  await screen.findByRole("heading", { name: "你没有权限查看这里" });
+  assert.equal(document.querySelector(".skeleton"), null);
+  resetBrowser();
+
+  open(`/products/${PRODUCT_ID}/service-rules`, "admin", failing(404, "NOT_FOUND"));
+  await screen.findByRole("heading", { name: "找不到这部分内容" });
+  assert.equal(document.querySelector(".skeleton"), null);
+  resetBrowser();
+
+  let attempts = 0;
+  const flaky = productRoutes({}, (call) => {
+    if (call.path !== `${BASE}/service-rules`) return null;
+    attempts += 1;
+    return attempts === 1 ? json(500, { error: { code: "INTERNAL_ERROR", message: "出错了", details: {} } }) : null;
+  });
+  open(`/products/${PRODUCT_ID}/service-rules`, "admin", flaky);
+  await screen.findByRole("heading", { name: "加载失败" });
+  await user().click(screen.getByRole("button", { name: "重试" }));
+  await screen.findByRole("heading", { name: "取消规则" });
+});
+
+test("M4-15 商品详情、价格规则取不到（403）时同样不停在骨架屏", async () => {
+  for (const [slug, api] of [["content", "content"], ["prices", "price-rules"]] as const) {
+    open(`/products/${PRODUCT_ID}/${slug}`, "admin", productRoutes({}, (call) => (call.path === `${BASE}/${api}` ? json(403, { error: { code: "FORBIDDEN", message: "没有权限", details: {} } }) : null)));
+    await screen.findByRole("heading", { name: "你没有权限查看这里" });
+    assert.equal(document.querySelector(".skeleton"), null, slug);
+    resetBrowser();
+  }
+});

@@ -13,7 +13,7 @@ import { Alert } from "../../components/Alert.tsx";
 import { Button, IconButton } from "../../components/Button.tsx";
 import { FieldErrors } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
-import { Skeleton, StateBlock } from "../../components/States.tsx";
+import { StepLoadState } from "./StepLoadState.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { CHARGE_UNIT_NAMES, displayName, timeZoneLabel } from "../../lib/master-display.ts";
 import { checkReasons, moneyText, readAmount, tidyAmountDisplay } from "../../lib/product-display.ts";
@@ -91,19 +91,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
       <div className="step">
         <h2 className="step__title">② 服务规则</h2>
         <section className="card">
-          {loaded.state.status === "error" ? (
-            <StateBlock
-              title="加载失败"
-              description="请检查网络后重试。"
-              action={
-                <Button variant="secondary" onClick={loaded.reload}>
-                  重试
-                </Button>
-              }
-            />
-          ) : (
-            <Skeleton lines={["medium", "control", "control", "long"]} />
-          )}
+          <StepLoadState status={loaded.state.status} reload={loaded.reload} lines={["medium", "control", "control", "long"]} />
         </section>
       </div>
     );
