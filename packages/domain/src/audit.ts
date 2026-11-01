@@ -50,6 +50,8 @@ export const AUDIT_RESOURCES = [
   "platform_role",
   "statement",
   "payout_batch",
+  "payout_account",
+  "bank_file",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];
@@ -127,6 +129,7 @@ export const AUDIT_ACTIONS = [
   "clear_ip_allowlist",
   "dispute",
   "void",
+  "download",
   "set",
   "replace",
   "clear",

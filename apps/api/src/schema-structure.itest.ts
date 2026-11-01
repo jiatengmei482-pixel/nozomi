@@ -50,6 +50,7 @@ const PLATFORM_TABLES = [
   "order_rescues",
   "order_sales",
   "payment_events",
+  "bank_files",
   "payout_batches",
   "place_api_usage",
   "places",
@@ -113,6 +114,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     statement_events: ["SELECT"],
     statement_lines: ["SELECT"],
     statements: ["SELECT"],
+    // 收款账户（ADR 0051）：供应商只看（查询不取密文列）；提交、撤回在平台事务里做（租户编号只来自令牌）
+    payout_accounts: ["SELECT"],
     // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
     order_assignments: ["INSERT", "SELECT"],
     order_contacts: ["INSERT", "SELECT"],
@@ -211,6 +214,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     statement_events: ["INSERT", "SELECT"],
     statement_lines: ["INSERT", "SELECT", "UPDATE"],
     statements: ["INSERT", "SELECT", "UPDATE"],
+    // 收款账户、转账文件、文件条目（ADR 0051）：都不删；内容不可变，触发器按语句检查
+    bank_file_items: ["INSERT", "SELECT", "UPDATE"],
+    bank_files: ["INSERT", "SELECT", "UPDATE"],
+    payout_accounts: ["INSERT", "SELECT", "UPDATE"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
@@ -332,6 +339,8 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   "order_no_show_claims.order_no_show_claims_platform_review": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   // 账单（ADR 0040）：出账、确认期满、复核、付款批次都是平台跨供应商做的
   ...Object.fromEntries(["statements", "statement_lines", "statement_events"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
+  // 收款账户、文件条目（ADR 0051）：审核、生成文件、回填都是平台跨供应商做的
+  ...Object.fromEntries(["payout_accounts", "bank_file_items"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
@@ -355,6 +364,8 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 文件里的条目按文件编号找（ADR 0051）
+  "bank_file_items_seq_key",
   // 30 分钟没确认的改期、异议期到了的加收、等扣款的加收、运营后台跨租户看待审核的加收（ADR 0029）
   "order_changes_confirm_due_idx",
   "order_extra_charges_charge_due_idx",
@@ -374,6 +385,8 @@ const INDEX_EXCEPTIONS = [
   "orders_payment_due_idx",
   // 用车前 6 小时仍未派车的自动救援跨租户扫（ADR 0031）
   "orders_rescue_due_idx",
+  // 运营后台跨供应商的收款账户队列（ADR 0051）
+  "payout_accounts_platform_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
   // 账单号全平台唯一；确认期满自动确认跨供应商扫；运营后台跨供应商的账单列表、付款批次里的账单（ADR 0040）

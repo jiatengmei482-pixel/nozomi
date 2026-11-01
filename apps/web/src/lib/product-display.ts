@@ -22,7 +22,7 @@ export function productName(product: { title: LocalizedText; category: ServiceCa
   return { text: `未命名的${PRODUCT_CATEGORY_NAMES[product.category]}商品`, lang: "zh-Hans", unnamed: true };
 }
 
-export const CURRENCY_NAMES: Readonly<Record<string, string>> = { JPY: "日元", KRW: "韩元", CNY: "人民币", USD: "美元", HKD: "港元", TWD: "新台币", THB: "泰铢" };
+export const CURRENCY_NAMES: Readonly<Record<string, string>> = { JPY: "日元", KRW: "韩元", CNY: "人民币", USD: "美元", HKD: "港元", TWD: "新台币", THB: "泰铢", SGD: "新加坡元" };
 export const CURRENCY_OPTIONS = Object.keys(CURRENCIES).map((code) => ({ value: code, label: `${code} ${CURRENCY_NAMES[code] ?? ""}`.trim() }));
 
 export const LANGUAGE_NAMES: Readonly<Record<(typeof MASTER_DATA_LANGUAGES)[number], string>> = { zh: "中文", ja: "日语", en: "英语", ko: "韩语" };

@@ -83,6 +83,7 @@ function statementBase(statement: Statement): Json {
     dispute_reason: statement.disputeReason,
     approved_at: iso(statement.approvedAt),
     paid_at: iso(statement.paidAt),
+    bank_reference: statement.bankReference,
     voided_at: iso(statement.voidedAt),
     void_reason: statement.voidReason,
     version: statement.version,

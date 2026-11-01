@@ -199,6 +199,17 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/tickets/${ids.userId}/decide`, { outcome: "resolved", note: "不该生效" }],
       ["POST", `/platform/v1/tickets/${ids.userId}/close`, { note: "不该生效" }],
       ["POST", `/platform/v1/tickets/${ids.userId}/payout`, { reference: "不该生效" }],
+      // 收款账户、银行转账文件（M5-02）
+      ["GET", "/platform/v1/payout-accounts"],
+      ["POST", `/platform/v1/payout-accounts/${ids.userId}/approval`, {}],
+      ["POST", `/platform/v1/payout-accounts/${ids.userId}/reject`, { reason: "不该生效" }],
+      ["GET", `/platform/v1/payout-batches/${ids.userId}/bank-file-preview`],
+      ["POST", `/platform/v1/payout-batches/${ids.userId}/bank-files`, { currency: "JPY" }],
+      ["GET", "/platform/v1/bank-files"],
+      ["GET", `/platform/v1/bank-files/${ids.userId}`],
+      ["POST", `/platform/v1/bank-files/${ids.userId}/download`, { format: "csv" }],
+      ["POST", `/platform/v1/bank-files/${ids.userId}/payments`, { payments: [] }],
+      ["POST", `/platform/v1/bank-files/${ids.userId}/void`, { reason: "不该生效" }],
       // 账单与付款批次（M5-01）
       ["GET", "/platform/v1/statements"],
       ["POST", "/platform/v1/statements/generate", {}],
@@ -352,6 +363,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", `/tenant/v1/tickets/${ids.userId}`],
     ["POST", `/tenant/v1/tickets/${ids.userId}/messages`, { body: "不该出现" }],
     // 账单（M5-01）
+    ["GET", "/tenant/v1/payout-accounts"],
+    ["POST", "/tenant/v1/payout-accounts", {}],
+    ["POST", `/tenant/v1/payout-accounts/${ids.userId}/withdraw`],
     ["GET", "/tenant/v1/statements"],
     ["GET", `/tenant/v1/statements/${ids.userId}`],
     ["POST", `/tenant/v1/statements/${ids.userId}/confirm`],

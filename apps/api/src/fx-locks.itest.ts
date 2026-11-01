@@ -22,7 +22,7 @@ let m: Market;
 let md2: { id: string; token: string; email: string };
 
 const HOUR = 3_600_000;
-const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
+const RATES = { JPY: "150", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36", SGD: "1.35" };
 /** 数据源第一批的时间：测试时钟起点（2026-10-07T01:00Z）之前 1 小时 */
 const T0 = new Date("2026-10-07T00:00:00.000Z");
 

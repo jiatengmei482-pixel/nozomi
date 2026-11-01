@@ -123,7 +123,7 @@
 - **不落盘**：库里不存文件，也不写磁盘。每次下载从条目快照在内存里生成。解密失败返回 409 `BANK_FILE_ACCOUNT_UNREADABLE`，不会给出一份缺账号的文件。
 - **哈希**：内容是确定的（来自快照，时间取生成时间，zip 时间固定）。第一次下载某种格式时记 SHA-256；之后再下载核对，不一致 409 `BANK_FILE_INTEGRITY`（条目被人动过）。
 - **审计**：每次下载一条（`bank_file` / `download`）：谁、IP、格式、SHA-256、笔数、合计、币种、第几次。没有账号，也没有条目内容。
-- **响应头**：`Cache-Control: no-store, private`、`Pragma: no-cache`、`X-Content-Type-Options: nosniff`、`Content-Disposition: attachment`。
+- **响应头**：`Cache-Control: no-store`（`/platform/` 下的接口统一带）、`Pragma: no-cache`、`X-Content-Type-Options: nosniff`、`Content-Disposition: attachment`。
 - **文件名**：`nozomi-bank-transfer-<付款日>-<币种>-<文件号>.csv`，没有供应商名和账号。
 
 ### 5. 租户隔离和规则 4

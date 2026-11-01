@@ -1635,6 +1635,25 @@ test("账单（M5-01）：甲看不到、确认不了、异议不了乙的账单
   assert.equal((await api.call("GET", `/tenant/v1/statements/${id}`, { token: b.adminToken })).status, 200, "乙自己看得到");
 });
 
+test("跨租户：甲读不到、撤不了乙的收款账户；请求体带乙的编号被拒绝（M5-02，ADR 0051）", async () => {
+  const input = { currency: "SGD", beneficiary_name: "Fictional B", beneficiary_address: "1 Example Road", bank_name: "Fictional Bank", bank_address: "2 Sample Street", swift_bic: "FAKESGSGXXX", account_kind: "account", account_number: "00112233", current_password: TEST_PASSWORD };
+  const submitted = await api.call("POST", "/tenant/v1/payout-accounts", { token: b.adminToken, body: input });
+  assert.equal(submitted.status, 201, submitted.text);
+  const id = submitted.body.account.id as string;
+  cover("GET /tenant/v1/payout-accounts");
+  cover("POST /tenant/v1/payout-accounts");
+  cover("POST /tenant/v1/payout-accounts/:id/withdraw");
+  const list = await api.call("GET", "/tenant/v1/payout-accounts", { token: a.adminToken });
+  assert.equal(list.status, 200);
+  assert.ok(!JSON.stringify(list.body).includes(id), "甲的列表里没有乙的账户");
+  assert.equal((await api.call("POST", `/tenant/v1/payout-accounts/${id}/withdraw`, { token: a.adminToken, body: {} })).status, 404);
+  const stolen = await api.call("POST", "/tenant/v1/payout-accounts", { token: a.adminToken, body: { ...input, tenant_id: b.tenantId } });
+  assert.equal(stolen.status, 400, "请求体带租户编号被拒绝");
+  const rows = await api.db.owner.query<{ tenant_id: string; status: string }>("select tenant_id, status from payout_accounts where currency = 'SGD' and beneficiary_name = 'Fictional B'");
+  assert.deepEqual(rows.rows, [{ tenant_id: b.tenantId, status: "pending" }], "乙的账户没被动过，甲也没多出一条");
+  assert.equal((await api.call("POST", `/tenant/v1/payout-accounts/${id}/withdraw`, { token: b.adminToken, body: {} })).status, 200, "乙自己撤得了");
+});
+
 test("/tenant/v1 的每个接口都在本文件里做过跨租户验证", () => {
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/tenant/v1/"))
@@ -1654,6 +1673,7 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/orders", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/payout-accounts", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/company", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/performance", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/drivers", { token: a.adminToken }),

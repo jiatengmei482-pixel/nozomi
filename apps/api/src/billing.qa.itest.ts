@@ -968,7 +968,7 @@ test("非法跳转：待确认不能答复、不能发起复核；有异议的�
   assert.equal((await approvePayout(w, st.id)).status, "in_payout");
   await confirm(w, sPaid, paid.id);
   await approvePayout(w, paid.id);
-  await w.api.db.owner.query("update statements set status = 'paid', paid_at = $2 where id = $1", [paid.id, w.api.clock.now()]);
+  await w.api.db.owner.query("update statements set status = 'paid', paid_at = $2, bank_reference = 'FAKE-REF-1' where id = $1", [paid.id, w.api.clock.now()]);
   for (const [who, id, label] of [[s, st.id, "待付款"], [sPaid, paid.id, "已付款"]] as const) {
     await expect409("POST", `/platform/v1/statements/${id}/void`, fin, { reason: "x" }, label);
     await expect409("POST", `/platform/v1/statements/${id}/payout-approval`, fin, {}, label);

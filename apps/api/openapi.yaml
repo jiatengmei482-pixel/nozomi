@@ -11777,7 +11777,7 @@ paths:
       summary: 锁定付款批次
       description: |
         需要操作 `statement.manage`。锁定后不再收新的账单（之后复核通过的顺延到下个月的付款日），等银行转账；已锁定的再锁原样返回。
-        导出银行转账文件、回填银行流水号、记为已付款在 M5-02（需要银行的付款文件模板）。
+        锁定后才能生成银行转账文件（`POST /platform/v1/payout-batches/{id}/bank-files`，ADR 0051）。
       security:
         - platformToken: []
       parameters:
@@ -11789,6 +11789,465 @@ paths:
           $ref: "#/components/responses/DataScopeDenied"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/payout-batches/{id}/bank-file-preview:
+    get:
+      tags: [ 财务结算 ]
+      operationId: previewBankFile
+      summary: 付款批次的转账文件预览（按币种）
+      description: 需要操作 `statement.read`。按币种列出能进文件的账单、有问题的账单（供应商、账单号、金额、原因）、已在文件里的。账号只有末 4 位；这一步不解密账号。ADR 0051。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 预览
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ preview ]
+                properties:
+                  preview:
+                    $ref: "#/components/schemas/BankFilePreview"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/payout-batches/{id}/bank-files:
+    post:
+      tags: [ 财务结算 ]
+      operationId: requestBankFile
+      summary: 发起生成转账文件（双人复核）
+      description: |
+        需要操作 `statement.manage`。批次要先锁定（409 `BATCH_NOT_CLOSED`）。有账单进不了文件时，不传 `allow_exclusions: true` 就 409 `BANK_FILE_EXCLUSIONS`（`details.excluded` 列出）；一张都进不了 409 `BANK_FILE_EMPTY`；
+        同一批次同一币种同时只有一条待审核（409 `BANK_FILE_REVIEW_PENDING`）。另一位有 `statement.review` 的同事在 `/platform/v1/approvals/{id}/approve` 批准后文件才生成；批准时账单或账户变过 409 `APPROVAL_STALE`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ currency ]
+              properties:
+                currency:
+                  $ref: "#/components/schemas/FxCurrency"
+                charge_bearer:
+                  type: string
+                  enum: [ OUR, SHA, BEN ]
+                  default: SHA
+                  description: 手续费谁出。整个文件一个值
+                allow_exclusions:
+                  type: boolean
+                  default: false
+                  description: 确认排除进不了文件的账单；排除名单写进复核内容和文件记录
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/bank-files:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listBankFiles
+      summary: 转账文件列表
+      description: 需要操作 `statement.read`。从新到旧，最多 200 个。
+      security:
+        - platformToken: []
+      parameters:
+        - name: payout_batch_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/BankFileStatus"
+      responses:
+        "200":
+          description: 转账文件
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BankFile"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+  /platform/v1/bank-files/{id}:
+    get:
+      tags: [ 财务结算 ]
+      operationId: getBankFile
+      summary: 一个转账文件（含每一笔）
+      description: 需要操作 `statement.read`。账号只有末 4 位。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          $ref: "#/components/responses/BankFileResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/bank-files/{id}/download:
+    post:
+      tags: [ 财务结算 ]
+      operationId: downloadBankFile
+      summary: 下载转账文件（含完整账号）
+      description: |
+        需要操作 `statement.manage`（只读角色不能下载）。只有已生成、已下载的文件能下载（409 `BANK_FILE_STATE_INVALID`）。文件不落盘，每次在内存里生成；第一次下载把文件记为已下载。
+        每次下载一条审计（谁、格式、SHA-256、笔数、合计），没有账号。账号解不开 409 `BANK_FILE_ACCOUNT_UNREADABLE`；内容和第一次下载不一致 409 `BANK_FILE_INTEGRITY`；没配数据加密密钥 503。
+        用 POST：下载会改状态、写审计，不能被预取或缓存。响应头 `Cache-Control: no-store`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ format ]
+              properties:
+                format:
+                  type: string
+                  enum: [ csv, xlsx ]
+      responses:
+        "200":
+          description: 文件本身（CSV：UTF-8 带 BOM，CRLF；Excel：单元格都是文字）
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/bank-files/{id}/payments:
+    post:
+      tags: [ 财务结算 ]
+      operationId: recordBankFilePayments
+      summary: 回填银行流水号
+      description: |
+        需要操作 `statement.manage`。只有已下载的文件能回填；可以分多次；同一流水号可以用在多笔上。账单记为已付款、推 `payout.paid`；全部回填后文件记为已付款，批次里的账单都付完后批次记为已付款。
+        同一笔同一流水号再提交原样返回；不同流水号 409 `BANK_FILE_ITEM_ALREADY_PAID`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ payments ]
+              properties:
+                payments:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [ item_id, bank_reference ]
+                    properties:
+                      item_id:
+                        type: string
+                        format: uuid
+                      bank_reference:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+      responses:
+        "200":
+          $ref: "#/components/responses/BankFileResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/bank-files/{id}/void:
+    post:
+      tags: [ 财务结算 ]
+      operationId: voidBankFile
+      summary: 作废转账文件
+      description: |
+        需要操作 `statement.manage`。未付款的条目作废，账单释放，可以进新文件。已经回填过部分条目的文件记为已付款（已付的不退回），否则记为已作废。
+        文件如果已经交给银行，先到银行撤销，否则重新生成会重复付款。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          $ref: "#/components/responses/BankFileResult"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/payout-accounts:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listPlatformPayoutAccounts
+      summary: 供应商收款账户（运营后台）
+      description: 需要操作 `statement.read`。从新到旧，最多 200 条。账号只有末 4 位。
+      security:
+        - platformToken: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/PayoutAccountStatus"
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 收款账户
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformPayoutAccount"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+  /platform/v1/payout-accounts/{id}/approval:
+    post:
+      tags: [ 财务结算 ]
+      operationId: requestPayoutAccountReview
+      summary: 发起启用收款账户的复核（双人复核）
+      description: 需要操作 `statement.manage`。只有待审核的账户能发起（409 `PAYOUT_ACCOUNT_STATE_INVALID`）；同时只有一条待审核的（409 `PAYOUT_ACCOUNT_REVIEW_PENDING`）。另一位有 `statement.review` 的同事批准后生效，旧账户变成已被替换。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /platform/v1/payout-accounts/{id}/reject:
+    post:
+      tags: [ 财务结算 ]
+      operationId: rejectPayoutAccount
+      summary: 驳回收款账户
+      description: 需要操作 `statement.manage`。原因必填，供应商看得到。有待审核的复核时先处理复核（409 `PAYOUT_ACCOUNT_REVIEW_PENDING`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 已驳回
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ account ]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/PlatformPayoutAccount"
+        "403":
+          $ref: "#/components/responses/DataScopeDenied"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /tenant/v1/payout-accounts:
+    get:
+      tags: [ 财务结算 ]
+      operationId: listTenantPayoutAccounts
+      summary: 自己的收款账户
+      description: 需要操作 `company.read`。账号只有末 4 位。租户编号只来自令牌。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 收款账户
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantPayoutAccount"
+    post:
+      tags: [ 财务结算 ]
+      operationId: submitPayoutAccount
+      summary: 提交收款账户（待平台审核）
+      description: |
+        需要操作 `company.manage`（只有管理员），并重新输入当前密码（400 `CURRENT_PASSWORD_INCORRECT`，失败次数限速）。账号加密存放，只返回末 4 位；内容不能改，要改就提交新的，批准之前旧账户继续有效。
+        名称和地址只能用 SWIFT 字符集（英文字母、数字和 `/-?:().,'+`）。同币种已有待审核的 409 `PAYOUT_ACCOUNT_PENDING_EXISTS`（先撤回）。没配数据加密密钥 503。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ currency, beneficiary_name, beneficiary_address, bank_name, bank_address, swift_bic, account_kind, account_number, current_password ]
+              properties:
+                currency:
+                  $ref: "#/components/schemas/FxCurrency"
+                beneficiary_name:
+                  type: string
+                  maxLength: 70
+                beneficiary_address:
+                  type: string
+                  maxLength: 105
+                bank_name:
+                  type: string
+                  maxLength: 70
+                bank_address:
+                  type: string
+                  maxLength: 105
+                swift_bic:
+                  type: string
+                  description: 8 或 11 位
+                account_kind:
+                  type: string
+                  enum: [ iban, account ]
+                account_number:
+                  type: string
+                  description: IBAN（校验位要对）或 4–34 位字母数字的账号；空格和连字符会被去掉
+                current_password:
+                  type: string
+      responses:
+        "201":
+          description: 已提交
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ account ]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/TenantPayoutAccount"
+        "400":
+          description: "`VALIDATION_FAILED`（`details.issues` 逐项给路径和原因代码，不回显账号）；`CURRENT_PASSWORD_INCORRECT`：当前密码不正确"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
+  /tenant/v1/payout-accounts/{id}/withdraw:
+    post:
+      tags: [ 财务结算 ]
+      operationId: withdrawPayoutAccount
+      summary: 撤回待审核的收款账户
+      description: 需要操作 `company.manage`。只有待审核的能撤回（409 `PAYOUT_ACCOUNT_STATE_INVALID`）。别的供应商的 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 已撤回
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ account ]
+                properties:
+                  account:
+                    $ref: "#/components/schemas/TenantPayoutAccount"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          $ref: "#/components/responses/StatementStateInvalid"
   /platform/v1/exceptions:
     get:
       tags: [ 订单中心 ]
@@ -12703,7 +13162,7 @@ webhooks:
                   type: string
                 type:
                   type: string
-                  enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test ]
+                  enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, payout.paid, webhook.test ]
                 created_at:
                   type: string
                   format: date-time
@@ -12799,7 +13258,7 @@ components:
       description: 以哪个币种为基准显示（1 个 base = ? 个各币种）；默认 USD
       schema:
         type: string
-        enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB ]
+        enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
         default: USD
     FxFetchId:
       name: id
@@ -13406,8 +13865,19 @@ components:
             properties:
               batch:
                 $ref: "#/components/schemas/PayoutBatchDetail"
+    BankFileResult:
+      description: 一个转账文件（含每一笔）
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [ file ]
+            properties:
+              file:
+                $ref: "#/components/schemas/BankFileDetail"
     StatementStateInvalid:
-      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚"
+      description: "`STATEMENT_STATE_INVALID`：账单现在的状态不能做这一步（`details.status`）；`STATEMENT_REVIEW_PENDING`：有待审核的付款复核（`details.approval_id`）；`STATEMENT_CONFIRM_PERIOD_OVER`：确认期已过、已视为确认，不能再提异议；`STATEMENT_LINES_INCONSISTENT`：出账后核对「扣一次、退一次」不通过，已回滚。收款账户和转账文件（ADR 0051）：`PAYOUT_ACCOUNT_*`、`BANK_FILE_*`、`BATCH_NOT_CLOSED`，`details` 说明原因"
       content:
         application/json:
           schema:
@@ -14074,6 +14544,8 @@ components:
             - platform_role.update
             - staff.mfa_reset
             - statement.payout
+            - payout_account.activate
+            - bank_file.generate
             - compensation_table.update
             - ticket.decision
           description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）
@@ -14413,7 +14885,7 @@ components:
                   enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
-      enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB ]
+      enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
     FxRateText:
       type: string
       pattern: '^(0|[1-9]\d{0,11})(\.\d{0,11}[1-9])?$'
@@ -17863,7 +18335,7 @@ components:
         currency:
           type: string
           description: ISO 4217 币种代码；创建后不能改
-          enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB ]
+          enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
         status:
           $ref: "#/components/schemas/MasterDataStatus"
         version:
@@ -17884,7 +18356,7 @@ components:
           maxLength: 50
         currency:
           type: string
-          enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB ]
+          enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
     BrandUpdate:
       type: object
       required: [ name ]
@@ -22068,10 +22540,10 @@ components:
           format: date-time
     TenantWebhookEvent:
       type: string
-      enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away ]
+      enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, payout.paid ]
       description: |
         `order.confirmed` 新订单（付款后自动确认）；`order.assigned` 派车和改派（改派 `data.change = true`）；`order.status_changed` 出发、到达、接到客人、完成、客人未出现（`data.from_status`、`data.to_status`）；
-        `order.changed` 改单、`order.cancelled` 取消（M3-03 发出）；`rescue.offered`、`order.rescued_away` 救援（M3-04 发出）。
+        `order.changed` 改单、`order.cancelled` 取消（M3-03 发出）；`rescue.offered`、`order.rescued_away` 救援（M3-04 发出）；`payout.paid` 账单已付款（M5-02 发出，银行流水号回填时，`data` 有 `statement_id`、`statement_no`、`bank_reference`、`paid_at`）。
     TenantWebhook:
       type: object
       additionalProperties: false
@@ -22152,7 +22624,7 @@ components:
           description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
         event_type:
           type: string
-          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test ]
+          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, payout.paid, webhook.test ]
         order_id:
           type: [ string, "null" ]
           format: uuid
@@ -22200,7 +22672,7 @@ components:
           description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
         event_type:
           type: string
-          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test ]
+          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, payout.paid, webhook.test ]
         order_id:
           type: [ string, "null" ]
           format: uuid
@@ -22249,7 +22721,7 @@ components:
           description: 事件编号：接收方用它去重（重试、手动重推都是同一个）
         event_type:
           type: string
-          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, webhook.test ]
+          enum: [ order.confirmed, order.assigned, order.status_changed, order.changed, order.cancelled, rescue.offered, order.rescued_away, payout.paid, webhook.test ]
         order_id:
           type: [ string, "null" ]
           format: uuid
@@ -23830,6 +24302,7 @@ components:
         - dispute_reason
         - approved_at
         - paid_at
+        - bank_reference
         - voided_at
         - void_reason
         - version
@@ -23902,6 +24375,11 @@ components:
             - string
             - 'null'
           format: date-time
+        bank_reference:
+          type:
+            - string
+            - 'null'
+          description: 银行流水号（已付款的账单才有，M5-02）
         voided_at:
           type:
             - string
@@ -24028,6 +24506,7 @@ components:
         - dispute_reason
         - approved_at
         - paid_at
+        - bank_reference
         - voided_at
         - void_reason
         - version
@@ -24103,6 +24582,11 @@ components:
             - string
             - 'null'
           format: date-time
+        bank_reference:
+          type:
+            - string
+            - 'null'
+          description: 银行流水号（已付款的账单才有，M5-02）
         voided_at:
           type:
             - string
@@ -24149,6 +24633,7 @@ components:
         - dispute_reason
         - approved_at
         - paid_at
+        - bank_reference
         - voided_at
         - void_reason
         - version
@@ -24226,6 +24711,11 @@ components:
             - string
             - 'null'
           format: date-time
+        bank_reference:
+          type:
+            - string
+            - 'null'
+          description: 银行流水号（已付款的账单才有，M5-02）
         voided_at:
           type:
             - string
@@ -24331,6 +24821,7 @@ components:
         - dispute_reason
         - approved_at
         - paid_at
+        - bank_reference
         - voided_at
         - void_reason
         - version
@@ -24412,6 +24903,11 @@ components:
             - string
             - 'null'
           format: date-time
+        bank_reference:
+          type:
+            - string
+            - 'null'
+          description: 银行流水号（已付款的账单才有，M5-02）
         voided_at:
           type:
             - string
@@ -24472,6 +24968,428 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlatformStatementEvent'
+    BankFileStatus:
+      type: string
+      enum: [ generated, downloaded, paid, void ]
+      description: '`generated` 已生成；`downloaded` 已下载；`paid` 已付款（全部回填，或部分回填后作废了其余的）；`void` 已作废'
+    PayoutAccountStatus:
+      type: string
+      enum: [ pending, active, superseded, rejected, withdrawn ]
+      description: '`pending` 待审核；`active` 生效；`superseded` 已被替换；`rejected` 已驳回；`withdrawn` 已撤回'
+    TenantPayoutAccount:
+      type: object
+      additionalProperties: false
+      description: 收款账户。任何接口都只有账号的末 4 位
+      required: [ id, currency, beneficiary_name, beneficiary_address, bank_name, bank_address, swift_bic, account_kind, account_masked, status, submitted_at, activated_at, superseded_at, rejected_at, reject_reason, withdrawn_at, version ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        beneficiary_name:
+          type: string
+        beneficiary_address:
+          type: string
+        bank_name:
+          type: string
+        bank_address:
+          type: string
+        swift_bic:
+          type: string
+        account_kind:
+          type: string
+          enum: [ iban, account ]
+        account_masked:
+          type: string
+          pattern: '^•••• [A-Z0-9]{4}$'
+        status:
+          $ref: "#/components/schemas/PayoutAccountStatus"
+        submitted_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: [ string, "null" ]
+          format: date-time
+        superseded_at:
+          type: [ string, "null" ]
+          format: date-time
+        rejected_at:
+          type: [ string, "null" ]
+          format: date-time
+        reject_reason:
+          type: [ string, "null" ]
+        withdrawn_at:
+          type: [ string, "null" ]
+          format: date-time
+        version:
+          type: integer
+    PlatformPayoutAccount:
+      type: object
+      additionalProperties: false
+      required: [ id, currency, beneficiary_name, beneficiary_address, bank_name, bank_address, swift_bic, account_kind, account_masked, status, submitted_at, activated_at, superseded_at, rejected_at, reject_reason, withdrawn_at, version, tenant, approval_id, pending_approval_id, recently_changed ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        beneficiary_name:
+          type: string
+        beneficiary_address:
+          type: string
+        bank_name:
+          type: string
+        bank_address:
+          type: string
+        swift_bic:
+          type: string
+        account_kind:
+          type: string
+          enum: [ iban, account ]
+        account_masked:
+          type: string
+          pattern: '^•••• [A-Z0-9]{4}$'
+        status:
+          $ref: "#/components/schemas/PayoutAccountStatus"
+        submitted_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: [ string, "null" ]
+          format: date-time
+        superseded_at:
+          type: [ string, "null" ]
+          format: date-time
+        rejected_at:
+          type: [ string, "null" ]
+          format: date-time
+        reject_reason:
+          type: [ string, "null" ]
+        withdrawn_at:
+          type: [ string, "null" ]
+          format: date-time
+        version:
+          type: integer
+        tenant:
+          $ref: "#/components/schemas/BankFileTenantRef"
+        approval_id:
+          type: [ string, "null" ]
+          format: uuid
+        pending_approval_id:
+          type: [ string, "null" ]
+          format: uuid
+        recently_changed:
+          type: boolean
+          description: 替换了旧账户、批准不到 7 天
+    BankFileTenantRef:
+      type: object
+      additionalProperties: false
+      required: [ id, name ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+    BankFileExcluded:
+      type: object
+      additionalProperties: false
+      required: [ statement_id, statement_no, tenant_id, tenant_name, code, message, amount_minor ]
+      properties:
+        statement_id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_name:
+          type: string
+        code:
+          $ref: "#/components/schemas/StatementFileIssue"
+        message:
+          type: string
+        amount_minor:
+          type: integer
+    StatementFileIssue:
+      type: string
+      enum: [ NOT_APPROVED, NON_POSITIVE_AMOUNT, CURRENCY_UNSUPPORTED, ACCOUNT_MISSING, ACCOUNT_PENDING, ACCOUNT_INVALID, ACCOUNT_UNREADABLE ]
+    BankFile:
+      type: object
+      additionalProperties: false
+      required: [ id, file_no, payout_batch_id, pay_date, currency, template, charge_bearer, status, item_count, total, excluded, approval_id, requested_by, approved_by, created_at, first_downloaded_at, download_count, csv_sha256, xlsx_sha256, paid_at, voided_at, void_reason, version ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        file_no:
+          type: string
+        payout_batch_id:
+          type: string
+          format: uuid
+        pay_date:
+          type: string
+          format: date
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        template:
+          type: string
+        charge_bearer:
+          type: string
+          enum: [ OUR, SHA, BEN ]
+        status:
+          $ref: "#/components/schemas/BankFileStatus"
+        item_count:
+          type: integer
+        total:
+          $ref: "#/components/schemas/SignedMoney"
+        excluded:
+          type: array
+          description: 发起生成时明确排除的账单
+          items:
+            $ref: "#/components/schemas/BankFileExcluded"
+        approval_id:
+          type: string
+          format: uuid
+        requested_by:
+          type: string
+          format: uuid
+        approved_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        first_downloaded_at:
+          type: [ string, "null" ]
+          format: date-time
+        download_count:
+          type: integer
+        csv_sha256:
+          type: [ string, "null" ]
+          description: 第一次下载 CSV 时记下的 SHA-256
+        xlsx_sha256:
+          type: [ string, "null" ]
+          description: 第一次下载 Excel 时记下的 SHA-256
+        paid_at:
+          type: [ string, "null" ]
+          format: date-time
+        voided_at:
+          type: [ string, "null" ]
+          format: date-time
+        void_reason:
+          type: [ string, "null" ]
+        version:
+          type: integer
+    BankFileDetail:
+      type: object
+      additionalProperties: false
+      required: [ id, file_no, payout_batch_id, pay_date, currency, template, charge_bearer, status, item_count, total, excluded, approval_id, requested_by, approved_by, created_at, first_downloaded_at, download_count, csv_sha256, xlsx_sha256, paid_at, voided_at, void_reason, version, items ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        file_no:
+          type: string
+        payout_batch_id:
+          type: string
+          format: uuid
+        pay_date:
+          type: string
+          format: date
+        currency:
+          $ref: "#/components/schemas/FxCurrency"
+        template:
+          type: string
+        charge_bearer:
+          type: string
+          enum: [ OUR, SHA, BEN ]
+        status:
+          $ref: "#/components/schemas/BankFileStatus"
+        item_count:
+          type: integer
+        total:
+          $ref: "#/components/schemas/SignedMoney"
+        excluded:
+          type: array
+          description: 发起生成时明确排除的账单
+          items:
+            $ref: "#/components/schemas/BankFileExcluded"
+        approval_id:
+          type: string
+          format: uuid
+        requested_by:
+          type: string
+          format: uuid
+        approved_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        first_downloaded_at:
+          type: [ string, "null" ]
+          format: date-time
+        download_count:
+          type: integer
+        csv_sha256:
+          type: [ string, "null" ]
+          description: 第一次下载 CSV 时记下的 SHA-256
+        xlsx_sha256:
+          type: [ string, "null" ]
+          description: 第一次下载 Excel 时记下的 SHA-256
+        paid_at:
+          type: [ string, "null" ]
+          format: date-time
+        voided_at:
+          type: [ string, "null" ]
+          format: date-time
+        void_reason:
+          type: [ string, "null" ]
+        version:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BankFileItem"
+    BankFileItem:
+      type: object
+      additionalProperties: false
+      required: [ id, seq, statement_id, statement_no, tenant, beneficiary_name, bank_name, swift_bic, account_masked, amount, reference, bank_reference, paid_at, voided, account_changed ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+        statement_id:
+          type: string
+          format: uuid
+        statement_no:
+          type: string
+        tenant:
+          $ref: "#/components/schemas/BankFileTenantRef"
+        beneficiary_name:
+          type: string
+        bank_name:
+          type: string
+        swift_bic:
+          type: string
+        account_masked:
+          type: string
+        amount:
+          $ref: "#/components/schemas/SignedMoney"
+        reference:
+          type: string
+        bank_reference:
+          type: [ string, "null" ]
+        paid_at:
+          type: [ string, "null" ]
+          format: date-time
+        voided:
+          type: boolean
+        account_changed:
+          type: boolean
+          description: 这家这种币种现在生效的账户已经不是文件里的那个（文件内容不变，由财务决定是否作废重出）
+    BankFilePreview:
+      type: object
+      additionalProperties: false
+      required: [ batch_id, pay_date, batch_status, groups ]
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        pay_date:
+          type: string
+          format: date
+        batch_status:
+          type: string
+          enum: [ open, closed, paid ]
+        groups:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ currency, pending_approval_id, total, eligible, excluded, in_files ]
+            properties:
+              currency:
+                type: string
+              pending_approval_id:
+                type: [ string, "null" ]
+                format: uuid
+              total:
+                $ref: "#/components/schemas/SignedMoney"
+              eligible:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ statement_id, statement_no, tenant, amount, beneficiary_name, bank_name, swift_bic, account_masked, recently_changed ]
+                  properties:
+                    statement_id:
+                      type: string
+                      format: uuid
+                    statement_no:
+                      type: string
+                    tenant:
+                      $ref: "#/components/schemas/BankFileTenantRef"
+                    amount:
+                      $ref: "#/components/schemas/SignedMoney"
+                    beneficiary_name:
+                      type: string
+                    bank_name:
+                      type: string
+                    swift_bic:
+                      type: string
+                    account_masked:
+                      type: string
+                    recently_changed:
+                      type: boolean
+              excluded:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ statement_id, statement_no, tenant, amount, code, message ]
+                  properties:
+                    statement_id:
+                      type: string
+                      format: uuid
+                    statement_no:
+                      type: string
+                    tenant:
+                      $ref: "#/components/schemas/BankFileTenantRef"
+                    amount:
+                      $ref: "#/components/schemas/SignedMoney"
+                    code:
+                      $ref: "#/components/schemas/StatementFileIssue"
+                    message:
+                      type: string
+              in_files:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [ statement_id, statement_no, tenant, amount, file_id, file_no, file_status ]
+                  properties:
+                    statement_id:
+                      type: string
+                      format: uuid
+                    statement_no:
+                      type: string
+                    tenant:
+                      $ref: "#/components/schemas/BankFileTenantRef"
+                    amount:
+                      $ref: "#/components/schemas/SignedMoney"
+                    file_id:
+                      type: string
+                      format: uuid
+                    file_no:
+                      type: string
+                    file_status:
+                      $ref: "#/components/schemas/BankFileStatus"
     PayoutBatch:
       type: object
       additionalProperties: false
@@ -24500,7 +25418,7 @@ components:
             - open
             - closed
             - paid
-          description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
+          description: '`open` 收账单中；`closed` 已锁定，等银行转账；`paid` 批次里的账单都已回填流水号（ADR 0051）'
         created_at:
           type: string
           format: date-time
@@ -24568,7 +25486,7 @@ components:
             - open
             - closed
             - paid
-          description: '`open` 收账单中；`closed` 已锁定，等银行转账（M5-02）；`paid` 已付款（M5-02）'
+          description: '`open` 收账单中；`closed` 已锁定，等银行转账；`paid` 批次里的账单都已回填流水号（ADR 0051）'
         created_at:
           type: string
           format: date-time

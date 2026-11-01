@@ -42,7 +42,7 @@ test("锁定值的解析：只认普通十进制写法，在字符串上规范�
 
 test("能锁定的币种：平台币种里除了基准 USD", () => {
   assert.ok(!FX_LOCKABLE_CURRENCIES.includes("USD"));
-  assert.deepEqual([...FX_LOCKABLE_CURRENCIES].sort(), ["CNY", "HKD", "JPY", "KRW", "THB", "TWD"]);
+  assert.deepEqual([...FX_LOCKABLE_CURRENCIES].sort(), ["CNY", "HKD", "JPY", "KRW", "SGD", "THB", "TWD"]);
 });
 
 test("到期边界：到期那一刻起不再算数（不含这一刻）", () => {
