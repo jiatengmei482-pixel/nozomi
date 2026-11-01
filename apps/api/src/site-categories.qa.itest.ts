@@ -30,6 +30,9 @@ const PASSENGER = { name: "王小明", phone: "+81 90-3333-4444", email: "qa.p2p
 /** 包车的超时、超公里单价用少见的数，方便在应答里查有没有漏出去 */
 const OVERTIME = 4_321;
 const OVER_KM = 1_357;
+/** 编号、令牌、单号是随机的，可能碰巧含这些数字（如 03135738），比之前去掉，不减禁止词 */
+const withoutRandomIds = (text: string): string =>
+  text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "").replace(/nzo_[A-Za-z0-9_-]+/g, "").replace(/NZ\d{8}[0-9A-Z]+/g, "").replace(/QT\d{8}[0-9A-Z]+/g, "");
 
 let api: TestApi;
 let m: Market;
@@ -303,18 +306,18 @@ test("对外价与结算价隔离：官网的包车报价、下单、订单页�
   for (const [what, body, text] of [["报价", quoted, JSON.stringify(quoted)], ["下单", placedRes.body, placedRes.text], ["订单页", view.body, view.text], ["取消试算", fee.body, fee.text]] as const) {
     const keys = allKeys(body);
     for (const key of forbiddenKeys) assert.ok(!keys.has(key), `${what}里有 ${key}`);
-    assert.doesNotMatch(text, new RegExp(`${OVERTIME}|${OVER_KM}|70000|乙车队|甲车队`), what);
+    assert.doesNotMatch(withoutRandomIds(text), new RegExp(`${OVERTIME}|${OVER_KM}|70000|乙车队|甲车队`), what);
   }
   assert.equal(view.body.order.winning_tenant, null, "付款前不显示供应商");
 
   await payFor(placedRes.body.order.id);
   const paidView = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
-  assert.doesNotMatch(paidView.text, new RegExp(`${OVERTIME}|${OVER_KM}|70000`), "付款后的订单页也没有结算口径");
+  assert.doesNotMatch(withoutRandomIds(paidView.text), new RegExp(`${OVERTIME}|${OVER_KM}|70000`), "付款后的订单页也没有结算口径");
   const tenantB = await api.call("GET", `/tenant/v1/orders/${placedRes.body.order.id}`, { token: await tenantLogin(api, m.b.adminEmail) });
   assert.equal(tenantB.status, 200, tenantB.text);
   const tenantKeys = allKeys(tenantB.body);
   for (const key of ["markup", "markup_bp", "sell_minor", "sell", "fx_buffer_bp"]) assert.ok(!tenantKeys.has(key), `供应商看到了 ${key}`);
-  assert.doesNotMatch(tenantB.text, /77000|77,000/, "供应商看不到对外价");
+  assert.doesNotMatch(withoutRandomIds(tenantB.text), /77000|77,000/, "供应商看不到对外价");
   const tenantA = await api.call("GET", `/tenant/v1/orders/${placedRes.body.order.id}`, { token: await tenantLogin(api, m.a.adminEmail) });
   assert.equal(tenantA.status, 404, tenantA.text);
   const listA = await api.call("GET", "/tenant/v1/orders", { token: await tenantLogin(api, m.a.adminEmail) });
