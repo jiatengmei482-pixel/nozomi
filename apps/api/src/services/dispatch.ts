@@ -14,6 +14,7 @@ import {
   type AssignmentIssue,
   type VehicleGroupShape,
   driverAssignmentIssues,
+  dispatchOverdue,
   driverLinkExpiry,
   orderBusyWindow,
   vehicleAssignmentIssues,
@@ -32,6 +33,7 @@ import { consoleOrigin, tenantActor } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { type FulfilmentInput, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid } from "./fulfilment.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
+import { recordPerformanceEvent } from "../repos/tenant-onboarding.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 
@@ -204,6 +206,8 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
       detail: { assignment_id: assignment.id, driver_id: driver.id, vehicle_id: vehicle.id, user_id: writer.principal.user.id, conflict_confirmed: conflicts.length > 0 },
     });
     await revokeDriverLinks(db, tenantId, orderId, "reassigned", now);
+    // 按时派车率（ADR 0028）：只看第一次派车，截止时间前算按时；改派不算（同一单同一类也只记一次）
+    if (!isChange) await recordPerformanceEvent(db, { tenantId, orderId, kind: "dispatch", onTime: order.dispatch.dueAt === null || !dispatchOverdue(order.dispatch.dueAt, now), occurredAt: now, now });
     const link = await issueLink(db, order, assignment.id, driver.id, now);
     const before: AuditValues | null = isChange ? { driver_id: order.dispatch.driverId, vehicle_id: order.dispatch.vehicleId, status: order.status } : null;
     await insertAuditLog(db, auditOrigin(writer, now), { tenantId, resource: "order", resourceId: orderId, action: isChange ? "reassign" : "assign", before, after: { driver_id: driver.id, vehicle_id: vehicle.id, status: "assigned", conflict_confirmed: conflicts.length > 0 } });

@@ -60,6 +60,7 @@ import {
   extraTypeName,
   levelName,
   orderCancelReasonText,
+  orderEventNote,
   paymentStatusName,
   platformOrderPath,
   tiersText,
@@ -73,6 +74,7 @@ import { localDayInstant } from "../../lib/audit-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
+import { ProxyFulfilmentSection } from "./ProxyFulfilment.tsx";
 import { RescueSection } from "./RescuePages.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
@@ -492,6 +494,8 @@ export function PlatformOrderDetailPage() {
         )}
       </section>
 
+      <ProxyFulfilmentSection detail={detail} onChanged={reload} />
+
       <RescueSection order={order} rescues={detail.rescues} onChanged={reload} />
 
       {cancelled !== null && (
@@ -700,7 +704,14 @@ export function PlatformOrderDetailPage() {
           {detail.events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>
               <time dateTime={event.occurred_at}>{formatLocalDateTime(event.occurred_at)}</time>
-              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${event.reason ? `（${event.to_status === "cancelled" ? orderCancelReasonText(event.reason, order.confirmed_at !== null) : cancelReasonName(event.reason)}）` : ""}`}
+              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${orderEventNote(event, order.confirmed_at !== null)}`}
+              {event.source === "platform_proxy" && (
+                <>
+                  {" "}
+                  <span className="tag">平台代传</span>
+                  <span className="table__muted">{` 系统记录 ${event.recorded_at === null ? "—" : formatLocalDateTime(event.recorded_at)}${event.proxy?.reason ? `；原因：${event.proxy.reason}` : ""}`}</span>
+                </>
+              )}
             </li>
           ))}
         </ul>

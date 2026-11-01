@@ -59,6 +59,8 @@ export const PLATFORM_ACTIONS = [
   "order.read",
   "order.resend",
   "order.manage",
+  "order.proxy_fulfilment",
+  "order.proxy_review",
   "payment.manage",
   "cancellation_policy.manage",
   "cancellation_policy.review",
@@ -145,6 +147,9 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * - `payment.manage`（重试失败的退款和扣款，审核「多退给客人」的代取消——需求「人工退款超过阈值」的双人复核）：财务、运营（「支付异常：财务核实」）；
  * - `cancellation_policy.manage`（发起改平台取消政策）：运营；`cancellation_policy.review`（审核）：运营、财务——两位运营互审，或财务审。
  *   取消政策本身每个角色都能看（和主数据一样用 `master_data.read`）；只勾「商品 · 查看」的自建角色也能读这份政策（商品「服务规则」要显示，ADR 0047 补充），但进不了取消政策页。
+ * 代供应商回传履约（M4-18，ADR 0052）：`order.proxy_fulfilment` 归运营（超级管理员本来就有全部）。客服不给：它写的是供应商的履约记录，影响评分和账单。
+ *   `order.proxy_review`（审核代传的「已接到客人」「已完成」）：财务、运营——已有审核职责的角色里最接近的两个（财务看账单，运营互审工单和救援），没有单独的「运营主管」角色。
+ *   单独一个操作、不复用 `payment.manage`：已有的自建角色不会因此多出审批权。发起人不能批准自己发起的（通用规则）。
  * 救援改派（M3-04，ADR 0031）：救援队列和订单里的救援记录用 `order.read` 看；
  * - `rescue.manage`（按 4 种情形发起救援、给候选供应商发救援单、认定不可抗力、发起人工指定）：运营、客服（需求「人工介入能力」归处理订单的人）；
  * - `rescue.review`（审核人工指定救援供应商，需求「全部候选都不接，运营可人工指定租户（双人复核）」）：运营——两位运营互审，或超级管理员审。
@@ -166,13 +171,13 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   super_admin: PLATFORM_ACTIONS,
   operations: [
     "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
-    "order.manage", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
+    "order.manage", "order.proxy_fulfilment", "order.proxy_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
-  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
+  finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
   tech: ["integration.read", "master_data.read", "channel.read", "approval.read"],
@@ -311,6 +316,8 @@ export const PLATFORM_MENUS = [
   // 订单中心（M3-02、M3-03）：手动重推、代客人取消、改单、审核事后加收、发起免收取消费算编辑；
   // 重试失败的退款和扣款、审核「多退给客人」的代取消（`payment.manage`，需求「人工退款超过阈值」的复核）算审核
   { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
+  // 代传履约（M4-18，ADR 0052）：单独一格。自建角色存的是勾选，放进「订单 · 编辑」的话，已有的自建角色会没人审核就多出这个权限
+  { key: "order_proxy", name: "代传履约", operations: { view: ["order.read"], edit: ["order.proxy_fulfilment"], review: ["order.proxy_review"] } },
   // 异常队列（M4-02，ADR 0034）：看和看订单是同一个操作（和救援一样），认领和关闭算编辑——单独一格，财务处理支付异常不用拿到代取消、改单
   { key: "exceptions", name: "异常队列", operations: { view: ["order.read"], edit: ["exception.manage"] } },
   // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核

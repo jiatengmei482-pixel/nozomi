@@ -7615,6 +7615,113 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/events:
+    post:
+      tags:
+        - 订单
+      operationId: reportProxyFulfilment
+      summary: 代供应商回传履约状态
+      description: |
+        供应商系统故障时用（需求「人工介入能力」，ADR 0052）。需要操作 `order.proxy_fulfilment`（运营、超级管理员），`If-Match` 带订单版本，必须写原因和发生时间。
+        和供应商、司机的回传同一套状态机：`departed` → `arrived` → `picked_up` → `completed`，不能跳步、不能重复；未付款、已取消、待派车、救援中、no-show 待审核的单一律 409 `ORDER_STATE_INVALID`。
+        不接受定位：代传的「已到达」没有定位，不能作为 no-show 的证据。`departed`、`arrived` 立即生效（200）。
+        `picked_up`、`completed` 不直接生效：返回 202 和一条复核（`kind` 分别是 `order.proxy_pick_up`、`order.proxy_complete`），另一位有 `order.proxy_review` 的同事批准时才生效（服务中不可逆，已完成的单进供应商账单、是终态）。
+        代传的到达不计入供应商的准时到达率。代传完成后，事后加收窗口和客人投诉时限从批准生效的时间起算。
+        状态流水和供应商看到的事件标明 `source: platform_proxy`；原因和操作人只有运营后台看得到。写审计日志。
+        限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: If-Match
+          in: header
+          required: true
+          description: 订单的版本号（`order.version`）
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - type
+                - occurred_at
+                - reason
+              properties:
+                type:
+                  type: string
+                  enum:
+                    - departed
+                    - arrived
+                    - picked_up
+                    - completed
+                occurred_at:
+                  type: string
+                  format: date-time
+                  description: 实际发生的时间。不能晚于现在、不能早于上一个履约节点、不能早于用车前 24 小时（`picked_up`、`completed` 是 3 小时）、不能早于 7 天前（400 `VALIDATION_FAILED`，`details.issues[].reason` 是 `IN_FUTURE`、`BEFORE_PREVIOUS`、`TOO_EARLY`、`TOO_OLD`）
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                  description: 为什么要代传，去掉看不见的字符（零宽、控制、双向控制、BOM、软连字符）后要有实际内容。写进审计日志，供应商看不到
+                actual:
+                  type:
+                    - object
+                    - "null"
+                  additionalProperties: false
+                  description: 实际时长和里程，包车完成时必填
+                  properties:
+                    minutes:
+                      type:
+                        - integer
+                        - "null"
+                      minimum: 0
+                      maximum: 10080
+                    km:
+                      type:
+                        - integer
+                        - "null"
+                      minimum: 0
+                      maximum: 5000
+      responses:
+        "200":
+          description: 已生效
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - order_id
+                  - status
+                  - version
+                properties:
+                  order_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: "#/components/schemas/OrderStatus"
+                  version:
+                    type: integer
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`：`details.status`、`details.action`；`VERSION_CONFLICT`：订单已被改过；`PROXY_REVIEW_PENDING`：这一单的这一步已有一条代传在等复核"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "400":
+          description: "`VALIDATION_FAILED`：没写原因、时间不合规则，或包车完成没填实际时长和里程"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
       tags:
@@ -8128,6 +8235,28 @@ paths:
                       $ref: "#/components/schemas/OrderEvent"
                   records:
                     $ref: "#/components/schemas/OrderRecords"
+                  pending_proxy_review:
+                    type:
+                      - object
+                      - "null"
+                    additionalProperties: false
+                    description: 这一单的下一步（接到客人、完成）有平台代传在等复核时才有（ADR 0052）；此时不能再发起
+                    required:
+                      - approval_id
+                      - event
+                      - requested_at
+                    properties:
+                      approval_id:
+                        type: string
+                        format: uuid
+                      event:
+                        type: string
+                        enum:
+                          - picked_up
+                          - completed
+                      requested_at:
+                        type: string
+                        format: date-time
                   webhook_deliveries:
                     type: array
                     description: 这一单推给供应商的全部 Webhook 投递（ADR 0027）
@@ -13570,7 +13699,7 @@ webhooks:
                 data:
                   type: object
                   description: |
-                    `order`（订单的当前内容，TenantOrder）+ 事件自己的信息：`order.assigned` 的 `change`；`order.status_changed` 的 `from_status`、`to_status`（进入救援时另有 `trigger`）；测试事件只有 `message`。
+                    `order`（订单的当前内容，TenantOrder）+ 事件自己的信息：`order.assigned` 的 `change`；`order.status_changed` 的 `from_status`、`to_status`（进入救援时另有 `trigger`；平台代传时另有 `source: platform_proxy` 和 `occurred_at`，ADR 0052）；测试事件只有 `message`。
                     救援（M3-04）：`rescue.offered` 没有 `order`（还没接单），有 `offer_id`、`expires_at`、`trip`（RescueTrip，没有乘客联系方式）、`settlement`（`amount_minor`、`currency`）；
                     `order.rescued_away` 发给原供应商（`order` 是它自己那一行，状态 `rescued`，`trigger`）；接了救援单的供应商收到 `order.confirmed`（`rescue: true`）
                   properties:
@@ -14937,6 +15066,8 @@ components:
             - tenant.contract
             - cancellation_policy.update
             - order.cancel_refund
+            - order.proxy_pick_up
+            - order.proxy_complete
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
@@ -14945,7 +15076,7 @@ components:
             - bank_file.generate
             - compensation_table.update
             - ticket.decision
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）；`order.proxy_pick_up`、`order.proxy_complete` 是平台代供应商回传「已接到客人」「已完成」（`resource_id` 是订单编号，ADR 0052）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -16589,6 +16720,8 @@ components:
         - order.read
         - order.resend
         - order.manage
+        - order.proxy_fulfilment
+        - order.proxy_review
         - payment.manage
         - cancellation_policy.manage
         - cancellation_policy.review
@@ -20974,12 +21107,37 @@ components:
         actor:
           type: string
           enum: [ channel, payment, system, platform_user, tenant_user, driver, guest ]
-          description: "`channel` 渠道下单；`payment` 收款服务的通知；`system` 定时任务（超时取消、超时检查时发现已付款）；`platform_user` 运营（M4-02）；`tenant_user` 供应商派车、调度系统回传；`driver` 司机 H5；`guest` 客人"
+          description: "`channel` 渠道下单；`payment` 收款服务的通知；`system` 定时任务（超时取消、超时检查时发现已付款）；`platform_user` 运营（M4-02；代供应商回传履约时 `source` 为 `platform_proxy`）；`tenant_user` 供应商派车、调度系统回传；`driver` 司机 H5；`guest` 客人"
         reason:
           type: [ string, "null" ]
         occurred_at:
           type: string
           format: date-time
+        source:
+          type: [ string, "null" ]
+          enum: [ platform_proxy, null ]
+          description: "`platform_proxy`：平台代供应商回传（M4-18，ADR 0052），`occurred_at` 是运营填的发生时间。其他事件为 null"
+        recorded_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 平台代传时系统收到的时间；其他事件为 null
+        proxy:
+          type: object
+          additionalProperties: false
+          description: 只有运营后台有，且只有平台代传的事件才有：原因和操作人。供应商的接口里没有这一项
+          required: [ reason, requested_by, approved_by, approval_id ]
+          properties:
+            reason:
+              type: [ string, "null" ]
+            requested_by:
+              type: [ string, "null" ]
+              format: uuid
+            approved_by:
+              type: [ string, "null" ]
+              format: uuid
+            approval_id:
+              type: [ string, "null" ]
+              format: uuid
     OrderSettlement:
       type: object
       additionalProperties: false

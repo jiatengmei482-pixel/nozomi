@@ -125,7 +125,7 @@ async function deductionsOf(ticketId: string): Promise<[string, number, string][
 }
 
 async function performanceEvents(orderId: string): Promise<string[]> {
-  const rows = (await api.db.owner.query<{ kind: string; failure_type: string | null }>("select kind, failure_type from tenant_performance_events where tenant_id = $1 and order_id = $2 order by kind, failure_type", [m.b.tenantId, orderId])).rows;
+  const rows = (await api.db.owner.query<{ kind: string; failure_type: string | null }>("select kind, failure_type from tenant_performance_events where tenant_id = $1 and order_id = $2 and kind in ('complaint', 'failure') order by kind, failure_type", [m.b.tenantId, orderId])).rows;
   return rows.map((row) => (row.kind === "failure" ? `failure:${row.failure_type}` : row.kind));
 }
 

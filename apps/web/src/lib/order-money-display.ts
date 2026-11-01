@@ -55,6 +55,28 @@ export function cancelReasonName(reason: OrderCancelReason | string | null): str
   return ORDER_CANCEL_REASON_NAMES[reason as OrderCancelReason] ?? reason;
 }
 
+/** 状态流水里值得写出来的原因（中文）。其余的（派车、出发、到达……状态变化本身就说明了）不写，也不把代码原样给人看（M4-19）。 */
+const ORDER_EVENT_NOTES: Readonly<Record<string, string>> = {
+  REASSIGNED: "改派",
+  CHANGED: "改单",
+  CHANGE_REJECTED: "供应商拒绝改期",
+  CHANGE_EXPIRED: "改期没有确认",
+  NO_SHOW_APPROVED: "审核通过",
+  RESCUE_TRIGGERED: "发起救援",
+  RESCUED: "转给救援供应商",
+  RESCUE_ASSIGNED: "救援接单",
+  DRIVER_MISSING_REPORTED: "客人报告司机未到",
+  EXTRA_CHARGE_DISPUTED: "客人对加收提异议",
+};
+
+/** 状态流水一行后面的括号：取消写取消原因，其余按上表；没有要说的返回空串。 */
+export function orderEventNote(event: { to_status: string; reason: string | null }, paid: boolean): string {
+  if (event.reason === null) return "";
+  if (event.to_status === "cancelled") return `（${orderCancelReasonText(event.reason, paid)}）`;
+  const note = ORDER_EVENT_NOTES[event.reason];
+  return note === undefined ? "" : `（${note}）`;
+}
+
 /** 订单上的取消原因：没付过款就取消的单不涉及扣款，「客人取消」不写「按取消政策扣款」（和官网「您取消了订单」一致，M4-10）。 */
 export function orderCancelReasonText(reason: OrderCancelReason | string | null, paid: boolean): string {
   if (!paid && reason === "GUEST_REQUEST") return "客人取消了订单";

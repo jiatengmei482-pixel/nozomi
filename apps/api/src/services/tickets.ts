@@ -118,9 +118,12 @@ async function auditTicket(db: Db, origin: AuditOrigin, ticket: Ticket, action: 
   await insertAuditLog(db, origin, { tenantId, resource: "ticket", resourceId: ticket.id, action, before, after });
 }
 
-/** 预计服务结束：完成了的按完成时间，否则按用车时间（包车加套餐时长）。投诉 14 天从它起算。 */
+/**
+ * 投诉 14 天的起点：完成了的按系统记录完成的时间（代传时是批准生效的时间，不是运营回填的发生时间，回填不能让客人丢权利，ADR 0052），
+ * 否则按用车时间（包车加套餐时长）。M4-18 之前完成的单没有记录时间，按完成时间。
+ */
 function serviceEndOf(order: Order): Date {
-  return order.dispatch.completedAt ?? serviceEnd(order.serviceAt, order.packageHours);
+  return order.dispatch.completedRecordedAt ?? order.dispatch.completedAt ?? serviceEnd(order.serviceAt, order.packageHours);
 }
 
 function timesFor(type: TicketType, order: Order, priority: TicketPriority | null, now: Date): Pick<NewTicket, "priority" | "firstResponseDueAt" | "resolutionDueAt"> {

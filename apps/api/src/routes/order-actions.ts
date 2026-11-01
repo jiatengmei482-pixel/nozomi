@@ -12,13 +12,14 @@
  * 运营后台（`/platform/v1`）：
  * - `GET /platform/v1/cancellation-policy`、`POST …/cancellation-policy/changes`（双人复核）；
  * - `GET /platform/v1/orders/{id}/cancel-fee`、`POST …/cancel`（多退了钱的发起双人复核）、`PATCH …/orders/{id}`（代客人改单）；
+ * - `POST /platform/v1/orders/{id}/events`：代供应商回传履约（ADR 0052；「已接到客人」「已完成」发起双人复核）；
  * - `POST …/extra-charges/{chargeId}/decide`（审核）、`POST …/extra-charges/{chargeId}/retry`、`POST …/refunds/{refundId}/retry`（财务重试）。
  * 运营后台按订单的接口都先核对数据范围（ADR 0030：订单的城市、渠道），范围外的和不存在一样；取消政策是全平台的，不按范围。
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PlatformAction } from "@nozomi/domain";
-import { EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, MESSAGING_APPS, ORDER_CANCEL_REASONS, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
+import { EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -30,13 +31,14 @@ import { decideExtraCharge, disputeExtraCharge, retryExtraCharge, submitExtraCha
 import { type OrderChangeInput, changeForChannel, changeForPlatform, decideChangeForTenant } from "../services/order-changes.ts";
 import { retryRefund } from "../services/order-money.ts";
 import { changeJson, extraChargeJson } from "../services/order-views.ts";
+import { reportProxyFulfilment } from "../services/proxy-fulfilment.ts";
 import { getSalesOrderView } from "../services/orders.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine } from "../validation.ts";
+import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine, visibleText } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
 import { fileJson } from "./orders.ts";
 import { salesOrderJson } from "./sales.ts";
@@ -58,6 +60,16 @@ export const salesFeeQuerySchema = z.object({ reason: z.enum(["GUEST_REQUEST", "
 const platformCancelReasons = ORDER_CANCEL_REASONS.filter((reason) => reason !== "PAYMENT_TIMEOUT" && reason !== "PAYMENT_CANCELED") as [string, ...string[]];
 const platformCancelSchema = z.object({ reason: z.enum(platformCancelReasons as ["GUEST_REQUEST"]), waive_fee: z.boolean().default(false), note: z.string().trim().min(1).max(500) }).strict();
 const platformFeeQuerySchema = z.object({ reason: z.enum(platformCancelReasons as ["GUEST_REQUEST"]).default("GUEST_REQUEST"), waive_fee: z.enum(["true", "false"]).default("false") }).strict();
+
+// 没有定位：运营不在现场，代传的「已到达」不能成为 no-show 的证据（ADR 0052）
+const proxyFulfilmentSchema = z
+  .object({
+    type: z.enum(FULFILMENT_EVENTS),
+    occurred_at: dateTimeSchema,
+    reason: visibleText(PROXY_FULFILMENT_RULES.reasonMax),
+    actual: z.object({ minutes: z.number().int().min(0).max(10_080).nullable().default(null), km: z.number().int().min(0).max(5_000).nullable().default(null) }).strict().nullable().default(null),
+  })
+  .strict();
 
 export const changeSchema = z
   .object({
@@ -255,6 +267,17 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     const result = await cancelForPlatform(ctx, principal, orderId, { reason: input.reason, waiveFee: input.waive_fee, note: input.note }, request.ip, request.log);
     if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
     return { order_id: result.orderId, replayed: result.replayed };
+  });
+
+  app.post("/platform/v1/orders/:id/events", async (request, reply) => {
+    const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.proxy_fulfilment" });
+    const orderId = resourceId(request.params, "订单");
+    await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
+    const version = ifMatchVersion(request.headers["if-match"]);
+    const input = parseInput(proxyFulfilmentSchema, request.body, "body");
+    const result = await reportProxyFulfilment(ctx, principal, orderId, version, { type: input.type, occurredAt: input.occurred_at, reason: input.reason, actual: input.actual }, request.ip);
+    if (result.kind === "approval") return reply.code(202).send({ approval: approvalJson(result.approval, principal) });
+    return { order_id: orderId, status: result.order.status, version: result.order.version };
   });
 
   app.patch("/platform/v1/orders/:id", async (request) => {

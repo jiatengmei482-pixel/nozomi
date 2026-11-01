@@ -30,6 +30,7 @@ import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { BelowFloorAlert } from "./ChannelSections.tsx";
 import { ApprovalImpact } from "./PricingImpactPanel.tsx";
 import { COMPENSATION_TABLE_PAGE, platformTicketPath } from "../../lib/order-center-display.ts";
+import { platformOrderPath } from "../../lib/order-money-display.ts";
 import { payoutBatchPath, statementPath } from "../../lib/billing-display.ts";
 import { PLATFORM_PAYOUT_ACCOUNTS_PAGE } from "../../lib/bank-file-display.ts";
 
@@ -64,6 +65,8 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "tenant.contract": "批准后这一版合同写入；到了生效日期就是这家供应商现在的结算条款。",
   "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
   "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
+  "order.proxy_pick_up": "批准后这张单立即进入服务中（不能撤销）：客人和运营都不能再取消，也不能再提交客人未出现。请先和司机或客人确认客人确实上车了。",
+  "order.proxy_complete": "批准后这张单立即变成已完成（不能撤销），按结算价进供应商账单，供应商也能开始提交事后加收。请先和司机或客人确认这一单确实跑完了。",
   "rescue.manual_assign": "批准后这张单立即转给指定的供应商（按上面的结算价，不用它再接单），客人付的钱不变；差价记到原供应商的应扣款项。",
   "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
   "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
@@ -120,6 +123,14 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           供应商：
           <Link className="link" to={tenantPath(approval.resource_id)}>
             {typeof approval.payload["tenant_name"] === "string" ? approval.payload["tenant_name"] : "去供应商详情"}
+          </Link>
+        </p>
+      )}
+      {(approval.kind === "order.proxy_pick_up" || approval.kind === "order.proxy_complete") && (
+        <p>
+          订单：
+          <Link className="link mono" to={platformOrderPath(approval.resource_id)}>
+            {typeof approval.payload["order_no"] === "string" ? approval.payload["order_no"] : "去订单详情"}
           </Link>
         </p>
       )}

@@ -34,6 +34,8 @@ export interface OrderDispatch {
   arrivalDistanceM: number | null;
   pickedUpAt: Date | null;
   completedAt: Date | null;
+  /** 系统记录「已完成」的时间（代传时是批准生效的时间）：事后加收窗口、投诉时限从它起算。M4-18 之前的单为空，按 completedAt 算 */
+  completedRecordedAt: Date | null;
   actualMinutes: number | null;
   actualKm: number | null;
   leaveRequestedAt: Date | null;
@@ -112,7 +114,7 @@ const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.ci
   o.service_at, o.service_local, o.timezone, o.service_date::text as service_date, o.urgent, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
   o.passenger, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
-  o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
+  o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
   o.driver_missing_reported_at`;
 
@@ -174,6 +176,7 @@ function toOrder(row: Row): Order {
       arrivalDistanceM: row["arrival_distance_m"],
       pickedUpAt: row["picked_up_at"],
       completedAt: row["completed_at"],
+      completedRecordedAt: row["completed_recorded_at"],
       actualMinutes: row["actual_minutes"],
       actualKm: row["actual_km"],
       leaveRequestedAt: row["leave_requested_at"],

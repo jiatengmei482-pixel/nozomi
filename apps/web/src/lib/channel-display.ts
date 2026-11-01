@@ -10,6 +10,7 @@ import type { SelectableCity } from "../api/city-options.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 import { basisPointsText, percentTextToBasisPoints } from "./adjust-form.ts";
+import { formatInZone } from "./dispatch-display.ts";
 import { changeText } from "./fx-display.ts";
 import { SERVICE_CATEGORY_NAMES, countryLabel, displayName, formatLocalDateTime } from "./master-display.ts";
 import { moneyText } from "./product-display.ts";
@@ -51,6 +52,8 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "tenant.contract": "供应商合同新版本",
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
+  "order.proxy_pick_up": "代供应商回传「已接到客人」",
+  "order.proxy_complete": "代供应商回传「已完成」",
   "rescue.manual_assign": "救援改派：人工指定供应商",
   "compensation_table.update": "修改客人赔付表",
   "ticket.decision": "工单判定（赔付达到复核阈值）",
@@ -226,6 +229,27 @@ function refundChanges(after: Record<string, unknown>): { label: string; before:
   ];
 }
 
+/** 代传「已接到客人」（M4-18）：发生时间。 */
+function proxyPickUpChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const zone = typeof after["timezone"] === "string" ? after["timezone"] : "UTC";
+  return [
+    { label: "订单状态", before: "司机已到达", after: "服务中" },
+    { label: "发生时间（当地）", before: "—", after: typeof after["occurred_at"] === "string" ? formatInZone(after["occurred_at"], zone) : "—" },
+  ];
+}
+
+/** 代传「已完成」（M4-18）：发生时间、这一单进账单的结算价、包车的实际时长和里程。 */
+function proxyCompleteChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const zone = typeof after["timezone"] === "string" ? after["timezone"] : "UTC";
+  const currency = typeof after["settlement_currency"] === "string" ? after["settlement_currency"] : null;
+  return [
+    { label: "订单状态", before: "服务中", after: "已完成" },
+    { label: "发生时间（当地）", before: "—", after: typeof after["occurred_at"] === "string" ? formatInZone(after["occurred_at"], zone) : "—" },
+    { label: "进供应商账单的结算价", before: "—", after: typeof after["settlement_minor"] === "number" ? moneyText(after["settlement_minor"], currency) : "—" },
+    ...(typeof after["actual_minutes"] === "number" ? [{ label: "实际时长和里程", before: "—", after: `${after["actual_minutes"]} 分钟、${String(after["actual_km"] ?? "—")} 公里` }] : []),
+  ];
+}
+
 /** 人工指定救援供应商（M3-04）：指定给谁、谈好的结算价、原结算价。 */
 function manualAssignChanges(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const currency = typeof after["currency"] === "string" ? after["currency"] : null;
@@ -322,6 +346,8 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
   if (kind === "cancellation_policy.update") return policyChanges(before, after);
   if (kind === "order.cancel_refund") return refundChanges(after);
+  if (kind === "order.proxy_pick_up") return proxyPickUpChanges(after);
+  if (kind === "order.proxy_complete") return proxyCompleteChanges(after);
   if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);
   if (kind === "platform_role.update") return roleChanges(before, after);
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];

@@ -120,7 +120,7 @@ test("付款后取消（24–48 小时，扣 50%）：客人退「对外价 − 
   assert.deepEqual(detail.refunds.map((refund: any) => [refund.purpose, refund.status, refund.amount.amount]), [["cancellation", "succeeded", String(sell - fee)]]);
   assert.equal(detail.payments[0].refunded.amount, String(sell - fee));
   assert.deepEqual(detail.order.cancellation, { reason: "GUEST_REQUEST", note: null, fee_bp: 5000, customer_fee: { amount: String(fee), currency: "JPY" }, tenant_share: { amount: "9900", currency: "JPY" } });
-  assert.deepEqual(detail.events.at(-1), { from_status: "confirmed", to_status: "cancelled", actor: "channel", reason: "GUEST_REQUEST", occurred_at: api.clock.now().toISOString() });
+  assert.deepEqual(detail.events.at(-1), { from_status: "confirmed", to_status: "cancelled", actor: "channel", reason: "GUEST_REQUEST", occurred_at: api.clock.now().toISOString(), source: null, recorded_at: null });
   // 供应商：只有扣款比例和自己应得的（结算价 19,800 × 50%）
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m.b.adminEmail) }));
   assert.deepEqual(tenant.order.cancellation, { fee_bp: 5000, tenant_share: { amount: "9900", currency: "JPY" } });
