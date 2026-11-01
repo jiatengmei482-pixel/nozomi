@@ -25,12 +25,17 @@ export const TEST_CARDS = {
   insufficientFunds: "4000 0000 0000 9995",
 } as const;
 
-/** 假 Stripe 写给付款人看的话（真 Stripe 按 locale 翻译，这里直接用中文）。 */
-export const FAKE_STRIPE_MESSAGES = {
-  declined: "您的银行卡被拒绝了。",
-  insufficientFunds: "您的卡余额不足。",
-  incomplete: "您的卡号不完整。",
-  authenticationFailed: "我们无法验证您的支付方式。请选择另一种支付方式并重试。",
+/** 确认付款时 Stripe.js 给的说明（真 Stripe 按 locale 翻译，这里直接用中文）。页面不用它，测试用来确认页面没有照抄。 */
+const CONFIRM_MESSAGES = {
+  declined: "您的卡片被拒绝。",
+  insufficientFunds: "您的银行卡资金不足。请换一张卡。",
+} as const;
+
+/** 之后再查付款（刷新页面、再打开）时 Stripe 记着的说明：和真 Stripe 一样不按 locale 翻译，是英文，3D 验证失败时还是写给开发者的话。 */
+const STORED_MESSAGES = {
+  declined: "Your card was declined.",
+  insufficientFunds: "Your card has insufficient funds.",
+  authenticationFailed: "The provided PaymentMethod has failed authentication. You can provide payment_method_data or a new PaymentMethod to attempt to fulfill this PaymentIntent again.",
 } as const;
 
 /** 付款有了结果后多久才给后端发通知（毫秒）：页面先显示「付款成功，等待确认」，再轮询到已确认。 */
@@ -169,12 +174,10 @@ export async function startFakeStripeService(options: { webhookUrl: string; webh
             intent.lastError = null;
             return send(200, { ...intentJson(intent, false), next_action: { type: "use_stripe_sdk" } });
           }
-          const error =
-            card === TEST_CARDS.insufficientFunds.replace(/\s/g, "")
-              ? { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: FAKE_STRIPE_MESSAGES.insufficientFunds }
-              : { type: "card_error", code: "card_declined", decline_code: "generic_decline", message: FAKE_STRIPE_MESSAGES.declined };
-          decline(intent, error);
-          return send(402, { error: { ...error, payment_intent: intentJson(intent, false) } });
+          const reason = card === TEST_CARDS.insufficientFunds.replace(/\s/g, "") ? "insufficientFunds" : "declined";
+          const error = { type: "card_error", code: "card_declined", decline_code: reason === "insufficientFunds" ? "insufficient_funds" : "generic_decline" };
+          decline(intent, { ...error, message: STORED_MESSAGES[reason] });
+          return send(402, { error: { ...error, message: CONFIRM_MESSAGES[reason], payment_intent: intentJson(intent, false) } });
         }
       }
 
@@ -185,7 +188,7 @@ export async function startFakeStripeService(options: { webhookUrl: string; webh
         if (request.method === "GET" && segments.length === 2) return send(200, THREE_DS_PAGE(intent.id), "text/html; charset=utf-8");
         if (request.method === "POST" && segments[2] === "complete" && intent.status === "requires_action") {
           if (url.searchParams.get("result") === "pass") succeed(intent);
-          else decline(intent, { type: "card_error", code: "payment_intent_authentication_failure", decline_code: null, message: FAKE_STRIPE_MESSAGES.authenticationFailed });
+          else decline(intent, { type: "card_error", code: "payment_intent_authentication_failure", decline_code: null, message: STORED_MESSAGES.authenticationFailed });
           return send(200, "<p>验证已结束，可以关闭</p>", "text/html; charset=utf-8");
         }
       }
@@ -236,7 +239,8 @@ const FAKE_STRIPE_JS = String.raw`(function () {
         var elements = {
           __secret: elementsOptions.clientSecret,
           __card: function () { return input === null ? "" : input.value.replace(/\s/g, ""); },
-          create: function () {
+          create: function (type, elementOptions) {
+            window.__fakeStripe.paymentElement = elementOptions;
             var handlers = {};
             var wrap = null;
             return {
@@ -298,7 +302,7 @@ const FAKE_STRIPE_JS = String.raw`(function () {
                 clearInterval(timer);
                 overlay.remove();
                 if (intent.status === "succeeded") resolve({ paymentIntent: intent });
-                else resolve({ error: { type: "invalid_request_error", code: "payment_intent_authentication_failure", message: intent.last_payment_error && intent.last_payment_error.message, payment_intent: intent } });
+                else resolve({ error: { type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "我们无法验证您的支付方式。请选择另一种支付方式并重试。", payment_intent: intent } });
               });
             }, 300);
           });

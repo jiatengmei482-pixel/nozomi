@@ -80,6 +80,9 @@ test("下单建付款：先建 Customer，再建 PaymentIntent（最小单位整
     [created.form.get("amount"), created.form.get("currency"), created.form.get("customer"), created.form.get("setup_future_usage"), created.form.get("allowed_payment_method_types[0]"), created.form.get("metadata[order_id]")],
     ["21978", "jpy", "cus_test_1", "off_session", "card", orderInput.orderId],
   );
+  // 只允许银行卡（ADR 0026、0046）：不能多带别的付款方式，也不能打开「按 Stripe 后台设置自动选」，否则付款方式取决于后台的开关
+  assert.equal(created.form.get("allowed_payment_method_types[1]"), null);
+  assert.deepEqual([...created.form.keys()].filter((key) => key.startsWith("automatic_payment_methods") || key.startsWith("payment_method_configuration")), []);
 });
 
 test("错误码：401 → PAYMENT_PROVIDER_AUTH_FAILED（不重试）；400 → PAYMENT_PROVIDER_REJECTED；429 → RATE_LIMITED；5xx 重试后 → UNAVAILABLE；异常里没有密钥", async () => {

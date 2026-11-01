@@ -3,7 +3,7 @@
  * `mount` / `on("ready")`、`retrievePaymentIntent`、`elements.submit`、`confirmPayment`），结果由测试决定。从不连网络。
  * 记下每次调用，测试核对页面交给 Stripe 的东西（publishable key、client_secret、return_url、语言、外观）。
  */
-import type { StripeAppearance, StripeJsError, StripeJsFactory, StripeJsPaymentIntent, StripeJsResult } from "../lib/stripe-js.ts";
+import type { StripeAppearance, StripeJsError, StripeJsFactory, StripeJsPaymentIntent, StripeJsResult, StripePaymentElementOptions } from "../lib/stripe-js.ts";
 
 export interface FakeStripeJs {
   /** 交给 `createStripePaymentDriver` 的加载函数 */
@@ -21,6 +21,8 @@ export interface FakeStripeJs {
   calls: {
     stripe: { publishableKey: string; locale: string }[];
     elements: { clientSecret: string; locale: string; appearance: StripeAppearance }[];
+    /** 建 Payment Element 时传的选项（核对只显示银行卡，ADR 0046） */
+    paymentElement: StripePaymentElementOptions[];
     retrieve: string[];
     confirm: { return_url: string; redirect: string }[];
     appearanceUpdates: StripeAppearance[];
@@ -29,8 +31,9 @@ export interface FakeStripeJs {
   };
 }
 
-export function intentOf(status: string, lastError: string | null = null): StripeJsPaymentIntent {
-  return { id: "pi_1", status, last_payment_error: lastError === null ? null : { code: "card_declined", message: lastError } };
+/** `lastError`：Stripe 记着的原话（查付款时真实 Stripe 给的是英文）；`failure`：它的错误代码，默认是普通的卡被拒。 */
+export function intentOf(status: string, lastError: string | null = null, failure: { code?: string; decline_code?: string } = { code: "card_declined" }): StripeJsPaymentIntent {
+  return { id: "pi_1", status, last_payment_error: lastError === null ? null : { ...failure, message: lastError } };
 }
 
 export function fakeStripeJs(): FakeStripeJs {
@@ -40,7 +43,7 @@ export function fakeStripeJs(): FakeStripeJs {
     elementLoads: true,
     submit: async () => ({}),
     confirm: async () => ({ paymentIntent: intentOf("succeeded") }),
-    calls: { stripe: [], elements: [], retrieve: [], confirm: [], appearanceUpdates: [], mounted: 0, destroyed: 0 },
+    calls: { stripe: [], elements: [], paymentElement: [], retrieve: [], confirm: [], appearanceUpdates: [], mounted: 0, destroyed: 0 },
     load: async () => {
       if (fake.failLoads > 0) {
         fake.failLoads -= 1;
@@ -59,7 +62,8 @@ export function fakeStripeJs(): FakeStripeJs {
       elements(options) {
         fake.calls.elements.push({ clientSecret: options.clientSecret, locale: options.locale, appearance: options.appearance });
         const elements = {
-          create() {
+          create(_type: "payment", elementOptions: StripePaymentElementOptions) {
+            fake.calls.paymentElement.push(elementOptions);
             const handlers = new Map<string, (event: { error?: StripeJsError }) => void>();
             let node: HTMLElement | null = null;
             return {
