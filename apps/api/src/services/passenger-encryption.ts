@@ -164,22 +164,26 @@ export interface BackfillRunResult {
   batches: number;
 }
 
-/** 跑一轮：四张表依次走到头。`stop` 返回真时做完这一批就停（服务关闭、测试模拟中断）。 */
+/**
+ * 跑一轮：四张表轮流，每张表一批一批往后走，每批之后换下一张表。上限按批数算，订单多时别的表也有份，不用等订单走完。
+ * `stop` 返回真时做完这一批就停（服务关闭、测试模拟中断）。
+ */
 export async function runPassengerBackfill(ctx: AppContext, options: { batchSize?: number; maxBatches?: number; pauseMs?: number; stop?: () => boolean; log?: Log } = {}): Promise<BackfillRunResult> {
   const batchSize = options.batchSize ?? DEFAULT_BATCH;
   const maxBatches = options.maxBatches ?? MAX_BATCHES_PER_TICK;
   const pauseMs = options.pauseMs ?? PAUSE_MS;
   const result: BackfillRunResult = { encrypted: emptyCounts(), failed: 0, batches: 0 };
-  for (const table of BACKFILL_TABLES) {
-    let cursor: string | null = null;
-    while (result.batches < maxBatches && !options.stop?.()) {
-      const batch: BackfillBatchResult = await backfillBatch(ctx, table, cursor, batchSize, options.log);
+  const cursors = new Map<BackfillTable, string | null>(BACKFILL_TABLES.map((table) => [table, null]));
+  while (cursors.size > 0) {
+    for (const [table, cursor] of [...cursors]) {
+      if (result.batches >= maxBatches || options.stop?.()) return result;
+      const batch = await backfillBatch(ctx, table, cursor, batchSize, options.log);
       result.batches += 1;
       result.encrypted[table] += batch.encrypted;
       result.failed += batch.failed;
-      cursor = batch.cursor;
-      if (batch.selected < batchSize) break;
-      if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+      if (batch.selected < batchSize) cursors.delete(table);
+      else cursors.set(table, batch.cursor);
+      if (pauseMs > 0 && cursors.size > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
   }
   return result;
@@ -257,6 +261,26 @@ export async function verifyPassengerEncryption(ctx: AppContext, pageSize: numbe
   return result;
 }
 
+export interface RetiredPlaintextCheck {
+  ready: boolean;
+  pending: BackfillCounts;
+  verified: VerifyResult;
+}
+
+/**
+ * 明文不再写（`PASSENGER_PLAINTEXT_WRITE=false`）时的检查：还有没回填、解不开、不一致的行，就是开关开早了。
+ * 只记错误日志报警，不挡启动（ADR 0057）：挡了服务就挂了，而这些行本来就有明文可读或者已经读不出来。日志只有数量。
+ */
+export async function checkRetiredPlaintext(ctx: AppContext, log: Log): Promise<RetiredPlaintextCheck | null> {
+  const crypto = passengerCryptoOfPool(ctx.pool);
+  if (crypto.plaintextWrite || !crypto.configured) return null;
+  const pending = await planPassengerBackfill(ctx);
+  const verified = await verifyPassengerEncryption(ctx);
+  const ready = verified.indexMismatched === 0 && BACKFILL_TABLES.every((table) => pending[table] === 0 && verified.undecryptable[table] === 0 && verified.mismatched[table] === 0);
+  if (!ready) log.error({ event: "passenger.plaintext_retired_not_ready", pending, undecryptable: verified.undecryptable, mismatched: verified.mismatched, indexMismatched: verified.indexMismatched }, "PASSENGER_PLAINTEXT_WRITE=false，但还有没回填或不一致的行，见 docs/deploy.md");
+  return { ready, pending, verified };
+}
+
 /** 后台任务：启动 30 秒后第一次，之后每小时一轮（代码回退过、密钥换过时能自己补上）。没配置主密钥或开关关闭时什么都不做。 */
 export class PassengerEncryptionJobs {
   private readonly ctx: AppContext;
@@ -276,6 +300,12 @@ export class PassengerEncryptionJobs {
     return passengerCryptoOfPool(this.ctx.pool).backfillEnabled;
   }
 
+  /** 这个进程启动后要不要跑：回填开着，或者明文不再写（要做一次检查，回填关着也要）。 */
+  private get needed(): boolean {
+    const crypto = passengerCryptoOfPool(this.ctx.pool);
+    return crypto.backfillEnabled || (crypto.configured && !crypto.plaintextWrite);
+  }
+
   async tick(): Promise<BackfillRunResult | null> {
     if (!this.enabled) return null;
     const result = await runPassengerBackfill(this.ctx, { stop: () => this.closing, log: this.log });
@@ -285,7 +315,7 @@ export class PassengerEncryptionJobs {
   }
 
   start(): void {
-    if (!this.stopped || !this.enabled) return;
+    if (!this.stopped || !this.needed) return;
     this.stopped = false;
     this.closing = false;
     this.schedule(FIRST_TICK_MS);
@@ -301,8 +331,11 @@ export class PassengerEncryptionJobs {
 
   private schedule(delay: number): void {
     if (this.stopped) return;
+    const first = delay === FIRST_TICK_MS;
     this.timer = setTimeout(() => {
+      // 启动后第一轮之后检查一次：回填能补上的先补上，剩下的才是问题
       this.ticking = this.tick()
+        .then(() => (first ? checkRetiredPlaintext(this.ctx, this.log) : null))
         .catch((err: unknown) => this.log.error({ code: driverErrorCode(err) }, "乘客信息回填这一轮失败"))
         .finally(() => {
           this.ticking = null;

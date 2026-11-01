@@ -15,7 +15,7 @@ import { PassengerCrypto, type PassengerEncryptionSettings } from "./integration
 import { SecretBox } from "./integrations/secret-box.ts";
 import { findOrderForPlatform } from "./repos/orders.ts";
 import { insertRescuedOrder, markOrderRescued } from "./repos/rescues.ts";
-import { backfillBatch, planPassengerBackfill, runPassengerBackfill, verifyPassengerEncryption } from "./services/passenger-encryption.ts";
+import { backfillBatch, checkRetiredPlaintext, planPassengerBackfill, runPassengerBackfill, verifyPassengerEncryption } from "./services/passenger-encryption.ts";
 import { runPassengerRetention } from "./services/passenger-retention.ts";
 import { type TestApi, createTestApi } from "./testing/api.ts";
 import { seedOrder, startFakeReceiver, type FakeReceiver } from "./testing/dispatch.ts";
@@ -575,4 +575,90 @@ test("--verify 也核对盲索引：内容解得开但盲索引不对或不见�
   assert.equal((await verifyPassengerEncryption(ctx)).indexMismatched, clean + 1);
   await api.db.owner.query("update orders set passenger_email_bidx = $2 where id = $1", [order.id, saved.passenger_email_bidx]);
   assert.equal((await verifyPassengerEncryption(ctx)).indexMismatched, clean);
+});
+
+test("回填一轮的上限：四张表轮流，订单多的时候别的表也有份，不用等订单走完", async () => {
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  const order = await placeOrder(fictional());
+  await subscribe(await tenantOfOrder(order.id));
+  await pay_(order.id);
+  await drainMail();
+  await changePassenger(order.id, fictional());
+  for (let i = 0; i < 4; i += 1) await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + (700 + i) * HOUR) });
+  await api.db.owner.query("update order_changes set values_enc = null where order_id = $1", [order.id]);
+  await api.db.owner.query("update webhook_deliveries set event_data_enc = null where order_id = $1", [order.id]);
+  await api.db.owner.query("update notifications set recipient_enc = null where order_id = $1", [order.id]);
+  const partial = await runPassengerBackfill(ctx, { batchSize: 1, maxBatches: 4, pauseMs: 0 });
+  assert.equal(partial.encrypted.orders, 1, "订单只走一批");
+  assert.ok(partial.encrypted.order_changes >= 1 && partial.encrypted.webhook_deliveries >= 1 && partial.encrypted.notifications >= 1, JSON.stringify(partial));
+  assert.equal((await planPassengerBackfill(ctx)).orders, 3);
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  assert.deepEqual(await planPassengerBackfill(ctx), { orders: 0, order_changes: 0, webhook_deliveries: 0, notifications: 0 });
+});
+
+test("明文不再写时的检查：有没回填、内容已丢的行就记错误日志（只有数量），不抛错不挡启动；全部一致时不报；明文还在写时不查", async () => {
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  const logged: { obj: any; msg: string }[] = [];
+  const log = { info: () => undefined, error: (obj: object, msg: string) => void logged.push({ obj, msg }) };
+  assert.equal(await checkRetiredPlaintext(ctx, log), null, "明文还在写：不查");
+  const passenger = await orderRow((await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 720 * HOUR) })).id);
+  useCrypto(RETIRED);
+  const notReady = await checkRetiredPlaintext(ctx, log);
+  assert.equal(notReady?.ready, false);
+  assert.ok(notReady.pending.orders >= 1);
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0]?.obj.event, "passenger.plaintext_retired_not_ready");
+  for (const value of Object.values(passenger.passenger as Record<string, string>)) assert.ok(!JSON.stringify(logged).includes(value));
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  logged.length = 0;
+  const ready = await checkRetiredPlaintext(ctx, log);
+  assert.deepEqual(ready?.pending, { orders: 0, order_changes: 0, webhook_deliveries: 0, notifications: 0 });
+  assert.equal(logged.length, ready?.ready ? 0 : 1, "只有还不一致时才报");
+});
+
+test("解不开的隔离（明文不再写）：运营列表这一行显示无法读取；详情 503；通知、推送记失败看得到错误码，不带内容，不重试", async () => {
+  useCrypto(RETIRED);
+  const passenger = fictional();
+  const broken = await placeOrder(passenger);
+  const saved = (await orderRow(broken.id)).passenger_enc;
+  await api.db.owner.query("update orders set passenger_enc = $2 where id = $1", [broken.id, `${useCrypto(RETIRED).currentPrefix}v1.AAAA.AAAA.AAAA`]);
+  const token = await ops();
+  try {
+    const list = await ok(api.call("GET", `/platform/v1/orders?q=${broken.order_no}`, { token }));
+    assert.deepEqual(list.items[0].passenger, { name: "无法读取", phone: "无法读取", email: "无法读取" });
+    assert.equal((await api.call("GET", `/platform/v1/orders/${broken.id}`, { token })).status, 503);
+    // 查订单：对不上的 404；对得上却解不开的 503
+    assert.equal((await lookup(broken, "nobody@fictional.example.test")).status, 404);
+    const right = await lookup(broken, passenger.email);
+    assert.deepEqual([right.status, right.body.error.code], [503, "PASSENGER_DECRYPT_FAILED"]);
+    for (const needle of passenger.needles) assert.ok(!right.text.includes(needle));
+  } finally {
+    await api.db.owner.query("update orders set passenger_enc = $2 where id = $1", [broken.id, saved]);
+  }
+
+  // 通知：这一条记失败，不再被取走
+  await pay_(broken.id);
+  await drainMail();
+  await api.db.owner.query("update notifications set status = 'sent', sent_at = coalesce(sent_at, now()), lease_token = null, lease_until = null where status in ('pending', 'sending')");
+  const row = (await api.db.owner.query("update notifications set status = 'pending', sent_at = null, next_attempt_at = $2, recipient_enc = $3 where audience = 'guest' and order_id = $1 returning id", [broken.id, api.clock.now(), `${useCrypto(RETIRED).currentPrefix}v1.AAAA.AAAA.AAAA`])).rows[0];
+  await site.app.notificationJobs.tick();
+  const failed = (await api.db.owner.query("select status, last_error_code, last_error_message, attempts from notifications where id = $1", [row.id])).rows[0];
+  assert.deepEqual([failed.status, failed.last_error_code, failed.last_error_message], ["failed", "PASSENGER_DECRYPT_FAILED", null]);
+  const page = await ok(api.call("GET", `/platform/v1/notifications?order_id=${broken.id}&audience=guest`, { token }));
+  const shown = page.items.find((item: any) => item.id === row.id);
+  assert.equal(shown.recipient, "无法读取");
+  await api.db.owner.query("update notifications set recipient_enc = null, recipient = $2, status = 'sent', sent_at = now(), last_error_code = null where id = $1", [row.id, "fixed@fictional.example.test"]);
+
+  // 推送：这一条记失败，同一单后面的不受影响
+  await api.db.owner.query("update webhook_deliveries set status = 'succeeded', next_attempt_at = null, lease_token = null, succeeded_at = now() where status = 'pending'");
+  await subscribe(await tenantOfOrder(broken.id));
+  await changePassenger(broken.id, fictional());
+  const delivery = (await api.db.owner.query("update webhook_deliveries set event_data_enc = $2 where order_id = $1 and status = 'pending' and event_type = 'order.changed' returning id", [broken.id, `${useCrypto(RETIRED).currentPrefix}v1.AAAA.AAAA.AAAA`])).rows[0];
+  assert.ok(delivery);
+  receiver.received.length = 0;
+  await api.app.webhookJobs.tick();
+  const pushed = (await api.db.owner.query("select status, last_error_code, next_attempt_at from webhook_deliveries where id = $1", [delivery.id])).rows[0];
+  assert.deepEqual([pushed.status, pushed.last_error_code, pushed.next_attempt_at], ["failed", "PASSENGER_DECRYPT_FAILED", null]);
+  assert.ok(!receiver.received.some((item) => item.body.includes("无法读取")));
+  await api.db.owner.query("update webhook_deliveries set event_data_enc = null, status = 'succeeded', succeeded_at = now(), last_error_code = null where id = $1", [delivery.id]);
 });
