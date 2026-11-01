@@ -213,18 +213,29 @@ export function listIntegrations(token: string): Promise<IntegrationsOverview> {
   return apiRequest("GET", INTEGRATIONS_PATH, { token });
 }
 
-// ───────────── 第三方密钥（ADR 0041） ─────────────
+// ───────────── 第三方密钥（ADR 0041、0048） ─────────────
 //
 // 填写的密钥原文只出现在 PUT 的请求体里：这里不缓存、不打日志、不放进地址；应答和错误里都没有原文（后端保证）。
 
-export type IntegrationSecretKey = "google_maps" | "stripe";
+export type IntegrationSecretKey = "google_maps" | "stripe" | "email";
 export type SecretSource = "admin" | "env" | "none";
-export type SecretFieldName = "api_key" | "secret_key" | "publishable_key" | "webhook_secret";
+export type SecretFieldName = "api_key" | "secret_key" | "publishable_key" | "webhook_secret" | "host" | "port" | "encryption" | "username" | "password" | "from_name" | "from_address";
+export type SmtpEncryption = "tls" | "starttls" | "none";
+
+/** 邮件发送不是密钥的几项（生效的那一份）。没有密码 */
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  encryption: SmtpEncryption;
+  username: string;
+  from_name: string;
+  from_address: string;
+}
 
 export interface IntegrationSecretItem {
   key: IntegrationSecretKey;
   label: string;
-  /** 填写时要填的几项（谷歌地图 1 项，Stripe 3 项） */
+  /** 填写时要填的几项（谷歌地图 1 项，Stripe 3 项，邮件发送 7 项） */
   fields: { name: SecretFieldName; label: string }[];
   state: "configured" | "missing";
   source: SecretSource;
@@ -233,6 +244,8 @@ export interface IntegrationSecretItem {
   mode: "test" | "live" | null;
   /** `••••` + 末 4 位；只给超级管理员 */
   masked: string | null;
+  /** 只有邮件发送这一项、只给超级管理员才有 */
+  settings: SmtpSettings | null;
   env_configured: boolean;
   /** 后台填写的那一份；只给超级管理员 */
   admin: {
@@ -263,14 +276,14 @@ export interface IntegrationTestResult {
 
 /** 地址里的写法：google_maps → google-maps */
 const secretPath = (key: IntegrationSecretKey): string => `${INTEGRATION_SECRETS_PATH}/${key.replaceAll("_", "-")}`;
-/** 「测试一下」：后端对谷歌最多等 5 秒 × 2 次、对 Stripe 8 秒 × 2 次，页面多等一些 */
+/** 「测试一下」：后端对谷歌最多等 5 秒 × 2 次、对 Stripe 8 秒 × 2 次、发测试邮件总共 15 秒，页面多等一些 */
 export const INTEGRATION_TEST_TIMEOUT_MS = 30_000;
 
 export function listIntegrationSecrets(token: string): Promise<IntegrationSecrets> {
   return apiRequest("GET", INTEGRATION_SECRETS_PATH, { token });
 }
 
-export function saveIntegrationSecret(token: string, key: IntegrationSecretKey, values: Partial<Record<SecretFieldName, string>>): Promise<{ action: "set" | "replace"; item: IntegrationSecretItem }> {
+export function saveIntegrationSecret(token: string, key: IntegrationSecretKey, values: Partial<Record<SecretFieldName, string | number>>): Promise<{ action: "set" | "replace"; item: IntegrationSecretItem }> {
   return apiRequest("PUT", secretPath(key), { token, body: values });
 }
 
@@ -292,7 +305,8 @@ export const PLATFORM_SCHEMA_FIELDS = {
   ResetToken: ["token", "expires_at"],
   AuditLog: ["id", "occurred_at", "tenant_id", "actor", "ip", "source", "resource", "resource_id", "action", "before", "after"],
   IntegrationStatusDetail: ["key", "label", "state", "detail"],
-  IntegrationSecretItem: ["key", "label", "fields", "state", "source", "source_label", "mode", "masked", "env_configured", "admin"],
+  IntegrationSecretItem: ["key", "label", "fields", "state", "source", "source_label", "mode", "masked", "settings", "env_configured", "admin"],
+  SmtpSettings: ["host", "port", "encryption", "username", "from_name", "from_address"],
 } as const satisfies {
   Tenant: readonly (keyof Tenant)[];
   TenantUser: readonly (keyof TenantUser)[];
@@ -303,6 +317,7 @@ export const PLATFORM_SCHEMA_FIELDS = {
   AuditLog: readonly (keyof AuditLog)[];
   IntegrationStatusDetail: readonly (keyof IntegrationStatus)[];
   IntegrationSecretItem: readonly (keyof IntegrationSecretItem)[];
+  SmtpSettings: readonly (keyof SmtpSettings)[];
 };
 /** 页面专门处理的错误码。 */
 export const PLATFORM_ERROR_CODES = ["EMAIL_TAKEN", "LAST_ADMIN_REQUIRED", "ACCOUNT_NOT_ACTIVATED", "ACCOUNT_NOT_ACTIVE", "INTEGRATION_SECRET_NOT_SET", "INTEGRATION_NOT_CONFIGURED", "INTEGRATION_ENCRYPTION_NOT_CONFIGURED"] as const;

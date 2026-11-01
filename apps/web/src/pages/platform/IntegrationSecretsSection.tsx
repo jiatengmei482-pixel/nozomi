@@ -1,25 +1,27 @@
 /**
- * 系统状态页里的「第三方密钥」（ADR 0041）：谷歌地图、Stripe 各一张卡片，写出现在生效的是哪一份（后台设置 / 服务器配置文件 / 未配置）和打码后的末 4 位；
+ * 系统状态页里的「第三方密钥」（ADR 0041、0048）：谷歌地图、Stripe、邮件发送各一张卡片，写出现在生效的是哪一份（后台设置 / 服务器配置文件 / 未配置）和打码后的末 4 位；
  * 超级管理员（接口的 `can_manage`）可以填写 / 更换、清空、测试一下，其他人只能看。
  *
  * 填进来的密钥原文只在两处：对话框里的输入框（不受控，React 不把值写进 value 属性）和 PUT 的请求体。
  * 不进 state、不进 localStorage、不进地址、不打日志；提交成功后输入框随对话框一起清掉，页面上只显示后端给的打码值。
+ * 邮件发送除了密码还有六项不是密钥的（主机、端口、用户名……）：更换时带上现在的值，只有密码每次都要重新填（ADR 0048：防止改了主机后把旧密码发到别处）。
  */
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { ApiError, NetworkError } from "../../api/client.ts";
-import { type IntegrationSecretItem, type IntegrationSecretKey, type IntegrationSecrets, type IntegrationTestResult, type SecretFieldName, clearIntegrationSecret, listIntegrationSecrets, saveIntegrationSecret, testIntegrationSecret } from "../../api/platform.ts";
+import { type IntegrationSecretItem, type IntegrationSecretKey, type IntegrationSecrets, type IntegrationTestResult, type SecretFieldName, type SmtpEncryption, type SmtpSettings, clearIntegrationSecret, listIntegrationSecrets, saveIntegrationSecret, testIntegrationSecret } from "../../api/platform.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
 import { Alert } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
+import { SelectField } from "../../components/FormFields.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
-import { PasswordField } from "../../components/TextField.tsx";
+import { PasswordField, TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { localSecond } from "../../lib/audit-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
-import { type FieldErrors, SECRET_FIELD_HINTS, secretFormErrors, serverFieldErrors } from "../../lib/secret-form.ts";
+import { EMAIL_TEST_FAILURES, type FieldErrors, SECRET_FIELD_HINTS, secretFormErrors, serverFieldErrors } from "../../lib/secret-form.ts";
 import { useLoad } from "../../lib/use-load.ts";
 
 const ENCRYPTION_MISSING_TEXT = "服务器还没有配置数据加密密钥，现在不能在后台填写密钥。请联系技术人员在服务器上配置好以后再来填写。";
@@ -29,11 +31,16 @@ const NO_PERMISSION_TEXT = "只有超级管理员可以填写、更换、清空�
 const TEST_NOTES: Readonly<Record<IntegrationSecretKey, string>> = {
   google_maps: "「测试一下」会真的调用一次谷歌地图（查一条东京站到新宿站的路线），每次产生极少量费用，通常在谷歌每月的免费额度内。",
   stripe: "「测试一下」只查一次账户余额，不收钱、不产生费用，也不改任何数据。",
+  email: "「测试一下」会发一封测试邮件到你自己的登录邮箱，不能发给别人。邮件服务器接收以后，请去邮箱确认，也看看垃圾邮件。",
 };
+
+/** 填的是什么：邮件发送七项里只有密码是密钥，叫「设置」 */
+const nounOf = (key: IntegrationSecretKey): string => (key === "email" ? "设置" : "密钥");
 
 /** 清空以后会怎样 */
 function clearConsequence(item: IntegrationSecretItem): string {
   if (item.env_configured) return "服务器配置文件里也有这一项，清空后马上改用那里的值。";
+  if (item.key === "email") return "服务器配置文件里没有这一项，清空后邮件发送就是「未配置」，系统发不了邮件，直到重新填写。";
   return item.key === "stripe" ? "服务器配置文件里没有这一项，清空后 Stripe 支付就是「未配置」，客人将不能在线付款，直到重新填写。" : "服务器配置文件里没有这一项，清空后谷歌地图就是「未配置」，用到它的功能会停下来，直到重新填写。";
 }
 
@@ -49,6 +56,31 @@ const PROBLEM_TEXT: Readonly<Record<"UNREADABLE" | "NOT_ALLOWED_IN_ENV", string>
   NOT_ALLOWED_IN_ENV: "后台填写的那一份不能在这个环境用（例如测试密钥到了正式环境），现在没有用它。请换成这个环境能用的密钥。",
 };
 
+/** 邮件发送的「后台那一份不能用」：这里没有测试密钥、正式密钥的说法 */
+const EMAIL_NOT_ALLOWED_TEXT = "后台填写的那一份不能在这个环境用（不加密发信，或主机是内网地址），现在没有用它。请重新填写。";
+
+function problemText(key: IntegrationSecretKey, problem: "UNREADABLE" | "NOT_ALLOWED_IN_ENV"): string {
+  return key === "email" && problem === "NOT_ALLOWED_IN_ENV" ? EMAIL_NOT_ALLOWED_TEXT : PROBLEM_TEXT[problem];
+}
+
+const ENCRYPTION_NAMES: Readonly<Record<SmtpEncryption, string>> = { tls: "TLS", starttls: "STARTTLS", none: "不加密" };
+
+/** 不加密不给用户选：只有接口说现在就是不加密时（本机调试）才列出来，否则一保存就会变 */
+function encryptionOptions(current: SmtpEncryption | null): { value: SmtpEncryption; label: string }[] {
+  return [
+    { value: "tls", label: "TLS（推荐，常用端口 465）" },
+    { value: "starttls", label: "STARTTLS（常用端口 587）" },
+    ...(current === "none" ? [{ value: "none" as const, label: "不加密（只能用于本机调试）" }] : []),
+  ];
+}
+
+/** 更换时输入框里预先带上的值：只有不是密钥的几项 */
+function emailDefault(settings: SmtpSettings | null, field: SecretFieldName): string | undefined {
+  if (settings === null) return undefined;
+  if (field === "host" || field === "username" || field === "from_name" || field === "from_address") return settings[field];
+  return field === "port" ? String(settings.port) : undefined;
+}
+
 function adminText(admin: NonNullable<IntegrationSecretItem["admin"]>): string {
   if (!admin.configured) return "没有填写";
   const who = admin.updated_by?.name ?? "—";
@@ -56,10 +88,18 @@ function adminText(admin: NonNullable<IntegrationSecretItem["admin"]>): string {
   return `已填写（${who}，${at}）`;
 }
 
+/** 测试结果的那一句话。邮件发送：通过时用接口的（写明发到了哪个地址），没通过时按原因说怎么办 */
+function testResultText(result: IntegrationTestResult): string {
+  const measured = `测的是${result.source_label}里的那一份。`;
+  if (result.key !== "email") return result.ok ? measured : result.message;
+  if (result.ok) return `${result.message}。${measured}`;
+  return `${(result.code === null ? undefined : EMAIL_TEST_FAILURES[result.code]) ?? result.message}${measured}`;
+}
+
 type TestOutcome = { kind: "result"; result: IntegrationTestResult } | { kind: "failed"; text: string };
 
-function testFailureText(err: unknown): string {
-  if (err instanceof ApiError && err.code === "INTEGRATION_NOT_CONFIGURED") return "这一项现在没有配置，先填写密钥再测试。";
+function testFailureText(key: IntegrationSecretKey, err: unknown): string {
+  if (err instanceof ApiError && err.code === "INTEGRATION_NOT_CONFIGURED") return `这一项现在没有配置，先填写${nounOf(key)}再测试。`;
   // 「测试一下」每项 5 秒最多一次（ADR 0041）：不是通用的「太频繁」，说清楚是刚测过
   if (err instanceof ApiError && err.code === "INTEGRATION_TEST_RATE_LIMITED") return "刚测过，请过几秒再试。";
   if (err instanceof ApiError && err.status === 403) return NO_PERMISSION_TEXT;
@@ -78,16 +118,24 @@ function FillDialog({ item, onClose, onSaved, onEncryptionMissing }: { item: Int
   const { token, handleAuthFailure } = usePortalSession();
   const formId = useId();
   const inputs = useRef<Partial<Record<SecretFieldName, HTMLInputElement | null>>>({});
+  const encryptionBox = useRef<HTMLDivElement | null>(null);
+  const [encryption, setEncryption] = useState<SmtpEncryption>(item.settings?.encryption ?? "tls");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [problem, setProblem] = useState<FillProblem | null>(null);
   const [busy, setBusy] = useState(false);
   const fields = item.fields.map((field) => field.name);
   const replacing = item.admin?.configured === true;
   const verb = replacing ? "更换" : "填写";
+  const isEmail = item.key === "email";
+
+  const clearError = (field: SecretFieldName): void => {
+    if (errors[field] !== undefined) setErrors((current) => ({ ...current, [field]: undefined }));
+  };
 
   const focusFirst = (found: FieldErrors): void => {
     const first = fields.find((field) => found[field] !== undefined);
-    if (first !== undefined) inputs.current[first]?.focus();
+    if (first === "encryption") encryptionBox.current?.querySelector("select")?.focus();
+    else if (first !== undefined) inputs.current[first]?.focus();
   };
 
   const submit = async (event: FormEvent): Promise<void> => {
@@ -96,13 +144,13 @@ function FillDialog({ item, onClose, onSaved, onEncryptionMissing }: { item: Int
     setProblem(null);
     // 值只在这个函数里读一次，直接放进请求体
     const values: Partial<Record<SecretFieldName, string>> = {};
-    for (const field of fields) values[field] = (inputs.current[field]?.value ?? "").trim();
+    for (const field of fields) values[field] = field === "encryption" ? encryption : (inputs.current[field]?.value ?? "").trim();
     const found = secretFormErrors(item.key, values, fields);
     setErrors(found);
     if (Object.keys(found).length > 0) return focusFirst(found);
     setBusy(true);
     try {
-      const saved = await saveIntegrationSecret(token, item.key, values);
+      const saved = await saveIntegrationSecret(token, item.key, isEmail ? { ...values, port: Number(values.port) } : values);
       for (const field of fields) {
         const input = inputs.current[field];
         if (input) input.value = "";
@@ -132,7 +180,7 @@ function FillDialog({ item, onClose, onSaved, onEncryptionMissing }: { item: Int
     <Dialog
       open
       size="form"
-      title={`${verb}「${item.label}」的密钥`}
+      title={`${verb}「${item.label}」的${nounOf(item.key)}`}
       busy={busy}
       dismissOnBackdrop={false}
       onClose={onClose}
@@ -157,32 +205,56 @@ function FillDialog({ item, onClose, onSaved, onEncryptionMissing }: { item: Int
           )}
         </div>
         <p>
-          {item.key === "stripe" ? "Stripe 的三项要一起填。从 Stripe 控制台复制后粘贴到下面。" : "从谷歌云控制台复制密钥后粘贴到下面。"}
+          {isEmail ? "七项要一起填，一般都在邮件服务商的 SMTP 设置页能找到。" : item.key === "stripe" ? "Stripe 的三项要一起填。从 Stripe 控制台复制后粘贴到下面。" : "从谷歌云控制台复制密钥后粘贴到下面。"}
           {replacing ? "保存后马上改用新的，原来在后台填写的那一份不再使用。" : "保存后马上生效，不用重启。"}
         </p>
-        {fields.map((field, index) => (
-          <PasswordField
-            key={field}
-            ref={(node) => {
+        {isEmail && (
+          <Alert kind="info">
+            <strong className="alert__title">每次保存都要重新填密码</strong>
+            <span>不能留空沿用旧密码：这样就算有人改了主机，旧密码也不会被发到别的服务器。</span>
+          </Alert>
+        )}
+        {fields.map((field, index) => {
+          const label = item.fields[index]?.label ?? field;
+          const shared = {
+            ref: (node: HTMLInputElement | null) => {
               inputs.current[field] = node;
-            }}
-            noun="密钥"
-            label={item.fields[index]?.label ?? field}
-            hint={SECRET_FIELD_HINTS[field]}
-            errors={errors[field] ?? []}
-            readOnly={busy}
-            required
-            autoComplete="off"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            data-autofocus={index === 0 ? true : undefined}
-            onInput={() => {
-              if (errors[field] !== undefined) setErrors((current) => ({ ...current, [field]: undefined }));
-            }}
-          />
-        ))}
-        <p className="page-intro">密钥会加密保存。保存后页面上只显示末 4 位，任何地方都看不到完整的密钥。</p>
+            },
+            label,
+            hint: SECRET_FIELD_HINTS[field],
+            errors: errors[field] ?? [],
+            readOnly: busy,
+            required: true,
+            autoCapitalize: "off",
+            autoCorrect: "off",
+            spellCheck: false,
+            "data-autofocus": index === 0 ? true : undefined,
+            onInput: () => clearError(field),
+          };
+          if (!isEmail) return <PasswordField key={field} {...shared} noun="密钥" autoComplete="off" />;
+          // new-password：不让浏览器把保存的后台登录密码自动填进来，再被存成邮件服务器的密码
+          if (field === "password") return <PasswordField key={field} {...shared} autoComplete="new-password" />;
+          if (field === "encryption") {
+            return (
+              <div key={field} ref={encryptionBox}>
+                <SelectField
+                  label={label}
+                  value={encryption}
+                  options={encryptionOptions(item.settings?.encryption ?? null)}
+                  hint={SECRET_FIELD_HINTS[field]}
+                  errors={errors[field] ?? []}
+                  onChange={(next) => {
+                    if (busy) return;
+                    setEncryption(next);
+                    clearError(field);
+                  }}
+                />
+              </div>
+            );
+          }
+          return <TextField key={field} {...shared} defaultValue={emailDefault(item.settings, field)} inputMode={field === "port" ? "numeric" : field === "from_address" ? "email" : undefined} autoComplete="off" />;
+        })}
+        <p className="page-intro">{isEmail ? "全部加密保存。保存后页面上最多只显示密码的末 4 位，任何地方都看不到完整的密码。" : "密钥会加密保存。保存后页面上只显示末 4 位，任何地方都看不到完整的密钥。"}</p>
       </form>
     </Dialog>
   );
@@ -215,7 +287,7 @@ function ClearDialog({ item, onClose, onCleared }: { item: IntegrationSecretItem
   return (
     <Dialog
       open
-      title={`清空「${item.label}」在后台填写的密钥？`}
+      title={`清空「${item.label}」在后台填写的${nounOf(item.key)}？`}
       busy={busy}
       describedBy={descriptionId}
       onClose={done ? () => onCleared(null) : onClose}
@@ -275,7 +347,7 @@ function SecretCard({ item, canManage, encryptionReady, encryptionNoteId, onFill
       setOutcome({ kind: "result", result: await testIntegrationSecret(token, item.key) });
     } catch (err) {
       if (handleAuthFailure(err)) return;
-      setOutcome({ kind: "failed", text: testFailureText(err) });
+      setOutcome({ kind: "failed", text: testFailureText(item.key, err) });
     } finally {
       setTesting(false);
     }
@@ -296,6 +368,22 @@ function SecretCard({ item, canManage, encryptionReady, encryptionNoteId, onFill
           <dt>现在用的</dt>
           <dd>{effectiveText(item)}</dd>
         </div>
+        {item.settings !== null && (
+          <>
+            <div className="details__item">
+              <dt>邮件服务器</dt>
+              <dd className="secret-card__value">{`${item.settings.host}:${item.settings.port}`}</dd>
+            </div>
+            <div className="details__item">
+              <dt>加密方式</dt>
+              <dd>{ENCRYPTION_NAMES[item.settings.encryption]}</dd>
+            </div>
+            <div className="details__item">
+              <dt>发件人</dt>
+              <dd className="secret-card__value">{`${item.settings.from_name} <${item.settings.from_address}>`}</dd>
+            </div>
+          </>
+        )}
         {item.admin !== null && (
           <div className="details__item">
             <dt>后台填写的</dt>
@@ -309,7 +397,7 @@ function SecretCard({ item, canManage, encryptionReady, encryptionNoteId, onFill
       </dl>
       {problem !== null && (
         <Alert kind="warning">
-          <span>{PROBLEM_TEXT[problem]}</span>
+          <span>{problemText(item.key, problem)}</span>
         </Alert>
       )}
       {canManage && (
@@ -334,7 +422,7 @@ function SecretCard({ item, canManage, encryptionReady, encryptionNoteId, onFill
             {outcome?.kind === "result" && (
               <div className="secret-test">
                 <StatusBadge tone={outcome.result.ok ? "success" : "danger"} label={outcome.result.ok ? "可用" : "不可用"} />
-                <span>{outcome.result.ok ? `测的是${outcome.result.source_label}里的那一份。` : outcome.result.message}</span>
+                <span>{testResultText(outcome.result)}</span>
                 <span className="secret-test__time">{`测试时间 ${localSecond(outcome.result.tested_at)}`}</span>
               </div>
             )}
@@ -418,7 +506,7 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
             <strong>{`哪一份生效：${data.precedence_note}`}</strong>{" "}
           </>
         )}
-        谷歌地图和 Stripe 支付的密钥可以在这里直接填写，保存后马上生效，不用重启。页面上只显示末 4 位。
+        谷歌地图、Stripe 支付的密钥和邮件发送的设置可以在这里直接填写，保存后马上生效，不用重启。密钥和密码在页面上最多只显示末 4 位。
       </p>
       {body}
       {target !== null && open?.kind === "fill" && (
@@ -429,7 +517,7 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
           onSaved={(action, saved) => {
             setOpen(null);
             replaceItem(saved);
-            toast(`已${action === "replace" ? "更换" : "填写"}「${saved.label}」的密钥`);
+            toast(`已${action === "replace" ? "更换" : "填写"}「${saved.label}」的${nounOf(saved.key)}`);
             onChanged();
           }}
         />
@@ -445,7 +533,7 @@ export function IntegrationSecretsSection({ onChanged }: { onChanged(): void }) 
               return;
             }
             replaceItem(cleared);
-            toast(`已清空「${cleared.label}」在后台填写的密钥`);
+            toast(`已清空「${cleared.label}」在后台填写的${nounOf(cleared.key)}`);
             onChanged();
             setFocusFill(cleared.key);
           }}
