@@ -232,7 +232,7 @@ export function ruleJson(rule: StoredMarkupRule, names: Names): Json {
 const person = (value: { id: string; name: string; email: string } | null): Json | null => (value === null ? null : { id: value.id, name: value.name, email: value.email });
 
 /** 待审核列表、详情：和订单有关的复核打码手写内容，其他类别（渠道、供应商、价格）的备注没有乘客信息，审批人要看全文（ADR 0055）。 */
-function maskedApprovalJson(approval: Approval, principal: PlatformPrincipal, names: ReadonlyMap<string, string>): Json {
+function maskedApprovalJson(approval: Approval, principal: PlatformPrincipal, names: ReadonlyMap<string, readonly string[]>): Json {
   const json = approvalJson(approval, principal);
   return isOrderApproval(approval) ? maskOrderValues(json, names.get(approval.id) ?? null) : json;
 }

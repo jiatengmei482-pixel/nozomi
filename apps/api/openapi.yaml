@@ -7771,7 +7771,7 @@ paths:
                       properties:
                         source:
                           type: string
-                          enum: [ order_cancel_note, contact_note, event_proxy_reason, change_before, change_after, change_decision_note, extra_charge_description, extra_charge_dispute_reason, extra_charge_decision_note, rescue_reason, rescue_force_majeure_note, exception_resolution, ticket_subject, ticket_description, ticket_decision_note, ticket_close_note, ticket_message, ticket_note, approval_request_note, approval_decision_note, approval_payload ]
+                          enum: [ order_cancel_note, contact_note, event_proxy_reason, change_before, change_after, change_decision_note, extra_charge_description, extra_charge_dispute_reason, extra_charge_decision_note, rescue_reason, rescue_force_majeure_note, rescue_decline_reason, exception_resolution, ticket_subject, ticket_description, ticket_decision_note, ticket_close_note, ticket_message, ticket_note, approval_request_note, approval_decision_note, approval_payload ]
                         source_id:
                           type: [ string, "null" ]
                           description: 来源对象的编号（工单、改单、复核……）；订单本身的为空

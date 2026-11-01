@@ -8,6 +8,7 @@
  */
 import { EXCEPTION_DUE_MINUTES, EXCEPTION_RULES, type ExceptionCloseKind, type ExceptionStatus, type ExceptionType } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
+import { textForOrder } from "./passenger-texts.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -139,7 +140,13 @@ export async function findException(db: Db, id: string, options: { lock?: boolea
   return row === undefined ? null : toException(row);
 }
 
-export async function updateException(db: Db, exception: Pick<OrderException, "id" | "version">, change: Partial<Pick<OrderException, "status" | "assigneeId" | "claimedAt" | "closeKind" | "closedAt" | "closedBy" | "resolution">>, now: Date): Promise<OrderException | null> {
+export async function updateException(db: Db, exception: Pick<OrderException, "id" | "version">, unguarded: Partial<Pick<OrderException, "status" | "assigneeId" | "claimedAt" | "closeKind" | "closedAt" | "closedBy" | "resolution">>, now: Date): Promise<OrderException | null> {
+  let change = unguarded;
+  if (typeof unguarded.resolution === "string") {
+    // 已脱敏的单上写的处理说明：写入时就清掉联系方式（ADR 0055）
+    const orderId = (await db.query<{ order_id: string }>("select order_id from order_exceptions where id = $1", [exception.id])).rows[0]?.order_id;
+    if (orderId !== undefined) change = { ...unguarded, resolution: (await textForOrder(db, orderId))(unguarded.resolution).slice(0, 1000) };
+  }
   const columns: Record<string, string> = { status: "status", assigneeId: "assignee_id", claimedAt: "claimed_at", closeKind: "close_kind", closedAt: "closed_at", closedBy: "closed_by", resolution: "resolution" };
   const sets: string[] = [];
   const values: unknown[] = [exception.id, exception.version, now];

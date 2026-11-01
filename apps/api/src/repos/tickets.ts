@@ -6,9 +6,10 @@
  * - `ticket_notes`（内部备注）、`ticket_compensations`（客人那边的赔付金额）是平台表：租户角色没有任何权限（规则 4）。
  */
 import { randomInt } from "node:crypto";
-import { type CompensationScenario, type CurrencyCode, type LiableParty, ORDER_NO_ALPHABET, type TicketOutcome, type TicketPriority, type TicketSource, type TicketStatus, type TicketType, ticketNumber } from "@nozomi/domain";
+import { TICKET_RULES, type CompensationScenario, type CurrencyCode, type LiableParty, ORDER_NO_ALPHABET, type TicketOutcome, type TicketPriority, type TicketSource, type TicketStatus, type TicketType, ticketNumber } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
+import { textForOrder } from "./passenger-texts.ts";
 
 type Row = Record<string, any>;
 
@@ -108,7 +109,9 @@ export function randomTicketSuffix(): string {
 export type NewTicket = Pick<Ticket, "tenantId" | "type" | "source" | "createdByType" | "createdBy" | "orderId" | "parentTicketId" | "priority" | "subject" | "description" | "language" | "firstResponseDueAt" | "resolutionDueAt">;
 
 /** 新建一张工单（平台事务）。工单号撞了（极少）换一个随机部分再试，最多 5 次。 */
-export async function insertTicket(db: Db, ticket: NewTicket, now: Date): Promise<Ticket> {
+export async function insertTicket(db: Db, unguarded: NewTicket, now: Date): Promise<Ticket> {
+  const guard = await textForOrder(db, unguarded.orderId);
+  const ticket = { ...unguarded, subject: guard(unguarded.subject).slice(0, TICKET_RULES.subjectMax), description: guard(unguarded.description).slice(0, TICKET_RULES.bodyMax) };
   for (let attempt = 0; ; attempt++) {
     const ticketNo = ticketNumber(now, randomTicketSuffix());
     await db.query("savepoint ticket_no");
@@ -182,7 +185,18 @@ const CHANGE_COLUMNS: Readonly<Record<keyof TicketChange, string>> = {
 };
 
 /** 改一张工单（版本加一）。条件是版本没变：并发的两次改动只有一个成功，返回 null 的由调用方报冲突。 */
-export async function updateTicket(db: Db, ticket: Pick<Ticket, "tenantId" | "id" | "version">, change: TicketChange, now: Date): Promise<Ticket | null> {
+/** 工单写手写内容之前：按它的订单决定要不要清（`textForOrder`）。 */
+async function textForTicket(db: Db, ticketId: string): Promise<(text: string) => string> {
+  const orderId = (await db.query<{ order_id: string }>("select order_id from tickets where id = $1 limit 1", [ticketId])).rows[0]?.order_id;
+  return orderId === undefined ? (text) => text : textForOrder(db, orderId);
+}
+
+export async function updateTicket(db: Db, ticket: Pick<Ticket, "tenantId" | "id" | "version">, unguarded: TicketChange, now: Date): Promise<Ticket | null> {
+  let change = unguarded;
+  if (typeof unguarded.decisionNote === "string" || typeof unguarded.closeNote === "string") {
+    const guard = await textForTicket(db, ticket.id);
+    change = { ...unguarded, ...(typeof unguarded.decisionNote === "string" ? { decisionNote: guard(unguarded.decisionNote).slice(0, TICKET_RULES.noteMax) } : {}), ...(typeof unguarded.closeNote === "string" ? { closeNote: guard(unguarded.closeNote).slice(0, TICKET_RULES.noteMax) } : {}) };
+  }
   const sets: string[] = [];
   const values: unknown[] = [ticket.tenantId, ticket.id, ticket.version, now];
   for (const [key, column] of Object.entries(CHANGE_COLUMNS) as [keyof TicketChange, string][]) {
@@ -302,9 +316,10 @@ function toMessage(row: Row): TicketMessage {
 }
 
 export async function insertTicketMessage(db: Db, ticket: Pick<Ticket, "tenantId" | "id">, message: Pick<TicketMessage, "authorType" | "authorId" | "body" | "fileIds">, now: Date): Promise<TicketMessage> {
+  const guard = await textForTicket(db, ticket.id);
   const result = await db.query<Row>(
     "insert into ticket_messages (tenant_id, ticket_id, author_type, author_id, body, file_ids, created_at) values ($1, $2, $3, $4, $5, $6::uuid[], $7) returning id, ticket_id, author_type, author_id, body, file_ids, created_at",
-    [ticket.tenantId, ticket.id, message.authorType, message.authorId, message.body, message.fileIds, now],
+    [ticket.tenantId, ticket.id, message.authorType, message.authorId, guard(message.body).slice(0, TICKET_RULES.bodyMax), message.fileIds, now],
   );
   return toMessage(result.rows[0] as Row);
 }
@@ -334,7 +349,8 @@ export interface TicketNote {
 }
 
 export async function insertTicketNote(db: Db, ticketId: string, authorId: string, body: string, now: Date, toGuest = false): Promise<void> {
-  await db.query("insert into ticket_notes (ticket_id, author_id, body, created_at, to_guest) values ($1, $2, $3, $4, $5)", [ticketId, authorId, body, now, toGuest]);
+  const guard = await textForTicket(db, ticketId);
+  await db.query("insert into ticket_notes (ticket_id, author_id, body, created_at, to_guest) values ($1, $2, $3, $4, $5)", [ticketId, authorId, guard(body).slice(0, TICKET_RULES.bodyMax), now, toGuest]);
 }
 
 export async function listTicketNotes(db: Db, ticketId: string, onlyToGuest = false): Promise<TicketNote[]> {

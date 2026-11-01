@@ -15,7 +15,7 @@ import { type Market, buildMarket } from "./testing/market.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import {
   DAY, type Seeded, aged, blockedBy, closeTicket, endAt, insertApproval, insertChange, insertDeduction, insertException, insertExtraCharge, insertGuestNotification, insertPayment, insertRefund, insertRescue, insertStatement, insertTicket, insertWebhookDelivery, isDone, retentionCtx, setStatementStatus, staffIds, tokyoDaysAgo,
-} from "./retention-fixtures.qa.itest.ts";
+} from "./testing/retention-fixtures.ts";
 
 let api: TestApi;
 let m: Market;

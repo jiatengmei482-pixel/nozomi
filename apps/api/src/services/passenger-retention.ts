@@ -13,13 +13,17 @@ import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import type { AuditOrigin, AuditSource } from "../repos/audit-logs.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
-import { type RetentionSummary, anonymizeOrderPassenger, listRetentionCandidates, lockRetentionOrder, summarizeRetention } from "../repos/passenger-retention.ts";
+import { driverErrorCode } from "../db/pool.ts";
+import { type RetentionSummary, anonymizeOrderPassenger, listOrdersWithLateTexts, listRetentionCandidates, lockRetentionOrder, scrubOrderTexts, summarizeRetention } from "../repos/passenger-retention.ts";
 
 const FIRST_TICK_MS = 10_000;
 const TICK_INTERVAL_MS = 60 * 60_000;
 const STOP_WAIT_MS = 3_000;
 const BATCH = 200;
 const MAX_BATCHES = 10;
+/** 补扫的范围：脱敏之后、最近两天写进手写内容的单。写入时已经打码，这里只兜并发窗口。 */
+const LATE_TEXT_WINDOW_MS = 2 * 86_400_000;
+const LATE_TEXT_BATCH = 200;
 
 export interface RetentionLog {
   info(obj: object, msg: string): void;
@@ -82,7 +86,8 @@ async function runBatch(ctx: AppContext, db: Db, source: AuditSource, cutoff: Da
       await db.query("rollback to savepoint retention_order");
       skipped += 1;
       failed.add(candidate.orderId);
-      log.error({ err, orderId: candidate.orderId }, "这一单脱敏失败，下一轮再试");
+      // 只记错误码：驱动的报错详情（err.detail）可能带这一行的内容
+      log.error({ orderId: candidate.orderId, code: driverErrorCode(err) }, "这一单脱敏失败，下一轮再试");
     }
   }
   if (done.length > 0) {
@@ -113,7 +118,25 @@ export async function runPassengerRetention(ctx: AppContext, log: RetentionLog, 
     result.batches += 1;
     if (done.selected < BATCH) break;
   }
+  await withPlatformTx(ctx.pool, (db) => rescanLateTexts(ctx, db, log));
   return result;
+}
+
+/** 已脱敏的单上后来写进去的手写内容再清一遍（幂等）。这时已经不知道姓名，电话、邮箱按规则清。 */
+async function rescanLateTexts(ctx: AppContext, db: Db, log: RetentionLog): Promise<void> {
+  const lock = await db.query<{ got: boolean }>("select pg_try_advisory_xact_lock(hashtext(current_schema() || ':nozomi.passenger-retention')) as got");
+  if (lock.rows[0]?.got !== true) return;
+  const since = new Date(ctx.now().getTime() - LATE_TEXT_WINDOW_MS);
+  for (const orderId of await listOrdersWithLateTexts(db, since, LATE_TEXT_BATCH)) {
+    await db.query("savepoint retention_rescan");
+    try {
+      await scrubOrderTexts(db, orderId, { names: [], literals: [] });
+      await db.query("release savepoint retention_rescan");
+    } catch (err) {
+      await db.query("rollback to savepoint retention_rescan");
+      log.error({ orderId, code: driverErrorCode(err) }, "已脱敏的单补扫失败，下一轮再试");
+    }
+  }
 }
 
 export class PassengerRetentionJobs {
@@ -153,7 +176,7 @@ export class PassengerRetentionJobs {
     if (this.stopped) return;
     this.timer = setTimeout(() => {
       this.ticking = this.tick()
-        .catch((err: unknown) => this.log.error({ err }, "乘客信息脱敏这一轮失败"))
+        .catch((err: unknown) => this.log.error({ code: driverErrorCode(err) }, "乘客信息脱敏这一轮失败"))
         .finally(() => {
           this.ticking = null;
           this.schedule(TICK_INTERVAL_MS);

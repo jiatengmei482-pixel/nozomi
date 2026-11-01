@@ -188,7 +188,7 @@ export async function insertSiteOrderLink(db: Db, link: { orderId: string; token
 /**
  * 按令牌的哈希找链接：还在有效期里的才返回（订单编号和它的渠道）。
  * 有效期按订单**现在**的用车时间算（`service_at + afterServiceMs`，至少到发链接后 `minimumMs`），不看发链接时记下的 `expires_at`：
- * 改期以后链接跟着新的用车时间走，不用去改链接（ADR 0032）。
+ * 改期以后链接跟着新的用车时间走，不用去改链接（ADR 0032）。脱敏后这单的链接全部作废（ADR 0055）。
  */
 export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date, rules: { afterServiceMs: number; minimumMs: number }): Promise<{ orderId: string; channelId: string; expiresAt: Date } | null> {
   const row = (
@@ -198,7 +198,7 @@ export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date
          join order_sales s on s.order_id = l.order_id
          join orders o on o.id = l.order_id
          cross join lateral (select greatest(o.service_at + make_interval(secs => $3::double precision / 1000), l.created_at + make_interval(secs => $4::double precision / 1000)) as expires_at) x
-        where l.token_hash = $1 and x.expires_at > $2`,
+        where l.token_hash = $1 and x.expires_at > $2 and o.passenger_anonymized_at is null`,
       [tokenHash, now, rules.afterServiceMs, rules.minimumMs],
     )
   ).rows[0];

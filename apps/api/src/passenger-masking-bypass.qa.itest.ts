@@ -13,7 +13,7 @@ import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
-import { DAY, type Seeded, endAt, insertApproval, insertException, insertGuestNotification, insertRescue, insertWebhookDelivery, isDone, tokyoDaysAgo } from "./retention-fixtures.qa.itest.ts";
+import { DAY, type Seeded, endAt, insertApproval, insertException, insertGuestNotification, insertRescue, insertWebhookDelivery, isDone, tokyoDaysAgo } from "./testing/retention-fixtures.ts";
 
 const NAME = "王小明";
 const PHONE = "09012345678";

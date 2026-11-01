@@ -22,7 +22,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
-import { DAY, type Seeded, aged, endAt, insertChange, insertRescue, insertTicket, isDone, retentionCtx, tokyoDaysAgo } from "./retention-fixtures.qa.itest.ts";
+import { DAY, type Seeded, aged, endAt, insertChange, insertRescue, insertTicket, isDone, retentionCtx, tokyoDaysAgo } from "./testing/retention-fixtures.ts";
 
 const ENTRY = fileURLToPath(new URL("./cli/privacy-anonymize.ts", import.meta.url));
 

@@ -346,6 +346,7 @@ export interface RevealedText {
     | "extra_charge_decision_note"
     | "rescue_reason"
     | "rescue_force_majeure_note"
+    | "rescue_decline_reason"
     | "exception_resolution"
     | "ticket_subject"
     | "ticket_description"

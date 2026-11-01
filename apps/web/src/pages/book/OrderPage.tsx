@@ -50,7 +50,7 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
   const [contact, setContact] = useState("");
   const [errors, setErrors] = useState<{ orderNo?: string; contact?: string }>({});
   const [notice, setNotice] = useState<Notice | null>(
-    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
+    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期（已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，需要帮助请联系客服），请用订单号和下单时的邮箱或手机号重新查找。" } : null,
   );
   const [busy, setBusy] = useState(false);
 

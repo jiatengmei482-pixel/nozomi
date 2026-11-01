@@ -242,7 +242,7 @@ const rawSchema = z.object({
 
   // 乘客信息自动脱敏（ADR 0055）：开关默认开；保存期限默认 180 天，不能低于 180（需求「订单完成 180 天后自动脱敏」），配小了启动报错，不悄悄改值。不是密钥
   PASSENGER_RETENTION_ENABLED: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
-  PASSENGER_RETENTION_DAYS: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(180, "PASSENGER_RETENTION_DAYS 不能低于 180").max(36_500).default(180)),
+  PASSENGER_RETENTION_DAYS: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.string().regex(/^[0-9]+$/, "PASSENGER_RETENTION_DAYS 只接受十进制整数").transform(Number).pipe(z.number().int().min(180, "PASSENGER_RETENTION_DAYS 不能低于 180").max(36_500)).default("180")),
 
   // 官网用哪个渠道（ADR 0032）：运营后台给官网渠道发的那个 API 客户端的 client_id（nzc_ 开头，公开值，不是密钥）。
   // 不配 = 官网显示「暂未开放」

@@ -22,6 +22,7 @@ export const REVEALED_SOURCE_NAMES: Readonly<Record<RevealedText["source"], stri
   extra_charge_decision_note: "加收审核说明",
   rescue_reason: "救援原因",
   rescue_force_majeure_note: "不可抗力说明",
+  rescue_decline_reason: "供应商拒绝救援的原因",
   exception_resolution: "异常处理说明",
   ticket_subject: "工单标题",
   ticket_description: "工单经过",

@@ -4,11 +4,11 @@
  */
 import { randomUUID } from "node:crypto";
 import { ANONYMIZED_TEXT } from "@nozomi/domain";
-import type { AppContext } from "./context.ts";
-import { RETENTION_BLOCKERS, type RetentionBlocker } from "./repos/passenger-retention.ts";
-import type { TestApi } from "./testing/api.ts";
-import { seedOrder } from "./testing/dispatch.ts";
-import type { Market } from "./testing/market.ts";
+import type { AppContext } from "../context.ts";
+import { RETENTION_BLOCKERS, type RetentionBlocker } from "../repos/passenger-retention.ts";
+import type { TestApi } from "./api.ts";
+import { seedOrder } from "./dispatch.ts";
+import type { Market } from "./market.ts";
 
 export const DAY = 86_400_000;
 export type Seeded = { id: string; orderNo: string; tenantId: string };
@@ -29,7 +29,8 @@ export async function endAt(api: TestApi, orderId: string, ended: Date): Promise
     [orderId, ended, new Date(ended.getTime() - 3_600_000)],
   );
   await owner.query("update order_events set occurred_at = $2 where order_id = $1", [orderId, ended]);
-  await owner.query("update order_payments set disputed = false, paid_after_cancel = false where order_id = $1", [orderId]);
+  // 和真实的取消一样：没付成的收款作废（services/orders.ts）。否则官网没付款的单会被「收款没有结果」挡住
+  await owner.query("update order_payments set disputed = false, paid_after_cancel = false, status = case when status in ('creating', 'requires_payment', 'processing') then 'canceled' else status end where order_id = $1", [orderId]);
   await owner.query("update webhook_deliveries set status = 'succeeded', next_attempt_at = null, lease_token = null, succeeded_at = $2 where order_id = $1 and status = 'pending'", [orderId, ended]);
   await owner.query("update notifications set status = 'sent', sent_at = $2, lease_token = null, lease_until = null where order_id = $1 and status in ('pending', 'sending')", [orderId, ended]);
   await owner.query("update order_exceptions set status = 'closed', close_kind = 'cleared', closed_at = $2 where order_id = $1 and status <> 'closed'", [orderId, ended]);

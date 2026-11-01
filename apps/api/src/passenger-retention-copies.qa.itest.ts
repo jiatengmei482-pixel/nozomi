@@ -18,7 +18,7 @@ import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 import {
   DAY, type Seeded, endAt, insertException, insertExtraCharge, insertGuestNotification, insertPayment, insertRescue, insertStatement, insertWebhookDelivery, isDone, setStatementStatus, tokyoDaysAgo,
-} from "./retention-fixtures.qa.itest.ts";
+} from "./testing/retention-fixtures.ts";
 
 const OLD = { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" };
 const NOW = { name: "柏木悠真", phone: "+81 80-6622-8844", email: "qa.kashiwagi@example.test" };

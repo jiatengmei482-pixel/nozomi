@@ -2,7 +2,7 @@
  * 一单的手写内容（M4-21，ADR 0055）：`POST /platform/v1/orders/{id}/passenger/reveal` 用来给原文。平台事务里调用。
  * 这些字段在运营接口里都是打码的；这里只负责找出来，给谁、给多少在 `services/passenger-privacy.ts`。
  */
-import { HANDWRITTEN_KEYS } from "@nozomi/domain";
+import { ANONYMIZED_TEXT, HANDWRITTEN_KEYS, scrubContactsInText } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 
 export const HANDWRITTEN_SOURCES = [
@@ -17,6 +17,7 @@ export const HANDWRITTEN_SOURCES = [
   "extra_charge_decision_note",
   "rescue_reason",
   "rescue_force_majeure_note",
+  "rescue_decline_reason",
   "exception_resolution",
   "ticket_subject",
   "ticket_description",
@@ -36,9 +37,30 @@ export interface HandwrittenText {
   text: string;
 }
 
-export async function listPassengerNames(db: Db, orderIds: readonly string[]): Promise<Map<string, string>> {
-  const rows = await db.query<{ id: string; name: string }>("select distinct on (id) id, passenger ->> 'name' as name from orders where id = any($1::uuid[]) and passenger_anonymized_at is null order by id", [orderIds]);
-  return new Map(rows.rows.map((row) => [row.id, row.name]));
+/** 这几单用过的所有姓名：现在的，加上改单前后值里的旧姓名（手写内容可能写的是旧姓名）。脱敏过的没有。 */
+export async function listPassengerNames(db: Db, orderIds: readonly string[]): Promise<Map<string, string[]>> {
+  if (orderIds.length === 0) return new Map();
+  const rows = await db.query<{ id: string; name: string | null }>(
+    `select id, passenger ->> 'name' as name from orders where id = any($1::uuid[])
+     union select order_id, before -> 'passenger' ->> 'name' from order_changes where order_id = any($1::uuid[]) and before ? 'passenger'
+     union select order_id, after -> 'passenger' ->> 'name' from order_changes where order_id = any($1::uuid[]) and after ? 'passenger'`,
+    [orderIds],
+  );
+  const names = new Map<string, string[]>();
+  for (const row of rows.rows) {
+    if (row.name === null || row.name === ANONYMIZED_TEXT) continue;
+    names.set(row.id, [...(names.get(row.id) ?? []), row.name]);
+  }
+  return names;
+}
+
+/**
+ * 写手写内容之前调用（ADR 0055）：在同一个事务里给订单加 key share 锁，脱敏事务（for update）提交之前这里会等，等到之后读到的就是脱敏后的状态。
+ * 已脱敏的单，返回的函数按规则清掉联系方式再存（供应商、渠道、客人的接口因此也看不到原文）；没脱敏的原样。
+ */
+export async function textForOrder(db: Db, orderId: string): Promise<(text: string) => string> {
+  const rows = await db.query<{ passenger_anonymized_at: Date | null }>("select passenger_anonymized_at from orders where id = $1 for key share", [orderId]);
+  return rows.rows.some((row) => row.passenger_anonymized_at !== null) ? (text) => scrubContactsInText(text, []) : (text) => text;
 }
 
 /** 改单前后值里的文字：乘客三项连成一行，即时通讯账号带上是哪个软件。 */
@@ -81,6 +103,7 @@ export async function listOrderHandwriting(db: Db, orderId: string, allowed: { t
     add("rescue_reason", row.id, row.reason);
     add("rescue_force_majeure_note", row.id, row.force_majeure_note);
   }
+  for (const row of (await db.query<{ id: string; decline_reason: string | null }>("select id, decline_reason from order_rescue_offers where order_id = $1 order by offered_at, id", [orderId])).rows) add("rescue_decline_reason", row.id, row.decline_reason);
   for (const row of (await db.query<{ id: string; resolution: string | null }>("select id, resolution from order_exceptions where order_id = $1 order by opened_at, id", [orderId])).rows) add("exception_resolution", row.id, row.resolution);
 
   const tickets = (await db.query<{ tenant_id: string; id: string; subject: string; description: string; decision_note: string | null; close_note: string | null }>("select tenant_id, id, subject, description, decision_note, close_note from tickets where order_id = $1 order by created_at, id", [orderId])).rows;

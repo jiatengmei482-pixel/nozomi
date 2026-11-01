@@ -197,9 +197,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 加价规则：软删除，只增改
     markup_rules: ["INSERT", "SELECT", "UPDATE"],
     // 订单（ADR 0026）：销售端下单、支付回调、超时取消都在平台事务里；状态流水只追加；订单的销售端一侧只追加；收款、支付通知要改状态；都不删
-    order_events: ["INSERT", "SELECT"],
+    order_events: ["INSERT", "SELECT", "UPDATE"],
     // 客人评价（ADR 0028）：只追加
-    order_reviews: ["INSERT", "SELECT"],
+    order_reviews: ["INSERT", "SELECT", "UPDATE"],
     order_payments: ["INSERT", "SELECT", "UPDATE"],
     // 改期后对外价按原加价比例重算：平台只改 sell_minor（触发器按语句检查，ADR 0029）
     order_sales: ["INSERT", "SELECT", "UPDATE"],

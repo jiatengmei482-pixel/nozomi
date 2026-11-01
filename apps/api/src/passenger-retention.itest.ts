@@ -50,7 +50,7 @@ async function endAt(orderId: string, ended: Date): Promise<void> {
   const owner = api.db.owner;
   await owner.query("update orders set status = 'cancelled', cancelled_at = $2, cancel_reason = 'GUEST_REQUEST', service_at = $2, created_at = $3::timestamptz, confirmed_at = case when confirmed_at is null then null else $3::timestamptz end, payment_due_at = $2, updated_at = $2, cancel_tenant_share_minor = null, completed_at = null where id = $1", [orderId, ended, new Date(ended.getTime() - 3_600_000)]);
   await owner.query("update order_events set occurred_at = $2 where order_id = $1", [orderId, ended]);
-  await owner.query("update order_payments set disputed = false, paid_after_cancel = false where order_id = $1", [orderId]);
+  await owner.query("update order_payments set disputed = false, paid_after_cancel = false, status = case when status in ('creating', 'requires_payment', 'processing') then 'canceled' else status end where order_id = $1", [orderId]);
   await owner.query("update webhook_deliveries set status = 'succeeded', next_attempt_at = null, succeeded_at = $2 where order_id = $1 and status = 'pending'", [orderId, ended]);
   await owner.query("update notifications set status = 'sent', sent_at = $2 where order_id = $1 and status = 'pending'", [orderId, ended]);
   await owner.query("update order_exceptions set status = 'closed', close_kind = 'cleared', closed_at = $2 where order_id = $1 and status <> 'closed'", [orderId, ended]);

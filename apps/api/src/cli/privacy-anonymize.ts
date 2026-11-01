@@ -15,6 +15,9 @@ const USAGE = "用法：pnpm privacy:anonymize [--dry-run]（默认，只看数�
 const BLOCKER_NAMES: Record<string, string> = {
   open_ticket: "未结工单或赔付没付完",
   open_statement: "账单未结",
+  payment_pending: "收款还没有结果",
+  carried_balance: "账单转入下期，后续账单还没结清",
+  carried_terminated: "账单转入下期，供应商已清退，结不了（要人工处理）",
   unbilled: "应付还没出账",
   dispute: "争议中（拒付、加收）",
   refund: "退款没走完",
@@ -52,7 +55,7 @@ async function main(): Promise<void> {
       console.log("这是 dry-run，没有改任何数据。");
       return;
     }
-    const result = await runPassengerRetention(ctx, { info: () => undefined, error: (obj) => console.error(`一单失败：${(obj as { orderId?: string }).orderId ?? ""}`) }, "cli");
+    const result = await runPassengerRetention(ctx, { info: () => undefined, error: (obj) => console.error(`有一单失败，下一轮再试（错误码 ${(obj as { code?: string | null }).code ?? "未知"}）`) }, "cli");
     console.log(result.busy ? "别的实例正在跑，这次没有做。" : `已脱敏 ${result.anonymized} 单，跳过 ${result.skipped} 单。`);
   } finally {
     await pool.end();

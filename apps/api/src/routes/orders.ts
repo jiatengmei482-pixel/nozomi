@@ -24,7 +24,7 @@ import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type OrderFulfilmentRecords, assertPlatformOrderInScope, getOrderFile, getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
 import { PLATFORM_PROXY_SOURCE } from "../services/fulfilment.ts";
-import { revealPassenger } from "../services/passenger-privacy.ts";
+import { orderPassengerNames, revealPassenger } from "../services/passenger-privacy.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
@@ -165,16 +165,17 @@ function platformCancellationJson(order: Order, sale: OrderSale): Json | null {
 }
 
 /** 推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
-export function maskedDeliveryData(data: Record<string, unknown>): Record<string, unknown> {
-  return maskOrderValues(data);
+export function maskedDeliveryData(data: Record<string, unknown>, names: readonly string[] | null = null): Record<string, unknown> {
+  return maskOrderValues(data, names);
 }
 
-function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: OrderPayment | null; tenantName: string; channelName: string; facts?: DispatchFacts }, now: Date): Json {
+function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: OrderPayment | null; tenantName: string; channelName: string; facts?: DispatchFacts }, now: Date, names: readonly string[]): Json {
   const { order, sale } = entry;
+  const known = [order.passenger.name, ...names];
   return maskOrderValues({
     ...orderTripJson(order),
     // 运营后台默认打码，点「查看」走 `POST …/passenger/reveal` 并记审计（ADR 0052）。乘客、即时通讯账号、备注、取消说明都在下面统一打码
-    notes_masked: order.notes !== null && maskOrderValues({ notes: order.notes }, order.passenger.name).notes !== order.notes,
+    notes_masked: order.notes !== null && maskOrderValues({ notes: order.notes }, known).notes !== order.notes,
     passenger_anonymized_at: order.passengerAnonymizedAt?.toISOString() ?? null,
     dispatch: dispatchJson(order, entry.facts ?? { driver: null, vehicle: null }, now),
     fulfilment: fulfilmentJson(order),
@@ -195,7 +196,7 @@ function platformOrderJson(entry: { order: Order; sale: OrderSale; payment: Orde
     cancel_policy: cancelPolicyJson(order),
     cancellation: platformCancellationJson(order, sale),
     version: order.version,
-  }, order.passenger.name);
+  }, known);
 }
 
 function paymentEventJson(event: PaymentEventRecord): Json {
@@ -278,7 +279,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       decodeTimeCursor(query.cursor ?? null),
     );
     const now = ctx.now();
-    return { items: page.items.map((item) => ({ ...platformOrderJson(item, now), open_exceptions: page.openExceptions.get(item.order.id) ?? 0 })), next_cursor: page.nextCursor, total: page.total };
+    const names = await orderPassengerNames(ctx, page.items.map((item) => item.order.id));
+    return { items: page.items.map((item) => ({ ...platformOrderJson(item, now, names.get(item.order.id) ?? []), open_exceptions: page.openExceptions.get(item.order.id) ?? 0 })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.post("/platform/v1/orders/:id/passenger/reveal", async (request) => {
@@ -292,11 +294,11 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const found = await getOrderForPlatform(ctx, resourceId(request.params, "订单"), principal.grant.scope);
     const now = ctx.now();
+    const names = (await orderPassengerNames(ctx, [found.order.id])).get(found.order.id) ?? [];
     return {
       // 改单的前后值、手写的说明、工单、异常、救援都打码（ADR 0055），看原文走 reveal；键的白名单见 `HANDWRITTEN_KEYS`。
-      // 内容里的旧姓名（改单前的）也一起找，所以订单本身也放进来再打一次
       ...maskOrderValues({
-      order: platformOrderJson(found, now),
+      order: platformOrderJson(found, now, names),
       events: found.events.map((event) => eventJson(event, "platform")),
       pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
       // 司机手写的联系备注可能抄了客人的联系方式：运营这边同样打码（ADR 0054）
@@ -323,7 +325,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       })),
       tickets: found.tickets.map(orderTicketJson),
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
-      }, found.order.passenger.name),
+      }, names),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,
