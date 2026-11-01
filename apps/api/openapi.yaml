@@ -1703,7 +1703,7 @@ paths:
         - Stripe：查余额（只读，不产生费用、不改任何数据），并核对测试 / 正式模式对得上。
         - 邮件发送（ADR 0048）：发一封测试邮件给**当前操作的超级管理员自己的邮箱**。接口不接受收件人，请求体里写了也不看。最多等 15 秒。`ok: true` 表示邮件服务器已接收，`message` 写明发到了哪个地址。
         结果是数据（200）：`ok` 可用 / 不可用，不可用时 `code` 是原因（`KEY_INVALID`、`API_NOT_ENABLED`、`KEY_RESTRICTED`、`BILLING_DISABLED`、`PERMISSION_DENIED`、`QUOTA_EXCEEDED`、`MODE_MISMATCH`、`TIMEOUT`、`UNREACHABLE`、`UNAVAILABLE`、`UNEXPECTED`；
-        邮件发送另有 `TARGET_FORBIDDEN` 内网地址、`TLS_FAILED`、`AUTH_FAILED`、`SENDER_REJECTED`、`RECIPIENT_REJECTED`、`MESSAGE_INVALID`），
+        邮件发送另有 `TARGET_FORBIDDEN` 内网地址、`TLS_FAILED`、`AUTH_FAILED`、`SENDER_REJECTED` 发件人被拒、`RECIPIENT_REJECTED` 收件人被拒、`MESSAGE_REJECTED` 服务器拒绝了这封邮件但分不清是发件人还是收件人、`TEMPORARILY_REJECTED` 服务器暂时不接收（4xx）、`MESSAGE_INVALID`，判断标准见 ADR 0049「邮件服务器拒收的归类」），
         `message` 是一句话说明（我们自己写的，不带对方返回的原文，更不带密钥）。这一项没有配置时 409 `INTEGRATION_NOT_CONFIGURED`。写审计日志（动作 `test`，记来源和结果）。
         同一项每 5 秒最多测一次（不分人，谷歌地图每次测试都计费）：超了 429 `INTEGRATION_TEST_RATE_LIMITED`。
       security:
@@ -1726,7 +1726,7 @@ paths:
                     type: boolean
                   code:
                     type: [ string, "null" ]
-                    enum: [ KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, MODE_MISMATCH, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, TARGET_FORBIDDEN, TLS_FAILED, AUTH_FAILED, SENDER_REJECTED, RECIPIENT_REJECTED, MESSAGE_INVALID, null ]
+                    enum: [ KEY_INVALID, API_NOT_ENABLED, KEY_RESTRICTED, BILLING_DISABLED, PERMISSION_DENIED, QUOTA_EXCEEDED, MODE_MISMATCH, TIMEOUT, UNREACHABLE, UNAVAILABLE, UNEXPECTED, TARGET_FORBIDDEN, TLS_FAILED, AUTH_FAILED, SENDER_REJECTED, RECIPIENT_REJECTED, MESSAGE_REJECTED, TEMPORARILY_REJECTED, MESSAGE_INVALID, null ]
                   message:
                     type: string
                   source:

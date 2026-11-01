@@ -252,6 +252,9 @@ test("测试邮件的结果分类：连接失败、TLS 失败、认证失败、�
     [{ rejectAuth: true, errorDetail: detail }, "AUTH_FAILED"],
     [{ rejectSender: true, errorDetail: detail }, "SENDER_REJECTED"],
     [{ rejectRecipient: true, errorDetail: detail }, "RECIPIENT_REJECTED"],
+    [{ rejectAt: { stage: "DOT", reply: "554 5.7.1 rejected" }, errorDetail: detail }, "MESSAGE_REJECTED"],
+    [{ rejectAt: { stage: "RCPT", reply: "553 5.7.1 not owned by user" }, errorDetail: detail }, "MESSAGE_REJECTED"],
+    [{ rejectAt: { stage: "RCPT", reply: "450 4.2.1 greylisted" }, errorDetail: detail }, "TEMPORARILY_REJECTED"],
     [{ silent: true }, "TIMEOUT"],
     [{ stallOn: "MAIL" }, "TIMEOUT"],
     [{ dropOnConnect: true }, "UNREACHABLE"],
@@ -281,7 +284,7 @@ test("测试邮件的结果分类：连接失败、TLS 失败、认证失败、�
   assert.equal((await check()).body.code, "UNREACHABLE", "域名解析不了");
 
   const tests = (await auditRows()).filter((r) => r.action === "test");
-  assert.deepEqual(tests.map((r) => r.after.code), ["AUTH_FAILED", "SENDER_REJECTED", "RECIPIENT_REJECTED", "TIMEOUT", "TIMEOUT", "UNREACHABLE", "TLS_FAILED", "TLS_FAILED", null, "UNREACHABLE"]);
+  assert.deepEqual(tests.map((r) => r.after.code), ["AUTH_FAILED", "SENDER_REJECTED", "RECIPIENT_REJECTED", "MESSAGE_REJECTED", "MESSAGE_REJECTED", "TEMPORARILY_REJECTED", "TIMEOUT", "TIMEOUT", "UNREACHABLE", "TLS_FAILED", "TLS_FAILED", null, "UNREACHABLE"]);
 });
 
 test("限速：同一项每 5 秒最多测一次（不分人）；别的项不受影响", async () => {

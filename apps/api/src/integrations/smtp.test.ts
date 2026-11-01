@@ -114,7 +114,7 @@ test("错误归类：认证失败、发件人被拒、收件人被拒、内容�
     [{ rejectAuth: true, errorDetail: detail }, "AUTH_FAILED"],
     [{ rejectSender: true, errorDetail: detail }, "SENDER_REJECTED"],
     [{ rejectRecipient: true, errorDetail: detail }, "RECIPIENT_REJECTED"],
-    [{ rejectData: true, errorDetail: detail }, "SENDER_REJECTED"],
+    [{ rejectData: true, errorDetail: detail }, "MESSAGE_REJECTED"],
     [{ dropOnConnect: true }, "UNREACHABLE"],
     [{ garbageGreeting: true }, "UNEXPECTED"],
   ];
@@ -244,4 +244,56 @@ test("发件人地址的写法：config 和 domain 两边规则一致（config �
   for (const address of ["a@example.com", "a.b+tag@mail.example.co.jp", "a@example", "a@b.co, c@d.co", "A <a@b.co>", "a@-x.com", "a@x-.com", "用户@example.com", "a b@c.co", "a@b.co\r\nBcc: x@y.z", `${"a".repeat(250)}@b.co`]) {
     assert.equal(smtpSettingsIssues("ci", { ...base, fromAddress: address }).length === 0, isSingleMailAddress(address), address);
   }
+});
+
+test("服务器在各阶段拒收（真实 nodemailer + 假服务器）：能分清的分清，分不清的不算到收件人头上；原文不进结果", async () => {
+  const detail = "b-private@guest.example said no";
+  const cases: [NonNullable<Parameters<FakeSmtp["behave"]>[0]["rejectAt"]>, SmtpFailureCode][] = [
+    // MAIL FROM
+    [{ stage: "MAIL", reply: "550 5.7.1 refused" }, "SENDER_REJECTED"],
+    [{ stage: "MAIL", reply: "553 refused" }, "SENDER_REJECTED"],
+    [{ stage: "MAIL", reply: "451 4.3.2 later" }, "TEMPORARILY_REJECTED"],
+    // RCPT TO：增强状态码说得清
+    [{ stage: "RCPT", reply: "550 5.1.1 no such user" }, "RECIPIENT_REJECTED"],
+    [{ stage: "RCPT", reply: "550 5.1.10 null mx" }, "RECIPIENT_REJECTED"],
+    [{ stage: "RCPT", reply: "552 5.2.2 mailbox full" }, "RECIPIENT_REJECTED"],
+    [{ stage: "RCPT", reply: "553 5.1.8 bad sender domain" }, "SENDER_REJECTED"],
+    // RCPT TO：没有增强状态码，按应答码
+    [{ stage: "RCPT", reply: "550 no such user" }, "RECIPIENT_REJECTED"],
+    [{ stage: "RCPT", reply: "550 5.0.0 no such user" }, "RECIPIENT_REJECTED"],
+    [{ stage: "RCPT", reply: "554 refused" }, "MESSAGE_REJECTED"],
+    // RCPT TO：5.7.1 可能是发件人（Postfix 默认等到这一步才拒发件人）
+    [{ stage: "RCPT", reply: "553 5.7.1 not owned by user" }, "MESSAGE_REJECTED"],
+    [{ stage: "RCPT", reply: "554 5.7.1 relay access denied" }, "MESSAGE_REJECTED"],
+    // RCPT TO：暂时的（灰名单、限流）
+    [{ stage: "RCPT", reply: "450 4.2.1 greylisted" }, "TEMPORARILY_REJECTED"],
+    [{ stage: "RCPT", reply: "421 4.7.0 closing" }, "TEMPORARILY_REJECTED"],
+    [{ stage: "RCPT", reply: "451 4.1.1 try later" }, "TEMPORARILY_REJECTED"],
+    // DATA 命令、正文发完
+    [{ stage: "DATA", reply: "554 5.5.1 no valid recipients" }, "MESSAGE_REJECTED"],
+    [{ stage: "DATA", reply: "451 later" }, "TEMPORARILY_REJECTED"],
+    [{ stage: "DOT", reply: "554 5.7.1 domain blocked" }, "MESSAGE_REJECTED"],
+    [{ stage: "DOT", reply: "550 refused" }, "MESSAGE_REJECTED"],
+    [{ stage: "DOT", reply: "451 4.7.1 later" }, "TEMPORARILY_REJECTED"],
+    [{ stage: "DOT", reply: "550 5.1.1 no such user" }, "RECIPIENT_REJECTED"],
+    [{ stage: "DOT", reply: "550 5.1.7 bad sender" }, "SENDER_REJECTED"],
+  ];
+  for (const [rejectAt, code] of cases) {
+    plain.reset();
+    plain.behave({ rejectAt, errorDetail: detail });
+    const result = await mailer().send(settingsOf(plain, "none"), MESSAGE);
+    assertFailed(result, code);
+    assert.ok(!JSON.stringify(result).includes(detail), `${rejectAt.reply}：结果里有服务器的原文`);
+    assert.equal(plain.messages.length, 0, rejectAt.reply);
+  }
+});
+
+test("归类不被说明文字带偏，本地校验不过（没有应答码）不算收件人", () => {
+  const rejected = (fields: Record<string, unknown>): SmtpFailureCode => classifySmtpError(Object.assign(new Error("x"), fields));
+  assert.equal(rejected({ code: "EENVELOPE", command: "RCPT TO", responseCode: 550, response: "550 5.7.1 recipient 5.1.1 unknown" }), "MESSAGE_REJECTED", "只看开头的增强状态码");
+  assert.equal(rejected({ code: "EENVELOPE", command: "RCPT TO", responseCode: 554, response: "554 sender address rejected" }), "MESSAGE_REJECTED");
+  assert.equal(rejected({ code: "EENVELOPE", command: "API" }), "MESSAGE_REJECTED");
+  assert.equal(rejected({ code: "EMESSAGE", command: "MAIL FROM" }), "MESSAGE_REJECTED", "本地发现邮件超过大小限制");
+  assert.equal(rejected({ code: "EMESSAGE", command: "API" }), "MESSAGE_REJECTED");
+  assert.equal(rejected({ code: "EENVELOPE", command: "RCPT TO", responseCode: 450, response: "450 5.1.1 odd" }), "TEMPORARILY_REJECTED", "应答码是 4xx 就是暂时的");
 });

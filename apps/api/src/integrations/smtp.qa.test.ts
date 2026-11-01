@@ -368,7 +368,7 @@ test("服务器的错误应答回显账号密码：结果里只有我们自己�
     [{ rejectAuth: true, errorDetail: echo }, "AUTH_FAILED"],
     [{ rejectSender: true, errorDetail: echo }, "SENDER_REJECTED"],
     [{ rejectRecipient: true, errorDetail: echo }, "RECIPIENT_REJECTED"],
-    [{ rejectData: true, errorDetail: echo }, "SENDER_REJECTED"],
+    [{ rejectData: true, errorDetail: echo }, "MESSAGE_REJECTED"],
   ] as const;
   for (const [behavior, code] of cases) {
     plain.reset();

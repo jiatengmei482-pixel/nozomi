@@ -305,6 +305,75 @@ test("失败退避：连不上按 1 分钟、5 分钟……重试，次数用完
   assert.deepEqual([again.status, again.body.error.code], [409, "NOTIFICATION_NOT_RETRYABLE"]);
 });
 
+test("DATA 阶段才拒（分不清发件人还是收件人）：记 MESSAGE_REJECTED，说明同时提两种可能；再试 2 次后最终失败，页面看得到；服务器原文不进库和日志", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  const serverText = `said-no-to-${GUEST_EMAIL}`;
+  smtp.behave({ rejectAt: { stage: "DOT", reply: "554 5.7.1 rejected" }, errorDetail: serverText });
+  await site.app.notificationJobs.tick();
+  let row = await guestRow(order.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["pending", 1, "MESSAGE_REJECTED"]);
+  assert.equal(new Date(row.next_attempt_at).getTime(), api.clock.now().getTime() + 300_000);
+  await makeDue(row.id);
+  await site.app.notificationJobs.tick();
+  row = await guestRow(order.orderId);
+  assert.deepEqual([row.status, row.attempts], ["pending", 2]);
+  assert.equal(new Date(row.next_attempt_at).getTime(), api.clock.now().getTime() + 1_800_000);
+  await makeDue(row.id);
+  await site.app.notificationJobs.tick();
+  row = await guestRow(order.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["failed", 3, "MESSAGE_REJECTED"]);
+  assert.ok(logLines.join("").includes("notification.failed"));
+
+  const listed = await api.call("GET", `/platform/v1/notifications?status=failed&order_id=${order.orderId}&audience=guest`, { token: m.staff.operations.token });
+  assert.deepEqual([listed.body.items[0].retryable, listed.body.items[0].last_error.code], [true, "MESSAGE_REJECTED"]);
+  assert.equal(listed.body.items[0].last_error.message, "邮件服务器拒绝了这封邮件，分不清是发件人还是收件人的问题：请确认这个账号可以用这个发件人地址发信，并核对收件人邮箱地址");
+  assert.ok(!(await dumpOfDatabase()).includes(serverText), "服务器原文进了库");
+  assert.ok(!logLines.join("").includes(serverText), "服务器原文进了日志");
+  assert.ok(!listed.text.includes(serverText));
+});
+
+test("收件人的拒绝分清暂时和永久：RCPT 450（灰名单）记暂时拒绝，按 1 分钟退避，好了就发出去；RCPT 5.7.1（可能是发件人）不算收件人，继续有限重试", async () => {
+  const greylisted = await placeOrder();
+  await payFor(greylisted.orderId);
+  smtp.behave({ rejectAt: { stage: "RCPT", reply: "450 4.2.1 greylisted" } });
+  await site.app.notificationJobs.tick();
+  let row = await guestRow(greylisted.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["pending", 1, "TEMPORARILY_REJECTED"]);
+  assert.equal(new Date(row.next_attempt_at).getTime(), api.clock.now().getTime() + 60_000);
+  smtp.reset();
+  await makeDue(row.id);
+  await site.app.notificationJobs.tick();
+  row = await guestRow(greylisted.orderId);
+  assert.deepEqual([row.status, row.attempts], ["sent", 2]);
+
+  const policy = await placeOrder();
+  await payFor(policy.orderId);
+  smtp.behave({ rejectAt: { stage: "RCPT", reply: "553 5.7.1 not owned by user" } });
+  await site.app.notificationJobs.tick();
+  row = await guestRow(policy.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["pending", 1, "MESSAGE_REJECTED"]);
+});
+
+test("发件人被拒（MAIL FROM 5xx）只再试 2 次，提示指向发件人；收件人确定被拒（5.1.10）不重试，提示指向收件人", async () => {
+  const sender = await placeOrder();
+  await payFor(sender.orderId);
+  smtp.behave({ rejectAt: { stage: "MAIL", reply: "550 5.7.1 not allowed" } });
+  await site.app.notificationJobs.tick();
+  let row = await guestRow(sender.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["pending", 1, "SENDER_REJECTED"]);
+  assert.equal(new Date(row.next_attempt_at).getTime(), api.clock.now().getTime() + 300_000);
+  assert.match(row.last_error_message, /发件人地址/);
+
+  const recipient = await placeOrder();
+  await payFor(recipient.orderId);
+  smtp.behave({ rejectAt: { stage: "RCPT", reply: "550 5.1.10 null mx" } });
+  await site.app.notificationJobs.tick();
+  row = await guestRow(recipient.orderId);
+  assert.deepEqual([row.status, row.attempts, row.last_error_code], ["failed", 1, "RECIPIENT_REJECTED"]);
+  assert.match(row.last_error_message, /收件人地址/);
+});
+
 test("收件人被拒立刻最终失败；手动重试失败回到失败，不再排自动重试", async () => {
   const order = await placeOrder();
   await payFor(order.orderId);
