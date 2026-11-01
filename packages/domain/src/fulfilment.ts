@@ -7,6 +7,7 @@
  */
 import { detectFileTypeAmong } from "./files.ts";
 import { haversineMeters } from "./geo.ts";
+import type { OrderStatus } from "./orders.ts";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -236,4 +237,65 @@ export type EvidenceContentType = (typeof EVIDENCE_FILE_RULES.contentTypes)[numb
 /** 按文件开头的字节判断是不是认的图片格式（不信上传时声明的类型，判断见 files.ts 的 `detectFileType`）；不是返回 null。 */
 export function detectEvidenceType(bytes: Uint8Array): EvidenceContentType | null {
   return detectFileTypeAmong(bytes, EVIDENCE_FILE_RULES.contentTypes);
+}
+
+// ---- 平台代传履约（M4-18，ADR 0052） ----
+
+export const FULFILMENT_EVENTS = ["departed", "arrived", "picked_up", "completed"] as const;
+export type FulfilmentEventType = (typeof FULFILMENT_EVENTS)[number];
+
+export const FULFILMENT_EVENT_NAMES: Readonly<Record<FulfilmentEventType, string>> = {
+  departed: "司机已出发",
+  arrived: "司机已到达",
+  picked_up: "已接到客人",
+  completed: "已完成",
+};
+
+export const PROXY_FULFILMENT_RULES = {
+  /** 报的时间最早可以比用车时间早多少小时 */
+  earliestHoursBeforeService: 24,
+  /** 报的时间最早可以比现在早多少天；再久的补录走工单 */
+  maxBackdateDays: 7,
+  reasonMax: 500,
+} as const;
+
+/** 履约的下一步（状态只能向前走一步）。这个状态不能回传履约时为 null：待派车要先派车，服务结束了、没付款、已取消、救援中、no-show 审核中都不走这里。 */
+export function nextFulfilmentEvent(status: OrderStatus): FulfilmentEventType | null {
+  if (status === "assigned") return "departed";
+  if (status === "departed") return "arrived";
+  if (status === "arrived") return "picked_up";
+  if (status === "in_service") return "completed";
+  return null;
+}
+
+/** 代传「已完成」要另一位同事批准：已完成的单进供应商账单、是终态、打开事后加收的窗口（ADR 0052）。 */
+export function proxyEventNeedsReview(type: FulfilmentEventType): boolean {
+  return type === "completed";
+}
+
+export type ProxyTimeIssue = "IN_FUTURE" | "BEFORE_PREVIOUS" | "TOO_EARLY" | "TOO_OLD";
+
+export const PROXY_TIME_ISSUE_MESSAGES: Readonly<Record<ProxyTimeIssue, string>> = {
+  IN_FUTURE: "发生时间不能晚于现在",
+  BEFORE_PREVIOUS: "发生时间不能早于上一个履约节点",
+  TOO_EARLY: `发生时间不能早于用车时间前 ${PROXY_FULFILMENT_RULES.earliestHoursBeforeService} 小时`,
+  TOO_OLD: `发生时间不能早于 ${PROXY_FULFILMENT_RULES.maxBackdateDays} 天前，更早的请走工单`,
+};
+
+/**
+ * 代传时运营填的发生时间合不合规则。`previousAt` 是上一个履约节点（派车、出发、到达、接到）的时间。合理返回 null。
+ * 页面只填到分钟，而节点的时间带秒：和上一个节点同一分钟不算早（写入时用 `proxyEffectiveOccurredAt`，流水仍然不倒退）。
+ */
+export function proxyFulfilmentTimeIssue(input: { occurredAt: Date; previousAt: Date | null; serviceAt: Date; now: Date }): ProxyTimeIssue | null {
+  const at = input.occurredAt.getTime();
+  if (at > input.now.getTime()) return "IN_FUTURE";
+  if (at < input.now.getTime() - PROXY_FULFILMENT_RULES.maxBackdateDays * 24 * HOUR) return "TOO_OLD";
+  if (at < input.serviceAt.getTime() - PROXY_FULFILMENT_RULES.earliestHoursBeforeService * HOUR) return "TOO_EARLY";
+  if (input.previousAt !== null && at < Math.floor(input.previousAt.getTime() / MINUTE) * MINUTE) return "BEFORE_PREVIOUS";
+  return null;
+}
+
+/** 实际写入的发生时间：和上一个节点同一分钟、又比它早几秒的，按上一个节点算。 */
+export function proxyEffectiveOccurredAt(occurredAt: Date, previousAt: Date | null): Date {
+  return previousAt !== null && occurredAt.getTime() < previousAt.getTime() ? previousAt : occurredAt;
 }

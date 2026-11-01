@@ -144,6 +144,7 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   // 取消、改单、加收、取消政策（ADR 0029）：试算 order.read；代取消、代改单、审核加收 order.manage；重试退款和扣款 payment.manage；改政策 cancellation_policy.manage
   { method: "GET", url: `/platform/v1/orders/${MISSING}/cancel-fee`, action: "order.read" },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/cancel`, action: "order.manage", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/events`, action: "order.proxy_fulfilment", body: {} },
   { method: "PATCH", url: `/platform/v1/orders/${MISSING}`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/decide`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/retry`, action: "payment.manage" },

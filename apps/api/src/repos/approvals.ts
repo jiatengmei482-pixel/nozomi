@@ -111,6 +111,13 @@ export async function findApproval(db: Db, id: string, options: { lock?: boolean
   return row ? toApproval(row) : null;
 }
 
+/** 这个对象上这一类还没有结论的复核（最新的一条）。 */
+export async function findPendingApproval(db: Db, kind: string, resourceId: string): Promise<Approval | null> {
+  const result = await db.query<ApprovalRow>(`select ${COLUMNS} from ${FROM} where a.kind = $1 and a.resource_id = $2 and a.status = 'pending' order by a.requested_at desc limit 1`, [kind, resourceId]);
+  const row = result.rows[0];
+  return row ? toApproval(row) : null;
+}
+
 export async function setApprovalDecision(db: Db, id: string, decision: { status: ApprovalStatus; decidedBy: string | null; note: string | null; now: Date }): Promise<void> {
   await db.query("update approvals set status = $2, decided_by = $3, decision_note = $4, decided_at = $5 where id = $1 and status = 'pending'", [id, decision.status, decision.decidedBy, decision.note, decision.now]);
 }

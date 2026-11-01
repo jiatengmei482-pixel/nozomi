@@ -23,6 +23,7 @@ import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { type OrderFulfilmentRecords, getOrderFile, getOrderForPlatform, getOrderForTenant, listOrdersForPlatform, listOrdersForTenant } from "../services/order-queries.ts";
+import { PLATFORM_PROXY_SOURCE } from "../services/fulfilment.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { fxJson } from "./quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
@@ -51,8 +52,17 @@ const platformListSchema = pageQuerySchema.extend({
   passenger: z.string().trim().min(2).max(100).optional(),
 });
 
-function eventJson(event: OrderEvent): Json {
-  return { from_status: event.fromStatus, to_status: event.toStatus, actor: event.actor, reason: event.reason, occurred_at: event.occurredAt.toISOString() };
+/**
+ * 状态流水。平台代传（ADR 0052）的来源和系统收到的时间两边都看得到（防争议）；原因和操作人只给运营后台：
+ * 原因是手写的文字，不能保证不含对外价和加价比例（规则 4）。其余 `detail` 不出接口。
+ */
+function eventJson(event: OrderEvent, scope: "tenant" | "platform"): Json {
+  const base = { from_status: event.fromStatus, to_status: event.toStatus, actor: event.actor, reason: event.reason, occurred_at: event.occurredAt.toISOString() };
+  const detail = event.detail ?? {};
+  if (detail["source"] !== PLATFORM_PROXY_SOURCE) return { ...base, source: null, recorded_at: null };
+  const proxied = { ...base, source: PLATFORM_PROXY_SOURCE, recorded_at: detail["recorded_at"] };
+  if (scope === "tenant") return proxied;
+  return { ...proxied, proxy: { reason: detail["proxy_reason"] ?? null, requested_by: detail["user_id"] ?? null, approved_by: detail["approved_by"] ?? null, approval_id: detail["approval_id"] ?? null } };
 }
 
 function linkJson(link: DriverLink | null, now: Date): Json | null {
@@ -213,7 +223,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     const now = ctx.now();
     return {
       order: tenantOrderJson(found.order, found.facts, now),
-      events: found.events.map(eventJson),
+      events: found.events.map((event) => eventJson(event, "tenant")),
       records: recordsJson(found.records, now),
       changes: found.changes.map(changeJson),
       extra_charges: found.extraCharges.map(extraChargeJson),
@@ -268,7 +278,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     const now = ctx.now();
     return {
       order: platformOrderJson(found, now),
-      events: found.events.map(eventJson),
+      events: found.events.map((event) => eventJson(event, "platform")),
+      pending_proxy_completion: found.pendingProxyCompletion === null ? null : { approval_id: found.pendingProxyCompletion.id, requested_at: found.pendingProxyCompletion.requestedAt.toISOString() },
       records: recordsJson(found.records, now),
       webhook_deliveries: found.deliveries.map(deliveryJson),
       payment_events: found.paymentEvents.map(paymentEventJson),

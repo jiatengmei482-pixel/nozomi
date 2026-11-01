@@ -54,6 +54,10 @@ import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import { type PlatformRescueView, type TenantRescueView, orderRescueViews, tenantRescueOf } from "./rescues.ts";
 import { type OrderException, countOpenExceptions, listOrderExceptions } from "../repos/exceptions.ts";
 import { type Ticket, listOrderTickets } from "../repos/tickets.ts";
+import { type Approval, findPendingApproval } from "../repos/approvals.ts";
+
+/** 代传「已完成」的复核类别（services/proxy-fulfilment.ts 登记）。写在这里：那边依赖 approvals.ts，approvals.ts 依赖这里。 */
+export const PROXY_COMPLETE_KIND = "order.proxy_complete";
 
 export interface TenantOrderListQuery {
   status: OrderStatus | null;
@@ -219,6 +223,8 @@ export interface PlatformOrderDetail {
   /** M4-02：这一单的异常（含已关闭的）、工单（各家供应商的） */
   exceptions: OrderException[];
   tickets: Ticket[];
+  /** M4-18：等复核的代传「已完成」（ADR 0052） */
+  pendingProxyCompletion: Approval | null;
 }
 
 /** 数据范围外的订单和不存在一样（ADR 0030）。不给范围 = 不限制。 */
@@ -251,6 +257,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         rescues: await orderRescueViews(db, orderId),
         exceptions: await listOrderExceptions(db, orderId),
         tickets: await listOrderTickets(db, orderId),
+        pendingProxyCompletion: await findPendingApproval(db, PROXY_COMPLETE_KIND, orderId),
       };
     },
     { snapshot: true },
