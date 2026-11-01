@@ -67,6 +67,12 @@ async function prepare(request: APIRequestContext): Promise<Seed> {
  * 写入一张付过款的接机单和它的销售端一侧（对外价 21,780 = 结算价 19,800 × 1.1），`serviceAt` 用车（东京当地时间算用车日期）。
  * `completed`：已完成（完成时间 = 用车后 1 小时）；否则已确认、派车截止已过（超时未派车）。返回订单编号和订单号。
  */
+/** 先按远期造单、派好车，再把用车时间挪到近处：否则后台救援任务可能抢在派车前把这张单转走（用车前 6 小时没派车就该救援） */
+async function moveServiceTo(orderId: string, serviceAt: Date): Promise<void> {
+  const local = new Date(serviceAt.getTime() + 9 * 3_600_000).toISOString().slice(0, 16);
+  await owner((client) => client.query("update orders set service_at = $2, service_local = $3, service_date = $4 where id = $1", [orderId, serviceAt, local, local.slice(0, 10)]));
+}
+
 async function seedOrder(seed: Seed, input: { serviceAt: Date; completed: boolean }): Promise<{ id: string; orderNo: string }> {
   return owner(async (client) => {
     const now = new Date();
@@ -146,8 +152,9 @@ async function proxyStep(page: Page, name: string, reason: string): Promise<void
 test("代传出发、到达立即生效；代传接到客人、完成要另一位同事批准；供应商看得到平台代传、看不到原因；只读员工没有入口", async ({ page, request, browser }) => {
   test.setTimeout(120_000);
   const seed = await prepare(request);
-  const { id, orderNo } = await seedOrder(seed, { serviceAt: new Date(Date.now() + 3_600_000), completed: false });
+  const { id, orderNo } = await seedOrder(seed, { serviceAt: new Date(Date.now() + 24 * 3_600_000), completed: false });
   await dispatchByTenant(request, seed, id);
+  await moveServiceTo(id, new Date(Date.now() + 3_600_000));
   const reason = `供应商调度系统故障-${random(4)}`;
 
   const admin = adminCredentials();
@@ -232,8 +239,9 @@ test("代传出发、到达立即生效；代传接到客人、完成要另一�
 
   // 只读员工：没有入口
   const reader = await createStaff(request, "readonly", "只读同事");
-  const { id: otherId, orderNo: otherNo } = await seedOrder(seed, { serviceAt: new Date(Date.now() + 3_600_000), completed: false });
+  const { id: otherId, orderNo: otherNo } = await seedOrder(seed, { serviceAt: new Date(Date.now() + 24 * 3_600_000), completed: false });
   await dispatchByTenant(request, seed, otherId);
+  await moveServiceTo(otherId, new Date(Date.now() + 3_600_000));
   const readerContext = await browser.newContext();
   const readerPage = await readerContext.newPage();
   await loginAs(readerPage, "platform", reader.email, reader.password);
