@@ -5,6 +5,7 @@
  */
 import { ORDER_CANCEL_REASONS } from "./cancellation.ts";
 import { maskEmail } from "./notifications.ts";
+import { normalizePhone } from "./orders.ts";
 import { tenantDayStart } from "./tenants.ts";
 
 export interface PassengerContact {
@@ -19,6 +20,66 @@ export const ANONYMIZED_PASSENGER: Readonly<PassengerContact> = { name: ANONYMIZ
 
 export function isAnonymizedPassenger(passenger: { name: string }): boolean {
   return passenger.name === ANONYMIZED_TEXT;
+}
+
+/** 第 6 步（ADR 0057）之后明文列里的占位：真正的内容只在密文列里。和脱敏占位不同，这一行的乘客信息还在。 */
+export const ENCRYPTED_TEXT = "[已加密]";
+export const ENCRYPTED_PASSENGER: Readonly<PassengerContact> = { name: ENCRYPTED_TEXT, phone: ENCRYPTED_TEXT, email: ENCRYPTED_TEXT };
+
+/** 这段明文不是真内容（脱敏或加密的占位）：不能拿去加密，也不能和解密结果比。 */
+export function isPassengerPlaceholder(text: unknown): boolean {
+  return text === ANONYMIZED_TEXT || text === ENCRYPTED_TEXT;
+}
+
+/** 盲索引的规范化（ADR 0057）。邮箱和电话的规则就是官网找回订单的核对规则，两边共用这里，不会不一致。 */
+export function normalizeEmailForIndex(email: string): string {
+  return email.normalize("NFKC").trim().toLowerCase();
+}
+
+export function normalizePhoneForIndex(phone: string): string {
+  return normalizePhone(phone.normalize("NFKC").trim());
+}
+
+/** 姓名：NFKC、不分大小写、去掉所有空白（「王 小明」「王小明」算同一个）。 */
+export function normalizeNameForIndex(name: string): string {
+  return name.normalize("NFKC").toLowerCase().replace(/\s+/gu, "");
+}
+
+export type ContactIndexKind = "email" | "phone" | "name";
+
+/** 官网找回订单时客人填的联系方式：像邮箱的（有 @）按邮箱，其余按电话。电话少于 6 位的不算（ADR 0032）。 */
+export function contactLookupKey(contact: string): { kind: "email" | "phone"; value: string } | null {
+  const given = contact.normalize("NFKC").trim();
+  if (given === "") return null;
+  if (given.includes("@")) return { kind: "email", value: normalizeEmailForIndex(given) };
+  const phone = normalizePhoneForIndex(given);
+  return phone.length >= 6 ? { kind: "phone", value: phone } : null;
+}
+
+/** 内容里任何一层有没有 `passenger`：有的才要进密文列。 */
+export function containsPassenger(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsPassenger);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(([key, item]) => (key === "passenger" && typeof item === "object" && item !== null) || containsPassenger(item));
+}
+
+/** 内容里每一层的 `passenger` 换成 `replacement`，别的键不动。 */
+export function replacePassengers<T>(value: T, replacement: Readonly<PassengerContact>): T {
+  if (Array.isArray(value)) return value.map((item) => replacePassengers(item, replacement)) as T;
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === "passenger" && typeof item === "object" && item !== null ? { ...replacement } : replacePassengers(item, replacement)])) as T;
+}
+
+/** 内容里出现的每个 `passenger`（顺序同遍历）。 */
+function passengersIn(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.flatMap(passengersIn);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, item]) => (key === "passenger" && typeof item === "object" && item !== null ? [item] : passengersIn(item)));
+}
+
+/** 这段明文里的乘客都是占位：真内容只可能在密文列里，不能拿它加密。 */
+export function passengersArePlaceholders(value: unknown): boolean {
+  return passengersIn(value).some((item) => isPassengerPlaceholder((item as { name?: unknown }).name));
 }
 
 /** 按字符（不是 UTF-16 单元）留第一个字，其余换成两个星号；只有一个字的全打码。 */

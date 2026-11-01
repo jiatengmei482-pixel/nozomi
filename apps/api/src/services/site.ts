@@ -31,6 +31,7 @@ import {
   vehicleLevel,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
+import type { PassengerCrypto } from "../integrations/passenger-crypto.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
@@ -446,11 +447,20 @@ export async function placeSiteOrder(ctx: AppContext, input: SalesOrderInput, lo
  * 邮箱不分大小写、去掉首尾空白；电话去掉空格、括号、连字符、点。像邮箱的（有 @）按邮箱比，其余按电话比。
  */
 export function contactMatches(contact: string, passenger: { email: string; phone: string }): boolean {
-  const given = contact.normalize("NFKC").trim();
-  if (given === "") return false;
-  if (given.includes("@")) return given.toLowerCase() === passenger.email.normalize("NFKC").trim().toLowerCase();
-  const phone = normalizePhone(given);
-  return phone.length >= 6 && phone === normalizePhone(passenger.phone.normalize("NFKC"));
+  const key = contactLookupKey(contact);
+  if (key === null) return false;
+  return key.kind === "email" ? key.value === normalizeEmailForIndex(passenger.email) : key.value === normalizePhoneForIndex(passenger.phone);
+}
+
+/**
+ * 核对这张单（ADR 0057）：这一行有当前密钥算的盲索引就比盲索引，不用解密；还没回填、密钥换过的按解密或明文的内容比，规则相同。
+ */
+export function contactMatchesOrder(crypto: PassengerCrypto, contact: string, found: { tenantId: string; email: string; phone: string; emailBidx: string | null; phoneBidx: string | null }): boolean {
+  const key = contactLookupKey(contact);
+  if (key === null) return false;
+  const stored = key.kind === "email" ? found.emailBidx : found.phoneBidx;
+  if (crypto.readsCiphertext && crypto.isCurrent(stored)) return crypto.index(found.tenantId, key.kind, key.value) === stored;
+  return contactMatches(contact, found);
 }
 
 /**
@@ -469,7 +479,7 @@ export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact:
   const ceilingOf = (times: readonly Date[]) => evaluateRollingWindow(times, SITE_LOOKUP_CEILING.maxFailures, SITE_LOOKUP_CEILING.windowMs, now);
   const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
   // 脱敏后的单永远对不上（ADR 0055）：走和「对不上」同一条路，应答分不出订单号存不存在
-  if (found !== null && !found.anonymized && contactMatches(contact, found)) {
+  if (found !== null && !found.anonymized && contactMatchesOrder(passengerCryptoOfPool(ctx.pool), contact, found)) {
     const blocked = await withPlatformTx(ctx.pool, async (db) => {
       const ceiling = ceilingOf(await listLookupFailures(db, bucket, since));
       if (ceiling.allowed) return null;
