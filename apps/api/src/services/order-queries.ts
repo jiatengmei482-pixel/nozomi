@@ -46,7 +46,10 @@ import {
   listPlatformOrders,
   listTenantOrders,
 } from "../repos/orders.ts";
+import { insertAuditLog } from "../repos/audit-logs.ts";
+import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
+import type { PlatformPrincipal } from "./platform-auth.ts";
 import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
 import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
 import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
@@ -146,8 +149,11 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
   return { ...detail, rescue };
 }
 
-/** 一张订单的一张照片（供应商后台、运营后台查看证据）。运营后台按数据范围：范围外的订单的照片和不存在一样（ADR 0030）。 */
-export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } | { platform: PlatformDataScope }, orderId: string, fileId: string): Promise<OrderFile & { data: Buffer }> {
+/**
+ * 一张订单的一张照片（供应商后台、运营后台查看证据）。运营后台按数据范围：范围外的订单的照片和不存在一样（ADR 0030）；
+ * 每次看到照片记一条审计，和取照片在同一个事务里，记不下来就不给（ADR 0054）。审计只记看了哪张，不记内容。
+ */
+export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } | { platform: PlatformPrincipal; ip: string }, orderId: string, fileId: string): Promise<OrderFile & { data: Buffer }> {
   const read = async (db: Db, tenantId: string): Promise<OrderFile & { data: Buffer }> => {
     const file = await findOrderFile(db, tenantId, orderId, fileId);
     if (file === null) throw notFound("照片");
@@ -156,8 +162,10 @@ export async function getOrderFile(ctx: AppContext, scope: { tenantId: string } 
   if ("platform" in scope) {
     return withPlatformTx(ctx.pool, async (db) => {
       const order = await findOrderForPlatform(db, orderId);
-      if (order === null || !(await orderInScope(db, order, scope.platform))) throw notFound("照片");
-      return read(db, order.tenantId);
+      if (order === null || !(await orderInScope(db, order, scope.platform.grant.scope))) throw notFound("照片");
+      const file = await read(db, order.tenantId);
+      await insertAuditLog(db, consoleOrigin(platformActor(scope.platform.user), scope.ip, ctx.now()), { tenantId: null, resource: "order", resourceId: orderId, action: "view_evidence_file", before: null, after: { order_no: order.orderNo, file_id: file.id, kind: file.kind } });
+      return file;
     });
   }
   return withTenantTx(ctx.pool, scope.tenantId, async (db) => {

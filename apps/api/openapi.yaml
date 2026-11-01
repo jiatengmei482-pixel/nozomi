@@ -9342,7 +9342,7 @@ paths:
         - 订单
       operationId: getPlatformOrderFile
       summary: 订单的一张照片（运营后台）
-      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。
+      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。每次取到照片记一条审计（`order` / `view_evidence_file`，记照片编号和种类，不含内容，ADR 0054）；记不下来就不给照片。
       security:
         - platformToken: []
       parameters:
@@ -13313,6 +13313,7 @@ paths:
         赔付：从这一单的收款里退（走收款服务的退款），退不回去的（报销、超过还能退的）由财务另付后登记；司机未到先按「供应商原因」取消订单（全额退款）。
         供应商承担的（结算价 × 同一比例、车型降级的差价、报销）记成应扣款项。责任在供应商的投诉成立计入投诉率，司机未到、迟到 30 分钟及以上计入履约失败。
         赔给客人的钱达到对外价的复核阈值（默认 50%）：返回 202，工单变成「判定待复核」，复核（`kind` = `ticket.decision`）由另一位有 `ticket.review`（运营）的同事批准后才执行；驳回、撤回退回处理中。
+        no-show 审核和对它的申诉另外要 `order.read`（证据在订单里，不能盲判，ADR 0054）：没有的 403，`details.required` 是 `order.read`；订单不在数据范围里的 404。
       security:
         - platformToken: []
       parameters:
@@ -13356,7 +13357,7 @@ paths:
       summary: 关闭工单
       description: |
         需要操作 `ticket.manage`。判定过的可以关；没判定的可以直接关（重复、撤回），no-show 审核除外（409 `DECISION_REQUIRED`）；复核中的不能关。说明必填。
-        申诉：判定或复核过原工单的人不能关它（409 `APPEAL_SAME_REVIEWER`，关掉等于驳回）。
+        申诉：判定或复核过原工单的人不能关它（409 `APPEAL_SAME_REVIEWER`，关掉等于驳回）。没判定就关掉对 no-show 审核的申诉，和判定一样另外要 `order.read`（403，ADR 0054）。
       security:
         - platformToken: []
       parameters:
@@ -22914,7 +22915,8 @@ components:
               properties:
                 status:
                   type: string
-                  enum: [ pending_review ]
+                  description: "`pending_review` 待审核；`approved` 审核通过；`rejected` 审核驳回"
+                  enum: [ pending_review, approved, rejected ]
                 submitted_at:
                   type: string
                   format: date-time
@@ -22942,6 +22944,7 @@ components:
           enum: [ phone, messaging ]
         note:
           type: [ string, "null" ]
+          description: 司机写的备注。运营后台的订单详情里，其中的电话、邮箱和乘客姓名已打码（ADR 0054）。
         file_id:
           type: [ string, "null" ]
           format: uuid

@@ -2,7 +2,7 @@
  * 运营订单详情的派车、履约、落地三块（M4-19，验收报告 M3-06 缺陷 2；需求「订单详情一页看全」）。只读，数据来自订单详情接口。
  * 时间都按城市当地时间。接口里是空的地方写明是什么情况，不留空白。
  */
-import { NO_SHOW_ITEM_NAMES, type OrderStatus } from "@nozomi/domain";
+import type { OrderStatus } from "@nozomi/domain";
 import type { ReactNode } from "react";
 import type { PlatformOrderDetail } from "../../api/order-money.ts";
 import { formatInZone, landingSourceName } from "../../lib/dispatch-display.ts";
@@ -71,16 +71,6 @@ export function OrderFulfilmentSections({ detail }: { detail: Pick<PlatformOrder
           </Item>
           {fulfilment.leave_requested_at !== null && <Item label="司机申请离开">{at(fulfilment.leave_requested_at)}</Item>}
         </dl>
-        {records.no_show_claim !== null && (
-          <>
-            <h3 className="card__subtitle">{`客人未出现：${formatInZone(records.no_show_claim.submitted_at, zone)} 提交`}</h3>
-            <ul className="plain-list">
-              {records.no_show_claim.checklist.map((entry) => (
-                <li key={entry.item}>{`${entry.ok ? "✓" : "✗"} ${NO_SHOW_ITEM_NAMES[entry.item]}`}</li>
-              ))}
-            </ul>
-          </>
-        )}
       </section>
 
       <section className="card" aria-labelledby="order-landing">

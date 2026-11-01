@@ -241,9 +241,17 @@ export function detectEvidenceType(bytes: Uint8Array): EvidenceContentType | nul
 
 // ---- 评分 ----
 
-/** 准时到达（需求「准时到达率：用车时间前到达上车点」，ADR 0028）：不晚于用车时间。 */
-export function arrivalOnTime(arrivedAt: Date, serviceAt: Date): boolean {
-  return arrivedAt.getTime() <= serviceAt.getTime();
+/**
+ * 准时到达的基准时间（ADR 0052「评分」，M4-20）：接机单有落地时间时取计划时间和落地时间中较晚的，航班晚点不算供应商迟到；
+ * 航班提前落地不会让基准提前。其他订单、没有落地时间的按用车时间。`landedAt` 是到达那一刻已知的落地时间。
+ */
+export function arrivalBaseline(serviceAt: Date, landedAt: Date | null): Date {
+  return landedAt !== null && landedAt.getTime() > serviceAt.getTime() ? landedAt : serviceAt;
+}
+
+/** 准时到达（需求「准时到达率：用车时间前到达上车点」，ADR 0028；基准见 `arrivalBaseline`）：不晚于基准时间。 */
+export function arrivalOnTime(arrivedAt: Date, serviceAt: Date, landedAt: Date | null = null): boolean {
+  return arrivedAt.getTime() <= arrivalBaseline(serviceAt, landedAt).getTime();
 }
 
 // ---- 平台代传履约（M4-18，ADR 0052） ----

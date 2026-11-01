@@ -5,7 +5,7 @@
  * 权限：看 `ticket.read`；处理 `ticket.manage`；登记另付已付 `payment.manage`；判定达到复核阈值时由另一位有 `ticket.review` 的同事在「待审核」里批准。
  * 每一步都写审计日志（`ticket`）。
  */
-import { COMPENSATION_SCENARIOS, type CompensationScenario, TICKET_OUTCOMES, type TicketOutcome, outcomeNeedsCompensation } from "@nozomi/domain";
+import { COMPENSATION_SCENARIOS, type CompensationScenario, TICKET_OUTCOMES, type TicketOutcome, outcomeNeedsCompensation, ticketDecisionNeedsEvidence } from "@nozomi/domain";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -65,8 +65,9 @@ import { auditLogPath } from "../../lib/platform-paths.ts";
 import { DEDUCTION_STATUS_BADGES, deductionBasisText, deductionKindName } from "../../lib/rescue-display.ts";
 import { useColleagues } from "../../lib/use-colleagues.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
-import { useLoad } from "../../lib/use-load.ts";
+import { type LoadState, useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
+import { NoShowChecklistBrief, NoShowEvidenceSection } from "./NoShowEvidence.tsx";
 import { Detail, LocalTime, NO_ACCESS } from "./order-center-parts.tsx";
 
 const TRAIL = [{ label: "工单", to: PLATFORM_TICKETS_PAGE }];
@@ -157,8 +158,44 @@ function QuoteTable({ quote }: { quote: CompensationQuote }) {
   );
 }
 
+/** 这张工单要看 no-show 证据：no-show 审核，以及对它的申诉。 */
+function reviewsNoShow(detail: PlatformTicketDetail): boolean {
+  return ticketDecisionNeedsEvidence(detail.ticket.type, detail.parent?.type ?? null);
+}
+
+const EVIDENCE_NO_PERMISSION = "你没有查看订单的权限，看不到证据。需要的话请联系管理员开通。";
+const EVIDENCE_OUT_OF_SCOPE = "这一单不在你的数据范围里，看不到证据。";
+
+/** no-show 证据放在判定按钮下面。看不到时写明原因，不留空白（权限和数据范围跟订单详情接口）。 */
+function TicketEvidence({ allowed, state, onRetry }: { allowed: boolean; state: LoadState<PlatformOrderDetail>; onRetry(): void }) {
+  if (allowed && state.data !== null && state.data !== undefined) return <NoShowEvidenceSection detail={state.data} />;
+  const problem = (): ReactNode => {
+    if (!allowed || state.status === "forbidden") return <p className="table__muted">{EVIDENCE_NO_PERMISSION}</p>;
+    if (state.status === "not-found") return <p className="table__muted">{EVIDENCE_OUT_OF_SCOPE}</p>;
+    if (state.status === "error") {
+      return (
+        <>
+          <p className="table__muted">证据没有加载出来，请检查网络后重试。</p>
+          <Button variant="secondary" onClick={onRetry}>
+            重新加载
+          </Button>
+        </>
+      );
+    }
+    return <Skeleton lines={["medium", "long", "short"]} />;
+  };
+  return (
+    <section className="card" aria-labelledby="no-show-evidence-missing">
+      <h2 className="card__title" id="no-show-evidence-missing">
+        no-show 证据
+      </h2>
+      {problem()}
+    </section>
+  );
+}
+
 /** 判定：选结论、写说明；成立时选情形和责任方，先试算再提交。赔给客人的钱达到复核阈值时提交后进「待审核」。 */
-function DecideDialog({ detail, onClose, onDone }: { detail: PlatformTicketDetail; onClose(): void; onDone(next: PlatformTicketDetail): void }) {
+function DecideDialog({ detail, evidence, onReloadEvidence, onClose, onDone }: { detail: PlatformTicketDetail; evidence: LoadState<PlatformOrderDetail> | null; onReloadEvidence(): void; onClose(): void; onDone(next: PlatformTicketDetail): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const { ticket } = detail;
   const outcomes = TICKET_OUTCOMES[ticket.type] as readonly TicketOutcome[];
@@ -175,6 +212,9 @@ function DecideDialog({ detail, onClose, onDone }: { detail: PlatformTicketDetai
   const [problem, setProblem] = useState<{ text: string; final: boolean } | null>(null);
   const [busy, setBusy] = useState<"quote" | "decide" | null>(null);
   const needsCompensation = outcome !== null && outcomeNeedsCompensation(ticket.type, outcome);
+  // 看不到证据不能判 no-show（ADR 0054）：加载中、失败都不能确认；后端也拦
+  const evidenceDetail = evidence?.data ?? null;
+  const evidenceMissing = evidence !== null && evidenceDetail === null;
   const order = useLoad<PlatformOrderDetail>(`decide-order|${ticket.order.id}`, needsCompensation ? (t) => getPlatformOrder(t, ticket.order.id) : null);
   const orderDetail = order.state.data;
   const customerCurrency = orderDetail?.order.sell.currency ?? null;
@@ -219,6 +259,7 @@ function DecideDialog({ detail, onClose, onDone }: { detail: PlatformTicketDetai
     }
   };
   const submit = async (): Promise<void> => {
+    if (evidenceMissing) return;
     const found: Record<string, string> = {};
     if (outcome === null) found["outcome"] = "请选择结论";
     if (note.trim() === "") found["note"] = "请写判定说明：依据是什么";
@@ -255,7 +296,7 @@ function DecideDialog({ detail, onClose, onDone }: { detail: PlatformTicketDetai
             {problem?.final ? "知道了" : "取消"}
           </Button>
           {!problem?.final && (
-            <Button variant="primary" loading={busy === "decide"} loadingText="提交中…" onClick={() => void submit()}>
+            <Button variant="primary" disabled={evidenceMissing} loading={busy === "decide"} loadingText="提交中…" onClick={() => void submit()}>
               {quote?.needs_review ? "提交复核" : "确认判定"}
             </Button>
           )}
@@ -265,6 +306,18 @@ function DecideDialog({ detail, onClose, onDone }: { detail: PlatformTicketDetai
       <div role="alert">{problem !== null && <Alert kind="danger">{problem.text}</Alert>}</div>
       {!problem?.final && (
         <>
+          {evidenceDetail !== null && <NoShowChecklistBrief detail={evidenceDetail} />}
+          {evidenceMissing && evidence.status === "loading" && <p role="status" className="table__muted">证据加载中…加载完才能判定。</p>}
+          {evidenceMissing && evidence.status === "error" && (
+            <Alert kind="warning">
+              <span>证据没有加载出来，看不到证据不能判定。</span>
+              <Button variant="secondary" onClick={onReloadEvidence}>
+                重新加载
+              </Button>
+            </Alert>
+          )}
+          {evidenceMissing && evidence.status === "forbidden" && <Alert kind="warning">{EVIDENCE_NO_PERMISSION}</Alert>}
+          {evidenceMissing && evidence.status === "not-found" && <Alert kind="warning">{EVIDENCE_OUT_OF_SCOPE}</Alert>}
           <RadioGroup legend="结论" name="ticket-outcome" required value={outcome} options={outcomes.map((value) => ({ value, label: outcomeName(ticket.type, value) }))} errors={errors["outcome"] ? [errors["outcome"]] : []} onChange={(value) => setOutcome(value)} />
           {ticket.type === "no_show_review" && outcome === "rejected" && (
             <label className="choice">
@@ -375,7 +428,10 @@ export function TicketDetailPage() {
   const canAudit = usePlatformCan("audit_log.read");
   const toast = useToast();
   const { names, me } = useColleagues();
+  const canReadOrder = usePlatformCan("order.read");
   const { state, reload, set } = useLoad<PlatformTicketDetail>(`ticket|${id}`, canRead ? (t) => getPlatformTicket(t, id) : null);
+  const evidenceOrderId = state.data !== null && state.data !== undefined && reviewsNoShow(state.data) ? state.data.ticket.order.id : null;
+  const evidence = useLoad<PlatformOrderDetail>(`ticket-evidence|${evidenceOrderId ?? ""}`, canReadOrder && evidenceOrderId !== null ? (t) => getPlatformOrder(t, evidenceOrderId) : null);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [claiming, setClaiming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -417,7 +473,9 @@ export function TicketDetailPage() {
   const notes = detail.notes.filter((note) => !note.to_guest).map((note) => ({ id: note.id, who: note.author.id === me ? "你" : note.author.name, at: note.created_at, body: note.body, internal: true }));
   const guestReplies = detail.notes.filter((note) => note.to_guest).map((note) => ({ id: note.id, who: `${note.author.id === me ? "你" : note.author.name}（客人看到的是「平台的回复」）`, at: note.created_at, body: note.body }));
   const guestTicket = ticket.source === "guest" || ticket.source === "channel";
-  const canClose = ticket.status === "decided" || (active && ticket.type !== "no_show_review");
+  // 看不到证据的不能判 no-show，也不能把对它的申诉关掉（关掉等于驳回）；写明原因（ADR 0054）
+  const evidenceBlocked = reviewsNoShow(detail) && active && (!canReadOrder || evidence.state.status === "forbidden" || evidence.state.status === "not-found");
+  const canClose = ticket.status === "decided" || (active && ticket.type !== "no_show_review" && !evidenceBlocked);
 
   return shell(
     <>
@@ -525,7 +583,7 @@ export function TicketDetailPage() {
                 )}
                 {active && <Button onClick={() => setDialog("transfer")}>交给同事</Button>}
                 {(ticket.status === "open" || ticket.status === "in_progress") && <Button onClick={() => setDialog("request-reply")}>征求供应商意见</Button>}
-                {active && (
+                {active && !evidenceBlocked && (
                   <Button variant={ticket.assignee_id === me ? "primary" : "secondary"} onClick={() => setDialog("decide")}>
                     判定
                   </Button>
@@ -537,8 +595,11 @@ export function TicketDetailPage() {
                 )}
               </div>
             )}
+            {canManage && evidenceBlocked && <p className="table__muted">看不到这一单的证据，所以不能判定：判定要有查看订单的权限，订单也要在数据范围内。具体原因见下面的「no-show 证据」，也可以交给同事处理。</p>}
             {ticket.status === "awaiting_tenant" && <p className="table__muted">{`在等供应商回复，${dueText(ticket.tenant_reply_due_at, new Date())} 之前不能判定（到期没回复视为认可）。`}</p>}
           </section>
+
+          {reviewsNoShow(detail) && <TicketEvidence allowed={canReadOrder} state={evidence.state} onRetry={evidence.reload} />}
 
           {(ticket.outcome !== null || detail.appeal !== null) && (
             <section className="card" aria-labelledby="ticket-decision">
@@ -629,11 +690,16 @@ export function TicketDetailPage() {
       {dialog === "decide" && (
         <DecideDialog
           detail={detail}
+          evidence={reviewsNoShow(detail) ? evidence.state : null}
+          onReloadEvidence={evidence.reload}
           onClose={() => {
             setDialog(null);
             reload();
           }}
-          onDone={(next) => close(next, next.ticket.status === "pending_review" ? "判定已提交复核：另一位同事批准后才执行" : "已判定")}
+          onDone={(next) => {
+            close(next, next.ticket.status === "pending_review" ? "判定已提交复核：另一位同事批准后才执行" : "已判定");
+            if (reviewsNoShow(next)) evidence.reload();
+          }}
         />
       )}
       {dialog === "request-reply" && (
