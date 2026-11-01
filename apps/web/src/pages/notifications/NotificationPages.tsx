@@ -184,7 +184,7 @@ export function NotificationTemplatesPage() {
     { key: "locale", header: "语言", cell: (row) => (row.locale === "zh-CN" ? "简体中文" : row.locale) },
     { key: "channel", header: "通道", cell: () => "邮件" },
     { key: "subject", header: "主题", wrap: true, cell: (row) => row.subject },
-    { key: "body", header: "正文", wrap: true, cell: (row) => <span style={{ whiteSpace: "pre-wrap" }}>{row.body}</span> },
+    { key: "body", header: "正文", wrap: true, cell: (row) => <span className="prewrap">{row.body}</span> },
   ];
   return shell(
     <>
