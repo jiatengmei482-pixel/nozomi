@@ -18,7 +18,7 @@ import { AppError } from "../errors.ts";
 import { authenticateSales, issueSalesToken } from "../services/sales-auth.ts";
 import { type SalesPoint, type SalesQuote, createSalesQuotes, getSalesQuote, salesMoney } from "../services/sales-quotes.ts";
 import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView, reportGuestLanding } from "../services/orders.ts";
-import { dateTimeSchema, idempotencyKey, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { dateTimeSchema, idempotencyKey, parseInput, resourceId, singleLine, uuidSchema } from "../validation.ts";
 import { cancelPolicyJson, landingJson, orderTripJson } from "../services/order-views.ts";
 import { disputeOpen, portionBasisPoints, priceDifference } from "@nozomi/domain";
 import type { OrderChange } from "../repos/order-changes.ts";
@@ -58,10 +58,10 @@ const text = (max: number) => z.string().max(max).nullable().default(null);
 const orderSchema = z
   .object({
     quote_id: z.string().regex(quoteIdSchema, "不是 quote_id 的格式（QT + 日期 + 10 位）"),
-    passenger: z.object({ name: z.string().max(200), phone: z.string().max(40), email: z.string().max(320) }).strict(),
+    passenger: z.object({ name: singleLine(200), phone: singleLine(40), email: singleLine(320) }).strict(),
     flight_no: text(20),
-    pickup_address: text(1_000),
-    dropoff_address: text(1_000),
+    pickup_address: singleLine(1_000).nullable().default(null),
+    dropoff_address: singleLine(1_000).nullable().default(null),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
     notes: text(2_000),
     channel_order_no: text(200),

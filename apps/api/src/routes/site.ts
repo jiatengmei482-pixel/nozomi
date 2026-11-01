@@ -30,7 +30,7 @@ import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
 import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
-import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, uuidSchema, validationFailed } from "../validation.ts";
+import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
@@ -104,13 +104,14 @@ const placeReverseSchema = z
   .strict();
 
 const text = (max: number) => z.string().max(max).nullable().default(null);
+const singleLineText = (max: number) => singleLine(max).nullable().default(null);
 const orderSchema = z
   .object({
     quote_id: z.string().regex(/^QT\d{8}[0-9A-Z]{10}$/, "不是报价编号的格式"),
-    passenger: z.object({ name: z.string().max(200), phone: z.string().max(40), email: z.string().max(320) }).strict(),
+    passenger: z.object({ name: singleLine(200), phone: singleLine(40), email: singleLine(320) }).strict(),
     flight_no: text(20),
-    pickup_address: text(1_000),
-    dropoff_address: text(1_000),
+    pickup_address: singleLineText(1_000),
+    dropoff_address: singleLineText(1_000),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().default(null),
     notes: text(2_000),
     // 客人勾选「同意保存支付方式，用于服务后加收」（第五轮决策 ⑤）；没勾不能下单

@@ -130,6 +130,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_webhooks: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     webhook_attempts: ["INSERT", "SELECT"],
     webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
+    // 通知中心（ADR 0049）：发件箱只能追加（读不了）；发送记录只读（策略限定发给自己这家的）；免打扰读写
+    notification_events: ["INSERT"],
+    notifications: ["SELECT"],
+    tenant_notification_settings: ["INSERT", "SELECT", "UPDATE"],
     places: ["SELECT"],
     // 价格规则：可以真的删除（ADR 0018）
     price_rules: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -228,6 +232,10 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_webhooks: ["SELECT"],
     webhook_attempts: ["INSERT", "SELECT"],
     webhook_deliveries: ["INSERT", "SELECT", "UPDATE"],
+    // 通知中心（ADR 0049）：发件箱、发送记录由后台任务读写，不删；免打扰发送前要读
+    notification_events: ["INSERT", "SELECT", "UPDATE"],
+    notifications: ["INSERT", "SELECT", "UPDATE"],
+    tenant_notification_settings: ["SELECT"],
     places: ["INSERT", "SELECT", "UPDATE"],
     // 运营后台填写的第三方密钥（ADR 0041）：填写、更换、清空（删行回落到配置文件）
     integration_secrets: ["DELETE", "INSERT", "SELECT", "UPDATE"],
@@ -316,6 +324,9 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   ...Object.fromEntries(["drivers", "vehicles", "order_assignments", "driver_links", "order_files", "order_contacts", "order_locations", "order_no_show_claims", "tenant_webhooks"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "notification_events.notification_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "notifications.notifications_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  "tenant_notification_settings.tenant_notification_settings_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 进入救援时作废原来的司机链接（ADR 0031）
   "driver_links.driver_links_platform_revoke": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
@@ -355,6 +366,18 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 通知中心的后台任务和运营后台跨供应商扫；tenant_id 可空所以主键是编号（ADR 0049）
+  "notification_events_order_idx",
+  "notification_events_pending_idx",
+  "notification_events_pkey",
+  "notification_events_platform_dedupe_key",
+  "notifications_created_idx",
+  "notifications_due_idx",
+  "notifications_lease_idx",
+  "notifications_one_per_recipient",
+  "notifications_order_idx",
+  "notifications_order_no_idx",
+  "notifications_pkey",
   // 30 分钟没确认的改期、异议期到了的加收、等扣款的加收、运营后台跨租户看待审核的加收（ADR 0029）
   "order_changes_confirm_due_idx",
   "order_extra_charges_charge_due_idx",
@@ -505,7 +528,7 @@ test("每张表要么是登记过的平台表，要么开启了行级安全且�
   }
 });
 
-test("每张租户表：tenant_id 非空（审计日志除外，空表示平台级操作）、主键和索引以 tenant_id 开头（ADR 0009 的例外逐个列出）、租户表之间的外键带着 tenant_id", async () => {
+test("每张租户表：tenant_id 非空（审计日志、通知的发件箱和发送记录除外，空表示平台级：ADR 0049）、主键和索引以 tenant_id 开头（ADR 0009 的例外逐个列出）、租户表之间的外键带着 tenant_id", async () => {
   const columns = await db.owner.query<{ table_name: string; not_null: boolean }>(
     `select c.relname as table_name, att.attnotnull as not_null
        from pg_attribute att join pg_class c on c.oid = att.attrelid join pg_namespace n on n.oid = c.relnamespace
@@ -513,7 +536,8 @@ test("每张租户表：tenant_id 非空（审计日志除外，空表示平台�
       order by 1`,
   );
   assert.ok(columns.rows.length >= 3);
-  assert.deepEqual(columns.rows.filter((row) => !row.not_null).map((row) => row.table_name), ["audit_logs"]);
+  const NULLABLE_TENANT = ["audit_logs", "notification_events", "notifications"];
+  assert.deepEqual(columns.rows.filter((row) => !row.not_null).map((row) => row.table_name), NULLABLE_TENANT);
   const tenantTables = columns.rows.map((row) => row.table_name);
 
   const indexes = await db.owner.query<{ table_name: string; index_name: string; first_column: string; is_primary: boolean }>(
@@ -529,7 +553,7 @@ test("每张租户表：tenant_id 非空（审计日志除外，空表示平台�
   assert.deepEqual(notLeading, INDEX_EXCEPTIONS);
   for (const table of tenantTables) {
     assert.ok(indexes.rows.some((row) => row.table_name === table && row.first_column === "tenant_id"), `${table} 没有以 tenant_id 开头的索引`);
-    if (table !== "audit_logs") {
+    if (!NULLABLE_TENANT.includes(table)) {
       assert.ok(indexes.rows.some((row) => row.table_name === table && row.is_primary && row.first_column === "tenant_id"), `${table} 的主键不以 tenant_id 开头`);
     }
   }
@@ -543,8 +567,9 @@ test("每张租户表：tenant_id 非空（审计日志除外，空表示平台�
        join pg_namespace n on n.oid = src.relnamespace
       where n.nspname = current_schema() and con.contype = 'f'`,
   );
+  // notifications_event_id_fkey 是这里唯一的例外（ADR 0049）：只为平台员工的记录（tenant_id 为空）保证事件存在；带租户的记录由复合外键 notifications_same_tenant_as_event 保证同一家
   const crossTenantCapable = foreignKeys.rows.filter(
-    (fk) => tenantTables.includes(fk.from_table) && tenantTables.includes(fk.to_table) && !fk.columns.includes("tenant_id"),
+    (fk) => tenantTables.includes(fk.from_table) && tenantTables.includes(fk.to_table) && !fk.columns.includes("tenant_id") && fk.name !== "notifications_event_id_fkey",
   );
   assert.deepEqual(crossTenantCapable, [], "租户表之间的外键不带 tenant_id，就可能指向别的租户的行");
 });

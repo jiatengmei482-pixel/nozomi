@@ -1635,6 +1635,50 @@ test("账单（M5-01）：甲看不到、确认不了、异议不了乙的账单
   assert.equal((await api.call("GET", `/tenant/v1/statements/${id}`, { token: b.adminToken })).status, 200, "乙自己看得到");
 });
 
+test("通知（M4-08，ADR 0049）：甲读不到乙的通知和发给客人的记录，改不了乙的免打扰；带乙的编号也一样；数据库里也读不到、写不进", async () => {
+  cover("GET /tenant/v1/notifications");
+  cover("GET /tenant/v1/notification-settings");
+  cover("PUT /tenant/v1/notification-settings");
+  const eventOf = async (tenantId: string): Promise<string> =>
+    (await api.db.owner.query<{ id: string }>("insert into notification_events (tenant_id, event, dedupe_key, data, occurred_at) values ($1, 'tenant.status_changed', $2, '{}', now()) returning id", [tenantId, `iso-${randomUUID()}`])).rows[0]!.id;
+  const addRow = async (tenantId: string, audience: string, recipient: string): Promise<string> =>
+    (
+      await api.db.owner.query<{ id: string }>(
+        "insert into notifications (event_id, tenant_id, event, audience, locale, channel, recipient, status, next_attempt_at, expires_at, created_at, updated_at) values ($1, $2, 'tenant.status_changed', $3, 'zh-CN', 'email', $4, 'pending', now(), now() + interval '1 day', now(), now()) returning id",
+        [await eventOf(tenantId), tenantId, audience, recipient],
+      )
+    ).rows[0]!.id;
+  const mine = await addRow(a.tenantId, "tenant", "dispatch-a@a.test");
+  const guestOfMine = await addRow(a.tenantId, "guest", "guest-of-a@example.com");
+  const theirs = await addRow(b.tenantId, "tenant", "dispatch-b@b.test");
+
+  const listA = await api.call("GET", "/tenant/v1/notifications", { token: a.adminToken });
+  assert.equal(listA.status, 200, listA.text);
+  const ids = listA.body.items.map((item: { id: string }) => item.id);
+  assert.ok(ids.includes(mine));
+  assert.ok(!ids.includes(theirs), "读到了乙的");
+  assert.ok(!ids.includes(guestOfMine), "读到了发给客人的");
+  const withOther = await api.call("GET", `/tenant/v1/notifications?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.ok(withOther.status === 400 || !withOther.body.items.some((item: { id: string }) => item.id === theirs));
+  assert.ok(!listA.text.includes("dispatch-a@a.test"), "收件人打码");
+
+  const settingsB = await api.call("GET", "/tenant/v1/notification-settings", { token: b.adminToken });
+  const smuggle = await api.call("PUT", "/tenant/v1/notification-settings", { token: a.adminToken, body: { quiet_hours: { start: "22:00", end: "07:00" }, tenant_id: b.tenantId } });
+  assert.equal(smuggle.status, 400);
+  const savedA = await api.call("PUT", "/tenant/v1/notification-settings", { token: a.adminToken, body: { quiet_hours: { start: "22:00", end: "07:00" } } });
+  assert.equal(savedA.status, 200, savedA.text);
+  assert.deepEqual((await api.call("GET", "/tenant/v1/notification-settings", { token: b.adminToken })).body, settingsB.body, "甲改的不影响乙");
+  assert.deepEqual((await api.call("GET", "/tenant/v1/notification-settings", { token: a.adminToken })).body.quiet_hours, { start: "22:00", end: "07:00" });
+
+  const visible = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query<{ id: string }>("select id from notifications"));
+  assert.ok(visible.rows.some((row) => row.id === mine));
+  assert.ok(!visible.rows.some((row) => row.id === theirs || row.id === guestOfMine), "漏写条件也读不到");
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select id from notification_events")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into notification_events (tenant_id, event, dedupe_key, data, occurred_at) values ($1, 'tenant.status_changed', $2, '{}', now())", [b.tenantId, `spoof-${randomUUID()}`])), deniedByDatabase);
+  const otherSettings = await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update tenant_notification_settings set quiet_start = '01:00', quiet_end = '02:00' where tenant_id = $1", [b.tenantId]));
+  assert.equal(otherSettings.rowCount, 0);
+});
+
 test("/tenant/v1 的每个接口都在本文件里做过跨租户验证", () => {
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/tenant/v1/"))
@@ -1650,6 +1694,8 @@ test("规则 4：/tenant/v1 的返回里没有对外价和加价比例相关的�
     await api.call("POST", "/tenant/v1/auth/login", { body: { email: "admin@a.test", password: TEST_PASSWORD } }),
     ...(await Promise.all(MASTER_PATHS.map((path) => api.call("GET", `/tenant/v1/master/${path}?status=all`, { token: a.adminToken })))),
     await api.call("GET", "/tenant/v1/brands", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/notifications", { token: a.adminToken }),
+    await api.call("GET", "/tenant/v1/notification-settings", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/products", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/price-overview", { token: a.adminToken }),
     await api.call("GET", "/tenant/v1/fx-rates", { token: a.adminToken }),

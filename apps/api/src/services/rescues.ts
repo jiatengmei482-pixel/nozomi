@@ -99,6 +99,7 @@ import type { PlatformPrincipal } from "./platform-auth.ts";
 import { type QuoteLog, previewPlatformQuote } from "./quotes.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 const JOB_BATCH = 50;
@@ -678,6 +679,7 @@ export async function completeRescueInTx(db: Db, order: Order, rescue: Rescue, a
   await insertOrderEvent(db, rescued, { fromStatus: null, toStatus: "confirmed", actor: eventActor(actor.type), reason: "RESCUE_ASSIGNED", occurredAt: now, detail: { via: assignment.via } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.rescued_away", orderId: order.id, data: { trigger: rescue.trigger } }, now);
   await enqueueTenantEvent(db, { tenantId: assignment.tenantId, type: "order.confirmed", orderId: order.id, data: { rescue: true } }, now);
+  await enqueueNotification(db, { event: "order.rescue_assigned", tenantId: assignment.tenantId, orderId: order.id, dedupeKey: `order.rescue_assigned:${rescue.id}:${assignment.tenantId}` }, now);
   await insertAuditLog(db, actor.origin, {
     tenantId: actor.type === "tenant_user" ? assignment.tenantId : null,
     resource: "rescue",
