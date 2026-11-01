@@ -1,7 +1,7 @@
 /**
  * 端到端：运营审核 no-show 看得到证据（M4-20，ADR 0054）。真实浏览器 → 前端 → 真实 API → 真实 PostgreSQL，不 mock 接口。
  * 供应商派车 → 司机经 H5 接口回传、上传照片、记联系 → 「等够免费等待」这段时间无法在真实时钟里走完，用例用迁移账号把到达、申请离开、no-show 申请和审核工单写进本次运行的 schema（只在测试里构造，运行结束随 schema 删除）。
- * 运营打开工单：判定按钮旁看得到 5 项和各项事实、落地时间、免费等待、举牌照片（真的显示出来），截图点了才取，取了记审计；320、1280 宽不溢出。只读员工能看不能判；城市范围外看不到证据和照片。
+ * 运营打开工单：判定按钮旁看得到 5 项和各项事实、落地时间、免费等待、举牌照片（真的显示出来），截图点了才取，取了记审计；320、1280 宽不溢出。只读员工能看不能判。没有权限、跨数据范围的用例在 no-show-evidence.itest.ts。
  */
 import { randomInt, randomUUID } from "node:crypto";
 import { type APIRequestContext, expect, test } from "@playwright/test";
@@ -13,7 +13,7 @@ const ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const random = (length: number, alphabet = ALPHABET): string => Array.from({ length }, () => alphabet[randomInt(alphabet.length)]).join("");
 const MINUTE = 60_000;
 /** 1×1 的 PNG：浏览器真的能显示。 */
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/AAAMBAQAY3Y2wAAAAAElFTkSuQmCC", "base64");
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "base64");
 
 async function owner<T>(run: (client: ReturnType<typeof createPool>) => Promise<T>): Promise<T> {
   const url = process.env["E2E_DATABASE_OWNER_URL"];
@@ -26,7 +26,7 @@ async function owner<T>(run: (client: ReturnType<typeof createPool>) => Promise<
   }
 }
 
-async function seedClaim(request: APIRequestContext): Promise<{ orderId: string; orderNo: string; ticketId: string; cityId: string; signboardId: string; screenshotId: string }> {
+async function seedClaim(request: APIRequestContext): Promise<{ orderId: string; orderNo: string; ticketId: string; signboardId: string; screenshotId: string; tenantEmail: string; tenantPassword: string }> {
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world);
   const product = await createProductByApi(request, supplier, world, "airport_transfer");
@@ -117,7 +117,7 @@ async function seedClaim(request: APIRequestContext): Promise<{ orderId: string;
     );
     return ticket.rows[0]?.id as string;
   });
-  return { orderId, orderNo, ticketId, cityId: world.city.id, signboardId, screenshotId };
+  return { orderId, orderNo, ticketId, signboardId, screenshotId, tenantEmail: supplier.tenant.adminEmail, tenantPassword: supplier.tenant.password };
 }
 
 async function staff(request: APIRequestContext, name: string, grants: string[], scope: { city_ids: string[] | null; channel_ids: string[] | null }): Promise<{ email: string; password: string }> {
@@ -136,6 +136,10 @@ test("运营审核 no-show：判定按钮旁看得到 5 项、到达、联系、
   test.setTimeout(180_000);
   const seed = await seedClaim(request);
   const admin = adminCredentials();
+  const violations: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("Content Security Policy")) violations.push(message.text());
+  });
   await loginAs(page, "platform", admin.email, admin.password);
   await page.goto(`/platform/tickets/${seed.ticketId}`);
 
@@ -151,11 +155,13 @@ test("运营审核 no-show：判定按钮旁看得到 5 项、到达、联系、
   await expect(page.locator("body")).not.toContainText("王小明");
   await expect(page.locator("body")).not.toContainText("90-1234-5678");
 
-  // 举牌照片真的显示出来（naturalWidth > 0），没有公开地址（是 blob:）
+  // 举牌照片真的画出来了（红色像素），内容安全策略没有拦（没有放宽 img-src），没有公开地址
   const photo = card.getByRole("img", { name: /^举牌照片/ });
   await expect(photo).toBeVisible();
-  await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
-  expect(await photo.getAttribute("src")).toMatch(/^blob:/);
+  await expect.poll(() => photo.evaluate((canvas: HTMLCanvasElement) => Array.from(canvas.getContext("2d")?.getImageData(0, 0, 1, 1).data ?? []))).toEqual([255, 0, 0, 255]);
+  expect(violations).toEqual([]);
+  const [download] = await Promise.all([page.waitForEvent("download"), card.getByRole("link", { name: "下载举牌照片原图" }).click()]);
+  expect(download.url()).toMatch(/^blob:/);
   await expect.poll(() => auditCount(seed.orderId, seed.signboardId, admin.email)).toBeGreaterThan(0);
 
   // 截图点了才取
@@ -196,4 +202,16 @@ test("运营审核 no-show：判定按钮旁看得到 5 项、到达、联系、
   await expect(readerPage.getByRole("complementary", { name: "处理和判定" })).toContainText("✓ 满足：免费等待开始前");
   await expect(readerPage.getByRole("button", { name: "判定" })).toHaveCount(0);
   await readerContext.close();
+
+  // 供应商后台用同一个照片组件：照片同样显示得出来，看自己的照片不记平台审计
+  const before = await auditCount(seed.orderId, seed.signboardId, seed.tenantEmail);
+  const tenantContext = await browser.newContext();
+  const tenantPage = await tenantContext.newPage();
+  await loginAs(tenantPage, "tenant", seed.tenantEmail, seed.tenantPassword);
+  await tenantPage.goto(`/orders/${seed.orderId}`);
+  const tenantPhoto = tenantPage.getByRole("img", { name: /^举牌照片/ });
+  await expect(tenantPhoto).toBeVisible();
+  await expect.poll(() => tenantPhoto.evaluate((canvas: HTMLCanvasElement) => Array.from(canvas.getContext("2d")?.getImageData(0, 0, 1, 1).data ?? []))).toEqual([255, 0, 0, 255]);
+  expect(await auditCount(seed.orderId, seed.signboardId, seed.tenantEmail)).toBe(before);
+  await tenantContext.close();
 });

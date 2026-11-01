@@ -189,3 +189,29 @@ test("运营订单详情：什么记录都没有的写明", async () => {
   openApp(`/platform/orders/${ORDER_ID}`, "platform", "readonly", backend(json(200, { ...empty, order: { ...empty.order, fulfilment: NOT_DISPATCHED.fulfilment } })));
   assert.match((await evidenceCard()).textContent ?? "", /没有提交 no-show，也没有到达记录、照片和联系记录/);
 });
+
+test("照片：解得出来的画在 canvas 上（不用 blob: 图片地址，内容安全策略不放行），有说明文字和下载链接", async (t) => {
+  const close = t.mock.fn();
+  (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async () => ({ width: 2, height: 3, close });
+  t.after(() => {
+    delete (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+  });
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(200, orderDetail())));
+  const photo = await screen.findByRole("img", { name: /^举牌照片，系统时间 2026-10-20 10:40/ });
+  assert.equal(photo.tagName, "CANVAS");
+  assert.equal(document.querySelector(".evidence-photo img"), null);
+  assert.ok(screen.getByRole("link", { name: "下载举牌照片原图" }));
+});
+
+test("照片：浏览器解不出来（如 HEIC）写明并给下载链接；取不到写明", async () => {
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(200, orderDetail())));
+  await screen.findByText("浏览器显示不了这种格式，请下载后查看。");
+  assert.ok(screen.getByRole("link", { name: "下载举牌照片原图" }));
+  assert.equal(screen.queryByRole("img", { name: /^举牌照片/ }), null);
+});
+
+test("照片：取不到写明读不出来", async () => {
+  const inner = backend(json(200, orderDetail()));
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (call.url.pathname.includes("/files/") ? json(404, { error: { code: "NOT_FOUND", message: "照片不存在", details: {} } }) : inner(call)));
+  await screen.findByText("照片读不出来");
+});
