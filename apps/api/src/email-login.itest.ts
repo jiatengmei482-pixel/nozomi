@@ -285,25 +285,41 @@ test("发码限速：60 秒 1 封；15 分钟 5 封；不存在的邮箱表现�
   assert.match(api.logs(), /email_code\.rate_limited/);
 });
 
-test("发码限速：24 小时 20 封；登录成功后累计清零", async () => {
+test("发码限速：24 小时 20 封；登录成功后 24 小时计数不清零（否则攻击期间本人每登录一次，攻击者就多一轮额度），15 分钟计数清零", async () => {
   const email = "daily@platform.test";
   await staff(email);
-  let sent = 0;
-  for (let i = 0; i < 25 && sent < 20; i++) {
-    const res = await requestCode("platform", email, nextIp());
-    if (res.status === 202) sent += 1;
-    api.clock.advance(4 * 60 * 1000);
+  const send = async (): Promise<number> => (await requestCode("platform", email, nextIp())).status;
+  const started = api.clock.now().getTime();
+
+  // 15 分钟的 5 封用完，再请求被拦
+  for (let i = 0; i < 5; i++) {
+    assert.equal(await send(), 202, `第 ${i + 1} 封`);
+    api.clock.advance(EMAIL_CODE_RESEND_INTERVAL_MS);
   }
-  assert.equal(sent, 20);
-  const blocked = await requestCode("platform", email, nextIp());
-  assert.equal(blocked.status, 429, "一天第 21 封");
-  assert.ok(Number(blocked.headers["retry-after"]) > 15 * 60, "等到 24 小时窗口结束");
-  await api.db.owner.query("delete from login_throttles");
-  const again = await requestCode("platform", email, nextIp());
-  assert.equal(again.status, 202);
+  assert.equal(await send(), 429, "15 分钟第 6 封");
+
+  // 登录成功：15 分钟的额度回来了，但 24 小时已经用掉的 5 封还算
   assert.equal((await verify("platform", email, latestCode(smtp, email), nextIp())).status, 200);
-  api.clock.advance(EMAIL_CODE_RESEND_INTERVAL_MS);
-  assert.equal((await requestCode("platform", email, nextIp())).status, 202);
+  let sent = 5;
+  while (sent < 20) {
+    api.clock.advance(4 * 60 * 1000);
+    assert.equal(await send(), 202, `第 ${sent + 1} 封`);
+    sent += 1;
+    if (sent === 10) assert.equal((await verify("platform", email, latestCode(smtp, email), nextIp())).status, 200, "中途再登录一次");
+  }
+  api.clock.advance(4 * 60 * 1000);
+  const blocked = await requestCode("platform", email, nextIp());
+  assert.equal(blocked.status, 429, "一天第 21 封，两次登录成功都没有清零");
+  assert.ok(Number(blocked.headers["retry-after"]) > 15 * 60, "等到 24 小时窗口结束");
+
+  assert.equal((await verify("platform", email, latestCode(smtp, email), nextIp())).status, 200, "第 20 封的码还能用");
+  api.clock.advance(4 * 60 * 1000);
+  assert.equal((await requestCode("platform", email, nextIp())).status, 429, "刚登录成功也不行");
+
+  api.clock.advance(24 * 60 * 60 * 1000 - (api.clock.now().getTime() - started));
+  assert.equal(await send(), 202, "窗口结束后恢复");
+  // 时钟走过了 24 小时，超级管理员的令牌（8 小时）已过期：后面的用例还要用
+  root = (await api.platformLogin({ body: { email: "root@platform.test", password: TEST_PASSWORD } })).body.access_token as string;
 });
 
 test("发码限速：同一来源地址 15 分钟 20 封，不分邮箱；被拦下的不占邮箱的额度", async () => {

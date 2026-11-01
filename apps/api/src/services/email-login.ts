@@ -78,10 +78,7 @@ function sendThrottleKey(portal: LoginPortal, dimension: string, value: string):
   return createHash("sha256").update(["email-code-send", portal, dimension, value].join("\n"), "utf8").digest("hex");
 }
 
-/** 同一邮箱的累计计数（连发间隔不在内）：登录成功后清零，本人正常用不会越用越少。 */
-function perEmailSendKeys(portal: LoginPortal, email: string): string[] {
-  return EMAIL_CODE_SEND_LIMITS_PER_EMAIL.map((limit) => sendThrottleKey(portal, `email:${limit.windowMs}`, email));
-}
+const perEmailSendKey = (portal: LoginPortal, email: string, limit: EmailCodeSendLimit): string => sendThrottleKey(portal, `email:${limit.windowMs}`, email);
 
 /**
  * 占用一次发码。先看来源地址，再看连发间隔，最后看累计：被前面拦下的不占后面的次数，否则别人连点就能把这个邮箱的累计额度顶满。
@@ -91,7 +88,7 @@ async function reserveEmailCodeSend(ctx: AppContext, portal: LoginPortal, email:
   const steps: { key: string; limit: EmailCodeSendLimit }[] = [
     { key: sendThrottleKey(portal, "ip", rateLimitKeyOf(ip)), limit: EMAIL_CODE_SEND_LIMIT_PER_IP },
     { key: sendThrottleKey(portal, "cooldown", email), limit: EMAIL_CODE_SEND_COOLDOWN },
-    ...EMAIL_CODE_SEND_LIMITS_PER_EMAIL.map((limit, index) => ({ key: perEmailSendKeys(portal, email)[index] as string, limit })),
+    ...EMAIL_CODE_SEND_LIMITS_PER_EMAIL.map((limit) => ({ key: perEmailSendKey(portal, email, limit), limit })),
   ];
   const retryAfterSeconds = await withPreAuthTx(ctx.pool, async (db) => {
     await deleteStaleLoginThrottles(db, now);
@@ -225,8 +222,8 @@ export async function verifyEmailCode(ctx: AppContext, log: EmailLoginLog, porta
   throw emailCodeInvalid();
 }
 
-/** 登录成功：校验的邮箱维度清零、地址退还；发码的累计计数也清零。 */
+/** 登录成功：校验的邮箱维度清零、地址退还；发码的 15 分钟计数清零。24 小时计数不清零，见 domain 的 `resetOnLogin`。 */
 export async function settleEmailCodeLogin(ctx: AppContext, portal: LoginPortal, email: string, reservation: LoginReservation): Promise<void> {
   await clearLoginReservation(ctx, reservation);
-  await withPreAuthTx(ctx.pool, (db) => clearLoginAttempts(db, perEmailSendKeys(portal, email)));
+  await withPreAuthTx(ctx.pool, (db) => clearLoginAttempts(db, EMAIL_CODE_SEND_LIMITS_PER_EMAIL.filter((limit) => limit.resetOnLogin).map((limit) => perEmailSendKey(portal, email, limit))));
 }

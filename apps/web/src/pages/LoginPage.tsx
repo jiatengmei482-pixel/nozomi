@@ -16,7 +16,7 @@ import { PasswordField, TextField } from "../components/TextField.tsx";
 import { NETWORK_FAILURE_TEXT, isThrottled, isUnauthenticated, throttledText } from "../lib/failure.ts";
 import { PORTALS, type Portal, safeReturnPath } from "../lib/portal.ts";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
-import { validateEmailCode, validateLoginEmail, validateLoginPassword } from "../lib/validation.ts";
+import { normalizeEmailCodeInput, validateEmailCode, validateLoginEmail, validateLoginPassword } from "../lib/validation.ts";
 
 /** 邮箱不存在、密码错误、账号未激活、账号属于另一个后台……一律是这一句，不给任何区分的线索。 */
 export const LOGIN_REJECTED_TEXT = "邮箱或密码不正确。";
@@ -99,7 +99,7 @@ function useExistingSession(portal: Portal): ExistingSession {
 /** 问不到时当作只有密码（ADR 0050）：登录页不能因为这个请求失败就用不了。 */
 const ONLY_PASSWORD: LoginMethods = { email_code: false, password: true };
 
-function useLoginMethods(portal: Portal, enabled: boolean): LoginMethods {
+function useLoginMethods(portal: Portal, enabled: boolean): [LoginMethods, (methods: LoginMethods) => void] {
   const [methods, setMethods] = useState<LoginMethods>(ONLY_PASSWORD);
   useEffect(() => {
     if (!enabled) return;
@@ -114,7 +114,7 @@ function useLoginMethods(portal: Portal, enabled: boolean): LoginMethods {
       cancelled = true;
     };
   }, [portal, enabled]);
-  return methods;
+  return [methods, setMethods];
 }
 
 /** 重新发送的倒计时：`start(秒)` 之后每秒减一，到 0 停。 */
@@ -147,7 +147,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
   const submitRef = useRef<HTMLButtonElement>(null);
 
   const formShown = existing === "none";
-  const methods = useLoginMethods(portal, formShown);
+  const [methods, setMethods] = useLoginMethods(portal, formShown);
   /** 用户自己选的方式；没选时看后端：密码关了就是验证码 */
   const [chosen, setChosen] = useState<"password" | "email-code" | null>(null);
   const mode = chosen === "password" && methods.password ? "password" : chosen === "email-code" || !methods.password ? "email-code" : "password";
@@ -201,6 +201,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
       } else if (err instanceof ApiError && err.status === 403 && err.code === PASSWORD_LOGIN_DISABLED_CODE) {
         // 页面打开之后密码才被关掉：直接换成验证码（和邮箱无关，不泄露什么）
         setPassword("");
+        setMethods({ email_code: true, password: false });
         setChosen("email-code");
         setNotice({ kind: "info", text: PASSWORD_LOGIN_DISABLED_TEXT });
       } else if (err instanceof ApiError && err.status === 403 && err.code === ACCOUNT_DISABLED_CODE) {
@@ -260,12 +261,15 @@ export function LoginPage({ portal }: { portal: Portal }) {
       setAttempted(false);
       setCodeSentTo(target);
       setNotice({ kind: "info", text: emailCodeSentText(sent.expires_in_seconds) });
+      // 重新发送时按钮马上进入倒计时、被禁用：焦点移到验证码框，键盘用户不丢位置（第一次发码时输入框还没出现，由上面的 effect 聚焦）
+      codeRef.current?.focus();
     } catch (err) {
       if (err instanceof NetworkError) setNotice({ kind: "danger", text: NETWORK_FAILURE_TEXT });
       else if (isThrottled(err)) setNotice({ kind: "danger", text: throttledText(err.retryAfterSeconds) });
       else if (err instanceof ApiError && err.status === 503 && err.code === EMAIL_CODE_UNAVAILABLE_CODE) {
-        // 邮件配置刚被清空：回到密码，别让人卡在这里
+        // 邮件配置刚被清空：密码一定可用（ADR 0050 第 1 节），哪怕页面打开时密码是关着的。回到密码表单，别让人卡在这里
         setCodeSentTo(null);
+        setMethods(ONLY_PASSWORD);
         setChosen("password");
         setNotice({ kind: "danger", text: EMAIL_CODE_UNAVAILABLE_TEXT });
       } else setNotice({ kind: "danger", text: "系统暂时无法发送验证码，请稍后再试。" });
@@ -376,11 +380,10 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 name="code"
                 autoComplete="one-time-code"
                 inputMode="numeric"
-                maxLength={6}
                 required
                 readOnly={submitting}
                 value={code}
-                onChange={(event) => setCode(event.target.value)}
+                onChange={(event) => setCode(normalizeEmailCodeInput(event.target.value))}
                 errors={attempted && validateEmailCode(code) !== null ? [validateEmailCode(code) as string] : []}
               />
             </>

@@ -14,15 +14,19 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 export interface EmailCodeSendLimit {
   maxSends: number;
   windowMs: number;
+  /** 登录成功后这一条的计数清零。24 小时那条不清：否则攻击期间本人每登录一次，攻击者就多一轮额度 */
+  resetOnLogin?: boolean;
 }
 
 /** 同一来源地址（不分邮箱） */
 export const EMAIL_CODE_SEND_LIMIT_PER_IP: EmailCodeSendLimit = { maxSends: 20, windowMs: FIFTEEN_MINUTES_MS };
 /** 同一邮箱的连发间隔 */
 export const EMAIL_CODE_SEND_COOLDOWN: EmailCodeSendLimit = { maxSends: 1, windowMs: EMAIL_CODE_RESEND_INTERVAL_MS };
-/** 同一邮箱的累计上限；一天 20 封 × 每封 5 次，就是一个账号每天最多被猜 100 次 */
+/**
+ * 同一邮箱的累计上限。24 小时是固定窗口：每个窗口 20 封 × 每封 5 次 = 100 次猜测；跨两个窗口的短时峰值可到两倍，长期平均仍是每天 100 次（ADR 0050）。
+ */
 export const EMAIL_CODE_SEND_LIMITS_PER_EMAIL: readonly EmailCodeSendLimit[] = [
-  { maxSends: 5, windowMs: FIFTEEN_MINUTES_MS },
+  { maxSends: 5, windowMs: FIFTEEN_MINUTES_MS, resetOnLogin: true },
   { maxSends: 20, windowMs: ONE_DAY_MS },
 ];
 

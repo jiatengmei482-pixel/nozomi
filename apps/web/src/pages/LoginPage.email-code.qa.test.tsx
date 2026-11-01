@@ -49,7 +49,8 @@ test("缺陷：从邮件里复制验证码常带一个前导空格：粘贴「 0
   await user.click(codeInput());
   await user.paste(" 042917");
   await user.click(screen.getByRole("button", { name: "登录" }));
-  await waitFor(() => assert.equal(verifies(calls).length, 1, `输入框里是 ${JSON.stringify(codeInput().value)}，被前端判成格式不对`));
+  // 登录成功后页面就跳走了，输入框不一定还在：说明文字里不能用 codeInput()（找不到会抛错，waitFor 就一直重试到超时）
+  await waitFor(() => assert.equal(verifies(calls).length, 1, `输入框里是 ${JSON.stringify((screen.queryByLabelText("验证码") as HTMLInputElement | null)?.value)}，被前端判成格式不对`));
   assert.deepEqual(verifies(calls)[0]?.body, { email: EMAIL, code: "042917" });
 });
 

@@ -91,7 +91,7 @@ test("走完：发码 → 第二步显示邮箱、提示不说账号是否存在
   assertFocused(input);
   assert.equal(input.autocomplete, "one-time-code");
   assert.equal(input.getAttribute("inputmode"), "numeric");
-  assert.equal(input.maxLength, 6);
+  assert.equal(input.maxLength, -1, "不用 maxlength：粘贴带前导空格的码会被截掉最后一位");
   const user = userEvent.setup();
   await user.type(input, "042917");
   await user.click(screen.getByRole("button", { name: "登录" }));
@@ -143,7 +143,7 @@ test("验证码格式不对：前端拦下，不发请求", async () => {
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "登录" }));
   assert.ok(screen.getByText("请输入验证码"));
-  await user.type(screen.getByLabelText("验证码"), "12a");
+  await user.type(screen.getByLabelText("验证码"), "12");
   await user.click(screen.getByRole("button", { name: "登录" }));
   assert.ok(screen.getByText("验证码是 6 位数字"));
   assert.equal(calls.length, before);
@@ -225,4 +225,19 @@ test("页面打开之后密码才被关闭：提交密码时后端说已关闭�
   assert.ok(screen.getByRole("button", { name: "发送验证码" }));
   assertAbsent(screen.queryByLabelText("密码"));
   assert.equal((screen.getByLabelText("邮箱") as HTMLInputElement).value, "a@example.com");
+});
+
+test("验证码输入时规整：空白去掉、全角转半角、别的字符去掉，最多 6 位；发给后端的是干净的 6 位", async () => {
+  const calls = await toCodeStep({ [VERIFY]: () => apiError(401, "EMAIL_CODE_INVALID", "x") });
+  const user = userEvent.setup();
+  const input = screen.getByLabelText("验证码") as HTMLInputElement;
+  for (const [pasted, expected] of [[" 042917", "042917"], ["０４２９１７", "042917"], ["042 917\n", "042917"], ["验证码：042917。", "042917"], ["0429170000", "042917"], ["abc", ""]] as const) {
+    await user.clear(input);
+    await user.click(input);
+    await user.paste(pasted);
+    assert.equal(input.value, expected, JSON.stringify(pasted));
+  }
+  await user.paste("０４２９１７");
+  await user.keyboard("{Enter}");
+  await waitFor(() => assert.deepEqual(calls.at(-1)?.body, { email: "a@example.com", code: "042917" }));
 });

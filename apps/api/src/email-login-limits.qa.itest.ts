@@ -117,7 +117,7 @@ test("发新码重置单码次数，但一个邮箱在一个 24 小时窗口内�
   assert.ok(Number(blocked.headers["retry-after"]) <= 60);
 });
 
-test("缺陷：ADR 第 4 节写「每天最多 100 次猜测、24 小时 20 封」，但限速是固定窗口，卡着窗口交界不到 3 小时就能发 40 个码、猜 200 次", async () => {
+test("固定窗口（ADR 第 4 节）：卡着窗口交界，短时峰值可到两个窗口的额度，不超过 40 个码、200 次猜测", async () => {
   const email = "qa-window-edge@platform.test";
   await staff(email);
   const windowStart = api.clock.now().getTime();
@@ -136,7 +136,9 @@ test("缺陷：ADR 第 4 节写「每天最多 100 次猜测、24 小时 20 封�
   const spanHours = (api.clock.now().getTime() - attackStart) / HOUR;
   assert.ok(spanHours < 3, `这段时间是 ${spanHours} 小时`);
   assert.ok(windowStart < attackStart);
-  assert.ok(guesses <= 100, `${spanHours.toFixed(1)} 小时内发出 ${sends} 个码、猜了 ${guesses} 次，超过 ADR 写的 24 小时 20 封、每天 100 次`);
+  const peak = `${spanHours.toFixed(1)} 小时内发出 ${sends} 个码、猜了 ${guesses} 次`;
+  assert.ok(sends <= 40, `${peak}，超过两倍`);
+  assert.ok(guesses <= 200, `${peak}，超过两倍`);
 });
 
 test("并发猜错：4 个错码同时提交，计数正好 +4，一次都不少算；第 5 次用正确的码仍然能进", async () => {

@@ -17,6 +17,14 @@ export function validateLoginPassword(value: string): string | null {
   return value === "" ? "请输入密码" : null;
 }
 
+/** 验证码输入框的规整：全角数字转半角，其余（空白、从邮件带来的标点）都去掉，最多留 6 位数字。粘贴时不会因为长度限制截掉最后一位。 */
+export function normalizeEmailCodeInput(value: string): string {
+  return value
+    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+    .replace(/[^0-9]/g, "")
+    .slice(0, 6);
+}
+
 export function validateEmailCode(value: string): string | null {
   const code = value.trim();
   if (code === "") return "请输入验证码";

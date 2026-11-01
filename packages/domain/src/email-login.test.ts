@@ -38,9 +38,10 @@ test("邮件：主题没有验证码，正文有验证码、有效期、哪个�
   }
 });
 
-test("限速的数字：一个账号每天最多被猜 100 次；连发间隔和页面的倒计时是同一个数", () => {
+test("限速的数字：一个 24 小时窗口最多被猜 100 次，这条计数登录成功也不清零；连发间隔和页面的倒计时是同一个数", () => {
   const daily = EMAIL_CODE_SEND_LIMITS_PER_EMAIL.find((limit) => limit.windowMs === 24 * 60 * 60 * 1000);
   assert.equal((daily?.maxSends ?? 0) * EMAIL_CODE_MAX_ATTEMPTS, 100);
+  assert.ok(!daily?.resetOnLogin);
   assert.equal(EMAIL_CODE_SEND_COOLDOWN.windowMs, EMAIL_CODE_RESEND_INTERVAL_MS);
   assert.equal(EMAIL_CODE_SEND_COOLDOWN.maxSends, 1);
   assert.equal(EMAIL_CODE_TTL_MS, 600_000);
