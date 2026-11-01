@@ -279,7 +279,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
     return {
       order: platformOrderJson(found, now),
       events: found.events.map((event) => eventJson(event, "platform")),
-      pending_proxy_completion: found.pendingProxyCompletion === null ? null : { approval_id: found.pendingProxyCompletion.id, requested_at: found.pendingProxyCompletion.requestedAt.toISOString() },
+      pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
       records: recordsJson(found.records, now),
       webhook_deliveries: found.deliveries.map(deliveryJson),
       payment_events: found.paymentEvents.map(paymentEventJson),

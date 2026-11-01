@@ -77,15 +77,20 @@ async function proxy(r: Rig, orderId: string, body: Record<string, unknown>, tok
   return r.api.call("POST", `/platform/v1/orders/${orderId}/events`, { token: who, headers: { "if-match": String(current) }, body: { occurred_at: iso(nowMs(r)), reason: REASON, ...body } });
 }
 
+const decide = (r: Rig, approvalId: string, decision: "approve" | "reject" | "withdraw", token: string, body: Record<string, unknown> = {}) => r.api.call("POST", `/platform/v1/approvals/${approvalId}/${decision}`, { token, body });
+const financeToken = (r: Rig): Promise<string> => platformLogin(r.api, r.finance.email);
+
+/** 代传到服务中：接到客人要复核（ADR 0052），财务批准。 */
 async function inService(r: Rig, orderId: string): Promise<void> {
-  for (const type of ["departed", "arrived", "picked_up"]) {
+  for (const type of ["departed", "arrived"]) {
     await ok(proxy(r, orderId, { type }));
     r.api.clock.advance(MINUTE);
   }
+  const asked = await ok(proxy(r, orderId, { type: "picked_up" }), 202);
+  await ok(decide(r, asked.approval.id, "approve", await financeToken(r)));
+  r.api.clock.advance(MINUTE);
 }
 
-const decide = (r: Rig, approvalId: string, decision: "approve" | "reject" | "withdraw", token: string, body: Record<string, unknown> = {}) => r.api.call("POST", `/platform/v1/approvals/${approvalId}/${decision}`, { token, body });
-const financeToken = (r: Rig): Promise<string> => platformLogin(r.api, r.finance.email);
 const ops2Token = (r: Rig): Promise<string> => platformLogin(r.api, r.ops2.email);
 const completedEvents = async (r: Rig, orderId: string): Promise<number> => (await r.api.db.owner.query("select 1 from order_events where order_id = $1 and to_status = 'completed'", [orderId])).rowCount ?? 0;
 
@@ -134,14 +139,14 @@ test("两人同时批准：只有一个成功，另一个 409 APPROVAL_NOT_PENDI
   assert.equal((await r.api.db.owner.query("select 1 from audit_logs where resource = 'approval' and resource_id = $1 and action = 'approve'", [approvalId])).rowCount, 1);
 });
 
-test("同时发起两次完成：只有一条待复核，另一个 409 PROXY_COMPLETION_PENDING", async () => {
+test("同时发起两次完成：只有一条待复核，另一个 409 PROXY_REVIEW_PENDING", async () => {
   const r = shared;
   const { orderId } = await dispatched(r);
   await inService(r, orderId);
   const version = (await detailOf(r, orderId)).order.version;
   const [a, b] = await Promise.all([proxy(r, orderId, { type: "completed" }, await ops(r), version), proxy(r, orderId, { type: "completed" }, await ops2Token(r), version)]);
   assert.deepEqual([a.status, b.status].sort(), [202, 409], `${a.text} ${b.text}`);
-  assert.equal((a.status === 409 ? a : b).body.error.code, "PROXY_COMPLETION_PENDING");
+  assert.equal((a.status === 409 ? a : b).body.error.code, "PROXY_REVIEW_PENDING");
   assert.equal((await r.api.db.owner.query("select 1 from approvals where kind = 'order.proxy_complete' and resource_id = $1 and status = 'pending'", [orderId])).rowCount, 1);
 });
 
@@ -336,7 +341,7 @@ test("到达准点率的输入：供应商自己回传「已到达」后应该�
   assert.equal(rows.length, 1, "到达事件没有写入评分输入：到达准点率永远是「没有数据」");
 });
 
-test("完成时间回填超过 24 小时：供应商的事后加收窗口一打开就已关闭（现状，ADR 0052 接受，靠留痕；见报告）", async (t) => {
+test("完成时间回填超过 24 小时：供应商的事后加收窗口从批准生效时算（ADR 0052），回填不让供应商丢权利；过了 24 小时才关", async (t) => {
   const r = await ownRig(t);
   const { orderId } = await dispatched(r);
   await inService(r, orderId);
@@ -346,7 +351,12 @@ test("完成时间回填超过 24 小时：供应商的事后加收窗口一打�
   await ok(decide(r, asked.approval.id, "approve", await financeToken(r)));
   const tenantToken = await tenantLogin(r.api, r.m.b.adminEmail);
   const file = await uploadReceipt(r.api, tenantToken, orderId);
-  const res = await r.api.call("POST", `/tenant/v1/orders/${orderId}/extra-charges`, { token: tenantToken, body: { type: "waiting", amount: 2_000, description: "虚构：等了 40 分钟", file_ids: [file] } });
+  const submit = () => r.api.call("POST", `/tenant/v1/orders/${orderId}/extra-charges`, { token: tenantToken, body: { type: "waiting", amount: 2_000, description: "虚构：等了 40 分钟", file_ids: [file] } });
+  const open = await submit();
+  assert.equal(open.status, 201, open.text);
+  r.api.clock.advance(24 * HOUR + 1);
+  const fresh = await tenantLogin(r.api, r.m.b.adminEmail);
+  const res = await r.api.call("POST", `/tenant/v1/orders/${orderId}/extra-charges`, { token: fresh, body: { type: "parking", amount: 500, description: "虚构：停车费", file_ids: [file] } });
   assert.equal(res.status === 409 ? res.body.error.details.reason : res.text, "SUBMIT_WINDOW_CLOSED");
 });
 
@@ -426,7 +436,8 @@ test("代传「已接到客人」后客人和运营都不能再取消（服务�
   r.api.clock.advance(MINUTE);
   await ok(proxy(r, orderId, { type: "arrived" }));
   r.api.clock.advance(MINUTE);
-  await ok(proxy(r, orderId, { type: "picked_up" }));
+  const asked = await ok(proxy(r, orderId, { type: "picked_up" }), 202);
+  await ok(decide(r, asked.approval.id, "approve", await financeToken(r)));
   assert.equal((await r.api.call("POST", `/sales/v1/orders/${orderId}/cancel`, { token: await r.flow.token(), body: {} })).status, 409);
   assert.equal((await r.api.call("POST", `/platform/v1/orders/${orderId}/cancel`, { token: await ops(r), body: { reason: "GUEST_REQUEST", note: "虚构" } })).status, 409);
   const other = await dispatched(r);
@@ -443,6 +454,7 @@ test("离用车还有 20 小时，一位运营不应该能单独把订单推到�
   r.api.clock.advance(MINUTE);
   const res = await proxy(r, orderId, { type: "picked_up" });
   assert.equal(res.status, 400, `实际 ${res.status}：订单已进入 ${res.body.status}，状态机没有回头路（in_service 只能到 completed）`);
+  assert.equal(res.body.error.details.issues[0].reason, "TOO_EARLY");
 });
 
 // ---- 权限 ----
@@ -476,15 +488,19 @@ test("自建角色：只勾「代传履约 · 查看」不能发起；能发起�
   const proxyOnly = await scopedStaff(r, "只能代传", ALL_FREE, ["orders:view", "order_proxy:view", "order_proxy:edit", "approvals:view"]);
   const asked = await ok(proxy(r, orderId, { type: "completed" }, undefined), 202);
   const res = await decide(r, asked.approval.id, "approve", proxyOnly);
-  assert.deepEqual([res.status, res.body.error.details?.required], [403, "payment.manage"], res.text);
+  assert.deepEqual([res.status, res.body.error.details?.required], [403, "order.proxy_review"], res.text);
 });
 
-test("旧的自建角色：只勾「订单 · 审核」的不能发起代传，但能批准代传完成（现状：审核走 payment.manage，没有单独一格；见报告）", async () => {
+test("旧的自建角色：只勾「订单 · 审核」的不能发起代传，也不能批准（审核单独一格 order_proxy:review，已有角色不会自动多出审批权）；勾了这一格的才能批", async () => {
   const r = shared;
   const { orderId, approvalId } = await pendingCompletion(r);
   const old = await scopedStaff(r, "老的订单审核", ALL_FREE, ["orders:view", "orders:review", "approvals:view"]);
   assert.equal((await proxy(r, orderId, { type: "completed" }, old)).status, 403);
-  await ok(decide(r, approvalId, "approve", old));
+  const refused = await decide(r, approvalId, "approve", old);
+  assert.deepEqual([refused.status, refused.body.error.details?.required], [403, "order.proxy_review"]);
+  assert.equal((await detailOf(r, orderId)).order.status, "in_service");
+  const reviewer = await scopedStaff(r, "代传审核", ALL_FREE, ["orders:view", "order_proxy:view", "order_proxy:review", "approvals:view"]);
+  await ok(decide(r, approvalId, "approve", reviewer));
   assert.equal((await detailOf(r, orderId)).order.status, "completed");
 });
 
@@ -524,17 +540,18 @@ test("规则 4 和隐私：批准后的完成事件，供应商的详情、Webho
   r.api.clock.advance(MINUTE);
   await ok(proxy(r, trip.orderId, { type: "arrived", reason: secretReason }));
   r.api.clock.advance(MINUTE);
-  await ok(proxy(r, trip.orderId, { type: "picked_up", reason: secretReason }));
+  const pickUp = await ok(proxy(r, trip.orderId, { type: "picked_up", reason: secretReason }), 202);
+  await ok(decide(r, pickUp.approval.id, "approve", await financeToken(r)));
   r.api.clock.advance(MINUTE);
   const occurredAt = iso(nowMs(r));
   const asked = await ok(proxy(r, trip.orderId, { type: "completed", reason: secretReason, occurred_at: occurredAt }), 202);
   r.api.clock.advance(MINUTE);
   await ok(decide(r, asked.approval.id, "approve", await financeToken(r)));
-  const forbiddenValues = [secretReason, r.m.staff.operations.id, r.m.staff.operations.email, r.finance.id, r.finance.email, asked.approval.id];
+  const forbiddenValues = [secretReason, r.m.staff.operations.id, r.m.staff.operations.email, r.finance.id, r.finance.email, asked.approval.id, pickUp.approval.id];
 
   const tenantDetail = await r.api.call("GET", `/tenant/v1/orders/${trip.orderId}`, { token: tenantToken });
   for (const value of forbiddenValues) assert.ok(!tenantDetail.text.includes(value), `供应商详情含 ${value}`);
-  for (const key of ["sell", "sell_minor", "markup", "markup_bp", "proxy", "approved_by", "requested_by", "approval_id", "pending_proxy_completion"]) assert.ok(!allKeys(tenantDetail.body).has(key), key);
+  for (const key of ["sell", "sell_minor", "markup", "markup_bp", "proxy", "approved_by", "requested_by", "approval_id", "pending_proxy_review"]) assert.ok(!allKeys(tenantDetail.body).has(key), key);
   const done = tenantDetail.body.events.at(-1);
   assert.deepEqual([done.to_status, done.source, done.occurred_at, done.recorded_at], ["completed", "platform_proxy", occurredAt, iso(nowMs(r))]);
 
@@ -580,7 +597,8 @@ test("原因的内容：NUL 和半个表情 400；500 字通过（出发和发�
   r.api.clock.advance(MINUTE);
   await ok(proxy(r, orderId, { type: "arrived" }));
   r.api.clock.advance(MINUTE);
-  await ok(proxy(r, orderId, { type: "picked_up", reason: "字".repeat(500) }));
+  const pickUp = await ok(proxy(r, orderId, { type: "picked_up", reason: "字".repeat(500) }), 202);
+  await ok(decide(r, pickUp.approval.id, "approve", await financeToken(r)));
   r.api.clock.advance(MINUTE);
   await ok(proxy(r, orderId, { type: "completed", reason: "字".repeat(500) }), 202);
 });

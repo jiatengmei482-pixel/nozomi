@@ -59,7 +59,7 @@ const orderOf = (changes: Partial<PlatformOrder> = {}): PlatformOrder =>
     ...changes,
   }) as PlatformOrder;
 
-const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], records: NO_RECORDS, payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null, ...extra });
+const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], records: NO_RECORDS, payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, ...extra });
 
 async function openDetail(detail: PlatformOrderDetail, role = "readonly"): Promise<void> {
   openApp(`/platform/orders/${ORDER_ID}`, "platform", role, (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, detail) : null));

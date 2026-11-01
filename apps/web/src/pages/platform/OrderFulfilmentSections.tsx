@@ -26,8 +26,11 @@ export function OrderFulfilmentSections({ detail }: { detail: Pick<PlatformOrder
   const assigned = dispatch.assigned_at !== null;
   const unpaid = order.confirmed_at === null;
   const notDispatched = unpaid ? "还没付款，不派车" : "还没派车";
-  /** 这个履约节点是不是平台代传的（ADR 0052）：代传的时间是运营填的，要分得清。 */
-  const proxied = (status: OrderStatus): ReactNode => (events.some((event) => event.to_status === status && event.source === "platform_proxy") ? <> <span className="tag">平台代传</span></> : null);
+  /**
+   * 这个节点现在的时间是不是平台代传的（ADR 0052）：代传的时间是运营填的，要分得清。只看最新这一次：
+   * 代传出发后改派，出发时间被清掉（`at` 为空）；新司机自己再出发的，时间是司机报的。
+   */
+  const proxied = (status: OrderStatus, at: string | null): ReactNode => (at !== null && events.findLast((event) => event.to_status === status)?.source === "platform_proxy" ? <> <span className="tag">平台代传</span></> : null);
   return (
     <>
       <section className="card" aria-labelledby="order-dispatch">
@@ -54,17 +57,17 @@ export function OrderFulfilmentSections({ detail }: { detail: Pick<PlatformOrder
       <section className="card" aria-labelledby="order-fulfilment">
         <h2 className="card__title" id="order-fulfilment">{`履约（当地时间，${zone}）`}</h2>
         <dl className="details">
-          <Item label="司机出发">{at(fulfilment.departed_at)}{proxied("departed")}</Item>
+          <Item label="司机出发">{at(fulfilment.departed_at)}{proxied("departed", fulfilment.departed_at)}</Item>
           <Item label="到达上车点">
             {at(fulfilment.arrived_at)}
             {fulfilment.arrived_at !== null && (fulfilment.arrival_distance_m === null ? "（没有定位）" : `（距上车点 ${fulfilment.arrival_distance_m} 米${fulfilment.arrival_within_range ? "" : "，超过 300 米"}）`)}
-            {proxied("arrived")}
+            {proxied("arrived", fulfilment.arrived_at)}
           </Item>
-          <Item label="接到客人">{at(fulfilment.picked_up_at)}{proxied("in_service")}</Item>
+          <Item label="接到客人">{at(fulfilment.picked_up_at)}{proxied("in_service", fulfilment.picked_up_at)}</Item>
           <Item label="完成">
             {at(fulfilment.completed_at)}
             {fulfilment.actual_minutes !== null && `（实际 ${fulfilment.actual_minutes} 分钟、${fulfilment.actual_km ?? "—"} 公里）`}
-            {proxied("completed")}
+            {proxied("completed", fulfilment.completed_at)}
           </Item>
           {fulfilment.leave_requested_at !== null && <Item label="司机申请离开">{at(fulfilment.leave_requested_at)}</Item>}
         </dl>

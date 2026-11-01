@@ -251,8 +251,8 @@ export interface PlatformOrderDetail {
   rescues: PlatformRescue[];
   exceptions: OrderExceptionRef[];
   tickets: OrderTicketRef[];
-  /** 代传「已完成」在等复核（M4-18）；没有为 null */
-  pending_proxy_completion: { approval_id: string; requested_at: string } | null;
+  /** 下一步的代传（接到客人、完成）在等复核（M4-18）；没有为 null */
+  pending_proxy_review: { approval_id: string; event: "picked_up" | "completed"; requested_at: string } | null;
 }
 
 export interface PlatformOrderQuery {
@@ -333,7 +333,7 @@ export interface ProxyFulfilmentRequest {
   actual?: { minutes: number; km: number };
 }
 
-/** 代供应商回传履约（M4-18）：出发、到达、接到客人立即生效；完成返回一条复核。 */
+/** 代供应商回传履约（M4-18）：出发、到达立即生效；接到客人、完成返回一条复核。 */
 export function reportProxyFulfilment(token: string, id: string, version: number, body: ProxyFulfilmentRequest): Promise<{ order_id: string; status: OrderStatus; version: number } | { approval: Approval }> {
   return apiRequest("POST", `${platformOrder(id)}/events`, { token, body, headers: { "if-match": `"${version}"` } });
 }

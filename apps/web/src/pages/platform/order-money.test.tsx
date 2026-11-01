@@ -123,7 +123,7 @@ const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail
   rescues: [],
   exceptions: [],
   tickets: [],
-  pending_proxy_completion: null,
+  pending_proxy_review: null,
   records: NO_RECORDS,
   ...extra,
 });

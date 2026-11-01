@@ -49,7 +49,7 @@ const orderOf = (changes: Record<string, unknown> = {}): PlatformOrder =>
     settlement: { total: money("19800") },
     ...changes,
   }) as unknown as PlatformOrder;
-const orderDetail = (): PlatformOrderDetail => ({ order: orderOf(), events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null, records: NO_RECORDS });
+const orderDetail = (): PlatformOrderDetail => ({ order: orderOf(), events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, records: NO_RECORDS });
 
 test("新建：从订单进来带着订单；类型、标题、经过必填；提交后去工单详情", async () => {
   const bodies: unknown[] = [];

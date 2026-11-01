@@ -52,6 +52,7 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "tenant.contract": "供应商合同新版本",
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
+  "order.proxy_pick_up": "代供应商回传「已接到客人」",
   "order.proxy_complete": "代供应商回传「已完成」",
   "rescue.manual_assign": "救援改派：人工指定供应商",
   "compensation_table.update": "修改客人赔付表",
@@ -228,7 +229,16 @@ function refundChanges(after: Record<string, unknown>): { label: string; before:
   ];
 }
 
-/** 代传「已完成」（M4-18）：发生时间、为什么、这一单进账单的结算价、包车的实际时长和里程。 */
+/** 代传「已接到客人」（M4-18）：发生时间。 */
+function proxyPickUpChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const zone = typeof after["timezone"] === "string" ? after["timezone"] : "UTC";
+  return [
+    { label: "订单状态", before: "司机已到达", after: "服务中" },
+    { label: "发生时间（当地）", before: "—", after: typeof after["occurred_at"] === "string" ? formatInZone(after["occurred_at"], zone) : "—" },
+  ];
+}
+
+/** 代传「已完成」（M4-18）：发生时间、这一单进账单的结算价、包车的实际时长和里程。 */
 function proxyCompleteChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const zone = typeof after["timezone"] === "string" ? after["timezone"] : "UTC";
   const currency = typeof after["settlement_currency"] === "string" ? after["settlement_currency"] : null;
@@ -336,6 +346,7 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
   if (kind === "cancellation_policy.update") return policyChanges(before, after);
   if (kind === "order.cancel_refund") return refundChanges(after);
+  if (kind === "order.proxy_pick_up") return proxyPickUpChanges(after);
   if (kind === "order.proxy_complete") return proxyCompleteChanges(after);
   if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);
   if (kind === "platform_role.update") return roleChanges(before, after);

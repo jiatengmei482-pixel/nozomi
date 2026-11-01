@@ -1,6 +1,6 @@
 /**
  * 端到端：运营代供应商回传履约（M4-18，ADR 0052）。真实浏览器 → 前端 → 真实 API → 真实 PostgreSQL，不 mock 接口。
- * 供应商已派车 → 运营在订单详情代传出发、到达、接到客人（写原因）→ 流水里标平台代传 → 代传完成提交审核，单子仍在服务中 → 另一位同事批准 → 已完成；
+ * 供应商已派车 → 运营在订单详情代传出发、到达（写原因）→ 接到客人提交审核，另一位同事批准 → 流水里标平台代传 → 代传完成提交审核，单子仍在服务中 → 另一位同事批准 → 已完成；
  * 供应商的订单详情看得到平台代传，看不到原因；只读员工在订单详情没有入口。
  * 端到端测试里没有 Stripe：「已经付过款」的订单由用例用迁移账号直接写进本次运行的 schema（只在测试里构造，运行结束随 schema 删除）。日期跟着今天走。
  */
@@ -143,7 +143,7 @@ async function proxyStep(page: Page, name: string, reason: string): Promise<void
   await expect(dialog).toBeHidden();
 }
 
-test("代传出发、到达、接到客人立即生效；代传完成要另一位同事批准；供应商看得到平台代传、看不到原因；只读员工没有入口", async ({ page, request, browser }) => {
+test("代传出发、到达立即生效；代传接到客人、完成要另一位同事批准；供应商看得到平台代传、看不到原因；只读员工没有入口", async ({ page, request, browser }) => {
   test.setTimeout(120_000);
   const seed = await prepare(request);
   const { id, orderNo } = await seedOrder(seed, { serviceAt: new Date(Date.now() + 3_600_000), completed: false });
@@ -167,7 +167,17 @@ test("代传出发、到达、接到客人立即生效；代传完成要另一�
 
   await proxyStep(page, "司机已出发", reason);
   await proxyStep(page, "司机已到达", reason);
-  await proxyStep(page, "已接到客人", reason);
+  // 接到客人要另一位同事批准（ADR 0052）
+  await page.getByRole("button", { name: "代传「已接到客人」" }).click();
+  const pickUp = page.getByRole("dialog", { name: "代供应商回传：已接到客人" });
+  await expect(pickUp).toContainText("另一位有权限的同事");
+  await pickUp.getByLabel("原因").fill(reason);
+  await pickUp.getByRole("button", { name: "提交审核" }).click();
+  await expect(toast(page, "「已接到客人」才生效")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^代传/ })).toHaveCount(0);
+  await approveApproval(request, await pendingApproval(request, id, "order.proxy_pick_up"));
+  await page.reload();
+  await expect(page.getByRole("button", { name: "代传「已完成」" })).toBeVisible();
   const flow = page.locator("section").filter({ has: page.getByRole("heading", { name: "状态流水" }) });
   await expect(flow.getByText("平台代传")).toHaveCount(3);
   await expect(flow).toContainText(reason);
@@ -178,7 +188,7 @@ test("代传出发、到达、接到客人立即生效；代传完成要另一�
   await expect(done).toContainText("会进供应商账单");
   await done.getByLabel("原因").fill(reason);
   await done.getByRole("button", { name: "提交审核" }).click();
-  await expect(toast(page, "要另一位同事在「待审核」里批准才算完成")).toBeVisible();
+  await expect(toast(page, "「已完成」才生效")).toBeVisible();
   await expect(page.getByRole("link", { name: "去待审核" })).toBeVisible();
   await expect(page.getByRole("button", { name: /^代传/ })).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 800 });

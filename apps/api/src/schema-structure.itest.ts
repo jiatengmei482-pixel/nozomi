@@ -153,7 +153,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_documents: ["INSERT", "SELECT"],
     tenant_files: ["INSERT", "SELECT"],
     tenant_notices: ["SELECT"],
-    tenant_performance_events: ["SELECT"],
+    // 派车、到达由供应商和司机的回传写入；策略只放开这两类（ADR 0052）
+    tenant_performance_events: ["INSERT", "SELECT"],
     // 企业信息：供应商自己填
     tenant_profiles: ["INSERT", "SELECT", "UPDATE"],
     tenant_roles: ["SELECT"],
@@ -360,6 +361,13 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 供应商入驻（ADR 0028）：审核、合同、状态、评分、提醒都是平台跨供应商做的；企业信息平台只读
   "tenant_profiles.tenant_profiles_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   ...Object.fromEntries(["tenant_files", "tenant_documents", "tenant_contracts", "tenant_status_events", "tenant_performance_events", "order_reviews", "tenant_score_daily", "tenant_notices"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
+  // 供应商和司机的回传写评分事件（ADR 0052）：比「限定在当前租户」更窄，投诉和履约失败仍然只有平台能写
+  "tenant_performance_events.tenant_performance_events_tenant_insert": {
+    roles: [TENANT_DB_ROLE],
+    cmd: "a",
+    using: null,
+    check: "((tenant_id = app_tenant_id()) AND (kind = ANY (ARRAY['dispatch'::text, 'arrival'::text])))",
+  },
   "audit_logs.audit_logs_preauth_anonymous": {
     roles: [PREAUTH_DB_ROLE],
     cmd: "a",

@@ -131,7 +131,7 @@ test("320 宽、司机姓名和车型很长、500 字不换行的原因：订单
   const driverToken = await dispatchLong(request, seed, id);
   const headers = await platformAdminHeaders(request);
   const reason = "x".repeat(500);
-  for (const type of ["departed", "arrived", "picked_up"]) {
+  for (const type of ["departed", "arrived"]) {
     const version = (await (await request.get(`/platform/v1/orders/${id}`, { headers })).json()).order.version as number;
     const res = await request.post(`/platform/v1/orders/${id}/events`, { headers: { ...headers, "if-match": `"${version}"` }, data: { type, occurred_at: new Date().toISOString(), reason } });
     expect(res.ok(), await res.text()).toBe(true);

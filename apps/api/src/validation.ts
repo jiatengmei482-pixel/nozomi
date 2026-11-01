@@ -156,6 +156,19 @@ export const pageQuerySchema = z.object({
 });
 
 /** 带时区的 ISO 8601 时间；格式对但换算不出时刻的（时区偏移越界等）也拒绝。 */
+/** 看不见的字符：控制、格式（零宽、双向控制、BOM、软连字符）、空白、组合符号，和几个显示成空白的字母。 */
+const INVISIBLE_CHARACTERS = /[\p{Cc}\p{Cf}\p{Z}\p{M}\u115F\u1160\u2800\u3164\uFFA0]/gu;
+
+/** 去掉看不见的字符后还有没有实际内容。 */
+export function hasVisibleText(value: string): boolean {
+  return value.replace(INVISIBLE_CHARACTERS, "") !== "";
+}
+
+/** 必填的文字（原因、说明）：前后的空白去掉，只有看不见的字符的不算写了（审计里等于没写）。内容原样保存。 */
+export function visibleText(max: number) {
+  return z.string().trim().min(1).max(max).refine(hasVisibleText, { message: "要写实际内容，不能只有空白或看不见的字符" });
+}
+
 export const dateTimeSchema = z
   .string()
   .datetime({ offset: true, message: "不是带时区的 ISO 8601 时间" })

@@ -1,9 +1,9 @@
 /**
  * 运营订单详情「代供应商回传履约」（M4-18，ADR 0052）：供应商系统故障时用。没有 `order.proxy_fulfilment` 的人看不到。
  * 状态只能向前走一步，所以按当前状态只给一个按钮；确认框里写发生时间（城市当地时间）和原因。
- * 「已完成」进供应商账单，提交后要另一位同事在「待审核」里批准才生效。
+ * 「已接到客人」之后客人和运营都不能再取消，「已完成」进供应商账单：这两步提交后要另一位同事在「待审核」里批准才生效。
  */
-import { type FulfilmentEventType, FULFILMENT_EVENT_NAMES, type OrderStatus, PROXY_FULFILMENT_RULES, instantToLocal, localDateTimeToInstant, nextFulfilmentEvent, proxyEventNeedsReview } from "@nozomi/domain";
+import { type FulfilmentEventType, FULFILMENT_EVENT_NAMES, type OrderStatus, PROXY_FULFILMENT_RULES, instantToLocal, localDateTimeToInstant, nextFulfilmentEvent, proxyEarliestHoursBeforeService, proxyEventNeedsReview } from "@nozomi/domain";
 import { useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -62,7 +62,7 @@ function ProxyDialog({ order, type, onClose, onDone, onStale }: { order: Platfor
     setProblem(null);
     try {
       const result = await reportProxyFulfilment(token, order.id, order.version, { type, occurred_at: occurredAt.toISOString(), reason: reason.trim(), ...(needsActual ? { actual: { minutes: actualMinutes as number, km: actualKm as number } } : {}) });
-      onDone("approval" in result ? "已提交：要另一位同事在「待审核」里批准才算完成" : `已代传：${FULFILMENT_EVENT_NAMES[type]}`);
+      onDone("approval" in result ? `已提交：要另一位同事在「待审核」里批准，「${FULFILMENT_EVENT_NAMES[type]}」才生效` : `已代传：${FULFILMENT_EVENT_NAMES[type]}`);
     } catch (err) {
       if (handleAuthFailure(err)) return;
       // 这一单刚被别人动过：关掉确认框看最新的状态，不在旧内容上重试
@@ -92,7 +92,7 @@ function ProxyDialog({ order, type, onClose, onDone, onStale }: { order: Platfor
       }
     >
       <p>只在供应商系统故障、无法自己回传时使用。</p>
-      <TextField label={`发生时间（当地，${zone}）`} type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} hint={`实际发生的时间，不能晚于现在，也不能早于上一步；${PROXY_FULFILMENT_RULES.maxBackdateDays} 天以前的请走工单。`} />
+      <TextField label={`发生时间（当地，${zone}）`} type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} hint={`实际发生的时间，不能晚于现在，不能早于上一步，也不能早于用车前 ${proxyEarliestHoursBeforeService(type)} 小时；${PROXY_FULFILMENT_RULES.maxBackdateDays} 天以前的请走工单。`} />
       <TextField label="原因" value={reason} maxLength={PROXY_FULFILMENT_RULES.reasonMax} onChange={(event) => setReason(event.target.value)} hint="如「供应商调度系统故障，已电话和司机确认」。只有平台能看到，记进审计日志。" />
       {needsActual && (
         <>
@@ -102,14 +102,14 @@ function ProxyDialog({ order, type, onClose, onDone, onStale }: { order: Platfor
       )}
       <p className="field__hint">供应商看得到这一步是平台代传的，以及发生时间和系统记录时间；看不到原因和操作人。</p>
       {type === "arrived" && <Alert kind="warning">代传的「已到达」没有司机定位：这一单之后不能再提交客人未出现（no-show）。司机还能打开链接的话，请让司机自己点。</Alert>}
-      {type === "picked_up" && <Alert kind="warning">接到客人之后，这一单不能再取消，也不能再提交客人未出现（no-show）。</Alert>}
-      {needsReview && <Alert kind="warning">已完成的单会进供应商账单，而且不能撤销：提交后要另一位有权限的同事（财务或运营）批准才生效。</Alert>}
+      {type === "picked_up" && <Alert kind="warning">接到客人之后，这一单不能再取消，也不能再提交客人未出现（no-show），而且不能撤销：提交后要另一位有权限的同事（财务或运营）批准才生效。</Alert>}
+      {type === "completed" && <Alert kind="warning">已完成的单会进供应商账单，而且不能撤销：提交后要另一位有权限的同事（财务或运营）批准才生效。事后加收和投诉的时限从批准时算起。</Alert>}
       {problem !== null && <Alert kind="danger">{problem}</Alert>}
     </Dialog>
   );
 }
 
-export function ProxyFulfilmentSection({ detail, onChanged }: { detail: Pick<PlatformOrderDetail, "order" | "pending_proxy_completion">; onChanged(): void }) {
+export function ProxyFulfilmentSection({ detail, onChanged }: { detail: Pick<PlatformOrderDetail, "order" | "pending_proxy_review">; onChanged(): void }) {
   const canProxy = usePlatformCan("order.proxy_fulfilment");
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -118,7 +118,7 @@ export function ProxyFulfilmentSection({ detail, onChanged }: { detail: Pick<Pla
   const next = nextFulfilmentEvent(order.status);
   const waiting = WAITING_TEXT[order.status];
   if (next === null && waiting === undefined) return null;
-  const pending = detail.pending_proxy_completion;
+  const pending = detail.pending_proxy_review;
   const finish = (text: string): void => {
     setOpen(false);
     toast(text);
@@ -131,7 +131,7 @@ export function ProxyFulfilmentSection({ detail, onChanged }: { detail: Pick<Pla
       </h2>
       {pending !== null ? (
         <Alert kind="info">
-          代传「已完成」在等另一位同事批准，批准后才算完成。
+          {`代传「${FULFILMENT_EVENT_NAMES[pending.event]}」在等另一位同事批准，批准后才生效。`}
           <Link className="link" to={APPROVALS_PAGE_PATH}>
             去待审核
           </Link>

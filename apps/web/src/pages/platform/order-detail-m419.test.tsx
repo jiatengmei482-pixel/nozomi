@@ -52,7 +52,7 @@ const orderOf = (changes: Partial<PlatformOrder> = {}): PlatformOrder =>
     ...changes,
   }) as PlatformOrder;
 
-const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], records: NO_RECORDS, payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null, ...extra });
+const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], records: NO_RECORDS, payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, ...extra });
 const landing = { scheduled_at: "2026-10-20T01:00:00.000Z", guest_reported_at: null, driver_reported_at: null, driver_photo_file_id: null, landed_at: "2026-10-20T01:00:00.000Z", source: "scheduled" as const, disagreement: false, delay_minutes: 0, within_delay_allowance: true };
 
 async function openDetail(detail: PlatformOrderDetail, role = "readonly"): Promise<void> {
@@ -147,7 +147,7 @@ test("待审核页的说明和空状态列出了启用收款账户、生成转�
   openApp("/platform/approvals", "platform", "finance", (call) => (call.method === "GET" && call.url.pathname === "/platform/v1/approvals" ? json(200, { items: [], next_cursor: null, total: 0 }) : null));
   const empty = await screen.findByRole("heading", { name: "没有待审核的改动" });
   const page = document.body.textContent ?? "";
-  for (const text of ["启用收款账户", "生成转账文件", "代供应商回传「已完成」"]) assert.ok(page.includes(text), text);
+  for (const text of ["启用收款账户", "生成转账文件", "代供应商回传「已接到客人」「已完成」"]) assert.ok(page.includes(text), text);
   assert.match(empty.parentElement?.textContent ?? "", /启用收款账户、生成转账文件/);
 });
 
