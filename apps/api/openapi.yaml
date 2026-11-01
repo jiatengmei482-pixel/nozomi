@@ -7624,8 +7624,9 @@ paths:
       description: |
         供应商系统故障时用（需求「人工介入能力」，ADR 0052）。需要操作 `order.proxy_fulfilment`（运营、超级管理员），`If-Match` 带订单版本，必须写原因和发生时间。
         和供应商、司机的回传同一套状态机：`departed` → `arrived` → `picked_up` → `completed`，不能跳步、不能重复；未付款、已取消、待派车、救援中、no-show 待审核的单一律 409 `ORDER_STATE_INVALID`。
-        不接受定位：代传的「已到达」没有定位，不能作为 no-show 的证据。`departed`、`arrived`、`picked_up` 立即生效（200）。
-        `completed` 不直接生效：返回 202 和一条复核（`kind` = `order.proxy_complete`），另一位有 `payment.manage` 的同事批准时才完成（已完成的单进供应商账单、是终态）。
+        不接受定位：代传的「已到达」没有定位，不能作为 no-show 的证据。`departed`、`arrived` 立即生效（200）。
+        `picked_up`、`completed` 不直接生效：返回 202 和一条复核（`kind` 分别是 `order.proxy_pick_up`、`order.proxy_complete`），另一位有 `order.proxy_review` 的同事批准时才生效（服务中不可逆，已完成的单进供应商账单、是终态）。
+        代传的到达不计入供应商的准时到达率。代传完成后，事后加收窗口和客人投诉时限从批准生效的时间起算。
         状态流水和供应商看到的事件标明 `source: platform_proxy`；原因和操作人只有运营后台看得到。写审计日志。
         限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
       security:
@@ -7660,12 +7661,12 @@ paths:
                 occurred_at:
                   type: string
                   format: date-time
-                  description: 实际发生的时间。不能晚于现在、不能早于上一个履约节点、不能早于用车前 24 小时、不能早于 7 天前（400 `VALIDATION_FAILED`，`details.issues[].reason` 是 `IN_FUTURE`、`BEFORE_PREVIOUS`、`TOO_EARLY`、`TOO_OLD`）
+                  description: 实际发生的时间。不能晚于现在、不能早于上一个履约节点、不能早于用车前 24 小时（`picked_up`、`completed` 是 3 小时）、不能早于 7 天前（400 `VALIDATION_FAILED`，`details.issues[].reason` 是 `IN_FUTURE`、`BEFORE_PREVIOUS`、`TOO_EARLY`、`TOO_OLD`）
                 reason:
                   type: string
                   minLength: 1
                   maxLength: 500
-                  description: 为什么要代传。写进审计日志，供应商看不到
+                  description: 为什么要代传，去掉看不见的字符（零宽、控制、双向控制、BOM、软连字符）后要有实际内容。写进审计日志，供应商看不到
                 actual:
                   type:
                     - object
@@ -7710,7 +7711,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`ORDER_STATE_INVALID`：`details.status`、`details.action`；`VERSION_CONFLICT`：订单已被改过；`PROXY_COMPLETION_PENDING`：这一单已有一条代传完成在等复核"
+          description: "`ORDER_STATE_INVALID`：`details.status`、`details.action`；`VERSION_CONFLICT`：订单已被改过；`PROXY_REVIEW_PENDING`：这一单的这一步已有一条代传在等复核"
           content:
             application/json:
               schema:
@@ -8234,19 +8235,25 @@ paths:
                       $ref: "#/components/schemas/OrderEvent"
                   records:
                     $ref: "#/components/schemas/OrderRecords"
-                  pending_proxy_completion:
+                  pending_proxy_review:
                     type:
                       - object
                       - "null"
                     additionalProperties: false
-                    description: 这一单有平台代传「已完成」在等复核时才有（ADR 0052）；此时不能再发起
+                    description: 这一单的下一步（接到客人、完成）有平台代传在等复核时才有（ADR 0052）；此时不能再发起
                     required:
                       - approval_id
+                      - event
                       - requested_at
                     properties:
                       approval_id:
                         type: string
                         format: uuid
+                      event:
+                        type: string
+                        enum:
+                          - picked_up
+                          - completed
                       requested_at:
                         type: string
                         format: date-time
@@ -15059,6 +15066,7 @@ components:
             - tenant.contract
             - cancellation_policy.update
             - order.cancel_refund
+            - order.proxy_pick_up
             - order.proxy_complete
             - rescue.manual_assign
             - platform_role.update
@@ -15068,7 +15076,7 @@ components:
             - bank_file.generate
             - compensation_table.update
             - ticket.decision
-          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）；`order.proxy_complete` 是平台代供应商回传「已完成」（`resource_id` 是订单编号，ADR 0052）
+          description: 哪一类操作（`fx_lock.*` 是汇率人工锁定 / 解锁，`resource_id` 是币种；`rescue.manual_assign` 是人工指定救援供应商；`tenant.*` 是供应商的人工暂停、清退、合同版本，`resource_id` 是供应商编号；`platform_role.update` 是修改自建角色，`resource_id` 是角色键；`staff.mfa_reset` 是重置员工的两步验证，`resource_id` 是员工编号；`statement.payout` 是付款给供应商，`resource_id` 是账单编号）；`compensation_table.update` 是改客人赔付表（`resource_id` 为 platform），`ticket.decision` 是赔付达到复核阈值的工单判定（`resource_id` 是工单编号，ADR 0034）；`order.proxy_pick_up`、`order.proxy_complete` 是平台代供应商回传「已接到客人」「已完成」（`resource_id` 是订单编号，ADR 0052）
         resource:
           type: string
           description: 改的是什么（如 `channel`）
@@ -16713,6 +16721,7 @@ components:
         - order.resend
         - order.manage
         - order.proxy_fulfilment
+        - order.proxy_review
         - payment.manage
         - cancellation_policy.manage
         - cancellation_policy.review

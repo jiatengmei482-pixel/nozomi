@@ -2,18 +2,19 @@
  * 履约回传（M3-02，ADR 0027）：出发、到达、接到客人、完成。司机 H5 和供应商的调度系统（`POST /tenant/v1/orders/{id}/events`）走同一套规则。
  *
  * - 状态按顺序走（@nozomi/domain 的 `orderTransitionAllowed`），跳步、重复、在错误的状态下回传都是 409 `ORDER_STATE_INVALID`；
- * - 时间一律用系统收到的时间（不认手机时钟）；带了定位就记一条定位，「已到达」还算出距上车点多少米（no-show 第 1 项）；
+ * - 时间一律用系统收到的时间（不认手机时钟）；已到达记一条评分事件（准时到达率）；带了定位就记一条定位，「已到达」还算出距上车点多少米（no-show 第 1 项）；
  * - 包车完成时必须上报实际时长和里程（超时、超公里的依据，需求「完成时填实际时长和公里」），其他品类选填；
  * - 每次状态变化记一条状态流水，并给供应商排一条 `order.status_changed` 推送。
  * 平台代传（M4-18，ADR 0052）也走这里，多带一个 `ProxyMark`：履约时间和流水用运营填的发生时间，流水和推送标明来源。
  */
-import { FULFILMENT_EVENTS, type FulfilmentEventType, type OrderStatus, distanceToPickupMeters, orderOperableByTenant, orderTransitionAllowed } from "@nozomi/domain";
+import { FULFILMENT_EVENTS, type FulfilmentEventType, type OrderStatus, arrivalOnTime, distanceToPickupMeters, orderOperableByTenant, orderTransitionAllowed } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { type FulfilmentChange, type LocationKind, findPlace, insertOrderLocation, updateFulfilment } from "../repos/dispatch.ts";
 import { type Order, type OrderEventActor, insertOrderEvent } from "../repos/orders.ts";
 import { validationFailed } from "../validation.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
+import { recordPerformanceEvent } from "../repos/tenant-onboarding.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 export { FULFILMENT_EVENTS };
@@ -109,11 +110,14 @@ export async function applyFulfilmentEvent(db: Db, order: Order, input: Fulfilme
   if (input.type === "completed") {
     assertCompletionActual(order, input);
     change.completedAt = at;
+    change.completedRecordedAt = now;
     change.actualMinutes = input.actual?.minutes ?? null;
     change.actualKm = input.actual?.km ?? null;
   }
   await updateFulfilment(db, order.tenantId, order.id, change, now);
   if (input.location !== null) await insertOrderLocation(db, order.tenantId, order.id, { kind: input.type as LocationKind, ...input.location, recordedAt: now }, actor.linkId);
   await recordStatusChange(db, order, to, { type: actor.type, detail: actor.type === "driver" ? { link_id: actor.id } : { user_id: actor.id } }, input.type.toUpperCase(), now, proxy);
+  // 准时到达率（ADR 0028）：供应商和司机自己回传才算；代传的时间是运营填的，不计入，避免被刷（ADR 0052）
+  if (input.type === "arrived" && proxy === null) await recordPerformanceEvent(db, { tenantId: order.tenantId, orderId: order.id, kind: "arrival", onTime: arrivalOnTime(now, order.serviceAt), occurredAt: now, now });
   if (input.type === "arrived") await enqueueNotification(db, { event: "order.driver_arrived", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.driver_arrived:${order.id}:${order.dispatch.assignedAt?.getTime() ?? 0}` }, now);
 }

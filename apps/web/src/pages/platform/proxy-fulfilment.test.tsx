@@ -52,7 +52,7 @@ const orderOf = (changes: Partial<PlatformOrder> = {}): PlatformOrder =>
     ...changes,
   }) as PlatformOrder;
 
-const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null, ...extra });
+const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, ...extra });
 const PATH = `/platform/orders/${ORDER_ID}`;
 const API = `/platform/v1/orders/${ORDER_ID}`;
 
@@ -118,7 +118,7 @@ test("确认框：原因必填；提交带版本号、当地时间换算成的�
   await waitFor(() => assert.ok(calls.filter((call) => call.method === "GET" && call.path.split("?")[0] === API).length >= 2, "成功后重新取"));
 });
 
-test("已到达、接到客人写明对 no-show 和取消的影响；完成写明要复核，提交后提示去待审核", async () => {
+test("已到达写明对 no-show 的影响；接到客人、完成写明不可撤销、要另一位审核，提交后提示去待审核", async () => {
   const user = userEvent.setup();
   open(detailOf(orderOf({ status: "departed" })), "operations");
   await heading();
@@ -126,21 +126,27 @@ test("已到达、接到客人写明对 no-show 和取消的影响；完成写�
   assert.match((await screen.findByRole("dialog")).textContent ?? "", /没有司机定位：这一单之后不能再提交客人未出现/);
   resetBrowser();
 
-  open(detailOf(orderOf({ status: "arrived" })), "operations");
+  const pickUp = open(detailOf(orderOf({ status: "arrived" })), "operations", () => json(202, { approval: { id: "a0", kind: "order.proxy_pick_up" } }));
   await heading();
   await user.click(screen.getByRole("button", { name: "代传「已接到客人」" }));
-  assert.match((await screen.findByRole("dialog")).textContent ?? "", /不能再取消，也不能再提交客人未出现/);
+  const pickUpDialog = await screen.findByRole("dialog", { name: "代供应商回传：已接到客人" });
+  assert.match(pickUpDialog.textContent ?? "", /不能再取消，也不能再提交客人未出现.*另一位有权限的同事/);
+  assert.match(pickUpDialog.textContent ?? "", /不能早于用车前 3 小时/);
+  await user.type(within(pickUpDialog).getByLabelText("原因"), "故障");
+  await user.click(within(pickUpDialog).getByRole("button", { name: "提交审核" }));
+  assert.ok(await screen.findByText(/要另一位同事在「待审核」里批准，「已接到客人」才生效/));
+  assert.equal(pickUp.filter((call) => call.method === "POST").length, 1);
   resetBrowser();
 
   const calls = open(detailOf(orderOf({ status: "in_service" })), "operations", () => json(202, { approval: { id: "a1", kind: "order.proxy_complete" } }));
   await heading();
   await user.click(screen.getByRole("button", { name: "代传「已完成」" }));
   const dialog = await screen.findByRole("dialog", { name: "代供应商回传：已完成" });
-  assert.match(dialog.textContent ?? "", /会进供应商账单.*另一位有权限的同事/);
+  assert.match(dialog.textContent ?? "", /会进供应商账单.*另一位有权限的同事.*从批准时算起/);
   assert.equal(within(dialog).queryByLabelText("实际时长（分钟）"), null, "接机不用填");
   await user.type(within(dialog).getByLabelText("原因"), "故障");
   await user.click(within(dialog).getByRole("button", { name: "提交审核" }));
-  assert.ok(await screen.findByText(/要另一位同事在「待审核」里批准才算完成/));
+  assert.ok(await screen.findByText(/要另一位同事在「待审核」里批准，「已完成」才生效/));
   assert.equal(calls.filter((call) => call.method === "POST").length, 1);
 });
 
@@ -162,10 +168,10 @@ test("包车完成要填实际时长和里程；不填不提交", async () => {
 });
 
 test("复核中：不显示按钮，写明在等批准并能去待审核", async () => {
-  open(detailOf(orderOf({ status: "in_service" }), { pending_proxy_completion: { approval_id: "a1", requested_at: "2026-10-20T03:00:00.000Z" } }), "operations");
+  open(detailOf(orderOf({ status: "in_service" }), { pending_proxy_review: { approval_id: "a1", event: "completed", requested_at: "2026-10-20T03:00:00.000Z" } }), "operations");
   await heading();
   assert.equal(screen.queryByRole("button", { name: /^代传/ }), null);
-  assert.ok(screen.getByText(/在等另一位同事批准/));
+  assert.ok(screen.getByText("代传「已完成」在等另一位同事批准，批准后才生效。"));
   assert.equal(screen.getByRole("link", { name: "去待审核" }).getAttribute("href"), "/platform/approvals");
 });
 
@@ -201,6 +207,7 @@ test("运营的状态流水：代传的标「平台代传」，有系统记录�
   const items = within(flow).getAllByRole("listitem");
   assert.doesNotMatch(items[0]?.textContent ?? "", /平台代传/);
   assert.match(items[1]?.textContent ?? "", /平台代传 系统记录 .*；原因：供应商系统故障/);
+  assert.doesNotMatch(flow.textContent ?? "", /DEPARTED|ASSIGNED/, "不把内部代码给人看");
 });
 
 test("供应商的状态流水：看得到「平台代传」和系统记录时间", async () => {

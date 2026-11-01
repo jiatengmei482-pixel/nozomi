@@ -20,6 +20,7 @@ export interface FulfilmentChange {
   arrivalDistanceM?: number | null;
   pickedUpAt?: Date;
   completedAt?: Date;
+  completedRecordedAt?: Date;
   actualMinutes?: number | null;
   actualKm?: number | null;
   leaveRequestedAt?: Date;
@@ -39,6 +40,7 @@ const FULFILMENT_COLUMNS: Readonly<Record<keyof FulfilmentChange, string>> = {
   arrivalDistanceM: "arrival_distance_m",
   pickedUpAt: "picked_up_at",
   completedAt: "completed_at",
+  completedRecordedAt: "completed_recorded_at",
   actualMinutes: "actual_minutes",
   actualKm: "actual_km",
   leaveRequestedAt: "leave_requested_at",

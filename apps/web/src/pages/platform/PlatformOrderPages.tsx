@@ -60,6 +60,7 @@ import {
   extraTypeName,
   levelName,
   orderCancelReasonText,
+  orderEventNote,
   paymentStatusName,
   platformOrderPath,
   tiersText,
@@ -703,7 +704,7 @@ export function PlatformOrderDetailPage() {
           {detail.events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>
               <time dateTime={event.occurred_at}>{formatLocalDateTime(event.occurred_at)}</time>
-              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${event.reason ? `（${event.to_status === "cancelled" ? orderCancelReasonText(event.reason, order.confirmed_at !== null) : cancelReasonName(event.reason)}）` : ""}`}
+              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${orderEventNote(event, order.confirmed_at !== null)}`}
               {event.source === "platform_proxy" && (
                 <>
                   {" "}

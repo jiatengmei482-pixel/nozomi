@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FULFILMENT_EVENTS,
+  arrivalOnTime,
+  proxyTimeIssueMessage,
   LANDING_SOURCES,
   LANDING_SOURCE_NAMES,
   EVIDENCE_FILE_RULES,
@@ -191,8 +193,8 @@ test("平台代传（M4-18，ADR 0052）：下一步按状态只有一个；待�
   for (const status of ["pending_payment", "confirmed", "completed", "no_show_claimed", "no_show", "cancelled", "rescue_pending", "rescued"] as const) assert.equal(nextFulfilmentEvent(status), null, status);
 });
 
-test("平台代传：只有「已完成」要复核", () => {
-  assert.deepEqual(FULFILMENT_EVENTS.filter(proxyEventNeedsReview), ["completed"]);
+test("平台代传：「已接到客人」「已完成」要复核，出发、到达不用", () => {
+  assert.deepEqual(FULFILMENT_EVENTS.filter(proxyEventNeedsReview), ["picked_up", "completed"]);
 });
 
 test("平台代传的发生时间：不晚于现在（不留误差）、不早于上一个节点、不早于用车前 24 小时、不早于 7 天前，边界都算合规", () => {
@@ -217,4 +219,26 @@ test("平台代传的发生时间：不晚于现在（不留误差）、不早�
 test("代传的「已到达」没有定位，no-show 第 1 项不成立：把到达时间填得再早也不行（ADR 0052）", () => {
   const facts = { serviceAt: new Date("2026-11-10T10:00:00Z"), freeWait: freeWaitWindow(new Date("2026-11-10T10:00:00Z"), 60), arrivedAt: new Date("2026-11-10T09:00:00Z"), arrivalDistanceMeters: null, contactAttempts: [], signboardPhotoAt: null, leaveRequestedAt: null, now: new Date("2026-11-10T11:00:00Z") };
   assert.equal(noShowChecklist(facts).items.find((entry) => entry.item === "arrived_on_time_nearby")?.ok, false);
+});
+
+test("平台代传的接到客人、完成：最早是用车前 3 小时；出发、到达仍是 24 小时；提示写的是对应的小时数", () => {
+  const now = new Date("2026-11-10T12:00:00Z");
+  const serviceAt = new Date("2026-11-10T15:00:00Z");
+  const issue = (occurredAt: string, type: (typeof FULFILMENT_EVENTS)[number], at = serviceAt) => proxyFulfilmentTimeIssue({ occurredAt: new Date(occurredAt), previousAt: null, serviceAt: at, now, type });
+  assert.equal(issue("2026-11-10T12:00:00Z", "picked_up"), null);
+  assert.equal(issue("2026-11-10T11:59:59.999Z", "picked_up"), "TOO_EARLY");
+  assert.equal(issue("2026-11-10T11:59:59.999Z", "completed"), "TOO_EARLY");
+  const far = new Date("2026-11-11T08:00:00Z");
+  assert.equal(issue("2026-11-10T12:00:00Z", "picked_up", far), "TOO_EARLY");
+  assert.equal(issue("2026-11-10T12:00:00Z", "completed", far), "TOO_EARLY");
+  assert.equal(issue("2026-11-10T12:00:00Z", "departed", far), null);
+  assert.equal(issue("2026-11-10T12:00:00Z", "arrived", far), null);
+  assert.match(proxyTimeIssueMessage("TOO_EARLY", "picked_up"), /前 3 小时/);
+  assert.match(proxyTimeIssueMessage("TOO_EARLY", "arrived"), /前 24 小时/);
+});
+
+test("准时到达：不晚于用车时间算准时", () => {
+  const serviceAt = new Date("2026-11-10T10:00:00Z");
+  assert.equal(arrivalOnTime(new Date("2026-11-10T10:00:00Z"), serviceAt), true);
+  assert.equal(arrivalOnTime(new Date("2026-11-10T10:00:00.001Z"), serviceAt), false);
 });

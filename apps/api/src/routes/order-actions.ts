@@ -12,7 +12,7 @@
  * 运营后台（`/platform/v1`）：
  * - `GET /platform/v1/cancellation-policy`、`POST …/cancellation-policy/changes`（双人复核）；
  * - `GET /platform/v1/orders/{id}/cancel-fee`、`POST …/cancel`（多退了钱的发起双人复核）、`PATCH …/orders/{id}`（代客人改单）；
- * - `POST /platform/v1/orders/{id}/events`：代供应商回传履约（ADR 0052；「已完成」发起双人复核）；
+ * - `POST /platform/v1/orders/{id}/events`：代供应商回传履约（ADR 0052；「已接到客人」「已完成」发起双人复核）；
  * - `POST …/extra-charges/{chargeId}/decide`（审核）、`POST …/extra-charges/{chargeId}/retry`、`POST …/refunds/{refundId}/retry`（财务重试）。
  * 运营后台按订单的接口都先核对数据范围（ADR 0030：订单的城市、渠道），范围外的和不存在一样；取消政策是全平台的，不按范围。
  */
@@ -38,7 +38,7 @@ import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine } from "../validation.ts";
+import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine, visibleText } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
 import { fileJson } from "./orders.ts";
 import { salesOrderJson } from "./sales.ts";
@@ -66,7 +66,7 @@ const proxyFulfilmentSchema = z
   .object({
     type: z.enum(FULFILMENT_EVENTS),
     occurred_at: dateTimeSchema,
-    reason: z.string().trim().min(1).max(PROXY_FULFILMENT_RULES.reasonMax),
+    reason: visibleText(PROXY_FULFILMENT_RULES.reasonMax),
     actual: z.object({ minutes: z.number().int().min(0).max(10_080).nullable().default(null), km: z.number().int().min(0).max(5_000).nullable().default(null) }).strict().nullable().default(null),
   })
   .strict();
