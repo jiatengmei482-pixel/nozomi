@@ -413,8 +413,8 @@ export async function addPlatformMessage(ctx: AppContext, principal: PlatformPri
     if (ticket.status === "closed" || (!input.internal && !toGuest && !ticketActive(ticket.status))) throw ticketStateInvalid(ticket, toGuest ? "guest_reply" : input.internal ? "note" : "message");
     if (toGuest && ticket.source !== "guest" && ticket.source !== "channel") throw validationFailed("body", [{ path: "/to_guest", reason: "NOT_GUEST_TICKET", message: "只有客人、渠道提的工单能回复客人" }]);
     if (input.internal || toGuest) await insertTicketNote(db, ticket.id, principal.user.id, input.body, now, toGuest);
-    if (toGuest && ticket.orderId !== null) await enqueueNotification(db, { event: "ticket.guest_reply", tenantId: ticket.tenantId, orderId: ticket.orderId, dedupeKey: `ticket.guest_reply:${ticket.id}:${now.getTime()}`, data: { ticket_no: ticket.ticketNo } }, now);
     else await insertTicketMessage(db, ticket, { authorType: "platform_user", authorId: principal.user.id, body: input.body, fileIds: [] }, now);
+    if (toGuest && ticket.orderId !== null) await enqueueNotification(db, { event: "ticket.guest_reply", tenantId: ticket.tenantId, orderId: ticket.orderId, dedupeKey: `ticket.guest_reply:${ticket.id}:${now.getTime()}`, data: { ticket_no: ticket.ticketNo } }, now);
     const updated = await mustUpdate(db, ticket, { status: ticket.status === "open" ? "in_progress" : ticket.status, firstRespondedAt: ticket.firstRespondedAt ?? now }, now);
     await auditTicket(db, origin, updated, toGuest ? "reply" : input.internal ? "note" : "reply", null, { ticket_no: ticket.ticketNo, internal: input.internal, to_guest: toGuest, body: input.body });
     return updated;
