@@ -5,6 +5,7 @@
  */
 import { ORDER_CANCEL_REASONS } from "./cancellation.ts";
 import { maskEmail } from "./notifications.ts";
+import { normalizePhone } from "./orders.ts";
 import { tenantDayStart } from "./tenants.ts";
 
 export interface PassengerContact {
@@ -19,6 +20,97 @@ export const ANONYMIZED_PASSENGER: Readonly<PassengerContact> = { name: ANONYMIZ
 
 export function isAnonymizedPassenger(passenger: { name: string }): boolean {
   return passenger.name === ANONYMIZED_TEXT;
+}
+
+/** 第 6 步（ADR 0057）之后明文列里的占位：真正的内容只在密文列里。和脱敏占位不同，这一行的乘客信息还在。 */
+export const ENCRYPTED_TEXT = "[已加密]";
+export const ENCRYPTED_PASSENGER: Readonly<PassengerContact> = { name: ENCRYPTED_TEXT, phone: ENCRYPTED_TEXT, email: ENCRYPTED_TEXT };
+
+/** 解不开时列表里显示的内容（ADR 0057）：只用于显示，不会写回库里。 */
+export const UNREADABLE_TEXT = "无法读取";
+export const UNREADABLE_PASSENGER: Readonly<PassengerContact> = { name: UNREADABLE_TEXT, phone: UNREADABLE_TEXT, email: UNREADABLE_TEXT };
+
+/** 这段文字恰好是占位：不是这位客人的内容，不能当姓名找。 */
+export function isPassengerPlaceholder(text: unknown): boolean {
+  return text === ANONYMIZED_TEXT || text === ENCRYPTED_TEXT || text === UNREADABLE_TEXT;
+}
+
+/** 客人不能提交的联系方式：恰好是占位（全角、首尾空白算同一个），否则分不清是客人写的还是占位（ADR 0057）。 */
+export function isReservedPassengerText(text: string): boolean {
+  const normalized = text.normalize("NFKC").trim();
+  return normalized === ANONYMIZED_TEXT || normalized === ENCRYPTED_TEXT;
+}
+
+function allFieldsAre(value: unknown, text: string): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const passenger = value as Record<string, unknown>;
+  return passenger["name"] === text && passenger["phone"] === text && passenger["email"] === text;
+}
+
+/** 这个乘客对象恰好是加密占位：三项都是。只有姓名是占位字样的是客人写的内容（历史数据），电话、邮箱是真的。 */
+export function isEncryptedPlaceholderPassenger(value: unknown): boolean {
+  return allFieldsAre(value, ENCRYPTED_TEXT);
+}
+
+/** 这个乘客对象恰好是占位（加密或脱敏），没有可加密的内容。 */
+export function isPlaceholderPassenger(value: unknown): boolean {
+  return allFieldsAre(value, ENCRYPTED_TEXT) || allFieldsAre(value, ANONYMIZED_TEXT);
+}
+
+/** 盲索引的规范化（ADR 0057）。邮箱和电话的规则就是官网找回订单的核对规则，两边共用这里，不会不一致。 */
+export function normalizeEmailForIndex(email: string): string {
+  return email.normalize("NFKC").trim().toLowerCase();
+}
+
+export function normalizePhoneForIndex(phone: string): string {
+  return normalizePhone(phone.normalize("NFKC").trim());
+}
+
+/** 姓名：NFKC、不分大小写、去掉所有空白（「王 小明」「王小明」算同一个）。 */
+export function normalizeNameForIndex(name: string): string {
+  return name.normalize("NFKC").toLowerCase().replace(/\s+/gu, "");
+}
+
+export type ContactIndexKind = "email" | "phone" | "name";
+
+/** 官网找回订单时客人填的联系方式：像邮箱的（有 @）按邮箱，其余按电话。电话少于 6 位的不算（ADR 0032）。 */
+export function contactLookupKey(contact: string): { kind: "email" | "phone"; value: string } | null {
+  const given = contact.normalize("NFKC").trim();
+  if (given === "") return null;
+  if (given.includes("@")) return { kind: "email", value: normalizeEmailForIndex(given) };
+  const phone = normalizePhoneForIndex(given);
+  return phone.length >= 6 ? { kind: "phone", value: phone } : null;
+}
+
+/** 内容里任何一层有没有 `passenger`：有的才要进密文列。 */
+export function containsPassenger(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsPassenger);
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(([key, item]) => (key === "passenger" && typeof item === "object" && item !== null) || containsPassenger(item));
+}
+
+/** 内容里每一层的 `passenger` 换成 `replacement`，别的键不动。 */
+export function replacePassengers<T>(value: T, replacement: Readonly<PassengerContact>): T {
+  if (Array.isArray(value)) return value.map((item) => replacePassengers(item, replacement)) as T;
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === "passenger" && typeof item === "object" && item !== null ? { ...replacement } : replacePassengers(item, replacement)])) as T;
+}
+
+/** 内容里出现的每个 `passenger`（顺序同遍历）。 */
+function passengersIn(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.flatMap(passengersIn);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value).flatMap(([key, item]) => (key === "passenger" && typeof item === "object" && item !== null ? [item] : passengersIn(item)));
+}
+
+/** 这段内容里有恰好是占位的乘客（按字段判断，别的字段里出现这几个字不算）。 */
+export function passengersArePlaceholders(value: unknown): boolean {
+  return passengersIn(value).some(isPlaceholderPassenger);
+}
+
+/** 这段内容里有恰好是加密占位的乘客：真内容只在密文列里。 */
+export function hasEncryptedPlaceholderPassenger(value: unknown): boolean {
+  return passengersIn(value).some(isEncryptedPlaceholderPassenger);
 }
 
 /** 按字符（不是 UTF-16 单元）留第一个字，其余换成两个星号；只有一个字的全打码。 */
@@ -132,6 +224,7 @@ export function maskContactsInText(text: string, passengerName: string | null = 
 
 export function maskPassenger(passenger: PassengerContact): PassengerContact {
   if (isAnonymizedPassenger(passenger)) return { ...ANONYMIZED_PASSENGER };
+  if (passenger.name === UNREADABLE_TEXT) return { ...UNREADABLE_PASSENGER };
   return { name: maskName(passenger.name), phone: maskPhone(passenger.phone), email: maskEmail(passenger.email) };
 }
 
@@ -197,7 +290,7 @@ function passengerNamesIn(value: JsonLike): string[] {
 export function maskOrderValues<T>(values: T, known: string | readonly string[] | null = null): T {
   const given = known === null ? [] : typeof known === "string" ? [known] : known;
   // 已经打过码的姓名（旧审计再打一次时带的）不能再当姓名找，否则星号会被当成姓名的一部分
-  const names = [...new Set<string | null>([...given, ...passengerNamesIn(values)])].filter((item): item is string => item !== null && item !== ANONYMIZED_TEXT && item !== "" && !item.includes("*"));
+  const names = [...new Set<string | null>([...given, ...passengerNamesIn(values)])].filter((item): item is string => item !== null && !isPassengerPlaceholder(item) && item !== "" && !item.includes("*"));
   return mapOrderValues(
     values,
     (passenger) => maskPassenger({ name: textOf(passenger["name"]), phone: textOf(passenger["phone"]), email: textOf(passenger["email"]) }),

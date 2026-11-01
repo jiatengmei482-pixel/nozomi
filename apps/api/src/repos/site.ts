@@ -3,6 +3,7 @@
  * 全在平台事务里调用（官网是一个渠道，这些都是平台的数据）。
  */
 import type { LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
+import type { PassengerContact } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 
 export interface SiteClientRow {
@@ -205,15 +206,18 @@ export async function findLiveSiteOrderLink(db: Db, tokenHash: string, now: Date
   return row === undefined ? null : { orderId: row.order_id, channelId: row.channel_id, expiresAt: row.expires_at };
 }
 
-/** 用订单号找这个渠道的一张单，带下单时的联系方式（核对用）和用车时间（链接的有效期按它算）。 */
-export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; email: string; phone: string; serviceAt: Date; anonymized: boolean } | null> {
+/**
+ * 用订单号找这个渠道现在的那一行（救援改派后原供应商的行已转出，不算），带盲索引（核对用，ADR 0057）和用车时间（链接的有效期按它算）。
+ * 这里不解密：能比盲索引的不用解开，对不上的单解不开也和不存在一样。
+ */
+export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: string): Promise<{ orderId: string; tenantId: string; passengerEnc: string | null; passengerPlain: PassengerContact; emailBidx: string | null; phoneBidx: string | null; serviceAt: Date; anonymized: boolean } | null> {
   const row = (
-    await db.query<{ id: string; passenger: { email: string; phone: string }; service_at: Date; passenger_anonymized_at: Date | null }>(
-      "select o.id, o.passenger, o.service_at, o.passenger_anonymized_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2",
+    await db.query<{ id: string; tenant_id: string; passenger: PassengerContact; passenger_enc: string | null; passenger_email_bidx: string | null; passenger_phone_bidx: string | null; service_at: Date; passenger_anonymized_at: Date | null }>(
+      "select o.id, o.tenant_id, o.passenger, o.passenger_enc, o.passenger_email_bidx, o.passenger_phone_bidx, o.service_at, o.passenger_anonymized_at from orders o join order_sales s on s.order_id = o.id where o.order_no = $1 and s.channel_id = $2 and o.status <> 'rescued'",
       [orderNo, channelId],
     )
   ).rows[0];
-  return row === undefined ? null : { orderId: row.id, email: row.passenger.email, phone: row.passenger.phone, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
+  return row === undefined ? null : { orderId: row.id, tenantId: row.tenant_id, passengerEnc: row.passenger_enc, passengerPlain: row.passenger, emailBidx: row.passenger_email_bidx, phoneBidx: row.passenger_phone_bidx, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
 }
 
 /** 这个订单号（哈希）在 `since` 之后各次找回失败的时间。 */

@@ -23,7 +23,7 @@ import {
 const OLD = { name: "王小明", phone: "+81 90-1234-5678", email: "guest@example.com" };
 const NOW = { name: "柏木悠真", phone: "+81 80-6622-8844", email: "qa.kashiwagi@example.test" };
 const WRITTEN = `柏木悠真来电，王小明的电话 09012345678，新电话 08066228844，邮箱 ${NOW.email}、${OLD.email}`;
-const SECRETS = ["王小明", "小明", "柏木", "悠真", "09012345678", "819012345678", "90-1234-5678", "guest@example.com", "08066228844", "818066228844", "80-6622-8844", "6622", NOW.email, "qa.kashiwagi"];
+const SECRETS = ["王小明", "小明", "柏木", "悠真", "09012345678", "819012345678", "90-1234-5678", "guest@example.com", "08066228844", "818066228844", "80-6622-8844", "6622-8844", "66228844", NOW.email, "qa.kashiwagi"];
 
 let api: TestApi;
 let m: Market;
@@ -38,7 +38,7 @@ let tenantToken: string;
 
 const q = (sql: string, args: unknown[] = []) => api.db.owner.query(sql, args);
 const tick = () => api.app.passengerRetention.tick();
-/** 随机生成的编号、哈希、单号里可能碰巧有「6622」这样的短片段（误报，让这个文件偶发失败）：先去掉再找。姓名、电话、邮箱不可能在这些形状里。 */
+/** 随机生成的编号、哈希、单号里可能碰巧有短片段：电话至少比 8 位，这里再去掉一遍。姓名、电话、邮箱不可能在这些形状里。 */
 const RANDOM_TOKENS = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-fA-F]{24,}|\b(?:NZ|TK|ST|FB)[0-9A-Z]{12,}\b|[A-Za-z0-9_-]{32,}/g;
 const hits = (text: string): string[] => {
   const cleaned = text.replace(RANDOM_TOKENS, "");
@@ -297,7 +297,7 @@ test("官网下单的单：全库扫描（幂等记录、下单记录、查看�
     const found: Record<string, string[]> = {};
     for (const table of tables) {
       const lines = (await q(`select t::text as line from ${table} t`)).rows as { line: string }[];
-      const inTable = ["汐见", "凉介", "7788", "qa.shiomi"].filter((secret) => lines.some((row) => row.line.includes(secret)));
+      const inTable = ["汐见", "凉介", "7788-3311", "77883311", "qa.shiomi"].filter((secret) => lines.some((row) => row.line.includes(secret)));
       if (inTable.length > 0) found[table] = inTable;
     }
     assert.deepEqual(found, {});

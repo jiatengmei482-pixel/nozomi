@@ -230,8 +230,41 @@ ls -lh /opt/nozomi/staging/backups/                                  # 先看有
 - 已存的收款账号都解不开：转账文件不能生成（批准时被拒绝）、已生成的文件不能下载（页面写明「账号解不开」，不会给出缺账号的文件）。
 - 恢复办法只有两种：把密钥改回原来的值；或者作废这些文件，请每家供应商重新提交收款账户，再由两位财务复核。
 - 备份数据库时要同时保管这把密钥：只有数据库备份、没有密钥，账号也恢复不了。
+- 乘客信息（见下一节）在明文列清掉之前不受影响：回填任务会用新密钥重新加密。明文列清掉之后，**换密钥会让乘客信息永久读不出来**，必须先做好多密钥读取（ADR 0057「换主密钥」）。
 
 确实要换（比如怀疑泄露）：先把已生成、未付款的转账文件处理完，再告诉 Claude 安排。
+
+### 乘客信息加密存储（ADR 0057）
+
+乘客的姓名、电话、邮箱现在同时存明文和密文，读的是密文。**不用填新的密钥**，用现有的 `DATA_ENCRYPTION_KEY`。新版本部署后，后台任务会在 30 秒内开始把旧数据加密，之后每小时查一次。
+
+**看进度**（用部署用户登录服务器，环境名按实际替换）：
+
+```bash
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts            # 默认只看数量，不改数据
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts --execute  # 手工跑一轮，可以反复运行，可以中断
+/opt/nozomi/staging/current/bin/compose.sh exec api node apps/api/src/cli/passenger-backfill.ts --verify   # 核对每行密文解得开、和明文一致，只读
+```
+
+**出问题时退回明文**（第 6 步之前随时可以，不丢数据）：
+
+1. 把 `PASSENGER_READ_SOURCE=plaintext` 写进服务器的 `.env`，重启 API。读取立刻回到明文列，密文继续写。明文列只有占位 `[已加密]` 的行（「不再写明文」 那段时间写的）仍读密文，所以来回切读到的内容相同。
+2. 如果要退回旧版本的代码：直接部署旧版本，迁移 0200 只加了列，不影响旧代码。旧代码只改明文，数据库的触发器会让对应的密文作废。
+3. 修好后把 `PASSENGER_READ_SOURCE` 改回 `ciphertext`（或删掉这一行），重新部署新版本。回填任务会把旧版本期间写的内容补上。
+
+**后续步骤：清掉明文（第 6 步，这一轮没有做，不可逆）**。要满足这些才能做，并且先备份：
+
+1. 至少观察一个发布周期，日志里没有 `passenger.decrypt_failed`、`passenger.cipher_mismatch`。
+2. `passenger-backfill.ts --verify` 输出「全部一致」。
+3. 负责人知道：运营按乘客筛选将只认整串的邮箱、电话、姓名，不能再部分匹配（ADR 0057「运营筛选」）。
+4. 密钥已经和数据库备份分开保管，做过一次「只有备份没有密钥解不开、备份加密钥能恢复」的恢复演练。
+
+然后：
+
+1. 把 `PASSENGER_PLAINTEXT_WRITE=false` 写进 `.env` 重启，新写入的明文列只有占位 `[已加密]`。服务启动后会自动核对一次，还有没回填或不一致的行就记错误日志 `passenger.plaintext_retired_not_ready`（不挡启动），看到就先把开关改回 `true`。
+2. 再跑一次 `--verify`。
+3. 新增一个迁移：把四个明文位置（`orders.passenger`、`order_changes` 的 `before` / `after` 里的 `passenger`、`webhook_deliveries.event_data` 里的 `passenger`、给客人的 `notifications.recipient`）换成占位，去掉四个 `*_cipher_sync` 触发器。这个迁移还没写。
+4. 按备份周期淘汰加密之前的旧备份，旧备份里仍有明文。
 
 ## 八、服务器上已有别的网站时
 

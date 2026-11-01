@@ -15,6 +15,7 @@
  * 每条连接第一次被使用之前先自检账号是不是最小权限（identity.ts）：不合格的连接直接销毁，一条业务 SQL 都不执行。
  */
 import type { QueryResult, QueryResultRow } from "pg";
+import { PassengerCrypto } from "../integrations/passenger-crypto.ts";
 import { DbIdentityError, assertLeastPrivilege } from "./identity.ts";
 import type { Pool, PoolClient, QueryInput } from "./pool.ts";
 import { isDriverTimeout, timedQuery } from "./pool.ts";
@@ -37,6 +38,25 @@ export interface TxOptions {
    * 中间别人提交的改动看不到。用在「一页内容 + 总数」这种要互相对得上的读取上。
    */
   snapshot?: boolean;
+}
+
+const poolCrypto = new WeakMap<Pool, PassengerCrypto>();
+const txCrypto = new WeakMap<object, PassengerCrypto>();
+/** 没有挂加密件的连接池（命令行、测试自己建的池）：能读明文，写乘客信息会被拒绝，不会悄悄写明文。 */
+const NO_PASSENGER_CRYPTO = new PassengerCrypto(null, { readSource: "plaintext", plaintextWrite: true, backfillEnabled: false });
+
+/** 服务启动时把乘客信息的加密件挂到连接池上（ADR 0057），这个池上的每个事务都用它。 */
+export function attachPassengerCrypto(pool: Pool, crypto: PassengerCrypto): void {
+  poolCrypto.set(pool, crypto);
+}
+
+export function passengerCryptoOfPool(pool: Pool): PassengerCrypto {
+  return poolCrypto.get(pool) ?? NO_PASSENGER_CRYPTO;
+}
+
+/** 这个事务用的加密件。数据访问层的函数都收 `db`，从这里取，不用每层多传一个参数。 */
+export function passengerCryptoOf(db: Db): PassengerCrypto {
+  return txCrypto.get(db) ?? NO_PASSENGER_CRYPTO;
 }
 
 /** 已经通过自检的连接。连接的登录账号在它的生命周期里不会变，所以每条连接只查一次。 */
@@ -62,6 +82,7 @@ async function inTransaction<T>(
 ): Promise<T> {
   const own = (text: string): QueryInput => timedQuery(text, options.queryTimeoutMs);
   const client = await pool.connect();
+  txCrypto.set(client, passengerCryptoOfPool(pool));
   let broken = false;
   const onConnectionError = (): void => {
     broken = true;

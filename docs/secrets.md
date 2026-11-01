@@ -69,7 +69,7 @@
 | `POSTGRES_PASSWORD` | 数据库「迁移账号」的密码：只在更新数据库结构、备份和恢复时用，程序平时运行不用它，也拿不到它 | **自动生成，不用管。** 不要修改或删除：数据库是用它建的，改了就连不上 |
 | `POSTGRES_APP_PASSWORD` | 数据库「应用账号」的密码：程序平时运行用的账号，权限最小（不能改数据库结构，不能改、删操作日志） | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除 |
 | `AUTH_JWT_SECRET` | 登录签名密钥（用来防止别人伪造登录状态） | **自动生成，不用管。** 怀疑泄露时告诉 Claude 更换（所有人需要重新登录） |
-| `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥（ADR 0027）、平台员工的两步验证密钥（ADR 0030）和供应商的收款账号（ADR 0051）在数据库里是用它加密保存的 | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开——每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥，每个平台员工都要重新绑定两步验证（在服务器上运行 `pnpm admin:reset-2fa`） |
+| `DATA_ENCRYPTION_KEY` | 数据加密密钥：供应商的 Webhook 签名密钥（ADR 0027）、平台员工的两步验证密钥（ADR 0030）、供应商的收款账号（ADR 0051）和乘客的姓名、电话、邮箱（ADR 0057）在数据库里是用它加密保存的 | **自动生成，不用管。** 新服务器在初始化时生成；更早初始化的服务器在下一次部署时自动补上。不要修改或删除：改了之后库里加密的密钥就解不开——每个设置了 Webhook 的供应商都要在后台换一把新的签名密钥，每个平台员工都要重新绑定两步验证（在服务器上运行 `pnpm admin:reset-2fa`） |
 | `STRIPE_SECRET_KEY` | Stripe 的后台密钥 | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Stripe 控制台 → Developers → API keys → Secret key。测试环境必须用 Test mode 下以 `sk_test_` 开头的；正式环境用以 `sk_live_` 开头的 |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe 的前台密钥 | 你填。同一页面的 Publishable key。测试环境 `pk_test_` 开头，正式环境 `pk_live_` 开头 |
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
@@ -118,6 +118,9 @@
 
 | 名称 | 是什么 | 怎么填 |
 | --- | --- | --- |
+| `PASSENGER_READ_SOURCE` | 乘客信息从哪里读（ADR 0057） | 默认 `ciphertext`。出问题时改成 `plaintext` 重启就退回读明文，不丢数据 |
+| `PASSENGER_PLAINTEXT_WRITE` | 明文列还写不写真内容 | 默认 `true`，**不要改**。`false` 是清明文那一步的开关，步骤见 `docs/deploy.md` |
+| `PASSENGER_BACKFILL_ENABLED` | 后台把旧数据加密的任务 | 默认 `true`。在服务器上运行 `pnpm passenger:backfill` 可以看还有多少行没加密 |
 | `PASSENGER_RETENTION_ENABLED` | 订单结束超过保存期限后，自动把乘客姓名、电话、邮箱换成占位（不可逆） | `true` 或 `false`，默认 `true`。关掉只是不再处理，已脱敏的不能恢复 |
 | `PASSENGER_RETENTION_DAYS` | 保存期限，天（东京日历日） | 默认 `180`，不能低于 180，配小了服务启动不了。在服务器上运行 `pnpm privacy:anonymize` 可以先看数量（默认只看不改） |
 

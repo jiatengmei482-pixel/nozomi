@@ -308,7 +308,7 @@ test("集成状态里的缓冲按基点原样写回百分比，不出现浮点�
 test("数据加密密钥（ADR 0027、0030）：local / staging 可以不配（显示未配置，供应商不能设置 Webhook、平台员工不能绑定两步验证）；production 必须配", () => {
   const local = loadConfig(base);
   assert.equal(local.dataEncryptionKey, null);
-  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" });
+  assert.deepEqual(integrationStatus(local).find((s) => s.key === "dataEncryption"), { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，不能下新订单和改乘客信息，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" });
   assert.equal(loadConfig({ ...base, APP_ENV: "staging" }).dataEncryptionKey, null);
   assert.ok(issuesOf({ ...base, AUTH_JWT_SECRET: "x".repeat(64), APP_ENV: "production" }).some((i) => i.includes("DATA_ENCRYPTION_KEY")));
 });
@@ -386,4 +386,15 @@ test("乘客信息脱敏（ADR 0055）：默认开、180 天；可以调长，�
   assert.deepEqual(loadConfig({ ...base, PASSENGER_RETENTION_ENABLED: "false", PASSENGER_RETENTION_DAYS: "365" }).passengerRetention, { enabled: false, days: 365 });
   for (const value of ["179", "0", "-1", "abc", "180.5"]) assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_DAYS: value }).some((i) => i.startsWith("PASSENGER_RETENTION_DAYS")), value);
   assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_ENABLED: "maybe" }).some((i) => i.startsWith("PASSENGER_RETENTION_ENABLED")));
+});
+
+test("乘客信息加密的开关：默认读密文、写明文、回填开；空值按默认；和密钥的组合不合理时报错（ADR 0057）", () => {
+  const env = { APP_ENV: "local", DATABASE_URL: "postgres://user:fake@localhost:5432/db", AUTH_JWT_SECRET: "a".repeat(48), DATA_ENCRYPTION_KEY: "b".repeat(48) };
+  assert.deepEqual(loadConfig(env).passengerEncryption, { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true });
+  assert.deepEqual(loadConfig({ ...env, PASSENGER_READ_SOURCE: "", PASSENGER_PLAINTEXT_WRITE: "", PASSENGER_BACKFILL_ENABLED: "" }).passengerEncryption, { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true });
+  assert.deepEqual(loadConfig({ ...env, PASSENGER_READ_SOURCE: "plaintext", PASSENGER_BACKFILL_ENABLED: "false" }).passengerEncryption, { readSource: "plaintext", plaintextWrite: true, backfillEnabled: false });
+  assert.throws(() => loadConfig({ ...env, PASSENGER_READ_SOURCE: "both" }));
+  assert.throws(() => loadConfig({ ...env, PASSENGER_PLAINTEXT_WRITE: "false", PASSENGER_READ_SOURCE: "plaintext" }), /明文列已经不写真内容/);
+  assert.throws(() => loadConfig({ ...env, PASSENGER_PLAINTEXT_WRITE: "false", DATA_ENCRYPTION_KEY: "" }), /必须配置 DATA_ENCRYPTION_KEY/);
+  assert.equal(loadConfig({ ...env, DATA_ENCRYPTION_KEY: "" }).dataEncryptionKey, null, "没配置主密钥不报错：服务能启动，写乘客信息时才拒绝");
 });

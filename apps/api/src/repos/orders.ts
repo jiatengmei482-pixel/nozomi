@@ -7,7 +7,9 @@
  * - 租户侧的查询只取租户可以看的列（`TENANT_COLUMNS`），而且只取付过款的单。
  */
 import type { CancellationTier, CurrencyCode, FxQuote, LandingSource, MessagingApp, OrderCancelReason, OrderStatus, PaymentStatus, ServiceCategory, SettlementBreakdown, TripDirection, VehicleLevel } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { type ContactIndexKind, UNREADABLE_PASSENGER, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -114,13 +116,23 @@ export interface Order {
 
 const ORDER_COLUMNS = `o.tenant_id, o.id, o.order_no, o.status, o.category, o.city_id, o.place_id, o.direction, o.product_id, o.product_version, o.vehicle_group_id, o.package_hours,
   o.service_at, o.service_local, o.timezone, o.service_date::text as service_date, o.urgent, o.passengers, o.luggage, o.pickup, o.dropoff, o.addons, o.driver_language, o.flight_no,
-  o.passenger, o.passenger_anonymized_at, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
+  o.passenger, o.passenger_enc, o.passenger_anonymized_at, o.messaging, o.notes, o.settlement_minor, o.settlement_currency, o.settlement, o.free_wait_minutes, o.inventory_held, o.payment_due_at, o.confirmed_at, o.cancelled_at,
   o.cancel_reason, o.version, o.created_at, o.updated_at, o.dispatch_due_at, o.dispatch_overdue_at, o.departure_overdue_at, o.driver_id, o.vehicle_id, o.assigned_at,
   o.departed_at, o.arrived_at, o.arrival_distance_m, o.picked_up_at, o.completed_at, o.completed_recorded_at, o.actual_minutes, o.actual_km, o.leave_requested_at, o.guest_landed_at, o.driver_landed_at,
   o.driver_landed_file_id, o.landed_at, o.landed_source, o.cancel_policy, o.cancel_fee_bp, o.cancel_tenant_share_minor, o.cancel_note, o.rescued_at, o.arrival_overdue_at,
   o.driver_missing_reported_at`;
 
-function toOrder(row: Row): Order {
+/** 这一行解不开时：单张的抛 503；列表（`tolerant`）里只这一行显示「无法读取」，别的行正常（ADR 0057）。 */
+function readPassenger(db: Db, row: Row, tolerant: boolean): Order["passenger"] {
+  try {
+    return passengerCryptoOf(db).readOrderPassenger(row["tenant_id"], row["id"], row["passenger_enc"], row["passenger"]);
+  } catch (err) {
+    if (tolerant && isPassengerDecryptFailure(err)) return { ...UNREADABLE_PASSENGER };
+    throw err;
+  }
+}
+
+function toOrder(db: Db, row: Row, tolerant = false): Order {
   return {
     tenantId: row["tenant_id"],
     id: row["id"],
@@ -146,7 +158,7 @@ function toOrder(row: Row): Order {
     addons: row["addons"],
     driverLanguage: row["driver_language"],
     flightNo: row["flight_no"],
-    passenger: row["passenger"],
+    passenger: readPassenger(db, row, tolerant),
     passengerAnonymizedAt: row["passenger_anonymized_at"],
     messaging: row["messaging"],
     notes: row["notes"],
@@ -197,17 +209,20 @@ function toOrder(row: Row): Order {
 export type NewOrder = Omit<Order, "passengerAnonymizedAt" | "status" | "confirmedAt" | "cancelledAt" | "cancelReason" | "cancelFeeBp" | "cancelTenantShareMinor" | "cancelNote" | "rescuedAt" | "version" | "updatedAt" | "dispatch">;
 
 export async function insertOrder(db: Db, order: NewOrder): Promise<void> {
+  const sealed = passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, order.passenger);
   await db.query(
     `insert into orders (tenant_id, id, order_no, status, category, city_id, place_id, direction, product_id, product_version, vehicle_group_id, package_hours,
                          service_at, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no,
-                         passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy)
+                         passenger, messaging, notes, settlement_minor, settlement_currency, settlement, free_wait_minutes, inventory_held, payment_due_at, created_at, updated_at, cancel_policy,
+                         passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx)
      values ($1, $2, $3, 'pending_payment', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20::jsonb, $21::jsonb, $22, $23,
-             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb)`,
+             $24::jsonb, $25::jsonb, $26, $27, $28, $29::jsonb, $30, $31, $32, $33, $33, $34::jsonb, $35, $36, $37, $38)`,
     [
       order.tenantId, order.id, order.orderNo, order.category, order.cityId, order.placeId, order.direction, order.productId, order.productVersion, order.vehicleGroupId, order.packageHours,
       order.serviceAt, order.serviceLocal, order.timezone, order.serviceDate, order.urgent, order.passengers, order.luggage, json(order.pickup), json(order.dropoff), JSON.stringify(order.addons),
-      order.driverLanguage, order.flightNo, JSON.stringify(order.passenger), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
+      order.driverLanguage, order.flightNo, JSON.stringify(sealed.plain), json(order.messaging), order.notes, order.settlementMinor, order.settlementCurrency, JSON.stringify(order.settlement),
       order.freeWaitMinutes, order.inventoryHeld, order.paymentDueAt, order.createdAt, json(order.cancelPolicy),
+      sealed.enc, sealed.emailBidx, sealed.phoneBidx, sealed.nameBidx,
     ],
   );
 }
@@ -221,14 +236,14 @@ const json = (value: unknown): string | null => (value === null ? null : JSON.st
 export async function findOrderForPlatform(db: Db, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
   const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.id = $1 and o.status <> 'rescued' ${options.lock ? "for update" : ""}`, [orderId]);
   const row = result.rows[0];
-  return row === undefined ? null : toOrder(row);
+  return row === undefined ? null : toOrder(db, row);
 }
 
 /** 平台事务：某个供应商的那一行（含已转给救援供应商的）。推给供应商的 Webhook、运营后台看原供应商的记录用。 */
 export async function findOrderOfTenant(db: Db, tenantId: string, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
   const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.tenant_id = $1 and o.id = $2 ${options.lock ? "for update" : ""}`, [tenantId, orderId]);
   const row = result.rows[0];
-  return row === undefined ? null : toOrder(row);
+  return row === undefined ? null : toOrder(db, row);
 }
 
 /** 平台事务：几个供应商各自的那一行（一条查询）。键是「租户编号|订单编号」。 */
@@ -238,7 +253,7 @@ export async function findOrdersOfTenants(db: Db, keys: readonly { tenantId: str
     `select ${ORDER_COLUMNS} from orders o join unnest($1::uuid[], $2::uuid[]) as wanted(tenant_id, id) on wanted.tenant_id = o.tenant_id and wanted.id = o.id`,
     [keys.map((key) => key.tenantId), keys.map((key) => key.orderId)],
   );
-  return new Map(result.rows.map((row) => [`${row["tenant_id"]}|${row["id"]}`, toOrder(row)]));
+  return new Map(result.rows.map((row) => [`${row["tenant_id"]}|${row["id"]}`, toOrder(db, row, true)]));
 }
 
 export async function updateOrderStatus(
@@ -624,14 +639,14 @@ export async function listTenantOrders(db: Db, tenantId: string, filter: TenantO
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o where ${where}`, params);
-  return { ...toPage(result.rows, limit, toOrder, (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
+  return { ...toPage(result.rows, limit, (row: Row) => toOrder(db, row, true), (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
 }
 
 /** 租户自己的一张订单（付过款的）；别的租户的、没付款的都当作不存在。 */
 export async function findTenantOrder(db: Db, tenantId: string, orderId: string, options: { lock?: boolean } = {}): Promise<Order | null> {
   const result = await db.query<Row>(`select ${ORDER_COLUMNS} from orders o where o.tenant_id = $1 and o.id = $2 and o.confirmed_at is not null ${options.lock ? "for update" : ""}`, [tenantId, orderId]);
   const row = result.rows[0];
-  return row === undefined ? null : toOrder(row);
+  return row === undefined ? null : toOrder(db, row);
 }
 
 export interface PlatformOrderFilter {
@@ -661,29 +676,44 @@ export interface PlatformOrderRow {
   channelName: string;
 }
 
+/**
+ * 筛选词可能对应的盲索引。盲索引按租户隔离，跨供应商筛选时每家算一次（HMAC 很快，几百家也是毫秒级）。没配置主密钥时为空，只靠明文匹配。
+ */
+async function passengerFilterIndexes(db: Db, tenantId: string | null, query: string): Promise<{ email: string[]; phone: string[]; name: string[] }> {
+  const crypto = passengerCryptoOf(db);
+  if (!crypto.configured) return { email: [], phone: [], name: [] };
+  const tenants = tenantId !== null ? [tenantId] : (await db.query<{ id: string }>("select id from tenants")).rows.map((row) => row.id);
+  const each = (kind: ContactIndexKind, value: string): string[] => (value === "" ? [] : tenants.map((tenant) => crypto.index(tenant, kind, value)));
+  return { email: normalizeEmailForIndex(query).includes("@") ? each("email", normalizeEmailForIndex(query)) : [], phone: each("phone", normalizePhoneForIndex(query)), name: each("name", normalizeNameForIndex(query)) };
+}
+
 /** 运营后台的订单列表：跨租户、跨渠道，按下单时间从新到旧；一个订单一行（「现在的」供应商那一行，ADR 0031）。`q` 按订单号、渠道订单号精确找。销售端一侧、收款、租户和渠道的名字按这一页的订单各一条查询取回。 */
 export async function listPlatformOrders(db: Db, filter: PlatformOrderFilter, limit: number, after: TimeCursor | null): Promise<Page<PlatformOrderRow> & { total: number }> {
-  // 乘客电话按数字部分匹配（客人填的电话带空格、横线、+ 号）；姓名不分大小写的部分匹配
+  // 整串相等的走盲索引（ADR 0057）。明文列还在的阶段再加原来的部分匹配，能力不退化：电话按数字部分（客人填的电话带空格、横线、+ 号），姓名不分大小写；明文不再写之后只剩整串相等
   const passenger = filter.passenger ?? null;
+  const crypto = passengerCryptoOf(db);
+  const indexes = passenger === null ? { email: [], phone: [], name: [] } : await passengerFilterIndexes(db, filter.tenantId, passenger);
   const phoneDigits = passenger === null ? "" : passenger.replace(/\D/g, "");
   const where = `($1::text is null or o.status = $1) and ($2::uuid is null or o.tenant_id = $2) and ($3::uuid is null or s.channel_id = $3) and ($4::text is null or o.order_no = $4 or s.channel_order_no = $4)
     and ($5::date is null or o.service_date >= $5) and ($6::date is null or o.service_date <= $6) and ($7::timestamptz is null or o.created_at >= $7) and ($8::timestamptz is null or o.created_at < $8)
     and ($9::uuid is null or o.city_id = $9) and ($10::text is null or o.category = $10)
     and ($11::text is null or ($11 = 'open') = exists (select 1 from order_exceptions e where e.order_id = o.id and e.status <> 'closed'))
-    and ($12::text is null or strpos(lower(o.passenger ->> 'name'), lower($12)) > 0 or ($13::text <> '' and strpos(regexp_replace(o.passenger ->> 'phone', '\\D', '', 'g'), $13) > 0))
+    and ($12::text is null or o.passenger_email_bidx = any($16::text[]) or o.passenger_phone_bidx = any($17::text[]) or o.passenger_name_bidx = any($18::text[])
+      or ($19::boolean and (strpos(lower(o.passenger ->> 'name'), lower($12)) > 0 or ($13::text <> '' and strpos(regexp_replace(o.passenger ->> 'phone', '\\D', '', 'g'), $13) > 0))))
     and ($14::uuid[] is null or o.city_id = any($14::uuid[])) and ($15::uuid[] is null or s.channel_id = any($15::uuid[]))`;
   const params = [
     filter.status, filter.tenantId, filter.channelId, filter.q, filter.serviceFrom ?? null, filter.serviceTo ?? null, filter.createdFrom ?? null, filter.createdTo ?? null,
     filter.cityId ?? null, filter.category ?? null, filter.exception ?? null, passenger, phoneDigits, filter.scopeCityIds ?? null, filter.scopeChannelIds ?? null,
+    indexes.email, indexes.phone, indexes.name, crypto.plaintextWrite,
   ];
   const result = await db.query<Row>(
     `select ${ORDER_COLUMNS}, o.created_at::text as cursor_time from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id
-      where ${where} and ($16::timestamptz is null or (o.created_at, o.id) < ($16::timestamptz, $17::uuid))
-      order by o.created_at desc, o.id desc limit $18`,
+      where ${where} and ($20::timestamptz is null or (o.created_at, o.id) < ($20::timestamptz, $21::uuid))
+      order by o.created_at desc, o.id desc limit $22`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o join order_sales s on s.order_id = o.id and s.supplier_tenant_id = o.tenant_id where ${where}`, params);
-  const page = toPage(result.rows, limit, toOrder, (row) => ({ t: row["cursor_time"], id: row["id"] }));
+  const page = toPage(result.rows, limit, (row: Row) => toOrder(db, row, true), (row) => ({ t: row["cursor_time"], id: row["id"] }));
   const ids = page.items.map((order) => order.id);
   const sales = new Map((await db.query<Row>(`select ${SALE_COLUMNS} from order_sales s where s.order_id = any($1::uuid[])`, [ids])).rows.map((row) => [row["order_id"] as string, toSale(row)]));
   const payments = new Map((await db.query<Row>(`select ${PAYMENT_COLUMNS} from order_payments p where p.order_id = any($1::uuid[]) and p.kind = 'order'`, [ids])).rows.map((row) => [row["order_id"] as string, toPayment(row)]));

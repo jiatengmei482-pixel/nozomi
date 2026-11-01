@@ -241,6 +241,9 @@ const rawSchema = z.object({
   QUOTE_DEFAULT_MARKUP_BP: z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().min(0).max(100_000).default(1_000)),
 
   // 乘客信息自动脱敏（ADR 0055）：开关默认开；保存期限默认 180 天，不能低于 180（需求「订单完成 180 天后自动脱敏」），配小了启动报错，不悄悄改值。不是密钥
+  PASSENGER_READ_SOURCE: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["ciphertext", "plaintext"]).default("ciphertext")),
+  PASSENGER_PLAINTEXT_WRITE: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
+  PASSENGER_BACKFILL_ENABLED: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
   PASSENGER_RETENTION_ENABLED: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.enum(["true", "false"]).default("true")),
   PASSENGER_RETENTION_DAYS: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.string().regex(/^[0-9]+$/, "PASSENGER_RETENTION_DAYS 只接受十进制整数").transform(Number).pipe(z.number().int().min(180, "PASSENGER_RETENTION_DAYS 不能低于 180").max(36_500)).default("180")),
 
@@ -310,6 +313,8 @@ export interface AppConfig {
   quote: { defaultMarkupBp: number };
   /** 乘客信息自动脱敏（ADR 0055） */
   passengerRetention: { enabled: boolean; days: number };
+  /** 乘客信息加密存储（ADR 0057）：从哪里读、明文列还写不写、后台回填开不开。密钥沿用 `dataEncryptionKey` */
+  passengerEncryption: { readSource: "ciphertext" | "plaintext"; plaintextWrite: boolean; backfillEnabled: boolean };
   /** 官网（ADR 0032）：以哪个 API 客户端的身份调用询价、下单；没有配置时为 null（官网暂未开放） */
   site: { clientId: string } | null;
   /** 登录限速（ADR 0008、0030）：同一来源地址 15 分钟内最多失败几次；默认 50，只有 local / ci 可以调高 */
@@ -465,6 +470,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if (dataEncryptionKey === null && env.APP_ENV === "production") {
     issues.push("production 环境必须配置 DATA_ENCRYPTION_KEY（服务器初始化 / 部署脚本会自动生成）");
   }
+  if (env.PASSENGER_PLAINTEXT_WRITE === "false" && env.PASSENGER_READ_SOURCE === "plaintext") issues.push("PASSENGER_PLAINTEXT_WRITE=false 时不能 PASSENGER_READ_SOURCE=plaintext：明文列已经不写真内容了");
+  if (env.PASSENGER_PLAINTEXT_WRITE === "false" && dataEncryptionKey === null) issues.push("PASSENGER_PLAINTEXT_WRITE=false 必须配置 DATA_ENCRYPTION_KEY：否则乘客信息哪里都不存");
   if (dataEncryptionKey !== null && dataEncryptionKey.length < 32) issues.push("DATA_ENCRYPTION_KEY 至少 32 个字符");
   if (dataEncryptionKey !== null && dataEncryptionKey === env.AUTH_JWT_SECRET) issues.push("DATA_ENCRYPTION_KEY 不能和 AUTH_JWT_SECRET 相同：两把密钥各管一件事，一把泄露不连累另一把");
   if (env.APP_ENV === "production" && env.AUTH_JWT_SECRET.length < 64) {
@@ -497,6 +504,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },
     passengerRetention: { enabled: env.PASSENGER_RETENTION_ENABLED === "true", days: env.PASSENGER_RETENTION_DAYS },
+    passengerEncryption: { readSource: env.PASSENGER_READ_SOURCE, plaintextWrite: env.PASSENGER_PLAINTEXT_WRITE === "true", backfillEnabled: env.PASSENGER_BACKFILL_ENABLED === "true" },
     site: env.SITE_CLIENT_ID === undefined ? null : { clientId: env.SITE_CLIENT_ID },
     loginThrottle: { maxAttemptsPerIp: env.LOGIN_MAX_ATTEMPTS_PER_IP },
     passwordLoginDisabled: env.PASSWORD_LOGIN_DISABLED === "true",
@@ -565,7 +573,7 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
     { key: "auth", label: "登录签名密钥", state: "configured", detail: `${config.authJwtSecret.length} 个字符` },
     config.dataEncryptionKey
       ? { key: "dataEncryption", label: "数据加密密钥", state: "configured", detail: `${config.dataEncryptionKey.length} 个字符` }
-      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" },
+      : { key: "dataEncryption", label: "数据加密密钥", state: "missing", detail: "未配置，不能下新订单和改乘客信息，供应商不能设置 Webhook，平台员工不能绑定两步验证（登录不了运营后台），运营后台不能填写第三方密钥" },
     stripe
       ? { key: "stripe", label: "Stripe 支付", state: "configured", detail: `${stripe.mode === "live" ? "正式" : "测试"}模式 · ${origin(effective.stripe.source, stripe.secretKey)}` }
       : { key: "stripe", label: "Stripe 支付", state: "missing", detail: "未配置，无法收款" },

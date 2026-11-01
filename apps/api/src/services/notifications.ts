@@ -25,7 +25,7 @@ export function notificationJson(row: Notification): Record<string, unknown> {
     audience: row.audience,
     locale: row.locale,
     channel: row.channel,
-    recipient: maskEmail(row.recipient),
+    recipient: row.recipientUnreadable ? row.recipient : maskEmail(row.recipient),
     order: row.orderId === null ? null : { id: row.orderId, order_no: row.orderNo },
     status: row.status,
     attempts: row.attempts,

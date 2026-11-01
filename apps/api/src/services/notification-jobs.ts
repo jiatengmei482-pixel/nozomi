@@ -46,12 +46,12 @@ import {
   type MailMessage,
   type NotificationVariables,
   type PlatformAction,
-  isAnonymizedPassenger,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx } from "../db/context.ts";
 import { findExtraChargeForPlatform } from "../repos/extra-charges.ts";
 import { findDriver, findVehicle } from "../repos/fleet.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import {
   type Notification,
   type NotificationOutcome,
@@ -326,7 +326,7 @@ export class NotificationJobs {
         const current = await findOrderForPlatform(db, event.orderId);
         if (current === null || !(await orderHasSiteLink(db, event.orderId))) return [];
         // 脱敏后没有地址可发（ADR 0055）
-        if (isAnonymizedPassenger(current.passenger)) return [];
+        if (current.passengerAnonymizedAt !== null) return [];
         const email = current.passenger.email.trim();
         // tenant_id 记事件那一家（数据库保证发送记录和事件是同一家）；救援后这单换了供应商，发送时看的是现在的行
         return email === "" || event.tenantId === null ? [] : [{ audience, recipient: email, tenantId: event.tenantId, orderNo: current.orderNo }];
@@ -376,6 +376,8 @@ export class NotificationJobs {
     try {
       prepared = await withPlatformTx(this.ctx.pool, (db) => this.prepare(db, notification, manual));
     } catch (err) {
+      // 这单解不开：重试也没用，记失败（错误码，不带内容），不占队列（ADR 0057）
+      if (isPassengerDecryptFailure(err)) return this.finish(notification, { status: "failed", attempts: attemptNo, code: PASSENGER_DECRYPT_FAILED, message: null });
       // 不记错误对象本身：数据库错误的详情里可能带着行内容（收件人）
       this.log.warn({ event: "notification.prepare_failed", notificationId: notification.id, dbCode: dbCodeOf(err) }, "准备邮件内容时出错，稍后再试");
       return this.finish(notification, this.afterFailure(notification, "UNEXPECTED", null, attemptNo, manual));
@@ -451,9 +453,9 @@ export class NotificationJobs {
     const rendered = renderNotification(template, variables);
     if (rendered === null) return { kind: "render_failed" };
     // 客人的地址按订单现在的乘客邮箱：等待发送期间改了邮箱，旧地址不能再收到查看链接
-    if (notification.audience === "guest" && order !== null && isAnonymizedPassenger(order.passenger)) return { kind: "render_failed" };
+    if (notification.audience === "guest" && order !== null && order.passengerAnonymizedAt !== null) return { kind: "render_failed" };
     const to = notification.audience === "guest" && order !== null ? order.passenger.email.trim() : notification.recipient;
-    if (to !== notification.recipient) await updateRecipient(db, notification.id, to);
+    if (to !== notification.recipient) await updateRecipient(db, notification, to);
     return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };
   }
 

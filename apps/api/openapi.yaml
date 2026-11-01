@@ -6938,7 +6938,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "503":
-          description: "`PAYMENT_NOT_CONFIGURED`：Stripe 还没有配置，不能收款，所以不能下单（/health 里 Stripe 显示「未配置」）"
+          description: "`PASSENGER_ENCRYPTION_NOT_CONFIGURED`：服务器没配置数据加密密钥，不能保存乘客信息（ADR 0057）。`PAYMENT_NOT_CONFIGURED`：Stripe 还没有配置，不能收款，所以不能下单（/health 里 Stripe 显示「未配置」）"
           content:
             application/json:
               schema:
@@ -7045,6 +7045,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /sales/v1/orders/{id}/cancel-fee:
     get:
       tags: [ 销售端 ]
@@ -7779,6 +7781,8 @@ paths:
                           type: string
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
       tags:
@@ -8120,6 +8124,8 @@ paths:
                       $ref: "#/components/schemas/ExtraCharge"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /platform/v1/orders:
     get:
       tags: [ 订单 ]
@@ -8198,7 +8204,7 @@ paths:
             enum: [ open, none ]
         - name: passenger
           in: query
-          description: 乘客姓名（部分匹配，不分大小写）或电话（按数字部分匹配）
+          description: 乘客姓名（部分匹配，不分大小写）或电话（按数字部分匹配）；整串的邮箱、电话、姓名走盲索引（规范化后相等，ADR 0057）。明文列清掉之后（第 6 步）部分匹配不再可用，只认整串
           schema:
             type: string
             minLength: 2
@@ -8502,6 +8508,8 @@ paths:
                           format: date-time
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
     patch:
       tags:
         - 订单
@@ -8560,6 +8568,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /tenant/v1/drivers:
     get:
       tags: [ 派车 ]
@@ -11240,6 +11250,8 @@ paths:
           $ref: "#/components/responses/VersionRequired"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/PassengerEncryptionUnavailable"
   /site/v1/order/payment:
     get:
       tags: [ 官网 ]
@@ -14424,7 +14436,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     SiteNotOpen:
-      description: "`SITE_NOT_OPEN`：官网暂未开放预订（没有配置官网的 API 客户端、客户端已吊销或渠道暂停）"
+      description: "`SITE_NOT_OPEN`：官网暂未开放预订（没有配置官网的 API 客户端、客户端已吊销或渠道暂停）；下单时另有 `PASSENGER_ENCRYPTION_NOT_CONFIGURED`（服务器没配置数据加密密钥，ADR 0057）"
       content:
         application/json:
           schema:
@@ -14530,6 +14542,12 @@ components:
         `TICKET_STATE_INVALID`（`details.status`、`details.action`）：工单现在的状态不能做这一步；`TICKET_CHANGED`：刚被别人改过；`TENANT_REPLY_PENDING`：还在等供应商回复；
         `DECISION_REQUIRED`：no-show 审核要先判定；`COMPENSATION_NOT_APPLICABLE`（`details.reason`）；`FX_RATE_UNAVAILABLE`；`ORDER_STATE_INVALID`（建工单时 `details.reason` 为 `NOT_CONFIRMED`：订单还没付款，或没付款就取消了）；`APPEAL_SAME_REVIEWER`；
         `NOT_APPEALABLE`、`APPEAL_WINDOW_CLOSED`、`ALREADY_APPEALED`；`COMPLAINT_WINDOW_CLOSED`；`TICKET_LIMIT_REACHED`；`PAYOUT_STATE_INVALID`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PassengerEncryptionUnavailable:
+      description: "`PASSENGER_ENCRYPTION_NOT_CONFIGURED`：服务器没配置数据加密密钥，不能保存乘客信息（ADR 0057）。`PASSENGER_DECRYPT_FAILED`：只有密文的乘客信息解不开（明文列清掉之后才会出现）"
       content:
         application/json:
           schema:
@@ -23502,7 +23520,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:
@@ -23550,7 +23568,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:
@@ -23599,7 +23617,7 @@ components:
           type: [ integer, "null" ]
         last_error_code:
           type: [ string, "null" ]
-          description: "`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
+          description: "`PASSENGER_DECRYPT_FAILED`（乘客信息解不开，不重试，ADR 0057）、`WEBHOOK_TIMEOUT`、`WEBHOOK_HTTP_STATUS`（看 `last_status_code`）、`WEBHOOK_REDIRECT_NOT_FOLLOWED`、`WEBHOOK_CONNECT_FAILED`、`WEBHOOK_TLS_FAILED`、`WEBHOOK_DNS_FAILED`、`WEBHOOK_TARGET_FORBIDDEN`（内网 / 本机 / 元数据地址）、`WEBHOOK_URL_INVALID`、`WEBHOOK_SECRET_UNAVAILABLE`、`WEBHOOK_NOT_CONFIGURED`（设置已删除或暂停）"
         last_duration_ms:
           type: [ integer, "null" ]
         succeeded_at:

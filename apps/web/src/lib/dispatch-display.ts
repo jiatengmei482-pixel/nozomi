@@ -89,6 +89,7 @@ const WEBHOOK_ERRORS: Readonly<Record<string, string>> = {
   WEBHOOK_URL_INVALID: "接收地址不正确",
   WEBHOOK_SECRET_UNAVAILABLE: "签名密钥读不出来，请换一把新的",
   WEBHOOK_NOT_CONFIGURED: "Webhook 已删除或暂停",
+  PASSENGER_DECRYPT_FAILED: "乘客信息解不开，没有发送，请联系平台",
 };
 
 export function webhookErrorText(code: string | null, statusCode: number | null): string {

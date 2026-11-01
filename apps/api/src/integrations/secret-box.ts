@@ -5,14 +5,14 @@
  * 为什么不是只存哈希（像登录密码、API 客户端密钥那样）：推送时平台要用密钥原文算 HMAC 签名、验证动态码时要用密钥原文算 HMAC，哈希还原不出原文。
  * 做法：
  * - 主密钥是配置 `DATA_ENCRYPTION_KEY`（只经 packages/config 读取，规则 5）。每个用途用 HKDF-SHA256 从主密钥派生一把 256 位的子密钥（`info` 是用途名），
- *   以后别的用途（比如乘客电话、邮箱的库级加密）用另一个用途名，互不相通；
+ *   乘客信息（ADR 0057）用 `passenger-data`、`passenger-index`，互不相通；
  * - AES-256-GCM，每次加密随机 96 位 IV；附加数据（AAD）是这条记录的归属（如租户编号、员工编号），密文搬到别人的行里解不开；
  * - 存储格式 `v1.<IV>.<认证标签>.<密文>`（各段 base64url），以后换算法时加 `v2`。
  * 解不开（主密钥换了、密文被改过、搬到了别的行）抛 `SecretBoxError`，调用方按「密钥不可用」处理，不把原因细节往外说。
  */
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
 
-export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret" | "integration-secret" | "payout-account";
+export type SecretPurpose = "tenant-webhook-secret" | "platform-totp-secret" | "integration-secret" | "payout-account" | "passenger-data" | "passenger-index";
 
 export class SecretBoxError extends Error {
   constructor() {
@@ -27,6 +27,7 @@ const TAG_BYTES = 16;
 
 export class SecretBox {
   private readonly keys = new Map<SecretPurpose, Buffer>();
+  private readonly macKeys = new Map<SecretPurpose, Buffer>();
   private readonly masterKey: string;
 
   constructor(masterKey: string) {
@@ -45,7 +46,11 @@ export class SecretBox {
 
   /** 这段内容的指纹（HMAC-SHA256，十六进制）：只有持主密钥的人算得出来，改库的人重算不了。和加密用的子密钥分开。 */
   mac(purpose: SecretPurpose, text: string): string {
-    const key = Buffer.from(hkdfSync("sha256", Buffer.from(this.masterKey, "utf8"), Buffer.from("nozomi.secret-box", "utf8"), Buffer.from(`nozomi.${purpose}.mac.v1`, "utf8"), 32));
+    let key = this.macKeys.get(purpose);
+    if (key === undefined) {
+      key = Buffer.from(hkdfSync("sha256", Buffer.from(this.masterKey, "utf8"), Buffer.from("nozomi.secret-box", "utf8"), Buffer.from(`nozomi.${purpose}.mac.v1`, "utf8"), 32));
+      this.macKeys.set(purpose, key);
+    }
     return createHmac("sha256", key).update(text, "utf8").digest("hex");
   }
 

@@ -2,8 +2,9 @@
  * 通知中心（M4-08，ADR 0049）的数据访问：发件箱、发送记录、免打扰设置。
  * `enqueueNotification` 在业务自己的事务里调用（平台事务、租户事务都可以）；其余是后台任务和接口用的。
  */
-import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, UNREADABLE_TEXT, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -71,6 +72,8 @@ export interface Notification {
   locale: string;
   channel: string;
   recipient: string;
+  /** 收件地址的密文解不开（ADR 0057）：不发，记失败 */
+  recipientUnreadable: boolean;
   orderId: string | null;
   orderNo: string | null;
   status: NotificationStatus;
@@ -85,9 +88,20 @@ export interface Notification {
   updatedAt: Date;
 }
 
-const COLUMNS = "n.id, n.event_id, n.tenant_id, n.event, n.audience, n.locale, n.channel, n.recipient, n.order_id, n.order_no, n.status, n.attempts, n.next_attempt_at, n.lease_token, n.last_error_code, n.last_error_message, n.sent_at, n.expires_at, n.created_at, n.updated_at";
+const COLUMNS = "n.id, n.event_id, n.tenant_id, n.event, n.audience, n.locale, n.channel, n.recipient, n.recipient_enc, n.order_id, n.order_no, n.status, n.attempts, n.next_attempt_at, n.lease_token, n.last_error_code, n.last_error_message, n.sent_at, n.expires_at, n.created_at, n.updated_at";
 
-function toNotification(row: Row): Notification {
+/** 收件地址读出来；解不开时只这一行受影响（ADR 0057）。 */
+function readRecipient(db: Db, row: Row): { recipient: string; unreadable: boolean } {
+  try {
+    return { recipient: passengerCryptoOf(db).readRecipient(row["tenant_id"], row["event_id"], row["recipient_enc"], row["recipient"]), unreadable: false };
+  } catch (err) {
+    if (isPassengerDecryptFailure(err)) return { recipient: UNREADABLE_TEXT, unreadable: true };
+    throw err;
+  }
+}
+
+function toNotification(db: Db, row: Row): Notification {
+  const recipient = readRecipient(db, row);
   return {
     id: row["id"],
     eventId: row["event_id"],
@@ -96,7 +110,8 @@ function toNotification(row: Row): Notification {
     audience: row["audience"],
     locale: row["locale"],
     channel: row["channel"],
-    recipient: row["recipient"],
+    recipient: recipient.recipient,
+    recipientUnreadable: recipient.unreadable,
     orderId: row["order_id"],
     orderNo: row["order_no"],
     status: row["status"],
@@ -116,10 +131,12 @@ export async function insertNotification(
   db: Db,
   input: { eventId: string; tenantId: string | null; event: NotificationEvent; audience: NotificationAudience; locale: string; channel: string; recipient: string; orderId: string | null; orderNo: string | null; expiresAt: Date; now: Date },
 ): Promise<void> {
+  // 只有给客人的地址是乘客信息；发给员工、供应商的不加密（ADR 0057）
+  const sealed = input.audience === "guest" && input.tenantId !== null ? passengerCryptoOf(db).sealRecipient(input.tenantId, input.eventId, input.recipient) : { plain: input.recipient, enc: null };
   await db.query(
-    `insert into notifications (event_id, tenant_id, event, audience, locale, channel, recipient, order_id, order_no, status, next_attempt_at, expires_at, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $11, $10, $10) on conflict (event_id, audience, recipient) do nothing`,
-    [input.eventId, input.tenantId, input.event, input.audience, input.locale, input.channel, input.recipient, input.orderId, input.orderNo, input.now, input.expiresAt],
+    `insert into notifications (event_id, tenant_id, event, audience, locale, channel, recipient, order_id, order_no, status, next_attempt_at, expires_at, created_at, updated_at, recipient_enc)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $11, $10, $10, $12) on conflict (event_id, audience, recipient) do nothing`,
+    [input.eventId, input.tenantId, input.event, input.audience, input.locale, input.channel, sealed.plain, input.orderId, input.orderNo, input.now, input.expiresAt, sealed.enc],
   );
 }
 
@@ -147,7 +164,7 @@ export async function failAbandoned(db: Db, now: Date, limit: number): Promise<N
       returning ${COLUMNS}`,
     [now, limit],
   );
-  return result.rows.map(toNotification);
+  return result.rows.map((row) => toNotification(db, row));
 }
 
 /** 邮件没配置：等着的记录写上原因（已经写过的不动）。不取走、不算次数。 */
@@ -164,7 +181,13 @@ export async function claimDueNotifications(db: Db, now: Date, leaseUntil: Date,
       returning ${COLUMNS}`,
     [now, leaseUntil, limit, options.preparing === true],
   );
-  return result.rows.map(toNotification);
+  const claimed = result.rows.map((row) => toNotification(db, row));
+  // 解不开的这一条记失败（运营后台看得到错误码），不回滚这一批，也不再重试：否则每一轮都卡在它身上（ADR 0057）
+  const unreadable = claimed.filter((item) => item.recipientUnreadable).map((item) => item.id);
+  if (unreadable.length > 0) {
+    await db.query("update notifications set status = 'failed', last_error_code = $3, last_error_message = null, lease_token = null, lease_until = null, prepared_only = false, updated_at = $2, version = version + 1 where id = any($1::uuid[])", [unreadable, now, PASSENGER_DECRYPT_FAILED]);
+  }
+  return claimed.filter((item) => !item.recipientUnreadable);
 }
 
 /**
@@ -177,8 +200,9 @@ export async function beginSending(db: Db, notification: Pick<Notification, "id"
 }
 
 /** 收件人改成订单现在的乘客邮箱（客人在等待发送期间改了邮箱）。 */
-export async function updateRecipient(db: Db, id: string, recipient: string): Promise<void> {
-  await db.query("update notifications set recipient = $2 where id = $1 and recipient <> $2", [id, recipient]);
+export async function updateRecipient(db: Db, notification: Pick<Notification, "id" | "tenantId" | "eventId">, recipient: string): Promise<void> {
+  const sealed = notification.tenantId === null ? { plain: recipient, enc: null } : passengerCryptoOf(db).sealRecipient(notification.tenantId, notification.eventId, recipient);
+  await db.query("update notifications set recipient = $2, recipient_enc = $3 where id = $1", [notification.id, sealed.plain, sealed.enc]);
 }
 
 /** 改了用车时间：还在等的、有效期就是用车时间的记录跟着改。 */
@@ -221,18 +245,18 @@ export async function finishNotification(db: Db, notification: Pick<Notification
     ],
   );
   const row = result.rows[0];
-  return row === undefined ? null : toNotification(row);
+  return row === undefined ? null : toNotification(db, row);
 }
 
 export async function findNotification(db: Db, id: string, options: { lock?: boolean } = {}): Promise<Notification | null> {
   const row = (await db.query<Row>(`select ${COLUMNS} from notifications n where n.id = $1 ${options.lock ? "for update" : ""}`, [id])).rows[0];
-  return row === undefined ? null : toNotification(row);
+  return row === undefined ? null : toNotification(db, row);
 }
 
 /** 手动重试：直接租下（调用方已确认能重试）。 */
 export async function leaseForManualRetry(db: Db, id: string, now: Date, leaseUntil: Date): Promise<Notification> {
   const result = await db.query<Row>(`update notifications n set status = 'sending', lease_token = gen_random_uuid(), lease_until = $3, prepared_only = true, updated_at = $2, version = n.version + 1 where n.id = $1 returning ${COLUMNS}`, [id, now, leaseUntil]);
-  return toNotification(result.rows[0] as Row);
+  return toNotification(db, result.rows[0] as Row);
 }
 
 export interface NotificationFilter {
@@ -264,7 +288,7 @@ export async function listNotifications(db: Db, filter: NotificationFilter, limi
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from notifications n where ${where}`, params);
-  return { ...toPage(result.rows, limit, toNotification, (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
+  return { ...toPage(result.rows, limit, (row: Row) => toNotification(db, row), (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
 }
 
 export async function countWaitingNotifications(db: Db): Promise<number> {

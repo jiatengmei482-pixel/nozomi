@@ -2,8 +2,9 @@
  * 推送给供应商（租户 Webhook，M3-02，ADR 0027）的数据访问：订阅、投递、每一次尝试。
  * 三张都是租户表：供应商后台在租户事务里读写自己的；推送任务、付款确认时排队、运营后台在平台事务里跨租户读写（查询自己带好条件）。
  */
-import { type PlatformDataScope, type TenantWebhookEvent, type WebhookEventType, scopeIsRestricted } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { type PlatformDataScope, type TenantWebhookEvent, UNREADABLE_PASSENGER, type WebhookEventType, replacePassengers, scopeIsRestricted } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
 type Row = Record<string, any>;
@@ -84,6 +85,8 @@ export interface WebhookDelivery {
   eventType: WebhookEventType;
   orderId: string | null;
   eventData: Record<string, unknown>;
+  /** 推送内容的密文解不开（ADR 0057）：不发，记失败 */
+  eventDataUnreadable: boolean;
   status: DeliveryStatus;
   attempts: number;
   nextAttemptAt: Date | null;
@@ -98,10 +101,21 @@ export interface WebhookDelivery {
   leaseToken: string | null;
 }
 
-const DELIVERY_COLUMNS = `d.tenant_id, d.id, d.seq, d.event_id, d.event_type, d.order_id, d.event_data, d.status, d.attempts, d.next_attempt_at, d.last_attempt_at, d.last_status_code,
+const DELIVERY_COLUMNS = `d.tenant_id, d.id, d.seq, d.event_id, d.event_type, d.order_id, d.event_data, d.event_data_enc, d.status, d.attempts, d.next_attempt_at, d.last_attempt_at, d.last_status_code,
   d.last_error_code, d.last_duration_ms, d.succeeded_at, d.failed_at, d.created_at, d.lease_token`;
 
-function toDelivery(row: Row): WebhookDelivery {
+/** 推送内容读出来；解不开时只这一行受影响，乘客换成「无法读取」，不会发出去（ADR 0057）。 */
+function readEventData(db: Db, row: Row): { data: Record<string, unknown>; unreadable: boolean } {
+  try {
+    return { data: passengerCryptoOf(db).readValues("webhook_delivery", row["tenant_id"], row["event_id"], row["event_data_enc"], row["event_data"]), unreadable: false };
+  } catch (err) {
+    if (isPassengerDecryptFailure(err)) return { data: replacePassengers(row["event_data"], UNREADABLE_PASSENGER), unreadable: true };
+    throw err;
+  }
+}
+
+function toDelivery(db: Db, row: Row): WebhookDelivery {
+  const event = readEventData(db, row);
   return {
     tenantId: row["tenant_id"],
     id: row["id"],
@@ -109,7 +123,8 @@ function toDelivery(row: Row): WebhookDelivery {
     eventId: row["event_id"],
     eventType: row["event_type"],
     orderId: row["order_id"],
-    eventData: row["event_data"],
+    eventData: event.data,
+    eventDataUnreadable: event.unreadable,
     status: row["status"],
     attempts: row["attempts"],
     nextAttemptAt: row["next_attempt_at"],
@@ -128,18 +143,19 @@ export async function insertDelivery(
   db: Db,
   delivery: { tenantId: string; eventId: string; eventType: WebhookEventType; orderId: string | null; eventData: Record<string, unknown>; status: DeliveryStatus; nextAttemptAt: Date | null; createdAt: Date },
 ): Promise<WebhookDelivery> {
+  const sealed = passengerCryptoOf(db).sealValues("webhook_delivery", delivery.tenantId, delivery.eventId, delivery.eventData);
   const result = await db.query<Row>(
-    `insert into webhook_deliveries as d (tenant_id, event_id, event_type, order_id, event_data, status, next_attempt_at, created_at)
-     values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8) returning ${DELIVERY_COLUMNS}`,
-    [delivery.tenantId, delivery.eventId, delivery.eventType, delivery.orderId, JSON.stringify(delivery.eventData), delivery.status, delivery.nextAttemptAt, delivery.createdAt],
+    `insert into webhook_deliveries as d (tenant_id, event_id, event_type, order_id, event_data, status, next_attempt_at, created_at, event_data_enc)
+     values ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9) returning ${DELIVERY_COLUMNS}`,
+    [delivery.tenantId, delivery.eventId, delivery.eventType, delivery.orderId, JSON.stringify(sealed.plain), delivery.status, delivery.nextAttemptAt, delivery.createdAt, sealed.enc],
   );
-  return toDelivery(result.rows[0] as Row);
+  return toDelivery(db, result.rows[0] as Row);
 }
 
 export async function findDelivery(db: Db, tenantId: string | null, id: string, options: { lock?: boolean } = {}): Promise<WebhookDelivery | null> {
   const result = await db.query<Row>(`select ${DELIVERY_COLUMNS} from webhook_deliveries d where ($1::uuid is null or d.tenant_id = $1) and d.id = $2 ${options.lock ? "for update" : ""}`, [tenantId, id]);
   const row = result.rows[0];
-  return row === undefined ? null : toDelivery(row);
+  return row === undefined ? null : toDelivery(db, row);
 }
 
 /** 正在被推送任务发送：还在等待、有租约令牌、租约没到期。 */
@@ -166,7 +182,13 @@ export async function claimDueDeliveries(db: Db, now: Date, leaseUntil: Date, li
      returning ${DELIVERY_COLUMNS}`,
     [now, leaseUntil, limit],
   );
-  return result.rows.map(toDelivery).sort((a, b) => a.seq - b.seq);
+  const claimed = result.rows.map((row) => toDelivery(db, row));
+  // 解不开的这一条记失败（看得到错误码），不回滚这一批，也不再重试；同一单后面的推送下一轮就能发（ADR 0057）
+  const unreadable = claimed.filter((item) => item.eventDataUnreadable).map((item) => item.id);
+  if (unreadable.length > 0) {
+    await db.query("update webhook_deliveries set status = 'failed', next_attempt_at = null, failed_at = $2, last_error_code = $3, lease_token = null where id = any($1::uuid[])", [unreadable, now, PASSENGER_DECRYPT_FAILED]);
+  }
+  return claimed.filter((item) => !item.eventDataUnreadable).sort((a, b) => a.seq - b.seq);
 }
 
 export interface AttemptOutcome {
@@ -193,7 +215,7 @@ export async function finishDeliveryAttempt(
     [delivery.tenantId, delivery.id, next.status, next.nextAttemptAt, outcome.at, outcome.statusCode, outcome.errorCode, outcome.durationMs, delivery.leaseToken],
   );
   const row = result.rows[0];
-  return row === undefined ? null : toDelivery(row);
+  return row === undefined ? null : toDelivery(db, row);
 }
 
 /**
@@ -204,7 +226,7 @@ export async function rescheduleDelivery(db: Db, delivery: Pick<WebhookDelivery,
     `update webhook_deliveries d set status = 'pending', next_attempt_at = $3, failed_at = null, lease_token = null where d.tenant_id = $1 and d.id = $2 returning ${DELIVERY_COLUMNS}`,
     [delivery.tenantId, delivery.id, now],
   );
-  return toDelivery(result.rows[0] as Row);
+  return toDelivery(db, result.rows[0] as Row);
 }
 
 export interface DeliveryFilter {
@@ -236,7 +258,7 @@ export async function listDeliveries(db: Db, filter: DeliveryFilter, limit: numb
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from webhook_deliveries d where ${where}`, params);
-  return { ...toPage(result.rows, limit, toDelivery, (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
+  return { ...toPage(result.rows, limit, (row: Row) => toDelivery(db, row), (row) => ({ t: row["cursor_time"], id: row["id"] })), total: (total.rows[0] as { n: number }).n };
 }
 
 // ---- 每一次尝试 ----
@@ -287,5 +309,5 @@ export async function abandonDelivery(db: Db, delivery: Pick<WebhookDelivery, "t
     [delivery.tenantId, delivery.id, at, errorCode, delivery.leaseToken],
   );
   const row = result.rows[0];
-  return row === undefined ? null : toDelivery(row);
+  return row === undefined ? null : toDelivery(db, row);
 }
