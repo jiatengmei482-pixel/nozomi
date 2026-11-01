@@ -130,7 +130,7 @@ test("只有超级管理员能填写、更换、清空、测试：其他 9 个�
     assert.equal(item.masked, null, item.key);
     assert.equal(item.admin, null, item.key);
   }
-  assert.deepEqual(tech.body.items.map((i: any) => [i.key, i.state, i.source]), [["google_maps", "configured", "env"], ["stripe", "missing", "none"]]);
+  assert.deepEqual(tech.body.items.map((i: any) => [i.key, i.state, i.source]), [["google_maps", "configured", "env"], ["stripe", "missing", "none"], ["email", "configured", "env"]]);
   assert.equal((await listSecrets(tokens.get("operations")!)).status, 403, "没有 integration.read 的看不到");
   const own = await listSecrets();
   assert.equal(own.body.can_manage, true);

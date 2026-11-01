@@ -206,15 +206,20 @@ export class IntegrationSecretCache {
   }
 
   #open(row: IntegrationSecretRow): Record<string, string> | null {
-    if (this.#box === null) return null;
-    try {
-      const parsed = JSON.parse(this.#box.open(PURPOSE, row.integration, row.sealed)) as unknown;
-      if (typeof parsed !== "object" || parsed === null) return null;
-      return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
-    } catch (err) {
-      if (err instanceof SecretBoxError || err instanceof SyntaxError) return null;
-      throw err;
-    }
+    return openSecretRow(this.#box, row);
+  }
+}
+
+/** 解开库里的一行；没有数据加密密钥、解不开时返回 null。 */
+function openSecretRow(box: SecretBox | null, row: IntegrationSecretRow): Record<string, string> | null {
+  if (box === null) return null;
+  try {
+    const parsed = JSON.parse(box.open(PURPOSE, row.integration, row.sealed)) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return null;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  } catch (err) {
+    if (err instanceof SecretBoxError || err instanceof SyntaxError) return null;
+    throw err;
   }
 }
 
@@ -404,13 +409,11 @@ function emailAuditSettings(settings: SmtpSettings): Record<string, unknown> {
   return { host: settings.host, port: settings.port, encryption: settings.encryption, from_name: settings.fromName, from_address: settings.fromAddress };
 }
 
-/**
- * 审计「更换 / 清空」前的邮件发送配置：库里是整组密文，从缓存取后台那一份最省事（改动在同一把锁里排队，缓存是上一次改完立刻重读的）。
- * 后台那一份没有生效（解不开、不适用于这个环境）时取不到，就不记。
- */
-function emailPreviousAudit(ctx: AppContext, key: IntegrationSecretKey): Record<string, unknown> {
-  if (key !== "email" || ctx.integrations.effective.email.source !== "admin" || ctx.integrations.effective.email.config === null) return {};
-  return { settings: emailAuditSettings(ctx.integrations.effective.email.config) };
+/** 审计「更换 / 清空」前的邮件发送配置：库里是整组密文，在同一把锁里解开这一行。解不开时不记主机这些，只有打码的密码。 */
+function emailBeforeAudit(ctx: AppContext, row: IntegrationSecretRow): Record<string, unknown> {
+  if (row.integration !== "email") return {};
+  const values = openSecretRow(ctx.secretBox, row);
+  return values === null ? {} : { settings: emailAuditSettings(smtpSettingsOf(values)) };
 }
 
 /** 填写或更换。返回填写（`set`）还是更换（`replace`）。 */
@@ -443,7 +446,6 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
   const hints = Object.fromEntries(Object.entries(input.key === "email" ? { [SMTP_FIELDS.password]: values[SMTP_FIELDS.password] as string } : values).map(([field, value]) => [field, maskLast4(value)]));
   const sealed = ctx.secretBox.seal(PURPOSE, input.key, JSON.stringify(values));
   const now = ctx.now();
-  const previousAudit = emailPreviousAudit(ctx, input.key);
   const action = await withPlatformTx(ctx.pool, async (db) => {
     await queueIntegrationSecretChange(db, input.key);
     const before = await lockIntegrationSecret(db, input.key);
@@ -454,7 +456,7 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
       resource: "integration_secret",
       resourceId: input.key,
       action,
-      before: before === null ? null : { hints: before.hints, ...previousAudit },
+      before: before === null ? null : { hints: before.hints, ...emailBeforeAudit(ctx, before) },
       after: { hints, ...auditExtra },
     });
     return action;
@@ -466,7 +468,6 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
 /** 清空：删掉后台这一份，回落到服务器配置文件。后台本来就没填时 409。 */
 export async function clearIntegrationSecretValue(ctx: AppContext, principal: PlatformPrincipal, key: IntegrationSecretKey, ip: string): Promise<void> {
   const now = ctx.now();
-  const previousAudit = emailPreviousAudit(ctx, key);
   await withPlatformTx(ctx.pool, async (db) => {
     await queueIntegrationSecretChange(db, key);
     const before = await lockIntegrationSecret(db, key);
@@ -476,7 +477,7 @@ export async function clearIntegrationSecretValue(ctx: AppContext, principal: Pl
       resource: "integration_secret",
       resourceId: key,
       action: "clear",
-      before: { hints: before.hints, ...previousAudit },
+      before: { hints: before.hints, ...emailBeforeAudit(ctx, before) },
       after: null,
     });
   });
