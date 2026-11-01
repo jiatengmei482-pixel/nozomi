@@ -208,6 +208,18 @@ test("代传出发、到达立即生效；代传接到客人、完成要另一�
   await expect(page.getByRole("heading", { name: "代供应商回传履约" })).toHaveCount(0);
   await expect(flow.getByText("平台代传")).toHaveCount(4);
 
+  // M4-19：派车、履约时间点、落地都显示，代传的节点标出来
+  const section = (name: RegExp) => page.locator("section").filter({ has: page.getByRole("heading", { name }) });
+  await expect(section(/^派车（/)).toContainText("佐藤一郎");
+  await expect(section(/^履约（/).getByText("平台代传")).toHaveCount(4);
+  await expect(section(/^履约（/)).toContainText("（没有定位）");
+  await expect(section(/^履约（/)).not.toContainText("还没有记录");
+  await expect(section(/^落地（/)).toContainText("计划到达");
+  await expect(section(/^落地（/)).toContainText("来源：计划到达时间");
+  await expect(section(/^落地（/)).toContainText("客人没有确认");
+  await expect(flow).not.toContainText("DEPARTED");
+  await expectAccessible(page, "订单详情（派车、履约、落地）");
+
   // 供应商：看得到平台代传，看不到原因
   const tenantContext = await browser.newContext();
   const tenantPage = await tenantContext.newPage();
@@ -229,5 +241,13 @@ test("代传出发、到达立即生效；代传接到客人、完成要另一�
   await expect(readerPage.getByRole("heading", { level: 1, name: `订单 ${otherNo}` })).toBeVisible();
   await expect(readerPage.getByRole("heading", { name: "代供应商回传履约" })).toHaveCount(0);
   await expect(readerPage.getByRole("button", { name: /^代传/ })).toHaveCount(0);
+
+  // M4-19：乘客默认打码，只读员工也要点「查看」，查看记审计
+  const trip = readerPage.locator("section").filter({ has: readerPage.getByRole("heading", { name: "行程" }) });
+  await expect(trip).toContainText("王**");
+  await expect(trip).not.toContainText("王小明");
+  await trip.getByRole("button", { name: "查看联系方式" }).click();
+  await expect(trip).toContainText("王小明 · +819012345678 · guest@e2e.example.com");
+  await expect.poll(async () => owner(async (client) => (await client.query("select 1 from audit_logs where resource = 'order' and resource_id = $1 and action = 'view_passenger' and actor_email = $2", [otherId, reader.email])).rowCount)).toBe(1);
   await readerContext.close();
 });

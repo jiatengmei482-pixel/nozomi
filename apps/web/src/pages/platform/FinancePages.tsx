@@ -615,7 +615,7 @@ export function PayoutBatchListPage() {
   ];
   return shell(
     <>
-      <p className="page__lead">一个付款日一个批次（默认次月 20 日）。付款复核批准后账单自动进它的应付日的批次；批次锁定后，之后批准的进下个月同一天。银行转账文件和流水号回填在下一期（M5-02）。</p>
+      <p className="page__lead">一个付款日一个批次（默认次月 20 日）。付款复核批准后账单自动进它的应付日的批次；批次锁定后，之后批准的进下个月同一天。锁定后在批次详情里生成银行转账文件，转账后回填银行流水号。</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="状态" value={status ?? "all"} options={[{ value: "all", label: "全部" }, ...(["open", "closed", "paid"] as const).map((value) => ({ value, label: BATCH_STATUS_BADGES[value].label }))]} onChange={(value) => setParams(value === "all" ? {} : { status: value }, { replace: true })} />
       </div>

@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { FxFetch, FxHistory, FxOverview } from "../../api/fx.ts";
 import type { DashboardSummary } from "../../api/master.ts";
+import { missingRateNote } from "../../lib/fx-display.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
@@ -228,4 +229,23 @@ test("M1-14 汇率页：数字是四舍五入的（不是截短）；点「显�
   assert.equal(back[0]?.getAttribute("aria-pressed"), "true");
   await actor.click(back[0] as HTMLElement);
   assert.equal(within(krw).getByTitle("1334.892169").textContent, "1334.8922");
+});
+
+test("M4-19 基准币种还没有汇率：全部显示「—」时写明原因，不是拉取失败；只有个别币种没有时也写一句", async () => {
+  const allMissing = overview({ base: "SGD", rates: overview().rates.map((rate) => ({ ...rate, rate: null })) });
+  open("/platform/master/fx-rates", "master_data", (call) => (call.url.pathname === "/platform/v1/fx-rates" && call.url.searchParams.get("base") === "SGD" ? json(200, allMissing) : null));
+  const section = (await screen.findByRole("heading", { name: "当前汇率" })).closest("section") as HTMLElement;
+  await userEvent.setup().selectOptions(within(section).getByLabelText("基准币种"), "SGD");
+  await waitFor(() => assert.match(section.textContent ?? "", /基准币种 SGD 还没有汇率，所以全部显示「—」：刚加入的币种要等数据源下一次更新才有值，这不是拉取失败/));
+  resetBrowser();
+
+  const oneMissing = overview({ rates: overview().rates.map((rate, index) => (index === 0 ? { ...rate, rate: null } : rate)) });
+  open("/platform/master/fx-rates", "master_data", (call) => (call.url.pathname === "/platform/v1/fx-rates" ? json(200, oneMissing) : null));
+  assert.match((await screen.findByRole("heading", { name: "当前汇率" })).closest("section")?.textContent ?? "", /显示「—」的币种还没有汇率/);
+});
+
+test("M4-19 missingRateNote：没有「—」时为 null", () => {
+  assert.equal(missingRateNote("USD", ["150.5", "7.2"]), null);
+  assert.match(missingRateNote("USD", ["150.5", null]) ?? "", /显示「—」的币种/);
+  assert.match(missingRateNote("SGD", [null, null]) ?? "", /基准币种 SGD/);
 });

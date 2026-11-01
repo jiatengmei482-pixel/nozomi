@@ -9,7 +9,7 @@ import { userEvent } from "@testing-library/user-event";
 import type { OrderStatus } from "@nozomi/domain";
 import type { OrderEvent, TenantOrderDetail } from "../../api/dispatch.ts";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
-import { ORDER_ID, openApp } from "../../testing/order-center-fixtures.tsx";
+import { NOT_DISPATCHED, NO_RECORDS, ORDER_ID, openApp } from "../../testing/order-center-fixtures.tsx";
 import { json, resetBrowser } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
@@ -17,6 +17,7 @@ afterEach(resetBrowser);
 const money = (amount: string) => ({ amount, currency: "JPY" });
 const orderOf = (changes: Partial<PlatformOrder> = {}): PlatformOrder =>
   ({
+    ...NOT_DISPATCHED,
     id: ORDER_ID,
     order_no: "NZ20261007ABCDEFGH",
     status: "assigned",
@@ -52,7 +53,7 @@ const orderOf = (changes: Partial<PlatformOrder> = {}): PlatformOrder =>
     ...changes,
   }) as PlatformOrder;
 
-const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, ...extra });
+const detailOf = (order: PlatformOrder, extra: Partial<PlatformOrderDetail> = {}): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_review: null, records: NO_RECORDS, ...extra });
 const PATH = `/platform/orders/${ORDER_ID}`;
 const API = `/platform/v1/orders/${ORDER_ID}`;
 

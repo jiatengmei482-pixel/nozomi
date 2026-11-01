@@ -13,6 +13,7 @@ import { App } from "../../App.tsx";
 import type { TenantOrder, TenantOrderDetail } from "../../api/dispatch.ts";
 import type { ExtraCharge, OrderChange, PlatformExtraCharge, PlatformOrder, PlatformOrderDetail, PlatformPayment } from "../../api/order-money.ts";
 import { type ApiCall, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { NOT_DISPATCHED, NO_RECORDS } from "../../testing/order-center-fixtures.tsx";
 
 afterEach(resetBrowser);
 
@@ -52,6 +53,7 @@ function open(path: string, role: string, routes: Route, portal: "tenant" | "pla
 const user = () => userEvent.setup();
 
 const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => ({
+  ...NOT_DISPATCHED,
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",
   status: "confirmed",
@@ -122,6 +124,7 @@ const platformDetail = (order: PlatformOrder, extra: Partial<PlatformOrderDetail
   exceptions: [],
   tickets: [],
   pending_proxy_review: null,
+  records: NO_RECORDS,
   ...extra,
 });
 

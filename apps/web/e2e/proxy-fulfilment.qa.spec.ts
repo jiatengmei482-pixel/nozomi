@@ -142,6 +142,7 @@ test("320 宽、司机姓名和车型很长、500 字不换行的原因：订单
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto(`/platform/orders/${id}`);
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
+  await expect(page.locator("section").filter({ has: page.getByRole("heading", { name: /^派车（/ }) })).toContainText(LONG_WORD);
   await expect(page.locator("section").filter({ has: page.getByRole("heading", { name: "状态流水" }) })).toContainText(reason);
   await expectNoHorizontalOverflow(page, "订单详情（极端内容，320px）");
 

@@ -4,7 +4,8 @@
  * - 详情里「异常」「工单」两块：这一单的全部异常和工单，`ticket.manage` 能从这里新建工单；
  * - 详情：行程、乘客、对外价和结算价、这一单的取消阶梯、取消结果；全部收款和退款（失败的退款财务可以重试，`payment.manage`）；改单的改前改后；事后加收（审核：`order.manage`；扣款失败的重试：`payment.manage`）；
  * - 代客人取消（`order.manage`）：选原因、写说明、先看试算；多退给客人的（免收取消费、免费的原因）提交后要另一位同事批准；
- * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）。
+ * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）；
+ * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
 import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, SERVICE_CATEGORIES, type ServiceCategory, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -26,6 +27,7 @@ import {
   getPlatformOrder,
   listPlatformOrders,
   retryExtraCharge,
+  revealPlatformPassenger,
   retryRefund,
 } from "../../api/order-money.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -74,6 +76,7 @@ import { localDayInstant } from "../../lib/audit-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
+import { OrderFulfilmentSections } from "./OrderFulfilmentSections.tsx";
 import { ProxyFulfilmentSection } from "./ProxyFulfilment.tsx";
 import { RescueSection } from "./RescuePages.tsx";
 
@@ -248,6 +251,39 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
+  );
+}
+
+/** 乘客：默认打码，点「查看」才取全文（每次记审计，ADR 0052）。只读员工一样。 */
+function PassengerContact({ order }: { order: PlatformOrder }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
+  const [revealed, setRevealed] = useState<PlatformOrder["passenger"] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const show = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      setRevealed((await revealPlatformPassenger(token, order.id)).passenger);
+    } catch (err) {
+      if (!handleAuthFailure(err)) toast(failureText(err, "查看"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const shown = revealed ?? order.passenger;
+  return (
+    <>
+      {`${shown.name} · ${shown.phone}${revealed === null ? "" : ` · ${shown.email}`} · ${order.passengers} 人 ${order.luggage} 件行李`}
+      {revealed === null && (
+        <>
+          {" "}
+          <Button variant="text" size="sm" loading={busy} onClick={() => void show()}>
+            查看联系方式
+          </Button>
+          <span className="field__hint">查看会记进审计日志。</span>
+        </>
+      )}
+    </>
   );
 }
 
@@ -471,7 +507,7 @@ export function PlatformOrderDetailPage() {
           <Detail label={`用车时间（当地，${zone}）`}><time dateTime={order.service_time}>{order.service_local.replace("T", " ")}</time></Detail>
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
-          <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
+          <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>
@@ -493,6 +529,8 @@ export function PlatformOrderDetailPage() {
           </div>
         )}
       </section>
+
+      <OrderFulfilmentSections detail={detail} />
 
       <ProxyFulfilmentSection detail={detail} onChanged={reload} />
 
