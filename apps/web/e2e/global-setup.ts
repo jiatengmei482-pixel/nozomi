@@ -8,6 +8,8 @@
  *    （vite preview，把 API 前缀代理给刚起的 API）。API 的底图配置指向假瓦片服务；
  *    另起本机的假谷歌地图（Routes API）和假 Stripe（ADR 0041：运营后台「测试一下」调的就是它们，测试从不访问真实服务），
  *    谷歌地图和 Stripe 的密钥一律不经配置文件给（运营后台填写的用例自己填、自己清空）；
+ *    另起本机的假 SMTP 服务器（ADR 0048：支持 STARTTLS，证书是现场生成的，只有这次运行的 API 进程信任它；测试从不连真实的邮件服务），
+ *    和一个查询它收到了什么的小接口（测试进程和这里不是同一个进程）；SMTP 同样不经配置文件给；
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
  *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
@@ -18,13 +20,13 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
-import { type FakeService, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
+import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT } from "../playwright.config.ts";
 import { nextCode } from "./mfa.ts";
@@ -121,6 +123,21 @@ function startTileServer(port: number): Promise<Server> {
   });
 }
 
+/** 假 SMTP 服务器的查询接口：回它记下的认证和收到的信，用例靠它确认邮件真的发到了本人。端口随机，由 global-setup 交给测试进程。 */
+function startFakeSmtpStats(smtp: FakeSmtp): Promise<{ server: Server; url: string }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+    response.end(JSON.stringify({ auths: smtp.auths, messages: smtp.messages }));
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      resolve({ server, url: `http://127.0.0.1:${typeof address === "object" && address !== null ? address.port : 0}/` });
+    });
+  });
+}
+
 function runAdminCreate(env: NodeJS.ProcessEnv, email: string, name: string, password: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["apps/api/src/cli/admin-create.ts", "--email", email, "--name", name], {
@@ -181,11 +198,17 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
   const fakeIntegrations: FakeService[] = [];
+  let fakeSmtp: FakeSmtp | null = null;
+  let fakeSmtpStats: Server | null = null;
+  let fakeSmtpCertDir: string | null = null;
   let totpStateDir: string | null = null;
   const teardown = async (): Promise<void> => {
     for (const running of started.reverse()) await stop(running);
     await fxSource?.close();
     for (const fake of fakeIntegrations) await fake.close();
+    await fakeSmtp?.close();
+    if (fakeSmtpStats !== null) await new Promise<void>((resolve) => fakeSmtpStats?.close(() => resolve()));
+    if (fakeSmtpCertDir !== null) await rm(fakeSmtpCertDir, { recursive: true, force: true });
     if (tileServer) {
       tileServer.closeAllConnections();
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
@@ -235,6 +258,16 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     apiEnv["GOOGLE_PLACES_SEARCH_URL"] = googlePlaces.url;
     apiEnv["GOOGLE_GEOCODE_URL"] = googleGeocode.url;
     apiEnv["STRIPE_API_URL"] = stripeApi.url;
+    // 邮件发送（ADR 0048）：配置文件里不给，用例在运营后台填本机假 SMTP 的地址。证书校验没有开关，所以让 API 进程信任这张现场生成的证书
+    for (const name of Object.keys(apiEnv)) if (name.startsWith("SMTP_")) delete apiEnv[name];
+    const smtpCert = generateFakeTlsCert();
+    fakeSmtpCertDir = await mkdtemp(join(tmpdir(), "nozomi-e2e-smtp-"));
+    const smtpCaFile = join(fakeSmtpCertDir, "ca.pem");
+    await writeFile(smtpCaFile, smtpCert.cert);
+    apiEnv["NODE_EXTRA_CA_CERTS"] = smtpCaFile;
+    fakeSmtp = await startFakeSmtp({ tls: { mode: "starttls", cert: smtpCert } });
+    const smtpStats = await startFakeSmtpStats(fakeSmtp);
+    fakeSmtpStats = smtpStats.server;
 
     // 准备一批超级管理员，用例分散着用（ADR 0030：同一个人同一个 30 秒里的动态码只能用一次，都抢同一个人会互相顶掉、还会被限速）
     const admins = Array.from({ length: adminSlots }, () => ({ email: `e2e-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z`, secret: "" }));
@@ -309,6 +342,9 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
     process.env["E2E_ADMINS"] = JSON.stringify(admins);
     process.env["E2E_WORKERS"] = String(config.workers);
+    process.env["E2E_FAKE_SMTP_HOST"] = fakeSmtp.host;
+    process.env["E2E_FAKE_SMTP_PORT"] = String(fakeSmtp.port);
+    process.env["E2E_FAKE_SMTP_STATS_URL"] = smtpStats.url;
     process.env["E2E_DATABASE_URL"] = database.url;
     // 派车的用例要一张「已经付过款」的订单：端到端测试里没有 Stripe，由用例用迁移账号直接写进本次运行的 schema（只在测试里构造）
     process.env["E2E_DATABASE_OWNER_URL"] = database.ownerUrl;
