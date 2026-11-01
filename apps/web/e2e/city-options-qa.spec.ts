@@ -186,12 +186,8 @@ test("范围是空的（一个城市都没有）：报价试算说是数据范�
   expect(quote.note).toContain("你的数据范围里没有启用中的城市");
 });
 
-/**
- * 【缺陷】M4-13：订单筛选的城市框给了 emptyText（「你的数据范围里没有城市…」），但这个框带「全部」清除项，
- * Combobox 只在没有任何可见项时才显示 emptyText，所以这句话永远显示不出来：员工只看到一个「全部」，不知道为什么没有城市。
- * 商品列表的城市筛选是同一个写法。
- */
-test("【缺陷】范围是空的：订单和商品列表的城市筛选应当说明是数据范围里没有城市，实际只有一个「全部」，没有任何说明", async ({ page, request }) => {
+/** M4-13：订单和商品列表的城市框带「全部」；数据范围为空时，除了「全部」还要写明「你的数据范围里没有城市…」（Combobox 的 emptyText）。 */
+test("范围是空的：订单和商品列表的城市筛选说明是数据范围里没有城市", async ({ page, request }) => {
   test.setTimeout(120_000);
   const staff = await customStaff(request, ["orders:view", "products:view"], []);
   await loginAs(page, "platform", staff.email, staff.password);
