@@ -3,7 +3,7 @@
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
 import { type ExtraChargeType, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
   type SiteCancelFee,
@@ -115,6 +115,8 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
   const intentId = useRef<string | null>(null);
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [notice, setNotice] = useState<Notice | null>(null);
+  const noticeSlot = useRef<HTMLDivElement>(null);
+  const revealNotice = useRef(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [round, setRound] = useState(0);
@@ -139,6 +141,20 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
     setState({ kind: "ended" });
     setNotice({ kind: "warning", text: CANNOT_PAY_TEXT });
     refresh.current();
+  };
+
+  // 客人点了按钮后才有的失败提示：页面可能已经滚到下面（提示在区块顶部，确认按钮在区块底部），3D 验证窗口关掉后焦点也没了去处。
+  // 提示一渲染出来、浏览器还没画这一帧就移过去，看不到跳动；已经在屏幕里时不滚。打开页面就有的提示不抢焦点。
+  useLayoutEffect(() => {
+    if (!revealNotice.current || notice === null) return;
+    revealNotice.current = false;
+    noticeSlot.current?.scrollIntoView?.({ block: "nearest" });
+    noticeSlot.current?.focus({ preventScroll: true });
+  }, [notice]);
+
+  const showFailure = (text: string): void => {
+    revealNotice.current = true;
+    setNotice({ kind: "danger", text });
   };
 
   useEffect(() => {
@@ -171,7 +187,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
       }
       mounted.current = mount;
       setState({ kind: "ready" });
-      if (mount.lastError !== null) setNotice({ kind: "danger", text: `上次付款没有成功：${mount.lastError}请换一张卡，或检查后再付。` });
+      if (mount.lastError !== null) setNotice({ kind: "danger", text: `上次付款没有成功：${mount.lastError}` });
       // 地址上的「失败」不单独算数：Stripe 查到确实还在等客人付款才提示
       else if (returnFailed && mount.awaitingPaymentMethod) setNotice({ kind: "danger", text: RETURN_FAILED_TEXT });
     };
@@ -209,7 +225,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
     try {
       const checked = await mounted.current.validate();
       if (checked.ok) setConfirming(true);
-      else setNotice({ kind: "danger", text: checked.message });
+      else showFailure(checked.message);
     } finally {
       setBusy(false);
     }
@@ -229,19 +245,12 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
         return;
       }
       if (outcome.kind === "canceled") {
+        revealNotice.current = true;
         endPayment();
         return;
       }
       setConfirming(false);
-      setNotice({
-        kind: "danger",
-        text:
-          outcome.kind === "declined"
-            ? `付款没有成功：${outcome.message}请换一张卡，或检查后再付。`
-            : outcome.kind === "network"
-              ? NETWORK_TEXT
-              : `付款没有完成${outcome.message === null ? "" : `：${outcome.message}`}。请稍后再试；一直不行请联系客服。`,
-      });
+      showFailure(outcome.kind === "declined" ? `付款没有成功：${outcome.message}` : outcome.kind === "network" ? NETWORK_TEXT : "付款没有完成。请稍后再试；一直不行请联系客服。");
     } finally {
       setBusy(false);
     }
@@ -254,7 +263,7 @@ function PaymentPanel({ token, order, initial, returnFailed, onRefresh, polling 
       {(state.kind === "loading" || state.kind === "ready" || state.kind === "failed") && (
         <p className="site-muted">请在当地时间 {due} 前付款，过时订单会自动取消。付款信息由 Stripe 处理，本站不保存卡号。</p>
       )}
-      <AlertSlot notice={shown} />
+      <AlertSlot notice={shown} focusRef={noticeSlot} />
       {state.kind !== "submitted" && <div ref={container} className="site-payment" aria-busy={state.kind === "loading"} />}
       {state.kind === "loading" && <Skeleton lines={["control", "control"]} label="正在加载付款组件" />}
       {state.kind === "failed" && <Button size="lg" onClick={() => setRound((value) => value + 1)}>重新加载</Button>}

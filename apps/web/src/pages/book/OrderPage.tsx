@@ -32,14 +32,19 @@ export function lookupThrottledText(retryAfterSeconds: number | null): string {
 
 /** 从银行验证页回来却取不回令牌（换了标签页或浏览器、存储被清）：付款结果以 Stripe 通知平台为准，客人用订单号找回订单就能看到。 */
 const RETURN_LOST_TEXT = "付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。";
+/**
+ * 同上，但地址上写着付款失败。这里没有令牌、查不了订单，「失败」只是地址上的说法，所以写「银行返回的结果」，真正的状态让客人到订单页看；
+ * 那里只有还没付成才会显示付款表单，不会诱导重复付款。平台现在不发确认邮件（ADR 0032：通知中心任务），找回只有订单号和客服。
+ */
+const RETURN_FAILED_LOST_TEXT = "银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。";
 
-function LookupForm({ expired, paymentReturnLost = false }: { expired: boolean; paymentReturnLost?: boolean }) {
+function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; paymentReturnLost?: "failed" | "unknown" | null }) {
   const navigate = useNavigate();
   const [orderNo, setOrderNo] = useState("");
   const [contact, setContact] = useState("");
   const [errors, setErrors] = useState<{ orderNo?: string; contact?: string }>({});
   const [notice, setNotice] = useState<Notice | null>(
-    paymentReturnLost ? { kind: "warning", text: RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
+    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
   );
   const [busy, setBusy] = useState(false);
 
@@ -102,7 +107,7 @@ export function OrderPage() {
   const token = siteTokenFromHash(location.hash);
   // `#` 后面有内容却不是令牌的格式（被截断、改坏）：和失效的链接一样提示，不说是哪种失效（页面规范第 6 节）
   const malformed = token === null && location.hash.replace(/^#/, "").trim() !== "";
-  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: boolean; paymentReturnFailed?: boolean } | null;
+  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: "failed" | "unknown"; paymentReturnFailed?: boolean } | null;
   const navigate = useNavigate();
   const returnParams = token === null ? paymentReturnParams(location.search) : null;
   const returnIntent = returnParams?.intentId ?? null;
@@ -125,7 +130,7 @@ export function OrderPage() {
     handledReturn.current = true;
     const saved = takePaymentReturn(returnIntent);
     if (saved !== null && siteTokenFromHash(saved) !== null) navigate(siteOrderUrl(saved), { replace: true, state: { paymentReturnFailed: returnFailed } });
-    else navigate(SITE_ORDER_PATH, { replace: true, state: { paymentReturnLost: true } });
+    else navigate(SITE_ORDER_PATH, { replace: true, state: { paymentReturnLost: returnFailed ? "failed" : "unknown" } });
   }, [returnIntent, returnFailed, navigate]);
 
   useEffect(() => {
@@ -171,7 +176,7 @@ export function OrderPage() {
       <SiteLayout attribution={false}>
         <h1 className="site__title">查订单</h1>
         <p className="site-muted">输入订单号和下单时填的邮箱或手机号，就能查看订单、付款、取消或修改。</p>
-        <LookupForm key={token ?? (malformed ? "malformed" : arrival?.paymentReturnLost === true ? "return-lost" : "none")} expired={malformed || loaded.kind === "invalid"} paymentReturnLost={token === null && arrival?.paymentReturnLost === true} />
+        <LookupForm key={token ?? (malformed ? "malformed" : arrival?.paymentReturnLost !== undefined ? `return-lost-${arrival.paymentReturnLost}` : "none")} expired={malformed || loaded.kind === "invalid"} paymentReturnLost={token === null ? (arrival?.paymentReturnLost ?? null) : null} />
       </SiteLayout>
     );
   }

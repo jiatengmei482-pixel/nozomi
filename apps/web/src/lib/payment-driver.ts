@@ -7,7 +7,8 @@
  * 订单是否「已确认」以平台为准，前端不自己宣布订单已确认。
  */
 import { createContext, useContext } from "react";
-import { type StripeAppearance, type StripeJsError, type StripeJsFactory, type StripeJsPaymentIntent, type StripeJsResult, loadStripeJs } from "./stripe-js.ts";
+import { paymentFailureText } from "./payment-errors.ts";
+import { type StripeAppearance, type StripeJsError, type StripeJsFactory, type StripeJsPaymentIntent, type StripeJsResult, type StripePaymentElementOptions, loadStripeJs } from "./stripe-js.ts";
 
 /** 挂表单时这笔付款在 Stripe 那边的样子。客人已经付过（刷新页面、从银行验证页回来）时不再显示表单。 */
 export type PaymentIntentState = "open" | "processing" | "succeeded" | "canceled";
@@ -17,18 +18,18 @@ export type ConfirmOutcome =
   | { kind: "succeeded" }
   /** 银行还在处理（少数卡），处理完 Stripe 通知平台 */
   | { kind: "processing" }
-  /** 卡被拒、验证没通过、卡号填得不对：`message` 是 Stripe 写给付款人的话，可以改了或换卡再付 */
+  /** 卡被拒、验证没通过、卡号填得不对：`message` 是按错误代码写的中文（原因和怎么办），可以改了或换卡再付 */
   | { kind: "declined"; message: string }
   /** 没连上 Stripe：这次付款可能没提交，可以再点（同一笔付款，不会扣两次） */
   | { kind: "network" }
   /** 这笔付款已经取消（订单被取消、过了付款期限）：不能再付了 */
   | { kind: "canceled" }
-  /** 其他原因没付成；`message` 是 Stripe 给的说明（可能没有） */
-  | { kind: "failed"; message: string | null };
+  /** 其他原因没付成 */
+  | { kind: "failed" };
 
 export interface PaymentMount {
   readonly state: PaymentIntentState;
-  /** 上一次没付成的原因（从银行验证页回来、刷新时 Stripe 告诉的），没有为 null */
+  /** 上一次没付成的原因（从银行验证页回来、刷新时 Stripe 记着的代码换成的中文），没有为 null */
   readonly lastError: string | null;
   /** Stripe 说这笔付款正等着客人（重新）给支付方式（`requires_payment_method`）；从银行回来时用它核实地址上的「失败」 */
   readonly awaitingPaymentMethod: boolean;
@@ -52,12 +53,18 @@ export class PaymentLoadError extends Error {
   }
 }
 
-/** 官网是中文界面：Stripe 表单和它给的出错说明用简体中文。 */
+/** 官网是中文界面：Stripe 表单用简体中文。 */
 export const STRIPE_LOCALE = "zh";
 
-/** Stripe 给的错误里，哪些是「卡 / 填写的问题」——原话给客人看，客人可以改了或换卡再付。 */
+/** Stripe 给的错误里，哪些是「卡 / 填写的问题」——告诉客人原因，客人可以改了或换卡再付。 */
 const DECLINE_TYPES = new Set(["card_error", "validation_error"]);
 const AUTHENTICATION_FAILED = "payment_intent_authentication_failure";
+
+/**
+ * 只显示银行卡（ADR 0046）。后端的 `allowed_payment_method_types: ["card"]` 只管这笔付款的付款方式；Link、Apple Pay、Google Pay 不算付款方式，
+ * 只要允许银行卡就默认会出现，要在 Payment Element 上关（Stripe.js 文档 create_payment_element 的 `wallets`）。
+ */
+export const PAYMENT_ELEMENT_OPTIONS: StripePaymentElementOptions = { layout: "tabs", wallets: { applePay: "never", googlePay: "never", link: "never" } };
 
 function stateOf(intent: StripeJsPaymentIntent): PaymentIntentState {
   switch (intent.status) {
@@ -78,16 +85,15 @@ function outcomeOf(intent: StripeJsPaymentIntent): ConfirmOutcome {
   if (state === "succeeded") return { kind: "succeeded" };
   if (state === "processing") return { kind: "processing" };
   if (state === "canceled") return { kind: "canceled" };
-  const message = intent.last_payment_error?.message ?? null;
-  return message === null ? { kind: "failed", message: null } : { kind: "declined", message };
+  const failure = intent.last_payment_error ?? null;
+  return failure === null ? { kind: "failed" } : { kind: "declined", message: paymentFailureText(failure) };
 }
 
 /** Stripe 的错误 → 给页面的结果。 */
 export function outcomeOfError(error: StripeJsError): ConfirmOutcome {
   if (error.type === "api_connection_error") return { kind: "network" };
-  const message = error.message ?? null;
-  if ((DECLINE_TYPES.has(error.type) || error.code === AUTHENTICATION_FAILED) && message !== null) return { kind: "declined", message };
-  return { kind: "failed", message };
+  if (DECLINE_TYPES.has(error.type) || error.code === AUTHENTICATION_FAILED) return { kind: "declined", message: paymentFailureText(error) };
+  return { kind: "failed" };
 }
 
 function darkTheme(): boolean {
@@ -163,11 +169,12 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
       if (retrieved.paymentIntent === undefined) throw new PaymentLoadError("查不到这笔付款");
       const state = stateOf(retrieved.paymentIntent);
       if (state !== "open") return settledMount(state);
-      const lastError = retrieved.paymentIntent.last_payment_error?.message ?? null;
+      const lastFailure = retrieved.paymentIntent.last_payment_error ?? null;
+      const lastError = lastFailure === null ? null : paymentFailureText(lastFailure);
       const awaitingPaymentMethod = retrieved.paymentIntent.status === "requires_payment_method";
 
       const elements = stripe.elements({ clientSecret, appearance: stripeAppearance(), locale: STRIPE_LOCALE });
-      const element = elements.create("payment", { layout: "tabs" });
+      const element = elements.create("payment", PAYMENT_ELEMENT_OPTIONS);
       const ready = new Promise<void>((resolve, reject) => {
         element.on("ready", () => resolve());
         element.on("loaderror", () => reject(new PaymentLoadError("付款表单没有加载出来")));
@@ -194,7 +201,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
         awaitingPaymentMethod,
         async validate() {
           const result: { error?: StripeJsError } = await elements.submit().catch(connectionError);
-          if (result.error?.type === "validation_error") return { ok: false, message: result.error.message ?? "请检查银行卡信息" };
+          if (result.error?.type === "validation_error") return { ok: false, message: paymentFailureText(result.error) };
           return { ok: true };
         },
         async confirm(returnUrl) {
@@ -203,7 +210,7 @@ export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> =
             const outcome = outcomeOfError(result.error);
             return outcome.kind === "failed" || outcome.kind === "network" ? recheck(outcome) : outcome;
           }
-          return result.paymentIntent === undefined ? recheck({ kind: "failed", message: null }) : outcomeOf(result.paymentIntent);
+          return result.paymentIntent === undefined ? recheck({ kind: "failed" }) : outcomeOf(result.paymentIntent);
         },
         destroy() {
           stopWatching();

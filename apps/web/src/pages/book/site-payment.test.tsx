@@ -1,7 +1,7 @@
 /**
  * 官网订单页的付款（M3-08，ADR 0046，pages/site-booking.md 5.3）：真实的 Stripe Elements 实现（`createStripePaymentDriver`）+ Stripe.js 的假实现。
  * 覆盖：加载中 → 可付（publishable key、client_secret、中文、外观来自令牌）→ 校验不过 → 页面内确认 → 验证中（3D 验证弹窗期间按钮在忙）→
- * 失败卡（Stripe 的原话，能换卡再付）→ 处理中 → 网络失败 → 付款成功等待确认并轮询到已确认；付款组件没加载出来能重新加载；
+ * 失败卡（按错误代码显示中文，能换卡再付）→ 处理中 → 网络失败 → 付款成功等待确认并轮询到已确认；付款组件没加载出来能重新加载；
  * 刷新时已经付过不再显示表单；从银行验证页回来按付款编号取回令牌（令牌不进 return_url、不进任何请求网址，取回后删掉）；取不回时去查订单；付款已结束。
  * 接口用测试替身；真实后端 + 假 Stripe 由端到端测试 e2e/site-payment.spec.ts 覆盖。
  */
@@ -16,7 +16,7 @@ import { type ConfirmOutcome, PaymentDriverContext, createStripePaymentDriver, o
 import { PAYMENT_RETURN_MAX_AGE_MS, forgetPaymentReturn, intentIdOf, paymentReturnParams, rememberPaymentReturn, takePaymentReturn } from "../../lib/payment-return.ts";
 import { STRIPE_JS_TIMEOUT_MS, loadStripeJs } from "../../lib/stripe-js.ts";
 import { type FakeStripeJs, fakeStripeJs, intentOf } from "../../testing/fake-stripe-js.ts";
-import { type ApiCall, apiError, assertAbsent, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
+import { type ApiCall, apiError, assertAbsent, json, narrowScreen, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
 import { PaymentSection } from "./OrderSections.tsx";
 
 afterEach(resetBrowser);
@@ -138,11 +138,11 @@ test("可付：先显示加载中，再挂上 Stripe 的表单（publishable key
   assert.ok(["stripe", "night"].includes(stripe.calls.elements[0]?.appearance.theme ?? ""));
   assert.ok(document.querySelector(".site-payment [data-fake-stripe]"), "表单挂在付款区块里");
 
-  // 卡号没填完：Stripe 的校验原话，不出确认框
-  stripe.submit = async () => ({ error: { type: "validation_error", message: "您的卡号不完整。" } });
+  // 卡号没填完：按代码给中文，不出确认框
+  stripe.submit = async () => ({ error: { type: "validation_error", code: "incomplete_number", message: "Your card number is incomplete." } });
   const actor = user();
   await actor.click(pay);
-  assert.ok(await screen.findByText("您的卡号不完整。"));
+  assert.ok(await screen.findByText("卡号不完整。请检查后再付。"));
   assertAbsent(screen.queryByRole("group", { name: "确认付款" }));
   assert.equal(stripe.calls.confirm.length, 0);
 
@@ -155,7 +155,7 @@ test("可付：先显示加载中，再挂上 Stripe 的表单（publishable key
   assert.equal(stripe.calls.confirm.length, 0, "返回不付款");
 });
 
-test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着）按钮在忙、不能返回；令牌临时记在本标签页，return_url 里没有令牌；验证没通过时显示 Stripe 的原话、能再付；成功后等待确认并轮询到已确认", async () => {
+test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着）按钮在忙、不能返回；令牌临时记在本标签页，return_url 里没有令牌；验证没通过时说明原因、能再付；成功后等待确认并轮询到已确认", async () => {
   const stripe = fakeStripeJs();
   let finish!: (result: Awaited<ReturnType<FakeStripeJs["confirm"]>>) => void;
   stripe.confirm = () => new Promise((resolve) => (finish = resolve));
@@ -172,7 +172,7 @@ test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着
   assert.equal(JSON.parse(sessionStorage.getItem(RETURN_KEY) ?? "{}").intentId, "pi_1");
 
   finish({ error: { type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "我们无法验证您的支付方式。请选择另一支付方式并重试。" } });
-  assert.ok(await screen.findByText("付款没有成功：我们无法验证您的支付方式。请选择另一支付方式并重试。请换一张卡，或检查后再付。"));
+  assert.ok(await screen.findByText("付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。"));
   assert.equal(sessionStorage.getItem(RETURN_KEY), null, "有了结果就删掉");
   assert.ok(document.querySelector("[data-fake-stripe]"), "表单还在，可以换卡");
 
@@ -188,21 +188,21 @@ test("验证中：确认付款还没结果时（Stripe 的 3D 验证弹窗开着
   assert.equal(sessionStorage.getItem(RETURN_KEY), null);
 });
 
-test("失败卡：显示 Stripe 给的原因（卡被拒、余额不足），表单留着可以换卡再付；同一页面再付成功", async () => {
+test("失败卡：按错误代码说明原因（卡被拒、余额不足），建议只说一遍，表单留着可以换卡再付；同一页面再付成功", async () => {
   const stripe = fakeStripeJs();
-  stripe.confirm = async () => ({ error: { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: "您的卡余额不足。" } });
+  stripe.confirm = async () => ({ error: { type: "card_error", code: "card_declined", decline_code: "insufficient_funds", message: "您的银行卡资金不足。请换一张卡。" } });
   openOrderPage(stripe);
   const actor = user();
   await askToPay(actor);
   await actor.click(screen.getByRole("button", { name: "确认支付" }));
-  const alert = await screen.findByText("付款没有成功：您的卡余额不足。请换一张卡，或检查后再付。");
+  const alert = await screen.findByText("付款没有成功：您的银行卡余额不足。请换一张卡。");
   assert.ok(alert.closest('[role="alert"]'), "失败用 role=alert 播报");
   assertAbsent(screen.queryByRole("group", { name: "确认付款" }));
   stripe.confirm = async () => ({ paymentIntent: intentOf("succeeded") });
   await askToPay(actor);
   await actor.click(screen.getByRole("button", { name: "确认支付" }));
   assert.ok(await screen.findByText(/^付款成功，等待确认。/));
-  assertAbsent(screen.queryByText(/您的卡余额不足/));
+  assertAbsent(screen.queryByText(/余额不足/));
 });
 
 test("网络失败：没连上 Stripe 时说可能没提交、可以再点且不会扣两次；其实已经付过（再查一次是已成功）时按成功算", async () => {
@@ -304,9 +304,9 @@ test("后端准备付款出错（Stripe 不可用）：说明并能重新加载�
 test("从银行验证页回来（/book/order?payment_intent=…）：按付款编号取回令牌、立刻删掉，用请求头读订单；Stripe 说上次没付成时显示原因，可以再付", async () => {
   sessionStorage.setItem(RETURN_KEY, JSON.stringify({ intentId: "pi_1", token: TOKEN, at: Date.now() }));
   const stripe = fakeStripeJs();
-  stripe.intent = intentOf("requires_payment_method", "您的卡被拒绝了。");
+  stripe.intent = intentOf("requires_payment_method", "Your card was declined.");
   const calls = openOrderPage(stripe, undefined, { entry: { pathname: "/book/order", search: `?payment_intent=pi_1&payment_intent_client_secret=${CLIENT_SECRET}&redirect_status=failed` } });
-  assert.ok(await screen.findByText("上次付款没有成功：您的卡被拒绝了。请换一张卡，或检查后再付。"));
+  assert.ok(await screen.findByText("上次付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。"));
   assert.equal(sessionStorage.getItem(RETURN_KEY), null, "取回后删掉");
   const orderCall = calls.find((call) => call.path === "/site/v1/order");
   assert.equal(orderCall?.headers["Authorization"] ?? orderCall?.headers["authorization"], `Bearer ${TOKEN}`);
@@ -327,6 +327,106 @@ test("从银行验证页回来却取不回令牌（换了浏览器、记的是�
   }
 });
 
+test("缺陷：重新打开页面时 Stripe 给的是英文（被拒卡、3D 验证被拒的开发者说明、不认识的代码）：只显示中文，看不到英文原话", async () => {
+  const cases: [Parameters<typeof intentOf>[1], Parameters<typeof intentOf>[2], string][] = [
+    ["Your card was declined.", { code: "card_declined", decline_code: "generic_decline" }, "上次付款没有成功：您的银行卡被拒绝了。请换一张卡，或联系发卡银行。"],
+    ["Your card has insufficient funds.", { code: "card_declined", decline_code: "insufficient_funds" }, "上次付款没有成功：您的银行卡余额不足。请换一张卡。"],
+    ["The provided PaymentMethod has failed authentication. You can provide payment_method_data or a new PaymentMethod to attempt to fulfill this PaymentIntent again.", { code: "payment_intent_authentication_failure" }, "上次付款没有成功：银行验证没有通过。请重新付款并完成验证，或换一张卡。"],
+    ["Something new from Stripe.", { code: "some_future_code" }, "上次付款没有成功：银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。"],
+  ];
+  for (const [message, failure, expected] of cases) {
+    const stripe = fakeStripeJs();
+    stripe.intent = intentOf("requires_payment_method", message, failure);
+    openSection(stripe);
+    const shown = await screen.findByText(expected);
+    assert.doesNotMatch(shown.closest('[role="alert"]')?.textContent ?? "", /[A-Za-z]/, "提示里没有英文");
+    assert.ok(screen.getByRole("button", { name: "付款 21,780 JPY" }));
+    resetBrowser();
+  }
+});
+
+test("缺陷：其他错误（Stripe 给了英文说明）也不显示原话，只说没完成和怎么办", async () => {
+  const stripe = fakeStripeJs();
+  stripe.confirm = async () => ({ error: { type: "api_error", message: "An unknown error occurred" } });
+  openSection(stripe);
+  const actor = user();
+  await askToPay(actor);
+  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  assert.ok(await screen.findByText("付款没有完成。请稍后再试；一直不行请联系客服。"));
+  assertAbsent(screen.queryByText(/unknown error/));
+});
+
+test("缺陷：表单只显示银行卡——Payment Element 关掉 Link、Apple Pay、Google Pay（付款允许银行卡时它们默认会出现，后端的参数关不掉）", async () => {
+  const stripe = fakeStripeJs();
+  openSection(stripe);
+  await screen.findByRole("button", { name: "付款 21,780 JPY" });
+  assert.deepEqual(stripe.calls.paymentElement, [{ layout: "tabs", wallets: { applePay: "never", googlePay: "never", link: "never" } }]);
+});
+
+test("缺陷：确认付款失败、校验不过时，提示滚进视野并拿到焦点（页面可能已经滚到下面）；每次失败都这样；打开页面就有的提示不抢焦点", async () => {
+  const scrolled = narrowScreen();
+  const stripe = fakeStripeJs();
+  stripe.confirm = async () => ({ error: { type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "x" } });
+  openSection(stripe);
+  const actor = user();
+  await askToPay(actor);
+  assert.equal(scrolled.length, 0, "还没出错不滚动");
+  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  const first = await screen.findByText(/^付款没有成功：/);
+  assert.equal(scrolled.length, 1, "滚进视野一次");
+  assert.ok(document.activeElement?.contains(first), "焦点移到提示上");
+  assert.equal(document.activeElement?.getAttribute("tabindex"), "-1", "提示本身不进 Tab 顺序");
+
+  await askToPay(actor);
+  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  await waitFor(() => assert.equal(scrolled.length, 2, "再失败一次再滚一次"));
+  assert.ok(document.activeElement?.contains(screen.getByText(/^付款没有成功：/)));
+
+  stripe.submit = async () => ({ error: { type: "validation_error", code: "incomplete_cvc" } });
+  await actor.click(screen.getByRole("button", { name: "付款 21,780 JPY" }));
+  const invalid = await screen.findByText("安全码不完整。请检查后再付。");
+  assert.equal(scrolled.length, 3);
+  assert.ok(document.activeElement?.contains(invalid));
+  resetBrowser();
+
+  const reopened = narrowScreen();
+  const again = fakeStripeJs();
+  again.intent = intentOf("requires_payment_method", "Your card was declined.");
+  openSection(again);
+  await screen.findByText(/^上次付款没有成功：/);
+  assert.equal(reopened.length, 0, "打开页面时不滚动");
+  assert.equal(document.activeElement, document.body, "打开页面时不抢焦点");
+});
+
+test("缺陷：确认时才发现付款已取消，「不能付款了」的提示同样滚进视野、拿到焦点", async () => {
+  const scrolled = narrowScreen();
+  const stripe = fakeStripeJs();
+  stripe.confirm = async () => {
+    stripe.intent = intentOf("canceled");
+    return { error: { type: "invalid_request_error", code: "payment_intent_unexpected_state" } };
+  };
+  openSection(stripe);
+  const actor = user();
+  await askToPay(actor);
+  await actor.click(screen.getByRole("button", { name: "确认支付" }));
+  const notice = await screen.findByText(/这张订单现在不能付款了/);
+  assert.equal(scrolled.length, 1);
+  assert.ok(document.activeElement?.contains(notice));
+});
+
+test("缺陷：地址说付款失败又取不回令牌：说银行返回没有成功、怎样找回订单，不说「不要重复付款」，也不提不存在的确认邮件；其他回跳状态提示不变", async () => {
+  const stripe = fakeStripeJs();
+  const calls = openOrderPage(stripe, undefined, { entry: { pathname: "/book/order", search: "?payment_intent=pi_1&payment_intent_client_secret=pi_1_secret_2&redirect_status=failed" } });
+  const text = await screen.findByText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
+  assert.doesNotMatch(text.textContent ?? "", /不要重复付款|已交给银行|邮件里/);
+  assert.ok(screen.getByRole("heading", { level: 1, name: "查订单" }));
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/order")).length, 0);
+  resetBrowser();
+
+  openOrderPage(fakeStripeJs(), undefined, { entry: { pathname: "/book/order", search: "?payment_intent=pi_1&payment_intent_client_secret=pi_1_secret_2&redirect_status=pending" } });
+  assert.ok(await screen.findByText(/付款结果已交给银行处理。.*请不要重复付款。/));
+});
+
 test("主题切换时把新主题下的令牌值交给 Stripe 的表单；拆掉表单后不再跟着变", async () => {
   const stripe = fakeStripeJs();
   openSection(stripe);
@@ -342,14 +442,14 @@ test("主题切换时把新主题下的令牌值交给 Stripe 的表单；拆掉
   assert.equal(stripe.calls.appearanceUpdates.length, count);
 });
 
-test("Stripe 的错误归类：卡和填写的问题给原话；验证没通过给原话；没连上算网络；别的算没完成", () => {
+test("Stripe 的错误归类：卡和填写的问题、验证没通过都给中文原因，不用 Stripe 的原话；没连上算网络；别的算没完成", () => {
   const cases: [Parameters<typeof outcomeOfError>[0], ConfirmOutcome][] = [
-    [{ type: "card_error", message: "您的卡被拒绝了。" }, { kind: "declined", message: "您的卡被拒绝了。" }],
-    [{ type: "validation_error", message: "您的卡号不完整。" }, { kind: "declined", message: "您的卡号不完整。" }],
-    [{ type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "无法验证。" }, { kind: "declined", message: "无法验证。" }],
+    [{ type: "card_error", code: "card_declined", message: "Your card was declined." }, { kind: "declined", message: "您的银行卡被拒绝了。请换一张卡，或联系发卡银行。" }],
+    [{ type: "validation_error", code: "incomplete_number", message: "Your card number is incomplete." }, { kind: "declined", message: "卡号不完整。请检查后再付。" }],
+    [{ type: "invalid_request_error", code: "payment_intent_authentication_failure", message: "We are unable to authenticate your payment method." }, { kind: "declined", message: "银行验证没有通过。请重新付款并完成验证，或换一张卡。" }],
     [{ type: "api_connection_error" }, { kind: "network" }],
-    [{ type: "invalid_request_error", code: "payment_intent_unexpected_state", message: "状态不对" }, { kind: "failed", message: "状态不对" }],
-    [{ type: "card_error" }, { kind: "failed", message: null }],
+    [{ type: "invalid_request_error", code: "payment_intent_unexpected_state", message: "This PaymentIntent could not be confirmed." }, { kind: "failed" }],
+    [{ type: "card_error" }, { kind: "declined", message: "银行没有接受这次付款。请换一张卡，或稍后再试；一直不行请联系客服。" }],
   ];
   for (const [error, expected] of cases) assert.deepEqual(outcomeOfError(error), expected, JSON.stringify(error));
 });
