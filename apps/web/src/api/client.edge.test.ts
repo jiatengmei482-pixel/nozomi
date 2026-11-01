@@ -143,10 +143,10 @@ test("令牌只放在 Authorization 请求头里：不进网址、不进请求�
   }
 });
 
-test("接口清单：只有 auth/me 是 GET，其余都是 POST；路径都以 /auth/ 开头", () => {
+test("接口清单：只有 auth/me 和 auth/login-methods 是 GET，其余都是 POST；路径都以 /auth/ 开头", () => {
   for (const [name, endpoint] of Object.entries(AUTH_ENDPOINTS)) {
-    assert.equal(endpoint.method, name === "me" ? "GET" : "POST", name);
-    assert.match(endpoint.path, /^\/auth\/[a-z-]+$/);
+    assert.equal(endpoint.method, name === "me" || name === "loginMethods" ? "GET" : "POST", name);
+    assert.match(endpoint.path, /^\/auth\/[a-z-]+(\/[a-z-]+)?$/);
   }
 });
 
