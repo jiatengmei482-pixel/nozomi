@@ -45,8 +45,10 @@ const notCurrent = (column: string): string => `(${column} is null or ${column} 
 const orderNotAnonymized = (alias: string): string => `not exists (select 1 from orders o where o.id = ${alias}.order_id and o.passenger_anonymized_at is not null)`;
 
 const ORDERS_WHERE = `${notCurrent("t.passenger_enc")} and t.passenger_anonymized_at is null and t.passenger ->> 'name' not in ('${ANONYMIZED_TEXT}', '${ENCRYPTED_TEXT}')`;
-const CHANGES_WHERE = `${notCurrent("t.values_enc")} and (t.before ? 'passenger' or t.after ? 'passenger') and ${orderNotAnonymized("t")}`;
-const DELIVERIES_WHERE = `${notCurrent("t.event_data_enc")} and jsonb_path_exists(t.event_data, '$.**.passenger') and ${orderNotAnonymized("t")}`;
+// 明文只是占位的行没有可加密的内容（密钥换过又没有明文时只能靠旧密钥恢复，ADR 0057「换主密钥」），不算待处理；`--verify` 把它们算解不开
+const noPlaceholder = (column: string): string => `${column}::text not like '%${ANONYMIZED_TEXT}%' and ${column}::text not like '%${ENCRYPTED_TEXT}%'`;
+const CHANGES_WHERE = `${notCurrent("t.values_enc")} and (t.before ? 'passenger' or t.after ? 'passenger') and ${noPlaceholder("(t.before -> 'passenger')")} and ${noPlaceholder("(t.after -> 'passenger')")} and ${orderNotAnonymized("t")}`;
+const DELIVERIES_WHERE = `${notCurrent("t.event_data_enc")} and jsonb_path_exists(t.event_data, '$.**.passenger') and ${noPlaceholder("t.event_data")} and ${orderNotAnonymized("t")}`;
 const NOTIFICATIONS_WHERE = `${notCurrent("t.recipient_enc")} and t.audience = 'guest' and t.tenant_id is not null and t.recipient not in ('${ANONYMIZED_TEXT}', '${ENCRYPTED_TEXT}')`;
 
 /** 每批按 (id, tenant_id) 往后走：同一轮里不会反复撞到同一条处理不了的行。 */
@@ -73,7 +75,6 @@ const TARGETS: Record<BackfillTable, Target> = {
     count: `select count(*)::int as n from order_changes t where ${CHANGES_WHERE}`,
     async encrypt(db, crypto, row) {
       const values = { before: row["before"], after: row["after"] };
-      if (passengersArePlaceholders(values)) return false;
       const sealed = crypto.sealValues("order_change", row["tenant_id"], row["id"], values);
       const updated = await db.query("update order_changes set values_enc = $3 where tenant_id = $1 and id = $2", [row["tenant_id"], row["id"], sealed.enc]);
       return (updated.rowCount ?? 0) === 1;
@@ -83,7 +84,6 @@ const TARGETS: Record<BackfillTable, Target> = {
     pending: pendingSql("webhook_deliveries", "t.event_id, t.event_data", DELIVERIES_WHERE),
     count: `select count(*)::int as n from webhook_deliveries t where ${DELIVERIES_WHERE}`,
     async encrypt(db, crypto, row) {
-      if (passengersArePlaceholders(row["event_data"])) return false;
       const sealed = crypto.sealValues("webhook_delivery", row["tenant_id"], row["event_id"], row["event_data"]);
       const updated = await db.query("update webhook_deliveries set event_data_enc = $2 where id = $1", [row["id"], sealed.enc]);
       return (updated.rowCount ?? 0) === 1;
@@ -192,10 +192,10 @@ export interface VerifyResult {
 }
 
 const VERIFY_SQL: Record<BackfillTable, string> = {
-  orders: "select tenant_id, id, id::text as owner_id, passenger as plain, passenger_enc as enc from orders where passenger_enc like $1 and (id::text, tenant_id::text) > ($2, $3) order by id::text, tenant_id::text limit $4",
-  order_changes: "select tenant_id, id, id::text as owner_id, jsonb_build_object('before', before, 'after', after) as plain, values_enc as enc from order_changes where values_enc like $1 and (id::text, tenant_id::text) > ($2, $3) order by id::text, tenant_id::text limit $4",
-  webhook_deliveries: "select tenant_id, id, event_id::text as owner_id, event_data as plain, event_data_enc as enc from webhook_deliveries where event_data_enc like $1 and (id::text, tenant_id::text) > ($2, $3) order by id::text, tenant_id::text limit $4",
-  notifications: "select tenant_id, id, event_id::text as owner_id, to_jsonb(recipient) as plain, recipient_enc as enc from notifications where recipient_enc like $1 and (id::text, tenant_id::text) > ($2, $3) order by id::text, tenant_id::text limit $4",
+  orders: "select tenant_id, id, id::text as owner_id, passenger as plain, passenger_enc as enc from orders where passenger_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
+  order_changes: "select tenant_id, id, id::text as owner_id, jsonb_build_object('before', before, 'after', after) as plain, values_enc as enc from order_changes where values_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
+  webhook_deliveries: "select tenant_id, id, event_id::text as owner_id, event_data as plain, event_data_enc as enc from webhook_deliveries where event_data_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
+  notifications: "select tenant_id, id, event_id::text as owner_id, to_jsonb(recipient) as plain, recipient_enc as enc from notifications where recipient_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
 };
 
 const VERIFY_KIND = { orders: "order", order_changes: "order_change", webhook_deliveries: "webhook_delivery", notifications: "notification" } as const;
@@ -217,7 +217,7 @@ export async function verifyPassengerEncryption(ctx: AppContext, pageSize: numbe
     let afterId = "";
     let afterTenant = "";
     for (;;) {
-      const rows = await withPlatformTx(ctx.pool, async (db) => (await db.query<Row>(VERIFY_SQL[table], [`${crypto.currentPrefix}%`, afterId, afterTenant, pageSize])).rows, { snapshot: true });
+      const rows = await withPlatformTx(ctx.pool, async (db) => (await db.query<Row>(VERIFY_SQL[table], [afterId, afterTenant, pageSize])).rows, { snapshot: true });
       for (const row of rows) {
         result.checked[table] += 1;
         const opened = crypto.openForVerify(VERIFY_KIND[table], row["tenant_id"], row["owner_id"], row["enc"]);

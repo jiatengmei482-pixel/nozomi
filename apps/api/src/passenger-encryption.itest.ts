@@ -46,7 +46,7 @@ let alerts: { event?: string }[] = [];
 let counter = 0;
 
 const useCrypto = (settings: PassengerEncryptionSettings, key: SecretBox | null = box): PassengerCrypto => {
-  const crypto = new PassengerCrypto(key, settings, { warn: () => undefined, error: (obj) => alerts.push(obj as { event?: string }) });
+  const crypto = new PassengerCrypto(key, settings, { warn: () => undefined, error: (obj) => void alerts.push(obj as { event?: string }) });
   attachPassengerCrypto(api.db.pool, crypto);
   return crypto;
 };
@@ -94,7 +94,7 @@ async function placeOrder(passenger: { name: string; phone: string; email: strin
   const quote = quotes.body.quotes.find((row: any) => row.vehicle_group.id === m.ids.biz7);
   assert.ok(quote, quotes.text);
   api.clock.advance(1_000);
-  const res = await site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger, flight_no: "NH211", dropoff_address: "东京站八重洲口", save_payment_method: true } });
+  const res = await site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: passenger.name, phone: passenger.phone, email: passenger.email }, flight_no: "NH211", dropoff_address: "东京站八重洲口", save_payment_method: true } });
   assert.equal(res.status, 201, res.text);
   return { id: res.body.order.id, order_no: res.body.order.order_no, ip, token: res.body.link.token };
 }
@@ -143,7 +143,7 @@ async function drainMail(): Promise<void> {
 async function changePassenger(orderId: string, passenger: { name: string; phone: string; email: string }): Promise<void> {
   const token = await ops();
   const version = (await ok(api.call("GET", `/platform/v1/orders/${orderId}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger } }));
+  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger: { name: passenger.name, phone: passenger.phone, email: passenger.email } } }));
 }
 
 const tenantOfOrder = async (id: string): Promise<"a" | "b"> => ((await orderRow(id)).tenant_id === m.a.tenantId ? "a" : "b");
@@ -352,6 +352,7 @@ test("脱敏：密文、盲索引和所有副本的密文一起清掉；数据�
   await api.db.owner.query("update notification_events set expanded_at = coalesce(expanded_at, now()) where order_id = $1", [order.id]);
   await api.db.owner.query("update notifications set status = 'sent', sent_at = now() where order_id = $1 and status in ('pending', 'sending')", [order.id]);
   await endAt(api, order.id, tokyoDaysAgo(api, 200));
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
   const result = await runPassengerRetention(retentionCtx(api), { info: () => undefined, error: () => undefined });
   assert.ok(result.anonymized >= 1, JSON.stringify(result));
   const row = await orderRow2(order.id);
@@ -414,6 +415,7 @@ test("救援改派：新一行归救援供应商，按新租户重新加密和�
   await pay_(order.id);
   const owner = await tenantOfOrder(order.id);
   const rescuer = owner === "a" ? m.b : m.a;
+  await api.db.owner.query("update orders set status = 'rescue_pending' where id = $1", [order.id]);
   const original = await orderRow(order.id);
   const crypto = useCrypto(DUAL);
   await withPlatformTx(api.db.pool, async (db) => {
@@ -475,7 +477,8 @@ test("换主密钥：旧密文不报警地退回明文，查订单不受影响�
   assert.ok(crypto.isCurrent(row.passenger_enc) && crypto.isCurrent(row.passenger_email_bidx));
   assert.equal((await lookup(order, passenger.email)).status, 200);
   const verified = await verifyPassengerEncryption(ctx);
-  assert.equal(verified.undecryptable.orders + verified.mismatched.orders, 0);
+  assert.ok(verified.undecryptable.orders >= 1, "前面用例里明文不再写的单只有旧密钥解得开：核对要报出来，不能说全部一致");
+  assert.equal(verified.mismatched.orders, 0);
   useCrypto(DUAL);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
 });
@@ -483,13 +486,14 @@ test("换主密钥：旧密文不报警地退回明文，查订单不受影响�
 test("没配置主密钥：下单 503 写明原因，不写明文冒充加密；已有的单照常能读、能查；回填不跑", async () => {
   const passenger = fictional();
   const existing = await placeOrder(passenger);
+  await pay_(existing.id);
   useCrypto(DUAL, null);
   const ip = "198.51.100.250";
   const quotes = await site.call("POST", "/site/v1/quotes", { ip, body: { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: new Date(api.clock.now().getTime() + 20 * 24 * HOUR).toISOString().slice(0, 16), passengers: 2, luggage: 1 } });
   assert.equal(quotes.status, 200, quotes.text);
   const quote = quotes.body.quotes.find((row: any) => row.vehicle_group.id === m.ids.biz7);
   const fresh = fictional();
-  const res = await site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: fresh, flight_no: "NH211", dropoff_address: "东京站", save_payment_method: true } });
+  const res = await site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: fresh.name, phone: fresh.phone, email: fresh.email }, flight_no: "NH211", dropoff_address: "东京站", save_payment_method: true } });
   assert.deepEqual([res.status, res.body.error.code], [503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED"]);
   assert.deepEqual(await scanDatabase(fresh.needles), [], "什么都没写");
   assert.equal((await revealOf(existing.id)).passenger.email, passenger.email);
