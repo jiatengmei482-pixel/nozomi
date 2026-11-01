@@ -9,9 +9,9 @@ import type { Db } from "../db/context.ts";
 /** 窗口结束多久之后的计数行可以清掉。 */
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
-/** 占用一次尝试，返回占用后的计数。窗口已结束的计数从 1 重新开始。 */
-export async function reserveLoginAttempt(db: Db, key: string, now: Date): Promise<ThrottleCounter> {
-  const windowExpiredBefore = new Date(now.getTime() - LOGIN_THROTTLE_WINDOW_MS);
+/** 占用一次尝试，返回占用后的计数。窗口已结束的计数从 1 重新开始。窗口默认 15 分钟；同一个 key 总是用同一个窗口。 */
+export async function reserveLoginAttempt(db: Db, key: string, now: Date, windowMs: number = LOGIN_THROTTLE_WINDOW_MS): Promise<ThrottleCounter> {
+  const windowExpiredBefore = new Date(now.getTime() - windowMs);
   const result = await db.query<{ attempt_count: number; window_started_at: Date }>(
     `insert into login_throttles as t (key, attempt_count, window_started_at)
      values ($1, 1, $2)

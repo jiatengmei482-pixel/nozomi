@@ -10,6 +10,7 @@ import { type Pool, driverErrorCode } from "./db/pool.ts";
 import type { MigrationFile } from "./db/migration-plan.ts";
 import { errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
 import type { AppContext } from "./context.ts";
+import { emailLoginIdle } from "./services/email-login.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "./services/quote-deps.ts";
 import { checkHealth } from "./health.ts";
 import { FxCenter } from "./services/fx-center.ts";
@@ -47,12 +48,14 @@ import { OrderJobs } from "./services/order-jobs.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
+import { NotificationJobs } from "./services/notification-jobs.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
 import { type Mailer, SmtpMailer } from "./integrations/smtp.ts";
 import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
 import { registerFleetRoutes } from "./routes/fleet.ts";
 import { registerDispatchRoutes } from "./routes/dispatch.ts";
 import { registerDriverRoutes } from "./routes/driver.ts";
+import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
@@ -88,7 +91,7 @@ export interface AppDeps {
   mailer?: Mailer;
   /** 官网地址搜索、反查的进程内短时缓存保留多久（毫秒，ADR 0044）；不给用 10 分钟。测试用它验证过期 */
   placeCacheTtlMs?: number;
-  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
+  /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单、通知发送）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
 
@@ -101,6 +104,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** 已注册的全部路由，用于和 OpenAPI 定义对账 */
     registeredRoutes: RegisteredRoute[];
+    /** 等发验证码的后台任务都结束（ADR 0050）：服务关闭时用，测试也靠它确认发信和审计写完了 */
+    emailLoginIdle: () => Promise<void>;
     /** 汇率中心：定时任务的入口（服务进程用 `jobs` 启动它；测试直接调 `tick`、`fetch`） */
     fxCenter: FxCenter;
     /** 订单的定时任务：待支付超时取消、超时未派车和未出发的提醒（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -111,6 +116,8 @@ declare module "fastify" {
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     billingJobs: BillingJobs;
+    /** 通知中心的发送任务（M4-08，ADR 0049；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
+    notificationJobs: NotificationJobs;
   }
 }
 
@@ -291,17 +298,24 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("tenantJobs", tenantJobs);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
+  // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
+  app.decorate("emailLoginIdle", () => emailLoginIdle(context));
+  app.addHook("onClose", () => emailLoginIdle(context));
+  const notificationJobs = new NotificationJobs(context, app.log);
+  app.decorate("notificationJobs", notificationJobs);
   if (deps.jobs) {
     fx.start();
     orderJobs.start();
     webhookJobs.start();
     tenantJobs.start();
     billingJobs.start();
+    notificationJobs.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
     app.addHook("onClose", () => tenantJobs.stop());
     app.addHook("onClose", () => billingJobs.stop());
+    app.addHook("onClose", () => notificationJobs.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);
@@ -329,6 +343,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerDispatchRoutes(app, context);
   registerDriverRoutes(app, context);
   registerTenantWebhookRoutes(app, context);
+  registerNotificationRoutes(app, context);
   registerTenantOnboardingRoutes(app, context);
   registerSiteRoutes(app, context);
 

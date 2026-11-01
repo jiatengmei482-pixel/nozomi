@@ -749,7 +749,8 @@ test("供应商的账号打开运营后台的这些地址：被送去运营后�
   const platformCalls: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
-    if (url.pathname.startsWith("/platform/v1/")) platformCalls.push(`${response.status()} ${url.pathname}`);
+    // 登录页查登录方式是公开接口（ADR 0050），不算运营接口
+    if (url.pathname.startsWith("/platform/v1/") && url.pathname !== "/platform/v1/auth/login-methods") platformCalls.push(`${response.status()} ${url.pathname}`);
   });
   await loginAs(page, "tenant", tenant.adminEmail, tenant.password);
   for (const path of ["/platform/tenants", "/platform/tenants/new", `/platform/tenants/${tenant.tenantId}`, "/platform/settings/staff", "/platform/settings/staff/new", "/platform/settings/audit-logs", "/platform/settings/integrations"]) {

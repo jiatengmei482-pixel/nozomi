@@ -105,13 +105,15 @@ test("超级管理员填写邮件发送 → 只显示打码 → 测试一下发�
 
   // 测试一下：假 SMTP 收到发给当前登录人的信，走加密连接，用的是刚填的账号密码
   await expect(card).toContainText("会发一封测试邮件到你自己的登录邮箱");
-  const before = (await smtpStats()).messages.length;
+  // 通知中心（ADR 0049）的后台任务在配置生效后也会发信，这里只数发给当前登录人的
+  const toMe = (stats: SmtpStats) => stats.messages.filter((sent) => sent.to.includes(email));
+  const before = toMe(await smtpStats()).length;
   await card.getByRole("button", { name: "测试一下" }).click();
   await expect(card.getByRole("status")).toContainText(`邮件服务器已接收，测试邮件发到了 ${email}`);
   await expect(card.getByRole("status")).toContainText(/测的是后台设置里的那一份。测试时间 \d{4}-\d\d-\d\d \d\d:\d\d:\d\d/);
   const stats = await smtpStats();
-  expect(stats.messages.length).toBe(before + 1);
-  const message = stats.messages.at(-1);
+  expect(toMe(stats).length).toBe(before + 1);
+  const message = toMe(stats).at(-1);
   expect(message?.to).toEqual([email]);
   expect(message?.from).toBe("noreply@example.com");
   expect(message?.secure).toBe(true);

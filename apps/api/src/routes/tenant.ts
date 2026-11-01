@@ -20,14 +20,18 @@ import {
   checkTenantResetToken,
   listOwnAuditLogs,
   resetTenantPassword,
+  tenantEmailCodeLogin,
   tenantLogin,
   tenantLogout,
 } from "../services/tenant-auth.ts";
+import { currentLoginMethods, requestEmailCode } from "../services/email-login.ts";
 import { disableUser, inviteUser, issueUserPasswordReset, listUsers, updateUser } from "../services/tenant-users.ts";
 import {
   acceptInviteSchema,
   auditFilterSchema,
   changePasswordSchema,
+  emailCodeRequestSchema,
+  emailCodeVerifySchema,
   emailSchema,
   loginSchema,
   pageQuerySchema,
@@ -37,7 +41,7 @@ import {
   resourceId,
   tokenCheckSchema,
 } from "../validation.ts";
-import { inviteJson, pageJson, tenantAuditLogJson, tenantJson, tenantUserJson } from "./serialize.ts";
+import { emailCodeSentJson, inviteJson, loginMethodsJson, pageJson, tenantAuditLogJson, tenantJson, tenantUserJson } from "./serialize.ts";
 
 const TENANT_ROLE_KEYS = TENANT_ROLES.map((role) => role.key) as [TenantRole, ...TenantRole[]];
 
@@ -64,6 +68,27 @@ export function registerTenantRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.post("/tenant/v1/auth/login", async (request) => {
     const input = parseInput(loginSchema, request.body, "body");
     const result = await tenantLogin(ctx, input, request.ip);
+    return {
+      access_token: result.accessToken,
+      token_type: "Bearer",
+      expires_at: result.expiresAt.toISOString(),
+      user: tenantUserJson(result.user),
+      tenant: tenantJson(result.tenant),
+      must_change_password: result.user.mustChangePassword,
+    };
+  });
+
+  app.get("/tenant/v1/auth/login-methods", async () => loginMethodsJson(await currentLoginMethods(ctx)));
+
+  app.post("/tenant/v1/auth/email-code/request", async (request, reply) => {
+    const input = parseInput(emailCodeRequestSchema, request.body, "body");
+    await requestEmailCode(ctx, request.log, "tenant", input.email, request.ip);
+    return reply.code(202).send(emailCodeSentJson());
+  });
+
+  app.post("/tenant/v1/auth/email-code/verify", async (request) => {
+    const input = parseInput(emailCodeVerifySchema, request.body, "body");
+    const result = await tenantEmailCodeLogin(ctx, request.log, input, request.ip);
     return {
       access_token: result.accessToken,
       token_type: "Bearer",

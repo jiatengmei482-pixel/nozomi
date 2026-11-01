@@ -4,6 +4,7 @@
  *
  * 结构里没有声明的字段会被丢掉而不是报错——租户接口靠这一点忽略请求体里的 `tenant_id`（需求文档「API 通用约定」）。
  */
+import { hasControlChars } from "@nozomi/domain";
 import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, isUuid } from "./pagination.ts";
@@ -122,6 +123,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 
+export const emailCodeRequestSchema = z.object({ email: emailSchema });
+
+export const emailCodeVerifySchema = z.object({
+  email: emailSchema,
+  code: z.string().trim().regex(/^[0-9]{6}$/, "验证码是 6 位数字"),
+});
+
 /** 只核对一次性令牌（邀请、重置）还能不能用时的请求体。 */
 export const tokenCheckSchema = z.object({ token: z.string().min(1).max(200) });
 
@@ -137,6 +145,10 @@ const limitSchema = z
   .transform(Number)
   .pipe(z.number().int().min(1).max(MAX_PAGE_LIMIT))
   .default(String(DEFAULT_PAGE_LIMIT));
+
+/** 单行文字（姓名、地址）：不接受换行、行分隔符等控制字符（这些内容会进通知邮件，ADR 0049）。 */
+/** 制表符按空白算（只有空白的地址由后面的校验报 REQUIRED），其余控制字符一律拒绝。 */
+export const singleLine = (max: number) => z.string().max(max).refine((value) => !hasControlChars(value.replaceAll("\t", " ")), { message: "不能有换行等控制字符" });
 
 export const pageQuerySchema = z.object({
   limit: limitSchema,

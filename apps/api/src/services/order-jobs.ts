@@ -17,7 +17,7 @@
  * - 过了派车截止时间还没派车：订单上记下发现的时间（供应商后台的订单列表标红置顶、运营后台看得到），服务日志记一条 `order.dispatch_overdue`；
  * - 用车前 1 小时仍未「已出发」：同样记下时间，日志 `order.departure_overdue`。
  * 每张单各提醒一次（记下了时间就不再提醒）；一条条件更新完成「找出来 + 记下」，多个实例同时跑也只提醒一次。
- * 邮件、LINE 等通知渠道在通知中心任务里接。
+ * 邮件由通知中心发（ADR 0049，和记下时间在同一个事务里入发件箱）。
  *
  * 救援改派（M3-04，ADR 0031，`rescue()`）：用车前 6 小时（且过了派车截止时间）仍未派车的单自动进入救援；到点 15 分钟仍未到达的单记下提醒（进救援队列，由运营判定）；
  * 超时没接的救援单顺延下一家。
@@ -33,6 +33,7 @@
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { PaymentProviderError, type ProviderPayment } from "../integrations/payments.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { findOrderForPlatform, findOrderPayment, listOverduePendingOrders } from "../repos/orders.ts";
 import { DISPATCH_RULES } from "@nozomi/domain";
 import { type OrderLog, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
@@ -107,6 +108,8 @@ export class OrderJobs {
          returning id, tenant_id, order_no, service_at`,
         [now, departureCutoff, BATCH],
       );
+      for (const row of dispatchRows.rows) await enqueueNotification(db, { event: "order.dispatch_overdue", tenantId: row.tenant_id, orderId: row.id, dedupeKey: `order.dispatch_overdue:${row.tenant_id}:${row.id}` }, now);
+      for (const row of departureRows.rows) await enqueueNotification(db, { event: "order.departure_overdue", tenantId: row.tenant_id, orderId: row.id, dedupeKey: `order.departure_overdue:${row.tenant_id}:${row.id}` }, now);
       return { dispatch: dispatchRows.rows, departure: departureRows.rows };
     });
     for (const row of dispatch) this.log.warn({ event: "order.dispatch_overdue", orderId: row.id, tenantId: row.tenant_id, orderNo: row.order_no, dueAt: row.dispatch_due_at.toISOString() }, "超时未派车：过了派车截止时间还没有派司机和车辆");

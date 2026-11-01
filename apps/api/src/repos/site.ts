@@ -181,7 +181,7 @@ export async function findOrderNames(db: Db, ids: { cityId: string; placeId: str
   return { city, place, vehicleGroup: group };
 }
 
-export async function insertSiteOrderLink(db: Db, link: { orderId: string; tokenHash: string; issuedVia: "order" | "lookup"; createdAt: Date; expiresAt: Date }): Promise<void> {
+export async function insertSiteOrderLink(db: Db, link: { orderId: string; tokenHash: string; issuedVia: "order" | "lookup" | "email"; createdAt: Date; expiresAt: Date }): Promise<void> {
   await db.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) values ($1, $2, $3, $4, $5)", [link.orderId, link.tokenHash, link.issuedVia, link.createdAt, link.expiresAt]);
 }
 

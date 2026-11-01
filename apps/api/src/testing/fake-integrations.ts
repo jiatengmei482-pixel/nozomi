@@ -190,6 +190,18 @@ export function generateFakeTlsCert(subjectAltName = "IP:127.0.0.1,DNS:localhost
   }
 }
 
+/** 把假 SMTP 收到的原始邮件还原成正文（nodemailer 对中文用 base64 或 quoted-printable）。 */
+export function decodedMailText(data: string): string {
+  const head = data.split(/\r?\n\r?\n/)[0] ?? "";
+  const body = data.slice(head.length).trim();
+  if (/content-transfer-encoding: base64/i.test(head)) return Buffer.from(body, "base64").toString("utf8");
+  if (/content-transfer-encoding: quoted-printable/i.test(head)) {
+    const bytes = body.replace(/=\r?\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+    return Buffer.from(bytes, "latin1").toString("utf8");
+  }
+  return body;
+}
+
 /**
  * 假 SMTP 服务器。`tls`：`implicit` 一连上就是 TLS；`starttls` 支持升级；不给就是明文。
  * 懂 EHLO、STARTTLS、AUTH PLAIN / LOGIN、MAIL、RCPT、DATA、QUIT，记下认证和收到的信。

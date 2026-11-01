@@ -44,6 +44,7 @@ import { netPaidMinor, processRefunds, scheduleRefund } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG, cancelPendingOrder, confirmPaidOrder } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
 import { closeRescueOnCancel } from "./rescues.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 /** 这一单的取消阶梯：下单时抄进订单的；M3-03 之前下的单按现在的政策（车型级别按车型组现查）。 */
@@ -154,6 +155,7 @@ export async function cancelPaidOrderInTx(
   if (order.status === "rescue_pending") await closeRescueOnCancel(db, order, now);
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "cancelled", actor: who.actor, reason: input.reason, occurredAt: now, detail: { fee_bp: quote.feeBp, waived: input.waiveFee, ...(who.origin === null ? {} : { by: who.origin.actor.email }) } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.cancelled", orderId: order.id, data: { reason: input.reason, from_status: order.status } }, now);
+  await enqueueNotification(db, { event: "order.cancelled", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.cancelled:${order.tenantId}:${order.id}` }, now);
   // 「实际付了的」不扣失败的退款：这次的退款已经包含了它们，作废，不能再重试（否则多退）
   const superseded = await supersedeFailedRefunds(db, order.id, now);
   const refunds = await scheduleRefund(db, order, "cancellation", quote.refundMinor, null, now);

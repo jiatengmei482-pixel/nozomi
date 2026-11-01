@@ -63,6 +63,17 @@ export interface Tenant {
   updated_at: string;
 }
 
+/** 现在哪些登录方式可用（ADR 0050） */
+export interface LoginMethods {
+  email_code: boolean;
+  password: boolean;
+}
+
+export interface EmailCodeSent {
+  expires_in_seconds: number;
+  resend_after_seconds: number;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;

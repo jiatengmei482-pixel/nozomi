@@ -50,6 +50,8 @@ export const AUDIT_RESOURCES = [
   "platform_role",
   "statement",
   "payout_batch",
+  "notification",
+  "notification_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];
@@ -57,6 +59,9 @@ export type AuditResource = (typeof AUDIT_RESOURCES)[number];
 export const AUDIT_ACTIONS = [
   "login",
   "login_failed",
+  // 邮箱验证码登录（ADR 0050）：发码请求（结果在 after.outcome）、校验失败
+  "email_code_request",
+  "email_code_failed",
   "logout",
   "create",
   "invite",
