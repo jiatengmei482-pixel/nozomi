@@ -238,6 +238,8 @@ export interface PlatformTicketDetail {
   parent: { id: string; ticket_no: string; type: TicketType; outcome: string | null; decided_by: string | null } | null;
   appeal: TicketAppealRef | null;
   approval: Approval | null;
+  /** 工单文字里有没有被打了码的内容：为假时页面不显示「查看原文」（ADR 0056） */
+  texts_masked: boolean;
 }
 
 export interface CompensationInput {
@@ -419,7 +421,7 @@ export const ORDER_CENTER_SCHEMA_FIELDS = {
 
 /** 工单详情的顶层字段：运营后台、供应商各一份。 */
 export const TICKET_DETAIL_FIELDS = {
-  PlatformTicketDetail: ["ticket", "messages", "notes", "compensation", "deductions", "refund_ids", "parent", "appeal", "approval"],
+  PlatformTicketDetail: ["ticket", "messages", "notes", "compensation", "deductions", "refund_ids", "parent", "appeal", "approval", "texts_masked"],
   TenantTicketDetail: ["ticket", "messages", "deductions", "appeal"],
 } as const satisfies { PlatformTicketDetail: readonly (keyof PlatformTicketDetail)[]; TenantTicketDetail: readonly (keyof TenantTicketDetail)[] };
 

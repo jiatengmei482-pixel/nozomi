@@ -196,12 +196,22 @@ test("首页「已上架」的数和列表接口 status=published 的 total 一�
     delete params["cursor"];
     return params;
   };
-  const homeResponse = page.waitForResponse((response) => isProductList(response) && JSON.stringify(filters(response)) === JSON.stringify({ status: "published" }));
+  // 首页可能取不止一次：页面显示的是最后一次应答，所以每次都记下来，和最新的那次比
+  const homeTotals: number[] = [];
+  const pending: Promise<void>[] = [];
+  page.on("response", (response) => {
+    if (isProductList(response) && JSON.stringify(filters(response)) === JSON.stringify({ status: "published" })) {
+      pending.push(response.json().then((body: { total: number }) => void homeTotals.push(body.total)));
+    }
+  });
   await loginAs(page, "platform", admin.email, admin.password);
-  const homeTotal = ((await (await homeResponse).json()) as { total: number }).total;
   const card = page.locator(".entry-card").filter({ has: page.getByRole("link", { name: "商品", exact: true }) });
   await expect(card).toContainText("已上架");
-  await expect(card.locator(".entry-card__counts dd").first()).toHaveText(homeTotal.toLocaleString("en-US"));
+  await expect(async () => {
+    await Promise.all(pending);
+    expect(homeTotals.length).toBeGreaterThan(0);
+    expect(await card.locator(".entry-card__counts dd").first().textContent()).toBe(homeTotals.at(-1)?.toLocaleString("en-US"));
+  }).toPass();
 
   const listResponse = page.waitForResponse((response) => isProductList(response) && JSON.stringify(filters(response)) === JSON.stringify({ status: "published" }));
   await card.getByRole("link", { name: "商品", exact: true }).click();

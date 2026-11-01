@@ -47,6 +47,32 @@ export async function revealPassenger(ctx: AppContext, principal: PlatformPrinci
   });
 }
 
+/** 工单详情打码要用的：这单用过的姓名、脱敏了没有。脱敏过的单不再给任何原文，页面上也就没有「查看原文」（ADR 0055、0056）。 */
+export async function orderMaskingInput(ctx: AppContext, orderId: string): Promise<{ names: string[]; anonymized: boolean }> {
+  return withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const order = await findOrderForPlatform(db, orderId);
+      return { names: (await listPassengerNames(db, [orderId])).get(orderId) ?? [], anonymized: order?.passengerAnonymizedAt != null };
+    },
+    { snapshot: true },
+  );
+}
+
+/**
+ * 看一张工单被打码的文字（ADR 0056）：只给这些文字，不给联系方式；审计写明看的是工单文字。
+ * 没有打码内容的（页面过期、直接调接口）什么都不给，也不记审计。
+ */
+export async function revealTicketTexts(ctx: AppContext, principal: PlatformPrincipal, ticket: { id: string; ticketNo: string; orderId: string; orderNo: string }, texts: readonly { source: string; text: string }[], ip: string): Promise<{ texts: { source: string; source_id: string; text: string }[] }> {
+  if (texts.length === 0) return { texts: [] };
+  return withPlatformTx(ctx.pool, async (db) => {
+    const order = await findOrderForPlatform(db, ticket.orderId);
+    if (order === null || order.passengerAnonymizedAt !== null) return { texts: [] };
+    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, ctx.now()), { tenantId: null, resource: "order", resourceId: ticket.orderId, action: "view_ticket_text", before: null, after: { order_no: ticket.orderNo, ticket_id: ticket.id, ticket_no: ticket.ticketNo, viewed: "ticket_text", text_count: texts.length, text_sources: [...new Set(texts.map((entry) => entry.source))] } });
+    return { texts: texts.map((entry) => ({ source: entry.source, source_id: ticket.id, text: entry.text })) };
+  });
+}
+
 /** 这几单用过的乘客姓名（手写内容打码用，改单前的旧姓名也算）；脱敏过的没有。 */
 export async function orderPassengerNames(ctx: AppContext, orderIds: readonly string[]): Promise<Map<string, string[]>> {
   if (orderIds.length === 0) return new Map();

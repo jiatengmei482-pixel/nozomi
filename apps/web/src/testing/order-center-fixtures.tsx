@@ -125,6 +125,7 @@ export const platformTicketDetailOf = (ticket: PlatformTicket = platformTicketOf
   parent: null,
   appeal: null,
   approval: null,
+  texts_masked: true,
   ...changes,
 });
 

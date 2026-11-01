@@ -206,6 +206,33 @@ export function maskOrderValues<T>(values: T, known: string | readonly string[] 
   ) as T;
 }
 
+/** 工单详情里能看原文的文字：字段和 `POST /platform/v1/tickets/{id}/texts/reveal` 返回的来源一一对应。 */
+export interface TicketTextFields {
+  ticket: { subject: string; description: string; decision_note: string | null; close_note: string | null };
+  messages: readonly { body: string }[];
+  notes: readonly { body: string }[];
+}
+
+export type TicketTextSource = "ticket_subject" | "ticket_description" | "ticket_decision_note" | "ticket_close_note" | "ticket_message" | "ticket_note";
+
+/**
+ * 工单里确实被打了码的文字（原文，ADR 0056）。`masked` 必须是 `raw` 过 `maskOrderValues` 的结果：比的就是页面实际收到的内容，不另算一遍规则，
+ * 「有没有打码内容」和「打码了什么」不可能不一致。
+ */
+export function maskedTicketTexts(raw: TicketTextFields, masked: TicketTextFields): { source: TicketTextSource; text: string }[] {
+  const found: { source: TicketTextSource; text: string }[] = [];
+  const compare = (source: TicketTextSource, original: string | null, shown: string | null): void => {
+    if (original !== null && original !== shown) found.push({ source, text: original });
+  };
+  compare("ticket_subject", raw.ticket.subject, masked.ticket.subject);
+  compare("ticket_description", raw.ticket.description, masked.ticket.description);
+  compare("ticket_decision_note", raw.ticket.decision_note, masked.ticket.decision_note);
+  compare("ticket_close_note", raw.ticket.close_note, masked.ticket.close_note);
+  raw.messages.forEach((message, index) => compare("ticket_message", message.body, masked.messages[index]?.body ?? null));
+  raw.notes.forEach((note, index) => compare("ticket_note", note.body, masked.notes[index]?.body ?? null));
+  return found;
+}
+
 /** 脱敏：前后值、推送内容里的乘客换成占位，手写内容清掉联系方式；即时通讯账号不在这次的范围（ADR 0055）。 */
 export function scrubOrderValues<T>(values: T, names: readonly string[], literals: readonly string[] = []): T {
   return mapOrderValues(values, () => ({ ...ANONYMIZED_PASSENGER }), (messaging) => messaging, (text) => scrubContactsInText(text, names, literals)) as T;

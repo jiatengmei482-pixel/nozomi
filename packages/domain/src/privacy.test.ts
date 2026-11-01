@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, isAnonymizedPassenger, isOrderApproval, isOrderAudit, maskContactsInText, maskName, maskOrderValues, maskPassenger, maskPhone, passengerRetentionCutoff, scrubContactsInText, scrubOrderValues } from "./privacy.ts";
+import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, isAnonymizedPassenger, isOrderApproval, isOrderAudit, maskContactsInText, maskName, maskOrderValues, maskPassenger, maskPhone, maskedTicketTexts, passengerRetentionCutoff, scrubContactsInText, scrubOrderValues } from "./privacy.ts";
 
 test("姓名留第一个字；一个字的全打码；表情不会被切成半个", () => {
   assert.equal(maskName("王小明"), "王**");
@@ -121,4 +121,24 @@ test("保存期限按东京日历日：今天 − 结束日期 > 天数才算超
   assert.equal(passengerRetentionCutoff(new Date("2026-10-31T14:59:59Z"), 180).toISOString(), "2026-05-03T15:00:00.000Z", "东京还是 10 月 31 日");
   assert.equal(passengerRetentionCutoff(now, 200).toISOString(), "2026-04-14T15:00:00.000Z");
   for (const days of [179, 0, -1, 180.5]) assert.throws(() => passengerRetentionCutoff(now, days), RangeError);
+});
+
+test("工单被打码的文字：只列打码前后不一样的，内部备注、对话逐条比", () => {
+  const raw = {
+    ticket: { subject: "车没来", description: "王小明 09012345678", decision_note: null, close_note: "已电话沟通" },
+    messages: [{ body: "司机 10:02 到" }, { body: "guest@example.com 来信" }],
+    notes: [{ body: "客人是王小明" }],
+  };
+  assert.deepEqual(maskedTicketTexts(raw, maskOrderValues(raw, ["王小明"])), [
+    { source: "ticket_description", text: "王小明 09012345678" },
+    { source: "ticket_message", text: "guest@example.com 来信" },
+    { source: "ticket_note", text: "客人是王小明" },
+  ]);
+  const clean = { ticket: { subject: "车没来", description: "司机迟到", decision_note: null, close_note: null }, messages: [], notes: [] };
+  assert.deepEqual(maskedTicketTexts(clean, maskOrderValues(clean, ["王小明"])), []);
+});
+
+test("工单被打码的文字：判断来自实际打码，内容里别处带的姓名也算（标记和页面收到的内容不会不一致）", () => {
+  const raw = { ticket: { subject: "李大伟投诉", description: "无", decision_note: null, close_note: null }, messages: [], notes: [], approval: { payload: { passenger: { name: "李大伟" } } } };
+  assert.deepEqual(maskedTicketTexts(raw, maskOrderValues(raw, [])), [{ source: "ticket_subject", text: "李大伟投诉" }]);
 });
