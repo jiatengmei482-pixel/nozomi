@@ -9342,7 +9342,7 @@ paths:
         - 订单
       operationId: getPlatformOrderFile
       summary: 订单的一张照片（运营后台）
-      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。
+      description: 需要操作 `order.read`。原样返回图片。限定了数据范围的员工（ADR 0030）只看得到范围内订单的照片，范围外的和不存在一样（404）。每次取到照片记一条审计（`order` / `view_evidence_file`，记照片编号和种类，不含内容，ADR 0054）；记不下来就不给照片。
       security:
         - platformToken: []
       parameters:
@@ -22914,7 +22914,8 @@ components:
               properties:
                 status:
                   type: string
-                  enum: [ pending_review ]
+                  description: "`pending_review` 待审核；`approved` 审核通过；`rejected` 审核驳回"
+                  enum: [ pending_review, approved, rejected ]
                 submitted_at:
                   type: string
                   format: date-time
@@ -22942,6 +22943,7 @@ components:
           enum: [ phone, messaging ]
         note:
           type: [ string, "null" ]
+          description: 司机写的备注。运营后台的订单详情里，其中的电话、邮箱和乘客姓名已打码（ADR 0054）。
         file_id:
           type: [ string, "null" ]
           format: uuid

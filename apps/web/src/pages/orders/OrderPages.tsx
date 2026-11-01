@@ -14,13 +14,11 @@ import {
   type AssignmentConflict,
   type IssuedDriverLink,
   type ListPage,
-  type OrderFile,
   type TenantOrder,
   type TenantOrderDetail,
   assignOrder,
   getAssignable,
   getOrder,
-  getOrderFile,
   listOrders,
   reissueDriverLink,
   revokeDriverLink,
@@ -43,6 +41,7 @@ import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { tenantOrderNotificationsPath } from "../../lib/notification-display.ts";
 import { useLoad } from "../../lib/use-load.ts";
 import { useTenantCan } from "../../lib/use-master-access.ts";
+import { EvidencePhoto } from "./EvidencePhoto.tsx";
 import { DECLARABLE, DeclareUnableDialog, TenantRescueSection } from "../rescues/TenantRescuePages.tsx";
 
 const TRAIL = [{ label: "订单", to: ORDER_LIST_PATH }];
@@ -148,38 +147,6 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
-  );
-}
-
-/** 一张照片：带令牌取回图片，显示缩略图；「系统时间」就是系统收到照片的时间。 */
-function EvidencePhoto({ orderId, file, timeZone }: { orderId: string; file: OrderFile; timeZone: string }) {
-  const { token } = usePortalSession();
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let revoked = false;
-    let objectUrl: string | null = null;
-    getOrderFile(token, orderId, file.id).then(
-      (blob) => {
-        if (revoked) return;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
-      },
-      () => setFailed(true),
-    );
-    return () => {
-      revoked = true;
-      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
-    };
-  }, [token, orderId, file.id]);
-  const kind = file.kind === "arrival_screen" ? "到达屏" : file.kind === "signboard" ? "举牌照片" : "联系截图";
-  return (
-    <figure className="evidence-photo">
-      {url !== null ? <img src={url} alt={`${kind}，系统时间 ${formatInZone(file.uploaded_at, timeZone)}`} /> : <span className="table__muted">{failed ? "照片读不出来" : "加载中…"}</span>}
-      <figcaption>
-        {kind} · 系统时间 <time dateTime={file.uploaded_at}>{formatInZone(file.uploaded_at, timeZone)}</time>
-      </figcaption>
-    </figure>
   );
 }
 

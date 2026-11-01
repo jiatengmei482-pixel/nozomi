@@ -97,3 +97,33 @@
   align-items: flex-end;
   gap: var(--space-2) var(--space-4);
 }
+
+/* 运营审核 no-show 的证据（M4-20） */
+.evidence-checklist,
+.evidence-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.evidence-checklist__item,
+.evidence-contacts li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-checklist__item--failed,
+.evidence-checklist__item--unknown {
+  font-weight: var(--font-weight-medium, 500);
+}
+
+.evidence-locations {
+  margin-top: var(--space-3);
+  overflow-wrap: anywhere;
+}

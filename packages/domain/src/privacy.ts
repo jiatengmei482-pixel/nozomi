@@ -26,6 +26,24 @@ export function maskPhone(phone: string): string {
   return `${plus}${"*".repeat(digits.length - 4)}${digits.slice(-4)}`;
 }
 
+const EMAIL_IN_TEXT = /[^\s@，。；：、,;:()（）<>「」]+@[^\s@，。；：、,;:()（）<>「」]+\.[^\s@，。；：、,;:()（）<>「」]+/g;
+const NUMBER_IN_TEXT = /[+＋]?[0-9０-９](?:[0-9０-９\s()（）.\-‐－ー]*[0-9０-９])?/g;
+const MIN_PHONE_DIGITS = 7;
+
+/**
+ * 手写内容里的联系方式打码（M4-20，ADR 0054）：司机写的联系记录备注可能抄了客人的电话、邮箱、姓名。
+ * 7 位以上的数字串只留末 4 位（日期、时间连写也会被打码，宁可多打）；邮箱按 `maskEmail`；给了姓名的把姓名换成打码后的。
+ * 只能认出这些形式，其他账号（如 LINE 编号）认不出。
+ */
+export function maskContactsInText(text: string, passengerName: string | null = null): string {
+  const name = passengerName?.trim() ?? "";
+  const withoutName = name === "" ? text : text.replaceAll(name, maskName(name));
+  return withoutName.replace(EMAIL_IN_TEXT, (email) => maskEmail(email)).replace(NUMBER_IN_TEXT, (found) => {
+    const digits = found.replace(/[^0-9０-９]/g, "");
+    return digits.length < MIN_PHONE_DIGITS ? found : `****${digits.slice(-4)}`;
+  });
+}
+
 export function maskPassenger(passenger: PassengerContact): PassengerContact {
   return { name: maskName(passenger.name), phone: maskPhone(passenger.phone), email: maskEmail(passenger.email) };
 }

@@ -222,7 +222,7 @@ export interface OrderRecords {
   files: OrderFile[];
   contacts: OrderContact[];
   locations: { kind: string; lng: number; lat: number; accuracy_m: number | null; recorded_at: string }[];
-  no_show_claim: { status: "pending_review"; submitted_at: string; free_wait_start: string; free_wait_end: string; checklist: NoShowChecklistItem[] } | null;
+  no_show_claim: { status: "pending_review" | "approved" | "rejected"; submitted_at: string; free_wait_start: string; free_wait_end: string; checklist: NoShowChecklistItem[] } | null;
 }
 
 export interface TenantOrderDetail {

@@ -121,9 +121,11 @@ test("平台代传的节点标出来，没有定位的到达写明；no-show 申
   const fulfilment = sectionText(/^履约/);
   assert.match(fulfilment, /到达上车点2026-10-20 09:50（没有定位） 平台代传/);
   assert.doesNotMatch(fulfilment, /司机出发[^到]*平台代传/);
-  assert.match(fulfilment, /客人未出现：2026-10-20 12:00 提交/);
-  assert.match(fulfilment, /✓ 免费等待内至少 3 次联系/);
-  assert.match(fulfilment, /✗ 在上车点举牌的照片/);
+  const evidence = sectionText(/^no-show 证据/);
+  assert.match(evidence, /2026-10-20 12:00 提交，等平台审核/);
+  assert.match(evidence, /✓ 满足：免费等待内至少 3 次联系/);
+  assert.match(evidence, /✗ 不满足：在上车点举牌的照片/);
+  assert.match(evidence, /？没有核对记录：用车后 24 小时内提交/);
 });
 
 test("状态流水不把内部代码给人看：履约步骤不写括号，取消写中文原因，其余有中文说明的写中文", async () => {

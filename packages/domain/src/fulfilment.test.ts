@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FULFILMENT_EVENTS,
+  arrivalBaseline,
   arrivalOnTime,
   proxyTimeIssueMessage,
   LANDING_SOURCES,
@@ -241,4 +242,17 @@ test("准时到达：不晚于用车时间算准时", () => {
   const serviceAt = new Date("2026-11-10T10:00:00Z");
   assert.equal(arrivalOnTime(new Date("2026-11-10T10:00:00Z"), serviceAt), true);
   assert.equal(arrivalOnTime(new Date("2026-11-10T10:00:00.001Z"), serviceAt), false);
+});
+
+test("准时到达的基准（M4-20，ADR 0052）：有落地时间取计划和落地中较晚的；航班提前落地、没有落地时间都按计划", () => {
+  const scheduled = new Date("2026-11-10T10:00:00Z");
+  const landed = new Date("2026-11-10T12:00:00Z");
+  assert.equal(arrivalBaseline(scheduled, landed), landed);
+  assert.equal(arrivalBaseline(scheduled, new Date("2026-11-10T09:30:00Z")), scheduled, "提前落地不会让基准提前");
+  assert.equal(arrivalBaseline(scheduled, null), scheduled);
+  assert.equal(arrivalOnTime(new Date("2026-11-10T11:30:00Z"), scheduled, landed), true, "延误，司机在落地前到");
+  assert.equal(arrivalOnTime(landed, scheduled, landed), true, "正好落地那一刻");
+  assert.equal(arrivalOnTime(new Date("2026-11-10T12:00:00.001Z"), scheduled, landed), false, "落地之后才到");
+  assert.equal(arrivalOnTime(new Date("2026-11-10T10:00:00.001Z"), scheduled, new Date("2026-11-10T09:30:00Z")), false, "提前落地，仍按计划时间");
+  assert.equal(arrivalOnTime(new Date("2026-11-10T11:30:00Z"), scheduled), false, "没有落地记录，按计划时间");
 });

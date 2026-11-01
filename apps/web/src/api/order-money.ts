@@ -157,6 +157,8 @@ export interface PlatformOrder {
   dispatch: OrderDispatch;
   fulfilment: OrderFulfilment;
   landing: OrderLanding | null;
+  /** 免费等待分钟数；null 表示不限 */
+  free_wait_minutes: number | null;
   category: ServiceCategory;
   direction: "pickup" | "dropoff" | null;
   vehicle_group_id: string;

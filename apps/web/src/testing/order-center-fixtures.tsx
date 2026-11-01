@@ -24,6 +24,7 @@ export const NOT_DISPATCHED = {
   dispatch: { due_at: "2026-10-19T01:00:00.000Z", overdue: false, overdue_at: null, escalation_at: "2026-10-19T19:00:00.000Z", departure_due_at: "2026-10-20T00:00:00.000Z", departure_overdue_at: null, assigned_at: null, driver: null, vehicle: null },
   fulfilment: { departed_at: null, arrived_at: null, arrival_distance_m: null, arrival_within_range: null, picked_up_at: null, completed_at: null, actual_minutes: null, actual_km: null, leave_requested_at: null },
   landing: null,
+  free_wait_minutes: 90,
 };
 export const NO_RECORDS = { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null };
 
