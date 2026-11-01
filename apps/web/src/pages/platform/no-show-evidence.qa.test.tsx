@@ -131,21 +131,19 @@ test("已判定的工单：没有判定按钮，证据还在", async () => {
   assert.equal(within(screen.getByRole("complementary", { name: "处理和判定" })).queryByRole("button", { name: "判定" }), null);
 });
 
-test("有处理权限但没有 order.read：对话框不能叫人去页面看证据（页面上也看不到）", async () => {
+// 第 5 项决定（ADR 0054）：没有权限、范围外的员工根本打不开判定对话框，看不到按钮并写明原因（比原用例「对话框里写明」更严）
+test("有处理权限但没有 order.read：看不到判定按钮，写明原因，不叫人去做不到的事", async () => {
   openApp(`/platform/tickets/${TICKET_ID}`, "platform", "custom_x", backend(null), ["ticket.read", "ticket.manage"]);
   await screen.findByText(/你没有查看订单的权限/);
-  await userEvent.click(screen.getByRole("button", { name: "判定" }));
-  const dialog = await screen.findByRole("dialog");
-  assert.ok(!dialog.textContent?.includes("看工单页的「no-show 证据」后再判定"), dialog.textContent ?? "");
-  assert.match(dialog.textContent ?? "", /没有查看订单的权限/);
+  assert.equal(screen.queryByRole("button", { name: "判定" }), null);
+  assert.ok(screen.getByText(/看不到这一单的证据，所以不能判定/));
 });
 
-test("订单在数据范围外：对话框同样要写明，不能叫人去页面看", async () => {
+test("订单在数据范围外：同样看不到判定按钮，写明原因", async () => {
   openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(404, { error: { code: "NOT_FOUND", message: "订单不存在", details: {} } })), ["ticket.read", "ticket.manage", "order.read"]);
   await screen.findByText(/不在你的数据范围里/);
-  await userEvent.click(screen.getByRole("button", { name: "判定" }));
-  const dialog = await screen.findByRole("dialog");
-  assert.match(dialog.textContent ?? "", /不在你的数据范围里/);
+  assert.equal(screen.queryByRole("button", { name: "判定" }), null);
+  assert.ok(screen.getByText(/看不到这一单的证据，所以不能判定/));
 });
 
 test("证据加载失败时不能盲判：对话框没有确认按钮可点，或者点了不会发判定请求", async () => {

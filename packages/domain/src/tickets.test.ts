@@ -12,6 +12,7 @@ import {
   resolutionDueAt,
   tenantReplyDueAt,
   ticketCloseRefusal,
+  ticketDecisionNeedsEvidence,
   ticketDecisionRefusal,
   ticketNumber,
   ticketOutcomeAllowed,
@@ -99,4 +100,11 @@ test("申诉：只有对租户不利的判定（投诉成立且责任在租户�
 test("工单号：TK + UTC 日期 + 6 位（不含 I、O）", () => {
   assert.equal(ticketNumber(new Date("2026-10-26T23:59:00Z"), "K3M9Q2"), "TK20261026K3M9Q2");
   assert.throws(() => ticketNumber(new Date(), "K3M9QI"), RangeError);
+});
+
+test("判定要看证据的工单：no-show 审核和对它的申诉，其他不要（ADR 0054）", () => {
+  assert.equal(ticketDecisionNeedsEvidence("no_show_review", null), true);
+  assert.equal(ticketDecisionNeedsEvidence("tenant_appeal", "no_show_review"), true);
+  assert.equal(ticketDecisionNeedsEvidence("tenant_appeal", "complaint"), false);
+  assert.equal(ticketDecisionNeedsEvidence("complaint", null), false);
 });

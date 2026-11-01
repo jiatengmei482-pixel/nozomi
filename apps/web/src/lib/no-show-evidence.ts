@@ -156,6 +156,18 @@ export function otherPhotos(source: EvidenceSource): OrderFile[] {
   return photosOf(source, ["contact_screenshot", "receipt"]).filter((file) => !attached.has(file.id));
 }
 
+/** 同一种照片有好几张时的序号（按上传顺序），只有一张的没有序号。按钮和链接的名字要分得清。 */
+export function photoOrdinals(files: readonly OrderFile[]): ReadonlyMap<string, number> {
+  const seen = new Map<OrderFileKind, number>();
+  const result = new Map<string, number>();
+  for (const file of files) {
+    const next = (seen.get(file.kind) ?? 0) + 1;
+    seen.set(file.kind, next);
+    if (next > 1 || files.filter((other) => other.kind === file.kind).length > 1) result.set(file.id, next);
+  }
+  return result;
+}
+
 export function hasEvidence({ records, order }: EvidenceSource): boolean {
   return records.no_show_claim !== null || records.files.length > 0 || records.contacts.length > 0 || records.locations.length > 0 || order.fulfilment.arrived_at !== null;
 }

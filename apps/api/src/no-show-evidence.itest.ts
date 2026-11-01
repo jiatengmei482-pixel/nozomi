@@ -240,3 +240,54 @@ test("没有权限、跨数据范围、跨租户：详情和照片都拿不到�
   assert.equal(await status(paths[1] as string, tokyo.token), 200, "范围内的自建角色能看");
   assert.equal((await audits(orderId))[0].actor_email, tokyo.email);
 });
+
+// ---- 看不到证据不能判定（ADR 0054） ----
+
+/** 从提交 no-show 建出审核工单。 */
+async function reviewTicket(): Promise<{ orderId: string; ticketId: string }> {
+  const { orderId } = await claimed();
+  await api.app.orderJobs.exceptions();
+  const list = await ok(api.call("GET", `/platform/v1/tickets?type=no_show_review&order_id=${orderId}`, { token: await ops() }));
+  return { orderId, ticketId: list.items[0].id as string };
+}
+
+const decide = (ticketId: string, token: string) => api.call("POST", `/platform/v1/tickets/${ticketId}/decide`, { token, body: { outcome: "approved", note: "证据齐全" } });
+const orderStatus = async (orderId: string): Promise<string> => (await api.db.owner.query<{ status: string }>("select status from orders where id = $1", [orderId])).rows[0]?.status as string;
+
+test("判定 no-show：有工单权限但没有 order.read 的 403，订单不动；范围外 404；有 order.read 的自建角色能判", async () => {
+  const { orderId, ticketId } = await reviewTicket();
+  const blind = await staffWithRole("只管工单", ["tickets:view", "tickets:edit"], { city_ids: null, channel_ids: null });
+  const refused = await decide(ticketId, blind.token);
+  assert.deepEqual([refused.status, refused.body.error.code, refused.body.error.details.required], [403, "FORBIDDEN", "order.read"]);
+  assert.equal(await orderStatus(orderId), "no_show_claimed");
+
+  const osaka = await staffWithRole("大阪工单", ["tickets:view", "tickets:edit", "orders:view"], { city_ids: [m.ids.osaka], channel_ids: null });
+  assert.equal((await decide(ticketId, osaka.token)).status, 404);
+  assert.equal(await orderStatus(orderId), "no_show_claimed");
+
+  const allowed = await staffWithRole("工单和订单", ["tickets:view", "tickets:edit", "orders:view"], { city_ids: [m.ids.tokyo], channel_ids: null });
+  const decided = await decide(ticketId, allowed.token);
+  assert.equal(decided.status, 200, decided.text);
+  assert.equal(await orderStatus(orderId), "no_show");
+});
+
+test("其他类型的工单不受影响：没有 order.read 也能判投诉（不判 no-show）", async () => {
+  const { orderId } = await dispatched(30);
+  const created = await ok(api.call("POST", "/platform/v1/tickets", { token: await ops(), body: { order_id: orderId, type: "other", subject: "杂项", description: "杂项" } }), 201);
+  const blind = await staffWithRole("只管工单 2", ["tickets:view", "tickets:edit"], { city_ids: null, channel_ids: null });
+  const res = await api.call("POST", `/platform/v1/tickets/${created.ticket.id}/decide`, { token: blind.token, body: { outcome: "resolved", note: "处理完了" } });
+  assert.equal(res.status, 200, res.text);
+});
+
+test("对 no-show 审核的申诉：判定和关闭都要 order.read（关掉等于驳回）", async () => {
+  const { ticketId } = await reviewTicket();
+  await ok(api.call("POST", `/platform/v1/tickets/${ticketId}/decide`, { token: await ops(), body: { outcome: "rejected", note: "照片不清楚" } }));
+  const tenantToken = await tenantLogin(api, m.b.adminEmail);
+  const appeal = await ok(api.call("POST", `/tenant/v1/tickets/${ticketId}/appeal`, { token: tenantToken, body: { reason: "司机确实到了" } }), 201);
+  const appealId = appeal.ticket.id as string;
+  const blind = await staffWithRole("只管工单 3", ["tickets:view", "tickets:edit"], { city_ids: null, channel_ids: null });
+  const decided = await api.call("POST", `/platform/v1/tickets/${appealId}/decide`, { token: blind.token, body: { outcome: "rejected", note: "不成立" } });
+  assert.deepEqual([decided.status, decided.body.error.details.required], [403, "order.read"]);
+  const closed = await api.call("POST", `/platform/v1/tickets/${appealId}/close`, { token: blind.token, body: { note: "不看了" } });
+  assert.deepEqual([closed.status, closed.body.error.details.required], [403, "order.read"]);
+});

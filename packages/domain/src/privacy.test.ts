@@ -34,3 +34,16 @@ test("手写内容里的邮箱、乘客姓名打码；其他文字原样", () =>
   assert.equal(maskContactsInText("LINE 已读不回", "王小明"), "LINE 已读不回");
   assert.equal(maskContactsInText("没有写名字", null), "没有写名字");
 });
+
+test("姓名按段匹配：只写姓、只写名、顺序反过来、敬称；单字的姓只在跟着敬称时打码（ADR 0054）", () => {
+  assert.equal(maskContactsInText("太郎没接", "山田 太郎"), "太**没接");
+  assert.equal(maskContactsInText("YAMADA TARO no answer", "Taro Yamada"), "Y** T** no answer");
+  assert.equal(maskContactsInText("王先生没回，田里等", "王 小明"), "*先生没回，田里等");
+  assert.equal(maskContactsInText("王府井等王先生", "王小明"), "王府井等*先生");
+  assert.equal(maskContactsInText("小明没回", "王小明"), "小**没回");
+  assert.equal(maskContactsInText("山田様は不在", "山田太郎"), "山**様は不在");
+  assert.equal(maskContactsInText("东京站等", "田 东"), "东京站等", "单字不打普通词");
+  assert.equal(maskContactsInText("打给 line 的客人", "Li Na"), "打给 line 的客人", "短的拉丁段不打");
+  assert.equal(maskContactsInText("Taroko 的 Taro", "Taro Yamada"), "Taroko 的 T**", "连着字母的不算");
+  assert.equal(maskContactsInText("写的是 (a+b)，不是 aab", "a+b c"), "写的是 (a**)，不是 aab", "姓名里的特殊字符按字面找，不当正则");
+});

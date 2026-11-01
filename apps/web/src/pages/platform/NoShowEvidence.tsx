@@ -2,6 +2,7 @@
  * no-show 证据（M4-20，验收报告 M3-06 第二轮缺陷 1，ADR 0054）：运营订单详情和工单详情共用，不用跳页、不用调接口。
  * 权限和数据范围跟订单详情接口（`order.read`）。接口里乘客联系方式已打码，这里不提供查看入口。照片走有权限控制的文件接口，每取一次记审计。
  */
+import { useCallback, useState } from "react";
 import type { PlatformOrderDetail } from "../../api/order-money.ts";
 import {
   CLAIM_STATUS_NAMES,
@@ -14,6 +15,7 @@ import {
   hasEvidence,
   landingText,
   otherPhotos,
+  photoOrdinals,
   reviewPhotos,
 } from "../../lib/no-show-evidence.ts";
 import { formatInZone } from "../../lib/dispatch-display.ts";
@@ -48,6 +50,18 @@ export function NoShowEvidenceSection({ detail }: { detail: Source }) {
   const photos = reviewPhotos(detail);
   const others = otherPhotos(detail);
   const hasSignboard = photos.some((file) => file.kind === "signboard");
+  const ordinals = photoOrdinals(records.files);
+  const [photoProblems, setPhotoProblems] = useState<ReadonlySet<string>>(new Set());
+  const reportProblem = useCallback((fileId: string, problem: boolean) => {
+    setPhotoProblems((current) => {
+      if (current.has(fileId) === problem) return current;
+      const next = new Set(current);
+      if (problem) next.add(fileId);
+      else next.delete(fileId);
+      return next;
+    });
+  }, []);
+  const photo = (file: (typeof records.files)[number], autoLoad: boolean) => <EvidencePhoto key={file.id} orderId={order.id} file={file} timeZone={zone} portal="platform" autoLoad={autoLoad} ordinal={ordinals.get(file.id) ?? null} onProblem={reportProblem} />;
   return (
     <section className="card" aria-labelledby="no-show-evidence">
       <h2 className="card__title" id="no-show-evidence">{`no-show 证据（当地时间，${zone}）`}</h2>
@@ -66,6 +80,7 @@ export function NoShowEvidenceSection({ detail }: { detail: Source }) {
               ))}
             </ul>
           )}
+          {photoProblems.size > 0 && <p className="field__hint field__hint--warning">{`有 ${photoProblems.size} 张照片没有显示出来，判定前请在下面重新取或下载原图看过。`}</p>}
           {changed !== null && <p className="field__hint field__hint--warning">{changed}</p>}
           <dl className="details">
             <div className="details__item">
@@ -90,7 +105,7 @@ export function NoShowEvidenceSection({ detail }: { detail: Source }) {
               {contacts.map((contact) => (
                 <li key={contact.id}>
                   <span>{contact.text}</span>
-                  {contact.file !== null && <EvidencePhoto orderId={order.id} file={contact.file} timeZone={zone} portal="platform" autoLoad={false} />}
+                  {contact.file !== null && photo(contact.file, false)}
                 </li>
               ))}
             </ul>
@@ -100,12 +115,8 @@ export function NoShowEvidenceSection({ detail }: { detail: Source }) {
           {!hasSignboard && <p className="table__muted">没有举牌照片。</p>}
           <div className="evidence-grid">
             {/* 没提交 no-show 的单不是在审核，不主动取照片（每取一次记一条审计），点了才取 */}
-            {photos.map((file) => (
-              <EvidencePhoto key={file.id} orderId={order.id} file={file} timeZone={zone} portal="platform" autoLoad={claim !== null} />
-            ))}
-            {others.map((file) => (
-              <EvidencePhoto key={file.id} orderId={order.id} file={file} timeZone={zone} portal="platform" autoLoad={false} />
-            ))}
+            {photos.map((file) => photo(file, claim !== null))}
+            {others.map((file) => photo(file, false))}
           </div>
           <p className="table__muted">查看照片会记入操作记录。截图可能带着客人的联系方式，点了才显示。</p>
 

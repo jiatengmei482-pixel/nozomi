@@ -157,7 +157,7 @@ test("看不到时写明原因：范围外 404", async () => {
 test("看不到时写明原因：加载失败可重试，判定对话框也提醒", async () => {
   openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(500, { error: { code: "INTERNAL_ERROR", message: "出错", details: {} } })));
   await screen.findByText("证据没有加载出来，请检查网络后重试。");
-  assert.ok(screen.getByRole("button", { name: "重试" }));
+  assert.ok(screen.getByRole("button", { name: "重新加载" }));
   await userEvent.click(screen.getByRole("button", { name: "判定" }));
   assert.match((await screen.findByRole("dialog")).textContent ?? "", /证据没有加载出来/);
 });
@@ -214,4 +214,55 @@ test("照片：取不到写明读不出来", async () => {
   const inner = backend(json(200, orderDetail()));
   openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (call.url.pathname.includes("/files/") ? json(404, { error: { code: "NOT_FOUND", message: "照片不存在", details: {} } }) : inner(call)));
   await screen.findByText("照片读不出来");
+  await screen.findByText(/有 1 张照片没有显示出来/);
+  assert.ok(screen.getByRole("button", { name: "重新取举牌照片" }));
+});
+
+test("照片：取失败后重新取，成功就不再提醒", async () => {
+  let fail = true;
+  const inner = backend(json(200, orderDetail()));
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (fail && call.url.pathname.includes("/files/") ? json(500, { error: { code: "INTERNAL", message: "x", details: {} } }) : inner(call)));
+  await userEvent.click(await screen.findByRole("button", { name: "重新取举牌照片" }).then((button) => {
+    fail = false;
+    return button;
+  }));
+  await screen.findByRole("link", { name: "下载举牌照片原图" });
+});
+
+test("多张同类截图：按钮的名字带序号，读屏分得清；只有一张的不带", async () => {
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(200, orderDetail({ files: [file("sign", "signboard"), file("s1", "contact_screenshot"), file("s2", "contact_screenshot")], contacts: [] }))));
+  assert.ok(await screen.findByRole("button", { name: "查看联系截图（第 1 张）" }));
+  assert.ok(screen.getByRole("button", { name: "查看联系截图（第 2 张）" }));
+  assert.ok(await screen.findByRole("link", { name: "下载举牌照片原图" }));
+});
+
+test("证据加载中：对话框写加载中（不是「没有加载出来」），确认按钮不能点；加载完可以点", async () => {
+  let release: (response: Response) => void = () => undefined;
+  const pending = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  const inner = backend(null);
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (call.url.pathname === ORDER_PATH ? pending : inner(call)));
+  await userEvent.click(await screen.findByRole("button", { name: "判定" }));
+  const dialog = await screen.findByRole("dialog");
+  assert.match(dialog.textContent ?? "", /证据加载中/);
+  assert.doesNotMatch(dialog.textContent ?? "", /没有加载出来/);
+  assert.equal((within(dialog).getByRole("button", { name: "确认判定" }) as HTMLButtonElement).disabled, true);
+  release(json(200, orderDetail()));
+  await within(dialog).findByText(/✓ 满足：免费等待开始前/);
+  assert.equal((within(dialog).getByRole("button", { name: "确认判定" }) as HTMLButtonElement).disabled, false);
+});
+
+test("证据加载失败：对话框里重新加载成功后才能确认", async () => {
+  let down = true;
+  const inner = backend(json(200, orderDetail()));
+  openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", (call) => (down && call.url.pathname === ORDER_PATH ? json(500, { error: { code: "INTERNAL", message: "x", details: {} } }) : inner(call)));
+  await screen.findByText("证据没有加载出来，请检查网络后重试。");
+  await userEvent.click(screen.getByRole("button", { name: "判定" }));
+  const dialog = await screen.findByRole("dialog");
+  assert.equal((within(dialog).getByRole("button", { name: "确认判定" }) as HTMLButtonElement).disabled, true);
+  down = false;
+  await userEvent.click(within(dialog).getByRole("button", { name: "重新加载" }));
+  await within(dialog).findByText(/✓ 满足：免费等待开始前/);
+  assert.equal((within(dialog).getByRole("button", { name: "确认判定" }) as HTMLButtonElement).disabled, false);
 });
