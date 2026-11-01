@@ -287,7 +287,7 @@
           "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/48 ；本地相关单元、组件、集成（36 通过 1 按需跳过）、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色发现的 2 个问题（界面旧失败原因不作废、10 万报价时偶发接近语句超时）已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
-        { "id": "M3-08", "title": "Stripe 正式接入（官网付款页与测试卡验证）", "role": "frontend", "status": "review", "acceptance": ["官网下单后用 Stripe Elements 付款（3D 验证卡、失败卡都有正确提示）", "内容安全策略只放行 Stripe 必需的域名", "测试环境用 Stripe 测试卡真实付款成功，订单自动确认"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/72 ；官网订单页用 Stripe Payment Element 付款（3D 验证、失败卡换卡重试、网络失败不重复扣款、付款成功等 Webhook 确认）；令牌不进 return_url；CSP 只在 /book、/book/checkout、/book/order 放行 Stripe 必需的来源（ADR 0046）；测试角色补 34 个测试，发现的 4 个缺陷已修复（含编码路径绕过 CSP）；端到端用假 Stripe。2026-11-01 测试环境付款和自动确认已通过；提示的 5 处缺陷已修复（https://github.com/jiatengmei482-pixel/nozomi/pull/76），待部署后在测试环境复验（docs/acceptance/M3.md）", "updated": "2026-11-01" },
+        { "id": "M3-08", "title": "Stripe 正式接入（官网付款页与测试卡验证）", "role": "frontend", "status": "done", "acceptance": ["官网下单后用 Stripe Elements 付款（3D 验证卡、失败卡都有正确提示）", "内容安全策略只放行 Stripe 必需的域名", "测试环境用 Stripe 测试卡真实付款成功，订单自动确认"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/72 ；官网订单页用 Stripe Payment Element 付款（3D 验证、失败卡换卡重试、网络失败不重复扣款、付款成功等 Webhook 确认）；令牌不进 return_url；CSP 只在 /book、/book/checkout、/book/order 放行 Stripe 必需的来源（ADR 0046）；测试角色补 34 个测试，发现的 4 个缺陷已修复（含编码路径绕过 CSP）；端到端用假 Stripe。2026-11-01 测试环境付款和自动确认已通过；提示的 5 处缺陷已修复（https://github.com/jiatengmei482-pixel/nozomi/pull/76），2026-11-01 测试环境复验通过（docs/acceptance/M3.md）", "updated": "2026-11-01" },
         {
           "id": "M3-09",
           "title": "官网下单页的页面规范",
@@ -737,6 +737,11 @@
       "date": "2026-11-01",
       "by": "Claude",
       "summary": "M3-08 待复验：付款失败原因一律显示中文，3D 失败提示自动滚入视野，付款页只收银行卡（关闭 Link、Apple Pay、Google Pay）。Link 入口是否真的消失要部署后验证。"
+    },
+    {
+      "date": "2026-11-01",
+      "by": "Claude",
+      "summary": "M3-08 已验收：测试环境用 Stripe 测试卡复验，失败原因全部是中文，3D 失败提示在视野内，付款页只有银行卡，4242 付款后约 5.5 秒自动确认。"
     }
   ]
 }
