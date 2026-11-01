@@ -28,6 +28,8 @@ import { DriverTripPage } from "./pages/driver/DriverTripPage.tsx";
 import { DriverListPage, VehicleListPage } from "./pages/fleet/FleetPages.tsx";
 import { OrderDetailPage, OrderListPage } from "./pages/orders/OrderPages.tsx";
 import { WebhookSettingsPage } from "./pages/webhooks/WebhookPages.tsx";
+import { TENANT_NOTIFICATIONS_PATH } from "./lib/notification-display.ts";
+import { TenantNotificationsPage } from "./pages/notifications/NotificationPages.tsx";
 import { DEDUCTIONS_PATH, RESCUE_OFFERS_PATH } from "./lib/rescue-display.ts";
 import { DeductionsPage, RescueOffersPage } from "./pages/rescues/TenantRescuePages.tsx";
 import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "./lib/site-display.ts";
@@ -76,6 +78,7 @@ function portalRoutes(portal: Portal) {
             <Route path={DRIVER_LIST_PATH} element={<DriverListPage />} />
             <Route path={VEHICLE_LIST_PATH} element={<VehicleListPage />} />
             <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
+            <Route path={TENANT_NOTIFICATIONS_PATH} element={<TenantNotificationsPage />} />
             <Route path={COMPANY_PATH} element={<CompanyPage />} />
             <Route path={PERFORMANCE_PATH} element={<PerformancePage />} />
             <Route path={TENANT_TICKETS_PAGE} element={<TenantTicketListPage />} />

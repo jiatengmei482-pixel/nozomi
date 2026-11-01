@@ -25,6 +25,8 @@ const PLATFORM_PAGE_VIEW: Readonly<Record<string, PlatformAction>> = {
   "/platform/cancellation-policy": "master_data.read",
   "/platform/compensation-table": "master_data.read",
   "/platform/webhook-deliveries": "order.read",
+  "/platform/notifications": "notification.read",
+  "/platform/notification-templates": "notification.read",
   "/platform/finance/statements": "statement.read",
   "/platform/finance/payout-batches": "statement.read",
   "/platform/finance/payout-accounts": "statement.read",
@@ -65,6 +67,7 @@ const TENANT_PAGE_VIEW: Readonly<Record<string, TenantAction>> = {
   "/company": "company.read",
   "/performance": "performance.read",
   "/settings/webhook": "webhook.read",
+  "/settings/notifications": "notification.read",
 };
 
 function leaves(entries: readonly NavEntry[]): NavLeaf[] {
@@ -114,7 +117,7 @@ test("运营后台菜单：每一项都登记了页面的查看权限（新加�
 test("运营后台菜单：菜单条件用到的权限的所有组合 × 数据范围（不限 / 限城市 / 限渠道…）下，菜单里每一项都看得了，看得了的都有入口，首页卡片点进去都看得了", () => {
   // 菜单条件里会用到的权限：各页面的查看权限，加上取消政策、赔付表的发起 / 审核权限（看它们会不会被误当成查看条件）
   const relevant = [...new Set<PlatformAction>([...Object.values(PLATFORM_PAGE_VIEW), "cancellation_policy.manage", "cancellation_policy.review", "compensation_table.manage", "compensation_table.review"])];
-  assert.ok(relevant.length <= 17, "组合数不超过 131,072");
+  assert.ok(relevant.length <= 18, "组合数不超过 262,144");
   for (let mask = 0; mask < 1 << relevant.length; mask += 1) {
     const actions = new Set(relevant.filter((_, index) => (mask & (1 << index)) !== 0));
     for (const { name, scope } of SCOPES) {

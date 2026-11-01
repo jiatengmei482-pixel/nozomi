@@ -92,6 +92,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: "/platform/v1/audit-logs", action: "audit_log.read" },
   { method: "GET", url: "/platform/v1/integrations", action: "integration.read" },
   // 运营后台填写的第三方密钥（M4-09，ADR 0041）：看 integration.read；填写、更换、清空、测试 integration.manage（只归超级管理员）。用不存在的那一项：有权限时 404
+  { method: "GET", url: "/platform/v1/notifications", action: "notification.read" },
+  { method: "GET", url: "/platform/v1/notification-templates", action: "notification.read" },
+  { method: "POST", url: `/platform/v1/notifications/${MISSING}/retry`, action: "notification.retry" },
   { method: "GET", url: "/platform/v1/integration-secrets", action: "integration.read" },
   { method: "PUT", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage", body: {} },
   { method: "DELETE", url: `/platform/v1/integration-secrets/${MISSING_SECRET}`, action: "integration.manage" },

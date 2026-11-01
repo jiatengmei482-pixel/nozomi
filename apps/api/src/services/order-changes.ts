@@ -71,6 +71,7 @@ import type { PlatformPrincipal } from "./platform-auth.ts";
 import { loadQuoteFacts } from "./quotes.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
 /** 渠道 / 运营提交的改动（没给的字段不改）。 */
@@ -296,6 +297,7 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   const fields = Object.keys(after).filter((field) => field !== "service_local");
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: origin?.actor.type === "tenant_user" ? "tenant_user" : change.requestedBy === "channel" ? "channel" : "platform_user", reason: "CHANGED", occurredAt: now, detail: { change_id: change.id, fields, dispatch_conflict: conflict } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "applied", fields, before: change.before, after: change.after, dispatch_conflict: conflict } }, now);
+  await enqueueNotification(db, { event: "order.changed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.changed:${change.id}`, data: { change_id: change.id, fields } }, now);
   if (origin !== null) {
     await insertAuditLog(db, origin, { tenantId: origin.actor.type === "tenant_user" ? order.tenantId : null, resource: "order_change", resourceId: change.id, action: "change", before: { order_id: order.id, ...(change.before as Record<string, never>) }, after: { order_id: order.id, ...(change.after as Record<string, never>), status: "applied" } });
   }
@@ -392,6 +394,7 @@ function changeInProgress(): AppError {
 /** 改期进入「等供应商确认」：推 `order.changed`（状态 pending_confirmation）给供应商。 */
 async function pendingConfirmation(db: Db, order: Order, change: OrderChange, now: Date): Promise<void> {
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "pending_confirmation", fields: Object.keys(change.after).filter((field) => field !== "service_local"), before: change.before, after: change.after, confirm_due_at: change.confirmDueAt?.toISOString() ?? null } }, now);
+  await enqueueNotification(db, { event: "order.change_pending", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_pending:${change.id}`, data: { change_id: change.id, confirm_due_at: change.confirmDueAt?.toISOString() ?? null } }, now);
 }
 
 /**
@@ -479,6 +482,7 @@ export async function changeForPlatform(ctx: AppContext, principal: PlatformPrin
 async function closeUnconfirmed(db: Db, order: Order, change: OrderChange, status: "rejected" | "expired", decided: { by: string | null; note: string | null }, now: Date): Promise<OrderRefund[]> {
   await updateOrderChange(db, change, { status, decidedAt: now, decidedBy: decided.by, decisionNote: decided.note });
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: status === "rejected" ? "tenant_user" : "system", reason: status === "rejected" ? "CHANGE_REJECTED" : "CHANGE_EXPIRED", occurredAt: now, detail: { change_id: change.id } });
+  await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${change.id}`, data: { change_id: change.id } }, now);
   return scheduleRefund(db, order, "change", await collectedFor(db, order.id, change.id), change.id, now);
 }
 

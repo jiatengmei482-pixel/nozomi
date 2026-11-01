@@ -42,6 +42,8 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   driver_link: "司机链接",
   tenant_webhook: "供应商的 Webhook 设置",
   webhook_delivery: "Webhook 推送",
+  notification: "通知",
+  notification_settings: "免打扰设置",
   cancellation_policy: "平台取消政策",
   order_change: "改单",
   extra_charge: "事后加收",

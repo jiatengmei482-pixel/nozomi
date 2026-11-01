@@ -62,6 +62,10 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
   if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/cancellation-policy", label: "取消政策", icon: "check-circle", prefix: true });
   if (portal === "platform" && platformCan("master_data.read")) entries.push({ to: "/platform/compensation-table", label: "赔付表", icon: "file", prefix: true });
   if (portal === "platform" && platformCan("order.read")) entries.push({ to: "/platform/webhook-deliveries", label: "推送记录", icon: "link", prefix: true });
+  // 通知中心（M4-08）：发送记录、模板
+  if (portal === "platform" && platformCan("notification.read")) {
+    entries.push({ key: "notifications", label: "通知中心", icon: "message", children: [{ to: "/platform/notifications", label: "通知记录", prefix: true }, { to: "/platform/notification-templates", label: "通知模板", prefix: true }], collapsedByDefault: true });
+  }
   // 财务结算（M4-03，接口 M5-01）：账单、付款批次
   if (portal === "platform" && platformCan("statement.read")) {
     entries.push({
@@ -117,7 +121,11 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
     // 企业资质（M4-01）：管理员、财务、只读；履约评分每个角色都能看
     if (tenantRoleCan(role, "company.read")) entries.push({ to: "/company", label: "企业资质", icon: "file", prefix: true });
     if (tenantRoleCan(role, "performance.read")) entries.push({ to: "/performance", label: "履约评分", icon: "check-circle", prefix: true });
-    if (tenantRoleCan(role, "webhook.read")) entries.push({ key: "tenant-settings", label: "设置", icon: "settings", children: [{ to: "/settings/webhook", label: "调度对接（Webhook）", prefix: true }], collapsedByDefault: true });
+    const settings = [
+      ...(tenantRoleCan(role, "webhook.read") ? [{ to: "/settings/webhook", label: "调度对接（Webhook）", prefix: true }] : []),
+      ...(tenantRoleCan(role, "notification.read") ? [{ to: "/settings/notifications", label: "通知", prefix: true }] : []),
+    ];
+    if (settings.length > 0) entries.push({ key: "tenant-settings", label: "设置", icon: "settings", children: settings, collapsedByDefault: true });
   }
   return entries;
 }

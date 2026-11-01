@@ -7,6 +7,7 @@
  *   处理本身（催供应商、发起救援、重发推送、重试退款……）用订单上已有的操作；这里记谁在处理、什么结论。
  */
 import { type PlatformDataScope, exceptionActionRefusal, scopeIsRestricted } from "@nozomi/domain";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { findOrderOfTenant } from "../repos/orders.ts";
 import { orderInScope } from "./order-queries.ts";
 import type { AppContext } from "../context.ts";
@@ -33,6 +34,7 @@ export async function sweepExceptions(ctx: AppContext, log: OrderLog): Promise<E
   const result = await withPlatformTx(ctx.pool, async (db) => {
     const noShowTickets = await createNoShowReviewTickets(db, now);
     const synced = await syncExceptions(db, now);
+    for (const row of synced.opened) await enqueueNotification(db, { event: "exception.opened", tenantId: null, orderId: row.orderId, dedupeKey: `exception.opened:${row.id}`, data: { type: row.type } }, now);
     return { ...synced, noShowTickets };
   });
   for (const row of result.opened) log.warn({ event: "order.exception_opened", exceptionId: row.id, type: row.type, orderId: row.orderId, tenantId: row.tenantId }, "异常队列：新的异常");

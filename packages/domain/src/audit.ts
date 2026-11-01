@@ -52,6 +52,8 @@ export const AUDIT_RESOURCES = [
   "payout_batch",
   "payout_account",
   "bank_file",
+  "notification",
+  "notification_settings",
 ] as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[number];

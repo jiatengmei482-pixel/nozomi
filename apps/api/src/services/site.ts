@@ -35,6 +35,7 @@ import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type Channel, findChannel } from "../repos/channels.ts";
+import { enqueueNotification } from "../repos/notifications.ts";
 import { listOrderEvents } from "../repos/orders.ts";
 import { findQuoteCity, findQuotePlace } from "../repos/quotes.ts";
 import {
@@ -420,11 +421,16 @@ function linkExpiry(serviceAt: Date, now: Date): Date {
   return new Date(Math.max(serviceAt.getTime() + SITE_LINK_RULES.afterServiceMs, now.getTime() + SITE_LINK_RULES.minimumMs));
 }
 
+/** 生成一个查看令牌：原文只给调用方这一次，库里只存哈希（下单、找回、邮件都从这里来，ADR 0032）。 */
+export function newSiteLink(serviceAt: Date, now: Date): SiteLink & { tokenHash: string } {
+  const token = `${LINK_PREFIX}${randomBytes(32).toString("base64url")}`;
+  return { token, tokenHash: hashToken(token), expiresAt: linkExpiry(serviceAt, now) };
+}
+
 async function issueLink(ctx: AppContext, orderId: string, serviceAt: Date, via: "order" | "lookup"): Promise<SiteLink> {
   const now = ctx.now();
-  const token = `${LINK_PREFIX}${randomBytes(32).toString("base64url")}`;
-  const expiresAt = linkExpiry(serviceAt, now);
-  await withPlatformTx(ctx.pool, (db) => insertSiteOrderLink(db, { orderId, tokenHash: hashToken(token), issuedVia: via, createdAt: now, expiresAt }));
+  const { token, tokenHash, expiresAt } = newSiteLink(serviceAt, now);
+  await withPlatformTx(ctx.pool, (db) => insertSiteOrderLink(db, { orderId, tokenHash, issuedVia: via, createdAt: now, expiresAt }));
   return { token, expiresAt };
 }
 
@@ -479,6 +485,7 @@ export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact:
     if (ceiling.allowed) {
       await insertLookupFailure(db, bucket, now, since);
       if (before.length + 1 === SITE_LOOKUP_CEILING.maxFailures) {
+        await enqueueNotification(db, { event: "site.lookup_ceiling", tenantId: null, orderId: found?.orderId ?? null, dedupeKey: `site.lookup_ceiling:${bucket.slice(0, 32)}:${now.getTime()}` }, now);
         log.warn({ event: "site_lookup_ceiling_reached", order_id: found?.orderId ?? null, order_bucket: bucket.slice(0, 16), failures: SITE_LOOKUP_CEILING.maxFailures, window_hours: 24 }, "官网找回：这个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜");
       }
     }
