@@ -87,7 +87,7 @@
 
 | 状态 | 含义 |
 | --- | --- |
-| `pending` | 等待发送（包括等重试、等免打扰结束、等配置邮件） |
+| `pending` | 等待发送（包括等重试、等免打扰结束 `QUIET_HOURS`、等配置邮件 `NOT_CONFIGURED`） |
 | `sending` | 正在发（有租约） |
 | `sent` | **邮件服务器已接收**。不等于进了收件箱 |
 | `failed` | 最终失败，页面看得到原因，可以手动重试 |
@@ -167,7 +167,8 @@
 | `notifications` | 同上；发给客人和平台员工的也带（发给客人的 `tenant_id` 是这单的供应商，方便查） | 发送记录 | 读、写、改 | 只能读 `audience = 'tenant'` 且是自己的 |
 | `tenant_notification_settings` | 租户表 | 免打扰时段 | 只读 | 读、写 |
 
-- 租户读 `notifications` 的策略同时限定 `tenant_id` 和 `audience`：发给客人的记录上虽然有这家的编号，供应商也读不到。
+- 租户读 `notifications` 的策略同时限定 `tenant_id`（放行策略）和 `audience`（限制性策略）：发给客人的记录上虽然有这家的编号，供应商也读不到。
+- **对 ADR 0009 的例外**（`schema-structure.itest.ts` 逐条登记）：这两张表 `tenant_id` 可空，主键是编号，外键 `notifications → notification_events` 不带 `tenant_id`。平台员工的告警不属于任何租户，又要和其他通知走同一条发送路径；发送记录只有平台角色写，这个外键指不到别家。
 - 不写任何预置数据。
 
 ## 不做

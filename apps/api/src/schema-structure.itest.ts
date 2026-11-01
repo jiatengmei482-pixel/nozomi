@@ -366,6 +366,17 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_occurred_idx",
   "audit_logs_pkey",
   "audit_logs_resource_idx",
+  // 通知中心的后台任务和运营后台跨供应商扫；tenant_id 可空所以主键是编号（ADR 0049）
+  "notification_events_dedupe_key",
+  "notification_events_pending_idx",
+  "notification_events_pkey",
+  "notifications_created_idx",
+  "notifications_due_idx",
+  "notifications_lease_idx",
+  "notifications_one_per_recipient",
+  "notifications_order_idx",
+  "notifications_order_no_idx",
+  "notifications_pkey",
   // 30 分钟没确认的改期、异议期到了的加收、等扣款的加收、运营后台跨租户看待审核的加收（ADR 0029）
   "order_changes_confirm_due_idx",
   "order_extra_charges_charge_due_idx",
@@ -385,15 +396,6 @@ const INDEX_EXCEPTIONS = [
   "orders_payment_due_idx",
   // 用车前 6 小时仍未派车的自动救援跨租户扫（ADR 0031）
   "orders_rescue_due_idx",
-  // 通知中心的后台任务和运营后台跨供应商扫（ADR 0049）
-  "notification_events_dedupe_key",
-  "notification_events_pending_idx",
-  "notifications_created_idx",
-  "notifications_due_idx",
-  "notifications_lease_idx",
-  "notifications_one_per_recipient",
-  "notifications_order_idx",
-  "notifications_order_no_idx",
   // 商品编号全平台唯一（ADR 0016）
   "products_code_key",
   // 账单号全平台唯一；确认期满自动确认跨供应商扫；运营后台跨供应商的账单列表、付款批次里的账单（ADR 0040）

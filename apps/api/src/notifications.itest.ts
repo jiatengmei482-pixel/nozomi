@@ -310,9 +310,21 @@ test("收件人被拒立刻最终失败；手动重试失败回到失败，不�
   await site.app.notificationJobs.tick();
   const row = await guestRow(order.orderId);
   assert.deepEqual([row.status, row.attempts, row.last_error_code], ["failed", 1, "RECIPIENT_REJECTED"]);
+  assert.ok(!logLines.join("").includes(GUEST_EMAIL));
   const retried = await site.call("POST", `/platform/v1/notifications/${row.id}/retry`, { token: m.staff.operations.token });
   assert.equal(retried.body.notification.status, "failed");
   assert.equal(retried.body.notification.attempts, 2);
+});
+
+test("收件人地址不合格（想注入邮件头）：一个字节都不发，最终失败", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.expandEvents(api.clock.now());
+  const row = await guestRow(order.orderId);
+  await api.db.owner.query("update notifications set recipient = $2 where id = $1", [row.id, "x@example.com\r\nBcc: spy@example.com"]);
+  await site.app.notificationJobs.tick();
+  assert.deepEqual([(await guestRow(order.orderId)).status, (await guestRow(order.orderId)).last_error_code], ["failed", "MESSAGE_INVALID"]);
+  assert.ok(!smtp.messages.some((message) => message.to.some((to) => to.includes("spy@"))));
 });
 
 test("配置问题（密码错）不算次数：改好后接着发", async () => {
@@ -408,6 +420,72 @@ test("官网单的派车、到达：邮件带司机信息", async () => {
   await site.app.notificationJobs.tick();
   assert.equal((await guestRow(order.orderId, "order.driver_arrived")).status, "sent");
   assert.equal(smtp.messages.filter((message) => message.to.includes(GUEST_EMAIL)).length, 1);
+});
+
+test("真实业务流程都入发件箱：客人改单、事后加收（客人看到的金额）、工单回复、超时提醒、异常、征求意见", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.tick();
+  const tenantRow = (await api.db.owner.query<{ tenant_id: string; version: number; service_at: Date }>("select tenant_id, version, service_at from orders where id = $1", [order.orderId])).rows[0]!;
+  const side = tenantRow.tenant_id === m.a.tenantId ? m.a : m.b;
+  const token = await tenantLogin(api, side.adminEmail);
+
+  // 改单
+  smtp.reset();
+  const view = await site.call("GET", "/site/v1/order", { token: order.token });
+  const changed = await site.call("PATCH", "/site/v1/order", { token: order.token, headers: { "if-match": `"${view.body.order.version}"` }, body: { flight_no: "JL5" } });
+  assert.equal(changed.status, 200, changed.text);
+  await site.app.notificationJobs.tick();
+  assert.equal((await guestRow(order.orderId, "order.changed")).status, "sent");
+  const changeMail = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL));
+  assert.ok(changeMail);
+  assert.match(bodyOf(changeMail), /航班号/);
+  assert.ok((await rowsOf(order.orderId)).some((row) => row.event === "order.changed" && row.audience === "tenant" && row.status === "sent"));
+
+  // 超时未派车：提醒供应商一次；异常发给运营
+  await api.db.owner.query("update orders set dispatch_due_at = $2 where id = $1", [order.orderId, new Date(api.clock.now().getTime() - 1000)]);
+  await site.app.orderJobs.remind();
+  await site.app.orderJobs.remind();
+  await site.app.orderJobs.exceptions();
+  await site.app.notificationJobs.tick();
+  const overdue = (await rowsOf(order.orderId)).filter((row) => row.event === "order.dispatch_overdue");
+  assert.ok(overdue.length >= 1);
+  assert.ok(overdue.every((row) => row.audience === "tenant" && row.status === "sent"));
+  assert.equal(new Set(overdue.map((row) => row.event_id)).size, 1);
+  assert.ok((await rowsOf(order.orderId)).some((row) => row.event === "exception.opened" && row.recipient === m.staff.operations.email));
+
+  // 完成后事后加收：客人看到自己要付的钱（含加价），不是结算价
+  const who = { ...side, adminToken: token };
+  const driver = await newDriver(api, who);
+  await ok(assign(api, who, order.orderId, driver.id, (await newVehicle(api, who, m.ids.biz7)).id));
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/events`, { token, body: { type } }));
+  await site.app.notificationJobs.tick();
+  smtp.reset();
+  const charge = await api.call("POST", `/tenant/v1/orders/${order.orderId}/extra-charges`, { token, body: { type: "waiting", amount: 2_000, description: "等了 40 分钟" } });
+  assert.equal(charge.status, 201, charge.text);
+  await site.app.notificationJobs.tick();
+  const chargeMail = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL));
+  assert.ok(chargeMail);
+  const text = bodyOf(chargeMail);
+  assert.match(text, /JPY 2200/);
+  assert.doesNotMatch(text, /JPY 2000/);
+  assert.match(text, /等待/);
+  assert.equal((await guestRow(order.orderId, "extra_charge.submitted")).status, "sent");
+
+  // 工单：回复客人只说有回复，不抄内容；征求意见发给供应商
+  const ticket = await site.call("POST", "/site/v1/order/tickets", { token: order.token, body: { type: "complaint", subject: "司机态度", description: "投诉", language: "zh" } });
+  assert.equal(ticket.status, 201, ticket.text);
+  const ticketId = ticket.body.ticket.id;
+  smtp.reset();
+  await ok(api.call("POST", `/platform/v1/tickets/${ticketId}/messages`, { token: m.staff.operations.token, body: { body: "这段回复只在订单页看", to_guest: true } }), 201);
+  await ok(api.call("POST", `/platform/v1/tickets/${ticketId}/request-reply`, { token: m.staff.operations.token, body: { body: "请说明司机到达时间" } }));
+  await site.app.notificationJobs.tick();
+  assert.equal((await guestRow(order.orderId, "ticket.guest_reply")).status, "sent");
+  const replyMail = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL));
+  assert.ok(replyMail);
+  assert.doesNotMatch(bodyOf(replyMail), /这段回复只在订单页看/);
+  const replyRequested = (await rowsOf(order.orderId)).filter((row) => row.event === "ticket.reply_requested");
+  assert.ok(replyRequested.length >= 1 && replyRequested.every((row) => row.audience === "tenant" && row.status === "sent"));
 });
 
 test("用车前 24 小时提醒：只发官网的、只提醒一次；下单时不足 24 小时的不发", async () => {

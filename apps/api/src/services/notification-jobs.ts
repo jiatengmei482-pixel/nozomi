@@ -122,6 +122,7 @@ interface Target {
 
 type Prepared = { kind: "message"; message: MailMessage } | { kind: "stale" } | { kind: "hold"; until: Date } | { kind: "render_failed" };
 
+const dbCodeOf = (err: unknown): string | null => (typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : null);
 const nameOf = (name: LocalizedText | null | undefined, fallback: string): string => name?.zh ?? name?.en ?? name?.ja ?? name?.ko ?? fallback;
 const clockText = (local: string): string => local.replace("T", " ");
 const tokyoText = (at: Date): string => clockText(instantToLocal(at, TENANT_RULES.timeZone).dateTime);
@@ -333,7 +334,8 @@ export class NotificationJobs {
     try {
       prepared = await withPlatformTx(this.ctx.pool, (db) => this.prepare(db, notification, manual));
     } catch (err) {
-      this.log.warn({ err, event: "notification.prepare_failed", notificationId: notification.id }, "准备邮件内容时出错，稍后再试");
+      // 不记错误对象本身：数据库错误的详情里可能带着行内容（收件人）
+      this.log.warn({ event: "notification.prepare_failed", notificationId: notification.id, dbCode: dbCodeOf(err) }, "准备邮件内容时出错，稍后再试");
       return this.finish(notification, manual ? { status: "failed", attempts: attemptNo, code: "UNEXPECTED", message: null } : { status: "pending", attempts: attemptNo, nextAttemptAt: new Date(this.ctx.now().getTime() + PREPARE_RETRY_MS), code: "UNEXPECTED", message: null });
     }
     if (prepared.kind === "stale") return this.finish(notification, { status: "expired", attempts: notification.attempts, code: "ORDER_STATE_CHANGED", message: null });
@@ -424,7 +426,7 @@ export class NotificationJobs {
     this.stopped = false;
     const run = (): void => {
       this.ticking = this.tick()
-        .catch((err: unknown) => this.log.warn({ err }, "通知任务这一轮出错，下一轮再试"))
+        .catch((err: unknown) => this.log.warn({ event: "notification.tick_failed", dbCode: dbCodeOf(err) }, "通知任务这一轮出错，下一轮再试"))
         .finally(() => {
           this.ticking = null;
           if (!this.stopped) this.schedule(run, TICK_INTERVAL_MS);
