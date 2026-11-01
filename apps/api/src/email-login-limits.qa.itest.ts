@@ -86,13 +86,17 @@ afterEach(async () => {
   await api.db.owner.query("delete from email_login_codes");
 });
 
-/** 发一封，把这个码的 5 次全用错码猜完。发不出来（被限速）返回 0，否则返回真正比较过的次数（看库里的计数，不是看发了几个请求）。 */
+/** 发一封，把这个码的 5 次全用错码猜完。发不出来（被限速）返回 0，否则返回 5；每一次猜测都核对库里的计数确实加一。 */
 async function burnOneCode(email: string): Promise<number> {
   const sent = await requestCode("platform", email);
   if (sent.status !== 202) return 0;
   const code = latestCode(email);
-  for (let i = 0; i < 5; i++) assert.equal((await verify("platform", email, wrongCode(code))).status, 401, `第 ${i + 1} 次`);
-  return (await attemptsOf("platform", email)) as number;
+  assert.equal(await attemptsOf("platform", email), 0, "新码从 0 次开始");
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await verify("platform", email, wrongCode(code))).status, 401, `第 ${i + 1} 次`);
+    assert.equal(await attemptsOf("platform", email), i + 1, "每一次都真的比较过、计了数");
+  }
+  return 5;
 }
 
 test("发新码重置单码次数，但一个邮箱在一个 24 小时窗口内实际能猜的次数正好 100（ADR 第 4 节：20 个码 × 5 次），第 21 封发不出来", async () => {
