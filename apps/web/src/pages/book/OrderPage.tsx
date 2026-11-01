@@ -3,9 +3,11 @@
  * 「我已落地」（接机）、取消（先看按政策退多少）、改单、事后加收和异议、投诉和反馈（M4-03）。令牌只在地址的 `#` 后面和请求头里；
  * 唯一的例外是付款时被 Stripe 整页带去银行验证（M3-08，ADR 0046）：令牌临时放在本标签页的 sessionStorage，回到 `/book/order?payment_intent=…`
  * 时按付款编号取回、立刻删掉，地址换回 `#<令牌>`（Stripe 加在地址上的参数含 client_secret，一并去掉）。
+ * 要挂 Stripe 表单的页面（M3-13，ADR 0046）：Stripe.js 会读所在页面的完整地址，所以挂之前把令牌从地址移到这条历史记录的 state 里（刷新、前进后退都还在），
+ * 这个文档里 Stripe.js 加载过就不再放回地址；客人用页面上的「复制订单链接」取链接。
  * 没有令牌（直接打开「查订单」）或令牌失效：用订单号 + 下单时的邮箱或手机号找回，换一个新链接。
  */
-import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type SiteOrderEnvelope, type SitePayment, getSiteOrder, lookupSiteOrder } from "../../api/site.ts";
@@ -16,6 +18,7 @@ import { Skeleton, StateBlock } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { paymentReturnParams, takePaymentReturn } from "../../lib/payment-return.ts";
+import { stripeJsInPage } from "../../lib/stripe-js.ts";
 import { GUEST_STATUS_BADGES, type OrderSectionKey, SITE_ORDER_PATH, orderSectionSequence, primaryOrderSection, siteOrderUrl, siteTokenFromHash } from "../../lib/site-display.ts";
 import { useCopyText } from "../../lib/use-copy-text.tsx";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
@@ -100,14 +103,32 @@ function ShareLink({ url }: { url: string }) {
   );
 }
 
+/** 地址栏里没有令牌时（ADR 0046）：地址栏复制不到这张单的链接，告诉客人，并给一个能复制的按钮。 */
+function HiddenLinkNote({ url }: { url: string }) {
+  const { copy, dialog } = useCopyText();
+  return (
+    <p className="site-share">
+      <span className="site-muted">为保护您的订单，付款时地址栏不显示订单链接。要保存或转发这张单，请用这个按钮。</span>
+      <Button onClick={() => copy(url)}>
+        <Icon name="copy" />
+        复制订单链接
+      </Button>
+      {dialog}
+    </p>
+  );
+}
+
 type Loaded = { kind: "loading" } | { kind: "invalid" } | { kind: "failed"; message: string } | { kind: "ready"; envelope: SiteOrderEnvelope };
 
 export function OrderPage() {
   const location = useLocation();
-  const token = siteTokenFromHash(location.hash);
+  const hashToken = siteTokenFromHash(location.hash);
+  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: "failed" | "unknown"; paymentReturnFailed?: boolean; orderToken?: string } | null;
+  // 地址里没有 `#` 时，令牌可能在这条历史记录的 state 里（要挂 Stripe 表单时从地址移过去的）。地址上有 `#` 就只认地址：客人贴了别的链接
+  const heldToken = location.hash.replace(/^#/, "").trim() === "" && arrival?.orderToken !== undefined ? siteTokenFromHash(arrival.orderToken) : null;
+  const token = hashToken ?? heldToken;
   // `#` 后面有内容却不是令牌的格式（被截断、改坏）：和失效的链接一样提示，不说是哪种失效（页面规范第 6 节）
   const malformed = token === null && location.hash.replace(/^#/, "").trim() !== "";
-  const arrival = location.state as { placed?: boolean; payment?: SitePayment | null; paymentReturnLost?: "failed" | "unknown"; paymentReturnFailed?: boolean } | null;
   const navigate = useNavigate();
   const returnParams = token === null ? paymentReturnParams(location.search) : null;
   const returnIntent = returnParams?.intentId ?? null;
@@ -132,6 +153,23 @@ export function OrderPage() {
     if (saved !== null && siteTokenFromHash(saved) !== null) navigate(siteOrderUrl(saved), { replace: true, state: { paymentReturnFailed: returnFailed } });
     else navigate(SITE_ORDER_PATH, { replace: true, state: { paymentReturnLost: returnFailed ? "failed" : "unknown" } });
   }, [returnIntent, returnFailed, navigate]);
+
+  const pendingOrder = loaded.kind === "ready" && loaded.envelope.order.status === "pending_payment";
+  // 这个页面会挂 Stripe 表单：待付款、并且配了 Stripe
+  const payable = pendingOrder && config.kind === "ready" && config.config.payments !== null;
+  // 不会挂表单：订单已经不是待付款，或没配 Stripe
+  const notPayable = loaded.kind === "ready" && (!pendingOrder || (config.kind === "ready" && config.config.payments === null));
+
+  // 令牌只在 Stripe.js 读不到地址的时候才放在地址里（ADR 0046）。付款区块在地址干净之前不挂表单，所以 Stripe.js 从头到尾读不到令牌；
+  // Stripe.js 加载过的文档里不放回去（实测它在确认付款时还会重读地址），刷新后是新文档，订单不用付款了就放回去，地址栏又能复制链接
+  useLayoutEffect(() => {
+    if (hashToken !== null && (payable || stripeJsInPage())) {
+      navigate(SITE_ORDER_PATH, { replace: true, state: { ...arrival, orderToken: hashToken } });
+    } else if (heldToken !== null && notPayable && !stripeJsInPage()) {
+      const { orderToken: _moved, ...rest } = arrival ?? {};
+      navigate(siteOrderUrl(heldToken), { replace: true, state: rest });
+    }
+  }, [hashToken, heldToken, payable, notPayable, navigate]);
 
   useEffect(() => {
     if (token === null) return;
@@ -205,7 +243,8 @@ export function OrderPage() {
   const computed = primaryOrderSection(order, new Date());
   const primary = pinned !== null && computed === "trip" ? pinned : computed;
   const sections: Readonly<Record<OrderSectionKey, ReactNode>> = {
-    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" ? payments : undefined} initial={arrival?.payment ?? null} returnFailed={arrival?.paymentReturnFailed === true} onRefresh={refresh} />,
+    // 地址里的令牌还没移走（只差这一帧）：先按「还在读配置」显示占位，不挂表单
+    payment: order.status === "pending_payment" && <PaymentSection token={token} order={order} configPayments={config.kind === "ready" && !(hashToken !== null && payable) ? payments : undefined} initial={arrival?.payment ?? null} returnFailed={arrival?.paymentReturnFailed === true} onRefresh={refresh} />,
     trip: <TripSection order={order} names={names} />,
     timeline: <TimelineSection order={order} timeline={timeline} />,
     driver: <DriverSection order={order} />,
@@ -225,10 +264,11 @@ export function OrderPage() {
       <div role="status">{justPaid && <Alert kind="success">付款成功，订单已确认。派车后这里会显示司机和车辆。</Alert>}</div>
       {arrival?.placed === true && (
         <Alert kind="success">
-          <p>订单已提交。请收藏这个页面，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。</p>
+          <p>{hashToken === null ? "订单已提交。请复制下面的链接保存，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。" : "订单已提交。请收藏这个页面，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。"}</p>
           <ShareLink url={shareUrl} />
         </Alert>
       )}
+      {hashToken === null && arrival?.placed !== true && <HiddenLinkNote url={shareUrl} />}
       {/* 区块按订单编号区分：同一个标签页换成另一张单的链接时，展开的表单、确认框都重新开始，不带上一张单的内容 */}
       {orderSectionSequence(primary).map((key) => (
         <Fragment key={`${order.id}-${key}`}>{sections[key]}</Fragment>

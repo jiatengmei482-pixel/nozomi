@@ -136,15 +136,17 @@ test("整页跳去银行再回来：令牌由页面记下、不进 Stripe 的任
 
   await page.goto(returnUrl(placed.clientSecret));
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${placed.orderNo}` })).toBeVisible();
-  expect(page.url()).toBe(`${SITE}/book/order#${placed.token}`);
+  await expect(page).toHaveURL(`${SITE}/book/order`);
+  expect(await page.evaluate(() => (history.state as { usr: { orderToken: string } }).usr.orderToken), "待付款要挂表单：令牌从地址移到这条历史记录里（ADR 0046）").toBe(placed.token);
   expect(await stored(page), "取回后删掉").toBeNull();
   expect(await page.evaluate(() => document.documentElement.outerHTML.includes("payment_intent_client_secret"))).toBe(false);
 
-  // 历史：后退回到付款前的订单页，再前进回到 #令牌，都碰不到带 client_secret 的地址
+  // 历史：后退回到付款前的订单页，再前进回到这张单，都碰不到带 client_secret 的地址
   await page.goBack();
   expect(page.url()).not.toContain("payment_intent");
   await page.goForward();
-  expect(page.url()).toBe(`${SITE}/book/order#${placed.token}`);
+  await expect(page).toHaveURL(`${SITE}/book/order`);
+  await expect(page.getByRole("heading", { level: 1, name: `订单 ${placed.orderNo}` })).toBeVisible();
 
   for (const item of sent) {
     const url = new URL(item.url);
@@ -172,7 +174,7 @@ test("两个标签页两张单交错：各回各的订单；A 的回跳开到 B 
 
   await page.goto(returnUrl(a.clientSecret));
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${a.orderNo}` })).toBeVisible();
-  expect(new URL(page.url()).hash).toBe(`#${a.token}`);
+  expect(await page.evaluate(() => (history.state as { usr: { orderToken: string } }).usr.orderToken)).toBe(a.token);
 
   await tabB.goto(returnUrl(a.clientSecret));
   await expect(tabB.getByText(LOST)).toBeVisible();

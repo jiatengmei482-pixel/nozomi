@@ -217,6 +217,8 @@ export async function startFakeStripeService(options: { webhookUrl: string; webh
  * 样式只用 CSSOM 设置（和真 Stripe.js 一样，不受 style-src 限制）。
  */
 const FAKE_STRIPE_JS = String.raw`(function () {
+  // 真 Stripe.js 会读所在页面的完整地址（ADR 0046）：记下它每一步能读到什么，测试核对里面没有订单令牌
+  window.__stripeAddresses = [location.href];
   var API = "https://api.stripe.com/v1/payment_intents/";
   function idOf(secret) { return secret.split("_secret_")[0]; }
   function call(method, secret, path, fields) {
@@ -228,6 +230,7 @@ const FAKE_STRIPE_JS = String.raw`(function () {
   }
   function Stripe(publishableKey, options) {
     if (!/^pk_test_/.test(publishableKey)) throw new Error("假 Stripe.js 只认测试用的 publishable key");
+    window.__stripeAddresses.push(location.href);
     window.__fakeStripe = { publishableKey: publishableKey, locale: options && options.locale };
     function retrieve(secret) {
       return call("GET", secret).then(function (intent) { return intent.error ? { error: intent.error } : { paymentIntent: intent }; }, function () { return { error: { type: "api_connection_error" } }; });
@@ -245,6 +248,7 @@ const FAKE_STRIPE_JS = String.raw`(function () {
             var wrap = null;
             return {
               mount: function (container) {
+                window.__stripeAddresses.push(location.href);
                 wrap = document.createElement("div");
                 var label = document.createElement("label");
                 label.textContent = "卡号（假 Stripe）";

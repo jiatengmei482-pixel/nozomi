@@ -158,6 +158,8 @@ const connectionError = (): StripeJsResult => ({ error: { type: "api_connection_
 export function createStripePaymentDriver(load: () => Promise<StripeJsFactory> = () => loadStripeJs()): PaymentDriver {
   return {
     async mount(container, { publishableKey, clientSecret }) {
+      // 最后一道防线（ADR 0046）：订单页会先把令牌移出地址；万一没移，宁可不加载，也不让 Stripe.js 读到令牌
+      if (window.location.href.includes("nzo_")) throw new PaymentLoadError("地址里还有订单令牌");
       let factory: StripeJsFactory;
       try {
         factory = await load();
