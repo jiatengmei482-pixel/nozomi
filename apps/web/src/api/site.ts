@@ -1,6 +1,6 @@
 /**
  * 官网（自营渠道）的接口 `/site/v1`（M3-05，ADR 0032）。不需要登录，也不持有任何渠道密钥：渠道身份在服务端。
- * 客人自己的订单凭查看令牌（`nzo_…`，在订单页地址的 `#` 后面），放进 `Authorization` 请求头；令牌不进任何存储。
+ * 客人自己的订单凭查看令牌（`nzo_…`，在订单页地址的 `#` 后面），放进 `Authorization` 请求头。要挂 Stripe 表单时令牌从地址移到这条历史记录的 state 里（ADR 0046），不进其他存储。
  * 类型与 `apps/api/openapi.yaml` 对账（site.contract.test.ts）。
  */
 import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus } from "@nozomi/domain";

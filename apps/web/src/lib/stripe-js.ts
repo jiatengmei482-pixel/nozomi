@@ -76,6 +76,11 @@ type Host = { Stripe?: StripeJsFactory };
 
 let pending: Promise<StripeJsFactory> | null = null;
 
+/** 这个文档里 Stripe.js 已经加载或正在加载。一旦加载就可能随时读页面地址（ADR 0046），地址里不能再放令牌。 */
+export function stripeJsInPage(): boolean {
+  return (globalThis as Host).Stripe !== undefined || pending !== null;
+}
+
 /**
  * 加载 Stripe.js（整个页面只插一次 `<script>`）。`append` 只给单元测试换：测试环境不真的去取站外脚本。
  */

@@ -149,6 +149,7 @@ export function resetBrowser(): void {
   sessionStore.clear("platform");
   localStorage.clear();
   sessionStorage.clear();
+  delete (globalThis as { Stripe?: unknown }).Stripe;
   delete document.documentElement.dataset["theme"];
 }
 

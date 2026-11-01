@@ -149,6 +149,8 @@ export interface FakeSmtpBehavior {
   rejectRecipient?: boolean;
   /** DATA 之后回 554 */
   rejectData?: boolean;
+  /** 在这一步回这句应答（如 `450 4.2.1 later`）。`DOT` 是正文发完之后 */
+  rejectAt?: { stage: "MAIL" | "RCPT" | "DATA" | "DOT"; reply: string };
   /** 连上之后立刻断开 */
   dropOnConnect?: boolean;
   /** 不支持 STARTTLS：明明要求升级却回 502 */
@@ -234,6 +236,12 @@ export async function startFakeSmtp(options: { tls?: { mode: "implicit" | "start
     const detail = (): string => (behavior.errorDetail === undefined ? "" : ` ${behavior.errorDetail}`);
     const say = (line: string): void => void socket.write(`${line}\r\n`);
     const stalled = (command: NonNullable<FakeSmtpBehavior["stallOn"]>): boolean => behavior.stallOn === command;
+    /** 这一步要拒收就回应答，返回 true */
+    const rejectedAt = (stage: NonNullable<FakeSmtpBehavior["rejectAt"]>["stage"]): boolean => {
+      if (behavior.rejectAt?.stage !== stage) return false;
+      say(`${behavior.rejectAt.reply}${detail()}`);
+      return true;
+    };
     const handleCommand = (line: string): void => {
       const verb = line.split(" ")[0]?.toUpperCase() ?? "";
       if (verb === "EHLO" || verb === "HELO") {
@@ -268,16 +276,19 @@ export async function startFakeSmtp(options: { tls?: { mode: "implicit" | "start
       } else if (verb === "MAIL") {
         if (stalled("MAIL")) return;
         if (behavior.rejectSender) return say(`550 5.7.1 sender refused${detail()}`);
+        if (rejectedAt("MAIL")) return;
         from = /<([^>]*)>/.exec(line)?.[1] ?? "";
         to = [];
         say("250 2.1.0 ok");
       } else if (verb === "RCPT") {
         if (stalled("RCPT")) return;
         if (behavior.rejectRecipient) return say(`550 5.1.1 recipient refused${detail()}`);
+        if (rejectedAt("RCPT")) return;
         to.push(/<([^>]*)>/.exec(line)?.[1] ?? "");
         say("250 2.1.5 ok");
       } else if (verb === "DATA") {
         if (stalled("DATA")) return;
+        if (rejectedAt("DATA")) return;
         state = "data";
         say("354 go ahead");
       } else if (verb === "RSET") {
@@ -307,6 +318,7 @@ export async function startFakeSmtp(options: { tls?: { mode: "implicit" | "start
             say(`554 5.7.1 message refused${detail()}`);
             continue;
           }
+          if (rejectedAt("DOT")) continue;
           messages.push({ from, to, data, secure });
           say("250 2.0.0 queued as fake");
           continue;
