@@ -145,6 +145,7 @@ test("compose：API 的密钥全部来自变量替换，文件里没有写死的
     "STRIPE_PUBLISHABLE_KEY",
     "STRIPE_WEBHOOK_SECRET",
     "GOOGLE_MAPS_API_KEY",
+    "SMTP_PASSWORD",
   ]) {
     assert.match(environment[key] ?? "", /^\$\{[A-Z_]+:[-?].*\}$/, `${key} 必须整体来自变量`);
   }

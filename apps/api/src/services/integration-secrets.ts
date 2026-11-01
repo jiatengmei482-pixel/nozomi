@@ -1,5 +1,5 @@
 /**
- * 运营后台填写的第三方密钥（M4-09，ADR 0041）：谷歌地图、Stripe。
+ * 运营后台填写的第三方密钥（M4-09，ADR 0041）：谷歌地图、Stripe；邮件发送（M4-14，ADR 0048）。
  *
  * - 只有超级管理员能填写、更换、清空、测试（`integration.manage`，自建角色勾不了）；有 `integration.read` 的人只看得到「已配置 / 未配置」和来源。
  * - 存：用 `SecretBox`（数据加密密钥 `DATA_ENCRYPTION_KEY`，用途 `integration-secret`，附加数据是这一项的名字）加密后存库；另存每一项打码后的样子（`••••` + 末 4 位）。
@@ -15,13 +15,17 @@ import {
   type AppConfig,
   type EffectiveIntegrations,
   GOOGLE_MAPS_FIELD,
+  INTEGRATION_SECRET_KEYS,
   type IntegrationSecretKey,
   NO_ADMIN_SECRETS,
   SECRET_PRECEDENCE_NOTE,
   SECRET_SOURCE_LABELS,
+  SMTP_FIELDS,
   STRIPE_FIELDS,
   type SecretFieldIssue,
   type SecretSource,
+  type SmtpEncryption,
+  type SmtpSettings,
   type StripeKeys,
   adminStripeKeyIssues,
   envIntegrations,
@@ -29,7 +33,9 @@ import {
   isIntegrationSecretKey,
   maskLast4,
   resolveIntegrations,
+  smtpSettingsIssues,
 } from "@nozomi/config";
+import { smtpHostAllowed } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
@@ -37,11 +43,13 @@ import { AppError } from "../errors.ts";
 import { withTimeout } from "../health.ts";
 import type { IntegrationCheckResult } from "../integrations/integration-check.ts";
 import { type SecretBox, SecretBoxError } from "../integrations/secret-box.ts";
+import type { SmtpFailureCode } from "../integrations/smtp.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { type IntegrationSecretRow, deleteIntegrationSecret, listIntegrationSecrets, lockIntegrationSecret, queueIntegrationSecretChange, saveIntegrationSecret } from "../repos/integration-secrets.ts";
 import { validationFailed } from "../validation.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
+import { sendMailWith } from "./mail.ts";
 import { type PlatformPrincipal, principalCan } from "./platform-auth.ts";
 
 /** 缓存多久重读一次（毫秒）：别的进程改了密钥，本进程最迟这么久之后用上新值。 */
@@ -173,10 +181,19 @@ export class IntegrationSecretCache {
     const opened: AdminIntegrationSecrets = { ...NO_ADMIN_SECRETS };
     const admin: Snapshot["admin"] = {};
     const secretValues: string[] = [];
+    let hostForbidden = false;
     for (const row of rows) {
       const values = this.#open(row);
       admin[row.integration] = { hints: row.hints, version: row.version, updatedAt: row.updatedAt, updatedBy: row.updatedBy, problem: values === null ? "UNREADABLE" : null };
       if (values === null) continue;
+      if (row.integration === "email") {
+        // 只有密码是密钥；其余几项（`587`、`tls`）不该被日志脱敏抹掉
+        if ((values[SMTP_FIELDS.password] ?? "") !== "") secretValues.push(values[SMTP_FIELDS.password] as string);
+        const settings = smtpSettingsOf(values);
+        if (smtpHostAllowed(settings.host, { allowLoopback: isLocalEnv(this.#config) })) opened.email = settings;
+        else hostForbidden = true;
+        continue;
+      }
       secretValues.push(...Object.values(values));
       if (row.integration === "google_maps") opened.googleMaps = { apiKey: values[GOOGLE_MAPS_FIELD] ?? "" };
       else opened.stripe = { secretKey: values[STRIPE_FIELDS.secretKey] ?? "", publishableKey: values[STRIPE_FIELDS.publishableKey] ?? "", webhookSecret: values[STRIPE_FIELDS.webhookSecret] ?? "" };
@@ -184,6 +201,7 @@ export class IntegrationSecretCache {
     const effective = resolveIntegrations(this.#config, opened);
     if (effective.adminIgnored.googleMaps && admin.google_maps) admin.google_maps.problem = "NOT_ALLOWED_IN_ENV";
     if (effective.adminIgnored.stripe && admin.stripe) admin.stripe.problem = "NOT_ALLOWED_IN_ENV";
+    if ((effective.adminIgnored.email || hostForbidden) && admin.email) admin.email.problem = "NOT_ALLOWED_IN_ENV";
     return { effective, admin, secretValues };
   }
 
@@ -200,6 +218,23 @@ export class IntegrationSecretCache {
   }
 }
 
+function isLocalEnv(config: AppConfig): boolean {
+  return config.appEnv === "local" || config.appEnv === "ci";
+}
+
+/** 库里的一组值 → SMTP 配置（全是字符串，端口也是）。写法不对的由 `resolveIntegrations` 的校验挡下。 */
+function smtpSettingsOf(values: Record<string, string>): SmtpSettings {
+  return {
+    host: values[SMTP_FIELDS.host] ?? "",
+    port: Number(values[SMTP_FIELDS.port] ?? ""),
+    encryption: (values[SMTP_FIELDS.encryption] ?? "") as SmtpEncryption,
+    username: values[SMTP_FIELDS.username] ?? "",
+    password: values[SMTP_FIELDS.password] ?? "",
+    fromName: values[SMTP_FIELDS.fromName] ?? "",
+    fromAddress: values[SMTP_FIELDS.fromAddress] ?? "",
+  };
+}
+
 // ---- 接口用到的流程 ----
 
 export interface IntegrationChecks {
@@ -207,7 +242,7 @@ export interface IntegrationChecks {
   stripe(config: NonNullable<EffectiveIntegrations["stripe"]["config"]>): Promise<IntegrationCheckResult>;
 }
 
-const LABELS: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图", stripe: "Stripe 支付" };
+const LABELS: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图", stripe: "Stripe 支付", email: "邮件发送" };
 
 const FIELD_LABELS: Readonly<Record<IntegrationSecretKey, readonly { name: string; label: string }[]>> = {
   google_maps: [{ name: GOOGLE_MAPS_FIELD, label: "API 密钥" }],
@@ -215,6 +250,15 @@ const FIELD_LABELS: Readonly<Record<IntegrationSecretKey, readonly { name: strin
     { name: STRIPE_FIELDS.secretKey, label: "Secret key（sk_ 开头）" },
     { name: STRIPE_FIELDS.publishableKey, label: "Publishable key（pk_ 开头）" },
     { name: STRIPE_FIELDS.webhookSecret, label: "Webhook signing secret（whsec_ 开头）" },
+  ],
+  email: [
+    { name: SMTP_FIELDS.host, label: "SMTP 主机" },
+    { name: SMTP_FIELDS.port, label: "端口（25、465、587、2525）" },
+    { name: SMTP_FIELDS.encryption, label: "加密方式" },
+    { name: SMTP_FIELDS.username, label: "用户名" },
+    { name: SMTP_FIELDS.password, label: "密码" },
+    { name: SMTP_FIELDS.fromName, label: "发件人名称" },
+    { name: SMTP_FIELDS.fromAddress, label: "发件人地址" },
   ],
 };
 
@@ -227,9 +271,22 @@ const ISSUE_MESSAGES: Readonly<Record<SecretFieldIssue["reason"], string>> = {
   MODE_MISMATCH: "secret key 和 publishable key 必须同为测试（test）或同为正式（live）",
   LIVE_KEY_NOT_ALLOWED: "这个环境只能用 Stripe 的测试密钥（sk_test_ 开头）",
   TEST_KEY_NOT_ALLOWED: "正式环境只能用 Stripe 的正式密钥（sk_live_ 开头）",
+  PORT_NOT_ALLOWED: "端口只能是 25、465、587、2525",
+  ENCRYPTION_NOT_ALLOWED: "这个环境不能用明文发信，请选 TLS 或 STARTTLS",
+  HOST_FORBIDDEN: "不能填内网地址：请填写邮件服务商给的公网主机名",
 };
 
-/** 路径里的那一项：`google-maps` / `stripe`。 */
+/** 邮件发送这一项的说法：沿用 Stripe 的 `REQUIRED`、`FORMAT` 说法会让人以为要填别的东西。 */
+const EMAIL_ISSUE_MESSAGES: Readonly<Partial<Record<SecretFieldIssue["reason"], string>>> = {
+  REQUIRED: "必填（七项要一起填）",
+  FORMAT: "写法不对，请检查是否带进了换行或别的字符",
+};
+
+function issueMessage(key: IntegrationSecretKey, issue: SecretFieldIssue): string {
+  return (key === "email" ? EMAIL_ISSUE_MESSAGES[issue.reason] : undefined) ?? ISSUE_MESSAGES[issue.reason];
+}
+
+/** 路径里的那一项：`google-maps` / `stripe` / `email`。 */
 export function integrationKeyOf(params: unknown): IntegrationSecretKey {
   const raw = typeof params === "object" && params !== null ? (params as { key?: unknown }).key : undefined;
   const key = typeof raw === "string" ? raw.replaceAll("-", "_") : "";
@@ -242,16 +299,21 @@ function encryptionNotConfigured(): AppError {
 }
 
 function sourceOf(effective: EffectiveIntegrations, key: IntegrationSecretKey): SecretSource {
-  return key === "google_maps" ? effective.googleMaps.source : effective.stripe.source;
+  return key === "google_maps" ? effective.googleMaps.source : key === "stripe" ? effective.stripe.source : effective.email.source;
 }
 
-/** 生效的那一份里用来打码显示的值：谷歌地图是密钥本身，Stripe 是 secret key。 */
+/** 生效的那一份里用来打码显示的值：谷歌地图是密钥本身，Stripe 是 secret key，邮件发送是密码。 */
 function effectiveValue(effective: EffectiveIntegrations, key: IntegrationSecretKey): string | null {
-  return key === "google_maps" ? effective.googleMaps.apiKey : (effective.stripe.config?.secretKey ?? null);
+  return key === "google_maps" ? effective.googleMaps.apiKey : key === "stripe" ? (effective.stripe.config?.secretKey ?? null) : (effective.email.config?.password ?? null);
 }
 
 function envConfigured(config: AppConfig, key: IntegrationSecretKey): boolean {
-  return key === "google_maps" ? config.googleMapsApiKey !== null : config.stripe !== null;
+  return key === "google_maps" ? config.googleMapsApiKey !== null : key === "stripe" ? config.stripe !== null : config.smtp !== null;
+}
+
+/** SMTP 配置里不是密钥的几项：页面显示给超级管理员。 */
+function smtpSettingsJson(settings: SmtpSettings): Record<string, unknown> {
+  return { host: settings.host, port: settings.port, encryption: settings.encryption, username: settings.username, from_name: settings.fromName, from_address: settings.fromAddress };
 }
 
 /** 页面上的一项。没有 `integration.manage` 的人只拿到状态和来源，没有任何打码的片段。 */
@@ -269,6 +331,7 @@ function itemJson(ctx: AppContext, key: IntegrationSecretKey, canManage: boolean
     source_label: SECRET_SOURCE_LABELS[source],
     mode: key === "stripe" ? (effective.stripe.config?.mode ?? null) : null,
     masked: canManage && value !== null ? maskLast4(value) : null,
+    settings: canManage && key === "email" && effective.email.config !== null ? smtpSettingsJson(effective.email.config) : null,
     env_configured: envConfigured(ctx.config, key),
     admin: !canManage
       ? null
@@ -284,7 +347,7 @@ export function listIntegrationSecretsJson(ctx: AppContext, principal: PlatformP
     precedence_note: SECRET_PRECEDENCE_NOTE,
     can_manage: canManage,
     encryption_configured: ctx.secretBox !== null,
-    items: (["google_maps", "stripe"] as const).map((key) => itemJson(ctx, key, canManage)),
+    items: INTEGRATION_SECRET_KEYS.map((key) => itemJson(ctx, key, canManage)),
   };
 }
 
@@ -297,32 +360,90 @@ function cleaned(value: string): string {
   return value.trim();
 }
 
-function issuesOrThrow(issues: SecretFieldIssue[]): void {
+function issuesOrThrow(key: IntegrationSecretKey, issues: SecretFieldIssue[]): void {
   if (issues.length === 0) return;
   throw validationFailed(
     "body",
-    issues.map((issue) => ({ path: `/${issue.field}`, message: ISSUE_MESSAGES[issue.reason], reason: issue.reason })),
+    issues.map((issue) => ({ path: `/${issue.field}`, message: issueMessage(key, issue), reason: issue.reason })),
   );
 }
 
-export type SecretInput = { key: "google_maps"; apiKey: string } | { key: "stripe"; keys: StripeKeys };
+export interface EmailInput {
+  host: string;
+  port: number;
+  encryption: string;
+  username: string;
+  password: string;
+  fromName: string;
+  fromAddress: string;
+}
+
+export type SecretInput = { key: "google_maps"; apiKey: string } | { key: "stripe"; keys: StripeKeys } | { key: "email"; settings: EmailInput };
+
+/** 邮件发送的校验 + 去空白：写法的规则在 config，主机是不是内网的规则在 domain。不合格抛 400，不回显填的值。 */
+function cleanedEmailSettings(ctx: AppContext, input: EmailInput): SmtpSettings {
+  const settings = {
+    host: cleaned(input.host).toLowerCase(),
+    port: input.port,
+    encryption: cleaned(input.encryption),
+    username: cleaned(input.username),
+    password: cleaned(input.password),
+    fromName: cleaned(input.fromName),
+    fromAddress: cleaned(input.fromAddress),
+  };
+  const issues = smtpSettingsIssues(ctx.config.appEnv, settings);
+  if (settings.host !== "" && !issues.some((issue) => issue.field === SMTP_FIELDS.host) && !smtpHostAllowed(settings.host, { allowLoopback: isLocalEnv(ctx.config) })) {
+    issues.push({ field: SMTP_FIELDS.host, reason: "HOST_FORBIDDEN" });
+  }
+  issuesOrThrow("email", issues);
+  return { ...settings, encryption: settings.encryption as SmtpEncryption };
+}
+
+/** 审计里记的邮件发送配置：记主机（「服务器被改去连哪里」正是要查的），不记密码和用户名（审计的读者比这张卡片多）。 */
+function emailAuditSettings(settings: SmtpSettings): Record<string, unknown> {
+  return { host: settings.host, port: settings.port, encryption: settings.encryption, from_name: settings.fromName, from_address: settings.fromAddress };
+}
+
+/**
+ * 审计「更换 / 清空」前的邮件发送配置：库里是整组密文，从缓存取后台那一份最省事（改动在同一把锁里排队，缓存是上一次改完立刻重读的）。
+ * 后台那一份没有生效（解不开、不适用于这个环境）时取不到，就不记。
+ */
+function emailPreviousAudit(ctx: AppContext, key: IntegrationSecretKey): Record<string, unknown> {
+  if (key !== "email" || ctx.integrations.effective.email.source !== "admin" || ctx.integrations.effective.email.config === null) return {};
+  return { settings: emailAuditSettings(ctx.integrations.effective.email.config) };
+}
 
 /** 填写或更换。返回填写（`set`）还是更换（`replace`）。 */
 export async function saveIntegrationSecretValue(ctx: AppContext, principal: PlatformPrincipal, input: SecretInput, ip: string): Promise<"set" | "replace"> {
   if (ctx.secretBox === null) throw encryptionNotConfigured();
   let values: Record<string, string>;
+  let auditExtra: Record<string, unknown> = {};
   if (input.key === "google_maps") {
     const apiKey = cleaned(input.apiKey);
-    issuesOrThrow(googleMapsKeyIssues(apiKey));
+    issuesOrThrow(input.key, googleMapsKeyIssues(apiKey));
     values = { [GOOGLE_MAPS_FIELD]: apiKey };
-  } else {
+  } else if (input.key === "stripe") {
     const keys = { secretKey: cleaned(input.keys.secretKey), publishableKey: cleaned(input.keys.publishableKey), webhookSecret: cleaned(input.keys.webhookSecret) };
-    issuesOrThrow(adminStripeKeyIssues(ctx.config.appEnv, keys));
+    issuesOrThrow(input.key, adminStripeKeyIssues(ctx.config.appEnv, keys));
     values = { [STRIPE_FIELDS.secretKey]: keys.secretKey, [STRIPE_FIELDS.publishableKey]: keys.publishableKey, [STRIPE_FIELDS.webhookSecret]: keys.webhookSecret };
+  } else {
+    const settings = cleanedEmailSettings(ctx, input.settings);
+    values = {
+      [SMTP_FIELDS.host]: settings.host,
+      [SMTP_FIELDS.port]: String(settings.port),
+      [SMTP_FIELDS.encryption]: settings.encryption,
+      [SMTP_FIELDS.username]: settings.username,
+      [SMTP_FIELDS.password]: settings.password,
+      [SMTP_FIELDS.fromName]: settings.fromName,
+      [SMTP_FIELDS.fromAddress]: settings.fromAddress,
+    };
+    auditExtra = { settings: emailAuditSettings(settings) };
   }
-  const hints = Object.fromEntries(Object.entries(values).map(([field, value]) => [field, maskLast4(value)]));
+  // 打码的只有密钥：邮件发送只有密码，其余几项不是密钥
+  const hints = Object.fromEntries(Object.entries(input.key === "email" ? { [SMTP_FIELDS.password]: values[SMTP_FIELDS.password] as string } : values).map(([field, value]) => [field, maskLast4(value)]));
   const sealed = ctx.secretBox.seal(PURPOSE, input.key, JSON.stringify(values));
   const now = ctx.now();
+  const previousAudit = emailPreviousAudit(ctx, input.key);
   const action = await withPlatformTx(ctx.pool, async (db) => {
     await queueIntegrationSecretChange(db, input.key);
     const before = await lockIntegrationSecret(db, input.key);
@@ -333,8 +454,8 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
       resource: "integration_secret",
       resourceId: input.key,
       action,
-      before: before === null ? null : { hints: before.hints },
-      after: { hints },
+      before: before === null ? null : { hints: before.hints, ...previousAudit },
+      after: { hints, ...auditExtra },
     });
     return action;
   });
@@ -345,6 +466,7 @@ export async function saveIntegrationSecretValue(ctx: AppContext, principal: Pla
 /** 清空：删掉后台这一份，回落到服务器配置文件。后台本来就没填时 409。 */
 export async function clearIntegrationSecretValue(ctx: AppContext, principal: PlatformPrincipal, key: IntegrationSecretKey, ip: string): Promise<void> {
   const now = ctx.now();
+  const previousAudit = emailPreviousAudit(ctx, key);
   await withPlatformTx(ctx.pool, async (db) => {
     await queueIntegrationSecretChange(db, key);
     const before = await lockIntegrationSecret(db, key);
@@ -354,27 +476,48 @@ export async function clearIntegrationSecretValue(ctx: AppContext, principal: Pl
       resource: "integration_secret",
       resourceId: key,
       action: "clear",
-      before: { hints: before.hints },
+      before: { hints: before.hints, ...previousAudit },
       after: null,
     });
   });
   await ctx.integrations.reloadNow();
 }
 
-/** 「测试一下」：用现在生效的那一份（不论来自后台还是配置文件）调一次对方最便宜的只读接口。 */
+/** 测试邮件：只发给当前操作的超级管理员（ADR 0048：接口不接受收件人，不会被当成发信工具）。 */
+async function checkEmail(ctx: AppContext, principal: PlatformPrincipal, settings: SmtpSettings): Promise<EmailCheckResult> {
+  const to = principal.user.email;
+  const sent = await sendMailWith(ctx, settings, {
+    to,
+    subject: "NOZOMI 邮件发送测试",
+    text: `这是一封测试邮件：${principal.user.name} 在运营后台「系统设置 → 系统状态 → 第三方密钥」点了「测试一下」（环境：${ctx.config.appEnv}）。\n收到这封邮件，说明邮件发送配置可用。不需要回复。`,
+  });
+  return sent.ok ? { ok: true } : { ok: false, code: sent.code, message: sent.message };
+}
+
+type EmailCheckResult = { ok: true } | { ok: false; code: SmtpFailureCode | "MESSAGE_INVALID"; message: string };
+
+const TEST_NOT_CONFIGURED: Readonly<Record<IntegrationSecretKey, string>> = { google_maps: "谷歌地图 还没有配置，先填写密钥再测试", stripe: "Stripe 还没有配置，先填写密钥再测试", email: "邮件发送还没有配置，先填写再测试" };
+
+/** 「测试一下」：用现在生效的那一份（不论来自后台还是配置文件）调一次对方最便宜的只读接口；邮件发送是发一封测试邮件给自己。 */
 export async function testIntegrationSecret(ctx: AppContext, principal: PlatformPrincipal, key: IntegrationSecretKey, ip: string): Promise<Record<string, unknown>> {
   await ctx.integrations.ensureFresh();
   const effective = ctx.integrations.effective;
   const source = sourceOf(effective, key);
   const mapsKey = effective.googleMaps.apiKey;
   const stripe = effective.stripe.config;
-  if (key === "google_maps" ? mapsKey === null : stripe === null) {
-    throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", `${key === "google_maps" ? "谷歌地图" : "Stripe"} 还没有配置，先填写密钥再测试`);
+  const smtp = effective.email.config;
+  if (key === "google_maps" ? mapsKey === null : key === "stripe" ? stripe === null : smtp === null) {
+    throw new AppError(409, "INTEGRATION_NOT_CONFIGURED", TEST_NOT_CONFIGURED[key]);
   }
   const retryAfter = ctx.integrations.claimTest(key, ctx.now());
   if (retryAfter !== null) throw new AppError(429, "INTEGRATION_TEST_RATE_LIMITED", "刚测过，请过几秒再试", { retry_after_seconds: retryAfter });
   // 上面已经确认这一项有生效的值
-  const result: IntegrationCheckResult = key === "google_maps" ? await ctx.integrationChecks.googleMaps(mapsKey as string) : await ctx.integrationChecks.stripe(stripe as NonNullable<typeof stripe>);
+  const result: IntegrationCheckResult | EmailCheckResult =
+    key === "google_maps"
+      ? await ctx.integrationChecks.googleMaps(mapsKey as string)
+      : key === "stripe"
+        ? await ctx.integrationChecks.stripe(stripe as NonNullable<typeof stripe>)
+        : await checkEmail(ctx, principal, smtp as SmtpSettings);
   const now = ctx.now();
   await withPlatformTx(ctx.pool, (db) =>
     insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), {
@@ -390,7 +533,7 @@ export async function testIntegrationSecret(ctx: AppContext, principal: Platform
     key,
     ok: result.ok,
     code: result.ok ? null : result.code,
-    message: result.ok ? `${LABELS[key]}可用` : result.message,
+    message: result.ok ? (key === "email" ? `邮件服务器已接收，测试邮件发到了 ${principal.user.email}，请去邮箱确认（也看看垃圾邮件）` : `${LABELS[key]}可用`) : result.message,
     source,
     source_label: SECRET_SOURCE_LABELS[source],
     tested_at: now.toISOString(),

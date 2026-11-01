@@ -8,6 +8,7 @@
     "@nozomi/config": "workspace:*",
     "@nozomi/domain": "workspace:*",
     "fastify": "^5.6.0",
+    "nodemailer": "^10.3.1",
     "pg": "^8.16.0",
     "stripe": "^23.0.0",
     "zod": "^3.25.76"

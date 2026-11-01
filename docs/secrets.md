@@ -1,6 +1,6 @@
 # 账号与密钥存放规则
 
-**一句话**：密钥只存在下面 4 个地方（谷歌地图、Stripe 还可以在运营后台填写，加密存在数据库里，见「二、放在 VPS 上的」末尾），代码仓库里永远没有密钥原文。也不要把密钥发在和 Claude 的聊天里——请你自己在对应的设置页面或服务器上填写。
+**一句话**：密钥只存在下面 4 个地方（谷歌地图、Stripe、邮件发送还可以在运营后台填写，加密存在数据库里，见「二、放在 VPS 上的」末尾），代码仓库里永远没有密钥原文。也不要把密钥发在和 Claude 的聊天里——请你自己在对应的设置页面或服务器上填写。
 
 测试环境和正式环境都部署在你自己的 VPS 上（见 ADR 0007）。
 
@@ -75,6 +75,18 @@
 | `STRIPE_WEBHOOK_SECRET` | Stripe 通知的验证密钥 | 你填。Stripe 控制台 → Developers → Webhooks → Add endpoint，网址填 `https://你的域名/webhooks/stripe`，要接收的事件选这 10 个：`payment_intent.succeeded`、`payment_intent.payment_failed`、`payment_intent.processing`、`payment_intent.requires_action`、`payment_intent.canceled`、`charge.refunded`、`charge.dispute.created`、`refund.updated`、`refund.failed`、`charge.refund.updated`（后三个是退款的结果，ADR 0029） → 建好后点开，复制 Signing secret（`whsec_` 开头）。要等这个环境第一次部署成功、域名能打开之后再建 |
 | `GOOGLE_MAPS_API_KEY` | 谷歌地图密钥（算里程和时长、搜地址） | 你填（也可以不写在这里、改在运营后台填，见表格下面）。Google Cloud Console → 新建项目 → 启用 Routes API、Places API (New) 和 Geocoding API → 凭据 → 创建 API 密钥，并限制只能调用这三个 API（官网地址搜索用 Places API (New)，地图点选后查地址用 Geocoding API，ADR 0044） |
 
+邮件发送（通用 SMTP，ADR 0048）**推荐在运营后台填**，也可以写在这里（七项要么都填、要么都不填，只有 `SMTP_PASSWORD` 是密钥）：
+
+| 名称 | 是什么 | 怎么填 |
+| --- | --- | --- |
+| `SMTP_HOST` | 邮件服务器的主机名 | 邮件服务商给的公网主机名，如 `smtp.example.com`；不能是内网地址 |
+| `SMTP_PORT` | 端口 | 只能是 25、465、587、2525。云服务器常常封了 25，推荐 465 或 587 |
+| `SMTP_ENCRYPTION` | 加密方式 | `tls`（常配 465）或 `starttls`（常配 587）。测试环境和正式环境不允许明文（`none`） |
+| `SMTP_USERNAME` | 用户名 | 邮件服务商给的 SMTP 用户名，常常就是邮箱地址 |
+| `SMTP_PASSWORD` | 密码（密钥） | 8–255 个字符。很多邮箱要用「应用专用密码」或 SMTP 专用密码，不是登录密码 |
+| `SMTP_FROM_NAME` | 发件人名称 | 客人在收件箱里看到的名字 |
+| `SMTP_FROM_ADDRESS` | 发件人地址 | 这个账号可以用来发信的地址 |
+
 同一个 `.env` 里还有两项**不是密钥**的配置——地图底图（区域页面上的地图背景）。它们的值本来就会发给浏览器，写在这里只是因为每个环境用的底图可以不同：
 
 | 名称 | 是什么 | 怎么填 |
@@ -107,6 +119,12 @@
 - 后台填的密钥用数据加密密钥（`DATA_ENCRYPTION_KEY`）加密后存在数据库里；页面上永远只显示末 4 位，谁都看不到原文。只有超级管理员能填、能换、能清空、能测试，每次操作都记在审计日志里（只记末 4 位）。
 - 规则和 `.env` 一样：Stripe 三项一起填；测试环境只收测试密钥（`sk_test_`、`pk_test_` 开头），正式环境只收正式密钥（`sk_live_`、`pk_live_` 开头）。
 - 「测试一下」：谷歌地图会调用一次 Routes API（最便宜的一档，费用极少）；Stripe 只查一次余额（不产生费用）。结果显示「可用」或「不可用」和原因（密钥无效、没开通 API、网络不通等）。
+
+**邮件发送也在运营后台填（推荐）**：超级管理员登录运营后台 → 系统设置 → 系统状态 → 第三方密钥 → 「邮件发送」，填写主机、端口、加密方式、用户名、密码、发件人名称和地址，保存后点「测试一下」。
+
+- 优先顺序、加密保存、立即生效、权限和审计都和上面的谷歌地图、Stripe 一样；页面上只有密码打码（只显示末 4 位），其余几项超级管理员看得到。每次保存都要重新填密码。
+- 「测试一下」会发一封真的邮件给**你当前登录账号的邮箱**，不能填别的收件人。结果显示「已接收」或原因（连接失败、TLS 失败、认证失败、发件人被拒、超时等）；已接收后请去邮箱确认，也看看垃圾邮件。
+- 要让邮件不进垃圾箱，还要在域名和邮件服务商那边设置 SPF、DKIM、DMARC（邮件服务商的文档里有步骤）。
 
 不用你填的：运行环境（`APP_ENV`）、域名（`APP_DOMAIN`）、程序前面有几层反向代理（由 `EDGE_MODE` 自动决定）、两个数据库连接串（`DATABASE_URL`、`DATABASE_MIGRATION_URL`，由上面两个数据库密码拼出来）、对外网址（`PUBLIC_BASE_URL`）、程序版本，都由部署流程自动传入或拼出来；汇率数据源（`FX_SOURCE_URL`）和跨币种汇率缓冲（`FX_BUFFER_PERCENT`，百分比，默认 1.5，程序按十进制精确换成基点）有默认值。
 

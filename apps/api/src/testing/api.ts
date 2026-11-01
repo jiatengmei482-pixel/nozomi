@@ -11,6 +11,7 @@ import { FxCenter } from "../services/fx-center.ts";
 import { NO_ROUTES, type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
 import { SecretBox } from "../integrations/secret-box.ts";
+import type { Mailer } from "../integrations/smtp.ts";
 import { GooglePlaceSearch } from "../services/place-search.ts";
 import { IntegrationSecretCache } from "../services/integration-secrets.ts";
 import { HttpsWebhookSender, type WebhookSender } from "../integrations/webhook-sender.ts";
@@ -112,6 +113,8 @@ export interface TestApiOptions {
   webhookSender?: WebhookSender;
   /** 运营后台填写的第三方密钥的缓存多久重读一次（ADR 0041）；0 = 每个请求都重读（测试直接改库后马上看到） */
   integrationSecretsTtlMs?: number;
+  /** 发邮件的替身（本机假 SMTP 的证书、缩短的时限）；不给时用真的（testEnv 的主机不解析） */
+  mailer?: Mailer;
 }
 
 export async function createTestApi(options: TestApiOptions = {}): Promise<TestApi> {
@@ -136,6 +139,7 @@ export async function createTestApi(options: TestApiOptions = {}): Promise<TestA
     ...(options.payments === undefined ? {} : { payments: options.payments }),
     webhookSender: options.webhookSender ?? localWebhookSender(),
     ...(options.integrationSecretsTtlMs === undefined ? {} : { integrationSecretsTtlMs: options.integrationSecretsTtlMs }),
+    ...(options.mailer === undefined ? {} : { mailer: options.mailer }),
     logDestination: { write: (line) => void (logs += line) },
   });
 
@@ -268,6 +272,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
     payments: null,
     integrations: new IntegrationSecretCache({ pool, config, secretBox, log: silent }),
     integrationChecks: { googleMaps: async () => unreachable, stripe: async () => unreachable },
+    mailer: { send: async () => unreachable },
     quote: { ...defaultQuoteDeps(config, fx.rates, NO_ROUTES, now), ...quote },
     secretBox,
     webhookSender: localWebhookSender(),
