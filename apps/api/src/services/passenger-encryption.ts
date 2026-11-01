@@ -247,6 +247,8 @@ export class PassengerEncryptionJobs {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private ticking: Promise<unknown> | null = null;
   private stopped = true;
+  /** 服务在关闭：跑到一半的这一轮做完当前这批就停。没 `start` 过、手工调 `tick` 时为假。 */
+  private closing = false;
 
   constructor(ctx: AppContext, log: Log) {
     this.ctx = ctx;
@@ -259,7 +261,7 @@ export class PassengerEncryptionJobs {
 
   async tick(): Promise<BackfillRunResult | null> {
     if (!this.enabled) return null;
-    const result = await runPassengerBackfill(this.ctx, { stop: () => this.stopped, log: this.log });
+    const result = await runPassengerBackfill(this.ctx, { stop: () => this.closing, log: this.log });
     const total = BACKFILL_TABLES.reduce((sum, table) => sum + result.encrypted[table], 0);
     if (total > 0 || result.failed > 0) this.log.info({ event: "passenger.backfill", encrypted: result.encrypted, failed: result.failed, batches: result.batches }, "乘客信息回填");
     return result;
@@ -268,11 +270,13 @@ export class PassengerEncryptionJobs {
   start(): void {
     if (!this.stopped || !this.enabled) return;
     this.stopped = false;
+    this.closing = false;
     this.schedule(FIRST_TICK_MS);
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.closing = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     if (this.ticking !== null) await Promise.race([this.ticking, new Promise((resolve) => setTimeout(resolve, STOP_WAIT_MS).unref())]);
