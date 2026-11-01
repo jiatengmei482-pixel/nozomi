@@ -47,7 +47,7 @@ test("配了 Stripe 和谷歌地图假密钥：响应里没有任何密钥原文
 
 test("公开的集成状态每项只有 key、label、state：没有 detail，也没有密钥的首尾片段", async () => {
   const { text, integrations } = await healthWith(testConfig());
-  assert.equal(integrations.size, 6);
+  assert.equal(integrations.size, 7);
   for (const item of integrations.values()) assert.deepEqual(Object.keys(item), ["key", "label", "state"]);
   assert.ok(!text.includes("detail"));
   for (const secret of [FAKE_SECRETS.stripeSecretKey, FAKE_SECRETS.googleMapsApiKey]) {

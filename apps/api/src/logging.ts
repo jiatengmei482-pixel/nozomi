@@ -30,6 +30,7 @@ export function secretValues(config: AppConfig): string[] {
     config.stripe?.secretKey,
     config.stripe?.webhookSecret,
     config.googleMapsApiKey,
+    config.smtp?.password,
   ];
   if (URL.canParse(config.databaseUrl)) {
     const url = new URL(config.databaseUrl);

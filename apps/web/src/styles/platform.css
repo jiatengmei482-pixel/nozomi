@@ -850,6 +850,10 @@
   min-width: 0;
 }
 
+.secret-card__value {
+  overflow-wrap: anywhere;
+}
+
 .secret-test {
   display: flex;
   flex-wrap: wrap;
