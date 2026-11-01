@@ -495,13 +495,30 @@ test("没配置主密钥：下单 503 写明原因，不写明文冒充加密；
   const fresh = fictional();
   const res = await site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: fresh.name, phone: fresh.phone, email: fresh.email }, flight_no: "NH211", dropoff_address: "东京站", save_payment_method: true } });
   assert.deepEqual([res.status, res.body.error.code], [503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED"]);
+  assertMatchesOpenApi("POST", "/site/v1/orders", res);
   assert.deepEqual(await scanDatabase(fresh.needles), [], "什么都没写");
   assert.equal((await revealOf(existing.id)).passenger.email, passenger.email);
   assert.equal((await lookup(existing, passenger.email)).status, 200);
   const version = (await ok(api.call("GET", `/platform/v1/orders/${existing.id}`, { token: await ops() }))).order.version;
   const change = await api.call("PATCH", `/platform/v1/orders/${existing.id}`, { token: await ops(), headers: { "if-match": String(version) }, body: { passenger: { name: "虚构改名", phone: "+818011112222", email: "changed@fictional.example.test" } } });
   assert.deepEqual([change.status, change.body.error.code], [503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED"]);
+  assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", change);
+  assert.equal(await api.app.passengerEncryption.tick(), null, "没有主密钥：后台任务不跑");
   await assert.rejects(planPassengerBackfill(ctx));
+});
+
+test("后台任务：一轮把旧数据加密完；开关关闭时不跑", async () => {
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  const order = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 600 * HOUR) });
+  useCrypto({ ...DUAL, backfillEnabled: false });
+  assert.equal(await api.app.passengerEncryption.tick(), null);
+  assert.equal((await orderRow(order.id)).passenger_enc, null);
+  useCrypto(DUAL);
+  const result = await api.app.passengerEncryption.tick();
+  assert.equal(result?.encrypted.orders, 1);
+  assert.ok((await orderRow(order.id)).passenger_enc);
+  const logs = api.logs();
+  assert.ok(!logs.includes((await orderRow(order.id)).passenger.email));
 });
 
 test("命令行：默认 dry-run 不改数据；--execute 加密；--verify 只读；输出没有乘客信息；不配密钥拒绝", async () => {

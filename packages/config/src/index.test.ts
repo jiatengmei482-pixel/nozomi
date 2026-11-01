@@ -387,3 +387,14 @@ test("乘客信息脱敏（ADR 0055）：默认开、180 天；可以调长，�
   for (const value of ["179", "0", "-1", "abc", "180.5"]) assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_DAYS: value }).some((i) => i.startsWith("PASSENGER_RETENTION_DAYS")), value);
   assert.ok(issuesOf({ ...base, PASSENGER_RETENTION_ENABLED: "maybe" }).some((i) => i.startsWith("PASSENGER_RETENTION_ENABLED")));
 });
+
+test("乘客信息加密的开关：默认读密文、写明文、回填开；空值按默认；和密钥的组合不合理时报错（ADR 0057）", () => {
+  const env = { APP_ENV: "local", DATABASE_URL: "postgres://user:fake@localhost:5432/db", AUTH_JWT_SECRET: "a".repeat(48), DATA_ENCRYPTION_KEY: "b".repeat(48) };
+  assert.deepEqual(loadConfig(env).passengerEncryption, { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true });
+  assert.deepEqual(loadConfig({ ...env, PASSENGER_READ_SOURCE: "", PASSENGER_PLAINTEXT_WRITE: "", PASSENGER_BACKFILL_ENABLED: "" }).passengerEncryption, { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true });
+  assert.deepEqual(loadConfig({ ...env, PASSENGER_READ_SOURCE: "plaintext", PASSENGER_BACKFILL_ENABLED: "false" }).passengerEncryption, { readSource: "plaintext", plaintextWrite: true, backfillEnabled: false });
+  assert.throws(() => loadConfig({ ...env, PASSENGER_READ_SOURCE: "both" }));
+  assert.throws(() => loadConfig({ ...env, PASSENGER_PLAINTEXT_WRITE: "false", PASSENGER_READ_SOURCE: "plaintext" }), /明文列已经不写真内容/);
+  assert.throws(() => loadConfig({ ...env, PASSENGER_PLAINTEXT_WRITE: "false", DATA_ENCRYPTION_KEY: "" }), /必须配置 DATA_ENCRYPTION_KEY/);
+  assert.equal(loadConfig({ ...env, DATA_ENCRYPTION_KEY: "" }).dataEncryptionKey, null, "没配置主密钥不报错：服务能启动，写乘客信息时才拒绝");
+});
