@@ -32,7 +32,7 @@ export interface ApprovalKind {
    * 批准时让改动生效（在批准的事务里，审核人的身份）。不能生效时抛 AppError（多半是 409）：整个批准回滚，记录仍是待审核。
    * 自己写被改对象的审计日志。
    */
-  apply(db: Db, approval: Approval, origin: AuditOrigin): Promise<void>;
+  apply(db: Db, approval: Approval, origin: AuditOrigin, ctx: AppContext): Promise<void>;
   /** 对象编号（`resource_id`）是渠道编号：限定了渠道范围的人只看得到范围内的（ADR 0030）。可选 */
   channelScoped?: boolean;
   /** 针对一张订单（`payload.order_id` 是订单编号）：限定了数据范围的人只看得到订单在范围内的（ADR 0030，按订单的城市和渠道）。可选 */
@@ -154,7 +154,7 @@ export async function decideApproval(ctx: AppContext, kinds: ApprovalKinds, prin
     if (decision !== "withdraw" && !principalCan(principal, kind.reviewAction)) throw forbidden(kind.reviewAction);
     const refusal = approvalDecisionRefusal({ status: approval.status, requestedBy: approval.requestedBy.id }, principal.user.id, decision);
     if (refusal !== null) throw new AppError(409, refusal, REFUSAL_MESSAGES[refusal], { status: approval.status });
-    if (decision === "approve") await kind.apply(db, approval, origin);
+    if (decision === "approve") await kind.apply(db, approval, origin, ctx);
     else await kind.onDismiss?.(db, approval, now);
     const status: ApprovalStatus = approvalStatusAfter(decision);
     await setApprovalDecision(db, id, { status, decidedBy: decision === "withdraw" ? null : principal.user.id, note, now });

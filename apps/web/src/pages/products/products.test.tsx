@@ -232,7 +232,7 @@ test("新建：没有子品牌时管理员当场建（币种不能改的提醒�
   await actor.click(screen.getByRole("button", { name: "新建子品牌" }));
   const dialog = await screen.findByRole("dialog", { name: "新建子品牌" });
   assert.match(dialog.textContent ?? "", /币种创建后不能修改。选错了只能另建一个子品牌。/);
-  assert.deepEqual(within(dialog).getAllByRole("option").map((option) => option.textContent), ["请选择", "JPY 日元", "KRW 韩元", "CNY 人民币", "USD 美元", "HKD 港元", "TWD 新台币", "THB 泰铢"]);
+  assert.deepEqual(within(dialog).getAllByRole("option").map((option) => option.textContent), ["请选择", "JPY 日元", "KRW 韩元", "CNY 人民币", "USD 美元", "HKD 港元", "TWD 新台币", "THB 泰铢", "SGD 新加坡元"]);
   await actor.click(within(dialog).getByRole("button", { name: "新建" }));
   await within(dialog).findByText("请填写名称");
   await actor.type(within(dialog).getByLabelText(/名称/), "新品牌");

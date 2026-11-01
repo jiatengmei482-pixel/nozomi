@@ -37,6 +37,7 @@ export interface Statement {
   payoutBatchId: string | null;
   payoutOn: string | null;
   paidAt: Date | null;
+  bankReference: string | null;
   voidedAt: Date | null;
   voidedBy: string | null;
   voidReason: string | null;
@@ -81,7 +82,7 @@ export interface PayoutBatch {
 }
 
 const COLUMNS = `s.tenant_id, s.id, s.statement_no, s.period, s.currency, s.status, s.total_minor, s.line_count, s.pay_due_on::text as pay_due_on, s.confirm_due_at, s.issued_at,
-  s.confirmed_at, s.confirmed_by_type, s.confirmed_by, s.disputed_at, s.dispute_reason, s.approval_id, s.approved_at, s.payout_batch_id, s.payout_on::text as payout_on, s.paid_at,
+  s.confirmed_at, s.confirmed_by_type, s.confirmed_by, s.disputed_at, s.dispute_reason, s.approval_id, s.approved_at, s.payout_batch_id, s.payout_on::text as payout_on, s.paid_at, s.bank_reference,
   s.voided_at, s.voided_by, s.void_reason, s.version, s.created_at, s.updated_at`;
 
 function toStatement(row: Row): Statement {
@@ -107,6 +108,7 @@ function toStatement(row: Row): Statement {
     payoutBatchId: row["payout_batch_id"],
     payoutOn: row["payout_on"],
     paidAt: row["paid_at"],
+    bankReference: row["bank_reference"],
     voidedAt: row["voided_at"],
     voidedBy: row["voided_by"],
     voidReason: row["void_reason"],
@@ -399,7 +401,7 @@ export async function tenantName(db: Db, tenantId: string): Promise<string> {
 }
 
 /** 改账单的状态和随之变的列（调用方已锁住这一行并核对过状态）；版本加一。 */
-export async function updateStatement(db: Db, tenantId: string, id: string, fields: Partial<Record<"status" | "confirmed_at" | "confirmed_by_type" | "confirmed_by" | "disputed_at" | "dispute_reason" | "confirm_due_at" | "approval_id" | "approved_at" | "payout_batch_id" | "payout_on" | "voided_at" | "voided_by" | "void_reason", unknown>>, now: Date): Promise<void> {
+export async function updateStatement(db: Db, tenantId: string, id: string, fields: Partial<Record<"status" | "confirmed_at" | "confirmed_by_type" | "confirmed_by" | "disputed_at" | "dispute_reason" | "confirm_due_at" | "approval_id" | "approved_at" | "payout_batch_id" | "payout_on" | "paid_at" | "bank_reference" | "voided_at" | "voided_by" | "void_reason", unknown>>, now: Date): Promise<void> {
   const entries = Object.entries(fields);
   const sets = entries.map(([column], index) => `${column} = $${index + 3}`);
   await db.query(`update statements set ${[...sets, `updated_at = $${entries.length + 3}`, "version = version + 1"].join(", ")} where tenant_id = $1 and id = $2`, [tenantId, id, ...entries.map(([, value]) => value), now]);

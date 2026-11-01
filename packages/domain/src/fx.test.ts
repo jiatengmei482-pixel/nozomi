@@ -82,7 +82,7 @@ test("交叉汇率：两项相除的精确分数；给报价的是 12 位小数�
   assert.equal(fxQuoteFromTable(table, "THB", "JPY"), null);
   assert.equal(fxQuoteFromTable(table, "JPY", "THB"), null);
   // 平台的每两种币种都换得出、而且报价引擎认得（真实量级）
-  const real: FxTable = { base: "USD", asOf: table.asOf, rates: { JPY: "151.21", CNY: "7.1234", KRW: "1422.53", HKD: "7.7731", TWD: "32.115", THB: "36.21" } };
+  const real: FxTable = { base: "USD", asOf: table.asOf, rates: { JPY: "151.21", CNY: "7.1234", KRW: "1422.53", HKD: "7.7731", TWD: "32.115", THB: "36.21", SGD: "1.35" } };
   for (const from of FX_CURRENCIES) for (const to of FX_CURRENCIES) assert.ok(rateFraction(fxQuoteFromTable(real, from, to)?.rate ?? "") !== null, `${from}→${to}`);
 });
 

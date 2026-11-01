@@ -91,7 +91,7 @@ const roundQ = (x: Q): bigint => {
   const r = (2n * abs + x.d) / (2n * x.d);
   return x.n < 0n ? -r : r;
 };
-const DIGITS: Record<CurrencyCode, number> = { JPY: 0, KRW: 0, CNY: 2, USD: 2, HKD: 2, TWD: 2, THB: 2 };
+const DIGITS: Record<CurrencyCode, number> = { JPY: 0, KRW: 0, CNY: 2, USD: 2, HKD: 2, TWD: 2, THB: 2, SGD: 2 };
 const major = (minor: number, currency: CurrencyCode): Q => q(BigInt(minor), 10n ** BigInt(DIGITS[currency]));
 
 /** 救援差价的独立实现：先把两边各自换到客人币种（各自的快照汇率），在客人币种里相减，再按原快照汇率换回原结算币种的最小单位，取整一次。 */

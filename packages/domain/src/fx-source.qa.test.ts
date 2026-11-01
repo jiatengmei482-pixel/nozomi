@@ -9,7 +9,7 @@ import { parseFxSource } from "./fx-source.ts";
 
 const NOW = new Date("2026-10-07T01:00:00Z");
 const LAST = Math.floor(new Date("2026-10-07T00:00:00Z").getTime() / 1000);
-const OTHER = '"JPY":150,"CNY":7.2,"KRW":1400,"HKD":7.8,"TWD":32,"THB":36';
+const OTHER = '"JPY":150,"CNY":7.2,"KRW":1400,"HKD":7.8,"TWD":32,"SGD":1.35,"THB":36';
 
 /** 拼一份响应原文：`rates` 是汇率表里的原文（不含 USD），`extra` 追加在顶层末尾。 */
 function body(rates: string = OTHER, options: { usd?: string; last?: string; next?: string | null; extra?: string; key?: string } = {}): string {
@@ -97,7 +97,7 @@ test("完整的大响应（160 多个币种、各种写法）：只取平台币�
   }
   const parsed = parseFxSource(body(`${others.join(",")},${OTHER}`), NOW);
   assert.ok(parsed.ok);
-  assert.deepEqual(Object.keys(parsed.document.rates).sort(), ["CNY", "HKD", "JPY", "KRW", "THB", "TWD"]);
+  assert.deepEqual(Object.keys(parsed.document.rates).sort(), ["CNY", "HKD", "JPY", "KRW", "SGD", "THB", "TWD"]);
 });
 
 test("不是 JSON 的各种响应：HTML、空、只有空白、截断、JSON 数组、裸数字、带 BOM：都按 FX_SOURCE_NOT_JSON 拒收，不抛异常", () => {

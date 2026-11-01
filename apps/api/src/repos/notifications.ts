@@ -308,6 +308,15 @@ export async function tenantRecipients(db: Db, tenantId: string): Promise<string
   return contact === "" ? [] : [contact];
 }
 
+/** 这家在用的管理员；一个都没有时企业信息里的联系邮箱。收款账户的通知只发给他们（账户只有管理员能提交，ADR 0051）。 */
+export async function tenantAdminRecipients(db: Db, tenantId: string): Promise<string[]> {
+  const users = await db.query<{ email: string }>("select email from tenant_users where tenant_id = $1 and status = 'active' and role = 'admin' order by email", [tenantId]);
+  if (users.rows.length > 0) return uniqueRecipients(users.rows.map((row) => row.email));
+  const profile = await db.query<{ contact_email: string | null }>("select contact_email from tenant_profiles where tenant_id = $1", [tenantId]);
+  const contact = profile.rows[0]?.contact_email?.trim() ?? "";
+  return contact === "" ? [] : [contact];
+}
+
 export interface StaffRecipient {
   email: string;
   role: { key: string; builtin: boolean; grants: string[] | null; scope: PlatformDataScope };

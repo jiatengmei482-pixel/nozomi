@@ -30,7 +30,7 @@ const ids: Record<string, string> = {};
 
 /** 测试时钟的起点是 2026-10-07T01:00Z；数据源的第一批汇率是 00:00Z 的 */
 const T0 = new Date("2026-10-07T00:00:00.000Z");
-const RATES = { JPY: "150.000", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36" };
+const RATES = { JPY: "150.000", CNY: "7.2", KRW: "1400", HKD: "7.8", TWD: "32", THB: "36", SGD: "1.35" };
 const hours = (n: number): number => n * 3_600_000;
 const at = (base: Date, ms: number): Date => new Date(base.getTime() + ms);
 
@@ -133,12 +133,12 @@ test("立即拉取：汇率按数据源的数字原文入库（150.000 → 150�
   assert.deepEqual([res.fetch.status, res.fetch.trigger, res.fetch.triggered_by.name, res.fetch.source_as_of, res.fetch.error_code], ["accepted", "manual", "平台超管", T0.toISOString(), null]);
   // 库里是 numeric，按原值存
   const stored = await owner("select quote, rate::text as rate from fx_rates order by quote");
-  assert.deepEqual(stored.rows.map((row: any) => [row.quote, row.rate]), [["CNY", "7.2"], ["HKD", "7.8"], ["JPY", "150"], ["KRW", "1400"], ["THB", "36"], ["TWD", "32"]]);
+  assert.deepEqual(stored.rows.map((row: any) => [row.quote, row.rate]), [["CNY", "7.2"], ["HKD", "7.8"], ["JPY", "150"], ["KRW", "1400"], ["SGD", "1.35"], ["THB", "36"], ["TWD", "32"]]);
   const board = await overview("base=JPY");
   assert.deepEqual([board.state, board.as_of, board.base, board.source, board.stale_at], ["fresh", T0.toISOString(), "JPY", new URL(source.url).host, "2026-10-09T00:00:00.001Z"]);
   assert.deepEqual(board.rates.find((item: any) => item.currency === "CNY"), { currency: "CNY", rate: "0.048", central_rate: "0.048", locked: false });
   assert.deepEqual(board.cross.find((item: any) => item.from === "CNY" && item.to === "JPY"), { from: "CNY", to: "JPY", rate: "20.833333333333", locked: false });
-  assert.equal(board.cross.length, 7 * 6);
+  assert.equal(board.cross.length, 8 * 7);
   // 报价：人民币的商品换成日元，快照里记着汇率中心给的汇率和取数时间
   const quote = await preview();
   const candidate = quote.groups[0].candidates[0];
