@@ -37,7 +37,7 @@ import {
   sellPrice,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type Db, isUniqueViolation, withPlatformTx } from "../db/context.ts";
+import { type Db, isUniqueViolation, passengerCryptoOf, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { PaymentProviderError } from "../integrations/payments.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
@@ -271,16 +271,20 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   const dropoff = order.dropoff === null ? null : { ...order.dropoff, address: pick("dropoff_address", order.dropoff.address) };
   const settlement = change.settlementAfter ?? order.settlement;
   const dueAt = change.reschedule && order.confirmedAt !== null ? dispatchDeadline(order.confirmedAt, serviceAt) : order.dispatch.dueAt;
+  // 改了乘客才重新加密；没改的不碰这几列（明文列可能只是占位，不能把解密后的内容写回去，ADR 0057）
+  const sealed = "passenger" in change.after ? passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, pick("passenger", order.passenger)) : null;
   await db.query(
-    `update orders set passenger = $3::jsonb, flight_no = $4, messaging = $5::jsonb, notes = $6, pickup = $7::jsonb, dropoff = $8::jsonb, passengers = $9, luggage = $10,
+    `update orders set passenger = coalesce($3::jsonb, passenger), passenger_enc = case when $19::boolean then $20 else passenger_enc end, passenger_email_bidx = case when $19::boolean then $21 else passenger_email_bidx end,
+            passenger_phone_bidx = case when $19::boolean then $22 else passenger_phone_bidx end, passenger_name_bidx = case when $19::boolean then $23 else passenger_name_bidx end, flight_no = $4, messaging = $5::jsonb, notes = $6, pickup = $7::jsonb, dropoff = $8::jsonb, passengers = $9, luggage = $10,
             service_at = $11, service_local = $12, service_date = $13, settlement_minor = $14, settlement = $15::jsonb, dispatch_due_at = $16,
             dispatch_overdue_at = case when $17::boolean then null else dispatch_overdue_at end, departure_overdue_at = case when $17::boolean then null else departure_overdue_at end,
             version = version + 1, updated_at = $18
       where tenant_id = $1 and id = $2`,
     [
-      order.tenantId, order.id, JSON.stringify(pick("passenger", order.passenger)), pick("flight_no", order.flightNo), JSON.stringify(pick("messaging", order.messaging)), pick("notes", order.notes),
+      order.tenantId, order.id, sealed === null ? null : JSON.stringify(sealed.plain), pick("flight_no", order.flightNo), JSON.stringify(pick("messaging", order.messaging)), pick("notes", order.notes),
       pickup === null ? null : JSON.stringify(pickup), dropoff === null ? null : JSON.stringify(dropoff), pick("passengers", order.passengers), pick("luggage", order.luggage),
       serviceAt, serviceLocal, serviceDate, change.settlementAfterMinor, JSON.stringify(settlement), dueAt, change.reschedule, now,
+      sealed !== null, sealed?.enc ?? null, sealed?.emailBidx ?? null, sealed?.phoneBidx ?? null, sealed?.nameBidx ?? null,
     ],
   );
   let refunds: OrderRefund[] = [];

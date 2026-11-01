@@ -4,8 +4,9 @@
  * 「这单能不能脱敏」只有这里一份 SQL：dry-run 和真正执行用同一份，被挡住的不占每批的名额。
  * 救援改派后同一个订单编号有几行，都按一个单处理：所有行都到了终态、都超过期限，才算到期；任何一行有没结的事都不处理。
  */
-import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, scrubContactsInText, scrubOrderValues } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { ANONYMIZED_PASSENGER, ANONYMIZED_TEXT, type PassengerContact, isPassengerPlaceholder, scrubContactsInText, scrubOrderValues } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { readChangeValues } from "./order-changes.ts";
 
 /**
  * 转入下期的账单结清了没有：顺着 `carry:<账单编号>` 的明细往后找，接到已付（paid）或相抵为零（settled）的账单才算。
@@ -169,7 +170,7 @@ type Passengerish = { passenger?: { name?: unknown; phone?: unknown; email?: unk
 function contactsOf(values: readonly Passengerish[]): KnownContacts {
   const pick = (key: "name" | "phone" | "email"): string[] => [...new Set(values.flatMap((value) => {
     const item = value.passenger?.[key];
-    return typeof item === "string" && item !== ANONYMIZED_TEXT && item !== "" ? [item] : [];
+    return typeof item === "string" && !isPassengerPlaceholder(item) && item !== "" ? [item] : [];
   }))];
   return { names: pick("name"), literals: [...pick("phone"), ...pick("email")] };
 }
@@ -179,12 +180,17 @@ function contactsOf(values: readonly Passengerish[]): KnownContacts {
  * 金额、订单号、时间、状态、即时通讯账号、地址、航班号都不动（ADR 0055）；不改 `version`、`updated_at`：脱敏不是一次业务上的修改。
  */
 export async function anonymizeOrderPassenger(db: Db, orderId: string, now: Date): Promise<void> {
-  const orders = (await db.query<{ tenant_id: string; passenger: { name?: string; phone?: string; email?: string } }>("select tenant_id, passenger from orders where id = $1", [orderId])).rows;
-  const changes = (await db.query<{ before: Passengerish; after: Passengerish }>("select before, after from order_changes where order_id = $1", [orderId])).rows;
-  const known = contactsOf([...orders.map((row) => ({ passenger: row.passenger })), ...changes.flatMap((row) => [row.before, row.after])]);
-  // 先标记：手写内容的触发器要看到这单已经脱敏
+  // 这单已知的联系方式都从解密后的内容里取：明文列可能已经只是占位（ADR 0057）
+  const crypto = passengerCryptoOf(db);
+  const orders = (await db.query<{ tenant_id: string; passenger: PassengerContact; passenger_enc: string | null }>("select tenant_id, passenger, passenger_enc from orders where id = $1", [orderId])).rows;
+  const changes = (await db.query<{ tenant_id: string; id: string; values_enc: string | null; before: Record<string, unknown>; after: Record<string, unknown> }>("select tenant_id, id, values_enc, before, after from order_changes where order_id = $1", [orderId])).rows;
+  const known = contactsOf([...orders.map((row) => ({ passenger: crypto.readOrderPassenger(row.tenant_id, orderId, row.passenger_enc, row.passenger) })), ...changes.flatMap((row) => {
+    const values = readChangeValues(db, row);
+    return [values.before, values.after] as Passengerish[];
+  })]);
+  // 先标记：手写内容的触发器要看到这单已经脱敏。密文和盲索引同时清掉
   for (const row of orders) {
-    await db.query("update orders set passenger = $3::jsonb, passenger_anonymized_at = $4 where tenant_id = $1 and id = $2", [row.tenant_id, orderId, JSON.stringify(ANONYMIZED_PASSENGER), now]);
+    await db.query("update orders set passenger = $3::jsonb, passenger_anonymized_at = $4, passenger_enc = null, passenger_email_bidx = null, passenger_phone_bidx = null, passenger_name_bidx = null where tenant_id = $1 and id = $2", [row.tenant_id, orderId, JSON.stringify(ANONYMIZED_PASSENGER), now]);
   }
   await scrubOrderTexts(db, orderId, known);
 }
@@ -202,9 +208,11 @@ export async function scrubOrderTexts(db: Db, orderId: string, known: KnownConta
     await rewrite(db, "orders", { tenant_id: row["tenant_id"], id: orderId }, row, { notes: text(row["notes"]), cancel_note: text(row["cancel_note"], LIMITS.cancelNote) });
   }
   for (const row of await rows("select tenant_id, id, before, after, decision_note from order_changes where order_id = $1")) {
-    await db.query("update order_changes set before = $3::jsonb, after = $4::jsonb, decision_note = $5 where tenant_id = $1 and id = $2", [row["tenant_id"], row["id"], JSON.stringify(json(row["before"])), JSON.stringify(json(row["after"])), text(row["decision_note"], LIMITS.changeNote)]);
+    await db.query("update order_changes set before = $3::jsonb, after = $4::jsonb, decision_note = $5, values_enc = null where tenant_id = $1 and id = $2", [row["tenant_id"], row["id"], JSON.stringify(json(row["before"])), JSON.stringify(json(row["after"])), text(row["decision_note"], LIMITS.changeNote)]);
   }
   for (const row of await rows("select id, event_data from webhook_deliveries where order_id = $1")) await rewrite(db, "webhook_deliveries", { id: row["id"] }, row, { event_data: json(row["event_data"]) });
+  await db.query("update webhook_deliveries set event_data_enc = null where order_id = $1 and event_data_enc is not null", [orderId]);
+  await db.query("update notifications set recipient_enc = null where order_id = $1 and audience = 'guest' and recipient_enc is not null", [orderId]);
   for (const row of await rows("select id, recipient, last_error_message from notifications where order_id = $1 and audience = 'guest'")) {
     await rewrite(db, "notifications", { id: row["id"] }, row, { recipient: ANONYMIZED_TEXT, last_error_message: text(row["last_error_message"]) });
   }

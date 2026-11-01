@@ -10,6 +10,8 @@ import type { Pool } from "../db/pool.ts";
 import { FxCenter } from "../services/fx-center.ts";
 import { NO_ROUTES, type QuoteDeps, defaultQuoteDeps } from "../services/quote-deps.ts";
 import type { PaymentProvider } from "../integrations/payments.ts";
+import { attachPassengerCrypto } from "../db/context.ts";
+import { PassengerCrypto } from "../integrations/passenger-crypto.ts";
 import { SecretBox } from "../integrations/secret-box.ts";
 import type { Mailer } from "../integrations/smtp.ts";
 import { GooglePlaceSearch } from "../services/place-search.ts";
@@ -263,6 +265,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
   const silent = { info: () => undefined, warn: () => undefined, error: () => undefined };
   const fx = new FxCenter({ pool, now, config: config.fx, log: silent });
   const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  attachPassengerCrypto(pool, new PassengerCrypto(secretBox, config.passengerEncryption));
   const unreachable = { ok: false as const, code: "UNREACHABLE" as const, message: "测试上下文不连外部服务" };
   return {
     config,

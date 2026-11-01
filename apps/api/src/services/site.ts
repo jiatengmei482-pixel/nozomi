@@ -29,10 +29,13 @@ import {
   rateLimitKeyOf,
   tenantBids,
   vehicleLevel,
+  contactLookupKey,
+  normalizeEmailForIndex,
+  normalizePhoneForIndex,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import type { PassengerCrypto } from "../integrations/passenger-crypto.ts";
-import { withPlatformTx } from "../db/context.ts";
+import { passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type Channel, findChannel } from "../repos/channels.ts";

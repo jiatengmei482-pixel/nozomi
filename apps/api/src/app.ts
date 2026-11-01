@@ -46,11 +46,14 @@ import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
 import { OrderJobs } from "./services/order-jobs.ts";
+import { PassengerEncryptionJobs } from "./services/passenger-encryption.ts";
 import { PassengerRetentionJobs } from "./services/passenger-retention.ts";
 import { TenantJobs } from "./services/tenant-jobs.ts";
 import { BillingJobs } from "./services/billing.ts";
 import { WebhookJobs } from "./services/webhook-jobs.ts";
 import { NotificationJobs } from "./services/notification-jobs.ts";
+import { attachPassengerCrypto } from "./db/context.ts";
+import { PassengerCrypto } from "./integrations/passenger-crypto.ts";
 import { SecretBox } from "./integrations/secret-box.ts";
 import { type Mailer, SmtpMailer } from "./integrations/smtp.ts";
 import { HttpsWebhookSender, type WebhookSender } from "./integrations/webhook-sender.ts";
@@ -116,6 +119,7 @@ declare module "fastify" {
     tenantJobs: TenantJobs;
     /** 乘客信息的自动脱敏（ADR 0055；服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     passengerRetention: PassengerRetentionJobs;
+    passengerEncryption: PassengerEncryptionJobs;
     /** 推送给供应商的 Webhook 的投递任务（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
     webhookJobs: WebhookJobs;
     /** 供应商账单：每月出上个月的账、确认期满视为确认（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -220,6 +224,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   const secretBox = config.dataEncryptionKey === null ? null : new SecretBox(config.dataEncryptionKey);
+  attachPassengerCrypto(pool, new PassengerCrypto(secretBox, config.passengerEncryption, app.log));
+  if (secretBox === null) app.log.error({ event: "passenger.encryption_not_configured" }, "没有配置 DATA_ENCRYPTION_KEY：不能下新订单、不能改乘客信息（ADR 0057）");
   const secretCache = new IntegrationSecretCache({ pool, config, secretBox, log: app.log, ...(deps.integrationSecretsTtlMs === undefined ? {} : { ttlMs: deps.integrationSecretsTtlMs }) });
   integrations = secretCache;
   // 每个请求开始前看一眼运营后台填写的密钥过没过期（ADR 0041）：过期了先重读（最多等 0.5 秒），所以别的进程改了密钥，这里最迟 5 秒后用上
@@ -302,6 +308,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate("tenantJobs", tenantJobs);
   const passengerRetention = new PassengerRetentionJobs(context, app.log);
   app.decorate("passengerRetention", passengerRetention);
+  const passengerEncryption = new PassengerEncryptionJobs(context, app.log);
+  app.decorate("passengerEncryption", passengerEncryption);
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
@@ -317,6 +325,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     billingJobs.start();
     notificationJobs.start();
     passengerRetention.start();
+    passengerEncryption.start();
     app.addHook("onClose", () => fx.stop());
     app.addHook("onClose", () => orderJobs.stop());
     app.addHook("onClose", () => webhookJobs.stop());
@@ -324,6 +333,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     app.addHook("onClose", () => billingJobs.stop());
     app.addHook("onClose", () => notificationJobs.stop());
     app.addHook("onClose", () => passengerRetention.stop());
+    app.addHook("onClose", () => passengerEncryption.stop());
   }
   registerPlatformRoutes(app, context);
   registerPlatformSecurityRoutes(app, context);

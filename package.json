@@ -16,6 +16,7 @@
     "admin:reset-2fa": "node --env-file-if-exists=.env apps/api/src/cli/admin-reset-2fa.ts",
     "admin:clear-ip-allowlist": "node --env-file-if-exists=.env apps/api/src/cli/admin-clear-ip-allowlist.ts",
     "privacy:anonymize": "node --env-file-if-exists=.env apps/api/src/cli/privacy-anonymize.ts",
+    "passenger:backfill": "node --env-file-if-exists=.env apps/api/src/cli/passenger-backfill.ts",
     "masterdata:import-airports": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airports.ts",
     "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",

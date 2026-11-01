@@ -453,7 +453,7 @@ export class NotificationJobs {
     // 客人的地址按订单现在的乘客邮箱：等待发送期间改了邮箱，旧地址不能再收到查看链接
     if (notification.audience === "guest" && order !== null && isAnonymizedPassenger(order.passenger)) return { kind: "render_failed" };
     const to = notification.audience === "guest" && order !== null ? order.passenger.email.trim() : notification.recipient;
-    if (to !== notification.recipient) await updateRecipient(db, notification.id, to);
+    if (to !== notification.recipient) await updateRecipient(db, notification, to);
     return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };
   }
 

@@ -3,7 +3,10 @@
  * 平台事务里写（渠道、运营改单，供应商确认改期也在平台事务里生效——要改用车时间和结算价）。
  */
 import type { CurrencyCode, OrderChangeStatus, SettlementBreakdown } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { randomUUID } from "node:crypto";
+import { containsPassenger } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { passengerEncryptionNotConfigured } from "../integrations/passenger-crypto.ts";
 
 type Row = Record<string, any>;
 
@@ -30,18 +33,24 @@ export interface OrderChange {
   decisionNote: string | null;
 }
 
-const COLUMNS = `c.tenant_id, c.id, c.order_id, c.status, c.reschedule, c.before, c.after, c.settlement_before_minor, c.settlement_after_minor, c.settlement_after, o.settlement_currency,
+const COLUMNS = `c.tenant_id, c.id, c.order_id, c.status, c.reschedule, c.before, c.after, c.values_enc, c.settlement_before_minor, c.settlement_after_minor, c.settlement_after, o.settlement_currency,
   c.confirm_due_at, c.requested_by, c.requested_by_id, c.requested_at, c.dispatch_conflict, c.decided_at, c.decided_by, c.decision_note`;
 
-function toChange(row: Row): OrderChange {
+/** 改单前后值：有密文读密文（ADR 0057）。别的表读这两列也走这里。 */
+export function readChangeValues(db: Db, row: { tenant_id: string; id: string; values_enc: string | null; before: Record<string, unknown>; after: Record<string, unknown> }): { before: Record<string, unknown>; after: Record<string, unknown> } {
+  return passengerCryptoOf(db).readValues("order_change", row.tenant_id, row.id, row.values_enc, { before: row.before, after: row.after });
+}
+
+function toChange(db: Db, row: Row): OrderChange {
+  const values = readChangeValues(db, row as Parameters<typeof readChangeValues>[1]);
   return {
     tenantId: row["tenant_id"],
     id: row["id"],
     orderId: row["order_id"],
     status: row["status"],
     reschedule: row["reschedule"],
-    before: row["before"],
-    after: row["after"],
+    before: values.before,
+    after: values.after,
     settlementBeforeMinor: Number(row["settlement_before_minor"]),
     settlementAfterMinor: Number(row["settlement_after_minor"]),
     settlementAfter: row["settlement_after"],
@@ -76,12 +85,17 @@ export interface NewOrderChange {
 }
 
 export async function insertOrderChange(db: Db, change: NewOrderChange): Promise<string> {
+  const crypto = passengerCryptoOf(db);
+  const values = { before: change.before, after: change.after };
+  if (containsPassenger(values) && !crypto.configured) throw passengerEncryptionNotConfigured();
+  const id = randomUUID();
+  const sealed = crypto.sealValues("order_change", change.tenantId, id, values);
   const result = await db.query<{ id: string }>(
-    `insert into order_changes (tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, settlement_after, confirm_due_at, requested_by, requested_by_id, requested_at, decided_at)
-     values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb, $10, $11, $12, $13, $14) returning id`,
+    `insert into order_changes (id, values_enc, tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, settlement_after, confirm_due_at, requested_by, requested_by_id, requested_at, decided_at)
+     values ($15, $16, $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb, $10, $11, $12, $13, $14) returning id`,
     [
-      change.tenantId, change.orderId, change.status, change.reschedule, JSON.stringify(change.before), JSON.stringify(change.after), change.settlementBeforeMinor, change.settlementAfterMinor,
-      change.settlementAfter === null ? null : JSON.stringify(change.settlementAfter), change.confirmDueAt, change.requestedBy, change.requestedById, change.requestedAt, change.decidedAt,
+      change.tenantId, change.orderId, change.status, change.reschedule, JSON.stringify(sealed.plain.before), JSON.stringify(sealed.plain.after), change.settlementBeforeMinor, change.settlementAfterMinor,
+      change.settlementAfter === null ? null : JSON.stringify(change.settlementAfter), change.confirmDueAt, change.requestedBy, change.requestedById, change.requestedAt, change.decidedAt, id, sealed.enc,
     ],
   );
   return (result.rows[0] as { id: string }).id;
@@ -90,12 +104,12 @@ export async function insertOrderChange(db: Db, change: NewOrderChange): Promise
 export async function findOrderChange(db: Db, tenantId: string, changeId: string, options: { lock?: boolean } = {}): Promise<OrderChange | null> {
   const result = await db.query<Row>(`select ${COLUMNS} from order_changes c join orders o on o.tenant_id = c.tenant_id and o.id = c.order_id where c.tenant_id = $1 and c.id = $2 ${options.lock ? "for update of c" : ""}`, [tenantId, changeId]);
   const row = result.rows[0];
-  return row === undefined ? null : toChange(row);
+  return row === undefined ? null : toChange(db, row);
 }
 
 export async function listOrderChanges(db: Db, tenantId: string, orderId: string): Promise<OrderChange[]> {
   const result = await db.query<Row>(`select ${COLUMNS} from order_changes c join orders o on o.tenant_id = c.tenant_id and o.id = c.order_id where c.tenant_id = $1 and c.order_id = $2 order by c.seq`, [tenantId, orderId]);
-  return result.rows.map(toChange);
+  return result.rows.map((row) => toChange(db, row));
 }
 
 /** 这张单现在没有结论的改单（最多一个）。 */
@@ -106,7 +120,7 @@ export async function findOpenChange(db: Db, tenantId: string, orderId: string, 
     [tenantId, orderId],
   );
   const row = result.rows[0];
-  return row === undefined ? null : toChange(row);
+  return row === undefined ? null : toChange(db, row);
 }
 
 export async function updateOrderChange(db: Db, change: Pick<OrderChange, "tenantId" | "id">, update: { status: OrderChangeStatus; decidedAt?: Date | null; decidedBy?: string | null; decisionNote?: string | null; confirmDueAt?: Date | null; dispatchConflict?: boolean }): Promise<void> {

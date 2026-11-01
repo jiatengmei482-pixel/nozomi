@@ -2,8 +2,9 @@
  * 一单的手写内容（M4-21，ADR 0055）：`POST /platform/v1/orders/{id}/passenger/reveal` 用来给原文。平台事务里调用。
  * 这些字段在运营接口里都是打码的；这里只负责找出来，给谁、给多少在 `services/passenger-privacy.ts`。
  */
-import { ANONYMIZED_TEXT, HANDWRITTEN_KEYS, scrubContactsInText } from "@nozomi/domain";
-import type { Db } from "../db/context.ts";
+import { HANDWRITTEN_KEYS, type PassengerContact, isPassengerPlaceholder, scrubContactsInText } from "@nozomi/domain";
+import { type Db, passengerCryptoOf } from "../db/context.ts";
+import { readChangeValues } from "./order-changes.ts";
 
 export const HANDWRITTEN_SOURCES = [
   "order_cancel_note",
@@ -40,18 +41,20 @@ export interface HandwrittenText {
 /** 这几单用过的所有姓名：现在的，加上改单前后值里的旧姓名（手写内容可能写的是旧姓名）。脱敏过的没有。 */
 export async function listPassengerNames(db: Db, orderIds: readonly string[]): Promise<Map<string, string[]>> {
   if (orderIds.length === 0) return new Map();
-  const rows = await db.query<{ id: string; name: string | null }>(
-    `select id, passenger ->> 'name' as name from orders where id = any($1::uuid[])
-     union select order_id, before -> 'passenger' ->> 'name' from order_changes where order_id = any($1::uuid[]) and before ? 'passenger'
-     union select order_id, after -> 'passenger' ->> 'name' from order_changes where order_id = any($1::uuid[]) and after ? 'passenger'`,
-    [orderIds],
-  );
-  const names = new Map<string, string[]>();
-  for (const row of rows.rows) {
-    if (row.name === null || row.name === ANONYMIZED_TEXT) continue;
-    names.set(row.id, [...(names.get(row.id) ?? []), row.name]);
+  const crypto = passengerCryptoOf(db);
+  const orders = await db.query<{ tenant_id: string; id: string; passenger: PassengerContact; passenger_enc: string | null }>("select tenant_id, id, passenger, passenger_enc from orders where id = any($1::uuid[])", [orderIds]);
+  const changes = await db.query<{ tenant_id: string; id: string; order_id: string; values_enc: string | null; before: Record<string, unknown>; after: Record<string, unknown> }>("select tenant_id, id, order_id, values_enc, before, after from order_changes where order_id = any($1::uuid[]) and (before ? 'passenger' or after ? 'passenger')", [orderIds]);
+  const found = new Map<string, Set<string>>();
+  const add = (orderId: string, name: unknown): void => {
+    if (typeof name !== "string" || isPassengerPlaceholder(name)) return;
+    found.set(orderId, (found.get(orderId) ?? new Set()).add(name));
+  };
+  for (const row of orders.rows) add(row.id, crypto.readOrderPassenger(row.tenant_id, row.id, row.passenger_enc, row.passenger).name);
+  for (const row of changes.rows) {
+    const values = readChangeValues(db, row);
+    for (const side of [values.before, values.after]) add(row.order_id, (side["passenger"] as { name?: unknown } | undefined)?.name);
   }
-  return names;
+  return new Map([...found].map(([orderId, names]) => [orderId, [...names]]));
 }
 
 /**
@@ -88,9 +91,10 @@ export async function listOrderHandwriting(db: Db, orderId: string, allowed: { t
   for (const row of (await db.query<{ cancel_note: string | null }>("select cancel_note from orders where id = $1", [orderId])).rows) add("order_cancel_note", null, row.cancel_note);
   for (const row of (await db.query<{ id: string; note: string | null }>("select id, note from order_contacts where order_id = $1 order by occurred_at, id", [orderId])).rows) add("contact_note", row.id, row.note);
   for (const row of (await db.query<{ id: string; reason: string | null }>("select id, detail ->> 'proxy_reason' as reason from order_events where order_id = $1 and detail ? 'proxy_reason' order by seq", [orderId])).rows) add("event_proxy_reason", row.id, row.reason);
-  for (const row of (await db.query<{ id: string; before: Record<string, unknown>; after: Record<string, unknown>; decision_note: string | null }>("select id, before, after, decision_note from order_changes where order_id = $1 order by seq", [orderId])).rows) {
-    for (const text of changeTexts(row.before)) add("change_before", row.id, text);
-    for (const text of changeTexts(row.after)) add("change_after", row.id, text);
+  for (const row of (await db.query<{ tenant_id: string; id: string; values_enc: string | null; before: Record<string, unknown>; after: Record<string, unknown>; decision_note: string | null }>("select tenant_id, id, values_enc, before, after, decision_note from order_changes where order_id = $1 order by seq", [orderId])).rows) {
+    const values = readChangeValues(db, row);
+    for (const text of changeTexts(values.before)) add("change_before", row.id, text);
+    for (const text of changeTexts(values.after)) add("change_after", row.id, text);
     add("change_decision_note", row.id, row.decision_note);
   }
   for (const row of (await db.query<{ id: string; description: string | null; dispute_reason: string | null; decision_note: string | null }>("select id, description, dispute_reason, decision_note from order_extra_charges where order_id = $1 order by submitted_at, id", [orderId])).rows) {
