@@ -269,7 +269,7 @@ test("换单时旧单的 Stripe 表单立刻卸载：新单读回来之前页面
   window.history.pushState(null, "", `/book/order#${OTHER_TOKEN}`);
   window.dispatchEvent(new PopStateEvent("popstate"));
   await screen.findByText("正在读取订单");
-  assert.equal(stripe.calls.destroyed, 1, "旧单的表单已经拆掉");
+  await waitFor(() => assert.equal(stripe.calls.destroyed, 1, "旧单的表单已经拆掉"));
   assert.equal(screen.queryByRole("button", { name: "付款 21,780 JPY" }), null);
   assert.equal(calls.filter((call) => call.path.includes("/order/payment") && bearerOf(call) === `Bearer ${OTHER_TOKEN}`).length, 0);
   respond(json(200, envelope(orderOf("pending_payment", ORDER_B))));
