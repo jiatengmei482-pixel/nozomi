@@ -113,6 +113,17 @@ async function preparePage(page: Page, source: string): Promise<{ routed: Awaite
 const cardField = (page: Page) => page.getByLabel("卡号（假 Stripe）");
 const paymentSection = (page: Page) => page.getByRole("region", { name: "付款", exact: true });
 
+/** 令牌移出地址后在这条历史记录的 state 里（ADR 0046）。 */
+const heldToken = (page: Page): Promise<string> => page.evaluate(() => (history.state as { usr: { orderToken: string } }).usr.orderToken);
+
+/** Stripe.js 加载、建实例、挂表单时读到的地址，以及页面上所有 iframe 的地址，都没有令牌。 */
+async function expectStripeNeverSawToken(page: Page, token: string): Promise<void> {
+  const addresses = await page.evaluate(() => (window as unknown as { __stripeAddresses: string[] }).__stripeAddresses);
+  expect(addresses.length, "假 Stripe.js 记下了地址").toBeGreaterThanOrEqual(3);
+  for (const address of addresses) expect(address, "Stripe.js 读到了令牌").not.toContain(token);
+  for (const frame of page.frames()) expect(frame.url(), "iframe 的地址带着令牌").not.toContain(token);
+}
+
 async function pay(page: Page, card: string): Promise<void> {
   await cardField(page).fill(card);
   await page.getByRole("button", { name: "付款 22,000 JPY" }).click();
@@ -168,9 +179,12 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
 
   // 订单页：待付款，付款区块排第一，Stripe 的表单挂上了
   await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
-  const token = new URL(page.url()).hash.slice(1);
-  expect(token).toMatch(/^nzo_/);
   await expect(cardField(page)).toBeVisible();
+  // 表单在屏时令牌不在地址里（ADR 0046）：在这条历史记录的 state 里，Stripe.js 每一步读到的地址都没有它
+  expect(page.url()).toBe(`${SITE}/book/order`);
+  const token = await heldToken(page);
+  expect(token).toMatch(/^nzo_/);
+  await expectStripeNeverSawToken(page, token);
   await expect(paymentSection(page)).toContainText("付款信息由 Stripe 处理，本站不保存卡号。");
   await expect(page.getByText(/付款暂未开放/)).toHaveCount(0);
   const stripeSeen = await page.evaluate(() => (window as unknown as { __fakeStripe: { publishableKey: string; locale: string } }).__fakeStripe);
@@ -196,6 +210,8 @@ test("官网下单后用 Stripe 付款（测试卡 4242）：付款成功等待�
   await expect(page.getByText("已确认", { exact: true })).toBeVisible();
   await expect(paymentSection(page)).toHaveCount(0);
   await expectNoOverflow(page, "订单页（已确认）");
+  expect(page.url(), "这个文档里 Stripe.js 还在，令牌不放回地址").toBe(`${SITE}/book/order`);
+  await expectStripeNeverSawToken(page, token);
 
   // 令牌的去向：return_url 是订单页本身（不带令牌）；令牌只在本站 /site/v1 的请求头里，不进任何网址、不进 Stripe 的请求；付完没有留在存储里
   const returnUrl = await page.evaluate(() => (window as unknown as { __fakeStripe: { returnUrl: string } }).__fakeStripe.returnUrl);
@@ -321,7 +337,7 @@ test("失败卡：Stripe.js 加载不出来时能重新加载；被拒、余额�
   expect(routed.unexpected).toEqual([]);
 });
 
-test("从银行页面回来（/book/order?payment_intent=…）：按付款编号从本标签页取回令牌并删掉，地址换回 #令牌、去掉 Stripe 的参数，「后退」也回不到带 client_secret 的地址；取不回时去「查订单」", async ({ page, request }) => {
+test("从银行页面回来（/book/order?payment_intent=…）：按付款编号从本标签页取回令牌并删掉，令牌移进历史记录、去掉 Stripe 的参数，「后退」也回不到带 client_secret 的地址；取不回时去「查订单」", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await sellableWorld(request);
   const source = sourceAddress();
@@ -335,8 +351,10 @@ test("从银行页面回来（/book/order?payment_intent=…）：按付款编�
   await page.evaluate(({ id, token }) => sessionStorage.setItem("nozomi.payment-return", JSON.stringify({ intentId: id, token, at: Date.now() })), { id: intentId, token: placed.token });
   await page.goto(returnTo);
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${placed.orderNo}` })).toBeVisible();
-  expect(page.url()).toBe(`${SITE}/book/order#${placed.token}`);
   await expect(cardField(page)).toBeVisible();
+  expect(page.url(), "待付款要挂表单：令牌不留在地址里").toBe(`${SITE}/book/order`);
+  expect(await heldToken(page)).toBe(placed.token);
+  await expectStripeNeverSawToken(page, placed.token);
   expect(await page.evaluate(() => sessionStorage.length), "取回后删掉").toBe(0);
   await page.goBack();
   expect(page.url(), "后退回不到带 client_secret 的地址").not.toContain("payment_intent_client_secret");
@@ -362,4 +380,55 @@ test("从银行页面回来（/book/order?payment_intent=…）：按付款编�
   await expectNoOverflow(other, "查订单（银行说付款失败、取不回订单）");
   await expectAccessibleBothThemes(other, "查订单（银行说付款失败、取不回订单）");
   await other.close();
+});
+
+test("令牌不进 Stripe 读得到的地址（ADR 0046）：带令牌的链接打开 → 挂表单前地址就干净；刷新、复制链接照常；地址栏的地址开出来是「查订单」；已确认的单刷新后令牌放回地址", async ({ page, context, request }) => {
+  test.setTimeout(90_000);
+  const world = await sellableWorld(request);
+  const source = sourceAddress();
+  const placed = await placeOrder(request, world, source);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await preparePage(page, source);
+
+  await page.goto(`${SITE}/book/order#${placed.token}`);
+  await expect(cardField(page)).toBeVisible();
+  expect(page.url()).toBe(`${SITE}/book/order`);
+  await expectStripeNeverSawToken(page, placed.token);
+  await expectAccessibleBothThemes(page, "订单页（地址栏不含令牌）");
+
+  // 刷新：新文档也拿得到令牌，从头到尾地址干净
+  await page.reload();
+  await expect(cardField(page)).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: `订单 ${placed.orderNo}` })).toBeVisible();
+  expect(page.url()).toBe(`${SITE}/book/order`);
+  await expectStripeNeverSawToken(page, placed.token);
+
+  // 页面上的按钮复制到的是完整链接
+  await page.getByRole("button", { name: "复制订单链接" }).click();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe(`${SITE}/book/order#${placed.token}`);
+
+  // 只复制地址栏：别的标签页打开是「查订单」，不报链接失效
+  const other = await context.newPage();
+  await other.setExtraHTTPHeaders({ "x-forwarded-for": source });
+  await routeStripe(other, fakeStripeUrl());
+  await other.goto(page.url());
+  await expect(other.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
+  await expect(other.getByText("订单链接无效或已过期")).toHaveCount(0);
+
+  // 复制到的链接在别的标签页能打开这张单，同样在挂表单前去掉令牌
+  await other.goto(copied);
+  await other.reload();
+  await expect(cardField(other)).toBeVisible();
+  expect(other.url()).toBe(`${SITE}/book/order`);
+  await other.close();
+
+  // 付完：这个文档不放回令牌；刷新后订单不用再付，地址放回 #令牌，又能从地址栏复制
+  await pay(page, TEST_CARDS.success);
+  await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
+  expect(page.url()).toBe(`${SITE}/book/order`);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: `订单 ${placed.orderNo}` })).toBeVisible();
+  await expect(page).toHaveURL(`${SITE}/book/order#${placed.token}`);
+  await expect(page.getByRole("button", { name: "复制订单链接" })).toHaveCount(0);
 });
