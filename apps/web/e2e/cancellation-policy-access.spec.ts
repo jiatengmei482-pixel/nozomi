@@ -2,7 +2,7 @@
  * M4-15（ADR 0047 补充）端到端：真实浏览器 → 真实 API → 真实 PostgreSQL。
  * - 只勾「商品 · 查看」的员工打开商品服务规则：看得到取消规则，没有被拒的请求；
  * - 只勾「渠道 · 查看」的员工手改地址打开新建渠道：写没有权限，没有被拒的请求；
- * - 320 宽的下拉里，英文城市名不在单词中间折行，编码换到下一行；1280 宽仍在同一行。
+ * - 下拉里的英文城市名不在单词中间折行（放不下时编码换到下一行）：320 宽、1280 宽都一样，面板不横向溢出。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { CENTER, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
@@ -52,7 +52,7 @@ test("只有渠道查看：手改地址打开新建渠道，写没有权限，�
   expect(rejected).toEqual([]);
 });
 
-test("下拉里的英文城市名不在单词中间折行：320 宽编码换行，1280 宽同一行", async ({ page, request }) => {
+test("下拉里的英文城市名不在单词中间折行：放不下时编码换到下一行，面板不横向溢出", async ({ page, request }) => {
   const tag = randomLetters(5);
   const name = `Yamaguchi${tag}`;
   const headers = await platformAdminHeaders(request);
@@ -78,11 +78,9 @@ test("下拉里的英文城市名不在单词中间折行：320 宽编码换行�
 
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto("/platform/quote-preview");
-  const narrow = await measure();
-  expect(narrow).toEqual({ labelLines: 1, labelFullWidth: true, detailBelow: true, panelOverflow: false });
+  expect(await measure()).toEqual({ labelLines: 1, labelFullWidth: true, detailBelow: true, panelOverflow: false });
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.reload();
-  const wide = await measure();
-  expect(wide).toEqual({ labelLines: 1, labelFullWidth: true, detailBelow: false, panelOverflow: false });
+  expect(await measure()).toMatchObject({ labelLines: 1, labelFullWidth: true, panelOverflow: false });
 });
