@@ -57,3 +57,21 @@ M4-05 起可以自建角色，一个只勾了「订单 · 查看」或「渠道 
 
 - 集成（真实 PostgreSQL）：`master-options.itest.ts`（自建角色逐个操作能否调、一个都没有 403 和 `required_any`、默认只有启用中的、`include_disabled`、数据范围过滤城市和地点、字段和 openapi 一致且没有多余字段、租户 / 渠道 / 官网令牌 401）；`platform-admin.itest.ts` 的权限矩阵（内置角色 × 四个接口，全部路由都登记）；`password-change-bypass.itest.ts` 的业务接口清单；两步验证、强制改密的遍历自动覆盖新路由。
 - 前端：组件测试（自建角色没有主数据查看时各下拉正常、不请求主数据列表）、接口对账测试（`*.contract.test.ts`，前端类型的字段和 openapi 一致）、端到端（渠道、报价试算、订单列表）。
+
+## 补充（2026-11-01，M4-15）：平台取消政策放宽给商品查看
+
+M4-13 验收发现：只勾「商品 · 查看」的角色打开商品「② 服务规则」，`GET /platform/v1/cancellation-policy` 返回 403（要 `master_data.read`），取消规则一栏一直写「正在取平台的取消政策…」。
+
+**决定：放宽这个只读接口，不是给没权限的说明。** 允许的操作改成 `master_data.read`、`product.read` 任一个（名单在 `routes/order-actions.ts` 的 `CANCELLATION_POLICY_READ_ACTIONS`，一个都没有：403，`details.required_any`）。判断依据和本 ADR「允许的操作按用途定」相同：取消规则是商品服务规则的一部分（第五轮决策 ④：平台统一规定，商品里只读展示），看商品的人要看到完整的服务规则才算能查看商品；说明原因等于这块功能不可用。
+
+**不会多看到什么**：返回只有版本、生效时间和每个品类 × 车型级别的取消阶梯（提前小时数、费率基点）。没有订单、金额、对外价、加价比例、发起人或备注，供应商后台本来就能看到同样的内容（`/tenant/v1/cancellation-policy`）。政策全平台一份，没有城市之分，不按数据范围过滤（和 ADR 0030 相同）。
+
+**不变的**：
+
+- 「取消政策」页面和菜单仍要 `master_data.read`：只有商品查看的角色看不到这个入口，只在商品里看到自己品类的那几行。菜单 × 操作表（`取消政策 · 查看` = `master_data.read`）不改，已有角色不用迁移。
+- 改政策仍要 `cancellation_policy.manage`，审核要 `cancellation_policy.review`。赔付表（`GET /platform/v1/compensation-table`，也带一份政策）、主数据接口仍只给 `master_data.read`。
+- 这个接口不是下拉选项，不进「四个选项接口」的表和 `OPTION_ACTIONS`。
+
+**前端**：这一栏分清还在取、没有权限（403，写「你的角色不能查看平台的取消政策……」，给以后别的角色和供应商后台兜底）、其他错误（可重试）。商品配置各步骤抽出 `StepLoadState`：内容没取到时 403、404、其他错误都有说明，不再只认网络错误、其余一直停在骨架屏；商品页取不到账号信息时给重试（`AccountLoadFailed`）。
+
+**验证**：`master-options.itest.ts`（只勾商品查看 200、字段和供应商看到的相同、其他角色 403 和 `required_any`、改政策和赔付表仍 403）、`platform-admin.itest.ts` 的权限矩阵（从 `PROTECTED` 移到 `ANY_OF`）；组件测试（标题带 M4-15）在 `pages/platform/products.test.tsx`、`pages/products/products.test.tsx`、`pages/platform/city-options.test.tsx`；端到端在 `e2e/cancellation-policy-access.spec.ts`。

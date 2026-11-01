@@ -9,7 +9,8 @@ import type { AdjustRules, PriceRules } from "../../../api/prices.ts";
 import type { Product } from "../../../api/products.ts";
 import { Button, LinkButton } from "../../../components/Button.tsx";
 import { Icon } from "../../../components/Icon.tsx";
-import { Skeleton, StateBlock } from "../../../components/States.tsx";
+import { StateBlock } from "../../../components/States.tsx";
+import { StepLoadState } from "../StepLoadState.tsx";
 import { displayName } from "../../../lib/master-display.ts";
 import { tableCoverage, isStationPlace } from "../../../lib/price-form.ts";
 import { rowFromRule } from "../../../lib/price-form.ts";
@@ -83,24 +84,11 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
 
   let body: ReactNode;
   if (data === null) {
-    body =
-      prices.state.status === "error" ? (
-        <section className="card">
-          <StateBlock
-            title="加载失败"
-            description="请检查网络后重试。"
-            action={
-              <Button variant="secondary" onClick={prices.reload}>
-                重试
-              </Button>
-            }
-          />
-        </section>
-      ) : (
-        <section className="card">
-          <Skeleton lines={["long", "control", "control", "control"]} />
-        </section>
-      );
+    body = (
+      <section className="card">
+        <StepLoadState status={prices.state.status} reload={prices.reload} lines={["long", "control", "control", "control"]} />
+      </section>
+    );
   } else if (product.areas.length === 0 || product.vehicle_groups.length === 0) {
     const lacks = product.areas.length === 0 && product.vehicle_groups.length === 0 ? "服务区域和车型组" : product.areas.length === 0 ? "服务区域" : "车型组";
     body = (
