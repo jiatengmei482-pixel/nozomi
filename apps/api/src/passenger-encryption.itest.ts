@@ -660,5 +660,5 @@ test("解不开的隔离（明文不再写）：运营列表这一行显示无�
   const pushed = (await api.db.owner.query("select status, last_error_code, next_attempt_at from webhook_deliveries where id = $1", [delivery.id])).rows[0];
   assert.deepEqual([pushed.status, pushed.last_error_code, pushed.next_attempt_at], ["failed", "PASSENGER_DECRYPT_FAILED", null]);
   assert.ok(!receiver.received.some((item) => item.body.includes("无法读取")));
-  await api.db.owner.query("update webhook_deliveries set event_data_enc = null, status = 'succeeded', succeeded_at = now(), last_error_code = null where id = $1", [delivery.id]);
+  await api.db.owner.query("update webhook_deliveries set event_data_enc = null, status = 'succeeded', succeeded_at = now(), failed_at = null, last_error_code = null where id = $1", [delivery.id]);
 });
