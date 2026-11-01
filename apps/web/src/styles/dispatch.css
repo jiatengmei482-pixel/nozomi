@@ -120,7 +120,7 @@
 
 .evidence-checklist__item--failed,
 .evidence-checklist__item--unknown {
-  font-weight: var(--font-weight-medium, 500);
+  font-weight: var(--font-weight-medium);
 }
 
 .evidence-locations {

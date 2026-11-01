@@ -194,7 +194,7 @@ test("运营审核 no-show：判定按钮旁看得到 5 项、到达、联系、
   }
 
   // 只读员工：看得到证据，没有判定按钮
-  const reader = await staff(request, "只读证据", ["orders:view", "tickets:view"], { city_ids: null, channel_ids: null });
+  const reader = await staff(request, "证据查看员", ["orders:view", "tickets:view"], { city_ids: null, channel_ids: null });
   const readerContext = await browser.newContext();
   const readerPage = await readerContext.newPage();
   await loginAs(readerPage, "platform", reader.email, reader.password);

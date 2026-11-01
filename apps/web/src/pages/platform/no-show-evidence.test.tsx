@@ -132,7 +132,7 @@ test("判定对话框里也看得到 5 项", async () => {
 });
 
 test("申诉 no-show 审核的工单也显示证据", async () => {
-  const appeal = platformTicketDetailOf(platformTicketOf({ type: "tenant_appeal" }), { parent: { id: "p1", ticket_no: "TK1", type: "no_show_review", outcome: "rejected" } });
+  const appeal = platformTicketDetailOf(platformTicketOf({ type: "tenant_appeal" }), { parent: { id: "p1", ticket_no: "TK1", type: "no_show_review", outcome: "rejected", decided_by: null } });
   openApp(`/platform/tickets/${TICKET_ID}`, "platform", "operations", backend(json(200, orderDetail()), appeal));
   await screen.findByText(/✓ 满足：免费等待开始前/);
 });
