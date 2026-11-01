@@ -88,3 +88,44 @@ test("面板关着时 Enter 提交表单；面板开着、没输入也没高亮�
   assert.equal(chosen(), "");
   assertAbsent(document.querySelector(".combobox__option--active"));
 });
+
+test("带清除项的筛选框：没有任何选项时，「全部」之外写出调用方给的原因；还能选「全部」", async () => {
+  const actor = userEvent.setup();
+  const picked: (string | null)[] = [];
+  render(<Combobox inline label="城市" clearLabel="全部" placeholder="全部" options={[]} value={null} emptyText="你的数据范围里没有城市" onChange={(value) => picked.push(value)} />);
+  await actor.click(screen.getByRole("combobox", { name: "城市" }));
+  const list = screen.getByRole("listbox", { name: "城市" });
+  assert.ok(within(list).getByText("你的数据范围里没有城市"));
+  assert.deepEqual(within(list).getAllByRole("option").map((option) => option.textContent), ["全部"]);
+  await actor.click(within(list).getByRole("option", { name: "全部" }));
+  assert.deepEqual(picked, [null]);
+});
+
+test("带清除项的筛选框：调用方没给 emptyText 时只有「全部」，不多出提示；有选项时不显示 emptyText；加载中、加载失败只写状态", async () => {
+  const actor = userEvent.setup();
+  const box = (props: { options?: typeof CITIES; emptyText?: string; loading?: boolean; loadFailed?: boolean }) => <Combobox inline label="城市" clearLabel="全部" options={[]} value={null} onChange={() => {}} {...props} />;
+  const notes = async (): Promise<string[]> => {
+    await actor.click(screen.getByRole("combobox", { name: "城市" }));
+    return [...screen.getByRole("listbox", { name: "城市" }).querySelectorAll(".combobox__note")].map((node) => node.textContent ?? "");
+  };
+  const view = render(box({}));
+  assert.deepEqual(await notes(), []);
+  view.rerender(box({ options: CITIES, emptyText: "原因" }));
+  assert.deepEqual(await notes(), []);
+  view.rerender(box({ emptyText: "原因", loading: true }));
+  assert.deepEqual(await notes(), ["加载中…"]);
+  view.rerender(box({ emptyText: "原因", loadFailed: true }));
+  assert.deepEqual(await notes(), ["加载失败"]);
+});
+
+test("不带清除项：没有选项写 emptyText，没给时写默认的；有选项但筛不到写「没有匹配的选项」", async () => {
+  const actor = userEvent.setup();
+  const view = render(<Combobox label="城市" options={[]} value={null} emptyText="原因" onChange={() => {}} />);
+  await actor.click(screen.getByRole("combobox", { name: "城市" }));
+  assert.ok(within(screen.getByRole("listbox", { name: "城市" })).getByText("原因"));
+  view.rerender(<Combobox label="城市" options={[]} value={null} onChange={() => {}} />);
+  assert.ok(within(screen.getByRole("listbox", { name: "城市" })).getByText("没有匹配的选项"));
+  view.rerender(<Combobox label="城市" options={CITIES} value={null} emptyText="原因" onChange={() => {}} />);
+  await actor.type(screen.getByRole("combobox", { name: "城市" }), "不存在的城市");
+  assert.ok(within(screen.getByRole("listbox", { name: "城市" })).getByText("没有匹配的选项"));
+});
