@@ -38,7 +38,12 @@ let tenantToken: string;
 
 const q = (sql: string, args: unknown[] = []) => api.db.owner.query(sql, args);
 const tick = () => api.app.passengerRetention.tick();
-const hits = (text: string): string[] => SECRETS.filter((secret) => text.includes(secret));
+/** 随机生成的编号、哈希、单号里可能碰巧有「6622」这样的短片段（误报，让这个文件偶发失败）：先去掉再找。姓名、电话、邮箱不可能在这些形状里。 */
+const RANDOM_TOKENS = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-fA-F]{24,}|\b(?:NZ|TK|ST|FB)[0-9A-Z]{12,}\b|[A-Za-z0-9_-]{32,}/g;
+const hits = (text: string): string[] => {
+  const cleaned = text.replace(RANDOM_TOKENS, "");
+  return SECRETS.filter((secret) => cleaned.includes(secret));
+};
 
 /** 不能被脱敏改动的业务数据：金额、订单号、时间、状态、流水。 */
 async function moneySnapshot(id: string): Promise<string> {
