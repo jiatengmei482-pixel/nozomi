@@ -187,6 +187,8 @@ test("保存之后马上进日志脱敏的名单（不用重启）；主机不�
 test("密码的末尾是表情（一个字符两个编码单元）：能保存，打码不会切出半个字符", async () => {
   const password = `${fakePassword()}😀😀a`;
   const res = await save(body(admin, { password }));
+  assert.ok(!api.logs().includes(password), "出错时日志里也不能有密码");
+  assert.ok(!res.text.includes(password));
   assert.equal(res.status, 200, `应当能保存，实际 ${res.status}：${res.text.slice(0, 200)}`);
   const masked = res.body.item.masked as string;
   assert.doesNotThrow(() => encodeURIComponent(masked), "打码后的文字不能有半个字符");
