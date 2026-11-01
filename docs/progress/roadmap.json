@@ -342,7 +342,7 @@
         { "id": "M4-15", "title": "商品服务规则页：没有主数据权限时取消政策不再卡在加载中", "role": "backend", "status": "review", "acceptance": ["只有「商品 · 查看」、没有「主数据 · 查看」的角色打开商品「服务规则」，能看到取消规则或可理解的说明，不再一直显示加载中", "顺带处理 M4-13 验收的低优先级问题：没有渠道创建权限时新建渠道页不多发 403 请求；320 宽下拉里的英文城市名不在单词中间折行"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/81；相关集成、组件、端到端测试通过，全量见 PR 的 CI", "updated": "2026-11-01" },
         { "id": "M4-16", "title": "收件地址被邮件服务器拒绝时的提示和重试", "role": "backend", "status": "review", "acceptance": ["服务器拒收时，提示写明可能是收件地址的问题，不再只让人去查 SMTP 账号（2026-11-01 验收时，发往 example.com 被拒，却显示发件人问题）", "能分辨是收件人被拒时记为收件人被拒，不再重试"], "evidence": "测试角色新增 25 条，归类缺陷已修复；真实服务器的归类待部署后确认", "updated": "2026-11-01" },
         { "id": "M4-17", "title": "接邮件服务商的送达回执", "role": "backend", "status": "blocked", "blockedBy": "等选定邮件服务商（2026-11-01 负责人决定：先按「已发送」算，以后再接）", "acceptance": ["通知记录能显示已送达、退信"], "evidence": "", "updated": "2026-11-01" },
-        { "id": "M4-18", "title": "运营代租户回传履约状态", "role": "backend", "status": "todo", "acceptance": ["需求：租户系统故障时运营能代回传出发、到达、上车、完成（平台 POST /orders/{id}/events），有权限控制和审计，页面有入口"], "evidence": "", "updated": "2026-11-01" },
+        { "id": "M4-18", "title": "运营代租户回传履约状态", "role": "backend", "status": "review", "acceptance": ["需求：租户系统故障时运营能代回传出发、到达、上车、完成（平台 POST /orders/{id}/events），有权限控制和审计，页面有入口"], "evidence": "相关集成、组件、端到端测试通过，测试角色发现的缺陷已修复；全量见 PR 的 CI", "updated": "2026-11-01" },
         { "id": "M4-19", "title": "运营订单详情显示落地和履约信息", "role": "frontend", "status": "todo", "acceptance": ["运营订单详情显示计划到达、落地来源和时间、派车、履约时间点（接口已有）；缺字段时写明，不空白"], "evidence": "", "updated": "2026-11-01" }
       ]
     },
