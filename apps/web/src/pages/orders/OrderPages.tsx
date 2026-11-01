@@ -33,7 +33,7 @@ import { CopyButton, SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { CATEGORY_NAMES, ORDER_LIST_PATH, directionName, driverLinkUrl, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
+import { ORDER_LIST_PATH, directionName, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
@@ -330,7 +330,7 @@ export function OrderDetailPage() {
         <dl className="details">
           <Detail label="订单号"><span className="mono">{order.order_no}</span></Detail>
           <Detail label={`用车时间（当地，${order.timezone}）`}><time dateTime={order.service_time}>{serviceLocalText(order)}</time></Detail>
-          <Detail label="品类">{`${CATEGORY_NAMES[order.category]} · ${directionName(order)}${order.package_hours ? ` · ${order.package_hours} 小时` : ""}`}</Detail>
+          <Detail label="品类">{orderCategoryText(order)}</Detail>
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>

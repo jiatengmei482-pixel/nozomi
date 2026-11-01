@@ -43,7 +43,7 @@ test("免费等待：提交过的按提交时存下的时段；提交后落地�
   assert.equal(freeWaitChangedNote(source({}, { no_show_claim: claim })), null);
   assert.match(freeWaitChangedNote(source({ landing: { ...landing, landed_at: "2026-10-20T02:00:00.000Z" } }, { no_show_claim: claim })) ?? "", /现在的免费等待是 2026-10-20 11:00 到 2026-10-20 12:30/);
   assert.equal(freeWaitText(source()), "2026-10-20 10:30 到 2026-10-20 12:00（按现在的落地时间算）");
-  assert.equal(freeWaitText(source({ landing: null })), "2026-10-20 10:00 到 2026-10-20 11:30（按现在的落地时间算）");
+  assert.equal(freeWaitText(source({ landing: null })), "2026-10-20 10:00 到 2026-10-20 11:30（按用车时间算）");
   assert.equal(freeWaitText(source({ free_wait_minutes: null })), "2026-10-20 10:30 起，不限时长（按现在的落地时间算）");
   assert.equal(freeWaitChangedNote(source()), null);
 });
