@@ -3,10 +3,11 @@
  *
  * - 密文：AES-256-GCM，附加数据带这条记录的种类、租户和编号，搬到别的行、别的租户解不开。存的时候前面加密钥标记 `<kid>:`，能在库里数出哪些行还是旧密钥的。
  * - 盲索引：HMAC-SHA256，输入带租户、种类和规范化后的值。没有主密钥穷举不出来；同一个邮箱在两家的值不同。同样带密钥标记。
- * - 读：`PASSENGER_READ_SOURCE=plaintext` 读明文；否则有当前密钥的密文就解密，没有（没回填、密钥换过）读明文。解不开时退回明文并报警；明文只是占位时（第 6 步之后）报错，不把占位当内容。
+ * - 读：`PASSENGER_READ_SOURCE=plaintext` 读明文；否则有当前密钥的密文就解密，没有（没回填、密钥换过）读明文。解不开时退回明文并报警。
+ *   明文恰好是加密占位（三项都是，只看一项的话客人写的字样会被当成占位）时，两种模式都读密文，切开关读到的内容相同；密文也没有或解不开才报错，不把占位当内容。
  * - 日志和错误里只有种类、记录编号和数量，没有内容。
  */
-import { ENCRYPTED_PASSENGER, ENCRYPTED_TEXT, type ContactIndexKind, type PassengerContact, containsPassenger, isPassengerPlaceholder, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex, passengersArePlaceholders, replacePassengers } from "@nozomi/domain";
+import { ENCRYPTED_PASSENGER, ENCRYPTED_TEXT, type ContactIndexKind, type PassengerContact, containsPassenger, hasEncryptedPlaceholderPassenger, isEncryptedPlaceholderPassenger, normalizeEmailForIndex, normalizeNameForIndex, normalizePhoneForIndex, replacePassengers } from "@nozomi/domain";
 import { AppError } from "../errors.ts";
 import type { SecretBox } from "./secret-box.ts";
 
@@ -36,6 +37,13 @@ const SILENT_LOG: PassengerCryptoLog = { error: () => undefined };
 
 export function passengerEncryptionNotConfigured(): AppError {
   return new AppError(503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED", "服务器还没有配置数据加密密钥（DATA_ENCRYPTION_KEY），现在不能保存乘客信息。请联系技术人员");
+}
+
+export const PASSENGER_DECRYPT_FAILED = "PASSENGER_DECRYPT_FAILED";
+
+/** 这个错误是「这一行解不开」：批量处理时只跳过这一行（ADR 0057）。 */
+export function isPassengerDecryptFailure(err: unknown): boolean {
+  return err instanceof AppError && err.code === PASSENGER_DECRYPT_FAILED;
 }
 
 function samePassenger(a: PassengerContact, b: PassengerContact): boolean {
@@ -91,25 +99,24 @@ export class PassengerCrypto {
   /** 新写入一单的乘客信息：没有主密钥时报错，不写明文冒充加密。 */
   sealOrderPassenger(tenantId: string, orderId: string, passenger: PassengerContact): OrderPassengerColumns {
     if (this.box === null) throw passengerEncryptionNotConfigured();
-    const email = normalizeEmailForIndex(passenger.email);
-    const phone = normalizePhoneForIndex(passenger.phone);
-    const name = normalizeNameForIndex(passenger.name);
+    const indexes = this.expectedIndexes(tenantId, passenger);
     return {
       plain: this.settings.plaintextWrite ? passenger : { ...ENCRYPTED_PASSENGER },
       enc: this.seal("order", tenantId, orderId, JSON.stringify(passenger)),
-      emailBidx: email === "" ? null : this.index(tenantId, "email", email),
-      phoneBidx: phone === "" ? null : this.index(tenantId, "phone", phone),
-      nameBidx: name === "" ? null : this.index(tenantId, "name", name),
+      emailBidx: indexes.email,
+      phoneBidx: indexes.phone,
+      nameBidx: indexes.name,
     };
   }
 
   /** 读一单的乘客信息。`plain` 是 `orders.passenger` 列的内容。 */
   readOrderPassenger(tenantId: string, orderId: string, enc: string | null, plain: PassengerContact): PassengerContact {
-    if (!this.readsCiphertext || !this.isCurrent(enc)) return this.usablePlain("order", orderId, plain.name, plain);
-    const opened = this.tryOpen("order", tenantId, orderId, enc);
-    if (opened === null) return this.usablePlain("order", orderId, plain.name, plain);
+    const usable = !isEncryptedPlaceholderPassenger(plain);
+    if (usable && !this.readsCiphertext) return plain;
+    const opened = this.isCurrent(enc) ? this.tryOpen("order", tenantId, orderId, enc) : null;
+    if (opened === null) return usable ? plain : this.unreadable("order", orderId);
     const passenger = JSON.parse(opened) as PassengerContact;
-    if (!isPassengerPlaceholder(plain.name) && !samePassenger(passenger, plain)) this.alert("passenger.cipher_mismatch", { kind: "order", id: orderId }, "乘客信息的密文和明文对不上");
+    if (usable && !samePassenger(passenger, plain)) this.alert("passenger.cipher_mismatch", { kind: "order", id: orderId }, "乘客信息的密文和明文对不上");
     return passenger;
   }
 
@@ -120,9 +127,11 @@ export class PassengerCrypto {
   }
 
   readValues<T>(kind: PassengerCopyKind, tenantId: string, id: string, enc: string | null, plain: T): T {
-    const opened = this.readsCiphertext && this.isCurrent(enc) ? this.tryOpen(kind, tenantId, id, enc) : null;
+    const usable = !hasEncryptedPlaceholderPassenger(plain);
+    if (usable && !this.readsCiphertext) return plain;
+    const opened = this.isCurrent(enc) ? this.tryOpen(kind, tenantId, id, enc) : null;
     if (opened !== null) return JSON.parse(opened) as T;
-    return this.usablePlain(kind, id, passengersArePlaceholders(plain) && JSON.stringify(plain).includes(ENCRYPTED_TEXT) ? ENCRYPTED_TEXT : "", plain);
+    return usable ? plain : this.unreadable(kind, id);
   }
 
   /** 给客人的通知的收件地址。 */
@@ -132,8 +141,19 @@ export class PassengerCrypto {
   }
 
   readRecipient(tenantId: string | null, eventId: string, enc: string | null, plain: string): string {
-    const opened = tenantId !== null && this.readsCiphertext && this.isCurrent(enc) ? this.tryOpen("notification", tenantId, eventId, enc) : null;
-    return opened ?? this.usablePlain("notification", eventId, plain, plain);
+    const usable = plain !== ENCRYPTED_TEXT;
+    if (usable && !this.readsCiphertext) return plain;
+    const opened = tenantId !== null && this.isCurrent(enc) ? this.tryOpen("notification", tenantId, eventId, enc) : null;
+    if (opened !== null) return opened;
+    return usable ? plain : this.unreadable("notification", eventId);
+  }
+
+  /** 这一单现在应有的盲索引：`--verify` 和存的比。 */
+  expectedIndexes(tenantId: string, passenger: PassengerContact): { email: string | null; phone: string | null; name: string | null } {
+    const email = normalizeEmailForIndex(passenger.email);
+    const phone = normalizePhoneForIndex(passenger.phone);
+    const name = normalizeNameForIndex(passenger.name);
+    return { email: email === "" ? null : this.index(tenantId, "email", email), phone: phone === "" ? null : this.index(tenantId, "phone", phone), name: name === "" ? null : this.index(tenantId, "name", name) };
   }
 
   /** `--verify` 用：这段密文能不能用当前密钥解开，解开是什么。解不开返回 null，不报警。 */
@@ -161,11 +181,10 @@ export class PassengerCrypto {
     return opened;
   }
 
-  /** 退回明文。第 6 步之后明文只是加密占位：没有密文可读时不能把占位当乘客信息，报错。 */
-  private usablePlain<T>(kind: string, id: string, marker: string, plain: T): T {
-    if (marker !== ENCRYPTED_TEXT) return plain;
+  /** 明文只是加密占位、密文又读不出来：报错，不把占位当乘客信息。 */
+  private unreadable(kind: string, id: string): never {
     this.alert("passenger.unreadable", { kind, id }, "乘客信息只有密文，解不开");
-    throw new AppError(503, "PASSENGER_DECRYPT_FAILED", "乘客信息暂时读不出来，请联系技术人员");
+    throw new AppError(503, PASSENGER_DECRYPT_FAILED, "乘客信息暂时读不出来，请联系技术人员");
   }
 
   /** 同一种报警每分钟最多一条，带这段时间压下去的条数：密钥配错时每个列表都会触发。 */

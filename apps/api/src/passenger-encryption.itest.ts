@@ -538,3 +538,41 @@ test("命令行：默认 dry-run 不改数据；--execute 加密；--verify 只�
   for (const text of [dry.stdout, executed.stdout, verify.stdout, dry.stderr, executed.stderr, verify.stderr]) for (const value of [passenger.name, passenger.phone, passenger.email]) assert.ok(!text.includes(value));
   await assert.rejects(run(process.execPath, [ENTRY], { env: { ...env, DATA_ENCRYPTION_KEY: "" } }), (err: { stderr?: string }) => /没有配置 DATA_ENCRYPTION_KEY/.test(err.stderr ?? ""));
 });
+
+test("接口拒绝恰好是占位的联系方式：下单、改乘客都是 400；全角、带空格算同一个；只是包含这几个字的不拒绝", async () => {
+  const quote = async (): Promise<any> => {
+    api.clock.advance(1_000);
+    const at = new Date(api.clock.now().getTime() + 15 * 24 * HOUR);
+    const quotes = await ok(site.call("POST", "/site/v1/quotes", { ip: "198.51.100.241", body: { category: "airport_transfer", city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: new Date(at.getTime() + 9 * HOUR).toISOString().slice(0, 16), passengers: 2, luggage: 1 } }));
+    return quotes.quotes.find((row: any) => row.vehicle_group.id === m.ids.biz7);
+  };
+  const quoted = await quote();
+  for (const field of ["name", "phone", "email"] as const) {
+    for (const text of [ENCRYPTED_TEXT, ANONYMIZED_TEXT, " ［已加密］ "]) {
+      const passenger = { name: "虚构测试", phone: "+818012340000", email: "reserved@fictional.example.test", [field]: text };
+      const res = await site.call("POST", "/site/v1/orders", { ip: "198.51.100.241", headers: { "idempotency-key": randomUUID() }, body: { quote_id: quoted.quote_id, passenger, flight_no: "NH211", dropoff_address: "东京站", save_payment_method: true } });
+      assert.deepEqual([res.status, res.body.error.code, res.body.error.details.issues[0].path], [400, "VALIDATION_FAILED", `/passenger/${field}`], text);
+    }
+  }
+  const order = await placeOrder(fictional());
+  await pay_(order.id);
+  const token = await ops();
+  const version = (await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }))).order.version;
+  const changed = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(version) }, body: { passenger: { name: ANONYMIZED_TEXT, phone: "+818012340000", email: "reserved@fictional.example.test" } } });
+  assert.deepEqual([changed.status, changed.body.error.code], [400, "VALIDATION_FAILED"]);
+  const kept = { ...fictional(), name: `星野${ENCRYPTED_TEXT}` };
+  assert.equal((await revealOf((await placeOrder(kept)).id)).passenger.name, kept.name);
+});
+
+test("--verify 也核对盲索引：内容解得开但盲索引不对或不见了，都要报出来", async () => {
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  const order = await placeOrder(fictional());
+  const saved = await orderRow(order.id);
+  const clean = (await verifyPassengerEncryption(ctx)).indexMismatched;
+  await api.db.owner.query("update orders set passenger_email_bidx = $2 where id = $1", [order.id, `${useCrypto(DUAL).currentPrefix}0000`]);
+  assert.equal((await verifyPassengerEncryption(ctx)).indexMismatched, clean + 1);
+  await api.db.owner.query("update orders set passenger_email_bidx = null where id = $1", [order.id]);
+  assert.equal((await verifyPassengerEncryption(ctx)).indexMismatched, clean + 1);
+  await api.db.owner.query("update orders set passenger_email_bidx = $2 where id = $1", [order.id, saved.passenger_email_bidx]);
+  assert.equal((await verifyPassengerEncryption(ctx)).indexMismatched, clean);
+});

@@ -30,7 +30,7 @@ import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
 import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
-import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
+import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
@@ -108,7 +108,7 @@ const singleLineText = (max: number) => singleLine(max).nullable().default(null)
 const orderSchema = z
   .object({
     quote_id: z.string().regex(/^QT\d{8}[0-9A-Z]{10}$/, "不是报价编号的格式"),
-    passenger: z.object({ name: singleLine(200), phone: singleLine(40), email: singleLine(320) }).strict(),
+    passenger: passengerInput(),
     flight_no: text(20),
     pickup_address: singleLineText(1_000),
     dropoff_address: singleLineText(1_000),

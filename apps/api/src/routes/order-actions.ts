@@ -39,7 +39,7 @@ import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine, visibleText } from "../validation.ts";
+import { dateTimeSchema, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, visibleText } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
 import { fileJson } from "./orders.ts";
 import { salesOrderJson } from "./sales.ts";
@@ -74,7 +74,7 @@ const proxyFulfilmentSchema = z
 
 export const changeSchema = z
   .object({
-    passenger: z.object({ name: singleLine(200), phone: singleLine(40), email: singleLine(320) }).strict().optional(),
+    passenger: passengerInput().optional(),
     flight_no: z.string().max(20).nullable().optional(),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().optional(),
     notes: z.string().max(2_000).nullable().optional(),

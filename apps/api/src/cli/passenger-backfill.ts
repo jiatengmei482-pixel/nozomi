@@ -38,10 +38,11 @@ async function main(): Promise<void> {
   try {
     if (mode === "verify") {
       const verified = await verifyPassengerEncryption(ctx);
-      for (const table of BACKFILL_TABLES) console.log(`${table}：核对 ${verified.checked[table]} 行，解不开 ${verified.undecryptable[table]} 行，和明文不一致 ${verified.mismatched[table]} 行`);
+      for (const table of BACKFILL_TABLES) console.log(`${table}：核对 ${verified.checked[table]} 行，解不开或内容已丢 ${verified.undecryptable[table]} 行，和明文不一致 ${verified.mismatched[table]} 行`);
+      console.log(`orders：盲索引和内容不一致 ${verified.indexMismatched} 行`);
       const pending = await planPassengerBackfill(ctx);
       for (const table of BACKFILL_TABLES) console.log(`${table}：还没加密 ${pending[table]} 行`);
-      const bad = BACKFILL_TABLES.some((table) => verified.undecryptable[table] > 0 || verified.mismatched[table] > 0 || pending[table] > 0);
+      const bad = verified.indexMismatched > 0 || BACKFILL_TABLES.some((table) => verified.undecryptable[table] > 0 || verified.mismatched[table] > 0 || pending[table] > 0);
       console.log(bad ? "结论：还不能进入清明文那一步。" : "结论：全部一致，可以按 docs/deploy.md 进入清明文那一步。");
       if (bad) process.exitCode = 1;
       return;

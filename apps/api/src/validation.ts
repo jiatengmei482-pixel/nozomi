@@ -4,7 +4,7 @@
  *
  * 结构里没有声明的字段会被丢掉而不是报错——租户接口靠这一点忽略请求体里的 `tenant_id`（需求文档「API 通用约定」）。
  */
-import { hasControlChars } from "@nozomi/domain";
+import { hasControlChars, isReservedPassengerText } from "@nozomi/domain";
 import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, isUuid } from "./pagination.ts";
@@ -149,6 +149,10 @@ const limitSchema = z
 /** 单行文字（姓名、地址）：不接受换行、行分隔符等控制字符（这些内容会进通知邮件，ADR 0049）。 */
 /** 制表符按空白算（只有空白的地址由后面的校验报 REQUIRED），其余控制字符一律拒绝。 */
 export const singleLine = (max: number) => z.string().max(max).refine((value) => !hasControlChars(value.replaceAll("\t", " ")), { message: "不能有换行等控制字符" });
+
+/** 乘客的姓名、电话、邮箱：不能恰好是系统的占位（ADR 0057），其余规则和 `singleLine` 相同。 */
+const passengerField = (max: number) => singleLine(max).refine((value) => !isReservedPassengerText(value), { message: "这个内容不能用作联系方式" });
+export const passengerInput = () => z.object({ name: passengerField(200), phone: passengerField(40), email: passengerField(320) }).strict();
 
 export const pageQuerySchema = z.object({
   limit: limitSchema,

@@ -7,7 +7,7 @@
  * - 脱敏过的单、明文只是占位的行不处理（没有可加密的内容）。
  * - 日志和命令行输出只有数量和错误码。
  */
-import { ANONYMIZED_TEXT, ENCRYPTED_TEXT, type PassengerContact, containsPassenger, isPassengerPlaceholder, passengersArePlaceholders } from "@nozomi/domain";
+import { ANONYMIZED_TEXT, ENCRYPTED_TEXT, type PassengerContact, isPassengerPlaceholder, isPlaceholderPassenger, passengersArePlaceholders } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { driverErrorCode } from "../db/pool.ts";
@@ -44,11 +44,13 @@ interface Target {
 const notCurrent = (column: string): string => `(${column} is null or ${column} not like $1)`;
 const orderNotAnonymized = (alias: string): string => `not exists (select 1 from orders o where o.id = ${alias}.order_id and o.passenger_anonymized_at is not null)`;
 
-const ORDERS_WHERE = `${notCurrent("t.passenger_enc")} and t.passenger_anonymized_at is null and t.passenger ->> 'name' not in ('${ANONYMIZED_TEXT}', '${ENCRYPTED_TEXT}')`;
-// 明文只是占位的行没有可加密的内容（密钥换过又没有明文时只能靠旧密钥恢复，ADR 0057「换主密钥」），不算待处理；`--verify` 把它们算解不开
-const noPlaceholder = (column: string): string => `${column}::text not like '%${ANONYMIZED_TEXT}%' and ${column}::text not like '%${ENCRYPTED_TEXT}%'`;
-const CHANGES_WHERE = `${notCurrent("t.values_enc")} and (t.before ? 'passenger' or t.after ? 'passenger') and ${noPlaceholder("(t.before -> 'passenger')")} and ${noPlaceholder("(t.after -> 'passenger')")} and ${orderNotAnonymized("t")}`;
-const DELIVERIES_WHERE = `${notCurrent("t.event_data_enc")} and jsonb_path_exists(t.event_data, '$.**.passenger') and ${noPlaceholder("t.event_data")} and ${orderNotAnonymized("t")}`;
+// 明文恰好是占位的行没有可加密的内容（按字段精确比，备注里出现这几个字、只有姓名是这几个字的都不算）；`--verify` 把其中没有密文的算内容已丢
+const placeholderJson = (text: string): string => JSON.stringify({ name: text, phone: text, email: text });
+const notPlaceholder = (expression: string): string => `coalesce(${expression}, 'null'::jsonb) not in ('${placeholderJson(ANONYMIZED_TEXT)}'::jsonb, '${placeholderJson(ENCRYPTED_TEXT)}'::jsonb)`;
+const placeholderPath = (text: string): string => `'$.**.passenger ? (@.name == "${text}" && @.phone == "${text}" && @.email == "${text}")'`;
+const ORDERS_WHERE = `${notCurrent("t.passenger_enc")} and t.passenger_anonymized_at is null and ${notPlaceholder("t.passenger")}`;
+const CHANGES_WHERE = `${notCurrent("t.values_enc")} and (t.before ? 'passenger' or t.after ? 'passenger') and ${notPlaceholder("t.before -> 'passenger'")} and ${notPlaceholder("t.after -> 'passenger'")} and ${orderNotAnonymized("t")}`;
+const DELIVERIES_WHERE = `${notCurrent("t.event_data_enc")} and jsonb_path_exists(t.event_data, '$.**.passenger') and not jsonb_path_exists(t.event_data, ${placeholderPath(ANONYMIZED_TEXT)}) and not jsonb_path_exists(t.event_data, ${placeholderPath(ENCRYPTED_TEXT)}) and ${orderNotAnonymized("t")}`;
 const NOTIFICATIONS_WHERE = `${notCurrent("t.recipient_enc")} and t.audience = 'guest' and t.tenant_id is not null and t.recipient not in ('${ANONYMIZED_TEXT}', '${ENCRYPTED_TEXT}')`;
 
 /** 每批按 (id, tenant_id) 往后走：同一轮里不会反复撞到同一条处理不了的行。 */
@@ -185,14 +187,24 @@ export async function runPassengerBackfill(ctx: AppContext, options: { batchSize
 
 export interface VerifyResult {
   checked: BackfillCounts;
-  /** 解不开的行 */
+  /** 解不开的行，加上明文只是加密占位、密文又没有的行（内容已经丢了）。宁可误报：这是清明文前的把关 */
   undecryptable: BackfillCounts;
   /** 解开了但和明文对不上的行 */
   mismatched: BackfillCounts;
+  /** 解开了但盲索引和内容算出来的不一样（或不是当前密钥算的）的订单：查订单、筛选会查不到 */
+  indexMismatched: number;
 }
 
+/** 明文只是加密占位、又没有密文的行：内容已经丢了。 */
+const LOST_SQL: Record<BackfillTable, string> = {
+  orders: `select count(*)::int as n from orders where passenger_enc is null and passenger_anonymized_at is null and passenger = '${placeholderJson(ENCRYPTED_TEXT)}'::jsonb`,
+  order_changes: `select count(*)::int as n from order_changes where values_enc is null and (before -> 'passenger' = '${placeholderJson(ENCRYPTED_TEXT)}'::jsonb or after -> 'passenger' = '${placeholderJson(ENCRYPTED_TEXT)}'::jsonb)`,
+  webhook_deliveries: `select count(*)::int as n from webhook_deliveries where event_data_enc is null and jsonb_path_exists(event_data, ${placeholderPath(ENCRYPTED_TEXT)})`,
+  notifications: `select count(*)::int as n from notifications where recipient_enc is null and recipient = '${ENCRYPTED_TEXT}'`,
+};
+
 const VERIFY_SQL: Record<BackfillTable, string> = {
-  orders: "select tenant_id, id, id::text as owner_id, passenger as plain, passenger_enc as enc from orders where passenger_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
+  orders: "select tenant_id, id, id::text as owner_id, passenger as plain, passenger_enc as enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx from orders where passenger_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
   order_changes: "select tenant_id, id, id::text as owner_id, jsonb_build_object('before', before, 'after', after) as plain, values_enc as enc from order_changes where values_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
   webhook_deliveries: "select tenant_id, id, event_id::text as owner_id, event_data as plain, event_data_enc as enc from webhook_deliveries where event_data_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
   notifications: "select tenant_id, id, event_id::text as owner_id, to_jsonb(recipient) as plain, recipient_enc as enc from notifications where recipient_enc is not null and (id::text, tenant_id::text) > ($1, $2) order by id::text, tenant_id::text limit $3",
@@ -212,8 +224,9 @@ function sameJson(a: unknown, b: unknown): boolean {
 /** 清明文之前的核对（第 6 步的前提）：每一行密文都解得开、和明文一致。只读，只出数量。明文已是占位的行只核对解得开。 */
 export async function verifyPassengerEncryption(ctx: AppContext, pageSize: number = 500): Promise<VerifyResult> {
   const crypto = cryptoFor(ctx);
-  const result: VerifyResult = { checked: emptyCounts(), undecryptable: emptyCounts(), mismatched: emptyCounts() };
+  const result: VerifyResult = { checked: emptyCounts(), undecryptable: emptyCounts(), mismatched: emptyCounts(), indexMismatched: 0 };
   for (const table of BACKFILL_TABLES) {
+    result.undecryptable[table] += await withPlatformTx(ctx.pool, async (db) => (await db.query<{ n: number }>(LOST_SQL[table])).rows[0]?.n ?? 0, { snapshot: true });
     let afterId = "";
     let afterTenant = "";
     for (;;) {
@@ -226,9 +239,13 @@ export async function verifyPassengerEncryption(ctx: AppContext, pageSize: numbe
           continue;
         }
         const plain: unknown = row["plain"];
-        const placeholder = table === "orders" ? isPassengerPlaceholder((plain as Row)["name"]) : table === "notifications" ? isPassengerPlaceholder(plain) : containsPassenger(plain) && passengersArePlaceholders(plain);
-        if (placeholder) continue;
         const decrypted: unknown = table === "notifications" ? opened : JSON.parse(opened);
+        if (table === "orders") {
+          const indexes = crypto.expectedIndexes(row["tenant_id"], decrypted as PassengerContact);
+          if (indexes.email !== row["passenger_email_bidx"] || indexes.phone !== row["passenger_phone_bidx"] || indexes.name !== row["passenger_name_bidx"]) result.indexMismatched += 1;
+        }
+        const placeholder = table === "orders" ? isPlaceholderPassenger(plain) : table === "notifications" ? isPassengerPlaceholder(plain) : passengersArePlaceholders(plain);
+        if (placeholder) continue;
         if (!sameJson(decrypted, plain)) result.mismatched[table] += 1;
       }
       const last = rows.at(-1);
