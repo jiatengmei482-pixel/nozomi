@@ -288,16 +288,7 @@
           "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/48 ；本地相关单元、组件、集成（36 通过 1 按需跳过）、端到端测试通过，完整检查以 PR 的 CI 为准；测试角色发现的 2 个问题（界面旧失败原因不作废、10 万报价时偶发接近语句超时）已修复；测试环境验收通过（2026-10-26，报告 docs/acceptance/M3.md）",
           "updated": "2026-10-26"
         },
-        {
-          "id": "M3-08",
-          "title": "Stripe 正式接入（官网付款页与测试卡验证）",
-          "role": "frontend",
-          "status": "blocked",
-          "blockedBy": "要等你注册 Stripe 并把测试密钥填进测试环境的设置（见 docs/secrets.md）",
-          "acceptance": ["官网下单后用 Stripe Elements 付款（3D 验证卡、失败卡都有正确提示）", "内容安全策略只放行 Stripe 必需的域名", "测试环境用 Stripe 测试卡真实付款成功，订单自动确认"],
-          "evidence": "",
-          "updated": "2026-10-26"
-        },
+        { "id": "M3-08", "title": "Stripe 正式接入（官网付款页与测试卡验证）", "role": "frontend", "status": "review", "acceptance": ["官网下单后用 Stripe Elements 付款（3D 验证卡、失败卡都有正确提示）", "内容安全策略只放行 Stripe 必需的域名", "测试环境用 Stripe 测试卡真实付款成功，订单自动确认"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/72 ；官网订单页用 Stripe Payment Element 付款（3D 验证、失败卡换卡重试、网络失败不重复扣款、付款成功等 Webhook 确认）；令牌不进 return_url；CSP 只在 /book、/book/checkout、/book/order 放行 Stripe 必需的来源（ADR 0046）；测试角色补 34 个测试，发现的 4 个缺陷已修复（含编码路径绕过 CSP）；端到端用假 Stripe。测试环境用测试卡真实付款待合并部署后验收", "updated": "2026-11-01" },
         {
           "id": "M3-09",
           "title": "官网下单页的页面规范",
@@ -721,6 +712,11 @@
       "date": "2026-10-27",
       "by": "Claude",
       "summary": "负责人对三个受阻任务做了决定：邮件通知先在运营后台加「邮件发送」（通用 SMTP）卡片（新增 M4-14），再做通知中心 M4-08；公司统一登录改为邮箱验证码登录（M4-06，依赖邮件发送）；银行转账批量文件按国际汇款惯例自定范例格式、支持多币种（M5-02）。三项都解除受阻，按 M4-14 → M4-08 → M4-06 → M5-02 的顺序开发，每项先写设计说明。"
+    },
+    {
+      "date": "2026-11-01",
+      "by": "Claude",
+      "summary": "M3-08 待验收：官网订单页接入 Stripe 付款表单（3D 验证、失败换卡、付款后自动确认），只在官网下单和订单页放行 Stripe，运营后台和供应商后台不放行。合并部署后在测试环境用 Stripe 测试卡真实付一笔。"
     }
   ]
 }
