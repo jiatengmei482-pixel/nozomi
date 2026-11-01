@@ -367,9 +367,10 @@ const INDEX_EXCEPTIONS = [
   "audit_logs_pkey",
   "audit_logs_resource_idx",
   // 通知中心的后台任务和运营后台跨供应商扫；tenant_id 可空所以主键是编号（ADR 0049）
-  "notification_events_dedupe_key",
+  "notification_events_order_idx",
   "notification_events_pending_idx",
   "notification_events_pkey",
+  "notification_events_platform_dedupe_key",
   "notifications_created_idx",
   "notifications_due_idx",
   "notifications_lease_idx",
@@ -566,7 +567,7 @@ test("每张租户表：tenant_id 非空（审计日志、通知的发件箱和�
        join pg_namespace n on n.oid = src.relnamespace
       where n.nspname = current_schema() and con.contype = 'f'`,
   );
-  // notifications_event_id_fkey 是这里唯一的例外（ADR 0049）：两边的 tenant_id 都可能为空，发送记录只由平台的后台任务写，租户角色没有写权限
+  // notifications_event_id_fkey 是这里唯一的例外（ADR 0049）：只为平台员工的记录（tenant_id 为空）保证事件存在；带租户的记录由复合外键 notifications_same_tenant_as_event 保证同一家
   const crossTenantCapable = foreignKeys.rows.filter(
     (fk) => tenantTables.includes(fk.from_table) && tenantTables.includes(fk.to_table) && !fk.columns.includes("tenant_id") && fk.name !== "notifications_event_id_fkey",
   );

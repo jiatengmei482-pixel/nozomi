@@ -35,7 +35,7 @@ import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { dateTimeSchema, ifMatchVersion, parseInput, resourceId } from "../validation.ts";
+import { dateTimeSchema, ifMatchVersion, parseInput, resourceId, singleLine } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
 import { fileJson } from "./orders.ts";
 import { salesOrderJson } from "./sales.ts";
@@ -60,12 +60,12 @@ const platformFeeQuerySchema = z.object({ reason: z.enum(platformCancelReasons a
 
 export const changeSchema = z
   .object({
-    passenger: z.object({ name: z.string().max(200), phone: z.string().max(40), email: z.string().max(320) }).strict().optional(),
+    passenger: z.object({ name: singleLine(200), phone: singleLine(40), email: singleLine(320) }).strict().optional(),
     flight_no: z.string().max(20).nullable().optional(),
     messaging: z.object({ app: z.enum(MESSAGING_APPS), handle: z.string().max(200) }).strict().nullable().optional(),
     notes: z.string().max(2_000).nullable().optional(),
-    pickup_address: z.string().max(1_000).optional(),
-    dropoff_address: z.string().max(1_000).optional(),
+    pickup_address: singleLine(1_000).optional(),
+    dropoff_address: singleLine(1_000).optional(),
     service_time: dateTimeSchema.optional(),
     passengers: z.number().int().min(1).max(60).optional(),
     luggage: z.number().int().min(0).max(60).optional(),

@@ -41,7 +41,7 @@ export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext
       query.limit,
       decodeTimeCursor(query.cursor ?? null),
     );
-    return { items: page.items.map(notificationJson), next_cursor: page.nextCursor, total: page.total, summary: { mail_configured: page.mailConfigured, waiting: page.waiting } };
+    return { items: page.items.map(notificationJson), next_cursor: page.nextCursor, total: page.total, summary: { mail_configured: page.mailConfigured, waiting: page.waiting, failed_events: page.failedEvents } };
   });
 
   app.post("/platform/v1/notifications/:id/retry", async (request) => {

@@ -34,14 +34,15 @@ import {
   notificationExpiresAt,
   notificationFailureAction,
   notificationStale,
-  notificationUrgent,
-  quietHoursResumeAt,
   renderNotification,
   resolvePlatformGrant,
   scopeAllowsChannel,
   scopeAllowsCity,
   scopeIsRestricted,
   templateNeedsViewLink,
+  NOTIFICATION_SERVICE_BOUND_EVENTS,
+  notificationQuietUntil,
+  uniqueRecipients,
   type MailMessage,
   type NotificationVariables,
   type PlatformAction,
@@ -55,6 +56,7 @@ import {
   type NotificationOutcome,
   type StoredNotificationEvent,
   activeStaff,
+  beginSending,
   claimDueNotifications,
   claimPendingEvents,
   enqueueNotification,
@@ -69,7 +71,11 @@ import {
   markEventExpanded,
   markWaitingForConfig,
   orderHasSiteLink,
+  rebaseServiceExpiry,
+  recordExpandFailure,
+  releaseQuietHeld,
   tenantRecipients,
+  updateRecipient,
 } from "../repos/notifications.ts";
 import { type Order, type OrderSale, findOrderForPlatform, findOrderOfTenant, findSale } from "../repos/orders.ts";
 import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
@@ -88,10 +94,10 @@ const EXPIRE_BATCH = 200;
 const REMINDER_BATCH = 100;
 const REMINDER_SWEEP_MS = 60_000;
 const REMINDER_WINDOW_MS = 24 * 60 * 60_000;
-/** 租约：比一次发信的总时限（15 秒）长得多 */
+/** 租约：比一次发信的总时限（15 秒）长得多；真正发之前重新计时（`beginSending`），一批排得再长也不会在发送途中过期 */
 export const NOTIFICATION_LEASE_MS = 60_000;
-/** 准备内容时出错（如数据库抖动）：一分钟后再试，算一次 */
-const PREPARE_RETRY_MS = 60_000;
+/** 一条事件展开出错几次就不再处理 */
+const EXPAND_MAX_ATTEMPTS = 3;
 const LOCALE = "zh-CN";
 const CHANNEL = "email";
 const NOT_CONFIGURED_MESSAGE = "邮件发送还没有配置，配好后自动发送";
@@ -121,6 +127,13 @@ interface Target {
 }
 
 type Prepared = { kind: "message"; message: MailMessage } | { kind: "stale" } | { kind: "hold"; until: Date } | { kind: "render_failed" };
+
+/** 事件里的时间：坏值当作没有。 */
+function dateOf(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
 
 const dbCodeOf = (err: unknown): string | null => (typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : null);
 const nameOf = (name: LocalizedText | null | undefined, fallback: string): string => name?.zh ?? name?.en ?? name?.ja ?? name?.ko ?? fallback;
@@ -191,13 +204,13 @@ function staffVariables(ctx: AppContext, notification: Notification, event: Stor
   const data = event.data;
   const base = ctx.config.publicBaseUrl;
   if (event.event === "exception.opened") {
-    return { order_no: notification.orderNo ?? "", exception_type: EXCEPTION_TYPE_NAMES[data["type"] as ExceptionType] ?? String(data["type"]), console_url: `${base}/platform/exceptions` };
+    return { order_no: notification.orderNo ?? "", exception_type: EXCEPTION_TYPE_NAMES[data["type"] as ExceptionType] ?? "请到异常队列查看", console_url: `${base}/platform/exceptions` };
   }
   if (event.event === "fx.alert") {
     const held = data["kind"] === "held";
     return {
       alert_kind: held ? "汇率变动超过 3%，已挂起，等待人工确认" : "汇率超过 48 小时没有更新，已暂停跨币种报价",
-      detail: held ? `涉及币种：${Array.isArray(data["currencies"]) ? data["currencies"].join("、") : "见汇率中心"}` : `最后一次更新：${String(data["as_of"])}`,
+      detail: held ? `涉及币种：${Array.isArray(data["currencies"]) ? data["currencies"].join("、") : "见汇率中心"}` : typeof data["as_of"] === "string" ? `最后一次更新：${data["as_of"]}` : "最后一次更新时间见汇率中心",
       console_url: `${base}/platform/master/fx-rates`,
     };
   }
@@ -224,6 +237,7 @@ export class NotificationJobs {
       this.lastReminderSweep = now.getTime();
       await this.sweepReminders();
     }
+    await withPlatformTx(this.ctx.pool, (db) => releaseQuietHeld(db, now));
     const expired = await withPlatformTx(this.ctx.pool, (db) => expireDue(db, now, EXPIRE_BATCH));
     if (expired > 0) this.log.warn({ event: "notification.expired", count: expired }, "有通知过了有效期，不再发送");
     const abandoned = await withPlatformTx(this.ctx.pool, (db) => failAbandoned(db, now, EXPIRE_BATCH));
@@ -236,7 +250,7 @@ export class NotificationJobs {
       if (marked > 0) this.log.warn({ event: "notification.not_configured", count: marked }, "邮件发送还没有配置，这些通知先留着，配好后自动发送");
       return result;
     }
-    const due = await withPlatformTx(this.ctx.pool, (db) => claimDueNotifications(db, now, new Date(now.getTime() + NOTIFICATION_LEASE_MS), SEND_BATCH));
+    const due = await withPlatformTx(this.ctx.pool, (db) => claimDueNotifications(db, now, new Date(now.getTime() + NOTIFICATION_LEASE_MS), SEND_BATCH, { preparing: true }));
     const queue = [...due];
     const worker = async (): Promise<void> => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
@@ -250,17 +264,29 @@ export class NotificationJobs {
     return result;
   }
 
-  /** 发件箱 → 发送记录。一条事件一个短事务；出错（数据库抖动）留给下一轮。 */
+  /** 发件箱 → 发送记录。一条事件一个短事务；一条出错只影响它自己（记下来，到上限就不再处理、运营后台看得到），不卡后面的。 */
   async expandEvents(now: Date): Promise<number> {
     let expanded = 0;
     for (let index = 0; index < EXPAND_BATCH; index += 1) {
-      const did = await withPlatformTx(this.ctx.pool, async (db) => {
-        const [event] = await claimPendingEvents(db, 1);
-        if (event === undefined) return false;
-        await this.expandOne(db, event, now);
-        await markEventExpanded(db, event.id, now);
-        return true;
-      });
+      let current: StoredNotificationEvent | undefined;
+      let did = false;
+      try {
+        did = await withPlatformTx(this.ctx.pool, async (db) => {
+          const [event] = await claimPendingEvents(db, 1);
+          if (event === undefined) return false;
+          current = event;
+          await this.expandOne(db, event, now);
+          await markEventExpanded(db, event.id, now);
+          return true;
+        });
+      } catch (err) {
+        if (current === undefined) throw err;
+        const failed = current;
+        const code = dbCodeOf(err) ?? "EXPAND_FAILED";
+        const attempts = await withPlatformTx(this.ctx.pool, (db) => recordExpandFailure(db, failed.id, code, EXPAND_MAX_ATTEMPTS, now));
+        this.log.error({ event: "notification.expand_failed", eventId: failed.id, eventType: failed.event, orderId: failed.orderId, errorCode: code, attempts }, "这个通知事件展开时出错；出错次数到上限后不再处理，运营后台能看到数量");
+        continue;
+      }
       if (!did) break;
       expanded += 1;
     }
@@ -272,9 +298,13 @@ export class NotificationJobs {
     const order = event.orderId === null ? null : event.tenantId === null ? await findOrderForPlatform(db, event.orderId) : await findOrderOfTenant(db, event.tenantId, event.orderId);
     const targets: Target[] = [];
     for (const audience of notificationAudiences(event.event)) targets.push(...(await this.targetsOf(db, event, audience, order)));
+    // 改了用车时间：还在等的记录（确认、派车、提醒……）有效期跟着改（ADR 0049「有效期」）
+    if (event.event === "order.changed" && order !== null && event.orderId !== null && Array.isArray(event.data["fields"]) && event.data["fields"].includes("service_time")) {
+      await rebaseServiceExpiry(db, event.orderId, order.serviceAt, NOTIFICATION_SERVICE_BOUND_EVENTS);
+    }
     if (targets.length === 0) this.log.warn({ event: "notification.no_recipient", eventType: event.event, orderId: event.orderId, tenantId: event.tenantId }, "这个事件没有可以通知的人");
-    const disputeUntil = typeof event.data["dispute_until"] === "string" ? new Date(event.data["dispute_until"]) : null;
-    const expiresAt = notificationExpiresAt(event.event, { occurredAt: event.occurredAt, serviceAt: order?.serviceAt ?? null, disputeUntil });
+    if (typeof event.data["dispute_until"] === "string" && dateOf(event.data["dispute_until"]) === null) throw new Error("事件的 dispute_until 不是时间");
+    const expiresAt = notificationExpiresAt(event.event, { occurredAt: event.occurredAt, serviceAt: order?.serviceAt ?? null, disputeUntil: dateOf(event.data["dispute_until"]), confirmDueAt: dateOf(event.data["confirm_due_at"]) });
     for (const target of targets) {
       await insertNotification(db, { eventId: event.id, tenantId: target.tenantId, event: event.event, audience: target.audience, locale: LOCALE, channel: CHANNEL, recipient: target.recipient, orderId: event.orderId, orderNo: target.orderNo, expiresAt, now });
     }
@@ -288,7 +318,8 @@ export class NotificationJobs {
         const current = await findOrderForPlatform(db, event.orderId);
         if (current === null || !(await orderHasSiteLink(db, event.orderId))) return [];
         const email = current.passenger.email.trim();
-        return email === "" ? [] : [{ audience, recipient: email, tenantId: current.tenantId, orderNo: current.orderNo }];
+        // tenant_id 记事件那一家（数据库保证发送记录和事件是同一家）；救援后这单换了供应商，发送时看的是现在的行
+        return email === "" || event.tenantId === null ? [] : [{ audience, recipient: email, tenantId: event.tenantId, orderNo: current.orderNo }];
       }
       case "tenant": {
         if (event.tenantId === null) return [];
@@ -304,7 +335,7 @@ export class NotificationJobs {
     const rule = STAFF_RULES[event.event];
     if (rule === undefined) return [];
     const sale = order === null ? null : await findSale(db, order.id);
-    return (await activeStaff(db))
+    const recipients = (await activeStaff(db))
       .filter(({ role }) => {
         const grant = resolvePlatformGrant(role);
         if ("roles" in rule ? !rule.roles.includes(role.key) : !grantCan(grant, rule.action)) return false;
@@ -312,7 +343,8 @@ export class NotificationJobs {
         // 限定了数据范围的人（ADR 0030）：只收范围内订单的通知，收不到不属于订单的
         return order !== null && scopeAllowsCity(grant.scope, order.cityId) && (sale === null || scopeAllowsChannel(grant.scope, sale.channelId));
       })
-      .map(({ email }) => ({ audience: "staff" as const, recipient: email, tenantId: null, orderNo: order?.orderNo ?? null }));
+      .map(({ email }) => email);
+    return uniqueRecipients(recipients).map((recipient) => ({ audience: "staff" as const, recipient, tenantId: null, orderNo: order?.orderNo ?? null }));
   }
 
   /** 用车前 24 小时的提醒：扫出该提醒的单，入发件箱（同一个用车时刻只有一条）。 */
@@ -321,7 +353,7 @@ export class NotificationJobs {
     return withPlatformTx(this.ctx.pool, async (db) => {
       const due = await listReminderDue(db, now, REMINDER_WINDOW_MS, REMINDER_BATCH);
       for (const row of due) {
-        await enqueueNotification(db, { event: "order.service_reminder", tenantId: row.tenantId, orderId: row.orderId, dedupeKey: `order.service_reminder:${row.orderId}:${row.serviceAtMs}`, data: { service_at_ms: row.serviceAtMs } }, now);
+        await enqueueNotification(db, { event: "order.service_reminder", tenantId: row.tenantId, orderId: row.orderId, dedupeKey: `order.service_reminder:${row.orderId}:${row.serviceAtMs}:${row.revision}`, data: { service_at_ms: row.serviceAtMs } }, now);
       }
       return due.length;
     });
@@ -336,7 +368,7 @@ export class NotificationJobs {
     } catch (err) {
       // 不记错误对象本身：数据库错误的详情里可能带着行内容（收件人）
       this.log.warn({ event: "notification.prepare_failed", notificationId: notification.id, dbCode: dbCodeOf(err) }, "准备邮件内容时出错，稍后再试");
-      return this.finish(notification, manual ? { status: "failed", attempts: attemptNo, code: "UNEXPECTED", message: null } : { status: "pending", attempts: attemptNo, nextAttemptAt: new Date(this.ctx.now().getTime() + PREPARE_RETRY_MS), code: "UNEXPECTED", message: null });
+      return this.finish(notification, this.afterFailure(notification, "UNEXPECTED", null, attemptNo, manual));
     }
     if (prepared.kind === "stale") return this.finish(notification, { status: "expired", attempts: notification.attempts, code: "ORDER_STATE_CHANGED", message: null });
     if (prepared.kind === "hold") return this.finish(notification, { status: "pending", attempts: notification.attempts, nextAttemptAt: prepared.until, code: "QUIET_HOURS", message: null });
@@ -344,12 +376,18 @@ export class NotificationJobs {
       this.log.error({ event: "notification.failed", notificationId: notification.id, eventType: notification.event, orderId: notification.orderId, errorCode: "RENDER_FAILED" }, "通知的内容生成失败：缺变量或没有模板");
       return this.finish(notification, { status: "failed", attempts: attemptNo, code: "RENDER_FAILED", message: null });
     }
+    // 最后一道：租约还是自己的才发（可能已被判中断、被别人接手）。从这里起进程退出才算「可能已发出」
+    const mine = await withPlatformTx(this.ctx.pool, (db) => beginSending(db, notification, new Date(this.ctx.now().getTime() + NOTIFICATION_LEASE_MS)));
+    if (!mine) {
+      this.log.warn({ event: "notification.lease_lost", notificationId: notification.id }, "这条通知的租约已被接手，这一封不发");
+      return null;
+    }
     const result = await sendMail(this.ctx, prepared.message);
     if (result.ok) return this.finish(notification, { status: "sent", attempts: attemptNo, messageId: result.messageId });
     return this.finish(notification, this.afterFailure(notification, result.code, result.message, attemptNo, manual));
   }
 
-  private afterFailure(notification: Notification, code: string, message: string, attemptNo: number, manual: boolean): NotificationOutcome {
+  private afterFailure(notification: Notification, code: string, message: string | null, attemptNo: number, manual: boolean): NotificationOutcome {
     const logged = { notificationId: notification.id, eventType: notification.event, orderId: notification.orderId, errorCode: code };
     if (manual) return { status: "failed", attempts: attemptNo, code, message };
     const later = (ms: number): Date => new Date(this.ctx.now().getTime() + ms);
@@ -381,13 +419,13 @@ export class NotificationJobs {
     if (notification.orderId !== null) {
       order = notification.audience === "tenant" && notification.tenantId !== null ? await findOrderOfTenant(db, notification.tenantId, notification.orderId) : await findOrderForPlatform(db, notification.orderId);
       const facts = order === null ? null : { status: order.status, serviceAtMs: order.serviceAt.getTime(), driverId: order.dispatch.driverId, vehicleId: order.dispatch.vehicleId };
-      if (notificationStale(notification.event, event.data, facts)) return { kind: "stale" };
+      if (notificationStale(notification.event, event.data, facts, { now: this.ctx.now(), audience: notification.audience })) return { kind: "stale" };
     }
     const now = this.ctx.now();
     if (!manual && notification.audience === "tenant" && notification.tenantId !== null) {
       const { quietHours } = await findNotificationSettings(db, notification.tenantId);
-      if (quietHours !== null && !notificationUrgent(order?.serviceDate ?? null, now, order?.timezone ?? null)) {
-        const until = quietHoursResumeAt(quietHours, now, TENANT_RULES.timeZone);
+      if (quietHours !== null) {
+        const until = notificationQuietUntil({ event: notification.event, quietHours, now, timeZone: TENANT_RULES.timeZone, serviceAt: order?.serviceAt ?? null, serviceDate: order?.serviceDate ?? null, serviceTimeZone: order?.timezone ?? null, expiresAt: notification.expiresAt, confirmDueAt: dateOf(event.data["confirm_due_at"]) });
         if (until !== null) return { kind: "hold", until };
       }
     }
@@ -401,7 +439,11 @@ export class NotificationJobs {
       variables["view_url"] = `${this.ctx.config.publicBaseUrl}/book/order#${link.token}`;
     }
     const rendered = renderNotification(template, variables);
-    return rendered === null ? { kind: "render_failed" } : { kind: "message", message: { to: notification.recipient, subject: rendered.subject, text: rendered.text } };
+    if (rendered === null) return { kind: "render_failed" };
+    // 客人的地址按订单现在的乘客邮箱：等待发送期间改了邮箱，旧地址不能再收到查看链接
+    const to = notification.audience === "guest" && order !== null ? order.passenger.email.trim() : notification.recipient;
+    if (to !== notification.recipient) await updateRecipient(db, notification.id, to);
+    return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };
   }
 
   private async variablesOf(db: Db, notification: Notification, event: StoredNotificationEvent, order: Order | null): Promise<NotificationVariables> {

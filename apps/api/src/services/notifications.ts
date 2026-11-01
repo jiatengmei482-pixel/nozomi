@@ -7,7 +7,7 @@ import type { AppContext } from "../context.ts";
 import { withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
-import { type Notification, type NotificationFilter, type TenantNotificationSettings, countWaitingNotifications, findNotification, findNotificationSettings, leaseForManualRetry, listNotifications, saveNotificationSettings } from "../repos/notifications.ts";
+import { type Notification, type NotificationFilter, type TenantNotificationSettings, countFailedEvents, countWaitingNotifications, findNotification, findNotificationSettings, leaseForManualRetry, listNotifications, saveNotificationSettings } from "../repos/notifications.ts";
 import { findOrderForPlatform } from "../repos/orders.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { validationFailed } from "../validation.ts";
@@ -39,12 +39,12 @@ export function notificationJson(row: Notification): Record<string, unknown> {
   };
 }
 
-export async function listNotificationsForPlatform(ctx: AppContext, filter: Omit<NotificationFilter, "scope">, scope: PlatformDataScope, limit: number, after: TimeCursor | null): Promise<Page<Notification> & { total: number; waiting: number; mailConfigured: boolean }> {
+export async function listNotificationsForPlatform(ctx: AppContext, filter: Omit<NotificationFilter, "scope">, scope: PlatformDataScope, limit: number, after: TimeCursor | null): Promise<Page<Notification> & { total: number; waiting: number; failedEvents: number; mailConfigured: boolean }> {
   await ctx.integrations.ensureFresh();
   const mailConfigured = ctx.integrations.effective.email.config !== null;
   return withPlatformTx(
     ctx.pool,
-    async (db) => ({ ...(await listNotifications(db, { ...filter, scope }, limit, after)), waiting: scopeIsRestricted(scope) ? 0 : await countWaitingNotifications(db), mailConfigured }),
+    async (db) => ({ ...(await listNotifications(db, { ...filter, scope }, limit, after)), waiting: scopeIsRestricted(scope) ? 0 : await countWaitingNotifications(db), failedEvents: scopeIsRestricted(scope) ? 0 : await countFailedEvents(db), mailConfigured }),
     { snapshot: true },
   );
 }

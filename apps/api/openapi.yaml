@@ -9081,7 +9081,7 @@ paths:
                   summary:
                     type: object
                     additionalProperties: false
-                    required: [ mail_configured, waiting ]
+                    required: [ mail_configured, waiting, failed_events ]
                     properties:
                       mail_configured:
                         type: boolean
@@ -9089,6 +9089,9 @@ paths:
                       waiting:
                         type: integer
                         description: 等待发送的条数；限定了数据范围的员工固定为 0
+                      failed_events:
+                        type: integer
+                        description: 内容有问题、展开不了的通知事件数（请技术处理）；限定了数据范围的员工固定为 0
   /platform/v1/notifications/{id}/retry:
     post:
       tags: [ Notification ]

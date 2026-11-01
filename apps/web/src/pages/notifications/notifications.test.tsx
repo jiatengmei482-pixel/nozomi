@@ -186,3 +186,19 @@ test("供应商后台：没有权限的角色页面说没权限", async () => {
   await screen.findByText("你没有权限查看这里");
   assert.ok(!calls.some((call) => urlOf(call).pathname.startsWith("/tenant/v1/notification")));
 });
+
+test("供应商后台：能按状态筛发送记录；运营后台有坏事件时给出提示", async () => {
+  const calls = openTenant("/settings/notifications", "admin", (call) => {
+    if (call.url.pathname === "/tenant/v1/notifications") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (call.url.pathname === "/tenant/v1/notification-settings") return settingsRoute();
+    return null;
+  });
+  await screen.findByText("还没有发给你们的通知");
+  await userEvent.setup().selectOptions(screen.getByLabelText("状态"), "failed");
+  await waitFor(() => assert.ok(calls.some((call) => urlOf(call).pathname === "/tenant/v1/notifications" && urlOf(call).searchParams.get("status") === "failed")));
+});
+
+test("运营后台：有展开失败的事件时红色提示，让运营转给技术", async () => {
+  openPlatform("/platform/notifications", "operations", (call) => (call.url.pathname === "/platform/v1/notifications" ? list([], { mail_configured: true, waiting: 0, failed_events: 2 } as never) : null));
+  await screen.findByText(/有 2 个通知事件内容有问题/);
+});

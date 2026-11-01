@@ -23,7 +23,7 @@ export interface NotificationRow {
 }
 
 export interface PlatformNotificationPage extends ListPage<NotificationRow> {
-  summary: { mail_configured: boolean; waiting: number };
+  summary: { mail_configured: boolean; waiting: number; failed_events?: number };
 }
 
 export interface NotificationTemplateRow {

@@ -160,18 +160,26 @@ export type NotificationVariables = Readonly<Partial<Record<string, string>>>;
 // 控制字符写成转义：这是正则要匹配的内容
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f\\u0085\\u2028\\u2029]+", "g");
 
+/** 有没有换行、行分隔符等控制字符。接口层用它拒绝单行字段（姓名、地址），渲染时另有一道规整。 */
+export function hasControlChars(text: string): boolean {
+  return new RegExp(CONTROL_CHARS.source).test(text);
+}
+
+const oneLine = (value: string): string => value.replace(CONTROL_CHARS, " ").trim();
+
+
 /**
  * 渲染：一次替换（变量值里的 `{{x}}` 不会被再次替换），只认这个接收方白名单里的变量。缺变量返回 null（不发半截邮件）。
- * 主题里的变量去掉换行等控制字符（防邮件头注入）。
+ * 主题和正文里的变量都把换行、行分隔符等控制字符规整成空格：主题防邮件头注入，正文防客人填的内容伪造段落（如在发给供应商的邮件里伪造「平台通知」）。
  */
 export function renderNotification(template: NotificationTemplate, variables: NotificationVariables): { subject: string; text: string } | null {
   const allowed = audienceVariables(template.audience);
   for (const name of templatePlaceholders(template)) {
     const value = variables[name];
-    if (!allowed.includes(name) || value === undefined || value === "") return null;
+    if (!allowed.includes(name) || value === undefined || oneLine(value) === "") return null;
   }
-  const fill = (text: string, clean: (value: string) => string): string => text.replace(PLACEHOLDER, (_, name: string) => clean(variables[name] as string));
-  return { subject: fill(template.subject, (value) => value.replace(CONTROL_CHARS, " ").trim()).slice(0, 200), text: fill(template.body, (value) => value) };
+  const fill = (text: string): string => text.replace(PLACEHOLDER, (_, name: string) => oneLine(variables[name] as string));
+  return { subject: fill(template.subject).slice(0, 200), text: fill(template.body) };
 }
 
 /** 邮箱打码：`ab***@example.com`。不像邮箱的整个打码。 */
@@ -209,9 +217,13 @@ export function notificationRetryable(status: NotificationStatus, errorCode: str
 
 const SERVICE_BOUND: readonly NotificationEvent[] = ["order.confirmed", "order.assigned", "order.service_reminder", "order.rescue_assigned", "order.change_pending", "order.dispatch_overdue", "order.departure_overdue"];
 
+/** 有效期就是用车时间的事件：改期后要跟着改（改期待确认另有确认期限，不在内）。 */
+export const NOTIFICATION_SERVICE_BOUND_EVENTS: readonly NotificationEvent[] = SERVICE_BOUND.filter((event) => event !== "order.change_pending");
+
 /** 这条通知最晚什么时候还值得发。过了就记 `expired`，不会在配好邮件后把陈旧的通知砸给收件人。 */
-export function notificationExpiresAt(event: NotificationEvent, input: { occurredAt: Date; serviceAt: Date | null; disputeUntil: Date | null }): Date {
+export function notificationExpiresAt(event: NotificationEvent, input: { occurredAt: Date; serviceAt: Date | null; disputeUntil: Date | null; confirmDueAt?: Date | null }): Date {
   const after = (ms: number): Date => new Date(input.occurredAt.getTime() + ms);
+  if (event === "order.change_pending" && input.confirmDueAt !== undefined && input.confirmDueAt !== null) return input.serviceAt !== null && input.serviceAt < input.confirmDueAt ? input.serviceAt : input.confirmDueAt;
   if (SERVICE_BOUND.includes(event) && input.serviceAt !== null) return input.serviceAt;
   if (event === "order.driver_arrived") return after(NOTIFICATION_RULES.arrivedLifetimeMs);
   if (event === "extra_charge.submitted" && input.disputeUntil !== null) return input.disputeUntil;
@@ -231,25 +243,33 @@ export interface NotificationOrderFacts {
 /**
  * 发送前再看一眼订单：情况已经变了、再发只会误导的返回 true（记 `expired` + `ORDER_STATE_CHANGED`）。
  * `order` 为 null（这一行不存在了）一律不发。修改、取消、费用、工单这些「已经发生的事」不过期。
+ * 救援改派中（`rescue_pending`）：客人的单还有效（平台在找别的供应商），确认和提醒照发，不能因为正好在救援就永远丢了确认邮件；
+ * 供应商的那一行已经不归它了，新订单不发。
  */
-export function notificationStale(event: NotificationEvent, data: Readonly<Record<string, unknown>>, order: NotificationOrderFacts | null): boolean {
+export function notificationStale(event: NotificationEvent, data: Readonly<Record<string, unknown>>, order: NotificationOrderFacts | null, context: { now?: Date; audience?: NotificationAudience } = {}): boolean {
   if (order === null) return true;
+  const guestRescue = context.audience === "guest" && order.status === "rescue_pending";
   switch (event) {
     case "order.confirmed":
+      return !guestRescue && !LIVE_STATUSES.includes(order.status);
     case "order.rescue_assigned":
       return !LIVE_STATUSES.includes(order.status);
     case "order.assigned":
       return !["assigned", "departed", "arrived"].includes(order.status) || data["driver_id"] !== order.driverId || data["vehicle_id"] !== order.vehicleId;
     case "order.service_reminder":
-      return !["confirmed", "assigned", "departed", "arrived"].includes(order.status) || data["service_at_ms"] !== order.serviceAtMs;
+      return (!guestRescue && !["confirmed", "assigned", "departed", "arrived"].includes(order.status)) || data["service_at_ms"] !== order.serviceAtMs;
     case "order.driver_arrived":
       return order.status !== "arrived";
     case "order.dispatch_overdue":
       return order.status !== "confirmed";
     case "order.departure_overdue":
       return order.status !== "assigned";
-    case "order.change_pending":
-      return !LIVE_STATUSES.includes(order.status);
+    case "order.change_pending": {
+      if (!LIVE_STATUSES.includes(order.status)) return true;
+      // 过了确认期限：发了就是让人去确认一件已经结束的事
+      const due = typeof data["confirm_due_at"] === "string" ? new Date(data["confirm_due_at"]).getTime() : Number.NaN;
+      return context.now !== undefined && !Number.isNaN(due) && due <= context.now.getTime();
+    }
     default:
       return false;
   }
@@ -302,6 +322,45 @@ export const ORDER_CHANGE_FIELD_NAMES: Readonly<Record<string, string>> = {
 
 export const OBSERVATION_REASON_NAMES: Readonly<Record<string, string>> = { score_below_threshold: "评分低于观察线", driver_no_show: "司机未到" };
 
+/** 用车前这么久之内，这些事件不受免打扰限制：晚发就来不及安排（新订单、救援、未出发、超时未派车、取消、改期待确认）。 */
+export const NOTIFICATION_CRITICAL_WINDOW_MS = 24 * 60 * 60_000;
+const TIME_CRITICAL: readonly NotificationEvent[] = ["order.confirmed", "order.rescue_assigned", "order.departure_overdue", "order.dispatch_overdue", "order.cancelled", "order.change_pending"];
+
+export interface QuietHoldInput {
+  event: NotificationEvent;
+  quietHours: QuietHours;
+  now: Date;
+  /** 免打扰时段的时区 */
+  timeZone: string;
+  serviceAt: Date | null;
+  serviceDate: string | null;
+  serviceTimeZone: string | null;
+  expiresAt: Date;
+  confirmDueAt: Date | null;
+}
+
+/**
+ * 要不要因为免打扰推迟，推迟到什么时候；null = 现在就发。
+ * 不只看「是不是用车当天」：跨午夜的时段里，第二天凌晨用车的单还不算当天，推迟到时段结束就已经晚了。所以这几种都马上发：
+ * 用车当天；时段结束时已经过了有效期、确认期限或用车时间；要紧的事件且 24 小时内用车。
+ */
+export function notificationQuietUntil(input: QuietHoldInput): Date | null {
+  const resume = quietHoursResumeAt(input.quietHours, input.now, input.timeZone);
+  if (resume === null) return null;
+  if (notificationUrgent(input.serviceDate, input.now, input.serviceTimeZone)) return null;
+  const deadlines = [input.expiresAt, input.serviceAt, input.confirmDueAt].filter((deadline): deadline is Date => deadline !== null);
+  if (deadlines.some((deadline) => deadline.getTime() <= resume.getTime())) return null;
+  if (TIME_CRITICAL.includes(input.event) && input.serviceAt !== null && input.serviceAt.getTime() - input.now.getTime() <= NOTIFICATION_CRITICAL_WINDOW_MS) return null;
+  return resume;
+}
+
+/** 收件人去重：同一个地址只大小写不同算一个人（保留第一个的写法）。 */
+export function uniqueRecipients(emails: readonly string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const email of emails) if (!seen.has(email.toLowerCase())) seen.set(email.toLowerCase(), email);
+  return [...seen.values()];
+}
+
 /** 失败代码的界面说法。 */
 export const NOTIFICATION_ERROR_NAMES: Readonly<Record<string, string>> = {
   NOT_CONFIGURED: "邮件发送还没有配置，配好后自动发送",
@@ -311,4 +370,5 @@ export const NOTIFICATION_ERROR_NAMES: Readonly<Record<string, string>> = {
   OUTCOME_UNKNOWN: "发送途中服务中断，不知道发出去了没有；可能已发出，重试前请先确认",
   RENDER_FAILED: "邮件内容生成失败（程序问题）",
   MESSAGE_INVALID: "收件人地址或邮件内容不合格",
+  UNEXPECTED: "准备或发送邮件时出错，系统会自动重试；一直不好请联系技术",
 };

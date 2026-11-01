@@ -9,7 +9,10 @@ import {
   TENANT_VARIABLES,
   audienceVariables,
   findNotificationTemplate,
+  hasControlChars,
   maskEmail,
+  notificationQuietUntil,
+  uniqueRecipients,
   notificationAudiences,
   notificationExpiresAt,
   notificationFailureAction,
@@ -54,13 +57,13 @@ test("客人的确认邮件带查看链接；发给供应商的不带", () => {
   assert.equal(findNotificationTemplate("order.assigned", "tenant", "zh-CN", "email"), null);
 });
 
-test("渲染：缺变量不发；变量值不被二次替换；主题里的换行被去掉", () => {
+test("渲染：缺变量不发；变量值不被二次替换；主题和正文里变量的换行都被规整成空格", () => {
   const template = { event: "exception.opened", audience: "staff", locale: "zh-CN", channel: "email", subject: "主题 {{order_no}}", body: "正文 {{detail}} {{order_no}}" } as const;
   assert.equal(renderNotification(template, { order_no: "A" }), null);
   assert.equal(renderNotification(template, { order_no: "", detail: "x" }), null);
   const out = renderNotification(template, { order_no: "A\r\nBcc: x@y.z", detail: "{{order_no}}" });
   assert.equal(out?.subject, "主题 A Bcc: x@y.z");
-  assert.equal(out?.text, "正文 {{order_no}} A\r\nBcc: x@y.z");
+  assert.equal(out?.text, "正文 {{order_no}} A Bcc: x@y.z");
 });
 
 test("打码", () => {
@@ -137,4 +140,39 @@ test("紧急：用车当天按城市当地日期；没有订单的不紧急", ()
   assert.equal(notificationUrgent("2026-11-02", now, "Europe/London"), false);
   assert.equal(notificationUrgent("2026-10-30", now, "Asia/Tokyo"), true);
   assert.equal(notificationUrgent(null, now, null), false);
+});
+
+test("免打扰要不要推迟：时段外、用车当天、时段结束已过期限、要紧事件 24 小时内都马上发；其余推迟到结束", () => {
+  const now = new Date("2026-11-01T14:00:00Z"); // 东京 23:00
+  const resume = "2026-11-01T22:00:00.000Z"; // 东京第二天 07:00
+  const base = { event: "tenant.status_changed", quietHours: { start: "22:00", end: "07:00" }, now, timeZone: "Asia/Tokyo", serviceAt: null, serviceDate: null, serviceTimeZone: null, expiresAt: new Date("2026-11-08T14:00:00Z"), confirmDueAt: null } as const;
+  const service = (hours: number) => ({ serviceAt: new Date(now.getTime() + hours * 3_600_000), serviceDate: "2026-11-05", serviceTimeZone: "Asia/Tokyo" });
+  assert.equal(notificationQuietUntil(base)?.toISOString(), resume, "没有期限的等到时段结束");
+  assert.equal(notificationQuietUntil({ ...base, now: new Date("2026-11-01T02:00:00Z") }), null, "时段外");
+  assert.equal(notificationQuietUntil({ ...base, serviceAt: new Date(now.getTime() + 3_600_000), serviceDate: "2026-11-01", serviceTimeZone: "Asia/Tokyo" }), null, "用车当天");
+  assert.equal(notificationQuietUntil({ ...base, expiresAt: new Date(resume) }), null, "时段结束正好到有效期");
+  assert.equal(notificationQuietUntil({ ...base, confirmDueAt: new Date(now.getTime() + 1_800_000) }), null, "时段结束前到确认期限");
+  assert.equal(notificationQuietUntil({ ...base, ...service(7) }), null, "时段结束前就用车，任何事件都不等");
+  assert.equal(notificationQuietUntil({ ...base, event: "order.confirmed", ...service(20) }), null, "新订单 24 小时内用车");
+  assert.equal(notificationQuietUntil({ ...base, event: "order.cancelled", ...service(20) }), null, "取消 24 小时内用车");
+  assert.equal(notificationQuietUntil({ ...base, event: "order.changed", ...service(20) })?.toISOString(), resume, "普通修改不算要紧");
+  assert.equal(notificationQuietUntil({ ...base, event: "order.confirmed", ...service(120) })?.toISOString(), resume, "五天后的新订单可以等");
+});
+
+test("救援改派中：客人的确认和提醒照发（不能丢），供应商的新订单不发；过了确认期限的改期待确认不发", () => {
+  const facts = { status: "rescue_pending", serviceAtMs: 1, driverId: null, vehicleId: null };
+  assert.equal(notificationStale("order.confirmed", {}, facts, { audience: "guest" }), false);
+  assert.equal(notificationStale("order.service_reminder", { service_at_ms: 1 }, facts, { audience: "guest" }), false);
+  assert.equal(notificationStale("order.confirmed", {}, facts, { audience: "tenant" }), true);
+  assert.equal(notificationStale("order.assigned", { driver_id: null, vehicle_id: null }, facts, { audience: "guest" }), true, "旧司机已作废");
+  const live = { ...facts, status: "confirmed" };
+  const now = new Date("2026-11-01T00:00:00Z");
+  assert.equal(notificationStale("order.change_pending", { confirm_due_at: "2026-11-01T00:00:00Z" }, live, { now }), true, "正好到期限");
+  assert.equal(notificationStale("order.change_pending", { confirm_due_at: "2026-11-01T00:00:01Z" }, live, { now }), false);
+});
+
+test("收件人去重不分大小写；单行字段的控制字符判断", () => {
+  assert.deepEqual(uniqueRecipients(["A@x.test", "a@x.test", "b@x.test"]), ["A@x.test", "b@x.test"]);
+  for (const bad of ["a\nb", "a\rb", "a b", "a b", "a\u0085b", "a\tb"]) assert.equal(hasControlChars(bad), true, JSON.stringify(bad));
+  assert.equal(hasControlChars("东京站 八重洲口"), false);
 });

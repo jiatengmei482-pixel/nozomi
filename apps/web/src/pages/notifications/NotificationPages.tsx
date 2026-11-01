@@ -131,6 +131,7 @@ export function PlatformNotificationsPage() {
       {summary !== undefined && !summary.mail_configured && (
         <Alert kind="warning">{`邮件发送还没有配置，所以现在一封都发不出去。下单、付款、派车不受影响；${summary.waiting > 0 ? `${summary.waiting} 条通知在等待，` : "通知会先留着，"}配好后自动发送，过了有效期的不再发送。请超级管理员在「系统设置 → 系统状态」填写。`}</Alert>
       )}
+      {summary !== undefined && (summary.failed_events ?? 0) > 0 && <Alert kind="danger">{`有 ${summary.failed_events} 个通知事件内容有问题，没能生成发送记录，这些通知发不出去。请把这句话转给技术查服务日志（notification.expand_failed）。`}</Alert>}
       {orderId !== null && (
         <Alert kind="info">
           只看这一单的通知。<Button variant="text" size="sm" onClick={() => change("order", null)}>看全部</Button>
@@ -251,7 +252,8 @@ export function TenantNotificationsPage() {
   const canManage = useTenantCan("notification.manage");
   const [params, setParams] = useSearchParams();
   const orderId = params.get("order");
-  const records = useLoad(`tenant-notifications|${orderId}`, canRead ? (t) => listTenantNotifications(t, { limit: PAGE_SIZE, ...(orderId === null ? {} : { order_id: orderId }) }) : null);
+  const status = oneOf(NOTIFICATION_STATUSES, params.get("status"));
+  const records = useLoad(`tenant-notifications|${orderId}|${status}`, canRead ? (t) => listTenantNotifications(t, { limit: PAGE_SIZE, ...(orderId === null ? {} : { order_id: orderId }), ...(status === null ? {} : { status }) }) : null);
   const settings = useLoad("tenant-notification-settings", canRead ? (t) => getNotificationSettings(t) : null);
   const shell = (content: ReactNode): ReactNode => (
     <AppShell pageName="通知" trail={[{ label: "设置" }]}>
@@ -274,6 +276,20 @@ export function TenantNotificationsPage() {
             只看这一单的通知。<Button variant="text" size="sm" onClick={() => setParams({}, { replace: true })}>看全部</Button>
           </Alert>
         )}
+        <div className="filter-bar">
+          <SelectField
+            inline
+            label="状态"
+            value={status ?? "all"}
+            options={[{ value: "all", label: "全部" }, ...NOTIFICATION_STATUSES.map((value) => ({ value, label: NOTIFICATION_STATUS_NAMES[value] }))]}
+            onChange={(value) => {
+              const next = new URLSearchParams(params);
+              if (value === "all") next.delete("status");
+              else next.set("status", value);
+              setParams(next, { replace: true });
+            }}
+          />
+        </div>
         <DataTable
           label="发送记录"
           columns={columns({ orderLink: orderPath, audience: false })}
@@ -283,6 +299,7 @@ export function TenantNotificationsPage() {
           onRetry={records.reload}
           empty={<StateBlock tone="neutral" title="还没有发给你们的通知" description="有新订单等事情时，发送记录会显示在这里。" />}
         />
+        {records.state.data !== null && records.state.data.total > records.state.data.items.length && <p className="field__hint">{`共 ${records.state.data.total} 条，这里显示最新的 ${records.state.data.items.length} 条；按状态筛选或从订单进来可以找到更早的。`}</p>}
       </section>
     </>,
   );

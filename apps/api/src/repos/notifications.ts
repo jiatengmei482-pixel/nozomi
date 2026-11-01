@@ -2,7 +2,7 @@
  * 通知中心（M4-08，ADR 0049）的数据访问：发件箱、发送记录、免打扰设置。
  * `enqueueNotification` 在业务自己的事务里调用（平台事务、租户事务都可以）；其余是后台任务和接口用的。
  */
-import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, scopeIsRestricted } from "@nozomi/domain";
+import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 
@@ -42,6 +42,19 @@ export async function claimPendingEvents(db: Db, limit: number): Promise<StoredN
 
 export async function markEventExpanded(db: Db, id: string, now: Date): Promise<void> {
   await db.query("update notification_events set expanded_at = $2 where id = $1", [id, now]);
+}
+
+/** 展开出错：记一次；到上限就不再处理（`expand_error` 留着，运营后台看得到数量），后面的事件不受影响。 */
+export async function recordExpandFailure(db: Db, id: string, code: string, maxAttempts: number, now: Date): Promise<number> {
+  const result = await db.query<{ expand_attempts: number }>(
+    "update notification_events set expand_attempts = expand_attempts + 1, expand_error = $2, expanded_at = case when expand_attempts + 1 >= $3 then $4::timestamptz else null end where id = $1 returning expand_attempts",
+    [id, code, maxAttempts, now],
+  );
+  return result.rows[0]?.expand_attempts ?? 0;
+}
+
+export async function countFailedEvents(db: Db): Promise<number> {
+  return (await db.query<{ n: number }>("select count(*)::int as n from notification_events where expand_error is not null and expanded_at is not null")).rows[0]?.n ?? 0;
 }
 
 export async function findEvent(db: Db, id: string): Promise<StoredNotificationEvent | null> {
@@ -122,6 +135,12 @@ export async function expireDue(db: Db, now: Date, limit: number): Promise<numbe
 
 /** 租约到期还在「正在发」：进程在发送中途退出了，不知道发出去了没有。不自动重发，记最终失败。 */
 export async function failAbandoned(db: Db, now: Date, limit: number): Promise<Notification[]> {
+  // 取走了还没开始连邮件服务器的：肯定没发出去，放回去等下一轮，不算次数，也不用人处理
+  await db.query(
+    `update notifications n set status = 'pending', next_attempt_at = $1, lease_token = null, lease_until = null, prepared_only = false, updated_at = $1
+      where n.id in (select id from notifications where status = 'sending' and prepared_only and lease_until <= $1 order by lease_until limit $2 for update skip locked)`,
+    [now, limit],
+  );
   const result = await db.query<Row>(
     `update notifications n set status = 'failed', last_error_code = 'OUTCOME_UNKNOWN', last_error_message = null, lease_token = null, lease_until = null, updated_at = $1, version = n.version + 1
       where n.id in (select id from notifications where status = 'sending' and lease_until <= $1 order by lease_until limit $2 for update skip locked)
@@ -138,14 +157,42 @@ export async function markWaitingForConfig(db: Db, message: string, now: Date): 
 }
 
 /** 租下到期的记录：一个短事务，同一条同一时刻只有一个实例在发。 */
-export async function claimDueNotifications(db: Db, now: Date, leaseUntil: Date, limit: number): Promise<Notification[]> {
+export async function claimDueNotifications(db: Db, now: Date, leaseUntil: Date, limit: number, options: { preparing?: boolean } = {}): Promise<Notification[]> {
   const result = await db.query<Row>(
-    `update notifications n set status = 'sending', lease_token = gen_random_uuid(), lease_until = $2, updated_at = $1
+    `update notifications n set status = 'sending', lease_token = gen_random_uuid(), lease_until = $2, prepared_only = $4, updated_at = $1
       where n.id in (select id from notifications where status = 'pending' and next_attempt_at <= $1 and expires_at > $1 order by next_attempt_at, id limit $3 for update skip locked)
       returning ${COLUMNS}`,
-    [now, leaseUntil, limit],
+    [now, leaseUntil, limit, options.preparing === true],
   );
   return result.rows.map(toNotification);
+}
+
+/**
+ * 真正连邮件服务器之前的最后一步：核对租约还是自己的，并重新计时（一批里排在后面的不会因为前面的慢而过期）。
+ * 返回 false 表示已经被判中断或被别人接手，这一封不能发。从这一刻起进程退出就是「可能已发出」。
+ */
+export async function beginSending(db: Db, notification: Pick<Notification, "id" | "leaseToken">, leaseUntil: Date): Promise<boolean> {
+  const result = await db.query("update notifications set prepared_only = false, lease_until = $3 where id = $1 and lease_token = $2 and status = 'sending'", [notification.id, notification.leaseToken, leaseUntil]);
+  return (result.rowCount ?? 0) === 1;
+}
+
+/** 收件人改成订单现在的乘客邮箱（客人在等待发送期间改了邮箱）。 */
+export async function updateRecipient(db: Db, id: string, recipient: string): Promise<void> {
+  await db.query("update notifications set recipient = $2 where id = $1 and recipient <> $2", [id, recipient]);
+}
+
+/** 改了用车时间：还在等的、有效期就是用车时间的记录跟着改。 */
+export async function rebaseServiceExpiry(db: Db, orderId: string, serviceAt: Date, events: readonly string[]): Promise<void> {
+  await db.query("update notifications set expires_at = $2 where order_id = $1 and status = 'pending' and event = any($3::text[])", [orderId, serviceAt, events]);
+}
+
+/** 免打扰改过或清掉了：推迟中的记录马上重新判断（还在时段里的会再推迟），不用等到原来算好的时间。 */
+export async function releaseQuietHeld(db: Db, now: Date): Promise<void> {
+  await db.query(
+    `update notifications n set next_attempt_at = $1 from tenant_notification_settings s
+      where n.tenant_id = s.tenant_id and n.status = 'pending' and n.last_error_code = 'QUIET_HOURS' and n.next_attempt_at > $1 and s.updated_at > n.updated_at`,
+    [now],
+  );
 }
 
 export type NotificationOutcome =
@@ -158,7 +205,7 @@ export async function finishNotification(db: Db, notification: Pick<Notification
   const sent = outcome.status === "sent";
   const result = await db.query<Row>(
     `update notifications n set status = $3, attempts = $4, next_attempt_at = coalesce($5, n.next_attempt_at), last_error_code = $6, last_error_message = $7, message_id = coalesce($8, n.message_id), sent_at = $9,
-            lease_token = null, lease_until = null, updated_at = $10, version = n.version + 1
+            lease_token = null, lease_until = null, prepared_only = false, updated_at = $10, version = n.version + 1
       where n.id = $1 and n.lease_token = $2 and n.status = 'sending' returning ${COLUMNS}`,
     [
       notification.id,
@@ -184,7 +231,7 @@ export async function findNotification(db: Db, id: string, options: { lock?: boo
 
 /** 手动重试：直接租下（调用方已确认能重试）。 */
 export async function leaseForManualRetry(db: Db, id: string, now: Date, leaseUntil: Date): Promise<Notification> {
-  const result = await db.query<Row>(`update notifications n set status = 'sending', lease_token = gen_random_uuid(), lease_until = $3, updated_at = $2, version = n.version + 1 where n.id = $1 returning ${COLUMNS}`, [id, now, leaseUntil]);
+  const result = await db.query<Row>(`update notifications n set status = 'sending', lease_token = gen_random_uuid(), lease_until = $3, prepared_only = true, updated_at = $2, version = n.version + 1 where n.id = $1 returning ${COLUMNS}`, [id, now, leaseUntil]);
   return toNotification(result.rows[0] as Row);
 }
 
@@ -255,7 +302,7 @@ export async function saveNotificationSettings(db: Db, tenantId: string, quietHo
 /** 这家在用的管理员和调度；一个都没有时企业信息里的联系邮箱。 */
 export async function tenantRecipients(db: Db, tenantId: string): Promise<string[]> {
   const users = await db.query<{ email: string }>("select email from tenant_users where tenant_id = $1 and status = 'active' and role in ('admin', 'dispatch') order by email", [tenantId]);
-  if (users.rows.length > 0) return users.rows.map((row) => row.email);
+  if (users.rows.length > 0) return uniqueRecipients(users.rows.map((row) => row.email));
   const profile = await db.query<{ contact_email: string | null }>("select contact_email from tenant_profiles where tenant_id = $1", [tenantId]);
   const contact = profile.rows[0]?.contact_email?.trim() ?? "";
   return contact === "" ? [] : [contact];
@@ -278,15 +325,22 @@ export async function orderHasSiteLink(db: Db, orderId: string): Promise<boolean
 }
 
 /** 该发用车提醒的单：官网的、24 小时内用车、下单时离用车还有 24 小时以上、这个用车时刻还没提醒过。 */
-export async function listReminderDue(db: Db, now: Date, windowMs: number, limit: number): Promise<{ tenantId: string; orderId: string; serviceAtMs: number }[]> {
+export async function listReminderDue(db: Db, now: Date, windowMs: number, limit: number): Promise<{ tenantId: string; orderId: string; serviceAtMs: number; revision: number }[]> {
   const result = await db.query<Row>(
-    `select o.tenant_id, o.id, (extract(epoch from o.service_at) * 1000)::bigint as service_at_ms from orders o
+    `select o.tenant_id, o.id, (extract(epoch from o.service_at) * 1000)::bigint as service_at_ms,
+            (select count(*)::int from notification_events e where e.order_id = o.id and e.event = 'order.service_reminder' and (e.data ->> 'service_at_ms')::bigint = (extract(epoch from o.service_at) * 1000)::bigint) as revision
+       from orders o
       where o.status in ('confirmed', 'assigned') and o.service_at > $1 and o.service_at <= $1 + make_interval(secs => $2::double precision / 1000)
         and (o.confirmed_at is null or o.confirmed_at <= o.service_at - make_interval(secs => $2::double precision / 1000))
         and exists (select 1 from site_order_links l where l.order_id = o.id)
-        and not exists (select 1 from notification_events e where e.dedupe_key = 'order.service_reminder:' || o.id || ':' || (extract(epoch from o.service_at) * 1000)::bigint)
+        -- 这个用车时刻提醒过（或正等着发）就不再排；因为改期被作废的不算：改回原时间要重新提醒
+        and not exists (
+          select 1 from notification_events e
+           where e.order_id = o.id and e.event = 'order.service_reminder' and (e.data ->> 'service_at_ms')::bigint = (extract(epoch from o.service_at) * 1000)::bigint
+             and not (e.expanded_at is not null and exists (select 1 from notifications n where n.event_id = e.id and n.status = 'expired' and n.last_error_code = 'ORDER_STATE_CHANGED'))
+        )
       order by o.service_at limit $3`,
     [now, windowMs, limit],
   );
-  return result.rows.map((row) => ({ tenantId: row["tenant_id"], orderId: row["id"], serviceAtMs: Number(row["service_at_ms"]) }));
+  return result.rows.map((row) => ({ tenantId: row["tenant_id"], orderId: row["id"], serviceAtMs: Number(row["service_at_ms"]), revision: row["revision"] }));
 }

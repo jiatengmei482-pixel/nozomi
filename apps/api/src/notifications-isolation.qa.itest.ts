@@ -107,7 +107,7 @@ async function asAppRole<T>(tenantSetting: string | null, fn: (run: (sql: string
 test("RLS 对 NULL：tenant_id 为空的平台告警，任何租户上下文都读不到；没有设置租户上下文的连接一行都读不到", async () => {
   const eventId = await ownerInsertEvent(null, "fx.alert", null, { kind: "held", currencies: ["USD"] });
   await api.db.owner.query(`insert into notifications ${ROW_COLUMNS} values ${ROW_PLACEHOLDERS}`, rowValues(eventId, null, "staff", "secret-staff@platform.test"));
-  await api.db.owner.query(`insert into notifications ${ROW_COLUMNS} values ${ROW_PLACEHOLDERS}`, rowValues(eventId, m.b.tenantId, "tenant", "b-only@market-b.test"));
+  await api.db.owner.query(`insert into notifications ${ROW_COLUMNS} values ${ROW_PLACEHOLDERS}`, rowValues(await ownerInsertEvent(m.b.tenantId, "tenant.status_changed", null, { status: "active" }), m.b.tenantId, "tenant", "b-only@market-b.test"));
 
   for (const tenantId of [m.a.tenantId, m.b.tenantId]) {
     const rows = (await withTenantTx(api.db.pool, tenantId, (db) => db.query<{ tenant_id: string | null; recipient: string; audience: string }>("select tenant_id, recipient, audience from notifications"))).rows;
@@ -161,7 +161,7 @@ test("缺陷：租户事务写一条指向别家订单的事件（tenant_id 是�
   await site.app.notificationJobs.tick();
   smtp.reset();
   const { other } = sideOf(order.tenantId);
-  await withTenantTx(api.db.pool, other.tenantId, (db) => enqueueNotification(db, { event: "order.cancelled", tenantId: other.tenantId, orderId: order.orderId, dedupeKey: `qa-${randomUUID()}` }, api.clock.now()));
+  await assert.rejects(withTenantTx(api.db.pool, other.tenantId, (db) => enqueueNotification(db, { event: "order.cancelled", tenantId: other.tenantId, orderId: order.orderId, dedupeKey: `qa-${randomUUID()}` }, api.clock.now())), /foreign key/, "数据库直接拒绝：订单不是这一家的");
   await site.app.notificationJobs.tick();
   const stolen = smtp.messages.filter((message) => message.to.includes(GUEST_EMAIL));
   assert.equal(stolen.length, 0, `${other.tenantId} 伪造的事件让别家订单的客人收到了「订单已取消」邮件，共 ${stolen.length} 封`);

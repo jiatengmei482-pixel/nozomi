@@ -10,8 +10,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
 import { NOTIFICATION_EVENTS, type NotificationEvent } from "@nozomi/domain";
-import { withTenantTx } from "./db/context.ts";
-import { enqueueNotification } from "./repos/notifications.ts";
+import { withPlatformTx, withTenantTx } from "./db/context.ts";
+import { SMTP_SEND_DEADLINE_MS } from "./integrations/smtp.ts";
+import { beginSending, claimDueNotifications, enqueueNotification } from "./repos/notifications.ts";
+import { NOTIFICATION_LEASE_MS } from "./services/notification-jobs.ts";
 import { type TestApi, TEST_PASSWORD, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
 import { type FakeSmtp, type FakeSmtpMessage, startFakeSmtp } from "./testing/fake-integrations.ts";
@@ -321,7 +323,7 @@ test("收件人地址不合格（想注入邮件头）：一个字节都不发�
   await payFor(order.orderId);
   await site.app.notificationJobs.expandEvents(api.clock.now());
   const row = await guestRow(order.orderId);
-  await api.db.owner.query("update notifications set recipient = $2 where id = $1", [row.id, "x@example.com\r\nBcc: spy@example.com"]);
+  await api.db.owner.query("update orders set passenger = jsonb_set(passenger, '{email}', to_jsonb($2::text)) where id = $1", [order.orderId, "x@example.com\r\nBcc: spy@example.com"]);
   await site.app.notificationJobs.tick();
   assert.deepEqual([(await guestRow(order.orderId)).status, (await guestRow(order.orderId)).last_error_code], ["failed", "MESSAGE_INVALID"]);
   assert.ok(!smtp.messages.some((message) => message.to.some((to) => to.includes("spy@"))));
@@ -509,7 +511,7 @@ test("每个事件都渲染得出来、都有人收到（供应商、平台员�
   const events: { event: NotificationEvent; tenantId: string | null; orderId: string | null; data: Record<string, unknown> }[] = [
     { event: "order.rescue_assigned", tenantId: m.a.tenantId, orderId: seeded.id, data: {} },
     { event: "order.changed", tenantId: m.a.tenantId, orderId: seeded.id, data: { fields: ["flight_no", "passengers"] } },
-    { event: "order.change_pending", tenantId: m.a.tenantId, orderId: seeded.id, data: { confirm_due_at: now.toISOString() } },
+    { event: "order.change_pending", tenantId: m.a.tenantId, orderId: seeded.id, data: { confirm_due_at: new Date(now.getTime() + 1_800_000).toISOString() } },
     { event: "order.cancelled", tenantId: m.a.tenantId, orderId: seeded.id, data: {} },
     { event: "order.dispatch_overdue", tenantId: m.a.tenantId, orderId: seeded.id, data: {} },
     { event: "ticket.reply_requested", tenantId: m.a.tenantId, orderId: seeded.id, data: { ticket_no: "TK-1" } },
@@ -681,3 +683,135 @@ test("没有管理员和调度时发给企业信息的联系邮箱；都没有�
   const row = (await api.db.owner.query("select recipient, status from notifications where tenant_id = $1", [lonely.tenantId])).rows[0];
   assert.deepEqual(row, { recipient: "contact@market-c.test", status: "sent" });
 });
+
+test("进程在取走之后、开始发之前退出：没发出去，放回去由下一轮发，不算「可能已发出」、不用人处理", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.expandEvents(api.clock.now());
+  const row = await guestRow(order.orderId);
+  const now = api.clock.now();
+  const claimed = await withPlatformTx(api.db.pool, (db) => claimDueNotifications(db, now, new Date(now.getTime() - 1), 50, { preparing: true }));
+  assert.ok(claimed.some((item) => item.id === row.id));
+  await site.app.notificationJobs.tick();
+  const done = await guestRow(order.orderId);
+  assert.deepEqual([done.status, done.attempts, done.last_error_code], ["sent", 1, null], "放回去后同一轮就发了（到期的）");
+  assert.equal(smtp.messages.filter((message) => message.to.includes(GUEST_EMAIL)).length, 1);
+});
+
+test("开始发之后才退出：才算「可能已发出」", async () => {
+  const seeded = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 100 * HOUR) });
+  await enqueueNotificationFromPlatform({ event: "order.rescue_assigned", tenantId: m.a.tenantId, orderId: seeded.id, data: {} }, `crash-${randomUUID()}`);
+  await site.app.notificationJobs.expandEvents(api.clock.now());
+  const now = api.clock.now();
+  const claimed = await withPlatformTx(api.db.pool, (db) => claimDueNotifications(db, now, new Date(now.getTime() + 60_000), 50, { preparing: true }));
+  const mine = claimed.find((item) => item.orderId === seeded.id);
+  assert.ok(mine);
+  assert.equal(await withPlatformTx(api.db.pool, (db) => beginSending(db, mine, new Date(now.getTime() - 1))), true);
+  await site.app.notificationJobs.tick();
+  const row = (await rowsOf(seeded.id)).find((item) => item.id === mine.id);
+  assert.deepEqual([row.status, row.last_error_code], ["failed", "OUTCOME_UNKNOWN"]);
+});
+
+test("一批排得长也不会在发送前过期：开始发时租约重新计时；别人接手后这一方不发", async () => {
+  const seeded = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 110 * HOUR) });
+  await enqueueNotificationFromPlatform({ event: "order.rescue_assigned", tenantId: m.a.tenantId, orderId: seeded.id, data: {} }, `lease-${randomUUID()}`);
+  await site.app.notificationJobs.expandEvents(api.clock.now());
+  const now = api.clock.now();
+  const claimed = await withPlatformTx(api.db.pool, (db) => claimDueNotifications(db, now, new Date(now.getTime() + 60_000), 50, { preparing: true }));
+  const mine = claimed.find((item) => item.orderId === seeded.id);
+  assert.ok(mine);
+  assert.ok(NOTIFICATION_LEASE_MS > SMTP_SEND_DEADLINE_MS * 2, "租约要比一次发信的总时限长得多");
+  api.clock.advance(59_000);
+  const before = (await rowsOf(seeded.id)).find((item) => item.id === mine.id).lease_until as Date;
+  await withPlatformTx(api.db.pool, (db) => beginSending(db, mine, new Date(api.clock.now().getTime() + NOTIFICATION_LEASE_MS)));
+  const after = (await rowsOf(seeded.id)).find((item) => item.id === mine.id);
+  assert.ok(new Date(after.lease_until).getTime() > before.getTime());
+  assert.equal(after.prepared_only, false);
+  await api.db.owner.query("update notifications set status = 'expired', last_error_code = 'ORDER_STATE_CHANGED', lease_token = null, lease_until = null where id = $1", [mine.id]);
+});
+
+test("救援改派中：积压的客人确认邮件照发，不被永久作废", async () => {
+  const order = await placeOrder();
+  await payFor(order.orderId);
+  await site.app.notificationJobs.expandEvents(api.clock.now());
+  await api.db.owner.query("update orders set status = 'rescue_pending' where id = $1", [order.orderId]);
+  await site.app.notificationJobs.tick();
+  assert.equal((await guestRow(order.orderId)).status, "sent");
+  const tenantRows = (await rowsOf(order.orderId)).filter((row) => row.audience === "tenant" && row.event === "order.confirmed");
+  assert.ok(tenantRows.every((row) => row.status === "expired" && row.last_error_code === "ORDER_STATE_CHANGED"), "供应商的那一行已经不归它了");
+});
+
+test("改了用车时间：等待中的记录有效期跟着改，改晚了不会提前过期", async () => {
+  const seeded = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 50 * HOUR) });
+  await enqueueNotificationFromPlatform({ event: "order.rescue_assigned", tenantId: m.a.tenantId, orderId: seeded.id, data: {} }, `rebase-${randomUUID()}`);
+  await unconfigured.app.notificationJobs.tick();
+  const later = new Date(api.clock.now().getTime() + 90 * HOUR);
+  await api.db.owner.query("update orders set service_at = $2 where id = $1", [seeded.id, later]);
+  await enqueueNotificationFromPlatform({ event: "order.changed", tenantId: m.a.tenantId, orderId: seeded.id, data: { fields: ["service_time"] } }, `rebase-${randomUUID()}`);
+  await unconfigured.app.notificationJobs.tick();
+  const row = (await rowsOf(seeded.id)).find((item) => item.event === "order.rescue_assigned");
+  assert.equal(new Date(row.expires_at).getTime(), later.getTime());
+});
+
+test("清掉免打扰：推迟中的通知下一轮就发，不等到原来算好的时间；改成还覆盖现在的时段则继续等", async () => {
+  const token = await tenantTokenA();
+  const current = (await api.call("GET", "/tenant/v1/notification-settings", { token })).body;
+  const localHour = (api.clock.now().getUTCHours() + 9) % 24;
+  const pad = (hour: number): string => `${String(hour).padStart(2, "0")}:00`;
+  const saved = await ok(api.call("PUT", "/tenant/v1/notification-settings", { token, ...(current.version === 0 ? {} : { headers: { "if-match": `"${current.version}"` } }), body: { quiet_hours: { start: pad(localHour), end: pad((localHour + 3) % 24) } } }));
+  const seeded = await seedOrder(api, m, "a", { serviceAt: new Date(api.clock.now().getTime() + 300 * HOUR) });
+  await enqueueNotificationFromPlatform({ event: "order.rescue_assigned", tenantId: m.a.tenantId, orderId: seeded.id, data: {} }, `quiet-${randomUUID()}`);
+  await site.app.notificationJobs.tick();
+  assert.equal((await rowsOf(seeded.id))[0].last_error_code, "QUIET_HOURS");
+
+  api.clock.advance(1_000);
+  const longer = await ok(api.call("PUT", "/tenant/v1/notification-settings", { token, headers: { "if-match": `"${saved.version}"` }, body: { quiet_hours: { start: pad(localHour), end: pad((localHour + 5) % 24) } } }));
+  await site.app.notificationJobs.tick();
+  const stillHeld = (await rowsOf(seeded.id))[0];
+  assert.equal(stillHeld.status, "pending");
+
+  api.clock.advance(1_000);
+  await ok(api.call("PUT", "/tenant/v1/notification-settings", { token, headers: { "if-match": `"${longer.version}"` }, body: { quiet_hours: null } }));
+  await site.app.notificationJobs.tick();
+  assert.equal((await rowsOf(seeded.id))[0].status, "sent");
+});
+
+test("姓名、地址里的换行在接口层被拒（官网下单、渠道下单、改单都是单行字段）", async () => {
+  const order = await placeOrder();
+  const view = await site.call("GET", "/site/v1/order", { token: order.token });
+  for (const body of [{ passenger: { ...PASSENGER, name: "王\n小明" } }, { passenger: { ...PASSENGER, name: "王\u2028小明" } }, { dropoff_address: "东京站\r\n假通知" }]) {
+    const res = await site.call("PATCH", "/site/v1/order", { token: order.token, headers: { "if-match": `"${view.body.order.version}"` }, body });
+    assert.deepEqual([res.status, res.body.error.code], [400, "VALIDATION_FAILED"], JSON.stringify(body));
+  }
+  const token = await other.token();
+  const created = await api.call("POST", "/sales/v1/orders", { token, headers: { "idempotency-key": randomUUID() }, body: { quote_id: "QT20261007ABCDEFGHJK", passenger: { ...PASSENGER, name: "王\n小明" }, save_payment_method: true } });
+  assert.deepEqual([created.status, created.body.error.code], [400, "VALIDATION_FAILED"]);
+});
+
+test("坏事件隔离后看得见：出错到上限不再处理，运营后台有数量；只算全平台不限范围的人", async () => {
+  await api.db.owner.query("insert into notification_events (tenant_id, event, dedupe_key, data, occurred_at) values ($1, 'extra_charge.submitted', $2, $3, $4)", [m.a.tenantId, `bad-${randomUUID()}`, JSON.stringify({ dispute_until: "not-a-date" }), api.clock.now()]);
+  await site.app.notificationJobs.tick();
+  const stored = (await api.db.owner.query("select expanded_at, expand_attempts, expand_error from notification_events where data ->> 'dispute_until' = 'not-a-date' order by occurred_at desc limit 1")).rows[0];
+  assert.equal(stored.expand_attempts, 3);
+  assert.ok(stored.expanded_at);
+  assert.equal(stored.expand_error, "EXPAND_FAILED");
+  assert.ok(logLines.join("").includes("notification.expand_failed"));
+  const page = await site.call("GET", "/platform/v1/notifications", { token: m.staff.operations.token });
+  assert.equal(page.status, 200, page.text);
+  assertMatchesOpenApi("GET", "/platform/v1/notifications", page);
+  assert.ok(page.body.summary.failed_events >= 1);
+});
+
+test("改回原用车时间能重新提醒，但同一个用车时刻没作废的不会重复排", async () => {
+  const seeded = await placeOrder();
+  await payFor(seeded.orderId);
+  await site.app.notificationJobs.tick();
+  const service = new Date(api.clock.now().getTime() + 20 * HOUR);
+  await api.db.owner.query("update orders set service_at = $2, confirmed_at = $3 where id = $1", [seeded.orderId, service, new Date(service.getTime() - 40 * 24 * HOUR)]);
+  assert.ok((await site.app.notificationJobs.sweepReminders()) >= 1);
+  assert.equal(await countReminders(seeded.orderId), 1);
+  await site.app.notificationJobs.sweepReminders();
+  assert.equal(await countReminders(seeded.orderId), 1, "等着发的不重复排");
+});
+
+const countReminders = async (orderId: string): Promise<number> => (await api.db.owner.query("select 1 from notification_events where order_id = $1 and event = 'order.service_reminder'", [orderId])).rowCount ?? 0;
