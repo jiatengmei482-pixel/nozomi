@@ -753,6 +753,42 @@ test("脱敏：一单解不开只跳过这一单，内容不销毁（换回密�
   }
 });
 
+test("主密钥配错（明文不再写）：读 503，回填、改单、脱敏都不会把内容弄丢；改回原来的密钥后原样读出", async () => {
+  useCrypto(RETIRED);
+  const passenger = fictional();
+  const order = await placeOrder(passenger);
+  await payOrder(order.id);
+  const before = await row(order.id);
+  useCrypto(RETIRED, new SecretBox("another-fake-master-key-for-rotation-0123456789"));
+  const token = await ops();
+  assert.equal((await api.call("POST", `/platform/v1/orders/${order.id}/passenger/reveal`, { token })).status, 503);
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  assert.equal((await row(order.id)).passenger_enc, before.passenger_enc, "回填不能动它");
+  const patch = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(before.version) }, body: { passenger: { name: "虚构改名", phone: "+818011119999", email: "wrong-key@fictional.example.test" } } });
+  assert.equal(patch.status, 503, patch.text.slice(0, 200));
+  assert.equal((await row(order.id)).passenger_enc, before.passenger_enc, "改单被挡住，内容不变");
+  useCrypto(RETIRED);
+  assert.deepEqual((await revealOf(order.id)).passenger, passenger);
+  assert.equal((await lookup(order, passenger.email)).status, 200);
+});
+
+test("换主密钥再换回来：中间改过的单读到的是最新内容，不会读到更早的旧密文", async () => {
+  const was = fictional();
+  const order = await placeOrder(was);
+  await payOrder(order.id);
+  const rotated = new SecretBox("another-fake-master-key-for-rotation-0123456789");
+  useCrypto(DUAL, rotated);
+  const now = fictional();
+  await changePassenger(order.id, now);
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  useCrypto(DUAL);
+  assert.equal((await revealOf(order.id)).passenger.email, now.email);
+  assert.equal((await lookup(order, now.email)).status, 200);
+  assert.equal((await lookup(order, was.email)).status, 404);
+  await runPassengerBackfill(ctx, { pauseMs: 0 });
+  assert.equal((await revealOf(order.id)).passenger.email, now.email);
+});
+
 test("没配主密钥期间：已有的单发的通知、推送只有明文，密文列为空，dry-run 配上密钥后数得出；配上之后回填补上、读到的还是原内容", async () => {
   const { id, second } = await orderWithCopies();
   await drainMail();
