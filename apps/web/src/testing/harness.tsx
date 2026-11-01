@@ -21,6 +21,14 @@ type Responder = (call: ApiCall) => Response | Promise<Response>;
 
 const realFetch = globalThis.fetch;
 
+/** 登录页打开时都会问一次哪些登录方式可用（ADR 0050）。测试没有专门登记时当作「邮件没配置，只有密码」，也不算进请求记录。 */
+const LOGIN_METHODS_PATH = /^\/(platform|tenant)\/v1\/auth\/login-methods$/;
+const onlyPassword = (): Response => new Response(JSON.stringify({ email_code: false, password: true }), { status: 200, headers: { "content-type": "application/json" } });
+
+/** 测试没有换 fetch 时，登录页问可用方式也不出网。 */
+const defaultFetch = ((input: RequestInfo | URL, init?: RequestInit) => (LOGIN_METHODS_PATH.test(String(input)) ? Promise.resolve(onlyPassword()) : realFetch(input, init))) as typeof fetch;
+globalThis.fetch = defaultFetch;
+
 /** 替换全局 fetch。没有登记的接口一律让测试失败，避免悄悄打到别处。 */
 export function stubApi(routes: Record<string, Responder>): ApiCall[] {
   const calls: ApiCall[] = [];
@@ -31,6 +39,7 @@ export function stubApi(routes: Record<string, Responder>): ApiCall[] {
       headers: (init?.headers ?? {}) as Record<string, string>,
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
     };
+    if (LOGIN_METHODS_PATH.test(call.path) && routes[`${call.method} ${call.path}`] === undefined) return onlyPassword();
     calls.push(call);
     const responder = routes[`${call.method} ${call.path}`];
     if (!responder) throw new Error(`测试没有登记接口：${call.method} ${call.path}`);
@@ -49,6 +58,7 @@ export function stubApiWith(respond: (call: ApiCall & { url: URL }) => Response 
       headers: (init?.headers ?? {}) as Record<string, string>,
       body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
     };
+    if (LOGIN_METHODS_PATH.test(call.path)) return onlyPassword();
     calls.push(call);
     const response = respond({ ...call, url: new URL(call.path, "http://localhost") });
     if (response === null) throw new Error(`测试没有登记接口：${call.method} ${call.path}`);
@@ -134,7 +144,7 @@ export function narrowScreen(top = 2000): string[] {
 export function resetBrowser(): void {
   cleanup();
   while (restorers.length > 0) restorers.pop()?.();
-  globalThis.fetch = realFetch;
+  globalThis.fetch = defaultFetch;
   sessionStore.clear("tenant");
   sessionStore.clear("platform");
   localStorage.clear();

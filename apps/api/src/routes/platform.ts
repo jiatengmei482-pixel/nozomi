@@ -24,11 +24,13 @@ import {
   changePlatformPassword,
   checkPlatformInvite,
   checkPlatformResetToken,
+  platformEmailCodeLogin,
   platformLogin,
   platformLogout,
   principalCan,
   resetPlatformPassword,
 } from "../services/platform-auth.ts";
+import { currentLoginMethods, requestEmailCode } from "../services/email-login.ts";
 import { inviteStaff, issueStaffPasswordReset, listStaff, setStaffStatus } from "../services/platform-staff.ts";
 import {
   createTenant,
@@ -41,6 +43,8 @@ import {
   acceptInviteSchema,
   auditFilterSchema,
   changePasswordSchema,
+  emailCodeRequestSchema,
+  emailCodeVerifySchema,
   emailSchema,
   loginSchema,
   pageQuerySchema,
@@ -51,7 +55,7 @@ import {
   tokenCheckSchema,
   uuidSchema,
 } from "../validation.ts";
-import { auditLogJson, inviteJson, pageJson, platformUserJson, staffJson, tenantJson, tenantUserJson } from "./serialize.ts";
+import { auditLogJson, emailCodeSentJson, inviteJson, loginMethodsJson, pageJson, platformUserJson, staffJson, tenantJson, tenantUserJson } from "./serialize.ts";
 import { recoveryCodesRemaining } from "../services/platform-mfa.ts";
 
 /** 角色键：内置角色或自建角色（`custom_` + 16 位十六进制）；存不存在由业务层查（400 `ROLE_NOT_FOUND`） */
@@ -127,6 +131,28 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
       user: platformUserJson(result.user),
       must_change_password: result.user.mustChangePassword,
       // 密码对了只是第一步（ADR 0030）：接着输入动态码，或者先绑定
+      second_factor: { status: result.secondFactor },
+    };
+  });
+
+  app.get("/platform/v1/auth/login-methods", async () => loginMethodsJson(await currentLoginMethods(ctx)));
+
+  app.post("/platform/v1/auth/email-code/request", async (request, reply) => {
+    const input = parseInput(emailCodeRequestSchema, request.body, "body");
+    await requestEmailCode(ctx, request.log, "platform", input.email, request.ip);
+    return reply.code(202).send(emailCodeSentJson());
+  });
+
+  app.post("/platform/v1/auth/email-code/verify", async (request) => {
+    const input = parseInput(emailCodeVerifySchema, request.body, "body");
+    const result = await platformEmailCodeLogin(ctx, request.log, input, request.ip);
+    return {
+      access_token: result.accessToken,
+      token_type: "Bearer",
+      expires_at: result.expiresAt.toISOString(),
+      user: platformUserJson(result.user),
+      must_change_password: result.user.mustChangePassword,
+      // 验证码只代替密码（ADR 0050）：接着仍要输入动态码，或者先绑定
       second_factor: { status: result.secondFactor },
     };
   });

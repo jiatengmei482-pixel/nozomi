@@ -35,6 +35,7 @@ const PLATFORM_TABLES = [
   "channels",
   "cities",
   "compensation_tables",
+  "email_login_codes",
   "fx_fetches",
   "fx_locks",
   "fx_rates",
@@ -298,6 +299,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
   },
   [PREAUTH_DB_ROLE]: {
     audit_logs: ["INSERT"],
+    email_login_codes: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     login_throttles: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     schema_migrations: ["SELECT"],
   },

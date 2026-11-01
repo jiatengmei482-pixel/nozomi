@@ -164,14 +164,20 @@ test("除登录、接受邀请、凭令牌重置密码、核对邀请 / 重置�
     else assert.equal(res.body.error.code, "UNAUTHENTICATED");
   }
   assert.deepEqual(open.sort(), [
+    "GET /platform/v1/auth/login-methods",
+    "GET /tenant/v1/auth/login-methods",
     "POST /platform/v1/auth/accept-invite",
     "POST /platform/v1/auth/check-invite",
     "POST /platform/v1/auth/check-reset-token",
+    "POST /platform/v1/auth/email-code/request",
+    "POST /platform/v1/auth/email-code/verify",
     "POST /platform/v1/auth/login",
     "POST /platform/v1/auth/reset-password",
     "POST /tenant/v1/auth/accept-invite",
     "POST /tenant/v1/auth/check-invite",
     "POST /tenant/v1/auth/check-reset-token",
+    "POST /tenant/v1/auth/email-code/request",
+    "POST /tenant/v1/auth/email-code/verify",
     "POST /tenant/v1/auth/login",
     "POST /tenant/v1/auth/reset-password",
   ]);

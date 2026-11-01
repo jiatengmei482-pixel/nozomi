@@ -123,6 +123,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(1024),
 });
 
+export const emailCodeRequestSchema = z.object({ email: emailSchema });
+
+export const emailCodeVerifySchema = z.object({
+  email: emailSchema,
+  code: z.string().trim().regex(/^[0-9]{6}$/, "验证码是 6 位数字"),
+});
+
 /** 只核对一次性令牌（邀请、重置）还能不能用时的请求体。 */
 export const tokenCheckSchema = z.object({ token: z.string().min(1).max(200) });
 

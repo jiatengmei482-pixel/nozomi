@@ -6,13 +6,16 @@
  * - 令牌由调用方传入，这里不读不写任何存储。
  */
 import { PORTALS, type Portal } from "../lib/portal.ts";
-import type { ChangePasswordRequest, ErrorBody, LoginRequest, PortalTypes, SetPasswordRequest } from "./types.ts";
+import type { ChangePasswordRequest, EmailCodeSent, ErrorBody, LoginMethods, LoginRequest, PortalTypes, SetPasswordRequest } from "./types.ts";
 
 /** 超过这个时间没有结果按网络错误处理（设计规范：10 秒）。 */
 export const REQUEST_TIMEOUT_MS = 10_000;
 
 export const AUTH_ENDPOINTS = {
   login: { method: "POST", path: "/auth/login" },
+  loginMethods: { method: "GET", path: "/auth/login-methods" },
+  requestEmailCode: { method: "POST", path: "/auth/email-code/request" },
+  verifyEmailCode: { method: "POST", path: "/auth/email-code/verify" },
   logout: { method: "POST", path: "/auth/logout" },
   me: { method: "GET", path: "/auth/me" },
   acceptInvite: { method: "POST", path: "/auth/accept-invite" },
@@ -186,6 +189,23 @@ function isLoginResponse(value: unknown): boolean {
 
 export async function login<P extends Portal>(portal: P, request: LoginRequest): Promise<PortalTypes[P]["login"]> {
   const response = await call<PortalTypes[P]["login"]>(portal, "login", { body: request });
+  if (!isLoginResponse(response)) throw malformedResponse();
+  return response;
+}
+
+/** 现在哪些登录方式可用（ADR 0050）。 */
+export function fetchLoginMethods(portal: Portal): Promise<LoginMethods> {
+  return call(portal, "loginMethods");
+}
+
+/** 发登录验证码。不管账号存不存在应答都一样。 */
+export function requestEmailCode(portal: Portal, email: string): Promise<EmailCodeSent> {
+  return call(portal, "requestEmailCode", { body: { email } });
+}
+
+/** 用邮箱验证码登录，成功的应答和密码登录一样。 */
+export async function verifyEmailCode<P extends Portal>(portal: P, email: string, code: string): Promise<PortalTypes[P]["login"]> {
+  const response = await call<PortalTypes[P]["login"]>(portal, "verifyEmailCode", { body: { email, code } });
   if (!isLoginResponse(response)) throw malformedResponse();
   return response;
 }

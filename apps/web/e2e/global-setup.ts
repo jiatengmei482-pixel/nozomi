@@ -13,6 +13,7 @@
  *    另起一个不配置底图的 API 进程（同一个数据库、同一把签名密钥），给「没有底图」的用例取它真实的 map/config；
  *    另起一组「配了 Stripe」的 API 和前端（M3-08）：Stripe 的三项是本次运行随机生成的测试值，Stripe 的地址指向本机的假 Stripe 服务（e2e/fake-stripe.ts），
  *    假 Stripe 付款有结果后给这个 API 发签了名的通知；这组 API 信任一层代理（TRUST_PROXY_HOPS=1），付款用例各用一个文档专用地址，官网限流不和别的用例抢额度；
+ *    另起一组「邮箱验证码登录」专用的 API 和前端（M4-06），用单独的 schema：主库里别的用例会临时填写、清空 SMTP，这组里邮件可不可用只由 email-login.spec.ts 决定；
  * 4. 把管理员账号通过环境变量交给测试进程；另把本次运行的数据库连接串也交过去，
  *    需要「用临时密码创建的管理员」的用例自己再跑一次同一个命令行（见 support.ts）。
  * 返回的函数在全部测试结束后执行：停掉两个进程，删除整个 schema，不留任何数据。
@@ -30,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
-import { E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { E2E_API_MAIL_PORT, E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_MAIL_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { type FakeStripeService, startFakeStripeService } from "./fake-stripe.ts";
 import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES, E2E_SUPPORT_PHONE } from "./support.ts";
@@ -193,12 +194,15 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   await assertPortFree(E2E_API_PORT, " API", "E2E_API_PORT");
   await assertPortFree(E2E_WEB_PORT, "前端", "E2E_WEB_PORT");
   await assertPortFree(E2E_TILE_PORT, "假瓦片服务", "E2E_WEB_PORT");
+  await assertPortFree(E2E_API_MAIL_PORT, "邮箱验证码登录专用的 API", "E2E_API_PORT");
+  await assertPortFree(E2E_WEB_MAIL_PORT, "邮箱验证码登录专用的前端", "E2E_WEB_PORT");
   await assertPortFree(E2E_API_NO_MAP_PORT, "没有配置底图的 API", "E2E_API_PORT");
   await assertPortFree(E2E_FX_PORT, "假汇率源", "E2E_API_PORT");
   await assertPortFree(E2E_API_STRIPE_PORT, "配了 Stripe 的 API", "E2E_API_PORT");
   await assertPortFree(E2E_WEB_STRIPE_PORT, "配了 Stripe 的前端", "E2E_WEB_PORT");
 
   const database = await createMigratedTestDatabase();
+  const mailDatabase = await createMigratedTestDatabase();
   const started: Running[] = [];
   let tileServer: Server | null = null;
   let fxSource: FakeFxSource | null = null;
@@ -221,6 +225,7 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
       await new Promise<void>((resolve) => tileServer?.close(() => resolve()));
     }
     await database.drop();
+    await mailDatabase.drop();
     if (totpStateDir !== null) await rm(totpStateDir, { recursive: true, force: true });
   };
 
@@ -372,6 +377,24 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     started.push(stripeWeb);
     await waitUntilUp(stripeWeb, `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}/login`);
     process.env["E2E_FAKE_STRIPE_URL"] = fakeStripe.url;
+
+    // 邮箱验证码登录专用的一组（ADR 0050）：单独的 schema，配置文件里没有 SMTP；管理员还没绑定两步验证，用例自己在页面上绑定
+    const mailOrigin = `http://127.0.0.1:${E2E_API_MAIL_PORT}`;
+    const mailEnv: NodeJS.ProcessEnv = { ...apiEnv, PORT: String(E2E_API_MAIL_PORT), PUBLIC_BASE_URL: mailOrigin, DATABASE_URL: mailDatabase.url, FX_AUTO_FETCH: "false" };
+    const mailAdmin = { email: `e2e-mail-admin-${randomBytes(4).toString("hex")}@e2e.example.com`, password: `E2e-${randomBytes(18).toString("base64url")}-9z` };
+    await runAdminCreate(mailEnv, mailAdmin.email, "端到端测试管理员", mailAdmin.password);
+    const mailApi = start("API（邮箱验证码登录）", ["apps/api/src/server.ts"], REPO_ROOT, mailEnv);
+    started.push(mailApi);
+    await waitUntilUp(mailApi, `${mailOrigin}/health`);
+    const mailWeb = start(
+      "前端（邮箱验证码登录）",
+      ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(E2E_WEB_MAIL_PORT), "--strictPort"],
+      WEB_ROOT,
+      { ...process.env, NOZOMI_API_ORIGIN: mailOrigin },
+    );
+    started.push(mailWeb);
+    await waitUntilUp(mailWeb, `http://127.0.0.1:${E2E_WEB_MAIL_PORT}/login`);
+    process.env["E2E_MAIL_ADMIN"] = JSON.stringify(mailAdmin);
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;
