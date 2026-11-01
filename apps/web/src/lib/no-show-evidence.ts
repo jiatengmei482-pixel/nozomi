@@ -57,7 +57,8 @@ export function evidenceFreeWait(source: EvidenceSource): { start: string; end: 
 export function freeWaitText(source: EvidenceSource): string {
   const { start, end } = evidenceFreeWait(source);
   const zone = source.order.timezone;
-  return source.records.no_show_claim === null ? `${windowText(start, end, zone)}（按现在的落地时间算）` : `${windowText(start, end, zone)}（提交时）`;
+  if (source.records.no_show_claim !== null) return `${windowText(start, end, zone)}（提交时）`;
+  return `${windowText(start, end, zone)}（${source.order.landing === null ? "按用车时间算" : "按现在的落地时间算"}）`;
 }
 
 /** 提交之后落地时间变了（客人后来才确认）：提交时的核对结果可能不再准确，要提醒。没变返回 null。 */
