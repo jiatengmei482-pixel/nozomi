@@ -112,6 +112,8 @@ export const AUDIT_ACTIONS = [
   "upload",
   "request_supplement",
   "cancel",
+  // 运营点「查看」看乘客的完整联系方式（需求「个人信息保护」，ADR 0052）
+  "view_passenger",
   "change",
   "decide",
   "charge",

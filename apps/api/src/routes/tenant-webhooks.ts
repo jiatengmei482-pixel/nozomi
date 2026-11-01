@@ -30,7 +30,7 @@ import {
 } from "../services/tenant-webhooks.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
 import { ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
-import { deliveryJson } from "./orders.ts";
+import { deliveryJson, maskedDeliveryData } from "./orders.ts";
 
 const settingsSchema = z
   .object({
@@ -151,13 +151,13 @@ export function registerTenantWebhookRoutes(app: FastifyInstance, ctx: AppContex
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const query = parseInput(platformDeliveryListSchema, request.query, "querystring");
     const page = await listDeliveriesForPlatform(ctx, { tenantId: query.tenant_id ?? null, status: query.status ?? null, orderId: query.order_id ?? null, scope: principal.grant.scope }, query.limit, decodeTimeCursor(query.cursor ?? null));
-    return { items: page.items.map((item) => ({ ...deliveryJson(item), tenant: { id: item.tenantId, name: item.tenantName } })), next_cursor: page.nextCursor, total: page.total };
+    return { items: page.items.map((item) => ({ ...deliveryJson(item), data: maskedDeliveryData(item.eventData as Record<string, unknown>), tenant: { id: item.tenantId, name: item.tenantName } })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.get("/platform/v1/webhook-deliveries/:id", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.read" });
     const found = await getDeliveryForPlatform(ctx, resourceId(request.params, "投递记录"), principal.grant.scope);
-    return { delivery: { ...deliveryJson(found.delivery), tenant_id: found.delivery.tenantId }, attempts: found.attempts.map(attemptJson) };
+    return { delivery: { ...deliveryJson(found.delivery), data: maskedDeliveryData(found.delivery.eventData as Record<string, unknown>), tenant_id: found.delivery.tenantId }, attempts: found.attempts.map(attemptJson) };
   });
 
   app.post("/platform/v1/webhook-deliveries/:id/retry", async (request) => {

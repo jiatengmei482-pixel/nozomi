@@ -7722,6 +7722,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/passenger/reveal:
+    post:
+      tags:
+        - 订单
+      operationId: revealPlatformOrderPassenger
+      summary: 查看乘客的完整联系方式
+      description: |
+        需求「个人信息保护」（ADR 0052）：运营后台的订单列表和详情里，乘客姓名、电话、邮箱默认打码（含改单的改前改后、这一单的推送内容）。点「查看」才调这个接口，每次记一条审计（`order` / `view_passenger`，不含联系方式本身）。
+        需要操作 `order.read`，只读员工同样要走这里。限定了数据范围的员工对范围外的订单和对不存在的订单得到同样的 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 完整的联系方式
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - passenger
+                properties:
+                  passenger:
+                    $ref: "#/components/schemas/OrderPassenger"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
       tags:

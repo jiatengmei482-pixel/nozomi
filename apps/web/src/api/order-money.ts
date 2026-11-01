@@ -326,6 +326,11 @@ export function changePlatformOrder(token: string, id: string, version: number, 
   return apiRequest("PATCH", platformOrder(id), { token, body, headers: { "if-match": `"${version}"` } });
 }
 
+/** 看乘客的完整联系方式：每次记一条审计（M4-19）。 */
+export function revealPlatformPassenger(token: string, id: string): Promise<{ passenger: { name: string; phone: string; email: string } }> {
+  return apiRequest("POST", `${platformOrder(id)}/passenger/reveal`, { token });
+}
+
 export interface ProxyFulfilmentRequest {
   type: FulfilmentEventType;
   occurred_at: string;

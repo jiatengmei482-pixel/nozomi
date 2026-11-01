@@ -175,3 +175,33 @@ test("渠道详情：账号信息取不到时不停在加载态，显示加载�
   assert.equal(document.querySelector(".skeleton"), null);
   assert.ok(screen.getByRole("button", { name: "重试" }));
 });
+
+test("乘客默认打码：只读员工也要点「查看联系方式」才看到全文和邮箱，写明会记审计；失败时提示，不显示全文", async () => {
+  const user = userEvent.setup();
+  const masked = { name: "王**", phone: "+********5678", email: "g***@example.com" };
+  const calls = openApp(`/platform/orders/${ORDER_ID}`, "platform", "readonly", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, detailOf(orderOf({ passenger: masked })));
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/passenger/reveal`) return json(200, { passenger: { name: "王小明", phone: "+819012345678", email: "guest@example.com" } });
+    return null;
+  });
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  const trip = sectionText(/^行程/);
+  assert.match(trip, /王\*\* · \+\*+5678/);
+  assert.match(trip, /查看会记进审计日志/);
+  assert.doesNotMatch(trip, /王小明|guest@/);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0, "打开页面不算查看");
+  await user.click(screen.getByRole("button", { name: "查看联系方式" }));
+  await screen.findByText(/王小明 · \+819012345678 · guest@example.com/);
+  assert.equal(screen.queryByRole("button", { name: "查看联系方式" }), null);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 1);
+  resetBrowser();
+
+  openApp(`/platform/orders/${ORDER_ID}`, "platform", "readonly", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, detailOf(orderOf({ passenger: masked })));
+    if (call.method === "POST") return json(500, { error: { code: "INTERNAL_ERROR", message: "出错了", details: {} } });
+    return null;
+  });
+  await user.click(await screen.findByRole("button", { name: "查看联系方式" }));
+  assert.ok(await screen.findByText(/系统暂时无法查看/));
+  assert.match(sectionText(/^行程/), /王\*\*/);
+});

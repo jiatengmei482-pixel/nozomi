@@ -122,6 +122,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   retry: "重试",
   test: "发送测试",
   cancel: "取消",
+  view_passenger: "查看乘客联系方式",
   change: "改单",
   decide: "审核",
   charge: "扣款",

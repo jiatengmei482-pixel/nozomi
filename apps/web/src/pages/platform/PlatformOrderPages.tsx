@@ -27,6 +27,7 @@ import {
   getPlatformOrder,
   listPlatformOrders,
   retryExtraCharge,
+  revealPlatformPassenger,
   retryRefund,
 } from "../../api/order-money.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -253,6 +254,39 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** 乘客：默认打码，点「查看」才取全文（每次记审计，ADR 0052）。只读员工一样。 */
+function PassengerContact({ order }: { order: PlatformOrder }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
+  const [revealed, setRevealed] = useState<PlatformOrder["passenger"] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const show = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      setRevealed((await revealPlatformPassenger(token, order.id)).passenger);
+    } catch (err) {
+      if (!handleAuthFailure(err)) toast(failureText(err, "查看"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const shown = revealed ?? order.passenger;
+  return (
+    <>
+      {`${shown.name} · ${shown.phone}${revealed === null ? "" : ` · ${shown.email}`} · ${order.passengers} 人 ${order.luggage} 件行李`}
+      {revealed === null && (
+        <>
+          {" "}
+          <Button variant="text" size="sm" loading={busy} onClick={() => void show()}>
+            查看联系方式
+          </Button>
+          <span className="field__hint">查看会记进审计日志。</span>
+        </>
+      )}
+    </>
+  );
+}
+
 /** 代客人取消：选原因、写说明；每次改原因先取一次试算。 */
 function CancelDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
@@ -473,7 +507,7 @@ export function PlatformOrderDetailPage() {
           <Detail label={`用车时间（当地，${zone}）`}><time dateTime={order.service_time}>{order.service_local.replace("T", " ")}</time></Detail>
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
-          <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
+          <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>

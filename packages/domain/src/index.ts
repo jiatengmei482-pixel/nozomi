@@ -33,6 +33,7 @@ export * from "./second-factor.ts";
 export * from "./files.ts";
 export * from "./dispatch.ts";
 export * from "./fulfilment.ts";
+export * from "./privacy.ts";
 export * from "./webhooks.ts";
 export * from "./tenants.ts";
 export * from "./cancellation.ts";

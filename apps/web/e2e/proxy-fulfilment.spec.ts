@@ -241,5 +241,13 @@ test("代传出发、到达立即生效；代传接到客人、完成要另一�
   await expect(readerPage.getByRole("heading", { level: 1, name: `订单 ${otherNo}` })).toBeVisible();
   await expect(readerPage.getByRole("heading", { name: "代供应商回传履约" })).toHaveCount(0);
   await expect(readerPage.getByRole("button", { name: /^代传/ })).toHaveCount(0);
+
+  // M4-19：乘客默认打码，只读员工也要点「查看」，查看记审计
+  const trip = readerPage.locator("section").filter({ has: readerPage.getByRole("heading", { name: "行程" }) });
+  await expect(trip).toContainText("王**");
+  await expect(trip).not.toContainText("王小明");
+  await trip.getByRole("button", { name: "查看联系方式" }).click();
+  await expect(trip).toContainText("王小明 · +819012345678 · guest@e2e.example.com");
+  await expect.poll(async () => owner(async (client) => (await client.query("select 1 from audit_logs where resource = 'order' and resource_id = $1 and action = 'view_passenger' and actor_email = $2", [otherId, reader.email])).rowCount)).toBe(1);
   await readerContext.close();
 });
