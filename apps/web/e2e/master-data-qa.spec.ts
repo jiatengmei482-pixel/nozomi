@@ -913,6 +913,10 @@ test("名称、地址里的 HTML 经真实后端存取后只当文字显示：�
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.locator(".toast")).toContainText("已新增城市「<img src=x onerror=");
   await expectInert("新增城市后的 Toast");
+  // 保存后页面自己会回到城市列表（Toast 出现时还在途）：等它落定再跳，否则 goto 会被这次跳转打断（ERR_ABORTED）
+  await expect(page).toHaveURL(/\/platform\/master\/cities(\?|$)/);
+  await expect(page.getByRole("heading", { level: 1, name: "城市" })).toBeVisible();
+  await settled(page);
 
   // 城市列表
   await page.goto(`/platform/master/cities?q=${cityCode}`);
@@ -963,7 +967,9 @@ test("名称、地址里的 HTML 经真实后端存取后只当文字显示：�
   const airportCode = `X${randomLetters(2)}`;
   const airportName = `<b onmouseover=window.__xss=1>QA ${mark}</b><script>window.__xss=2</script>`;
   await importAirports(country, [{ iata: airportCode, name: airportName, lat: 5.26, lng: -3.93 }]);
-  await page.goto(`/platform/master/places/pending?country=${country}`);
+  // 同一个国家可能还有别的待处理机场（并行的另一轮、之前失败留下的）：用 start 指定从这个机场开始，不依赖队列里排第一
+  const airport = (await getJson<ListBody>(request, `${MASTER}/places?type=airport&code=${airportCode}`)).items[0];
+  await page.goto(`/platform/master/places/pending?country=${country}&start=${airport?.id ?? ""}`);
   await expect(page.locator(".pending__name")).toHaveText(airportName);
   await expectInert("流水线页的卡片");
   await page.getByRole("combobox", { name: /所属城市/ }).click();
@@ -974,7 +980,7 @@ test("名称、地址里的 HTML 经真实后端存取后只当文字显示：�
   await expect(page.locator(".done-list__item")).toContainText(`→ ${evil}`);
   await expectInert("流水线页处理完之后");
 
-  await page.goto(`/platform/master/places?country=${country}`);
+  await page.goto(`/platform/master/places?country=${country}&q=${airportCode}`);
   await expect(rowOf(page, airportCode)).toContainText(airportName);
   await expect(rowOf(page, airportCode)).toContainText(evil);
   await expectInert("机场列表（名称和所属城市）");
