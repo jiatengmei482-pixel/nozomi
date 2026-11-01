@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
-import { COLLEAGUE, ME, ORDER_ID, TENANT_ID, TICKET_ID, compensationOf, openApp, platformTicketDetailOf, platformTicketOf } from "../../testing/order-center-fixtures.tsx";
+import { COLLEAGUE, ME, NOT_DISPATCHED, NO_RECORDS, ORDER_ID, TENANT_ID, TICKET_ID, compensationOf, openApp, platformTicketDetailOf, platformTicketOf } from "../../testing/order-center-fixtures.tsx";
 import { apiError, assertAbsent, json, resetBrowser } from "../../testing/harness.tsx";
 
 afterEach(resetBrowser);
@@ -37,6 +37,7 @@ const orderOf = (changes: Record<string, unknown> = {}): PlatformOrder =>
   ({
     id: ORDER_ID,
     order_no: "NZ20261007ABCDEFGH",
+    ...NOT_DISPATCHED,
     status: "completed",
     category: "airport_transfer",
     service_local: "2026-10-20T10:00",
@@ -48,7 +49,7 @@ const orderOf = (changes: Record<string, unknown> = {}): PlatformOrder =>
     settlement: { total: money("19800") },
     ...changes,
   }) as unknown as PlatformOrder;
-const orderDetail = (): PlatformOrderDetail => ({ order: orderOf(), events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null });
+const orderDetail = (): PlatformOrderDetail => ({ order: orderOf(), events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues: [], exceptions: [], tickets: [], pending_proxy_completion: null, records: NO_RECORDS });
 
 test("新建：从订单进来带着订单；类型、标题、经过必填；提交后去工单详情", async () => {
   const bodies: unknown[] = [];

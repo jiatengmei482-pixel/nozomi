@@ -17,7 +17,7 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock, Skeleton } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
-import { CURRENCY_NAMES, FX_DISPLAY_ORDER, FX_FETCH_BADGES, FX_STATE_BADGES, changeText, chartModel, fetchTriggerText, rateText } from "../../lib/fx-display.ts";
+import { CURRENCY_NAMES, FX_DISPLAY_ORDER, FX_FETCH_BADGES, FX_STATE_BADGES, changeText, chartModel, fetchTriggerText, missingRateNote, rateText } from "../../lib/fx-display.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { useLoad } from "../../lib/use-load.ts";
@@ -125,6 +125,7 @@ export function FxRatesPage() {
 
   const data = overview.state.data;
   const held = data?.held ?? null;
+  const rateGap = data ? missingRateNote(base, FX_DISPLAY_ORDER.filter((code) => code !== base).map((code) => data.rates.find((entry) => entry.currency === code)?.rate ?? null)) : null;
   const chartOptions = CURRENCY_OPTIONS.filter((option) => option.value !== base);
   // 基准币种换成了正在看的币种：改看第一个
   const chartTarget = chartOptions.some((option) => option.value === chartCurrency) ? chartCurrency : (chartOptions[0]?.value ?? "JPY");
@@ -294,6 +295,7 @@ export function FxRatesPage() {
                 <SelectField label="基准币种" inline value={base} options={CURRENCY_OPTIONS} onChange={(value) => setBase(value)} />
               </div>
               <RoundingNote full={full} onToggle={() => setFull(!full)} />
+              {rateGap !== null && <p className="fx-hint">{rateGap}</p>}
               {data.locks.length > 0 && <p className="fx-hint">标 * 的是人工锁定的值，报价用的就是它；右边一列是数据源的中央汇率（照常更新，锁定期间不用于这个币种）。</p>}
               <div className="table-wrap">
                 <div className="table-scroll" tabIndex={0} role="region" aria-label="当前汇率表">

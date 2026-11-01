@@ -19,6 +19,14 @@ export const TICKET_ID = "d1d1d1d1-dddd-4ddd-8ddd-dddddddddddd";
 export const STATEMENT_ID = "51515151-5555-4555-8555-555555555555";
 export const BATCH_ID = "b2b2b2b2-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
 
+/** 运营订单详情里还没派车、不是接机的那几项（M4-19）。 */
+export const NOT_DISPATCHED = {
+  dispatch: { due_at: "2026-10-19T01:00:00.000Z", overdue: false, overdue_at: null, escalation_at: "2026-10-19T19:00:00.000Z", departure_due_at: "2026-10-20T00:00:00.000Z", departure_overdue_at: null, assigned_at: null, driver: null, vehicle: null },
+  fulfilment: { departed_at: null, arrived_at: null, arrival_distance_m: null, arrival_within_range: null, picked_up_at: null, completed_at: null, actual_minutes: null, actual_km: null, leave_requested_at: null },
+  landing: null,
+};
+export const NO_RECORDS = { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null };
+
 export type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
 
 /**

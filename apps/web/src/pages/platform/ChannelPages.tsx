@@ -85,6 +85,7 @@ export function ChannelListPage() {
       </Page>
     </AppShell>
   );
+  if (account.status === "error") return shell(<AccountLoadFailed />);
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
   const newButton = (
     <LinkButton variant="primary" to={CHANNEL_NEW_PATH}>
@@ -489,6 +490,7 @@ export function ChannelDetailPage() {
       </Page>
     </AppShell>
   );
+  if (account.status === "error") return shell(<section className="card"><AccountLoadFailed /></section>);
   if (account.status === "ready" && !canRead) return shell(NO_ACCESS);
   if (!valid || loaded.state.status === "not-found") return shell(<section className="card"><StateBlock tone="neutral" title="找不到这个渠道" description="链接可能有误。" action={<LinkButton variant="primary" to={CHANNELS_PAGE_PATH}>回到渠道列表</LinkButton>} /></section>);
   if (!detail) return shell(<section className="card">{loaded.state.status === "error" || loaded.state.status === "forbidden" ? <StateBlock title="加载失败" description="请检查网络后重试。" action={<Button variant="secondary" onClick={loaded.reload}>重试</Button>} /> : <Skeleton lines={["medium", "long", "long", "short"]} />}</section>);

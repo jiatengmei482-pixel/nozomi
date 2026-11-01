@@ -13,6 +13,7 @@ import type { TenantOrder, TenantOrderDetail } from "../../api/dispatch.ts";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
 import type { PlatformRescue, RescueQueue, TenantDeduction, TenantRescueOffer } from "../../api/rescues.ts";
 import { type ApiCall, apiError, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
+import { NOT_DISPATCHED, NO_RECORDS } from "../../testing/order-center-fixtures.tsx";
 
 afterEach(resetBrowser);
 
@@ -133,6 +134,7 @@ test("救援队列：限定了数据范围的运营（M4-10）没有「批量发
 });
 
 const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => ({
+  ...NOT_DISPATCHED,
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",
   status: "rescue_pending",
@@ -168,7 +170,7 @@ const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => (
   ...changes,
 });
 
-const platformDetail = (order: PlatformOrder, rescues: PlatformRescue[]): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues, exceptions: [], tickets: [], pending_proxy_completion: null });
+const platformDetail = (order: PlatformOrder, rescues: PlatformRescue[]): PlatformOrderDetail => ({ order, events: [], payments: [], refunds: [], changes: [], extra_charges: [], rescues, exceptions: [], tickets: [], pending_proxy_completion: null, records: NO_RECORDS });
 
 test("订单详情（运营后台）：救援记录写出违约金和应扣款项；看候选写出差价，发救援单带上选的供应商；不可抗力要写说明", async () => {
   let offered: unknown = null;

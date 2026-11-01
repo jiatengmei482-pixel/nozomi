@@ -6,7 +6,7 @@
 import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
-import type { ListPage, Money, OrderEvent, OrderFile } from "./dispatch.ts";
+import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 import type { PlatformRescue } from "./rescues.ts";
@@ -153,6 +153,10 @@ export interface PlatformOrder {
   id: string;
   order_no: string;
   status: OrderStatus;
+  /** 派车、履约时间点、落地（M4-19 起页面显示）；不是接机的单 `landing` 为 null */
+  dispatch: OrderDispatch;
+  fulfilment: OrderFulfilment;
+  landing: OrderLanding | null;
   category: ServiceCategory;
   direction: "pickup" | "dropoff" | null;
   vehicle_group_id: string;
@@ -238,6 +242,7 @@ export type PlatformExtraCharge = ExtraCharge & { customer_amount: Money; last_c
 export interface PlatformOrderDetail {
   order: PlatformOrder;
   events: OrderEvent[];
+  records: OrderRecords;
   payments: PlatformPayment[];
   refunds: PlatformRefund[];
   changes: PlatformOrderChange[];

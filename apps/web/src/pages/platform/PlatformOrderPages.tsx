@@ -4,7 +4,8 @@
  * - 详情里「异常」「工单」两块：这一单的全部异常和工单，`ticket.manage` 能从这里新建工单；
  * - 详情：行程、乘客、对外价和结算价、这一单的取消阶梯、取消结果；全部收款和退款（失败的退款财务可以重试，`payment.manage`）；改单的改前改后；事后加收（审核：`order.manage`；扣款失败的重试：`payment.manage`）；
  * - 代客人取消（`order.manage`）：选原因、写说明、先看试算；多退给客人的（免收取消费、免费的原因）提交后要另一位同事批准；
- * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）。
+ * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）；
+ * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
 import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, SERVICE_CATEGORIES, type ServiceCategory, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -60,6 +61,7 @@ import {
   extraTypeName,
   levelName,
   orderCancelReasonText,
+  orderEventNote,
   paymentStatusName,
   platformOrderPath,
   tiersText,
@@ -73,6 +75,7 @@ import { localDayInstant } from "../../lib/audit-display.ts";
 import { EXCEPTION_QUEUE_PATH, EXCEPTION_STATUS_BADGES, OVERDUE_BADGE, TICKET_STATUS_BADGES, exceptionPath, exceptionTypeName, newPlatformTicketPath, outcomeName, platformTicketPath, ticketTypeName } from "../../lib/order-center-display.ts";
 import { pageSizeOf, useCursorPages } from "../../lib/use-cursor-pages.ts";
 import { tableStateOf, uuidOrNull } from "./order-center-parts.tsx";
+import { OrderFulfilmentSections } from "./OrderFulfilmentSections.tsx";
 import { ProxyFulfilmentSection } from "./ProxyFulfilment.tsx";
 import { RescueSection } from "./RescuePages.tsx";
 
@@ -493,6 +496,8 @@ export function PlatformOrderDetailPage() {
         )}
       </section>
 
+      <OrderFulfilmentSections detail={detail} />
+
       <ProxyFulfilmentSection detail={detail} onChanged={reload} />
 
       <RescueSection order={order} rescues={detail.rescues} onChanged={reload} />
@@ -703,7 +708,7 @@ export function PlatformOrderDetailPage() {
           {detail.events.map((event, index) => (
             <li key={`${event.occurred_at}-${index}`}>
               <time dateTime={event.occurred_at}>{formatLocalDateTime(event.occurred_at)}</time>
-              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${event.reason ? `（${event.to_status === "cancelled" ? orderCancelReasonText(event.reason, order.confirmed_at !== null) : cancelReasonName(event.reason)}）` : ""}`}
+              {` ${event.from_status === null ? "" : `${ORDER_STATUS_BADGES[event.from_status].label} → `}${ORDER_STATUS_BADGES[event.to_status].label}${orderEventNote(event, order.confirmed_at !== null)}`}
               {event.source === "platform_proxy" && (
                 <>
                   {" "}

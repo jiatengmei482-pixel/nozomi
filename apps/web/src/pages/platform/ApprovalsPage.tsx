@@ -301,7 +301,7 @@ export function ApprovalsPage() {
   const items = loaded.state.data?.items ?? [];
   return shell(
     <>
-      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率、修改角色、重置别人的两步验证、修改赔付表、赔付达到阈值的工单判定、付款给供应商，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
+      <p className="page__lead">修改渠道的加价比例和加价规则、停用渠道、人工锁定或解锁汇率、修改角色、重置别人的两步验证、修改赔付表、赔付达到阈值的工单判定、代供应商回传「已完成」、付款给供应商、启用收款账户、生成转账文件，都要一个人发起、另一个人批准后才生效；发起人不能审核自己发起的。每一步都记在审计日志里。{`时间按你的本地时区（${localOffsetLabel()}）显示。`}</p>
       <div className="filter-bar" role="search">
         <SelectField inline label="显示" value={status} options={[{ value: "pending", label: "待审核" }, { value: "all", label: "全部（含历史）" }]} onChange={(value) => setParams(value === "all" ? { status: "all" } : {}, { replace: true })} />
       </div>
@@ -312,7 +312,7 @@ export function ApprovalsPage() {
           <Skeleton lines={["long", "long", "long"]} />
         )
       ) : items.length === 0 ? (
-        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="同事发起需要双人复核的改动（加价、汇率锁定、赔付表、工单判定、付款给供应商等）后，会出现在这里。" />
+        <StateBlock tone="neutral" title={status === "pending" ? "没有待审核的改动" : "还没有复核记录"} description="同事发起需要双人复核的改动（加价、汇率锁定、赔付表、工单判定、付款给供应商、启用收款账户、生成转账文件等）后，会出现在这里。" />
       ) : (
         <>
           <p className="table__muted">{`共 ${loaded.state.data.total} 条${loaded.state.data.total > items.length ? `，这里显示最近的 ${items.length} 条` : ""}`}</p>

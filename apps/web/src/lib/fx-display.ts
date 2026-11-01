@@ -59,6 +59,17 @@ export function fetchTriggerText(fetch: Pick<FxFetch, "trigger" | "triggered_by"
  * 在十进制字符串上算（@nozomi/domain 的 formatRate，0.5 远离零），不经过浮点数。完整的值在悬停提示里，页面上也可以切成「显示完整数值」。
  * 例：`20.833333333333` → `20.8333`，`1334.892169` → `1334.8922`，`0.000714030703` → `0.000714031`，`150` → `150`。
  */
+/**
+ * 当前汇率表里有「—」时的一句说明（M4-19）：新加入的币种要等数据源下一次更新才有值，不是拉取失败。没有「—」时为 null。
+ * `base` 是基准币种，`rates` 是表里的每一行（除基准币种外）的汇率。
+ */
+export function missingRateNote(base: string, rates: readonly (string | null)[]): string | null {
+  const missing = rates.filter((rate) => rate === null).length;
+  if (missing === 0) return null;
+  if (missing === rates.length) return `基准币种 ${base} 还没有汇率，所以全部显示「—」：刚加入的币种要等数据源下一次更新才有值，这不是拉取失败。到时候页面会自动有值，也可以先换一个基准币种看。`;
+  return "显示「—」的币种还没有汇率：刚加入的币种要等数据源下一次更新才有值，这不是拉取失败。";
+}
+
 export function rateText(rate: string | null): string {
   if (rate === null) return "—";
   let fraction: ReturnType<typeof rateToFraction>;
