@@ -10,7 +10,7 @@ import { userEvent } from "@testing-library/user-event";
 import { BrowserRouter } from "react-router";
 import { App } from "../../App.tsx";
 import type { SiteConfig, SiteOrder, SiteOrderEnvelope } from "../../api/site.ts";
-import { PaymentDriverContext, PaymentLoadError, createStripePaymentDriver } from "../../lib/payment-driver.ts";
+import { PaymentDriverContext, PaymentLoadError, addressHasOrderToken, createStripePaymentDriver } from "../../lib/payment-driver.ts";
 import { rememberPaymentReturn } from "../../lib/payment-return.ts";
 import { type FakeStripeJs, fakeStripeJs } from "../../testing/fake-stripe-js.ts";
 import { type ApiCall, json, resetBrowser, stubApiWith } from "../../testing/harness.tsx";
@@ -236,4 +236,93 @@ test("最后一道防线：万一地址里还有令牌，付款组件直接报�
   await assert.rejects(createStripePaymentDriver(stripe.load).mount(document.createElement("div"), { publishableKey: "pk_test_abc", clientSecret: CLIENT_SECRET }), PaymentLoadError);
   assert.equal(stripe.calls.addresses.length, 0);
   assert.equal(stripe.calls.stripe.length, 0);
+});
+
+test("防线的判断：令牌的各种写法都算；只是含 nzo_ 字样、长度不够的不算；写坏的编码不出错", () => {
+  const body = "A".repeat(43);
+  for (const address of [`https://x.test/book/order#nzo_${body}`, `https://x.test/?t=NZO_${body}`, `https://x.test/?t=nZo%5F${body}`, `https://x.test/#%6Ezo%5f${body}`, `https://x.test/?t=nzo%255F${body}`, `https://x.test/?t=nzo%25255F${body}`, `https://x.test/#nzo_${body}xyz`]) assert.equal(addressHasOrderToken(address), true, address);
+  for (const address of ["https://x.test/book/order", "https://x.test/?ref=gonzo_tours", `https://x.test/?ref=gonzo_${body}`, "https://x.test/#nzo_abc", "https://x.test/?q=%E4%B8%AD%zz%", "https://x.test/?q=100%"]) assert.equal(addressHasOrderToken(address), false, address);
+});
+
+test("换单时旧单的 Stripe 表单立刻卸载：新单读回来之前页面在加载，读回来才用新单的 client_secret 挂新表单", async () => {
+  const stripe = fakeStripeJs();
+  let respond: (response: Response) => void = () => undefined;
+  const pendingOther = new Promise<Response>((resolve) => {
+    respond = resolve;
+  });
+  const calls = stubApiWith((call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, stripeConfig);
+    if (call.url.pathname === "/site/v1/order") return bearerOf(call) === `Bearer ${OTHER_TOKEN}` ? pendingOther : json(200, envelope(orderOf("pending_payment", ORDER_A)));
+    if (call.url.pathname === "/site/v1/order/payment") return json(200, { payment: { provider: "stripe", status: "requires_payment_method", client_secret: bearerOf(call) === `Bearer ${OTHER_TOKEN}` ? "pi_b_secret_b" : CLIENT_SECRET, publishable_key: "pk_test_abc" } });
+    return null;
+  });
+  window.history.replaceState(null, "", LINK);
+  render(
+    <PaymentDriverContext.Provider value={createStripePaymentDriver(stripe.load)}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </PaymentDriverContext.Provider>,
+  );
+  await screen.findByRole("button", { name: "付款 21,780 JPY" });
+  assert.equal(stripe.calls.destroyed, 0);
+  window.history.pushState(null, "", `/book/order#${OTHER_TOKEN}`);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+  await screen.findByText("正在读取订单");
+  assert.equal(stripe.calls.destroyed, 1, "旧单的表单已经拆掉");
+  assert.equal(screen.queryByRole("button", { name: "付款 21,780 JPY" }), null);
+  assert.equal(calls.filter((call) => call.path.includes("/order/payment") && bearerOf(call) === `Bearer ${OTHER_TOKEN}`).length, 0);
+  respond(json(200, envelope(orderOf("pending_payment", ORDER_B))));
+  await screen.findByRole("heading", { level: 1, name: `订单 ${ORDER_B}` });
+  await waitFor(() => assert.equal(stripe.calls.elements.at(-1)?.clientSecret, "pi_b_secret_b"));
+  assertClean(stripe);
+});
+
+test("银行参数和令牌同时在地址上（令牌在 state）：参数一起去掉，Web 存储的记录删掉，Stripe.js 读不到 client_secret", async () => {
+  rememberPaymentReturn("pi_1", OTHER_TOKEN);
+  window.history.replaceState({ usr: { orderToken: TOKEN }, key: "t", idx: 0 }, "", `/book/order?payment_intent=pi_1&payment_intent_client_secret=${CLIENT_SECRET}&redirect_status=failed`);
+  const stripe = fakeStripeJs();
+  const calls = open(stripe, null);
+  await screen.findByRole("button", { name: "付款 21,780 JPY" });
+  assert.equal(address(), "/book/order");
+  assert.equal(sessionStorage.getItem("nozomi.payment-return"), null);
+  for (const seen of stripe.calls.addresses) assert.ok(!seen.includes("client_secret") && !seen.includes("payment_intent"), seen);
+  assert.equal(calls.filter((call) => bearerOf(call) === `Bearer ${OTHER_TOKEN}`).length, 0, "认 state 的令牌");
+  assert.equal((window.history.state as { usr: { orderToken: string } }).usr.orderToken, TOKEN);
+  assert.ok(await screen.findByText("上次付款没有完成，请重新付款。"), "地址上说失败的标记没有丢");
+});
+
+test("银行参数和令牌同时在地址上（令牌在 #）：参数去掉、记录删掉；再按规则把令牌移走", async () => {
+  rememberPaymentReturn("pi_1", OTHER_TOKEN);
+  const stripe = fakeStripeJs();
+  open(stripe, `/book/order?payment_intent=pi_1&payment_intent_client_secret=${CLIENT_SECRET}&redirect_status=succeeded#${TOKEN}`);
+  await screen.findByRole("button", { name: "付款 21,780 JPY" });
+  assert.equal(address(), "/book/order");
+  assert.equal(sessionStorage.getItem("nozomi.payment-return"), null);
+  assertClean(stripe);
+  for (const seen of stripe.calls.addresses) assert.ok(!seen.includes("client_secret"), seen);
+});
+
+test("参数写得不合格（只有 client_secret、付款编号不对）：一样清掉、删记录，不提示付款结果；已有令牌的订单照常", async () => {
+  for (const search of [`?payment_intent_client_secret=${CLIENT_SECRET}`, "?payment_intent=evil%2F..&redirect_status=succeeded", "?redirect_status=failed"]) {
+    rememberPaymentReturn("pi_1", OTHER_TOKEN);
+    open(fakeStripeJs(), `/book/order${search}`);
+    assert.ok(await screen.findByRole("heading", { level: 1, name: "查订单" }), search);
+    await waitFor(() => assert.equal(address(), "/book/order"), { timeout: 2000 });
+    assert.equal(sessionStorage.getItem("nozomi.payment-return"), null, search);
+    assert.equal(screen.queryByText(/付款结果已交给银行处理|银行返回的结果/), null, search);
+    closeDocument();
+  }
+});
+
+test("标题跟着页面走：订单页是订单号，点导航到「查订单」标题也换回来，后退又是订单号", async () => {
+  open(fakeStripeJs(), LINK, { status: () => "confirmed" });
+  await screen.findByRole("heading", { level: 1, name: `订单 ${ORDER_A}` });
+  await waitFor(() => assert.match(document.title, new RegExp(ORDER_A)));
+  await userEvent.setup().click(screen.getByRole("link", { name: "查订单" }));
+  await screen.findByRole("heading", { level: 1, name: "查订单" });
+  await waitFor(() => assert.match(document.title, /^查订单/));
+  window.history.back();
+  await screen.findByRole("heading", { level: 1, name: `订单 ${ORDER_A}` });
+  await waitFor(() => assert.match(document.title, new RegExp(ORDER_A)));
 });

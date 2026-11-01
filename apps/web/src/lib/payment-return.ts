@@ -31,6 +31,12 @@ export function paymentReturnParams(search: string): PaymentReturnParams | null 
   return { intentId, redirectStatus: params.get("redirect_status") };
 }
 
+/** 地址上有没有银行回跳留下的任何一个参数（不管合不合格）：有就要清掉，里面可能有 client_secret。 */
+export function hasPaymentReturnParams(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return ["payment_intent", "payment_intent_client_secret", "redirect_status"].some((name) => params.has(name));
+}
+
 /** 确认付款前：记下这一笔付款对应哪个订单令牌。 */
 export function rememberPaymentReturn(intentId: string, token: string, now = Date.now()): void {
   try {
