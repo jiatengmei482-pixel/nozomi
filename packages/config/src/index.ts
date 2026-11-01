@@ -4,14 +4,14 @@
  * 规则：
  * - 所有配置只从环境变量读取，代码里不写任何密钥。
  * - 启动时校验一次，缺失或格式不对立即报错退出（fail fast）。
- * - Stripe、谷歌地图哪个环境都可以不在这里配：也可以由超级管理员在运营后台填写（ADR 0041，后台的优先）；两处都没有的显示为「未配置」。
+ * - Stripe、谷歌地图、邮件发送（SMTP）哪个环境都可以不在这里配：也可以由超级管理员在运营后台填写（ADR 0041、0048，后台的优先）；两处都没有的显示为「未配置」。
  * - 测试密钥和正式密钥不能混用：非 production 环境禁止使用 Stripe live 密钥。
  * - 数据库有两个连接串（ADR 0010）：`DATABASE_URL` 是服务进程用的应用账号（最小权限）；
  *   `DATABASE_MIGRATION_URL` 是迁移账号（表的所有者），只有 `pnpm db:migrate`、`pnpm db:provision` 读它，
  *   服务进程的环境里不应该有它。两者不能是同一个账号。
  */
 import { z } from "zod";
-import { type EffectiveIntegrations, SECRET_SOURCE_LABELS, STRIPE_FIELDS, envIntegrations, maskLast4, stripeKeyIssues, stripeModeOf } from "./integration-secrets.ts";
+import { type EffectiveIntegrations, SECRET_SOURCE_LABELS, SMTP_FIELDS, STRIPE_FIELDS, type SmtpSettings, envIntegrations, isSmtpEncryption, maskLast4, smtpSettingsIssues, stripeKeyIssues, stripeModeOf } from "./integration-secrets.ts";
 
 export * from "./integration-secrets.ts";
 
@@ -198,6 +198,15 @@ const rawSchema = z.object({
   GOOGLE_GEOCODE_URL: optionalString,
   STRIPE_API_URL: optionalString,
 
+  // 邮件发送（通用 SMTP，ADR 0048）：七项一组，要么都填、要么都不填。只有 SMTP_PASSWORD 是密钥；也可以在运营后台填写（后台的优先）
+  SMTP_HOST: optionalString,
+  SMTP_PORT: optionalString,
+  SMTP_ENCRYPTION: optionalString,
+  SMTP_USERNAME: optionalString,
+  SMTP_PASSWORD: optionalString,
+  SMTP_FROM_NAME: optionalString,
+  SMTP_FROM_ADDRESS: optionalString,
+
   // 地图底图（栅格瓦片）。不是密钥：这些值会经接口下发给浏览器。没配 = 这个环境没有底图。见 ADR 0015。
   MAP_TILE_URL_TEMPLATE: optionalString,
   MAP_TILE_DARK_URL_TEMPLATE: optionalString,
@@ -281,6 +290,8 @@ export interface AppConfig {
   dataEncryptionKey: string | null;
   stripe: StripeConfig | null;
   googleMapsApiKey: string | null;
+  /** 邮件发送（ADR 0048）：服务器配置文件里的 SMTP；没配时为 null（还可以在运营后台填写） */
+  smtp: SmtpSettings | null;
   /** 路线预估（ADR 0042）：每天（东京时间）最多调用谷歌 Routes API 几次；0 = 不调用 */
   routes: { dailyLimit: number };
   /** 官网的地址搜索和反查（ADR 0044）：每天（东京时间）最多调用谷歌几次（两者合计）；0 = 不调用 */
@@ -344,6 +355,53 @@ function parseStripe(
   return mode ? { ...keys, mode } : null;
 }
 
+const SMTP_ENV_NAMES: Readonly<Record<string, string>> = {
+  [SMTP_FIELDS.host]: "SMTP_HOST",
+  [SMTP_FIELDS.port]: "SMTP_PORT",
+  [SMTP_FIELDS.encryption]: "SMTP_ENCRYPTION",
+  [SMTP_FIELDS.username]: "SMTP_USERNAME",
+  [SMTP_FIELDS.password]: "SMTP_PASSWORD",
+  [SMTP_FIELDS.fromName]: "SMTP_FROM_NAME",
+  [SMTP_FIELDS.fromAddress]: "SMTP_FROM_ADDRESS",
+};
+
+/** 服务器配置文件里的 SMTP 七项：规则和后台填写共用 `smtpSettingsIssues`（ADR 0048），这里写成配置报错的说法。报错不带填的值。 */
+function parseSmtp(env: z.output<typeof rawSchema>, issues: string[]): SmtpSettings | null {
+  const raw = [env.SMTP_HOST, env.SMTP_PORT, env.SMTP_ENCRYPTION, env.SMTP_USERNAME, env.SMTP_PASSWORD, env.SMTP_FROM_NAME, env.SMTP_FROM_ADDRESS];
+  if (raw.every((value) => value === undefined)) return null;
+  const port = env.SMTP_PORT === undefined ? undefined : /^\d{1,5}$/.test(env.SMTP_PORT) ? Number(env.SMTP_PORT) : Number.NaN;
+  const found = smtpSettingsIssues(env.APP_ENV, {
+    ...(env.SMTP_HOST === undefined ? {} : { host: env.SMTP_HOST.toLowerCase() }),
+    ...(port === undefined ? {} : { port }),
+    ...(env.SMTP_ENCRYPTION === undefined ? {} : { encryption: env.SMTP_ENCRYPTION }),
+    ...(env.SMTP_USERNAME === undefined ? {} : { username: env.SMTP_USERNAME }),
+    ...(env.SMTP_PASSWORD === undefined ? {} : { password: env.SMTP_PASSWORD }),
+    ...(env.SMTP_FROM_NAME === undefined ? {} : { fromName: env.SMTP_FROM_NAME }),
+    ...(env.SMTP_FROM_ADDRESS === undefined ? {} : { fromAddress: env.SMTP_FROM_ADDRESS }),
+  });
+  if (found.some((issue) => issue.reason === "REQUIRED")) {
+    issues.push("SMTP 需要同时配置 SMTP_HOST、SMTP_PORT、SMTP_ENCRYPTION、SMTP_USERNAME、SMTP_PASSWORD、SMTP_FROM_NAME、SMTP_FROM_ADDRESS");
+    return null;
+  }
+  for (const issue of found) {
+    const name = SMTP_ENV_NAMES[issue.field] ?? issue.field;
+    if (issue.reason === "PORT_NOT_ALLOWED") issues.push("SMTP_PORT 只能是 25、465、587、2525");
+    else if (issue.reason === "ENCRYPTION_NOT_ALLOWED") issues.push(`${env.APP_ENV} 环境的 SMTP_ENCRYPTION 不能是 none（明文只有 local / ci 可以），请用 tls 或 starttls`);
+    else if (name === "SMTP_ENCRYPTION") issues.push("SMTP_ENCRYPTION 只能是 tls、starttls 或 none");
+    else issues.push(`${name} 的写法不对或长度不合适`);
+  }
+  if (found.length > 0 || port === undefined || env.SMTP_ENCRYPTION === undefined || !isSmtpEncryption(env.SMTP_ENCRYPTION)) return null;
+  return {
+    host: (env.SMTP_HOST as string).toLowerCase(),
+    port,
+    encryption: env.SMTP_ENCRYPTION,
+    username: env.SMTP_USERNAME as string,
+    password: env.SMTP_PASSWORD as string,
+    fromName: env.SMTP_FROM_NAME as string,
+    fromAddress: env.SMTP_FROM_ADDRESS as string,
+  };
+}
+
 const DEFAULT_GOOGLE_MAPS_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 const DEFAULT_GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 const DEFAULT_GOOGLE_GEOCODE_URL = "https://geocode.googleapis.com/v4beta/geocode/location";
@@ -388,6 +446,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   const issues: string[] = [];
 
   const stripe = parseStripe(env, issues);
+  const smtp = parseSmtp(env, issues);
   const mapTiles = parseMapTiles(env, issues);
   // 正式环境不再要求配置文件里有谷歌地图和 Stripe（ADR 0041）：可以在运营后台填写，两处都没有时 /health 显示「未配置」
   const googleMapsApiKey = env.GOOGLE_MAPS_API_KEY ?? null;
@@ -421,6 +480,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     dataEncryptionKey,
     stripe,
     googleMapsApiKey,
+    smtp,
     routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
     places: { dailyLimit: env.GOOGLE_PLACES_DAILY_LIMIT },
     mapTiles,
@@ -467,16 +527,16 @@ export function loadMigrationConfig(source: Record<string, string | undefined> =
 export type IntegrationState = "configured" | "missing";
 
 export interface IntegrationStatus {
-  key: "database" | "auth" | "dataEncryption" | "stripe" | "googleMaps" | "fx";
+  key: "database" | "auth" | "dataEncryption" | "stripe" | "googleMaps" | "email" | "fx";
   label: string;
   state: IntegrationState;
   detail: string;
 }
 
 export interface IntegrationStatusOptions {
-  /** 生效的 Stripe、谷歌地图（ADR 0041）；不给时只看服务器配置文件 */
+  /** 生效的 Stripe、谷歌地图、邮件发送（ADR 0041、0048）；不给时只看服务器配置文件 */
   effective?: EffectiveIntegrations;
-  /** 说明里带不带打码后的末 4 位：只有能管理密钥的人（超级管理员）和服务器上的 `pnpm config:check` 带 */
+  /** 说明里带不带打码后的末 4 位（和 SMTP 的主机、端口）：只有能管理密钥的人（超级管理员）和服务器上的 `pnpm config:check` 带 */
   hints?: boolean;
 }
 
@@ -486,6 +546,7 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
   const hints = options.hints ?? true;
   const stripe = effective.stripe.config;
   const mapsKey = effective.googleMaps.apiKey;
+  const smtp = effective.email.config;
   const origin = (source: EffectiveIntegrations["stripe"]["source"], secret: string): string => `${SECRET_SOURCE_LABELS[source]}${hints ? `（${maskLast4(secret)}）` : ""}`;
   return [
     { key: "database", label: "数据库", state: "configured", detail: maskUrl(config.databaseUrl) },
@@ -499,6 +560,9 @@ export function integrationStatus(config: AppConfig, options: IntegrationStatusO
     mapsKey
       ? { key: "googleMaps", label: "谷歌地图", state: "configured", detail: origin(effective.googleMaps.source, mapsKey) }
       : { key: "googleMaps", label: "谷歌地图", state: "missing", detail: "未配置，里程 + 时长报价不可用" },
+    smtp
+      ? { key: "email", label: "邮件发送", state: "configured", detail: `${hints ? `${smtp.host}:${smtp.port} · ` : ""}${origin(effective.email.source, smtp.password)}` }
+      : { key: "email", label: "邮件发送", state: "missing", detail: "未配置，不能发邮件" },
     { key: "fx", label: "汇率数据源", state: "configured", detail: `${new URL(config.fx.sourceUrl).host} · 缓冲 ${basisPointsToPercentText(config.fx.bufferBp)}%` },
   ];
 }

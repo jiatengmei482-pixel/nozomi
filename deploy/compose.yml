@@ -67,6 +67,14 @@ services:
       STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      # 邮件发送（ADR 0048；可以不配，在运营后台填写，后台的优先）。七项一组，只有 SMTP_PASSWORD 是密钥
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_ENCRYPTION: ${SMTP_ENCRYPTION:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-}
       # 路线预估每天最多调用谷歌几次（不是密钥，ADR 0042）。不配 = 1000；0 = 不调用
       GOOGLE_ROUTES_DAILY_LIMIT: ${GOOGLE_ROUTES_DAILY_LIMIT:-}
       # 官网地址搜索和反查每天最多调用谷歌几次（两者合计，不是密钥，ADR 0044）。不配 = 500；0 = 不调用

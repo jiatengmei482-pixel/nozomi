@@ -478,7 +478,7 @@ test("集成详情：技术和超级管理员能看到脱敏说明，里面没�
     const token = role === "super_admin" ? rootToken : tokens.get(role)!;
     const res = await api.call("GET", "/platform/v1/integrations", { token });
     assert.equal(res.status, 200, role);
-    assert.deepEqual(res.body.items.map((i: any) => i.key), ["database", "auth", "dataEncryption", "stripe", "googleMaps", "fx"]);
+    assert.deepEqual(res.body.items.map((i: any) => i.key), ["database", "auth", "dataEncryption", "stripe", "googleMaps", "email", "fx"]);
     for (const item of res.body.items) assert.deepEqual(Object.keys(item), ["key", "label", "state", "detail"]);
     const byKey = new Map<string, any>(res.body.items.map((i: any) => [i.key, i]));
     assert.match(byKey.get("database").detail, /:•••@/);

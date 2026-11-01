@@ -39,7 +39,7 @@ export async function listIntegrationSecrets(db: Db): Promise<IntegrationSecretR
 
 /** advisory lock 的两段式键：第一段 "NZIS"（ASCII），第二段是哪一项。 */
 const ADVISORY_LOCK_NAMESPACE = 0x4e5a4953;
-const ADVISORY_LOCK_ITEM: Readonly<Record<IntegrationSecretKey, number>> = { google_maps: 1, stripe: 2 };
+const ADVISORY_LOCK_ITEM: Readonly<Record<IntegrationSecretKey, number>> = { google_maps: 1, stripe: 2, email: 3 };
 
 /**
  * 按项名排队（事务级 advisory lock，事务结束自动释放）：这一项还没有行时 `for update` 锁不住任何东西，
