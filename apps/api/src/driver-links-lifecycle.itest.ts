@@ -183,7 +183,7 @@ test("包车：按新时间 + 套餐时长 + 24 小时", async () => {
   const newAt = dayAhead(12);
   const { order } = await dispatchedOrder(oldAt);
   const changeId = await requestReschedule(order.id, newAt);
-  await api.db.owner.query("update orders set category = 'charter', direction = null, package_hours = 8 where id = $1", [order.id]);
+  await api.db.owner.query("update orders set category = 'charter', direction = null, place_id = null, package_hours = 8 where id = $1", [order.id]);
   await decide(order.id, changeId, "confirm");
   assert.deepEqual(await expiries(order.id), [expiryOf(newAt, 8)]);
   assert.equal(expiryOf(newAt, 8) - expiryOf(newAt), 8 * HOUR);
