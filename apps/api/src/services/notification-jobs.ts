@@ -512,7 +512,9 @@ export class NotificationJobs {
     if (rendered === null) return { kind: "render_failed" };
     // 客人的地址按订单现在的乘客邮箱：等待发送期间改了邮箱，旧地址不能再收到查看链接
     if (notification.audience === "guest" && order !== null && order.passengerAnonymizedAt !== null) return { kind: "render_failed" };
-    const to = notification.audience === "guest" && order !== null ? order.passenger.email.trim() : notification.recipient;
+    // 例外：运营核实后发到新邮箱的订单链接（ADR 0061），收件人就是审核通过的那个地址
+    const verifiedRecipient = notification.event === "order.view_link" && event.data["target"] === "new_email";
+    const to = notification.audience === "guest" && order !== null && !verifiedRecipient ? order.passenger.email.trim() : notification.recipient;
     if (to !== notification.recipient) await updateRecipient(db, notification, to);
     return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };
   }

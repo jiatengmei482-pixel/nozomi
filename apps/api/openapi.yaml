@@ -7903,6 +7903,120 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "503":
           $ref: "#/components/responses/PassengerEncryptionUnavailable"
+  /platform/v1/orders/{id}/view-link:
+    get:
+      tags: [ 订单 ]
+      operationId: getPlatformOrderViewLink
+      summary: 官网订单链接：能不能重发、下单邮箱（打码）、重发记录
+      description: M4-30（ADR 0061）。需要操作 `order.read`。`available` 为 false 时 `unavailable_reason` 说明原因（`NOT_SITE_ORDER` 不是官网的单、`PASSENGER_ANONYMIZED` 已脱敏、`NO_EMAIL_ON_FILE` 没有下单邮箱——这时仍可核实后发到新邮箱）。限定了数据范围的员工对范围外的订单得到 404。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 状态和最近 20 条重发记录（新的在前）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, unavailable_reason, email_masked, pending_review, requests ]
+                properties:
+                  available:
+                    type: boolean
+                  unavailable_reason:
+                    type: [ string, "null" ]
+                    enum: [ NOT_SITE_ORDER, PASSENGER_ANONYMIZED, NO_EMAIL_ON_FILE, null ]
+                  email_masked:
+                    type: [ string, "null" ]
+                  pending_review:
+                    oneOf:
+                      - $ref: "#/components/schemas/ViewLinkRequest"
+                      - type: "null"
+                  requests:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ViewLinkRequest"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/orders/{id}/view-link/resend:
+    post:
+      tags: [ 订单 ]
+      operationId: resendPlatformOrderViewLink
+      summary: 核实客人身份后重发官网订单链接
+      description: |
+        M4-30（ADR 0061）。需要操作 `order.view_link_resend`（超级管理员、运营、客服）。核实方式和原因必填，写审计（只有打码后的地址）。
+        - `target: original`：发到订单上的邮箱，直接排进通知中心；
+        - `target: new_email`：发到核实后的新邮箱（`email` 必填），发起双人复核 `order.view_link_email`，另一位有 `order.view_link_review` 的同事（超级管理员、运营）批准时才发；发起人不能自己批。订单上的邮箱不改。
+        链接在发信那一刻新签发，已经发出的链接继续有效。同一张单每小时最多 5 次（429）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ target, verification, reason ]
+              properties:
+                target:
+                  type: string
+                  enum: [ original, new_email ]
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+                  description: 核实后的新邮箱；只有 `new_email` 要填
+                verification:
+                  $ref: "#/components/schemas/ViewLinkVerification"
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "202":
+          description: 已排进通知中心（`approval` 为空）或已发起复核
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ request, approval ]
+                properties:
+                  request:
+                    $ref: "#/components/schemas/ViewLinkRequest"
+                  approval:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, status ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          status:
+                            type: string
+                      - type: "null"
+        "400":
+          description: "`VALIDATION_FAILED`：缺核实方式、原因，`new_email` 没填邮箱，`original` 带了邮箱"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`NOT_SITE_ORDER`、`PASSENGER_ANONYMIZED`、`NO_EMAIL_ON_FILE`、`SAME_AS_ORDER_EMAIL`、`VIEW_LINK_REVIEW_PENDING`（这张单已经有一条在等审核）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /platform/v1/orders/{id}/changes/{changeId}/confirm:
     post:
       tags: [ 订单中心 ]
@@ -11478,11 +11592,13 @@ paths:
   /site/v1/orders/lookup:
     post:
       tags: [ 官网 ]
-      operationId: lookupSiteOrder
-      summary: 用订单号找回订单
+      operationId: requestSiteOrderLink
+      summary: 查订单：把订单链接发到下单邮箱
       description: |
-        订单号 + 下单时的邮箱（不分大小写）或手机号（去掉空格、连字符比较）。对上了发一个新的查看令牌。
-        订单号不存在、联系方式对不上、不是官网的单、乘客信息已脱敏（结束超过保存期限，ADR 0055）的单，一律 404 `ORDER_NOT_FOUND`。每个地址 15 分钟 10 次（成功失败都算）；每个订单号每小时 10 次**失败**（对不上、不存在都算；联系方式对上的那次不受这一层限制，别人刷满了也不挡真客人）；硬上限：每个订单号滚动 24 小时失败满 100 次后，对上的也回同一个 429，直到最早的失败满 24 小时。
+        M4-30（ADR 0061）：订单号 + 下单时的邮箱。对上了，由通知中心把一条**新签发的**查看链接发到订单上的邮箱（已经发出的链接继续有效）；页面上不直接打开订单。
+        **不透露订单是否存在**：对上、对不上、订单号不存在、不是官网的单、乘客信息已脱敏，一律 202 同一个应答；查单和发信在应答之后的后台任务里，应答不等它们。
+        邮箱先做 NFKC（全角转半角）、去首尾空白、不分大小写；手机号不能用来查（链接只发邮箱，只留了手机号的客人联系客服）。
+        限速（不管订单存不存在都计，被前面拦下的不占后面的）：每个地址 15 分钟 10 次；每个订单号每小时 3 次、每天 6 次；每个邮箱每小时 3 次、每天 10 次。超限 429，应答和订单存不存在无关。
       requestBody:
         required: true
         content:
@@ -11490,36 +11606,30 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [ order_no, contact ]
+              required: [ order_no, email ]
               properties:
                 order_no:
                   type: string
                   description: NZ 开头的订单号（不分大小写）
-                contact:
+                email:
                   type: string
-                  minLength: 3
-                  maxLength: 320
-                  description: 下单时填的邮箱或手机号
+                  maxLength: 400
+                  description: 下单时填的邮箱
       responses:
-        "200":
-          description: 新的查看令牌
+        "202":
+          description: 已受理。不说明订单存不存在、邮件有没有发
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ link ]
+                required: [ status ]
                 properties:
-                  link:
-                    $ref: "#/components/schemas/SiteOrderLink"
+                  status:
+                    type: string
+                    enum: [ accepted ]
         "400":
-          description: "`VALIDATION_FAILED`：订单号的格式不对"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
-          description: "`ORDER_NOT_FOUND`：没有找到（不说是订单号不对还是联系方式不对）"
+          description: "`VALIDATION_FAILED`：订单号或邮箱的格式不对（和订单存不存在无关）"
           content:
             application/json:
               schema:
@@ -11527,7 +11637,11 @@ paths:
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
-          $ref: "#/components/responses/SiteNotOpen"
+          description: "`SITE_NOT_OPEN`：官网没有配置；`ORDER_LINK_EMAIL_UNAVAILABLE`：邮件发送没有配置，请联系客服（都和订单无关）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /site/v1/order:
     get:
       tags: [ 官网 ]
@@ -15551,6 +15665,7 @@ components:
             - order.cancel_refund
             - order.proxy_pick_up
             - order.proxy_complete
+            - order.view_link_email
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
@@ -16267,6 +16382,49 @@ components:
               expires_at:
                 type: string
                 format: date-time
+    ViewLinkVerification:
+      type: string
+      enum: [ callback_phone, email_from_order_address, order_details, payment_details, other ]
+      description: 核实客人身份的方式（ADR 0061）：回拨下单电话、客人用下单邮箱来信、核对订单细节、核对付款信息、其他（原因里写清楚）
+    ViewLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [ id, target, email_masked, verification, status, approval_id, requested_by, created_at, decided_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: string
+          enum: [ original, new_email ]
+        email_masked:
+          type: string
+          description: 打码后的收件地址
+        verification:
+          $ref: "#/components/schemas/ViewLinkVerification"
+        status:
+          type: string
+          enum: [ queued, pending_review, dismissed ]
+          description: "queued：已排进通知中心（发送结果看通知中心）；pending_review：等审核；dismissed：驳回或撤回"
+        approval_id:
+          type: [ string, "null" ]
+          format: uuid
+        requested_by:
+          type: object
+          additionalProperties: false
+          required: [ id, name ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
     ErrorResponse:
       type: object
       additionalProperties: false
@@ -17206,6 +17364,8 @@ components:
         - order.proxy_fulfilment
         - order.proxy_review
         - order.change_decide
+        - order.view_link_resend
+        - order.view_link_review
         - payment.manage
         - cancellation_policy.manage
         - cancellation_policy.review
@@ -23835,6 +23995,7 @@ components:
         - order.cancelled
         - extra_charge.submitted
         - ticket.guest_reply
+        - order.view_link
         - order.rescue_assigned
         - order.dispatch_overdue
         - order.departure_overdue

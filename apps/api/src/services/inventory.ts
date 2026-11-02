@@ -31,7 +31,7 @@ import { type AuditValue, insertAuditLog } from "../repos/audit-logs.ts";
 import { type StoredInventoryDay, clearInventoryDays, findInventoryMode, inventoryAhead, listInventoryDays, setInventoryMode as setInventoryModeRow, upsertInventoryTotals } from "../repos/inventory.ts";
 import { type Product, findProduct, updateProduct as bumpProduct } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { consoleOrigin, tenantActor } from "./audit.ts";
+import { tenantWriteOrigin } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { type ProductWriter, readTx, writeTx } from "./products.ts";
 
@@ -136,7 +136,7 @@ export function setInventoryMode(ctx: AppContext, writer: ProductWriter, product
     if (context.mode === mode) return { version: context.product.version, mode };
     await setInventoryModeRow(db, tenantId, productId, mode);
     const updated = await bumpProduct(db, tenantId, productId, {}, now);
-    await insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+    await insertAuditLog(db, tenantWriteOrigin(writer, now), {
       tenantId,
       resource: "product",
       resourceId: productId,
@@ -186,7 +186,7 @@ export async function applyInventoryChanges(db: Db, writer: ProductWriter, conte
   await upsertInventoryTotals(db, tenantId, productId, changed.flatMap((change) => (change.total === null ? [] : [{ date: change.date, total: change.total }])), now);
   await clearInventoryDays(db, tenantId, productId, changed.flatMap((change) => (change.total === null ? [change.date] : [])));
   const updated = await bumpProduct(db, tenantId, productId, {}, now);
-  await insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+  await insertAuditLog(db, tenantWriteOrigin(writer, now), {
     tenantId,
     resource: "inventory",
     resourceId: productId,

@@ -2,14 +2,14 @@
  * 端到端：官网下单（M3-05，ADR 0032）。真实浏览器 → 前端 → 真实 API（`/site/v1`，官网的渠道和 API 客户端由 global-setup 经运营后台接口建好）→ 真实 PostgreSQL，不 mock 接口。
  * 客人在 /book 询价（日期时间按东京的「现在」往后推）→ 选车 → 填订单 → 订单页：端到端测试里没有 Stripe，页面写「付款暂未开放」、订单待支付；
  * 「付款」由用例用迁移账号直接在库里把这一单记成已付款、已确认（支付替身：等同于收到 Stripe 的付款成功通知，只在测试里构造）→ 刷新后点「我已落地」（验收标准）。
- * 另外用订单号 + 邮箱找回订单；每一步在 320 / 360 / 400 宽不横向滚动，亮色、暗色各过一遍 axe。
+ * 另外看「查订单」页（链接发到邮箱的流程见 site-lookup-email.spec.ts），用邮件里那种链接打开订单；每一步在 320 / 360 / 400 宽不横向滚动，亮色、暗色各过一遍 axe。
  * M3-11（pages/site-booking.md 11.2）：查询后焦点到结果、订单页「当下要做的事」排第一、取消政策的客人说法和「不退款」、
  * 日期「…月…日（周…）」、「复制链接」按钮、改单表单的字段级错误、顶栏当前页和 320px 的两行排法。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
-import { E2E_SUPPORT_PHONE } from "./support.ts";
+import { E2E_SUPPORT_PHONE, issueSiteLink } from "./support.ts";
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
@@ -104,7 +104,7 @@ async function expectAccessibleBothThemes(page: Page, what: string): Promise<voi
   await page.emulateMedia({ colorScheme: "light" });
 }
 
-test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支付）→ 订单页 → 付款后点「我已落地」；用订单号和邮箱找回订单", async ({ page, request, browser }) => {
+test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支付）→ 订单页 → 付款后点「我已落地」；在查订单页，用邮件里那种链接打开订单", async ({ page, request, browser }) => {
   test.setTimeout(120_000);
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world);
@@ -210,20 +210,18 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await expectAccessibleBothThemes(page, "订单页（改单表单出错）");
   await page.getByRole("button", { name: "不改了" }).click();
 
-  // 换一个浏览器上下文：没有链接，用订单号 + 邮箱找回
+  // 换一个浏览器上下文：没有链接。查订单只把链接发到下单邮箱（ADR 0061，收信到打开见 site-lookup-email.spec.ts）；这里看页面，再用邮件里那种链接打开
   const otherContext = await browser.newContext();
   const other = await otherContext.newPage();
   await other.setViewportSize({ width: 360, height: 740 });
   await other.goto("/book/order");
   await expect(other.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
   await other.getByLabel("订单号").fill(orderNo.toLowerCase());
-  await other.getByLabel("下单时的邮箱或手机号").fill("wrong@e2e.example.com");
-  await other.getByRole("button", { name: "查找订单" }).click();
-  await expect(other.getByText("没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。")).toBeVisible();
+  await other.getByLabel("下单时的邮箱").fill(email.toUpperCase());
+  await expect(other.getByRole("heading", { level: 2, name: "收不到邮件？" })).toBeVisible();
   await expectNoOverflow(other, "查订单");
   await expectAccessibleBothThemes(other, "查订单");
-  await other.getByLabel("下单时的邮箱或手机号").fill(email.toUpperCase());
-  await other.getByRole("button", { name: "查找订单" }).click();
+  await other.goto(`/book/order#${await issueSiteLink(orderNo)}`);
   await expect(other.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   await expect(other.getByText(/您已确认落地/)).toBeVisible();
   await otherContext.close();

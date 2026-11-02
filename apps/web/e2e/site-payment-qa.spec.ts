@@ -11,7 +11,7 @@ import { CENTER, type Supplier, type World, createProductByApi, createSupplier, 
 import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
-const LOST = "付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。";
+const LOST = "付款结果已交给银行处理。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱，打开后可以看到付款结果；请不要重复付款。";
 const CONFIRMED = "付款成功，订单已确认。派车后这里会显示司机和车辆。";
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },

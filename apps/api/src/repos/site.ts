@@ -182,7 +182,8 @@ export async function findOrderNames(db: Db, ids: { cityId: string; placeId: str
   return { city, place, vehicleGroup: group };
 }
 
-export async function insertSiteOrderLink(db: Db, link: { orderId: string; tokenHash: string; issuedVia: "order" | "lookup" | "email"; createdAt: Date; expiresAt: Date }): Promise<void> {
+/** `lookup` 是 ADR 0061 之前「查订单直接打开」时发的，之后不再产生；查订单的链接走邮件（`email`）。 */
+export async function insertSiteOrderLink(db: Db, link: { orderId: string; tokenHash: string; issuedVia: "order" | "email"; createdAt: Date; expiresAt: Date }): Promise<void> {
   await db.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) values ($1, $2, $3, $4, $5)", [link.orderId, link.tokenHash, link.issuedVia, link.createdAt, link.expiresAt]);
 }
 
@@ -218,16 +219,4 @@ export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: s
     )
   ).rows[0];
   return row === undefined ? null : { orderId: row.id, tenantId: row.tenant_id, passengerEnc: row.passenger_enc, passengerPlain: row.passenger, emailBidx: row.passenger_email_bidx, phoneBidx: row.passenger_phone_bidx, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
-}
-
-/** 这个订单号（哈希）在 `since` 之后各次找回失败的时间。 */
-export async function listLookupFailures(db: Db, bucket: string, since: Date): Promise<Date[]> {
-  const rows = await db.query<{ failed_at: Date }>("select failed_at from site_lookup_failures where bucket = $1 and failed_at > $2 order by failed_at", [bucket, since]);
-  return rows.rows.map((row) => row.failed_at);
-}
-
-/** 记一次找回失败；顺手删掉所有超过窗口的旧记录（它们已经不影响任何判断）。 */
-export async function insertLookupFailure(db: Db, bucket: string, failedAt: Date, expiredBefore: Date): Promise<void> {
-  await db.query("delete from site_lookup_failures where failed_at <= $1", [expiredBefore]);
-  await db.query("insert into site_lookup_failures (bucket, failed_at) values ($1, $2)", [bucket, failedAt]);
 }

@@ -319,7 +319,7 @@ test("从银行验证页回来却取不回令牌（换了浏览器、记的是�
     if (saved !== null) sessionStorage.setItem(RETURN_KEY, JSON.stringify(saved));
     const stripe = fakeStripeJs();
     const calls = openOrderPage(stripe, undefined, { entry: { pathname: "/book/order", search: "?payment_intent=pi_1&payment_intent_client_secret=pi_1_secret_2&redirect_status=succeeded" } });
-    assert.ok(await screen.findByText(/付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。/));
+    assert.ok(await screen.findByText(/付款结果已交给银行处理。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱，打开后可以看到付款结果；请不要重复付款。/));
     assert.ok(screen.getByRole("heading", { level: 1, name: "查订单" }));
     assert.equal(sessionStorage.getItem(RETURN_KEY), null);
     assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/order")).length, 0);
@@ -417,7 +417,7 @@ test("缺陷：确认时才发现付款已取消，「不能付款了」的提�
 test("缺陷：地址说付款失败又取不回令牌：说银行返回没有成功、怎样找回订单，不说「不要重复付款」，也不提不存在的确认邮件；其他回跳状态提示不变", async () => {
   const stripe = fakeStripeJs();
   const calls = openOrderPage(stripe, undefined, { entry: { pathname: "/book/order", search: "?payment_intent=pi_1&payment_intent_client_secret=pi_1_secret_2&redirect_status=failed" } });
-  const text = await screen.findByText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
+  const text = await screen.findByText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱。订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
   assert.doesNotMatch(text.textContent ?? "", /不要重复付款|已交给银行|邮件里/);
   assert.ok(screen.getByRole("heading", { level: 1, name: "查订单" }));
   assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/order")).length, 0);

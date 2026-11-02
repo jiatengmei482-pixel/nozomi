@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { withPlatformTx } from "../../api/src/db/context.ts";
 import { createPool } from "../../api/src/db/pool.ts";
+import { newSiteLink } from "../../api/src/services/site.ts";
 import { platformApiLogin, uiSecondFactor } from "./mfa.ts";
 
 /** 假汇率源给的汇率（global-setup 起的本机假服务器；端到端测试里现场给的数，不是业务数据）。 */
@@ -406,4 +407,23 @@ export async function settleAnimations(page: Page): Promise<void> {
         .map((animation) => animation.finished.catch(() => undefined)),
     ),
   );
+}
+
+/**
+ * 给一张官网的单签一条查看链接，返回令牌原文（只在内存里）。ADR 0061 之后查订单只把链接发到邮箱，不在应答里给；
+ * 需要「客人手里的链接」又不测发信的用例用它。签法和通知中心发信时一样（`newSiteLink`，库里只存哈希），只写本次运行的临时 schema。
+ */
+export async function issueSiteLink(orderNo: string): Promise<string> {
+  const url = process.env["E2E_DATABASE_OWNER_URL"];
+  if (!url) throw new Error("global-setup 没有准备好数据库连接");
+  const client = createPool(url, { max: 1 });
+  try {
+    const now = new Date();
+    const link = newSiteLink(now, now);
+    const inserted = await client.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) select o.id, $2, 'email', $3, $4 from orders o where o.order_no = $1 and o.status <> 'rescued' returning id", [orderNo, link.tokenHash, now, link.expiresAt]);
+    if (inserted.rowCount !== 1) throw new Error(`没有找到订单 ${orderNo}`);
+    return link.token;
+  } finally {
+    await client.end();
+  }
 }

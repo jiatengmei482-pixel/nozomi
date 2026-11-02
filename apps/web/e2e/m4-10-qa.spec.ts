@@ -39,7 +39,7 @@ test("官网查订单：链接格式不对（# 后面被改坏、被截断）也
   for (const hash of ["#bogus-link-value", "#nzo_abc", "#%E4%B8%AD"]) {
     await page.goto(`/book/order${hash}`);
     await expect(page.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
-    await expect(page.getByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。")).toBeVisible();
+    await expect(page.getByText("订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。")).toBeVisible();
   }
   await page.goto("/book/order#");
   await expect(page.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();

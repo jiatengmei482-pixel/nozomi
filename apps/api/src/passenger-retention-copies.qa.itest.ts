@@ -15,6 +15,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
+import { newSiteLink } from "./services/site.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
 import {
   DAY, type Seeded, endAt, insertException, insertExtraCharge, insertGuestNotification, insertPayment, insertRescue, insertStatement, insertWebhookDelivery, isDone, setStatementStatus, tokyoDaysAgo,
@@ -361,10 +362,11 @@ test("查看令牌：找回得到的链接至少有效 1 天——第 180 天找
     await endAt(api, id, tokyoDaysAgo(api, 180));
     await tick();
     assert.equal(await isDone(api, id), false, "第 180 天还不动");
-    const found = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.71", body: { order_no: orderNo, contact: "qa.shiomi2@example.test" } });
-    assert.equal(found.status, 200, found.text);
-    const token = found.body.link.token;
-    assert.ok(new Date(found.body.link.expires_at).getTime() > api.clock.now().getTime());
+    // 第 180 天客人在「查订单」申请了链接（ADR 0061：通知中心发信时新签发；这里直接按同一个规则签一条，不经邮件）
+    const issued = newSiteLink(api.clock.now(), api.clock.now());
+    await api.db.owner.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) values ($1, $2, 'email', $3, $4)", [id, issued.tokenHash, api.clock.now(), issued.expiresAt]);
+    const token = issued.token;
+    assert.equal((await site.call("GET", "/site/v1/order", { token })).status, 200, `orderNo ${orderNo}：脱敏前链接能用`);
     await api.db.owner.query("update orders set messaging = $2::jsonb where id = $1", [id, JSON.stringify({ app: "line", handle: "qa-shiomi-line" })]);
     api.clock.advance(DAY - 60_000 - 1_000);
     const nextDayMidnight = tokyoDaysAgo(api, 0, "00:00:30");

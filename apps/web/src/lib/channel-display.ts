@@ -4,7 +4,7 @@
  */
 import type { CancellationPolicyRule } from "../api/order-money.ts";
 import { POLICY_CATEGORY_NAMES, cancelReasonName, levelName, tiersText } from "./order-money-display.ts";
-import { CHANNEL_RULES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus } from "@nozomi/domain";
+import { CHANNEL_RULES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { SelectableCity } from "../api/city-options.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
@@ -54,6 +54,7 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "order.cancel_refund": "代取消（多退给客人）",
   "order.proxy_pick_up": "代供应商回传「已接到客人」",
   "order.proxy_complete": "代供应商回传「已完成」",
+  "order.view_link_email": "把官网订单链接发到新邮箱",
   "rescue.manual_assign": "救援改派：人工指定供应商",
   "compensation_table.update": "修改客人赔付表",
   "ticket.decision": "工单判定（赔付达到复核阈值）",
@@ -239,6 +240,16 @@ function proxyPickUpChanges(after: Record<string, unknown>): { label: string; be
 }
 
 /** 代传「已完成」（M4-18）：发生时间、这一单进账单的结算价、包车的实际时长和里程。 */
+/** 发到新邮箱（ADR 0061）：只有打码后的地址，核实方式按中文名；原因在发起说明里。 */
+function viewLinkEmailChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const verification = typeof after["verification"] === "string" ? (VIEW_LINK_VERIFICATION_NAMES[after["verification"] as ViewLinkVerification] ?? after["verification"]) : "—";
+  return [
+    { label: "订单", before: "—", after: typeof after["order_no"] === "string" ? after["order_no"] : "—" },
+    { label: "收件邮箱", before: typeof after["order_email_masked"] === "string" ? `${after["order_email_masked"]}（下单邮箱）` : "没有下单邮箱", after: typeof after["email_masked"] === "string" ? after["email_masked"] : "—" },
+    { label: "核实方式", before: "—", after: verification },
+  ];
+}
+
 function proxyCompleteChanges(after: Record<string, unknown>): { label: string; before: string; after: string }[] {
   const zone = typeof after["timezone"] === "string" ? after["timezone"] : "UTC";
   const currency = typeof after["settlement_currency"] === "string" ? after["settlement_currency"] : null;
@@ -348,6 +359,7 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (kind === "order.cancel_refund") return refundChanges(after);
   if (kind === "order.proxy_pick_up") return proxyPickUpChanges(after);
   if (kind === "order.proxy_complete") return proxyCompleteChanges(after);
+  if (kind === "order.view_link_email") return viewLinkEmailChanges(after);
   if (kind === "rescue.manual_assign") return manualAssignChanges(before, after);
   if (kind === "platform_role.update") return roleChanges(before, after);
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];

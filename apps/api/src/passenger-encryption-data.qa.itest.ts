@@ -25,7 +25,7 @@ import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./te
 import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { endAt, retentionCtx, tokyoDaysAgo } from "./testing/retention-fixtures.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { type SiteApi, lookupQueued, resetLinkLimits, siteApi } from "./testing/site.ts";
 
 const HOUR = 3_600_000;
 const DUAL: PassengerEncryptionSettings = { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true };
@@ -139,7 +139,11 @@ async function payOrder(orderId: string): Promise<void> {
 const ops = (): Promise<string> => platformLogin(api, m.staff.operations.email);
 const row = async (id: string): Promise<any> => (await api.db.owner.query("select tenant_id, passenger, passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, passenger_anonymized_at, status, version, updated_at from orders where id = $1 and status <> 'rescued'", [id])).rows[0];
 const revealOf = async (id: string): Promise<any> => ok(api.call("POST", `/platform/v1/orders/${id}/passenger/reveal`, { token: await ops() }));
-const lookup = (order: { order_no: string; ip: string }, contact: string) => site.call("POST", "/site/v1/orders/lookup", { ip: order.ip, body: { order_no: order.order_no, contact } });
+/** 查订单（ADR 0061）：应答一律 202，对没对上看有没有排信（这里测的是核对，先清掉订单号、邮箱的限速） */
+const lookup = async (order: { order_no: string; ip: string }, email: string): Promise<{ queued: boolean }> => {
+  await resetLinkLimits(api);
+  return lookupQueued(api, site, { orderNo: order.order_no, email, ip: order.ip });
+};
 const tenantSideOf = async (id: string): Promise<"a" | "b"> => ((await row(id)).tenant_id === m.a.tenantId ? "a" : "b");
 const eraseCipher = (id: string): Promise<unknown> => api.db.owner.query("update orders set passenger_enc = null, passenger_email_bidx = null, passenger_phone_bidx = null, passenger_name_bidx = null where id = $1", [id]);
 
@@ -244,8 +248,8 @@ test("回填时改乘客：改单等回填这一行提交后接着做；最后�
   assert.deepEqual(JSON.parse(crypto.openForVerify("order", current.tenant_id, order.id, current.passenger_enc) as string), now, "密文是新值");
   assert.equal(current.passenger_email_bidx, crypto.index(current.tenant_id, "email", now.email));
   assert.equal((await revealOf(order.id)).passenger.email, now.email);
-  assert.equal((await lookup(order, now.email)).status, 200);
-  assert.equal((await lookup(order, was.email)).status, 404);
+  assert.equal((await lookup(order, now.email)).queued, true);
+  assert.equal((await lookup(order, was.email)).queued, false);
   assert.deepEqual(alerts, [], "没有出现密文和明文对不上");
   assert.equal((await verifyPassengerEncryption(ctx)).mismatched.orders, 0);
 });
@@ -324,7 +328,7 @@ test("回填时救援改派：改派等回填提交；新一行按新租户加�
   assert.equal(crypto.openForVerify("order", rescuer.tenantId, order.id, old.passenger_enc), null, "新租户解不开旧一行");
   assert.notEqual(fresh.passenger_email_bidx, old.passenger_email_bidx);
   assert.deepEqual([(await verifyPassengerEncryption(ctx)).undecryptable.orders, (await verifyPassengerEncryption(ctx)).mismatched.orders], [0, 0]);
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
 });
 
 test("旧代码只写明文：四张表的密文都作废，读到新值不读旧密文；回填后是新内容；只改别的列、写回相同内容不作废", async () => {
@@ -572,8 +576,7 @@ test("开关来回切：读密文和读明文，在 reveal、供应商详情、�
     reveal: (await revealOf(order.id)).passenger,
     tenant: (await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m[side].adminEmail) }))).order.passenger,
     guest: (await ok(site.call("GET", "/site/v1/order", { ip: order.ip, token: order.token }))).order?.passenger ?? null,
-    lookupEmail: (await lookup(order, passenger.email.toUpperCase())).status,
-    lookupPhone: (await lookup(order, "+81 80-5555-6666")).status,
+    lookupEmail: (await lookup(order, passenger.email.toUpperCase())).queued,
   });
   const cipher = await surfaces();
   useCrypto(PLAIN_READ);
@@ -606,7 +609,7 @@ for (const [label, settings] of [["双写", DUAL], ["明文不再写", RETIRED]]
       const passenger = { ...fictional(), name };
       const order = await placeOrder(passenger);
       assert.equal((await revealOf(order.id)).passenger.name, name);
-      assert.equal((await lookup(order, passenger.email)).status, 200);
+      assert.equal((await lookup(order, passenger.email)).queued, true);
       await payOrder(order.id);
       const next = { ...fictional(), name: `${name.slice(0, 50)}改` };
       await changePassenger(order.id, next);
@@ -769,7 +772,7 @@ test("主密钥配错（明文不再写）：读 503，回填、改单、脱敏�
   assert.equal((await row(order.id)).passenger_enc, before.passenger_enc, "改单被挡住，内容不变");
   useCrypto(RETIRED);
   assert.deepEqual((await revealOf(order.id)).passenger, passenger);
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
 });
 
 test("换主密钥再换回来：中间改过的单读到的是最新内容，不会读到更早的旧密文", async () => {
@@ -783,8 +786,8 @@ test("换主密钥再换回来：中间改过的单读到的是最新内容，�
   await runPassengerBackfill(ctx, { pauseMs: 0 });
   useCrypto(DUAL);
   assert.equal((await revealOf(order.id)).passenger.email, now.email);
-  assert.equal((await lookup(order, now.email)).status, 200);
-  assert.equal((await lookup(order, was.email)).status, 404);
+  assert.equal((await lookup(order, now.email)).queued, true);
+  assert.equal((await lookup(order, was.email)).queued, false);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
   assert.equal((await revealOf(order.id)).passenger.email, now.email);
 });

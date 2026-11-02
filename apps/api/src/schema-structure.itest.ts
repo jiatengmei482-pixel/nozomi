@@ -71,6 +71,7 @@ const PLATFORM_TABLES = [
   "ticket_compensations",
   "ticket_notes",
   "vehicle_groups",
+  "view_link_requests",
 ];
 /** 迁移写入的系统常量（不是业务数据）：角色清单。其余的表在空库里必须是 0 行。 */
 const SEEDED_CONSTANTS: Readonly<Record<string, number>> = { platform_roles: 10, tenant_roles: 5 };
@@ -283,6 +284,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     site_order_links: ["INSERT", "SELECT"],
     // 官网找回订单的失败记录（ADR 0032）：一次失败一行，超过 24 小时的写入时顺手删
     site_lookup_failures: ["DELETE", "INSERT", "SELECT"],
+    // 运营重发官网订单链接（ADR 0061）：一次一行；审核有结论时改状态、清掉新邮箱
+    view_link_requests: ["INSERT", "SELECT", "UPDATE"],
     // 供应商入驻（ADR 0028）：合同版本、状态记录、履约事件、提醒只追加；资质只改审核结论；每日评分同一天重算时覆盖；企业信息只读；文件只追加
     tenant_contracts: ["INSERT", "SELECT"],
     tenant_documents: ["SELECT", "UPDATE"],
