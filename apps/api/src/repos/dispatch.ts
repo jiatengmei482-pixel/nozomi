@@ -152,7 +152,7 @@ export interface DriverLink {
   createdAt: Date;
   expiresAt: Date;
   revokedAt: Date | null;
-  revokeReason: "reassigned" | "reissued" | "manual" | "rescue" | "email_changed" | null;
+  revokeReason: "reassigned" | "reissued" | "manual" | "rescue" | "email_changed" | "cancelled" | null;
   lastUsedAt: Date | null;
 }
 
@@ -185,6 +185,19 @@ export async function insertDriverLink(db: Db, tenantId: string, link: { purpose
 export async function revokeDriverLinks(db: Db, tenantId: string, orderId: string, reason: "reassigned" | "reissued" | "manual", now: Date): Promise<number> {
   const result = await db.query("update driver_links set revoked_at = $3, revoke_reason = $4 where tenant_id = $1 and order_id = $2 and revoked_at is null", [tenantId, orderId, now, reason]);
   return result.rowCount ?? 0;
+}
+
+/**
+ * 改期同意生效（ADR 0060「司机链接的有效期跟随订单当前用车时间」）：这一单没吊销、没过期的链接按新的用车时间重算，延后和提前都一样。
+ * 已吊销的、已过期的不复活（`withDriver` 判断可用也是 `expires_at > 现在`）。平台事务里，订单已锁。
+ */
+export async function recalculateDriverLinkExpiry(db: Db, tenantId: string, orderId: string, expiresAt: Date, now: Date): Promise<void> {
+  await db.query("update driver_links set expires_at = $3 where tenant_id = $1 and order_id = $2 and revoked_at is null and expires_at > $4", [tenantId, orderId, expiresAt, now]);
+}
+
+/** 订单取消：这一单的链接全部作废（调度员的和邮件的）。平台事务里，和取消同一个事务。 */
+export async function revokeDriverLinksOnCancel(db: Db, tenantId: string, orderId: string, now: Date): Promise<void> {
+  await db.query("update driver_links set revoked_at = $3, revoke_reason = 'cancelled' where tenant_id = $1 and order_id = $2 and revoked_at is null", [tenantId, orderId, now]);
 }
 
 /**

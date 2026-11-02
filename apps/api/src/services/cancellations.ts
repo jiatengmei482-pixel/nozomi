@@ -33,6 +33,7 @@ import { PaymentProviderError, type ProviderPayment } from "../integrations/paym
 import type { Approval } from "../repos/approvals.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
+import { revokeDriverLinksOnCancel } from "../repos/dispatch.ts";
 import { findOpenChange, listOrderChanges, updateOrderChange } from "../repos/order-changes.ts";
 import { type Order, type OrderCancelPolicy, type OrderEventActor, type OrderSale, findOrderForPlatform, findOrderPayment, findSale, insertOrderEvent, releaseSoldInventory, updateOrderStatus } from "../repos/orders.ts";
 import { type OrderRefund, listOrderRefunds, supersedeFailedRefunds } from "../repos/refunds.ts";
@@ -156,6 +157,8 @@ export async function cancelPaidOrderInTx(
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "cancelled", actor: who.actor, reason: input.reason, occurredAt: now, detail: { fee_bp: quote.feeBp, waived: input.waiveFee, ...(who.origin === null ? {} : { by: who.origin.actor.email }) } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.cancelled", orderId: order.id, data: { reason: input.reason, from_status: order.status } }, now);
   await enqueueNotification(db, { event: "order.cancelled", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.cancelled:${order.tenantId}:${order.id}` }, now);
+  // 所有付过款的取消都走这里（渠道、运营、复核批准、工单、救援中）：这一单的司机链接全部作废
+  await revokeDriverLinksOnCancel(db, order.tenantId, order.id, now);
   // 「实际付了的」不扣失败的退款：这次的退款已经包含了它们，作废，不能再重试（否则多退）
   const superseded = await supersedeFailedRefunds(db, order.id, now);
   const refunds = await scheduleRefund(db, order, "cancellation", quote.refundMinor, null, now);
