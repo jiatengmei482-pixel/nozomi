@@ -47,7 +47,9 @@ import {
   landingAvailability,
   localDateTimeIn,
   packageText,
-  serviceTimeLabels,, visibleTimeline } from "../../lib/site-display.ts";
+  serviceTimeLabels,
+  visibleTimeline,
+} from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
