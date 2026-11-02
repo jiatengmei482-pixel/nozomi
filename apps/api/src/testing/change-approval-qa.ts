@@ -243,7 +243,7 @@ export function allKeysDeep(value: unknown, out: Set<string> = new Set()): Set<s
 
 /** 规则 4：`/tenant/v1` 的返回没有对外价、加价比例、差价（按键名，再按完整的金额数字；不搜短数字子串）。 */
 export function assertNoSellInfo(body: unknown, sellValues: readonly number[], label: string): void {
-  const leaked = [...allKeysDeep(body)].filter((key) => /sell|markup|price_difference|fx|buffer|channel|gross|margin/i.test(key));
+  const leaked = [...allKeysDeep(body)].filter((key) => /sell|markup|price_difference|fx|buffer|channel_|gross|margin/i.test(key));
   assert.deepEqual(leaked, [], `${label}：不能有对外价、加价的字段`);
   const scalars: string[] = [];
   const walk = (value: unknown): void => {

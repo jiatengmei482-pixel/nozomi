@@ -92,6 +92,7 @@ test("确认前提醒按原时间：官网单 24 小时提醒在原时间前发�
   moveTo(oldAt - 24 * HOUR + MINUTE);
   await w.relogin();
   await site.api.app.notificationJobs.tick();
+  await site.api.app.notificationJobs.tick();
   const reminded = w.mailsTo(email).map((mail) => decodedMailText(mail.data)).filter((text) => text.includes("用车时间快到了"));
   assert.equal(reminded.length, 1, "原时间前 24 小时提醒");
   assert.ok(reminded[0]?.includes(new Date(oldAt + 9 * HOUR).toISOString().slice(0, 10)), "写的是原来的日期");
@@ -99,6 +100,7 @@ test("确认前提醒按原时间：官网单 24 小时提醒在原时间前发�
   await ok(w.tenantDecide(placed.order.id, res.body.change.id, "confirm"));
   w.smtp.reset();
   moveTo(newAt - 24 * HOUR + MINUTE);
+  await site.api.app.notificationJobs.tick();
   await site.api.app.notificationJobs.tick();
   const afterMove = w.mailsTo(email).map((mail) => decodedMailText(mail.data)).filter((text) => text.includes("用车时间快到了"));
   assert.equal(afterMove.length, 1, "按新时间提醒");
@@ -531,4 +533,53 @@ test("改期后和司机的另一张单撞车：同意照样生效，但标出�
   const confirmed = await ok(w.tenantDecide(order.id, change.id, "confirm"));
   assert.equal(confirmed.change.dispatch_conflict, true);
   assert.deepEqual((await w.todosOf(order.id)).map((item) => [item.kind, item.needs_driver_adjustment]), [["change_applied", true]]);
+});
+
+// ---- 救援转给新供应商之后 ----
+
+test("救援转给甲之后：客人再改，申请和待办都到甲；乙看不到、处理不了；客人取消，通知甲和甲的司机，不通知乙的旧司机", async () => {
+  const { order, email: oldDriverEmail } = await w.dispatched();
+  const before = (await w.patch(order.id, { passengers: 3 })).body.change;
+  await ok(w.api.call("POST", `/tenant/v1/orders/${order.id}/declare-unable`, { token: w.b.adminToken, body: { reason: "车坏了" } }));
+  const offered = await ok(w.api.call("POST", `/platform/v1/orders/${order.id}/rescue/offers`, { token: await w.ops(), body: { tenant_id: w.a.tenantId } }), 201);
+  await ok(w.api.call("POST", `/tenant/v1/rescue-offers/${offered.offer.id}/accept`, { token: w.a.adminToken, body: {} }));
+  await w.tick();
+  w.smtp.reset();
+
+  assert.equal((await w.tenantDecide(order.id, before.id, "confirm", {}, w.a.adminToken)).status, 404, "甲处理不了乙时代的申请");
+  const change = (await w.patch(order.id, { luggage: 3 })).body.change;
+  assert.equal(change.status, "pending_confirmation");
+  assert.deepEqual((await w.todosOf(order.id, w.a.adminToken)).map((item) => item.kind), ["change_request"], "到了甲");
+  assert.ok(!(await w.todosOf(order.id)).some((item) => item.kind === "change_request"), "乙没有要决定的");
+  assert.equal((await w.tenantDecide(order.id, change.id, "confirm")).status, 404, "乙处理不了");
+  await w.tick();
+  assert.match(w.texts(w.mailsTo(w.m.a.adminEmail)), /客人申请修改订单/);
+  assert.doesNotMatch(w.texts(w.mailsTo(w.m.b.adminEmail)), /客人申请修改订单/);
+
+  const driverEmail = fictionalEmail();
+  const driver = await newDriver(w.api, w.a, { email: driverEmail });
+  const vehicle = await newVehicle(w.api, w.a, w.m.ids.biz7);
+  await ok(assign(w.api, w.a, order.id, driver.id, vehicle.id));
+  await ok(w.tenantDecide(order.id, change.id, "confirm", {}, w.a.adminToken));
+  assert.equal((await w.salesGet(order.id)).luggage, 3);
+  await w.tick();
+  w.smtp.reset();
+  await ok(w.salesCancel(order.id));
+  await w.tick();
+  assert.match(w.texts(w.mailsTo(driverEmail)), /任务已取消/);
+  assert.equal(w.mailsTo(oldDriverEmail).length, 0);
+  assert.match(w.texts(w.mailsTo(w.m.a.adminEmail)), /这张订单已取消/);
+  assert.equal(w.net(order.id), 0);
+});
+
+test("缺陷：单已经完成，订单还写「可以免费取消」（free_cancel_available: true），实际取消 409——渠道和页面按这个字段判断会误导", async () => {
+  const { order } = await w.dispatched();
+  const change = (await w.patch(order.id, { passengers: 3 })).body.change;
+  await ok(w.tenantDecide(order.id, change.id, "reject", { note: "排不出车" }));
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(w.api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: w.b.adminToken, body: { type } }));
+  const seen = await w.salesGet(order.id);
+  assert.equal(seen.status, "completed");
+  const res = await w.salesCancel(order.id, { reason: "CHANGE_NOT_CONFIRMED" });
+  assert.equal(res.status, 409);
+  assert.equal(seen.free_cancel_available, false);
 });
