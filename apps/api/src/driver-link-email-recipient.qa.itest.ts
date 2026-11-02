@@ -476,7 +476,7 @@ test("改期到更晚（走渠道接口，供应商同意后生效）：行程�
 
 test("邮件链接也走同样的核对：吊销后的写操作 401；令牌换租户 401；令牌被改一位 401；令牌解码不出来 401；应答完全一样", async () => {
   const email = newEmail();
-  const { order, res } = await dispatched(a, "a", email);
+  const { order, res } = await dispatched(a, "a", email, 20);
   await tick();
   const [mailToken] = tokensTo(email);
   const token = mailToken as string;

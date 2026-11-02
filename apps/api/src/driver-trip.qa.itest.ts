@@ -220,7 +220,7 @@ test("下载的访问控制：同一租户另一张单的令牌、吊销后的�
 // ---- 状态并发 ----
 
 test("并发：司机和调度系统同时点「完成」，只有一个成功，状态流水里只有一条完成", async () => {
-  const d = await dispatched(700);
+  const d = await dispatched(150);
   await ok(driver("POST", "/events", d.token, { type: "departed" }));
   await ok(driver("POST", "/events", d.token, { type: "arrived" }));
   await ok(driver("POST", "/events", d.token, { type: "picked_up" }));

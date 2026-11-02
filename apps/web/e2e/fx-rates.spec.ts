@@ -15,9 +15,14 @@ test("汇率页：立即拉取后看到当前汇率、互换表、走势和拉�
   await page.getByRole("navigation", { name: "主菜单" }).getByRole("link", { name: "汇率" }).click();
   await expect(page).toHaveURL(/\/platform\/master\/fx-rates$/);
   await expect(page.getByRole("heading", { level: 1, name: "汇率" })).toBeVisible();
-  await page.getByRole("button", { name: "立即拉取" }).click();
-  // 定时任务可能已经拉到过同一批：两种结果都对
-  await expect(page.getByText(/^(汇率已更新|数据源还没有更新，汇率不变)$/)).toBeVisible();
+  // 定时任务可能已经拉到过同一批：「已更新」「没有更新」两种结果都对。
+  // 几个 API 进程都在跑定时拉取，碰巧正在拉时系统如实回「正在拉取」（409 FX_FETCH_IN_PROGRESS），等它拉完再点，直到真的手动拉了一次
+  await expect(async () => {
+    await page.getByRole("button", { name: "立即拉取" }).click();
+    const outcome = page.getByText(/^(汇率已更新|数据源还没有更新，汇率不变|正在拉取汇率（定时任务或其他同事），稍后刷新看结果)$/);
+    await expect(outcome).toBeVisible({ timeout: 10_000 });
+    await expect(outcome).toHaveText(/^(汇率已更新|数据源还没有更新，汇率不变)$/, { timeout: 1_000 });
+  }).toPass({ timeout: 60_000, intervals: [2_000] });
   const source = page.getByRole("region", { name: "数据源" });
   await expect(source.getByText("正常", { exact: true })).toBeVisible();
   const rates = page.getByRole("region", { name: "当前汇率表" });

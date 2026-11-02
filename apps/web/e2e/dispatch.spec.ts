@@ -40,6 +40,24 @@ async function seedPaidOrder(input: { tenantId: string; cityId: string; airportI
   }
 }
 
+/**
+ * 派车之后把用车时间挪到 `hoursAhead` 小时后（ADR 0064：司机出发、到达最早在用车前 24 小时）。先造远期订单派好车再挪，不造即将用车又没派车的单
+ * （那样的单会立刻被派车超时、未出发提醒等后台任务拿去处理）。
+ */
+async function moveServiceTime(orderNo: string, hoursAhead: number): Promise<void> {
+  const url = process.env["E2E_DATABASE_OWNER_URL"];
+  if (!url) throw new Error("global-setup 没有准备好数据库连接");
+  const client = createPool(url, { max: 1 });
+  try {
+    const at = new Date(Math.ceil((Date.now() + hoursAhead * 3_600_000) / 60_000) * 60_000);
+    const local = new Date(at.getTime() + 9 * 3_600_000).toISOString().slice(0, 16);
+    const moved = await client.query("update orders set service_at = $2, service_local = $3, service_date = $4 where order_no = $1 and status = 'assigned'", [orderNo, at, local, local.slice(0, 10)]);
+    expect(moved.rowCount, "只挪已派车的单").toBe(1);
+  } finally {
+    await client.end();
+  }
+}
+
 test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到履约；Webhook 签名密钥只显示一次；运营后台的推送记录", async ({ page, request, browser }) => {
   test.setTimeout(90_000);
   const world = await createWorld(request);
@@ -94,6 +112,9 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   await linkDialog.getByRole("button", { name: "我已发给司机" }).click();
   await expect(page.getByText("佐藤一郎 · +819011112222")).toBeVisible();
   await expectAccessible(page, "订单详情");
+
+  // 派好车以后把用车时间挪到 2 小时后，司机才能点出发、到达
+  await moveServiceTime(orderNo, 2);
 
   // 司机在手机上打开链接：给定位权限，先在市区
   const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ["geolocation"], geolocation: { latitude: 35.7, longitude: 139.75 }, locale: "zh-CN" });

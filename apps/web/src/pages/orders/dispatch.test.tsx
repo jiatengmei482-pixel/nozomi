@@ -400,6 +400,7 @@ test("Webhook：新建时签名密钥只在对话框里出现一次；只认 htt
 });
 
 const tripOf = (changes: Partial<DriverTrip> = {}): DriverTrip => ({
+  next_event: { type: "departed", earliest_at: "2026-10-19T01:00:00.000Z", earliest_local: "2026-10-19 10:00" },
   pending_change: null,
   order: { order_no: "NZ20261007ABCDEFGH", status: "assigned", status_name: "已派车", category: "airport_transfer", direction: "pickup", service_time: "2026-10-20T01:00:00.000Z", service_local: "2026-10-20T10:00", timezone: "Asia/Tokyo", package_hours: null, passengers: 2, luggage: 1, flight_no: "NH211", passenger: { name: "王小明", phone: "+819012345678" }, messaging: null, notes: "举牌写王先生", place: { name: { zh: "成田机场" }, code: "NRT", lng: 140.3887, lat: 35.7686 }, pickup: null, dropoff: { lng: 139.76, lat: 35.68, address: "东京站八重洲口" }, pickup_point: { lng: 140.3887, lat: 35.7686 }, addons: [], driver_language: null, free_wait_minutes: 90 },
   driver: { name: "佐藤一郎" },
@@ -443,6 +444,60 @@ test("司机页面：令牌从 # 后面取、放在请求头里；有客人、�
   await user().click(screen.getByRole("button", { name: "我出发了" }));
   await screen.findByRole("button", { name: "已到达上车点" });
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { type: "departed", location: null });
+});
+
+test("司机页面：还没到时间时按钮下面写明最早几点；太早点了显示服务器的说明，状态不变（ADR 0064）", async () => {
+  denyGeolocation();
+  const early = tripOf({ next_event: { type: "departed", earliest_at: "2026-10-19T01:00:00.000Z", earliest_local: "2026-10-19 10:00" }, server_time: "2026-10-17T10:29:00.000Z" });
+  const message = "现在还不能点「我出发了」：最早在用车前 24 小时，也就是 2026-10-19 10:00（Asia/Tokyo 当地时间）以后才能点（用车时间 2026-10-20 10:00）。行程有变请联系调度。";
+  stubApiWith((call) => {
+    if (call.url.pathname === "/driver/v1/trip" && call.method === "GET") return json(200, early);
+    if (call.url.pathname === "/driver/v1/trip/events" && call.method === "POST") return apiError(422, "FULFILMENT_TOO_EARLY", message, { type: "departed", earliest_at: "2026-10-19T01:00:00.000Z", earliest_local: "2026-10-19 10:00", timezone: "Asia/Tokyo", hours_before_service: 24 });
+    return null;
+  });
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  const hint = await screen.findByText("还没到时间：最早 2026-10-19 10:00（Asia/Tokyo 当地时间）才能点「我出发了」。行程有变请联系调度。");
+  assert.equal(screen.getByRole("button", { name: "我出发了" }).getAttribute("aria-describedby"), hint.id, "提示关联到按钮");
+  await user().click(screen.getByRole("button", { name: "我出发了" }));
+  await screen.findByText(message);
+  assert.ok(screen.getAllByRole("alert").some((region) => region.textContent?.includes(message)), "说明在读屏播报区");
+  assert.ok(screen.getByRole("button", { name: "我出发了" }), "还是这一步");
+  resetBrowser();
+
+  stubApiWith((call) => (call.url.pathname === "/driver/v1/trip" ? json(200, tripOf({ server_time: "2026-10-19T01:00:00.000Z" })) : null));
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByRole("button", { name: "我出发了" });
+  assert.equal(screen.queryByText(/还没到时间/), null, "正好到了最早时间就不再提示");
+});
+
+test("司机页面：页面一直开着，到了最早时间提示自动去掉，只刷新一次（不轮询）", async () => {
+  const earliest = "2026-10-19T01:00:00.000Z";
+  let gets = 0;
+  stubApiWith((call) => {
+    if (call.url.pathname !== "/driver/v1/trip" || call.method !== "GET") return null;
+    gets += 1;
+    return json(200, tripOf({ next_event: { type: "departed", earliest_at: earliest, earliest_local: "2026-10-19 10:00" }, server_time: gets === 1 ? "2026-10-19T00:59:59.700Z" : "2026-10-19T01:00:00.100Z" }));
+  });
+  render(
+    <MemoryRouter initialEntries={[{ pathname: "/driver", hash: `#${LINK_TOKEN}` }]}>
+      <App />
+    </MemoryRouter>,
+  );
+  await screen.findByText(/还没到时间/);
+  // 页面里的计时器要真的走完（这里不用 waitFor：它和页面的计时器一起等时会卡住），每 100 毫秒看一次，最多 3 秒
+  for (let tries = 0; tries < 30 && screen.queryByText(/还没到时间/) !== null; tries += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(screen.queryByText(/还没到时间/), null, "到点自动去掉");
+  assert.equal(screen.getByRole("button", { name: "我出发了" }).getAttribute("aria-describedby"), null);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.equal(gets, 2, "到点刷新一次，之后不再请求");
 });
 
 test("司机页面：链接不完整或已失效时说明怎么办；到达后客人没出现，证据不齐时不能提交", async () => {

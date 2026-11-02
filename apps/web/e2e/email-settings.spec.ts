@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { AxeBuilder } from "@axe-core/playwright";
 import { type Locator, type Page, expect, test } from "@playwright/test";
 import { adminCredentials, expectNoHorizontalOverflow, loginAs, platformAdminHeaders, settleAnimations, snapshot } from "./support.ts";
+import { decodedMailText } from "../../api/src/testing/fake-integrations.ts";
 
 async function expectAxeClean(page: Page, what: string): Promise<void> {
   await settleAnimations(page);
@@ -105,8 +106,8 @@ test("超级管理员填写邮件发送 → 只显示打码 → 测试一下发�
 
   // 测试一下：假 SMTP 收到发给当前登录人的信，走加密连接，用的是刚填的账号密码
   await expect(card).toContainText("会发一封测试邮件到你自己的登录邮箱");
-  // 通知中心（ADR 0049）的后台任务在配置生效后也会发信，这里只数发给当前登录人的
-  const toMe = (stats: SmtpStats) => stats.messages.filter((sent) => sent.to.includes(email));
+  // 通知中心（ADR 0049）的后台任务在配置生效后也会发信，其中也可能有发给当前登录人的（例如改单超时提醒），这里只数「测试一下」发的那封
+  const toMe = (stats: SmtpStats) => stats.messages.filter((sent) => sent.to.includes(email) && decodedMailText(sent.data).includes("「测试一下」"));
   const before = toMe(await smtpStats()).length;
   await card.getByRole("button", { name: "测试一下" }).click();
   await expect(card.getByRole("status")).toContainText(`邮件服务器已接收，测试邮件发到了 ${email}`);
