@@ -87,9 +87,9 @@ export function InventoryStep({ frame, product }: { frame: ProductFrame; product
   const [exporting, setExporting] = useState(false);
   const [sheet, setSheet] = useState(false);
 
-  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题
+  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题。不滚动：手机上日历可能已经滚到今天
   useEffect(() => {
-    const frameId = requestAnimationFrame(() => heading.current?.focus());
+    const frameId = requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(frameId);
   }, []);
   // 月份：没写在网址里时看本月（城市当地的）；超出能看的范围换成本月
