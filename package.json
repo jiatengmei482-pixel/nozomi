@@ -20,6 +20,8 @@
     "masterdata:import-airports": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airports.ts",
     "masterdata:import-cities": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-cities.ts",
     "masterdata:import-airport-names": "node --env-file-if-exists=.env apps/api/src/cli/masterdata-import-airport-names.ts",
+    "price-sheet:report": "node apps/api/src/cli/price-sheet-report.ts",
+    "price-sheet:import": "node --env-file-if-exists=.env apps/api/src/cli/price-sheet-import.ts",
     "web:dev": "pnpm --filter @nozomi/web dev",
     "web:build": "pnpm --filter @nozomi/web build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit",

@@ -13,6 +13,9 @@ import type { QuoteDeps } from "./services/quote-deps.ts";
 import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import type { GooglePlaceSearch } from "./services/place-search.ts";
 
+/** 只读写数据库的服务函数要的那一部分：命令行（价格表导入）不用起整个应用也能调用它们。 */
+export type DbContext = Pick<AppContext, "pool" | "now">;
+
 export interface AppContext {
   config: AppConfig;
   pool: Pool;

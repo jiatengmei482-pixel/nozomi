@@ -53,7 +53,7 @@ import {
   serviceRuleIssues,
   tenantCanPublish,
 } from "@nozomi/domain";
-import type { AppContext } from "../context.ts";
+import type { DbContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
 import type { TimeCursor } from "../pagination.ts";
@@ -98,13 +98,14 @@ import { lockMasterReferencesShared } from "../repos/master-data.ts";
 import { listAdjustRules, listHolidays, listPriceRules } from "../repos/prices.ts";
 import { findOwnTenant } from "../repos/tenants.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { consoleOrigin, tenantActor } from "./audit.ts";
+import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 
 export interface ProductWriter {
-  principal: TenantPrincipal;
+  /** 登录的租户用户；命令行以系统身份写时是 `SystemTenantPrincipal`（审计记 system / cli） */
+  principal: TenantPrincipal | SystemTenantPrincipal;
   ip: string;
 }
 
@@ -113,7 +114,7 @@ function invalid(issues: InputIssue[]): never {
 }
 
 /** 数据库因为死锁、序列化失败放弃事务时自动重做（接口层对仍不成功的返回 409 CONCURRENT_UPDATE）。 */
-export async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+export async function writeTx<T>(ctx: DbContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await withTenantTx(ctx.pool, tenantId, fn);
@@ -123,12 +124,12 @@ export async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db)
   }
 }
 
-export function readTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+export function readTx<T>(ctx: DbContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
   return withTenantTx(ctx.pool, tenantId, fn, { snapshot: true });
 }
 
 function audit(db: Db, writer: ProductWriter, now: Date, event: { resource: "product" | "brand"; id: string; action: AuditAction; before: AuditValues | null; after: AuditValues | null }): Promise<void> {
-  return insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+  return insertAuditLog(db, tenantWriteOrigin(writer, now), {
     tenantId: writer.principal.tenantId,
     resource: event.resource,
     resourceId: event.id,
@@ -144,13 +145,13 @@ function brandNameTaken(): AppError {
   return new AppError(409, "BRAND_NAME_TAKEN", "已经有同名的子品牌，请换一个名字");
 }
 
-export function listBrands(ctx: AppContext, tenantId: string): Promise<Brand[]> {
+export function listBrands(ctx: DbContext, tenantId: string): Promise<Brand[]> {
   return readTx(ctx, tenantId, (db) => listBrandRows(db, tenantId));
 }
 
 /** 新增子品牌（带幂等键）。币种创建后不能改：它下面商品的所有金额都按这个币种的最小货币单位存。 */
 export async function createBrand(
-  ctx: AppContext,
+  ctx: DbContext,
   writer: ProductWriter,
   input: { name: string; currency: string },
   idempotency: { scope: string; key: string },
@@ -175,7 +176,7 @@ export async function createBrand(
 }
 
 /** 给子品牌改名。带了币种且和现有的不同 → 409 FIELD_LOCKED。 */
-export async function updateBrand(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, input: { name: string; currency: string | null }): Promise<Brand> {
+export async function updateBrand(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, input: { name: string; currency: string | null }): Promise<Brand> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   try {
@@ -231,7 +232,7 @@ export async function detail(db: Db, tenantId: string, product: Product): Promis
 }
 
 export async function listProducts(
-  ctx: AppContext,
+  ctx: DbContext,
   tenantId: string,
   filter: ProductFilter,
   limit: number,
@@ -263,7 +264,7 @@ export async function listProducts(
   });
 }
 
-export async function getProduct(ctx: AppContext, tenantId: string, id: string): Promise<ProductView> {
+export async function getProduct(ctx: DbContext, tenantId: string, id: string): Promise<ProductView> {
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
@@ -272,7 +273,7 @@ export async function getProduct(ctx: AppContext, tenantId: string, id: string):
 }
 
 /** 首页上本租户的商品数量。 */
-export function productCounts(ctx: AppContext, tenantId: string): Promise<Record<ProductStatus, number>> {
+export function productCounts(ctx: DbContext, tenantId: string): Promise<Record<ProductStatus, number>> {
   return readTx(ctx, tenantId, (db) => countProductsByStatus(db, tenantId));
 }
 
@@ -366,7 +367,7 @@ function relationsAudit(view: ProductView): AuditValues {
  * 子品牌和城市必须是启用中的；接送机商品必须选一个本城市、启用中的机场或车站，其他品类不能有接送点。
  */
 export async function createProduct(
-  ctx: AppContext,
+  ctx: DbContext,
   writer: ProductWriter,
   input: ProductInput,
   idempotency: { scope: string; key: string },
@@ -452,7 +453,7 @@ export async function assertStillPublishable(db: Db, tenantId: string, product: 
 }
 
 /** 修改基础信息里创建后能改的部分：区域（含优先级）、车型组、调度人。带了的整体替换，没带的不动。 */
-export async function updateProduct(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, patch: ProductPatch): Promise<ProductView> {
+export async function updateProduct(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, patch: ProductPatch): Promise<ProductView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -498,7 +499,7 @@ export async function updateProduct(ctx: AppContext, writer: ProductWriter, id: 
 }
 
 /** 删除商品：只有草稿可以删除（需求文档）。上过架的商品可能已经有订单引用它，只能下架。 */
-export async function deleteProduct(ctx: AppContext, writer: ProductWriter, id: string): Promise<void> {
+export async function deleteProduct(ctx: DbContext, writer: ProductWriter, id: string): Promise<void> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   await writeTx(ctx, tenantId, async (db) => {
@@ -613,7 +614,7 @@ export async function serviceRulesView(db: Db, tenantId: string, product: Produc
   };
 }
 
-export async function getServiceRules(ctx: AppContext, tenantId: string, id: string): Promise<ServiceRulesView> {
+export async function getServiceRules(ctx: DbContext, tenantId: string, id: string): Promise<ServiceRulesView> {
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
     if (!product) throw notFound("商品");
@@ -626,7 +627,7 @@ export async function getServiceRules(ctx: AppContext, tenantId: string, id: str
  * 附加服务必须是平台目录里的；开着的必须是启用中、适用于这个品类的。
  * 存的是整理之后的一份（时段只留一种写法；「首个免费」只有按个计费的附加服务能设，别的计费方式下带了也当作没设，不拒绝）。
  */
-export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
+export async function putServiceRules(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, input: ServiceRules): Promise<ServiceRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -663,7 +664,7 @@ export async function putServiceRules(ctx: AppContext, writer: ProductWriter, id
 // ---- 商品详情 ----
 
 /** 整体保存商品详情（各语言的标题、简介、包含 / 不含、行程、接机指引）。可以只填一部分。 */
-export async function putContent(ctx: AppContext, writer: ProductWriter, id: string, expectedVersion: number, content: ProductContent): Promise<Product> {
+export async function putContent(ctx: DbContext, writer: ProductWriter, id: string, expectedVersion: number, content: ProductContent): Promise<Product> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -798,7 +799,7 @@ export async function publishCheckOf(db: Db, tenantId: string, product: Product,
   return publishCheckView(await runPublishCheck(db, tenantId, product, now));
 }
 
-export async function getPublishCheck(ctx: AppContext, tenantId: string, id: string): Promise<PublishCheckView> {
+export async function getPublishCheck(ctx: DbContext, tenantId: string, id: string): Promise<PublishCheckView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const product = await findProduct(db, tenantId, id, { lock: false });
@@ -811,7 +812,7 @@ export async function getPublishCheck(ctx: AppContext, tenantId: string, id: str
  * 上架：必须的校验项全部通过才行，否则 409 PUBLISH_CHECK_FAILED 并带上逐项结果。已经上架的原样返回。
  * 供应商要到了试运营（或正式、暂停中）才能上架：申请中、审核中、已签约「建区域、商品……不能上架」（ADR 0028），409 `TENANT_NOT_ONBOARDED`。
  */
-export async function publishProduct(ctx: AppContext, writer: ProductWriter, id: string): Promise<ProductView> {
+export async function publishProduct(ctx: DbContext, writer: ProductWriter, id: string): Promise<ProductView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -833,7 +834,7 @@ export async function publishProduct(ctx: AppContext, writer: ProductWriter, id:
 }
 
 /** 下架：已上架 → 已下架。已经下架的原样返回；草稿没有上过架，不能下架。 */
-export async function unpublishProduct(ctx: AppContext, writer: ProductWriter, id: string): Promise<ProductView> {
+export async function unpublishProduct(ctx: DbContext, writer: ProductWriter, id: string): Promise<ProductView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
