@@ -82,7 +82,7 @@
 
 ### 重发
 
-`POST /tenant/v1/orders/{id}/driver-link/email`，`order.dispatch`，写审计（资源 `driver_link`，动作 `email_resend`，只有订单编号和打码地址）。**只是发邮件，不动现有链接**。
+`POST /tenant/v1/orders/{id}/driver-link/email`，`order.dispatch`，写审计（资源 `driver_link`，动作 `retry`，只有订单编号和打码地址）。**只是发邮件，不动现有链接**。
 
 - 没有有效链接：409 `DRIVER_LINK_NOT_ACTIVE`（吊销之后不能靠重发绕过去，要先重新生成）。过期：409 `DRIVER_LINK_EXPIRED`。没邮箱：409 `DRIVER_EMAIL_MISSING`。
 - **连点保护和限速**（`DRIVER_LINK_EMAIL_LIMITS`）：同一张单 60 秒内只能发起一次（含自动发的那次）、一小时最多 5 次；同一家供应商一小时最多 200 次（账号被盗时不能拿它当群发工具）。超了 429 `RATE_LIMITED` + `retry_after_seconds`。判断在订单锁之内，同时点两下只有一下成功。

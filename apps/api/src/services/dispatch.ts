@@ -7,6 +7,7 @@
  * - 同一时段这位司机或这辆车已有别的单：409 `ASSIGNMENT_CONFLICT` 并列出那几单；调度确认后带 `confirm_conflicts: true` 再派（需求「提示冲突」）。
  *   判断冲突之前先拿司机和车辆的咨询锁：两张单同时派给同一位司机，后到的一定看得到先到的那一张。
  * - 派车 / 改派：记一条派车记录、一条状态流水、一条审计日志；旧的司机链接立即作废，发一个新的（原文只在这次应答里）；给供应商排一条 `order.assigned`（改派带 `change: true`）。
+ * - 自动发邮件（M4-27，ADR 0058）：派车、改派的同一个事务里写发送请求和发件箱；真正发信在后台任务里，发不出去不影响派车。邮件有自己的一条链接，和这里给调度员的这条同时有效。
  * - 改派：已派车、司机已出发（还没到达）时可以改派；出发后改派回到「已派车」，新司机重新出发。司机到达上车点之后不能改派。
  */
 import {
@@ -33,6 +34,7 @@ import { consoleOrigin, tenantActor } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { type FulfilmentInput, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid } from "./fulfilment.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
+import { type DriverLinkEmailOutcome, driverLinkEmailOutcome, requestDriverLinkEmailOnAssign } from "./driver-link-email.ts";
 import { recordPerformanceEvent } from "../repos/tenant-onboarding.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
@@ -158,11 +160,13 @@ export interface AssignResult {
   /** 改派时带 true；同一位司机、同一辆车再派一次什么都不变，为 null */
   isChange: boolean | null;
   link: IssuedLink | null;
+  /** 司机链接邮件的状态（ADR 0058）；同上，什么都没变时为 null */
+  email: DriverLinkEmailOutcome | null;
 }
 
 async function issueLink(db: Db, order: Order, assignmentId: string, driverId: string, now: Date): Promise<IssuedLink> {
   const { token, tokenHash } = newDriverToken(order.tenantId);
-  const link = await insertDriverLink(db, order.tenantId, { orderId: order.id, assignmentId, driverId, tokenHash, createdAt: now, expiresAt: driverLinkExpiry(order.serviceAt, order.packageHours) });
+  const link = await insertDriverLink(db, order.tenantId, { purpose: "dispatcher", orderId: order.id, assignmentId, driverId, tokenHash, createdAt: now, expiresAt: driverLinkExpiry(order.serviceAt, order.packageHours) });
   return { link, token };
 }
 
@@ -189,7 +193,7 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
         ...(vehicle === null ? [{ path: "/vehicle_id", reason: "UNKNOWN", message: "车辆不存在" }] : []),
       ]);
     }
-    if (isChange && order.dispatch.driverId === driver.id && order.dispatch.vehicleId === vehicle.id) return { order, driver, vehicle, isChange: null, link: null };
+    if (isChange && order.dispatch.driverId === driver.id && order.dispatch.vehicleId === vehicle.id) return { order, driver, vehicle, isChange: null, link: null, email: null };
     const groups = await findVehicleGroups(db, [order.vehicleGroupId, vehicle.vehicleGroupId]);
     const issues = [...driverIssuesOf(order, driver), ...vehicleIssuesOf(order, groupShape(groups.get(order.vehicleGroupId) as VehicleGroupFacts), vehicle, groupShape(groups.get(vehicle.vehicleGroupId) as VehicleGroupFacts))];
     if (issues.length > 0) throw assignmentMismatch(issues);
@@ -214,7 +218,8 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
     await enqueueTenantEvent(db, { tenantId, type: "order.assigned", orderId, data: { change: isChange } }, now);
     await enqueueNotification(db, { event: "order.assigned", tenantId, orderId, dedupeKey: `order.assigned:${assignment.id}`, data: { driver_id: driver.id, vehicle_id: vehicle.id } }, now);
     const saved = (await findTenantOrder(db, tenantId, orderId)) as Order;
-    return { order: saved, driver, vehicle, isChange, link };
+    const email = await requestDriverLinkEmailOnAssign(db, { order: saved, driver, assignmentId: assignment.id, link: link.link, now });
+    return { order: saved, driver, vehicle, isChange, link, email };
   });
 }
 
@@ -222,7 +227,7 @@ export async function assignOrder(ctx: AppContext, writer: DispatchWriter, order
 const LINKABLE = new Set(["assigned", "departed", "arrived", "in_service", "completed", "no_show_claimed"]);
 
 /** 重新生成司机链接：旧的立即作废。原文只在这次应答里。 */
-export async function reissueDriverLink(ctx: AppContext, writer: DispatchWriter, orderId: string): Promise<IssuedLink> {
+export async function reissueDriverLink(ctx: AppContext, writer: DispatchWriter, orderId: string): Promise<IssuedLink & { email: DriverLinkEmailOutcome }> {
   const tenantId = writer.principal.tenantId;
   const now = ctx.now();
   return withTenantTx(ctx.pool, tenantId, async (db) => {
@@ -236,7 +241,8 @@ export async function reissueDriverLink(ctx: AppContext, writer: DispatchWriter,
     if (assignmentId === null) throw orderStateInvalid(order.status, "reissue_driver_link");
     const issued = await issueLink(db, order, assignmentId, order.dispatch.driverId, now);
     await insertAuditLog(db, auditOrigin(writer, now), { tenantId, resource: "driver_link", resourceId: issued.link.id, action: "issue", before: current === null ? null : { link_id: current.id }, after: { order_id: orderId, expires_at: issued.link.expiresAt.toISOString() } });
-    return issued;
+    // 重新生成不自动发信：多半是怀疑链接泄露，要不要发由调度员决定（ADR 0058）
+    return { ...issued, email: await driverLinkEmailOutcome(db, order, issued.link, now) };
   });
 }
 

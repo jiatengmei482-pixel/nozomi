@@ -127,6 +127,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_reviews: ["SELECT"],
     // 司机链接：吊销要改（ADR 0027）
     driver_links: ["INSERT", "SELECT", "UPDATE"],
+    // 司机链接邮件的发送请求（ADR 0058）：只能追加
+    driver_link_emails: ["INSERT", "SELECT"],
     // 司机、车辆：不删，停用（ADR 0027）
     drivers: ["INSERT", "SELECT", "UPDATE"],
     vehicles: ["INSERT", "SELECT", "UPDATE"],

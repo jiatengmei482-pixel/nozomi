@@ -7,12 +7,13 @@
  * - 不删除：订单的派车记录引用着它们；「删除」就是停用。已经派了单的司机、车辆停用后，那些单不受影响（需要改派由调度决定）。
  */
 import { isDeepStrictEqual } from "node:util";
-import { type DriverStatus, type FleetIssue, type PlateType, type VehicleStatus, driverIssues, normalizeDriverPhone, normalizePlate, vehicleIssues } from "@nozomi/domain";
+import { type DriverStatus, type FleetIssue, type PlateType, type VehicleStatus, DRIVER_LINK_EMAIL_STATUSES, driverIssues, maskEmail, normalizeDriverPhone, normalizePlate, vehicleIssues } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, isUniqueViolation, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import type { Page, TimeCursor } from "../pagination.ts";
 import { type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
+import { lockDriverOrders, revokeDriverEmailLinks } from "../repos/dispatch.ts";
 import {
   type Driver,
   type DriverFields,
@@ -65,6 +66,8 @@ function plateTaken(): AppError {
 export interface DriverInputFields {
   name: string;
   phone: string;
+  /** 不给 = 不改（老的 API 调用方不会把邮箱清掉，ADR 0058）；null = 清空 */
+  email?: string | null;
   languages: string[];
   licenseExpiresOn: string;
   drivingYears: number | null;
@@ -74,11 +77,12 @@ export interface DriverInputFields {
 
 function driverFields(input: DriverInputFields): DriverFields {
   rejectIssues(driverIssues(input));
-  return { ...input, name: input.name.trim(), phone: normalizeDriverPhone(input.phone) };
+  return { ...input, name: input.name.trim(), phone: normalizeDriverPhone(input.phone), email: input.email ?? null };
 }
 
+/** 审计里的邮箱打码（个人信息）。两个地址可能打码后一样，所以判断改没改不能只比这个。 */
 function driverAudit(driver: DriverFields): AuditValues {
-  return { name: driver.name, phone: driver.phone, languages: driver.languages, license_expires_on: driver.licenseExpiresOn, driving_years: driver.drivingYears, gold: driver.gold, status: driver.status };
+  return { name: driver.name, phone: driver.phone, email: driver.email === null ? null : maskEmail(driver.email), languages: driver.languages, license_expires_on: driver.licenseExpiresOn, driving_years: driver.drivingYears, gold: driver.gold, status: driver.status };
 }
 
 export async function listDrivers(ctx: AppContext, tenantId: string, filter: FleetFilter, limit: number, after: TimeCursor | null): Promise<Page<Driver> & { total: number }> {
@@ -137,19 +141,26 @@ export async function createDriver(
 
 /** 修改（含停用、恢复在职）。`version` 是 If-Match 里的版本号。 */
 export async function updateDriver(ctx: AppContext, writer: FleetWriter, id: string, version: number, input: DriverInputFields): Promise<Driver> {
-  const fields = driverFields(input);
+  const given = driverFields(input);
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return guardUnique(
     () =>
       withTenantTx(ctx.pool, tenantId, async (db) => {
+        // 要改邮箱时先锁他在途的订单，再锁司机行（顺序见 lockDriverOrders）
+        const peek = await findDriver(db, tenantId, id);
+        if (peek !== null && input.email !== undefined && peek.email !== given.email) await lockDriverOrders(db, tenantId, id, DRIVER_LINK_EMAIL_STATUSES);
         const current = await findDriver(db, tenantId, id, { lock: true });
         if (current === null) throw notFound("司机");
         if (current.version !== version) throw versionConflict(current.version);
-        if (isDeepStrictEqual(driverAudit(current), driverAudit(fields))) return current;
+        const fields = input.email === undefined ? { ...given, email: current.email } : given;
+        const emailChanged = current.email !== fields.email;
+        if (!emailChanged && isDeepStrictEqual(driverAudit(current), driverAudit(fields))) return current;
         const saved = await updateDriverRow(db, tenantId, id, fields, now);
         const action = current.status === "active" && saved.status === "disabled" ? "disable" : "update";
-        await audit(db, writer, now, { resource: "driver", id, action, before: driverAudit(current), after: driverAudit(saved) });
+        // 地址可能是填错发给了陌生人：发到旧地址的链接立即作废，调度员手里那条不动（ADR 0058）
+        const emailLinksRevoked = emailChanged ? await revokeDriverEmailLinks(db, tenantId, id, now) : 0;
+        await audit(db, writer, now, { resource: "driver", id, action, before: driverAudit(current), after: { ...driverAudit(saved), ...(emailChanged ? { email_changed: true, email_links_revoked: emailLinksRevoked } : {}) } });
         return saved;
       }),
     "drivers_phone_key",

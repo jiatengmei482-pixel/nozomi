@@ -5,20 +5,22 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { DRIVER_STATUSES, PLATE_TYPES, type TenantAction, VEHICLE_STATUSES, expiryState, isLocalDate, vehicleIsNew } from "@nozomi/domain";
+import { DRIVER_STATUSES, PLATE_TYPES, type TenantAction, VEHICLE_STATUSES, expiryState, isLocalDate, maskEmail, tenantRoleCan, vehicleIsNew } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import { createDriver, createVehicle, disableDriver, disableVehicle, getDriver, getVehicle, listDrivers, listVehicles, updateDriver, updateVehicle } from "../services/fleet.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { idempotencyKey, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
+import { emailSchema, idempotencyKey, ifMatchVersion, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 
 const dateSchema = z.string().refine(isLocalDate, "日期写成 YYYY-MM-DD");
 
 const driverBase = {
   name: z.string().max(200),
   phone: z.string().max(40),
+  // 选填。校验同账号邮箱（拒绝控制字符，防邮件头注入）；不给 = 不改，null = 清空（ADR 0058）
+  email: emailSchema.nullable().optional(),
   languages: z.array(z.string().max(10)).max(10),
   license_expires_on: dateSchema,
   driving_years: z.number().int().nullable().default(null),
@@ -46,11 +48,14 @@ const vehicleListSchema = pageQuerySchema.extend({ status: z.enum(VEHICLE_STATUS
 
 const today = (now: Date): string => now.toISOString().slice(0, 10);
 
-export function fleetDriverJson(driver: Driver, now: Date): Record<string, unknown> {
+/** `fullEmail`：只有能改司机资料的人（`fleet.manage`）给完整邮箱，其余地方只有打码后的（ADR 0058）。 */
+export function fleetDriverJson(driver: Driver, now: Date, options: { fullEmail?: boolean } = {}): Record<string, unknown> {
   return {
     id: driver.id,
     name: driver.name,
     phone: driver.phone,
+    email_masked: driver.email === null ? null : maskEmail(driver.email),
+    ...(options.fullEmail === true ? { email: driver.email } : {}),
     languages: driver.languages,
     license_expires_on: driver.licenseExpiresOn,
     license_state: expiryState(driver.licenseExpiresOn, today(now)),
@@ -86,7 +91,7 @@ export function fleetVehicleJson(vehicle: Vehicle, now: Date): Record<string, un
 }
 
 function driverFields(input: z.output<typeof updateDriverSchema>) {
-  return { name: input.name, phone: input.phone, languages: input.languages, licenseExpiresOn: input.license_expires_on, drivingYears: input.driving_years, gold: input.gold, status: input.status };
+  return { name: input.name, phone: input.phone, ...(input.email === undefined ? {} : { email: input.email }), languages: input.languages, licenseExpiresOn: input.license_expires_on, drivingYears: input.driving_years, gold: input.gold, status: input.status };
 }
 
 function vehicleFields(input: z.output<typeof updateVehicleSchema>) {
@@ -112,20 +117,21 @@ export function registerFleetRoutes(app: FastifyInstance, ctx: AppContext): void
     const query = parseInput(driverListSchema, request.query, "querystring");
     const page = await listDrivers(ctx, principal.tenantId, { status: query.status ?? null, q: query.q ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
     const now = ctx.now();
-    return { items: page.items.map((driver) => fleetDriverJson(driver, now)), next_cursor: page.nextCursor, total: page.total };
+    const fullEmail = tenantRoleCan(principal.user.role, "fleet.manage");
+    return { items: page.items.map((driver) => fleetDriverJson(driver, now, { fullEmail })), next_cursor: page.nextCursor, total: page.total };
   });
 
   app.post("/tenant/v1/drivers", async (request, reply) => {
     const principal = await authenticate(request, "fleet.manage");
     const key = idempotencyKey(request.headers["idempotency-key"]);
     const input = parseInput(createDriverSchema, request.body, "body");
-    const result = await createDriver(ctx, { principal, ip: request.ip }, driverFields(input), { scope: "POST /tenant/v1/drivers", key }, (driver) => fleetDriverJson(driver, ctx.now()));
+    const result = await createDriver(ctx, { principal, ip: request.ip }, driverFields(input), { scope: "POST /tenant/v1/drivers", key }, (driver) => fleetDriverJson(driver, ctx.now(), { fullEmail: true }));
     return reply.code(result.status).send(result.body);
   });
 
   app.get("/tenant/v1/drivers/:id", async (request) => {
     const principal = await authenticate(request, "fleet.read");
-    return fleetDriverJson(await getDriver(ctx, principal.tenantId, resourceId(request.params, "司机")), ctx.now());
+    return fleetDriverJson(await getDriver(ctx, principal.tenantId, resourceId(request.params, "司机")), ctx.now(), { fullEmail: tenantRoleCan(principal.user.role, "fleet.manage") });
   });
 
   app.put("/tenant/v1/drivers/:id", async (request) => {
@@ -133,12 +139,12 @@ export function registerFleetRoutes(app: FastifyInstance, ctx: AppContext): void
     const id = resourceId(request.params, "司机");
     const version = ifMatchVersion(request.headers["if-match"]);
     const input = parseInput(updateDriverSchema, request.body, "body");
-    return fleetDriverJson(await updateDriver(ctx, { principal, ip: request.ip }, id, version, driverFields(input)), ctx.now());
+    return fleetDriverJson(await updateDriver(ctx, { principal, ip: request.ip }, id, version, driverFields(input)), ctx.now(), { fullEmail: true });
   });
 
   app.delete("/tenant/v1/drivers/:id", async (request) => {
     const principal = await authenticate(request, "fleet.manage");
-    return fleetDriverJson(await disableDriver(ctx, { principal, ip: request.ip }, resourceId(request.params, "司机")), ctx.now());
+    return fleetDriverJson(await disableDriver(ctx, { principal, ip: request.ip }, resourceId(request.params, "司机")), ctx.now(), { fullEmail: true });
   });
 
   app.get("/tenant/v1/vehicles", async (request) => {

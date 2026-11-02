@@ -7,6 +7,8 @@
  * 每一轮：展开事件 → 用车提醒（最多每分钟扫一次）→ 过期 → 处理中途断掉的 → 邮件没配置就到此为止（记录保留，配置后发）→ 取走到期的记录逐条发送。
  * 发送在事务之外（最多 15 秒，ADR 0048）；取走时写租约令牌，记结果时核对。
  *
+ * 发给司机的邮件（M4-27，ADR 0058）走同一条路，只是发送前的复查和生成链接在租户事务里。
+ *
  * 日志只写通知编号、事件、订单编号、错误码：**不写邮箱、令牌、主题、正文**。查看链接的令牌只在内存里（库里只有哈希）。
  */
 import {
@@ -48,7 +50,7 @@ import {
   type PlatformAction,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
-import { type Db, withPlatformTx } from "../db/context.ts";
+import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { findExtraChargeForPlatform } from "../repos/extra-charges.ts";
 import { findDriver, findVehicle } from "../repos/fleet.ts";
 import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -77,10 +79,12 @@ import {
   releaseQuietHeld,
   tenantAdminRecipients,
   tenantRecipients,
+  updateDriverRecipient,
   updateRecipient,
 } from "../repos/notifications.ts";
 import { type Order, type OrderSale, findOrderForPlatform, findOrderOfTenant, findSale } from "../repos/orders.ts";
 import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
+import { prepareDriverLinkEmail } from "./driver-link-email.ts";
 import { customerAmountOf } from "./extra-charges.ts";
 import { sendMail } from "./mail.ts";
 import type { OrderLog } from "./orders.ts";
@@ -128,7 +132,7 @@ interface Target {
   orderNo: string | null;
 }
 
-type Prepared = { kind: "message"; message: MailMessage } | { kind: "stale" } | { kind: "hold"; until: Date } | { kind: "render_failed" };
+type Prepared = { kind: "message"; message: MailMessage } | { kind: "stale"; code?: string } | { kind: "hold"; until: Date } | { kind: "render_failed" };
 
 /** 事件里的时间：坏值当作没有。 */
 function dateOf(value: unknown): Date | null {
@@ -338,6 +342,13 @@ export class NotificationJobs {
       }
       case "staff":
         return this.staffTargets(db, event, order);
+      case "driver": {
+        // 只有编号在事件里；地址现取。没有邮箱（刚被删了）就没有发送记录，发送状态显示「没有邮箱」
+        const driverId = event.data["driver_id"];
+        if (event.tenantId === null || typeof driverId !== "string") return [];
+        const email = (await findDriver(db, event.tenantId, driverId))?.email?.trim() ?? "";
+        return email === "" ? [] : [{ audience, recipient: email, tenantId: event.tenantId, orderNo: order?.orderNo ?? null }];
+      }
     }
   }
 
@@ -374,7 +385,7 @@ export class NotificationJobs {
     const attemptNo = notification.attempts + 1;
     let prepared: Prepared;
     try {
-      prepared = await withPlatformTx(this.ctx.pool, (db) => this.prepare(db, notification, manual));
+      prepared = notification.audience === "driver" ? await this.prepareForDriver(notification) : await withPlatformTx(this.ctx.pool, (db) => this.prepare(db, notification, manual));
     } catch (err) {
       // 这单解不开：重试也没用，记失败（错误码，不带内容），不占队列（ADR 0057）
       if (isPassengerDecryptFailure(err)) return this.finish(notification, { status: "failed", attempts: attemptNo, code: PASSENGER_DECRYPT_FAILED, message: null });
@@ -382,7 +393,7 @@ export class NotificationJobs {
       this.log.warn({ event: "notification.prepare_failed", notificationId: notification.id, dbCode: dbCodeOf(err) }, "准备邮件内容时出错，稍后再试");
       return this.finish(notification, this.afterFailure(notification, "UNEXPECTED", null, attemptNo, manual));
     }
-    if (prepared.kind === "stale") return this.finish(notification, { status: "expired", attempts: notification.attempts, code: "ORDER_STATE_CHANGED", message: null });
+    if (prepared.kind === "stale") return this.finish(notification, { status: "expired", attempts: notification.attempts, code: prepared.code ?? "ORDER_STATE_CHANGED", message: null });
     if (prepared.kind === "hold") return this.finish(notification, { status: "pending", attempts: notification.attempts, nextAttemptAt: prepared.until, code: "QUIET_HOURS", message: null });
     if (prepared.kind === "render_failed") {
       this.log.error({ event: "notification.failed", notificationId: notification.id, eventType: notification.event, orderId: notification.orderId, errorCode: "RENDER_FAILED" }, "通知的内容生成失败：缺变量或没有模板");
@@ -459,6 +470,22 @@ export class NotificationJobs {
     return { kind: "message", message: { to, subject: rendered.subject, text: rendered.text } };
   }
 
+  /**
+   * 发给司机的（ADR 0058）：在租户事务里锁住订单、复查、现生成邮件专用链接，原文只在返回的邮件内容里。免打扰不适用：司机不是供应商员工。
+   * 收件人按司机现在的邮箱，记录跟着改。
+   */
+  private async prepareForDriver(notification: Notification): Promise<Prepared> {
+    const event = await withPlatformTx(this.ctx.pool, (db) => findEvent(db, notification.eventId));
+    if (event === null || notification.tenantId === null || notification.orderId === null) return { kind: "render_failed" };
+    const tenantId = notification.tenantId;
+    const orderId = notification.orderId;
+    const prepared = await withTenantTx(this.ctx.pool, tenantId, (db) => prepareDriverLinkEmail(db, this.ctx, { requestId: event.id, tenantId, orderId, data: event.data }));
+    if (prepared.kind === "blocked") return { kind: "stale", code: prepared.code };
+    if (prepared.kind === "render_failed") return prepared;
+    if (prepared.message.to !== notification.recipient) await withPlatformTx(this.ctx.pool, (db) => updateDriverRecipient(db, notification.id, prepared.message.to));
+    return { kind: "message", message: prepared.message };
+  }
+
   private async variablesOf(db: Db, notification: Notification, event: StoredNotificationEvent, order: Order | null): Promise<NotificationVariables> {
     switch (notification.audience) {
       case "guest":
@@ -467,6 +494,8 @@ export class NotificationJobs {
         return tenantVariables(this.ctx, db, event, order);
       case "staff":
         return staffVariables(this.ctx, notification, event);
+      case "driver":
+        return {};
     }
   }
 
