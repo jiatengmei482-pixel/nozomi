@@ -75,9 +75,15 @@ export interface DriverLinkEmailFacts {
   orderSendable: boolean;
   mode: DriverLinkDeliveryMode;
   driverEmail: string | null;
+  /** 司机停用了：发不了，不给重发。不给算在职 */
+  driverActive?: boolean;
   /** 现在这条链接上最新的一次发起；发送记录还没展开时 `notification` 为 null */
   latest: {
     requestedAt: Date;
+    /** 没有发送记录就结束了：`DRIVER_EMAIL_MISSING`（展开时没有地址），或展开出错的错误码 */
+    closedCode?: string | null;
+    /** 这一单还有没有有效的邮件链接。不给算有 */
+    emailLinkActive?: boolean;
     notification: { status: string; recipient: string; errorCode: string | null; sentAt: Date | null } | null;
   } | null;
 }
@@ -101,17 +107,20 @@ export function driverLinkEmailView(facts: DriverLinkEmailFacts): DriverLinkEmai
   if (!facts.linkActive) return { ...empty, state: "no_link", canResend: false };
   if (facts.mode === "manual") return { ...empty, state: "manual", canResend: false };
   if (email === null) return { ...empty, state: "no_email", canResend: false };
-  const canResend = facts.orderSendable;
+  const canResend = facts.orderSendable && facts.driverActive !== false;
   const { latest } = facts;
   if (latest === null) return { ...empty, recipient: email, state: "not_sent", canResend };
   const notification = latest.notification;
   const base = { requestedAt: latest.requestedAt, canResend };
   if (notification === null) {
+    if (latest.closedCode === "DRIVER_EMAIL_MISSING") return { ...base, state: "not_sent", recipient: email, errorCode: null, sentAt: null, addressChanged: false };
+    if (latest.closedCode !== null && latest.closedCode !== undefined) return { ...base, state: "failed", recipient: email, errorCode: latest.closedCode, sentAt: null, addressChanged: false };
     const stalled = facts.now.getTime() - latest.requestedAt.getTime() > DRIVER_LINK_EMAIL_LIMITS.expandStalledMs;
     return { ...base, state: stalled ? "failed" : "pending", recipient: email, errorCode: stalled ? "UNEXPECTED" : null, sentAt: null, addressChanged: false };
   }
   if (notification.status === "sent") {
-    if (notification.recipient.toLowerCase() !== email.toLowerCase()) return { ...base, state: "not_sent", recipient: email, errorCode: null, sentAt: null, addressChanged: true };
+    // 邮件里的链接都作废了（改过邮箱，改回原地址也一样）：不能再说「已发送」，否则调度员不会点重发
+    if (latest.emailLinkActive === false || notification.recipient.toLowerCase() !== email.toLowerCase()) return { ...base, state: "not_sent", recipient: email, errorCode: null, sentAt: null, addressChanged: true };
     return { ...base, state: "sent", recipient: notification.recipient, errorCode: null, sentAt: notification.sentAt, addressChanged: false };
   }
   if (notification.status === "pending" || notification.status === "sending") return { ...base, state: "pending", recipient: email, errorCode: notification.errorCode, sentAt: null, addressChanged: false };

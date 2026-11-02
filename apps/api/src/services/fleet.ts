@@ -147,7 +147,8 @@ export async function updateDriver(ctx: AppContext, writer: FleetWriter, id: str
   return guardUnique(
     () =>
       withTenantTx(ctx.pool, tenantId, async (db) => {
-        // 要改邮箱时先锁他在途的订单，再锁司机行（顺序见 lockDriverOrders）
+        // 要改邮箱时先锁他在途的订单，再锁司机行（顺序见 lockDriverOrders）。这之后才派给他的单锁不到：
+        // 那边的后台任务读司机时带共享锁（prepareDriverLinkEmail），这里拿到司机行时它一定已提交，下面的吊销看得到它生成的链接
         const peek = await findDriver(db, tenantId, id);
         if (peek !== null && input.email !== undefined && peek.email !== given.email) await lockDriverOrders(db, tenantId, id, DRIVER_LINK_EMAIL_STATUSES);
         const current = await findDriver(db, tenantId, id, { lock: true });

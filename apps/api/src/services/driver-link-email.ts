@@ -30,7 +30,7 @@ import { type Db, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { insertAuditLog } from "../repos/audit-logs.ts";
 import { type DriverLink, currentDriverLink, findDriverLinkById, insertDriverLink } from "../repos/dispatch.ts";
-import { driverLinkEmailUsage, insertDriverLinkEmail, latestDriverLinkEmailId, latestDriverLinkEmailOfLink } from "../repos/driver-link-emails.ts";
+import { driverLinkEmailUsage, insertDriverLinkEmail, latestDriverLinkEmailId, latestDriverLinkEmailOfLink, lockTenantResendQuota } from "../repos/driver-link-emails.ts";
 import { type Driver, findDriver } from "../repos/fleet.ts";
 import { enqueueNotification, findNotificationSettings } from "../repos/notifications.ts";
 import { type Order, findTenantOrder } from "../repos/orders.ts";
@@ -65,6 +65,7 @@ export async function driverLinkEmailOutcome(db: Db, order: Order, link: DriverL
     orderSendable: DRIVER_LINK_EMAIL_STATUSES.includes(order.status),
     mode: driverLinkDelivery,
     driverEmail: driver?.email ?? null,
+    driverActive: driver === null || driver.status === "active",
     latest: link === null ? null : await latestDriverLinkEmailOfLink(db, order.tenantId, order.id, link.id),
   });
 }
@@ -102,11 +103,18 @@ export async function resendDriverLinkEmail(ctx: AppContext, writer: { principal
     if (!DRIVER_LINK_EMAIL_STATUSES.includes(order.status) || order.dispatch.driverId === null) throw orderStateInvalid(order.status, "resend_driver_link_email");
     const link = await currentDriverLink(db, tenantId, orderId);
     if (link === null) throw new AppError(409, "DRIVER_LINK_NOT_ACTIVE", "这一单现在没有有效的司机链接，请先重新生成");
-    if (link.expiresAt.getTime() <= now.getTime()) throw new AppError(409, "DRIVER_LINK_EXPIRED", "用车结束已超过 24 小时，不能再发司机链接");
+    if (link.expiresAt.getTime() <= now.getTime()) {
+      // 链接过期后才改期到更晚：行程还没结束，不能说「用车结束已超过 24 小时」。已过期的不复活，重新生成就行
+      if (driverLinkExpiry(order.serviceAt, order.packageHours).getTime() > now.getTime()) throw new AppError(409, "DRIVER_LINK_NOT_ACTIVE", "这条司机链接已过期，请先重新生成");
+      throw new AppError(409, "DRIVER_LINK_EXPIRED", "用车结束已超过 24 小时，不能再发司机链接");
+    }
     const { driverLinkDelivery } = await findNotificationSettings(db, tenantId);
     if (driverLinkDelivery !== "auto") throw new AppError(409, "DRIVER_LINK_EMAIL_MANUAL", "当前设置是调度员手动发送，系统不发邮件。请复制链接发给司机");
     const driver = await findDriver(db, tenantId, order.dispatch.driverId);
     if (driver === null || driver.email === null) throw new AppError(409, "DRIVER_EMAIL_MISSING", "这位司机没有邮箱，请到车队里补上，或复制链接手动发");
+    if (driver.status !== "active") throw new AppError(409, "DRIVER_DISABLED", "这位司机已停用，不能发邮件。请先恢复在职或改派");
+    // 一家的总量是跨订单的：订单锁挡不住，要再拿一把这一家的锁
+    await lockTenantResendQuota(db, tenantId);
     const usage = await driverLinkEmailUsage(db, tenantId, orderId, new Date(now.getTime() - HOUR_MS));
     const wait = driverLinkResendWait({ now, ...usage });
     if (wait !== null) throw rateLimited(wait);
@@ -116,11 +124,11 @@ export async function resendDriverLinkEmail(ctx: AppContext, writer: { principal
   });
 }
 
-export type PreparedDriverEmail = { kind: "message"; message: MailMessage } | { kind: "blocked"; code: DriverLinkSendBlock } | { kind: "render_failed" };
+export type PreparedDriverEmail = { kind: "message"; message: MailMessage; linkId: string } | { kind: "blocked"; code: DriverLinkSendBlock } | { kind: "render_failed" };
 
 /**
  * 发送前（后台任务，租户事务，事件里的租户编号）：先锁订单，再读链接、司机、设置，复查都过了才生成邮件专用链接。
- * 令牌原文只在返回的邮件内容里。失败的尝试留下的链接没有人拿得到原文，到期自然失效。
+ * 令牌原文只在返回的邮件内容里。发信失败时这条链接由后台任务吊销（`revokeEmailLinkAfterSendFailure`）。
  */
 export async function prepareDriverLinkEmail(db: Db, ctx: AppContext, input: { requestId: string; tenantId: string; orderId: string; data: Readonly<Record<string, unknown>> }): Promise<PreparedDriverEmail> {
   const { tenantId, orderId, data } = input;
@@ -134,7 +142,9 @@ export async function prepareDriverLinkEmail(db: Db, ctx: AppContext, input: { r
   const anchor = await findDriverLinkById(db, tenantId, linkId);
   const latestRequestId = await latestDriverLinkEmailId(db, tenantId, orderId);
   const { driverLinkDelivery } = await findNotificationSettings(db, tenantId);
-  const driver = await findDriver(db, tenantId, driverId);
+  // 共享锁：这里读到的地址和下面生成的链接要一起提交。改邮箱要等这个事务结束，它的吊销一定看得到这条链接；
+  // 所以就算这位司机的这张单是改邮箱开始之后才派的（那边没锁到这张单），旧地址收到的也只会是打不开的链接
+  const driver = await findDriver(db, tenantId, driverId, { share: true });
   const block = driverLinkSendBlock({
     now,
     request: { id: input.requestId, driverId, assignmentId },
@@ -162,8 +172,8 @@ export async function prepareDriverLinkEmail(db: Db, ctx: AppContext, input: { r
     link_expires_at: clockText(expiresAt, order.timezone),
   });
   if (rendered === null) return { kind: "render_failed" };
-  await insertDriverLink(db, tenantId, { purpose: "email", orderId, assignmentId, driverId, tokenHash, createdAt: now, expiresAt });
-  return { kind: "message", message: { to: driver.email, subject: rendered.subject, text: rendered.text } };
+  const link = await insertDriverLink(db, tenantId, { purpose: "email", orderId, assignmentId, driverId, tokenHash, createdAt: now, expiresAt });
+  return { kind: "message", message: { to: driver.email, subject: rendered.subject, text: rendered.text }, linkId: link.id };
 }
 
 /** 邮件有没有配置。只影响一句提示：取不到不能让已经成功的派车变成失败（ADR 0058「不阻塞派车」）。 */

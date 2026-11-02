@@ -64,8 +64,9 @@ export async function updateDriver(db: Db, tenantId: string, id: string, fields:
   return toDriver(result.rows[0] as Row);
 }
 
-export async function findDriver(db: Db, tenantId: string, id: string, options: { lock?: boolean } = {}): Promise<Driver | null> {
-  const result = await db.query<Row>(`select ${DRIVER_COLUMNS} from drivers d where d.tenant_id = $1 and d.id = $2 ${options.lock ? "for update" : ""}`, [tenantId, id]);
+/** `lock`：要改这一行。`share`：读到的内容到事务结束都不能变（生成邮件链接时用，改司机资料要等它提交，ADR 0058）。 */
+export async function findDriver(db: Db, tenantId: string, id: string, options: { lock?: boolean; share?: boolean } = {}): Promise<Driver | null> {
+  const result = await db.query<Row>(`select ${DRIVER_COLUMNS} from drivers d where d.tenant_id = $1 and d.id = $2 ${options.lock ? "for update" : options.share ? "for share" : ""}`, [tenantId, id]);
   const row = result.rows[0];
   return row === undefined ? null : toDriver(row);
 }
