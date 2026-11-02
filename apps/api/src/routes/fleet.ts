@@ -55,7 +55,7 @@ export function fleetDriverJson(driver: Driver, now: Date, options: { fullEmail?
     name: driver.name,
     phone: driver.phone,
     email_masked: driver.email === null ? null : maskEmail(driver.email),
-    ...(options.fullEmail === true ? { email: driver.email } : {}),
+    email: options.fullEmail === true ? driver.email : null,
     languages: driver.languages,
     license_expires_on: driver.licenseExpiresOn,
     license_state: expiryState(driver.licenseExpiresOn, today(now)),

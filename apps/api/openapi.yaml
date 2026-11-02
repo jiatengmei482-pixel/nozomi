@@ -22616,7 +22616,7 @@ components:
     Driver:
       type: object
       additionalProperties: false
-      required: [ id, name, phone, email_masked, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
+      required: [ id, name, phone, email, email_masked, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -22631,7 +22631,7 @@ components:
           description: 打码后的邮箱（如 `ab***@example.com`）；没填为 null
         email:
           type: [ string, "null" ]
-          description: 完整邮箱。只有司机接口、且有 `fleet.manage` 的人才有这一项（ADR 0058）
+          description: 完整邮箱。只有司机接口、且有 `fleet.manage` 的人才给，其余一律 null（有没有填看 `email_masked`，ADR 0058）
         languages:
           type: array
           items:

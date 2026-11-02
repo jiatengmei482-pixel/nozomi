@@ -70,6 +70,7 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的", () => {
     ["OrderRecords", schemas["OrderRecords"]],
     ["OrderFile", schemas["OrderFile"]],
     ["IssuedDriverLink", schemas["IssuedDriverLink"]],
+    ["DriverLinkEmail", schemas["DriverLinkEmail"]],
     ["TenantWebhook", schemas["TenantWebhook"]],
     ["WebhookDelivery", schemas["WebhookDelivery"]],
     ["WebhookAttempt", schemas["WebhookAttempt"]],

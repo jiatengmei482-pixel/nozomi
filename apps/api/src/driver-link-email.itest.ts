@@ -439,7 +439,7 @@ test("谁能看全司机邮箱：管理员、调度能；只读只有打码；�
   const { order, driver } = await dispatched(a, "a", { email });
   const readonlyToken = await staffToken("readonly");
   const seen = await ok(api.call("GET", `/tenant/v1/drivers/${driver.id}`, { token: readonlyToken }));
-  assert.equal(seen.email, undefined);
+  assert.equal(seen.email, null);
   assert.equal(seen.email_masked, "fi***@example.test");
   assertMatchesOpenApi("GET", "/tenant/v1/drivers/{id}", { status: 200, headers: {}, text: "", body: seen });
   const list = await api.call("GET", "/tenant/v1/drivers", { token: readonlyToken });
@@ -574,7 +574,7 @@ test("并发：改邮箱和派车同时到不死锁，和发信任务同时到�
 test("订单取消：排队的信不发，重发被拒", async () => {
   const email = newEmail();
   const { order } = await dispatched(a, "a", { email });
-  await api.db.owner.query("update orders set status = 'cancelled', cancelled_at = now(), cancel_reason = 'test' where id = $1", [order.id]);
+  await api.db.owner.query("update orders set status = 'cancelled', cancelled_at = now(), cancel_reason = 'GUEST_REQUEST' where id = $1", [order.id]);
   await tick();
   assert.equal(mailsTo(email).length, 0);
   assert.equal((await driverRows(order.id))[0].last_error_code, "ORDER_STATE_CHANGED");
