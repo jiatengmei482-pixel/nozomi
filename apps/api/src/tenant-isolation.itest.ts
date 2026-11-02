@@ -1482,7 +1482,7 @@ test("取消、改单、事后加收（M3-03）：取消政策两边看到的一
     ["POST", `/tenant/v1/orders/${ids.b}/extra-charges`, { type: "waiting", amount: 1000 }],
     ["POST", `/tenant/v1/orders/${ids.b}/extra-charges/${charge}/withdraw`, undefined],
     ["POST", `/tenant/v1/orders/${ids.b}/changes/${change}/confirm`, {}],
-    ["POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, {}],
+    ["POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, { note: "不该生效" }],
   ] as const;
   for (const [method, url, body] of attempts) {
     const foreign = await api.call(method, url, { token: a.adminToken, ...(body === undefined ? {} : { body }) });

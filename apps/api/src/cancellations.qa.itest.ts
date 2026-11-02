@@ -73,6 +73,19 @@ async function reschedule(orderId: string, serviceTime: string): Promise<any> {
   return api.call("PATCH", `/sales/v1/orders/${orderId}`, { token: await flow.token(), headers: { "if-match": `"${version}"` }, body: { service_time: serviceTime } });
 }
 
+/** 改期并由运营代供应商同意（M4-29 起改期要同意才生效）。返回和改单接口一样的形状，内容是同意之后的。 */
+async function rescheduleApproved(orderId: string, serviceTime: string): Promise<any> {
+  const res = await reschedule(orderId, serviceTime);
+  if (res.status !== 200 || res.body.change.status !== "pending_confirmation") return res;
+  await approve(orderId, res.body.change.id);
+  const order = await salesGet(orderId);
+  return { ...res, body: { order, change: order.changes.find((change: any) => change.id === res.body.change.id) } };
+}
+
+async function approve(orderId: string, changeId: string): Promise<void> {
+  await ok(api.call("POST", `/platform/v1/orders/${orderId}/changes/${changeId}/confirm`, { token: await platformLogin(api, m.staff.operations.email), body: { note: "测试：代同意" } }));
+}
+
 async function cancel(orderId: string): Promise<any> {
   api.clock.advance(1_000);
   return api.call("POST", `/sales/v1/orders/${orderId}/cancel`, { token: await flow.token(), body: {} });
@@ -108,7 +121,7 @@ test("改期降价的退差价失败后，客人在 50% 档取消：取消的退
   assert.equal(Number(order.price.total.amount), SURGE_SELL);
   // 改到不调价的第二天：便宜 4,356，从下单那笔退；收款服务明确拒绝（失败，等财务处理）
   pay.nextRefundIs("failed", "charge_for_pending_refund_disputed");
-  const changed = await reschedule(order.id, tenAm(baseDay));
+  const changed = await rescheduleApproved(order.id, tenAm(baseDay));
   assert.equal(changed.status, 200, changed.text);
   assert.deepEqual([changed.body.change.price_difference.kind, changed.body.order.price.total.amount], ["refund", String(BASE_SELL)]);
   const failed = (await platformDetail(order.id)).refunds.find((refund: any) => refund.purpose === "change");
@@ -141,11 +154,11 @@ test("同一张单改期三次（涨、降、再涨）后在 50% 档取消：客
   const order = await flow.paidOrder({ serviceTime: tenAm(day1) });
   assert.equal(Number(order.price.total.amount), BASE_SELL);
   const diff = SURGE_SELL - BASE_SELL;
-  const up = await reschedule(order.id, tenAm(surgeDay));
+  const up = await rescheduleApproved(order.id, tenAm(surgeDay));
   assert.deepEqual([up.status, up.body.change.price_difference], [200, { kind: "charge", amount: { amount: String(diff), currency: "JPY" } }], up.text);
-  const down = await reschedule(order.id, tenAm(day3));
+  const down = await rescheduleApproved(order.id, tenAm(day3));
   assert.deepEqual([down.status, down.body.change.price_difference?.kind], [200, "refund"], down.text);
-  const again = await reschedule(order.id, tenAm(surgeDay));
+  const again = await rescheduleApproved(order.id, tenAm(surgeDay));
   assert.deepEqual([again.status, again.body.change.price_difference?.kind, again.body.order.price.total.amount], [200, "charge", String(SURGE_SELL)], again.text);
   assert.equal(pay.chargesOf(order.id).filter((charge) => charge.status === "succeeded").length, 2, "补了两次差价");
 
@@ -276,6 +289,9 @@ test("改期补差价时收款服务其实扣到了、但应答超时：定时�
   assert.deepEqual([res.status, res.body.error.code], [504, "PAYMENT_PROVIDER_TIMEOUT"]);
   api.clock.advance(3 * 60_000);
   await api.app.orderJobs.money();
+  const waiting = await salesGet(order.id);
+  assert.deepEqual([waiting.service_local, waiting.changes.map((change: any) => change.status)], [`${day}T10:00`, ["pending_confirmation"]], "扣到差价后等供应商同意");
+  await approve(order.id, waiting.changes[0].id);
   const now = await salesGet(order.id);
   assert.deepEqual([now.service_local, now.price.total.amount, now.changes.map((change: any) => change.status)], [`${surgeDay}T10:00`, String(SURGE_SELL), ["applied"]]);
   assert.deepEqual(pay.chargesOf(order.id).map((charge) => [charge.amountMinor, charge.status]), [[SURGE_SELL - BASE_SELL, "succeeded"]], "只扣了一次");
