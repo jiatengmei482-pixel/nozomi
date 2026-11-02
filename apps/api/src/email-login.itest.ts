@@ -27,14 +27,14 @@ const verifyPath = (portal: "platform" | "tenant"): string => `/${portal}/v1/aut
 async function requestCode(portal: "platform" | "tenant", email: string, ip: string, on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", requestPath(portal), { body: { email }, ip });
   assertMatchesOpenApi("POST", requestPath(portal), res);
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
 async function verify(portal: "platform" | "tenant", email: string, code: string, ip: string, on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", verifyPath(portal), { body: { email, code }, ip });
   assertMatchesOpenApi("POST", verifyPath(portal), res);
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
@@ -148,7 +148,7 @@ test("发码的应答不等发信：邮件服务器不回话时，应答照样�
   const elapsed = Date.now() - started;
   assert.equal(res.status, 202);
   assert.ok(elapsed < 1_000, `应答用了 ${elapsed} 毫秒，不应该等发信（发信时限 2 秒）`);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   const rows = await auditAfter("email_code_request", mark);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].after.outcome, "send_failed");
@@ -215,7 +215,7 @@ test("并发：同一个码同时提交 5 次，只有一个成功；数据库�
   assert.deepEqual(results.map((res) => res.status).sort(), [200, 401, 401, 401, 401]);
   const sessions = (await api.db.owner.query("select count(*)::int as n from platform_sessions s join platform_users u on u.id = s.user_id where u.email = $1", [email])).rows[0].n;
   assert.equal(sessions, 1);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
 });
 
 test("并发：错码同时提交 12 次，码的计数不超过 5（数据库保证），之后正确的码也不行", async () => {
@@ -225,7 +225,7 @@ test("并发：错码同时提交 12 次，码的计数不超过 5（数据库�
   const code = latestCode(smtp, email);
   const results = await Promise.all(Array.from({ length: 12 }, () => api.call("POST", verifyPath("platform"), { body: { email, code: wrongCode(code) }, ip: nextIp() })));
   assert.ok(results.every((res) => res.status === 401));
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.equal((await verify("platform", email, code, nextIp())).status, 401);
   const counts = (await api.db.owner.query("select attempt_count from email_login_codes where attempt_count = 5")).rows.length;
   assert.ok(counts >= 1, "计数停在 5");
@@ -431,7 +431,7 @@ test("跨租户：A 的验证码换不来 B 的账号；A 的令牌读不到、�
   const ip = nextIp();
   const mark = await auditMark();
   await api.call("POST", requestPath("tenant"), { body: { email: a.adminEmail, tenant_id: b.tenantId }, ip });
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual(smtp.messages.map((message) => message.to[0]), [a.adminEmail]);
   const codeA = latestCode(smtp, a.adminEmail);
   const wrongPerson = await verify("tenant", b.adminEmail, codeA, nextIp());
@@ -445,7 +445,7 @@ test("跨租户：A 的验证码换不来 B 的账号；A 的令牌读不到、�
   assert.ok(!users.text.includes(b.adminEmail), "读不到 B");
   const patched = await api.call("PATCH", `/tenant/v1/users/${b.adminId}`, { token, body: { name: "改掉", role: "admin", status: "active" } });
   assert.equal(patched.status, 404, "改不了 B");
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   const rows = await auditAfter("email_code_request", mark);
   assert.deepEqual(rows.map((row) => row.tenant_id), [a.tenantId]);
   const failed = await auditAfter("email_code_failed", mark);

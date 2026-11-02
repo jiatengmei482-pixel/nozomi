@@ -3,7 +3,7 @@
  * 幂等键重试不变、报价过期）→ 订单页（令牌只在请求头、付款暂未开放 / Stripe.js 的假实现、我已落地、取消先看退多少、改单只给改了的字段、异议、找回、链接失效）。
  * 接口用测试替身；真实后端由集成测试 site.itest.ts 和端到端测试 e2e/site-booking.spec.ts 覆盖。
  */
-import { LOOKUP_NOT_FOUND_TEXT } from "./OrderPage.tsx";
+import { LOOKUP_SENT_TEXT } from "./OrderPage.tsx";
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -402,33 +402,55 @@ test("事后加收：显示客人要付的金额和异议截止时间；异议�
   assertAbsent(screen.queryByRole("button", { name: "取消订单" }));
 });
 
-test("查订单：没有令牌时填订单号和邮箱找回，换成新链接再读订单；链接失效时提示重新查找；找不到时不说是哪一项不对", async () => {
-  let found = true;
+test("查订单（ADR 0061）：没有令牌时填订单号和下单邮箱，提交后不管对没对上都只说「如信息匹配，链接已发送」，不打开订单；手机号提示联系客服；有客服电话时显示", async () => {
   const calls = open("/book/order", (call) => {
-    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
-    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return found ? json(200, { link: { token: NEW_TOKEN, expires_at: "2026-12-20T01:00:00.000Z" } }) : apiError(404, "ORDER_NOT_FOUND", "没有找到");
-    if (call.url.pathname === "/site/v1/order") return call.headers["authorization"] === `Bearer ${NEW_TOKEN}` ? json(200, envelopeOf()) : apiError(401, "ORDER_LINK_INVALID", "链接无效");
+    if (call.url.pathname === "/site/v1/config") return json(200, { ...openConfig, support_phone: "+81 3-0000-0000" });
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(202, { status: "accepted" });
     return null;
   });
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "查订单" });
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
   assert.ok(await screen.findByText(/订单号是 NZ 开头的 18 位/));
   await actor.type(screen.getByLabelText("订单号"), "nz20261026abcd2345");
-  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "guest@example.com");
-  found = false;
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
-  assert.ok(await screen.findByText(LOOKUP_NOT_FOUND_TEXT));
-  assert.match(LOOKUP_NOT_FOUND_TEXT, /超过 180 天.*隐私规则清除.*联系客服/);
-  found = true;
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
-  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026ABCD2345" });
-  assert.deepEqual(calls.filter((call) => call.method === "POST").at(-1)?.body, { order_no: "NZ20261026ABCD2345", contact: "guest@example.com" });
+  await actor.type(screen.getByLabelText("下单时的邮箱"), "+81 90-1234-5678");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText("请填写下单时的邮箱。只留了手机号的，请联系客服"));
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0, "格式不对不提交");
+  await actor.clear(screen.getByLabelText("下单时的邮箱"));
+  await actor.type(screen.getByLabelText("下单时的邮箱"), " Guest@Example.com ");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText(LOOKUP_SENT_TEXT));
+  assert.match(LOOKUP_SENT_TEXT, /^如信息匹配，链接已发送到下单邮箱/);
+  assert.deepEqual(calls.filter((call) => call.method === "POST").at(-1)?.body, { order_no: "NZ20261026ABCD2345", email: "Guest@Example.com" });
+  assert.equal(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length, 0, "不在页面上打开订单");
+  assert.ok(screen.getByRole("heading", { level: 2, name: "收不到邮件？" }));
+  assert.equal(screen.getByRole("link", { name: /打电话给客服/ }).getAttribute("href"), "tel:+81300000000");
 
   resetBrowser();
   open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? apiError(401, "ORDER_LINK_INVALID", "链接无效") : null));
-  assert.ok(await screen.findByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"));
-  assert.ok(screen.getByRole("button", { name: "查找订单" }));
+  assert.ok(await screen.findByText("订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。"));
+  assert.ok(screen.getByRole("button", { name: "发送订单链接" }));
+  assertAbsent(screen.queryByRole("link", { name: /打电话给客服/ }));
+  assert.ok(screen.getByText(/下单时只留了手机号、邮箱填错了/));
+});
+
+test("查订单：限速提示等多久或联系客服；邮件发不了时请客人联系客服", async () => {
+  let reply = () => apiError(429, "RATE_LIMITED", "请求过于频繁", { retry_after_seconds: 1_800 }, { "retry-after": "1800" });
+  open("/book/order", (call) => {
+    if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return reply();
+    return null;
+  });
+  const actor = user();
+  await screen.findByRole("heading", { level: 1, name: "查订单" });
+  await actor.type(screen.getByLabelText("订单号"), "NZ20261026ABCD2345");
+  await actor.type(screen.getByLabelText("下单时的邮箱"), "guest@example.com");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText("尝试次数过多，请 30 分钟后再试，或联系客服。"));
+  reply = () => apiError(503, "ORDER_LINK_EMAIL_UNAVAILABLE", "暂时发不了邮件");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText("暂时发不了邮件，请联系客服找回订单。"));
 });
 
 test("查订单：链接格式不对（# 后面不是令牌）也提示链接无效或已过期，不去请求订单；只有 # 没有内容时只显示表单", async () => {
@@ -436,7 +458,7 @@ test("查订单：链接格式不对（# 后面不是令牌）也提示链接无
     resetBrowser();
     const calls = open({ pathname: "/book/order", hash }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : null));
     await screen.findByRole("heading", { level: 1, name: "查订单" });
-    assert.ok(screen.getByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"), hash);
+    assert.ok(screen.getByText("订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。"), hash);
     assert.equal(calls.filter((call) => urlOf(call).pathname === "/site/v1/order").length, 0, hash);
   }
   for (const hash of ["", "#", "# "]) {

@@ -5,7 +5,7 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { EXPIRED_LINK_HINT, LOOKUP_NOT_FOUND_TEXT } from "../book/OrderPage.tsx";
+import { EXPIRED_LINK_HINT, LOOKUP_SENT_TEXT } from "../book/OrderPage.tsx";
 import type { PlatformOrder, PlatformOrderDetail } from "../../api/order-money.ts";
 import { ACTION_NAMES } from "../../lib/audit-display.ts";
 import { NOT_DISPATCHED, NO_RECORDS, ORDER_ID, TENANT_ID, TICKET_ID, openApp, platformTicketDetailOf } from "../../testing/order-center-fixtures.tsx";
@@ -148,9 +148,8 @@ test("审计页认得看工单文字这个操作", () => {
   assert.equal(ACTION_NAMES["view_ticket_text"], "查看工单文字原文");
 });
 
-test("官网查订单的提示说得清楚为什么查不到；审计页认得脱敏这个操作", () => {
-  assert.match(LOOKUP_NOT_FOUND_TEXT, /请核对订单号/);
-  assert.match(LOOKUP_NOT_FOUND_TEXT, /超过 180 天.*隐私规则清除.*联系客服/);
+test("官网查订单的提示不说订单存不存在（ADR 0061），链接失效时说清楚 180 天的规则；审计页认得脱敏这个操作", () => {
+  assert.match(LOOKUP_SENT_TEXT, /^如信息匹配/);
   assert.match(EXPIRED_LINK_HINT, /超过 180 天.*隐私规则清除.*联系客服/);
   assert.equal(ACTION_NAMES["anonymize_passenger"], "乘客信息自动脱敏");
 });

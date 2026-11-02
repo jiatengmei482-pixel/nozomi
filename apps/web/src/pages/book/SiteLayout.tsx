@@ -126,7 +126,7 @@ export function useSiteConfig(): { state: ConfigState; reload(): void } {
 export function siteFailureText(err: unknown, action: string): string {
   if (err instanceof ApiError) {
     if (err.code === "SITE_NOT_OPEN") return "官网暂未开放预订，请稍后再来。";
-    if (err.code === "ORDER_LINK_INVALID") return "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。";
+    if (err.code === "ORDER_LINK_INVALID") return "订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到您的邮箱。";
     if (err.status === 429) return err.retryAfterSeconds !== null && err.retryAfterSeconds > 0 ? `操作太频繁了，请 ${err.retryAfterSeconds < 60 ? `${err.retryAfterSeconds} 秒` : `${Math.ceil(err.retryAfterSeconds / 60)} 分钟`}后再试。` : "操作太频繁了，请稍后再试。";
   }
   return failureText(err, action);

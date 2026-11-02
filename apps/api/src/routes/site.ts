@@ -12,7 +12,8 @@
  * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
- * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱或手机号找回（每个地址 15 分钟 10 次；每个订单号每小时 10 次失败，对上的不受订单号额度限制）；
+ * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱，对上了把新链接发到下单邮箱（ADR 0061）。一律 202，不透露订单存不存在；
+ *   按地址、订单号、邮箱限速（domain 的 `VIEW_LINK_REQUEST_LIMITS`），和订单存不存在无关；
  * - `GET /site/v1/order`、`GET …/order/payment`、`GET …/order/cancel-fee`、`POST …/order/cancel`、`PATCH /site/v1/order`、
  *   `POST …/order/landed`（我已落地）、`POST …/order/extra-charges/{chargeId}/dispute`（对加收提异议）。
  * 订单的应答是 `{ order, timeline, names }`：`order` 是 `/sales/v1` 同一份 `salesOrderJson`（没有结算价、加价比例；付款前没有中标供应商），
@@ -20,7 +21,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES, normalizePlaceQuery, placeQueryIssue } from "@nozomi/domain";
+import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -28,7 +29,7 @@ import { cancelForChannel, previewCancellation } from "../services/cancellations
 import { disputeExtraCharge } from "../services/extra-charges.ts";
 import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
-import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, lookupSiteOrder, placeSiteOrder, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
+import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, placeSiteOrder, requestSiteOrderLink, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
@@ -119,10 +120,15 @@ const orderSchema = z
   })
   .strict();
 
+/** 查订单：订单号（不分大小写）+ 下单邮箱（全角转半角、不分大小写；手机号不行：链接只发邮箱，ADR 0061）。 */
 const lookupSchema = z
   .object({
     order_no: z.string().trim().toUpperCase().regex(/^NZ\d{8}[0-9A-Z]{8}$/, "订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34"),
-    contact: z.string().trim().min(3).max(320),
+    email: z.string().max(400).transform((value, issue) => {
+      const email = viewLinkLookupEmail(value);
+      if (email === null) issue.addIssue({ code: "custom", message: "请填写下单时的邮箱" });
+      return email ?? "";
+    }),
   })
   .strict();
 
@@ -277,10 +283,12 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return reply.code(201).send({ ...(await siteOrderJson(ctx, created.view)), payment: created.payment === null ? null : paymentJson(created.payment), link: linkJson(created.link) });
   });
 
-  app.post("/site/v1/orders/lookup", async (request) => {
+  // 对上、对不上、订单号不存在都是这一句：查单和发信在应答之后的后台任务里
+  app.post("/site/v1/orders/lookup", async (request, reply) => {
     await takeSiteSlot(ctx, "site_lookup", { ip: request.ip });
     const input = parseInput(lookupSchema, request.body, "body");
-    return { link: linkJson(await lookupSiteOrder(ctx, input.order_no, input.contact, request.log)) };
+    await requestSiteOrderLink(ctx, request.log, { orderNo: input.order_no, email: input.email });
+    return reply.code(202).send({ status: "accepted" });
   });
 
   app.get("/site/v1/order", async (request) => orderView(await guest(request)));

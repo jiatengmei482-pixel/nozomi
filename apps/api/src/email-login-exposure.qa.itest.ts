@@ -29,13 +29,13 @@ const nextIp = (): string => `198.18.${(++ipCounter >> 8) & 255}.${ipCounter & 2
 
 async function requestCode(portal: Portal, email: string, ip = nextIp(), on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", `/${portal}/v1/auth/email-code/request`, { body: { email }, ip });
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
 async function verify(portal: Portal, email: string, code: string, ip = nextIp(), on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", `/${portal}/v1/auth/email-code/verify`, { body: { email, code }, ip });
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
@@ -257,7 +257,7 @@ test("限速命中不写审计（ADR 第 7 节），日志只有入口和阶段�
   const mark = (await api.db.owner.query("select coalesce(max(id), 0) as id from audit_logs")).rows[0].id;
   const logsBefore = api.logs().length;
   for (let i = 0; i < 5; i++) assert.equal((await requestCode("platform", email, ip)).status, 429);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.equal((await api.db.owner.query("select count(*)::int as n from audit_logs where id > $1", [mark])).rows[0].n, 0);
   const warned = api.logs().slice(logsBefore).split("\n").filter((line) => line.includes("email_code.rate_limited"));
   assert.equal(warned.length, 5);

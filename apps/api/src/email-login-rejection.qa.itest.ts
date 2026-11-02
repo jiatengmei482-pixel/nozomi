@@ -34,7 +34,7 @@ after(async () => {
 
 async function requestCode(portal: Portal, email: string): Promise<ApiResponse> {
   const res = await api.call("POST", `/${portal}/v1/auth/email-code/request`, { body: { email }, ip: nextIp() });
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   return res;
 }
 

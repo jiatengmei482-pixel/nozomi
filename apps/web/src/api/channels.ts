@@ -139,6 +139,7 @@ export type ApprovalKind =
   | "order.cancel_refund"
   | "order.proxy_pick_up"
   | "order.proxy_complete"
+  | "order.view_link_email"
   | "rescue.manual_assign"
   | "compensation_table.update"
   | "ticket.decision"

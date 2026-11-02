@@ -26,13 +26,13 @@ const nextIp = (): string => `198.51.100.${(++ipCounter % 250) + 1}`;
 
 async function requestCode(portal: Portal, email: string, ip = nextIp(), on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", `/${portal}/v1/auth/email-code/request`, { body: { email }, ip });
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
 async function verify(portal: Portal, email: string, code: string, ip = nextIp(), on: TestApi = api): Promise<ApiResponse> {
   const res = await on.call("POST", `/${portal}/v1/auth/email-code/verify`, { body: { email, code }, ip });
-  await on.app.emailLoginIdle();
+  await on.app.backgroundIdle();
   return res;
 }
 
@@ -202,7 +202,7 @@ test("IP 白名单：没配代理层数时伪造 X-Forwarded-For 冒充名单里
   const outside = nextIp();
   const code = await codeFor("platform", email, outside);
   const res = await api.call("POST", "/platform/v1/auth/email-code/verify", { body: { email, code }, ip: outside, headers: { "x-forwarded-for": allowed } });
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual([res.status, res.body.error.code], [403, "IP_NOT_ALLOWED"], res.text);
   assert.equal(await sessionsOfPlatform(email), 0);
 });

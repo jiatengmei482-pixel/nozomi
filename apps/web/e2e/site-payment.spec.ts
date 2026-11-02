@@ -368,14 +368,14 @@ test("从银行页面回来（/book/order?payment_intent=…）：按付款编�
   await routeStripe(other, fakeStripeUrl());
   await other.goto(returnTo);
   await expect(other.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
-  await expect(other.getByText("付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。")).toBeVisible();
+  await expect(other.getByText("付款结果已交给银行处理。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱，打开后可以看到付款结果；请不要重复付款。")).toBeVisible();
   expect(other.url()).toBe(`${SITE}/book/order`);
   await expectAccessibleBothThemes(other, "查订单（从银行页面回来却取不回订单）");
 
   // 地址上说失败：不说「已交给银行」「别重复付款」，说没成功、怎样找回订单
   await other.goto(returnTo.replace("redirect_status=succeeded", "redirect_status=failed"));
   await expect(other.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
-  await expect(other.getByRole("alert")).toHaveText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
+  await expect(other.getByRole("alert")).toHaveText("银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱。订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。");
   expect(other.url()).toBe(`${SITE}/book/order`);
   await expectNoOverflow(other, "查订单（银行说付款失败、取不回订单）");
   await expectAccessibleBothThemes(other, "查订单（银行说付款失败、取不回订单）");

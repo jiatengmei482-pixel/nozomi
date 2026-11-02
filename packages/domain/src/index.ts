@@ -52,3 +52,4 @@ export * from "./audit.ts";
 export * from "./route-estimate.ts";
 export * from "./place-search.ts";
 export * from "./bank-transfer.ts";
+export * from "./view-link.ts";

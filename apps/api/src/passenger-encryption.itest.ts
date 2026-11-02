@@ -17,7 +17,7 @@ import { findOrderForPlatform } from "./repos/orders.ts";
 import { insertRescuedOrder, markOrderRescued } from "./repos/rescues.ts";
 import { backfillBatch, checkRetiredPlaintext, planPassengerBackfill, runPassengerBackfill, verifyPassengerEncryption } from "./services/passenger-encryption.ts";
 import { runPassengerRetention } from "./services/passenger-retention.ts";
-import { type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type TestApi, createTestApi } from "./testing/api.ts";
 import { seedOrder, startFakeReceiver, type FakeReceiver } from "./testing/dispatch.ts";
 import { type FakeSmtp, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { FAKE_SECRETS, testEnv } from "./testing/fixtures.ts";
@@ -26,7 +26,7 @@ import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { endAt, retentionCtx, tokyoDaysAgo } from "./testing/retention-fixtures.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { type SiteApi, lookupQueued, resetLinkLimits, siteApi } from "./testing/site.ts";
 
 const HOUR = 3_600_000;
 const DUAL: PassengerEncryptionSettings = { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true };
@@ -111,7 +111,11 @@ async function pay_(orderId: string): Promise<void> {
 const orderRow = async (id: string): Promise<any> => (await api.db.owner.query("select tenant_id, passenger, passenger_enc, passenger_email_bidx, passenger_phone_bidx, passenger_name_bidx, passenger_anonymized_at, version, updated_at from orders where id = $1 and status <> 'rescued'", [id])).rows[0];
 const ops = (): Promise<string> => platformLogin(api, m.staff.operations.email);
 const revealOf = async (id: string): Promise<any> => ok(api.call("POST", `/platform/v1/orders/${id}/passenger/reveal`, { token: await ops() }));
-const lookup = (order: { order_no: string; ip: string }, contact: string) => site.call("POST", "/site/v1/orders/lookup", { ip: order.ip, body: { order_no: order.order_no, contact } });
+/** 查订单（ADR 0061）：应答一律 202，对没对上看有没有排信 */
+const lookup = async (order: { order_no: string; ip: string }, email: string): Promise<{ res: ApiResponse; queued: boolean }> => {
+  await resetLinkLimits(api);
+  return lookupQueued(api, site, { orderNo: order.order_no, email, ip: order.ip });
+};
 
 /** 全库每张表每一列里，哪些含这些内容（`表.列`）。 */
 async function scanDatabase(needles: readonly string[]): Promise<string[]> {
@@ -197,7 +201,7 @@ test("明文不再写的开关（第 6 步演练）：明文列只有占位，�
   const row = await orderRow(order.id);
   assert.equal(row.passenger.name, ENCRYPTED_TEXT);
   assert.deepEqual([(await revealOf(order.id)).passenger.name, (await revealOf(order.id)).passenger.phone], [passenger.name, passenger.phone]);
-  assert.equal((await lookup(order, passenger.email.toUpperCase())).status, 200);
+  assert.equal((await lookup(order, passenger.email.toUpperCase())).queued, true);
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m[owner].adminEmail) }));
   assert.equal(tenant.order.passenger.email, passenger.email);
   const confirmed = receiver.received.find((item) => JSON.parse(item.body).type === "order.confirmed");
@@ -212,8 +216,8 @@ test("明文不再写的开关（第 6 步演练）：明文列只有占位，�
   const pushedData = JSON.parse((pushed as { body: string }).body).data;
   assert.deepEqual([pushedData.before.passenger.email, pushedData.after.passenger.email], [passenger.email, changed.email], "改单推送带前后的原文");
   assert.equal((await revealOf(order.id)).passenger.email, changed.email);
-  assert.equal((await lookup(order, changed.phone)).status, 200);
-  assert.equal((await lookup(order, passenger.phone)).status, 404, "旧电话对不上");
+  assert.equal((await lookup(order, changed.email)).queued, true);
+  assert.equal((await lookup(order, passenger.email)).queued, false, "旧邮箱对不上");
   const detail = await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token: await ops() }));
   assert.equal(detail.changes[0].after.passenger.name.slice(0, 1), changed.name.slice(0, 1), "改单前后值读的是密文（再打码）");
   await drainMail();
@@ -294,24 +298,26 @@ test("回填副本：旧的改单、推送、通知没有密文的也补上；�
   assert.ok(verified.checked.webhook_deliveries >= 1);
 });
 
-test("查订单：规范化和原来一致（大小写、全角、空格、分隔符），比的是盲索引；不对的、太短的对不上，应答分不出", async () => {
+test("查订单：邮箱的规范化和原来一致（大小写、全角、空格），比的是盲索引；不对的对不上，应答分不出；手机号不能查", async () => {
   const passenger = fictional();
   const order = await placeOrder(passenger);
   const row = await orderRow(order.id);
   assert.ok(row.passenger_email_bidx);
   const fullwidth = passenger.email.replace(/[a-z0-9.@]/g, (c) => String.fromCodePoint(c.codePointAt(0)! + 0xfee0));
-  const dashed = `${passenger.phone.slice(0, 3)} ${passenger.phone.slice(3, 7)}-${passenger.phone.slice(7)}`;
-  for (const contact of [passenger.email, ` ${passenger.email.toUpperCase()} `, fullwidth, passenger.phone, dashed]) assert.equal((await lookup(order, contact)).status, 200, contact);
+  for (const email of [passenger.email, ` ${passenger.email.toUpperCase()} `, fullwidth]) {
+    const found = await lookup(order, email);
+    assert.deepEqual([found.res.status, found.queued], [202, true], email);
+  }
   const wrong = await lookup(order, "nobody@fictional.example.test");
-  const missing = await site.call("POST", "/site/v1/orders/lookup", { ip: order.ip, body: { order_no: "NZ20261007ZZZZZZZZ", contact: passenger.email } });
-  assert.deepEqual([wrong.status, wrong.body.error], [404, missing.body.error]);
-  assert.equal((await lookup(order, "12345")).status, 404);
+  const missing = await lookup({ order_no: "NZ20261007ZZZZZZZZ", ip: order.ip }, passenger.email);
+  assert.deepEqual([wrong.res.status, wrong.res.body, wrong.queued], [202, missing.res.body, false]);
+  assert.equal((await site.call("POST", "/site/v1/orders/lookup", { ip: order.ip, body: { order_no: order.order_no, email: passenger.phone } })).status, 400, "手机号不能查");
   // 比的确实是盲索引：把盲索引换掉（明文、密文都还对），就对不上了
   await api.db.owner.query("update orders set passenger_email_bidx = $2 where id = $1", [order.id, `${useCrypto(DUAL).currentPrefix}0000`]);
-  assert.equal((await lookup(order, passenger.email)).status, 404);
+  assert.equal((await lookup(order, passenger.email)).queued, false);
   // 还没回填的单：盲索引为空，按明文比
   await api.db.owner.query("update orders set passenger_email_bidx = null, passenger_enc = null where id = $1", [order.id]);
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
 });
 
 test("运营筛选：明文还在时部分匹配照旧；整串的电话、邮箱、姓名走盲索引，全角、空格都能找到；明文不再写时只认整串；范围外的、没权限的筛不到", async () => {
@@ -364,7 +370,7 @@ test("脱敏：密文、盲索引和所有副本的密文一起清掉；数据�
   await api.db.owner.query("update orders set passenger_enc = 'x', passenger_email_bidx = 'y' where id = $1", [order.id]);
   const again = await orderRow2(order.id);
   assert.deepEqual([again.passenger_enc, again.passenger_email_bidx], [null, null], "触发器挡住");
-  assert.equal((await lookup(order, passenger.email)).status, 404);
+  assert.equal((await lookup(order, passenger.email)).queued, false);
   const plan = await planPassengerBackfill(ctx);
   assert.equal(plan.orders + plan.order_changes + plan.webhook_deliveries + plan.notifications, 0);
   const revealed = await revealOf(order.id);
@@ -456,7 +462,7 @@ test("回退演练：切回读明文不丢数据；旧版本代码只改明文�
   const fixed = await orderRow(order.id);
   assert.ok(fixed.passenger_enc);
   assert.equal((await revealOf(order.id)).passenger.email, newer.email);
-  assert.equal((await lookup(order, newer.email)).status, 200);
+  assert.equal((await lookup(order, newer.email)).queued, true);
   assert.deepEqual(alerts, []);
 });
 
@@ -468,14 +474,14 @@ test("换主密钥：旧密文不报警地退回明文，查订单不受影响�
   const crypto = useCrypto(DUAL, rotated);
   alerts = [];
   assert.equal((await revealOf(order.id)).passenger.email, passenger.email);
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
   assert.deepEqual(alerts, []);
   assert.ok((await planPassengerBackfill(ctx)).orders >= 1);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
   assert.deepEqual(await planPassengerBackfill(ctx), { orders: 0, order_changes: 0, webhook_deliveries: 0, notifications: 0 });
   const row = await orderRow(order.id);
   assert.ok(crypto.isCurrent(row.passenger_enc) && crypto.isCurrent(row.passenger_email_bidx));
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
   const verified = await verifyPassengerEncryption(ctx);
   assert.ok(verified.undecryptable.orders >= 1, "前面用例里明文不再写的单只有旧密钥解得开：核对要报出来，不能说全部一致");
   assert.equal(verified.mismatched.orders, 0);
@@ -498,7 +504,7 @@ test("没配置主密钥：下单 503 写明原因，不写明文冒充加密；
   assertMatchesOpenApi("POST", "/site/v1/orders", res);
   assert.deepEqual(await scanDatabase(fresh.needles), [], "什么都没写");
   assert.equal((await revealOf(existing.id)).passenger.email, passenger.email);
-  assert.equal((await lookup(existing, passenger.email)).status, 200);
+  assert.equal((await lookup(existing, passenger.email)).queued, true);
   const version = (await ok(api.call("GET", `/platform/v1/orders/${existing.id}`, { token: await ops() }))).order.version;
   const change = await api.call("PATCH", `/platform/v1/orders/${existing.id}`, { token: await ops(), headers: { "if-match": String(version) }, body: { passenger: { name: "虚构改名", phone: "+818011112222", email: "changed@fictional.example.test" } } });
   assert.deepEqual([change.status, change.body.error.code], [503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED"]);
@@ -627,11 +633,11 @@ test("解不开的隔离（明文不再写）：运营列表这一行显示无�
     const list = await ok(api.call("GET", `/platform/v1/orders?q=${broken.order_no}`, { token }));
     assert.deepEqual(list.items[0].passenger, { name: "无法读取", phone: "无法读取", email: "无法读取" });
     assert.equal((await api.call("GET", `/platform/v1/orders/${broken.id}`, { token })).status, 503);
-    // 查订单：对不上的 404；对得上却解不开的 503
-    assert.equal((await lookup(broken, "nobody@fictional.example.test")).status, 404);
+    // 查订单（ADR 0061）：对不上的、对得上却解不开的，应答都一样，都不排信（解不开的在后台任务里记日志）
+    const wrong = await lookup(broken, "nobody@fictional.example.test");
     const right = await lookup(broken, passenger.email);
-    assert.deepEqual([right.status, right.body.error.code], [503, "PASSENGER_DECRYPT_FAILED"]);
-    for (const needle of passenger.needles) assert.ok(!right.text.includes(needle));
+    assert.deepEqual([right.res.status, right.res.body, right.queued, wrong.queued], [202, wrong.res.body, false, false]);
+    for (const needle of passenger.needles) assert.ok(!right.res.text.includes(needle));
   } finally {
     await api.db.owner.query("update orders set passenger_enc = $2 where id = $1", [broken.id, saved]);
   }

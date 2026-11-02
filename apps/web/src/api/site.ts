@@ -379,8 +379,12 @@ export function createSiteOrder(body: SiteOrderRequest, idempotencyKey: string):
   return apiRequest("POST", `${SITE_BASE}/orders`, { body, headers: { "idempotency-key": idempotencyKey } });
 }
 
-export function lookupSiteOrder(orderNo: string, contact: string): Promise<{ link: SiteLink }> {
-  return apiRequest("POST", `${SITE_BASE}/orders/lookup`, { body: { order_no: orderNo, contact } });
+/**
+ * 查订单（ADR 0061）：订单号 + 下单邮箱。对上了后端把新链接发到下单邮箱；应答一律 202 `{ status: "accepted" }`，
+ * 不说明订单存不存在。限速 429，邮件或官网没配置 503。
+ */
+export function requestSiteOrderLink(orderNo: string, email: string): Promise<{ status: "accepted" }> {
+  return apiRequest("POST", `${SITE_BASE}/orders/lookup`, { body: { order_no: orderNo, email } });
 }
 
 export function getSiteOrder(token: string): Promise<SiteOrderEnvelope> {

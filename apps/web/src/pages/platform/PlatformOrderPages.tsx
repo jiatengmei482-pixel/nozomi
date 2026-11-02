@@ -86,6 +86,7 @@ import { NoShowEvidenceSection } from "./NoShowEvidence.tsx";
 import { OrderFulfilmentSections } from "./OrderFulfilmentSections.tsx";
 import { ProxyFulfilmentSection } from "./ProxyFulfilment.tsx";
 import { RescueSection } from "./RescuePages.tsx";
+import { ViewLinkSection } from "./ViewLinkResend.tsx";
 
 const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里" description="需要的话，请联系管理员开通。" />;
 const TRAIL = [{ label: "订单", to: PLATFORM_ORDER_LIST_PATH }];
@@ -614,6 +615,8 @@ export function PlatformOrderDetailPage() {
       <ProxyFulfilmentSection detail={detail} onChanged={reload} />
 
       <RescueSection order={order} rescues={detail.rescues} onChanged={reload} />
+
+      <ViewLinkSection orderId={order.id} />
 
       {cancelled !== null && (
         <section className="card">

@@ -14,7 +14,7 @@ import { SecretBox } from "./integrations/secret-box.ts";
 import { findOrderForPlatform } from "./repos/orders.ts";
 import { insertRescuedOrder, markOrderRescued } from "./repos/rescues.ts";
 import { planPassengerBackfill, runPassengerBackfill } from "./services/passenger-encryption.ts";
-import { type TestApi, createTestApi } from "./testing/api.ts";
+import { type ApiResponse, type TestApi, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder, startFakeReceiver, type FakeReceiver } from "./testing/dispatch.ts";
 import { type FakeSmtp, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { FAKE_SECRETS } from "./testing/fixtures.ts";
@@ -23,7 +23,7 @@ import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { retentionCtx } from "./testing/retention-fixtures.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { type SiteApi, lookupQueued, resetLinkLimits, siteApi } from "./testing/site.ts";
 
 const HOUR = 3_600_000;
 const DUAL: PassengerEncryptionSettings = { readSource: "ciphertext", plaintextWrite: true, backfillEnabled: true };
@@ -127,7 +127,14 @@ const nextIp = (): string => {
   lookupIp += 1;
   return `203.0.${113 + (lookupIp >> 8)}.${lookupIp & 255}`;
 };
-const lookup = (order: { order_no: string; ip: string }, value: string) => site.call("POST", "/site/v1/orders/lookup", { ip: nextIp(), body: { order_no: order.order_no, contact: value } });
+/** 查订单（ADR 0061）：应答一律 202，对没对上看有没有排信。`lookup` 先清掉订单号、邮箱的限速（这里测的是核对，不是限速） */
+const lookupRaw = (order: { order_no: string }, email: string): Promise<{ res: ApiResponse; queued: boolean }> => lookupQueued(api, site, { orderNo: order.order_no, email, ip: nextIp() });
+const lookup = async (order: { order_no: string }, email: string): Promise<{ res: ApiResponse; queued: boolean }> => {
+  await resetLinkLimits(api);
+  return lookupRaw(order, email);
+};
+/** 手机号不能用来查（链接只发邮箱）：一律 400，和订单无关 */
+const phoneRefused = async (order: { order_no: string }, phone: string): Promise<boolean> => (await site.call("POST", "/site/v1/orders/lookup", { ip: nextIp(), body: { order_no: order.order_no, email: phone } })).status === 400;
 const sideOf = async (id: string): Promise<"a" | "b"> => ((await row(id)).tenant_id === m.a.tenantId ? "a" : "b");
 const tenantToken = (side: "a" | "b"): Promise<string> => tenantLogin(api, m[side].adminEmail);
 
@@ -189,14 +196,17 @@ async function scanDatabase(needles: readonly string[]): Promise<string[]> {
   return [...found].sort();
 }
 
-const LOOKUP_WRITES = (p: { phone: string; email: string }): string[] => {
+/** 查订单认的邮箱写法（ADR 0061 之后只认邮箱） */
+const LOOKUP_EMAILS = (p: { email: string }): string[] => {
+  const wide = (text: string): string => text.replace(/[A-Za-z0-9.@+\-]/g, (c) => String.fromCodePoint(c.codePointAt(0)! + 0xfee0));
+  return [p.email, p.email.toUpperCase(), ` ${p.email}　`, wide(p.email)];
+};
+
+/** 原来能查的手机号写法：现在一律 400 */
+const LOOKUP_PHONES = (p: { phone: string; email: string }): string[] => {
   const digits = p.phone.slice(1);
   const wide = (text: string): string => text.replace(/[A-Za-z0-9.@+\-]/g, (c) => String.fromCodePoint(c.codePointAt(0)! + 0xfee0));
   return [
-    p.email,
-    p.email.toUpperCase(),
-    ` ${p.email}　`,
-    wide(p.email),
     p.phone,
     wide(p.phone),
     `+${digits.slice(0, 2)} ${digits.slice(2, 4)} ${digits.slice(4, 8)} ${digits.slice(8)}`,
@@ -207,12 +217,13 @@ const LOOKUP_WRITES = (p: { phone: string; email: string }): string[] => {
 };
 
 for (const [label, settings] of [["双写读密文", DUAL], ["读明文", PLAIN_READ]] as const) {
-  test(`查订单（${label}）：大小写、全半角、空格、+81、连字符都能对上；不带 + 的、改了一位的对不上`, async () => {
+  test(`查订单（${label}）：邮箱的大小写、全半角、空格都能对上；改了一位的对不上；手机号不能查`, async () => {
     const passenger = fictional();
     const order = await placeOrder(passenger);
     useCrypto(settings);
-    for (const value of LOOKUP_WRITES(passenger)) assert.equal((await lookup(order, value)).status, 200, JSON.stringify(value));
-    for (const value of [passenger.phone.slice(1), `${passenger.phone.slice(0, -1)}${passenger.phone.endsWith("0") ? "1" : "0"}`, `x${passenger.email}`]) assert.equal((await lookup(order, value)).status, 404, value);
+    for (const value of LOOKUP_EMAILS(passenger)) assert.equal((await lookup(order, value)).queued, true, JSON.stringify(value));
+    for (const value of LOOKUP_PHONES(passenger)) assert.equal(await phoneRefused(order, value), true, JSON.stringify(value));
+    for (const value of [`x${passenger.email}`, passenger.email.replace("@", "1@")]) assert.equal((await lookup(order, value)).queued, false, value);
   });
 }
 
@@ -221,10 +232,9 @@ test("查订单（明文不再写）：同样的写法都能对上（比盲索�
   const passenger = fictional();
   const order = await placeOrder(passenger);
   assert.equal((await row(order.id)).passenger.email, ENCRYPTED_TEXT);
-  for (const value of LOOKUP_WRITES(passenger)) assert.equal((await lookup(order, value)).status, 200, JSON.stringify(value));
-  assert.equal((await lookup(order, passenger.phone.slice(1))).status, 404);
-  assert.equal((await lookup(order, ENCRYPTED_TEXT)).status, 404, "占位不是联系方式");
-  assert.equal((await lookup(order, `${ENCRYPTED_TEXT}@`)).status, 404);
+  for (const value of LOOKUP_EMAILS(passenger)) assert.equal((await lookup(order, value)).queued, true, JSON.stringify(value));
+  assert.equal(await phoneRefused(order, ENCRYPTED_TEXT), true, "占位不是邮箱");
+  assert.equal(await phoneRefused(order, `${ENCRYPTED_TEXT}@`), true);
 });
 
 test("官网查订单不需要跨租户检索：同一个邮箱在两家盲索引不同，但各自凭订单号都能找回；A 单的号配 B 单的联系方式对不上", async () => {
@@ -236,10 +246,9 @@ test("官网查订单不需要跨租户检索：同一个邮箱在两家盲索�
   const [rowA, rowB] = [await row(first.id), await row(second.id)];
   assert.notEqual(rowA.tenant_id, rowB.tenant_id, "前提：两张单在两家");
   assert.notEqual(rowA.passenger_email_bidx, rowB.passenger_email_bidx, "从库里关联不出同一位客人");
-  assert.equal((await lookup(first, shared.email)).status, 200);
-  assert.equal((await lookup(second, shared.email)).status, 200);
-  assert.equal((await lookup(first, elsewhere.phone)).status, 404, "别的单的电话");
-  assert.equal((await lookup(second, shared.phone)).status, 404);
+  assert.equal((await lookup(first, shared.email)).queued, true);
+  assert.equal((await lookup(second, shared.email)).queued, true);
+  assert.equal((await lookup(first, fictional().email)).queued, false, "别人的邮箱");
 });
 
 test("运营跨供应商筛选：同一个邮箱两家都筛得到（每家算一次盲索引）；按供应商筛只有这一家；明文不再写时一样", async () => {
@@ -261,7 +270,7 @@ test("运营筛选的规范化和查订单一致：全角邮箱（日文输入�
   const passenger = fictional();
   const order = await placeOrder(passenger);
   const wide = passenger.email.replace(/[a-z0-9.@]/g, (c) => String.fromCodePoint(c.codePointAt(0)! + 0xfee0));
-  assert.equal((await lookup(order, wide)).status, 200, "前提：查订单认全角邮箱");
+  assert.equal((await lookup(order, wide)).queued, true, "前提：查订单认全角邮箱");
   const list = await ok(api.call("GET", `/platform/v1/orders?passenger=${encodeURIComponent(wide)}`, { token: await ops() }));
   assert.ok(list.items.some((item: any) => item.id === order.id), "筛选也要认");
 });
@@ -271,14 +280,12 @@ test("救援改派之后查订单：盲索引按新租户算也能对上；改�
   const order = await placeOrder(was);
   await payOrder(order.id);
   await rescueTo(order.id);
-  assert.equal((await lookup(order, was.email)).status, 200);
-  assert.equal((await lookup(order, was.phone)).status, 200);
+  assert.equal((await lookup(order, was.email)).queued, true);
   const now = fictional();
   await changePassenger(order.id, now);
   assert.equal((await revealOf(order.id)).passenger.email, now.email);
-  assert.equal((await lookup(order, now.email)).status, 200, "现在的邮箱要查得到（repos/site.ts findChannelOrderByNo 取 rows[0]，可能取到已转出的那一行）");
-  assert.equal((await lookup(order, was.email)).status, 404, "旧邮箱不能再换到新的查看链接");
-  assert.equal((await lookup(order, was.phone)).status, 404);
+  assert.equal((await lookup(order, now.email)).queued, true, "现在的邮箱要查得到（repos/site.ts findChannelOrderByNo 取 rows[0]，可能取到已转出的那一行）");
+  assert.equal((await lookup(order, was.email)).queued, false, "旧邮箱不能再收到新的查看链接");
 });
 
 test("救援改派（明文不再写）：新一行新租户解得开，读取、官网、供应商、Webhook 都是真内容；旧供应商看不到", async () => {
@@ -289,7 +296,7 @@ test("救援改派（明文不再写）：新一行新租户解得开，读取�
   const { from, to } = await rescueTo(order.id);
   assert.equal((await row(order.id)).passenger.name, ENCRYPTED_TEXT);
   assert.deepEqual((await revealOf(order.id)).passenger, contact(passenger));
-  assert.equal((await lookup(order, passenger.email)).status, 200);
+  assert.equal((await lookup(order, passenger.email)).queued, true);
   const rescuerView = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantToken(to) }));
   assert.equal(rescuerView.order.passenger.email, passenger.email);
   const oldView = await api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantToken(from) });
@@ -297,7 +304,7 @@ test("救援改派（明文不再写）：新一行新租户解得开，读取�
   assert.deepEqual(alerts, []);
 });
 
-test("防枚举（明文不再写、这单解不开）：对的联系方式比盲索引就够，不用解密；错的和不存在的订单号应答完全一样，不能 503 暴露订单存在", async () => {
+test("防枚举（明文不再写、这单解不开）：错的、对的邮箱和不存在的订单号应答完全一样，不能 503 暴露订单存在", async () => {
   useCrypto(RETIRED);
   const passenger = fictional();
   const order = await placeOrder(passenger);
@@ -305,28 +312,29 @@ test("防枚举（明文不再写、这单解不开）：对的联系方式比�
   await api.db.owner.query("update orders set passenger_enc = $2 where id = $1", [order.id, `${useCrypto(RETIRED).currentPrefix}${CORRUPT}`]);
   try {
     const wrong = await lookup(order, "nobody@fictional.example.test");
-    const missing = await site.call("POST", "/site/v1/orders/lookup", { ip: nextIp(), body: { order_no: "NZ20261007ZZZZZZZZ", contact: "nobody@fictional.example.test" } });
-    assert.deepEqual([wrong.status, wrong.body], [missing.status, missing.body], "订单号存在、解不开时不能和不存在的订单号有区别（repos/site.ts 先解密再核对）");
-    assert.equal(wrong.status, 404);
+    const missing = await lookup({ order_no: "NZ20261007ZZZZZZZZ" }, "nobody@fictional.example.test");
+    assert.deepEqual([wrong.res.status, wrong.res.body], [missing.res.status, missing.res.body], "订单号存在、解不开时不能和不存在的订单号有区别");
+    assert.deepEqual([wrong.res.status, wrong.queued], [202, false]);
+    assert.equal((await lookup(order, passenger.email)).queued, false, "对得上却解不开：不排信（后台记日志），应答照样一样");
   } finally {
     await api.db.owner.query("update orders set passenger_enc = $2 where id = $1", [order.id, saved]);
   }
 });
 
-test("防枚举：盲索引和明文两条路上，错的联系方式和不存在的订单号应答一样、都记失败、限速同样生效", async () => {
+test("防枚举：盲索引和明文两条路上，错的邮箱和不存在的订单号应答一样；限速同样生效（按订单号，不管对没对上）", async () => {
   const passenger = fictional();
   const legacy = await placeOrder(passenger);
   await api.db.owner.query("update orders set passenger_enc = null, passenger_email_bidx = null, passenger_phone_bidx = null, passenger_name_bidx = null where id = $1", [legacy.id]);
   const indexed = await placeOrder(fictional());
   const answers = [];
   for (const order of [legacy, indexed]) answers.push(await lookup(order, "nobody@fictional.example.test"));
-  answers.push(await site.call("POST", "/site/v1/orders/lookup", { ip: nextIp(), body: { order_no: "NZ20261007ZZZZZZZY", contact: "nobody@fictional.example.test" } }));
-  for (const answer of answers) assert.deepEqual([answer.status, answer.body], [answers[0]!.status, answers[0]!.body]);
-  assert.equal(answers[0]!.status, 404);
+  answers.push(await lookup({ order_no: "NZ20261007ZZZZZZZY" }, "nobody@fictional.example.test"));
+  for (const answer of answers) assert.deepEqual([answer.res.status, answer.res.body, answer.queued], [202, answers[0]!.res.body, false]);
+  await resetLinkLimits(api);
   const statuses = [];
-  for (let i = 0; i < 12; i += 1) statuses.push((await lookup(indexed, `wrong${i}@fictional.example.test`)).status);
+  for (let i = 0; i < 12; i += 1) statuses.push((await lookupRaw(indexed, `wrong${i}@fictional.example.test`)).res.status);
   assert.ok(statuses.includes(429), `错 12 次要被限速：${statuses.join(",")}`);
-  assert.equal((await lookup(indexed, "still-wrong@fictional.example.test")).status, 429);
+  assert.equal((await lookupRaw(indexed, "still-wrong@fictional.example.test")).res.status, 429);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
 });
 

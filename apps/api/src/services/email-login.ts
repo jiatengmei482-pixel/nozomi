@@ -32,6 +32,7 @@ import { findTenantUserSecrets, locateTenantUserByEmailAcrossTenants } from "../
 import { ANONYMOUS_ACTOR, consoleOrigin } from "./audit.ts";
 import { emailCodeInvalid, emailCodeUnavailable, passwordLoginDisabled, tooManyLoginAttempts } from "./errors.ts";
 import { type LoginReservation, clearLoginReservation, reserveLogin } from "./login-guard.ts";
+import { inBackground } from "./background.ts";
 import { sendMail } from "./mail.ts";
 
 export interface EmailLoginLog {
@@ -100,24 +101,6 @@ async function reserveEmailCodeSend(ctx: AppContext, portal: LoginPortal, email:
     return null;
   });
   if (retryAfterSeconds !== null) throw tooManyLoginAttempts(retryAfterSeconds);
-}
-
-/** 正在跑的后台任务：服务关闭时等它们结束。 */
-const running = new WeakMap<AppContext, Set<Promise<void>>>();
-
-function inBackground(ctx: AppContext, log: EmailLoginLog, task: () => Promise<void>): void {
-  const tasks = running.get(ctx) ?? new Set<Promise<void>>();
-  running.set(ctx, tasks);
-  const started: Promise<void> = new Promise<void>((resolve) => setImmediate(resolve))
-    .then(task)
-    .catch((err: unknown) => log.error({ event: "email_code.task_failed", err }, "邮箱验证码的后台任务失败"))
-    .finally(() => tasks.delete(started));
-  tasks.add(started);
-}
-
-export async function emailLoginIdle(ctx: AppContext): Promise<void> {
-  const tasks = running.get(ctx);
-  while (tasks !== undefined && tasks.size > 0) await Promise.all(tasks);
 }
 
 function warnWhenThrottled<T>(log: EmailLoginLog, portal: LoginPortal, stage: "send" | "verify", work: Promise<T>): Promise<T> {
@@ -195,7 +178,7 @@ export async function requestEmailCode(ctx: AppContext, log: EmailLoginLog, port
   if (!(await currentLoginMethods(ctx)).emailCode) throw emailCodeUnavailable();
   const now = ctx.now();
   await warnWhenThrottled(log, portal, "send", reserveEmailCodeSend(ctx, portal, email, ip, now));
-  inBackground(ctx, log, () => deliverCode(ctx, log, portal, email, ip, now));
+  inBackground(ctx, log, "email_code.task_failed", () => deliverCode(ctx, log, portal, email, ip, now));
 }
 
 /**
@@ -215,7 +198,7 @@ export async function verifyEmailCode(ctx: AppContext, log: EmailLoginLog, porta
   const consumed = matches && (await withPreAuthTx(ctx.pool, (db) => consumeEmailCode(db, emailKey, submitted)));
   if (consumed) return reservation;
   const reason = attempt !== null && !matches && attempt.attemptCount >= EMAIL_CODE_MAX_ATTEMPTS ? "exhausted" : "invalid";
-  inBackground(ctx, log, async () => {
+  inBackground(ctx, log, "email_code.task_failed", async () => {
     const account = await locateAccount(ctx, portal, email);
     await auditAnonymous(ctx, portal, account, ip, now, "email_code_failed", { email: maskLoginEmail(email), reason });
   });

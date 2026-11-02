@@ -10,7 +10,7 @@ import { type Pool, driverErrorCode } from "./db/pool.ts";
 import type { MigrationFile } from "./db/migration-plan.ts";
 import { errorBody, rawClientErrorResponse, toErrorResponse } from "./errors.ts";
 import type { AppContext } from "./context.ts";
-import { emailLoginIdle } from "./services/email-login.ts";
+import { backgroundIdle } from "./services/background.ts";
 import { type QuoteDeps, defaultQuoteDeps } from "./services/quote-deps.ts";
 import { checkHealth } from "./health.ts";
 import { FxCenter } from "./services/fx-center.ts";
@@ -62,6 +62,7 @@ import { registerDispatchRoutes } from "./routes/dispatch.ts";
 import { registerDriverRoutes } from "./routes/driver.ts";
 import { registerNotificationRoutes } from "./routes/notifications.ts";
 import { registerTenantWebhookRoutes } from "./routes/tenant-webhooks.ts";
+import { registerViewLinkRoutes } from "./routes/view-link.ts";
 import { registerSiteRoutes } from "./routes/site.ts";
 import { registerPlatformSecurityRoutes } from "./routes/platform-security.ts";
 
@@ -109,8 +110,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** 已注册的全部路由，用于和 OpenAPI 定义对账 */
     registeredRoutes: RegisteredRoute[];
-    /** 等发验证码的后台任务都结束（ADR 0050）：服务关闭时用，测试也靠它确认发信和审计写完了 */
-    emailLoginIdle: () => Promise<void>;
+    /** 等应答之后的后台任务都结束（发验证码 ADR 0050、查订单发链接 ADR 0061）：服务关闭时用，测试也靠它确认后台的事做完了 */
+    backgroundIdle: () => Promise<void>;
     /** 汇率中心：定时任务的入口（服务进程用 `jobs` 启动它；测试直接调 `tick`、`fetch`） */
     fxCenter: FxCenter;
     /** 订单的定时任务：待支付超时取消、超时未派车和未出发的提醒（服务进程用 `jobs` 启动它；测试直接调 `tick`） */
@@ -313,8 +314,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   const billingJobs = new BillingJobs(context, app.log);
   app.decorate("billingJobs", billingJobs);
   // 发验证码在应答之后的后台做（ADR 0050）：关闭前等它们结束，别在连接池关掉之后还去写库
-  app.decorate("emailLoginIdle", () => emailLoginIdle(context));
-  app.addHook("onClose", () => emailLoginIdle(context));
+  app.decorate("backgroundIdle", () => backgroundIdle(context));
+  app.addHook("onClose", () => backgroundIdle(context));
   const notificationJobs = new NotificationJobs(context, app.log);
   app.decorate("notificationJobs", notificationJobs);
   if (deps.jobs) {
@@ -365,6 +366,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerNotificationRoutes(app, context);
   registerTenantOnboardingRoutes(app, context);
   registerSiteRoutes(app, context);
+  registerViewLinkRoutes(app, context);
 
   return app;
 }

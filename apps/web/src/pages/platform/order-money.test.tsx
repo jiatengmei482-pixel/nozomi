@@ -496,3 +496,58 @@ test("供应商订单详情：已完成的单能提交加收（接送机只有�
   assert.equal(screen.queryByRole("button", { name: "提交加收" }), null);
   assert.equal(screen.queryByRole("button", { name: "撤回" }), null);
 });
+
+test("运营后台：官网订单链接——客服核实后重发到下单邮箱（核实方式、原因必填）；发到新邮箱提交审核；只读看得到记录、没有按钮；不是官网的单不显示", async () => {
+  const request = (extra: Record<string, unknown>) => ({ id: "d1d1d1d1-dddd-4ddd-8ddd-dddddddddddd", target: "original", email_masked: "gu***@example.com", verification: "callback_phone", status: "queued", approval_id: null, requested_by: { id: "p1", name: "测试员工" }, created_at: stamps.updated_at, decided_at: null, ...extra });
+  let status: Record<string, unknown> = { available: true, unavailable_reason: null, email_masked: "gu***@example.com", pending_review: null, requests: [] };
+  const posted: unknown[] = [];
+  const handler: Route = (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, platformDetail(platformOrder()));
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/view-link`) return json(200, status);
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/view-link/resend`) {
+      posted.push(call.body);
+      const body = call.body as { target: string };
+      const created = request(body.target === "new_email" ? { target: "new_email", email_masked: "ne***@example.com", status: "pending_review", approval_id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } : {});
+      status = { ...status, requests: [created, ...(status["requests"] as unknown[])] };
+      return json(202, { request: created, approval: body.target === "new_email" ? { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "pending" } : null });
+    }
+    return null;
+  };
+  open(`/platform/orders/${ORDER_ID}`, "customer_service", handler, "platform");
+  const section = (await screen.findByRole("heading", { name: "官网订单链接" })).closest("section") as HTMLElement;
+  assert.ok(within(section).getByText("gu***@example.com"));
+  await user().click(within(section).getByRole("button", { name: "重发订单链接" }));
+  let dialog = await screen.findByRole("dialog", { name: "重发官网订单链接" });
+  await user().click(within(dialog).getByRole("button", { name: "发送" }));
+  assert.ok(await within(dialog).findByText("请选怎么核实的客人身份"));
+  assert.ok(within(dialog).getByText(/请写明为什么要重发/));
+  assert.deepEqual(posted, []);
+  await user().selectOptions(within(dialog).getByLabelText(/怎么核实的/), "callback_phone");
+  await user().type(within(dialog).getByRole("textbox", { name: /原因/ }), "客人来电，回拨下单电话确认是本人");
+  await user().click(within(dialog).getByRole("button", { name: "发送" }));
+  await waitFor(() => assert.deepEqual(posted, [{ target: "original", verification: "callback_phone", reason: "客人来电，回拨下单电话确认是本人" }]));
+  assert.ok(await within(section).findByRole("cell", { name: "已排进通知中心" }));
+
+  await user().click(within(section).getByRole("button", { name: "重发订单链接" }));
+  dialog = await screen.findByRole("dialog", { name: "重发官网订单链接" });
+  await user().click(within(dialog).getByRole("radio", { name: /发到核实后的新邮箱/ }));
+  await user().type(within(dialog).getByRole("textbox", { name: /^核实后的新邮箱/ }), "new.guest@example.com");
+  await user().selectOptions(within(dialog).getByLabelText(/怎么核实的/), "payment_details");
+  await user().type(within(dialog).getByRole("textbox", { name: /原因/ }), "邮箱写错一个字母，核对了卡号末 4 位");
+  await user().click(within(dialog).getByRole("button", { name: "提交审核" }));
+  await waitFor(() => assert.equal(posted.length, 2));
+  assert.deepEqual(posted[1], { target: "new_email", email: "new.guest@example.com", verification: "payment_details", reason: "邮箱写错一个字母，核对了卡号末 4 位" });
+  assert.ok(await screen.findByText(/要另一位同事在「待审核」里批准/));
+  assert.equal(document.body.textContent?.includes("new.guest@example.com"), false, "提交后页面上只有打码后的地址");
+
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "readonly", handler, "platform");
+  const readonly = (await screen.findByRole("heading", { name: "官网订单链接" })).closest("section") as HTMLElement;
+  assert.equal(within(readonly).queryByRole("button", { name: "重发订单链接" }), null);
+
+  resetBrowser();
+  status = { available: false, unavailable_reason: "NOT_SITE_ORDER", email_masked: "gu***@example.com", pending_review: null, requests: [] };
+  open(`/platform/orders/${ORDER_ID}`, "operations", handler, "platform");
+  await screen.findByRole("heading", { name: "行程" });
+  await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "官网订单链接" }), null));
+});

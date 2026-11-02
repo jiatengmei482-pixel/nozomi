@@ -48,3 +48,35 @@ export async function siteApi(api: TestApi, clientId: string | null, payments: P
   };
   return { app, call, close: () => app.close() };
 }
+
+/**
+ * 「邮件已配置」的 SMTP 配置，指向本机一个没有服务的端口：查订单要求邮件能发（ADR 0061），只看「排没排信」的测试用它，
+ * 不跑通知中心的发送，所以从不连任何邮件服务。密码是虚构的。
+ */
+export const SITE_MAIL_CONFIGURED: Readonly<Record<string, string>> = {
+  SMTP_HOST: "127.0.0.1",
+  SMTP_PORT: "9",
+  SMTP_ENCRYPTION: "none",
+  SMTP_USERNAME: "mailer",
+  SMTP_PASSWORD: "fictional-smtp-password-Kq2",
+  SMTP_FROM_NAME: "NOZOMI",
+  SMTP_FROM_ADDRESS: "noreply@example.test",
+};
+
+/**
+ * 查订单（ADR 0061）：发请求、等应答之后的后台任务做完，返回应答和「这次有没有给这张单排一封订单链接邮件」——
+ * 原来用 200 / 404 判断的「对没对上」，现在只能从发件箱看（应答一律 202）。
+ */
+export async function lookupQueued(api: TestApi, site: SiteApi, input: { orderNo: string; email: string; ip?: string }): Promise<{ res: ApiResponse; queued: boolean }> {
+  const count = async (): Promise<number> =>
+    (await api.db.owner.query<{ n: number }>("select count(*)::int as n from notification_events e join orders o on o.id = e.order_id where e.event = 'order.view_link' and o.order_no = $1", [input.orderNo.trim().toUpperCase()])).rows[0]?.n ?? 0;
+  const before = await count();
+  const res = await site.call("POST", "/site/v1/orders/lookup", { body: { order_no: input.orderNo, email: input.email }, ...(input.ip === undefined ? {} : { ip: input.ip }) });
+  await site.app.backgroundIdle();
+  return { res, queued: (await count()) > before };
+}
+
+/** 清掉查订单按订单号、邮箱的限速计数（ADR 0061）：测「对没对上」的用例对同一张单连查好几次，不是在测限速。 */
+export async function resetLinkLimits(api: TestApi): Promise<void> {
+  await api.db.owner.query("delete from sales_rate_limits where bucket like 'site_link_%'");
+}

@@ -10,7 +10,7 @@ import { randomInt } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
-import { adminCredentials, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+import { adminCredentials, loginAs, newPassword, platformAdminHeaders, uniqueEmail, issueSiteLink } from "./support.ts";
 
 const ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const random = (length: number, alphabet = ALPHABET): string => Array.from({ length }, () => alphabet[randomInt(alphabet.length)]).join("");
@@ -198,9 +198,8 @@ test("超长内容不撑破页面（320 / 360 / 768 宽）：官网订单页的�
   const site = await owner(async (client) => (await client.query<{ channel_id: string; id: string }>("select c.id as channel_id, a.id from channels c join channel_api_clients a on a.channel_id = c.id where c.name = 'NOZOMI 官网（端到端测试）' order by a.created_at limit 1")).rows[0]);
   expect(site, "global-setup 建的官网渠道").toBeTruthy();
   const order = await seedOrder({ ...seed, channelId: site?.channel_id as string, apiClientId: site?.id as string }, { serviceAt: new Date(Date.now() - 3 * 3_600_000), completed: true });
-  const lookup = await request.post("/site/v1/orders/lookup", { data: { order_no: order.orderNo, contact: "guest@e2e.example.com" } });
-  expect(lookup.ok(), `找回订单链接：${await lookup.text()}`).toBe(true);
-  const token = ((await lookup.json()) as { link: { token: string } }).link.token;
+  // 客人手里的订单链接（ADR 0061：查订单只发邮件，这里直接签一条）
+  const token = await issueSiteLink(order.orderNo);
   const created = await request.post("/site/v1/order/tickets", { headers: { authorization: `Bearer ${token}` }, data: { type: "complaint", subject: LONG_SUBJECT, description: LONG_DESCRIPTION } });
   expect(created.status(), await created.text()).toBe(201);
   const ticketId = ((await created.json()) as { ticket: { id: string } }).ticket.id;
