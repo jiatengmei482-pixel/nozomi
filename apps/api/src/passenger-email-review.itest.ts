@@ -244,9 +244,14 @@ test("其他字段照常：履约字段（人数）等供应商确认、备注�
   assert.equal((await passengerOf(placed.order.id)).email, fresh);
   assert.equal((await detail(placed.order.id)).changes.filter((change: any) => change.status === "pending_confirmation").length, 1, "邮箱生效不影响等确认的那一项");
 
-  const sameMailbox = await platformPatch(placed.order.id, cs.token, { passenger: { email: ` ${fresh.toUpperCase()} ` } });
+  const sameMailbox = await platformPatch(placed.order.id, cs.token, { passenger: { email: ` ${fresh.toUpperCase()} ` }, notes: "改了写法" });
   assert.equal(sameMailbox.status, 200, `同一个收件箱的不同写法不用复核：${sameMailbox.text}`);
   assert.equal(sameMailbox.body.email_review, null);
+  assert.equal((await passengerOf(placed.order.id)).email, fresh, "同一个收件箱：保留订单上原来的写法");
+  const onlySpelling = await platformPatch(placed.order.id, cs.token, { passenger: { email: fresh.toUpperCase() } });
+  assert.deepEqual([onlySpelling.status, onlySpelling.body.error.code], [422, "NO_CHANGE"], "只改了写法等于没改");
+  const reviewedSpelling = await platformPatch(placed.order.id, cs.token, { passenger: { email: fresh.toUpperCase() }, notes: "又改", email_review: REVIEW });
+  assert.deepEqual([reviewedSpelling.status, reviewedSpelling.body.error.code], [400, "VALIDATION_FAILED"], "没改邮箱却写了核实方式");
 });
 
 test("客人自己用订单链接改邮箱照旧直接生效；审核期间客人自己改过的，批准 409（不覆盖客人填的），驳回后保留客人的", async () => {

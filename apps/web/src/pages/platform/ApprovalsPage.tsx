@@ -52,6 +52,9 @@ export function decisionFailure(err: unknown): string {
 }
 
 /** 批准的确认框里「批准后会怎样」，按改动的类别写（M1-17：暂停渠道不是「按新的规则算」）。 */
+/** 针对一张订单、审核人要去订单详情核对的几类：卡片上给订单号的链接。 */
+const ORDER_LINK_KINDS: readonly ApprovalKind[] = ["order.proxy_pick_up", "order.proxy_complete", "order.view_link_email", "order.passenger_email"];
+
 const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "channel.pricing": "批准后立即生效：之后的询价按新的定价参数算。这个渠道上其他还在等审核的改动会过时，只能驳回后重新发起。",
   "channel.pause": "批准后渠道立即暂停：它调用销售端接口（询价等）一律被拒绝。要恢复，到渠道详情点「启用」。",
@@ -128,7 +131,7 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           </Link>
         </p>
       )}
-      {(approval.kind === "order.proxy_pick_up" || approval.kind === "order.proxy_complete") && (
+      {ORDER_LINK_KINDS.includes(approval.kind) && (
         <p>
           订单：
           <Link className="link mono" to={platformOrderPath(approval.resource_id)}>

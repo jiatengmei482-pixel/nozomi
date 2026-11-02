@@ -140,8 +140,11 @@ interface HeldEmail {
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** 和现在比，哪些字段真的变了；同时校验写法（电话、邮箱、航班号、长度）。只校验请求里给了的。`held` 的邮箱不进这次的改动。 */
-function planChange(order: Order, input: OrderChangeInput, placeType: string | null, held: HeldEmail | null = null): PlannedChange {
+/**
+ * 和现在比，哪些字段真的变了；同时校验写法（电话、邮箱、航班号、长度）。只校验请求里给了的。`held` 的邮箱不进这次的改动；
+ * `keepEmail`：给的邮箱和订单上的是同一个收件箱（只是大小写、空白、全角不同），保留订单上原来的写法（ADR 0065）。
+ */
+function planChange(order: Order, input: OrderChangeInput, placeType: string | null, held: HeldEmail | null = null, keepEmail = false): PlannedChange {
   const issues: InputIssue[] = [];
   const issue = (path: string, reason: OrderDetailsIssueReason): void => void issues.push({ path, reason, message: DETAIL_MESSAGES[reason] ?? reason });
   const next: PlannedChange["next"] = { passenger: order.passenger, flightNo: order.flightNo, messaging: order.messaging, notes: order.notes, pickup: order.pickup, dropoff: order.dropoff, passengers: order.passengers, luggage: order.luggage, serviceAt: order.serviceAt, serviceLocal: order.serviceLocal, serviceDate: order.serviceDate };
@@ -156,11 +159,11 @@ function planChange(order: Order, input: OrderChangeInput, placeType: string | n
   };
   if (input.passenger !== undefined) {
     const given = input.passenger;
-    const passenger = { name: given.name?.trim() ?? order.passenger.name, phone: given.phone === undefined ? order.passenger.phone : normalizePhone(given.phone), email: held !== null ? order.passenger.email : (given.email?.trim() ?? order.passenger.email) };
+    const passenger = { name: given.name?.trim() ?? order.passenger.name, phone: given.phone === undefined ? order.passenger.phone : normalizePhone(given.phone), email: held !== null || keepEmail ? order.passenger.email : (given.email?.trim() ?? order.passenger.email) };
     if (given.name !== undefined && blank(passenger.name)) issue("/passenger/name", "REQUIRED");
     else if (given.name !== undefined && [...passenger.name].length > 100) issue("/passenger/name", "TOO_LONG");
     if (given.phone !== undefined && !isInternationalPhone(passenger.phone)) issue("/passenger/phone", "INVALID_PHONE");
-    const email = held?.email ?? passenger.email;
+    const email = held?.email ?? given.email?.trim() ?? passenger.email;
     if (given.email !== undefined && (!EMAIL_SHAPE.test(email) || email.length > 254)) issue("/passenger/email", "INVALID_FORMAT");
     if (held !== null && !held.reviewed) issues.push({ path: "/email_review", reason: "REQUIRED", message: "改乘客邮箱要另一位同事批准：请写明怎么核实的客人身份（核实方式、原因）" });
     next.passenger = passenger;
@@ -392,7 +395,10 @@ async function requestChange(
       const placeType = order.placeId === null ? null : ((await db.query<{ type: string }>("select type from places where id = $1", [order.placeId])).rows[0]?.type ?? null);
       const requestedEmail = input.passenger?.email;
       const held: HeldEmail | null = emailHold !== null && requestedEmail !== undefined && passengerEmailNeedsReview(order.passenger.email, requestedEmail) ? { email: requestedEmail.trim(), reviewed: emailHold.reviewed } : null;
-      const plan = planChange(order, input, placeType, held);
+      // 运营代改时同一个收件箱的不同写法：不算改，保留原来的写法（全角之类的写法写进订单，以后的信可能被拒）；这时写了核实方式是多余的，400
+      const sameMailbox = emailHold !== null && requestedEmail !== undefined && held === null;
+      if (sameMailbox && emailHold.reviewed) throw validationFailed("body", [{ path: "/email_review", reason: "NOT_APPLICABLE", message: "新邮箱和订单上的是同一个地址（只是写法不同），不算改邮箱，不用写核实方式（请删掉）" }]);
+      const plan = planChange(order, input, placeType, held, sameMailbox);
       const policy = await orderCancelPolicy(db, order);
       const refusal = orderChangeRefusal({
         status: order.status,
