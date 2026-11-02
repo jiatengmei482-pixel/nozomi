@@ -15654,6 +15654,7 @@ components:
             - order.cancel_refund
             - order.proxy_pick_up
             - order.proxy_complete
+            - order.view_link_email
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
@@ -17352,6 +17353,8 @@ components:
         - order.proxy_fulfilment
         - order.proxy_review
         - order.change_decide
+        - order.view_link_resend
+        - order.view_link_review
         - payment.manage
         - cancellation_policy.manage
         - cancellation_policy.review
