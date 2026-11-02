@@ -5,12 +5,13 @@
  * 时按付款编号取回、立刻删掉，地址换回 `#<令牌>`（Stripe 加在地址上的参数含 client_secret，一并去掉）。
  * 要挂 Stripe 表单的页面（M3-13，ADR 0046）：Stripe.js 会读所在页面的完整地址，所以挂之前把令牌从地址移到这条历史记录的 state 里（刷新、前进后退都还在），
  * 这个文档里 Stripe.js 加载过就不再放回地址；客人用页面上的「复制订单链接」取链接。
- * 没有令牌（直接打开「查订单」）或令牌失效：用订单号 + 下单时的邮箱或手机号找回，换一个新链接。
+ * 没有令牌（直接打开「查订单」）或令牌失效：填订单号 + 下单邮箱，后端把新链接发到下单邮箱（ADR 0061）。页面不管对没对上都说同一句话，
+ * 不在这里直接打开订单；只留了手机号、邮箱填错的客人联系客服（客服电话没登记时不显示号码）。
  */
 import { type FormEvent, Fragment, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../api/client.ts";
-import { type SiteOrderEnvelope, type SitePayment, getSiteOrder, lookupSiteOrder } from "../../api/site.ts";
+import { type SiteOrderEnvelope, type SitePayment, getSiteOrder, requestSiteOrderLink } from "../../api/site.ts";
 import { AlertSlot, Alert, type Notice } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Icon } from "../../components/Icon.tsx";
@@ -26,34 +27,44 @@ import { CancelSection, ChangeSection, DriverSection, ExtraChargesSection, HelpS
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
 import { FeedbackSection } from "./FeedbackSection.tsx";
 
-/** 找回被限速（可能是这个订单号被别人试了太多次，要等几个小时）：告诉客人等多久，也可以联系客服。 */
+/** 查订单被限速（同一个订单号、邮箱一小时只能发几次）：告诉客人等多久，也可以联系客服。 */
 export function lookupThrottledText(retryAfterSeconds: number | null): string {
   if (retryAfterSeconds === null || retryAfterSeconds <= 0) return "尝试次数过多，请稍后再试，或联系客服。";
   const wait = retryAfterSeconds < 60 ? `${retryAfterSeconds} 秒` : retryAfterSeconds < 3600 ? `${Math.ceil(retryAfterSeconds / 60)} 分钟` : `${Math.ceil(retryAfterSeconds / 3600)} 小时`;
   return `尝试次数过多，请 ${wait}后再试，或联系客服。`;
 }
 
-/** 从银行验证页回来却取不回令牌（换了标签页或浏览器、存储被清）：付款结果以 Stripe 通知平台为准，客人用订单号找回订单就能看到。 */
-const RETURN_LOST_TEXT = "付款结果已交给银行处理。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单查看付款结果；请不要重复付款。";
+/** 从银行验证页回来却取不回令牌（换了标签页或浏览器、存储被清）：付款结果以 Stripe 通知平台为准，客人让我们把订单链接发到邮箱就能看到。 */
+const RETURN_LOST_TEXT = "付款结果已交给银行处理。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱，打开后可以看到付款结果；请不要重复付款。";
 /**
  * 同上，但地址上写着付款失败。这里没有令牌、查不了订单，「失败」只是地址上的说法，所以写「银行返回的结果」，真正的状态让客人到订单页看；
- * 那里只有还没付成才会显示付款表单，不会诱导重复付款。平台现在不发确认邮件（ADR 0032：通知中心任务），找回只有订单号和客服。
+ * 那里只有还没付成才会显示付款表单，不会诱导重复付款。
  */
-/** 所有查不到的情况都同样显示，不说明这个订单号存不存在（ADR 0055）。 */
-export const LOOKUP_NOT_FOUND_TEXT = "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服。";
+const RETURN_FAILED_LOST_TEXT = "银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单：请在下面填订单号和下单邮箱，我们会把订单链接发到您的邮箱。订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。";
+
+/** 提交之后一律显示这一句（ADR 0061）：不说明订单号存不存在、邮箱对不对。 */
+export const LOOKUP_SENT_TEXT = "如信息匹配，链接已发送到下单邮箱。请查收邮件（也看看垃圾邮件），打开邮件里的链接查看订单。";
 
 /** 链接失效时一起说明：脱敏后这单的链接全部作废（ADR 0055）。 */
-export const EXPIRED_LINK_HINT = "已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服。";
+export const EXPIRED_LINK_HINT = "已结束超过 180 天的订单，链接和联系方式可能已按隐私规则清除，收不到新链接，需要帮助请联系客服。";
 
-const RETURN_FAILED_LOST_TEXT = "银行返回的结果是这次付款没有成功。这个页面没能自动打开您的订单，请用订单号和下单时的邮箱或手机号查找订单：订单页会显示最新的付款状态，还是待付款的话可以在那里重新付款。找不到订单号请联系客服。";
+const EXPIRED_LINK_TEXT = "订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。";
+
+/** 后端说暂时发不了邮件（邮件服务没配置）：和订单无关，直接请客人联系客服。 */
+const MAIL_UNAVAILABLE_TEXT = "暂时发不了邮件，请联系客服找回订单。";
+
+function lookupFailureText(err: unknown): string {
+  if (err instanceof ApiError && err.status === 429) return lookupThrottledText(err.retryAfterSeconds);
+  if (err instanceof ApiError && err.code === "ORDER_LINK_EMAIL_UNAVAILABLE") return MAIL_UNAVAILABLE_TEXT;
+  return siteFailureText(err, "发送订单链接");
+}
 
 function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; paymentReturnLost?: "failed" | "unknown" | null }) {
-  const navigate = useNavigate();
   const [orderNo, setOrderNo] = useState("");
-  const [contact, setContact] = useState("");
-  const [errors, setErrors] = useState<{ orderNo?: string; contact?: string }>({});
+  const [email, setEmail] = useState("");
+  const [errors, setErrors] = useState<{ orderNo?: string; email?: string }>({});
   const [notice, setNotice] = useState<Notice | null>(
-    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。" } : null,
+    paymentReturnLost !== null ? { kind: "warning", text: paymentReturnLost === "failed" ? RETURN_FAILED_LOST_TEXT : RETURN_LOST_TEXT } : expired ? { kind: "warning", text: EXPIRED_LINK_TEXT } : null,
   );
   const [busy, setBusy] = useState(false);
 
@@ -61,20 +72,20 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
     event.preventDefault();
     if (busy) return;
     const no = orderNo.trim().toUpperCase();
-    // 联系方式的全角（日文 / 中文输入法常见）先转半角，和后端同一个口径（NFKC）
-    const given = contact.normalize("NFKC").trim();
+    // 全角（日文 / 中文输入法常见）先转半角，和后端同一个口径（NFKC）
+    const given = email.normalize("NFKC").trim();
     const found: typeof errors = {};
     if (!/^NZ\d{8}[0-9A-Z]{8}$/.test(no)) found.orderNo = "订单号是 NZ 开头的 18 位，如 NZ20261026AB12CD34";
-    if (given.length < 3) found.contact = "请填写下单时的邮箱或手机号";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(given)) found.email = given !== "" && !given.includes("@") ? "请填写下单时的邮箱。只留了手机号的，请联系客服" : "请填写下单时的邮箱";
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setBusy(true);
     setNotice(null);
     try {
-      const { link } = await lookupSiteOrder(no, given);
-      navigate(siteOrderUrl(link.token), { replace: true });
+      await requestSiteOrderLink(no, given);
+      setNotice({ kind: "success", text: LOOKUP_SENT_TEXT });
     } catch (err) {
-      setNotice({ kind: "danger", text: err instanceof ApiError && err.code === "ORDER_NOT_FOUND" ? LOOKUP_NOT_FOUND_TEXT : err instanceof ApiError && err.status === 429 ? lookupThrottledText(err.retryAfterSeconds) : siteFailureText(err, "查找订单") });
+      setNotice({ kind: "danger", text: lookupFailureText(err) });
     } finally {
       setBusy(false);
     }
@@ -84,14 +95,35 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
     <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
       <AlertSlot notice={notice} />
       {expired && <p className="field__hint">{EXPIRED_LINK_HINT}</p>}
-      <TextField label="订单号" size="lg" required autoCapitalize="characters" autoComplete="off" spellCheck={false} hint="NZ 开头的 18 位，在订单页顶部" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />
-      <TextField label="下单时的邮箱或手机号" size="lg" required autoComplete="email" value={contact} errors={errors.contact ? [errors.contact] : []} onChange={(event) => setContact(event.target.value)} />
+      <TextField label="订单号" size="lg" required autoCapitalize="characters" autoComplete="off" spellCheck={false} hint="NZ 开头的 18 位，在下单成功页和订单邮件里" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />
+      <TextField label="下单时的邮箱" size="lg" required type="email" inputMode="email" autoComplete="email" autoCapitalize="none" spellCheck={false} value={email} errors={errors.email ? [errors.email] : []} onChange={(event) => setEmail(event.target.value)} />
       <div className="site-actions">
-        <Button type="submit" variant="primary" size="lg" block loading={busy} loadingText="正在查找">
-          查找订单
+        <Button type="submit" variant="primary" size="lg" block loading={busy} loadingText="正在发送">
+          发送订单链接
         </Button>
       </div>
     </form>
+  );
+}
+
+/** 收不到邮件的客人：只留了手机号、邮箱填错、邮件一直没到。客服电话登记了才显示号码（`SITE_SUPPORT_PHONE` 可能为空）。 */
+export function LookupHelp({ phone }: { phone: string | null }) {
+  const number = phone === null || phone.trim() === "" ? null : phone.trim();
+  return (
+    <section className="site-section" aria-labelledby="site-lookup-help-title">
+      <h2 id="site-lookup-help-title" className="site-section__title">
+        收不到邮件？
+      </h2>
+      <p>下单时只留了手机号、邮箱填错了，或者过了十几分钟还没收到邮件，请联系客服。客服核实是您本人后，会把订单链接发给您。</p>
+      {number !== null && (
+        <div className="site-actions site-actions--inline">
+          <a className="button button--secondary button--lg" href={`tel:${number.replace(/[^+\d]/g, "")}`}>
+            打电话给客服 {number}
+          </a>
+        </div>
+      )}
+      <p className="site-muted">联系时请提供订单号，并准备好下单时的电话、用车时间等信息，方便核实。</p>
+    </section>
   );
 }
 
@@ -141,11 +173,13 @@ function OrderLoading() {
 
 function LookupPage({ formKey, expired, paymentReturnLost }: { formKey: string; expired: boolean; paymentReturnLost: "failed" | "unknown" | null }) {
   useDocumentTitle("查订单 · NOZOMI 用车");
+  const { state: config } = useSiteConfig();
   return (
     <SiteLayout attribution={false}>
       <h1 className="site__title">查订单</h1>
-      <p className="site-muted">输入订单号和下单时填的邮箱或手机号，就能查看订单、付款、取消或修改。</p>
+      <p className="site-muted">输入订单号和下单时填的邮箱，我们会把订单链接发到这个邮箱。打开链接就能查看订单、付款、取消或修改。</p>
       <LookupForm key={formKey} expired={expired} paymentReturnLost={paymentReturnLost} />
+      <LookupHelp phone={config.kind === "ready" ? config.config.support_phone : null} />
     </SiteLayout>
   );
 }
@@ -291,7 +325,7 @@ function OrderView({ token, hashToken, heldToken, arrival }: { token: string; ha
       <div role="status">{justPaid && <Alert kind="success">付款成功，订单已确认。派车后这里会显示司机和车辆。</Alert>}</div>
       {arrival?.placed === true && (
         <Alert kind="success">
-          <p>{hashToken === null ? "订单已提交。请复制下面的链接保存，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。" : "订单已提交。请收藏这个页面，之后凭这个链接查看订单；也可以随时用订单号和邮箱在「查订单」里找到它。"}</p>
+          <p>{hashToken === null ? "订单已提交。请复制下面的链接保存，之后凭这个链接查看订单；链接丢了，可以在「查订单」填订单号和邮箱，我们会把链接发到您的邮箱。" : "订单已提交。请收藏这个页面，之后凭这个链接查看订单；链接丢了，可以在「查订单」填订单号和邮箱，我们会把链接发到您的邮箱。"}</p>
           <ShareLink url={shareUrl} />
         </Alert>
       )}

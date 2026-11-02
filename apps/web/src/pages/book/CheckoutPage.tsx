@@ -217,7 +217,7 @@ export function CheckoutPage() {
         <AlertSlot notice={notice} />
         <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => update({ name: event.target.value })} />
         <TextField label="手机号（带国家码）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint="以 + 和国家码开头，如 +81 90-1234-5678。司机和客服用它联系您" onChange={(event) => update({ phone: event.target.value })} />
-        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint="以后可以用订单号和这个邮箱查找订单" onChange={(event) => update({ email: event.target.value })} />
+        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint="订单链接会发到这个邮箱；链接丢了，可以在「查订单」用订单号和这个邮箱重新发" onChange={(event) => update({ email: event.target.value })} />
         {transfer && (
           <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint={arrival ? "如 NH211。航班延误时司机按实际落地时间等候" : "如 NH211"} onChange={(event) => update({ flightNo: event.target.value })} />
         )}

@@ -1,8 +1,8 @@
 /**
  * M3-05 测试角色补充：官网订单页的令牌去向与操作条件（ADR 0032）。接口用测试替身。
- * - 令牌只出现在 /site/v1/order… 的 Authorization 请求头里：不进地址的路径和查询串、不进请求体、不发给配置和找回接口、
+ * - 令牌只出现在 /site/v1/order… 的 Authorization 请求头里：不进地址的路径和查询串、不进请求体、不发给配置和查订单接口、
  *   不进 local / sessionStorage、不进页面标题、不进页面上的任何链接（刚下单时的「可分享链接」除外）；
- * - 地址里 # 后面不是合法令牌时不发请求、直接显示找回；
+ * - 地址里 # 后面不是合法令牌时不发请求、直接显示查订单；
  * - 「我已落地」只对接机单、付款后、计划到达前 3 小时起（边界）；取消后、已确认过不再显示按钮；
  * - 改单只给改了的字段（只在首尾加了空格不算改动）；异议期过了不显示「提异议」；署名在有城市机场名称的页面上。
  */
@@ -162,7 +162,7 @@ test("令牌去向：看订单、试算、取消的整个过程里，令牌只�
   assert.deepEqual(tokenLeaks(calls, TOKEN), []);
 });
 
-test("令牌去向：刚下单跳过来时只在「复制订单链接」那一处显示；找回换了新令牌后，旧令牌不再出现在任何请求里", async () => {
+test("令牌去向：刚下单跳过来时只在「复制订单链接」那一处显示；链接失效后查订单不带旧令牌，旧令牌不再出现在任何请求里", async () => {
   const calls = open({ pathname: "/book/order", hash: `#${TOKEN}`, state: { placed: true, payment: null } }, orderRoutes(orderOf({ status: "pending_payment", payment_status: "creating", payment_due_at: new Date(Date.now() + 30 * 60_000).toISOString() })));
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
   const shown = [...document.querySelectorAll(".site-share__url")].map((node) => node.textContent ?? "");
@@ -173,23 +173,21 @@ test("令牌去向：刚下单跳过来时只在「复制订单链接」那一�
   resetBrowser();
   const lookupCalls = open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => {
     if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
-    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(200, { link: { token: NEW_TOKEN, expires_at: "2030-12-20T01:00:00.000Z" } });
-    if (call.url.pathname === "/site/v1/order") return call.headers["authorization"] === `Bearer ${NEW_TOKEN}` ? json(200, envelopeOf()) : apiError(401, "ORDER_LINK_INVALID", "链接无效");
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(202, { status: "accepted" });
+    if (call.url.pathname === "/site/v1/order") return apiError(401, "ORDER_LINK_INVALID", "链接无效");
     return null;
   });
   const actor = user();
-  assert.ok(await screen.findByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。"));
+  assert.ok(await screen.findByText("订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。"));
   await actor.type(screen.getByLabelText("订单号"), " nz20261026qaqa2345 ");
-  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "  QA@example.com ");
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
-  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
+  await actor.type(screen.getByLabelText("下单时的邮箱"), "  QA@example.com ");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText(/^如信息匹配，链接已发送到下单邮箱/));
   const lookup = lookupCalls.find((call) => call.method === "POST");
-  assert.equal(lookup?.headers["authorization"], undefined, "找回不带旧令牌");
-  assert.deepEqual(lookup?.body, { order_no: "NZ20261026QAQA2345", contact: "QA@example.com" }, "和后端同口径：订单号转大写去空白，联系方式去首尾空白");
+  assert.equal(lookup?.headers["authorization"], undefined, "查订单不带旧令牌");
+  assert.deepEqual(lookup?.body, { order_no: "NZ20261026QAQA2345", email: "QA@example.com" }, "和后端同口径：订单号转大写去空白，邮箱去首尾空白");
   const after = lookupCalls.slice(lookupCalls.indexOf(lookup as ApiCall) + 1);
-  assert.ok(after.length > 0);
   for (const call of after) assert.ok(!JSON.stringify(call).includes(TOKEN.slice(4)), `${call.method} ${call.path} 还带着旧令牌`);
-  assert.deepEqual(tokenLeaks(lookupCalls, NEW_TOKEN), []);
 });
 
 test("地址里 # 后面不是合法令牌（太短、多了字符、写成 token=…、只有前缀）：不发订单请求，直接显示找回", async () => {
@@ -256,20 +254,19 @@ test("改单：后端回 422 NO_CHANGE 时页面提示「没有改动」，不�
   assert.equal(screen.queryByText(/修改订单失败|修改失败/), null);
 });
 
-test("找回：全角的手机号（输入法常见）先转成半角再提交，和后端同口径", async () => {
+test("查订单：全角的邮箱（输入法常见）先转成半角再提交，和后端同口径", async () => {
   const calls = open({ pathname: "/book/order" }, (call) => {
     if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
-    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(200, { link: { token: NEW_TOKEN, expires_at: "2030-12-20T01:00:00.000Z" } });
-    if (call.url.pathname === "/site/v1/order") return json(200, envelopeOf());
+    if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return json(202, { status: "accepted" });
     return null;
   });
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "查订单" });
   await actor.type(screen.getByLabelText("订单号"), "NZ20261026QAQA2345");
-  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "　＋８１　９０－８７６５－４３２１　");
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
-  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261026QAQA2345" });
-  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { order_no: "NZ20261026QAQA2345", contact: "+81 90-8765-4321" });
+  await actor.type(screen.getByLabelText("下单时的邮箱"), "　ｑａ＠ｅｘａｍｐｌｅ．ｃｏｍ　");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
+  assert.ok(await screen.findByText(/^如信息匹配，链接已发送到下单邮箱/));
+  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { order_no: "NZ20261026QAQA2345", email: "qa@example.com" });
 });
 
 test("改单：只改备注时请求体只有 notes；清空备注给 null；改送机单的地址给 pickup_address", () => {
@@ -291,7 +288,7 @@ test("异议期过了：加收项不出「提异议」；订单页底部有 GeoN
   assert.match(footer, /OurAirports/);
 });
 
-test("找回被限速：提示尝试次数过多、要等多久，或联系客服（订单号被别人试满时要等几个小时）", async () => {
+test("查订单被限速：提示尝试次数过多、要等多久，或联系客服", async () => {
   open({ pathname: "/book/order" }, (call) => {
     if (call.url.pathname === "/site/v1/config") return json(200, openConfig);
     if (call.method === "POST" && call.url.pathname === "/site/v1/orders/lookup") return apiError(429, "RATE_LIMITED", "请求过于频繁，请稍后再试", { retry_after_seconds: 7_300 }, { "retry-after": "7300" });
@@ -300,7 +297,7 @@ test("找回被限速：提示尝试次数过多、要等多久，或联系客�
   const actor = user();
   await screen.findByRole("heading", { level: 1, name: "查订单" });
   await actor.type(screen.getByLabelText("订单号"), "NZ20261026QAQA2345");
-  await actor.type(screen.getByLabelText("下单时的邮箱或手机号"), "qa@example.com");
-  await actor.click(screen.getByRole("button", { name: "查找订单" }));
+  await actor.type(screen.getByLabelText("下单时的邮箱"), "qa@example.com");
+  await actor.click(screen.getByRole("button", { name: "发送订单链接" }));
   assert.ok(await screen.findByText("尝试次数过多，请 3 小时后再试，或联系客服。"));
 });
