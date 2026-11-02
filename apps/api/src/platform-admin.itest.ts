@@ -263,7 +263,8 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
   // channel.review、fx.review、cancellation_policy.review、role.review 不挂在某个接口上：批准、驳回时按复核的类别检查（channels.itest.ts、fx-locks.itest.ts、cancellation-policy.itest.ts、platform-roles.itest.ts）
   // tenant.approve（供应商的人工暂停、清退、合同版本，ADR 0028）、rescue.review（人工指定救援供应商，ADR 0031）、statement.review（付款给供应商，ADR 0040）同样按复核的类别检查（tenant-onboarding.itest.ts、rescues.itest.ts、billing.itest.ts）
   // ticket.review（判定超过复核阈值）、compensation_table.review（改赔付表，ADR 0034）同样按复核的类别检查（tickets.itest.ts）
-  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review", "role.review", "statement.review", "ticket.review", "compensation_table.review", "order.proxy_review"];
+  // order.view_link_review（把官网订单链接发到新邮箱，ADR 0061）同样按复核的类别检查（view-link-email.itest.ts）
+  const perKind: PlatformAction[] = ["channel.review", "fx.review", "cancellation_policy.review", "tenant.approve", "rescue.review", "role.review", "statement.review", "ticket.review", "compensation_table.review", "order.proxy_review", "order.view_link_review"];
   assert.deepEqual([...new Set([...PROTECTED.map((r) => r.action), ...perKind])].sort(), [...PLATFORM_ACTIONS].sort());
   const registered = api.app.registeredRoutes
     .filter((r) => r.method !== "HEAD" && r.path.startsWith("/platform/v1/") && !r.path.includes("/auth/"))
