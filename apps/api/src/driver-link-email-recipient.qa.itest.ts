@@ -648,7 +648,7 @@ test("已结束的单改邮箱：完成的单上的邮件链接也作废（发�
   assert.equal((await trip(token as string)).status, 401);
 });
 
-test("司机停用：重发不发信，记 DRIVER_DISABLED；恢复后不补发；员工账号权限不受影响", async () => {
+test("司机停用：重发不发信，记 DRIVER_DISABLED；恢复后不补发", async () => {
   const email = newEmail();
   const { order, driver } = await dispatched(a, "a", email);
   await tick();

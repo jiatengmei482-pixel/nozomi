@@ -517,7 +517,7 @@ test("运营重试的复查：改派、已有更新的发起、手动模式、�
   await api.db.owner.query("update tenant_notification_settings set driver_link_delivery = 'auto'");
 });
 
-test("运营重试：两个人同时点只发一封；发成功后不能再重试；没有重试权限的角色和范围外的员工动不了", async () => {
+test("运营重试：两个人同时点只发一封；发成功后不能再重试；范围外的员工看不到也动不了", async () => {
   const { notificationId, email } = await failedOnce();
   const staff = await ops();
   const [one, two] = await Promise.all([api.call("POST", `/platform/v1/notifications/${notificationId}/retry`, { token: staff }), api.call("POST", `/platform/v1/notifications/${notificationId}/retry`, { token: staff })]);
@@ -539,7 +539,7 @@ test("运营重试：两个人同时点只发一封；发成功后不能再重�
   assert.equal(textsTo(second.email).length, 0);
 });
 
-test("运营重试和后台任务并发：不会一封发两次、也不留下两条有效的新链接以外的东西", async () => {
+test("运营重试和后台任务并发：不会一封发两次", async () => {
   const { notificationId, email, order } = await failedOnce();
   const [res] = await Promise.all([retry(notificationId), tick(), tick()]);
   assert.ok([200, 409].includes(res.status), res.text);
