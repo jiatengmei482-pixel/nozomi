@@ -5,12 +5,15 @@
  * - 查订单被订单号额度挡下：页面说「尝试次数过多…或联系客服」，不说「已发送」，也不说订单存不存在；不存在的订单号被挡时页面上一模一样。
  * 用司机链接邮件那一组 API（配置文件里有假 SMTP 和官网渠道，见 global-setup）。远期的单，全部是虚构数据。
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { decodedMailText } from "../../api/src/testing/fake-integrations.ts";
 import { E2E_WEB_DRIVER_MAIL_PORT } from "../playwright.config.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { approveApproval, expectNoHorizontalOverflow, loginAs, newPassword, platformAdminHeaders, uniqueEmail } from "./support.ts";
+
+// 官网按来源地址限速（下单 10 分钟 10 次、查订单 15 分钟 10 次）：这个文件用自己的随机地址，不占别的用例的额度
+test.use({ extraHTTPHeaders: { "x-forwarded-for": `198.51.100.${randomInt(1, 250)}` } });
 
 test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
 

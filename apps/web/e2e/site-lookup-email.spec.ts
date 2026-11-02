@@ -4,12 +4,15 @@
  * 下单时的链接照样能用。查订单页在亮暗两色、320 宽过 axe、不横向滚动；客服电话没登记时「收不到邮件？」照常显示。
  * 用司机链接邮件那一组 API（配置文件里有假 SMTP 和官网渠道，见 global-setup）。全部是虚构数据。
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { type APIRequestContext, expect, test } from "@playwright/test";
 import { decodedMailText } from "../../api/src/testing/fake-integrations.ts";
 import { E2E_WEB_DRIVER_MAIL_PORT } from "../playwright.config.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { expectNoHorizontalOverflow } from "./support.ts";
+
+// 官网按来源地址限速（下单 10 分钟 10 次、查订单 15 分钟 10 次）：这个文件用自己的随机地址，不占别的用例的额度
+test.use({ extraHTTPHeaders: { "x-forwarded-for": `198.51.100.${randomInt(1, 250)}` } });
 
 test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
 

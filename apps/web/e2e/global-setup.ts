@@ -414,6 +414,8 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
       SMTP_PASSWORD: `smtp-${randomBytes(18).toString("base64url")}`,
       SMTP_FROM_NAME: "NOZOMI",
       SMTP_FROM_ADDRESS: "noreply@example.com",
+      // 官网下单、查订单按来源地址限速：和付款那组一样信任一层代理，用例各用一个文档专用地址，不占主 API 那些用例在 127.0.0.1 上的额度
+      TRUST_PROXY_HOPS: "1",
     });
     started.push(driverMailApi);
     await waitUntilUp(driverMailApi, `${driverMailOrigin}/health`);

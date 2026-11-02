@@ -29,7 +29,7 @@ import {
   normalizeRing,
   roundCoordinate,
 } from "@nozomi/domain";
-import type { AppContext } from "../context.ts";
+import type { DbContext } from "../context.ts";
 import { type Db, withTenantTx } from "../db/context.ts";
 import { AppError, isRetryableDbError } from "../errors.ts";
 import type { TimeCursor } from "../pagination.ts";
@@ -56,7 +56,7 @@ import { type AuditValue, type AuditValues, insertAuditLog } from "../repos/audi
 import { type AreaUsage, areaUsage, compactAreaPriorities, productIdsUsingArea } from "../repos/products.ts";
 import { removePricingOfArea } from "./prices.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { consoleOrigin, tenantActor } from "./audit.ts";
+import { type SystemTenantPrincipal, tenantWriteOrigin } from "./audit.ts";
 import { areaNameTaken, fieldLocked, masterDataNotReady, notFound, versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
@@ -99,7 +99,8 @@ function areaInUse(action: string, usage: AreaUsage): AppError {
 }
 
 export interface AreaWriter {
-  principal: TenantPrincipal;
+  /** 登录的租户用户；命令行以系统身份写时是 `SystemTenantPrincipal`（审计记 system / cli） */
+  principal: TenantPrincipal | SystemTenantPrincipal;
   ip: string;
 }
 
@@ -217,7 +218,7 @@ async function detail(db: Db, tenantId: string, area: Area): Promise<AreaView> {
 }
 
 /** 数据库因为死锁、序列化失败放弃事务时自动重做（接口层对仍不成功的返回 409 CONCURRENT_UPDATE）。 */
-async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
+async function writeTx<T>(ctx: DbContext, tenantId: string, fn: (db: Db) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await withTenantTx(ctx.pool, tenantId, fn);
@@ -227,8 +228,8 @@ async function writeTx<T>(ctx: AppContext, tenantId: string, fn: (db: Db) => Pro
   }
 }
 
-function audit(db: Db, ctx: AppContext, writer: AreaWriter, now: Date, event: { areaId: string; action: "create" | "update" | "delete" | "disable" | "enable"; before: AuditValues | null; after: AuditValues | null }): Promise<void> {
-  return insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+function audit(db: Db, ctx: DbContext, writer: AreaWriter, now: Date, event: { areaId: string; action: "create" | "update" | "delete" | "disable" | "enable"; before: AuditValues | null; after: AuditValues | null }): Promise<void> {
+  return insertAuditLog(db, tenantWriteOrigin(writer, now), {
     tenantId: writer.principal.tenantId,
     resource: "area",
     resourceId: event.areaId,
@@ -239,7 +240,7 @@ function audit(db: Db, ctx: AppContext, writer: AreaWriter, now: Date, event: { 
 }
 
 export async function listAreas(
-  ctx: AppContext,
+  ctx: DbContext,
   tenantId: string,
   filter: AreaFilter,
   limit: number,
@@ -262,7 +263,7 @@ export async function listAreas(
   );
 }
 
-export async function getArea(ctx: AppContext, tenantId: string, id: string): Promise<AreaView> {
+export async function getArea(ctx: DbContext, tenantId: string, id: string): Promise<AreaView> {
   return withTenantTx(
     ctx.pool,
     tenantId,
@@ -280,7 +281,7 @@ export async function getArea(ctx: AppContext, tenantId: string, id: string): Pr
  * `respond` 把结果变成接口的应答：幂等键的记录里存的就是它，同一个键再来时原样返回。
  */
 export async function createArea(
-  ctx: AppContext,
+  ctx: DbContext,
   writer: AreaWriter,
   input: AreaInput,
   idempotency: { scope: string; key: string },
@@ -327,7 +328,7 @@ function samePolygon(stored: AreaPolygon, draft: AreaPolygonDraft): boolean {
 }
 
 /** 修改区域：名称、业务类型、图形整体替换。城市创建后不能改。内容没变时原样返回，不加版本、不写日志。 */
-export async function updateArea(ctx: AppContext, writer: AreaWriter, id: string, expectedVersion: number, input: AreaUpdate): Promise<AreaView> {
+export async function updateArea(ctx: DbContext, writer: AreaWriter, id: string, expectedVersion: number, input: AreaUpdate): Promise<AreaView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -366,7 +367,7 @@ export async function updateArea(ctx: AppContext, writer: AreaWriter, id: string
  * 停用 / 启用。启用时所属城市必须是启用中的。已经是目标状态时原样返回。
  * 被已上架的商品用着的区域不能停用（409 AREA_IN_USE）。
  */
-export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: string, status: AreaStatus): Promise<AreaView> {
+export async function setAreaStatus(ctx: DbContext, writer: AreaWriter, id: string, status: AreaStatus): Promise<AreaView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -396,7 +397,7 @@ export async function setAreaStatus(ctx: AppContext, writer: AreaWriter, id: str
  * 被已上架的商品用着的区域不能删除（409 AREA_IN_USE）；草稿、已下架的商品选了它的，删除后那些商品少掉这个区域。
  * 这个区域下的价格跟着删除（每条一条删除日志，那些商品的版本号加一）；调价规则的适用范围里去掉它（见 prices.ts 的 removePricingOfArea）。
  */
-export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string): Promise<void> {
+export async function deleteArea(ctx: DbContext, writer: AreaWriter, id: string): Promise<void> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   await writeTx(ctx, tenantId, async (db) => {
@@ -416,7 +417,7 @@ export async function deleteArea(ctx: AppContext, writer: AreaWriter, id: string
 }
 
 /** 自测：一个位置在这个区域的营运区里、禁行区里，还是都不在。不管在不在都正常返回；停用的区域也能测。 */
-export async function checkAreaPoint(ctx: AppContext, tenantId: string, id: string, point: { lat: number; lng: number }): Promise<PointLocation> {
+export async function checkAreaPoint(ctx: DbContext, tenantId: string, id: string, point: { lat: number; lng: number }): Promise<PointLocation> {
   if (!isLatitude(point.lat)) invalid([{ path: "/lat", reason: "INVALID_COORDINATE", message: "纬度必须在 -90 到 90 之间" }]);
   if (!isLongitude(point.lng)) invalid([{ path: "/lng", reason: "INVALID_COORDINATE", message: "经度必须在 -180 到 180 之间" }]);
   const polygons = await withTenantTx(
@@ -433,7 +434,7 @@ export async function checkAreaPoint(ctx: AppContext, tenantId: string, id: stri
 }
 
 /** 首页上本租户的区域数量。 */
-export function areaCounts(ctx: AppContext, tenantId: string): Promise<{ active: number; disabled: number }> {
+export function areaCounts(ctx: DbContext, tenantId: string): Promise<{ active: number; disabled: number }> {
   return withTenantTx(ctx.pool, tenantId, (db) => countAreasByStatus(db, tenantId), { snapshot: true });
 }
 
