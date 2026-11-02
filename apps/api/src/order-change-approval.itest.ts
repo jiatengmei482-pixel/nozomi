@@ -204,6 +204,53 @@ test("带链接的司机通知发信失败（M4-27 的规则）：这次生成�
   assert.equal((await api.call("GET", "/driver/v1/trip", { token: sent })).status, 200);
 });
 
+test("联系信息频繁改：同一位司机 10 分钟内只发一封、只多一条链接；过了 10 分钟再发；打开链接看到的是最新的", async () => {
+  const { order, email } = await dispatched();
+  await patch(order.id, { notes: "第一次" });
+  await patch(order.id, { notes: "第二次" });
+  await patch(order.id, { messaging: { app: "line", handle: "fictional_handle" } });
+  await tick();
+  const sent = mailsTo(email);
+  assert.equal(sent.length, 1);
+  const token = tokenInMail(texts(sent)) as string;
+  assert.equal((await api.call("GET", "/driver/v1/trip", { token })).body.order.notes, "第二次");
+  api.clock.advance(11 * 60_000);
+  await patch(order.id, { notes: "第三次" });
+  await tick();
+  assert.equal(mailsTo(email).length, 2);
+});
+
+test("申请没结论时才派的司机，不收「修改没有通过」；原来的司机也不再收（已改派）", async () => {
+  const { order, email } = await dispatched();
+  const res = await patch(order.id, { passengers: 3 });
+  await tick();
+  const nextEmail = fictionalEmail();
+  const next = await newDriver(api, b, { email: nextEmail });
+  api.clock.advance(1_000);
+  await ok(assign(api, b, order.id, next.id, (await newVehicle(api, b, m.ids.biz7)).id));
+  await tick();
+  smtp.reset();
+  await ok(tenantDecide(order.id, res.body.change.id, "reject", { note: "排不出车" }));
+  await tick();
+  assert.equal(mailsTo(nextEmail).length, 0);
+  assert.equal(mailsTo(email).length, 0);
+});
+
+test("补差价后台重试被拒：客人收到结果邮件（官网单发到客人），没有改成", async () => {
+  const oldAt = dayAhead(130);
+  const newAt = oldAt + 2 * DAY;
+  await surge(tokyoDate(newAt));
+  const order = await flow.paidOrder({ serviceTime: iso(oldAt) });
+  pay.failNext("PAYMENT_PROVIDER_TIMEOUT");
+  assert.equal((await patch(order.id, { service_time: iso(newAt) })).status, 504);
+  pay.declineNextCharge("card_declined", "insufficient_funds");
+  api.clock.advance(3 * 60_000);
+  await api.app.orderJobs.money();
+  assert.deepEqual([(await salesGet(order.id)).changes[0].status], ["failed"]);
+  const events = await api.db.owner.query("select data from notification_events where order_id = $1 and event = 'order.change_declined'", [order.id]);
+  assert.deepEqual(events.rows.map((row) => row.data.advice), ["payment_failed"]);
+});
+
 test("拆开提交：报价失败时联系信息也不生效（同一个事务）", async () => {
   const { order } = await dispatched();
   const res = await patch(order.id, { notes: "不该生效", service_time: iso(api.clock.now().getTime() + 2 * HOUR) });
@@ -232,7 +279,7 @@ test("免打扰不影响：改单、申请、取消都马上发", async () => {
   assert.deepEqual(sent.rows.map((row) => row.event).sort(), ["order.cancelled", "order.changed"]);
 });
 
-test("拒绝：原因必填；差价退回；免费取消；结果说清楚；司机按原任务；原因不给客人看", async () => {
+test("拒绝：原因必填；差价退回；远期提出的不给免费取消；结果说清楚；司机按原任务；原因不给客人看", async () => {
   const oldAt = dayAhead(30);
   const newAt = oldAt + 2 * DAY;
   await surge(tokyoDate(newAt));
@@ -249,13 +296,13 @@ test("拒绝：原因必填；差价退回；免费取消；结果说清楚；�
   assert.deepEqual([rejected.status, rejected.body.change.status, rejected.body.change.decision_note], [200, "rejected", SECRET_REASON]);
   assert.deepEqual(pay.refundsOf(order.id).map((refund) => refund.amountMinor), [SURGE_SELL - SELL], "差价退回");
   const now = await salesGet(order.id);
-  assert.deepEqual([now.service_time, now.price.total.amount, now.free_cancel_available, now.changes[0].status], [order.service_time, order.price.total.amount, true, "rejected"]);
+  assert.deepEqual([now.service_time, now.price.total.amount, now.free_cancel_available, now.changes[0].status], [order.service_time, order.price.total.amount, false, "rejected"], "提出时离用车还很远：按阶梯，不给免费取消");
   assert.ok(!JSON.stringify(now).includes(SECRET_REASON), "拒绝原因不给渠道");
   await tick();
   assert.match(texts(mailsTo(email)), /按原任务执行/);
   assert.equal((await api.call("GET", "/driver/v1/trip", { token })).status, 200, "原来的链接还能用");
   assert.deepEqual(await todosOf(order.id), [], "供应商自己拒绝的不用再提醒");
-  await ok(api.call("POST", `/sales/v1/orders/${order.id}/cancel`, { token: await flow.token(), body: { reason: "CHANGE_NOT_CONFIRMED" } }));
+  assert.equal((await api.call("POST", `/sales/v1/orders/${order.id}/cancel`, { token: await flow.token(), body: { reason: "CHANGE_NOT_CONFIRMED" } })).body.error.code, "FREE_CANCEL_NOT_APPLICABLE");
 });
 
 test("只改航班号的被拒：不给免费取消（它能在免费取消期外提交）", async () => {
@@ -268,7 +315,7 @@ test("只改航班号的被拒：不给免费取消（它能在免费取消期�
   assert.equal((await api.call("POST", `/sales/v1/orders/${order.id}/cancel`, { token: await flow.token(), body: { reason: "CHANGE_NOT_CONFIRMED" } })).body.error.code, "FREE_CANCEL_NOT_APPLICABLE");
 });
 
-test("调整中：只能标一次；远期期限变成 24 小时内；到期记没确认、差价退回；要决定的待办一直在；客人看得到状态", async () => {
+test("调整中：只能标一次；不缩短原期限；到期记没确认、差价退回；要决定的待办一直在；客人看得到状态", async () => {
   const oldAt = dayAhead(40);
   const newAt = oldAt + 2 * DAY;
   await surge(tokyoDate(newAt));
@@ -279,7 +326,7 @@ test("调整中：只能标一次；远期期限变成 24 小时内；到期记�
   const marked = await tenantDecide(order.id, changeId, "adjusting", { note: "在换司机" });
   assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/changes/{changeId}/adjusting", marked);
   assert.deepEqual([marked.status, marked.body.change.status, marked.body.change.decision_note], [200, "adjusting", "在换司机"]);
-  assert.equal(Date.parse(marked.body.change.confirm_due_at), api.clock.now().getTime() + 24 * HOUR);
+  assert.equal(Date.parse(marked.body.change.confirm_due_at), oldAt - 23.5 * HOUR, "远期的原期限够长，标调整中不缩短");
   assert.equal((await tenantDecide(order.id, changeId, "adjusting")).body.error.code, "CHANGE_NOT_PENDING", "只能标一次");
   const seen = await salesGet(order.id);
   assert.deepEqual([seen.changes[0].status, seen.service_time], ["adjusting", order.service_time]);
@@ -292,7 +339,7 @@ test("调整中：只能标一次；远期期限变成 24 小时内；到期记�
   api.clock.advance(HOUR);
   await api.app.orderJobs.money();
   const after = await salesGet(order.id);
-  assert.deepEqual([after.changes[0].status, after.free_cancel_available, pay.refundsOf(order.id).length], ["expired", true, 1]);
+  assert.deepEqual([after.changes[0].status, after.free_cancel_available, pay.refundsOf(order.id).length], ["expired", false, 1], "提出时离用车还远：按阶梯");
   b.adminToken = await tenantLogin(api, m.b.adminEmail);
   assert.deepEqual((await todosOf(order.id)).map((item) => item.kind), ["change_expired"]);
 });
@@ -317,7 +364,7 @@ test("超时边界：远期不失效；进 24 小时后提的是提出后 30 分
   const late = await tenantDecide(moved.order.id, near.body.change.id, "confirm");
   assert.deepEqual([late.status, late.body.error.code], [409, "CHANGE_CONFIRMATION_EXPIRED"]);
   const now = await salesGet(moved.order.id);
-  assert.deepEqual([now.changes[0].status, now.passengers, now.free_cancel_available], ["expired", 2, true]);
+  assert.deepEqual([now.changes[0].status, now.passengers, now.free_cancel_available], ["expired", 2, false], "人数申请不给免费取消");
 });
 
 test("超时提醒进异常队列：更远 4 小时、48 小时内 1 小时、24 小时内 15 分钟；有结论后自动关闭；只提醒不失效", async () => {

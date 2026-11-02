@@ -6988,9 +6988,9 @@ paths:
         - 乘客信息、即时通讯、备注：**直接生效**，通知供应商和已派的司机；
         - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
         - `service_time` 同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，这时联系信息已生效、其余没改），便宜了同意时退差价；报不出价 409 `CHANGE_NOT_SERVICEABLE`；
-        - 进入最早用车时间前 24 小时后 30 分钟内没结论的申请失效（`expired`）。拒绝或失效：差价退回，客人可以按 `CHANGE_NOT_CONFIRMED` 免费取消（`free_cancel_available`；只改航班号的除外，按取消政策）；
+        - 进入最早用车时间前 24 小时后 30 分钟内没结论的申请失效（`expired`）。拒绝或失效：差价退回，只有用车前 24 小时内提出的改期，客人才能按 `CHANGE_NOT_CONFIRMED` 免费取消（`free_cancel_available`），其他按取消政策；
         - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标接口里没有（400），按取消重下。
-        有申请没结论时，履约字段 409 `CHANGE_IN_PROGRESS`；联系信息和取消不受影响。结果在 `changes[].status`：`adjusting` 表示供应商正在协调。
+        有申请没结论时，履约字段 409 `CHANGE_IN_PROGRESS`；取消不受影响，联系信息照常（备注仍要在免费取消期内）。结果在 `changes[].status`：`adjusting` 表示供应商正在协调。
       security:
         - salesToken: []
       parameters:
@@ -7055,7 +7055,7 @@ paths:
       summary: 退款试算
       description: |
         按这一刻、这个原因算取消要扣多少、退多少（客人支付币种）：按下单时这一单的取消阶梯（平台统一，按品类和车型级别），离用车还有多少毫秒落在哪一档。
-        `reason=CHANGE_NOT_CONFIRMED`（改期被供应商拒绝或 30 分钟没确认）免费。待支付的单不涉及钱。服务已开始、已取消的 `cancellable` 为 false。只查得到本渠道的单。
+        `reason=CHANGE_NOT_CONFIRMED`（用车前 24 小时内提出的改期被供应商拒绝或没确认，ADR 0060）免费，不符合条件 409。待支付的单不涉及钱。服务已开始、已取消的 `cancellable` 为 false。只查得到本渠道的单。
       security:
         - salesToken: []
       parameters:
@@ -7067,6 +7067,12 @@ paths:
             enum: [ GUEST_REQUEST, CHANGE_NOT_CONFIRMED ]
             default: GUEST_REQUEST
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:
@@ -7655,6 +7661,12 @@ paths:
               - "true"
               - "false"
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:
@@ -11637,6 +11649,12 @@ paths:
             enum: [ GUEST_REQUEST, CHANGE_NOT_CONFIRMED ]
             default: GUEST_REQUEST
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:

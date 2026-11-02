@@ -11,6 +11,7 @@
  * 《用车报价服务平台》「修改单处理」：客人改时间、航班、人数时，租户收到 `order.changed`，并看到改前改后对比；改时间后派车结果自动重新校验（冲突时提示改派）。
  * 业主（M4-29，ADR 0060）：改时间、地点、航班、人数不再直接覆盖，生成修改申请，供应商同意才生效；联系信息直接生效；任何修改和取消都立即通知。
  */
+import { CANCELLABLE_STATUSES } from "./cancellation.ts";
 import type { OrderStatus } from "./orders.ts";
 
 /** 渠道（和运营代客人）能改的字段。坐标、车型、品类、城市不能改：要重新比价，按「取消重下」。 */
@@ -33,18 +34,12 @@ export function changeFieldsNeedConfirmation(fields: readonly string[]): boolean
   return fields.some((field) => (CONFIRM_FIELDS as readonly string[]).includes(field));
 }
 
-/** 只改了航班号：唯一能在免费取消期之外提交的履约字段，被拒不给免费取消（ADR 0060「被拒或超时」）。 */
-function onlyFlightNo(fields: readonly string[]): boolean {
-  const confirm = fields.filter((field) => (CONFIRM_FIELDS as readonly string[]).includes(field));
-  return confirm.length === 1 && confirm[0] === "flight_no";
-}
-
 export const ORDER_CHANGE_RULES = {
   /** 离最早用车时间不到这么多小时，没确认的申请才会自动失效 */
   confirmWithinHours: 24,
   /** 进入上面的窗口之后，供应商多少分钟内确认；过时没确认算没确认（客人可以免费取消） */
   confirmMinutes: 30,
-  /** 调整中：远期的单最多再给这么久 */
+  /** 调整中：放宽时最多给到这么久 */
   adjustingMaxHours: 24,
   /** 调整中：至少给这么久（30 分钟换不好司机） */
   adjustingMinHours: 2,
@@ -120,8 +115,8 @@ export function changeConfirmDeadline(requestedAt: Date, earliest: Date, newServ
 }
 
 /**
- * 标了「调整中」之后的期限（只能标一次）。见 ADR 0060：
- * 离最早用车 > 24 小时：min(现在 + 24 小时, 最早用车前 22 小时)，至少 2 小时；≤ 24 小时：现在 + 2 小时，但不会比原来的期限短。都不晚于最早用车前 1 小时。
+ * 标了「调整中」之后的期限（只能标一次）。见 ADR 0060：**永远不缩短原期限**，只在原期限太紧时放宽：
+ * 放宽到 min(现在 + 24 小时, 最早用车前 22 小时)，至少现在 + 2 小时，且不晚于最早用车前 1 小时。远期的原期限（最早用车前 23.5 小时）本来就够，不变。
  */
 export function changeAdjustingDeadline(now: Date, currentDue: Date, earliest: Date): Date {
   const rules = ORDER_CHANGE_RULES;
@@ -129,8 +124,7 @@ export function changeAdjustingDeadline(now: Date, currentDue: Date, earliest: D
   const service = earliest.getTime();
   const limit = Math.max(Math.min(at + rules.adjustingMaxHours * HOUR_MS, service - rules.adjustingFarLatestHoursBeforeService * HOUR_MS), at + rules.adjustingMinHours * HOUR_MS);
   const capped = Math.min(limit, service - rules.adjustingLatestHoursBeforeService * HOUR_MS);
-  const far = service - at > rules.confirmWithinHours * HOUR_MS;
-  return new Date(far ? capped : Math.max(capped, currentDue.getTime()));
+  return new Date(Math.max(capped, currentDue.getTime()));
 }
 
 /** 这次申请提出后多少分钟还没结论就要提醒运营（SQL 里同一套，见 repos/exceptions.ts）。 */
@@ -184,22 +178,38 @@ export function orderChangeStillApplicable(orderStatus: OrderStatus, fields: rea
   return (trip ? TRIP_STATUSES : DETAIL_STATUSES).includes(orderStatus);
 }
 
-/**
- * 客人能不能因为「修改没被确认」免费取消：这张单最近一次要确认的修改被供应商拒绝或期限内没确认，之后也没有生效的修改。
- * 只改航班号的不算（既不给免费取消，也不抹掉之前的）：它能在免费取消期之外提交，算进来客人随手提一个就能全额退款（ADR 0060）。
- * `changes` 是这张单的改单，按提出的先后。
- */
-export function freeCancelAfterUnconfirmedChange(changes: readonly { status: OrderChangeStatus; after: Readonly<Record<string, unknown>> }[]): boolean {
-  const last = [...changes].reverse().find((change) => {
-    const fields = Object.keys(change.after);
-    return changeFieldsNeedConfirmation(fields) && !onlyFlightNo(fields) && change.status !== "failed" && change.status !== "cancelled";
-  });
-  return last !== undefined && (last.status === "rejected" || last.status === "expired");
+/** 判断能不能因为修改没被确认免费取消要用到的事实。 */
+export interface UnconfirmedChangeFacts {
+  status: OrderChangeStatus;
+  before: Readonly<Record<string, unknown>>;
+  after: Readonly<Record<string, unknown>>;
+  requestedAt: Date;
 }
 
-/** 这次没通过的申请，客人之后能不能免费取消（结果邮件和官网只说符合实际的那句）。 */
-export function declinedChangeAllowsFreeCancel(after: Readonly<Record<string, unknown>>): boolean {
-  return !onlyFlightNo(Object.keys(after));
+/** 能按「修改没确认」免费取消的订单状态：司机已出发、已到达不给，服务开始、完成本来就取消不了。 */
+const FREE_CANCEL_ORDER_STATUSES: readonly OrderStatus[] = ["confirmed", "assigned"];
+
+/**
+ * 客人能不能按 `CHANGE_NOT_CONFIRMED` 免费取消（ADR 0060，协调人按业主原话和第五轮决策定）。**这条规则只在这里**，放宽改这一个函数。同时满足才免费：
+ * 1. 最近一次要确认的申请（按提出的先后；没扣到差价的、作废的不算）被拒或没确认，之后没有生效的修改；
+ * 2. 这条申请改了日期或时间；
+ * 3. 提出时距离当时的用车时间不足 24 小时（正好 24 小时不算）；
+ * 4. 订单现在还是已确认、已派车。司机出发后定时任务把申请记成「不再适用」的也靠这一条挡住：订单不会再回到这两个状态。
+ * 其余一律按现有阶梯。
+ */
+export function freeCancelAfterUnconfirmedChange(orderStatus: OrderStatus, changes: readonly UnconfirmedChangeFacts[]): boolean {
+  if (!FREE_CANCEL_ORDER_STATUSES.includes(orderStatus)) return false;
+  const last = [...changes].reverse().find((change) => changeFieldsNeedConfirmation(Object.keys(change.after)) && change.status !== "failed" && change.status !== "cancelled");
+  if (last === undefined || (last.status !== "rejected" && last.status !== "expired")) return false;
+  if (!Object.hasOwn(last.after, "service_time")) return false;
+  const serviceAt = Date.parse(String(last.before["service_time"]));
+  return !Number.isNaN(serviceAt) && serviceAt - last.requestedAt.getTime() < ORDER_CHANGE_RULES.confirmWithinHours * HOUR_MS;
+}
+
+/** 申请没通过时告诉客人接下来能做什么（只说符合实际的那句，见 notifications.ts 的 `CHANGE_DECLINE_ADVICE`）。这次申请此刻已经记成没通过。 */
+export function changeDeclineAdvice(orderStatus: OrderStatus, change: UnconfirmedChangeFacts): "free_cancel" | "policy" | "started" {
+  if (freeCancelAfterUnconfirmedChange(orderStatus, [change])) return "free_cancel";
+  return (CANCELLABLE_STATUSES as readonly string[]).includes(orderStatus) ? "policy" : "started";
 }
 
 /** 供应商后台的待办种类（ADR 0060）。`change_request` 要做决定，有结论时系统关；其余看过点「知道了」。 */

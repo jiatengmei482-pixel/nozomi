@@ -14,7 +14,11 @@ const DRIVER_ON_TRIP: readonly string[] = ["assigned", "departed", "arrived"];
 
 /** 这张单现在有没有要通知的司机。 */
 export function hasActiveDriver(order: Order): boolean {
-  return order.dispatch.driverId !== null && DRIVER_ON_TRIP.includes(order.status);
+  return driverOnTrip(order.status, order.dispatch.driverId);
+}
+
+export function driverOnTrip(status: string, driverId: string | null): boolean {
+  return driverId !== null && DRIVER_ON_TRIP.includes(status);
 }
 
 /** 通知司机（没派司机就什么都不写）。`key` 区分同一张单的多次通知；带链接的那种记下现在调度员手里的链接当锚点（ADR 0058）。 */

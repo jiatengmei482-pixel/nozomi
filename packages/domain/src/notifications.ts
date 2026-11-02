@@ -137,7 +137,7 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
   zhEmail("order.changed", "guest", "订单已修改：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单修改已生效，改动的内容：{{changed_fields}}。\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("order.change_declined", "guest", "修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）没有得到确认，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("order.change_declined", "guest", "修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）没有成功，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.cancelled", "guest", "订单已取消：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("extra_charge.submitted", "guest", "服务后费用待确认：{{order_no}}", `{{passenger_name}}，您好：\n\n供应商提交了一项服务后费用。\n\n项目：{{extra_charge_type}}\n金额：{{extra_charge_amount}}\n\n如有异议，请在 {{dispute_until}}（东京时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。${GUEST_FOOTER}`),
   zhEmail("ticket.guest_reply", "guest", "您的工单有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
@@ -381,6 +381,8 @@ export const CHANGE_DECLINE_ADVICE: Readonly<Record<string, string>> = {
   free_cancel: "您也可以在订单页免费取消后重新下单。",
   policy: "如不再需要用车，可以按取消政策在订单页取消。",
   rescue: "我们正在为您安排新的服务方，订单继续有效。",
+  started: "服务已经开始，如有问题请联系客服。",
+  payment_failed: "这次是因为用保存的支付方式补差价没有成功。如不再需要用车，可以按取消政策在订单页取消。",
 };
 
 /** 事件里的这几种，供应商邮件要说明司机那边的情况。 */

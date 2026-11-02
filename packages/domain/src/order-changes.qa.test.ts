@@ -3,7 +3,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ORDER_CHANGE_RULES, changeAdjustingDeadline, changeConfirmDeadline, changeConfirmOverdue, changeRemindAfterMinutes, declinedChangeAllowsFreeCancel, earliestServiceAt, freeCancelAfterUnconfirmedChange, orderChangeOpen, orderChangeStillApplicable, orderChangeTransitionAllowed, ORDER_CHANGE_STATUSES } from "./order-changes.ts";
+import { ORDER_CHANGE_RULES, changeAdjustingDeadline, changeConfirmDeadline, changeConfirmOverdue, changeRemindAfterMinutes, changeDeclineAdvice, earliestServiceAt, freeCancelAfterUnconfirmedChange, orderChangeOpen, orderChangeStillApplicable, orderChangeTransitionAllowed, ORDER_CHANGE_STATUSES } from "./order-changes.ts";
 import { driverNoticeSendBlock } from "./driver-link-email.ts";
 import { notificationExpiresAt, notificationQuietUntil } from "./notifications.ts";
 
@@ -81,21 +81,25 @@ test("还适用吗：航班号、地址到接到客人前都适用；时间、�
   assert.equal(orderChangeStillApplicable("departed", ["flight_no", "passengers"]), false, "混了就按严的");
 });
 
-test("免费取消：只看最近一次要确认的修改；联系信息、航班号、扣款失败、作废的不算；生效了就没有", () => {
-  const rejected = (after: Record<string, unknown>) => ({ status: "rejected" as const, after });
-  const applied = (after: Record<string, unknown>) => ({ status: "applied" as const, after });
-  assert.equal(freeCancelAfterUnconfirmedChange([]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([rejected({ passengers: 3 })]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "expired", after: { service_time: "x", service_local: "x" } }]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([rejected({ flight_no: "JL5" })]), false, "只改航班号");
-  assert.equal(freeCancelAfterUnconfirmedChange([applied({ notes: "x" }), rejected({ flight_no: "JL5" })]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([rejected({ passengers: 3 }), applied({ notes: "x" })]), true, "改备注不抹掉");
-  assert.equal(freeCancelAfterUnconfirmedChange([rejected({ passengers: 3 }), applied({ luggage: 3 })]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([rejected({ passengers: 3 }), { status: "pending_confirmation", after: { luggage: 3 } }]), false, "新申请没结论时不算");
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "failed", after: { service_time: "x" } }]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "cancelled", after: { service_time: "x" } }]), false);
-  assert.equal(declinedChangeAllowsFreeCancel({ flight_no: "JL5" }), false);
-  assert.equal(declinedChangeAllowsFreeCancel({ flight_no: "JL5", passengers: 3 }), true);
+test("免费取消：只看最近一次要确认的修改；联系信息、扣款失败、作废的不算；生效了就没有；只有用车前 24 小时内提出的改期才给（协调人定的规则，原来人数、地址也给）", () => {
+  const facts = (status: "rejected" | "expired" | "applied" | "failed" | "cancelled" | "pending_confirmation", after: Record<string, unknown>) => ({ status, after, before: { service_time: at(12 * HOUR).toISOString() }, requestedAt: NOW });
+  const time = { service_time: "x", service_local: "x" };
+  const free = (changes: Parameters<typeof freeCancelAfterUnconfirmedChange>[1]): boolean => freeCancelAfterUnconfirmedChange("assigned", changes);
+  assert.equal(free([]), false);
+  assert.equal(free([facts("rejected", time)]), true);
+  assert.equal(free([facts("expired", time)]), true);
+  assert.equal(free([facts("rejected", { passengers: 3 })]), false, "没改时间");
+  assert.equal(free([facts("rejected", { flight_no: "JL5" })]), false, "只改航班号");
+  assert.equal(free([facts("applied", { notes: "x" }), facts("rejected", { flight_no: "JL5" })]), false);
+  assert.equal(free([facts("rejected", time), facts("applied", { notes: "x" })]), true, "改备注不抹掉");
+  assert.equal(free([facts("rejected", time), facts("applied", { luggage: 3 })]), false);
+  assert.equal(free([facts("rejected", time), facts("pending_confirmation", { luggage: 3 })]), false, "新申请没结论时不算");
+  assert.equal(free([facts("failed", time)]), false);
+  assert.equal(free([facts("cancelled", time)]), false);
+  assert.equal(freeCancelAfterUnconfirmedChange("arrived", [facts("rejected", time)]), false, "司机已到达");
+  assert.equal(changeDeclineAdvice("assigned", facts("rejected", { flight_no: "JL5" })), "policy");
+  assert.equal(changeDeclineAdvice("assigned", facts("rejected", { flight_no: "JL5", passengers: 3 })), "policy");
+  assert.equal(changeDeclineAdvice("in_service", facts("rejected", { flight_no: "JL5" })), "started");
 });
 
 test("司机通知发送前复查：改派后的旧司机不发（取消除外）；手动、停用、没邮箱不发；等确认的通知有结论后不发；带链接的看锚点", () => {

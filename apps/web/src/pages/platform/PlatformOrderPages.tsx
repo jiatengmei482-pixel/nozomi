@@ -321,6 +321,8 @@ function CancelDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let alive = true;
+    setFee(null);
+    setProblem(null);
     getCancelFee(token, order.id, reason, waive && reason === "GUEST_REQUEST").then(
       (result) => alive && setFee(result),
       (err: unknown) => alive && !handleAuthFailure(err) && setProblem(failureText(err, "试算")),

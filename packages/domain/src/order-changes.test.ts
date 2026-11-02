@@ -9,7 +9,7 @@ import {
   changeConfirmOverdue,
   changeFieldsNeedConfirmation,
   changeRemindAfterMinutes,
-  declinedChangeAllowsFreeCancel,
+  changeDeclineAdvice,
   earliestServiceAt,
   freeCancelAfterUnconfirmedChange,
   orderChangeDecidable,
@@ -80,9 +80,9 @@ test("期限：24 小时内提出后 30 分钟；更远的到最早用车前 24 
   assert.equal(changeConfirmOverdue(near, near), true);
 });
 
-test("调整中的期限：远期最多 24 小时；24 小时内 2 小时且不会变短；都不晚于用车前 1 小时", () => {
+test("调整中的期限：永远不缩短原期限；原期限太紧时放宽（远期最多 24 小时，24 小时内 2 小时），都不晚于用车前 1 小时", () => {
   const at = (hours: number): Date => new Date(now.getTime() + hours * HOUR);
-  assert.equal(changeAdjustingDeadline(now, at(700), at(720)).getTime(), at(24).getTime(), "一个月后的单不能挂一个月");
+  assert.equal(changeAdjustingDeadline(now, at(696.5), at(720)).getTime(), at(696.5).getTime(), "远期：原期限够长，不缩短");
   assert.equal(changeAdjustingDeadline(now, at(2.5), at(26)).getTime(), at(4).getTime(), "最早用车前 22 小时");
   assert.equal(changeAdjustingDeadline(now, at(0.5), at(24.5)).getTime(), at(2.5).getTime(), "离用车 24.5 小时：至少 2 小时");
   assert.equal(changeAdjustingDeadline(now, at(0.5), at(10)).getTime(), at(2).getTime(), "24 小时内 2 小时");
@@ -125,26 +125,42 @@ test("订单走到哪一步修改还适用：时间人数行李到司机出发�
   assert.equal(orderChangeStillApplicable("rescue_pending", ["flight_no"]), false);
 });
 
-test("修改被拒或没确认后客人可以免费取消；之后又改成功了就不行；没扣到差价、作废的不算；联系信息不影响", () => {
-  const time = { service_time: "x", service_local: "x" };
-  assert.equal(freeCancelAfterUnconfirmedChange([]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: time }]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "expired", after: { pickup_address: "x" } }]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: time }, { status: "applied", after: time }]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "expired", after: time }, { status: "applied", after: { notes: "x" } }]), true, "之后只改了备注，不影响");
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: time }, { status: "failed", after: time }]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "pending_confirmation", after: time }]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "adjusting", after: time }]), false);
+test("免费取消：用车前 24 小时内提出的改期被拒或没确认才给；正好 24 小时不给，差 1 毫秒给", () => {
+  const serviceAt = new Date(now.getTime() + 24 * HOUR);
+  const reschedule = (status: "rejected" | "expired" | "applied" | "failed" | "cancelled" | "pending_confirmation" | "adjusting", msBefore = 24 * HOUR - 1) => ({
+    status,
+    before: { service_time: serviceAt.toISOString(), service_local: "x" },
+    after: { service_time: "y", service_local: "y" },
+    requestedAt: new Date(serviceAt.getTime() - msBefore),
+  });
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", []), false);
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected")]), true, "差 1 毫秒");
+  assert.equal(freeCancelAfterUnconfirmedChange("confirmed", [reschedule("expired")]), true);
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected", 24 * HOUR)]), false, "正好 24 小时");
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("expired", 48 * HOUR)]), false, "24 小时前提出、拖到 24 小时内才超时：已知代价，按阶梯");
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected"), reschedule("applied")]), false, "之后有生效的修改");
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected"), reschedule("failed")]), true, "没扣到差价的不算");
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected"), reschedule("cancelled")]), true);
+  for (const status of ["pending_confirmation", "adjusting"] as const) assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected"), reschedule(status)]), false, `最近一条还没结论：${status}`);
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [reschedule("rejected"), { ...reschedule("applied"), after: { notes: "x" }, before: { notes: null } }]), true, "联系信息不影响");
+  for (const status of ["departed", "arrived", "in_service", "completed", "cancelled", "rescue_pending", "no_show_claimed"] as const) assert.equal(freeCancelAfterUnconfirmedChange(status, [reschedule("rejected")]), false, status);
 });
 
-test("只改航班号的被拒不给免费取消（它能在免费取消期外提交），也不抹掉之前的", () => {
-  const time = { service_time: "x", service_local: "x" };
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: { flight_no: "JL5" } }]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "expired", after: { flight_no: "JL5" } }]), false);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: time }, { status: "rejected", after: { flight_no: "JL5" } }]), true);
-  assert.equal(freeCancelAfterUnconfirmedChange([{ status: "rejected", after: { flight_no: "JL5", passengers: 3 } }]), true, "还改了别的：只可能在免费取消期内提交");
-  assert.equal(declinedChangeAllowsFreeCancel({ flight_no: "JL5" }), false);
-  assert.equal(declinedChangeAllowsFreeCancel(time), true);
+test("免费取消：人数、地址、航班、行李的申请都不算；最近一条不是改期就不给", () => {
+  const requestedAt = new Date(now.getTime() - HOUR);
+  const before = { service_time: now.toISOString() };
+  for (const field of ["passengers", "luggage", "flight_no", "pickup_address", "dropoff_address"]) assert.equal(freeCancelAfterUnconfirmedChange("assigned", [{ status: "rejected", before: { [field]: 1 }, after: { [field]: 2 }, requestedAt }]), false, field);
+  const time = { status: "rejected" as const, before, after: { service_time: "y" }, requestedAt };
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [time, { status: "rejected", before: {}, after: { flight_no: "JL5" }, requestedAt }]), false);
+  assert.equal(freeCancelAfterUnconfirmedChange("assigned", [{ ...time, status: "rejected", after: { service_time: "y", passengers: 3 }, before: { ...before, passengers: 2 } }]), true, "同时改了时间");
+});
+
+test("告诉客人接下来能做什么：免费、按政策、服务已开始三选一", () => {
+  const time = { status: "rejected" as const, before: { service_time: now.toISOString() }, after: { service_time: "y" }, requestedAt: new Date(now.getTime() - HOUR) };
+  assert.equal(changeDeclineAdvice("assigned", time), "free_cancel");
+  assert.equal(changeDeclineAdvice("departed", time), "policy");
+  assert.equal(changeDeclineAdvice("assigned", { ...time, after: { passengers: 3 } }), "policy");
+  assert.equal(changeDeclineAdvice("in_service", time), "started");
 });
 
 test("差价：多了补收、少了退回、一样不动", () => {

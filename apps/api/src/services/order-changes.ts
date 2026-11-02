@@ -26,7 +26,7 @@ import {
   changeConfirmDeadline,
   changeConfirmOverdue,
   changeFieldsNeedConfirmation,
-  declinedChangeAllowsFreeCancel,
+  changeDeclineAdvice,
   dispatchDeadline,
   driverLinkExpiry,
   earliestServiceAt,
@@ -122,6 +122,8 @@ interface PlannedChange {
   /** 改后的订单内容（还没写库） */
   next: Pick<Order, "passenger" | "flightNo" | "messaging" | "notes" | "pickup" | "dropoff" | "passengers" | "luggage" | "serviceAt" | "serviceLocal" | "serviceDate">;
 }
+
+const CONTACT_NOTICE_WINDOW_MS = 10 * 60_000;
 
 const blank = (value: string | null | undefined): boolean => value === null || value === undefined || value.trim() === "";
 
@@ -316,8 +318,9 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor, reason: "CHANGED", occurredAt: now, detail: { change_id: change.id, fields, dispatch_conflict: conflict } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "applied", fields, before: change.before, after: change.after, dispatch_conflict: conflict } }, now);
   await enqueueNotification(db, { event: "order.changed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.changed:${change.id}`, data: { change_id: change.id, fields } }, now);
-  await enqueueDriverNotice(db, order, "order.driver_changed", { key: change.id, changeId: change.id, fields }, now);
   const contactOnly = !changeFieldsNeedConfirmation(fields);
+  // 联系信息频繁改时，同一位司机 10 分钟内只发一封（链接打开看到的永远是最新的；不然改一次发一封、多一条有效链接，ADR 0060）
+  await enqueueDriverNotice(db, order, "order.driver_changed", { key: contactOnly ? `contact:${Math.floor(now.getTime() / CONTACT_NOTICE_WINDOW_MS)}` : change.id, changeId: change.id, fields }, now);
   if (contactOnly) await addOrderTodo(db, order, "contact_changed", { changeId: change.id, fields, needsDriverAdjustment: false }, now);
   else {
     await resolveChangeRequestTodo(db, order.tenantId, change.id, now);
@@ -425,7 +428,7 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
 }
 
 function changeInProgress(): AppError {
-  return new AppError(409, "CHANGE_IN_PROGRESS", "这张单还有一个修改申请没有结论（在等供应商确认或在补差价），请等它有结果再改；姓名、电话、邮箱、备注可以直接改");
+  return new AppError(409, "CHANGE_IN_PROGRESS", "这张单还有一个修改申请没有结论（在等供应商确认或在补差价），请等它有结果再改；姓名、电话、邮箱随时可以直接改，备注在免费取消期内可以改");
 }
 
 /** 申请进入「等供应商处理」：立即通知供应商（邮件、待办、推送）和已派的司机；留流水，运营代提的写审计。 */
@@ -470,6 +473,8 @@ async function settleChangeCharge(ctx: AppContext, change: OrderChange, outcome:
     if (current.status !== "awaiting_payment") return { change: current, refunds: [] };
     if (outcome === "declined") {
       await updateOrderChange(db, current, { status: "failed", decidedAt: now });
+      // 后台重试被拒：客人已经离开页面，要告诉他结果（当场被拒的 402 已经告诉了）
+      if (!throwOnDecline) await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${current.id}`, data: { change_id: current.id, fields: Object.keys(current.after).filter((field) => field !== "service_local"), advice: "payment_failed" } }, now);
       return { change: (await findOrderChange(db, change.tenantId, change.id)) as OrderChange, refunds: [] };
     }
     let refunds: OrderRefund[] = [];
@@ -530,13 +535,13 @@ interface Decided {
   note: string | null;
 }
 
-/** 拒绝 / 超时：补收的差价退回；告诉客人结果、告诉司机按原任务；客人之后可以免费取消（只改航班号的除外）。 */
+/** 拒绝 / 超时：补收的差价退回；告诉客人结果、告诉司机按原任务（申请没结论时才派的司机没听说过这次申请，不发）。 */
 async function closeUnconfirmed(db: Db, order: Order, change: OrderChange, status: "rejected" | "expired", decided: Decided, now: Date): Promise<OrderRefund[]> {
   const fields = Object.keys(change.after).filter((field) => field !== "service_local");
   await updateOrderChange(db, change, { status, decidedAt: now, decidedBy: decided.by, decidedByPlatform: decided.byPlatform, decisionNote: decided.note });
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: decided.byPlatform !== null ? "platform_user" : status === "rejected" ? "tenant_user" : "system", reason: status === "rejected" ? "CHANGE_REJECTED" : "CHANGE_EXPIRED", occurredAt: now, detail: { change_id: change.id, fields, ...(decided.note === null ? {} : { note: decided.note }) } });
-  await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${change.id}`, data: { change_id: change.id, fields, advice: declinedChangeAllowsFreeCancel(change.after) ? "free_cancel" : "policy" } }, now);
-  await enqueueDriverNotice(db, order, "order.driver_change_declined", { key: change.id, changeId: change.id, fields }, now);
+  await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${change.id}`, data: { change_id: change.id, fields, advice: changeDeclineAdvice(order.status, { ...change, status }) } }, now);
+  if (order.dispatch.assignedAt !== null && order.dispatch.assignedAt.getTime() <= change.requestedAt.getTime()) await enqueueDriverNotice(db, order, "order.driver_change_declined", { key: change.id, changeId: change.id, fields }, now);
   await resolveChangeRequestTodo(db, order.tenantId, change.id, now);
   // 不是供应商自己拒绝的（超时、运营代拒绝）：留一条让它知道
   if (status === "expired" || decided.byPlatform !== null) await addOrderTodo(db, order, "change_expired", { changeId: change.id, fields, needsDriverAdjustment: false }, now);

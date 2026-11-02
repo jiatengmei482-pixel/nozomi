@@ -94,6 +94,7 @@ import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import { abandonOpenChange } from "./order-changes.ts";
 import { addOrderTodo, enqueueDriverNotice } from "./order-notices.ts";
+import { resolveOpenOrderTodos } from "../repos/order-todos.ts";
 import { processRefunds } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -223,6 +224,7 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
   // 原供应商和已派的司机：这张单不用再跑了（ADR 0060）
   await enqueueNotification(db, { event: "order.rescue_started", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.rescue_started:${rescue.id}`, data: { rescue_id: rescue.id } }, now);
   await enqueueDriverNotice(db, order, "order.driver_cancelled", { key: `rescue:${rescue.id}` }, now);
+  await resolveOpenOrderTodos(db, order.tenantId, order.id, now);
   await addOrderTodo(db, order, "rescue_started", {}, now);
   await insertAuditLog(db, input.actor.origin, {
     tenantId: input.actor.type === "tenant_user" ? order.tenantId : null,

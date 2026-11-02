@@ -29,6 +29,11 @@ export async function resolveChangeRequestTodo(db: Db, tenantId: string, changeI
   await db.query("update order_todos set resolved_at = $3 where tenant_id = $1 and change_id = $2 and kind = 'change_request' and resolved_at is null", [tenantId, changeId, now]);
 }
 
+/** 订单取消或进救援：这一单之前的待办全部关掉（系统关，`resolved_by` 为空）。 */
+export async function resolveOpenOrderTodos(db: Db, tenantId: string, orderId: string, now: Date): Promise<void> {
+  await db.query("update order_todos set resolved_at = $3 where tenant_id = $1 and order_id = $2 and resolved_at is null", [tenantId, orderId, now]);
+}
+
 export interface OrderTodo {
   id: string;
   kind: OrderTodoKind;

@@ -35,7 +35,7 @@ import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { revokeDriverLinksOnCancel } from "../repos/dispatch.ts";
 import { findOpenChange, listOrderChanges, updateOrderChange } from "../repos/order-changes.ts";
-import { resolveChangeRequestTodo } from "../repos/order-todos.ts";
+import { resolveOpenOrderTodos } from "../repos/order-todos.ts";
 import { type Order, type OrderCancelPolicy, type OrderEventActor, type OrderSale, findOrderForPlatform, findOrderPayment, findSale, insertOrderEvent, releaseSoldInventory, updateOrderStatus } from "../repos/orders.ts";
 import { type OrderRefund, listOrderRefunds, supersedeFailedRefunds } from "../repos/refunds.ts";
 import { validationFailed } from "../validation.ts";
@@ -125,7 +125,7 @@ function stateInvalid(status: OrderStatus): AppError {
 async function assertReasonApplies(db: Db, order: Order, reason: OrderCancelReason): Promise<void> {
   if (reason !== "CHANGE_NOT_CONFIRMED") return;
   const changes = await listOrderChanges(db, order.tenantId, order.id);
-  if (!freeCancelAfterUnconfirmedChange(changes)) throw new AppError(409, "FREE_CANCEL_NOT_APPLICABLE", "这张单没有被供应商拒绝或没确认的修改，不能按「修改没确认」免费取消");
+  if (!freeCancelAfterUnconfirmedChange(order.status, changes)) throw new AppError(409, "FREE_CANCEL_NOT_APPLICABLE", "这张单不符合「修改没确认」免费取消的条件（用车前 24 小时内提出的改期被拒绝或没确认），请按取消政策处理");
 }
 
 export interface CancelActor {
@@ -156,7 +156,6 @@ export async function cancelPaidOrderInTx(
   const open = await findOpenChange(db, order.tenantId, order.id, { lock: true });
   if (open !== null) {
     await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
-    await resolveChangeRequestTodo(db, order.tenantId, open.id, now);
   }
   if (order.status === "rescue_pending") await closeRescueOnCancel(db, order, now);
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "cancelled", actor: who.actor, reason: input.reason, occurredAt: now, detail: { fee_bp: quote.feeBp, waived: input.waiveFee, ...(who.origin === null ? {} : { by: who.origin.actor.email }) } });
@@ -165,6 +164,8 @@ export async function cancelPaidOrderInTx(
   // 所有付过款的取消都走这里（渠道、运营、复核批准、工单、救援中）：通知已派的司机、给供应商留待办（ADR 0060）。未付款的单供应商不知道，不通知
   await revokeDriverLinksOnCancel(db, order.tenantId, order.id, now);
   await enqueueDriverNotice(db, order, "order.driver_cancelled", { key: "cancel" }, now);
+  // 之前留下的待办都没意义了（首页不能让人去调整一张已取消的单），只留「订单已取消」
+  await resolveOpenOrderTodos(db, order.tenantId, order.id, now);
   await addOrderTodo(db, order, "order_cancelled", {}, now);
   // 「实际付了的」不扣失败的退款：这次的退款已经包含了它们，作废，不能再重试（否则多退）
   const superseded = await supersedeFailedRefunds(db, order.id, now);
@@ -289,6 +290,8 @@ export async function previewCancellation(ctx: AppContext, scope: { channelId: s
       if (sale === null || (scope !== "platform" && sale.channelId !== scope.channelId)) throw notFound("订单");
       const order = (await findOrderForPlatform(db, orderId)) as Order;
       if (!(CANCELLABLE_STATUSES as readonly string[]).includes(order.status)) return { order, quote: null };
+      // 和实际取消同一道判断：不能试算说免费，提交时又被拒
+      await assertReasonApplies(db, order, reason);
       return { order, quote: await quoteCancellation(db, order, sale, reason, waiveFee, ctx.now()) };
     },
     { snapshot: true },

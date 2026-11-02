@@ -10,6 +10,7 @@ import { findDriversByIds } from "../repos/fleet.ts";
 import { findNotificationSettings } from "../repos/notifications.ts";
 import { type OrderTodo, acknowledgeOrderTodo, findOrderTodo, listOpenOrderTodos } from "../repos/order-todos.ts";
 import { notFound } from "./errors.ts";
+import { driverOnTrip } from "./order-notices.ts";
 
 const TODO_LIMIT = 50;
 
@@ -32,7 +33,9 @@ export async function listTodos(ctx: AppContext, tenantId: string): Promise<{ to
         changeRequests: found.changeRequests,
         items: found.items.map((item) => {
           const driver = item.driverId === null ? null : (drivers.get(item.driverId) ?? null);
-          return { ...item, driverName: driver?.name ?? null, driverNotice: driver === null ? null : driverNoticeChannel(mode, driver.email) };
+          // 要决定的那条按现在的司机判断：申请提出后才派的司机，同意了也要调整他
+          const needsDriverAdjustment = item.kind === "change_request" ? driverOnTrip(item.orderStatus, item.driverId) : item.needsDriverAdjustment;
+          return { ...item, needsDriverAdjustment, driverName: driver?.name ?? null, driverNotice: driver === null ? null : driverNoticeChannel(mode, driver.email) };
         }),
       };
     },

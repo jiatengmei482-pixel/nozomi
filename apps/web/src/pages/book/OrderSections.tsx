@@ -2,7 +2,7 @@
  * 官网订单页的各个区块（M3-05，ADR 0032）。每个会改订单的操作都在页面内确认，结果写在区块里；出错时说明怎么办。
  * 危险或提交后不能改的操作（付款、取消、「我已落地」）先显示要发生什么，再点「确认」才提交。
  */
-import { type ExtraChargeType, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
+import { CANCELLABLE_STATUSES, type ExtraChargeType, EXTRA_CHARGE_RULES, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone, localDateTimeToInstant, normalizeFlightNo, normalizePhone } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -812,16 +812,17 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
     try {
       const result = await changeSiteOrder(token, order.version, body);
       const status = result.change?.status;
+      const contactChanged = "passenger" in body || "messaging" in body || "notes" in body;
       setForm(null);
       setNotice({
         kind: status === "applied" ? "success" : "info",
-        text: status === "applied" ? "已修改。" : status === "pending_confirmation" ? "修改已提交，等服务方确认。确认之前原预约仍然有效，结果会发邮件告诉您，也会显示在这里。姓名、电话、邮箱、备注已直接生效。" : "正在补收差价，稍后查看结果。",
+        text: status === "applied" ? "已修改。" : status === "pending_confirmation" ? `修改已提交，等服务方确认。确认之前原预约仍然有效，结果会发邮件告诉您，也会显示在这里。${contactChanged ? "姓名、电话、邮箱、备注的修改已直接生效。" : ""}` : "正在补收差价，稍后查看结果。",
       });
       onChanged(result);
     } catch (err) {
       if (err instanceof ApiError && err.code === "NO_CHANGE") setNotice({ kind: "info", text: "没有改动。" });
       else if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
-      else if (err instanceof ApiError && err.code === "CHANGE_IN_PROGRESS") setNotice({ kind: "warning", text: "上一次的修改还在等服务方确认。姓名、电话、邮箱、备注可以直接改，其他内容要等这次有结果。" });
+      else if (err instanceof ApiError && err.code === "CHANGE_IN_PROGRESS") setNotice({ kind: "warning", text: "上一次的修改还在等服务方确认。姓名、电话、邮箱随时可以直接改，备注在免费取消期内可以改，其他内容要等这次有结果。" });
       else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
         const mapped: ChangeErrors = {};
         if (err.details["reason"] === "SERVICE_TIME_PASSED") {
@@ -846,8 +847,8 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
   return (
     <Section id="site-change-title" title="修改订单">
       <AlertSlot notice={notice} />
-      {pendingChange && <Alert kind="warning">修改待确认：服务方确认之前，原预约仍然有效，用车时间和其他内容都不变。姓名、电话、邮箱、备注可以继续改，其他内容要等这次有结果。</Alert>}
-      {!pendingChange && lastDeclined && <Alert kind="info">{order.free_cancel_available ? "您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以在下面免费取消。" : "您的修改没有通过，原预约不变。如果不想继续用车，可以按取消政策在下面取消。"}</Alert>}
+      {pendingChange && <Alert kind="warning">修改待确认：服务方确认之前，原预约仍然有效，用车时间和其他内容都不变。姓名、电话、邮箱随时可以改，备注在免费取消期内可以改，其他内容要等这次有结果。</Alert>}
+      {!pendingChange && lastDeclined && <Alert kind="info">{order.free_cancel_available ? "您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以在下面免费取消。" : (CANCELLABLE_STATUSES as readonly string[]).includes(order.status) ? "您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以按取消政策在下面取消。" : "您的修改没有通过，原预约不变，补过的差价会原路退回。"}</Alert>}
       {shown.length > 0 && (
         <ul className="site-changes">
           {shown.map((change) => (
@@ -1024,7 +1025,7 @@ export function CancelSection({ token, order, onChanged }: { token: string; orde
           </Button>
           {order.free_cancel_available && (
             <Button size="lg" disabled={busy} onClick={() => void preview("CHANGE_NOT_CONFIRMED")}>
-              改期没有被确认，免费取消
+              修改没有被确认，免费取消
             </Button>
           )}
         </div>

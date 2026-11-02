@@ -367,11 +367,11 @@ test("只改航班号超时：同样不给免费取消", async () => {
   assert.deepEqual([seen.changes[0].status, seen.free_cancel_available], ["expired", false]);
 });
 
-test("航班号 + 人数一起提（免费期内）被拒：有非航班号的履约字段，可以免费取消；同一张单之后同意过别的修改，免费取消就没了", async () => {
+test("航班号 + 人数一起提（免费期内）被拒：没改时间，不给免费取消（协调人定的规则，这条原来期望给）；之后同意过别的修改也不给", async () => {
   const { order } = await w.dispatched();
   const mixed = (await w.patch(order.id, { flight_no: "JL5", passengers: 3 })).body.change;
   await ok(w.tenantDecide(order.id, mixed.id, "reject", { note: "接不了" }));
-  assert.equal((await w.salesGet(order.id)).free_cancel_available, true);
+  assert.equal((await w.salesGet(order.id)).free_cancel_available, false);
   const applied = (await w.patch(order.id, { luggage: 3 })).body.change;
   assert.equal((await w.salesGet(order.id)).free_cancel_available, false, "新的申请没结论时不算");
   await ok(w.tenantDecide(order.id, applied.id, "confirm"));

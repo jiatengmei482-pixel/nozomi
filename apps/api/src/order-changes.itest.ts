@@ -265,7 +265,7 @@ test("要确认的改期贵了：先补差价再等确认；供应商拒绝 → 
   assert.deepEqual([rejected.status, rejected.body.change.status], [200, "rejected"]);
   assert.deepEqual(pay.refundsOf(order.id).map((refund) => refund.amountMinor), [diff], "差价退回");
   const now = await salesGet(order.id);
-  assert.deepEqual([now.free_cancel_available, now.service_time, now.price.total.amount], [true, order.service_time, order.price.total.amount]);
+  assert.deepEqual([now.free_cancel_available, now.service_time, now.price.total.amount], [true, order.service_time, order.price.total.amount], "用车前 24 小时内提出的改期被拒：免费");
   const fee = await ok(api.call("GET", `/sales/v1/orders/${order.id}/cancel-fee?reason=CHANGE_NOT_CONFIRMED`, { token: await flow.token() }));
   assert.deepEqual([fee.fee_bp, fee.refund.amount], [0, order.price.total.amount]);
   const cancelled = await ok(api.call("POST", `/sales/v1/orders/${order.id}/cancel`, { token: await flow.token(), body: { reason: "CHANGE_NOT_CONFIRMED" } }));
