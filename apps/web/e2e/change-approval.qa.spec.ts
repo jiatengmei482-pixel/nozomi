@@ -186,8 +186,9 @@ for (const scheme of THEMES) {
     await expect(driverPage.locator("body")).not.toContainText(SECRET_REASON);
     await expectNoHorizontalOverflow(driverPage, `司机页 ${scheme}`);
 
-    // 客人取消：通知即生效
-    await guest.getByRole("button", { name: /免费取消/ }).click();
+    // 客人取消：通知即生效。远期单提出的不是 24 小时内的改期，被拒后按现有取消政策（ADR 0060），没有「修改没有被确认，免费取消」
+    await expect(guest.getByRole("button", { name: /免费取消/ })).toHaveCount(0);
+    await guest.getByRole("button", { name: "取消订单", exact: true }).click();
     const confirmGroup = guest.getByRole("group", { name: "确认取消订单" });
     await expect(confirmGroup).toBeVisible();
     await expectNoHorizontalOverflow(guest, `官网 ${scheme}：确认取消`);
