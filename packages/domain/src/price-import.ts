@@ -8,7 +8,7 @@
  * - 机场归哪个城市（商品的城市）只决定商品和区域挂在哪里，不参与任何价格的计算（业主的要求，测试固定）。
  * 表里的名字只当数据，放进 Map，不当对象的键。
  */
-import { AREA_LIMITS } from "./areas.ts";
+import { AREA_LIMITS, type Position, type Ring, areaShapeIssues, circleToRing, normalizeRing, ringsOverlap } from "./areas.ts";
 import { type MarkupRule, markupLevelOf, resolveMarkup } from "./channels.ts";
 import { type CurrencyCode, isCurrencyCode, roundToUnit } from "./money.ts";
 import { isLatitude, isLongitude } from "./master-data.ts";
@@ -150,10 +150,28 @@ export function priceImportExclusion(name: string): PriceImportExclusion | null 
 
 // ---- 映射 ----
 
-export interface PriceImportRegion {
-  lat: number;
-  lng: number;
-  radiusM: number;
+/**
+ * 地区的范围：圆（中心点 + 半径，第 1 阶段的草稿）或多边形（业主的围栏，GeoJSON 顺序的经纬度，不闭合、逆时针）。
+ * 多边形已经按区域的规则整理、校验过（`normalizeRing` 去掉相邻重复点，`areaShapeIssues` 没有问题）。
+ */
+export type PriceImportRegion = { kind: "circle"; lat: number; lng: number; radiusM: number } | { kind: "polygon"; ring: Ring };
+
+/** 地区范围实际用来判断的一圈点：圆按保存时的做法算成 64 边形。 */
+export function priceImportRegionRing(shape: PriceImportRegion): Ring {
+  return shape.kind === "polygon" ? shape.ring : circleToRing({ lat: shape.lat, lng: shape.lng }, shape.radiusM);
+}
+
+/** 一圈点的面积（平方米，近似）：按这圈点的平均纬度做等距投影后用鞋带公式。只用来比哪个区域更大。 */
+export function priceImportRingAreaM2(ring: readonly Position[]): number {
+  const lat0 = (ring.reduce((sum, point) => sum + point[1], 0) / ring.length) * (Math.PI / 180);
+  const metersPerDegree = 111_320;
+  let twice = 0;
+  for (let i = 0; i < ring.length; i += 1) {
+    const [x1, y1] = ring[i] as Position;
+    const [x2, y2] = ring[(i + 1) % ring.length] as Position;
+    twice += x1 * Math.cos(lat0) * metersPerDegree * y2 * metersPerDegree - x2 * Math.cos(lat0) * metersPerDegree * y1 * metersPerDegree;
+  }
+  return Math.abs(twice) / 2;
 }
 
 /** 表里的名字 → 平台里的东西。值是 null 的明确不导（待定、不卖）；没写进来的也不导，原因不同。 */
@@ -168,7 +186,7 @@ export interface PriceImportMapping {
 
 const IATA = /^[A-Z]{3}$/;
 const VEHICLE_CODE = /^VG-[A-Z0-9]{1,20}-[0-9]{1,2}$/;
-const REGION_KEYS = new Set(["lat", "lng", "radius_m", "source", "note"]);
+const REGION_KEYS = new Set(["lat", "lng", "radius_m", "polygon", "source", "note"]);
 
 function entriesOf(input: unknown, what: string): [string, unknown][] {
   if (!isRecord(input)) throw new PriceImportError("BAD_MAPPING", `映射文件的 ${what} 要是对象`);
@@ -195,13 +213,24 @@ export function parsePriceImportMapping(input: unknown): PriceImportMapping {
       regions.set(name, null);
       continue;
     }
-    if (!isRecord(value) || Object.keys(value).some((key) => !REGION_KEYS.has(key))) throw bad(`地区「${name}」只能有 lat、lng、radius_m、source、note`);
+    if (!isRecord(value) || Object.keys(value).some((key) => !REGION_KEYS.has(key))) throw bad(`地区「${name}」只能有 lat、lng、radius_m、polygon、source、note`);
+    if ("polygon" in value) {
+      // 多边形：一圈 [经度, 纬度]，首尾闭合或不闭合都行；不能带洞，不能同时写圆。几何校验和区域保存时完全一样
+      if (["lat", "lng", "radius_m"].some((key) => key in value)) throw bad(`地区「${name}」写了多边形就不能再写中心点和半径`);
+      const points = value.polygon;
+      const isPoint = (point: unknown): point is Position => Array.isArray(point) && point.length === 2 && point.every((part) => typeof part === "number" && Number.isFinite(part));
+      if (!Array.isArray(points) || !points.every(isPoint) || !points.every((point) => isLongitude(point[0]) && isLatitude(point[1]))) throw bad(`地区「${name}」的多边形要是一圈合法的 [经度, 纬度]`);
+      const ring = normalizeRing(points, { dedupe: true });
+      if (areaShapeIssues([{ kind: "operate", ring }]).length > 0) throw bad(`地区「${name}」的多边形不合法（点太少或太多、共线、自相交、跨 180° 经线）`);
+      regions.set(name, { kind: "polygon", ring });
+      continue;
+    }
     const { lat, lng, radius_m: radiusM } = value;
     if (typeof lat !== "number" || typeof lng !== "number" || !isLatitude(lat) || !isLongitude(lng)) throw bad(`地区「${name}」的坐标不合法`);
     if (typeof radiusM !== "number" || !Number.isInteger(radiusM) || radiusM < AREA_LIMITS.minRadiusM || radiusM > AREA_LIMITS.maxRadiusM) {
       throw bad(`地区「${name}」的半径要是 ${AREA_LIMITS.minRadiusM} 到 ${AREA_LIMITS.maxRadiusM} 米的整数`);
     }
-    regions.set(name, { lat, lng, radiusM });
+    regions.set(name, { kind: "circle", lat, lng, radiusM });
   }
   const vehicles = new Map<string, string | null>();
   for (const [name, code] of entriesOf(input.vehicles, "vehicles")) {
@@ -450,6 +479,81 @@ export function pricePriceImportCells(cells: readonly PriceImportCell[], rulesOf
     const rules = rulesOf(cell);
     return { ...cell, rules, result: inverseSitePrice(cell.sheetPriceMinor, rules) };
   });
+}
+
+// ---- 重叠比价（ADR 0062 补记、ADR 0063 第 8 项）----
+
+/** 重叠处会被报低的一处：同一机场、同一车型组、同一方向，大区域的结算价比和它重叠的小区域低。 */
+export interface PriceImportOverlapConflict {
+  iata: string;
+  airport: string;
+  vehicleGroupCode: string;
+  column: string;
+  direction: "pickup" | "dropoff";
+  /** 让重叠处变低的大区域（这一格不导） */
+  larger: { region: string; cellDirection: PriceDirection; sheetPriceMinor: number; baseMinor: number };
+  /** 被压低的小区域（更具体，业主预期按它报） */
+  smaller: { region: string; cellDirection: PriceDirection; sheetPriceMinor: number; baseMinor: number };
+}
+
+export interface PriceImportOverlapCheck {
+  kept: PricedImportCell[];
+  skipped: PricedImportCell[];
+  conflicts: PriceImportOverlapConflict[];
+  /** 同一机场下互相重叠的地区（大的在前），不论有没有冲突 */
+  overlaps: { iata: string; larger: string; smaller: string; largerAreaKm2: number; smallerAreaKm2: number }[];
+}
+
+/**
+ * 报价时一个地址落在几个区域里取结算价最低的（ADR 0020 第 4 步），没有「更具体的优先」。业主的预期是更小、更具体的区域优先，
+ * 所以同一机场（一个商品）、同一车型组、同一方向上，和小区域重叠的大区域的价比小区域低时，重叠处会报出比预期低的价：
+ * 这时跳过大区域的那一格（通用的一格整格跳过），列出冲突。只会去掉格子，所以一遍就够；报不出的格子不参与。
+ */
+export function priceImportOverlapCheck(cells: readonly PricedImportCell[]): PriceImportOverlapCheck {
+  const sellable = cells.filter((cell) => cell.result.baseMinor !== null);
+  const byAirport = new Map<string, PricedImportCell[]>();
+  for (const cell of sellable) byAirport.set(cell.iata, [...(byAirport.get(cell.iata) ?? []), cell]);
+  const skip = new Set<PricedImportCell>();
+  const conflicts: PriceImportOverlapConflict[] = [];
+  const overlaps: PriceImportOverlapCheck["overlaps"] = [];
+  for (const [iata, list] of byAirport) {
+    const regions = new Map<string, { ring: Ring; area: number }>();
+    for (const cell of list) {
+      if (regions.has(cell.region)) continue;
+      const ring = priceImportRegionRing(cell.regionShape);
+      regions.set(cell.region, { ring, area: priceImportRingAreaM2(ring) });
+    }
+    const names = [...regions.keys()];
+    for (let i = 0; i < names.length; i += 1) {
+      for (let j = i + 1; j < names.length; j += 1) {
+        const a = regions.get(names[i] as string) as { ring: Ring; area: number };
+        const b = regions.get(names[j] as string) as { ring: Ring; area: number };
+        if (!ringsOverlap(a.ring, b.ring)) continue;
+        const [larger, smaller] = a.area >= b.area ? [names[i] as string, names[j] as string] : [names[j] as string, names[i] as string];
+        overlaps.push({ iata, larger, smaller, largerAreaKm2: Math.round((regions.get(larger)?.area ?? 0) / 1e6), smallerAreaKm2: Math.round((regions.get(smaller)?.area ?? 0) / 1e6) });
+        const vehicles = new Set(list.map((cell) => cell.vehicleGroupCode));
+        for (const code of vehicles) {
+          for (const direction of ["pickup", "dropoff"] as const) {
+            const find = (region: string): PricedImportCell | undefined => list.find((cell) => cell.region === region && cell.vehicleGroupCode === code && (cell.direction === direction || cell.direction === "both"));
+            const big = find(larger);
+            const small = find(smaller);
+            if (!big || !small || (big.result.baseMinor as number) >= (small.result.baseMinor as number)) continue;
+            skip.add(big);
+            conflicts.push({
+              iata,
+              airport: big.airport,
+              vehicleGroupCode: code,
+              column: big.column,
+              direction,
+              larger: { region: larger, cellDirection: big.direction, sheetPriceMinor: big.sheetPriceMinor, baseMinor: big.result.baseMinor as number },
+              smaller: { region: smaller, cellDirection: small.direction, sheetPriceMinor: small.sheetPriceMinor, baseMinor: small.result.baseMinor as number },
+            });
+          }
+        }
+      }
+    }
+  }
+  return { kept: cells.filter((cell) => !skip.has(cell)), skipped: cells.filter((cell) => skip.has(cell)), conflicts, overlaps };
 }
 
 // ---- 异常（决定 C：原样导入，列给业主核对）----

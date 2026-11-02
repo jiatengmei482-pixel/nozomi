@@ -84,7 +84,7 @@ test("dry-run：只读，什么都不写；列出要建的子品牌、区域、�
   const outcome = await run(m.a.tenantId, "DRY-1", false);
   assert.equal(outcome.mode, "dry_run");
   assert.deepEqual(outcome.blockers, []);
-  assert.deepEqual(outcome.planned, { brand: "create", areas: { create: 2, exists: 0 }, products: { create: 1, extend: 0, exists: 0 }, prices: { create: 4, exists: 0, skippedImpossible: 0 } });
+  assert.deepEqual(outcome.planned, { brand: "create", areas: { create: 2, exists: 0 }, products: { create: 1, extend: 0, exists: 0 }, prices: { create: 4, exists: 0, skippedImpossible: 0, skippedOverlap: 0 } });
   assert.deepEqual(outcome.written, { brand: 0, areas: 0, products: 0, prices: 0 });
   // 加价 15%、向上取整到 100 日元：9,900 对得上；9,950 不是 100 的倍数，低一档显示 9,900
   const shown = outcome.priced.map((cell) => [cell.region, cell.vehicleGroupCode, cell.direction, cell.sheetPriceMinor, cell.result.status, cell.result.displayMinor]);
@@ -126,7 +126,7 @@ test("写入：只建这一批的子品牌、区域、草稿商品和价格；�
   const again = await run(m.a.tenantId, "JP-TEST-1", true);
   assert.equal(again.mode, "applied");
   assert.deepEqual(again.written, { brand: 0, areas: 0, products: 0, prices: 0 });
-  assert.deepEqual(again.planned, { brand: "exists", areas: { create: 0, exists: 2 }, products: { create: 0, extend: 0, exists: 1 }, prices: { create: 0, exists: 4, skippedImpossible: 0 } });
+  assert.deepEqual(again.planned, { brand: "exists", areas: { create: 0, exists: 2 }, products: { create: 0, extend: 0, exists: 1 }, prices: { create: 0, exists: 4, skippedImpossible: 0, skippedOverlap: 0 } });
   const third = await snapshot(m.a.tenantId);
   assert.deepEqual({ ...third, audit: 0 }, { ...after, audit: 0 });
   assert.equal(third.audit, after.audit);
@@ -148,6 +148,47 @@ test("重复执行：表里后来多了地区和车型，只补新的区域、�
   const reshaped = await run(m.a.tenantId, "JP-GROW", true, [ROUTES[0] as [string, string, (number | null)[]], ["虚构甲地区", "虚构成田机场", [null, 24_000]], ROUTES[2] as [string, string, (number | null)[]]]);
   assert.equal(reshaped.mode, "blocked");
   assert.deepEqual([...new Set(reshaped.blockers.map((blocker) => blocker.code))], ["PRICE_CONFLICT"]);
+});
+
+test("多边形围栏：区域按多边形建（来源 pasted，和粘贴进来的一样校验）；重叠处会被报低的大区域那一格不写；撤回干净", async () => {
+  const batch = "JP-POLY-1";
+  const square = (lng: number, lat: number, size: number): [number, number][] => [[lng, lat], [lng + size, lat], [lng + size, lat + size], [lng, lat + size], [lng, lat]];
+  const city = `虚构市区${batch}`;
+  const outer = `虚构周边${batch}`;
+  const plan = planPriceSheetImport(
+    sheet([
+      ["虚构成田机场", city, [12_000, 30_000]],
+      ["虚构成田机场", outer, [10_000, 32_000]],
+    ]),
+    notes,
+    parsePriceImportMapping({
+      airports: { 虚构成田机场: "NRT" },
+      regions: { [city]: { polygon: square(139.65, 35.62, 0.1), source: "虚构围栏" }, [outer]: { polygon: square(139.5, 35.5, 0.4), source: "虚构围栏" } },
+      vehicles: { "Economy 4 Seater": "VG-ECO-4", "Business 7 Seater": "VG-BIZ-7" },
+    }),
+  );
+  const before = await snapshot(m.a.tenantId);
+  const dry = await runPriceImport(ctx, { tenantId: m.a.tenantId, channelId, countryCode: "JP", batch, currency: "JPY", validFrom: "2026-11-01", plan, apply: false });
+  assert.deepEqual(dry.blockers, []);
+  // 周边（大）的 Economy 4 比市区（小）便宜：重叠处会被报低，这一格不导；Business 7 周边更贵，照导
+  assert.deepEqual(dry.overlap.skipped.map((cell) => `${cell.region}|${cell.vehicleGroupCode}|${cell.direction}`), [`${outer}|VG-ECO-4|both`]);
+  assert.deepEqual(dry.planned.prices, { create: 3, exists: 0, skippedImpossible: 0, skippedOverlap: 1 });
+  assert.deepEqual(await snapshot(m.a.tenantId), before);
+
+  const applied = await runPriceImport(ctx, { tenantId: m.a.tenantId, channelId, countryCode: "JP", batch, currency: "JPY", validFrom: "2026-11-01", plan, apply: true });
+  assert.equal(applied.mode, "applied", JSON.stringify(applied.blockers));
+  assert.deepEqual(applied.written, { brand: 1, areas: 2, products: 1, prices: 3 });
+  const rows = await batchRows(m.a.tenantId, batch);
+  const polygons = (await api.db.owner.query("select p.source, p.kind, p.circle_center_lat, jsonb_array_length(p.geometry->'coordinates'->0) as points from area_polygons p where p.tenant_id = $1 and p.label = $2 order by points", [m.a.tenantId, `价格表导入 ${batch}`])).rows;
+  assert.deepEqual(polygons.map((row) => [row.source, row.kind, row.circle_center_lat, row.points]), [["pasted", "operate", null, 5], ["pasted", "operate", null, 5]]);
+  const outerId = rows.areas.find((area) => area.name.zh === outer).id;
+  assert.equal(rows.rules.filter((rule) => rule.area_id === outerId && rule.vehicle_group_id === m.ids.eco4).length, 0);
+  assert.equal(rows.rules.length, 3);
+
+  const reverted = await revertPriceImport(ctx, { tenantId: m.a.tenantId, batch, apply: true });
+  assert.deepEqual([reverted.mode, reverted.products, reverted.areas], ["applied", 1, 2]);
+  const after = await snapshot(m.a.tenantId);
+  assert.deepEqual(after.existing, before.existing);
 });
 
 test("撤回：dry-run 不动；撤回后这一批的商品、价格、区域都没了，子品牌留下；已有的不动；再撤回一次没有可做的", async () => {

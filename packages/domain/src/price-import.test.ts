@@ -21,6 +21,8 @@ import {
   priceImportBatchLabel,
   priceImportBrandName,
   priceImportExclusion,
+  priceImportOverlapCheck,
+  priceImportRegionRing,
   pricePriceImportCells,
   sellPrice,
   siteDisplayPrice,
@@ -391,4 +393,89 @@ test("导出：解析目标环境的只读导出（租户、渠道定价、加�
   assert.throws(() => parsePriceImportTarget({ tenant: {} }), PriceImportError);
   assert.throws(() => parsePriceImportTarget({ ...raw, channel: { ...raw.channel, settle_currency: "XXX" } }), PriceImportError);
   assert.throws(() => parsePriceImportTarget({ ...raw, markup_rules: [{ ...raw.markup_rules[0], category: null }] }), PriceImportError);
+});
+
+// ---- 多边形围栏和重叠比价（业主的围栏，2026-11-02）----
+
+/** 以 (lng, lat) 为左下角、边长 size 度的正方形（不闭合、逆时针）。 */
+const square = (lng: number, lat: number, size: number): [number, number][] => [
+  [lng, lat],
+  [lng + size, lat],
+  [lng + size, lat + size],
+  [lng, lat + size],
+];
+
+test("映射：地区可以写多边形（GeoJSON 顺序的经纬度），首尾闭合或不闭合都行；几何不合法就整份拒绝", () => {
+  const closed = [...square(139.5, 35.5, 0.2), [139.5, 35.5]];
+  const parsed = mapping({ regions: { 一号地区: { polygon: closed, source: "业主围栏 JP-一号地区" } } });
+  const shape = parsed.regions.get("一号地区");
+  assert.equal(shape?.kind, "polygon");
+  assert.equal(priceImportRegionRing(shape as never).length, 4);
+  // 圆照旧能用，算出来是 64 边形
+  assert.equal(priceImportRegionRing(parsed.regions.get("二号地区") as never).length, 64);
+  // 自相交（蝴蝶结）、点太少、坐标越界、带洞（多一圈）、既写圆又写多边形：拒绝
+  assert.throws(() => mapping({ regions: { 一号地区: { polygon: [[139, 35], [140, 36], [140, 35], [139, 36]] } } }), PriceImportError);
+  assert.throws(() => mapping({ regions: { 一号地区: { polygon: [[139, 35], [140, 36]] } } }), PriceImportError);
+  assert.throws(() => mapping({ regions: { 一号地区: { polygon: [[139, 35], [190, 36], [140, 35]] } } }), PriceImportError);
+  assert.throws(() => mapping({ regions: { 一号地区: { polygon: [square(139, 35, 1), square(139.2, 35.2, 0.1)] } } }), PriceImportError);
+  assert.throws(() => mapping({ regions: { 一号地区: { polygon: square(139, 35, 1), lat: 35, lng: 139, radius_m: 1_000 } } }), PriceImportError);
+  // 相邻重复的点去掉后再校验（导出的围栏常见）
+  const repeated = [[139, 35], [139, 35], [140, 35], [140, 36], [139, 36]];
+  assert.equal(priceImportRegionRing(mapping({ regions: { 一号地区: { polygon: repeated } } }).regions.get("一号地区") as never).length, 4);
+});
+
+test("重叠比价：同一机场、同一车型、同一方向，大区域比和它重叠的小区域便宜时，重叠处会按大区域的低价报出——跳过大区域那一格，列出来", () => {
+  const plan = planPriceSheetImport(
+    country([
+      ["甲机场", "市区", [10_000, 12_000]],
+      ["甲机场", "周边", [9_000, 13_000]],
+      ["甲机场", "远处", [5_000, 6_000]],
+      ["乙空港", "周边", [9_000, 13_000]],
+    ]),
+    notes,
+    mapping({
+      airports: { 甲机场: "AAA", 乙空港: "BBB" },
+      regions: {
+        市区: { polygon: square(139.6, 35.6, 0.2) },
+        周边: { polygon: square(139.4, 35.4, 0.6) },
+        远处: { polygon: square(141, 37, 0.2) },
+      },
+    }),
+  );
+  const priced = pricePriceImportCells(plan.cells, () => rules());
+  const checked = priceImportOverlapCheck(priced);
+  // 甲机场：周边（大）的 Economy 5 比市区（小）便宜 → 跳过周边的 Economy 5；Economy 7 周边更贵，不冲突
+  assert.deepEqual(
+    checked.skipped.map((cell) => `${cell.iata}|${cell.region}|${cell.vehicleGroupCode}|${cell.direction}`),
+    ["AAA|周边|VG-ECO-5|both"],
+  );
+  assert.equal(checked.kept.length, priced.length - 1);
+  assert.deepEqual(
+    checked.conflicts.map((c) => [c.iata, c.vehicleGroupCode, c.direction, c.larger.region, c.larger.sheetPriceMinor, c.smaller.region, c.smaller.sheetPriceMinor]),
+    [
+      ["AAA", "VG-ECO-5", "pickup", "周边", 9_000, "市区", 10_000],
+      ["AAA", "VG-ECO-5", "dropoff", "周边", 9_000, "市区", 10_000],
+    ],
+  );
+  // 乙空港只有周边，没有和它重叠的地区：不跳过
+  assert.ok(checked.kept.some((cell) => cell.iata === "BBB" && cell.vehicleGroupCode === "VG-ECO-5"));
+  // 重叠的地区对按机场列出（远处不和任何一个重叠）
+  assert.deepEqual(checked.overlaps.map((o) => [o.iata, o.larger, o.smaller]), [["AAA", "周边", "市区"]]);
+});
+
+test("重叠比价：按方向分别比——小区域只有一个方向有价时，大区域另一个方向的价不算冲突；同价不算冲突", () => {
+  const plan = planPriceSheetImport(
+    country([
+      ["甲机场", "市区", [10_000, 12_000]],
+      ["市区", "甲机场", [null, 12_000]],
+      ["甲机场", "周边", [9_000, 12_000]],
+      ["周边", "甲机场", [9_000, 12_000]],
+    ]),
+    notes,
+    mapping({ regions: { 市区: { polygon: square(139.6, 35.6, 0.2) }, 周边: { polygon: square(139.4, 35.4, 0.6) } } }),
+  );
+  const checked = priceImportOverlapCheck(pricePriceImportCells(plan.cells, () => rules()));
+  // 市区 Economy 5 只有接机（10000）；周边是通用 9000：接机方向冲突，跳过周边那一格（通用的一格整格不导）
+  assert.deepEqual(checked.conflicts.map((c) => [c.vehicleGroupCode, c.direction]), [["VG-ECO-5", "pickup"]]);
+  assert.deepEqual(checked.skipped.map((cell) => `${cell.region}|${cell.vehicleGroupCode}|${cell.direction}`), ["周边|VG-ECO-5|both"]);
 });

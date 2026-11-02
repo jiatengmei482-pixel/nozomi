@@ -74,15 +74,17 @@ test("参数：批次号、数据来源三选一、--apply 只能连库用、撤
   reject(["--revert", "--tenant", "not-a-uuid", "--batch", "JP-1"], /UUID/);
 });
 
-test("离线估算：写出计划、异常清单和 JSON，权限只给自己；终端只打印数字，不打印价格", () => {
+test("离线估算：写出计划、异常清单、重叠比价清单和 JSON，权限只给自己；终端只打印数字，不打印价格", () => {
   const out = freshOut();
   const result = runCli([...base(out), "--assume-pricing", "1000,1000,0,100"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(readdirSync(out).sort(), ["anomalies.md", "plan.json", "plan.md"]);
+  assert.deepEqual(readdirSync(out).sort(), ["anomalies.md", "overlap.md", "plan.json", "plan.md"]);
   for (const name of readdirSync(out)) assert.equal(statSync(join(out, name)).mode & 0o777, 0o600);
   assert.ok(!result.stdout.includes(String(SECRET_PRICE)) && !result.stdout.includes("73,517"), "终端不打印价格");
   assert.match(result.stdout, /机场↔地区 4 行，导入 3 行、4 格；不导入 1 项/);
   assert.match(result.stdout, /完全一致 2，有偏差 2（最大 50 日元）/);
+  assert.match(result.stdout, /重叠：地区对 \d+，会被报低 \d+ 处，跳过 \d+ 格/);
+  assert.match(readFileSync(join(out, "overlap.md"), "utf8"), /# 重叠比价跳过清单/);
   const plan = readFileSync(join(out, "plan.md"), "utf8");
   // 9,950 在取整到 100 日元时对不上：列在偏差清单里，显示 9,900、差 −50、高一档 10,000
   assert.match(plan, /\| 甲城机场 \| 乙地区 \| Economy 5 Seater \| 接送通用 \| 9,950 \| 9,000 \| 9,900 \| -50 \| 10,000 \|/);
