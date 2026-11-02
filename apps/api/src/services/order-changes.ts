@@ -28,6 +28,7 @@ import {
   changeFieldsNeedConfirmation,
   declinedChangeAllowsFreeCancel,
   dispatchDeadline,
+  driverLinkExpiry,
   earliestServiceAt,
   inFreeCancellationWindow,
   instantToLocal,
@@ -48,6 +49,7 @@ import { type Db, isUniqueViolation, passengerCryptoOf, withPlatformTx } from ".
 import { AppError } from "../errors.ts";
 import { PaymentProviderError } from "../integrations/payments.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
+import { recalculateDriverLinkExpiry } from "../repos/dispatch.ts";
 import { type NewOrderChange, type OrderChange, findOpenChange, findOrderChange, insertOrderChange, listOutdatedChanges, listOverdueChanges, listStuckChanges, updateOrderChange } from "../repos/order-changes.ts";
 import { resolveChangeRequestTodo } from "../repos/order-todos.ts";
 import {
@@ -298,6 +300,8 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
     ],
   );
   let refunds: OrderRefund[] = [];
+  // 司机链接的有效期跟随当前用车时间（ADR 0060）：同意生效才算，待确认期间按原时间
+  if (change.reschedule) await recalculateDriverLinkExpiry(db, order.tenantId, order.id, driverLinkExpiry(serviceAt, order.packageHours), now);
   if (change.reschedule && sellAfter !== null) {
     const diff = priceDifference(sale.sellMinor, sellAfter);
     await updateSaleSellMinor(db, order.id, sellAfter);

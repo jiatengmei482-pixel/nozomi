@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { driverLinkExpiry } from "@nozomi/domain";
 import { type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
-import { type Market, addStaff, buildMarket, ok } from "./testing/market.ts";
+import { type Market, buildMarket, ok } from "./testing/market.ts";
 import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
@@ -82,12 +82,20 @@ test("运营代取消、航班取消（不可抗力类原因）：同样吊销",
   await assertLinkDead(token);
 
   const second = await dispatchedOrder();
-  const res = await api.call("POST", `/platform/v1/orders/${second.order.id}/cancel`, { token: ops, body: { reason: "FLIGHT_CANCELLED", note: "航班取消，有证明" } });
-  assert.equal(res.status, 202, res.text);
-  const reviewer = await addStaff(api, m.root, "finance2@platform.test", "finance");
-  await ok(api.call("POST", `/platform/v1/approvals/${res.body.approval.id}/approve`, { token: reviewer.token, body: {} }));
+  await ok(api.call("POST", `/platform/v1/orders/${second.order.id}/cancel`, { token: ops, body: { reason: "FLIGHT_CANCELLED", note: "航班取消，有证明" } }));
   assert.deepEqual((await links(second.order.id)).map((row) => row.revoke_reason), ["cancelled"]);
   await assertLinkDead(second.token);
+});
+
+test("救援中再取消：链接在进入救援时已作废，原因不被改写", async () => {
+  const ops = await platformLogin(api, m.staff.operations.email);
+  const { order, token } = await dispatchedOrder();
+  b.adminToken = await tenantLogin(api, m.b.adminEmail);
+  await ok(api.call("POST", `/tenant/v1/orders/${order.id}/declare-unable`, { token: b.adminToken, body: { reason: "车坏了" } }));
+  assert.deepEqual((await links(order.id)).map((row) => row.revoke_reason), ["rescue"]);
+  await ok(api.call("POST", `/platform/v1/orders/${order.id}/cancel`, { token: ops, body: { reason: "SUPPLIER_FAULT", note: "没有人能接" } }));
+  assert.deepEqual((await links(order.id)).map((row) => row.revoke_reason), ["rescue"]);
+  await assertLinkDead(token);
 });
 
 test("没付款的单取消（超时）：走另一个入口，同一条规则；本来就没有链接时什么都不报错", async () => {
@@ -175,7 +183,7 @@ test("包车：按新时间 + 套餐时长 + 24 小时", async () => {
   const newAt = dayAhead(12);
   const { order } = await dispatchedOrder(oldAt);
   const changeId = await requestReschedule(order.id, newAt);
-  await api.db.owner.query("update orders set package_hours = 8 where id = $1", [order.id]);
+  await api.db.owner.query("update orders set category = 'charter', direction = null, package_hours = 8 where id = $1", [order.id]);
   await decide(order.id, changeId, "confirm");
   assert.deepEqual(await expiries(order.id), [expiryOf(newAt, 8)]);
   assert.equal(expiryOf(newAt, 8) - expiryOf(newAt), 8 * HOUR);
