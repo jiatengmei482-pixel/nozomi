@@ -350,7 +350,8 @@
         { "id": "M4-23", "title": "异地备份和恢复到任意时间点（上线前）", "role": "backend", "status": "blocked", "blockedBy": "要负责人提供异地存储和正式环境的服务器", "acceptance": ["备份存到另一个地方，演练过恢复", "补 WAL 归档"], "evidence": "", "updated": "2026-11-02" },
         { "id": "M4-24", "title": "工单查看原文的小问题", "role": "frontend", "status": "done", "acceptance": ["工单没有打码内容时不显示「查看原文」，不多传原文、不多记审计", "审计写明这次看的是工单文字"], "evidence": "相关单元、组件、集成测试见 PR；全量见 CI；2026-11-02 测试环境：没有打码内容时不显示按钮，通过；有打码内容的路径和审计内容 staging 没有数据，靠 CI（docs/acceptance/M4.md）", "updated": "2026-11-02" },
         { "id": "M4-25", "title": "清除乘客明文（上线前，不可逆）", "role": "backend", "status": "blocked", "blockedBy": "要先有异地备份和恢复演练（M4-23），观察一个发布周期，负责人知晓后才能做；还要先做多密钥读取（ADR 0057）", "acceptance": ["明文列不再有姓名、电话、邮箱，全库扫描确认", "运营筛选的部分匹配按 ADR 0057 处理"], "evidence": "", "updated": "2026-11-02" },
-        { "id": "M4-26", "title": "官网订单进度：改乘客信息不再多显示一行「订单已确认」", "role": "frontend", "status": "done", "acceptance": ["改乘客后，客人的订单进度不多出一行付款成功或已确认"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/97 ；单元和相关组件测试、CI 通过；测试环境没有实测", "updated": "2026-11-02" }
+        { "id": "M4-26", "title": "官网订单进度：改乘客信息不再多显示一行「订单已确认」", "role": "frontend", "status": "done", "acceptance": ["改乘客后，客人的订单进度不多出一行付款成功或已确认"], "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/97 ；单元和相关组件测试、CI 通过；测试环境没有实测", "updated": "2026-11-02" },
+        { "id": "M4-27", "title": "司机链接系统自动发邮件", "role": "backend", "status": "doing", "acceptance": ["负责人决定（2026-11-02）：司机档案加「邮箱（选填）」", "供应商设置加开关「司机链接发送方式：系统自动发送（默认）/ 调度员手动发送」", "自动模式下，派车或改派后司机有邮箱就自动发；没邮箱就提示调度员手动发", "复制链接始终保留作兜底，调度员能看到发送状态并重发；LINE 暂不做"], "evidence": "", "updated": "2026-11-02" }
       ]
     },
     {
@@ -839,6 +840,11 @@
       "date": "2026-11-02",
       "by": "Claude",
       "summary": "M4-26 已验收（测试环境未实测，靠单元测试）。不依赖负责人的任务都已完成；其余都在 docs/delivery/final-delivery.md 的待办清单里。"
+    },
+    {
+      "date": "2026-11-02",
+      "by": "Claude",
+      "summary": "新增 M4-27：负责人决定司机链接以系统自动发邮件为主，司机邮箱选填，供应商可切换手动发送，复制链接保留作兜底。"
     }
   ]
 }
