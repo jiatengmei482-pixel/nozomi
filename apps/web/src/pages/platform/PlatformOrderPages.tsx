@@ -17,7 +17,10 @@ import type { ListPage } from "../../api/dispatch.ts";
 import {
   type CancelFee,
   type OrderChangeRequest,
+  type ChangeDecision,
   type PlatformExtraCharge,
+  type PlatformOrderChange,
+  decidePlatformChange,
   type PlatformOrder,
   type PlatformOrderDetail,
   type PlatformOrderQuery,
@@ -368,6 +371,55 @@ function CancelDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
 }
 
 /** 代客人改单：只给改了的字段。用车时间按城市当地时间填。 */
+const DECIDE_NAMES: Readonly<Record<ChangeDecision, string>> = { confirm: "代供应商同意", reject: "代供应商拒绝", adjusting: "代供应商标记调整中" };
+
+/** 运营代供应商处理修改申请（`order.change_decide`，ADR 0060）：必填原因，写审计。 */
+function DecideChangeDialog({ orderId, change, decision, onClose, onDone }: { orderId: string; change: PlatformOrderChange; decision: ChangeDecision; onClose(): void; onDone(text: string): void }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const [note, setNote] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (): Promise<void> => {
+    if (note.trim() === "") {
+      setProblem("请写原因：联系过谁、为什么由平台处理");
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    try {
+      await decidePlatformChange(token, orderId, change.id, decision, note.trim());
+      onDone(`${DECIDE_NAMES[decision]}：已记录`);
+    } catch (err) {
+      if (!handleAuthFailure(err)) setProblem(err instanceof ApiError && err.status !== 500 ? err.message : failureText(err, DECIDE_NAMES[decision]));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      open
+      title={DECIDE_NAMES[decision]}
+      size="form"
+      busy={busy}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            返回
+          </Button>
+          <Button variant="primary" loading={busy} onClick={() => void submit()}>
+            确认
+          </Button>
+        </>
+      }
+    >
+      {problem !== null && <Alert kind="danger">{problem}</Alert>}
+      <p>供应商联系不上或临近用车时才用。这次操作会写进审计，供应商看得到是平台代为处理的。</p>
+      <TextField label="原因" required value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} />
+    </Dialog>
+  );
+}
+
 function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const [flight, setFlight] = useState(order.flight_no ?? "");
@@ -401,7 +453,7 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
     setProblem(null);
     try {
       const { change } = await changePlatformOrder(token, order.id, order.version, body);
-      onDone(change.status === "pending_confirmation" ? "改期已提交：要供应商 30 分钟内确认才生效" : "已改好，已通知供应商");
+      onDone(change.status === "applied" ? "已改好，已通知供应商和司机" : "修改已提交：要供应商同意才生效，确认前原预约有效");
     } catch (err) {
       if (!handleAuthFailure(err)) setProblem(err instanceof ApiError && err.status !== 500 ? err.message : failureText(err, "改单"));
     } finally {
@@ -482,6 +534,8 @@ export function PlatformOrderDetailPage() {
   const { portal, account, token, handleAuthFailure } = usePortalSession();
   const canRead = usePlatformCan("order.read");
   const canManage = usePlatformCan("order.manage");
+  const canDecideChange = usePlatformCan("order.change_decide");
+  const [decidingChange, setDecidingChange] = useState<{ change: PlatformOrderChange; decision: ChangeDecision } | null>(null);
   const canPayment = usePlatformCan("payment.manage");
   const canSeeNotifications = usePlatformCan("notification.read");
   const canTicket = usePlatformCan("ticket.manage");
@@ -632,6 +686,23 @@ export function PlatformOrderDetailPage() {
                   .join("；")}
                 {change.sell_before !== null && change.sell_after !== null && `；对外价 ${moneyText(change.sell_before)} → ${moneyText(change.sell_after)}`}
                 {change.dispatch_conflict && "（原来派的司机或车辆在新时段有别的单）"}
+                {change.decided_by_platform && "（平台代为处理）"}
+                {change.decision_note !== null && `；说明：${change.decision_note}`}
+                {canDecideChange && (change.status === "pending_confirmation" || change.status === "adjusting") && (
+                  <div className="form__actions">
+                    <Button size="sm" variant="secondary" onClick={() => setDecidingChange({ change, decision: "confirm" })}>
+                      代同意
+                    </Button>
+                    {change.status === "pending_confirmation" && (
+                      <Button size="sm" variant="secondary" onClick={() => setDecidingChange({ change, decision: "adjusting" })}>
+                        代标调整中
+                      </Button>
+                    )}
+                    <Button size="sm" variant="text" onClick={() => setDecidingChange({ change, decision: "reject" })}>
+                      代拒绝
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -780,6 +851,7 @@ export function PlatformOrderDetailPage() {
 
       {dialog === "cancel" && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === "change" && <ChangeDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
+      {decidingChange !== null && <DecideChangeDialog orderId={order.id} change={decidingChange.change} decision={decidingChange.decision} onClose={() => setDecidingChange(null)} onDone={(text) => { setDecidingChange(null); done(text); }} />}
       {typeof dialog === "object" && dialog !== null && <DecideDialog orderId={order.id} charge={dialog.decide} onClose={() => setDialog(null)} onDone={done} />}
     </>,
     `订单 ${order.order_no}`,

@@ -5,6 +5,8 @@
  * - 菜单只列真实存在的页面。
  * - 账号正在用临时密码、必须先改密码时：不显示侧边栏和菜单按钮，账号菜单里只留「退出登录」。
  */
+import { type OrderTodos, listOrderTodos } from "../api/order-money.ts";
+import { useLoad } from "../lib/use-load.ts";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type PlatformAction, isTenantRole, tenantRoleCan } from "@nozomi/domain";
 import { Link, useLocation } from "react-router";
@@ -22,6 +24,8 @@ import { Skeleton } from "./States.tsx";
 const SIDEBAR_PINNED_QUERY = "(min-width: 1024px)";
 
 export interface NavLeaf {
+  /** 显示订单待办的角标 */
+  todoBadge?: boolean;
   to: string;
   label: string;
   icon?: IconName;
@@ -109,7 +113,7 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
       ...(tenantRoleCan(role, "product.read") ? [{ to: "/products", label: "商品", prefix: true }, { to: "/price-rules", label: "价格规则", prefix: true }] : []),
     ];
     if (children.length > 0) entries.push({ key: "catalog", label: "商品配置", icon: "map", children });
-    if (tenantRoleCan(role, "order.read")) entries.push({ to: "/orders", label: "订单", icon: "package", prefix: true });
+    if (tenantRoleCan(role, "order.read")) entries.push({ to: "/orders", label: "订单", icon: "package", prefix: true, todoBadge: true });
     // 救援改派（M3-04）：救援单给调度（接单的人），违约金与扣款给看订单的人（含财务）
     if (tenantRoleCan(role, "order.dispatch")) entries.push({ to: "/rescue-offers", label: "救援单", icon: "check-circle", prefix: true });
     if (tenantRoleCan(role, "order.read")) entries.push({ to: "/deductions", label: "违约金与扣款", icon: "database", prefix: true });
@@ -139,12 +143,25 @@ const collapsedGroups = new Set<string>();
 /** 默认收起的分组里，用户展开了哪些。 */
 const expandedGroups = new Set<string>();
 
+/** 订单菜单的角标：待办数量（ADR 0060）。取不到就不显示，不影响菜单。每个页面有自己的 AppShell，翻页时会重新取。 */
+function OrderTodoBadge() {
+  const { state } = useLoad<OrderTodos>("nav-order-todos", listOrderTodos);
+  const total = state.data?.total ?? 0;
+  if (total === 0) return null;
+  return (
+    <span className="nav-item__badge" aria-label={`${total} 条待办`}>
+      {total > 99 ? "99+" : total}
+    </span>
+  );
+}
+
 function NavLeafLink({ leaf, onNavigate }: { leaf: NavLeaf; onNavigate?: (() => void) | undefined }) {
   const { pathname } = useLocation();
   return (
     <Link to={leaf.to} className={leaf.icon ? "nav-item" : "nav-item nav-item--child"} aria-current={isCurrent(leaf, pathname) ? "page" : undefined} {...(onNavigate ? { onClick: onNavigate } : {})}>
       {leaf.icon && <Icon name={leaf.icon} />}
       <span>{leaf.label}</span>
+      {leaf.todoBadge === true && <OrderTodoBadge />}
     </Link>
   );
 }

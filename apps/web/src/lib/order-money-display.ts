@@ -16,7 +16,7 @@ import {
   isCurrencyCode,
   parseMajor,
 } from "@nozomi/domain";
-import type { CancelTier } from "../api/order-money.ts";
+import type { CancelTier, OrderTodo } from "../api/order-money.ts";
 import { tidyAmountText } from "./amount-input.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
 
@@ -59,8 +59,10 @@ export function cancelReasonName(reason: OrderCancelReason | string | null): str
 const ORDER_EVENT_NOTES: Readonly<Record<string, string>> = {
   REASSIGNED: "改派",
   CHANGED: "改单",
-  CHANGE_REJECTED: "供应商拒绝改期",
-  CHANGE_EXPIRED: "改期没有确认",
+  CHANGE_REQUESTED: "客人申请修改",
+  CHANGE_ADJUSTING: "修改调整中",
+  CHANGE_REJECTED: "修改被拒绝",
+  CHANGE_EXPIRED: "修改没有确认",
   NO_SHOW_APPROVED: "审核通过",
   RESCUE_TRIGGERED: "发起救援",
   RESCUED: "转给救援供应商",
@@ -102,13 +104,32 @@ export function paymentStatusName(status: string): string {
 
 export const CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, BadgeSpec>> = {
   awaiting_payment: { tone: "info", label: "补差价中" },
-  pending_confirmation: { tone: "warning", label: "等供应商确认" },
+  pending_confirmation: { tone: "warning", label: "修改待确认" },
+  adjusting: { tone: "info", label: "调整中" },
   applied: { tone: "success", label: "已生效" },
-  rejected: { tone: "danger", label: "供应商拒绝" },
+  rejected: { tone: "danger", label: "已拒绝" },
   expired: { tone: "neutral", label: "超时没确认" },
   failed: { tone: "danger", label: "差价没扣到" },
   cancelled: { tone: "neutral", label: "已作废" },
 };
+
+/** 待办的说法（ADR 0060）。 */
+export const ORDER_TODO_NAMES: Readonly<Record<OrderTodo["kind"], string>> = {
+  change_request: "客人申请修改，等你处理",
+  contact_changed: "客人改了联系信息，已生效",
+  change_applied: "修改已生效",
+  change_expired: "修改没有通过（超时或平台代为拒绝）",
+  order_cancelled: "订单已取消",
+  rescue_started: "订单进入救援改派",
+};
+
+/** 这条待办里司机那边要怎么办；不用管司机时返回 null。 */
+export function orderTodoDriverText(todo: Pick<OrderTodo, "needs_driver_adjustment" | "driver_name" | "driver_notice">): string | null {
+  if (!todo.needs_driver_adjustment || todo.driver_name === null) return null;
+  if (todo.driver_notice === "no_email") return `需调整司机：${todo.driver_name} 没有邮箱，系统通知不到，请马上联系他。`;
+  if (todo.driver_notice === "manual") return `需调整司机：你们设置了手动发送，系统没有给 ${todo.driver_name} 发邮件，请马上联系他。`;
+  return `需调整司机：系统已发邮件给 ${todo.driver_name}，请确认他已经知道。`;
+}
 
 export const EXTRA_STATUS_BADGES: Readonly<Record<ExtraChargeStatus, BadgeSpec>> = {
   in_window: { tone: "info", label: "异议期内" },

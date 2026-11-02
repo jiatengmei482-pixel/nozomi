@@ -82,9 +82,11 @@ export function OrderListPage() {
   const status = (ORDER_STATUSES as readonly string[]).includes(statusParam ?? "") ? (statusParam as OrderStatus) : null;
   const dispatchParam = params.get("dispatch");
   const dispatch = dispatchParam === "unassigned" || dispatchParam === "overdue" ? dispatchParam : null;
-  const key = `orders|${status ?? ""}|${dispatch ?? ""}`;
-  const { state, reload } = useLoad<ListPage<TenantOrder>>(key, canRead ? (t) => listOrders(t, { limit: 100, ...(status ? { status } : {}), ...(dispatch ? { dispatch } : {}) }) : null);
+  const changeOnly = params.get("change") === "pending";
+  const key = `orders|${status ?? ""}|${dispatch ?? ""}|${changeOnly ? "change" : ""}`;
+  const { state, reload } = useLoad<ListPage<TenantOrder>>(key, canRead ? (t) => listOrders(t, { limit: 100, ...(status ? { status } : {}), ...(dispatch ? { dispatch } : {}), ...(changeOnly ? { change: "pending" as const } : {}) }) : null);
   const overdue = useLoad<ListPage<TenantOrder>>("orders|overdue-count", canRead ? (t) => listOrders(t, { limit: 1, dispatch: "overdue" }) : null);
+  const pendingChanges = useLoad<ListPage<TenantOrder>>("orders|change-count", canRead ? (t) => listOrders(t, { limit: 1, change: "pending" }) : null);
 
   if (account.status === "ready" && !canRead) {
     return (
@@ -115,10 +117,16 @@ export function OrderListPage() {
     { key: "route", header: "行程", wrap: true, cell: (row) => <span className="table__names"><span>{`${directionName(row)}${row.flight_no ? ` · ${row.flight_no}` : ""}`}</span><span className="table__other-names">{routeText(row)}</span></span> },
     { key: "passenger", header: "乘客", cell: (row) => `${row.passenger.name}（${row.passengers} 人）` },
     { key: "dispatch", header: "派车", cell: (row) => <DispatchCell order={row} /> },
-    { key: "status", header: "状态", cell: (row) => <StatusBadge {...ORDER_STATUS_BADGES[row.status]} /> },
+    { key: "status", header: "状态", cell: (row) => (
+        <span className="table__names">
+          <StatusBadge {...ORDER_STATUS_BADGES[row.status]} />
+          {row.pending_change && <StatusBadge tone="warning" label="修改待确认" />}
+        </span>
+      ) },
     { key: "settlement", header: "结算价", align: "end", cell: (row) => moneyText(row.settlement.total) },
   ];
   const overdueCount = overdue.state.data?.total ?? 0;
+  const pendingCount = pendingChanges.state.data?.total ?? 0;
 
   return (
     <AppShell pageName="订单" trail={[]}>
@@ -128,6 +136,22 @@ export function OrderListPage() {
             <span>{`有 ${overdueCount} 张单过了派车截止时间还没派车。`}</span>{" "}
             <button type="button" className="link" onClick={() => set("dispatch", "overdue")}>
               只看这些
+            </button>
+          </Alert>
+        )}
+        {pendingCount > 0 && !changeOnly && (
+          <Alert kind="warning">
+            <span>{`有 ${pendingCount} 张单的客人申请了修改，等你处理。确认前原预约仍然有效。`}</span>{" "}
+            <button type="button" className="link" onClick={() => set("change", "pending")}>
+              只看这些
+            </button>
+          </Alert>
+        )}
+        {changeOnly && (
+          <Alert kind="info">
+            <span>只看有修改申请的单。</span>{" "}
+            <button type="button" className="link" onClick={() => set("change", null)}>
+              看全部
             </button>
           </Alert>
         )}
@@ -520,8 +544,9 @@ export function OrderDetailPage() {
         </section>
       )}
 
+      {order.pending_change && <Alert kind="warning">修改待确认：客人申请了修改，确认前原预约仍然有效。请到下面的「修改记录」处理。</Alert>}
       <TenantRescueSection rescue={detail.rescue} />
-      <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} onChanged={reload} />
+      <ChangesSection order={order} changes={detail.changes} canDecide={canDispatch} driverEmailState={detail.driver_link_email?.state ?? null} onChanged={reload} />
       <ExtraChargesSection order={order} charges={detail.extra_charges} canSubmit={canExtraCharge} onChanged={reload} />
       <CancellationSection order={order} />
 

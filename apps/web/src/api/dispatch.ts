@@ -141,6 +141,8 @@ export interface OrderLanding {
 
 export interface TenantOrder {
   id: string;
+  /** 有修改申请在等处理（ADR 0060） */
+  pending_change: boolean;
   order_no: string;
   status: OrderStatus;
   category: "airport_transfer" | "point_to_point" | "charter";
@@ -300,6 +302,8 @@ export interface ReportedLocation {
 export interface OrderListQuery {
   status?: OrderStatus;
   dispatch?: "unassigned" | "overdue";
+  /** 只看有修改申请等处理的（M4-29） */
+  change?: "pending";
   from?: string;
   to?: string;
   limit?: number;
@@ -495,6 +499,8 @@ export function retryPlatformDelivery(token: string, id: string): Promise<{ deli
 // ---- 司机 H5 ----
 
 export interface DriverTrip {
+  /** 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行 */
+  pending_change: { fields: string[] } | null;
   order: {
     order_no: string;
     status: OrderStatus;
@@ -581,5 +587,5 @@ export const DISPATCH_SCHEMA_FIELDS = {
   TenantWebhook: ["url", "events", "status", "secret_hint", "secret_created_at", "version", "created_at", "updated_at"],
   WebhookDelivery: ["id", "event_id", "event_type", "order_id", "data", "status", "attempts", "next_attempt_at", "last_attempt_at", "last_status_code", "last_error_code", "last_duration_ms", "succeeded_at", "failed_at", "created_at"],
   WebhookAttempt: ["attempt_no", "trigger", "started_at", "duration_ms", "status_code", "error_code", "target_host", "request_bytes", "request_sha256"],
-  DriverTrip: ["order", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
+  DriverTrip: ["order", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
 } as const;

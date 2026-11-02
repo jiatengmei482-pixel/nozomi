@@ -66,6 +66,43 @@ export interface OrderChange {
   decided_at: string | null;
   decision_note: string | null;
   dispatch_conflict: boolean;
+  adjusting_at: string | null;
+  decided_by_platform: boolean;
+}
+
+export type ChangeDecision = "confirm" | "reject" | "adjusting";
+
+/** 待办（ADR 0060）：只有编号、字段名和司机情况，没有客人信息和价格。 */
+export interface OrderTodo {
+  id: string;
+  kind: "change_request" | "contact_changed" | "change_applied" | "change_expired" | "order_cancelled" | "rescue_started";
+  order_id: string;
+  order_no: string;
+  order_status: string;
+  service_local: string;
+  timezone: string;
+  change_id: string | null;
+  change_status: OrderChangeStatus | null;
+  fields: string[];
+  needs_driver_adjustment: boolean;
+  driver_name: string | null;
+  driver_notice: "email" | "manual" | "no_email" | null;
+  confirm_due_at: string | null;
+  created_at: string;
+}
+
+export interface OrderTodos {
+  total: number;
+  change_requests: number;
+  items: OrderTodo[];
+}
+
+export function listOrderTodos(token: string): Promise<OrderTodos> {
+  return apiRequest("GET", "/tenant/v1/order-todos", { token });
+}
+
+export function acknowledgeOrderTodo(token: string, id: string): Promise<{ ok: boolean }> {
+  return apiRequest("POST", `/tenant/v1/order-todos/${encodeURIComponent(id)}/ack`, { token });
 }
 
 export interface ExtraCharge {
@@ -116,7 +153,7 @@ export function withdrawExtraCharge(token: string, orderId: string, chargeId: st
   return apiRequest("POST", `${tenantOrder(orderId)}/extra-charges/${encodeURIComponent(chargeId)}/withdraw`, { token });
 }
 
-export function decideChange(token: string, orderId: string, changeId: string, decision: "confirm" | "reject", note: string | null): Promise<{ change: OrderChange }> {
+export function decideChange(token: string, orderId: string, changeId: string, decision: ChangeDecision, note: string | null): Promise<{ change: OrderChange }> {
   return apiRequest("POST", `${tenantOrder(orderId)}/changes/${encodeURIComponent(changeId)}/${decision}`, { token, body: { note } });
 }
 
@@ -240,6 +277,11 @@ export interface OrderTicketRef {
   subject: string;
   outcome: string | null;
   created_at: string;
+}
+
+/** 运营代供应商处理（`order.change_decide`，原因必填，有审计）。 */
+export function decidePlatformChange(token: string, orderId: string, changeId: string, decision: ChangeDecision, note: string): Promise<{ change: OrderChange }> {
+  return apiRequest("POST", `/platform/v1/orders/${encodeURIComponent(orderId)}/changes/${encodeURIComponent(changeId)}/${decision}`, { token, body: { note } });
 }
 
 export type PlatformOrderChange = OrderChange & { sell_before: Money | null; sell_after: Money | null };

@@ -115,6 +115,18 @@
   text-decoration: none;
 }
 
+.nav-item__badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--color-danger, #c0392b);
+  color: var(--color-text-on-accent, #fff);
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+  text-align: center;
+}
+
 @media (pointer: coarse) {
   .nav-item {
     min-height: var(--control-height-md);

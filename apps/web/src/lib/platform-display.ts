@@ -71,6 +71,7 @@ export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> =
   "order.manage": "代客人取消和改单、审核事后加收",
   "order.proxy_fulfilment": "代供应商回传履约（接到客人、完成要另一位同事审核）",
   "order.proxy_review": "审核代传的接到客人和完成",
+  "order.change_decide": "代供应商同意或拒绝客人的修改申请（要写原因，有审计）",
   "payment.manage": "处理退款和扣款的异常、审核多退给客人的取消",
   "cancellation_policy.manage": "修改平台取消政策（要另一位同事审核）",
   "cancellation_policy.review": "审核平台取消政策的修改",

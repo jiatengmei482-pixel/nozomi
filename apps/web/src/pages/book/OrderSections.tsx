@@ -757,6 +757,11 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState(false);
   const shown = order.changes.filter((change) => change.status !== "cancelled");
+  const pendingChange = shown.some((change) => change.status === "awaiting_payment" || change.status === "pending_confirmation" || change.status === "adjusting");
+  const lastDeclined = (() => {
+    const last = [...shown].reverse().find((change) => change.fields.some((field) => !["passenger", "messaging", "notes"].includes(field)));
+    return last?.status === "rejected" || last?.status === "expired";
+  })();
   if (!CHANGEABLE.has(order.status) && shown.length === 0) return null;
   const transfer = order.category === "airport_transfer";
   const arrival = transfer && order.direction === "pickup";
@@ -810,12 +815,13 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
       setForm(null);
       setNotice({
         kind: status === "applied" ? "success" : "info",
-        text: status === "applied" ? "已修改。" : status === "pending_confirmation" ? "改期已提交：离用车不到 24 小时，需要服务方在 30 分钟内确认，结果会显示在这里。" : "已提交修改，结果会显示在这里。",
+        text: status === "applied" ? "已修改。" : status === "pending_confirmation" ? "修改已提交，等服务方确认。确认之前原预约仍然有效，结果会发邮件告诉您，也会显示在这里。姓名、电话、邮箱、备注已直接生效。" : "正在补收差价，稍后查看结果。",
       });
       onChanged(result);
     } catch (err) {
       if (err instanceof ApiError && err.code === "NO_CHANGE") setNotice({ kind: "info", text: "没有改动。" });
       else if (err instanceof ApiError && err.code === "VERSION_CONFLICT") setNotice({ kind: "warning", text: "订单刚刚有了变化，请刷新页面后再改一次。" });
+      else if (err instanceof ApiError && err.code === "CHANGE_IN_PROGRESS") setNotice({ kind: "warning", text: "上一次的修改还在等服务方确认。姓名、电话、邮箱、备注可以直接改，其他内容要等这次有结果。" });
       else if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
         const mapped: ChangeErrors = {};
         if (err.details["reason"] === "SERVICE_TIME_PASSED") {
@@ -840,6 +846,8 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
   return (
     <Section id="site-change-title" title="修改订单">
       <AlertSlot notice={notice} />
+      {pendingChange && <Alert kind="warning">修改待确认：服务方确认之前，原预约仍然有效，用车时间和其他内容都不变。姓名、电话、邮箱、备注可以继续改，其他内容要等这次有结果。</Alert>}
+      {!pendingChange && lastDeclined && <Alert kind="info">{order.free_cancel_available ? "您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以在下面免费取消。" : "您的修改没有通过，原预约不变。如果不想继续用车，可以按取消政策在下面取消。"}</Alert>}
       {shown.length > 0 && (
         <ul className="site-changes">
           {shown.map((change) => (
@@ -848,7 +856,7 @@ export function ChangeSection({ token, order, onChanged }: { token: string; orde
               <StatusBadge {...GUEST_CHANGE_STATUS_BADGES[change.status]} />
               {change.price_difference !== null && change.price_difference.kind !== "none" && (
                 <span className="site-muted">
-                  {change.price_difference.kind === "increase" ? "补收" : "退还"} {moneyText(change.price_difference.amount)}
+                  {change.price_difference.kind === "charge" ? "补收" : "退还"} {moneyText(change.price_difference.amount)}
                 </span>
               )}
             </li>
