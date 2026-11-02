@@ -132,17 +132,18 @@ test("链接失效时的「查订单」：320px 不横向滚动，亮暗两色 a
   page.on("request", (req) => void seen.push(req));
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto(`/book/order#${stale}`);
-  await expect(page.getByText("订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找。")).toBeVisible();
+  await expect(page.getByText("订单链接无效或已过期。请填订单号和下单邮箱，我们会把新的订单链接发到您的邮箱。")).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "查订单" })).toBeVisible();
   await expectNoOverflowAt320(page, "查订单（链接失效）");
   await expectAccessibleBothThemes(page, "查订单（链接失效）");
   await page.getByLabel("订单号").fill("NZ20261026ZZZZZZZZ");
-  await page.getByLabel("下单时的邮箱或手机号").fill("nobody@e2e.example.com");
-  await page.getByRole("button", { name: "查找订单" }).click();
-  await expect(page.getByText("没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。")).toBeVisible();
-  await expectNoOverflowAt320(page, "查订单（没找到）");
+  await page.getByLabel("下单时的邮箱").fill("nobody@e2e.example.com");
+  await page.getByRole("button", { name: "发送订单链接" }).click();
+  // 主 API 的邮件设置别的用例会填、会清空（ADR 0061：没配置时一律 503，和订单无关）：两种说法都可能，都不说订单存不存在
+  await expect(page.getByText(/^(如信息匹配，链接已发送到下单邮箱|暂时发不了邮件，请联系客服找回订单)/)).toBeVisible();
+  await expectNoOverflowAt320(page, "查订单（已提交）");
   const lookup = seen.find((req) => new URL(req.url()).pathname === "/site/v1/orders/lookup");
-  expect(lookup, "发了找回请求").toBeTruthy();
+  expect(lookup, "发了查订单请求").toBeTruthy();
   const headers = await lookup!.allHeaders();
   expect(JSON.stringify(headers).includes(stale.slice(4)), JSON.stringify(headers)).toBe(false);
   expect((lookup!.postData() ?? "").includes(stale.slice(4))).toBe(false);

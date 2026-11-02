@@ -398,13 +398,15 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     await waitUntilUp(mailWeb, `http://127.0.0.1:${E2E_WEB_MAIL_PORT}/login`);
     process.env["E2E_MAIL_ADMIN"] = JSON.stringify(mailAdmin);
 
-    // 司机链接邮件专用的一组（ADR 0058）：和主 API 同一个 schema，配置文件里有假 SMTP（密码是本次运行随机生成的）。发件都走这个进程的后台任务
+    // 司机链接邮件专用的一组（ADR 0058）：和主 API 同一个 schema，配置文件里有假 SMTP（密码是本次运行随机生成的）。发件都走这个进程的后台任务。
+    // 官网查订单发链接（M4-30，ADR 0061）也用这一组：同一个官网渠道（SITE_CLIENT_ID 不是密钥），客服电话不登记（页面要在没登记时正常）
     const driverMailOrigin = `http://127.0.0.1:${E2E_API_DRIVER_MAIL_PORT}`;
     const driverMailApi = start("API（司机链接邮件）", ["apps/api/src/server.ts"], REPO_ROOT, {
       ...apiEnv,
       PORT: String(E2E_API_DRIVER_MAIL_PORT),
       PUBLIC_BASE_URL: driverMailOrigin,
       FX_AUTO_FETCH: "false",
+      SITE_CLIENT_ID: siteClientId,
       SMTP_HOST: fakeSmtp.host,
       SMTP_PORT: String(fakeSmtp.port),
       SMTP_ENCRYPTION: "starttls",
