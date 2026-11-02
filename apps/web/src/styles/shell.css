@@ -119,11 +119,11 @@
   margin-left: auto;
   min-width: 20px;
   padding: 0 var(--space-1);
-  border-radius: var(--radius-pill, 999px);
-  background: var(--color-danger, #c0392b);
-  color: var(--color-text-on-accent, #fff);
+  border-radius: var(--radius-full);
+  background: var(--color-danger-solid);
+  color: var(--color-on-danger);
   font-size: var(--font-size-sm);
-  line-height: 20px;
+  line-height: var(--line-height-normal);
   text-align: center;
 }
 

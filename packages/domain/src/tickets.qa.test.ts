@@ -169,7 +169,7 @@ test("工单号：日期用 UTC（东京已经是第二天也按 UTC 当天）�
   for (const bad of ["ABCDE", "ABCDEFG", "abcdef", "ABCDEO", "ABCDEI", "ABC-EF"]) assert.throws(() => ticketNumber(new Date(), bad), RangeError, bad);
 });
 
-test("异常时限（需求表）：超时未派车、救援中立即；司机未出发 15 分钟；司机未到达 5 分钟；推送失败 2 小时；其余 24 小时。正好到时限不算超时，多 1 毫秒算", () => {
+test("异常时限（需求表）：超时未派车、救援中立即；司机未出发 15 分钟；司机未到达 5 分钟；推送失败 2 小时；改单未确认 15 分钟（M4-29）；其余 24 小时。正好到时限不算超时，多 1 毫秒算", () => {
   const minutes: Record<string, number> = {
     dispatch_overdue: 0,
     departure_overdue: 15,
@@ -180,6 +180,7 @@ test("异常时限（需求表）：超时未派车、救援中立即；司机�
     fulfilment_unfinished: 1440,
     payment_issue: 1440,
     rescue: 0,
+    change_unconfirmed: 15,
   };
   assert.deepEqual([...EXCEPTION_TYPES].sort(), Object.keys(minutes).sort());
   const opened = new Date("2026-10-31T23:59:00Z");
