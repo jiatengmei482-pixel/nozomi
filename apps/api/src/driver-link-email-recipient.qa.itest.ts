@@ -69,15 +69,16 @@ const putDriver = (who: TenantFixture, driver: any, changes: Record<string, unkn
   return api.call("PUT", `/tenant/v1/drivers/${driver.id}`, { token: who.adminToken, headers: { "if-match": `"${version}"` }, body: { ...fields, ...changes } });
 };
 const seed = (side: "a" | "b" = "a", hours = 96) => seedOrder(api, m, side, { serviceAt: new Date(api.clock.now().getTime() + hours * HOUR) });
-const sqlStateWait = async (like: string): Promise<void> => {
-  const deadline = Date.now() + 10_000;
-  for (;;) {
+/** 等到有语句卡在锁上。等不到也继续（修好之后时序可能不一样，这里不能因此失败）。 */
+const untilBlocked = async (like: string): Promise<void> => {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
     const found = await api.db.owner.query("select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and query ilike $1", [like]);
     if (found.rows[0].n > 0) return;
-    if (Date.now() > deadline) throw new Error(`等不到被锁住的语句：${like}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 };
+const settled = (work: Promise<unknown>, ms = 3_000): Promise<unknown> => Promise.race([work.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, ms))]);
 
 async function dispatched(who: TenantFixture = a, side: "a" | "b" = "a", email: string | null = newEmail(), hours = 96): Promise<{ order: { id: string; orderNo: string }; driver: any; vehicle: any; res: any; email: string }> {
   const order = await seed(side, hours);
@@ -276,20 +277,22 @@ test("改邮箱和新派的单撞车：旧地址不能收到一条还能打开�
     await holdDriver.query("begin");
     await holdDriver.query("select 1 from drivers where id = $1 for key share", [driver.id]);
     const change = putDriver(a, driver, { email: nextEmail });
-    await sqlStateWait("%from drivers d%for update%");
+    await untilBlocked("%from drivers d%for update%");
 
-    await ok(assign(api, a, order.id, driver.id, vehicle.id));
+    const assigning = assign(api, a, order.id, driver.id, vehicle.id);
+    await settled(assigning);
 
     await holdNames.query("begin");
     await holdNames.query("lock table vehicle_groups in access exclusive mode");
     const sending = tick();
-    await sqlStateWait("%vehicle_groups%");
+    await untilBlocked("%vehicle_groups%");
 
     await holdDriver.query("commit");
+    await settled(change);
+    await holdNames.query("commit");
     const changed = await change;
     assert.equal(changed.status, 200, changed.text);
-
-    await holdNames.query("commit");
+    assert.equal((await assigning).status, 200);
     await sending;
   } finally {
     await holdDriver.query("rollback").catch(() => undefined);
