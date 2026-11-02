@@ -2,7 +2,7 @@
  * M4-31：运营代客人改乘客邮箱要另一位同事批准（ADR 0065）。真实浏览器 → 构建好的前端 → 真实 API → 真实 PostgreSQL + 本机假 SMTP（从不连真实的邮件服务）。
  * 客服在订单详情「代客人改单」填新邮箱 → 页面提示「需要另一位同事批准」、核实方式和原因必填 → 订单详情显示等审核（只有打码地址）、新地址收不到信
  * → 另一位运营批准 → 新地址收到订单修改的通知、里面的链接能打开这张单。等审核状态亮暗两色过 axe、窄屏不横向滚动。
- * 订单经官网真实接口下；付款和本任务无关，用迁移账号直接标为已付款（同 change-approval.spec.ts）。远期的单，全部是虚构数据。
+ * 订单经官网真实接口下；付款和本任务无关（这一组 API 没接收款），用迁移账号直接把订单标为已确认（同 change-approval.spec.ts）。远期的单，全部是虚构数据。
  */
 import { randomBytes } from "node:crypto";
 import { type APIRequestContext, expect, test } from "@playwright/test";
@@ -67,7 +67,6 @@ async function confirmedSiteOrder(request: APIRequestContext, world: World, emai
   const body = (await created.json()) as { order: { id: string; order_no: string } };
   await owner(async (client) => {
     await client.query("update orders set status = 'confirmed', confirmed_at = now(), dispatch_due_at = service_at - interval '24 hours', updated_at = now() where id = $1", [body.order.id]);
-    await client.query("update order_payments set status = 'succeeded', succeeded_at = now() where order_id = $1", [body.order.id]);
   });
   return { id: body.order.id, orderNo: body.order.order_no };
 }
