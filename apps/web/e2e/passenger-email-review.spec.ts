@@ -4,7 +4,7 @@
  * → 另一位运营批准 → 新地址收到订单修改的通知、里面的链接能打开这张单。等审核状态亮暗两色过 axe、窄屏不横向滚动。
  * 订单经官网真实接口下；付款和本任务无关（这一组 API 没接收款），用迁移账号直接把订单标为已确认（同 change-approval.spec.ts）。远期的单，全部是虚构数据。
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { type APIRequestContext, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { decodedMailText } from "../../api/src/testing/fake-integrations.ts";
@@ -12,7 +12,8 @@ import { E2E_WEB_DRIVER_MAIL_PORT } from "../playwright.config.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { approveApproval, expectNoHorizontalOverflow, loginAs, newPassword, pendingApproval, platformAdminHeaders, uniqueEmail } from "./support.ts";
 
-test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
+// 官网报价、下单按来源地址限速，额度记在共用的数据库里：这组 API 信任一层代理，带一个文档专用的随机地址，不占主 API 那些用例在 127.0.0.1 上的额度
+test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}`, extraHTTPHeaders: { "x-forwarded-for": `203.0.113.${randomInt(1, 250)}` } });
 
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },

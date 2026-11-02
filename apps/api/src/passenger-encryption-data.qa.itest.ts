@@ -2,6 +2,7 @@
  * M4-22 QA（ADR 0057）：不丢数据。回填中途崩溃、回填时并发改乘客 / 脱敏 / 救援改派，旧代码只写明文，`--verify` 的结论可不可信，占位字面量，开关来回切，怪字符走完整接口，解不开的行不能拖垮别的单。
  * 真实 PostgreSQL（独立 schema）；收款、邮件、Webhook 接收方用替身；联系方式全部虚构，测试内构造，schema 随 api.close() 删除。已有 passenger-encryption.itest.ts 覆盖的不重复。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -156,8 +157,9 @@ async function subscribe(side: "a" | "b"): Promise<void> {
 
 async function changePassenger(orderId: string, passenger: { name: string; phone: string; email: string }): Promise<void> {
   const token = await ops();
-  const version = (await ok(api.call("GET", `/platform/v1/orders/${orderId}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，订单上的乘客信息才全部换成新的
+  const changed = await platformChangeWithEmailReview(api, orderId, token, { passenger });
+  assert.ok([200, 202].includes(changed.status), changed.text);
 }
 
 const drainMail = async (): Promise<void> => {
@@ -428,7 +430,8 @@ test("推送内容的别的字段里恰好有占位字样（客人备注写了�
   const { id, second } = await orderWithCopies();
   await api.app.webhookJobs.tick();
   const owner = api.db.owner;
-  const delivery = (await owner.query("select id from webhook_deliveries where order_id = $1 and jsonb_path_exists(event_data, '$.**.passenger') limit 1", [id])).rows[0];
+  // 改邮箱经复核生效（M4-31，ADR 0065）：带新邮箱的是最后那条改单推送
+  const delivery = (await owner.query("select id from webhook_deliveries where order_id = $1 and jsonb_path_exists(event_data, '$.**.passenger') order by seq desc limit 1", [id])).rows[0];
   assert.ok(delivery, "前提：有含乘客的推送");
   await owner.query("update webhook_deliveries set event_data = jsonb_set(event_data, '{qa_note}', to_jsonb($2::text)), event_data_enc = null where id = $1", [delivery.id, `客人备注：${ENCRYPTED_TEXT}`]);
   const stored = (await owner.query("select event_data from webhook_deliveries where id = $1", [delivery.id])).rows[0].event_data;
@@ -767,7 +770,7 @@ test("主密钥配错（明文不再写）：读 503，回填、改单、脱敏�
   assert.equal((await api.call("POST", `/platform/v1/orders/${order.id}/passenger/reveal`, { token })).status, 503);
   await runPassengerBackfill(ctx, { pauseMs: 0 });
   assert.equal((await row(order.id)).passenger_enc, before.passenger_enc, "回填不能动它");
-  const patch = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(before.version) }, body: { passenger: { name: "虚构改名", phone: "+818011119999", email: "wrong-key@fictional.example.test" } } });
+  const patch = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(before.version) }, body: { passenger: { name: "虚构改名", phone: "+818011119999", email: "wrong-key@fictional.example.test" }, email_review: { verification: "callback_phone", reason: "测试：密钥对不上时改单" } } });
   assert.equal(patch.status, 503, patch.text.slice(0, 200));
   assert.equal((await row(order.id)).passenger_enc, before.passenger_enc, "改单被挡住，内容不变");
   useCrypto(RETIRED);

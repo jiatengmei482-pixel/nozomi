@@ -2,6 +2,7 @@
  * M4-19：运营后台的乘客信息默认打码，点「查看」才给全文并记审计（需求《平台运营端》「个人信息保护」，ADR 0052）。经真实接口、真实 PostgreSQL；收款服务用替身。
  * 只读员工同样受约束；范围外的看不了；打码不影响供应商（付款后看得到）。数据只在测试里构造。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
@@ -81,7 +82,9 @@ test("详情不能绕过「查看」：改单的改前改后、推送内容里�
   const orderId = await paid();
   const token = await platformLogin(api, m.staff.operations.email);
   const version = (await ok(api.call("GET", `/platform/v1/orders/${orderId}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，新邮箱同样要打码
+  const changed = await platformChangeWithEmailReview(api, orderId, token, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } }, String(version));
+  assert.equal(changed.status, 200, changed.text);
   const detail = await api.call("GET", `/platform/v1/orders/${orderId}`, { token });
   assert.equal(detail.status, 200, detail.text);
   assert.equal(detail.body.changes[0].after.passenger.name, "李**");

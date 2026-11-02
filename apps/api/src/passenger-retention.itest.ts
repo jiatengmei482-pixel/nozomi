@@ -2,6 +2,7 @@
  * M4-21：订单结束超过 180 天后的乘客信息脱敏（ADR 0055）。真实 PostgreSQL；过期的订单只在测试里构造，都是虚构数据，测试结束连 schema 删除。
  * 边界 179 / 180 / 181 天按东京日历日；没结的工单、账单、争议不脱敏；副本一起处理；金额、订单号、时间保留；幂等、并发不重复；审计只有数量和范围；命令默认 dry-run。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
@@ -188,7 +189,9 @@ test("副本一起处理：改单前后值（含旧姓名）、推送内容、�
   const order = await flow.paidOrder({ serviceTime: new Date(api.clock.now().getTime() + 42 * DAY).toISOString().replace(/\.\d{3}Z$/, "Z") });
   const token = m.staff.operations.token;
   const version = (await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(version) }, body: { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new-guest@example.com" }, notes: "李大伟要儿童座椅，电话 08099990000" } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，新邮箱也进了改单记录和推送，脱敏时一起处理
+  const changed = await platformChangeWithEmailReview(api, order.id, token, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new-guest@example.com" }, notes: "李大伟要儿童座椅，电话 08099990000" }, String(version));
+  assert.equal(changed.status, 200, changed.text);
   const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "李大伟来电", description: "王小明说邮箱是 guest@example.com，订单 " + order.order_no } }), 201);
   await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/messages`, { token, body: { body: "请联系 +819012345678" } }), 201);
   await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/messages`, { token, body: { body: "内部：李大伟 08099990000", internal: true } }), 201);
