@@ -15,13 +15,26 @@ test.use({ baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}` });
 
 const SENT = "如信息匹配，链接已发送到下单邮箱。请查收邮件（也看看垃圾邮件），打开邮件里的链接查看订单。";
 
+const RULES = {
+  booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
+  urgent: { enabled: false, daily_quota: null, tiers: [] },
+  night: { enabled: false, window: null, amount: null, charge_unit: null },
+  free_wait: { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "limited", minutes: 60 }, general: null },
+  addons: [],
+  driver_languages: [],
+};
+
 async function productVersion(request: APIRequestContext, supplier: Supplier, id: string): Promise<number> {
   return ((await (await request.get(`/tenant/v1/products/${id}`, { headers: supplier.headers })).json()) as { version: number }).version;
 }
 
-/** 一个上架的接送机商品：固定价，今天起有效。 */
+/** 一个上架的接送机商品：服务规则、内容、固定价（今天起有效）。 */
 async function publishedProduct(request: APIRequestContext, supplier: Supplier, world: World): Promise<void> {
   const product = await createProductByApi(request, supplier, world, "airport_transfer");
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
+  expect(rules.status(), await rules.text()).toBe(200);
+  const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "官网接送机", pickup_guide: "到达大厅 2 号出口" } } });
+  expect(content.status(), await content.text()).toBe(200);
   const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string };
   const price = await request.post(`/tenant/v1/products/${product.id}/price-rules/batch`, {
     headers: { ...supplier.headers, "if-match": `"${await productVersion(request, supplier, product.id)}"`, "idempotency-key": crypto.randomUUID() },
