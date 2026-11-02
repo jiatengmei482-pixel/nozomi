@@ -89,7 +89,7 @@ test("配上邮件：运营后台验证码登录走完——发码、错码被�
   await page.getByLabel("邮箱").fill(email);
   await page.getByRole("button", { name: "发送验证码" }).click();
   await expect(page.getByLabel("验证码")).toBeFocused();
-  await expect(page.getByRole("status")).toContainText("如果这个邮箱有账号");
+  await expect(page.getByRole("status")).toContainText("如果这个邮箱是");
   await expect(page.getByRole("button", { name: /^重新发送（\d+ 秒）$/ })).toBeDisabled();
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -124,7 +124,7 @@ test("没有账号的邮箱：页面和真实账号完全一样，不收信；�
   await page.getByLabel("邮箱").fill(nobody);
   await page.getByRole("button", { name: "发送验证码" }).click();
   await expect(page.getByLabel("验证码")).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("如果这个邮箱有账号");
+  await expect(page.getByRole("status")).toContainText("如果这个邮箱是");
   await page.getByLabel("验证码").fill("123456");
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByRole("alert")).toContainText("验证码不正确或已失效");

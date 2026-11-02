@@ -34,7 +34,7 @@ export const PORTALS: Readonly<Record<Portal, PortalConfig>> = {
       resetPassword: "/reset-password",
       changePassword: "/account/password",
     },
-    switchTo: { portal: "platform", label: "我是平台员工，去运营后台登录" },
+    switchTo: { portal: "platform", label: "平台管理员请从此登录" },
   },
   platform: {
     key: "platform",

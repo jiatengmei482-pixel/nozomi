@@ -45,7 +45,7 @@ test("供应商后台登录页：副标题、标签、切换链接、页面标�
   assert.equal(password.autocomplete, "current-password");
   assert.equal(password.placeholder, "");
   assert.equal(screen.getByRole("button", { name: "登录" }).getAttribute("type"), "submit");
-  assert.equal(screen.getByRole("link", { name: "我是平台员工，去运营后台登录" }).getAttribute("href"), "/platform/login");
+  assert.equal(screen.getByRole("link", { name: "平台管理员请从此登录" }).getAttribute("href"), "/platform/login");
   assertAbsent(screen.queryByText(/忘记密码|注册|记住我/));
 });
 
@@ -229,7 +229,7 @@ test("提交中：按钮进入加载态且不能重复提交，输入框只读�
   assert.equal((screen.getByLabelText("密码") as HTMLInputElement).readOnly, true);
   assert.equal((screen.getByLabelText("密码") as HTMLInputElement).type, "password");
   assertAbsent(screen.queryByText("邮箱或密码不正确。"));
-  assert.equal(screen.getByRole("link", { name: /去运营后台登录/ }).getAttribute("aria-disabled"), "true");
+  assert.equal(screen.getByRole("link", { name: /平台管理员请从此登录/ }).getAttribute("aria-disabled"), "true");
 
   await user.click(busy);
   await user.keyboard("{Enter}");
