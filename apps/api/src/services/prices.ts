@@ -41,7 +41,7 @@ import {
   pricingModelsFor,
   roundingUnitOptions,
 } from "@nozomi/domain";
-import type { AppContext } from "../context.ts";
+import type { DbContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 import { type AuditAction, type AuditValue, type AuditValues, insertAuditLog } from "../repos/audit-logs.ts";
@@ -73,7 +73,7 @@ import {
 } from "../repos/prices.ts";
 import { type Product, findBrand, findProduct, updateProduct as bumpProduct } from "../repos/products.ts";
 import { type InputIssue, validationFailed } from "../validation.ts";
-import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
+import { consoleOrigin, platformActor, tenantWriteOrigin } from "./audit.ts";
 import { notFound, versionConflict } from "./errors.ts";
 import { runIdempotent } from "./idempotency.ts";
 import type { MasterWriter } from "./master-data.ts";
@@ -105,7 +105,7 @@ function invalid(issues: InputIssue[]): never {
 }
 
 function audit(db: Db, writer: ProductWriter, now: Date, event: { resource: "price_rule" | "adjust_rule" | "brand"; id: string; action: AuditAction; before: AuditValues | null; after: AuditValues | null }): Promise<void> {
-  return insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+  return insertAuditLog(db, tenantWriteOrigin(writer, now), {
     tenantId: writer.principal.tenantId,
     resource: event.resource,
     resourceId: event.id,
@@ -176,7 +176,7 @@ export function priceRulesView(context: PricingContext, product: Product, items:
   };
 }
 
-export function getPriceRules(ctx: AppContext, tenantId: string, productId: string): Promise<PriceRulesView> {
+export function getPriceRules(ctx: DbContext, tenantId: string, productId: string): Promise<PriceRulesView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
@@ -347,7 +347,7 @@ export async function applyPriceChanges(db: Db, writer: ProductWriter, context: 
  * - `paths` 决定报错路径的前缀：批量接口是 `/create/N`、`/update/N`、`/delete/N`，单条接口没有前缀。
  */
 export async function savePriceRules(
-  ctx: AppContext,
+  ctx: DbContext,
   writer: ProductWriter,
   productId: string,
   expectedVersion: number,
@@ -369,7 +369,7 @@ export async function savePriceRules(
   });
 }
 
-export function getPriceCoverage(ctx: AppContext, tenantId: string, productId: string): Promise<{ today: string; coverage: PriceCoverage; rules: StoredPriceRule[] }> {
+export function getPriceCoverage(ctx: DbContext, tenantId: string, productId: string): Promise<{ today: string; coverage: PriceCoverage; rules: StoredPriceRule[] }> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
@@ -392,7 +392,7 @@ export function adjustRulesView(context: PricingContext): AdjustRulesView {
   return { version: context.product.version, currency: context.currency, roundingUnit: context.roundingUnit, today: context.today, items: context.adjustRules };
 }
 
-export function getAdjustRules(ctx: AppContext, tenantId: string, productId: string): Promise<AdjustRulesView> {
+export function getAdjustRules(ctx: DbContext, tenantId: string, productId: string): Promise<AdjustRulesView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => adjustRulesView(await loadPricingContext(db, tenantId, productId, now, { lock: false })));
 }
@@ -450,7 +450,7 @@ export interface AdjustSaveResult {
 type AdjustRespond = (result: AdjustSaveResult) => { status: number; body: Record<string, unknown> };
 
 /** 新增一条调价规则（带幂等键）：排在最后（最后执行）。 */
-export function createAdjustRule(ctx: AppContext, writer: ProductWriter, productId: string, expectedVersion: number, rule: AdjustRule, idempotency: { scope: string; key: string }, respond: AdjustRespond): Promise<{ status: number; body: Record<string, unknown> }> {
+export function createAdjustRule(ctx: DbContext, writer: ProductWriter, productId: string, expectedVersion: number, rule: AdjustRule, idempotency: { scope: string; key: string }, respond: AdjustRespond): Promise<{ status: number; body: Record<string, unknown> }> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -473,7 +473,7 @@ export function createAdjustRule(ctx: AppContext, writer: ProductWriter, product
 
 /** 改一条调价规则里的东西。`change` 拿到现在的规则，返回改完的样子（整体修改、启用 / 停用都用它）；返回 null 表示删除。 */
 async function changeAdjustRule(
-  ctx: AppContext,
+  ctx: DbContext,
   writer: ProductWriter,
   productId: string,
   ruleId: string,
@@ -510,21 +510,21 @@ async function changeAdjustRule(
   });
 }
 
-export function updateAdjustRule(ctx: AppContext, writer: ProductWriter, productId: string, ruleId: string, expectedVersion: number, rule: AdjustRule): Promise<AdjustSaveResult> {
+export function updateAdjustRule(ctx: DbContext, writer: ProductWriter, productId: string, ruleId: string, expectedVersion: number, rule: AdjustRule): Promise<AdjustSaveResult> {
   return changeAdjustRule(ctx, writer, productId, ruleId, expectedVersion, "update", () => rule);
 }
 
-export function deleteAdjustRule(ctx: AppContext, writer: ProductWriter, productId: string, ruleId: string, expectedVersion: number): Promise<AdjustSaveResult> {
+export function deleteAdjustRule(ctx: DbContext, writer: ProductWriter, productId: string, ruleId: string, expectedVersion: number): Promise<AdjustSaveResult> {
   return changeAdjustRule(ctx, writer, productId, ruleId, expectedVersion, "delete", () => null);
 }
 
 /** 启用 / 停用：不要求版本号（列表里的开关，和别人的修改不冲突）；已经是那个状态的原样返回。 */
-export function setAdjustRuleStatus(ctx: AppContext, writer: ProductWriter, productId: string, ruleId: string, status: "enabled" | "disabled"): Promise<AdjustSaveResult> {
+export function setAdjustRuleStatus(ctx: DbContext, writer: ProductWriter, productId: string, ruleId: string, status: "enabled" | "disabled"): Promise<AdjustSaveResult> {
   return changeAdjustRule(ctx, writer, productId, ruleId, null, status === "enabled" ? "enable" : "disable", (current) => ({ ...current, status }));
 }
 
 /** 保存顺序（顺序即优先级，排在前面的先执行）：`ids` 必须正好是这个商品全部调价规则的编号。 */
-export function reorderAdjustRules(ctx: AppContext, writer: ProductWriter, productId: string, expectedVersion: number, ids: readonly string[]): Promise<AdjustRulesView> {
+export function reorderAdjustRules(ctx: DbContext, writer: ProductWriter, productId: string, expectedVersion: number, ids: readonly string[]): Promise<AdjustRulesView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -538,7 +538,7 @@ export function reorderAdjustRules(ctx: AppContext, writer: ProductWriter, produ
     if (ids.every((id, index) => id === current[index])) return view(context.product.version, context.adjustRules);
     await setAdjustRuleOrder(db, tenantId, productId, ids);
     // 顺序是商品层面的事：记在商品的日志里
-    await insertAuditLog(db, consoleOrigin(tenantActor(writer.principal.user), writer.ip, now), {
+    await insertAuditLog(db, tenantWriteOrigin(writer, now), {
       tenantId,
       resource: "product",
       resourceId: productId,
@@ -614,7 +614,7 @@ export interface CalendarView {
  * 价格日历：一个组合在一段日期里每天的结算价（基础价 → 调价 → 取整）和命中的规则。和以后的报价用同一个函数（domain 的 tripPrice）。
  * 里程 + 时长的价格按「不超出起步」算（起步价或最低消费）。最多 62 天；一天最多切成「带时段的调价规则数 × 2 + 1」段。
  */
-export function getPriceCalendar(ctx: AppContext, tenantId: string, productId: string, query: CalendarQuery): Promise<CalendarView> {
+export function getPriceCalendar(ctx: DbContext, tenantId: string, productId: string, query: CalendarQuery): Promise<CalendarView> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const context = await loadPricingContext(db, tenantId, productId, now, { lock: false });
@@ -687,7 +687,7 @@ const OVERVIEW_LIMIT = 1_000;
  * 各商品的价格概况。`summaryOnly` 时只算首页要的两个数，不取每个商品的明细。
  * 明细里的缺价概况要用到每个商品选的区域、车型组和全部价格：三样各一条查询取回整个供应商的，在内存里按商品分开算。
  */
-export function getPriceOverview(ctx: AppContext, tenantId: string, summaryOnly: boolean): Promise<PriceOverview> {
+export function getPriceOverview(ctx: DbContext, tenantId: string, summaryOnly: boolean): Promise<PriceOverview> {
   const now = ctx.now();
   return readTx(ctx, tenantId, async (db) => {
     const rows = await listProductPriceOverview(db, tenantId, now, OVERVIEW_LIMIT);
@@ -725,7 +725,7 @@ function roundedBase(rule: StoredPriceRule, roundingUnit: number): number | null
  * 取整单位改大会让比半个单位还小的价格取整成 0（报不出价）：只要这个子品牌下有任何一条可以卖的价格会这样，就拒绝
  * （409 `ROUNDING_UNIT_ZEROES_PRICES`，列出是哪些商品、各几条）——已上架的商品不能悄悄报不出价，草稿也拦，免得上架之后才发现。
  */
-export function setRoundingUnit(ctx: AppContext, writer: ProductWriter, brandId: string, expectedVersion: number, roundingUnit: number): Promise<RoundingUnitSaved> {
+export function setRoundingUnit(ctx: DbContext, writer: ProductWriter, brandId: string, expectedVersion: number, roundingUnit: number): Promise<RoundingUnitSaved> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;
   return writeTx(ctx, tenantId, async (db) => {
@@ -767,7 +767,7 @@ const ROUNDING_DETAIL_PRODUCTS = 50;
 
 export type HolidayReader = { kind: "platform" } | { kind: "tenant"; tenantId: string };
 
-function holidayTx<T>(ctx: AppContext, reader: HolidayReader, fn: (db: Db) => Promise<T>): Promise<T> {
+function holidayTx<T>(ctx: DbContext, reader: HolidayReader, fn: (db: Db) => Promise<T>): Promise<T> {
   const options = { snapshot: true };
   return reader.kind === "platform" ? withPlatformTx(ctx.pool, fn, options) : withTenantTx(ctx.pool, reader.tenantId, fn, options);
 }
@@ -775,7 +775,7 @@ function holidayTx<T>(ctx: AppContext, reader: HolidayReader, fn: (db: Db) => Pr
 export const HOLIDAY_QUERY_MAX_DAYS = 800;
 
 /** 一段日期里的节假日（最多约两年），外加「哪些国家有节假日数据」。 */
-export function listHolidays(ctx: AppContext, reader: HolidayReader, filter: { countryCodes: readonly string[] | null; from: string; to: string }): Promise<{ items: Holiday[]; countries: { countryCode: string; count: number; lastDate: string }[] }> {
+export function listHolidays(ctx: DbContext, reader: HolidayReader, filter: { countryCodes: readonly string[] | null; from: string; to: string }): Promise<{ items: Holiday[]; countries: { countryCode: string; count: number; lastDate: string }[] }> {
   const issues: InputIssue[] = [];
   if (!isLocalDate(filter.from)) issues.push({ path: "/from", reason: "INVALID_DATE", message: ISSUE_MESSAGES.INVALID_DATE });
   if (!isLocalDate(filter.to)) issues.push({ path: "/to", reason: "INVALID_DATE", message: ISSUE_MESSAGES.INVALID_DATE });
@@ -792,7 +792,7 @@ function assertHolidayKey(countryCode: string, date: string): void {
 }
 
 /** 平台登记 / 修改某个国家某一天的节假日（名称至少一种语言）。写审计日志。 */
-export function putHoliday(ctx: AppContext, writer: MasterWriter, countryCode: string, date: string, name: LocalizedText): Promise<{ holiday: Holiday; created: boolean }> {
+export function putHoliday(ctx: DbContext, writer: MasterWriter, countryCode: string, date: string, name: LocalizedText): Promise<{ holiday: Holiday; created: boolean }> {
   assertHolidayKey(countryCode, date);
   if (Object.values(name).length === 0 || Object.values(name).some((text) => !hasVisibleText(text))) invalid([{ path: "/name", reason: "REQUIRED", message: "名称至少要填一种语言，而且不能只有空白" }]);
   const now = ctx.now();
@@ -812,7 +812,7 @@ export function putHoliday(ctx: AppContext, writer: MasterWriter, countryCode: s
   });
 }
 
-export function removeHoliday(ctx: AppContext, writer: MasterWriter, countryCode: string, date: string): Promise<void> {
+export function removeHoliday(ctx: DbContext, writer: MasterWriter, countryCode: string, date: string): Promise<void> {
   assertHolidayKey(countryCode, date);
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {

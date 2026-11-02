@@ -20,6 +20,7 @@ export * from "./service-time.ts";
 export * from "./products.ts";
 export * from "./pricing.ts";
 export * from "./price-sheet.ts";
+export * from "./price-import.ts";
 export * from "./inventory.ts";
 export * from "./spreadsheet.ts";
 export * from "./quote.ts";
