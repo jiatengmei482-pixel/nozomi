@@ -85,7 +85,7 @@ test("走完：发码 → 第二步显示邮箱、提示不说账号是否存在
   const calls = await toCodeStep({ [VERIFY]: () => json(200, { access_token: "code-token", token_type: "Bearer", expires_at: FAR_FUTURE, user: {}, tenant: {}, must_change_password: false }) });
   assert.deepEqual(calls.find((call) => call.path.endsWith("/request"))?.body, { email: "a@example.com" }, "邮箱去掉首尾空格");
   assert.ok(screen.getByText("a@example.com"));
-  assert.ok(screen.getByText(emailCodeSentText(600)).closest('[role="status"]'));
+  assert.ok(screen.getByText(emailCodeSentText(600, "供应商后台")).closest('[role="status"]'));
   // 账号存不存在都是这一句；要说清是哪个后台：运营和供应商是两个入口，账号不通用（业主用运营账号的邮箱在供应商入口收不到码）
   const sentText = emailCodeSentText(600, "供应商后台");
   assert.match(sentText, /如果这个邮箱是供应商后台的账号/);
