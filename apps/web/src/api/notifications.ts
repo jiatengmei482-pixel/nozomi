@@ -1,5 +1,6 @@
 /** 通知中心的接口（M4-08，ADR 0049）。收件人是打码后的；没有正文和令牌。 */
 import type { NotificationAudience, NotificationEvent, NotificationStatus, QuietHours } from "@nozomi/domain";
+import type { DriverLinkDeliveryMode } from "@nozomi/domain";
 import { apiRequest } from "./client.ts";
 import type { ListPage } from "./dispatch.ts";
 
@@ -38,6 +39,7 @@ export interface NotificationTemplateRow {
 
 export interface NotificationSettings {
   quiet_hours: QuietHours | null;
+  driver_link_delivery: DriverLinkDeliveryMode;
   time_zone: string;
   version: number;
 }
@@ -69,6 +71,6 @@ export function getNotificationSettings(token: string): Promise<NotificationSett
   return apiRequest("GET", "/tenant/v1/notification-settings", { token });
 }
 
-export function saveNotificationSettings(token: string, version: number, quietHours: QuietHours | null): Promise<NotificationSettings> {
-  return apiRequest("PUT", "/tenant/v1/notification-settings", { token, body: { quiet_hours: quietHours }, ...(version === 0 ? {} : { headers: { "if-match": `"${version}"` } }) });
+export function saveNotificationSettings(token: string, version: number, quietHours: QuietHours | null, driverLinkDelivery?: DriverLinkDeliveryMode): Promise<NotificationSettings> {
+  return apiRequest("PUT", "/tenant/v1/notification-settings", { token, body: { quiet_hours: quietHours, ...(driverLinkDelivery === undefined ? {} : { driver_link_delivery: driverLinkDelivery }) }, ...(version === 0 ? {} : { headers: { "if-match": `"${version}"` } }) });
 }

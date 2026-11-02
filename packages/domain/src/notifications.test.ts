@@ -164,8 +164,7 @@ test("免打扰要不要推迟：时段外、用车当天、时段结束已过�
   assert.equal(notificationQuietUntil({ ...base, confirmDueAt: new Date(now.getTime() + 1_800_000) }), null, "时段结束前到确认期限");
   assert.equal(notificationQuietUntil({ ...base, ...service(7) }), null, "时段结束前就用车，任何事件都不等");
   assert.equal(notificationQuietUntil({ ...base, event: "order.confirmed", ...service(20) }), null, "新订单 24 小时内用车");
-  assert.equal(notificationQuietUntil({ ...base, event: "order.cancelled", ...service(20) }), null, "取消 24 小时内用车");
-  assert.equal(notificationQuietUntil({ ...base, event: "order.changed", ...service(20) })?.toISOString(), resume, "普通修改不算要紧");
+  for (const event of ["order.cancelled", "order.changed", "order.change_pending", "order.rescue_started"] as const) assert.equal(notificationQuietUntil({ ...base, event, ...service(240) }), null, `${event}：十天后用车也马上发（ADR 0060）`);
   assert.equal(notificationQuietUntil({ ...base, event: "order.confirmed", ...service(120) })?.toISOString(), resume, "五天后的新订单可以等");
 });
 

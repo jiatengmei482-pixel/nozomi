@@ -1,18 +1,19 @@
 /**
- * 改单（M3-03，ADR 0029）：渠道替客人改（`PATCH /sales/v1/orders/{id}`）、运营代客人改（`PATCH /platform/v1/orders/{id}`）、
- * 供应商确认 / 拒绝改期（`POST /tenant/v1/orders/{id}/changes/{changeId}/confirm`、`…/reject`）。
+ * 改单（M3-03，ADR 0029；M4-29，ADR 0060）：渠道替客人改（`PATCH /sales/v1/orders/{id}`）、运营代客人改（`PATCH /platform/v1/orders/{id}`）、
+ * 供应商同意 / 拒绝 / 标记调整中（`POST /tenant/v1/orders/{id}/changes/{changeId}/confirm`、`…/reject`、`…/adjusting`）、运营代供应商处理（`/platform/v1/…` 同名）。
  *
- * 规则（domain 的 order-changes.ts，需求「客人修改订单规则」「改单补充」）：
- * - 航班号、乘客信息、即时通讯、备注、上下车点的地址文字、人数行李（车型容量内）：直接改，推 `order.changed` 给供应商；
+ * 规则（domain 的 order-changes.ts，需求「客人修改订单规则」「改单补充」，业主 M4-29）：
+ * - 乘客信息、即时通讯、备注：直接改，通知供应商和已派的司机；
+ * - 用车时间、上下车地址、航班号、人数行李（车型容量内）：生成修改申请，确认前原预约有效；同意才生效。一次提交里两类都有就拆成两行；
  * - 日期或时间：同一个商品按新时间重新报价（不重新比价：别的供应商不参加），新的结算价 = 报价引擎算出的；
  *   对外价 = 新结算价 × 下单时的汇率快照 ×（1 + 缓冲）×（1 + 原加价比例），按渠道的取整单位和最低毛利（下单时的快照）；差价多退少补：
- *   - 多了：先用保存的支付方式把差价扣到（扣不到就不改，402 `CHANGE_PAYMENT_DECLINED`），再生效或去等供应商确认；
- *   - 少了：生效时退差价；
+ *   - 多了：先用保存的支付方式把差价扣到（扣不到就不改，402 `CHANGE_PAYMENT_DECLINED`），再去等供应商确认；
+ *   - 少了：同意生效时退差价；
  *   商品现在报不出这个时间的价（下架、服务时间外、提前预订时长不够、这一天订满……）：409 `CHANGE_NOT_SERVICEABLE`，按「取消重下」；
- * - 原来的或新的用车时间离现在不到 24 小时的改期：供应商 30 分钟内确认才生效；拒绝或超时没确认的，补收的差价退回，客人可以免费取消（`CHANGE_NOT_CONFIRMED`）；
+ * - 进入最早用车前 24 小时后 30 分钟内没结论的申请失效；拒绝或超时的，补收的差价退回，客人可以免费取消（`CHANGE_NOT_CONFIRMED`，只改航班号的除外）；
  * - 出了免费取消期只能改航班号和乘客信息；车型、品类、城市、坐标、超出容量的：按「取消重下」（接口里没有这些字段，超出容量 422 `CHANGE_REQUIRES_REBOOK`）。
  * 并发：订单行锁 + `If-Match` 版本；一张单同时只能有一个没有结论的改单（数据库唯一约束兜底）。
- * 改期生效时：库存从旧的一天挪到新的一天（新的一天订满就不能改）、派车截止时间按新时间重算、原来派的司机或车辆在新时段有别的单就标出来提示改派。
+ * 改期生效时：库存从旧的一天挪到新的一天（新的一天订满就不能改，申请留着）、派车截止时间按新时间重算、司机链接有效期跟着改、原来派的司机或车辆在新时段有别的单就标出来提示改派。
  */
 import {
   type OrderChangeField,
@@ -20,9 +21,15 @@ import {
   type OrderDetailsIssueReason,
   type OrderStatus,
   type QuoteRequest,
+  CONTACT_FIELDS,
+  changeAdjustingDeadline,
   changeConfirmDeadline,
   changeConfirmOverdue,
+  changeFieldsNeedConfirmation,
+  changeDeclineAdvice,
   dispatchDeadline,
+  driverLinkExpiry,
+  earliestServiceAt,
   inFreeCancellationWindow,
   instantToLocal,
   isFlightNo,
@@ -30,10 +37,11 @@ import {
   localDateTimeToInstant,
   normalizeFlightNo,
   normalizePhone,
+  orderChangeDecidable,
   orderChangeRefusal,
+  orderChangeStillApplicable,
   priceDifference,
   quoteProduct,
-  rescheduleNeedsConfirmation,
   sellPrice,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -41,7 +49,9 @@ import { type Db, isUniqueViolation, passengerCryptoOf, withPlatformTx } from ".
 import { AppError } from "../errors.ts";
 import { PaymentProviderError } from "../integrations/payments.ts";
 import { type AuditOrigin, insertAuditLog } from "../repos/audit-logs.ts";
-import { type NewOrderChange, type OrderChange, findOpenChange, findOrderChange, insertOrderChange, listOverdueChanges, listStuckChanges, updateOrderChange } from "../repos/order-changes.ts";
+import { recalculateDriverLinkExpiry } from "../repos/dispatch.ts";
+import { type NewOrderChange, type OrderChange, findOpenChange, findOrderChange, insertOrderChange, listOutdatedChanges, listOverdueChanges, listStuckChanges, updateOrderChange } from "../repos/order-changes.ts";
+import { resolveChangeRequestTodo } from "../repos/order-todos.ts";
 import {
   type Order,
   type OrderPayment,
@@ -65,6 +75,7 @@ import { orderCancelPolicy } from "./cancellations.ts";
 import { conflictsFor } from "./dispatch.ts";
 import { assertTenantCanOperate } from "./fulfilment.ts";
 import { notFound, versionConflict } from "./errors.ts";
+import { addOrderTodo, enqueueDriverNotice, hasActiveDriver } from "./order-notices.ts";
 import { chargeOffSession, processRefunds, savedPaymentMethod, scheduleRefund } from "./order-money.ts";
 import type { OrderLog } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -111,6 +122,8 @@ interface PlannedChange {
   /** 改后的订单内容（还没写库） */
   next: Pick<Order, "passenger" | "flightNo" | "messaging" | "notes" | "pickup" | "dropoff" | "passengers" | "luggage" | "serviceAt" | "serviceLocal" | "serviceDate">;
 }
+
+const CONTACT_NOTICE_WINDOW_MS = 10 * 60_000;
 
 const blank = (value: string | null | undefined): boolean => value === null || value === undefined || value.trim() === "";
 
@@ -271,6 +284,7 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
   const dropoff = order.dropoff === null ? null : { ...order.dropoff, address: pick("dropoff_address", order.dropoff.address) };
   const settlement = change.settlementAfter ?? order.settlement;
   const dueAt = change.reschedule && order.confirmedAt !== null ? dispatchDeadline(order.confirmedAt, serviceAt) : order.dispatch.dueAt;
+  const fields = Object.keys(after).filter((field) => field !== "service_local");
   // 改了乘客才重新加密；没改的不碰这几列（明文列可能只是占位，不能把解密后的内容写回去，ADR 0057）
   const sealed = "passenger" in change.after ? passengerCryptoOf(db).sealOrderPassenger(order.tenantId, order.id, pick("passenger", order.passenger)) : null;
   await db.query(
@@ -288,6 +302,8 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
     ],
   );
   let refunds: OrderRefund[] = [];
+  // 司机链接的有效期跟随当前用车时间（ADR 0060）：同意生效才算，待确认期间按原时间
+  if (change.reschedule) await recalculateDriverLinkExpiry(db, order.tenantId, order.id, driverLinkExpiry(serviceAt, order.packageHours), now);
   if (change.reschedule && sellAfter !== null) {
     const diff = priceDifference(sale.sellMinor, sellAfter);
     await updateSaleSellMinor(db, order.id, sellAfter);
@@ -298,10 +314,19 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
     conflict = (await conflictsFor(db, { ...order, serviceAt }, [order.dispatch.driverId], [order.dispatch.vehicleId])).length > 0;
   }
   await updateOrderChange(db, change, { status: "applied", decidedAt: now, dispatchConflict: conflict });
-  const fields = Object.keys(after).filter((field) => field !== "service_local");
-  await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: origin?.actor.type === "tenant_user" ? "tenant_user" : change.requestedBy === "channel" ? "channel" : "platform_user", reason: "CHANGED", occurredAt: now, detail: { change_id: change.id, fields, dispatch_conflict: conflict } });
+  const actor = origin?.actor.type === "tenant_user" ? "tenant_user" : origin?.actor.type === "platform_user" ? "platform_user" : change.requestedBy === "channel" ? "channel" : "platform_user";
+  await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor, reason: "CHANGED", occurredAt: now, detail: { change_id: change.id, fields, dispatch_conflict: conflict } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "applied", fields, before: change.before, after: change.after, dispatch_conflict: conflict } }, now);
   await enqueueNotification(db, { event: "order.changed", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.changed:${change.id}`, data: { change_id: change.id, fields } }, now);
+  const contactOnly = !changeFieldsNeedConfirmation(fields);
+  // 联系信息频繁改时，同一位司机 10 分钟内只发一封（链接打开看到的永远是最新的；不然改一次发一封、多一条有效链接，ADR 0060）
+  await enqueueDriverNotice(db, order, "order.driver_changed", { key: contactOnly ? `contact:${Math.floor(now.getTime() / CONTACT_NOTICE_WINDOW_MS)}` : change.id, changeId: change.id, fields }, now);
+  if (contactOnly) await addOrderTodo(db, order, "contact_changed", { changeId: change.id, fields, needsDriverAdjustment: false }, now);
+  else {
+    await resolveChangeRequestTodo(db, order.tenantId, change.id, now);
+    // 供应商自己同意、又不用动司机的不用再提醒；运营代同意的、要调整司机的留一条
+    if (origin?.actor.type !== "tenant_user" || hasActiveDriver(order) || conflict) await addOrderTodo(db, order, "change_applied", { changeId: change.id, fields }, now);
+  }
   if (origin !== null) {
     await insertAuditLog(db, origin, { tenantId: origin.actor.type === "tenant_user" ? order.tenantId : null, resource: "order_change", resourceId: change.id, action: "change", before: { order_id: order.id, ...(change.before as Record<string, never>) }, after: { order_id: order.id, ...(change.after as Record<string, never>), status: "applied" } });
   }
@@ -310,7 +335,12 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
 
 export type ChangeOutcome = { orderId: string; change: OrderChange };
 
-/** 提出改单：校验、（改期时）重新报价、（贵了时）先扣差价，然后生效或等供应商确认。 */
+/** 从一次提交里挑出这几个字段的改前改后。改时间连带当地时间。 */
+function pickValues(values: Record<string, unknown>, fields: readonly OrderChangeField[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([key]) => (fields as readonly string[]).includes(key) || (key === "service_local" && fields.includes("service_time"))));
+}
+
+/** 提出改单：校验；联系信息直接生效；其余生成申请：（改期时）重新报价、（贵了时）先扣差价，然后等供应商处理。 */
 async function requestChange(ctx: AppContext, scope: { channelId: string } | "platform", orderId: string, expectedVersion: number, input: OrderChangeInput, who: ChangeActor, log: OrderLog): Promise<ChangeOutcome> {
   const now = ctx.now();
   type Step = { done: OrderChange; refunds: OrderRefund[] } | { charge: { change: OrderChange; payment: OrderPayment; orderNo: string } };
@@ -321,7 +351,6 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
       if (sale === null || (scope !== "platform" && sale.channelId !== scope.channelId)) throw notFound("订单");
       const order = (await findOrderForPlatform(db, orderId, { lock: true })) as Order;
       if (order.version !== expectedVersion) throw versionConflict(order.version);
-      if ((await findOpenChange(db, order.tenantId, order.id)) !== null) throw changeInProgress();
       const placeType = order.placeId === null ? null : ((await db.query<{ type: string }>("select type from places where id = $1", [order.placeId])).rows[0]?.type ?? null);
       const plan = planChange(order, input, placeType);
       const policy = await orderCancelPolicy(db, order);
@@ -339,28 +368,39 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
         const error = REFUSAL_ERRORS[refusal.reason];
         throw new AppError(error.status, error.code, error.message, { reason: refusal.reason, fields: refusal.fields ?? [], status: order.status });
       }
-      const reschedule = plan.fields.includes("service_time");
+      const contact = plan.fields.filter((field) => CONTACT_FIELDS.includes(field));
+      const trip = plan.fields.filter((field) => !CONTACT_FIELDS.includes(field));
+      const common = { tenantId: order.tenantId, orderId: order.id, settlementBeforeMinor: order.settlementMinor, requestedBy: who.requestedBy, requestedById: who.requestedById, requestedAt: now };
+      // 没结论的申请只挡履约字段：客人的电话变了不能等
+      if (trip.length > 0 && (await findOpenChange(db, order.tenantId, order.id)) !== null) throw changeInProgress();
+      const reschedule = trip.includes("service_time");
       const repriced = reschedule ? await reprice(db, order, sale, plan.next, now) : null;
-      const needsConfirm = reschedule && rescheduleNeedsConfirmation(order.serviceAt, plan.next.serviceAt, now);
+      let refunds: OrderRefund[] = [];
+      let applied: OrderChange | null = null;
+      let current = order;
+      if (contact.length > 0) {
+        const id = await insertOrderChange(db, { ...common, status: "applied", reschedule: false, before: pickValues(plan.before, contact), after: pickValues(plan.after, contact), settlementAfterMinor: order.settlementMinor, settlementAfter: null, confirmDueAt: null, earliestServiceAt: null, decidedAt: now });
+        applied = (await findOrderChange(db, order.tenantId, id, { lock: true })) as OrderChange;
+        refunds = await applyChange(db, order, applied, sale, null, who.origin, now);
+        applied = (await findOrderChange(db, order.tenantId, id)) as OrderChange;
+        current = (await findOrderForPlatform(db, orderId, { lock: true })) as Order;
+      }
+      if (trip.length === 0) return { done: applied as OrderChange, refunds };
       const diff = priceDifference(sale.sellMinor, repriced?.sellMinor ?? sale.sellMinor);
+      const newServiceAt = reschedule ? plan.next.serviceAt : null;
+      const earliest = earliestServiceAt(order.serviceAt, newServiceAt);
       const base: NewOrderChange = {
-        tenantId: order.tenantId,
-        orderId: order.id,
-        status: diff.kind === "charge" ? "awaiting_payment" : needsConfirm ? "pending_confirmation" : "applied",
+        ...common,
+        status: diff.kind === "charge" ? "awaiting_payment" : "pending_confirmation",
         reschedule,
-        before: plan.before,
-        after: plan.after,
-        settlementBeforeMinor: order.settlementMinor,
+        before: pickValues(plan.before, trip),
+        after: pickValues(plan.after, trip),
         settlementAfterMinor: repriced?.settlement.totalMinor ?? order.settlementMinor,
         settlementAfter: repriced?.settlement ?? null,
-        confirmDueAt: needsConfirm ? changeConfirmDeadline(now) : null,
-        requestedBy: who.requestedBy,
-        requestedById: who.requestedById,
-        requestedAt: now,
+        confirmDueAt: changeConfirmDeadline(now, earliest, newServiceAt),
+        earliestServiceAt: earliest,
         decidedAt: null,
       };
-      // 马上生效的改单：生效时间就是现在（applyChange 里再记一次同一个时间）
-      if (base.status === "applied") base.decidedAt = now;
       let saved: ReturnType<typeof savedPaymentMethod> = null;
       if (diff.kind === "charge") {
         saved = savedPaymentMethod(await findOrderPayment(db, order.id));
@@ -373,11 +413,7 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
         const payment = await insertOffSessionPayment(db, { orderId: order.id, supplierTenantId: order.tenantId, kind: "change", changeId: id, extraChargeId: null, customerId: saved.customerId, paymentMethodId: saved.paymentMethodId, amountMinor: diff.amountMinor, currency: sale.currency, saveConsentAt: saved.saveConsentAt, now });
         return { charge: { change, payment, orderNo: order.orderNo } };
       }
-      if (base.status === "pending_confirmation") {
-        await pendingConfirmation(db, order, change, now);
-        return { done: (await findOrderChange(db, order.tenantId, id)) as OrderChange, refunds: [] };
-      }
-      const refunds = await applyChange(db, order, change, sale, repriced?.sellMinor ?? null, who.origin, now);
+      await pendingConfirmation(db, current, change, who.origin, now);
       return { done: (await findOrderChange(db, order.tenantId, id)) as OrderChange, refunds };
     });
   } catch (err) {
@@ -392,17 +428,23 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
 }
 
 function changeInProgress(): AppError {
-  return new AppError(409, "CHANGE_IN_PROGRESS", "这张单还有一个改单没有结论（在等供应商确认或在补差价），请等它有结果再改");
+  return new AppError(409, "CHANGE_IN_PROGRESS", "这张单还有一个修改申请没有结论（在等供应商确认或在补差价），请等它有结果再改；姓名、电话、邮箱随时可以直接改，备注在免费取消期内可以改");
 }
 
-/** 改期进入「等供应商确认」：推 `order.changed`（状态 pending_confirmation）给供应商。 */
-async function pendingConfirmation(db: Db, order: Order, change: OrderChange, now: Date): Promise<void> {
-  await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "pending_confirmation", fields: Object.keys(change.after).filter((field) => field !== "service_local"), before: change.before, after: change.after, confirm_due_at: change.confirmDueAt?.toISOString() ?? null } }, now);
-  await enqueueNotification(db, { event: "order.change_pending", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_pending:${change.id}`, data: { change_id: change.id, confirm_due_at: change.confirmDueAt?.toISOString() ?? null } }, now);
+/** 申请进入「等供应商处理」：立即通知供应商（邮件、待办、推送）和已派的司机；留流水，运营代提的写审计。 */
+async function pendingConfirmation(db: Db, order: Order, change: OrderChange, origin: AuditOrigin | null, now: Date): Promise<void> {
+  const fields = Object.keys(change.after).filter((field) => field !== "service_local");
+  const dueAt = change.confirmDueAt?.toISOString() ?? null;
+  await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: change.requestedBy, reason: "CHANGE_REQUESTED", occurredAt: now, detail: { change_id: change.id, fields, confirm_due_at: dueAt } });
+  await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.changed", orderId: order.id, data: { change_id: change.id, status: "pending_confirmation", fields, before: change.before, after: change.after, confirm_due_at: dueAt } }, now);
+  await enqueueNotification(db, { event: "order.change_pending", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_pending:${change.id}`, data: { change_id: change.id, fields, confirm_due_at: dueAt } }, now);
+  await enqueueDriverNotice(db, order, "order.driver_change_pending", { key: change.id, changeId: change.id, fields }, now);
+  await addOrderTodo(db, order, "change_request", { changeId: change.id, fields }, now);
+  if (origin !== null) await insertAuditLog(db, origin, { tenantId: null, resource: "order_change", resourceId: change.id, action: "request", before: { order_id: order.id, ...(change.before as Record<string, never>) }, after: { order_id: order.id, ...(change.after as Record<string, never>), status: "pending_confirmation" } });
 }
 
 /**
- * 扣差价，再按结果往下走：扣到了 → 生效或等确认（订单这时已经不能改了 → 改单作废、差价退回）；卡被拒 → 改单失败（`throwOnDecline` 时抛 402）；
+ * 扣差价，再按结果往下走：扣到了 → 等供应商处理（订单这时已经不能改了 → 改单作废、差价退回）；卡被拒 → 改单失败（`throwOnDecline` 时抛 402）；
  * 收款服务出错 → 改单留在「补差价」，定时任务用同一条收款记录再试（同一个幂等键，不会扣两次）。
  */
 async function chargeAndSettle(ctx: AppContext, change: OrderChange, payment: OrderPayment, orderNo: string, origin: AuditOrigin | null, log: OrderLog, throwOnDecline: boolean): Promise<OrderChange> {
@@ -431,21 +473,20 @@ async function settleChangeCharge(ctx: AppContext, change: OrderChange, outcome:
     if (current.status !== "awaiting_payment") return { change: current, refunds: [] };
     if (outcome === "declined") {
       await updateOrderChange(db, current, { status: "failed", decidedAt: now });
+      // 后台重试被拒：客人已经离开页面，要告诉他结果（当场被拒的 402 已经告诉了）
+      if (!throwOnDecline) await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${current.id}`, data: { change_id: current.id, fields: Object.keys(current.after).filter((field) => field !== "service_local"), advice: "payment_failed" } }, now);
       return { change: (await findOrderChange(db, change.tenantId, change.id)) as OrderChange, refunds: [] };
     }
-    const sale = (await findSale(db, order.id)) as OrderSale;
-    const sellAfter = await findChangeSale(db, change.id);
-    const stillChangeable = ["confirmed", "assigned"].includes(order.status);
     let refunds: OrderRefund[] = [];
-    if (!stillChangeable) {
+    if (!orderChangeStillApplicable(order.status, Object.keys(current.after))) {
       // 扣差价的这几秒里订单变了（取消、司机出发）：改单作废，刚扣的差价退回
       await updateOrderChange(db, current, { status: "cancelled", decidedAt: now });
       refunds = await scheduleRefund(db, order, "change", await collectedFor(db, order.id, change.id), change.id, now);
-    } else if (current.confirmDueAt !== null) {
-      await updateOrderChange(db, current, { status: "pending_confirmation", confirmDueAt: changeConfirmDeadline(now) });
-      await pendingConfirmation(db, order, (await findOrderChange(db, change.tenantId, change.id)) as OrderChange, now);
     } else {
-      refunds = await applyChange(db, order, current, sale, sellAfter?.sellAfterMinor ?? null, origin, now);
+      // 期限从扣到钱起算（M4-29 之前卡在这一步的单没有 earliest，这里补上）
+      const newServiceAt = current.reschedule ? new Date(current.after["service_time"] as string) : null;
+      await updateOrderChange(db, current, { status: "pending_confirmation", confirmDueAt: changeConfirmDeadline(now, current.earliestServiceAt ?? earliestServiceAt(order.serviceAt, newServiceAt), newServiceAt) });
+      await pendingConfirmation(db, order, (await findOrderChange(db, change.tenantId, change.id)) as OrderChange, origin, now);
     }
     return { change: (await findOrderChange(db, change.tenantId, change.id)) as OrderChange, refunds };
   });
@@ -465,12 +506,14 @@ async function collectedFor(db: Db, orderId: string, changeId: string): Promise<
 
 /**
  * 订单进入救援改派（M3-04，ADR 0031）：没有结论的改单作废——原供应商已经不再服务这一单，等它确认改期没有意义。
- * 已经补收的差价退回（还在扣的，扣到之后 `settleChangeCharge` 看到已作废会退回）。在调用方的平台事务里（订单已锁），返回排好的退款。
+ * 已经补收的差价退回（还在扣的，扣到之后 `settleChangeCharge` 看到已作废会退回）。告诉客人和司机这次修改作废了。在调用方的平台事务里（订单已锁），返回排好的退款。
  */
 export async function abandonOpenChange(db: Db, order: Order, now: Date): Promise<OrderRefund[]> {
   const open = await findOpenChange(db, order.tenantId, order.id, { lock: true });
   if (open === null) return [];
   await updateOrderChange(db, open, { status: "cancelled", decidedAt: now });
+  await resolveChangeRequestTodo(db, order.tenantId, open.id, now);
+  if (orderChangeDecidable(open.status)) await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${open.id}`, data: { change_id: open.id, fields: Object.keys(open.after).filter((field) => field !== "service_local"), advice: "rescue" } }, now);
   return scheduleRefund(db, order, "change", await collectedFor(db, order.id, open.id), open.id, now);
 }
 
@@ -482,51 +525,79 @@ export async function changeForPlatform(ctx: AppContext, principal: PlatformPrin
   return requestChange(ctx, "platform", orderId, version, input, { requestedBy: "platform_user", requestedById: principal.user.id, origin: consoleOrigin(platformActor(principal.user), ip, ctx.now()) }, log);
 }
 
-/** 拒绝 / 超时：补收的差价退回；客人之后可以免费取消。 */
-async function closeUnconfirmed(db: Db, order: Order, change: OrderChange, status: "rejected" | "expired", decided: { by: string | null; note: string | null }, now: Date): Promise<OrderRefund[]> {
-  await updateOrderChange(db, change, { status, decidedAt: now, decidedBy: decided.by, decisionNote: decided.note });
-  await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: status === "rejected" ? "tenant_user" : "system", reason: status === "rejected" ? "CHANGE_REJECTED" : "CHANGE_EXPIRED", occurredAt: now, detail: { change_id: change.id } });
-  await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${change.id}`, data: { change_id: change.id } }, now);
+/** 处理这次申请的人：供应商的人（只有令牌里的租户）或代处理的平台员工。 */
+export type ChangeDecider = { kind: "tenant"; principal: TenantPrincipal } | { kind: "platform"; principal: PlatformPrincipal };
+export type ChangeDecision = "confirm" | "reject" | "adjusting";
+
+interface Decided {
+  by: string | null;
+  byPlatform: string | null;
+  note: string | null;
+}
+
+/** 拒绝 / 超时：补收的差价退回；告诉客人结果、告诉司机按原任务（申请没结论时才派的司机没听说过这次申请，不发）。 */
+async function closeUnconfirmed(db: Db, order: Order, change: OrderChange, status: "rejected" | "expired", decided: Decided, now: Date): Promise<OrderRefund[]> {
+  const fields = Object.keys(change.after).filter((field) => field !== "service_local");
+  await updateOrderChange(db, change, { status, decidedAt: now, decidedBy: decided.by, decidedByPlatform: decided.byPlatform, decisionNote: decided.note });
+  await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: decided.byPlatform !== null ? "platform_user" : status === "rejected" ? "tenant_user" : "system", reason: status === "rejected" ? "CHANGE_REJECTED" : "CHANGE_EXPIRED", occurredAt: now, detail: { change_id: change.id, fields, ...(decided.note === null ? {} : { note: decided.note }) } });
+  await enqueueNotification(db, { event: "order.change_declined", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.change_declined:${change.id}`, data: { change_id: change.id, fields, advice: changeDeclineAdvice(order.status, { ...change, status }) } }, now);
+  if (order.dispatch.assignedAt !== null && order.dispatch.assignedAt.getTime() <= change.requestedAt.getTime()) await enqueueDriverNotice(db, order, "order.driver_change_declined", { key: change.id, changeId: change.id, fields }, now);
+  await resolveChangeRequestTodo(db, order.tenantId, change.id, now);
+  // 不是供应商自己拒绝的（超时、运营代拒绝）：留一条让它知道
+  if (status === "expired" || decided.byPlatform !== null) await addOrderTodo(db, order, "change_expired", { changeId: change.id, fields, needsDriverAdjustment: false }, now);
   return scheduleRefund(db, order, "change", await collectedFor(db, order.id, change.id), change.id, now);
 }
 
 /**
- * 供应商确认 / 拒绝改期（`order.dispatch`）。租户编号只来自登录令牌：别的供应商的单当作不存在。
- * 生效要改用车时间和结算价（只有平台能改这些列），所以在平台事务里做，查询都带着令牌里的租户编号。
- * 过了 30 分钟：记为超时没确认（409 `CHANGE_CONFIRMATION_EXPIRED`），差价退回。
+ * 处理一次修改申请：同意（生效）、拒绝（必填原因，调用方校验）、标记调整中（只能一次）。
+ * 供应商（`order.dispatch`）：租户编号只来自登录令牌，别的供应商的单当作不存在。运营代处理（`order.change_decide`）：写审计，这不是双人复核。
+ * 生效要改用车时间和结算价（只有平台能改这些列），所以都在平台事务里做。先锁订单、后锁改单，和取消、改派、再改同一个顺序：同时到的只有一个成功，后到的 409。
+ * 过了期限：记为超时没确认（409 `CHANGE_CONFIRMATION_EXPIRED`），差价退回。
  */
-export async function decideChangeForTenant(ctx: AppContext, principal: TenantPrincipal, orderId: string, changeId: string, decision: "confirm" | "reject", note: string | null, ip: string, log: OrderLog): Promise<{ change: OrderChange; expired: boolean }> {
+export async function decideChange(ctx: AppContext, decider: ChangeDecider, orderId: string, changeId: string, decision: ChangeDecision, note: string | null, ip: string, log: OrderLog): Promise<{ change: OrderChange; expired: boolean }> {
   const now = ctx.now();
-  const origin = consoleOrigin(tenantActor(principal.user), ip, now);
+  const origin = decider.kind === "tenant" ? consoleOrigin(tenantActor(decider.principal.user), ip, now) : consoleOrigin(platformActor(decider.principal.user), ip, now);
+  const decidedBy = decider.kind === "tenant" ? { by: decider.principal.user.id, byPlatform: null } : { by: null, byPlatform: decider.principal.user.id };
   const result = await withPlatformTx(ctx.pool, async (db): Promise<{ change: OrderChange; expired: boolean; refunds: OrderRefund[] }> => {
-    const change = await findOrderChange(db, principal.tenantId, changeId);
-    const order = change === null || change.orderId !== orderId ? null : await findOrderForPlatform(db, orderId, { lock: true });
-    if (change === null || order === null || order.tenantId !== principal.tenantId || order.confirmedAt === null) throw notFound("改单");
-    assertTenantCanOperate(order, `${decision}_change`);
-    const current = (await findOrderChange(db, principal.tenantId, changeId, { lock: true })) as OrderChange;
-    if (current.status !== "pending_confirmation") throw new AppError(409, "CHANGE_NOT_PENDING", "这次改单不在等确认（已经有结论了）", { status: current.status });
+    const order = await findOrderForPlatform(db, orderId, { lock: true });
+    const tenantId = decider.kind === "tenant" ? decider.principal.tenantId : (order?.tenantId ?? null);
+    if (order === null || tenantId === null || order.tenantId !== tenantId || order.confirmedAt === null) throw notFound("改单");
+    const current = await findOrderChange(db, tenantId, changeId, { lock: true });
+    if (current === null || current.orderId !== orderId) throw notFound("改单");
+    if (decider.kind === "tenant") assertTenantCanOperate(order, `${decision}_change`);
+    const reread = (): Promise<OrderChange> => findOrderChange(db, tenantId, changeId) as Promise<OrderChange>;
+    if (!orderChangeDecidable(current.status)) throw new AppError(409, "CHANGE_NOT_PENDING", "这次修改不在等处理（已经有结论了）", { status: current.status });
     if (changeConfirmOverdue(current.confirmDueAt as Date, now)) {
-      const refunds = await closeUnconfirmed(db, order, current, "expired", { by: null, note: null }, now);
-      return { change: (await findOrderChange(db, principal.tenantId, changeId)) as OrderChange, expired: true, refunds };
+      const refunds = await closeUnconfirmed(db, order, current, "expired", { by: null, byPlatform: null, note: null }, now);
+      return { change: await reread(), expired: true, refunds };
     }
-    let refunds: OrderRefund[];
+    const auditTenant = decider.kind === "tenant" ? tenantId : null;
+    const proxied = decider.kind === "platform" ? { by_platform: true, tenant_id: tenantId } : {};
     if (decision === "reject") {
-      refunds = await closeUnconfirmed(db, order, current, "rejected", { by: principal.user.id, note }, now);
-      await insertAuditLog(db, origin, { tenantId: principal.tenantId, resource: "order_change", resourceId: changeId, action: "reject", before: { status: "pending_confirmation" }, after: { status: "rejected", order_id: orderId, note } });
-    } else {
-      if (!["confirmed", "assigned"].includes(order.status)) throw new AppError(409, "ORDER_STATE_INVALID", "订单当前的状态不能再改期", { status: order.status as OrderStatus, action: "confirm_change" });
-      const sale = (await findSale(db, orderId)) as OrderSale;
-      const sellAfter = await findChangeSale(db, changeId);
-      await updateOrderChange(db, current, { status: "pending_confirmation", decidedBy: principal.user.id, decisionNote: note });
-      refunds = await applyChange(db, order, current, sale, sellAfter?.sellAfterMinor ?? null, origin, now);
+      const refunds = await closeUnconfirmed(db, order, current, "rejected", { by: decidedBy.by, byPlatform: decidedBy.byPlatform, note }, now);
+      await insertAuditLog(db, origin, { tenantId: auditTenant, resource: "order_change", resourceId: changeId, action: "reject", before: { status: current.status }, after: { status: "rejected", order_id: orderId, note, ...proxied } });
+      return { change: await reread(), expired: false, refunds };
     }
-    return { change: (await findOrderChange(db, principal.tenantId, changeId)) as OrderChange, expired: false, refunds };
+    if (!orderChangeStillApplicable(order.status, Object.keys(current.after))) throw new AppError(409, "ORDER_STATE_INVALID", "订单当前的状态已经不能这样改了", { status: order.status as OrderStatus, action: `${decision}_change` });
+    if (decision === "adjusting") {
+      if (current.status === "adjusting") throw new AppError(409, "CHANGE_NOT_PENDING", "已经标记过调整中了，只能标一次；请同意或拒绝", { status: current.status });
+      const confirmDueAt = changeAdjustingDeadline(now, current.confirmDueAt as Date, current.earliestServiceAt ?? order.serviceAt);
+      await updateOrderChange(db, current, { status: "adjusting", confirmDueAt, adjustingAt: now, ...(decider.kind === "tenant" ? { adjustingBy: decider.principal.user.id } : { adjustingByPlatform: decider.principal.user.id }), decisionNote: note });
+      await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: order.status, actor: decider.kind === "tenant" ? "tenant_user" : "platform_user", reason: "CHANGE_ADJUSTING", occurredAt: now, detail: { change_id: changeId, confirm_due_at: confirmDueAt.toISOString(), ...(note === null ? {} : { note }) } });
+      await insertAuditLog(db, origin, { tenantId: auditTenant, resource: "order_change", resourceId: changeId, action: "mark_adjusting", before: { status: current.status }, after: { status: "adjusting", order_id: orderId, note, confirm_due_at: confirmDueAt.toISOString(), ...proxied } });
+      return { change: await reread(), expired: false, refunds: [] };
+    }
+    const sale = (await findSale(db, orderId)) as OrderSale;
+    const sellAfter = await findChangeSale(db, changeId);
+    await updateOrderChange(db, current, { status: current.status, decidedBy: decidedBy.by, decidedByPlatform: decidedBy.byPlatform, decisionNote: note });
+    const refunds = await applyChange(db, order, current, sale, sellAfter?.sellAfterMinor ?? null, origin, now);
+    return { change: await reread(), expired: false, refunds };
   });
   await processRefunds(ctx, result.refunds, log);
   return { change: result.change, expired: result.expired };
 }
 
-/** 定时任务：30 分钟没确认的改期记为超时（差价退回），补差价卡住的接着扣。 */
+/** 定时任务：到了期限没结论的记为超时（差价退回），已经不适用的也一样，补差价卡住的接着扣。 */
 export async function sweepOrderChanges(ctx: AppContext, log: OrderLog, limit = 50): Promise<{ expired: number; resumed: number }> {
   const now = ctx.now();
   const overdue = await withPlatformTx(ctx.pool, (db) => listOverdueChanges(db, now, limit));
@@ -537,9 +608,26 @@ export async function sweepOrderChanges(ctx: AppContext, log: OrderLog, limit = 
       if (change === null) return null;
       const order = (await findOrderForPlatform(db, change.orderId, { lock: true })) as Order;
       const current = (await findOrderChange(db, entry.tenantId, entry.id, { lock: true })) as OrderChange;
-      if (current.status !== "pending_confirmation" || !changeConfirmOverdue(current.confirmDueAt as Date, ctx.now())) return null;
-      log.warn({ event: "order.change_expired", orderId: order.id, changeId: current.id }, "供应商 30 分钟内没有确认改期：客人可以免费取消");
-      return closeUnconfirmed(db, order, current, "expired", { by: null, note: null }, ctx.now());
+      if (!orderChangeDecidable(current.status) || !changeConfirmOverdue(current.confirmDueAt as Date, ctx.now())) return null;
+      log.warn({ event: "order.change_expired", orderId: order.id, changeId: current.id }, "修改申请到了期限没有结论，记为没确认");
+      return closeUnconfirmed(db, order, current, "expired", { by: null, byPlatform: null, note: null }, ctx.now());
+    });
+    if (refunds !== null) {
+      expired += 1;
+      await processRefunds(ctx, refunds, log);
+    }
+  }
+  // 订单已经走到这次修改不再适用（司机出发了还在等改时间、服务开始了）：不用等到期限
+  const outdated = await withPlatformTx(ctx.pool, (db) => listOutdatedChanges(db, limit));
+  for (const entry of outdated) {
+    const refunds = await withPlatformTx(ctx.pool, async (db): Promise<OrderRefund[] | null> => {
+      const change = await findOrderChange(db, entry.tenantId, entry.id);
+      if (change === null) return null;
+      const order = (await findOrderForPlatform(db, change.orderId, { lock: true })) as Order;
+      const current = (await findOrderChange(db, entry.tenantId, entry.id, { lock: true })) as OrderChange;
+      if (!orderChangeDecidable(current.status) || orderChangeStillApplicable(order.status, Object.keys(current.after))) return null;
+      log.warn({ event: "order.change_outdated", orderId: order.id, changeId: current.id, status: order.status }, "订单已经走到这次修改不再适用：记为没确认");
+      return closeUnconfirmed(db, order, current, "expired", { by: null, byPlatform: null, note: null }, ctx.now());
     });
     if (refunds !== null) {
       expired += 1;

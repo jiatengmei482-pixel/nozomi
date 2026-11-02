@@ -2,7 +2,7 @@
  * 通知中心（M4-08，ADR 0049）的数据访问：发件箱、发送记录、免打扰设置。
  * `enqueueNotification` 在业务自己的事务里调用（平台事务、租户事务都可以）；其余是后台任务和接口用的。
  */
-import { type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, UNREADABLE_TEXT, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
+import { type DriverLinkDeliveryMode, DRIVER_LINK_DELIVERY_DEFAULT, type NotificationAudience, type NotificationEvent, type NotificationStatus, type PlatformDataScope, type QuietHours, UNREADABLE_TEXT, scopeIsRestricted, uniqueRecipients } from "@nozomi/domain";
 import { type Db, passengerCryptoOf } from "../db/context.ts";
 import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -10,6 +10,8 @@ import { type Page, type TimeCursor, toPage } from "../pagination.ts";
 type Row = Record<string, any>;
 
 export interface NewNotificationEvent {
+  /** 调用方要记下事件编号时自己生成（租户角色读不了发件箱，拿不到 returning）。不给由数据库生成 */
+  id?: string;
   event: NotificationEvent;
   /** 租户事务里必须是当前租户；平台员工的告警为 null */
   tenantId: string | null;
@@ -22,7 +24,7 @@ export interface NewNotificationEvent {
 
 /** 在当前事务里记一件要通知的事。业务回滚它就没有；重复的（同一个键）什么都不做。租户角色没有查询权限，所以不带冲突目标、不要 returning。 */
 export async function enqueueNotification(db: Db, event: NewNotificationEvent, now: Date): Promise<void> {
-  await db.query("insert into notification_events (tenant_id, event, order_id, dedupe_key, data, occurred_at) values ($1, $2, $3, $4, $5, $6) on conflict do nothing", [event.tenantId, event.event, event.orderId, event.dedupeKey, JSON.stringify(event.data ?? {}), now]);
+  await db.query("insert into notification_events (id, tenant_id, event, order_id, dedupe_key, data, occurred_at) values (coalesce($7::uuid, gen_random_uuid()), $1, $2, $3, $4, $5, $6) on conflict do nothing", [event.tenantId, event.event, event.orderId, event.dedupeKey, JSON.stringify(event.data ?? {}), now, event.id ?? null]);
 }
 
 export interface StoredNotificationEvent {
@@ -205,6 +207,11 @@ export async function updateRecipient(db: Db, notification: Pick<Notification, "
   await db.query("update notifications set recipient = $2, recipient_enc = $3 where id = $1", [notification.id, sealed.plain, sealed.enc]);
 }
 
+/** 收件人改成司机现在的邮箱（ADR 0058）。司机邮箱不是乘客信息，不加密（ADR 0057）。 */
+export async function updateDriverRecipient(db: Db, notificationId: string, recipient: string): Promise<void> {
+  await db.query("update notifications set recipient = $2, recipient_enc = null where id = $1 and audience = 'driver'", [notificationId, recipient]);
+}
+
 /** 改了用车时间：还在等的、有效期就是用车时间的记录跟着改。 */
 export async function rebaseServiceExpiry(db: Db, orderId: string, serviceAt: Date, events: readonly string[]): Promise<void> {
   await db.query("update notifications set expires_at = $2 where order_id = $1 and status = 'pending' and event = any($3::text[])", [orderId, serviceAt, events]);
@@ -299,26 +306,30 @@ export async function countWaitingNotifications(db: Db): Promise<number> {
 
 export interface TenantNotificationSettings {
   quietHours: QuietHours | null;
+  /** 司机链接发送方式（ADR 0058）；没有设置过是默认值 */
+  driverLinkDelivery: DriverLinkDeliveryMode;
   version: number;
 }
 
+const toSettings = (row: Row): TenantNotificationSettings => ({ quietHours: row["quiet_start"] === null ? null : { start: row["quiet_start"], end: row["quiet_end"] }, driverLinkDelivery: row["driver_link_delivery"], version: row["version"] });
+
 export async function findNotificationSettings(db: Db, tenantId: string): Promise<TenantNotificationSettings> {
-  const row = (await db.query<Row>("select quiet_start, quiet_end, version from tenant_notification_settings where tenant_id = $1", [tenantId])).rows[0];
-  if (row === undefined) return { quietHours: null, version: 0 };
-  return { quietHours: row["quiet_start"] === null ? null : { start: row["quiet_start"], end: row["quiet_end"] }, version: row["version"] };
+  const row = (await db.query<Row>("select quiet_start, quiet_end, driver_link_delivery, version from tenant_notification_settings where tenant_id = $1", [tenantId])).rows[0];
+  if (row === undefined) return { quietHours: null, driverLinkDelivery: DRIVER_LINK_DELIVERY_DEFAULT, version: 0 };
+  return toSettings(row);
 }
 
 /** 写入：`expectedVersion` 对不上返回 null（0 = 还没有设置过）。 */
-export async function saveNotificationSettings(db: Db, tenantId: string, quietHours: QuietHours | null, expectedVersion: number, now: Date): Promise<TenantNotificationSettings | null> {
+export async function saveNotificationSettings(db: Db, tenantId: string, quietHours: QuietHours | null, driverLinkDelivery: DriverLinkDeliveryMode, expectedVersion: number, now: Date): Promise<TenantNotificationSettings | null> {
   const start = quietHours?.start ?? null;
   const end = quietHours?.end ?? null;
   const result =
     expectedVersion === 0
-      ? await db.query<Row>("insert into tenant_notification_settings (tenant_id, quiet_start, quiet_end, updated_at) values ($1, $2, $3, $4) on conflict (tenant_id) do nothing returning quiet_start, quiet_end, version", [tenantId, start, end, now])
-      : await db.query<Row>("update tenant_notification_settings set quiet_start = $2, quiet_end = $3, updated_at = $4, version = version + 1 where tenant_id = $1 and version = $5 returning quiet_start, quiet_end, version", [tenantId, start, end, now, expectedVersion]);
+      ? await db.query<Row>("insert into tenant_notification_settings (tenant_id, quiet_start, quiet_end, updated_at, driver_link_delivery) values ($1, $2, $3, $4, $5) on conflict (tenant_id) do nothing returning quiet_start, quiet_end, driver_link_delivery, version", [tenantId, start, end, now, driverLinkDelivery])
+      : await db.query<Row>("update tenant_notification_settings set quiet_start = $2, quiet_end = $3, updated_at = $4, driver_link_delivery = $5, version = version + 1 where tenant_id = $1 and version = $6 returning quiet_start, quiet_end, driver_link_delivery, version", [tenantId, start, end, now, driverLinkDelivery, expectedVersion]);
   const row = result.rows[0];
   if (row === undefined) return null;
-  return { quietHours: row["quiet_start"] === null ? null : { start: row["quiet_start"], end: row["quiet_end"] }, version: row["version"] };
+  return toSettings(row);
 }
 
 // ---- 接收人 ----

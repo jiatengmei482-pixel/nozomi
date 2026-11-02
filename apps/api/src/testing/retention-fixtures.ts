@@ -138,9 +138,9 @@ export async function insertChange(api: TestApi, order: Seeded, status: string, 
   const now = api.clock.now();
   const decided = ["applied", "rejected", "expired", "failed", "cancelled"].includes(status);
   const rows = await api.db.owner.query(
-    `insert into order_changes (tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, confirm_due_at, requested_by, requested_at, decided_at, decision_note)
-     values ($1, $2, $3, false, $4::jsonb, $5::jsonb, 20000, 20000, $6, 'channel', $7, $8, $9) returning id`,
-    [order.tenantId, order.id, status, JSON.stringify(options.before ?? {}), JSON.stringify(options.after ?? {}), status === "pending_confirmation" ? now : null, now, decided ? now : null, options.decisionNote ?? null],
+    `insert into order_changes (tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, confirm_due_at, requested_by, requested_at, decided_at, decision_note, adjusting_at)
+     values ($1, $2, $3, false, $4::jsonb, $5::jsonb, 20000, 20000, $6, 'channel', $7, $8, $9, $10) returning id`,
+    [order.tenantId, order.id, status, JSON.stringify(options.before ?? {}), JSON.stringify(options.after ?? {}), status === "pending_confirmation" || status === "adjusting" ? now : null, now, decided ? now : null, options.decisionNote ?? null, status === "adjusting" ? now : null],
   );
   return rows.rows[0].id;
 }

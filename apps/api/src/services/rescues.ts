@@ -93,6 +93,8 @@ import { type ApprovalKind, requestApproval } from "./approvals.ts";
 import { consoleOrigin, platformActor, tenantActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import { abandonOpenChange } from "./order-changes.ts";
+import { addOrderTodo, enqueueDriverNotice } from "./order-notices.ts";
+import { resolveOpenOrderTodos } from "../repos/order-todos.ts";
 import { processRefunds } from "./order-money.ts";
 import { type OrderLog, SILENT_ORDER_LOG } from "./orders.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
@@ -219,6 +221,11 @@ export async function triggerRescueInTx(db: Db, order: Order, input: TriggerInpu
   });
   await insertOrderEvent(db, order, { fromStatus: order.status, toStatus: "rescue_pending", actor: eventActor(input.actor.type), reason: "RESCUE_TRIGGERED", occurredAt: now, detail: { trigger: input.trigger, penalty_bp: penalty.bp } });
   await enqueueTenantEvent(db, { tenantId: order.tenantId, type: "order.status_changed", orderId: order.id, data: { from_status: order.status, to_status: "rescue_pending", trigger: input.trigger } }, now);
+  // 原供应商和已派的司机：这张单不用再跑了（ADR 0060）
+  await enqueueNotification(db, { event: "order.rescue_started", tenantId: order.tenantId, orderId: order.id, dedupeKey: `order.rescue_started:${rescue.id}`, data: { rescue_id: rescue.id } }, now);
+  await enqueueDriverNotice(db, order, "order.driver_cancelled", { key: `rescue:${rescue.id}` }, now);
+  await resolveOpenOrderTodos(db, order.tenantId, order.id, now);
+  await addOrderTodo(db, order, "rescue_started", {}, now);
   await insertAuditLog(db, input.actor.origin, {
     tenantId: input.actor.type === "tenant_user" ? order.tenantId : null,
     resource: "rescue",

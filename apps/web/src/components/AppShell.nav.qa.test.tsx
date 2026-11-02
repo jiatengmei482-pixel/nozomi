@@ -40,6 +40,8 @@ const MENU_PAGES: Readonly<Record<string, readonly string[]>> = {
   orders: ["/platform/orders", "/platform/webhook-deliveries"],
   // 代传履约没有单独的页面：入口在订单详情里，看的权限就是看订单
   order_proxy: ["/platform/orders"],
+  // 代处理改单没有单独的页面：入口在订单详情里
+  order_change_decide: ["/platform/orders"],
   exceptions: ["/platform/exceptions"],
   rescues: ["/platform/rescues"],
   cancellation_policy: ["/platform/cancellation-policy"],

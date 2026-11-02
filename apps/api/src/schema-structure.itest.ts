@@ -106,6 +106,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     cancellation_policies: ["SELECT"],
     // 改单（ADR 0029）：供应商看得到改了什么；确认改期在平台事务里生效（要改用车时间和结算价）
     order_changes: ["SELECT"],
+    // 供应商后台的待办（ADR 0060）：只读，点「知道了」在平台事务里
+    order_todos: ["SELECT"],
     // 事后加收（ADR 0029）：供应商提交、撤回（触发器只许撤回异议期内的）
     order_extra_charges: ["INSERT", "SELECT", "UPDATE"],
     // 救援单、应扣款项（ADR 0031）：供应商只看；接 / 拒救援单在平台事务里做（租户编号只来自令牌）
@@ -127,6 +129,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     order_reviews: ["SELECT"],
     // 司机链接：吊销要改（ADR 0027）
     driver_links: ["INSERT", "SELECT", "UPDATE"],
+    // 司机链接邮件的发送请求（ADR 0058）：只能追加
+    driver_link_emails: ["INSERT", "SELECT"],
     // 司机、车辆：不删，停用（ADR 0027）
     drivers: ["INSERT", "SELECT", "UPDATE"],
     vehicles: ["INSERT", "SELECT", "UPDATE"],
@@ -208,6 +212,7 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 改单、改期的对外价、事后加收、退款（ADR 0029）：都不删；改期的对外价只追加；加收由供应商提交，平台改状态
     order_change_sales: ["INSERT", "SELECT"],
     order_changes: ["INSERT", "SELECT", "UPDATE"],
+    order_todos: ["INSERT", "SELECT", "UPDATE"],
     order_extra_charges: ["SELECT", "UPDATE"],
     order_refunds: ["INSERT", "SELECT", "UPDATE"],
     // 救援改派（ADR 0031）：救援、救援单、应扣款项要改状态，救援单的平台一侧只追加；都不删
@@ -229,6 +234,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
     // 进入救援时作废原来的司机链接（ADR 0031）：平台只改吊销的两列（触发器按语句检查）
     driver_links: ["SELECT", "UPDATE"],
+    // 司机链接邮件的发送请求（ADR 0058）：后台任务只记「没有发送记录就结束了」，触发器只放行那两列
+    driver_link_emails: ["SELECT", "UPDATE"],
     drivers: ["SELECT"],
     order_assignments: ["SELECT"],
     // 脱敏（ADR 0055）：触发器只放行手写的那一列，只有已脱敏的单才能改
@@ -335,12 +342,16 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   ...Object.fromEntries(["drivers", "vehicles", "order_assignments", "driver_links", "order_files", "order_contacts", "order_locations", "order_no_show_claims", "tenant_webhooks"].map((table) => [`${table}.${table}_platform_read`, { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null }])),
   // Webhook 投递：付款确认时排队、推送任务投递、运营后台手动重推（ADR 0027）
   "webhook_deliveries.webhook_deliveries_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
+  // 待办：改单、取消、救援都在平台事务里写（ADR 0060）
+  "order_todos.order_todos_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "notification_events.notification_events_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "notifications.notifications_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "tenant_notification_settings.tenant_notification_settings_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
   "webhook_attempts.webhook_attempts_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   // 进入救援时作废原来的司机链接（ADR 0031）
   "driver_links.driver_links_platform_revoke": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
+  "driver_link_emails.driver_link_emails_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  "driver_link_emails.driver_link_emails_platform_close": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   // 改单、事后加收：渠道和运营改单、供应商确认改期、客人异议、平台审核和扣款、定时任务（ADR 0029）
   "order_changes.order_changes_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },
   "order_extra_charges.order_extra_charges_platform": { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" },

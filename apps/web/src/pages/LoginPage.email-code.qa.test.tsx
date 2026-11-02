@@ -147,8 +147,8 @@ test("错误提示：过期、用尽、用过（后端都是 EMAIL_CODE_INVALID�
     resetBrowser();
   }
   assert.doesNotMatch(EMAIL_CODE_REJECTED_TEXT, /账号|停用|不存在|激活|次数/);
-  assert.match(emailCodeSentText(600), /10 分钟/);
-  assert.doesNotMatch(emailCodeSentText(600), /已发送到|停用|不存在|激活/);
+  assert.match(emailCodeSentText(600, "供应商后台"), /10 分钟/);
+  assert.doesNotMatch(emailCodeSentText(600, "供应商后台"), /已发送到|停用|不存在|激活/);
 });
 
 test("服务器出错、网络不通：保留已填的验证码（用户不用重新输），不说验证码错了", async () => {

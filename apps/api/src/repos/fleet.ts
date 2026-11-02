@@ -12,6 +12,8 @@ export interface Driver {
   id: string;
   name: string;
   phone: string;
+  /** 选填，个人信息：只有 `fleet.manage` 能看全，其余地方打码（ADR 0058） */
+  email: string | null;
   languages: string[];
   licenseExpiresOn: string;
   drivingYears: number | null;
@@ -22,7 +24,7 @@ export interface Driver {
   updatedAt: Date;
 }
 
-const DRIVER_COLUMNS = "d.tenant_id, d.id, d.name, d.phone, d.languages, d.license_expires_on::text as license_expires_on, d.driving_years, d.gold, d.status, d.version, d.created_at, d.updated_at";
+const DRIVER_COLUMNS = "d.tenant_id, d.id, d.name, d.phone, d.email, d.languages, d.license_expires_on::text as license_expires_on, d.driving_years, d.gold, d.status, d.version, d.created_at, d.updated_at";
 
 function toDriver(row: Row): Driver {
   return {
@@ -30,6 +32,7 @@ function toDriver(row: Row): Driver {
     id: row["id"],
     name: row["name"],
     phone: row["phone"],
+    email: row["email"],
     languages: row["languages"],
     licenseExpiresOn: row["license_expires_on"],
     drivingYears: row["driving_years"],
@@ -41,28 +44,29 @@ function toDriver(row: Row): Driver {
   };
 }
 
-export type DriverFields = Pick<Driver, "name" | "phone" | "languages" | "licenseExpiresOn" | "drivingYears" | "gold" | "status">;
+export type DriverFields = Pick<Driver, "name" | "phone" | "email" | "languages" | "licenseExpiresOn" | "drivingYears" | "gold" | "status">;
 
 export async function insertDriver(db: Db, tenantId: string, fields: DriverFields, now: Date): Promise<Driver> {
   const result = await db.query<Row>(
-    `insert into drivers as d (tenant_id, name, phone, languages, license_expires_on, driving_years, gold, status, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) returning ${DRIVER_COLUMNS}`,
-    [tenantId, fields.name, fields.phone, fields.languages, fields.licenseExpiresOn, fields.drivingYears, fields.gold, fields.status, now],
+    `insert into drivers as d (tenant_id, name, phone, languages, license_expires_on, driving_years, gold, status, created_at, updated_at, email)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10) returning ${DRIVER_COLUMNS}`,
+    [tenantId, fields.name, fields.phone, fields.languages, fields.licenseExpiresOn, fields.drivingYears, fields.gold, fields.status, now, fields.email],
   );
   return toDriver(result.rows[0] as Row);
 }
 
 export async function updateDriver(db: Db, tenantId: string, id: string, fields: DriverFields, now: Date): Promise<Driver> {
   const result = await db.query<Row>(
-    `update drivers d set name = $3, phone = $4, languages = $5, license_expires_on = $6, driving_years = $7, gold = $8, status = $9, version = version + 1, updated_at = $10
+    `update drivers d set name = $3, phone = $4, languages = $5, license_expires_on = $6, driving_years = $7, gold = $8, status = $9, email = $11, version = version + 1, updated_at = $10
       where d.tenant_id = $1 and d.id = $2 returning ${DRIVER_COLUMNS}`,
-    [tenantId, id, fields.name, fields.phone, fields.languages, fields.licenseExpiresOn, fields.drivingYears, fields.gold, fields.status, now],
+    [tenantId, id, fields.name, fields.phone, fields.languages, fields.licenseExpiresOn, fields.drivingYears, fields.gold, fields.status, now, fields.email],
   );
   return toDriver(result.rows[0] as Row);
 }
 
-export async function findDriver(db: Db, tenantId: string, id: string, options: { lock?: boolean } = {}): Promise<Driver | null> {
-  const result = await db.query<Row>(`select ${DRIVER_COLUMNS} from drivers d where d.tenant_id = $1 and d.id = $2 ${options.lock ? "for update" : ""}`, [tenantId, id]);
+/** `lock`：要改这一行。`share`：读到的内容到事务结束都不能变（生成邮件链接时用，改司机资料要等它提交，ADR 0058）。 */
+export async function findDriver(db: Db, tenantId: string, id: string, options: { lock?: boolean; share?: boolean } = {}): Promise<Driver | null> {
+  const result = await db.query<Row>(`select ${DRIVER_COLUMNS} from drivers d where d.tenant_id = $1 and d.id = $2 ${options.lock ? "for update" : options.share ? "for share" : ""}`, [tenantId, id]);
   const row = result.rows[0];
   return row === undefined ? null : toDriver(row);
 }

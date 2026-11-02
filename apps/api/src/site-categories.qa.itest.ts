@@ -124,6 +124,12 @@ async function order(body: Record<string, unknown>, key: string = randomUUID()) 
 }
 
 /** 询价 → 下单（成功），返回下单应答。 */
+/** 运营代供应商同意这次修改（M4-29 起地址、时间要同意才生效），返回同意之后客人看到的订单。 */
+async function approved(orderId: string, changeId: string, token: string): Promise<any> {
+  await ok(api.call("POST", `/platform/v1/orders/${orderId}/changes/${changeId}/confirm`, { token: await platformLogin(api, m.staff.operations.email), body: { note: "测试：同意才生效" } }));
+  return (await site.call("GET", "/site/v1/order", { token, ip: nextIp() })).body.order;
+}
+
 async function placed(body: Record<string, unknown>, addresses: Record<string, string>): Promise<any> {
   const quoted = await quote(body);
   assert.ok(quoted.quotes.length > 0, JSON.stringify(quoted));
@@ -239,7 +245,8 @@ test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填�
   assert.deepEqual([flight.status, issuesOf(flight)], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
   const changed = await patch({ pickup_address: "东京站丸之内北口", dropoff_address: "涩谷站八公口" });
   assert.equal(changed.status, 200, changed.text);
-  assert.deepEqual([changed.body.order.pickup.address, changed.body.order.dropoff.address, changed.body.order.pickup.lng, changed.body.order.dropoff.lat], ["东京站丸之内北口", "涩谷站八公口", PICKUP.lng, DROPOFF.lat]);
+  const changedOrder = await approved(p2p.order.id, changed.body.change.id, token);
+  assert.deepEqual([changedOrder.pickup.address, changedOrder.dropoff.address, changedOrder.pickup.lng, changedOrder.dropoff.lat], ["东京站丸之内北口", "涩谷站八公口", PICKUP.lng, DROPOFF.lat]);
 
   const charter = await placed(charterBody(), { pickup_address: "东京站大饭店" });
   await payFor(charter.order.id);
@@ -249,7 +256,8 @@ test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填�
   assert.deepEqual([dropoff.status, issuesOf(dropoff)], [400, [["/dropoff_address", "NOT_APPLICABLE"]]]);
   const pickup = await site.call("PATCH", "/site/v1/order", { token: charterToken, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { pickup_address: "帝国饭店" } });
   assert.equal(pickup.status, 200, pickup.text);
-  assert.deepEqual([pickup.body.order.pickup.address, pickup.body.order.dropoff, pickup.body.order.package_hours], ["帝国饭店", null, 8]);
+  const pickupOrder = await approved(charter.order.id, pickup.body.change.id, charterToken);
+  assert.deepEqual([pickupOrder.pickup.address, pickupOrder.dropoff, pickupOrder.package_hours], ["帝国饭店", null, 8]);
 });
 
 test("包车改期：改到当地 23:30（跨午夜跑完）价不变、套餐不变；改到 4 小时套餐到期（12-31）之后 409 CHANGE_NOT_SERVICEABLE，订单不变", async () => {
@@ -260,8 +268,9 @@ test("包车改期：改到当地 23:30（跨午夜跑完）价不变、套餐�
   const date = before.service_local.slice(0, 10);
   const moved = await site.call("PATCH", "/site/v1/order", { token, ip: nextIp(), headers: { "if-match": `"${before.version}"` }, body: { service_time: `${date}T23:30:00+09:00` } });
   assert.equal(moved.status, 200, moved.text);
+  const movedOrder = await approved(eight.order.id, moved.body.change.id, token);
   assert.deepEqual(
-    [moved.body.order.service_local, moved.body.order.service_date, moved.body.order.service_time, moved.body.order.package_hours, moved.body.order.price.total.amount],
+    [movedOrder.service_local, movedOrder.service_date, movedOrder.service_time, movedOrder.package_hours, movedOrder.price.total.amount],
     [`${date}T23:30`, date, new Date(`${date}T14:30:00Z`).toISOString(), 8, before.price.total.amount],
   );
 

@@ -280,6 +280,7 @@ test("订单详情（运营后台）：审核加收可以部分通过；客服�
 
 const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   id: ORDER_ID,
+  pending_change: false,
   order_no: "NZ20261007ABCDEFGH",
   status: "completed",
   category: "airport_transfer",
@@ -320,7 +321,7 @@ const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   ...changes,
 });
 
-const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: ExtraCharge[] = []): TenantOrderDetail => ({
+const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: ExtraCharge[] = []): TenantOrderDetail => ({ driver_link_email: { state: "no_link", recipient_masked: null, error_code: null, error_message: null, requested_at: null, sent_at: null, address_changed: false, can_resend: false },
   order,
   events: [],
   records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null },
@@ -330,7 +331,7 @@ const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: Ex
 });
 
 test("供应商订单详情：等确认的改期写出改前改后和截止时间，调度能确认；取消的单只写扣款比例和自己应得的", async () => {
-  const change: OrderChange = { id: CHANGE_ID, status: "pending_confirmation", reschedule: true, before: { service_time: "2026-10-20T01:00:00.000Z", service_local: "2026-10-20T10:00" }, after: { service_time: "2026-10-21T01:00:00.000Z", service_local: "2026-10-21T10:00" }, settlement_before: money("19800"), settlement_after: money("23760"), confirm_due_at: "2026-10-19T00:30:00.000Z", requested_by: "channel", requested_at: "2026-10-19T00:00:00.000Z", decided_at: null, decision_note: null, dispatch_conflict: false };
+  const change: OrderChange = { adjusting_at: null, decided_by_platform: false, id: CHANGE_ID, status: "pending_confirmation", reschedule: true, before: { service_time: "2026-10-20T01:00:00.000Z", service_local: "2026-10-20T10:00" }, after: { service_time: "2026-10-21T01:00:00.000Z", service_local: "2026-10-21T10:00" }, settlement_before: money("19800"), settlement_after: money("23760"), confirm_due_at: "2026-10-19T00:30:00.000Z", requested_by: "channel", requested_at: "2026-10-19T00:00:00.000Z", decided_at: null, decision_note: null, dispatch_conflict: false };
   let confirmed = false;
   open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
     if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, tenantDetail(tenantOrder({ status: "confirmed" }), [confirmed ? { ...change, status: "applied" } : change]));
@@ -341,11 +342,11 @@ test("供应商订单详情：等确认的改期写出改前改后和截止时�
     return null;
   }, "tenant");
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
-  const section = screen.getByRole("heading", { name: "改单" }).closest("section") as HTMLElement;
+  const section = screen.getByRole("heading", { name: "修改记录" }).closest("section") as HTMLElement;
   assert.match(section.textContent ?? "", /用车时间：.*→.*；结算价 19,800 JPY → 23,760 JPY/);
-  assert.match(section.textContent ?? "", /请在 .* 之前确认/);
-  await user().click(within(section).getByRole("button", { name: "确认改期" }));
-  assert.ok(await screen.findByText("已确认改期"));
+  assert.match(section.textContent ?? "", /请在 .* 之前处理/);
+  await user().click(within(section).getByRole("button", { name: "同意" }));
+  assert.ok(await screen.findByText("已同意，订单已更新"));
   await waitFor(() => assert.match(section.textContent ?? "", /已生效/));
 
   resetBrowser();
@@ -355,6 +356,104 @@ test("供应商订单详情：等确认的改期写出改前改后和截止时�
   assert.match(rules.textContent ?? "", /商务：用车前 ≥ 48 小时 免费/);
   assert.match(rules.textContent ?? "", /你应得9,900 JPY（结算价 × 50%）/);
   assert.doesNotMatch(document.body.textContent ?? "", /对外价|退给客人|21,780/);
+});
+
+test("供应商订单详情：调整中只能标一次；拒绝要写原因且说明不给客人看；已派司机突出「需调整司机」，没邮箱提示调度员自己联系；只读角色没有按钮", async () => {
+  const change: OrderChange = { adjusting_at: null, decided_by_platform: false, id: CHANGE_ID, status: "pending_confirmation", reschedule: false, before: { passengers: 2 }, after: { passengers: 3 }, settlement_before: money("19800"), settlement_after: money("19800"), confirm_due_at: "2026-10-20T01:00:00.000Z", requested_by: "channel", requested_at: stamps.updated_at, decided_at: null, decision_note: null, dispatch_conflict: false };
+  let current = change;
+  const order = tenantOrder({ status: "assigned", pending_change: true, dispatch: { ...tenantOrder().dispatch, driver: { id: "d", name: "佐藤一郎" } as never } });
+  const decided: unknown[] = [];
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, { ...tenantDetail(order, [current]), driver_link_email: { state: "no_email", recipient_masked: null, error_code: null, error_message: null, requested_at: null, sent_at: null, address_changed: false, can_resend: false } });
+    if (call.method === "POST" && call.url.pathname.endsWith("/adjusting")) {
+      current = { ...change, status: "adjusting" };
+      return json(200, { change: current });
+    }
+    if (call.method === "POST" && call.url.pathname.endsWith("/reject")) {
+      decided.push(call.body);
+      current = { ...change, status: "rejected" };
+      return json(200, { change: current });
+    }
+    return null;
+  }, "tenant");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.ok(screen.getByText(/^修改待确认：/));
+  const section = screen.getByRole("heading", { name: "修改记录" }).closest("section") as HTMLElement;
+  assert.match(section.textContent ?? "", /需调整司机：这位司机没有邮箱/);
+  await user().click(within(section).getByRole("button", { name: "调整中" }));
+  await waitFor(() => assert.match(section.textContent ?? "", /调整中 人数：2 → 3/));
+  assert.equal(within(section).queryByRole("button", { name: "调整中" }), null, "只能标一次");
+  await user().click(within(section).getByRole("button", { name: "拒绝" }));
+  const dialog = await screen.findByRole("dialog");
+  assert.match(dialog.textContent ?? "", /不会给客人看/);
+  await user().click(within(dialog).getByRole("button", { name: "确认拒绝" }));
+  assert.ok(await within(dialog).findByText("请写拒绝原因"));
+  assert.deepEqual(decided, [], "没写原因不发请求");
+  await user().type(within(dialog).getByRole("textbox", { name: /拒绝原因/ }), "那天车都派出去了");
+  await user().click(within(dialog).getByRole("button", { name: "确认拒绝" }));
+  await waitFor(() => assert.deepEqual(decided, [{ note: "那天车都派出去了" }]));
+
+  resetBrowser();
+  current = change;
+  open(`/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, tenantDetail(order, [change])) : null), "tenant");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(screen.queryByRole("button", { name: "同意" }), null);
+  assert.equal(screen.queryByRole("button", { name: "拒绝" }), null);
+});
+
+test("供应商首页和菜单：待办和角标；要决定的没有「知道了」；已经发生的点了就消失；没有待办不显示", async () => {
+  const base = { order_status: "assigned", order_no: "NZ20261007ABCDEFGH", order_id: ORDER_ID, service_local: "2026-10-20T10:00", timezone: "Asia/Tokyo", created_at: stamps.updated_at };
+  const request = { ...base, id: "11111111-1111-4111-8111-111111111111", kind: "change_request", change_id: CHANGE_ID, change_status: "pending_confirmation", fields: ["service_time"], needs_driver_adjustment: true, driver_name: "佐藤一郎", driver_notice: "manual", confirm_due_at: "2026-10-20T01:00:00.000Z" };
+  const cancelled = { ...base, id: "22222222-2222-4222-8222-222222222222", kind: "order_cancelled", change_id: null, change_status: null, fields: [], needs_driver_adjustment: true, driver_name: "佐藤一郎", driver_notice: "email", confirm_due_at: null };
+  let items = [request, cancelled];
+  const acked: string[] = [];
+  open("/", "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/tenant/v1/order-todos") return json(200, { total: items.length, change_requests: 1, items });
+    if (call.method === "POST" && call.url.pathname.endsWith("/ack")) {
+      acked.push(call.url.pathname);
+      items = [request];
+      return json(200, { ok: true });
+    }
+    return null;
+  }, "tenant");
+  const title = await screen.findByRole("heading", { name: "订单待办（2）" });
+  const section = title.closest("section") as HTMLElement;
+  assert.match(section.textContent ?? "", /客人申请修改，等你处理（用车时间）/);
+  assert.match(section.textContent ?? "", /设置了手动发送.*请马上联系他/);
+  assert.match(section.textContent ?? "", /订单已取消/);
+  assert.ok((await screen.findAllByLabelText("2 条待办")).length > 0, "菜单角标");
+  const buttons = within(section).getAllByRole("button", { name: "知道了" });
+  assert.equal(buttons.length, 1, "要决定的不能只点知道了");
+  await user().click(buttons[0] as HTMLElement);
+  await waitFor(() => assert.equal(acked.length, 1));
+  assert.ok(await screen.findByRole("heading", { name: "订单待办（1）" }));
+});
+
+test("运营后台：有 order.change_decide 才能代处理，原因必填；客服看不到按钮", async () => {
+  const change = { adjusting_at: null, decided_by_platform: false, id: CHANGE_ID, status: "pending_confirmation", reschedule: false, before: { passengers: 2 }, after: { passengers: 3 }, settlement_before: money("19800"), settlement_after: money("19800"), sell_before: null, sell_after: null, confirm_due_at: "2026-10-20T01:00:00.000Z", requested_by: "channel", requested_at: stamps.updated_at, decided_at: null, decision_note: null, dispatch_conflict: false };
+  const posted: unknown[] = [];
+  const handler: Route = (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, platformDetail(platformOrder(), { changes: [change] as PlatformOrderDetail["changes"] }));
+    if (call.method === "POST" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}/changes/${CHANGE_ID}/confirm`) {
+      posted.push(call.body);
+      return json(200, { change: { ...change, status: "applied", decided_by_platform: true } });
+    }
+    return null;
+  };
+  open(`/platform/orders/${ORDER_ID}`, "operations", handler, "platform");
+  await user().click(await screen.findByRole("button", { name: "代同意" }));
+  const dialog = await screen.findByRole("dialog");
+  await user().click(within(dialog).getByRole("button", { name: "确认" }));
+  assert.ok(await within(dialog).findByText(/请写原因/));
+  assert.deepEqual(posted, []);
+  await user().type(within(dialog).getByRole("textbox", { name: /原因/ }), "电话联系过供应商");
+  await user().click(within(dialog).getByRole("button", { name: "确认" }));
+  await waitFor(() => assert.deepEqual(posted, [{ note: "电话联系过供应商" }]));
+
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "customer_service", handler, "platform");
+  await screen.findByRole("heading", { name: "改单" });
+  assert.equal(screen.queryByRole("button", { name: "代同意" }), null);
 });
 
 test("供应商订单详情：已完成的单能提交加收（接送机只有等待、加停靠点、加附加服务），先传票据再提交；异议期内能撤回；只读角色没有按钮", async () => {

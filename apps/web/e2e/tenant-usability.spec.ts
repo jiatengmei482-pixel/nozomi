@@ -134,6 +134,28 @@ test("库存日历：过去的「没设」只写「没设」，没有三角和�
   }
 });
 
+test("手机上打开日历：数据比标题拿焦点先到时，焦点不把页面从今天拉回顶部（价格、库存）", async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const world = await createWorld(request);
+  const supplier = await createSupplier(request, world);
+  const product = await createProductByApi(request, supplier, world, "airport_transfer");
+  const today = await todayOf(request, supplier, product.id);
+  await fixedPrice(request, supplier, world, product.id, today);
+  await limitedStock(request, supplier, product.id, today, 40);
+  await loginAs(page, "tenant", supplier.tenant.adminEmail, supplier.tenant.password);
+  await page.setViewportSize({ width: 375, height: 667 });
+  // 把「晚一帧」拉长到 1 秒，让这个先后顺序每次都发生（CI 上是偶尔）
+  await page.addInitScript(() => {
+    window.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 1000);
+  });
+  for (const [path, id] of [["prices/calendar", "calendar-day"], ["inventory", "inventory-day"]] as const) {
+    await page.goto(`/products/${product.id}/${path}`);
+    await expect(page.locator(`#${id}-${today}`)).toHaveAttribute("aria-label", /今天/);
+    await expect(page.getByRole("heading", { level: 2 }).first()).toBeFocused({ timeout: 5_000 });
+    await expectInViewport(page, `#${id}-${today}`, `${path}手机上的今天`);
+  }
+});
+
 test("手机上价格页底部的操作栏最多两行，不到屏幕的四分之一；按钮都看得到、用键盘按得到", async ({ page, request }) => {
   test.setTimeout(90_000);
   const world = await createWorld(request);

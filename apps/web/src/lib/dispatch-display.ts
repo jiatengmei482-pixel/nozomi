@@ -2,7 +2,7 @@
  * 派车、司机 H5、Webhook 页面上的显示（M3-02）：用车时间按服务城市的时区（docs/design/04-data-display.md 第 4 节）、枚举的中文、错误码的说明。
  */
 import { LANDING_SOURCE_NAMES, NO_SHOW_ITEM_NAMES, type NoShowItem, TENANT_WEBHOOK_EVENT_NAMES, type TenantWebhookEvent } from "@nozomi/domain";
-import type { LandingSource, TenantOrder } from "../api/dispatch.ts";
+import type { DriverLinkEmail, LandingSource, TenantOrder } from "../api/dispatch.ts";
 
 export const ORDER_LIST_PATH = "/orders";
 export const DRIVER_LIST_PATH = "/fleet/drivers";
@@ -17,6 +17,37 @@ export function orderPath(id: string): string {
 }
 
 /** 某个时刻在某个时区的 `YYYY-MM-DD HH:mm`。时区换算只用 Intl（规范第 4 节）。 */
+export interface DriverLinkEmailNotice {
+  kind: "info" | "warning" | "danger" | "success";
+  text: string;
+}
+
+/**
+ * 司机链接邮件的发送状态的说法（ADR 0058）。只有「邮件服务器已接收」，不能写「司机已收到」：SMTP 不知道这件事。
+ */
+export function driverLinkEmailNotice(email: Pick<DriverLinkEmail, "state" | "recipient_masked" | "error_code" | "error_message" | "address_changed">): DriverLinkEmailNotice {
+  const to = email.recipient_masked ?? "司机的邮箱";
+  switch (email.state) {
+    case "sent":
+      return { kind: "success", text: `已自动发到 ${to}（邮件服务器已接收）。司机没有回应的话，请再联系他。` };
+    case "pending":
+      if (email.error_code === "NOT_CONFIGURED") return { kind: "warning", text: `${email.error_message ?? "邮件发送还没有配置好，请先复制链接手动发给司机"}。配置好后系统会发到 ${to}。` };
+      if (email.error_code !== null) return { kind: "warning", text: `暂时没发出去，系统会自动重试（发到 ${to}）。着急的话请复制链接手动发。` };
+      return { kind: "info", text: `正在自动发到 ${to}，等待邮件服务器接收。` };
+    case "failed":
+      return { kind: "danger", text: `发送失败：${email.error_message ?? "请复制链接手动发给司机"}` };
+    case "manual":
+      return { kind: "info", text: "当前设置是手动发送，请复制链接发给司机。" };
+    case "no_email":
+      return { kind: "warning", text: "这位司机没有邮箱，请复制链接手动发。需要自动发的话，到「车队 → 司机」补上邮箱。" };
+    case "not_sent":
+      if (email.address_changed) return { kind: "warning", text: `司机的邮箱改过了，之前那封邮件里的链接已作废。请点「重发邮件」发到 ${to}，或复制链接手动发。` };
+      return { kind: "info", text: `这条链接还没有发邮件。可以点「重发邮件」发到 ${to}，或复制链接手动发。` };
+    case "no_link":
+      return { kind: "info", text: "现在没有有效的司机链接，要先重新生成才能发。" };
+  }
+}
+
 export function formatInZone(iso: string | null, timeZone: string): string {
   if (iso === null) return "—";
   const date = new Date(iso);

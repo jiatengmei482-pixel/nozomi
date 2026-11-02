@@ -260,7 +260,7 @@ const cases: Case[] = [
     block: async (o) => remember(o, await insertException(api, o, status)),
     clear: (o) => q("update order_exceptions set status = 'closed', close_kind = 'cleared', closed_at = $2, assignee_id = null, claimed_at = null where id = $1", [ref(o), api.clock.now()]),
   })),
-  ...["awaiting_payment", "pending_confirmation"].map((status): Case => ({
+  ...["awaiting_payment", "pending_confirmation", "adjusting"].map((status): Case => ({
     name: `改单状态 ${status}`,
     reason: "open_work",
     block: async (o) => remember(o, await insertChange(api, o, status)),

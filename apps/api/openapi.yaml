@@ -6984,12 +6984,13 @@ paths:
       operationId: changeSalesOrder
       summary: 改单
       description: |
-        客人改单（ADR 0029，需求「客人修改订单规则」「改单补充」）。`If-Match` 带订单的 `version`。只给要改的字段：
-        - 航班号、乘客信息、即时通讯、备注、上下车点的地址文字、人数行李（车型容量内）：直接改，推 `order.changed` 给供应商；
-        - `service_time`（日期或时间）：同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补收差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，没改），便宜了退差价；
-          原来的或新的用车时间离现在不到 24 小时：供应商 30 分钟内确认才生效（`change.status` = `pending_confirmation`），拒绝或超时没确认的，补收的差价退回，客人可以按 `CHANGE_NOT_CONFIRMED` 免费取消；
-        - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标不能改（取消重下）。
-        一张单同时只能有一个没结论的改单（409 `CHANGE_IN_PROGRESS`）。
+        客人改单（ADR 0029、0060）。`If-Match` 带订单的 `version`。只给要改的字段：
+        - 乘客信息、即时通讯、备注：**直接生效**，通知供应商和已派的司机；
+        - `service_time`、`pickup_address`、`dropoff_address`、`flight_no`、`passengers`、`luggage`：**返回 200 但订单内容不变**，生成修改申请（`change.status` = `pending_confirmation`），供应商同意才生效，确认前原预约有效。一次提交里两类都有就拆成两次改单，`change` 返回申请那一次；
+        - `service_time` 同一家供应商按新时间重新报价（不重新比价），对外价按原加价比例和汇率快照；贵了先用保存的支付方式补差价（扣不到 402 `CHANGE_PAYMENT_DECLINED`，这时联系信息已生效、其余没改），便宜了同意时退差价；报不出价 409 `CHANGE_NOT_SERVICEABLE`；
+        - 进入最早用车时间前 24 小时后 30 分钟内没结论的申请失效（`expired`）。拒绝或失效：差价退回，只有用车前 24 小时内提出的改期，客人才能按 `CHANGE_NOT_CONFIRMED` 免费取消（`free_cancel_available`），其他按取消政策；
+        - 出了免费取消期只能改航班号和乘客信息（409 `CHANGE_NOT_ALLOWED`）；超出车型容量 422 `CHANGE_REQUIRES_REBOOK`；车型、品类、城市、坐标接口里没有（400），按取消重下。
+        有申请没结论时，履约字段 409 `CHANGE_IN_PROGRESS`；取消不受影响，联系信息照常（备注仍要在免费取消期内）。结果在 `changes[].status`：`adjusting` 表示供应商正在协调。
       security:
         - salesToken: []
       parameters:
@@ -7054,7 +7055,7 @@ paths:
       summary: 退款试算
       description: |
         按这一刻、这个原因算取消要扣多少、退多少（客人支付币种）：按下单时这一单的取消阶梯（平台统一，按品类和车型级别），离用车还有多少毫秒落在哪一档。
-        `reason=CHANGE_NOT_CONFIRMED`（改期被供应商拒绝或 30 分钟没确认）免费。待支付的单不涉及钱。服务已开始、已取消的 `cancellable` 为 false。只查得到本渠道的单。
+        `reason=CHANGE_NOT_CONFIRMED`（用车前 24 小时内提出的改期被供应商拒绝或没确认，ADR 0060）免费，不符合条件 409。待支付的单不涉及钱。服务已开始、已取消的 `cancellable` 为 false。只查得到本渠道的单。
       security:
         - salesToken: []
       parameters:
@@ -7066,6 +7067,12 @@ paths:
             enum: [ GUEST_REQUEST, CHANGE_NOT_CONFIRMED ]
             default: GUEST_REQUEST
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:
@@ -7379,8 +7386,8 @@ paths:
     post:
       tags: [ 订单 ]
       operationId: confirmTenantOrderChange
-      summary: 确认客人的改期
-      description: 需要操作 `order.dispatch`。用车前 24 小时内的改期要供应商 30 分钟内确认才生效；过了 30 分钟 409 `CHANGE_CONFIRMATION_EXPIRED`（按没确认处理，补收的差价退给客人，客人可以免费取消）。
+      summary: 同意客人的修改申请
+      description: 需要操作 `order.dispatch`。同意后订单才更新，通知客人和司机，改期时司机链接有效期按新时间重算。过了期限 409 `CHANGE_CONFIRMATION_EXPIRED`（记为没确认，差价退回）。新日期满了 409 `CHANGE_NOT_SERVICEABLE`，申请留着，可以加库存后再同意或拒绝。
       security:
         - tenantToken: []
       parameters:
@@ -7425,8 +7432,58 @@ paths:
     post:
       tags: [ 订单 ]
       operationId: rejectTenantOrderChange
-      summary: 拒绝客人的改期
-      description: 需要操作 `order.dispatch`。拒绝后补收的差价退给客人，客人可以免费取消后重新下单（不计入履约失败）。
+      summary: 拒绝客人的修改申请
+      description: 需要操作 `order.dispatch`，**原因必填**（只留在后台和审计，不给客人看）。拒绝后补收的差价退给客人，原订单不变，不计入履约失败。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ change ]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/orders/{id}/changes/{changeId}/adjusting:
+    post:
+      tags: [ 订单 ]
+      operationId: markTenantOrderChangeAdjusting
+      summary: 把修改申请标记为调整中
+      description: |
+        需要操作 `order.dispatch`。正在换司机或协调时用，**只能标一次**，期限见 ADR 0060：离最早用车超过 24 小时最多再给 24 小时，24 小时内给 2 小时（不会变短），都不晚于用车前 1 小时。
       security:
         - tenantToken: []
       parameters:
@@ -7462,7 +7519,64 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`"
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`、`ORDER_STATE_INVALID`、`CHANGE_NOT_SERVICEABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/order-todos:
+    get:
+      tags: [ 订单 ]
+      operationId: listTenantOrderTodos
+      summary: 待办和角标
+      description: |
+        需要操作 `order.read`。首页卡片和订单菜单角标用。客人的修改申请要决定（`change_request`），其余是已经发生、看过点「知道了」的事。没有客人信息和价格。用车时间过了 3 天还没点的不再计入（要决定的除外）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 没处理的待办，要决定的排前面，最多 50 条
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ total, change_requests, items ]
+                properties:
+                  total:
+                    type: integer
+                  change_requests:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrderTodo"
+  /tenant/v1/order-todos/{id}/ack:
+    post:
+      tags: [ 订单 ]
+      operationId: acknowledgeTenantOrderTodo
+      summary: 标记待办「知道了」
+      description: 需要操作 `order.dispatch`。要决定的那种不能这样关（409 `TODO_NEEDS_DECISION`）；重复点没关系；别家的 404。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 已标记
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ ok ]
+                properties:
+                  ok:
+                    type: boolean
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`TODO_NEEDS_DECISION`"
           content:
             application/json:
               schema:
@@ -7547,6 +7661,12 @@ paths:
               - "true"
               - "false"
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:
@@ -7783,6 +7903,153 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "503":
           $ref: "#/components/responses/PassengerEncryptionUnavailable"
+  /platform/v1/orders/{id}/changes/{changeId}/confirm:
+    post:
+      tags: [ 订单中心 ]
+      operationId: platformChangeConfirm
+      summary: 代供应商同意修改申请
+      description: 需要操作 `order.change_decide`（超级管理员、运营）。供应商联系不上或临近用车时用，**必填原因**，写审计；不是双人复核（ADR 0060）。和供应商同时处理时后到的 409 `CHANGE_NOT_PENDING`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ change ]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`、`ORDER_STATE_INVALID`、`CHANGE_NOT_SERVICEABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/changes/{changeId}/reject:
+    post:
+      tags: [ 订单中心 ]
+      operationId: platformChangeReject
+      summary: 代供应商拒绝修改申请
+      description: 需要操作 `order.change_decide`（超级管理员、运营）。供应商联系不上或临近用车时用，**必填原因**，写审计；不是双人复核（ADR 0060）。和供应商同时处理时后到的 409 `CHANGE_NOT_PENDING`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ change ]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`、`ORDER_STATE_INVALID`、`CHANGE_NOT_SERVICEABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/orders/{id}/changes/{changeId}/adjusting:
+    post:
+      tags: [ 订单中心 ]
+      operationId: platformChangeAdjusting
+      summary: 代供应商标记调整中
+      description: 需要操作 `order.change_decide`（超级管理员、运营）。供应商联系不上或临近用车时用，**必填原因**，写审计；不是双人复核（ADR 0060）。和供应商同时处理时后到的 409 `CHANGE_NOT_PENDING`。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: changeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ note ]
+              properties:
+                note:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 这次改单
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ change ]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/OrderChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`CHANGE_NOT_PENDING`、`CHANGE_CONFIRMATION_EXPIRED`、`ORDER_STATE_INVALID`、`CHANGE_NOT_SERVICEABLE`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/orders/{id}/extra-charges/{chargeId}/decide:
     post:
       tags:
@@ -8034,6 +8301,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
+        - name: change
+          in: query
+          description: "`pending`：只看有修改申请等处理的"
+          schema:
+            type: string
+            enum: [ pending ]
         - name: status
           in: query
           schema:
@@ -8099,8 +8372,10 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email ]
                 properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
                   order:
                     $ref: "#/components/schemas/TenantOrder"
                   rescue:
@@ -8976,7 +9251,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, change, driver_link ]
+                required: [ order, change, driver_link, driver_link_email ]
                 properties:
                   order:
                     $ref: "#/components/schemas/TenantOrder"
@@ -8986,6 +9261,11 @@ paths:
                   driver_link:
                     oneOf:
                       - $ref: "#/components/schemas/IssuedDriverLink"
+                      - type: "null"
+                  driver_link_email:
+                    description: 司机链接邮件的发送状态（ADR 0058）；什么都没变为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/DriverLinkEmail"
                       - type: "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
@@ -9021,10 +9301,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ driver_link ]
+                required: [ driver_link, driver_link_email ]
                 properties:
                   driver_link:
                     $ref: "#/components/schemas/IssuedDriverLink"
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -9047,6 +9329,67 @@ paths:
           description: 已吊销
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/driver-link/email:
+    get:
+      tags: [ 派车 ]
+      operationId: getDriverLinkEmail
+      summary: 司机链接邮件的发送状态
+      description: 需要操作 `order.read`。地址打码，没有令牌。「已发送」只表示邮件服务器已接收，不代表司机已收到（ADR 0058）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 发送状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ driver_link_email ]
+                properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [ 派车 ]
+      operationId: resendDriverLinkEmail
+      summary: 重发司机链接邮件
+      description: |
+        需要操作 `order.dispatch`。只是再发一封邮件（发到司机现在的邮箱），现有的链接都不会失效；排着没发的旧信不再发。写审计日志。
+        限速：同一张单 60 秒一次、一小时 5 次；同一家供应商一小时 200 次。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "202":
+          description: 已排队；真正发信在后台，结果看发送状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ driver_link_email ]
+                properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`DRIVER_LINK_NOT_ACTIVE`（要先重新生成）、`DRIVER_LINK_EXPIRED`、`DRIVER_LINK_EMAIL_MANUAL`（设置是手动发送）、`DRIVER_EMAIL_MISSING`、`DRIVER_DISABLED`（司机已停用，不占限速）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`RATE_LIMITED`，`details.retry_after_seconds` 是还要等几秒"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/orders/{id}/events:
     post:
       tags: [ 派车 ]
@@ -9570,8 +9913,8 @@ paths:
     put:
       tags: [ Notification ]
       operationId: updateTenantNotificationSettings
-      summary: 改免打扰时段
-      description: 需要操作 `notification.manage`（管理员）。时段是东京时间，可以跨午夜；`null` 表示不设。用车当天的通知不受限。已经设置过的要带 `If-Match`（版本号）。写审计日志。
+      summary: 改免打扰时段和司机链接发送方式
+      description: 需要操作 `notification.manage`（管理员）。时段是东京时间，可以跨午夜；`null` 表示不设。用车当天的通知不受限。`driver_link_delivery` 不给表示不改。已经设置过的要带 `If-Match`（版本号）。写审计日志。
       security:
         - tenantToken: []
       parameters:
@@ -9592,6 +9935,8 @@ paths:
                   oneOf:
                     - type: "null"
                     - $ref: "#/components/schemas/QuietHours"
+                driver_link_delivery:
+                  $ref: "#/components/schemas/DriverLinkDelivery"
       responses:
         "200":
           description: 保存后的设置
@@ -11304,6 +11649,12 @@ paths:
             enum: [ GUEST_REQUEST, CHANGE_NOT_CONFIRMED ]
             default: GUEST_REQUEST
       responses:
+        "409":
+          description: "`FREE_CANCEL_NOT_APPLICABLE`：不符合「修改没确认」免费取消的条件（和实际取消同一道判断）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "200":
           description: 试算结果
           content:
@@ -16843,6 +17194,7 @@ components:
         - order.manage
         - order.proxy_fulfilment
         - order.proxy_review
+        - order.change_decide
         - payment.manage
         - cancellation_policy.manage
         - cancellation_policy.review
@@ -17740,6 +18092,7 @@ components:
             - login_failed
             - email_code_request
             - email_code_failed
+            - mark_adjusting
             - logout
             - create
             - invite
@@ -21483,8 +21836,11 @@ components:
       additionalProperties: false
       description: |
         供应商看到的订单：行程、乘客、结算价和明细。**没有渠道、对外价、加价比例、汇率**（规则 4）。只有付过款的单。
-      required: [ id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
+      required: [ pending_change, id, order_no, status, category, city_id, place_id, direction, vehicle_group_id, package_hours, service_time, service_local, timezone, service_date, urgent, passengers, luggage, pickup, dropoff, addons, driver_language, flight_no, passenger, messaging, notes, free_wait_minutes, created_at, confirmed_at, cancelled_at, cancel_reason, product_id, product_version, settlement, dispatch, fulfilment, landing, cancel_policy, cancellation, version ]
       properties:
+        pending_change:
+          type: boolean
+          description: 有修改申请在等处理（页面显示「修改待确认」）。确认前订单内容还是原来的（ADR 0060）
         id:
           type: string
           format: uuid
@@ -22011,15 +22367,64 @@ components:
                 - $ref: "#/components/schemas/SalesMoney"
                 - type: "null"
         - type: "null"
+    OrderTodo:
+      type: object
+      additionalProperties: false
+      description: 供应商后台的一条待办。只有编号、字段名和司机情况，没有客人信息和价格（规则 4）。
+      required: [ id, kind, order_id, order_no, order_status, service_local, timezone, change_id, change_status, fields, needs_driver_adjustment, driver_name, driver_notice, confirm_due_at, created_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [ change_request, contact_changed, change_applied, change_expired, order_cancelled, rescue_started ]
+        order_id:
+          type: string
+          format: uuid
+        order_no:
+          type: string
+        order_status:
+          $ref: "#/components/schemas/OrderStatus"
+        service_local:
+          type: string
+        timezone:
+          type: string
+        change_id:
+          type: [ string, "null" ]
+          format: uuid
+        change_status:
+          oneOf:
+            - $ref: "#/components/schemas/OrderChangeStatus"
+            - type: "null"
+        fields:
+          type: array
+          items:
+            type: string
+        needs_driver_adjustment:
+          type: boolean
+          description: 当时已派司机：页面突出「需调整司机」
+        driver_name:
+          type: [ string, "null" ]
+        driver_notice:
+          type: [ string, "null" ]
+          enum: [ email, manual, no_email, null ]
+          description: 系统怎么通知司机。`manual`、`no_email` 要调度员自己联系
+        confirm_due_at:
+          type: [ string, "null" ]
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
     OrderChangeStatus:
       type: string
-      enum: [ awaiting_payment, pending_confirmation, applied, rejected, expired, failed, cancelled ]
-      description: "`awaiting_payment` 补差价扣款中；`pending_confirmation` 等供应商确认（30 分钟）；`applied` 已生效；`rejected` 供应商拒绝；`expired` 30 分钟内没确认；`failed` 差价没扣到，没改成；`cancelled` 订单取消了，作废"
+      enum: [ awaiting_payment, pending_confirmation, adjusting, applied, rejected, expired, failed, cancelled ]
+      description: "`awaiting_payment` 补差价扣款中；`pending_confirmation` 等供应商确认；`adjusting` 调整中（供应商在换司机或协调，ADR 0060）；`applied` 已生效；`rejected` 供应商拒绝；`expired` 30 分钟内没确认；`failed` 差价没扣到，没改成；`cancelled` 订单取消了，作废"
     OrderChange:
       type: object
       additionalProperties: false
       description: 一次改单：改了哪些字段的改前改后、结算价改前改后。供应商和运营后台都看；没有对外价
-      required: [ id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict ]
+      required: [ id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, adjusting_at, decided_by_platform, requested_at, decided_at, decision_note, dispatch_conflict ]
       properties:
         id:
           type: string
@@ -22053,6 +22458,13 @@ components:
           format: date-time
         decision_note:
           type: [ string, "null" ]
+        adjusting_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 什么时候标的调整中（只能标一次）
+        decided_by_platform:
+          type: boolean
+          description: 是平台员工代供应商处理的（有审计）
         dispatch_conflict:
           type: boolean
           description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
@@ -22060,7 +22472,7 @@ components:
       type: object
       additionalProperties: false
       description: 运营后台看到的改单：另有改期的对外价改前改后
-      required: [ id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, requested_at, decided_at, decision_note, dispatch_conflict, sell_before, sell_after ]
+      required: [ id, status, reschedule, before, after, settlement_before, settlement_after, confirm_due_at, requested_by, adjusting_at, decided_by_platform, requested_at, decided_at, decision_note, dispatch_conflict, sell_before, sell_after ]
       properties:
         id:
           type: string
@@ -22094,6 +22506,13 @@ components:
           format: date-time
         decision_note:
           type: [ string, "null" ]
+        adjusting_at:
+          type: [ string, "null" ]
+          format: date-time
+          description: 什么时候标的调整中（只能标一次）
+        decided_by_platform:
+          type: boolean
+          description: 是平台员工代供应商处理的（有审计）
         dispatch_conflict:
           type: boolean
           description: 改期后原来派的司机或车辆在新的时段有别的单（提示改派）
@@ -22518,6 +22937,10 @@ components:
         phone:
           type: string
           description: 带国家码的国际格式，如 `+81 90-1234-5678`
+        email:
+          type: [ string, "null" ]
+          maxLength: 254
+          description: 邮箱（选填）。修改时不给表示不改，`null` 表示清空。改了地址，发到旧地址的司机链接立即作废（ADR 0058）
         languages:
           type: array
           minItems: 1
@@ -22540,7 +22963,7 @@ components:
     Driver:
       type: object
       additionalProperties: false
-      required: [ id, name, phone, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
+      required: [ id, name, phone, email, email_masked, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -22550,6 +22973,12 @@ components:
         phone:
           type: string
           description: 国际格式（去掉空格和连字符）
+        email_masked:
+          type: [ string, "null" ]
+          description: 打码后的邮箱（如 `ab***@example.com`）；没填为 null
+        email:
+          type: [ string, "null" ]
+          description: 完整邮箱。只有司机接口、且有 `fleet.manage` 的人才给，其余一律 null（有没有填看 `email_masked`，ADR 0058）
         languages:
           type: array
           items:
@@ -23054,8 +23483,20 @@ components:
       type: object
       additionalProperties: false
       description: 司机 H5 看到的这一单。**没有任何价格**
-      required: [ order, driver, vehicle, dispatchers, fulfilment, landing, free_wait, contacts, files, no_show, link, server_time ]
+      required: [ order, pending_change, driver, vehicle, dispatchers, fulfilment, landing, free_wait, contacts, files, no_show, link, server_time ]
       properties:
+        pending_change:
+          description: 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ fields ]
+              properties:
+                fields:
+                  type: array
+                  items:
+                    type: string
         order:
           type: object
           additionalProperties: false
@@ -23346,12 +23787,18 @@ components:
       description: "`sent` 是邮件服务器已接收；`expired` 是过了有效期或订单情况变了，不再发送"
     NotificationAudience:
       type: string
-      enum: [ guest, tenant, staff ]
+      enum: [ guest, tenant, staff, driver ]
     NotificationEvent:
       type: string
       enum:
         - order.confirmed
         - order.assigned
+        - order.driver_link
+        - order.driver_change_pending
+        - order.driver_changed
+        - order.driver_change_declined
+        - order.driver_cancelled
+        - order.rescue_started
         - order.service_reminder
         - order.driver_arrived
         - order.changed
@@ -23471,15 +23918,50 @@ components:
         end:
           type: string
           description: 东京时间 HH:mm
+    DriverLinkDelivery:
+      type: string
+      enum: [ auto, manual ]
+      description: 司机链接发送方式：`auto` 系统自动发送（默认）/ `manual` 调度员手动发送
+    DriverLinkEmail:
+      type: object
+      additionalProperties: false
+      description: |
+        司机链接邮件的发送状态（ADR 0058）。地址打码，没有令牌。`state`：`pending` 等待中（`error_code = NOT_CONFIGURED` 表示邮件还没配置，请手动发）；
+        `sent` 已发送，**只表示邮件服务器已接收**，不代表司机已收到；`failed` 失败或不再发送；`manual` 设置是手动发送；`no_email` 司机没有邮箱；
+        `not_sent` 这条链接还没发过（`address_changed = true` 表示发出后司机改了邮箱，那封里的链接已作废）；`no_link` 没有有效的司机链接。
+      required: [ state, recipient_masked, error_code, error_message, requested_at, sent_at, address_changed, can_resend ]
+      properties:
+        state:
+          type: string
+          enum: [ pending, sent, failed, manual, no_email, not_sent, no_link ]
+        recipient_masked:
+          type: [ string, "null" ]
+        error_code:
+          type: [ string, "null" ]
+        error_message:
+          type: [ string, "null" ]
+          description: 给调度员看的中文原因
+        requested_at:
+          type: [ string, "null" ]
+          format: date-time
+        sent_at:
+          type: [ string, "null" ]
+          format: date-time
+        address_changed:
+          type: boolean
+        can_resend:
+          type: boolean
     TenantNotificationSettings:
       type: object
       additionalProperties: false
-      required: [ quiet_hours, time_zone, version ]
+      required: [ quiet_hours, driver_link_delivery, time_zone, version ]
       properties:
         quiet_hours:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/QuietHours"
+        driver_link_delivery:
+          $ref: "#/components/schemas/DriverLinkDelivery"
         time_zone:
           type: string
         version:
@@ -26406,7 +26888,7 @@ components:
             $ref: '#/components/schemas/PlatformStatement'
     ExceptionType:
       type: string
-      enum: [ dispatch_overdue, departure_overdue, arrival_overdue, push_failed, no_show_review, extra_charge_review, fulfilment_unfinished, payment_issue, rescue ]
+      enum: [ dispatch_overdue, departure_overdue, arrival_overdue, push_failed, no_show_review, extra_charge_review, fulfilment_unfinished, payment_issue, rescue, change_unconfirmed ]
       description: |
         超时未派车（立即）、司机未出发（15 分钟）、司机未到达（5 分钟）、状态推送失败（2 小时）、no-show 待审核（24 小时）、附加费用待审核（24 小时）、
         履约未结束（24 小时）、支付异常（当天，按 24 小时：退款失败、加收扣款失败、拒付、取消后才付到钱，`detail.reason`）、救援中（立即）

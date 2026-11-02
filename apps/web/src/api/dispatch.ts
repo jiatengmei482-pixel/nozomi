@@ -7,7 +7,7 @@
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
 import type { TenantOrderRescue } from "./rescues.ts";
-import type { DriverStatus, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
+import type { DriverLinkEmailState, DriverStatus, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
@@ -37,6 +37,9 @@ export interface Driver {
   id: string;
   name: string;
   phone: string;
+  /** 完整邮箱：只有能改司机资料的人才有，其余为 null（有没有填看 `email_masked`） */
+  email: string | null;
+  email_masked: string | null;
   languages: string[];
   license_expires_on: string;
   license_state: ExpiryState;
@@ -51,6 +54,7 @@ export interface Driver {
 export interface DriverInput {
   name: string;
   phone: string;
+  email: string | null;
   languages: string[];
   license_expires_on: string;
   driving_years: number | null;
@@ -137,6 +141,8 @@ export interface OrderLanding {
 
 export interface TenantOrder {
   id: string;
+  /** 有修改申请在等处理（ADR 0060） */
+  pending_change: boolean;
   order_no: string;
   status: OrderStatus;
   category: "airport_transfer" | "point_to_point" | "charter";
@@ -234,6 +240,8 @@ export interface TenantOrderDetail {
   extra_charges: ExtraCharge[];
   /** 这一单和救援改派的关系（M3-04）；没有为 null */
   rescue: TenantOrderRescue | null;
+  /** 司机链接邮件的发送状态（ADR 0058） */
+  driver_link_email: DriverLinkEmail;
 }
 
 export interface AssignmentIssue {
@@ -262,10 +270,23 @@ export interface IssuedDriverLink {
   expires_at: string;
 }
 
+/** 司机链接邮件的发送状态（ADR 0058）。`sent` 只表示邮件服务器已接收。地址打码，没有令牌。 */
+export interface DriverLinkEmail {
+  state: DriverLinkEmailState;
+  recipient_masked: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  requested_at: string | null;
+  sent_at: string | null;
+  address_changed: boolean;
+  can_resend: boolean;
+}
+
 export interface AssignResult {
   order: TenantOrder;
   change: boolean | null;
   driver_link: IssuedDriverLink | null;
+  driver_link_email: DriverLinkEmail | null;
 }
 
 export type FulfilmentEventType = "departed" | "arrived" | "picked_up" | "completed";
@@ -281,6 +302,8 @@ export interface ReportedLocation {
 export interface OrderListQuery {
   status?: OrderStatus;
   dispatch?: "unassigned" | "overdue";
+  /** 只看有修改申请等处理的（M4-29） */
+  change?: "pending";
   from?: string;
   to?: string;
   limit?: number;
@@ -305,8 +328,16 @@ export function assignOrder(token: string, id: string, version: number, body: { 
   return apiRequest("POST", `${order(id)}/assign`, { token, body, headers: { "if-match": `"${version}"` } });
 }
 
-export function reissueDriverLink(token: string, id: string): Promise<{ driver_link: IssuedDriverLink }> {
+export function reissueDriverLink(token: string, id: string): Promise<{ driver_link: IssuedDriverLink; driver_link_email: DriverLinkEmail }> {
   return apiRequest("POST", `${order(id)}/driver-link`, { token });
+}
+
+export function getDriverLinkEmail(token: string, id: string): Promise<{ driver_link_email: DriverLinkEmail }> {
+  return apiRequest("GET", `${order(id)}/driver-link/email`, { token });
+}
+
+export function resendDriverLinkEmail(token: string, id: string): Promise<{ driver_link_email: DriverLinkEmail }> {
+  return apiRequest("POST", `${order(id)}/driver-link/email`, { token });
 }
 
 export function revokeDriverLink(token: string, id: string): Promise<void> {
@@ -468,6 +499,8 @@ export function retryPlatformDelivery(token: string, id: string): Promise<{ deli
 // ---- 司机 H5 ----
 
 export interface DriverTrip {
+  /** 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行 */
+  pending_change: { fields: string[] } | null;
   order: {
     order_no: string;
     status: OrderStatus;
@@ -543,15 +576,16 @@ export async function getDriverFile(token: string, fileId: string): Promise<Blob
 
 /** 契约测试用：各类型的字段（与 openapi.yaml 对账）。 */
 export const DISPATCH_SCHEMA_FIELDS = {
-  Driver: ["id", "name", "phone", "languages", "license_expires_on", "license_state", "driving_years", "gold", "status", "version", "created_at", "updated_at"],
+  Driver: ["id", "name", "phone", "email", "email_masked", "languages", "license_expires_on", "license_state", "driving_years", "gold", "status", "version", "created_at", "updated_at"],
   Vehicle: ["id", "plate", "vehicle_group_id", "model", "color", "seats", "mileage_km", "is_new", "plate_type", "insurance_expires_on", "insurance_state", "inspection_expires_on", "inspection_state", "status", "version", "created_at", "updated_at"],
   OrderDispatch: ["due_at", "overdue", "overdue_at", "escalation_at", "departure_due_at", "departure_overdue_at", "assigned_at", "driver", "vehicle"],
   OrderFulfilment: ["departed_at", "arrived_at", "arrival_distance_m", "arrival_within_range", "picked_up_at", "completed_at", "actual_minutes", "actual_km", "leave_requested_at"],
   OrderRecords: ["assignments", "driver_link", "files", "contacts", "locations", "no_show_claim"],
   OrderFile: ["id", "kind", "content_type", "byte_size", "uploaded_at"],
   IssuedDriverLink: ["token", "path", "created_at", "expires_at"],
+  DriverLinkEmail: ["state", "recipient_masked", "error_code", "error_message", "requested_at", "sent_at", "address_changed", "can_resend"],
   TenantWebhook: ["url", "events", "status", "secret_hint", "secret_created_at", "version", "created_at", "updated_at"],
   WebhookDelivery: ["id", "event_id", "event_type", "order_id", "data", "status", "attempts", "next_attempt_at", "last_attempt_at", "last_status_code", "last_error_code", "last_duration_ms", "succeeded_at", "failed_at", "created_at"],
   WebhookAttempt: ["attempt_no", "trigger", "started_at", "duration_ms", "status_code", "error_code", "target_host", "request_bytes", "request_sha256"],
-  DriverTrip: ["order", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
+  DriverTrip: ["order", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
 } as const;

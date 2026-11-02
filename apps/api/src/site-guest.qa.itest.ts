@@ -223,8 +223,8 @@ test("改期把用车时间往后推了以后，下单时发的链接跟着新�
   const later = new Date(placed.serviceAt.getTime() + 40 * DAY);
   const changed = await site.call("PATCH", "/site/v1/order", { token, ip: placed.ip, headers: { "if-match": `"${seen.body.order.version}"` }, body: { service_time: later.toISOString() } });
   assert.equal(changed.status, 200, changed.text);
-  assert.equal(changed.body.change.status, "applied", changed.text);
-  assert.equal(changed.body.order.service_time, later.toISOString());
+  assert.equal(changed.body.change.status, "pending_confirmation", changed.text);
+  await ok(api.call("POST", `/platform/v1/orders/${placed.body.order.id}/changes/${changed.body.change.id}/confirm`, { token: await platformLogin(api, m.staff.operations.email), body: { note: "测试：同意才生效（M4-29）" } }));
   // 旧用车时间 + 30 天之后、新用车时间之前：行程还没开始，客人的链接应当还能用（ADR 0032：有效期 = 用车时间后 30 天）
   moveTo(new Date(placed.serviceAt.getTime() + 31 * DAY));
   const res = await site.call("GET", "/site/v1/order", { token, ip: placed.ip });
@@ -593,7 +593,7 @@ test("官网的客户端吊销：config 关、询价下单 503；已有订单照
     assert.equal(view.status, 200, view.text);
     assert.equal((await own.call("GET", "/site/v1/order/cancel-fee", { token, ip })).status, 200);
     const patched = await own.call("PATCH", "/site/v1/order", { token, ip, headers: { "if-match": `"${view.body.order.version}"` }, body: { flight_no: "JL5" } });
-    assert.deepEqual([patched.status, patched.body.order?.flight_no], [200, "JL5"], patched.text);
+    assert.deepEqual([patched.status, patched.body.change?.status], [200, "pending_confirmation"], patched.text);
     moveTo(new Date(pickup.serviceAt.getTime() - HOUR));
     const landed = await own.call("POST", "/site/v1/order/landed", { token, ip });
     assert.equal(landed.status, 200, landed.text);

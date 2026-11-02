@@ -44,6 +44,7 @@ import {
   tenantDayStart,
   vehicleLevel,
 } from "@nozomi/domain";
+import { revokeDriverLinksOnCancel } from "../repos/dispatch.ts";
 import { currentCancellationPolicy } from "../repos/cancellation-policies.ts";
 import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
 import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
@@ -448,7 +449,7 @@ export async function getSalesOrderView(ctx: AppContext, channelId: string, orde
         changes,
         changeSales: await listChangeSales(db, orderId),
         extraCharges: await listExtraCharges(db, order.tenantId, orderId),
-        freeCancelAvailable: order.status !== "cancelled" && freeCancelAfterUnconfirmedChange(changes),
+        freeCancelAvailable: freeCancelAfterUnconfirmedChange(order.status, changes),
       };
     },
     { snapshot: true },
@@ -515,6 +516,8 @@ export async function cancelPendingOrder(db: Db, orderId: string, reason: OrderC
   if (order.status !== "pending_payment") return false;
   await updateOrderStatus(db, order, { status: "cancelled" as OrderStatus, cancelledAt: now, cancelReason: reason }, now);
   if (order.inventoryHeld) await releaseHeldInventory(db, order.tenantId, order.productId, order.serviceDate, now);
+  // 没确认的单派不了车，通常没有链接；这里写上是为了「取消即失效」没有例外（ADR 0060）
+  await revokeDriverLinksOnCancel(db, order.tenantId, orderId, now);
   await insertOrderEvent(db, order, { fromStatus: "pending_payment", toStatus: "cancelled", actor, reason, occurredAt: now });
   const payment = await findOrderPayment(db, orderId, { lock: true });
   if (payment !== null && payment.status !== "succeeded") await updateOrderPayment(db, payment.id, { status: "canceled" }, now);

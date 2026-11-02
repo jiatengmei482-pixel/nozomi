@@ -4,7 +4,7 @@
  * - 运营后台「通知模板」：按事件 × 接收方 × 语言 × 通道只读展示（模板是代码常量）。
  * - 供应商后台「设置 → 通知」：发给自己这家的记录、免打扰时段（改：`notification.manage`，管理员）。
  */
-import { NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, type NotificationAudience, type NotificationEvent, type NotificationStatus, NOTIFICATION_STATUS_NAMES, quietHoursIssue } from "@nozomi/domain";
+import { DRIVER_LINK_DELIVERY_MODES, DRIVER_LINK_DELIVERY_NAMES, type DriverLinkDeliveryMode, NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, type NotificationAudience, type NotificationEvent, type NotificationStatus, NOTIFICATION_STATUS_NAMES, quietHoursIssue } from "@nozomi/domain";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { ApiError } from "../../api/client.ts";
@@ -245,6 +245,45 @@ function QuietHoursCard({ settings, canManage, onSaved }: { settings: Notificati
   );
 }
 
+function DriverLinkDeliveryCard({ settings, canManage, onSaved }: { settings: NotificationSettings; canManage: boolean; onSaved(next: NotificationSettings): void }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
+  const [mode, setMode] = useState<DriverLinkDeliveryMode>(settings.driver_link_delivery);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const save = async (submitted: FormEvent): Promise<void> => {
+    submitted.preventDefault();
+    setProblem(null);
+    setWorking(true);
+    try {
+      onSaved(await saveNotificationSettings(token, settings.version, settings.quiet_hours, mode));
+      toast("已保存");
+    } catch (err) {
+      if (handleAuthFailure(err)) return;
+      setProblem(err instanceof ApiError && err.code === "VERSION_CONFLICT" ? "别人刚改过，请刷新页面后再改" : failureText(err, "保存"));
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <section className="card">
+      <h2 className="card__title">司机链接发送方式</h2>
+      <p>选「系统自动发送」时，派车或改派后系统把司机链接发到司机档案里的邮箱；司机没有邮箱时提示调度员手动发。不管选哪一种，调度员都能复制链接。</p>
+      {canManage ? (
+        <form className="form" noValidate onSubmit={(submitted) => void save(submitted)}>
+          {problem !== null && <Alert kind="danger">{problem}</Alert>}
+          <SelectField label="发送方式" value={mode} options={DRIVER_LINK_DELIVERY_MODES.map((value) => ({ value, label: DRIVER_LINK_DELIVERY_NAMES[value] }))} onChange={(value) => setMode(value)} />
+          <div className="form__actions">
+            <Button variant="primary" type="submit" loading={working} loadingText="保存中…">更新发送方式</Button>
+          </div>
+        </form>
+      ) : (
+        <p className="field__hint">{`现在是「${DRIVER_LINK_DELIVERY_NAMES[settings.driver_link_delivery]}」。只有管理员能改。`}</p>
+      )}
+    </section>
+  );
+}
+
 export function TenantNotificationsPage() {
   const { portal, account } = usePortalSession();
   useDocumentTitle(`通知 · NOZOMI ${portal.name}`);
@@ -266,6 +305,7 @@ export function TenantNotificationsPage() {
       <p className="page-intro">新订单、修改、取消、派车提醒等通知会发邮件给你们的管理员和调度。</p>
       {settings.state.status === "error" && <Alert kind="danger">免打扰设置没有读出来，请刷新页面再试。</Alert>}
       {settings.state.data !== null && <QuietHoursCard key={settings.state.data.version} settings={settings.state.data} canManage={canManage} onSaved={settings.set} />}
+      {settings.state.data !== null && <DriverLinkDeliveryCard key={`driver-link-${settings.state.data.version}`} settings={settings.state.data} canManage={canManage} onSaved={settings.set} />}
       <section className="card">
         <div className="card__title-row">
           <h2 className="card__title">发送记录</h2>

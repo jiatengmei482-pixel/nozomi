@@ -17,6 +17,7 @@ export const EXCEPTION_TYPES = [
   "fulfilment_unfinished",
   "payment_issue",
   "rescue",
+  "change_unconfirmed",
 ] as const;
 export type ExceptionType = (typeof EXCEPTION_TYPES)[number];
 
@@ -30,6 +31,7 @@ export const EXCEPTION_TYPE_NAMES: Readonly<Record<ExceptionType, string>> = {
   fulfilment_unfinished: "履约未结束",
   payment_issue: "支付异常",
   rescue: "救援中",
+  change_unconfirmed: "改单未确认",
 };
 
 /** 需求表里的「处理方式」，运营后台照着显示。 */
@@ -43,6 +45,7 @@ export const EXCEPTION_HANDLING: Readonly<Record<ExceptionType, string>> = {
   fulfilment_unfinished: "催租户提交",
   payment_issue: "财务核实，必要时取消订单",
   rescue: "按救援流程处理：发救援单、人工指定或取消退款",
+  change_unconfirmed: "催供应商处理客人的修改申请；联系不上时可以在订单详情代为同意或拒绝（要写原因）",
 };
 
 /**
@@ -58,6 +61,7 @@ export const EXCEPTION_DUE_MINUTES: Readonly<Record<ExceptionType, number>> = {
   fulfilment_unfinished: 24 * 60,
   payment_issue: 24 * 60,
   rescue: 0,
+  change_unconfirmed: 15,
 };
 
 export function exceptionDueAt(type: ExceptionType, openedAt: Date): Date {
