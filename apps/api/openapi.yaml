@@ -10257,7 +10257,10 @@ paths:
       tags: [ 司机 H5 ]
       operationId: reportDriverEvent
       summary: 出发 / 到达 / 接到客人 / 完成
-      description: 和 `POST /tenant/v1/orders/{id}/events` 同一套规则（不能跳步，包车完成时要填实际时长和里程）。点按钮时带上手机的定位。
+      description: |
+        和 `POST /tenant/v1/orders/{id}/events` 同一套规则（不能跳步，包车完成时要填实际时长和里程）。点按钮时带上手机的定位。
+        司机多一道时间窗口（M4-32，ADR 0064）：按系统收到的时间，出发、到达最早在用车前 24 小时，接到客人、完成最早在用车前 3 小时（含那一刻），
+        再早是 422 `FULFILMENT_TOO_EARLY`，什么都不写。只管太早，航班晚点时比用车时间晚多少都可以。状态不对时先报 409。
       security:
         - driverLink: []
       requestBody:
@@ -10277,6 +10280,14 @@ paths:
           $ref: "#/components/responses/DriverLinkInvalid"
         "409":
           description: "`ORDER_STATE_INVALID`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |
+            `FULFILMENT_TOO_EARLY`：还没到这一步最早可以点的时间。`message` 是给司机看的说明；
+            `details`：`type` 哪一步，`earliest_at` 最早的时刻，`earliest_local` 城市当地时间（`YYYY-MM-DD HH:mm`，照着它点不会被拒：带秒的进到下一分钟，夏令时拨回重复的那一小时往后写），`timezone`，`hours_before_service` 最早在用车前几小时。
           content:
             application/json:
               schema:
@@ -23761,8 +23772,25 @@ components:
       type: object
       additionalProperties: false
       description: 司机 H5 看到的这一单。**没有任何价格**
-      required: [ order, pending_change, driver, vehicle, dispatchers, fulfilment, landing, free_wait, contacts, files, no_show, link, server_time ]
+      required: [ order, next_event, pending_change, driver, vehicle, dispatchers, fulfilment, landing, free_wait, contacts, files, no_show, link, server_time ]
       properties:
+        next_event:
+          description: 下一步和它最早什么时候可以点（M4-32，ADR 0064）。页面用来提前提示；真正的判断在回传时。这个状态不能回传履约时为 null
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ type, earliest_at, earliest_local ]
+              properties:
+                type:
+                  type: string
+                  enum: [ departed, arrived, picked_up, completed ]
+                earliest_at:
+                  type: string
+                  format: date-time
+                earliest_local:
+                  type: string
+                  description: 城市当地时间 `YYYY-MM-DD HH:mm`（照着它点不会被拒：带秒的进到下一分钟，夏令时拨回重复的那一小时往后写）
         pending_change:
           description: 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行
           oneOf:

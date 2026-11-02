@@ -8,6 +8,7 @@
 import { detectFileTypeAmong } from "./files.ts";
 import { haversineMeters } from "./geo.ts";
 import type { OrderStatus } from "./orders.ts";
+import { instantToLocal, localDateTimeToInstant } from "./service-time.ts";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -266,11 +267,59 @@ export const FULFILMENT_EVENT_NAMES: Readonly<Record<FulfilmentEventType, string
   completed: "已完成",
 };
 
+// ---- 履约回传的时间窗口（M4-32，ADR 0064；代传沿用 ADR 0052 的数） ----
+
+/**
+ * 每一步最早可以在用车前多少小时发生。司机自己回传（按系统收到的时间）和平台代传（按运营填的发生时间）都用这一份。
+ * - 出发、到达：24 小时。远途接人、包车要提前赶路，用车前 1 小时还没出发才提醒（需求「履约时间点」），这里只挡明显点错的；
+ * - 接到客人、完成：3 小时。这两步不可逆（服务中客人不能再取消；完成进账单、是终态），接到客人最多是航班提前落地（`LANDING_RULES.earliestHoursBeforeScheduled`）。
+ * 只管「太早」：航班晚点时到达、接到客人比计划晚很多都正常，不设上限。
+ */
+export const FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE: Readonly<Record<FulfilmentEventType, number>> = { departed: 24, arrived: 24, picked_up: 3, completed: 3 };
+
+/** 这一步最早可以在什么时候发生（含这一刻）。 */
+export function fulfilmentEarliestAt(type: FulfilmentEventType, serviceAt: Date): Date {
+  return new Date(serviceAt.getTime() - FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type] * HOUR);
+}
+
+/** `at` 比这一步的最早时间还早。正好在最早时间那一刻不算早。 */
+export function fulfilmentTooEarly(type: FulfilmentEventType, at: Date, serviceAt: Date): boolean {
+  return at.getTime() < fulfilmentEarliestAt(type, serviceAt).getTime();
+}
+
+/**
+ * 最早时间写给人看：城市当地时间 `YYYY-MM-DD HH:mm`。保证照着写的当地时间去点不会被拒：
+ * - 带秒的进到下一分钟；
+ * - 夏令时拨回、当地时间出现两次的那一小时：写出来的钟面如果先出现的那一次还早于最早时间（最早时间落在第二次），往后写到这一小时结束后的第一分钟。
+ *   手机上只看得到钟面、分不清是第一次还是第二次，往后写最多晚一小时，但不会让司机照着点被拒。
+ */
+export function fulfilmentEarliestLocal(type: FulfilmentEventType, serviceAt: Date, timeZone: string): string {
+  const earliest = fulfilmentEarliestAt(type, serviceAt).getTime();
+  let at = Math.ceil(earliest / MINUTE) * MINUTE;
+  for (let step = 0; step <= 24 * 60; step += 1) {
+    const local = instantToLocal(new Date(at), timeZone).dateTime;
+    const first = localDateTimeToInstant(local, timeZone);
+    if (first === null || first.getTime() >= earliest) return local.replace("T", " ");
+    at += MINUTE;
+  }
+  return instantToLocal(new Date(at), timeZone).dateTime.replace("T", " ");
+}
+
+/** 司机页上每一步的按钮叫法：说明里也用它，司机看到的和要点的是同一个词。 */
+export const DRIVER_ACTION_LABELS: Readonly<Record<FulfilmentEventType, string>> = {
+  departed: "我出发了",
+  arrived: "已到达上车点",
+  picked_up: "接到客人了",
+  completed: "服务完成",
+};
+
+/** 太早时给司机看的说明：哪一步（按钮上的叫法）、最早几点可以点（当地时间）、为什么。 */
+export function fulfilmentTooEarlyMessage(type: FulfilmentEventType, serviceAt: Date, timeZone: string): string {
+  const service = instantToLocal(serviceAt, timeZone).dateTime.replace("T", " ");
+  return `现在还不能点「${DRIVER_ACTION_LABELS[type]}」：最早在用车前 ${FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type]} 小时，也就是 ${fulfilmentEarliestLocal(type, serviceAt, timeZone)}（${timeZone} 当地时间）以后才能点（用车时间 ${service}）。行程有变请联系调度。`;
+}
+
 export const PROXY_FULFILMENT_RULES = {
-  /** 报的时间最早可以比用车时间早多少小时（出发、到达） */
-  earliestHoursBeforeService: 24,
-  /** 接到客人、完成：最早比用车时间早多少小时。这两步不可逆，接到客人也不可能比用车时间早太多；业务上要放宽改这个数。只限代传，不管司机和供应商自己上报 */
-  reviewedEarliestHoursBeforeService: 3,
   /** 报的时间最早可以比现在早多少天；再久的补录走工单 */
   maxBackdateDays: 7,
   reasonMax: 500,
@@ -293,9 +342,9 @@ export function proxyEventNeedsReview(type: FulfilmentEventType): type is "picke
   return type === "picked_up" || type === "completed";
 }
 
-/** 这一步的发生时间最早可以比用车时间早多少小时。 */
+/** 代传这一步的发生时间最早可以比用车时间早多少小时：和司机同一份（`FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE`）。不说哪一步时按出发、到达算。 */
 export function proxyEarliestHoursBeforeService(type?: FulfilmentEventType): number {
-  return type !== undefined && proxyEventNeedsReview(type) ? PROXY_FULFILMENT_RULES.reviewedEarliestHoursBeforeService : PROXY_FULFILMENT_RULES.earliestHoursBeforeService;
+  return FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type ?? "departed"];
 }
 
 export type ProxyTimeIssue = "IN_FUTURE" | "BEFORE_PREVIOUS" | "TOO_EARLY" | "TOO_OLD";
@@ -315,7 +364,7 @@ export function proxyFulfilmentTimeIssue(input: { occurredAt: Date; previousAt: 
   const at = input.occurredAt.getTime();
   if (at > input.now.getTime()) return "IN_FUTURE";
   if (at < input.now.getTime() - PROXY_FULFILMENT_RULES.maxBackdateDays * 24 * HOUR) return "TOO_OLD";
-  if (at < input.serviceAt.getTime() - proxyEarliestHoursBeforeService(input.type) * HOUR) return "TOO_EARLY";
+  if (fulfilmentTooEarly(input.type ?? "departed", input.occurredAt, input.serviceAt)) return "TOO_EARLY";
   if (input.previousAt !== null && at < Math.floor(input.previousAt.getTime() / MINUTE) * MINUTE) return "BEFORE_PREVIOUS";
   return null;
 }
