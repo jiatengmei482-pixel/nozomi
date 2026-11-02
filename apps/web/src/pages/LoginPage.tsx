@@ -39,8 +39,8 @@ const PASSWORD_LOGIN_DISABLED_CODE = "PASSWORD_LOGIN_DISABLED";
 export const PASSWORD_LOGIN_DISABLED_TEXT = "密码登录已关闭，请用邮箱验证码登录。";
 
 /** 发码之后的提示：不说邮箱存不存在。 */
-export function emailCodeSentText(expiresInSeconds: number): string {
-  return `如果这个邮箱有账号，验证码已经发过去了，${Math.ceil(expiresInSeconds / 60)} 分钟内有效。没收到的话看看垃圾邮件。`;
+export function emailCodeSentText(expiresInSeconds: number, portalName: string): string {
+  return `如果这个邮箱是${portalName}的账号，验证码已经发过去了，${Math.ceil(expiresInSeconds / 60)} 分钟内有效。没收到的话看看垃圾邮件；运营后台和供应商后台是两个入口，账号不通用。`;
 }
 
 const REASON_NOTICES: Readonly<Record<LoginReason, Notice>> = {
@@ -260,7 +260,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
       setCode("");
       setAttempted(false);
       setCodeSentTo(target);
-      setNotice({ kind: "info", text: emailCodeSentText(sent.expires_in_seconds) });
+      setNotice({ kind: "info", text: emailCodeSentText(sent.expires_in_seconds, config.name) });
       // 重新发送时按钮马上进入倒计时、被禁用：焦点移到验证码框，键盘用户不丢位置（第一次发码时输入框还没出现，由上面的 effect 聚焦）
       codeRef.current?.focus();
     } catch (err) {
