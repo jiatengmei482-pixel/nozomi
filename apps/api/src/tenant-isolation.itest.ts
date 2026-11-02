@@ -1501,8 +1501,39 @@ test("取消、改单、事后加收（M3-03）：取消政策两边看到的一
   }
   assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update order_extra_charges set status = 'withdrawn', withdrawn_at = now() where id = $1", [charge]))).rowCount, 0, "甲在库里也撤回不了乙的加收");
   // 乙自己确认得了（证明上面的 404 不是因为接口坏了）
-  const own = await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, { token: b.adminToken, body: {} });
+  const own = await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, { token: b.adminToken, body: { note: "排不出车" } });
   assert.equal(own.status, 200, own.text);
+});
+
+test("修改申请和待办（M4-29）：甲标不了乙的调整中；待办读不到、点不了乙的；令牌之外的 tenant_id 不起作用", async () => {
+  for (const route of ["POST /tenant/v1/orders/:id/changes/:changeId/adjusting", "GET /tenant/v1/order-todos", "POST /tenant/v1/order-todos/:id/ack"]) cover(route);
+  const ids = await orderIds();
+  const change = (await api.db.owner.query<{ id: string }>(
+    `insert into order_changes (tenant_id, order_id, status, reschedule, before, after, settlement_before_minor, settlement_after_minor, confirm_due_at, requested_by, requested_at)
+     values ($1, $2, 'pending_confirmation', false, '{"notes_x":1}', '{"flight_no":"JL5"}', 11000, 11000, now() + interval '30 minutes', 'channel', now()) returning id`,
+    [b.tenantId, ids.b],
+  )).rows[0]!.id;
+  const request = (await api.db.owner.query<{ id: string }>("insert into order_todos (tenant_id, order_id, kind, change_id, fields, created_at) values ($1, $2, 'change_request', $3, '{flight_no}', now()) returning id", [b.tenantId, ids.b, change])).rows[0]!.id;
+  const notice = (await api.db.owner.query<{ id: string }>("insert into order_todos (tenant_id, order_id, kind, created_at) values ($1, $2, 'order_cancelled', now()) returning id", [b.tenantId, ids.b])).rows[0]!.id;
+  const before = (await api.db.owner.query("select * from order_changes where id = $1", [change])).rows[0];
+
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/adjusting`, { token: a.adminToken, body: {} })).status, 404);
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.a}/changes/${change}/adjusting`, { token: a.adminToken, body: {} })).status, 404, "拿自己的单配别人的改单");
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/confirm`, { token: a.adminToken, body: {} })).status, 404);
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${ids.b}/changes/${change}/reject`, { token: a.adminToken, body: { note: "x" } })).status, 404);
+  assert.deepEqual((await api.db.owner.query("select * from order_changes where id = $1", [change])).rows[0], before, "乙的申请原样不动");
+
+  const mine = await api.call("GET", `/tenant/v1/order-todos?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  const seenByA = mine.status === 200 ? mine.text : (await api.call("GET", "/tenant/v1/order-todos", { token: a.adminToken })).text;
+  assert.ok(!seenByA.includes(request) && !seenByA.includes(notice) && !seenByA.includes(ids.b), "甲看不到乙的待办");
+  assert.equal((await api.call("POST", `/tenant/v1/order-todos/${notice}/ack`, { token: a.adminToken })).status, 404);
+  assert.equal((await api.db.owner.query("select resolved_at from order_todos where id = $1", [notice])).rows[0].resolved_at, null, "甲点不了乙的");
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from order_todos where tenant_id = $1", [b.tenantId]))).rowCount, 0, "行级安全");
+
+  const seenByB = await api.call("GET", "/tenant/v1/order-todos", { token: b.adminToken });
+  assert.ok(seenByB.body.items.some((item: any) => item.id === request), seenByB.text);
+  assert.equal((await api.call("POST", `/tenant/v1/order-todos/${notice}/ack`, { token: b.adminToken })).status, 200);
+  await api.db.owner.query("update order_changes set status = 'cancelled', decided_at = now() where id = $1", [change]);
 });
 
 test("救援改派（M3-04）：甲声明不了乙的单；看不到、接不了、拒不了发给乙的救援单；应扣款项只看得到自己的（404，和不存在一样，乙的记录原样不动）；数据库里读不到别人的救援单和应扣款项", async () => {

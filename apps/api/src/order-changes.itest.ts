@@ -1,8 +1,8 @@
 /**
  * M3-03：改单（ADR 0029），经真实接口、真实 PostgreSQL；收款服务用替身。
- * - 改信息直接生效（If-Match、状态流水、推 order.changed、供应商看到改前改后）；
+ * - 联系信息直接生效，履约字段生成修改申请（M4-29，ADR 0060；If-Match、状态流水、推 order.changed、供应商看到改前改后）；
  * - 改期：同一家供应商按新时间重新报价，对外价按原加价比例；贵了先用保存的支付方式补差价（被拒 402 不改、收款服务出错由定时任务接着扣），便宜了退差价；
- * - 用车前 24 小时内的改期要供应商 30 分钟内确认；拒绝 / 超时：补收的差价退回、客人可以免费取消；
+ * - 用车前 24 小时内的申请要供应商 30 分钟内确认；拒绝 / 超时：补收的差价退回、客人可以免费取消；
  * - 出了免费取消期只能改航班号和乘客信息；超出容量、报不出价按取消重下；司机出发后不能改时间；
  * - 并发改单只有一个成功；取消订单时没结论的改单作废；运营代改写审计；跨租户、渠道隔离。
  */
@@ -66,25 +66,35 @@ async function patch(orderId: string, body: Record<string, unknown>, version?: n
   return api.call("PATCH", `/sales/v1/orders/${orderId}`, { token: token ?? (await flow.token()), headers: { "if-match": `"${v}"` }, body });
 }
 
+/** 供应商同意这次申请（M4-29 起履约字段都要同意才生效）。 */
+async function approve(side: "a" | "b", orderId: string, changeId: string): Promise<any> {
+  return ok(api.call("POST", `/tenant/v1/orders/${orderId}/changes/${changeId}/confirm`, { token: await tenantLogin(api, m[side].adminEmail), body: {} }));
+}
+
 async function tenantDetail(side: "a" | "b", orderId: string): Promise<any> {
   return ok(api.call("GET", `/tenant/v1/orders/${orderId}`, { token: await tenantLogin(api, m[side].adminEmail) }));
 }
 
-test("改信息（航班号、乘客、备注、下车点地址）：直接生效、推 order.changed、供应商看到改前改后；If-Match 必填、版本对不上 409；没有变化 422；写法不对 400", async () => {
+test("一次提交里联系信息（乘客、备注）直接生效，航班号、下车点地址生成申请、同意才生效；都推 order.changed，供应商看到改前改后；If-Match 必填、版本对不上 409；没有变化 422；写法不对 400", async () => {
   const order = await flow.paidOrder();
   assert.equal((await api.call("PATCH", `/sales/v1/orders/${order.id}`, { token: await flow.token(), body: { notes: "x" } })).status, 428);
   assert.equal((await patch(order.id, { notes: "x" }, order.version + 5)).body.error.code, "VERSION_CONFLICT");
   const res = await patch(order.id, { flight_no: "jl 5", passenger: { name: "王大明", phone: "+81 80-0000-1111", email: "big@example.com" }, notes: "带婴儿车", dropoff_address: "东京站丸之内北口" });
   assertMatchesOpenApi("PATCH", "/sales/v1/orders/{id}", res);
   assert.equal(res.status, 200, res.text);
-  assert.deepEqual([res.body.change.status, res.body.change.fields.sort(), res.body.change.price_difference], ["applied", ["dropoff_address", "flight_no", "notes", "passenger"], null]);
-  assert.deepEqual([res.body.order.flight_no, res.body.order.passenger.phone, res.body.order.dropoff.address, res.body.order.notes], ["JL5", "+818000001111", "东京站丸之内北口", "带婴儿车"]);
+  assert.deepEqual([res.body.change.status, res.body.change.fields.sort(), res.body.change.price_difference], ["pending_confirmation", ["dropoff_address", "flight_no"], null]);
+  assert.deepEqual([res.body.order.flight_no, res.body.order.passenger.phone, res.body.order.dropoff.address, res.body.order.notes], ["NH211", "+818000001111", order.dropoff.address, "带婴儿车"], "联系信息已生效，其余还是原来的");
   const tenant = await tenantDetail("b", order.id);
-  assert.equal(tenant.changes.length, 1);
-  assert.deepEqual([tenant.changes[0].before.flight_no, tenant.changes[0].after.flight_no, tenant.changes[0].settlement_before.amount, tenant.changes[0].settlement_after.amount], ["NH211", "JL5", "19800", "19800"]);
-  assert.deepEqual(tenant.events.at(-1).reason, "CHANGED");
-  const queued = await api.db.owner.query("select event_data from webhook_deliveries where order_id = $1 and event_type = 'order.changed'", [order.id]);
-  assert.deepEqual([queued.rows.length, queued.rows[0].event_data.status, queued.rows[0].event_data.after.flight_no], [1, "applied", "JL5"]);
+  assert.deepEqual(tenant.changes.map((change: any) => change.status), ["applied", "pending_confirmation"]);
+  const request = tenant.changes[1];
+  assert.deepEqual([request.before.flight_no, request.after.flight_no, request.settlement_before.amount, request.settlement_after.amount], ["NH211", "JL5", "19800", "19800"]);
+  assert.deepEqual(tenant.events.at(-1).reason, "CHANGE_REQUESTED");
+  assert.equal(tenant.order.pending_change, true);
+  await approve("b", order.id, request.id);
+  const approved = await tenantDetail("b", order.id);
+  assert.deepEqual([approved.order.flight_no, approved.order.dropoff.address, approved.events.at(-1).reason, approved.order.pending_change], ["JL5", "东京站丸之内北口", "CHANGED", false]);
+  const queued = await api.db.owner.query("select event_data from webhook_deliveries where order_id = $1 and event_type = 'order.changed' order by created_at, id", [order.id]);
+  assert.deepEqual(queued.rows.map((row) => row.event_data.status).sort(), ["applied", "applied", "pending_confirmation"]);
   assert.equal((await patch(order.id, { flight_no: "JL5" })).body.error.code, "NO_CHANGE");
   const bad = await patch(order.id, { passenger: { name: "x", phone: "090-1234", email: "nope" }, pickup_address: "成田" });
   assert.deepEqual([bad.status, bad.body.error.details.issues.map((issue: any) => issue.path).sort()], [400, ["/passenger/email", "/passenger/phone", "/pickup_address"]]);
@@ -93,15 +103,18 @@ test("改信息（航班号、乘客、备注、下车点地址）：直接生�
   assert.equal((await patch(order.id, { notes: "y" }, undefined, other)).status, 404, "别的渠道的单当作不存在");
 });
 
-test("改期涨价：先用保存的支付方式补差价（对外价按原加价比例），再生效；派车截止时间按新时间；改回来降价退差价（从补收的那一笔退）", async () => {
+test("改期涨价：先用保存的支付方式补差价（对外价按原加价比例），同意才生效；派车截止时间按新时间；改回来降价，同意时退差价（从补收的那一笔退）", async () => {
   const order = await flow.paidOrder();
   const sellBefore = Number(order.price.total.amount);
   assert.equal(sellBefore, applyBasisPoints(19_800, 1_000), "默认加价 10%");
   const res = await patch(order.id, { service_time: "2026-10-22T10:00:00+09:00" });
   assert.equal(res.status, 200, res.text);
   const sellAfter = applyBasisPoints(23_760, 1_000);
-  assert.deepEqual([res.body.change.status, res.body.change.price_difference], ["applied", { kind: "charge", amount: { amount: String(sellAfter - sellBefore), currency: "JPY" } }]);
-  assert.deepEqual([res.body.order.service_local, res.body.order.price.total.amount], ["2026-10-22T10:00", String(sellAfter)]);
+  assert.deepEqual([res.body.change.status, res.body.change.price_difference], ["pending_confirmation", { kind: "charge", amount: { amount: String(sellAfter - sellBefore), currency: "JPY" } }]);
+  assert.deepEqual([res.body.order.service_local, res.body.order.price.total.amount], ["2026-10-20T10:00", String(sellBefore)], "确认前原预约不变");
+  await approve("b", order.id, res.body.change.id);
+  const confirmed = await salesGet(order.id);
+  assert.deepEqual([confirmed.service_local, confirmed.price.total.amount], ["2026-10-22T10:00", String(sellAfter)]);
   const charges = pay.chargesOf(order.id);
   assert.deepEqual(charges.map((charge) => [charge.amountMinor, charge.status, charge.charge?.purpose]), [[sellAfter - sellBefore, "succeeded", "change"]]);
   const tenant = await tenantDetail("b", order.id);
@@ -112,7 +125,10 @@ test("改期涨价：先用保存的支付方式补差价（对外价按原加�
   assert.deepEqual([detail.changes[0].sell_before.amount, detail.changes[0].sell_after.amount], [String(sellBefore), String(sellAfter)]);
 
   const back = await patch(order.id, { service_time: SERVICE_TIME });
-  assert.deepEqual([back.status, back.body.change.price_difference.kind, back.body.order.price.total.amount], [200, "refund", String(sellBefore)]);
+  assert.deepEqual([back.status, back.body.change.status, back.body.change.price_difference.kind, back.body.order.price.total.amount], [200, "pending_confirmation", "refund", String(sellAfter)]);
+  assert.equal(pay.refundsOf(order.id).length, 0, "同意才退");
+  await approve("b", order.id, back.body.change.id);
+  assert.equal((await salesGet(order.id)).price.total.amount, String(sellBefore));
   const refunds = pay.refundsOf(order.id);
   assert.deepEqual(refunds.map((refund) => [refund.amountMinor, refund.intentId]), [[sellAfter - sellBefore, charges[0]?.id]]);
 });
@@ -127,17 +143,18 @@ test("补差价被拒（卡被拒）：402、不改，改单记为没扣到；�
   assert.equal((await patch(order.id, { notes: "再改一次" })).status, 200);
 });
 
-test("补差价时收款服务出错：504，改单留在「补差价」，别的改单 409；定时任务过 2 分钟用同一条收款记录接着扣（不会扣两次）并生效", async () => {
+test("补差价时收款服务出错：504，改单留在「补差价」，别的履约改动 409、联系信息照改；定时任务过 2 分钟用同一条收款记录接着扣（不会扣两次），进入等确认", async () => {
   const order = await flow.paidOrder();
   pay.failNext("PAYMENT_PROVIDER_TIMEOUT");
   const res = await patch(order.id, { service_time: "2026-10-22T10:00:00+09:00" });
   assert.deepEqual([res.status, res.body.error.code, res.body.error.details.retryable], [504, "PAYMENT_PROVIDER_TIMEOUT", true]);
-  assert.equal((await patch(order.id, { notes: "另一个改动" })).body.error.code, "CHANGE_IN_PROGRESS");
+  assert.equal((await patch(order.id, { passengers: 3 })).body.error.code, "CHANGE_IN_PROGRESS");
+  assert.equal((await patch(order.id, { notes: "联系信息不用等" })).status, 200);
   assert.equal((await api.app.orderJobs.money()).changes.resumed, 0, "还不到 2 分钟");
   api.clock.advance(3 * 60_000);
   assert.equal((await api.app.orderJobs.money()).changes.resumed, 1);
   const after = await salesGet(order.id);
-  assert.deepEqual([after.service_local, after.changes.map((change: any) => change.status)], ["2026-10-22T10:00", ["applied"]]);
+  assert.deepEqual([after.service_local, after.changes.map((change: any) => change.status).sort()], ["2026-10-20T10:00", ["applied", "pending_confirmation"]]);
   assert.equal(pay.chargesOf(order.id).length, 1, "同一个幂等键：只扣了一次");
   assert.equal(pay.calls.filter((call) => call.startsWith("charge:")).length >= 2, true, "确实重试过");
 });
@@ -178,19 +195,21 @@ test("报不出价（新时间在提前预订时长之内）按取消重下：40
   const crowd = await patch(order.id, { passengers: 7 });
   assert.deepEqual([crowd.status, crowd.body.error.code], [422, "CHANGE_REQUIRES_REBOOK"]);
   const fine = await patch(order.id, { passengers: 6, luggage: 4 });
-  assert.deepEqual([fine.status, fine.body.order.passengers, fine.body.order.luggage], [200, 6, 4]);
+  assert.deepEqual([fine.status, fine.body.change.status, fine.body.order.passengers, fine.body.change.after], [200, "pending_confirmation", 2, { passengers: 6, luggage: 4 }]);
 });
 
-test("运营代客人改单：同样的规则，写审计", async () => {
+test("运营代客人改单：同样要供应商确认（联系信息直接生效），两步都写审计", async () => {
   const order = await flow.paidOrder();
   const ops = await platformLogin(api, m.staff.operations.email);
   const version = (await salesGet(order.id)).version;
   assert.equal((await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token: await platformLogin(api, m.staff.readonly.email), headers: { "if-match": `"${version}"` }, body: { notes: "x" } })).status, 403);
   const res = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token: ops, headers: { "if-match": `"${version}"` }, body: { notes: "客人来电：多一件行李", luggage: 2 } });
   assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", res);
-  assert.deepEqual([res.status, res.body.change.status, res.body.change.requested_by], [200, "applied", "platform_user"]);
-  const audit = await api.db.owner.query("select actor_email, before, after from audit_logs where resource = 'order_change' and action = 'change' and after->>'order_id' = $1", [order.id]);
+  assert.deepEqual([res.status, res.body.change.status, res.body.change.requested_by], [200, "pending_confirmation", "platform_user"]);
+  const audit = await api.db.owner.query("select actor_email, before, after from audit_logs where resource = 'order_change' and action = 'request' and after->>'order_id' = $1", [order.id]);
   assert.deepEqual(audit.rows.map((row) => [row.actor_email, row.before.luggage, row.after.luggage]), [[m.staff.operations.email, 1, 2]]);
+  const notes = await api.db.owner.query("select actor_email, after from audit_logs where resource = 'order_change' and action = 'change' and after->>'order_id' = $1", [order.id]);
+  assert.deepEqual(notes.rows.map((row) => [row.actor_email, row.after.notes]), [[m.staff.operations.email, "客人来电：多一件行李"]]);
 });
 
 test("出了免费取消期只能改航班号和乘客信息；司机出发后不能改时间和人数", async () => {
@@ -223,7 +242,7 @@ test("24 小时内的改期要供应商 30 分钟内确认：等确认时订单�
   assertMatchesOpenApi("POST", "/tenant/v1/orders/{id}/changes/{changeId}/confirm", confirmed);
   assert.deepEqual([confirmed.status, confirmed.body.change.status, confirmed.body.change.decision_note], [200, "applied", "排得出车"]);
   assert.equal((await salesGet(order.id)).service_time, new Date(serviceAt + 2 * DAY).toISOString());
-  assert.equal((await api.call("POST", `/tenant/v1/orders/${order.id}/changes/${change.id}/reject`, { token: await tenantLogin(api, m.a.adminEmail), body: {} })).body.error.code, "CHANGE_NOT_PENDING");
+  assert.equal((await api.call("POST", `/tenant/v1/orders/${order.id}/changes/${change.id}/reject`, { token: await tenantLogin(api, m.a.adminEmail), body: { note: "已经同意过了" } })).body.error.code, "CHANGE_NOT_PENDING");
 });
 
 test("要确认的改期贵了：先补差价再等确认；供应商拒绝 → 补收的差价退回，客人可以按「改期没确认」免费取消；30 分钟没确认 → 同样", async () => {
@@ -263,7 +282,7 @@ test("要确认的改期贵了：先补差价再等确认；供应商拒绝 → 
 
   await ok(patch(third.id, { service_time: iso(target + 2 * HOUR) }));
   api.clock.advance(30 * 60_000);
-  assert.equal((await api.app.orderJobs.money()).changes.expired, 1);
+  assert.ok((await api.app.orderJobs.money()).changes.expired >= 1, "前面的用例留下的申请也可能一起到期");
   assert.deepEqual([(await salesGet(third.id)).free_cancel_available, pay.refundsOf(third.id).length], [true, 1]);
 });
 

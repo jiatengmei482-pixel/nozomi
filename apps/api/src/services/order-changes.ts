@@ -603,7 +603,7 @@ export async function sweepOrderChanges(ctx: AppContext, log: OrderLog, limit = 
       if (change === null) return null;
       const order = (await findOrderForPlatform(db, change.orderId, { lock: true })) as Order;
       const current = (await findOrderChange(db, entry.tenantId, entry.id, { lock: true })) as OrderChange;
-      if (current.status !== "pending_confirmation" || !changeConfirmOverdue(current.confirmDueAt as Date, ctx.now())) return null;
+      if (!orderChangeDecidable(current.status) || !changeConfirmOverdue(current.confirmDueAt as Date, ctx.now())) return null;
       log.warn({ event: "order.change_expired", orderId: order.id, changeId: current.id }, "修改申请到了期限没有结论，记为没确认");
       return closeUnconfirmed(db, order, current, "expired", { by: null, byPlatform: null, note: null }, ctx.now());
     });

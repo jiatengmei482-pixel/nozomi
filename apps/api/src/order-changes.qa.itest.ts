@@ -136,7 +136,8 @@ test("跨午夜改期：改到东京第二天 00:30（UTC 写法提交），当�
   const target = Date.parse(`${nextDay}T00:30:00+09:00`);
   const res = await patch(order.id, { service_time: new Date(target).toISOString() });
   assert.equal(res.status, 200, res.text);
-  assert.deepEqual([res.body.order.service_local, res.body.order.service_time], [`${nextDay}T00:30`, new Date(target).toISOString()]);
+  assert.deepEqual([res.body.change.after.service_local, res.body.change.after.service_time], [`${nextDay}T00:30`, new Date(target).toISOString()]);
+  await ok(confirm(order.id, res.body.change.id, await tenantLogin(api, m.b.adminEmail)));
   const tenant = await ok(api.call("GET", `/tenant/v1/orders/${order.id}`, { token: await tenantLogin(api, m.b.adminEmail) }));
   assert.deepEqual([tenant.order.service_date, tenant.order.service_local], [nextDay, `${nextDay}T00:30`]);
   assert.ok(Date.parse(tenant.order.dispatch.due_at) < target, "派车截止在新的用车时间之前");
