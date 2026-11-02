@@ -44,9 +44,9 @@ export function PricesStep({ frame, product, rest }: { frame: ProductFrame; prod
   const canSetRounding = useTenantCan("brand.manage") && !frame.readOnly;
   const [rounding, setRounding] = useState(false);
   const tab: PriceTab = rest[0] === "adjust" ? "adjust" : rest[0] === "calendar" && frame.source.priceTabs.includes("calendar") ? "calendar" : "rules";
-  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题
+  // 换页时外壳会把焦点交给正文（<main>）；这里晚一帧再把焦点放到这一步的标题上，读屏读到的是标题。不滚动：手机上日历可能已经滚到今天
   useEffect(() => {
-    const frameId = requestAnimationFrame(() => heading.current?.focus());
+    const frameId = requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }));
     return () => cancelAnimationFrame(frameId);
   }, []);
   const syncVersion = frame.syncVersion;
