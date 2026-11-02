@@ -225,7 +225,7 @@ test("POST /tenant/v1/auth/email-code/request、verify：甲的验证码登录�
   sentMails.length = 0;
   const sent = await api.call("POST", "/tenant/v1/auth/email-code/request", { body: { email: "admin@a.test", tenant_id: b.tenantId }, ip: "198.51.100.77" });
   assert.equal(sent.status, 202, sent.text);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual(sentMails.map((mail) => mail.to), ["admin@a.test"]);
   const code = /^(\d{6})$/m.exec(sentMails[0]?.text ?? "")?.[1] as string;
 
@@ -237,7 +237,7 @@ test("POST /tenant/v1/auth/email-code/request、verify：甲的验证码登录�
   const token = login.body.access_token as string;
   assert.ok(!(await api.call("GET", "/tenant/v1/users", { token })).text.includes("admin@b.test"));
   assert.equal((await api.call("PATCH", `/tenant/v1/users/${b.adminId}`, { token, body: { name: "改掉", role: "admin", status: "active" } })).status, 404);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
 });
 
 test("POST /tenant/v1/auth/logout：只结束自己的会话，别的租户的会话不受影响", async () => {

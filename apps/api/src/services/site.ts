@@ -5,10 +5,11 @@
  * 询价 `createSalesQuotes`、下单 `createSiteOrder`、查单 `getSalesOrderView`，取消、改单、落地、异议各自的 service 在路由里直接调。
  * 这里只多做三件 `/sales/v1` 没有的事：
  * 1. 认出官网的渠道（没配置、客户端吊销、渠道暂停 → 暂未开放；已经下了的单照样能看能操作）；
- * 2. 客人的查看链接：下单或找回时发一个令牌，库里只存 SHA-256；凭令牌只能看这一张单；
+ * 2. 客人的查看链接：下单时发一个令牌，库里只存 SHA-256；凭令牌只能看这一张单。链接丢了在「查订单」填订单号 + 下单邮箱，
+ *    对上了由通知中心把一条新链接发到下单邮箱（ADR 0061），页面不管对没对上都说同一句话；
  * 3. 按来源地址限速（计数单独一个事务先提交：后面失败了这一次照样算数）。
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   type LatLng,
   type LocalizedText,
@@ -19,8 +20,6 @@ import {
   channelScopeRefusal,
   channelSellsTenant,
   cityBounds,
-  combineThrottleDecisions,
-  evaluateRollingWindow,
   instantToLocal,
   localDateTimeExists,
   localDateTimeToInstant,
@@ -32,6 +31,7 @@ import {
   contactLookupKey,
   normalizeEmailForIndex,
   normalizePhoneForIndex,
+  viewLinkThrottleSteps,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type PassengerCrypto, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
@@ -54,17 +54,16 @@ import {
   type SitePlaceType,
   findQuotePackageKm,
   findVehicleGroups,
-  insertLookupFailure,
   insertSiteOrderLink,
   listBookableAirports,
   listBookableCharterPackages,
   listBookableCities,
   listCityPlaces,
-  listLookupFailures,
 } from "../repos/site.ts";
 import { validationFailed } from "../validation.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
-import { type SalesRateScope, peekRateSlot, rateLimited, takeRateSlot } from "./rate-limit.ts";
+import { inBackground } from "./background.ts";
+import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
 import { lastUsedIsStale } from "./sales-auth.ts";
 import type { SalesPrincipal } from "./sales-auth.ts";
 import { type SalesQuote, type SalesUnavailableReason, createSalesQuotes } from "./sales-quotes.ts";
@@ -79,9 +78,6 @@ export const SITE_LINK_RULES = {
   minimumMs: 24 * 3_600_000,
 } as const;
 
-/** 找回的硬上限：每个订单号滚动 24 小时里失败满 100 次后，联系方式对上的也挡（ADR 0032「找回按订单号限速」）。 */
-export const SITE_LOOKUP_CEILING = { maxFailures: 100, windowMs: 24 * 3_600_000 } as const;
-
 const LINK_PREFIX = "nzo_";
 const LINK_FORMAT = /^nzo_[A-Za-z0-9_-]{43}$/;
 
@@ -90,22 +86,21 @@ export function siteNotOpen(): AppError {
 }
 
 function linkInvalid(): AppError {
-  return new AppError(401, "ORDER_LINK_INVALID", "订单链接无效或已过期，请用订单号和下单时的邮箱或手机号重新查找");
+  return new AppError(401, "ORDER_LINK_INVALID", "订单链接无效或已过期，请在「查订单」填订单号和下单邮箱，我们会把新链接发到下单邮箱");
 }
 
-function orderNotFound(): AppError {
-  return new AppError(404, "ORDER_NOT_FOUND", "没有找到这张订单：请核对订单号，以及下单时填的邮箱或手机号。如果这张订单已结束超过 180 天，联系方式可能已按隐私规则清除，不能再用邮箱或手机号查询，需要帮助请联系客服");
+function orderLinkEmailUnavailable(): AppError {
+  return new AppError(503, "ORDER_LINK_EMAIL_UNAVAILABLE", "暂时发不了邮件，请联系客服找回订单");
 }
 
 const hashToken = (token: string): string => createHash("sha256").update(token, "utf8").digest("hex");
-/** 来源地址、订单号不进限流表原文（和登录限速一样只存哈希）。 */
-const bucketOf = (kind: string, value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
+/** 来源地址、订单号、邮箱不进限流表原文（和登录限速一样只存哈希）。 */
+const bucketOf = (kind: "ip" | "order" | "email", value: string): string => createHash("sha256").update(`site-${kind}:${value}`, "utf8").digest("hex");
 
 /** 占用一次官网的限流额度；超限 429。计数单独一个事务先提交，后面出错回滚时这一次照样算数。 */
-export async function takeSiteSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, key: { ip: string } | { orderNo: string }): Promise<void> {
+export async function takeSiteSlot(ctx: AppContext, scope: Extract<SalesRateScope, `site_${string}`>, key: { ip: string }): Promise<void> {
   // 来源地址按限流键计（IPv6 按 /64，ADR 0045）
-  const bucket = "ip" in key ? bucketOf("ip", rateLimitKeyOf(key.ip)) : bucketOf("order", key.orderNo);
-  const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucket, scope, ctx.now()));
+  const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf("ip", rateLimitKeyOf(key.ip)), scope, ctx.now()));
   if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
 }
 
@@ -431,10 +426,10 @@ export function newSiteLink(serviceAt: Date, now: Date): SiteLink & { tokenHash:
   return { token, tokenHash: hashToken(token), expiresAt: linkExpiry(serviceAt, now) };
 }
 
-async function issueLink(ctx: AppContext, orderId: string, serviceAt: Date, via: "order" | "lookup"): Promise<SiteLink> {
+async function issueLink(ctx: AppContext, orderId: string, serviceAt: Date): Promise<SiteLink> {
   const now = ctx.now();
   const { token, tokenHash, expiresAt } = newSiteLink(serviceAt, now);
-  await withPlatformTx(ctx.pool, (db) => insertSiteOrderLink(db, { orderId, tokenHash, issuedVia: via, createdAt: now, expiresAt }));
+  await withPlatformTx(ctx.pool, (db) => insertSiteOrderLink(db, { orderId, tokenHash, issuedVia: "order", createdAt: now, expiresAt }));
   return { token, expiresAt };
 }
 
@@ -442,7 +437,7 @@ async function issueLink(ctx: AppContext, orderId: string, serviceAt: Date, via:
 export async function placeSiteOrder(ctx: AppContext, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean; link: SiteLink }> {
   const { principal } = await requireOpenSite(ctx);
   const created = await createSiteOrder(ctx, principal, input, log);
-  return { ...created, link: await issueLink(ctx, created.view.order.id, created.view.order.serviceAt, "order") };
+  return { ...created, link: await issueLink(ctx, created.view.order.id, created.view.order.serviceAt) };
 }
 
 /**
@@ -469,8 +464,8 @@ export function contactMatchesOrder(crypto: PassengerCrypto, contact: string, fo
 }
 
 /**
- * 找回订单时的核对：先比盲索引再解密（ADR 0057）。对不上的不解密，和订单号不存在一样走 404，解不开也看不出来；
- * 对得上却解不开才是 503（这时对方已经证明知道联系方式）。没有盲索引又解不开的，分不出对没对，按对不上算。
+ * 查订单时的核对：先比盲索引再解密（ADR 0057）。对不上的不解密；对得上却解不开的抛出（后台任务记日志，客人收不到信，和对不上一样）。
+ * 没有盲索引又解不开的，分不出对没对，按对不上算。
  */
 function lookupMatches(crypto: PassengerCrypto, contact: string, found: { orderId: string; tenantId: string; passengerEnc: string | null; passengerPlain: PassengerContact; emailBidx: string | null; phoneBidx: string | null }): boolean {
   const verdict = indexVerdict(crypto, contact, found);
@@ -484,47 +479,35 @@ function lookupMatches(crypto: PassengerCrypto, contact: string, found: { orderI
   }
 }
 
+export interface SiteLinkLog {
+  error(details: object, message: string): void;
+}
+
 /**
- * 用订单号 + 下单时的邮箱或电话找回订单：对上了发一个新链接；订单号不存在、联系方式不对、不是官网的单一律同一个 404。
- * 按订单号有两层额度（ADR 0032「找回按订单号限速」）：
- * - 每小时 10 次**失败**（方案 A）：别人用错的联系方式刷满了，真客人对上的那次照样放行；
- * - 硬上限：滚动 24 小时失败满 100 次后，对上的也挡（否则刷满后「429 = 猜错、200 = 猜对」，等于不限猜测次数）。
- * 失败的一次先记下（单独提交）再决定 429 还是 404；被挡时不论对没对上，应答（含 Retry-After）都按「这一次如果算失败」计算，
- * 不存在的订单号和对不上的走同一条路，借应答分不出订单号存不存在、联系方式对没对。
+ * 查订单（ADR 0061）：订单号 + 下单邮箱（已规整，见 domain 的 `viewLinkLookupEmail`）。**应答前只做和订单无关的事**：
+ * 官网配没配置、邮件能不能发、按地址 → 订单号 → 邮箱占限速（不管订单存不存在都计；被前面拦下的不占后面的）。
+ * 查单、核对、排进通知中心都在应答之后的后台任务里，所以对上、对不上、订单号不存在、别的渠道的单、已脱敏，应答和耗时都一样。
+ * 发信由通知中心做（事件 `order.view_link`，收件人是订单上现在的邮箱；链接在发送那一刻新签发，旧链接不受影响）。
  */
-export async function lookupSiteOrder(ctx: AppContext, orderNo: string, contact: string, log: OrderLog = SILENT_ORDER_LOG): Promise<SiteLink> {
+export async function requestSiteOrderLink(ctx: AppContext, log: SiteLinkLog, input: { orderNo: string; email: string; ip: string }): Promise<void> {
   const channelId = await requireSiteChannelId(ctx);
+  await ctx.integrations.ensureFresh();
+  if (ctx.integrations.effective.email.config === null) throw orderLinkEmailUnavailable();
   const now = ctx.now();
-  const bucket = bucketOf("order", orderNo);
-  const since = new Date(now.getTime() - SITE_LOOKUP_CEILING.windowMs);
-  const ceilingOf = (times: readonly Date[]) => evaluateRollingWindow(times, SITE_LOOKUP_CEILING.maxFailures, SITE_LOOKUP_CEILING.windowMs, now);
-  const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
-  // 脱敏后的单永远对不上（ADR 0055）：走和「对不上」同一条路，应答分不出订单号存不存在
-  if (found !== null && !found.anonymized && lookupMatches(passengerCryptoOfPool(ctx.pool), contact, found)) {
-    const blocked = await withPlatformTx(ctx.pool, async (db) => {
-      const ceiling = ceilingOf(await listLookupFailures(db, bucket, since));
-      if (ceiling.allowed) return null;
-      return combineThrottleDecisions([ceiling, await peekRateSlot(db, bucket, "site_lookup_order", now)]);
-    });
-    if (blocked !== null) throw rateLimited(blocked.retryAfterSeconds);
-    return issueLink(ctx, found.orderId, found.serviceAt, "lookup");
+  for (const step of viewLinkThrottleSteps()) {
+    // 来源地址按限流键计（IPv6 按 /64，ADR 0045）；订单号、邮箱不进限流表原文
+    const value = step.dimension === "ip" ? rateLimitKeyOf(input.ip) : step.dimension === "order" ? input.orderNo : input.email;
+    const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf(step.dimension, value), step.scope, now));
+    if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
   }
-  const decision = await withPlatformTx(ctx.pool, async (db) => {
-    const hourly = await takeRateSlot(db, bucket, "site_lookup_order", now);
-    const before = await listLookupFailures(db, bucket, since);
-    const ceiling = ceilingOf(before);
-    // 硬上限已满时不再记（每个订单号最多留 100 行）；这一次正好记满时留一条服务日志给运营
-    if (ceiling.allowed) {
-      await insertLookupFailure(db, bucket, now, since);
-      if (before.length + 1 === SITE_LOOKUP_CEILING.maxFailures) {
-        await enqueueNotification(db, { event: "site.lookup_ceiling", tenantId: null, orderId: found?.orderId ?? null, dedupeKey: `site.lookup_ceiling:${bucket.slice(0, 32)}:${now.getTime()}` }, now);
-        log.warn({ event: "site_lookup_ceiling_reached", order_id: found?.orderId ?? null, order_bucket: bucket.slice(0, 16), failures: SITE_LOOKUP_CEILING.maxFailures, window_hours: 24 }, "官网找回：这个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜");
-      }
-    }
-    return combineThrottleDecisions([hourly, ceiling]);
-  });
-  if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
-  throw orderNotFound();
+  inBackground(ctx, log, "site.view_link_failed", () => queueSiteOrderLink(ctx, channelId, input.orderNo, input.email, now));
+}
+
+/** 后台任务：这个渠道的这张单、没脱敏、下单邮箱对得上，才排一封信。对不上什么也不做（不记失败：应答里本来就没有可猜的结论）。 */
+async function queueSiteOrderLink(ctx: AppContext, channelId: string, orderNo: string, email: string, now: Date): Promise<void> {
+  const found = await withPlatformTx(ctx.pool, (db) => findChannelOrderByNo(db, channelId, orderNo), { snapshot: true });
+  if (found === null || found.anonymized || !lookupMatches(passengerCryptoOfPool(ctx.pool), email, found)) return;
+  await withPlatformTx(ctx.pool, (db) => enqueueNotification(db, { event: "order.view_link", tenantId: found.tenantId, orderId: found.orderId, dedupeKey: `order.view_link:lookup:${found.orderId}:${randomUUID()}`, data: { via: "lookup" } }, now));
 }
 
 /** 凭查看链接找到它对应的订单编号和渠道；令牌格式不对、不存在、过期、不是官网的单一律 401。 */

@@ -145,6 +145,8 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "GET", url: `/platform/v1/orders/${MISSING}/cancel-fee`, action: "order.read" },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/cancel`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/passenger/reveal`, action: "order.read" },
+  { method: "GET", url: `/platform/v1/orders/${MISSING}/view-link`, action: "order.read" },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/view-link/resend`, action: "order.view_link_resend", body: { target: "original", verification: "other", reason: "x" } },
   { method: "POST", url: `/platform/v1/tickets/${MISSING}/texts/reveal`, action: "ticket.read" },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/events`, action: "order.proxy_fulfilment", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/changes/${MISSING}/confirm`, action: "order.change_decide", body: { note: "x" } },

@@ -17,6 +17,7 @@ import { STAFF_APPROVAL_KINDS } from "./platform-staff.ts";
 import { BILLING_APPROVAL_KINDS } from "./billing.ts";
 import { BANK_FILE_APPROVAL_KINDS } from "./bank-files.ts";
 import { PAYOUT_ACCOUNT_APPROVAL_KINDS } from "./payout-accounts.ts";
+import { VIEW_LINK_APPROVAL_KINDS } from "./view-link-resend.ts";
 
 export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...CHANNEL_APPROVAL_KINDS,
@@ -33,4 +34,5 @@ export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...BILLING_APPROVAL_KINDS,
   ...PAYOUT_ACCOUNT_APPROVAL_KINDS,
   ...BANK_FILE_APPROVAL_KINDS,
+  ...VIEW_LINK_APPROVAL_KINDS,
 ]);

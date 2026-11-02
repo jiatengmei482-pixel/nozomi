@@ -38,13 +38,13 @@ function verifyPlain(portal: Portal, email: string, code: string, ip: string, he
 
 async function requestCode(portal: Portal, email: string, ip = nextIp()): Promise<ApiResponse> {
   const res = await requestPlain(portal, email, ip);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   return res;
 }
 
 async function verify(portal: Portal, email: string, code: string, ip = nextIp()): Promise<ApiResponse> {
   const res = await verifyPlain(portal, email, code, ip);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   return res;
 }
 
@@ -147,7 +147,7 @@ test("并发猜错：4 个错码同时提交，计数正好 +4，一次都不少
   await requestCode("platform", email);
   const code = latestCode(email);
   const results = await Promise.all(Array.from({ length: 4 }, () => verifyPlain("platform", email, wrongCode(code), nextIp())));
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.ok(results.every((res) => res.status === 401));
   assert.equal(await attemptsOf("platform", email), 4);
   assert.equal((await verify("platform", email, code)).status, 200);
@@ -161,7 +161,7 @@ test("并发混合：错码和对的码一起提交 6 次，计数不超过 5，
   const code = latestCode(email);
   const submissions = [code, wrongCode(code), wrongCode(code), code, wrongCode(code), wrongCode(code)];
   const results = await Promise.all(submissions.map((value) => verifyPlain("platform", email, value, nextIp())));
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.ok(results.filter((res) => res.status === 200).length <= 1);
   const sessions = (await api.db.owner.query("select count(*)::int as n from platform_sessions s join platform_users u on u.id = s.user_id where u.email = $1", [email])).rows[0].n;
   assert.equal(sessions, results.filter((res) => res.status === 200).length);
@@ -175,7 +175,7 @@ test("并发正确的码（租户入口）：只成功一次，只有一个会�
   await requestCode("tenant", email);
   const code = latestCode(email);
   const results = await Promise.all(Array.from({ length: 10 }, () => verifyPlain("tenant", email, code, nextIp())));
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual(results.map((res) => res.status).sort(), [200, 401, 401, 401, 401, 401, 401, 401, 401, 401]);
   const sessions = (await api.db.owner.query("select count(*)::int as n from tenant_sessions s join tenant_users u on u.id = s.user_id where u.email = $1", [email])).rows[0].n as number;
   assert.equal(sessions, baseline + 1);
@@ -186,7 +186,7 @@ test("并发发码：同一邮箱的各种写法同时提交 8 次，只有一�
   await staff(email);
   const variants = [email, email.toUpperCase(), ` ${email}`, `${email} `, "QA-Concurrent-Send@Platform.Test", email, email, email];
   const results = await Promise.all(variants.map((value) => requestPlain("platform", value, nextIp())));
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual(results.map((res) => res.status).sort(), [202, 429, 429, 429, 429, 429, 429, 429]);
   assert.equal(smtp.messages.length, 1);
   assert.deepEqual(smtp.messages[0]?.to, [email], "发到规范化后的地址");
@@ -211,7 +211,7 @@ test("校验：同一地址 15 分钟 50 次（ADR 第 4 节），换邮箱绕�
   const code = latestCode(email);
   const ip = "203.0.113.150";
   for (let i = 0; i < 50; i++) assert.equal((await verifyPlain("platform", `qa-ip-limit-${i}@platform.test`, "000000", ip)).status, 401, `第 ${i + 1} 次`);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   const blocked = await verify("platform", email, code, ip);
   assert.deepEqual([blocked.status, blocked.body.error.code], [429, "TOO_MANY_LOGIN_ATTEMPTS"]);
   assert.equal(await attemptsOf("platform", email), 0, "被拦下的不占这个码的次数");
@@ -312,14 +312,14 @@ test("邮件头和 SMTP 命令注入：地址中间带换行的一律 400，不�
 test("X-Forwarded-For：没配代理层数（默认）时整个不信，换着伪造也绕不过发码和校验的限速", async () => {
   const ip = "203.0.113.170";
   for (let i = 0; i < 20; i++) assert.equal((await requestPlain("platform", `qa-xff-${i}@platform.test`, ip, { "x-forwarded-for": `192.0.2.${i + 1}` })).status, 202);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.equal((await requestPlain("platform", "qa-xff-next@platform.test", ip, { "x-forwarded-for": "192.0.2.99" })).status, 429);
 
   const verifyIp = "203.0.113.171";
   const email = "qa-xff-verify@platform.test";
   for (let i = 0; i < 5; i++) assert.equal((await verifyPlain("platform", email, "000000", verifyIp, { "x-forwarded-for": `192.0.2.${i + 1}` })).status, 401);
   assert.equal((await verifyPlain("platform", email, "000000", verifyIp, { "x-forwarded-for": "192.0.2.99" })).status, 429);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
 });
 
 test("X-Forwarded-For：配了一层代理时只认代理写的最后一段，客户端在左边伪造多少段都没用；两层代理也一样", async () => {
@@ -335,7 +335,7 @@ test("X-Forwarded-For：配了一层代理时只认代理写的最后一段，�
       assert.equal(blocked.status, 429, `TRUST_PROXY_HOPS=${hops}：伪造左边的段不能换来新的地址额度`);
       const another = await requestPlain("platform", "qa-hop-next@platform.test", socket, { "x-forwarded-for": chain("192.0.2.99").replace("203.0.113.180", "203.0.113.181") }, proxied);
       assert.equal(another.status, 202, "代理写的另一个客户端地址是另一份额度");
-      await proxied.app.emailLoginIdle();
+      await proxied.app.backgroundIdle();
     } finally {
       await proxied.close();
     }
@@ -348,7 +348,7 @@ test("IPv6 同一个 /64 换地址、IPv4 的映射写法，都算同一个来�
   assert.equal((await requestPlain("platform", "qa-six-next@platform.test", "2001:db8:1:3::1")).status, 202, "另一个 /64 不受影响");
   for (let i = 0; i < 20; i++) assert.equal((await requestPlain("platform", `qa-four-${i}@platform.test`, "203.0.113.190")).status, 202);
   assert.equal((await requestPlain("platform", "qa-four-next@platform.test", "::ffff:203.0.113.190")).status, 429);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
 });
 
 test("高并发：同一地址、同一邮箱的发码和校验混在一起 60 个请求，没有一个 500（没有死锁、没有撞约束），都是 202 / 401 / 429 / 200", async () => {
@@ -364,7 +364,7 @@ test("高并发：同一地址、同一邮箱的发码和校验混在一起 60 �
     else jobs.push(verifyPlain("platform", i % 5 === 0 ? `qa-stress-${i}@platform.test` : email, i % 7 === 0 ? code : wrongCode(code), ip));
   }
   const results = await Promise.all(jobs);
-  await api.app.emailLoginIdle();
+  await api.app.backgroundIdle();
   assert.deepEqual([...new Set(results.map((res) => res.status))].filter((status) => ![200, 202, 401, 429].includes(status)), []);
   assert.doesNotMatch(api.logs(), /email_code\.task_failed/);
 });
