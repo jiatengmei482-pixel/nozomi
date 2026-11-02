@@ -283,7 +283,7 @@ test("next_event：每一步都对、只有 type / earliest_at / earliest_local 
     assert.equal(page.body.order.status, status);
     const expected = NEXT[status];
     assert.equal(type, expected);
-    if (expected === null) {
+    if (expected === null || expected === undefined) {
       assert.equal(page.body.next_event, null);
       break;
     }
