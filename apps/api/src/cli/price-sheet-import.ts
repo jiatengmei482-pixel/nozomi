@@ -22,6 +22,7 @@ import {
   PRICE_DIRECTION_NAMES,
   PRICE_IMPORT_SKIP_NAMES,
   type PriceImportAnomalies,
+  type PriceImportOverlapCheck,
   type PriceImportPlan,
   type PriceImportPrecheckIssue,
   type PriceImportTarget,
@@ -37,6 +38,7 @@ import {
   parsePriceWorkbook,
   priceImportAnomalies,
   priceImportBatchIssue,
+  priceImportOverlapCheck,
   planPriceSheetImport,
   pricePriceImportCells,
   resolvePriceImportTarget,
@@ -184,6 +186,7 @@ export interface PlanReport {
   pricingNote: string;
   plan: PriceImportPlan;
   priced: PricedImportCell[];
+  overlap: PriceImportOverlapCheck;
   issues: (PriceImportPrecheckIssue | PriceImportBlocker)[];
   datedRules: MarkupRule[];
   anomalies: PriceImportAnomalies;
@@ -217,6 +220,7 @@ export function renderPlanMarkdown(report: PlanReport): string {
     `- 价格生效日期：${report.validFrom}（不设结束日期）`,
     `- 官网规则：${cellText(report.pricingNote)}`,
     `- 机场↔地区的路线：${report.plan.routesInScope} 行，其中有导入的 ${report.plan.routesImported} 行；导入的价格 ${report.plan.cells.length} 格`,
+    `- 重叠处会被报低、先不导的：${report.overlap.skipped.length} 格（明细见 overlap.md）`,
     "",
     "## 倒算结果",
     "",
@@ -294,6 +298,38 @@ export function renderAnomaliesMarkdown(report: PlanReport): string {
   return `${lines.join("\n")}\n`;
 }
 
+function pricedWithOverlap(priced: PricedImportCell[]): { priced: PricedImportCell[]; overlap: PriceImportOverlapCheck } {
+  return { priced, overlap: priceImportOverlapCheck(priced) };
+}
+
+/** 重叠比价清单（Markdown）：同一机场下互相重叠的地区，和重叠处会被报低、所以没有导入的格子。 */
+export function renderOverlapMarkdown(report: PlanReport): string {
+  const { overlap } = report;
+  const airports = new Set(overlap.conflicts.map((conflict) => conflict.iata));
+  const lines = [
+    "# 重叠比价跳过清单（同一机场商品、同一车型、同一方向）",
+    "",
+    "报价时一个地址落在几个区域里取结算价最低的（ADR 0020），没有「更具体的优先」。业主预期更小、更具体的区域优先，所以大区域比和它重叠的小区域便宜时，",
+    "重叠处会按大区域的低价报出：这一格（大区域的）先不导。通用（接送同价）的一格整格不导。内容含价格，不进仓库。",
+    "",
+    `- 互相重叠的地区对：${overlap.overlaps.length} 对；有冲突的：${overlap.conflicts.length} 处（${airports.size} 个机场）；跳过的格子：${overlap.skipped.length} 格`,
+    "",
+    "## 跳过的格子和被压低的地区",
+    "",
+    "| 机场 | 车型列 | 方向 | 大区域（不导） | 大区域表上价 | 被压低的地区 | 它的表上价 |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
+    ...overlap.conflicts.map((c) => `| ${cellText(c.airport)} | ${cellText(c.column)} | ${c.direction === "pickup" ? "接机" : "送机"} | ${cellText(c.larger.region)} | ${yen(c.larger.sheetPriceMinor)} | ${cellText(c.smaller.region)} | ${yen(c.smaller.sheetPriceMinor)} |`),
+    "",
+    "## 同一机场下互相重叠的地区（大的在前，面积是近似值）",
+    "",
+    "| 机场 | 大区域 | 面积（平方公里） | 小区域 | 面积（平方公里） |",
+    "| --- | --- | --- | --- | --- |",
+    ...overlap.overlaps.map((o) => `| ${o.iata} | ${cellText(o.larger)} | ${o.largerAreaKm2} | ${cellText(o.smaller)} | ${o.smallerAreaKm2} |`),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 /** 离线：按导出或假设的规则倒算。 */
 export function offlineReport(input: { plan: PriceImportPlan; anomalies: PriceImportAnomalies; sha256: string; batch: string }, source: { kind: "target"; target: PriceImportTarget } | { kind: "assume"; rules: Omit<SitePriceRules, "currency" | "channelCurrency"> }): PlanReport {
   if (source.kind === "assume") {
@@ -305,7 +341,7 @@ export function offlineReport(input: { plan: PriceImportPlan; anomalies: PriceIm
       validFrom: IMPORT_VALID_FROM,
       pricingNote: `假设：加价 ${rules.markupBp / 100}%、下限 ${rules.markupFloorBp / 100}%、最低毛利 ${rules.minMarginMinor} 日元、${rules.sellRoundingUnit > 1 ? `对外价向上取整到 ${rules.sellRoundingUnit} 日元` : "对外价四舍五入到 1 日元"}、子品牌取整 1 日元`,
       plan: input.plan,
-      priced: pricePriceImportCells(input.plan.cells, () => rules),
+      ...pricedWithOverlap(pricePriceImportCells(input.plan.cells, () => rules)),
       issues: [],
       datedRules: [],
       anomalies: input.anomalies,
@@ -328,7 +364,7 @@ export function offlineReport(input: { plan: PriceImportPlan; anomalies: PriceIm
     validFrom: IMPORT_VALID_FROM,
     pricingNote: `目标环境导出：渠道「${target.channel.name}」默认加价 ${target.channel.defaultMarkupBp / 100}%、下限 ${target.channel.markupFloorBp / 100}%、最低毛利 ${target.channel.minMarginMinor}、对外价取整 ${target.channel.sellRounding.get(target.channel.settleCurrency) ?? 1}；加价规则 ${target.markupRules.length} 条（按五级匹配）`,
     plan: input.plan,
-    priced,
+    ...pricedWithOverlap(priced),
     issues: resolved.issues,
     datedRules: [...dated.values()],
     anomalies: input.anomalies,
@@ -341,6 +377,7 @@ async function writeOutputs(outDir: string, report: PlanReport): Promise<void> {
   const files: [string, string][] = [
     ["plan.md", renderPlanMarkdown(report)],
     ["anomalies.md", renderAnomaliesMarkdown(report)],
+    ["overlap.md", renderOverlapMarkdown(report)],
     ["plan.json", `${JSON.stringify(report, (_key, value: unknown) => (value instanceof Map ? Object.fromEntries(value) : value), 2)}\n`],
   ];
   for (const [name, content] of files) {
@@ -356,9 +393,10 @@ function summary(report: PlanReport, outDir: string): string {
     `模式：${report.mode}`,
     `机场↔地区 ${report.plan.routesInScope} 行，导入 ${report.plan.routesImported} 行、${report.plan.cells.length} 格；不导入 ${report.plan.skips.length} 项`,
     `倒算：完全一致 ${stats.exact}，有偏差 ${stats.below}（最大 ${stats.maxShortfall} 日元），报不出 ${stats.impossible}`,
+    `重叠：地区对 ${report.overlap.overlaps.length}，会被报低 ${report.overlap.conflicts.length} 处，跳过 ${report.overlap.skipped.length} 格`,
     `拦住写入的原因 ${report.issues.length} 条`,
     ...(report.counts ? [`写入：${JSON.stringify(report.counts)}`] : []),
-    `输出：${join(outDir, "plan.md")}、${join(outDir, "anomalies.md")}、${join(outDir, "plan.json")}`,
+    `输出：${join(outDir, "plan.md")}、${join(outDir, "anomalies.md")}、${join(outDir, "overlap.md")}、${join(outDir, "plan.json")}`,
   ].join("\n");
 }
 
@@ -394,6 +432,7 @@ export async function runImportCommand(command: ImportCommand): Promise<string> 
         pricingNote: `目标库：渠道「${outcome.channel.name}」，租户「${outcome.tenant.name}」，子品牌「${outcome.brandName}」`,
         plan: loaded.plan,
         priced: outcome.priced,
+        overlap: outcome.overlap,
         issues: outcome.blockers,
         datedRules: outcome.datedRules,
         anomalies: loaded.anomalies,

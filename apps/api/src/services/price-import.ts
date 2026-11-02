@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import {
   type CurrencyCode,
   type MarkupRule,
+  type PriceImportOverlapCheck,
   type PriceImportPlan,
   type PriceImportPrecheckIssue,
   type PriceImportRevertBlocker,
@@ -25,8 +26,10 @@ import {
   planPriceImportRevert,
   priceImportBatchLabel,
   priceImportBrandName,
+  priceImportOverlapCheck,
   pricePriceImportCells,
   resolvePriceImportTarget,
+  ringToGeoJson,
   sitePriceRulesFor,
 } from "@nozomi/domain";
 import type { DbContext } from "../context.ts";
@@ -84,11 +87,13 @@ export interface PriceImportOutcome {
   blockers: PriceImportBlocker[];
   /** 每一格的倒算结果（偏差清单的来源） */
   priced: PricedImportCell[];
+  /** 同一机场下互相重叠的地区、重叠处会被报低而跳过的格子（ADR 0062 补记） */
+  overlap: PriceImportOverlapCheck;
   /** 加价规则里带日期范围（促销）、会让这一格在促销期显示价不同的 */
   datedRules: MarkupRule[];
   /** 机场 → 商品的城市（机场在主数据里的城市） */
   airportCities: { iata: string; cityId: string; cityCode: string }[];
-  planned: { brand: "create" | "exists"; areas: { create: number; exists: number }; products: { create: number; extend: number; exists: number }; prices: { create: number; exists: number; skippedImpossible: number } };
+  planned: { brand: "create" | "exists"; areas: { create: number; exists: number }; products: { create: number; extend: number; exists: number }; prices: { create: number; exists: number; skippedImpossible: number; skippedOverlap: number } };
   written: { brand: number; areas: number; products: number; prices: number };
 }
 
@@ -170,7 +175,9 @@ export async function runPriceImport(
     for (const rule of found.datedRules) datedRules.set(rule.id, rule);
     return found.rules;
   });
-  const sellable = priced.filter((cell) => cell.result.baseMinor !== null);
+  // 重叠处会被报低的格子先不导（取最低价的规则下，大区域更便宜会压低和它重叠的小区域）
+  const overlap = priceImportOverlapCheck(priced);
+  const sellable = overlap.kept.filter((cell) => cell.result.baseMinor !== null);
   const grouped = groupPriceImport(sellable, cityOf);
 
   // 现在的样子：这一批的区域、商品、价格；同城市里这一批以外的同名区域
@@ -215,6 +222,7 @@ export async function runPriceImport(
     channel: { id: target.channel.id, name: target.channel.name },
     blockers,
     priced,
+    overlap,
     datedRules: [...datedRules.values()],
     airportCities: [...resolved.airports].map(([iata, airport]) => ({ iata, cityId: airport.cityId, cityCode: airport.cityCode })),
     planned: {
@@ -225,7 +233,7 @@ export async function runPriceImport(
         extend: 0,
         exists: grouped.products.filter((product) => products.has(resolved.airports.get(product.iata)?.placeId ?? "")).length,
       },
-      prices: { create: sellable.length - pricesExisting, exists: pricesExisting, skippedImpossible: priced.length - sellable.length },
+      prices: { create: sellable.length - pricesExisting, exists: pricesExisting, skippedImpossible: priced.filter((cell) => cell.result.baseMinor === null).length, skippedOverlap: overlap.skipped.length },
     },
     written: { brand: 0, areas: 0, products: 0, prices: 0 },
   };
@@ -248,7 +256,11 @@ export async function runPriceImport(
         cityId: area.city,
         name: { zh: area.region },
         bizType: "airport_transfer",
-        polygons: [{ id: null, kind: "operate", label, source: "circle", circle: { center: { lat: area.shape.lat, lng: area.shape.lng }, radiusM: area.shape.radiusM }, geometry: null }],
+        polygons: [
+          area.shape.kind === "circle"
+            ? { id: null, kind: "operate", label, source: "circle", circle: { center: { lat: area.shape.lat, lng: area.shape.lng }, radiusM: area.shape.radiusM }, geometry: null }
+            : { id: null, kind: "operate", label, source: "pasted", circle: null, geometry: ringToGeoJson(area.shape.ring) },
+        ],
       },
       key(),
       (view) => ({ id: view.area.id }),

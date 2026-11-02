@@ -309,6 +309,11 @@ function relation(a: readonly Position[], b: readonly Position[]): "disjoint" | 
   return "disjoint";
 }
 
+/** 两块合法的图形有没有公共部分（边相交、相碰，或一块整个在另一块里）。 */
+export function ringsOverlap(a: readonly Position[], b: readonly Position[]): boolean {
+  return relation(a, b) !== "disjoint";
+}
+
 export type AreaShapeWarning =
   /** 第 `polygon` 块禁行区和任何一块营运区都不重叠：它不起作用 */
   | { reason: "FORBID_OUTSIDE_OPERATE"; polygon: number }
