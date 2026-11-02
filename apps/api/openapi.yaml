@@ -10156,7 +10156,7 @@ paths:
         "422":
           description: |
             `FULFILMENT_TOO_EARLY`：还没到这一步最早可以点的时间。`message` 是给司机看的说明；
-            `details`：`type` 哪一步，`earliest_at` 最早的时刻，`earliest_local` 城市当地时间（`YYYY-MM-DD HH:mm`，带秒的进到下一分钟），`timezone`，`hours_before_service` 最早在用车前几小时。
+            `details`：`type` 哪一步，`earliest_at` 最早的时刻，`earliest_local` 城市当地时间（`YYYY-MM-DD HH:mm`，照着它点不会被拒：带秒的进到下一分钟，夏令时拨回重复的那一小时往后写），`timezone`，`hours_before_service` 最早在用车前几小时。
           content:
             application/json:
               schema:
@@ -23512,7 +23512,7 @@ components:
                   format: date-time
                 earliest_local:
                   type: string
-                  description: 城市当地时间 `YYYY-MM-DD HH:mm`（带秒的进到下一分钟）
+                  description: 城市当地时间 `YYYY-MM-DD HH:mm`（照着它点不会被拒：带秒的进到下一分钟，夏令时拨回重复的那一小时往后写）
         pending_change:
           description: 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行
           oneOf:
