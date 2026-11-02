@@ -104,6 +104,11 @@ export const TIMELINE_NAMES: Readonly<Record<OrderStatus, string>> = {
   rescued: "已为您重新安排车辆",
 };
 
+/** 客人看到的进度只有状态真的变了的那些行：改乘客信息等会写一条状态没变的流水（已确认 → 已确认），不能显示成又确认了一次。 */
+export function visibleTimeline<T extends { from_status: string | null; to_status: string }>(timeline: readonly T[]): T[] {
+  return timeline.filter((entry) => entry.from_status !== entry.to_status);
+}
+
 export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
   PAYMENT_TIMEOUT: "超过付款期限没有付款，系统自动取消",
   PAYMENT_CANCELED: "付款被取消",
