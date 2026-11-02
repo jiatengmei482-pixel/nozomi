@@ -62,6 +62,8 @@ export const PLATFORM_ACTIONS = [
   "order.proxy_fulfilment",
   "order.proxy_review",
   "order.change_decide",
+  "order.view_link_resend",
+  "order.view_link_review",
   "payment.manage",
   "cancellation_policy.manage",
   "cancellation_policy.review",
@@ -168,17 +170,21 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * - `statement.manage`（手动出账、答复异议、作废重出、发起付款复核、锁定付款批次）：财务；
  * - `statement.review`（审核「付款给租户」，需求「敏感操作双人复核：付款给租户」）：财务——两位财务互审，或超级管理员审。
  * 通知中心（M4-08，ADR 0049；菜单表「通知中心：运营」）：看发送记录和模板（`notification.read`）、手动重试（`notification.retry`）：运营、客服（客服处理订单时要回答「客人收到没有」）。
+ * 官网订单链接重发（M4-30，ADR 0061）：核实客人身份后把订单链接发到下单邮箱、发起「发到核实后的新邮箱」（`order.view_link_resend`）：运营、客服——
+ * 官网让找不回订单的客人联系客服，接电话的是客服（和 `order.resend`、`notification.retry` 同一批人）。
+ * 发到新邮箱等于把订单交给另一个人，要另一位同事审核（`order.view_link_review`）：运营——客服发起、运营审核；两位运营互审，或超级管理员审。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
   operations: [
     "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
-    "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
+    "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
+    "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
-  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
+  customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
   risk: ["master_data.read", "product.read", "channel.read", "approval.read", "order.read", "ticket.read"],
   master_data: ["master_data.read", "master_data.manage", "fx.manage", "fx.review", "approval.read"],
@@ -322,6 +328,8 @@ export const PLATFORM_MENUS = [
   { key: "order_proxy", name: "代传履约", operations: { view: ["order.read"], edit: ["order.proxy_fulfilment"], review: ["order.proxy_review"] } },
   // 代供应商处理改单（M4-29，ADR 0060）：单独一格。放进「订单 · 编辑」的话，客服和已有的自建角色就能替供应商答应排车
   { key: "order_change_decide", name: "代处理改单", operations: { view: ["order.read"], edit: ["order.change_decide"] } },
+  // 官网订单链接重发（M4-30，ADR 0061）：单独一格。放进「订单 · 编辑」的话，已有的自建角色会没人审核就能把链接发出去
+  { key: "order_view_link", name: "订单链接重发", operations: { view: ["order.read"], edit: ["order.view_link_resend"], review: ["order.view_link_review"] } },
   // 异常队列（M4-02，ADR 0034）：看和看订单是同一个操作（和救援一样），认领和关闭算编辑——单独一格，财务处理支付异常不用拿到代取消、改单
   { key: "exceptions", name: "异常队列", operations: { view: ["order.read"], edit: ["exception.manage"] } },
   // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核

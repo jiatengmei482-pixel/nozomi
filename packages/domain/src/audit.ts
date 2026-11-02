@@ -86,6 +86,8 @@ export const AUDIT_ACTIONS = [
   "confirm",
   // 改单标记调整中（ADR 0060）
   "mark_adjusting",
+  // 运营核实后把官网订单链接发给客人（ADR 0061）
+  "send_view_link",
   "dismiss",
   "stale",
   "request",

@@ -27,6 +27,7 @@ export const NOTIFICATION_EVENTS = [
   "order.cancelled",
   "extra_charge.submitted",
   "ticket.guest_reply",
+  "order.view_link",
   "order.rescue_assigned",
   "order.rescue_started",
   "order.dispatch_overdue",
@@ -65,6 +66,7 @@ export const NOTIFICATION_EVENT_NAMES: Readonly<Record<NotificationEvent, string
   "order.cancelled": "订单取消",
   "extra_charge.submitted": "服务后费用",
   "ticket.guest_reply": "工单回复",
+  "order.view_link": "订单链接",
   "order.rescue_assigned": "救援新订单",
   "order.rescue_started": "进入救援改派",
   "order.dispatch_overdue": "超时未派车",
@@ -140,6 +142,13 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("order.change_declined", "guest", "修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）{{change_decline_reason}}，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.cancelled", "guest", "订单已取消：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("extra_charge.submitted", "guest", "服务后费用待确认：{{order_no}}", `{{passenger_name}}，您好：\n\n供应商提交了一项服务后费用。\n\n项目：{{extra_charge_type}}\n金额：{{extra_charge_amount}}\n\n如有异议，请在 {{dispute_until}}（东京时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。${GUEST_FOOTER}`),
+  // 官网查订单、运营核实后重发（ADR 0061）：只有订单号和链接，没有姓名、行程、金额——收件人可能只是被人填了这个邮箱
+  zhEmail(
+    "order.view_link",
+    "guest",
+    "您的订单链接：{{order_no}}",
+    "您好：\n\n这是您申请的 NOZOMI 用车订单链接（在官网「查订单」或联系客服时申请）。点下面的链接可以查看和管理订单 {{order_no}}：\n\n{{view_url}}\n\n这个链接只属于您的这张订单，请不要转发给别人。以前收到的链接仍然可以使用。\n\n如果不是您本人申请的，可以忽略这封邮件：没有这个链接，别人看不到您的订单。\n\nNOZOMI 用车",
+  ),
   zhEmail("ticket.guest_reply", "guest", "您的工单有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
 
   zhEmail("order.confirmed", "tenant", "新订单：{{order_no}}", `你有一张新订单，请在派车截止时间前派好司机和车辆。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）${TENANT_FOOTER}`),
@@ -283,7 +292,8 @@ export function notificationExpiresAt(event: NotificationEvent, input: { occurre
   if (SERVICE_BOUND.includes(event) && input.serviceAt !== null) return input.serviceAt;
   if (event === "order.driver_arrived") return after(NOTIFICATION_RULES.arrivedLifetimeMs);
   if (event === "extra_charge.submitted" && input.disputeUntil !== null) return input.disputeUntil;
-  if (event === "exception.opened" || event === "fx.alert" || event === "site.lookup_ceiling") return after(NOTIFICATION_RULES.staffLifetimeMs);
+  // 订单链接（ADR 0061）：客人是刚在页面上申请的，晚一天才到的那封不如让他再申请一次
+  if (event === "exception.opened" || event === "fx.alert" || event === "site.lookup_ceiling" || event === "order.view_link") return after(NOTIFICATION_RULES.staffLifetimeMs);
   return after(NOTIFICATION_RULES.defaultLifetimeMs);
 }
 

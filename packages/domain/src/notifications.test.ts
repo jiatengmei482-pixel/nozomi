@@ -185,3 +185,18 @@ test("收件人去重不分大小写；单行字段的控制字符判断", () =>
   for (const bad of ["a\nb", "a\rb", "a b", "a b", "a\u0085b", "a\tb"]) assert.equal(hasControlChars(bad), true, JSON.stringify(bad));
   assert.equal(hasControlChars("东京站 八重洲口"), false);
 });
+
+test("订单链接（ADR 0061）：只发给客人；带新的查看链接；没有姓名、行程、金额；24 小时后不再发；订单状态变了照发", () => {
+  assert.deepEqual(notificationAudiences("order.view_link"), ["guest"]);
+  const template = findNotificationTemplate("order.view_link", "guest", "zh-CN", "email");
+  assert.ok(template !== null && templateNeedsViewLink(template));
+  assert.deepEqual(templatePlaceholders(template).sort(), ["order_no", "view_url"]);
+  assert.doesNotMatch(`${template.subject}\n${template.body}`, /passenger_name|route|paid_amount|driver|service_time/);
+  assert.match(template.body, /以前收到的链接仍然可以使用/);
+  assert.match(template.body, /不是您本人申请的/);
+  const at = new Date("2026-11-02T00:00:00Z");
+  assert.equal(notificationExpiresAt("order.view_link", { occurredAt: at, serviceAt: new Date("2026-12-01T00:00:00Z"), disputeUntil: null }).toISOString(), "2026-11-03T00:00:00.000Z");
+  for (const status of ["pending_payment", "cancelled", "completed", "rescue_pending"]) {
+    assert.equal(notificationStale("order.view_link", {}, { status, serviceAtMs: 0, driverId: null, vehicleId: null }, { audience: "guest" }), false, status);
+  }
+});
