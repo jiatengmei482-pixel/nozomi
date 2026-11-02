@@ -8,7 +8,7 @@
 import { detectFileTypeAmong } from "./files.ts";
 import { haversineMeters } from "./geo.ts";
 import type { OrderStatus } from "./orders.ts";
-import { instantToLocal } from "./service-time.ts";
+import { instantToLocal, localDateTimeToInstant } from "./service-time.ts";
 
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
@@ -287,16 +287,36 @@ export function fulfilmentTooEarly(type: FulfilmentEventType, at: Date, serviceA
   return at.getTime() < fulfilmentEarliestAt(type, serviceAt).getTime();
 }
 
-/** 最早时间写给人看：城市当地时间 `YYYY-MM-DD HH:mm`；带秒的进到下一分钟，照着写的时间点去做不会再被拒。 */
+/**
+ * 最早时间写给人看：城市当地时间 `YYYY-MM-DD HH:mm`。保证照着写的当地时间去点不会被拒：
+ * - 带秒的进到下一分钟；
+ * - 夏令时拨回、当地时间出现两次的那一小时：写出来的钟面如果先出现的那一次还早于最早时间（最早时间落在第二次），往后写到这一小时结束后的第一分钟。
+ *   手机上只看得到钟面、分不清是第一次还是第二次，往后写最多晚一小时，但不会让司机照着点被拒。
+ */
 export function fulfilmentEarliestLocal(type: FulfilmentEventType, serviceAt: Date, timeZone: string): string {
   const earliest = fulfilmentEarliestAt(type, serviceAt).getTime();
-  return instantToLocal(new Date(Math.ceil(earliest / MINUTE) * MINUTE), timeZone).dateTime.replace("T", " ");
+  let at = Math.ceil(earliest / MINUTE) * MINUTE;
+  for (let step = 0; step <= 24 * 60; step += 1) {
+    const local = instantToLocal(new Date(at), timeZone).dateTime;
+    const first = localDateTimeToInstant(local, timeZone);
+    if (first === null || first.getTime() >= earliest) return local.replace("T", " ");
+    at += MINUTE;
+  }
+  return instantToLocal(new Date(at), timeZone).dateTime.replace("T", " ");
 }
 
-/** 太早时给司机看的说明：哪一步、最早几点可以点（当地时间）、为什么。 */
+/** 司机页上每一步的按钮叫法：说明里也用它，司机看到的和要点的是同一个词。 */
+export const DRIVER_ACTION_LABELS: Readonly<Record<FulfilmentEventType, string>> = {
+  departed: "我出发了",
+  arrived: "已到达上车点",
+  picked_up: "接到客人了",
+  completed: "服务完成",
+};
+
+/** 太早时给司机看的说明：哪一步（按钮上的叫法）、最早几点可以点（当地时间）、为什么。 */
 export function fulfilmentTooEarlyMessage(type: FulfilmentEventType, serviceAt: Date, timeZone: string): string {
   const service = instantToLocal(serviceAt, timeZone).dateTime.replace("T", " ");
-  return `现在还不能点「${FULFILMENT_EVENT_NAMES[type]}」：最早在用车前 ${FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type]} 小时，也就是 ${fulfilmentEarliestLocal(type, serviceAt, timeZone)}（${timeZone} 当地时间）以后才能点（用车时间 ${service}）。行程有变请联系调度。`;
+  return `现在还不能点「${DRIVER_ACTION_LABELS[type]}」：最早在用车前 ${FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE[type]} 小时，也就是 ${fulfilmentEarliestLocal(type, serviceAt, timeZone)}（${timeZone} 当地时间）以后才能点（用车时间 ${service}）。行程有变请联系调度。`;
 }
 
 export const PROXY_FULFILMENT_RULES = {

@@ -82,7 +82,7 @@ test("司机点得太早：按钮下面写明最早几点；点了显示说明�
   await expect(page.getByText(`还没到时间：最早 ${departEarliest}（Asia/Tokyo 当地时间）才能点「我出发了」。行程有变请联系调度。`)).toBeVisible();
   await expectAccessible(page, "司机页面（还没到时间）");
   await page.getByRole("button", { name: "我出发了" }).click();
-  await expect(page.getByText(new RegExp(`现在还不能点「司机已出发」：最早在用车前 24 小时，也就是 ${departEarliest}（Asia/Tokyo 当地时间）以后才能点`))).toBeVisible();
+  await expect(page.getByText(new RegExp(`现在还不能点「我出发了」：最早在用车前 24 小时，也就是 ${departEarliest}（Asia/Tokyo 当地时间）以后才能点`))).toBeVisible();
   await expect(page.getByRole("button", { name: "我出发了" })).toBeVisible();
   const status = await owner(async (db) => (await db.query<{ status: string }>("select status from orders where id = $1", [orderId])).rows[0]?.status);
   expect(status).toBe("assigned");
@@ -97,7 +97,7 @@ test("司机点得太早：按钮下面写明最早几点；点了显示说明�
   const pickEarliest = tokyo(new Date(soon.getTime() - 3 * HOUR));
   await expect(page.getByText(`还没到时间：最早 ${pickEarliest}（Asia/Tokyo 当地时间）才能点「接到客人了」。行程有变请联系调度。`)).toBeVisible();
   await page.getByRole("button", { name: "接到客人了" }).click();
-  await expect(page.getByText(new RegExp(`现在还不能点「已接到客人」：最早在用车前 3 小时，也就是 ${pickEarliest}`))).toBeVisible();
+  await expect(page.getByText(new RegExp(`现在还不能点「接到客人了」：最早在用车前 3 小时，也就是 ${pickEarliest}`))).toBeVisible();
   await expect(page.getByRole("button", { name: "接到客人了" })).toBeVisible();
   await phone.close();
 });

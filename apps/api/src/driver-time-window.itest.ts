@@ -60,7 +60,7 @@ test("真实发生的情况：用车前两天在 20 秒内点出发、到达、�
   const earliest = new Date(serviceAt.getTime() - 24 * HOUR);
   const earliestLocal = new Date(earliest.getTime() + 9 * HOUR).toISOString().slice(0, 16).replace("T", " ");
   assert.deepEqual(departed.body.error.details, { type: "departed", earliest_at: earliest.toISOString(), earliest_local: earliestLocal, timezone: "Asia/Tokyo", hours_before_service: 24 });
-  assert.match(departed.body.error.message, new RegExp(`「司机已出发」.*${earliestLocal}.*Asia/Tokyo`));
+  assert.match(departed.body.error.message, new RegExp(`「我出发了」.*${earliestLocal}.*Asia/Tokyo`));
   api.clock.advance(20_000);
   assert.equal((await event(token, "arrived")).status, 409, "还没出发，先报状态不对");
   assert.deepEqual(await trail(order.id), before);

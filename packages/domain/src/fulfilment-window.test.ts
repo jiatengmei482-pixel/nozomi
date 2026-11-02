@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  DRIVER_ACTION_LABELS,
   FULFILMENT_EARLIEST_HOURS_BEFORE_SERVICE,
   FULFILMENT_EVENTS,
   fulfilmentEarliestAt,
@@ -72,10 +73,25 @@ test("最早时间带秒时，写给司机的时间进到下一分钟：照着�
 test("太早的说明：哪一步、最早几点（当地时间和时区）、用车时间", () => {
   const serviceAt = new Date("2026-11-04T11:26:00Z");
   const message = fulfilmentTooEarlyMessage("completed", serviceAt, TOKYO);
-  assert.match(message, /「已完成」/);
+  assert.match(message, /「服务完成」/);
   assert.match(message, /2026-11-04 17:26/);
   assert.match(message, /Asia\/Tokyo/);
   assert.match(message, /用车时间 2026-11-04 20:26/);
   assert.match(message, /前 3 小时/);
-  assert.match(fulfilmentTooEarlyMessage("departed", serviceAt, TOKYO), /「司机已出发」.*前 24 小时.*2026-11-03 20:26/);
+  assert.match(fulfilmentTooEarlyMessage("departed", serviceAt, TOKYO), /「我出发了」.*前 24 小时.*2026-11-03 20:26/);
+});
+
+test("夏令时拨回（纽约 2027-11-07 01:00–02:00 出现两次）：最早时间落在第二次时往后写到 02:00，照着点不被拒；落在第一次时照常写", () => {
+  const ny = "America/New_York";
+  const second = new Date("2027-11-07T04:00:00-05:00");
+  assert.equal(fulfilmentEarliestAt("picked_up", second).toISOString(), "2027-11-07T06:00:00.000Z");
+  assert.equal(fulfilmentEarliestLocal("picked_up", second, ny), "2027-11-07 02:00");
+  assert.equal(fulfilmentTooEarly("picked_up", new Date("2027-11-07T02:00:00-05:00"), second), false);
+  const first = new Date("2027-11-07T03:30:00-05:00");
+  assert.equal(fulfilmentEarliestLocal("picked_up", first, ny), "2027-11-07 01:30", "最早 05:30Z 是第一次的 01:30（EDT）");
+  assert.equal(fulfilmentTooEarly("picked_up", new Date("2027-11-07T01:30:00-04:00"), first), false);
+});
+
+test("步骤名用司机页按钮上的叫法", () => {
+  assert.deepEqual(DRIVER_ACTION_LABELS, { departed: "我出发了", arrived: "已到达上车点", picked_up: "接到客人了", completed: "服务完成" });
 });

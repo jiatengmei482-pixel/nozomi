@@ -96,7 +96,7 @@ for (const [scheme, width] of [["dark", 320], ["light", 390]] as const) {
     await expectAccessible(page, `司机页（还没到时间，${scheme}，${width}）`);
 
     await button.click();
-    const message = `现在还不能点「司机已出发」：最早在用车前 24 小时，也就是 ${tokyo(serviceAt - 24 * HOUR)}（Asia/Tokyo 当地时间）以后才能点`;
+    const message = `现在还不能点「我出发了」：最早在用车前 24 小时，也就是 ${tokyo(serviceAt - 24 * HOUR)}（Asia/Tokyo 当地时间）以后才能点`;
     await expect(page.getByText(message, { exact: false })).toBeVisible();
     await expect(button).toBeEnabled();
     await noHorizontalOverflow(page, "显示说明之后的司机页");

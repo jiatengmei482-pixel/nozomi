@@ -148,9 +148,9 @@ test("说明：哪一步、几小时、最早几点（当地时间）、时区�
   const serviceAt = new Date("2026-11-04T20:26:00+09:00");
   assert.equal(
     fulfilmentTooEarlyMessage("completed", serviceAt, "Asia/Tokyo"),
-    "现在还不能点「已完成」：最早在用车前 3 小时，也就是 2026-11-04 17:26（Asia/Tokyo 当地时间）以后才能点（用车时间 2026-11-04 20:26）。行程有变请联系调度。",
+    "现在还不能点「服务完成」：最早在用车前 3 小时，也就是 2026-11-04 17:26（Asia/Tokyo 当地时间）以后才能点（用车时间 2026-11-04 20:26）。行程有变请联系调度。",
   );
-  const names: Record<FulfilmentEventType, string> = { departed: "司机已出发", arrived: "司机已到达", picked_up: "已接到客人", completed: "已完成" };
+  const names: Record<FulfilmentEventType, string> = { departed: "我出发了", arrived: "已到达上车点", picked_up: "接到客人了", completed: "服务完成" };
   for (const type of FULFILMENT_EVENTS) {
     const text = fulfilmentTooEarlyMessage(type, new Date("2026-11-05T01:00:00+09:00"), "Asia/Seoul");
     assert.ok(text.includes(`「${names[type]}」`), text);

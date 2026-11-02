@@ -5,13 +5,14 @@
  * - 页面上**没有任何价格**（接口里本来就没有）。有乘客、电话、航班、上下车点（一键导航）、时间、附加服务、备注、调度电话。
  * - 按钮按顺序出现：出发 → 已到达上车点 → 接到客人 → 完成；点的时候带上手机的定位（不给定位也能点，只是到达时算不出距离）。出发后每分钟自动上报一次定位。
  * - 每一步有最早可以点的时间（ADR 0064：出发、到达用车前 24 小时，接到客人、完成用车前 3 小时）。还没到时按钮下面写明最早几点（当地时间）；
- *   按钮照样能点（以服务器的时间为准），太早时显示服务器给的说明。
+ *   按钮照样能点（以服务器的时间为准），太早时显示服务器给的说明。提示用 aria-describedby 关联到按钮；页面开着到了最早时间，提示自动去掉并刷新一次。
+ * - 出错的说明放在页面顶部的播报区（AlertSlot，role="alert"），出现时焦点移过去。
  * - 接机：先拍到达屏再填实际落地时间（按城市当地时间填），提交后不能改。
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
-import { EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import {
@@ -28,7 +29,7 @@ import {
   getDriverTrip,
   uploadDriverFile,
 } from "../../api/dispatch.ts";
-import { Alert } from "../../components/Alert.tsx";
+import { Alert, AlertSlot } from "../../components/Alert.tsx";
 import { AuthLayout } from "../../components/AuthLayout.tsx";
 import { Button } from "../../components/Button.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
@@ -38,11 +39,13 @@ import { displayName } from "../../lib/master-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 
 const PING_INTERVAL_MS = 60_000;
+/** setTimeout 一次最多能等的毫秒数（再长会立刻触发）：更远的分几次等 */
+const MAX_TIMER_MS = 2_147_483_647;
 const NEXT_ACTION: Partial<Record<DriverTrip["order"]["status"], { type: FulfilmentEventType; label: string }>> = {
-  assigned: { type: "departed", label: "我出发了" },
-  departed: { type: "arrived", label: "已到达上车点" },
-  arrived: { type: "picked_up", label: "接到客人了" },
-  in_service: { type: "completed", label: "服务完成" },
+  assigned: { type: "departed", label: DRIVER_ACTION_LABELS.departed },
+  departed: { type: "arrived", label: DRIVER_ACTION_LABELS.arrived },
+  arrived: { type: "picked_up", label: DRIVER_ACTION_LABELS.picked_up },
+  in_service: { type: "completed", label: DRIVER_ACTION_LABELS.completed },
 };
 
 /** 链接里 `#` 后面的令牌。 */
@@ -123,6 +126,9 @@ export function DriverTripPage() {
   const [landedAt, setLandedAt] = useState("");
   const [screenId, setScreenId] = useState<string | null>(null);
   const [actual, setActual] = useState({ minutes: "", km: "" });
+  /** 页面开着时已经到了的「最早时间」：到点后不再提示「还没到时间」 */
+  const [reachedAt, setReachedAt] = useState<string | null>(null);
+  const problemRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async (): Promise<void> => {
     if (token === null) return;
@@ -136,6 +142,36 @@ export function DriverTripPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 出错的说明在页面顶部：出现时把焦点移过去（手机上按钮在下面，不移过去像是「点了没反应」），读屏由播报区读出
+  useEffect(() => {
+    if (problem !== null) problemRef.current?.focus();
+  }, [problem]);
+
+  // 下一步的最早时间一到，就去掉「还没到时间」并刷新一次（按服务器的时间算还差多久，不认手机时钟；不轮询）
+  const earliestAt = trip?.next_event?.earliest_at ?? null;
+  const serverTime = trip?.server_time ?? null;
+  useEffect(() => {
+    if (earliestAt === null || serverTime === null) return;
+    // 只用手机时钟量「过了多久」（加载时离最早时间还差多少按服务器的时间算）
+    const wait = Date.parse(earliestAt) - Date.parse(serverTime);
+    if (!Number.isFinite(wait)) return;
+    const deadline = Date.now() + wait;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let waited = false;
+    const arm = (): void => {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        setReachedAt(earliestAt);
+        if (waited) void load();
+        return;
+      }
+      waited = true;
+      timer = setTimeout(arm, Math.min(left, MAX_TIMER_MS));
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, [earliestAt, serverTime, load]);
 
   const status = trip?.order.status;
   useEffect(() => {
@@ -158,7 +194,8 @@ export function DriverTripPage() {
     return (
       <AuthLayout>
         <h1 className="auth-card__title">这一单</h1>
-        {loadError === null ? <p>加载中…</p> : <Alert kind="danger">{loadError}</Alert>}
+        {loadError === null && <p>加载中…</p>}
+        <AlertSlot notice={loadError === null ? null : { kind: "danger", text: loadError }} />
       </AuthLayout>
     );
   }
@@ -181,7 +218,7 @@ export function DriverTripPage() {
   const next = NEXT_ACTION[order.status];
   const charterCompleting = next?.type === "completed" && order.category === "charter";
   /** 打开页面时（服务器的时间）还没到下一步最早可以点的时间 */
-  const notYet = trip.next_event !== null && trip.next_event.type === next?.type && Date.parse(trip.server_time) < Date.parse(trip.next_event.earliest_at) ? trip.next_event : null;
+  const notYet = trip.next_event !== null && trip.next_event.type === next?.type && Date.parse(trip.server_time) < Date.parse(trip.next_event.earliest_at) && reachedAt !== trip.next_event.earliest_at ? trip.next_event : null;
   const placeName = order.place === null ? null : displayName(order.place.name).text;
   const landingOpen = trip.landing !== null && trip.landing.driver_reported_at === null && ["assigned", "departed", "arrived", "in_service"].includes(order.status);
 
@@ -217,7 +254,7 @@ export function DriverTripPage() {
       <p className="driver-meta">
         <StatusBadge {...ORDER_STATUS_BADGES[order.status]} /> <span className="mono">{order.order_no}</span>
       </p>
-      {problem !== null && <Alert kind="danger">{problem}</Alert>}
+      <AlertSlot notice={problem === null ? null : { kind: "danger", text: problem }} focusRef={problemRef} />
       {trip.pending_change !== null && <Alert kind="warning">{`客人申请修改（${trip.pending_change.fields.map((field) => CHANGE_FIELD_NAMES[field] ?? field).join("、")}），调度正在确认。确认之前请按原任务执行。`}</Alert>}
 
       <Section title="客人">
@@ -265,10 +302,10 @@ export function DriverTripPage() {
               <TextField label="实际跑了多少公里" inputMode="numeric" value={actual.km} onChange={(event) => setActual((current) => ({ ...current, km: event.target.value.trim() }))} />
             </>
           )}
-          <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km))} onClick={() => act(next.type)}>
+          <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km))} aria-describedby={notYet === null ? undefined : "driver-next-hint"} onClick={() => act(next.type)}>
             {next.label}
           </Button>
-          {notYet !== null && <p className="field__hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
+          {notYet !== null && <p className="field__hint" id="driver-next-hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
           <p className="field__hint">点按钮时会带上手机的定位（到达时用来核对是否在上车点 300 米内）。</p>
         </Section>
       )}
