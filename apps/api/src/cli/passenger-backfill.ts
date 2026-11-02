@@ -43,7 +43,7 @@ async function main(): Promise<void> {
       const pending = await planPassengerBackfill(ctx);
       for (const table of BACKFILL_TABLES) console.log(`${table}：还没加密 ${pending[table]} 行`);
       const bad = verified.indexMismatched > 0 || BACKFILL_TABLES.some((table) => verified.undecryptable[table] > 0 || verified.mismatched[table] > 0 || pending[table] > 0);
-      console.log(bad ? "结论：还不能进入清明文那一步。" : "结论：全部一致，可以按 docs/deploy.md 进入清明文那一步。");
+      console.log(bad ? "结论：还不能进入清明文那一步。" : "结论：数据全部一致。这只是清明文的前提之一，还要满足 docs/deploy.md 列的其他条件（观察一个发布周期、恢复演练、负责人知晓）；清明文不可逆。");
       if (bad) process.exitCode = 1;
       return;
     }

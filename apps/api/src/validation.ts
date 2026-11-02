@@ -151,7 +151,7 @@ const limitSchema = z
 export const singleLine = (max: number) => z.string().max(max).refine((value) => !hasControlChars(value.replaceAll("\t", " ")), { message: "不能有换行等控制字符" });
 
 /** 乘客的姓名、电话、邮箱：不能恰好是系统的占位（ADR 0057），其余规则和 `singleLine` 相同。 */
-const passengerField = (max: number) => singleLine(max).refine((value) => !isReservedPassengerText(value), { message: "这个内容不能用作联系方式" });
+const passengerField = (max: number) => singleLine(max).refine((value) => !isReservedPassengerText(value), { message: "这个内容是系统保留的，请填真实信息" });
 export const passengerInput = () => z.object({ name: passengerField(200), phone: passengerField(40), email: passengerField(320) }).strict();
 
 export const pageQuerySchema = z.object({
