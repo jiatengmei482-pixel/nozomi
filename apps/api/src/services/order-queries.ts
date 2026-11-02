@@ -6,6 +6,7 @@
  * - 运营后台（`/platform/v1/orders`）：平台事务，跨租户跨渠道；有渠道、对外价、结算价、加价比例、付款状态、报价快照里的全部候选。
  *   完整的订单中心（筛选、异常队列、人工介入）在 M4-02。
  */
+import { type PassengerEmailChange, findPendingPassengerEmailChange } from "../repos/passenger-email-changes.ts";
 import { type OrderStatus, type PlatformDataScope, UNRESTRICTED_SCOPE, nextFulfilmentEvent, proxyEventNeedsReview, scopeAllowsChannel, scopeAllowsCity, scopeIsRestricted } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -236,6 +237,8 @@ export interface PlatformOrderDetail {
   tickets: Ticket[];
   /** M4-18：这一单下一步的代传在等复核（ADR 0052） */
   pendingProxyReview: { event: keyof typeof PROXY_REVIEW_KINDS; approval: Approval } | null;
+  /** M4-31：代改的乘客邮箱在等审核（ADR 0065），只有打码地址 */
+  pendingEmailReview: PassengerEmailChange | null;
 }
 
 /** 只看下一步：别人已经把这一步回传了的旧复核（批准只会得到「已过时」）不算在等。 */
@@ -277,6 +280,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         exceptions: await listOrderExceptions(db, orderId),
         tickets: await listOrderTickets(db, orderId),
         pendingProxyReview: await pendingProxyReviewOf(db, order as Order),
+        pendingEmailReview: await findPendingPassengerEmailChange(db, orderId),
       };
     },
     { snapshot: true },

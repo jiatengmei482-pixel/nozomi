@@ -2,6 +2,7 @@
  * M4-22 QA（ADR 0057）：盲索引、防枚举、跨租户、表权限、泄露、明文不再写时各个出口、性能、开关接线。
  * 真实 PostgreSQL（独立 schema）；收款、邮件、Webhook 接收方用替身；联系方式全部虚构，schema 随 api.close() 删除。已有 passenger-encryption.itest.ts 覆盖的不重复。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import { after, afterEach, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
@@ -140,8 +141,9 @@ const tenantToken = (side: "a" | "b"): Promise<string> => tenantLogin(api, m[sid
 
 async function changePassenger(orderId: string, passenger: { name: string; phone: string; email: string }): Promise<void> {
   const token = await ops();
-  const version = (await ok(api.call("GET", `/platform/v1/orders/${orderId}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger: contact(passenger) } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，订单上的乘客信息才全部换成新的
+  const changed = await platformChangeWithEmailReview(api, orderId, token, { passenger: contact(passenger) });
+  assert.ok([200, 202].includes(changed.status), changed.text);
 }
 
 async function rescueTo(orderId: string): Promise<{ from: "a" | "b"; to: "a" | "b" }> {
@@ -501,11 +503,13 @@ test("推送重试（明文不再写）：失败的推送重发出去的还是�
   await payOrder(order.id);
   await api.app.webhookJobs.tick();
   await changePassenger(order.id, now);
+  // 改邮箱经复核另成一次改单（M4-31，ADR 0065）：先是姓名电话那一条（同一单的推送按顺序一条一条发，先让它送达），要重试的是邮箱那一条
+  await api.app.webhookJobs.tick();
   receiver.received.length = 0;
   receiver.respond([500]);
   await api.app.webhookJobs.tick();
   receiver.respond([200]);
-  const stored = (await api.db.owner.query("select id, event_data from webhook_deliveries where order_id = $1 and event_type = 'order.changed' limit 1", [order.id])).rows[0];
+  const stored = (await api.db.owner.query("select id, event_data from webhook_deliveries where order_id = $1 and event_type = 'order.changed' order by seq desc limit 1", [order.id])).rows[0];
   assert.ok(stored);
   assert.ok(!JSON.stringify(stored.event_data).includes(now.email), "库里只有占位");
   api.clock.advance(HOUR);

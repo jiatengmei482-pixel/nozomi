@@ -2,6 +2,7 @@
  * M4-22：乘客信息加密存储（ADR 0057）。经真实接口、真实 PostgreSQL；收款服务、邮件、Webhook 接收方用替身。所有联系方式都是虚构的，只在测试里构造。
  * 覆盖：双写、读密文、全库扫描、回填的中断和续跑、新旧数据混合读取、盲索引规范化、筛选、脱敏清除、跨租户、没权限、回退演练、换主密钥、没配置主密钥。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -146,8 +147,9 @@ async function drainMail(): Promise<void> {
 
 async function changePassenger(orderId: string, passenger: { name: string; phone: string; email: string }): Promise<void> {
   const token = await ops();
-  const version = (await ok(api.call("GET", `/platform/v1/orders/${orderId}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${orderId}`, { token, headers: { "if-match": String(version) }, body: { passenger: { name: passenger.name, phone: passenger.phone, email: passenger.email } } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，订单上的乘客信息才全部换成新的
+  const changed = await platformChangeWithEmailReview(api, orderId, token, { passenger: { name: passenger.name, phone: passenger.phone, email: passenger.email } });
+  assert.ok([200, 202].includes(changed.status), changed.text);
 }
 
 const tenantOfOrder = async (id: string): Promise<"a" | "b"> => ((await orderRow(id)).tenant_id === m.a.tenantId ? "a" : "b");
@@ -210,8 +212,14 @@ test("明文不再写的开关（第 6 步演练）：明文列只有占位，�
 
   receiver.received.length = 0;
   await changePassenger(order.id, changed);
+  // 同一单的推送按顺序一条一条发：姓名电话那一条、邮箱那一条各一轮
   await api.app.webhookJobs.tick();
-  const pushed = receiver.received.find((item) => JSON.parse(item.body).type === "order.changed");
+  await api.app.webhookJobs.tick();
+  // 改邮箱经复核另成一次改单（M4-31，ADR 0065）：看邮箱那一条推送；姓名那一条同样是原文
+  // 只看这一单的（别的用例留下的推送可能在这一轮发出去）
+  const changedPushes = receiver.received.filter((item) => item.body.includes(order.id)).map((item) => JSON.parse(item.body)).filter((body) => body.type === "order.changed");
+  assert.ok(changedPushes.some((body) => body.data.before.passenger.name === passenger.name && body.data.after.passenger.name === changed.name), "姓名的改单推送是原文");
+  const pushed = receiver.received.find((item) => { const body = JSON.parse(item.body); return item.body.includes(order.id) && body.type === "order.changed" && body.data.before.passenger.email !== body.data.after.passenger.email; });
   assert.ok(pushed);
   const pushedData = JSON.parse((pushed as { body: string }).body).data;
   assert.deepEqual([pushedData.before.passenger.email, pushedData.after.passenger.email], [passenger.email, changed.email], "改单推送带前后的原文");
@@ -506,7 +514,7 @@ test("没配置主密钥：下单 503 写明原因，不写明文冒充加密；
   assert.equal((await revealOf(existing.id)).passenger.email, passenger.email);
   assert.equal((await lookup(existing, passenger.email)).queued, true);
   const version = (await ok(api.call("GET", `/platform/v1/orders/${existing.id}`, { token: await ops() }))).order.version;
-  const change = await api.call("PATCH", `/platform/v1/orders/${existing.id}`, { token: await ops(), headers: { "if-match": String(version) }, body: { passenger: { name: "虚构改名", phone: "+818011112222", email: "changed@fictional.example.test" } } });
+  const change = await api.call("PATCH", `/platform/v1/orders/${existing.id}`, { token: await ops(), headers: { "if-match": String(version) }, body: { passenger: { name: "虚构改名", phone: "+818011112222", email: "changed@fictional.example.test" }, email_review: { verification: "callback_phone", reason: "测试：没有主密钥时改单" } } });
   assert.deepEqual([change.status, change.body.error.code], [503, "PASSENGER_ENCRYPTION_NOT_CONFIGURED"]);
   assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", change);
   assert.equal(await api.app.passengerEncryption.tick(), null, "没有主密钥：后台任务不跑");

@@ -19,6 +19,10 @@ import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { SITE_MAIL_CONFIGURED, type SiteApi, lookupQueued, siteApi } from "./testing/site.ts";
 
+// 随机编号（UUID、报价号）里可能碰巧有被禁的数字串（例如车型组编号 70115000-…），比较前去掉
+const withoutRandomIds = (text: string): string =>
+  text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "").replace(/nzo_[A-Za-z0-9_-]+/g, "").replace(/NZ\d{8}[0-9A-Z]+/g, "").replace(/QT\d{8}[0-9A-Z]+/g, "");
+
 let api: TestApi;
 let m: Market;
 let pay: FakePaymentProvider;
@@ -198,7 +202,7 @@ test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两�
   assert.equal(quoted.quotes[0].free_wait_minutes, 30);
   const keys = allKeys(quoted);
   for (const leaked of ["settlement", "markup_bp", "winner_tenant_id", "tenant_id", "winning_tenant"]) assert.ok(!keys.has(leaked), leaked);
-  assert.doesNotMatch(JSON.stringify(quoted), /15000|16000|甲车队|乙车队/);
+  assert.doesNotMatch(withoutRandomIds(JSON.stringify(quoted)), /15000|16000|甲车队|乙车队/);
 
   const base = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true };
   const missing = await order({ ...base, pickup_address: "东京站八重洲口" });
@@ -235,7 +239,7 @@ test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两�
 test("包车：选 8 小时（乙 70,000，对外 77,000，含 150 公里）→ 下单（只要上车地址）→ 订单带套餐时长；没有的时长报不出价", async () => {
   const quoted = await quote(charterBody());
   assert.deepEqual(quoted.quotes.map((entry: any) => [entry.price.total.amount, entry.package, entry.cancel_policy.category]), [["77000", { hours: 8, km: 150 }, "charter"]]);
-  assert.doesNotMatch(JSON.stringify(quoted), /70000|乙车队|markup|settlement/);
+  assert.doesNotMatch(withoutRandomIds(JSON.stringify(quoted)), /70000|乙车队|markup|settlement/);
   const none = await quote(charterBody({ package_hours: 6 }));
   assert.deepEqual([none.quotes.length, none.unavailable.length > 0], [0, true], "停用的 6 小时报不出价");
 
