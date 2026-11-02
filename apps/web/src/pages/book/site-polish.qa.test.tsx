@@ -376,7 +376,7 @@ test("M4-29：被拒绝时原预约不变；能不能免费取消只说符合实
   assert.ok(await screen.findByText(/您的修改没有通过，原预约不变.*免费取消/));
   resetBrowser();
   openOrder(envelopeOf(orderOf({ free_cancel_available: false, changes: [changeOf("rejected", ["flight_no"])] })), () => json(200, configOf()));
-  assert.ok(await screen.findByText(/您的修改没有通过，原预约不变。如果不想继续用车，可以按取消政策/));
+  assert.ok(await screen.findByText(/您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以按取消政策/));
   assertAbsent(screen.queryByText(/可以在下面免费取消/));
 });
 
