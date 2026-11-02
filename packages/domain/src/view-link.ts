@@ -48,11 +48,12 @@ const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f\\u0085\\u2028\\u2029]");
 
 /**
  * 查订单填的邮箱：NFKC（全角转半角）后按订单盲索引同一个口径规整（不分大小写、去首尾空白）。
- * 不像邮箱（没有 @、有空白、有控制字符、太长）的返回 null：链接只发邮箱，手机号不能用来查（ADR 0061）。
+ * 首尾的空白、制表符、换行去掉；不像邮箱（没有 @、中间有空白或控制字符、太长）的返回 null：链接只发邮箱，手机号不能用来查（ADR 0061）。
  */
 export function viewLinkLookupEmail(value: string): string | null {
-  if (CONTROL.test(value)) return null;
+  // 首尾的空白（含制表符、换行、全角空格：从别处复制来常带）先去掉；中间有控制字符的不收
   const email = normalizeEmailForIndex(value);
+  if (CONTROL.test(email)) return null;
   if (email.length > 320 || !EMAIL_SHAPE.test(email)) return null;
   return email;
 }

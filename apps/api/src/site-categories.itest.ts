@@ -17,7 +17,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { QUOTE_CATALOG_TTL_MS } from "./services/quote-catalog.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { SITE_MAIL_CONFIGURED, type SiteApi, lookupQueued, siteApi } from "./testing/site.ts";
 
 let api: TestApi;
 let m: Market;
@@ -77,7 +77,7 @@ before(async () => {
   await categoryProduct(m.b, "point_to_point", [{ pricing_model: "fixed", base_price: 16_000 }]);
   await categoryProduct(m.b, "charter", [charterPrice(8, 70_000, 150), charterPrice(4, 40_000, 80), charterPrice(6, 55_000, 100, { status: "disabled" }), charterPrice(12, 99_000, 200, { valid_to: "2026-06-30" })]);
   siteChannelId = (await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" })).id;
-  site = await siteApi(api, (await salesCredentials(api, m, siteChannelId)).clientId, pay);
+  site = await siteApi(api, (await salesCredentials(api, m, siteChannelId)).clientId, pay, SITE_MAIL_CONFIGURED);
 
   const platform = (body: Record<string, unknown>): Promise<any> => ok(api.call("POST", "/platform/v1/master/places", { token: m.root, body }), 201);
   const location = { lng: 139.7671, lat: 35.6812 };
@@ -273,7 +273,7 @@ test("包车的免费等待按需求固定为 0：报价写 0 分钟；供应商
   assert.equal(placed.body.order.free_wait_minutes, 0);
 });
 
-test("别的渠道经 /sales/v1 下的点对点单：官网用订单号 + 联系方式也找不到（同一个 404）", async () => {
+test("别的渠道经 /sales/v1 下的点对点单：官网用订单号 + 下单邮箱查，应答一样（202），平台不发信", async () => {
   const otherChannel = await newChannel(api, m.staff.cm1.token, { name: "别的渠道" });
   const credentials = await salesCredentials(api, m, otherChannel.id, "198.51.100.33");
   const sales = await ok(api.call("POST", "/sales/v1/quotes", { token: credentials.token, body: { category: "point_to_point", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_time: `${SERVICE_LOCAL}:00+09:00`, passengers: 2, currency: "JPY" } }));
@@ -283,6 +283,6 @@ test("别的渠道经 /sales/v1 下的点对点单：官网用订单号 + 联系
     body: { quote_id: sales.quotes[0].quote_id, passenger: PASSENGER, pickup_address: "东京站", dropoff_address: "新宿站", save_payment_method: true },
   });
   assert.equal(placed.status, 201, placed.text);
-  const lookup = await site.call("POST", "/site/v1/orders/lookup", { ip: nextIp(), body: { order_no: placed.body.order.order_no, contact: PASSENGER.email } });
-  assert.deepEqual([lookup.status, lookup.body.error.code], [404, "ORDER_NOT_FOUND"]);
+  const lookup = await lookupQueued(api, site, { orderNo: placed.body.order.order_no, email: PASSENGER.email, ip: nextIp() });
+  assert.deepEqual([lookup.res.status, lookup.queued], [202, false]);
 });

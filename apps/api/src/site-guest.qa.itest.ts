@@ -1,8 +1,8 @@
 /**
  * M3-05 测试角色补充：官网公开接口 `/site/v1`（ADR 0032）的安全边界与客人流程。经真实接口、真实 PostgreSQL，收款服务用替身。
- * - 查看令牌：只存哈希、不进日志；A 单的令牌碰不到 B 单；有效期边界（用车后 30 天、找回的最少 1 天）；改期后仍是「用车后 30 天」；
- * - 找回：不存在 / 对不上 / 别的渠道的单，应答完全相同（状态码、正文、响应头、粗测耗时）；两层限速的边界、失败也计数、订单号写法不同也算同一个；
- *   联系方式的规范化（大小写、首尾空白、全角空格、电话的空格括号连字符点；全角数字和全角字母）；
+ * - 查看令牌：只存哈希、不进日志；A 单的令牌碰不到 B 单；有效期边界（用车后 30 天、新签发的最少 1 天）；改期后仍是「用车后 30 天」；
+ * - 查订单（ADR 0061：链接发到下单邮箱）：对上 / 不存在 / 对不上 / 别的渠道的单，应答完全相同（状态码、正文、响应头、粗测耗时）；
+ *   地址、订单号的限速边界，对上的也计数、订单号写法不同也算同一个；邮箱的规范化（大小写、首尾空白、全角）；手机号不能查；
  * - 不认未知字段（询价、下单、找回、改单、取消、试算、异议）；所有应答（含错误）不含供应商编号、结算价、加价比例、渠道内部信息；
  * - 限速按来源地址：TRUST_PROXY_HOPS=0 时 X-Forwarded-For 不算数，=1 时伪造最左边的地址也绕不过；
  * - 客户端吊销 / 换新客户端：新单被拒，已有订单照常能看、取消试算、改单、取消、我已落地；
@@ -20,6 +20,8 @@ import { loadMigrationFiles } from "./db/migrate.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { type ApiResponse, type HttpMethod, type TestApi, createTestApi } from "./testing/api.ts";
 import { testEnv } from "./testing/fixtures.ts";
+import { newSiteLink } from "./services/site.ts";
+import { SITE_MAIL_CONFIGURED, resetLinkLimits } from "./testing/site.ts";
 import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { completeOrder, platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
@@ -56,7 +58,8 @@ const nextIp = (): string => {
 async function makeSite(options: { clientId: string | null; payments: PaymentProvider | null; env?: Record<string, string> }): Promise<Site> {
   let logs = "";
   const app = buildApp({
-    config: loadConfig({ ...testEnv(api.db.url), ...(options.clientId === null ? {} : { SITE_CLIENT_ID: options.clientId }), ...options.env }),
+    // 查订单要求邮件能发（ADR 0061）：这里只看排没排信，不跑通知中心的发送
+    config: loadConfig({ ...testEnv(api.db.url), ...SITE_MAIL_CONFIGURED, ...(options.clientId === null ? {} : { SITE_CLIENT_ID: options.clientId }), ...options.env }),
     pool: api.db.pool,
     migrationFiles: await loadMigrationFiles(),
     now: api.clock.now,
@@ -182,7 +185,8 @@ test("查看令牌：库里只存哈希，令牌和联系方式不进日志；A 
     assert.equal(cancelA.body.order.status, "cancelled");
     const seenB = await logged.call("GET", "/site/v1/order", { token: tb, ip: b.ip });
     assert.deepEqual([seenB.body.order.id, seenB.body.order.status], [b.body.order.id, "pending_payment"], "用 A 的令牌取消不会碰到 B");
-    await lookup({ order_no: b.body.order.order_no, contact: PASSENGER.email }, b.ip, logged);
+    await lookup({ order_no: b.body.order.order_no, email: PASSENGER.email }, b.ip, logged);
+    await logged.app.backgroundIdle();
 
     const logs = logged.logs();
     assert.ok(logs.length > 0, "日志确实在记");
@@ -192,7 +196,7 @@ test("查看令牌：库里只存哈希，令牌和联系方式不进日志；A 
   }
 });
 
-test("查看链接的有效期：用车后 30 天的前 1 毫秒还能用、到点 401；过期后找回发的新链接至少能用 1 天，到点同样 401", async () => {
+test("查看链接的有效期：用车后 30 天的前 1 毫秒还能用、到点 401；过期后新签发的链接（查订单的邮件里那种）至少能用 1 天，到点同样 401", async () => {
   const placed = await place({ days: 5 });
   const token = placed.body.link.token as string;
   const expiresAt = new Date(placed.body.link.expires_at as string);
@@ -205,14 +209,15 @@ test("查看链接的有效期：用车后 30 天的前 1 毫秒还能用、到�
   for (const url of ["/site/v1/order/cancel-fee", "/site/v1/order/payment"]) assert.equal((await site.call("GET", url, { token, ip: placed.ip })).status, 401, url);
   assert.equal((await site.call("POST", "/site/v1/order/landed", { token, ip: placed.ip })).status, 401);
 
-  const found = await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.phone }, placed.ip);
-  assert.equal(found.status, 200, found.text);
-  const renewed = new Date(found.body.link.expires_at as string);
+  // 查订单的邮件里是通知中心在发信那一刻按同一个规则签发的链接（newSiteLink），这里直接签一条
+  const issued = newSiteLink(placed.serviceAt, api.clock.now());
+  await api.db.owner.query("insert into site_order_links (order_id, token_hash, issued_via, created_at, expires_at) values ($1, $2, 'email', $3, $4)", [placed.body.order.id, issued.tokenHash, api.clock.now(), issued.expiresAt]);
+  const renewed = issued.expiresAt;
   assert.equal(renewed.getTime(), api.clock.now().getTime() + DAY, "用车早已过去：从现在起 1 天");
   moveTo(new Date(renewed.getTime() - 1));
-  assert.equal((await site.call("GET", "/site/v1/order", { token: found.body.link.token, ip: placed.ip })).status, 200);
+  assert.equal((await site.call("GET", "/site/v1/order", { token: issued.token, ip: placed.ip })).status, 200);
   api.clock.advance(1);
-  assert.equal((await site.call("GET", "/site/v1/order", { token: found.body.link.token, ip: placed.ip })).status, 401);
+  assert.equal((await site.call("GET", "/site/v1/order", { token: issued.token, ip: placed.ip })).status, 401);
 });
 
 test("改期把用车时间往后推了以后，下单时发的链接跟着新的用车时间走：旧用车时间 + 30 天之后、新用车时间之前仍能用，新用车时间 + 30 天到点失效", async () => {
@@ -236,205 +241,128 @@ test("改期把用车时间往后推了以后，下单时发的链接跟着新�
   assert.deepEqual([expired.status, expired.body.error.code], [401, "ORDER_LINK_INVALID"], "新用车时间 + 30 天到点失效");
 });
 
-// ---- 找回 ----
+// ---- 查订单（ADR 0061） ----
 
-test("找回：订单号不存在、联系方式对不上、别的渠道的单，状态码、正文、响应头完全一样，粗测耗时也分不出来", async () => {
+/** 这张单的订单链接邮件排了几封 */
+async function queuedFor(orderId: string): Promise<number> {
+  await site.app.backgroundIdle();
+  return (await api.db.owner.query<{ n: number }>("select count(*)::int as n from notification_events where event = 'order.view_link' and order_id = $1", [orderId])).rows[0]?.n ?? 0;
+}
+
+test("查订单：对上、订单号不存在、邮箱对不上、别的渠道的单，状态码、正文、响应头完全一样，粗测耗时也分不出来；只有对上的排了信", async () => {
   const placed = await place();
   const foreign = await other.unpaidOrder({ serviceTime: serviceIn(10).toISOString() });
   const cases = {
-    missing: { order_no: "NZ20261007QQQQQQQQ", contact: PASSENGER.email },
-    mismatch: { order_no: placed.body.order.order_no, contact: "nobody@example.com" },
-    mismatchPhone: { order_no: placed.body.order.order_no, contact: "+81 90-0000-0000" },
-    foreign: { order_no: foreign.order_no, contact: "guest@example.com" },
+    missing: { order_no: "NZ20261007QQQQQQQQ", email: PASSENGER.email },
+    matched: { order_no: placed.body.order.order_no, email: PASSENGER.email },
+    mismatch: { order_no: placed.body.order.order_no, email: "nobody@example.com" },
+    foreign: { order_no: foreign.order_no, email: "guest@example.com" },
   };
   const first: Record<string, ApiResponse> = {};
   for (const [name, body] of Object.entries(cases)) first[name] = await lookup(body, nextIp());
   const reference = first["missing"]!;
-  assert.equal(reference.status, 404);
-  assert.equal(reference.body.error.code, "ORDER_NOT_FOUND");
+  assert.equal(reference.status, 202);
   for (const [name, res] of Object.entries(first)) {
     assert.equal(res.status, reference.status, name);
     assert.equal(res.text, reference.text, `${name} 的正文和不存在的不一样`);
     assert.deepEqual(stableHeaders(res), stableHeaders(reference), `${name} 的响应头和不存在的不一样`);
   }
+  assert.equal(await queuedFor(placed.body.order.id), 1, "对上的那一次排了信，对不上的没有");
+  assert.equal(await queuedFor(foreign.id), 0, "别的渠道的单平台不发");
 
-  // 粗测时间差：交替各量 8 次取中位数（不同地址，避免限速；订单号的额度每小时 10 次，这里各 8 次）
-  const timings: Record<"missing" | "mismatch", number[]> = { missing: [], mismatch: [] };
+  // 粗测时间差：交替各量 8 次取中位数（不同地址；每次前清掉订单号、邮箱的额度，量的是放行的那条路）
+  const timings: Record<"missing" | "matched", number[]> = { missing: [], matched: [] };
   for (let i = 0; i < 8; i += 1) {
-    for (const name of ["missing", "mismatch"] as const) {
-      const body = name === "missing" ? { order_no: `NZ20261007TIME${String.fromCharCode(65 + i)}QQQ`, contact: PASSENGER.email } : { order_no: placed.body.order.order_no, contact: `nobody${i}@example.com` };
+    for (const name of ["missing", "matched"] as const) {
+      await resetLinkLimits(api);
+      await site.app.backgroundIdle();
+      const body = name === "missing" ? { order_no: `NZ20261007TIME${String.fromCharCode(65 + i)}QQQ`, email: PASSENGER.email } : { order_no: placed.body.order.order_no, email: PASSENGER.email };
       const started = process.hrtime.bigint();
       const res = await lookup(body, nextIp());
       timings[name].push(Number(process.hrtime.bigint() - started) / 1e6);
-      assert.equal(res.status, 404, res.text);
+      assert.equal(res.status, 202, res.text);
     }
   }
   const median = (values: number[]): number => [...values].sort((x, y) => x - y)[Math.floor(values.length / 2)]!;
-  const diff = Math.abs(median(timings.missing) - median(timings.mismatch));
-  assert.ok(diff < 30, `中位数差 ${diff.toFixed(1)} 毫秒（不存在 ${median(timings.missing).toFixed(1)}，对不上 ${median(timings.mismatch).toFixed(1)}）`);
+  const diff = Math.abs(median(timings.missing) - median(timings.matched));
+  assert.ok(diff < 30, `中位数差 ${diff.toFixed(1)} 毫秒（不存在 ${median(timings.missing).toFixed(1)}，对上 ${median(timings.matched).toFixed(1)}）`);
 });
 
-test("找回的规范化：订单号大小写和首尾空白、邮箱大小写和首尾空白（含全角空格、制表符）、电话的空格括号连字符点都认；号码不全、本地写法、邮箱的一部分都不认", async () => {
+test("查订单的规范化：订单号大小写和首尾空白、邮箱大小写和首尾空白（含全角空格、制表符）、全角邮箱都认；邮箱差一点的不认；手机号、全角订单号按格式不对 400", async () => {
   const placed = await place();
   const no = placed.body.order.order_no as string;
-  const accepted = [
-    { order_no: ` ${no.toLowerCase()} `, contact: "qa.guest@example.com" },
-    { order_no: no, contact: "\t QA.GUEST@EXAMPLE.COM \n" },
-    { order_no: no, contact: "　Qa.Guest@Example.com　" },
-    { order_no: no, contact: "+819087654321" },
-    { order_no: no, contact: "+81 (90) 8765 4321" },
-    { order_no: no, contact: "+81.90.8765.4321" },
-    { order_no: no, contact: " +81-90-8765-4321 " },
-  ];
-  for (const body of accepted) {
-    const res = await lookup(body, nextIp());
-    assert.equal(res.status, 200, `${JSON.stringify(body)}：${res.text}`);
-  }
-  // 订单号每小时只能试 10 次：过一小时再试认不了的写法
-  api.clock.advance(HOUR);
-  const refused = [
-    { order_no: no, contact: "09087654321" },
-    { order_no: no, contact: "+8190876543" },
-    { order_no: no, contact: "8765-4321" },
-    { order_no: no, contact: "qa.guest" },
-    { order_no: no, contact: "qa.guest@example.co" },
-    { order_no: no, contact: "qa. guest@example.com" },
-  ];
-  for (const body of refused) {
-    const res = await lookup(body, nextIp());
-    assert.deepEqual([res.status, res.body.error.code], [404, "ORDER_NOT_FOUND"], JSON.stringify(body));
-  }
-  const fullWidthNo = await lookup({ order_no: no.replace(/[A-Z0-9]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)), contact: PASSENGER.email }, nextIp());
-  assert.equal(fullWidthNo.status, 400, "全角的订单号：和页面一样按格式不对处理（页面也只认半角）");
-  const vias = await api.db.owner.query<{ n: string }>("select count(*) as n from site_order_links where order_id = $1 and issued_via = 'lookup'", [placed.body.order.id]);
-  assert.equal(Number(vias.rows[0]?.n), accepted.length, "只有对上的才发了新链接");
-});
-
-test("找回时手机号、邮箱用全角输入（日文 / 中文输入法常见）也认：先转成半角再比", async () => {
-  const placed = await place();
   const toFullWidth = (text: string): string => text.replace(/[!-~]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0));
-  for (const contact of [toFullWidth("+81 90-8765-4321"), toFullWidth("qa.guest@example.com")]) {
-    const res = await lookup({ order_no: placed.body.order.order_no, contact }, nextIp());
-    assert.equal(res.status, 200, `${contact}：${res.text}`);
+  const accepted = [
+    { order_no: ` ${no.toLowerCase()} `, email: "qa.guest@example.com" },
+    { order_no: no, email: "\t QA.GUEST@EXAMPLE.COM \n" },
+    { order_no: no, email: "　Qa.Guest@Example.com　" },
+    { order_no: no, email: toFullWidth("qa.guest@example.com") },
+  ];
+  for (const [index, body] of accepted.entries()) {
+    await resetLinkLimits(api);
+    const res = await lookup(body, nextIp());
+    assert.equal(res.status, 202, `${JSON.stringify(body)}：${res.text}`);
+    assert.equal(await queuedFor(placed.body.order.id), index + 1, JSON.stringify(body));
+  }
+  for (const body of [{ order_no: no, email: "qa.guest@example.co" }, { order_no: no, email: "x.qa.guest@example.com" }]) {
+    await resetLinkLimits(api);
+    assert.equal((await lookup(body, nextIp())).status, 202);
+  }
+  assert.equal(await queuedFor(placed.body.order.id), accepted.length, "只有对上的才排了信");
+  for (const body of [{ order_no: no, email: "+819087654321" }, { order_no: no, email: "qa.guest" }, { order_no: no, email: "qa. guest@example.com" }, { order_no: no.replace(/[A-Z0-9]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)), email: PASSENGER.email }]) {
+    const res = await lookup(body, nextIp());
+    assert.deepEqual([res.status, res.body.error.code], [400, "VALIDATION_FAILED"], JSON.stringify(body));
   }
 });
 
-test("找回限速：每个地址 15 分钟 10 次（格式不对、对不上、对上都算），第 11 次 429 + Retry-After，窗口结束前 1 秒仍挡、到点放行", async () => {
+test("查订单限速：每个地址 15 分钟 10 次（格式不对、对不上、对上都算），第 11 次 429 + Retry-After，窗口结束前 1 秒仍挡、到点放行", async () => {
   const placed = await place();
   const ip = nextIp();
   const start = api.clock.now().getTime();
   const attempts = [
-    { order_no: "bad", contact: "x" },
-    { order_no: placed.body.order.order_no, contact: PASSENGER.email },
-    ...Array.from({ length: 8 }, (_, i) => ({ order_no: `NZ20261007QQQQQQ${String.fromCharCode(65 + i)}Q`, contact: "nobody@example.com" })),
+    { order_no: "bad", email: "x" },
+    { order_no: placed.body.order.order_no, email: PASSENGER.email },
+    ...Array.from({ length: 8 }, (_, i) => ({ order_no: `NZ20261007QQQQQQ${String.fromCharCode(65 + i)}Q`, email: "nobody@example.com" })),
   ];
+  await resetLinkLimits(api);
   const statuses: number[] = [];
   for (const body of attempts) statuses.push((await lookup(body, ip)).status);
-  assert.deepEqual(statuses, [400, 200, ...Array(8).fill(404)]);
-  const limited = await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.email }, ip);
+  assert.deepEqual(statuses, [400, 202, 202, 202, 202, 429, 429, 429, 429, 429], "地址额度之后，同一个邮箱每小时 3 次也起作用");
+  const limited = await lookup({ order_no: placed.body.order.order_no, email: PASSENGER.email }, ip);
   assert.deepEqual([limited.status, limited.body.error.code], [429, "RATE_LIMITED"], "对得上的第 11 次也挡");
   assert.equal(Number(limited.headers["retry-after"]), 900);
   assert.equal(limited.body.error.details.retry_after_seconds, 900);
   moveTo(new Date(start + 15 * 60_000 - 1_000));
-  const almost = await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.email }, ip);
+  const almost = await lookup({ order_no: placed.body.order.order_no, email: PASSENGER.email }, ip);
   assert.deepEqual([almost.status, Number(almost.headers["retry-after"])], [429, 1]);
   moveTo(new Date(start + 15 * 60_000));
-  assert.equal((await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.email }, ip)).status, 200, "窗口过了放行");
+  await resetLinkLimits(api);
+  assert.equal((await lookup({ order_no: placed.body.order.order_no, email: PASSENGER.email }, ip)).status, 202, "窗口过了放行");
 });
 
-test("找回限速：每个订单号每小时 10 次失败——换地址、换大小写和空白都算同一个订单号；不存在的订单号表现一样（不能借限速确认订单存在）；59:59 仍挡、1 小时到点放行", async () => {
+test("查订单限速：每个订单号每小时 3 次——换地址、换大小写和空白、换邮箱都算同一个订单号；对上的也算、被挡时和不存在的订单号应答一样；59:59 仍挡、1 小时到点放行", async () => {
   const placed = await place();
   const no = placed.body.order.order_no as string;
   const start = api.clock.now().getTime();
-  const variants = [no, no.toLowerCase(), ` ${no} `, `${no.slice(0, 9)}${no.slice(9).toLowerCase()}`];
-  for (let i = 0; i < 10; i += 1) assert.equal((await lookup({ order_no: variants[i % variants.length], contact: `wrong${i}@example.com` }, nextIp())).status, 404);
-  const blocked = await lookup({ order_no: no, contact: "wrong-again@example.com" }, nextIp());
-  assert.deepEqual([blocked.status, blocked.body.error.code], [429, "RATE_LIMITED"], "换了地址再猜也挡（这个订单号这一小时已经错了 10 次）");
+  await resetLinkLimits(api);
+  const variants = [no, no.toLowerCase(), ` ${no} `];
+  for (let i = 0; i < 3; i += 1) assert.equal((await lookup({ order_no: variants[i], email: `wrong${i}@example.com` }, nextIp())).status, 202);
+  const blocked = await lookup({ order_no: no, email: PASSENGER.email }, nextIp());
+  assert.deepEqual([blocked.status, blocked.body.error.code], [429, "RATE_LIMITED"], "换了地址、用对的邮箱也挡（不能借「对上放行」分辨对错）");
 
   const ghost = "NZ20261007GHOSTQQQ";
   const ghostStatuses: number[] = [];
-  for (let i = 0; i < 11; i += 1) ghostStatuses.push((await lookup({ order_no: ghost, contact: `wrong${i}@example.com` }, nextIp())).status);
-  assert.deepEqual(ghostStatuses, [...Array(10).fill(404), 429], "不存在的订单号同样第 11 次 429");
+  for (let i = 0; i < 4; i += 1) ghostStatuses.push((await lookup({ order_no: ghost, email: `ghost${i}@example.com` }, nextIp())).status);
+  assert.deepEqual(ghostStatuses, [202, 202, 202, 429], "不存在的订单号同样第 4 次 429");
+  const ghostBlocked = await lookup({ order_no: ghost, email: PASSENGER.email }, nextIp());
+  assert.equal(ghostBlocked.text, blocked.text, "被挡时存在的和不存在的订单号正文一样");
+  assert.deepEqual(stableHeaders(ghostBlocked), stableHeaders(blocked));
 
   moveTo(new Date(start + HOUR - 1_000));
-  assert.equal((await lookup({ order_no: no, contact: "wrong-late@example.com" }, nextIp())).status, 429);
+  assert.equal((await lookup({ order_no: no, email: "wrong-late@example.com" }, nextIp())).status, 429);
   moveTo(new Date(start + HOUR));
-  assert.equal((await lookup({ order_no: no, contact: "wrong-next@example.com" }, nextIp())).status, 404, "一小时到点放行");
-});
-
-test("找回限速只记失败：订单号的额度被别人用错的联系方式刷满后，真客人用正确的邮箱、手机号仍能找回，也不占这一层额度；刷满后的失败应答和不存在的订单号完全一样", async () => {
-  const placed = await place();
-  const no = placed.body.order.order_no as string;
-  const ghost = "NZ20261007FLOODQQQ";
-  for (const orderNo of [no, ghost]) {
-    for (let i = 0; i < 10; i += 1) assert.equal((await lookup({ order_no: orderNo, contact: `flood${i}@example.com` }, nextIp())).status, 404);
-  }
-  const realFailure = await lookup({ order_no: no, contact: "flood-x@example.com" }, nextIp());
-  const ghostFailure = await lookup({ order_no: ghost, contact: "flood-x@example.com" }, nextIp());
-  assert.deepEqual([realFailure.status, realFailure.body.error.code], [429, "RATE_LIMITED"]);
-  assert.equal(realFailure.text, ghostFailure.text, "刷满后：存在的和不存在的订单号失败正文一样");
-  assert.deepEqual(stableHeaders(realFailure), stableHeaders(ghostFailure), "刷满后：响应头一样");
-
-  for (const contact of [PASSENGER.email, "+81 90-8765-4321", PASSENGER.email]) {
-    const res = await lookup({ order_no: no, contact }, nextIp());
-    assert.equal(res.status, 200, `真客人 ${contact}：${res.text}`);
-    assert.match(res.body.link.token, /^nzo_/);
-    assert.equal((await site.call("GET", "/site/v1/order", { token: res.body.link.token, ip: nextIp() })).status, 200);
-  }
-  const stillBlocked = await lookup({ order_no: no, contact: "flood-y@example.com" }, nextIp());
-  assert.equal(stillBlocked.text, ghostFailure.text, "成功不清零失败计数：猜错的仍然 429，和不存在的一样");
-
-  // 地址那一层成功也照旧计数
-  const ip = nextIp();
-  const statuses: number[] = [];
-  for (let i = 0; i < 11; i += 1) statuses.push((await lookup({ order_no: no, contact: PASSENGER.email }, ip)).status);
-  assert.deepEqual(statuses, [...Array(10).fill(200), 429], "同一个地址成功 10 次后第 11 次也挡");
-});
-
-test("找回硬上限：订单号滚动 24 小时失败满 100 次后，正确的联系方式也 429（和不存在的订单号、猜错的应答一模一样），记一条服务日志；最早的失败满 24 小时后恢复", async () => {
-  const logged = await makeSite({ clientId: siteClient.clientId, payments: pay });
-  try {
-    const placed = await place({ on: logged });
-    const no = placed.body.order.order_no as string;
-    const ghost = "NZ20261007CEILQQQQ";
-    const start = api.clock.now().getTime();
-    for (const orderNo of [no, ghost]) {
-      const statuses: number[] = [];
-      for (let i = 0; i < 99; i += 1) statuses.push((await lookup({ order_no: orderNo, contact: `guess${i}@example.com` }, nextIp(), logged)).status);
-      assert.deepEqual(statuses, [...Array(10).fill(404), ...Array(89).fill(429)], "每小时 10 次失败后 429，之后的失败照样记下");
-    }
-    assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged)).status, 200, "失败 99 次：对上的还能找回");
-    assert.ok(!logged.logs().includes("site_lookup_ceiling_reached"));
-
-    api.clock.advance(HOUR);
-    const hundredth = await lookup({ order_no: no, contact: "guess-100@example.com" }, nextIp(), logged);
-    assert.equal(hundredth.status, 404, "第 100 次失败本身照常 404（新的一小时）");
-    assert.equal((await lookup({ order_no: ghost, contact: "guess-100@example.com" }, nextIp(), logged)).status, 404);
-    const warnings = logged.logs().split("\n").filter((line) => line.includes("site_lookup_ceiling_reached"));
-    assert.equal(warnings.length, 2, "满 100 次时各记一条");
-    assert.ok(warnings.some((line) => line.includes(placed.body.order.id)), "存在的订单带订单编号，运营能找到");
-    assert.ok(!logged.logs().includes(no) && !logged.logs().includes(PASSENGER.email), "订单号原文和联系方式不进日志");
-
-    const correct = await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged);
-    const correctPhone = await lookup({ order_no: no, contact: "+81 90-8765-4321" }, nextIp(), logged);
-    const wrong = await lookup({ order_no: no, contact: "guess-101@example.com" }, nextIp(), logged);
-    const missing = await lookup({ order_no: ghost, contact: PASSENGER.email }, nextIp(), logged);
-    assert.deepEqual([correct.status, correct.body.error.code], [429, "RATE_LIMITED"], "满 100 次后对上的也挡");
-    assert.equal(Number(correct.headers["retry-after"]), 23 * 3600, "等到最早的失败满 24 小时");
-    for (const [name, res] of Object.entries({ correctPhone, wrong, missing })) {
-      assert.equal(res.text, correct.text, `${name} 的正文和对上的不一样`);
-      assert.deepEqual(stableHeaders(res), stableHeaders(correct), `${name} 的响应头和对上的不一样`);
-    }
-
-    api.clock.advance(23 * HOUR - 1_000);
-    assert.equal((await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged)).status, 429, "差 1 秒满 24 小时仍挡");
-    moveTo(new Date(start + 24 * HOUR));
-    const back = await lookup({ order_no: no, contact: PASSENGER.email }, nextIp(), logged);
-    assert.equal(back.status, 200, `最早的失败满 24 小时后恢复：${back.text}`);
-    assert.equal((await site.call("GET", "/site/v1/order", { token: back.body.link.token, ip: nextIp() })).status, 200);
-  } finally {
-    await logged.close();
-  }
+  assert.equal((await lookup({ order_no: no, email: PASSENGER.email }, nextIp())).status, 202, "一小时到点放行");
+  assert.equal(await queuedFor(placed.body.order.id), 1, "被挡的那次没有排信");
 });
 
 // ---- 来源地址 ----
@@ -443,19 +371,19 @@ test("限速按来源地址：TRUST_PROXY_HOPS=0 时伪造的 X-Forwarded-For �
   const direct = await makeSite({ clientId: siteClient.clientId, payments: pay, env: { TRUST_PROXY_HOPS: "0" } });
   const proxied = await makeSite({ clientId: siteClient.clientId, payments: pay, env: { TRUST_PROXY_HOPS: "1" } });
   try {
-    const body = { order_no: "NZ20261007PROXYQQQ", contact: "nobody@example.com" };
+    const body = { order_no: "NZ20261007PROXYQQQ", email: "nobody@example.com" };
     const realIp = nextIp();
     const directStatuses: number[] = [];
-    for (let i = 0; i < 11; i += 1) directStatuses.push((await direct.call("POST", "/site/v1/orders/lookup", { ip: realIp, body: { ...body, order_no: `NZ20261007PRXA${String.fromCharCode(65 + i)}QQQ` }, headers: { "x-forwarded-for": `192.0.2.${i + 1}` } })).status);
-    assert.deepEqual(directStatuses, [...Array(10).fill(404), 429], "不信任代理时，换 X-Forwarded-For 也是同一个地址");
+    for (let i = 0; i < 11; i += 1) directStatuses.push((await direct.call("POST", "/site/v1/orders/lookup", { ip: realIp, body: { order_no: `NZ20261007PRXA${String.fromCharCode(65 + i)}QQQ`, email: `nobody${i}@example.com` }, headers: { "x-forwarded-for": `192.0.2.${i + 1}` } })).status);
+    assert.deepEqual(directStatuses, [...Array(10).fill(202), 429], "不信任代理时，换 X-Forwarded-For 也是同一个地址");
 
     const proxyIp = nextIp();
     const client = nextIp();
     const proxiedStatuses: number[] = [];
-    for (let i = 0; i < 11; i += 1) proxiedStatuses.push((await proxied.call("POST", "/site/v1/orders/lookup", { ip: proxyIp, body: { ...body, order_no: `NZ20261007PRXB${String.fromCharCode(65 + i)}QQQ` }, headers: { "x-forwarded-for": `192.0.2.${i + 1}, ${client}` } })).status);
-    assert.deepEqual(proxiedStatuses, [...Array(10).fill(404), 429], "伪造的最左边地址每次都不同，仍按代理看到的客户端计");
+    for (let i = 0; i < 11; i += 1) proxiedStatuses.push((await proxied.call("POST", "/site/v1/orders/lookup", { ip: proxyIp, body: { order_no: `NZ20261007PRXB${String.fromCharCode(65 + i)}QQQ`, email: `nobody${i}@example.com` }, headers: { "x-forwarded-for": `192.0.2.${i + 1}, ${client}` } })).status);
+    assert.deepEqual(proxiedStatuses, [...Array(10).fill(202), 429], "伪造的最左边地址每次都不同，仍按代理看到的客户端计");
     const another = await proxied.call("POST", "/site/v1/orders/lookup", { ip: proxyIp, body: { ...body, order_no: "NZ20261007PRXCAQQQ" }, headers: { "x-forwarded-for": nextIp() } });
-    assert.equal(another.status, 404, "同一个代理后面的另一位客人有自己的额度（证明确实按 X-Forwarded-For 区分）");
+    assert.equal(another.status, 202, "同一个代理后面的另一位客人有自己的额度（证明确实按 X-Forwarded-For 区分）");
   } finally {
     await direct.close();
     await proxied.close();
@@ -477,7 +405,7 @@ test("不认未知字段：渠道编号、租户编号、币种、加价比例�
     assert.equal(o.status, 400, `下单 ${key}`);
     const p = await site.call("POST", "/site/v1/orders", { ip: nextIp(), headers: { "idempotency-key": randomUUID() }, body: { ...orderBody(quote.quote_id, "pickup"), passenger: { ...PASSENGER, [key]: value } } });
     assert.equal(p.status, 400, `下单 passenger.${key}`);
-    const l = await lookup({ order_no: placed.body.order.order_no, contact: PASSENGER.email, [key]: value }, nextIp());
+    const l = await lookup({ order_no: placed.body.order.order_no, email: PASSENGER.email, [key]: value }, nextIp());
     assert.equal(l.status, 400, `找回 ${key}`);
     const c = await site.call("PATCH", "/site/v1/order", { token, ip, headers: { "if-match": `"${placed.body.order.version}"` }, body: { notes: "x", [key]: value } });
     assert.equal(c.status, 400, `改单 ${key}`);
@@ -529,7 +457,7 @@ test("所有应答（含各种错误）都不含供应商编号、结算价、�
   keep("patch-stale", await site.call("PATCH", "/site/v1/order", { token, ip, headers: { "if-match": '"999"' }, body: { notes: "x" } }));
   keep("dispute-unknown", await site.call("POST", `/site/v1/order/extra-charges/${randomUUID()}/dispute`, { token, ip, body: { reason: "x" } }));
   keep("bad-token", await site.call("GET", "/site/v1/order", { token: `nzo_${"Z".repeat(43)}`, ip }));
-  keep("lookup-404", await lookup({ order_no: created.body.order.order_no, contact: "x@y.z" }, ip));
+  keep("lookup", await lookup({ order_no: created.body.order.order_no, email: "x@y.zz" }, ip));
   await payFor(orderId);
   keep("view-paid", await site.call("GET", "/site/v1/order", { token, ip }), true);
   keep("fee-paid", await site.call("GET", "/site/v1/order/cancel-fee", { token, ip }), true);
@@ -600,7 +528,7 @@ test("官网的客户端吊销：config 关、询价下单 503；已有订单照
     assert.equal(landed.body.order.landing.guest_reported_at, api.clock.now().toISOString());
     const cancelled = await own.call("POST", "/site/v1/order/cancel", { token: second.body.link.token, ip, body: {} });
     assert.deepEqual([cancelled.status, cancelled.body.order?.status], [200, "cancelled"], cancelled.text);
-    assert.equal((await lookup({ order_no: pickup.body.order.order_no, contact: PASSENGER.email }, ip, own)).status, 200, "停止接单也能找回");
+    assert.equal((await lookup({ order_no: pickup.body.order.order_no, email: PASSENGER.email }, ip, own)).status, 202, "停止接单也能查订单");
 
     const replacement = await salesCredentials(api, { ...fresh, staff: { ...fresh.staff, cm1: { ...cm1, token: await platformLogin(api, cm1.email) } } }, channelId);
     renewed = await makeSite({ clientId: replacement.clientId, payments: pay });

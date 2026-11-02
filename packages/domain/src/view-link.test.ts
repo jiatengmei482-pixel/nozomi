@@ -18,7 +18,8 @@ test("查订单的邮箱：NFKC 后按邮箱比较的口径（不分大小写、
   assert.equal(viewLinkLookupEmail("a b@c.d"), null);
   assert.equal(viewLinkLookupEmail("a@b@c.d"), null);
   assert.equal(viewLinkLookupEmail(`${"x".repeat(320)}@example.com`), null);
-  assert.equal(viewLinkLookupEmail("a@b.c\r\nBcc: x@y.z"), null, "控制字符一律不收");
+  assert.equal(viewLinkLookupEmail("a@b.c\r\nBcc: x@y.z"), null, "中间的控制字符一律不收");
+  assert.equal(viewLinkLookupEmail("\t A@B.cd \n"), "a@b.cd", "首尾的制表符、换行去掉");
 });
 
 test("限速的顺序：（地址在校验之前）订单号（小时、天）→ 邮箱（小时、天）；前面拦下的不占后面的额度", () => {

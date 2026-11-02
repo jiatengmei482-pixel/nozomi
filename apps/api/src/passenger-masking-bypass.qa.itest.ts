@@ -12,7 +12,7 @@ import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./te
 import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { SITE_MAIL_CONFIGURED, type SiteApi, resetLinkLimits, siteApi } from "./testing/site.ts";
 import { DAY, type Seeded, endAt, insertApproval, insertException, insertGuestNotification, insertRescue, insertWebhookDelivery, isDone, tokyoDaysAgo } from "./testing/retention-fixtures.ts";
 
 const NAME = "王小明";
@@ -326,10 +326,10 @@ test("供应商、司机、渠道看到的内容没被破坏：付款后的单�
 
 // ---- 官网查订单 ----
 
-test("查订单：不存在、对不上、已脱敏 + 原来的联系方式、已脱敏 + 占位、别的渠道的单，应答一字不差；限流也一样；耗时差不多", async () => {
+test("查订单（ADR 0061）：对上、不存在、对不上、已脱敏 + 原来的邮箱、别的渠道的单，应答一字不差；限流也一样；耗时差不多", async () => {
   const channelId = (await newChannel(api, m.staff.cm1.token, { name: `官网-${randomUUID().slice(0, 4)}` })).id;
   const client = await salesCredentials(api, m, channelId);
-  const site: SiteApi = await siteApi(api, client.clientId, pay);
+  const site: SiteApi = await siteApi(api, client.clientId, pay, SITE_MAIL_CONFIGURED);
   const place = async (email: string, serviceLocal: string): Promise<{ id: string; order_no: string }> => {
     api.clock.advance(60_000);
     const quoted = await site.call("POST", "/site/v1/quotes", { body: { city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: serviceLocal, passengers: 2, luggage: 1, category: "airport_transfer" } });
@@ -348,15 +348,15 @@ test("查订单：不存在、对不上、已脱敏 + 原来的联系方式、�
     let ip = 0;
     const lookup = (orderNo: string, contact: string) => {
       ip += 1;
-      return site.call("POST", "/site/v1/orders/lookup", { ip: `198.51.${100 + (ip >> 8)}.${ip & 255}`, body: { order_no: orderNo, contact } });
+      return site.call("POST", "/site/v1/orders/lookup", { ip: `198.51.${100 + (ip >> 8)}.${ip & 255}`, body: { order_no: orderNo, email: contact } });
     };
     const shape = (res: { status: number; text: string; headers: Record<string, unknown> }) => ({ status: res.status, text: res.text, headers: Object.keys(res.headers).filter((key) => !["date", "content-length", "x-request-id"].includes(key)).sort() });
+    // 手机号、脱敏的占位不是邮箱：一律 400，和订单无关（不在这里比）
     const paths: Record<string, () => ReturnType<typeof lookup>> = {
       不存在: () => lookup("NZ20261001ABCD2345", "qa.done@example.test"),
+      对上: () => lookup(live.order_no, "qa.live@example.test"),
       对不上: () => lookup(live.order_no, "nobody@example.test"),
       已脱敏原邮箱: () => lookup(done.order_no, "qa.done@example.test"),
-      已脱敏原电话: () => lookup(done.order_no, "+819077883311"),
-      已脱敏占位: () => lookup(done.order_no, ANONYMIZED_TEXT),
       别的渠道: async () => {
         const other = await paid();
         return lookup(other.order_no, EMAIL);
@@ -365,26 +365,29 @@ test("查订单：不存在、对不上、已脱敏 + 原来的联系方式、�
     const answers: Record<string, unknown> = {};
     for (const [name, call] of Object.entries(paths)) answers[name] = shape(await call());
     const expected = answers["不存在"] as { status: number };
-    assert.equal(expected.status, 404);
+    assert.equal(expected.status, 202);
+    assert.equal((await lookup(done.order_no, ANONYMIZED_TEXT)).status, 400, "占位不是邮箱");
     for (const [name, answer] of Object.entries(answers)) assert.deepEqual(answer, expected, name);
 
-    // 限流：已脱敏的和不存在的、对不上的同样计失败，同样第 11 次变 429（已经各失败过几次，补足到相同次数）
-    api.clock.advance(2 * 3_600_000);
+    // 限流：对上的、已脱敏的和不存在的、对不上的同样计数，同样第 4 次变 429（每个订单号每小时 3 次）
     const rateOf = async (orderNo: string, contact: string): Promise<number[]> => {
+      await resetLinkLimits(api);
       const out: number[] = [];
-      for (let i = 0; i < 11; i += 1) out.push((await lookup(orderNo, contact)).status);
+      for (let i = 0; i < 5; i += 1) out.push((await lookup(orderNo, contact)).status);
       return out;
     };
     const absent = await rateOf("NZ20261001WXYZ2345", "x@example.test");
     assert.deepEqual(await rateOf(done.order_no, "qa.done@example.test"), absent);
     assert.deepEqual(await rateOf(live.order_no, "nobody@example.test"), absent);
-    assert.equal(absent.at(-1), 429);
+    assert.deepEqual(await rateOf(live.order_no, "qa.live@example.test"), absent);
+    assert.deepEqual(absent, [202, 202, 202, 429, 429]);
 
-    // 耗时：都走同一条路，中位数相差不应该到能分辨的程度（判断宽松，防止机器抖动）
-    api.clock.advance(2 * 3_600_000);
+    // 耗时：应答之前都走同一条路（查单在后台），中位数相差不应该到能分辨的程度（判断宽松，防止机器抖动）
     const median = async (orderNo: string, contact: string): Promise<number> => {
       const times: number[] = [];
       for (let i = 0; i < 9; i += 1) {
+        await resetLinkLimits(api);
+        await site.app.backgroundIdle();
         const started = performance.now();
         await lookup(orderNo, contact);
         times.push(performance.now() - started);
@@ -393,7 +396,9 @@ test("查订单：不存在、对不上、已脱敏 + 原来的联系方式、�
     };
     const missing = await median("NZ20261001QRST2345", "x@example.test");
     const anonymized = await median(done.order_no, "qa.done@example.test");
+    const matched = await median(live.order_no, "qa.live@example.test");
     assert.ok(Math.abs(missing - anonymized) < 30, `不存在 ${missing.toFixed(1)} 毫秒，已脱敏 ${anonymized.toFixed(1)} 毫秒`);
+    assert.ok(Math.abs(missing - matched) < 30, `不存在 ${missing.toFixed(1)} 毫秒，对上 ${matched.toFixed(1)} 毫秒`);
   } finally {
     await site.close();
   }

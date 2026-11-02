@@ -23964,6 +23964,7 @@ components:
         - order.cancelled
         - extra_charge.submitted
         - ticket.guest_reply
+        - order.view_link
         - order.rescue_assigned
         - order.dispatch_overdue
         - order.departure_overdue

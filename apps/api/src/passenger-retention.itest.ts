@@ -20,7 +20,7 @@ import { tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { exitWithin, startNode } from "./testing/process.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { SITE_MAIL_CONFIGURED, type SiteApi, lookupQueued, siteApi } from "./testing/site.ts";
 import { blockedBy, insertApproval, insertPayment, insertStatement, setStatementStatus } from "./testing/retention-fixtures.ts";
 
 let api: TestApi;
@@ -348,10 +348,10 @@ test("跨租户：脱敏只动超过期限的单，别的供应商同时期没�
   assert.equal((await passengerOf(other.id)).email, "guest@example.com");
 });
 
-test("官网查订单：脱敏后的单按邮箱、手机都查不到，和对不上是同一个 404；连占位文字本身也对不上，同样计失败", async () => {
+test("官网查订单（ADR 0061）：脱敏后的单用原来的邮箱查，和对不上、订单号不存在是同一个 202，不排信；手机号、占位文字不是邮箱", async () => {
   const siteChannelId = (await newChannel(api, m.staff.cm1.token, { name: `官网-${randomUUID().slice(0, 4)}` })).id;
   const client = await salesCredentials(api, m, siteChannelId);
-  const site: SiteApi = await siteApi(api, client.clientId, pay);
+  const site: SiteApi = await siteApi(api, client.clientId, pay, SITE_MAIL_CONFIGURED);
   try {
     const quoted = await site.call("POST", "/site/v1/quotes", { body: { city_id: m.ids.tokyo, airport_id: m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: "2026-12-20T10:00", passengers: 2, luggage: 1, category: "airport_transfer" } });
     assert.equal(quoted.status, 200, quoted.text);
@@ -360,21 +360,19 @@ test("官网查订单：脱敏后的单按邮箱、手机都查不到，和对�
     const placed = await site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: "赵六", phone: "+81 90-5555-6666", email: "zhao@example.com" }, flight_no: "nh 211", dropoff_address: "东京站八重洲口", save_payment_method: true } });
     assert.equal(placed.status, 201, placed.text);
     const { order_no: orderNo, id } = placed.body.order;
-    const lookup = (contact: string, ip: string) => site.call("POST", "/site/v1/orders/lookup", { ip, body: { order_no: orderNo, contact } });
-    assert.equal((await lookup("zhao@example.com", "198.51.100.91")).status, 200, "脱敏前查得到");
+    const lookup = (email: string, ip: string) => lookupQueued(api, site, { orderNo, email, ip });
+    assert.equal((await lookup("zhao@example.com", "198.51.100.91")).queued, true, "脱敏前查得到");
     const wrong = await lookup("nobody@example.com", "198.51.100.92");
     await endAt(id, tokyoDaysAgo(200));
     await tick();
     assert.equal(await isDone(id), true);
     const byEmail = await lookup("zhao@example.com", "198.51.100.93");
-    const byPhone = await lookup("+819055556666", "198.51.100.94");
-    const byPlaceholder = await lookup(ANONYMIZED_TEXT, "198.51.100.95");
-    for (const res of [byEmail, byPhone, byPlaceholder]) {
-      assert.deepEqual([res.status, res.body.error.code, res.body.error.message], [404, "ORDER_NOT_FOUND", wrong.body.error.message], "和对不上一样，分不出订单号存不存在");
-      assert.match(res.body.error.message, /超过 180 天.*隐私规则清除.*联系客服/);
+    assert.deepEqual([byEmail.res.status, byEmail.res.body, byEmail.queued, wrong.queued], [202, wrong.res.body, false, false], "和对不上一样，分不出订单号存不存在");
+    for (const value of ["+819055556666", ANONYMIZED_TEXT]) {
+      assert.equal((await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.94", body: { order_no: orderNo, email: value } })).status, 400, value);
     }
-    const nonexistent = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.96", body: { order_no: "NZ20261001ABCD2345", contact: "zhao@example.com" } });
-    assert.deepEqual([nonexistent.status, nonexistent.body.error.message], [404, wrong.body.error.message]);
+    const nonexistent = await lookupQueued(api, site, { orderNo: "NZ20261001ABCD2345", email: "zhao@example.com", ip: "198.51.100.96" });
+    assert.deepEqual([nonexistent.res.status, nonexistent.res.body], [202, wrong.res.body]);
     // 脱敏后新发生的事不再给客人发邮件：没有地址，不会发到占位上
     const tenantId = (await api.db.owner.query("select tenant_id from orders where id = $1", [id])).rows[0].tenant_id;
     await api.db.owner.query("insert into notification_events (tenant_id, event, order_id, dedupe_key, data, occurred_at) values ($1, 'order.changed', $2, $3, $4::jsonb, $5)", [tenantId, id, `anonymized:${id}`, JSON.stringify({ change_id: randomUUID(), fields: ["notes"] }), api.clock.now()]);
