@@ -8,10 +8,11 @@ import { applyBasisPoints } from "@nozomi/domain";
 import { type ApiResponse, type TenantFixture, type TestApi, createTestApi } from "./api.ts";
 import { assign, newDriver, newVehicle } from "./dispatch.ts";
 import { type FakeSmtp, type FakeSmtpMessage, decodedMailText, startFakeSmtp } from "./fake-integrations.ts";
-import { type Market, buildMarket, ok } from "./market.ts";
+import { type Market, buildMarket, newChannel, ok, salesCredentials } from "./market.ts";
 import { platformLogin, tenantLogin } from "./money.ts";
-import { FakePaymentProvider } from "./payments.ts";
+import { FakePaymentProvider, deliverWebhook } from "./payments.ts";
 import { type SalesFlow, salesFlow } from "./sales-flow.ts";
+import { type SiteApi, siteApi } from "./site.ts";
 
 export const HOUR = 3_600_000;
 export const DAY = 24 * HOUR;
@@ -63,15 +64,17 @@ export interface World {
   /** 这张单每种事件进了发件箱几次（`like`） */
   events(orderId: string, like?: string): Promise<Record<string, number>>;
   notificationRows(orderId: string, audience: string, event: string): Promise<any[]>;
+  smtpEnv: Record<string, string>;
   close(): Promise<void>;
 }
 
 export async function buildWorld(options: { env?: Record<string, string>; fx?: { quote: (from: any, to: any, at: Date) => Promise<any> } } = {}): Promise<World> {
   const smtp = await startFakeSmtp();
   const pay = new FakePaymentProvider();
+  const smtpEnv = { SMTP_HOST: smtp.host, SMTP_PORT: String(smtp.port), SMTP_ENCRYPTION: "none", SMTP_USERNAME: "mailer", SMTP_PASSWORD: "fake-smtp-password-Qa9", SMTP_FROM_NAME: "NOZOMI", SMTP_FROM_ADDRESS: "noreply@example.test", ...options.env };
   const api = await createTestApi({
     payments: pay,
-    env: { SMTP_HOST: smtp.host, SMTP_PORT: String(smtp.port), SMTP_ENCRYPTION: "none", SMTP_USERNAME: "mailer", SMTP_PASSWORD: "fake-smtp-password-Qa9", SMTP_FROM_NAME: "NOZOMI", SMTP_FROM_ADDRESS: "noreply@example.test", ...options.env },
+    env: smtpEnv,
     integrationSecretsTtlMs: 0,
     ...(options.fx === undefined ? {} : { quote: { fx: options.fx } }),
   });
@@ -102,6 +105,7 @@ export async function buildWorld(options: { env?: Record<string, string>; fx?: {
     pay,
     flow,
     smtp,
+    smtpEnv,
     b,
     a,
     ops: () => platformLogin(api, m.staff.operations.email),
@@ -180,6 +184,49 @@ export async function resetBetweenTests(w: World): Promise<void> {
   api.clock.advance(HOUR);
   await w.relogin();
   w.smtp.reset();
+}
+
+export interface GuestSite {
+  api: SiteApi;
+  /** 官网下一张付过款的单（商务 7 座，乙中标）：返回订单和客人的查看令牌 */
+  place(serviceMs: number, passengerEmail: string): Promise<{ order: any; token: string; ip: string }>;
+  get(token: string, ip: string): Promise<any>;
+  patch(token: string, ip: string, body: Record<string, unknown>): Promise<ApiResponse>;
+}
+
+let guestIp = 0;
+
+/** 官网（`/site/v1`）：同一个库、同一个时钟，另起一个带官网配置的应用。 */
+export async function buildGuestSite(w: World): Promise<GuestSite> {
+  const channelId = (await newChannel(w.api, w.m.staff.cm1.token, { name: `官网 QA ${randomUUID().slice(0, 4)}` })).id;
+  const client = await salesCredentials(w.api, w.m, channelId);
+  const site = await siteApi(w.api, client.clientId, w.pay, w.smtpEnv);
+  const local = (ms: number): string => new Date(ms + 9 * HOUR).toISOString().slice(0, 16);
+  return {
+    api: site,
+    async place(serviceMs, passengerEmail) {
+      guestIp += 1;
+      const ip = `10.77.${Math.floor(guestIp / 250)}.${guestIp % 250 + 1}`;
+      w.api.clock.advance(1_000);
+      const quoted = await ok(site.call("POST", "/site/v1/quotes", { ip, body: { city_id: w.m.ids.tokyo, airport_id: w.m.ids.narita, direction: "pickup", address: { lng: 139.7, lat: 35.6 }, service_local: local(serviceMs), passengers: 2, luggage: 1 } }));
+      const quote = quoted.quotes.find((item: any) => item.vehicle_group.id === w.m.ids.biz7);
+      assert.ok(quote);
+      w.api.clock.advance(1_000);
+      const created = await ok(site.call("POST", "/site/v1/orders", { ip, headers: { "idempotency-key": randomUUID() }, body: { quote_id: quote.quote_id, passenger: { name: GUEST_NAME, phone: "+81 90-1234-5678", email: passengerEmail }, flight_no: "NH211", dropoff_address: "新宿站南口", save_payment_method: true } }), 201);
+      const intent = w.pay.intentOf(created.order.id);
+      assert.ok(intent);
+      w.pay.pay(intent.id);
+      const raw = w.pay.event("payment_intent.succeeded", w.pay.intentObject(intent.id), { created: w.api.clock.now() });
+      assert.equal((await deliverWebhook(w.api.app, raw, w.pay.sign(raw, w.api.clock.now()))).status, 200);
+      return { order: created.order, token: created.link.token, ip };
+    },
+    get: async (token, ip) => ok(site.call("GET", "/site/v1/order", { token, ip })),
+    async patch(token, ip, body) {
+      const seen = await ok(site.call("GET", "/site/v1/order", { token, ip }));
+      w.api.clock.advance(1_000);
+      return site.call("PATCH", "/site/v1/order", { token, ip, headers: { "if-match": `"${seen.order.version}"` }, body });
+    },
+  };
 }
 
 /** 递归收集 JSON 里所有的键。 */
