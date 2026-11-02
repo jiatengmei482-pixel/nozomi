@@ -21,9 +21,10 @@ test("查订单的邮箱：NFKC 后按邮箱比较的口径（不分大小写、
   assert.equal(viewLinkLookupEmail("a@b.c\r\nBcc: x@y.z"), null, "控制字符一律不收");
 });
 
-test("限速的顺序：地址 → 订单号（小时、天）→ 邮箱（小时、天）；前面拦下的不占后面的额度", () => {
+test("限速的顺序：（地址在校验之前）订单号（小时、天）→ 邮箱（小时、天）；前面拦下的不占后面的额度", () => {
   const steps = viewLinkThrottleSteps();
-  assert.deepEqual(steps.map((step) => step.dimension), ["ip", "order", "order", "email", "email"]);
+  assert.deepEqual(steps.map((step) => step.dimension), ["order", "order", "email", "email"]);
+  assert.ok(VIEW_LINK_REQUEST_LIMITS.ip.max <= 10);
   for (const step of steps) {
     assert.ok(step.max > 0 && step.windowMs > 0);
   }

@@ -2,8 +2,8 @@
  * M3-05：官网的公开接口 `/site/v1`（ADR 0032），经真实接口、真实 PostgreSQL；收款服务用替身。
  * - 没配置官网 / 渠道暂停：暂未开放（已经下了的单照样能看）；
  * - 询价 → 下单 → 凭查看链接看订单、付款（替身）→ 「我已落地」（验收标准）；取消试算和取消、改单、对加收提异议；
- * - 不泄露中标供应商（付款前）、结算价、加价比例；只能看自己的单（链接只对应一张；找回要订单号 + 下单联系方式；别的渠道的单找不到）；
- * - 输入校验（不认识的字段、别的城市的机场、不存在的时间）；按来源地址限速（询价、下单、找回，找回另按订单号）；
+ * - 不泄露中标供应商（付款前）、结算价、加价比例；只能看自己的单（链接只对应一张；查订单要订单号 + 下单邮箱，链接发到下单邮箱；别的渠道的单不发）；
+ * - 输入校验（不认识的字段、别的城市的机场、不存在的时间）；按来源地址限速（询价、下单、查订单；查订单的其余限速见 view-link-email.itest.ts）；
  * - Stripe 没配置：照样建单、待支付，到期自动取消、释放库存；不伪造付款成功。
  */
 import { after, before, test } from "node:test";
@@ -15,7 +15,7 @@ import { completeOrder, tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
-import { type SiteApi, siteApi } from "./testing/site.ts";
+import { SITE_MAIL_CONFIGURED, type SiteApi, lookupQueued, siteApi } from "./testing/site.ts";
 
 let api: TestApi;
 let m: Market;
@@ -37,7 +37,8 @@ before(async () => {
   m = await buildMarket(api);
   siteChannelId = (await newChannel(api, m.staff.cm1.token, { name: "NOZOMI 官网" })).id;
   const client = await salesCredentials(api, m, siteChannelId);
-  site = await siteApi(api, client.clientId, pay);
+  // 查订单要求邮件能发（ADR 0061）：这里只看排没排信，不真的发
+  site = await siteApi(api, client.clientId, pay, SITE_MAIL_CONFIGURED);
   other = await salesFlow(api, m, pay);
 });
 after(async () => {
@@ -85,7 +86,7 @@ test("没配置官网的 API 客户端：config 说没开，城市、询价、�
     const config = await closed.call("GET", "/site/v1/config");
     assertMatchesOpenApi("GET", "/site/v1/config", config);
     assert.deepEqual(config.body, { open: false, currency: null, payments: null, support_phone: null, address_search: false, map_tiles: null });
-    for (const [method, url, body] of [["GET", "/site/v1/cities", undefined], ["POST", "/site/v1/quotes", quoteBody()], ["POST", "/site/v1/orders/lookup", { order_no: "NZ20261007ABCDEFGH", contact: "a@b.c" }]] as const) {
+    for (const [method, url, body] of [["GET", "/site/v1/cities", undefined], ["POST", "/site/v1/quotes", quoteBody()], ["POST", "/site/v1/orders/lookup", { order_no: "NZ20261007ABCDEFGH", email: "a@b.cd" }]] as const) {
       const res = await closed.call(method, url, body === undefined ? {} : { body });
       assert.deepEqual([res.status, res.body.error.code], [503, "SITE_NOT_OPEN"], url);
     }
@@ -206,38 +207,33 @@ test("只能看自己的单：没带、格式不对、伪造的令牌一律 401�
   }
   assert.equal((await api.call("GET", `/sales/v1/orders/${mine.order.id}`, { token: mine.link.token })).status, 401);
   const foreign = await other.unpaidOrder();
-  const lookup = await site.call("POST", "/site/v1/orders/lookup", { body: { order_no: foreign.order_no, contact: "guest@example.com" } });
-  assert.deepEqual([lookup.status, lookup.body.error.code], [404, "ORDER_NOT_FOUND"]);
+  const lookup = await lookupQueued(api, site, { orderNo: foreign.order_no, email: "guest@example.com" });
+  assert.deepEqual([lookup.res.status, lookup.queued], [202, false], "别的渠道的单：应答一样，不发信");
 });
 
-test("找回：订单号 + 下单邮箱（不分大小写）或手机号（去掉空格连字符）发新链接；联系方式不对、订单号不存在是同一个 404", async () => {
+test("查订单（ADR 0061）：订单号（不分大小写）+ 下单邮箱（不分大小写）对上才排信；邮箱不对、订单号不存在应答一样、不排信；手机号不能查", async () => {
   const placed = (await placeOrder(site, "198.51.100.77")).body;
-  const byEmail = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.77", body: { order_no: placed.order.order_no.toLowerCase(), contact: " guest.site@example.COM " } });
-  assertMatchesOpenApi("POST", "/site/v1/orders/lookup", byEmail);
-  assert.equal(byEmail.status, 200, byEmail.text);
-  assert.equal((await guest(byEmail.body.link.token)).body.order.id, placed.order.id);
-  const byPhone = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.77", body: { order_no: placed.order.order_no, contact: "+819012345678" } });
-  assert.equal(byPhone.status, 200, byPhone.text);
-  const wrong = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.77", body: { order_no: placed.order.order_no, contact: "someone@example.com" } });
-  const missing = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.77", body: { order_no: "NZ20261007ZZZZZZZZ", contact: "guest.site@example.com" } });
-  assert.deepEqual([wrong.status, wrong.body.error], [404, missing.body.error]);
+  const byEmail = await lookupQueued(api, site, { orderNo: placed.order.order_no.toLowerCase(), email: " guest.site@example.COM ", ip: "198.51.100.77" });
+  assertMatchesOpenApi("POST", "/site/v1/orders/lookup", byEmail.res);
+  assert.deepEqual([byEmail.res.status, byEmail.queued], [202, true], byEmail.res.text);
+  const wrong = await lookupQueued(api, site, { orderNo: placed.order.order_no, email: "someone@example.com", ip: "198.51.100.77" });
+  const missing = await lookupQueued(api, site, { orderNo: "NZ20261007ZZZZZZZZ", email: "guest.site@example.com", ip: "198.51.100.77" });
+  assert.deepEqual([wrong.res.status, wrong.res.body, wrong.queued], [202, byEmail.res.body, false]);
+  assert.deepEqual([missing.res.status, missing.res.body], [202, byEmail.res.body]);
+  const byPhone = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.77", body: { order_no: placed.order.order_no, email: "+819012345678" } });
+  assert.deepEqual([byPhone.status, byPhone.body.error.code], [400, "VALIDATION_FAILED"]);
   const vias = await api.db.owner.query<{ issued_via: string }>("select issued_via from site_order_links where order_id = $1 order by created_at", [placed.order.id]);
-  assert.deepEqual(vias.rows.map((row) => row.issued_via), ["order", "lookup", "lookup"]);
+  assert.deepEqual(vias.rows.map((row) => row.issued_via), ["order"], "链接在发信时才签发（通知中心），查订单本身不签发");
 });
 
-test("限速：找回每个地址 15 分钟 10 次、每个订单号每小时 10 次（换地址也挡住，失败也算）；询价每分钟 30 次；下单 10 分钟 10 次", async () => {
-  const placed = (await placeOrder(site, "198.51.100.90")).body;
-  const tries = (ip: string) => site.call("POST", "/site/v1/orders/lookup", { ip, body: { order_no: placed.order.order_no, contact: "wrong@example.com" } });
-  for (let i = 0; i < 10; i += 1) assert.equal((await tries("198.51.100.91")).status, 404);
-  const limited = await tries("198.51.100.91");
+test("限速：查订单每个地址 15 分钟 10 次（订单号、邮箱各自的额度见 view-link-email.itest.ts）；询价每分钟 30 次；下单 10 分钟 10 次", async () => {
+  const tries = (ip: string, i: number) => site.call("POST", "/site/v1/orders/lookup", { ip, body: { order_no: `NZ20261007LIMIT00${i.toString(36).toUpperCase()}`, email: `wrong${i}@example.com` } });
+  for (let i = 0; i < 10; i += 1) assert.equal((await tries("198.51.100.91", i)).status, 202);
+  const limited = await tries("198.51.100.91", 10);
   assertMatchesOpenApi("POST", "/site/v1/orders/lookup", limited);
   assert.deepEqual([limited.status, limited.body.error.code], [429, "RATE_LIMITED"]);
   assert.ok(Number(limited.headers["retry-after"]) > 0);
-  // 换一个地址：这个地址的额度还在，但这个订单号这一小时已经猜了 10 次
-  const sameOrder = await tries("198.51.100.92");
-  assert.deepEqual([sameOrder.status, sameOrder.body.error.code], [429, "RATE_LIMITED"]);
-  const otherOrder = await site.call("POST", "/site/v1/orders/lookup", { ip: "198.51.100.92", body: { order_no: "NZ20261007ZZZZZZZZ", contact: "wrong@example.com" } });
-  assert.equal(otherOrder.status, 404, "别的订单号不受影响");
+  assert.equal((await tries("198.51.100.92", 11)).status, 202, "别的地址不受影响");
 
   for (let i = 0; i < 30; i += 1) assert.equal((await site.call("POST", "/site/v1/quotes", { ip: "198.51.100.93", body: { bad: true } })).status, 400);
   assert.equal((await site.call("POST", "/site/v1/quotes", { ip: "198.51.100.93", body: quoteBody() })).status, 429, "询价超限：不生成报价");
@@ -313,7 +309,7 @@ test("付款后：自动确认，时间线有确认，付款后才显示中标�
     assert.equal((await site.call("GET", "/site/v1/config")).body.open, false);
     assert.equal((await site.call("POST", "/site/v1/quotes", { body: quoteBody() })).body.error.code, "SITE_NOT_OPEN");
     assert.equal((await guest(token)).status, 200, "已下的单照样能看");
-    assert.equal((await site.call("POST", "/site/v1/orders/lookup", { body: { order_no: placed.order.order_no, contact: PASSENGER.email } })).status, 200);
+    assert.equal((await site.call("POST", "/site/v1/orders/lookup", { body: { order_no: placed.order.order_no, email: PASSENGER.email } })).status, 202, "停止接单不影响查订单");
   } finally {
     await ok(api.call("POST", `/platform/v1/channels/${siteChannelId}/activate`, { token: m.staff.cm1.token }));
   }

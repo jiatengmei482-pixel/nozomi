@@ -285,8 +285,9 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   // 对上、对不上、订单号不存在都是这一句：查单和发信在应答之后的后台任务里
   app.post("/site/v1/orders/lookup", async (request, reply) => {
+    await takeSiteSlot(ctx, "site_lookup", { ip: request.ip });
     const input = parseInput(lookupSchema, request.body, "body");
-    await requestSiteOrderLink(ctx, request.log, { orderNo: input.order_no, email: input.email, ip: request.ip });
+    await requestSiteOrderLink(ctx, request.log, { orderNo: input.order_no, email: input.email });
     return reply.code(202).send({ status: "accepted" });
   });
 

@@ -18,21 +18,23 @@ export const VIEW_LINK_REQUEST_LIMITS = {
   emailDay: { max: 10, windowMs: 86_400_000 },
 } as const;
 
-export type ViewLinkThrottleDimension = "ip" | "order" | "email";
+export type ViewLinkThrottleDimension = "order" | "email";
 
 export interface ViewLinkThrottleStep {
   dimension: ViewLinkThrottleDimension;
   /** 限速表里区分额度的名字 */
-  scope: "site_lookup" | "site_link_order_hour" | "site_link_order_day" | "site_link_email_hour" | "site_link_email_day";
+  scope: "site_link_order_hour" | "site_link_order_day" | "site_link_email_hour" | "site_link_email_day";
   max: number;
   windowMs: number;
 }
 
-/** 依次占用的额度：先看地址，再看订单号，最后看邮箱。被前面拦下的不占后面的，否则别人连点就能顶满一张单、一个邮箱的额度。 */
+/**
+ * 来源地址的额度在校验请求之前就占（和官网其余接口一样，格式不对的请求也算），之后依次占这几份：先看订单号，再看邮箱。
+ * 被前面拦下的不占后面的，否则别人连点就能顶满一张单、一个邮箱的额度。
+ */
 export function viewLinkThrottleSteps(): readonly ViewLinkThrottleStep[] {
   const limits = VIEW_LINK_REQUEST_LIMITS;
   return [
-    { dimension: "ip", scope: "site_lookup", ...limits.ip },
     { dimension: "order", scope: "site_link_order_hour", ...limits.orderHour },
     { dimension: "order", scope: "site_link_order_day", ...limits.orderDay },
     { dimension: "email", scope: "site_link_email_hour", ...limits.emailHour },

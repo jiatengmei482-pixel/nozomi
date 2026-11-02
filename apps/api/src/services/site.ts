@@ -485,18 +485,18 @@ export interface SiteLinkLog {
 
 /**
  * 查订单（ADR 0061）：订单号 + 下单邮箱（已规整，见 domain 的 `viewLinkLookupEmail`）。**应答前只做和订单无关的事**：
- * 官网配没配置、邮件能不能发、按地址 → 订单号 → 邮箱占限速（不管订单存不存在都计；被前面拦下的不占后面的）。
+ * 官网配没配置、邮件能不能发、按订单号 → 邮箱占限速（不管订单存不存在都计；被前面拦下的不占后面的；来源地址的额度接口层在校验前已占）。
  * 查单、核对、排进通知中心都在应答之后的后台任务里，所以对上、对不上、订单号不存在、别的渠道的单、已脱敏，应答和耗时都一样。
  * 发信由通知中心做（事件 `order.view_link`，收件人是订单上现在的邮箱；链接在发送那一刻新签发，旧链接不受影响）。
  */
-export async function requestSiteOrderLink(ctx: AppContext, log: SiteLinkLog, input: { orderNo: string; email: string; ip: string }): Promise<void> {
+export async function requestSiteOrderLink(ctx: AppContext, log: SiteLinkLog, input: { orderNo: string; email: string }): Promise<void> {
   const channelId = await requireSiteChannelId(ctx);
   await ctx.integrations.ensureFresh();
   if (ctx.integrations.effective.email.config === null) throw orderLinkEmailUnavailable();
   const now = ctx.now();
   for (const step of viewLinkThrottleSteps()) {
-    // 来源地址按限流键计（IPv6 按 /64，ADR 0045）；订单号、邮箱不进限流表原文
-    const value = step.dimension === "ip" ? rateLimitKeyOf(input.ip) : step.dimension === "order" ? input.orderNo : input.email;
+    // 订单号、邮箱不进限流表原文
+    const value = step.dimension === "order" ? input.orderNo : input.email;
     const decision = await withPlatformTx(ctx.pool, (db) => takeRateSlot(db, bucketOf(step.dimension, value), step.scope, now));
     if (!decision.allowed) throw rateLimited(decision.retryAfterSeconds);
   }
