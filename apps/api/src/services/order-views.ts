@@ -4,7 +4,7 @@
  * 规则 4：这里没有渠道、对外价、加价比例、汇率——`Order` 里本来就没有这些（在平台表 order_sales），这里也只逐个字段列出订单表里的内容。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口和推送里。
  */
-import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, vehicleIsNew } from "@nozomi/domain";
+import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { Order } from "../repos/orders.ts";
 import type { OrderChange } from "../repos/order-changes.ts";
@@ -103,6 +103,8 @@ export function landingJson(order: Order): Json | null {
 export interface DispatchFacts {
   driver: Driver | null;
   vehicle: Vehicle | null;
+  /** 有修改申请等处理（M4-29）；只有供应商的列表和详情给 */
+  pendingChange?: boolean;
 }
 
 export function driverJson(driver: Driver): Json {
@@ -170,6 +172,7 @@ export function tenantOrderJson(order: Order, facts: DispatchFacts, now: Date): 
     landing: landingJson(order),
     cancel_policy: cancelPolicyJson(order),
     cancellation: tenantCancellationJson(order),
+    pending_change: facts.pendingChange ?? false,
     version: order.version,
   };
 }
@@ -184,7 +187,9 @@ export function changeJson(change: OrderChange): Json {
     after: change.after,
     settlement_before: salesMoney(change.settlementBeforeMinor, change.settlementCurrency),
     settlement_after: salesMoney(change.settlementAfterMinor, change.settlementCurrency),
-    confirm_due_at: change.status === "pending_confirmation" ? (change.confirmDueAt?.toISOString() ?? null) : null,
+    confirm_due_at: orderChangeDecidable(change.status) ? (change.confirmDueAt?.toISOString() ?? null) : null,
+    adjusting_at: iso(change.adjustingAt),
+    decided_by_platform: change.decidedByPlatform !== null,
     requested_by: change.requestedBy,
     requested_at: change.requestedAt.toISOString(),
     decided_at: iso(change.decidedAt),

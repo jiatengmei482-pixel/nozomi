@@ -17,6 +17,7 @@ import { Button } from "../components/Button.tsx";
 import { Skeleton, StateBlock } from "../components/States.tsx";
 import { StatusBadge, TENANT_STATUS_BADGES } from "../components/StatusBadge.tsx";
 import { useDocumentTitle } from "../lib/use-document-title.ts";
+import { OrderTodosSection } from "./orders/OrderTodos.tsx";
 import { type TenantNotice, listOwnNotices } from "../api/onboarding.ts";
 import { TENANT_STATUS_HINTS, noticeText, scoreText, standingNotice } from "../lib/onboarding-display.ts";
 import { COMPANY_PATH } from "./company/CompanyPage.tsx";
@@ -67,6 +68,7 @@ export function HomePage() {
   const showPerformance = useTenantCan("performance.read");
   const notices = useLoad<{ items: TenantNotice[] }>("home-notices", showCompany ? listOwnNotices : null);
   const standing = tenant === null ? null : standingNotice(tenant);
+  const showOrderTodos = useTenantCan("order.read");
   // 工单、账单（M4-03）
   const showTickets = useTenantCan("ticket.read");
   const showStatements = useTenantCan("statement.read");
@@ -110,6 +112,7 @@ export function HomePage() {
             <span>{standing.text}</span>
           </Alert>
         )}
+        {showOrderTodos && <OrderTodosSection />}
         {(showAreas || showProducts) && (
           <section className="home-section" aria-labelledby="home-catalog">
             <h2 className="home-section__title" id="home-catalog">

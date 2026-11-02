@@ -600,7 +600,8 @@ test("救援：声明无法履约后两条链接都失效；排队的信不发�
   assert.equal((await tripOf(emailToken)).status, 401);
   assert.equal((await tripOf(res.driver_link.token)).status, 401);
   await tick();
-  assert.equal(mailsTo(email).length, 1, "救援后排队的信不发");
+  assert.equal(mailsTo(email).filter((mail) => tokenInMail(decodedMailText(mail.data)) !== null).length, 1, "救援后排队的信不发");
+  assert.match(decodedMailText((mailsTo(email).at(-1) as FakeSmtpMessage).data), /任务已取消或已转给别的供应商/, "司机另外收到一封不带链接的通知（M4-29）");
   const denied = await resend(order.id, b);
   assert.deepEqual([denied.status, denied.body.error.code], [409, "ORDER_STATE_INVALID"]);
 });

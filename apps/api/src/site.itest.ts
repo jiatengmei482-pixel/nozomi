@@ -301,7 +301,7 @@ test("付款后：自动确认，时间线有确认，付款后才显示中标�
   const changed = await guest(token, "PATCH", "/site/v1/order", { body: { flight_no: "JL5", notes: "带一个婴儿车" }, headers: { "if-match": `"${paid.body.order.version}"` } });
   assertMatchesOpenApi("PATCH", "/site/v1/order", changed);
   assert.equal(changed.status, 200, changed.text);
-  assert.deepEqual([changed.body.order.flight_no, changed.body.order.notes, changed.body.change.status], ["JL5", "带一个婴儿车", "applied"]);
+  assert.deepEqual([changed.body.order.flight_no, changed.body.order.notes, changed.body.change.status], ["NH211", "带一个婴儿车", "pending_confirmation"], "备注直接生效，航班号要供应商同意（M4-29）");
 
   const cancelled = await guest(token, "POST", "/site/v1/order/cancel", { body: {} });
   assertMatchesOpenApi("POST", "/site/v1/order/cancel", cancelled);

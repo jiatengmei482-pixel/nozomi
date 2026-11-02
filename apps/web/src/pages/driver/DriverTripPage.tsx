@@ -7,6 +7,7 @@
  * - 接机：先拍到达屏再填实际落地时间（按城市当地时间填），提交后不能改。
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
  */
+import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
 import { EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router";
@@ -212,6 +213,7 @@ export function DriverTripPage() {
         <StatusBadge {...ORDER_STATUS_BADGES[order.status]} /> <span className="mono">{order.order_no}</span>
       </p>
       {problem !== null && <Alert kind="danger">{problem}</Alert>}
+      {trip.pending_change !== null && <Alert kind="warning">{`客人申请修改（${trip.pending_change.fields.map((field) => CHANGE_FIELD_NAMES[field] ?? field).join("、")}），调度正在确认。确认之前请按原任务执行。`}</Alert>}
 
       <Section title="客人">
         <p>{`${order.passenger.name} · ${order.passengers} 人 ${order.luggage} 件行李`}</p>

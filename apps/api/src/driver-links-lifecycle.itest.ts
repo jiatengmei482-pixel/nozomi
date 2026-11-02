@@ -5,10 +5,10 @@
  */
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CANCELLATION_POLICY, driverLinkExpiry } from "@nozomi/domain";
+import { driverLinkExpiry } from "@nozomi/domain";
 import { type TenantFixture, type TestApi, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
-import { type Market, addStaff, buildMarket, ok } from "./testing/market.ts";
+import { type Market, buildMarket, ok } from "./testing/market.ts";
 import { platformLogin, tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider } from "./testing/payments.ts";
 import { type SalesFlow, salesFlow } from "./testing/sales-flow.ts";
@@ -29,12 +29,6 @@ before(async () => {
   m = await buildMarket(api);
   flow = await salesFlow(api, m, pay);
   b = { ...m.b, adminToken: await tenantLogin(api, m.b.adminEmail) };
-  // M4-27 上只有离用车不到 24 小时的改期才要供应商确认：接送机任何时候都能免费取消、提前 1 小时就能订，这样 24 小时之内也改得了
-  const ops2 = await addStaff(api, m.root, "ops2.lifecycle@platform.test", "operations");
-  const rules = DEFAULT_CANCELLATION_POLICY.map((rule) => ({ category: rule.category, level: rule.level, tiers: rule.category === "airport_transfer" ? [{ min_hours_before: 0, fee_bp: 0 }] : rule.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) }));
-  const requested = await ok(api.call("POST", "/platform/v1/cancellation-policy/changes", { token: m.staff.operations.token, body: { rules } }), 202);
-  await ok(api.call("POST", `/platform/v1/approvals/${requested.approval.id}/approve`, { token: ops2.token, body: {} }));
-  await api.db.owner.query("update products set service_rules = jsonb_set(service_rules, '{booking,leadTimeHours}', '1')");
 });
 after(() => api.close());
 
@@ -139,12 +133,8 @@ const dayAhead = (days: number): number => Math.ceil(api.clock.now().getTime() /
 
 async function requestReschedule(orderId: string, serviceMs: number): Promise<string> {
   api.clock.advance(1_000);
-  const current = (await ok(api.call("GET", `/sales/v1/orders/${orderId}`, { token: await flow.token() }))).order;
-  // M4-27 上只有离用车不到 24 小时的改期才要供应商确认（M4-29 之后一律要确认）：把时钟拨到 20 小时之内，两边都走确认这条路
-  const near = Math.min(new Date(current.service_time).getTime(), serviceMs) - 20 * HOUR - api.clock.now().getTime();
-  if (near > 0) api.clock.advance(near);
+  const version = (await ok(api.call("GET", `/sales/v1/orders/${orderId}`, { token: await flow.token() }))).order.version;
   api.clock.advance(1_000);
-  const version = current.version;
   const res = await api.call("PATCH", `/sales/v1/orders/${orderId}`, { token: await flow.token(), headers: { "if-match": `"${version}"` }, body: { service_time: iso(serviceMs) } });
   assert.equal(res.status, 200, res.text);
   assert.equal(res.body.change.status, "pending_confirmation");

@@ -449,7 +449,7 @@ export async function getSalesOrderView(ctx: AppContext, channelId: string, orde
         changes,
         changeSales: await listChangeSales(db, orderId),
         extraCharges: await listExtraCharges(db, order.tenantId, orderId),
-        freeCancelAvailable: order.status !== "cancelled" && freeCancelAfterUnconfirmedChange(changes),
+        freeCancelAvailable: freeCancelAfterUnconfirmedChange(order.status, changes),
       };
     },
     { snapshot: true },

@@ -147,6 +147,9 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/orders/${MISSING}/passenger/reveal`, action: "order.read" },
   { method: "POST", url: `/platform/v1/tickets/${MISSING}/texts/reveal`, action: "ticket.read" },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/events`, action: "order.proxy_fulfilment", body: {} },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/changes/${MISSING}/confirm`, action: "order.change_decide", body: { note: "x" } },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/changes/${MISSING}/reject`, action: "order.change_decide", body: { note: "x" } },
+  { method: "POST", url: `/platform/v1/orders/${MISSING}/changes/${MISSING}/adjusting`, action: "order.change_decide", body: { note: "x" } },
   { method: "PATCH", url: `/platform/v1/orders/${MISSING}`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/decide`, action: "order.manage", body: {} },
   { method: "POST", url: `/platform/v1/orders/${MISSING}/extra-charges/${MISSING_CHILD}/retry`, action: "payment.manage" },
@@ -265,7 +268,7 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     .map((r) => `${r.method} ${r.path}`)
     .sort();
   const tested = [
-    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(new RegExp(`(?<!bank-)files/${MISSING}`), "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
+    ...PROTECTED.map((r) => `${r.method} ${r.url.replace(`changes/${MISSING}`, "changes/:changeId").replace(new RegExp(`(?<!bank-)files/${MISSING}`), "files/:fileId").replace(`documents/${MISSING}`, "documents/:documentId").replace(MISSING, ":id").replace(MISSING_ROLE, ":key").replace(MISSING_SECRET, ":key").replace(`markup-rules/${MISSING_CHILD}`, "markup-rules/:ruleId").replace(`api-clients/${MISSING_CHILD}`, "api-clients/:clientId").replace(`files/${MISSING_CHILD}`, "files/:fileId").replace(`extra-charges/${MISSING_CHILD}`, "extra-charges/:chargeId").replace(`refunds/${MISSING_CHILD}`, "refunds/:refundId").replace(/\/holidays\/[A-Z]{2}\/[\d-]+$/, "/holidays/:country/:date")}`),
     ...ANY_STAFF,
     ...ANY_OF.map((r) => `GET ${r.url.split("?")[0]}`),
   ].sort();

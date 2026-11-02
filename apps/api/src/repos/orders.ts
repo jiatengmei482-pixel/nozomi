@@ -623,6 +623,8 @@ export interface TenantOrderFilter {
   to: string | null;
   /** unassigned：已确认、还没派车；overdue：过了派车截止时间还没派车（M3-02） */
   dispatch: "unassigned" | "overdue" | null;
+  /** pending：只看有修改申请等处理的（M4-29） */
+  change?: "pending" | null;
   /** 判断「过了截止时间」用的当前时间 */
   now: Date;
 }
@@ -630,12 +632,13 @@ export interface TenantOrderFilter {
 /** 租户的订单列表：只有付过款的，按用车时间从早到晚。 */
 export async function listTenantOrders(db: Db, tenantId: string, filter: TenantOrderFilter, limit: number, after: TimeCursor | null): Promise<Page<Order> & { total: number }> {
   const where = `o.tenant_id = $1 and o.confirmed_at is not null and ($2::text is null or o.status = $2) and ($3::date is null or o.service_date >= $3) and ($4::date is null or o.service_date <= $4)
-    and ($5::text is null or (o.status = 'confirmed' and ($5 = 'unassigned' or o.dispatch_due_at <= $6)))`;
-  const params = [tenantId, filter.status, filter.from, filter.to, filter.dispatch, filter.now];
+    and ($5::text is null or (o.status = 'confirmed' and ($5 = 'unassigned' or o.dispatch_due_at <= $6)))
+    and ($7::text is null or exists (select 1 from order_changes c where c.tenant_id = o.tenant_id and c.order_id = o.id and c.status in ('pending_confirmation', 'adjusting')))`;
+  const params = [tenantId, filter.status, filter.from, filter.to, filter.dispatch, filter.now, filter.change ?? null];
   const result = await db.query<Row>(
     `select ${ORDER_COLUMNS}, o.service_at::text as cursor_time from orders o
-      where ${where} and ($7::timestamptz is null or (o.service_at, o.id) > ($7::timestamptz, $8::uuid))
-      order by o.service_at, o.id limit $9`,
+      where ${where} and ($8::timestamptz is null or (o.service_at, o.id) > ($8::timestamptz, $9::uuid))
+      order by o.service_at, o.id limit $10`,
     [...params, after?.t ?? null, after?.id ?? null, limit + 1],
   );
   const total = await db.query<{ n: number }>(`select count(*)::int as n from orders o where ${where}`, params);

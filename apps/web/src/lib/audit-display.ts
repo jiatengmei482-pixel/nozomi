@@ -64,6 +64,7 @@ export const ACTION_NAMES: Readonly<Record<string, string>> = {
   login_failed: "登录失败",
   email_code_request: "请求邮箱验证码",
   email_code_failed: "邮箱验证码校验失败",
+  mark_adjusting: "标记调整中",
   logout: "退出登录",
   create: "新建",
   update: "修改",

@@ -506,6 +506,8 @@ test("真实业务流程都入发件箱：客人改单、事后加收（客人�
   const view = await site.call("GET", "/site/v1/order", { token: order.token });
   const changed = await site.call("PATCH", "/site/v1/order", { token: order.token, headers: { "if-match": `"${view.body.order.version}"` }, body: { flight_no: "JL5" } });
   assert.equal(changed.status, 200, changed.text);
+  assert.equal(changed.body.change.status, "pending_confirmation", "航班号要供应商同意（M4-29）");
+  await ok(api.call("POST", `/tenant/v1/orders/${order.orderId}/changes/${changed.body.change.id}/confirm`, { token, body: {} }));
   await site.app.notificationJobs.tick();
   assert.equal((await guestRow(order.orderId, "order.changed")).status, "sent");
   const changeMail = smtp.messages.find((message) => message.to.includes(GUEST_EMAIL));

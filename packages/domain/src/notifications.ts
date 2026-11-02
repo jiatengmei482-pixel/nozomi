@@ -15,6 +15,10 @@ export const NOTIFICATION_EVENTS = [
   "order.confirmed",
   "order.assigned",
   "order.driver_link",
+  "order.driver_change_pending",
+  "order.driver_changed",
+  "order.driver_change_declined",
+  "order.driver_cancelled",
   "order.service_reminder",
   "order.driver_arrived",
   "order.changed",
@@ -24,6 +28,7 @@ export const NOTIFICATION_EVENTS = [
   "extra_charge.submitted",
   "ticket.guest_reply",
   "order.rescue_assigned",
+  "order.rescue_started",
   "order.dispatch_overdue",
   "order.departure_overdue",
   "ticket.reply_requested",
@@ -48,15 +53,20 @@ export const NOTIFICATION_EVENT_NAMES: Readonly<Record<NotificationEvent, string
   "order.confirmed": "订单确认",
   "order.assigned": "司机信息",
   "order.driver_link": "司机链接",
+  "order.driver_change_pending": "司机：客人申请修改",
+  "order.driver_changed": "司机：任务有更新",
+  "order.driver_change_declined": "司机：修改没有通过",
+  "order.driver_cancelled": "司机：任务取消",
   "order.service_reminder": "用车提醒",
   "order.driver_arrived": "司机已到达",
   "order.changed": "订单修改",
-  "order.change_pending": "改期待确认",
-  "order.change_declined": "改期未确认",
+  "order.change_pending": "修改待确认",
+  "order.change_declined": "修改未通过",
   "order.cancelled": "订单取消",
   "extra_charge.submitted": "服务后费用",
   "ticket.guest_reply": "工单回复",
   "order.rescue_assigned": "救援新订单",
+  "order.rescue_started": "进入救援改派",
   "order.dispatch_overdue": "超时未派车",
   "order.departure_overdue": "司机未出发",
   "ticket.reply_requested": "工单待回复",
@@ -84,14 +94,14 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
-export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
+export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
 /** 司机邮件能用的变量（ADR 0058）：行程概要和链接。**没有客人的姓名、电话、邮箱、详细地址，也没有任何价格**。 */
-export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "driver_link_url", "link_expires_at"] as const;
+export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "changed_fields", "driver_link_url", "link_expires_at"] as const;
 
 /** 不能出现在供应商邮件里的内容：模板、变量名都不能含这些词（规则 4）。 */
 export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refund|fx_|汇率|客人付|实付/i;
@@ -114,6 +124,8 @@ const GUEST_FOOTER = "\n\n查看和管理订单：\n{{view_url}}\n这个链接�
 const TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}";
 const TENANT_TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}\n人数：{{passengers}}";
 const TENANT_FOOTER = "\n\n到后台处理：\n{{order_url}}\n\nNOZOMI 平台";
+const DRIVER_TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}";
+const DRIVER_FOOTER = "\n\nNOZOMI 用车";
 const COMPANY_FOOTER = "\n\n到后台查看：\n{{console_url}}\n\nNOZOMI 平台";
 
 const zhEmail = (event: NotificationEvent, audience: NotificationAudience, subject: string, body: string): NotificationTemplate => ({ event, audience, locale: "zh-CN", channel: "email", subject, body });
@@ -125,16 +137,17 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
   zhEmail("order.changed", "guest", "订单已修改：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单修改已生效，改动的内容：{{changed_fields}}。\n\n${TRIP}${GUEST_FOOTER}`),
-  zhEmail("order.change_declined", "guest", "改期没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的改期没有得到确认，订单仍按原时间执行；如果改期时补过差价，会原路退回。您也可以在订单页免费取消。\n\n${TRIP}${GUEST_FOOTER}`),
+  zhEmail("order.change_declined", "guest", "修改没有成功：{{order_no}}", `{{passenger_name}}，您好：\n\n很抱歉，您申请的修改（{{changed_fields}}）{{change_decline_reason}}，订单仍按原来的预约执行；如果修改时补过差价，会原路退回。{{change_decline_advice}}\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.cancelled", "guest", "订单已取消：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已取消。如有退款，会按取消政策原路退回，金额可在订单页查看。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("extra_charge.submitted", "guest", "服务后费用待确认：{{order_no}}", `{{passenger_name}}，您好：\n\n供应商提交了一项服务后费用。\n\n项目：{{extra_charge_type}}\n金额：{{extra_charge_amount}}\n\n如有异议，请在 {{dispute_until}}（东京时间）之前在订单页提出；没有异议的，到时会从您保存的支付方式中扣款。${GUEST_FOOTER}`),
   zhEmail("ticket.guest_reply", "guest", "您的工单有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
 
   zhEmail("order.confirmed", "tenant", "新订单：{{order_no}}", `你有一张新订单，请在派车截止时间前派好司机和车辆。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）${TENANT_FOOTER}`),
   zhEmail("order.rescue_assigned", "tenant", "救援新订单：{{order_no}}", `这张救援单已经转给你，请尽快派好司机和车辆。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
-  zhEmail("order.changed", "tenant", "订单已修改：{{order_no}}", `这张订单有修改，已经生效，改动的内容：{{changed_fields}}。如已派车，请确认司机和车辆还合适。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
-  zhEmail("order.change_pending", "tenant", "改期待确认：{{order_no}}", `客人申请改期，请在 {{confirm_due_at}}（东京时间）之前确认或拒绝。超时没有确认的，改期不生效。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
-  zhEmail("order.cancelled", "tenant", "订单已取消：{{order_no}}", `这张订单已取消，不用再安排。如已派车，请通知司机。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
+  zhEmail("order.changed", "tenant", "订单已修改：{{order_no}}", `这张订单有修改，已经生效，改动的内容：{{changed_fields}}。\n{{driver_notice}}\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
+  zhEmail("order.change_pending", "tenant", "修改待确认：{{order_no}}", `客人申请修改订单（{{changed_fields}}），确认前原预约仍然有效。\n{{driver_notice}}\n\n请在 {{confirm_due_at}}（东京时间）之前到后台同意或拒绝；正在换司机或协调的，可以先标记「调整中」。超时没有结论的，修改不生效，客人可能免费取消。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
+  zhEmail("order.cancelled", "tenant", "订单已取消：{{order_no}}", `这张订单已取消，不用再安排。\n{{driver_notice}}\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
+  zhEmail("order.rescue_started", "tenant", "订单进入救援改派：{{order_no}}", `这张订单已进入救援改派，平台在安排别的供应商，你不用再安排。\n{{driver_notice}}\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
   zhEmail("order.dispatch_overdue", "tenant", "超时未派车：{{order_no}}", `这张订单已过派车截止时间，还没有派司机和车辆，请马上处理。用车前 6 小时仍未派车会进入救援改派，并按规则扣违约金。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）${TENANT_FOOTER}`),
   zhEmail("order.departure_overdue", "tenant", "司机还没有出发：{{order_no}}", `离用车不到 1 小时，司机还没有点「已出发」，请马上确认。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
   zhEmail("ticket.reply_requested", "tenant", "工单待回复：{{ticket_no}}", `平台在工单 {{ticket_no}} 里征求你的意见，请在 24 小时内回复并上传证据。${COMPANY_FOOTER}`),
@@ -155,6 +168,12 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
     "用车任务：{{service_time}}（{{order_no}}）",
     "{{driver_name}}，您好：\n\n调度给您安排了一张用车任务，请打开下面的链接查看详情，并在行程中回传出发、到达、接到客人、完成。\n\n订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}\n\n打开任务：\n{{driver_link_url}}\n\n请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。\n链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。\n\nNOZOMI 用车",
   ),
+
+  // 客人的修改和取消（ADR 0060）：只有行程概要和改了哪些项目的名称，不写值。只有「任务有更新」带链接
+  zhEmail("order.driver_change_pending", "driver", "客人申请修改任务：{{service_time}}（{{order_no}}）", `{{driver_name}}，您好：\n\n客人申请修改下面这张任务（{{changed_fields}}），调度正在确认。确认之前请按原任务执行，有变化调度会再通知您。\n\n${DRIVER_TRIP}${DRIVER_FOOTER}`),
+  zhEmail("order.driver_changed", "driver", "任务有更新：{{service_time}}（{{order_no}}）", `{{driver_name}}，您好：\n\n这张任务有更新（{{changed_fields}}），请打开下面的链接查看最新内容，以链接里的为准。\n\n${DRIVER_TRIP}\n\n打开任务：\n{{driver_link_url}}\n\n请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。\n链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。${DRIVER_FOOTER}`),
+  zhEmail("order.driver_change_declined", "driver", "客人的修改没有通过：{{service_time}}（{{order_no}}）", `{{driver_name}}，您好：\n\n客人申请的修改（{{changed_fields}}）没有通过，请继续按原任务执行。\n\n${DRIVER_TRIP}${DRIVER_FOOTER}`),
+  zhEmail("order.driver_cancelled", "driver", "任务已取消：{{service_time}}（{{order_no}}）", `{{driver_name}}，您好：\n\n这张任务已取消或已转给别的供应商，您不用再去了。如已在路上，请联系调度。\n\n${DRIVER_TRIP}${DRIVER_FOOTER}`),
 
   zhEmail("exception.opened", "staff", "新的异常：{{exception_type}}（{{order_no}}）", `异常队列新增一条，请处理。\n\n类型：{{exception_type}}\n订单号：{{order_no}}${COMPANY_FOOTER}`),
   zhEmail("fx.alert", "staff", "汇率告警：{{alert_kind}}", `{{alert_kind}}\n\n{{detail}}${COMPANY_FOOTER}`),
@@ -243,6 +262,13 @@ export function notificationRetryable(status: NotificationStatus, errorCode: str
   return status === "failed" || (status === "expired" && errorCode === "EXPIRED");
 }
 
+/** 发给司机的修改和取消通知：用车时间过了不用再发，但用车时间之后才发生的（如司机已到达时取消）也要能发。 */
+const DRIVER_NOTICES: readonly NotificationEvent[] = ["order.driver_change_pending", "order.driver_changed", "order.driver_change_declined", "order.driver_cancelled"];
+
+export function isDriverNoticeEvent(event: string): boolean {
+  return (DRIVER_NOTICES as readonly string[]).includes(event);
+}
+
 const SERVICE_BOUND: readonly NotificationEvent[] = ["order.confirmed", "order.assigned", "order.service_reminder", "order.rescue_assigned", "order.change_pending", "order.dispatch_overdue", "order.departure_overdue"];
 
 /** 有效期就是用车时间的事件：改期后要跟着改（改期待确认另有确认期限，不在内）。 */
@@ -251,7 +277,9 @@ export const NOTIFICATION_SERVICE_BOUND_EVENTS: readonly NotificationEvent[] = S
 /** 这条通知最晚什么时候还值得发。过了就记 `expired`，不会在配好邮件后把陈旧的通知砸给收件人。 */
 export function notificationExpiresAt(event: NotificationEvent, input: { occurredAt: Date; serviceAt: Date | null; disputeUntil: Date | null; confirmDueAt?: Date | null }): Date {
   const after = (ms: number): Date => new Date(input.occurredAt.getTime() + ms);
-  if (event === "order.change_pending" && input.confirmDueAt !== undefined && input.confirmDueAt !== null) return input.serviceAt !== null && input.serviceAt < input.confirmDueAt ? input.serviceAt : input.confirmDueAt;
+  // 用车时间已经过了才提的申请（司机已到达时改航班号）：按确认期限
+  if (event === "order.change_pending" && input.confirmDueAt !== undefined && input.confirmDueAt !== null) return input.serviceAt !== null && input.serviceAt > input.occurredAt && input.serviceAt < input.confirmDueAt ? input.serviceAt : input.confirmDueAt;
+  if (DRIVER_NOTICES.includes(event)) return input.serviceAt !== null && input.serviceAt.getTime() > input.occurredAt.getTime() + NOTIFICATION_RULES.arrivedLifetimeMs ? input.serviceAt : after(NOTIFICATION_RULES.arrivedLifetimeMs);
   if (SERVICE_BOUND.includes(event) && input.serviceAt !== null) return input.serviceAt;
   if (event === "order.driver_arrived") return after(NOTIFICATION_RULES.arrivedLifetimeMs);
   if (event === "extra_charge.submitted" && input.disputeUntil !== null) return input.disputeUntil;
@@ -348,11 +376,44 @@ export const ORDER_CHANGE_FIELD_NAMES: Readonly<Record<string, string>> = {
   luggage: "行李数",
 };
 
+/** 被拒、超时、作废后告诉客人接下来能做什么（只说符合实际的那句，ADR 0060）。 */
+export const CHANGE_DECLINE_ADVICE: Readonly<Record<string, string>> = {
+  free_cancel: "您也可以在订单页免费取消后重新下单。",
+  policy: "如不再需要用车，可以按取消政策在订单页取消。",
+  rescue: "我们正在为您安排新的服务方，订单继续有效。",
+  started: "服务已经开始，如有问题请联系客服。",
+  payment_failed: "如不再需要用车，可以按取消政策在订单页取消。",
+};
+
+/** 没通过的原因（结果邮件那一句）：后台补差价被拒的不能说「没有得到确认」。 */
+export function changeDeclineReason(advice: string): string {
+  return advice === "payment_failed" ? "因为用保存的支付方式补差价没有成功，没有生效" : "没有得到确认";
+}
+
+/** 事件里的这几种，供应商邮件要说明司机那边的情况。 */
+export const TENANT_DRIVER_NOTICE_EVENTS: readonly NotificationEvent[] = ["order.changed", "order.change_pending", "order.cancelled", "order.rescue_started"];
+
+/**
+ * 供应商邮件里司机那边的情况：`channel` 是系统怎么通知司机（`email` 系统发邮件；`manual` 设成了手动发送；`no_email` 司机没邮箱）。
+ * 系统发不了的，明确告诉调度员要自己联系。
+ */
+export function tenantDriverNoticeText(event: NotificationEvent, driverName: string | null, channel: "email" | "manual" | "no_email", needsAdjustment: boolean): string {
+  if (driverName === null) return "这张单还没有派司机。";
+  const reason = channel === "manual" ? "你们设置了手动发送" : "这位司机没有邮箱";
+  const tell = channel === "email" ? null : `系统没有给司机发邮件（${reason}），请马上联系司机。`;
+  if (event === "order.change_pending") return `已派司机 ${driverName}，需调整司机：确认前司机按原任务执行。${tell ?? "系统已发邮件告诉司机。"}`;
+  if (event === "order.changed") return needsAdjustment ? `已派司机 ${driverName}，需调整司机：请确认司机和车辆还合适。${tell ?? "系统已把最新任务发给司机。"}` : `已派司机 ${driverName}。${tell ?? "系统已把最新信息发给司机。"}`;
+  return `已派司机 ${driverName}，需调整司机：司机不用再去了。${tell ?? "系统已发邮件告诉司机，请确认他已经知道。"}`;
+}
+
 export const OBSERVATION_REASON_NAMES: Readonly<Record<string, string>> = { score_below_threshold: "评分低于观察线", driver_no_show: "司机未到" };
 
-/** 用车前这么久之内，这些事件不受免打扰限制：晚发就来不及安排（新订单、救援、未出发、超时未派车、取消、改期待确认）。 */
+/** 客人的修改和取消、救援转走：**任何时候都马上发**，免费窗口只决定客人付不付钱，不决定通知（ADR 0060）。 */
+const NEVER_QUIET: readonly NotificationEvent[] = ["order.cancelled", "order.changed", "order.change_pending", "order.rescue_started"];
+
+/** 用车前这么久之内，这些事件不受免打扰限制：晚发就来不及安排（新订单、救援、未出发、超时未派车）。 */
 export const NOTIFICATION_CRITICAL_WINDOW_MS = 24 * 60 * 60_000;
-const TIME_CRITICAL: readonly NotificationEvent[] = ["order.confirmed", "order.rescue_assigned", "order.departure_overdue", "order.dispatch_overdue", "order.cancelled", "order.change_pending"];
+const TIME_CRITICAL: readonly NotificationEvent[] = ["order.confirmed", "order.rescue_assigned", "order.departure_overdue", "order.dispatch_overdue"];
 
 export interface QuietHoldInput {
   event: NotificationEvent;
@@ -373,6 +434,7 @@ export interface QuietHoldInput {
  * 用车当天；时段结束时已经过了有效期、确认期限或用车时间；要紧的事件且 24 小时内用车。
  */
 export function notificationQuietUntil(input: QuietHoldInput): Date | null {
+  if (NEVER_QUIET.includes(input.event)) return null;
   const resume = quietHoursResumeAt(input.quietHours, input.now, input.timeZone);
   if (resume === null) return null;
   if (notificationUrgent(input.serviceDate, input.now, input.serviceTimeZone)) return null;
@@ -405,4 +467,5 @@ export const NOTIFICATION_ERROR_NAMES: Readonly<Record<string, string>> = {
   DRIVER_LINK_MANUAL: "供应商已改成手动发送，不再发送",
   DRIVER_EMAIL_MISSING: "司机已经没有邮箱，不再发送",
   DRIVER_DISABLED: "司机已停用，不再发送",
+  CHANGE_DECIDED: "这次修改已经有结论，不再发送",
 };

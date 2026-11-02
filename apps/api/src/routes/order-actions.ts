@@ -8,10 +8,12 @@
  * 供应商（`/tenant/v1`，租户编号只来自令牌）：
  * - `GET /tenant/v1/cancellation-policy`：平台的取消政策（只读）；
  * - `POST /tenant/v1/orders/{id}/files`：上传票据照片；`POST …/extra-charges`：提交加收；`POST …/extra-charges/{chargeId}/withdraw`：撤回；
- * - `POST /tenant/v1/orders/{id}/changes/{changeId}/confirm`、`/reject`：确认 / 拒绝改期。
+ * - `POST /tenant/v1/orders/{id}/changes/{changeId}/confirm`、`/reject`、`/adjusting`：同意 / 拒绝 / 标记调整中（ADR 0060）；
+ * - `GET /tenant/v1/order-todos`、`POST …/{id}/ack`：待办和角标。
  * 运营后台（`/platform/v1`）：
  * - `GET /platform/v1/cancellation-policy`、`POST …/cancellation-policy/changes`（双人复核）；
  * - `GET /platform/v1/orders/{id}/cancel-fee`、`POST …/cancel`（多退了钱的发起双人复核）、`PATCH …/orders/{id}`（代客人改单）；
+ * - `POST /platform/v1/orders/{id}/changes/{changeId}/confirm`、`/reject`、`/adjusting`：代供应商处理改单（ADR 0060）；
  * - `POST /platform/v1/orders/{id}/events`：代供应商回传履约（ADR 0052；「已接到客人」「已完成」发起双人复核）；
  * - `POST …/extra-charges/{chargeId}/decide`（审核）、`POST …/extra-charges/{chargeId}/retry`、`POST …/refunds/{refundId}/retry`（财务重试）。
  * 运营后台按订单的接口都先核对数据范围（ADR 0030：订单的城市、渠道），范围外的和不存在一样；取消政策是全平台的，不按范围。
@@ -25,11 +27,13 @@ import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
 import { type StoredCancellationPolicy } from "../repos/cancellation-policies.ts";
+import type { OrderChange } from "../repos/order-changes.ts";
 import { type CancellationQuote, cancelForChannel, cancelForPlatform, previewCancellation } from "../services/cancellations.ts";
 import { getCancellationPolicy, requestCancellationPolicyChange } from "../services/cancellation-policy.ts";
 import { notFound } from "../services/errors.ts";
 import { decideExtraCharge, disputeExtraCharge, retryExtraCharge, submitExtraCharge, uploadReceipt, withdrawExtraChargeForTenant } from "../services/extra-charges.ts";
-import { type OrderChangeInput, changeForChannel, changeForPlatform, decideChangeForTenant } from "../services/order-changes.ts";
+import { type OrderChangeInput, changeForChannel, changeForPlatform, decideChange } from "../services/order-changes.ts";
+import { acknowledgeTodo, listTodos, orderTodoJson } from "../services/order-todos.ts";
 import { retryRefund } from "../services/order-money.ts";
 import { changeJson, extraChargeJson } from "../services/order-views.ts";
 import { reportProxyFulfilment } from "../services/proxy-fulfilment.ts";
@@ -98,6 +102,8 @@ const extraChargeSchema = z
   .strict();
 const decideSchema = z.object({ decision: z.enum(["approve", "reject"]), approved_amount: z.number().int().nullable().default(null), note: note(500) }).strict();
 const changeDecisionSchema = z.object({ note: note(500) }).strict();
+// 拒绝必填原因；运营代处理都必填（说明联系过谁、为什么代处理，ADR 0060）
+const changeReasonSchema = z.object({ note: visibleText(500) }).strict();
 const fileQuerySchema = z.object({ kind: z.literal("receipt") }).strict();
 
 export function toChangeInput(body: z.output<typeof changeSchema>): OrderChangeInput {
@@ -142,6 +148,10 @@ export function feeJson(quote: CancellationQuote | null, scope: "sales" | "platf
   };
   if (scope === "sales") return base;
   return { ...base, policy_fee_bp: quote.policyFeeBp, policy_refund: salesMoney(quote.policyRefundMinor, quote.currency), tenant_share: salesMoney(quote.tenantShareMinor, quote.settlementCurrency), needs_review: quote.refundMinor > quote.policyRefundMinor };
+}
+
+function changeExpired(change: OrderChange): AppError {
+  return new AppError(409, "CHANGE_CONFIRMATION_EXPIRED", "已经过了确认期限，这次修改按没确认处理", { change: changeJson(change) });
 }
 
 export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -225,17 +235,30 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     return { extra_charge: extraChargeJson(await withdrawExtraChargeForTenant(ctx, principal, orderId, chargeId, request.ip)) };
   });
 
-  for (const decision of ["confirm", "reject"] as const) {
+  for (const decision of ["confirm", "reject", "adjusting"] as const) {
     app.post(`/tenant/v1/orders/:id/changes/:changeId/${decision}`, async (request) => {
       const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.dispatch" });
       const orderId = resourceId(request.params, "订单");
       const changeId = resourceId({ id: (request.params as { changeId?: unknown }).changeId }, "改单");
-      const input = parseInput(changeDecisionSchema, request.body ?? {}, "body");
-      const result = await decideChangeForTenant(ctx, principal, orderId, changeId, decision, input.note, request.ip, request.log);
-      if (result.expired) throw new AppError(409, "CHANGE_CONFIRMATION_EXPIRED", "已经过了 30 分钟的确认时间，这次改期按没确认处理（客人可以免费取消）", { change: changeJson(result.change) });
+      const input = decision === "reject" ? parseInput(changeReasonSchema, request.body ?? {}, "body") : parseInput(changeDecisionSchema, request.body ?? {}, "body");
+      const result = await decideChange(ctx, { kind: "tenant", principal }, orderId, changeId, decision, input.note, request.ip, request.log);
+      if (result.expired) throw changeExpired(result.change);
       return { change: changeJson(result.change) };
     });
   }
+
+  // 待办和角标（M4-29）：首页卡片和订单菜单用同一个接口
+  app.get("/tenant/v1/order-todos", async (request) => {
+    const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    const found = await listTodos(ctx, principal.tenantId);
+    return { total: found.total, change_requests: found.changeRequests, items: found.items.map(orderTodoJson) };
+  });
+
+  app.post("/tenant/v1/order-todos/:id/ack", async (request) => {
+    const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.dispatch" });
+    await acknowledgeTodo(ctx, principal.tenantId, principal.user.id, resourceId(request.params, "待办"));
+    return { ok: true };
+  });
 
   // ---- 运营后台 ----
 
@@ -291,6 +314,20 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     // 响应里的改前值不能绕过「查看」（ADR 0055）
     return { change: maskOrderValues(changeJson(result.change), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
   });
+
+  // 运营代供应商处理改单（ADR 0060）：有权限、有审计，必填原因；不是双人复核
+  for (const decision of ["confirm", "reject", "adjusting"] as const) {
+    app.post(`/platform/v1/orders/:id/changes/:changeId/${decision}`, async (request) => {
+      const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.change_decide" });
+      const orderId = resourceId(request.params, "订单");
+      await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
+      const changeId = resourceId({ id: (request.params as { changeId?: unknown }).changeId }, "改单");
+      const input = parseInput(changeReasonSchema, request.body ?? {}, "body");
+      const result = await decideChange(ctx, { kind: "platform", principal }, orderId, changeId, decision, input.note, request.ip, request.log);
+      if (result.expired) throw changeExpired(result.change);
+      return { change: maskOrderValues(changeJson(result.change), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
+    });
+  }
 
   app.post("/platform/v1/orders/:id/extra-charges/:chargeId/decide", async (request) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.manage" });

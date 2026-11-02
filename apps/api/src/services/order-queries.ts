@@ -50,7 +50,7 @@ import { insertAuditLog } from "../repos/audit-logs.ts";
 import { consoleOrigin, platformActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import type { PlatformPrincipal } from "./platform-auth.ts";
-import { type OrderChange, listOrderChanges } from "../repos/order-changes.ts";
+import { type OrderChange, listOrderChanges, ordersWithPendingChange } from "../repos/order-changes.ts";
 import { type ExtraCharge, listExtraCharges } from "../repos/extra-charges.ts";
 import { type ChangeSale, type OrderRefund, listChangeSales, listOrderRefunds } from "../repos/refunds.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
@@ -67,6 +67,8 @@ export interface TenantOrderListQuery {
   from: string | null;
   to: string | null;
   dispatch: "unassigned" | "overdue" | null;
+  /** 只看有修改申请等处理的（M4-29） */
+  change?: "pending" | null;
 }
 
 /** 一页订单里派了的司机和车辆（各一条查询取回）。 */
@@ -93,7 +95,8 @@ export async function listOrdersForTenant(ctx: AppContext, tenantId: string, que
     async (db) => {
       const page = await listTenantOrders(db, tenantId, { ...query, now: ctx.now() }, limit, after);
       const facts = await dispatchFactsOf(db, page.items);
-      return { items: page.items.map((order) => ({ order, facts: facts.get(order.id) ?? NO_FACTS })), nextCursor: page.nextCursor, total: page.total };
+      const pending = await ordersWithPendingChange(db, tenantId, page.items.map((order) => order.id));
+      return { items: page.items.map((order) => ({ order, facts: { ...(facts.get(order.id) ?? NO_FACTS), pendingChange: pending.has(order.id) } })), nextCursor: page.nextCursor, total: page.total };
     },
     { snapshot: true },
   );
@@ -139,7 +142,7 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
     async (db) => {
       const order = await findTenantOrder(db, tenantId, orderId);
       if (order === null) throw notFound("订单");
-      const facts = (await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS;
+      const facts = { ...((await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS), pendingChange: (await ordersWithPendingChange(db, tenantId, [order.id])).has(order.id) };
       return { order, facts, events: await listOrderEvents(db, tenantId, orderId), records: await fulfilmentRecords(db, order), changes: await listOrderChanges(db, tenantId, orderId), extraCharges: await listExtraCharges(db, tenantId, orderId) };
     },
     { snapshot: true },

@@ -210,6 +210,7 @@ test("包车免等：库里留着旧的「不限时」——询价、下单按 0
   api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
   const changed = await site.call("PATCH", "/site/v1/order", { token: placed.link, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { service_time: "2026-11-20T03:00:00Z" } });
   assert.equal(changed.status, 200, changed.text);
+  await ok(api.call("POST", `/platform/v1/orders/${placed.id}/changes/${changed.body.change.id}/confirm`, { token: await ops(), body: { note: "测试：同意才生效（M4-29）" } }));
   const after = (await api.db.owner.query<{ minutes: number | null; settlement: any; service_local: string }>("select free_wait_minutes as minutes, settlement, service_local from orders where id = $1", [placed.id])).rows[0];
   assert.equal(after?.service_local, "2026-11-20T12:00", "改期生效");
   assert.equal(after?.minutes, 0);

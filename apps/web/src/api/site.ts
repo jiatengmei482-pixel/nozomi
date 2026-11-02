@@ -171,7 +171,7 @@ export interface SiteOrderChange {
   fields: string[];
   before: Record<string, unknown>;
   after: Record<string, unknown>;
-  price_difference: { kind: "increase" | "decrease" | "none"; amount: SiteMoney } | null;
+  price_difference: { kind: "charge" | "refund" | "none"; amount: SiteMoney } | null;
   confirm_due_at: string | null;
   requested_at: string;
   decided_at: string | null;

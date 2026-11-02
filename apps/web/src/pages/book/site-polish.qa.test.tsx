@@ -356,3 +356,36 @@ test("F12：后端标在邮箱下的错误，在客人改别的字段时不应�
   assert.ok(screen.queryByText("邮箱的域名不存在"), "改姓名后邮箱的错误还在");
   assert.equal(email.getAttribute("aria-invalid"), "true");
 });
+
+// ───────────── M4-29 修改申请（ADR 0060） ─────────────
+
+const changeOf = (status: SiteOrder["changes"][number]["status"], fields: string[], extra: Partial<SiteOrder["changes"][number]> = {}): SiteOrder["changes"][number] => ({ id: "c1", status, fields, before: {}, after: {}, price_difference: null, confirm_due_at: null, requested_at: "2026-10-07T00:00:00.000Z", decided_at: null, ...extra });
+
+test("M4-29：修改待确认时写明原预约有效；调整中写处理状态；差价写「补收」", async () => {
+  openOrder(envelopeOf(orderOf({ changes: [changeOf("pending_confirmation", ["service_time"], { price_difference: { kind: "charge", amount: { amount: "4356", currency: "JPY" } } })] })), () => json(200, configOf()));
+  assert.ok(await screen.findByText(/^修改待确认：服务方确认之前，原预约仍然有效/));
+  assert.ok(screen.getByText(/补收/));
+  assertAbsent(screen.queryByText(/退还/));
+  resetBrowser();
+  openOrder(envelopeOf(orderOf({ changes: [changeOf("adjusting", ["passengers"])] })), () => json(200, configOf()));
+  assert.ok(await screen.findByText("服务方正在协调"));
+});
+
+test("M4-29：被拒绝时原预约不变；能不能免费取消只说符合实际的那句（只改航班号的按取消政策）", async () => {
+  openOrder(envelopeOf(orderOf({ free_cancel_available: true, changes: [changeOf("rejected", ["service_time"])] })), () => json(200, configOf()));
+  assert.ok(await screen.findByText(/您的修改没有通过，原预约不变.*免费取消/));
+  resetBrowser();
+  openOrder(envelopeOf(orderOf({ free_cancel_available: false, changes: [changeOf("rejected", ["flight_no"])] })), () => json(200, configOf()));
+  assert.ok(await screen.findByText(/您的修改没有通过，原预约不变，补过的差价会原路退回。如果不想继续用车，可以按取消政策/));
+  assertAbsent(screen.queryByText(/可以在下面免费取消/));
+});
+
+test("M4-29：只改了联系信息的不算没通过；再提履约字段时后端说还在等确认，页面说清楚", async () => {
+  const { actor } = await openChangeForm(orderOf({ changes: [changeOf("applied", ["notes"])] }), () => apiError(409, "CHANGE_IN_PROGRESS", "x"));
+  assertAbsent(screen.queryByText(/修改没有通过/));
+  const luggage = screen.getByLabelText("行李（件）");
+  await actor.clear(luggage);
+  await actor.type(luggage, "3");
+  await actor.click(screen.getByRole("button", { name: "提交修改" }));
+  assert.ok(await screen.findByText(/上一次的修改还在等服务方确认/));
+});

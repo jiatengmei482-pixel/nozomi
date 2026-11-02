@@ -261,6 +261,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["POST", `/platform/v1/approvals/${ids.userId}/pricing-impact`],
       ["POST", `/platform/v1/approvals/${ids.userId}/approve`, {}],
       ["POST", `/platform/v1/approvals/${ids.userId}/reject`, {}],
+      ["POST", `/platform/v1/orders/${ids.userId}/changes/${ids.userId}/confirm`, { note: "不该生效" }],
+      ["POST", `/platform/v1/orders/${ids.userId}/changes/${ids.userId}/reject`, { note: "不该生效" }],
+      ["POST", `/platform/v1/orders/${ids.userId}/changes/${ids.userId}/adjusting`, { note: "不该生效" }],
       ["POST", `/platform/v1/approvals/${ids.userId}/withdraw`, {}],
       // 运营后台下拉框的选项（M4-13，ADR 0047）
       ["GET", "/platform/v1/city-options"],
@@ -358,6 +361,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["POST", `/tenant/v1/orders/${ids.userId}/extra-charges/${ids.userId}/withdraw`],
     ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/confirm`, {}],
     ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/reject`, {}],
+    ["POST", `/tenant/v1/orders/${ids.userId}/changes/${ids.userId}/adjusting`, {}],
+    ["GET", "/tenant/v1/order-todos"],
+    ["POST", `/tenant/v1/order-todos/${ids.userId}/ack`],
     // 声明无法履约、救援单、应扣款项（M3-04）
     ["POST", `/tenant/v1/orders/${ids.userId}/declare-unable`, { reason: "不该生效" }],
     ["GET", "/tenant/v1/rescue-offers"],

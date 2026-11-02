@@ -201,10 +201,11 @@ export const GUEST_EXTRA_STATUS_BADGES: Readonly<Record<ExtraChargeStatus, Badge
 /** 客人看到的改单状态。 */
 export const GUEST_CHANGE_STATUS_BADGES: Readonly<Record<OrderChangeStatus, BadgeSpec>> = {
   awaiting_payment: { tone: "info", label: "正在补收差价" },
-  pending_confirmation: { tone: "warning", label: "等待确认（30 分钟内）" },
+  pending_confirmation: { tone: "warning", label: "修改待确认" },
+  adjusting: { tone: "info", label: "服务方正在协调" },
   applied: { tone: "success", label: "已修改" },
-  rejected: { tone: "neutral", label: "没有被接受，可以免费取消" },
-  expired: { tone: "neutral", label: "超时没有确认，可以免费取消" },
+  rejected: { tone: "neutral", label: "没有被接受，原预约不变" },
+  expired: { tone: "neutral", label: "超时没有确认，原预约不变" },
   failed: { tone: "danger", label: "没有改成" },
   cancelled: { tone: "neutral", label: "已作废" },
 };

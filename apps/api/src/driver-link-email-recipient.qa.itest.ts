@@ -58,7 +58,7 @@ const tick = () => api.app.notificationJobs.tick();
 const trip = (token: string) => api.call("GET", "/driver/v1/trip", { token });
 const tokenIn = (text: string): string | null => /\/driver#(nzd_[A-Za-z0-9_.-]+)/.exec(text)?.[1] ?? null;
 const textsTo = (email: string): string[] => smtp.messages.filter((message) => message.to.includes(email)).map((message) => decodedMailText(message.data));
-const tokensTo = (email: string): string[] => textsTo(email).map((text) => tokenIn(text) as string);
+const tokensTo = (email: string): string[] => textsTo(email).flatMap((text) => tokenIn(text) ?? []);
 const links = async (orderId: string): Promise<any[]> => (await api.db.owner.query("select * from driver_links where order_id = $1 order by created_at, id", [orderId])).rows;
 const activeLinks = async (orderId: string): Promise<any[]> => (await links(orderId)).filter((link) => link.revoked_at === null);
 const status = async (orderId: string, who: TenantFixture = a): Promise<any> => (await ok(api.call("GET", `/tenant/v1/orders/${orderId}/driver-link/email`, { token: who.adminToken }))).driver_link_email;
@@ -407,8 +407,9 @@ test("真实取消（走渠道接口）：排队的信不发；已发出的邮�
   }
   await tick();
   assert.equal(tokensTo(queuedEmail).length, 0, "取消后排队的信不发");
-  const queuedRows = await api.db.owner.query("select status, last_error_code from notifications where order_id = $1 and audience = 'driver'", [queuedOrder.id]);
+  const queuedRows = await api.db.owner.query("select status, last_error_code from notifications where order_id = $1 and audience = 'driver' and event = 'order.driver_link'", [queuedOrder.id]);
   assert.deepEqual(queuedRows.rows.map((row) => [row.status, row.last_error_code]), [["expired", "ORDER_STATE_CHANGED"]]);
+  assert.equal(smtp.messages.filter((message) => message.to.includes(queuedEmail)).length, 1, "只收到不带链接的取消通知（M4-29）");
 
   b.adminToken = await tenantLogin(api, m.b.adminEmail);
   assert.equal((await status(sentOrder.id, b)).can_resend, false);
@@ -446,7 +447,7 @@ test("过期边界：到期前一毫秒能打开，到期那一刻两条链接�
   assert.deepEqual([last.status, last.last_error_code], ["expired", "DRIVER_LINK_REVOKED"]);
 });
 
-test("改期到更晚（走渠道接口，供应商不用确认）：行程还没开始，司机手里的两条链接不能先失效", async () => {
+test("改期到更晚（走渠道接口，供应商同意后生效）：行程还没开始，司机手里的两条链接不能先失效", async () => {
   const serviceAt = api.clock.now().getTime() + 5 * DAY;
   const order = await flow.paidOrder({ serviceTime: new Date(serviceAt).toISOString().replace(/\.\d{3}Z$/, "Z") });
   const email = newEmail();
@@ -459,7 +460,9 @@ test("改期到更晚（走渠道接口，供应商不用确认）：行程还�
   const later = new Date(Math.floor((serviceAt + 10 * DAY) / 60_000) * 60_000).toISOString();
   const changed = await api.call("PATCH", `/sales/v1/orders/${order.id}`, { token: await flow.token(), headers: { "if-match": `"${version}"` }, body: { service_time: later } });
   assert.equal(changed.status, 200, changed.text);
-  assert.equal(changed.body.order.service_time, later, "改期直接生效");
+  assert.equal(changed.body.change.status, "pending_confirmation", "M4-29 起改期要供应商同意");
+  await ok(api.call("POST", `/tenant/v1/orders/${order.id}/changes/${changed.body.change.id}/confirm`, { token: await tenantLogin(api, m.b.adminEmail), body: {} }));
+  assert.equal((await ok(api.call("GET", `/sales/v1/orders/${order.id}`, { token: await flow.token() }))).order.service_time, later);
   const stillAssigned = (await detail(order.id, b)).order;
   assert.equal(stillAssigned.status, "assigned", "派车还在");
 
