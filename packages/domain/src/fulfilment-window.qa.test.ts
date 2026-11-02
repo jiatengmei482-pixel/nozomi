@@ -132,16 +132,19 @@ test("夏令时城市（纽约、伦敦）：窗口按真实经过的小时，�
   assert.equal(fulfilmentEarliestLocal("departed", new Date("2027-11-07T12:00:00-05:00"), ny), "2027-11-06 13:00");
 });
 
-test("夏令时拨回的那一小时：写给人看的「最早 01:00」照着点也不应被拒（ADR 0064「照着写的时间去点不会再被拒」）", () => {
-  // 纽约 2027-11-07 01:00–02:00 出现两次。用车 11-07 04:00 EST（09:00Z）→ 接到客人最早 06:00Z = 第二个 01:00（EST）。
-  // 页面只写「2027-11-07 01:00」不带偏移；司机在第一个 01:00（EDT，05:00Z）照着点会被拒，说明里仍写「最早 01:00 以后才能点」。
+test("夏令时拨回的那一小时：写给人看的最早时间照着点不会被拒（ADR 0064「照着写的时间去点不会再被拒」）", () => {
+  // 纽约 2027-11-07 01:00–02:00 出现两次。用车 11-07 04:00 EST（09:00Z）→ 接到客人最早 06:00Z，落在重复的那一小时里（第二个 01:00，EST）。
+  // 只写「01:00」不带偏移的话，司机在第一个 01:00（EDT，05:00Z）照着点会被拒。修法（测试角色建议的两种之一）：按后到的那一次往后写，写成重复那一小时结束后的 02:00。
   const ny = "America/New_York";
   const serviceAt = new Date("2027-11-07T04:00:00-05:00");
   const shown = fulfilmentEarliestLocal("picked_up", serviceAt, ny);
-  assert.equal(shown, "2027-11-07 01:00");
-  const firstOccurrence = new Date("2027-11-07T01:00:00-04:00");
-  assert.equal(intlLocal(firstOccurrence, ny), shown, "这一刻手机上看到的当地时间就是写着的 01:00");
-  assert.equal(fulfilmentTooEarly("picked_up", firstOccurrence, serviceAt), false, "照着写的当地时间点了却被拒：拨回那一小时的最早时间要么写明偏移（EST/EDT），要么按先到的那一次给");
+  assert.equal(shown, "2027-11-07 02:00");
+  // 手机上第一次看到写着的这个当地时间的那一刻（02:00 在这一天只出现一次，EST）
+  const firstOccurrence = new Date("2027-11-07T02:00:00-05:00");
+  assert.equal(intlLocal(firstOccurrence, ny), shown, "这一刻手机上看到的当地时间就是写着的时间");
+  assert.equal(fulfilmentTooEarly("picked_up", firstOccurrence, serviceAt), false, "照着写的当地时间点了不能被拒");
+  // 第一个 01:00（EDT）确实还早：写成 01:00 就会误导
+  assert.equal(fulfilmentTooEarly("picked_up", new Date("2027-11-07T01:00:00-04:00"), serviceAt), true);
 });
 
 test("说明：哪一步、几小时、最早几点（当地时间）、时区、用车时间、联系调度", () => {
