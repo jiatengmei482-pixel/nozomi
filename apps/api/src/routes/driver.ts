@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { EVIDENCE_FILE_RULES, NO_SHOW_ITEM_NAMES, ORDER_STATUS_NAMES, freeWaitEnded } from "@nozomi/domain";
+import { EVIDENCE_FILE_RULES, NO_SHOW_ITEM_NAMES, ORDER_STATUS_NAMES, freeWaitEnded, fulfilmentEarliestAt, fulfilmentEarliestLocal, nextFulfilmentEvent } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import { tenantIdOfDriverToken } from "../auth/driver-token.ts";
 import type { AppContext } from "../context.ts";
@@ -24,6 +24,13 @@ const locationBodySchema = z.object({ location: locationSchema.nullable().defaul
 const pingSchema = z.object({ location: locationSchema });
 
 const iso = (date: Date | null): string | null => date?.toISOString() ?? null;
+
+/** 下一步和它最早什么时候可以点（ADR 0064）：页面提前提示，真正的判断在回传时。这个状态不能回传时为 null。 */
+function nextEventJson(order: TripView["order"]): Record<string, unknown> | null {
+  const type = nextFulfilmentEvent(order.status);
+  if (type === null) return null;
+  return { type, earliest_at: fulfilmentEarliestAt(type, order.serviceAt).toISOString(), earliest_local: fulfilmentEarliestLocal(type, order.serviceAt, order.timezone) };
+}
 
 /** 司机页面看到的这一单。没有任何金额。 */
 function tripJson(view: TripView): Record<string, unknown> {
@@ -54,6 +61,7 @@ function tripJson(view: TripView): Record<string, unknown> {
       driver_language: order.driverLanguage,
       free_wait_minutes: order.freeWaitMinutes,
     },
+    next_event: nextEventJson(order),
     pending_change: view.pendingChangeFields === null ? null : { fields: view.pendingChangeFields },
     driver: view.driver === null ? null : { name: view.driver.name },
     vehicle: view.vehicle === null ? null : { plate: view.vehicle.plate, model: view.vehicle.model, color: view.vehicle.color },
