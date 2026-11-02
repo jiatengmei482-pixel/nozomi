@@ -161,7 +161,9 @@ test("一个人改不了乘客邮箱：发起复核，批准前订单邮箱不�
   const oldMails = mailsTo(email);
   assert.ok(oldMails.length >= 1, "姓名改了：订单修改的通知发到原来的邮箱");
 
-  const approval = await ok(api.call("GET", `/platform/v1/approvals/${approvalId}`, { token: m.staff.operations.token }));
+  const approvalRes = await api.call("GET", `/platform/v1/approvals/${approvalId}`, { token: m.staff.operations.token });
+  assertMatchesOpenApi("GET", "/platform/v1/approvals/{id}", approvalRes);
+  const approval = await ok(Promise.resolve(approvalRes));
   assert.equal(approval.approval.kind, "order.passenger_email");
   assert.equal(JSON.stringify(approval).includes(fresh), false, "复核记录里只有打码地址");
   assert.equal(JSON.stringify(approval).includes(email), false);

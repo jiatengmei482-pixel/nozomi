@@ -15672,6 +15672,7 @@ components:
             - order.proxy_pick_up
             - order.proxy_complete
             - order.view_link_email
+            - order.passenger_email
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
