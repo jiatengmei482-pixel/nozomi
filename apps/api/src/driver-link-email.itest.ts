@@ -260,6 +260,7 @@ test("邮件没配置：派车成功，状态带 NOT_CONFIGURED 提示手动；�
     assert.equal(mailsTo(email).length, 0);
     const later = await unconfigured.call("GET", `/tenant/v1/orders/${order.id}/driver-link/email`, { token: tenantToken(a) });
     assert.equal(later.body.driver_link_email.error_code, "NOT_CONFIGURED");
+    assert.equal((await statusOf(order.id)).error_code, null, "配好之后不再提示没配置（记录上的旧原因要等发出去才清）");
     await tick();
     assert.equal(mailsTo(email).length, 1, "配好后发出");
   } finally {
