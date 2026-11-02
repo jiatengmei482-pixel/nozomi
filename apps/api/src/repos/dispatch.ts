@@ -228,6 +228,12 @@ export async function lockDriverOrders(db: Db, tenantId: string, driverId: strin
   await db.query("select id from orders where tenant_id = $1 and driver_id = $2 and status = any($3::text[]) order by id for update", [tenantId, driverId, [...statuses]]);
 }
 
+/** 这次发信失败：这次生成的邮件链接作废（正文可能已经到了对方服务器）。先锁订单再改，和其他吊销一样，司机的请求不会用它成功一次（ADR 0058）。 */
+export async function revokeEmailLinkAfterSendFailure(db: Db, tenantId: string, orderId: string, linkId: string, now: Date): Promise<void> {
+  await db.query("select id from orders where tenant_id = $1 and id = $2 for update", [tenantId, orderId]);
+  await db.query("update driver_links set revoked_at = $4, revoke_reason = 'send_failed' where tenant_id = $1 and order_id = $2 and id = $3 and purpose = 'email' and revoked_at is null", [tenantId, orderId, linkId, now]);
+}
+
 /** 司机改了邮箱：发到旧地址的邮件链接作废，调度员手里那条不动（ADR 0058）。 */
 export async function revokeDriverEmailLinks(db: Db, tenantId: string, driverId: string, now: Date): Promise<number> {
   const result = await db.query("update driver_links set revoked_at = $3, revoke_reason = 'email_changed' where tenant_id = $1 and driver_id = $2 and purpose = 'email' and revoked_at is null", [tenantId, driverId, now]);

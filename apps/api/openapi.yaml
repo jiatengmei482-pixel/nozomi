@@ -9367,7 +9367,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`ORDER_STATE_INVALID`、`DRIVER_LINK_NOT_ACTIVE`（要先重新生成）、`DRIVER_LINK_EXPIRED`、`DRIVER_LINK_EMAIL_MANUAL`（设置是手动发送）、`DRIVER_EMAIL_MISSING`"
+          description: "`ORDER_STATE_INVALID`、`DRIVER_LINK_NOT_ACTIVE`（要先重新生成）、`DRIVER_LINK_EXPIRED`、`DRIVER_LINK_EMAIL_MANUAL`（设置是手动发送）、`DRIVER_EMAIL_MISSING`、`DRIVER_DISABLED`（司机已停用，不占限速）"
           content:
             application/json:
               schema:

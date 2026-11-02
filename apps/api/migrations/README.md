@@ -80,6 +80,7 @@
 | `0190_passenger_retention.sql` | 乘客信息自动脱敏（M4-21，ADR 0055）：`orders.passenger_anonymized_at` 和到期扫描的索引；联系记录、工单对话、内部备注、状态流水、客人评价给平台角色开放修改，触发器限定只能改手写的那一列、只有已脱敏的单才能改；复核的内容同样限定；已脱敏的单不能改回乘客、不能清标记。不含任何数据 |
 | `0200_passenger_encryption.sql` | 乘客信息加密存储（M4-22，ADR 0057）：`orders` 的密文和三个盲索引列，改单、推送、通知的密文列；三个盲索引索引；明文被改而密文没跟着改时让密文作废的触发器（脱敏的行也一律清）；供应商改不了这些新列。只加不改，不含数据，回填由 `pnpm passenger:backfill` 或后台任务做 |
 | `0210_driver_link_email.sql` | 司机链接自动发邮件（M4-27，ADR 0058）：司机邮箱（选填）；供应商的发送方式（默认自动）；司机链接分调度员的和邮件的，吊销原因加 `email_changed`；发送请求表 `driver_link_emails`；发送记录加接收方 `driver`，供应商能读发给司机的状态 |
+| `0225_driver_link_lifecycle.sql` | 司机链接跟着订单走（M4-29 同一个文件）：平台角色能改 `expires_at`（改期生效时重算），吊销原因加 `cancelled`，之前已取消的单链接作废 |
+| `0226_driver_link_email_fixes.sql` | 司机链接邮件的修补（M4-27，ADR 0058）：吊销原因加 `send_failed`；发送请求加 `closed_code` / `closed_at`（没有发送记录就结束了），平台角色只能改这两列 |
 | `0160_bank_transfer_files.sql` | 供应商收款账户（账号只存密文和末 4 位，内容不可变）、银行转账文件和文件条目（一张账单同时只在一个未作废的文件里）、账单加银行流水号（M5-02，ADR 0051；0140、0150 被 M4-08、M4-06 占用）。不含任何数据 |
-| `0220_change_approval.sql` | 客户改单要供应商确认（M4-29，ADR 0060）：改单新增状态「调整中」，唯一约束和期限索引跟上；加最早用车时间、调整中和代处理的记录列；异常队列加 `change_unconfirmed`；供应商后台待办 `order_todos`（租户表，租户只读）。不含任何数据 |
-| `0225_driver_link_lifecycle.sql` | 司机链接跟着订单走（M4-29，ADR 0060）：平台角色可以改 `expires_at`（改期生效时重算）；吊销原因加 `cancelled`；已取消的单的链接补吊销。不含预置数据 |
+| `0230_change_approval.sql` | 客户改单要供应商确认（M4-29，ADR 0060）：改单新增状态「调整中」，唯一约束和期限索引跟上；加最早用车时间、调整中和代处理的记录列；异常队列加 `change_unconfirmed`；供应商后台待办 `order_todos`（租户表，租户只读）。不含任何数据 |

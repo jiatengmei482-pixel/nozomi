@@ -58,6 +58,8 @@ import {
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
+import { revokeEmailLinkAfterSendFailure } from "../repos/dispatch.ts";
+import { closeDriverLinkEmail } from "../repos/driver-link-emails.ts";
 import { findExtraChargeForPlatform } from "../repos/extra-charges.ts";
 import { findDriver, findVehicle } from "../repos/fleet.ts";
 import { findOrderChange } from "../repos/order-changes.ts";
@@ -140,7 +142,7 @@ interface Target {
   orderNo: string | null;
 }
 
-type Prepared = { kind: "message"; message: MailMessage } | { kind: "stale"; code?: string } | { kind: "hold"; until: Date } | { kind: "render_failed" };
+type Prepared = { kind: "message"; message: MailMessage; driverLink?: { tenantId: string; orderId: string; linkId: string } } | { kind: "stale"; code?: string } | { kind: "hold"; until: Date } | { kind: "render_failed" };
 
 /** 事件里的时间：坏值当作没有。 */
 function dateOf(value: unknown): Date | null {
@@ -311,7 +313,12 @@ export class NotificationJobs {
         if (current === undefined) throw err;
         const failed = current;
         const code = dbCodeOf(err) ?? "EXPAND_FAILED";
-        const attempts = await withPlatformTx(this.ctx.pool, (db) => recordExpandFailure(db, failed.id, code, EXPAND_MAX_ATTEMPTS, now));
+        const attempts = await withPlatformTx(this.ctx.pool, async (db) => {
+          const made = await recordExpandFailure(db, failed.id, code, EXPAND_MAX_ATTEMPTS, now);
+          // 给司机的这封不会有发送记录了：调度员要马上看到失败，不用等 15 分钟（ADR 0058）
+          if (failed.event === "order.driver_link" && failed.tenantId !== null && made >= EXPAND_MAX_ATTEMPTS) await closeDriverLinkEmail(db, failed.tenantId, failed.id, isPassengerDecryptFailure(err) ? PASSENGER_DECRYPT_FAILED : code, now);
+          return made;
+        });
         this.log.error({ event: "notification.expand_failed", eventId: failed.id, eventType: failed.event, orderId: failed.orderId, errorCode: code, attempts }, "这个通知事件展开时出错；出错次数到上限后不再处理，运营后台能看到数量");
         continue;
       }
@@ -330,6 +337,8 @@ export class NotificationJobs {
     if (event.event === "order.changed" && order !== null && event.orderId !== null && Array.isArray(event.data["fields"]) && event.data["fields"].includes("service_time")) {
       await rebaseServiceExpiry(db, event.orderId, order.serviceAt, NOTIFICATION_SERVICE_BOUND_EVENTS);
     }
+    // 展开时司机已经没有邮箱：这次发起到此结束，补回邮箱也不会发，状态不能继续显示等待中（ADR 0058）
+    if (event.event === "order.driver_link" && targets.length === 0 && event.tenantId !== null) await closeDriverLinkEmail(db, event.tenantId, event.id, "DRIVER_EMAIL_MISSING", now);
     if (targets.length === 0) this.log.warn({ event: "notification.no_recipient", eventType: event.event, orderId: event.orderId, tenantId: event.tenantId }, "这个事件没有可以通知的人");
     if (typeof event.data["dispute_until"] === "string" && dateOf(event.data["dispute_until"]) === null) throw new Error("事件的 dispute_until 不是时间");
     const expiresAt = notificationExpiresAt(event.event, { occurredAt: event.occurredAt, serviceAt: order?.serviceAt ?? null, disputeUntil: dateOf(event.data["dispute_until"]), confirmDueAt: dateOf(event.data["confirm_due_at"]) });
@@ -423,7 +432,20 @@ export class NotificationJobs {
     }
     const result = await sendMail(this.ctx, prepared.message);
     if (result.ok) return this.finish(notification, { status: "sent", attempts: attemptNo, messageId: result.messageId });
+    if (prepared.driverLink !== undefined) await this.revokeUnsentDriverLink(notification, prepared.driverLink);
     return this.finish(notification, this.afterFailure(notification, result.code, result.message, attemptNo, manual));
+  }
+
+  /**
+   * 给司机的这封没发成：这次生成的链接作废（ADR 0058）。正文发完才被拒、超时的，令牌可能已经到了对方服务器；重试时另生成一条。
+   * 吊销本身出错不影响记结果：只记日志，链接到期自然失效。
+   */
+  private async revokeUnsentDriverLink(notification: Notification, link: { tenantId: string; orderId: string; linkId: string }): Promise<void> {
+    try {
+      await withTenantTx(this.ctx.pool, link.tenantId, (db) => revokeEmailLinkAfterSendFailure(db, link.tenantId, link.orderId, link.linkId, this.ctx.now()));
+    } catch (err) {
+      this.log.error({ event: "notification.driver_link_revoke_failed", notificationId: notification.id, orderId: link.orderId, dbCode: dbCodeOf(err) }, "发信失败后吊销邮件链接出错：这条链接到期才失效");
+    }
   }
 
   private afterFailure(notification: Notification, code: string, message: string | null, attemptNo: number, manual: boolean): NotificationOutcome {
@@ -504,7 +526,7 @@ export class NotificationJobs {
     if (prepared.kind === "blocked") return { kind: "stale", code: prepared.code };
     if (prepared.kind === "render_failed") return prepared;
     if (prepared.message.to !== notification.recipient) await withPlatformTx(this.ctx.pool, (db) => updateDriverRecipient(db, notification.id, prepared.message.to));
-    return { kind: "message", message: prepared.message };
+    return { kind: "message", message: prepared.message, ...(prepared.linkId === null ? {} : { driverLink: { tenantId, orderId, linkId: prepared.linkId } }) };
   }
 
   private async variablesOf(db: Db, notification: Notification, event: StoredNotificationEvent, order: Order | null): Promise<NotificationVariables> {

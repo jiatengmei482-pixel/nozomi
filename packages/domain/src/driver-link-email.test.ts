@@ -147,6 +147,29 @@ test("发送状态：失败和作废都算失败，带原因", () => {
   }
 });
 
+test("发送状态：信发出去了但邮件链接都作废了（改过邮箱又改回）：不能显示已发送，要提示重发", () => {
+  const latest = withRow("sent", { sentAt: requested }).latest;
+  const view = driverLinkEmailView(viewFacts({ latest: { ...latest, emailLinkActive: false } }));
+  assert.equal(view.state, "not_sent");
+  assert.equal(view.addressChanged, true);
+  assert.equal(view.canResend, true);
+  assert.equal(driverLinkEmailView(viewFacts({ latest: { ...latest, emailLinkActive: true } })).state, "sent");
+});
+
+test("发送状态：没有发送记录就结束了：没地址算没发、展开出错算失败，都不用等 15 分钟", () => {
+  const closed = (closedCode: string) => driverLinkEmailView(viewFacts({ latest: { requestedAt: requested, closedCode, notification: null } }));
+  assert.equal(closed("DRIVER_EMAIL_MISSING").state, "not_sent");
+  assert.equal(closed("DRIVER_EMAIL_MISSING").canResend, true);
+  assert.equal(closed("PASSENGER_DECRYPT_FAILED").state, "failed");
+  assert.equal(closed("PASSENGER_DECRYPT_FAILED").errorCode, "PASSENGER_DECRYPT_FAILED");
+});
+
+test("发送状态：司机停用了不给重发", () => {
+  assert.equal(driverLinkEmailView(viewFacts({ driverActive: false })).canResend, false);
+  assert.equal(driverLinkEmailView(viewFacts({ driverActive: false, ...withRow("failed") })).canResend, false);
+  assert.equal(driverLinkEmailView(viewFacts({ driverActive: true })).canResend, true);
+});
+
 test("失败原因：只有我们写的中文；配置类问题不暴露给调度员", () => {
   assert.equal(driverLinkEmailErrorText(null), null);
   assert.match(driverLinkEmailErrorText("NOT_CONFIGURED") as string, /手动/);
