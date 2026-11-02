@@ -185,7 +185,32 @@ test("查订单被订单号额度挡下：存在的单和不存在的单页面�
     await expect(page.getByText(/如信息匹配，链接已发送/)).toHaveCount(0);
     texts.push((await alert.textContent()) ?? "");
   }
-  expect(texts[1], "存在和不存在的订单号被挡时页面上一样").toBe(texts[0]);
+  // 等待时长取决于这个订单号的额度窗口从哪一秒开始（和订单存不存在无关），两次填满差一两秒时会是「60 分钟」和「1 小时」，比较时去掉时长
+  const withoutWait = (text: string): string => text.replace(/请 .+?后再试/, "请 <时长>后再试");
+  expect(withoutWait(texts[1] as string), "存在和不存在的订单号被挡时页面上一样").toBe(withoutWait(texts[0] as string));
   await page.waitForTimeout(2_000);
   expect(await mailsTo(email), "被挡下的不发信").toEqual([]);
+});
+
+test("真实浏览器里的邮箱输入框（type=email）：全角、前后空白照样按半角提交；提交中按钮不能连点（只发一次请求）", async ({ page }) => {
+  const bodies: unknown[] = [];
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/site/v1/orders/lookup", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    await held;
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ status: "accepted" }) });
+  });
+  await page.goto("/book/order");
+  await page.getByLabel("订单号").fill(" nz20261026abcd2345 ");
+  await page.getByLabel("下单时的邮箱").fill("　ＱＡ＠ｅｘａｍｐｌｅ．ｃｏｍ　");
+  const button = page.getByRole("button", { name: "发送订单链接" });
+  await button.click();
+  await page.getByRole("button", { name: /正在发送|发送订单链接/ }).click({ force: true, trial: false }).catch(() => undefined);
+  release();
+  await expect(page.getByRole("status").filter({ hasText: /如信息匹配，链接已发送到下单邮箱/ })).toBeVisible();
+  expect(bodies, "只发了一次").toHaveLength(1);
+  expect(bodies[0]).toEqual({ order_no: "NZ20261026ABCD2345", email: "QA@example.com" });
 });
