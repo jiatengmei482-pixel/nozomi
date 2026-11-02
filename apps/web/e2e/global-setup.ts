@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
 import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
-import { E2E_API_MAIL_PORT, E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_MAIL_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
+import { E2E_API_DRIVER_MAIL_PORT, E2E_API_MAIL_PORT, E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_DRIVER_MAIL_PORT, E2E_WEB_MAIL_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { type FakeStripeService, startFakeStripeService } from "./fake-stripe.ts";
 import { nextCode } from "./mfa.ts";
 import { E2E_FX_RATES, E2E_SUPPORT_PHONE } from "./support.ts";
@@ -196,6 +196,8 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
   await assertPortFree(E2E_TILE_PORT, "假瓦片服务", "E2E_WEB_PORT");
   await assertPortFree(E2E_API_MAIL_PORT, "邮箱验证码登录专用的 API", "E2E_API_PORT");
   await assertPortFree(E2E_WEB_MAIL_PORT, "邮箱验证码登录专用的前端", "E2E_WEB_PORT");
+  await assertPortFree(E2E_API_DRIVER_MAIL_PORT, "司机链接邮件专用的 API", "E2E_API_PORT");
+  await assertPortFree(E2E_WEB_DRIVER_MAIL_PORT, "司机链接邮件专用的前端", "E2E_WEB_PORT");
   await assertPortFree(E2E_API_NO_MAP_PORT, "没有配置底图的 API", "E2E_API_PORT");
   await assertPortFree(E2E_FX_PORT, "假汇率源", "E2E_API_PORT");
   await assertPortFree(E2E_API_STRIPE_PORT, "配了 Stripe 的 API", "E2E_API_PORT");
@@ -395,6 +397,32 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     started.push(mailWeb);
     await waitUntilUp(mailWeb, `http://127.0.0.1:${E2E_WEB_MAIL_PORT}/login`);
     process.env["E2E_MAIL_ADMIN"] = JSON.stringify(mailAdmin);
+
+    // 司机链接邮件专用的一组（ADR 0058）：和主 API 同一个 schema，配置文件里有假 SMTP（密码是本次运行随机生成的）。发件都走这个进程的后台任务
+    const driverMailOrigin = `http://127.0.0.1:${E2E_API_DRIVER_MAIL_PORT}`;
+    const driverMailApi = start("API（司机链接邮件）", ["apps/api/src/server.ts"], REPO_ROOT, {
+      ...apiEnv,
+      PORT: String(E2E_API_DRIVER_MAIL_PORT),
+      PUBLIC_BASE_URL: driverMailOrigin,
+      FX_AUTO_FETCH: "false",
+      SMTP_HOST: fakeSmtp.host,
+      SMTP_PORT: String(fakeSmtp.port),
+      SMTP_ENCRYPTION: "starttls",
+      SMTP_USERNAME: "mailer@example.com",
+      SMTP_PASSWORD: `smtp-${randomBytes(18).toString("base64url")}`,
+      SMTP_FROM_NAME: "NOZOMI",
+      SMTP_FROM_ADDRESS: "noreply@example.com",
+    });
+    started.push(driverMailApi);
+    await waitUntilUp(driverMailApi, `${driverMailOrigin}/health`);
+    const driverMailWeb = start(
+      "前端（司机链接邮件）",
+      ["node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", String(E2E_WEB_DRIVER_MAIL_PORT), "--strictPort"],
+      WEB_ROOT,
+      { ...process.env, NOZOMI_API_ORIGIN: driverMailOrigin },
+    );
+    started.push(driverMailWeb);
+    await waitUntilUp(driverMailWeb, `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}/login`);
 
     process.env["E2E_ADMIN_EMAIL"] = adminEmail;
     process.env["E2E_ADMIN_PASSWORD"] = adminPassword;

@@ -139,7 +139,7 @@ test("模板页：只读，看得到事件 × 接收方 × 语言 × 通道", as
   assertAbsent(screen.queryByRole("button", { name: "保存" }));
 });
 
-const settingsRoute = (version = 0, hours: { start: string; end: string } | null = null) => json(200, { quiet_hours: hours, time_zone: "Asia/Tokyo", version });
+const settingsRoute = (version = 0, hours: { start: string; end: string } | null = null, delivery: "auto" | "manual" = "auto") => json(200, { quiet_hours: hours, driver_link_delivery: delivery, time_zone: "Asia/Tokyo", version });
 
 test("供应商后台：管理员设免打扰（校验、请求体、版本）；记录不显示接收方列，没有重试", async () => {
   const calls = openTenant("/settings/notifications", "admin", (call) => {
@@ -201,4 +201,35 @@ test("供应商后台：能按状态筛发送记录；运营后台有坏事件�
 test("运营后台：有展开失败的事件时红色提示，让运营转给技术", async () => {
   openPlatform("/platform/notifications", "operations", (call) => (call.url.pathname === "/platform/v1/notifications" ? list([], { mail_configured: true, waiting: 0, failed_events: 2 } as never) : null));
   await screen.findByText(/有 2 个通知事件内容有问题/);
+});
+
+test("司机链接发送方式：默认自动；管理员能改，请求体带版本和现在的免打扰；只读角色只能看；页面始终说复制链接还在", async () => {
+  let saved = false;
+  const calls = openTenant("/settings/notifications", "admin", (call) => {
+    if (call.url.pathname === "/tenant/v1/notifications") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (call.url.pathname === "/tenant/v1/notification-settings") {
+      if (call.method === "PUT") saved = true;
+      return call.method === "PUT" ? settingsRoute(3, { start: "22:00", end: "07:00" }, "manual") : settingsRoute(2, { start: "22:00", end: "07:00" }, saved ? "manual" : "auto");
+    }
+    return null;
+  });
+  const actor = userEvent.setup();
+  const select = (await screen.findByLabelText("发送方式")) as HTMLSelectElement;
+  assert.equal(select.value, "auto");
+  assert.ok(screen.getByText(/调度员都能复制链接/));
+  await actor.selectOptions(select, "manual");
+  await actor.click(screen.getByRole("button", { name: "更新发送方式" }));
+  await waitFor(() => assert.equal((screen.getByLabelText("发送方式") as HTMLSelectElement).value, "manual"));
+  const put = calls.find((call) => call.method === "PUT");
+  assert.deepEqual(put?.body, { quiet_hours: { start: "22:00", end: "07:00" }, driver_link_delivery: "manual" });
+  assert.equal(put?.headers["if-match"], '"2"');
+
+  resetBrowser();
+  openTenant("/settings/notifications", "readonly", (call) => {
+    if (call.url.pathname === "/tenant/v1/notifications") return json(200, { items: [], next_cursor: null, total: 0 });
+    if (call.url.pathname === "/tenant/v1/notification-settings") return settingsRoute(1, null, "manual");
+    return null;
+  });
+  await screen.findByText(/现在是「调度员手动发送」。只有管理员能改/);
+  assertAbsent(screen.queryByRole("button", { name: "更新发送方式" }));
 });

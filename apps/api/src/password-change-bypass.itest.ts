@@ -347,6 +347,8 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["POST", `/tenant/v1/orders/${ids.userId}/assign`, { driver_id: ids.userId, vehicle_id: ids.userId }],
     ["POST", `/tenant/v1/orders/${ids.userId}/driver-link`],
     ["DELETE", `/tenant/v1/orders/${ids.userId}/driver-link`],
+    ["GET", `/tenant/v1/orders/${ids.userId}/driver-link/email`],
+    ["POST", `/tenant/v1/orders/${ids.userId}/driver-link/email`],
     ["POST", `/tenant/v1/orders/${ids.userId}/events`, { type: "depart" }],
     ["GET", `/tenant/v1/orders/${ids.userId}/files/${ids.userId}`],
     // 取消政策（只读）、票据、事后加收、确认改期（M3-03）

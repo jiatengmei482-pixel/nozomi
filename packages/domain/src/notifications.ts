@@ -6,14 +6,15 @@
  */
 import { parseTimeOfDay, instantToLocal, MINUTES_PER_DAY } from "./service-time.ts";
 
-export const NOTIFICATION_AUDIENCES = ["guest", "tenant", "staff"] as const;
+export const NOTIFICATION_AUDIENCES = ["guest", "tenant", "staff", "driver"] as const;
 export type NotificationAudience = (typeof NOTIFICATION_AUDIENCES)[number];
 
-export const NOTIFICATION_AUDIENCE_NAMES: Readonly<Record<NotificationAudience, string>> = { guest: "客人", tenant: "供应商", staff: "平台员工" };
+export const NOTIFICATION_AUDIENCE_NAMES: Readonly<Record<NotificationAudience, string>> = { guest: "客人", tenant: "供应商", staff: "平台员工", driver: "司机" };
 
 export const NOTIFICATION_EVENTS = [
   "order.confirmed",
   "order.assigned",
+  "order.driver_link",
   "order.service_reminder",
   "order.driver_arrived",
   "order.changed",
@@ -46,6 +47,7 @@ export function isNotificationEvent(value: string): value is NotificationEvent {
 export const NOTIFICATION_EVENT_NAMES: Readonly<Record<NotificationEvent, string>> = {
   "order.confirmed": "订单确认",
   "order.assigned": "司机信息",
+  "order.driver_link": "司机链接",
   "order.service_reminder": "用车提醒",
   "order.driver_arrived": "司机已到达",
   "order.changed": "订单修改",
@@ -88,10 +90,14 @@ export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_g
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
+/** 司机邮件能用的变量（ADR 0058）：行程概要和链接。**没有客人的姓名、电话、邮箱、详细地址，也没有任何价格**。 */
+export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "driver_link_url", "link_expires_at"] as const;
+
 /** 不能出现在供应商邮件里的内容：模板、变量名都不能含这些词（规则 4）。 */
 export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refund|fx_|汇率|客人付|实付/i;
 
 export function audienceVariables(audience: NotificationAudience): readonly string[] {
+  if (audience === "driver") return DRIVER_VARIABLES;
   return audience === "guest" ? GUEST_VARIABLES : audience === "tenant" ? TENANT_VARIABLES : STAFF_VARIABLES;
 }
 
@@ -141,6 +147,14 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("payout_account.submitted", "tenant", "收款账户变更已提交：{{payout_currency}}", `你们提交了新的 {{payout_currency}} 收款账户（账号 {{payout_account}}），平台审核通过后生效，批准之前现在的账户继续有效。\n\n如果不是你们提交的，请马上联系平台，并修改管理员密码。${COMPANY_FOOTER}`),
   zhEmail("payout_account.approved", "tenant", "收款账户已生效：{{payout_currency}}", `你们的 {{payout_currency}} 收款账户（账号 {{payout_account}}）已通过审核，之后的转账付到这个账户。\n\n如果不是你们提交的，请马上联系平台。${COMPANY_FOOTER}`),
   zhEmail("payout_account.rejected", "tenant", "收款账户被驳回：{{payout_currency}}", `你们提交的 {{payout_currency}} 收款账户（账号 {{payout_account}}）没有通过审核，原因：{{reject_reason}}。请核对后重新提交。${COMPANY_FOOTER}`),
+
+  // 司机不需要账号，链接能看到客人信息（ADR 0058）：只放行程概要，写明不要转发
+  zhEmail(
+    "order.driver_link",
+    "driver",
+    "用车任务：{{service_time}}（{{order_no}}）",
+    "{{driver_name}}，您好：\n\n调度给您安排了一张用车任务，请打开下面的链接查看详情，并在行程中回传出发、到达、接到客人、完成。\n\n订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}\n\n打开任务：\n{{driver_link_url}}\n\n请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。\n链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。\n\nNOZOMI 用车",
+  ),
 
   zhEmail("exception.opened", "staff", "新的异常：{{exception_type}}（{{order_no}}）", `异常队列新增一条，请处理。\n\n类型：{{exception_type}}\n订单号：{{order_no}}${COMPANY_FOOTER}`),
   zhEmail("fx.alert", "staff", "汇率告警：{{alert_kind}}", `{{alert_kind}}\n\n{{detail}}${COMPANY_FOOTER}`),
@@ -386,4 +400,9 @@ export const NOTIFICATION_ERROR_NAMES: Readonly<Record<string, string>> = {
   PASSENGER_DECRYPT_FAILED: "乘客信息解不开，没有发送；不会自动重试，请联系技术",
   MESSAGE_INVALID: "收件人地址或邮件内容不合格",
   UNEXPECTED: "准备或发送邮件时出错，系统会自动重试；一直不好请联系技术",
+  DRIVER_LINK_REVOKED: "这封信排队期间链接已被作废（改派、吊销或重新生成），不再发送",
+  DRIVER_LINK_SUPERSEDED: "这张单后来又发起了一次发送，只发最新的",
+  DRIVER_LINK_MANUAL: "供应商已改成手动发送，不再发送",
+  DRIVER_EMAIL_MISSING: "司机已经没有邮箱，不再发送",
+  DRIVER_DISABLED: "司机已停用，不再发送",
 };

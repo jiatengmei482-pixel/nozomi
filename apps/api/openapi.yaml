@@ -8099,8 +8099,10 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email ]
                 properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
                   order:
                     $ref: "#/components/schemas/TenantOrder"
                   rescue:
@@ -8976,7 +8978,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, change, driver_link ]
+                required: [ order, change, driver_link, driver_link_email ]
                 properties:
                   order:
                     $ref: "#/components/schemas/TenantOrder"
@@ -8986,6 +8988,11 @@ paths:
                   driver_link:
                     oneOf:
                       - $ref: "#/components/schemas/IssuedDriverLink"
+                      - type: "null"
+                  driver_link_email:
+                    description: 司机链接邮件的发送状态（ADR 0058）；什么都没变为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/DriverLinkEmail"
                       - type: "null"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
@@ -9021,10 +9028,12 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ driver_link ]
+                required: [ driver_link, driver_link_email ]
                 properties:
                   driver_link:
                     $ref: "#/components/schemas/IssuedDriverLink"
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
@@ -9047,6 +9056,67 @@ paths:
           description: 已吊销
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+  /tenant/v1/orders/{id}/driver-link/email:
+    get:
+      tags: [ 派车 ]
+      operationId: getDriverLinkEmail
+      summary: 司机链接邮件的发送状态
+      description: 需要操作 `order.read`。地址打码，没有令牌。「已发送」只表示邮件服务器已接收，不代表司机已收到（ADR 0058）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 发送状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ driver_link_email ]
+                properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+    post:
+      tags: [ 派车 ]
+      operationId: resendDriverLinkEmail
+      summary: 重发司机链接邮件
+      description: |
+        需要操作 `order.dispatch`。只是再发一封邮件（发到司机现在的邮箱），现有的链接都不会失效；排着没发的旧信不再发。写审计日志。
+        限速：同一张单 60 秒一次、一小时 5 次；同一家供应商一小时 200 次。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "202":
+          description: 已排队；真正发信在后台，结果看发送状态
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ driver_link_email ]
+                properties:
+                  driver_link_email:
+                    $ref: "#/components/schemas/DriverLinkEmail"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`ORDER_STATE_INVALID`、`DRIVER_LINK_NOT_ACTIVE`（要先重新生成）、`DRIVER_LINK_EXPIRED`、`DRIVER_LINK_EMAIL_MANUAL`（设置是手动发送）、`DRIVER_EMAIL_MISSING`、`DRIVER_DISABLED`（司机已停用，不占限速）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: "`RATE_LIMITED`，`details.retry_after_seconds` 是还要等几秒"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /tenant/v1/orders/{id}/events:
     post:
       tags: [ 派车 ]
@@ -9570,8 +9640,8 @@ paths:
     put:
       tags: [ Notification ]
       operationId: updateTenantNotificationSettings
-      summary: 改免打扰时段
-      description: 需要操作 `notification.manage`（管理员）。时段是东京时间，可以跨午夜；`null` 表示不设。用车当天的通知不受限。已经设置过的要带 `If-Match`（版本号）。写审计日志。
+      summary: 改免打扰时段和司机链接发送方式
+      description: 需要操作 `notification.manage`（管理员）。时段是东京时间，可以跨午夜；`null` 表示不设。用车当天的通知不受限。`driver_link_delivery` 不给表示不改。已经设置过的要带 `If-Match`（版本号）。写审计日志。
       security:
         - tenantToken: []
       parameters:
@@ -9592,6 +9662,8 @@ paths:
                   oneOf:
                     - type: "null"
                     - $ref: "#/components/schemas/QuietHours"
+                driver_link_delivery:
+                  $ref: "#/components/schemas/DriverLinkDelivery"
       responses:
         "200":
           description: 保存后的设置
@@ -22518,6 +22590,10 @@ components:
         phone:
           type: string
           description: 带国家码的国际格式，如 `+81 90-1234-5678`
+        email:
+          type: [ string, "null" ]
+          maxLength: 254
+          description: 邮箱（选填）。修改时不给表示不改，`null` 表示清空。改了地址，发到旧地址的司机链接立即作废（ADR 0058）
         languages:
           type: array
           minItems: 1
@@ -22540,7 +22616,7 @@ components:
     Driver:
       type: object
       additionalProperties: false
-      required: [ id, name, phone, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
+      required: [ id, name, phone, email, email_masked, languages, license_expires_on, license_state, driving_years, gold, status, version, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -22550,6 +22626,12 @@ components:
         phone:
           type: string
           description: 国际格式（去掉空格和连字符）
+        email_masked:
+          type: [ string, "null" ]
+          description: 打码后的邮箱（如 `ab***@example.com`）；没填为 null
+        email:
+          type: [ string, "null" ]
+          description: 完整邮箱。只有司机接口、且有 `fleet.manage` 的人才给，其余一律 null（有没有填看 `email_masked`，ADR 0058）
         languages:
           type: array
           items:
@@ -23346,12 +23428,13 @@ components:
       description: "`sent` 是邮件服务器已接收；`expired` 是过了有效期或订单情况变了，不再发送"
     NotificationAudience:
       type: string
-      enum: [ guest, tenant, staff ]
+      enum: [ guest, tenant, staff, driver ]
     NotificationEvent:
       type: string
       enum:
         - order.confirmed
         - order.assigned
+        - order.driver_link
         - order.service_reminder
         - order.driver_arrived
         - order.changed
@@ -23471,15 +23554,50 @@ components:
         end:
           type: string
           description: 东京时间 HH:mm
+    DriverLinkDelivery:
+      type: string
+      enum: [ auto, manual ]
+      description: 司机链接发送方式：`auto` 系统自动发送（默认）/ `manual` 调度员手动发送
+    DriverLinkEmail:
+      type: object
+      additionalProperties: false
+      description: |
+        司机链接邮件的发送状态（ADR 0058）。地址打码，没有令牌。`state`：`pending` 等待中（`error_code = NOT_CONFIGURED` 表示邮件还没配置，请手动发）；
+        `sent` 已发送，**只表示邮件服务器已接收**，不代表司机已收到；`failed` 失败或不再发送；`manual` 设置是手动发送；`no_email` 司机没有邮箱；
+        `not_sent` 这条链接还没发过（`address_changed = true` 表示发出后司机改了邮箱，那封里的链接已作废）；`no_link` 没有有效的司机链接。
+      required: [ state, recipient_masked, error_code, error_message, requested_at, sent_at, address_changed, can_resend ]
+      properties:
+        state:
+          type: string
+          enum: [ pending, sent, failed, manual, no_email, not_sent, no_link ]
+        recipient_masked:
+          type: [ string, "null" ]
+        error_code:
+          type: [ string, "null" ]
+        error_message:
+          type: [ string, "null" ]
+          description: 给调度员看的中文原因
+        requested_at:
+          type: [ string, "null" ]
+          format: date-time
+        sent_at:
+          type: [ string, "null" ]
+          format: date-time
+        address_changed:
+          type: boolean
+        can_resend:
+          type: boolean
     TenantNotificationSettings:
       type: object
       additionalProperties: false
-      required: [ quiet_hours, time_zone, version ]
+      required: [ quiet_hours, driver_link_delivery, time_zone, version ]
       properties:
         quiet_hours:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/QuietHours"
+        driver_link_delivery:
+          $ref: "#/components/schemas/DriverLinkDelivery"
         time_zone:
           type: string
         version:

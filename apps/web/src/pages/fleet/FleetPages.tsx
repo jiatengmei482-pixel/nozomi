@@ -66,6 +66,7 @@ const NO_ACCESS = <StateBlock tone="neutral" title="你没有权限查看这里"
 interface DriverForm {
   name: string;
   phone: string;
+  email: string;
   languages: string[];
   licenseExpiresOn: string;
   drivingYears: string;
@@ -73,10 +74,10 @@ interface DriverForm {
   status: DriverStatus;
 }
 
-const emptyDriver: DriverForm = { name: "", phone: "", languages: ["ja"], licenseExpiresOn: "", drivingYears: "", gold: false, status: "active" };
+const emptyDriver: DriverForm = { name: "", phone: "", email: "", languages: ["ja"], licenseExpiresOn: "", drivingYears: "", gold: false, status: "active" };
 
 function driverForm(driver: Driver): DriverForm {
-  return { name: driver.name, phone: driver.phone, languages: driver.languages, licenseExpiresOn: driver.license_expires_on, drivingYears: driver.driving_years === null ? "" : String(driver.driving_years), gold: driver.gold, status: driver.status };
+  return { name: driver.name, phone: driver.phone, email: driver.email ?? "", languages: driver.languages, licenseExpiresOn: driver.license_expires_on, drivingYears: driver.driving_years === null ? "" : String(driver.driving_years), gold: driver.gold, status: driver.status };
 }
 
 function DriverDialog({ editing, onClose, onSaved }: { editing: Driver | null; onClose(): void; onSaved(driver: Driver): void }) {
@@ -98,7 +99,7 @@ function DriverDialog({ editing, onClose, onSaved }: { editing: Driver | null; o
     if (form.drivingYears !== "" && !/^\d{1,2}$/.test(form.drivingYears)) missing["driving_years"] = ["驾龄写整数年"];
     setErrors(missing);
     if (Object.keys(missing).length > 0) return;
-    const body: DriverInput = { name: form.name.trim(), phone: form.phone.trim(), languages: form.languages, license_expires_on: form.licenseExpiresOn, driving_years: form.drivingYears === "" ? null : Number(form.drivingYears), gold: form.gold, status: form.status };
+    const body: DriverInput = { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() === "" ? null : form.email.trim(), languages: form.languages, license_expires_on: form.licenseExpiresOn, driving_years: form.drivingYears === "" ? null : Number(form.drivingYears), gold: form.gold, status: form.status };
     setWorking(true);
     setProblem(null);
     try {
@@ -132,6 +133,7 @@ function DriverDialog({ editing, onClose, onSaved }: { editing: Driver | null; o
         {problem !== null && <Alert kind="danger">{problem}</Alert>}
         <TextField label="姓名" value={form.name} maxLength={100} errors={errors["name"] ?? []} onChange={(event) => set("name", event.target.value)} data-autofocus />
         <TextField label="手机" type="tel" value={form.phone} hint="写国际格式，带国家码，如 +81 90-1234-5678（客人来自不同国家）" errors={errors["phone"] ?? []} onChange={(event) => set("phone", event.target.value)} />
+        <TextField label="邮箱（选填）" type="email" autoComplete="off" value={form.email} maxLength={254} hint="自动发送司机链接用。链接能看到客人信息，请填司机本人的邮箱；改了地址，之前发出去的邮件链接会作废" errors={errors["email"] ?? []} onChange={(event) => set("email", event.target.value)} />
         <CheckboxGroup legend="会说的语言" name="driver-languages" options={DRIVER_LANGUAGES.map((code) => ({ value: code, label: LANGUAGE_NAMES[code] ?? code }))} value={form.languages} errors={errors["languages"] ?? []} required onChange={(value) => set("languages", value)} />
         <TextField label="驾照到期日" type="date" value={form.licenseExpiresOn} hint="到期后不能被派单；到期前 30 天会提示" errors={errors["license_expires_on"] ?? []} onChange={(event) => set("licenseExpiresOn", event.target.value)} />
         <TextField label="驾龄（年，选填）" inputMode="numeric" value={form.drivingYears} errors={errors["driving_years"] ?? []} onChange={(event) => set("drivingYears", event.target.value.trim())} />
@@ -174,6 +176,7 @@ export function DriverListPage() {
   const columns: Column<Driver>[] = [
     { key: "name", header: "姓名", cell: (row) => <span className="table__inline">{row.name}{row.gold && <span className="tag">金牌</span>}</span> },
     { key: "phone", header: "手机", cell: (row) => <span className="mono">{row.phone}</span> },
+    { key: "email", header: "邮箱", cell: (row) => (row.email_masked === null ? <span className="table__muted">—</span> : <span className="mono">{row.email_masked}</span>) },
     { key: "languages", header: "语言", cell: (row) => row.languages.map((code) => LANGUAGE_NAMES[code] ?? code).join("、") },
     { key: "license", header: "驾照到期", cell: (row) => <ExpiryCell date={row.license_expires_on} state={row.license_state} /> },
     { key: "status", header: "状态", cell: (row) => <StatusBadge {...DRIVER_STATUS_BADGES[row.status]} /> },

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { directionName, driverLinkUrl, durationText, formatInZone, moneyText, retryResultText, routeText, serviceLocalText, webhookErrorText, webhookEventName } from "./dispatch-display.ts";
+import { directionName, driverLinkEmailNotice, driverLinkUrl, durationText, formatInZone, moneyText, retryResultText, routeText, serviceLocalText, webhookErrorText, webhookEventName } from "./dispatch-display.ts";
 
 test("用车时间按服务城市的时区显示（Intl 换算，不手工加减小时）", () => {
   assert.equal(formatInZone("2026-10-20T01:00:00.000Z", "Asia/Tokyo"), "2026-10-20 10:00");
@@ -38,4 +38,25 @@ test("手动重推的提示：推送任务正在发时提示稍后看结果，�
   assert.equal(retryResultText({ delivery: { status: "failed" }, result: "not_configured" }), "供应商的 Webhook 设置已删除或暂停，没有发送");
   assert.equal(retryResultText({ delivery: { status: "succeeded" }, result: "sent" }), "已重推成功");
   assert.equal(retryResultText({ delivery: { status: "pending" }, result: "sent" }), "重推了，对方还是没收到");
+});
+
+test("司机链接邮件的说法：已发送只说邮件服务器已接收，从不说司机收到了", () => {
+  const base = { recipient_masked: "fi***@example.test", error_code: null, error_message: null, address_changed: false };
+  const sent = driverLinkEmailNotice({ ...base, state: "sent" });
+  assert.equal(sent.kind, "success");
+  assert.match(sent.text, /fi\*\*\*@example\.test/);
+  assert.match(sent.text, /邮件服务器已接收/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "pending" }).text, /等待邮件服务器接收/);
+  assert.equal(driverLinkEmailNotice({ ...base, state: "pending", error_code: "NOT_CONFIGURED", error_message: "平台的邮件发送还没有配置好，请先复制链接手动发给司机" }).kind, "warning");
+  assert.match(driverLinkEmailNotice({ ...base, state: "pending", error_code: "NOT_CONFIGURED", error_message: "平台的邮件发送还没有配置好，请先复制链接手动发给司机" }).text, /手动发/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "pending", error_code: "TIMEOUT", error_message: "x" }).text, /自动重试/);
+  const failed = driverLinkEmailNotice({ ...base, state: "failed", error_code: "RECIPIENT_REJECTED", error_message: "对方拒收" });
+  assert.equal(failed.kind, "danger");
+  assert.match(failed.text, /发送失败：对方拒收/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "manual" }).text, /当前设置是手动发送/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "no_email" }).text, /没有邮箱，请复制链接手动发/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "not_sent" }).text, /还没有发邮件/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "not_sent", address_changed: true }).text, /之前那封邮件里的链接已作废/);
+  assert.match(driverLinkEmailNotice({ ...base, state: "no_link" }).text, /重新生成/);
+  for (const state of ["sent", "pending", "failed", "manual", "no_email", "not_sent", "no_link"] as const) assert.doesNotMatch(driverLinkEmailNotice({ ...base, state }).text, /已收到|已看到|已送达/);
 });

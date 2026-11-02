@@ -32,6 +32,12 @@ export const E2E_WEB_STRIPE_PORT = E2E_WEB_PORT + 3;
  */
 export const E2E_API_MAIL_PORT = E2E_API_PORT + 5;
 export const E2E_WEB_MAIL_PORT = E2E_WEB_PORT + 4;
+/**
+ * 司机链接邮件（M4-27，ADR 0058）专用的一组：和主 API 同一个 schema，配置文件里有 SMTP，指向本机的假 SMTP。
+ * 主 API 的邮件设置别的用例会填、会清空，这里要一个确定配好了的后台任务。
+ */
+export const E2E_API_DRIVER_MAIL_PORT = E2E_API_PORT + 6;
+export const E2E_WEB_DRIVER_MAIL_PORT = E2E_WEB_PORT + 5;
 
 export default defineConfig({
   testDir: "./e2e",

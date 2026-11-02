@@ -2,7 +2,7 @@
  * 通知中心的接口层业务（M4-08，ADR 0049）：运营后台的发送记录、手动重试；供应商后台的记录、免打扰。
  * 收件人一律打码返回；没有正文，令牌也不落库。
  */
-import { type PlatformDataScope, type QuietHours, maskEmail, notificationRetryable, quietHoursIssue, scopeIsRestricted } from "@nozomi/domain";
+import { type DriverLinkDeliveryMode, type PlatformDataScope, type QuietHours, maskEmail, notificationRetryable, quietHoursIssue, scopeIsRestricted } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx, withTenantTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -82,8 +82,8 @@ export async function getNotificationSettings(ctx: AppContext, tenantId: string)
   return withTenantTx(ctx.pool, tenantId, (db) => findNotificationSettings(db, tenantId), { snapshot: true });
 }
 
-/** 改免打扰。第一次新建不用带版本（0）；之后带 `If-Match`。 */
-export async function updateNotificationSettings(ctx: AppContext, principal: TenantPrincipal, ip: string, quietHours: QuietHours | null, version: number | null): Promise<TenantNotificationSettings> {
+/** 改免打扰和司机链接发送方式（不给 = 不改）。第一次新建不用带版本（0）；之后带 `If-Match`。 */
+export async function updateNotificationSettings(ctx: AppContext, principal: TenantPrincipal, ip: string, quietHours: QuietHours | null, driverLinkDelivery: DriverLinkDeliveryMode | undefined, version: number | null): Promise<TenantNotificationSettings> {
   if (quietHours !== null) {
     const issue = quietHoursIssue(quietHours);
     if (issue !== null) throw validationFailed("body", [{ path: "/quiet_hours", reason: issue, message: issue === "SAME_TIME" ? "开始和结束不能是同一个时间" : "时间要写成 HH:mm" }]);
@@ -93,9 +93,9 @@ export async function updateNotificationSettings(ctx: AppContext, principal: Ten
   return withTenantTx(ctx.pool, tenantId, async (db) => {
     const before = await findNotificationSettings(db, tenantId);
     if ((version ?? 0) !== before.version) throw versionConflict(before.version);
-    const saved = await saveNotificationSettings(db, tenantId, quietHours, before.version, now);
+    const saved = await saveNotificationSettings(db, tenantId, quietHours, driverLinkDelivery ?? before.driverLinkDelivery, before.version, now);
     if (saved === null) throw versionConflict(before.version);
-    await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId, resource: "notification_settings", resourceId: tenantId, action: "update", before: { quiet_hours: before.quietHours as never }, after: { quiet_hours: saved.quietHours as never } });
+    await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId, resource: "notification_settings", resourceId: tenantId, action: "update", before: { quiet_hours: before.quietHours as never, driver_link_delivery: before.driverLinkDelivery }, after: { quiet_hours: saved.quietHours as never, driver_link_delivery: saved.driverLinkDelivery } });
     return saved;
   });
 }

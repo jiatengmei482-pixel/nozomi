@@ -76,7 +76,8 @@ async function withDriver<T>(ctx: AppContext, token: string | null, fn: (db: Db,
     if (!usable(found)) throw driverLinkInvalid();
     const order = await findTenantOrder(db, tenantId, found.orderId, { lock: true });
     const link = await findDriverLinkByToken(db, tenantId, tokenHash);
-    if (!usable(link) || order === null || order.dispatch.driverId !== link.driverId) throw driverLinkInvalid();
+    // 取消即失效：链接在取消时已吊销，这里再挡一道（统一的应答，不泄露行程和客人信息）
+    if (!usable(link) || order === null || order.status === "cancelled" || order.dispatch.driverId !== link.driverId) throw driverLinkInvalid();
     await touchDriverLink(db, tenantId, link.id, now);
     return fn(db, { tenantId, link }, order);
   });

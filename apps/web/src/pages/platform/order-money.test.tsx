@@ -320,7 +320,7 @@ const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   ...changes,
 });
 
-const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: ExtraCharge[] = []): TenantOrderDetail => ({
+const tenantDetail = (order: TenantOrder, changes: OrderChange[] = [], extra: ExtraCharge[] = []): TenantOrderDetail => ({ driver_link_email: { state: "no_link", recipient_masked: null, error_code: null, error_message: null, requested_at: null, sent_at: null, address_changed: false, can_resend: false },
   order,
   events: [],
   records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null },

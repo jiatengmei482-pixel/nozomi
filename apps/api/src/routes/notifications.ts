@@ -5,7 +5,7 @@
  */
 import { maskOrderValues } from "@nozomi/domain";
 import { orderPassengerNames } from "../services/passenger-privacy.ts";
-import { NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, NOTIFICATION_TEMPLATES, TENANT_RULES, templatePlaceholders } from "@nozomi/domain";
+import { DRIVER_LINK_DELIVERY_MODES, NOTIFICATION_AUDIENCES, NOTIFICATION_EVENTS, NOTIFICATION_STATUSES, NOTIFICATION_TEMPLATES, TENANT_RULES, templatePlaceholders } from "@nozomi/domain";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
@@ -28,9 +28,9 @@ const platformListSchema = pageQuerySchema.extend({
 
 const tenantListSchema = pageQuerySchema.extend({ status: z.enum(NOTIFICATION_STATUSES).optional(), order_id: orderId });
 
-const settingsSchema = z.object({ quiet_hours: z.object({ start: z.string().max(5), end: z.string().max(5) }).strict().nullable() }).strict();
+const settingsSchema = z.object({ quiet_hours: z.object({ start: z.string().max(5), end: z.string().max(5) }).strict().nullable(), driver_link_delivery: z.enum(DRIVER_LINK_DELIVERY_MODES).optional() }).strict();
 
-const settingsJson = (settings: { quietHours: { start: string; end: string } | null; version: number }): Record<string, unknown> => ({ quiet_hours: settings.quietHours, time_zone: TENANT_RULES.timeZone, version: settings.version });
+const settingsJson = (settings: { quietHours: { start: string; end: string } | null; driverLinkDelivery: string; version: number }): Record<string, unknown> => ({ quiet_hours: settings.quietHours, driver_link_delivery: settings.driverLinkDelivery, time_zone: TENANT_RULES.timeZone, version: settings.version });
 
 export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/platform/v1/notifications", async (request) => {
@@ -76,6 +76,6 @@ export function registerNotificationRoutes(app: FastifyInstance, ctx: AppContext
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "notification.manage" });
     const body = parseInput(settingsSchema, request.body, "body");
     const header = request.headers["if-match"];
-    return settingsJson(await updateNotificationSettings(ctx, principal, request.ip, body.quiet_hours, header === undefined ? null : ifMatchVersion(header)));
+    return settingsJson(await updateNotificationSettings(ctx, principal, request.ip, body.quiet_hours, body.driver_link_delivery, header === undefined ? null : ifMatchVersion(header)));
   });
 }

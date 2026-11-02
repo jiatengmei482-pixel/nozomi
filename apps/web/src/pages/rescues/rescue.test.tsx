@@ -312,7 +312,7 @@ const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   ...changes,
 });
 
-const tenantDetail = (order: TenantOrder, rescue: TenantOrderDetail["rescue"] = null): TenantOrderDetail => ({ order, events: [], records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null }, changes: [], extra_charges: [], rescue });
+const tenantDetail = (order: TenantOrder, rescue: TenantOrderDetail["rescue"] = null): TenantOrderDetail => ({ driver_link_email: { state: "no_link", recipient_masked: null, error_code: null, error_message: null, requested_at: null, sent_at: null, address_changed: false, can_resend: false }, order, events: [], records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null }, changes: [], extra_charges: [], rescue });
 
 const deductionOf = (changes: Partial<TenantDeduction> = {}): TenantDeduction => ({ id: "d1", order_id: ORDER_ID, order_no: "NZ20261007ABCDEFGH", service_time: "2026-10-20T01:00:00.000Z", kind: "penalty", amount: money("5940"), status: "pending", basis: { trigger: "tenant_declared", tier: "partial", bp: 3000, settlement_minor: 19800 }, waived_at: null, waive_reason: null, created_at: stamps.created_at, ...changes });
 

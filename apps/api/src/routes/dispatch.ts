@@ -5,6 +5,7 @@
  * - `GET /tenant/v1/orders/{id}/assignable`：可以派的司机和车辆，各自带不符合的原因和同一时段的单；
  * - `POST /tenant/v1/orders/{id}/assign`：派车 / 改派（If-Match 带订单的版本号）。应答里有司机链接的令牌（只出现这一次）；
  * - `POST /tenant/v1/orders/{id}/driver-link`：重新生成司机链接（旧的作废）；`DELETE` 吊销；
+ * - `GET`、`POST /tenant/v1/orders/{id}/driver-link/email`：司机链接邮件的发送状态（`order.read`）、重发（ADR 0058）；
  * - `POST /tenant/v1/orders/{id}/events`：调度系统回传出发 / 到达 / 接到客人 / 完成。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -12,6 +13,7 @@ import { z } from "zod";
 import { ASSIGNMENT_ISSUE_MESSAGES } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
+import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured, resendDriverLinkEmail } from "../services/driver-link-email.ts";
 import { type IssuedLink, type Conflict, assignOrder, assignableResources, reissueDriverLink, reportTenantFulfilment, revokeDriverLink } from "../services/dispatch.ts";
 import { FULFILMENT_EVENTS } from "../services/fulfilment.ts";
 import { tenantOrderJson } from "../services/order-views.ts";
@@ -70,18 +72,31 @@ export function registerDispatchRoutes(app: FastifyInstance, ctx: AppContext): v
       order: tenantOrderJson(result.order, { driver: result.driver, vehicle: result.vehicle }, ctx.now()),
       change: result.isChange,
       driver_link: result.link === null ? null : issuedLinkJson(result.link),
+      driver_link_email: result.email === null ? null : driverLinkEmailJson(result.email, await mailConfigured(ctx)),
     };
   });
 
   app.post("/tenant/v1/orders/:id/driver-link", async (request) => {
     const principal = await authenticate(request);
-    return { driver_link: issuedLinkJson(await reissueDriverLink(ctx, { principal, ip: request.ip }, resourceId(request.params, "订单"))) };
+    const issued = await reissueDriverLink(ctx, { principal, ip: request.ip }, resourceId(request.params, "订单"));
+    return { driver_link: issuedLinkJson(issued), driver_link_email: driverLinkEmailJson(issued.email, await mailConfigured(ctx)) };
   });
 
   app.delete("/tenant/v1/orders/:id/driver-link", async (request, reply) => {
     const principal = await authenticate(request);
     await revokeDriverLink(ctx, { principal, ip: request.ip }, resourceId(request.params, "订单"));
     return reply.code(204).send();
+  });
+
+  app.get("/tenant/v1/orders/:id/driver-link/email", async (request) => {
+    const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
+    return { driver_link_email: driverLinkEmailJson(await getDriverLinkEmail(ctx, principal.tenantId, resourceId(request.params, "订单")), await mailConfigured(ctx)) };
+  });
+
+  app.post("/tenant/v1/orders/:id/driver-link/email", async (request, reply) => {
+    const principal = await authenticate(request);
+    const email = await resendDriverLinkEmail(ctx, { principal, ip: request.ip }, resourceId(request.params, "订单"));
+    return reply.code(202).send({ driver_link_email: driverLinkEmailJson(email, await mailConfigured(ctx)) });
   });
 
   app.post("/tenant/v1/orders/:id/events", async (request) => {

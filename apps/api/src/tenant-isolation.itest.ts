@@ -1405,7 +1405,7 @@ test("司机和车辆：建在令牌所属的供应商名下（请求体的 tena
 });
 
 test("派车：别的供应商的单看不到可派资源、派不了、生成 / 吊销不了链接、回传不了状态、看不到照片；自己的单也派不了别人的司机和车辆", async () => {
-  for (const route of ["GET /tenant/v1/orders/:id/assignable", "POST /tenant/v1/orders/:id/assign", "POST /tenant/v1/orders/:id/driver-link", "DELETE /tenant/v1/orders/:id/driver-link", "POST /tenant/v1/orders/:id/events", "GET /tenant/v1/orders/:id/files/:fileId"]) cover(route);
+  for (const route of ["GET /tenant/v1/orders/:id/assignable", "POST /tenant/v1/orders/:id/assign", "POST /tenant/v1/orders/:id/driver-link", "GET /tenant/v1/orders/:id/driver-link/email", "POST /tenant/v1/orders/:id/driver-link/email", "DELETE /tenant/v1/orders/:id/driver-link", "POST /tenant/v1/orders/:id/events", "GET /tenant/v1/orders/:id/files/:fileId"]) cover(route);
   const seeded = await seedFleet();
   const ids = await orderIds();
   const version = async (who: TenantFixture, id: string): Promise<number> => (await api.call("GET", `/tenant/v1/orders/${id}`, { token: who.adminToken })).body.order.version;
@@ -1421,6 +1421,8 @@ test("派车：别的供应商的单看不到可派资源、派不了、生成 /
     ["POST", `/tenant/v1/orders/${ids.b}/assign`, { headers: { "if-match": `"${bBefore.version}"` }, body: { driver_id: seeded.a.driverId, vehicle_id: seeded.a.vehicleId, tenant_id: b.tenantId } }],
     ["POST", `/tenant/v1/orders/${ids.b}/driver-link`, {}],
     ["DELETE", `/tenant/v1/orders/${ids.b}/driver-link`, {}],
+    ["GET", `/tenant/v1/orders/${ids.b}/driver-link/email`, {}],
+    ["POST", `/tenant/v1/orders/${ids.b}/driver-link/email`, {}],
     ["POST", `/tenant/v1/orders/${ids.b}/events`, { body: { type: "departed" } }],
     ["GET", `/tenant/v1/orders/${ids.b}/files/${fileId}`, {}],
   ] as const;

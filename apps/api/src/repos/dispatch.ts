@@ -140,23 +140,28 @@ export async function listAssignments(db: Db, tenantId: string, orderId: string)
 
 // ---- 司机链接 ----
 
+/** dispatcher：调度员手里那条（原文只在派车、重新生成的应答里）；email：发邮件时才生成（原文只在要发出去的邮件内容里）。ADR 0058。 */
+export type DriverLinkPurpose = "dispatcher" | "email";
+
 export interface DriverLink {
   id: string;
+  purpose: DriverLinkPurpose;
   orderId: string;
   assignmentId: string;
   driverId: string;
   createdAt: Date;
   expiresAt: Date;
   revokedAt: Date | null;
-  revokeReason: "reassigned" | "reissued" | "manual" | null;
+  revokeReason: "reassigned" | "reissued" | "manual" | "rescue" | "email_changed" | "cancelled" | null;
   lastUsedAt: Date | null;
 }
 
-const LINK_COLUMNS = "id, order_id, assignment_id, driver_id, created_at, expires_at, revoked_at, revoke_reason, last_used_at";
+const LINK_COLUMNS = "id, purpose, order_id, assignment_id, driver_id, created_at, expires_at, revoked_at, revoke_reason, last_used_at";
 
 function toLink(row: Row): DriverLink {
   return {
     id: row["id"],
+    purpose: row["purpose"],
     orderId: row["order_id"],
     assignmentId: row["assignment_id"],
     driverId: row["driver_id"],
@@ -168,25 +173,71 @@ function toLink(row: Row): DriverLink {
   };
 }
 
-export async function insertDriverLink(db: Db, tenantId: string, link: { orderId: string; assignmentId: string; driverId: string; tokenHash: string; createdAt: Date; expiresAt: Date }): Promise<DriverLink> {
+export async function insertDriverLink(db: Db, tenantId: string, link: { purpose: DriverLinkPurpose; orderId: string; assignmentId: string; driverId: string; tokenHash: string; createdAt: Date; expiresAt: Date }): Promise<DriverLink> {
   const result = await db.query<Row>(
-    `insert into driver_links (tenant_id, order_id, assignment_id, driver_id, token_hash, created_at, expires_at) values ($1, $2, $3, $4, $5, $6, $7) returning ${LINK_COLUMNS}`,
-    [tenantId, link.orderId, link.assignmentId, link.driverId, link.tokenHash, link.createdAt, link.expiresAt],
+    `insert into driver_links (tenant_id, order_id, assignment_id, driver_id, token_hash, created_at, expires_at, purpose) values ($1, $2, $3, $4, $5, $6, $7, $8) returning ${LINK_COLUMNS}`,
+    [tenantId, link.orderId, link.assignmentId, link.driverId, link.tokenHash, link.createdAt, link.expiresAt, link.purpose],
   );
   return toLink(result.rows[0] as Row);
 }
 
-/** 吊销这一单还有效的链接，返回吊销了几条。 */
+/** 吊销这一单还有效的链接（不分调度员的和邮件的，ADR 0058），返回吊销了几条。 */
 export async function revokeDriverLinks(db: Db, tenantId: string, orderId: string, reason: "reassigned" | "reissued" | "manual", now: Date): Promise<number> {
   const result = await db.query("update driver_links set revoked_at = $3, revoke_reason = $4 where tenant_id = $1 and order_id = $2 and revoked_at is null", [tenantId, orderId, now, reason]);
   return result.rowCount ?? 0;
 }
 
-/** 这一单当前的链接（没吊销的那一条；可能已过期）。 */
+/**
+ * 改期同意生效（ADR 0060「司机链接的有效期跟随订单当前用车时间」）：这一单没吊销、没过期的链接按新的用车时间重算，延后和提前都一样。
+ * 已吊销的、已过期的不复活（`withDriver` 判断可用也是 `expires_at > 现在`）。平台事务里，订单已锁。
+ */
+export async function recalculateDriverLinkExpiry(db: Db, tenantId: string, orderId: string, expiresAt: Date, now: Date): Promise<void> {
+  await db.query("update driver_links set expires_at = $3 where tenant_id = $1 and order_id = $2 and revoked_at is null and expires_at > $4", [tenantId, orderId, expiresAt, now]);
+}
+
+/** 订单取消：这一单的链接全部作废（调度员的和邮件的）。平台事务里，和取消同一个事务。 */
+export async function revokeDriverLinksOnCancel(db: Db, tenantId: string, orderId: string, now: Date): Promise<void> {
+  await db.query("update driver_links set revoked_at = $3, revoke_reason = 'cancelled' where tenant_id = $1 and order_id = $2 and revoked_at is null", [tenantId, orderId, now]);
+}
+
+/**
+ * 这一单调度员手里的那条链接（没吊销的；可能已过期）。邮件链接不算（ADR 0058）。
+ * 「最近打开」取这一单所有有效链接里最晚的：司机从邮件打开时不能还显示没打开过。
+ */
 export async function currentDriverLink(db: Db, tenantId: string, orderId: string): Promise<DriverLink | null> {
-  const result = await db.query<Row>(`select ${LINK_COLUMNS} from driver_links where tenant_id = $1 and order_id = $2 and revoked_at is null order by created_at desc limit 1`, [tenantId, orderId]);
+  const result = await db.query<Row>(
+    `select ${LINK_COLUMNS}, (select max(x.last_used_at) from driver_links x where x.tenant_id = $1 and x.order_id = $2 and x.revoked_at is null) as any_last_used_at
+       from driver_links where tenant_id = $1 and order_id = $2 and revoked_at is null and purpose = 'dispatcher' order by created_at desc limit 1`,
+    [tenantId, orderId],
+  );
+  const row = result.rows[0];
+  return row === undefined ? null : { ...toLink(row), lastUsedAt: row["any_last_used_at"] };
+}
+
+export async function findDriverLinkById(db: Db, tenantId: string, id: string): Promise<DriverLink | null> {
+  const result = await db.query<Row>(`select ${LINK_COLUMNS} from driver_links where tenant_id = $1 and id = $2`, [tenantId, id]);
   const row = result.rows[0];
   return row === undefined ? null : toLink(row);
+}
+
+/**
+ * 司机改邮箱之前先锁他在途的订单（按编号排序）：吊销邮件链接和其他吊销一样要在订单锁之内，司机的请求才不会用已作废的链接成功一次。
+ * 必须在锁司机行之前调用：派车和后台任务都是先锁订单、写外键时才碰司机行，顺序反过来会死锁。
+ */
+export async function lockDriverOrders(db: Db, tenantId: string, driverId: string, statuses: readonly string[]): Promise<void> {
+  await db.query("select id from orders where tenant_id = $1 and driver_id = $2 and status = any($3::text[]) order by id for update", [tenantId, driverId, [...statuses]]);
+}
+
+/** 这次发信失败：这次生成的邮件链接作废（正文可能已经到了对方服务器）。先锁订单再改，和其他吊销一样，司机的请求不会用它成功一次（ADR 0058）。 */
+export async function revokeEmailLinkAfterSendFailure(db: Db, tenantId: string, orderId: string, linkId: string, now: Date): Promise<void> {
+  await db.query("select id from orders where tenant_id = $1 and id = $2 for update", [tenantId, orderId]);
+  await db.query("update driver_links set revoked_at = $4, revoke_reason = 'send_failed' where tenant_id = $1 and order_id = $2 and id = $3 and purpose = 'email' and revoked_at is null", [tenantId, orderId, linkId, now]);
+}
+
+/** 司机改了邮箱：发到旧地址的邮件链接作废，调度员手里那条不动（ADR 0058）。 */
+export async function revokeDriverEmailLinks(db: Db, tenantId: string, driverId: string, now: Date): Promise<number> {
+  const result = await db.query("update driver_links set revoked_at = $3, revoke_reason = 'email_changed' where tenant_id = $1 and driver_id = $2 and purpose = 'email' and revoked_at is null", [tenantId, driverId, now]);
+  return result.rowCount ?? 0;
 }
 
 export async function findDriverLinkByToken(db: Db, tenantId: string, tokenHash: string): Promise<DriverLink | null> {

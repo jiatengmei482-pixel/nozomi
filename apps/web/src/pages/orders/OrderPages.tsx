@@ -12,15 +12,18 @@ import { ApiError } from "../../api/client.ts";
 import {
   type Assignable,
   type AssignmentConflict,
+  type DriverLinkEmail,
   type IssuedDriverLink,
   type ListPage,
   type TenantOrder,
   type TenantOrderDetail,
   assignOrder,
   getAssignable,
+  getDriverLinkEmail,
   getOrder,
   listOrders,
   reissueDriverLink,
+  resendDriverLinkEmail,
   revokeDriverLink,
 } from "../../api/dispatch.ts";
 import { usePortalSession } from "../../auth/PortalSession.tsx";
@@ -33,7 +36,7 @@ import { CopyButton, SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
-import { ORDER_LIST_PATH, directionName, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
+import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
 import { TENANT_TICKETS_PAGE, newTenantTicketPath } from "../../lib/order-center-display.ts";
@@ -150,8 +153,43 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function DriverLinkDialog({ link, onClose }: { link: IssuedDriverLink; onClose(): void }) {
+const EMAIL_POLL_MS = 4_000;
+const EMAIL_POLL_ROUNDS = 30;
+
+/** 还在等邮件服务器的时候隔一会儿问一次（后台任务每 5 秒发一轮）；有结果或问够了就停。 */
+function useDriverLinkEmail(orderId: string, initial: DriverLinkEmail | null): [DriverLinkEmail | null, (next: DriverLinkEmail) => void] {
+  const { token } = usePortalSession();
+  // 新前端先于新后端上线的那几分钟里应答没有这一项：当作没有状态，不影响派车和复制链接
+  const [email, setEmail] = useState<DriverLinkEmail | null>(initial ?? null);
+  const [rounds, setRounds] = useState(0);
+  useEffect(() => {
+    setEmail(initial ?? null);
+    setRounds(0);
+  }, [initial]);
+  const waiting = email?.state === "pending" && rounds < EMAIL_POLL_ROUNDS;
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const timer = setTimeout(() => {
+      setRounds((value) => value + 1);
+      getDriverLinkEmail(token, orderId).then(
+        (result) => setEmail(result.driver_link_email),
+        () => undefined,
+      );
+    }, EMAIL_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [waiting, rounds, token, orderId]);
+  const set = (next: DriverLinkEmail): void => {
+    setEmail(next);
+    setRounds(0);
+  };
+  return [email, set];
+}
+
+function DriverLinkDialog({ link, email: initialEmail, orderId, onClose }: { link: IssuedDriverLink; email: DriverLinkEmail | null; orderId: string; onClose(): void }) {
   const url = driverLinkUrl(window.location.origin, link.path);
+  const [email] = useDriverLinkEmail(orderId, initialEmail);
+  const notice = email === null ? null : driverLinkEmailNotice(email);
+  const mailed = email?.state === "sent" || (email?.state === "pending" && email.error_code === null);
   return (
     <Dialog
       open
@@ -160,12 +198,13 @@ function DriverLinkDialog({ link, onClose }: { link: IssuedDriverLink; onClose()
       onClose={onClose}
       footer={
         <Button variant="primary" onClick={onClose}>
-          我已发给司机
+          {mailed ? "知道了" : "我已发给司机"}
         </Button>
       }
     >
-      <p>把这个链接发给司机（LINE、短信都可以）。司机不需要账号，在手机上打开就能看这一单、回传出发 / 到达 / 接到 / 完成。</p>
-      <Alert kind="warning">链接只在这里显示这一次；关掉后看不到了，需要时重新生成（旧的会作废）。</Alert>
+      {notice !== null && <Alert kind={notice.kind}>{notice.text}</Alert>}
+      <p>{mailed ? "需要的话也可以把下面的链接发给司机（LINE、短信都可以），两条链接都能用。" : "把这个链接发给司机（LINE、短信都可以）。"}司机不需要账号，在手机上打开就能看这一单、回传出发 / 到达 / 接到 / 完成。</p>
+      <Alert kind="warning">链接只在这里显示这一次；关掉后看不到了，需要时重新生成（旧的和邮件里的都会作废）。</Alert>
       <div className="field">
         <label className="field__label" htmlFor="driver-link">
           链接
@@ -180,11 +219,49 @@ function DriverLinkDialog({ link, onClose }: { link: IssuedDriverLink; onClose()
   );
 }
 
+/** 订单详情里这一行：最新的发送状态和「重发邮件」。连点保护：发送中按钮不能点，后端还有限速。 */
+function DriverLinkEmailRow({ orderId, initial, canResend, onResent }: { orderId: string; initial: DriverLinkEmail; canResend: boolean; onResent(): void }) {
+  const { token, handleAuthFailure } = usePortalSession();
+  const toast = useToast();
+  const [email, setEmail] = useDriverLinkEmail(orderId, initial);
+  const [working, setWorking] = useState(false);
+  if (email === null) return null;
+  const notice = driverLinkEmailNotice(email);
+  const resend = async (): Promise<void> => {
+    setWorking(true);
+    try {
+      setEmail((await resendDriverLinkEmail(token, orderId)).driver_link_email);
+      toast("已排队重发，现有的链接不受影响");
+      onResent();
+    } catch (err) {
+      if (handleAuthFailure(err)) return;
+      if (err instanceof ApiError && err.code === "RATE_LIMITED") {
+        const seconds = err.details["retry_after_seconds"];
+        toast(`发得太频繁了，请过 ${typeof seconds === "number" ? seconds : "一会儿"} 秒再试`);
+      } else toast(failureText(err, "重发邮件"));
+    } finally {
+      setWorking(false);
+    }
+  };
+  return (
+    <>
+      <Alert kind={notice.kind}>{notice.text}</Alert>
+      {canResend && email.can_resend && (
+        <div className="form__actions">
+          <Button variant="secondary" size="sm" loading={working} loadingText="排队中…" onClick={() => void resend()}>
+            重发邮件
+          </Button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function conflictText(conflicts: readonly AssignmentConflict[]): string {
   return conflicts.map((conflict) => `${conflict.resource === "driver" ? "司机" : "车辆"}在 ${conflict.order_no} 那一单`).join("；");
 }
 
-function AssignDialog({ order, onClose, onAssigned }: { order: TenantOrder; onClose(): void; onAssigned(result: { order: TenantOrder; link: IssuedDriverLink | null }): void }) {
+function AssignDialog({ order, onClose, onAssigned }: { order: TenantOrder; onClose(): void; onAssigned(result: { order: TenantOrder; link: IssuedDriverLink | null; email: DriverLinkEmail | null }): void }) {
   const { token, handleAuthFailure } = usePortalSession();
   const { state } = useLoad<Assignable>(`assignable|${order.id}|${order.version}`, (t) => getAssignable(t, order.id));
   const [driverId, setDriverId] = useState(order.dispatch.driver?.id ?? "");
@@ -206,7 +283,7 @@ function AssignDialog({ order, onClose, onAssigned }: { order: TenantOrder; onCl
     setProblem(null);
     try {
       const result = await assignOrder(token, order.id, order.version, { driver_id: driverId, vehicle_id: vehicleId, confirm_conflicts: confirmConflicts });
-      onAssigned({ order: result.order, link: result.driver_link });
+      onAssigned({ order: result.order, link: result.driver_link, email: result.driver_link_email });
     } catch (err) {
       if (handleAuthFailure(err)) return;
       if (err instanceof ApiError && err.code === "ASSIGNMENT_CONFLICT") setConfirming((err.details["conflicts"] as AssignmentConflict[] | undefined) ?? []);
@@ -259,7 +336,7 @@ function AssignDialog({ order, onClose, onAssigned }: { order: TenantOrder; onCl
           <SelectField label="司机" value={driverId} options={[{ value: "", label: "请选择" }, ...data.drivers.map((entry) => ({ value: entry.driver.id, label: optionLabel(`${entry.driver.name}（${entry.driver.languages.join("/")}）`, entry) }))]} onChange={(value) => { setDriverId(value); setConfirming(null); }} />
           <SelectField label="车辆" value={vehicleId} options={[{ value: "", label: "请选择" }, ...data.vehicles.map((entry) => ({ value: entry.vehicle.id, label: optionLabel(`${entry.vehicle.plate} · ${entry.vehicle.model}`, entry) }))]} onChange={(value) => { setVehicleId(value); setConfirming(null); }} />
           {warnings.length > 0 && confirming === null && <p className="field__hint field__hint--warning">{`提示：${conflictText(warnings)}，时间有重叠。`}</p>}
-          <p className="field__hint">只能派同级或更高级的车型组（升级不加价）；派车后旧的司机链接作废，会给新司机生成一个。</p>
+          <p className="field__hint">只能派同级或更高级的车型组（升级不加价）；派车后旧的司机链接（包括邮件里的）作废，会给新司机生成一个。</p>
         </div>
       )}
     </Dialog>
@@ -279,7 +356,7 @@ export function OrderDetailPage() {
   const { state, reload } = useLoad<TenantOrderDetail>(`order|${id}`, canRead ? (t) => getOrder(t, id) : null);
   const [assigning, setAssigning] = useState(false);
   const [declaring, setDeclaring] = useState(false);
-  const [link, setLink] = useState<IssuedDriverLink | null>(null);
+  const [link, setLink] = useState<{ link: IssuedDriverLink; email: DriverLinkEmail | null } | null>(null);
   const detail = state.data;
   useDocumentTitle(`${detail?.order.order_no ?? "订单"} · NOZOMI ${portal.name}`);
   const timeZone = detail?.order.timezone ?? "UTC";
@@ -300,7 +377,8 @@ export function OrderDetailPage() {
 
   const reissue = async (): Promise<void> => {
     try {
-      setLink((await reissueDriverLink(token, order.id)).driver_link);
+      const issued = await reissueDriverLink(token, order.id);
+      setLink({ link: issued.driver_link, email: issued.driver_link_email });
       reload();
     } catch (err) {
       if (!handleAuthFailure(err)) toast(failureText(err, "生成链接"));
@@ -369,6 +447,7 @@ export function OrderDetailPage() {
             )}
           </Detail>
         </dl>
+        {order.dispatch.driver !== null && <DriverLinkEmailRow orderId={order.id} initial={detail.driver_link_email} canResend={canDispatch} onResent={reload} />}
         {linkActions && (
           <div className="form__actions">
             <Button variant="secondary" size="sm" onClick={() => void reissue()}>
@@ -505,12 +584,12 @@ export function OrderDetailPage() {
           onAssigned={(result) => {
             setAssigning(false);
             toast(order.dispatch.driver === null ? "已派车" : "已改派");
-            if (result.link !== null) setLink(result.link);
+            if (result.link !== null) setLink({ link: result.link, email: result.email });
             reload();
           }}
         />
       )}
-      {link !== null && <DriverLinkDialog link={link} onClose={() => setLink(null)} />}
+      {link !== null && <DriverLinkDialog link={link.link} email={link.email} orderId={order.id} onClose={() => setLink(null)} />}
       {declaring && (
         <DeclareUnableDialog
           order={order}

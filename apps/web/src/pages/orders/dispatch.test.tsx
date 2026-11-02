@@ -71,8 +71,8 @@ const orderOf = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   version: 3,
   ...changes,
 });
-const detailOf = (order: TenantOrder = orderOf()): TenantOrderDetail => ({ order, events: [{ from_status: "pending_payment", to_status: "confirmed", actor: "payment", reason: "PAYMENT_SUCCEEDED", occurred_at: stamps.created_at, source: null, recorded_at: null }], records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null }, changes: [], extra_charges: [], rescue: null });
-const driverOf = (changes: Partial<Driver> = {}): Driver => ({ id: DRIVER_ID, name: "佐藤一郎", phone: "+819011112222", languages: ["ja"], license_expires_on: "2030-01-01", license_state: "valid", driving_years: 12, gold: true, status: "active", version: 1, ...stamps, ...changes });
+const detailOf = (order: TenantOrder = orderOf()): TenantOrderDetail => ({ order, events: [{ from_status: "pending_payment", to_status: "confirmed", actor: "payment", reason: "PAYMENT_SUCCEEDED", occurred_at: stamps.created_at, source: null, recorded_at: null }], records: { assignments: [], driver_link: null, files: [], contacts: [], locations: [], no_show_claim: null }, changes: [], extra_charges: [], rescue: null, driver_link_email: { state: "no_link", recipient_masked: null, error_code: null, error_message: null, requested_at: null, sent_at: null, address_changed: false, can_resend: false } });
+const driverOf = (changes: Partial<Driver> = {}): Driver => ({ id: DRIVER_ID, name: "佐藤一郎", phone: "+819011112222", email: null, email_masked: null, languages: ["ja"], license_expires_on: "2030-01-01", license_state: "valid", driving_years: 12, gold: true, status: "active", version: 1, ...stamps, ...changes });
 const vehicleOf = (changes: Partial<Vehicle> = {}): Vehicle => ({ id: VEHICLE_ID, plate: "品川 300 あ 12-34", vehicle_group_id: GROUP_ID, model: "丰田埃尔法", color: "黑", seats: 7, mileage_km: 30_000, is_new: true, plate_type: "business", insurance_expires_on: "2030-01-01", insurance_state: "valid", inspection_expires_on: "2030-01-01", inspection_state: "valid", status: "available", version: 1, ...stamps, ...changes });
 const deliveryOf = (changes: Partial<WebhookDelivery> = {}): WebhookDelivery => ({ id: DELIVERY_ID, event_id: "evt_000000000000000000000001", event_type: "order.confirmed", order_id: ORDER_ID, data: {}, status: "failed", attempts: 7, next_attempt_at: null, last_attempt_at: stamps.updated_at, last_status_code: 503, last_error_code: "WEBHOOK_HTTP_STATUS", last_duration_ms: 40, succeeded_at: null, failed_at: stamps.updated_at, created_at: stamps.created_at, ...changes });
 
@@ -163,6 +163,128 @@ test("派车：选司机和车辆 → 同一时段有别的单要确认 → 仍�
   assert.ok(!(document.body.textContent ?? "").includes(LINK_TOKEN), "关掉后页面上不再有令牌");
 });
 
+const EMAIL_BASE = { recipient_masked: "fi***@example.test", error_code: null, error_message: null, requested_at: stamps.updated_at, sent_at: null, address_changed: false, can_resend: true };
+
+function assignedOrder(): TenantOrder {
+  return orderOf({ status: "assigned", version: 4, dispatch: { ...orderOf().dispatch, driver: { id: DRIVER_ID, name: "佐藤一郎", phone: "+819011112222", languages: ["ja"], gold: true } } });
+}
+
+test("派车成功的弹窗：链接和复制按钮始终在；自动发时显示发送状态，等到邮件服务器接收", async () => {
+  const pending = { ...EMAIL_BASE, state: "pending" as const };
+  const sent = { ...EMAIL_BASE, state: "sent" as const, sent_at: stamps.updated_at };
+  let assigned = false;
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, { ...detailOf(assigned ? assignedOrder() : orderOf()), driver_link_email: assigned ? sent : detailOf().driver_link_email });
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/assignable`) return json(200, { order_id: ORDER_ID, drivers: [{ driver: driverOf(), assignable: true, issues: [], conflicts: [] }], vehicles: [{ vehicle: vehicleOf(), assignable: true, issues: [], conflicts: [] }] });
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/driver-link/email`) return json(200, { driver_link_email: sent });
+    if (call.method === "POST" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/assign`) {
+      assigned = true;
+      return json(200, { order: assignedOrder(), change: false, driver_link: { token: LINK_TOKEN, path: `/driver#${LINK_TOKEN}`, created_at: stamps.updated_at, expires_at: "2026-10-21T01:00:00.000Z" }, driver_link_email: pending });
+    }
+    return null;
+  });
+  const actor = user();
+  await actor.click(await screen.findByRole("button", { name: "派车" }));
+  const dialog = await screen.findByRole("dialog", { name: "派车" });
+  await waitFor(() => assert.ok(within(dialog).getByRole("option", { name: /佐藤一郎/ })));
+  await actor.selectOptions(within(dialog).getByLabelText("司机"), DRIVER_ID);
+  await actor.selectOptions(within(dialog).getByLabelText("车辆"), VEHICLE_ID);
+  await actor.click(within(dialog).getByRole("button", { name: "确定派车" }));
+  const linkDialog = await screen.findByRole("dialog", { name: "司机链接" });
+  assert.ok(within(linkDialog).getByText(/正在自动发到 fi\*\*\*@example\.test/));
+  assert.equal((within(linkDialog).getByLabelText("链接") as HTMLInputElement).value, `${window.location.origin}/driver#${LINK_TOKEN}`);
+  assert.ok(within(linkDialog).getByRole("button", { name: "复制链接" }));
+  await within(linkDialog).findByText(/已自动发到 fi\*\*\*@example\.test（邮件服务器已接收）/, {}, { timeout: 6_000 });
+  assert.doesNotMatch(linkDialog.textContent ?? "", /司机已收到/);
+  await actor.click(within(linkDialog).getByRole("button", { name: "知道了" }));
+});
+
+for (const [name, email, expected, button] of [
+  ["没有邮箱", { ...EMAIL_BASE, recipient_masked: null, state: "no_email" as const, can_resend: false }, /这位司机没有邮箱，请复制链接手动发/, "我已发给司机"],
+  ["手动发送", { ...EMAIL_BASE, recipient_masked: null, state: "manual" as const, can_resend: false }, /当前设置是手动发送/, "我已发给司机"],
+  ["失败", { ...EMAIL_BASE, state: "failed" as const, error_code: "RECIPIENT_REJECTED", error_message: "对方邮件服务器拒收了这个地址" }, /发送失败：对方邮件服务器拒收了这个地址/, "我已发给司机"],
+  ["没配置", { ...EMAIL_BASE, state: "pending" as const, error_code: "NOT_CONFIGURED", error_message: "平台的邮件发送还没有配置好，请先复制链接手动发给司机" }, /请先复制链接手动发给司机/, "我已发给司机"],
+] as const) {
+  test(`派车成功的弹窗（${name}）：提示调度员手动发，复制按钮还在`, async () => {
+    let assigned = false;
+    open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
+      if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, detailOf(assigned ? assignedOrder() : orderOf()));
+      if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/assignable`) return json(200, { order_id: ORDER_ID, drivers: [{ driver: driverOf(), assignable: true, issues: [], conflicts: [] }], vehicles: [{ vehicle: vehicleOf(), assignable: true, issues: [], conflicts: [] }] });
+      if (call.method === "POST" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/assign`) {
+        assigned = true;
+        return json(200, { order: assignedOrder(), change: false, driver_link: { token: LINK_TOKEN, path: `/driver#${LINK_TOKEN}`, created_at: stamps.updated_at, expires_at: "2026-10-21T01:00:00.000Z" }, driver_link_email: email });
+      }
+      return null;
+    });
+    const actor = user();
+    await actor.click(await screen.findByRole("button", { name: "派车" }));
+    const dialog = await screen.findByRole("dialog", { name: "派车" });
+    await waitFor(() => assert.ok(within(dialog).getByRole("option", { name: /佐藤一郎/ })));
+    await actor.selectOptions(within(dialog).getByLabelText("司机"), DRIVER_ID);
+    await actor.selectOptions(within(dialog).getByLabelText("车辆"), VEHICLE_ID);
+    await actor.click(within(dialog).getByRole("button", { name: "确定派车" }));
+    const linkDialog = await screen.findByRole("dialog", { name: "司机链接" });
+    assert.ok(within(linkDialog).getByText(expected));
+    assert.ok(within(linkDialog).getByRole("button", { name: "复制链接" }));
+    assert.ok(within(linkDialog).getByRole("button", { name: button }));
+  });
+}
+
+test("订单详情：显示最新发送状态；重发邮件走接口、不生成新链接；被限速时提示；只读角色看得到状态、没有重发按钮", async () => {
+  const failed = { ...EMAIL_BASE, state: "failed" as const, error_code: "TIMEOUT", error_message: "邮件发送失败，请稍后重发，或复制链接手动发给司机" };
+  const pending = { ...EMAIL_BASE, state: "pending" as const, error_code: "NOT_CONFIGURED", error_message: "平台的邮件发送还没有配置好，请先复制链接手动发给司机" };
+  let posts = 0;
+  const calls = open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, { ...detailOf(assignedOrder()), driver_link_email: posts === 0 ? failed : pending });
+    if (call.method === "POST" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}/driver-link/email`) {
+      posts += 1;
+      return posts === 1 ? json(202, { driver_link_email: pending }) : apiError(429, "RATE_LIMITED", "太频繁", { retry_after_seconds: 42 });
+    }
+    return null;
+  });
+  const actor = user();
+  await screen.findByText(/发送失败：邮件发送失败/);
+  await actor.click(screen.getByRole("button", { name: "重发邮件" }));
+  await screen.findByText(/请先复制链接手动发给司机/);
+  await actor.click(screen.getByRole("button", { name: "重发邮件" }));
+  await screen.findByText(/请过 42 秒再试/);
+  assert.equal(calls.filter((call) => call.method === "POST" && call.path === `/tenant/v1/orders/${ORDER_ID}/driver-link`).length, 0, "重发不重新生成链接");
+
+  resetBrowser();
+  open(`/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...detailOf(assignedOrder()), driver_link_email: failed }) : null));
+  await screen.findByText(/发送失败：邮件发送失败/);
+  assertAbsent(screen.queryByRole("button", { name: "重发邮件" }));
+});
+
+test("司机表单：邮箱选填；填了就提交；后端说格式不对显示在邮箱下面；列表只显示打码的", async () => {
+  const seen: unknown[] = [];
+  open("/fleet/drivers", "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === "/tenant/v1/drivers") return page([driverOf({ email: "fictional.driver@example.test", email_masked: "fi***@example.test" })]);
+    if (call.method === "PUT" && call.url.pathname === `/tenant/v1/drivers/${DRIVER_ID}`) {
+      seen.push(call.body);
+      const body = call.body as { email: string | null };
+      if (body.email === "bad") return apiError(400, "VALIDATION_FAILED", "请求参数校验未通过", { location: "body", issues: [{ path: "/email", reason: "invalid_string", message: "邮箱格式不对" }] });
+      return json(200, driverOf({ email: body.email, email_masked: body.email === null ? null : "ne***@example.test", version: 2 }));
+    }
+    return null;
+  });
+  const actor = user();
+  await screen.findByText("fi***@example.test");
+  assert.doesNotMatch(document.body.textContent ?? "", /fictional\.driver@/);
+  await actor.click(screen.getByRole("button", { name: "修改" }));
+  const dialog = await screen.findByRole("dialog");
+  const input = within(dialog).getByLabelText("邮箱（选填）") as HTMLInputElement;
+  assert.equal(input.value, "fictional.driver@example.test");
+  await actor.clear(input);
+  await actor.type(input, "bad");
+  await actor.click(within(dialog).getByRole("button", { name: "保存" }));
+  await within(dialog).findByText("邮箱格式不对");
+  await actor.clear(input);
+  await actor.click(within(dialog).getByRole("button", { name: "保存" }));
+  await waitFor(() => assert.equal(seen.length, 2));
+  assert.equal((seen[1] as { email: unknown }).email, null, "留空就是清空");
+});
+
 test("只读角色：看得到订单，没有派车按钮", async () => {
   open(`/orders/${ORDER_ID}`, "readonly", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, detailOf()) : null));
   await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
@@ -198,7 +320,7 @@ test("司机：新增时校验必填，请求体带幂等键、电话原样交�
   await screen.findByText("+819011112222");
   const posts = calls.filter((call) => call.method === "POST");
   assert.equal(posts.length, 2);
-  assert.deepEqual(posts[1]?.body, { name: "佐藤一郎", phone: "+81 90-1111-2222", languages: ["ja"], license_expires_on: "2030-01-01", driving_years: null, gold: false, status: "active" });
+  assert.deepEqual(posts[1]?.body, { name: "佐藤一郎", phone: "+81 90-1111-2222", email: null, languages: ["ja"], license_expires_on: "2030-01-01", driving_years: null, gold: false, status: "active" });
   assert.match(posts[1]?.headers["idempotency-key"] ?? "", /^[0-9a-f-]{36}$/);
   assert.equal(posts[0]?.headers["idempotency-key"], posts[1]?.headers["idempotency-key"], "同一次新增重试用同一个幂等键");
 

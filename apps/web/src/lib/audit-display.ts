@@ -169,7 +169,7 @@ export function actionFilterOption(value: string): string {
 /** 同一个操作在不同对象上的说法（「关闭」付款批次是锁定，「出」账单是出账）。没列的用上面的通用说法。 */
 export const ACTION_NAMES_BY_RESOURCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   order: { assign: "派车", reassign: "改派", cancel: "取消订单" },
-  driver_link: { issue: "生成司机链接" },
+  driver_link: { issue: "生成司机链接", retry: "重发司机链接邮件" },
   rescue: { trigger: "发起救援", waive: "认定不可抗力" },
   rescue_offer: { accept: "接救援单", reject: "拒绝救援单" },
   ticket: { assign: "认领 / 转交", reply: "留言（供应商看得到）", note: "内部备注", decide: "判定", close: "关闭工单", pay: "登记另付已付", request_reply: "征求供应商意见" },

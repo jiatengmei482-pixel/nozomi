@@ -17,6 +17,7 @@ import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } from "../repos/orders.ts";
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
+import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
 import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
@@ -238,6 +239,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       changes: found.changes.map(changeJson),
       extra_charges: found.extraCharges.map(extraChargeJson),
       rescue: tenantOrderRescueJson(found.rescue, found.order),
+      driver_link_email: driverLinkEmailJson(await getDriverLinkEmail(ctx, principal.tenantId, found.order.id), await mailConfigured(ctx)),
     };
   });
 
