@@ -32,6 +32,7 @@ const group: VehicleGroup = { id: GROUP_ID, code: "VG-BIZ-7", grade: "business",
 
 const orderOf = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   id: ORDER_ID,
+  pending_change: false,
   order_no: "NZ20261007ABCDEFGH",
   status: "confirmed",
   category: "airport_transfer",
@@ -110,6 +111,7 @@ test("订单列表：超时未派车的排在最前面、标红，顶部提示�
   const calls = open("/orders", "dispatch", (call) => {
     if (call.url.pathname !== "/tenant/v1/orders") return null;
     if (call.url.searchParams.get("dispatch") === "overdue") return page([late]);
+    if (call.url.searchParams.get("change") === "pending") return page([]);
     return page([orderOf(), late]);
   });
   await screen.findByText("NZ20261007LATELATE");
@@ -398,6 +400,7 @@ test("Webhook：新建时签名密钥只在对话框里出现一次；只认 htt
 });
 
 const tripOf = (changes: Partial<DriverTrip> = {}): DriverTrip => ({
+  pending_change: null,
   order: { order_no: "NZ20261007ABCDEFGH", status: "assigned", status_name: "已派车", category: "airport_transfer", direction: "pickup", service_time: "2026-10-20T01:00:00.000Z", service_local: "2026-10-20T10:00", timezone: "Asia/Tokyo", package_hours: null, passengers: 2, luggage: 1, flight_no: "NH211", passenger: { name: "王小明", phone: "+819012345678" }, messaging: null, notes: "举牌写王先生", place: { name: { zh: "成田机场" }, code: "NRT", lng: 140.3887, lat: 35.7686 }, pickup: null, dropoff: { lng: 139.76, lat: 35.68, address: "东京站八重洲口" }, pickup_point: { lng: 140.3887, lat: 35.7686 }, addons: [], driver_language: null, free_wait_minutes: 90 },
   driver: { name: "佐藤一郎" },
   vehicle: { plate: "品川 300 あ 12-34", model: "丰田埃尔法", color: "黑" },

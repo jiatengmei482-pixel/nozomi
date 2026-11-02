@@ -149,7 +149,7 @@ function OrderTodoBadge() {
   const total = state.data?.total ?? 0;
   if (total === 0) return null;
   return (
-    <span className="nav-item__badge" aria-label={`${total} 条待办`}>
+    <span className="nav-item__badge" role="img" aria-label={`${total} 条待办`}>
       {total > 99 ? "99+" : total}
     </span>
   );

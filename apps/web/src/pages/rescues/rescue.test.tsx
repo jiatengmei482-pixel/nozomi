@@ -272,6 +272,7 @@ test("订单详情（运营后台）：待付款的单没有「发起救援改�
 
 const tenantOrder = (changes: Partial<TenantOrder> = {}): TenantOrder => ({
   id: ORDER_ID,
+  pending_change: false,
   order_no: "NZ20261007ABCDEFGH",
   status: "confirmed",
   category: "airport_transfer",
