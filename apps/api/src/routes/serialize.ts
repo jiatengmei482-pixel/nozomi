@@ -5,6 +5,7 @@
  */
 import { EMAIL_CODE_RESEND_INTERVAL_MS, EMAIL_CODE_TTL_MS, type LoginMethods } from "@nozomi/domain";
 import type { AuditLog } from "../repos/audit-logs.ts";
+import type { PassengerEmailChange } from "../repos/passenger-email-changes.ts";
 import type { PlatformUser } from "../repos/platform-users.ts";
 import type { TenantUser } from "../repos/tenant-users.ts";
 import type { Tenant } from "../repos/tenants.ts";
@@ -127,4 +128,18 @@ export function loginMethodsJson(methods: LoginMethods): Record<string, boolean>
 /** 发码请求的应答：不管账号存不存在都是这一份（ADR 0050）。 */
 export function emailCodeSentJson(): Record<string, number> {
   return { expires_in_seconds: EMAIL_CODE_TTL_MS / 1000, resend_after_seconds: EMAIL_CODE_RESEND_INTERVAL_MS / 1000 };
+}
+
+/** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */
+export function passengerEmailReviewJson(change: PassengerEmailChange): Record<string, unknown> {
+  return {
+    id: change.id,
+    approval_id: change.approvalId,
+    status: change.status,
+    email_masked: change.emailMasked,
+    previous_email_masked: change.previousEmailMasked,
+    verification: change.verification,
+    requested_by: { id: change.requestedBy.id, name: change.requestedBy.name },
+    created_at: change.createdAt.toISOString(),
+  };
 }

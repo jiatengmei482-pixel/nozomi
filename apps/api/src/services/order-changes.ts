@@ -40,6 +40,7 @@ import {
   orderChangeDecidable,
   orderChangeRefusal,
   orderChangeStillApplicable,
+  passengerEmailNeedsReview,
   priceDifference,
   quoteProduct,
   sellPrice,
@@ -83,11 +84,12 @@ import { loadQuoteFacts } from "./quotes.ts";
 import type { StoredQuoteSnapshot } from "./sales-quotes.ts";
 import type { TenantPrincipal } from "./tenant-auth.ts";
 import { enqueueNotification } from "../repos/notifications.ts";
+import type { PassengerEmailChange } from "../repos/passenger-email-changes.ts";
 import { enqueueTenantEvent } from "./tenant-webhooks.ts";
 
-/** 渠道 / 运营提交的改动（没给的字段不改）。 */
+/** 渠道 / 运营提交的改动（没给的字段不改）。乘客信息：渠道、官网三项都给；运营可以只给要改的那几项（运营后台只看得到打码的，ADR 0055）。 */
 export interface OrderChangeInput {
-  passenger?: { name: string; phone: string; email: string };
+  passenger?: { name?: string | undefined; phone?: string | undefined; email?: string | undefined };
   flightNo?: string | null;
   messaging?: { app: "whatsapp" | "line" | "wechat" | "kakaotalk"; handle: string } | null;
   notes?: string | null;
@@ -127,8 +129,19 @@ const CONTACT_NOTICE_WINDOW_MS = 10 * 60_000;
 
 const blank = (value: string | null | undefined): boolean => value === null || value === undefined || value.trim() === "";
 
-/** 和现在比，哪些字段真的变了；同时校验写法（电话、邮箱、航班号、长度）。 */
-function planChange(order: Order, input: OrderChangeInput, placeType: string | null): PlannedChange {
+/**
+ * 运营代改时改了乘客邮箱（ADR 0065）：这一项不在这次生效，另走双人复核。`email` 是请求里的新邮箱（只校验写法）；
+ * `reviewed` = 请求里写了核实方式和原因。
+ */
+interface HeldEmail {
+  email: string;
+  reviewed: boolean;
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** 和现在比，哪些字段真的变了；同时校验写法（电话、邮箱、航班号、长度）。只校验请求里给了的。`held` 的邮箱不进这次的改动。 */
+function planChange(order: Order, input: OrderChangeInput, placeType: string | null, held: HeldEmail | null = null): PlannedChange {
   const issues: InputIssue[] = [];
   const issue = (path: string, reason: OrderDetailsIssueReason): void => void issues.push({ path, reason, message: DETAIL_MESSAGES[reason] ?? reason });
   const next: PlannedChange["next"] = { passenger: order.passenger, flightNo: order.flightNo, messaging: order.messaging, notes: order.notes, pickup: order.pickup, dropoff: order.dropoff, passengers: order.passengers, luggage: order.luggage, serviceAt: order.serviceAt, serviceLocal: order.serviceLocal, serviceDate: order.serviceDate };
@@ -142,11 +155,14 @@ function planChange(order: Order, input: OrderChangeInput, placeType: string | n
     after[field] = now;
   };
   if (input.passenger !== undefined) {
-    const passenger = { name: input.passenger.name.trim(), phone: normalizePhone(input.passenger.phone), email: input.passenger.email.trim() };
-    if (blank(passenger.name)) issue("/passenger/name", "REQUIRED");
-    else if ([...passenger.name].length > 100) issue("/passenger/name", "TOO_LONG");
-    if (!isInternationalPhone(passenger.phone)) issue("/passenger/phone", "INVALID_PHONE");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(passenger.email) || passenger.email.length > 254) issue("/passenger/email", "INVALID_FORMAT");
+    const given = input.passenger;
+    const passenger = { name: given.name?.trim() ?? order.passenger.name, phone: given.phone === undefined ? order.passenger.phone : normalizePhone(given.phone), email: held !== null ? order.passenger.email : (given.email?.trim() ?? order.passenger.email) };
+    if (given.name !== undefined && blank(passenger.name)) issue("/passenger/name", "REQUIRED");
+    else if (given.name !== undefined && [...passenger.name].length > 100) issue("/passenger/name", "TOO_LONG");
+    if (given.phone !== undefined && !isInternationalPhone(passenger.phone)) issue("/passenger/phone", "INVALID_PHONE");
+    const email = held?.email ?? passenger.email;
+    if (given.email !== undefined && (!EMAIL_SHAPE.test(email) || email.length > 254)) issue("/passenger/email", "INVALID_FORMAT");
+    if (held !== null && !held.reviewed) issues.push({ path: "/email_review", reason: "REQUIRED", message: "改乘客邮箱要另一位同事批准：请写明怎么核实的客人身份（核实方式、原因）" });
     next.passenger = passenger;
     record("passenger", order.passenger, passenger);
   }
@@ -335,16 +351,38 @@ async function applyChange(db: Db, order: Order, change: OrderChange, sale: Orde
 
 export type ChangeOutcome = { orderId: string; change: OrderChange };
 
+/**
+ * 运营代改时改了乘客邮箱（ADR 0065）：在改单的同一个事务里（订单已锁）发起复核，返回那条复核记录。
+ * 由 `services/passenger-email-review.ts` 提供；这里只负责把邮箱从这次的改动里拿出来。
+ */
+export type PassengerEmailHold = (db: Db, order: Order, email: string, now: Date) => Promise<PassengerEmailChange>;
+
+/** 运营代改的结果：`change` 是这次生效或待确认的改单（只改了邮箱时没有），`emailReview` 是等审核的改邮箱。 */
+export type PlatformChangeOutcome = { orderId: string; change: OrderChange | null; emailReview: PassengerEmailChange | null };
+
 /** 从一次提交里挑出这几个字段的改前改后。改时间连带当地时间。 */
 function pickValues(values: Record<string, unknown>, fields: readonly OrderChangeField[]): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([key]) => (fields as readonly string[]).includes(key) || (key === "service_local" && fields.includes("service_time"))));
 }
 
-/** 提出改单：校验；联系信息直接生效；其余生成申请：（改期时）重新报价、（贵了时）先扣差价，然后等供应商处理。 */
-async function requestChange(ctx: AppContext, scope: { channelId: string } | "platform", orderId: string, expectedVersion: number, input: OrderChangeInput, who: ChangeActor, log: OrderLog): Promise<ChangeOutcome> {
+/**
+ * 提出改单：校验；联系信息直接生效；其余生成申请：（改期时）重新报价、（贵了时）先扣差价，然后等供应商处理。
+ * 运营代改（`emailHold`）时改了乘客邮箱：邮箱这一项拿出来发起复核，其余照常；三件事在同一个事务里，任一失败整个回滚。
+ */
+async function requestChange(
+  ctx: AppContext,
+  scope: { channelId: string } | "platform",
+  orderId: string,
+  expectedVersion: number,
+  input: OrderChangeInput,
+  who: ChangeActor,
+  log: OrderLog,
+  emailHold: { hold: PassengerEmailHold; reviewed: boolean } | null = null,
+): Promise<PlatformChangeOutcome> {
   const now = ctx.now();
-  type Step = { done: OrderChange; refunds: OrderRefund[] } | { charge: { change: OrderChange; payment: OrderPayment; orderNo: string } };
+  type Step = { done: OrderChange | null; refunds: OrderRefund[] } | { charge: { change: OrderChange; payment: OrderPayment; orderNo: string } };
   let step: Step;
+  let emailReview: PassengerEmailChange | null = null;
   try {
     step = await withPlatformTx(ctx.pool, async (db): Promise<Step> => {
       const sale = await findSale(db, orderId);
@@ -352,11 +390,14 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
       const order = (await findOrderForPlatform(db, orderId, { lock: true })) as Order;
       if (order.version !== expectedVersion) throw versionConflict(order.version);
       const placeType = order.placeId === null ? null : ((await db.query<{ type: string }>("select type from places where id = $1", [order.placeId])).rows[0]?.type ?? null);
-      const plan = planChange(order, input, placeType);
+      const requestedEmail = input.passenger?.email;
+      const held: HeldEmail | null = emailHold !== null && requestedEmail !== undefined && passengerEmailNeedsReview(order.passenger.email, requestedEmail) ? { email: requestedEmail.trim(), reviewed: emailHold.reviewed } : null;
+      const plan = planChange(order, input, placeType, held);
       const policy = await orderCancelPolicy(db, order);
       const refusal = orderChangeRefusal({
         status: order.status,
-        fields: plan.fields,
+        // 等复核的邮箱也按「改乘客信息」检查状态：服务开始后什么都不能改
+        fields: held !== null && !plan.fields.includes("passenger") ? [...plan.fields, "passenger"] : plan.fields,
         inFreeWindow: inFreeCancellationWindow(policy, order.serviceAt, now),
         passengers: plan.next.passengers,
         luggage: plan.next.luggage,
@@ -373,6 +414,7 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
       const common = { tenantId: order.tenantId, orderId: order.id, settlementBeforeMinor: order.settlementMinor, requestedBy: who.requestedBy, requestedById: who.requestedById, requestedAt: now };
       // 没结论的申请只挡履约字段：客人的电话变了不能等
       if (trip.length > 0 && (await findOpenChange(db, order.tenantId, order.id)) !== null) throw changeInProgress();
+      if (held !== null && emailHold !== null) emailReview = await emailHold.hold(db, order, held.email, now);
       const reschedule = trip.includes("service_time");
       const repriced = reschedule ? await reprice(db, order, sale, plan.next, now) : null;
       let refunds: OrderRefund[] = [];
@@ -385,7 +427,7 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
         applied = (await findOrderChange(db, order.tenantId, id)) as OrderChange;
         current = (await findOrderForPlatform(db, orderId, { lock: true })) as Order;
       }
-      if (trip.length === 0) return { done: applied as OrderChange, refunds };
+      if (trip.length === 0) return { done: applied, refunds };
       const diff = priceDifference(sale.sellMinor, repriced?.sellMinor ?? sale.sellMinor);
       const newServiceAt = reschedule ? plan.next.serviceAt : null;
       const earliest = earliestServiceAt(order.serviceAt, newServiceAt);
@@ -422,9 +464,10 @@ async function requestChange(ctx: AppContext, scope: { channelId: string } | "pl
   }
   if ("done" in step) {
     await processRefunds(ctx, step.refunds, log);
-    return { orderId, change: step.done };
+    return { orderId, change: step.done, emailReview };
   }
-  return { orderId, change: await chargeAndSettle(ctx, step.charge.change, step.charge.payment, step.charge.orderNo, who.origin, log, true) };
+  // 补差价被拒（402）时联系信息已经生效、邮箱的复核已经发起（同 ADR 0060：和差价无关的不跟着卡被拒回滚）
+  return { orderId, change: await chargeAndSettle(ctx, step.charge.change, step.charge.payment, step.charge.orderNo, who.origin, log, true), emailReview };
 }
 
 function changeInProgress(): AppError {
@@ -518,11 +561,46 @@ export async function abandonOpenChange(db: Db, order: Order, now: Date): Promis
 }
 
 export async function changeForChannel(ctx: AppContext, channelId: string, orderId: string, version: number, input: OrderChangeInput, log: OrderLog): Promise<ChangeOutcome> {
-  return requestChange(ctx, { channelId }, orderId, version, input, { requestedBy: "channel", requestedById: null, origin: null }, log);
+  const outcome = await requestChange(ctx, { channelId }, orderId, version, input, { requestedBy: "channel", requestedById: null, origin: null }, log);
+  // 渠道（客人）改邮箱直接生效，没有复核：一定有改单记录（什么都没变是 422 NO_CHANGE）
+  return { orderId: outcome.orderId, change: outcome.change as OrderChange };
 }
 
-export async function changeForPlatform(ctx: AppContext, principal: PlatformPrincipal, orderId: string, version: number, input: OrderChangeInput, ip: string, log: OrderLog): Promise<ChangeOutcome> {
-  return requestChange(ctx, "platform", orderId, version, input, { requestedBy: "platform_user", requestedById: principal.user.id, origin: consoleOrigin(platformActor(principal.user), ip, ctx.now()) }, log);
+/**
+ * 运营代客人改单。改了乘客邮箱的那一项交给 `hold` 发起复核（ADR 0065），`reviewed` = 请求里写了核实方式和原因（没写 400）；
+ * 只改了邮箱时没有改单记录（`change` 为 null）。
+ */
+export async function changeForPlatform(ctx: AppContext, principal: PlatformPrincipal, orderId: string, version: number, input: OrderChangeInput, ip: string, log: OrderLog, emailHold: { hold: PassengerEmailHold; reviewed: boolean }): Promise<PlatformChangeOutcome> {
+  return requestChange(ctx, "platform", orderId, version, input, { requestedBy: "platform_user", requestedById: principal.user.id, origin: consoleOrigin(platformActor(principal.user), ip, ctx.now()) }, log, emailHold);
+}
+
+/**
+ * 改邮箱的复核批准时（ADR 0065，审核人的事务里，订单已锁）：记一次直接生效的联系信息改动（发起人是代改的那位员工），和平时一样
+ * 写订单、通知供应商和司机、告诉客人（新地址）、写审计。返回这次改单的编号。能不能改由调用方先检查。
+ */
+export async function applyApprovedPassengerEmail(db: Db, order: Order, email: string, requestedById: string, origin: AuditOrigin, now: Date): Promise<string> {
+  const sale = (await findSale(db, order.id)) as OrderSale;
+  const passenger = { ...order.passenger, email };
+  const id = await insertOrderChange(db, {
+    tenantId: order.tenantId,
+    orderId: order.id,
+    settlementBeforeMinor: order.settlementMinor,
+    requestedBy: "platform_user",
+    requestedById,
+    requestedAt: now,
+    status: "applied",
+    reschedule: false,
+    before: { passenger: order.passenger },
+    after: { passenger },
+    settlementAfterMinor: order.settlementMinor,
+    settlementAfter: null,
+    confirmDueAt: null,
+    earliestServiceAt: null,
+    decidedAt: now,
+  });
+  const change = (await findOrderChange(db, order.tenantId, id, { lock: true })) as OrderChange;
+  await applyChange(db, order, change, sale, null, origin, now);
+  return id;
 }
 
 /** 处理这次申请的人：供应商的人（只有令牌里的租户）或代处理的平台员工。 */

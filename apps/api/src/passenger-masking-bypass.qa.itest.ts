@@ -108,7 +108,7 @@ test("姓名全大写（护照姓名）单独写在备注里：不能当成系�
 test("改过姓名后，备注里写的是旧姓名：详情打了码，notes_masked 必须为真，否则改单框把打码后的文字存回去、原文丢失", async () => {
   const order = await paid();
   assert.equal((await patch(order.id, { notes: `${NAME}要儿童座椅` })).status, 200);
-  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } })).status, 200);
+  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: EMAIL } })).status, 200);
   const detail = await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }));
   const raw = (await q("select notes from orders where id = $1", [order.id])).rows[0].notes;
   assert.equal(raw, `${NAME}要儿童座椅`);
@@ -184,7 +184,7 @@ test("推送记录：只改备注的 order.changed（真实形状：没有 passe
 
 test("审计：工单里写了改单前的旧姓名，写入审计时也要打码（审计改不了，脱敏后也清不掉）", async () => {
   const order = await paid();
-  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } })).status, 200);
+  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: EMAIL } })).status, 200);
   const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "来电", description: `${NAME}（改名前）来电` } }), 201);
   await ok(api.call("POST", `/platform/v1/tickets/${ticket.ticket.id}/close`, { token, body: { note: `已回复${NAME}` } }));
   const stored = (await q("select before, after from audit_logs where resource = 'ticket' and resource_id = $1", [ticket.ticket.id])).rows;
@@ -195,7 +195,7 @@ test("审计：工单里写了改单前的旧姓名，写入审计时也要打�
 test("工单详情、列表：改过姓名后，手写内容里的旧姓名也打码（ADR 把它列为已知缺口，这里只看库里没有原文的前提不变）", async () => {
   const order = await paid();
   const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "标题", description: `电话 ${PHONE}，邮箱 ${EMAIL}` } }), 201);
-  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } })).status, 200);
+  assert.equal((await patch(order.id, { passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: EMAIL } })).status, 200);
   const res = await api.call("GET", `/platform/v1/tickets/${ticket.ticket.id}`, { token });
   noSecrets(res.text, "工单详情：电话、邮箱不受改名影响");
 });

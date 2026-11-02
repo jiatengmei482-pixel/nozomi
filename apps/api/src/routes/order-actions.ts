@@ -22,7 +22,7 @@ import { orderPassengerNames } from "../services/passenger-privacy.ts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { PlatformAction } from "@nozomi/domain";
-import { maskOrderValues, EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
+import { maskOrderValues, VIEW_LINK_VERIFICATIONS, EVIDENCE_FILE_RULES, EXTRA_CHARGE_RULES, EXTRA_CHARGE_TYPES, FULFILMENT_EVENTS, MESSAGING_APPS, ORDER_CANCEL_REASONS, PROXY_FULFILMENT_RULES, SERVICE_CATEGORIES, VEHICLE_LEVELS } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { AppError } from "../errors.ts";
@@ -32,7 +32,9 @@ import { type CancellationQuote, cancelForChannel, cancelForPlatform, previewCan
 import { getCancellationPolicy, requestCancellationPolicyChange } from "../services/cancellation-policy.ts";
 import { notFound } from "../services/errors.ts";
 import { decideExtraCharge, disputeExtraCharge, retryExtraCharge, submitExtraCharge, uploadReceipt, withdrawExtraChargeForTenant } from "../services/extra-charges.ts";
-import { type OrderChangeInput, changeForChannel, changeForPlatform, decideChange } from "../services/order-changes.ts";
+import { type OrderChangeInput, changeForChannel, decideChange } from "../services/order-changes.ts";
+import { changeOrderForPlatform } from "../services/passenger-email-review.ts";
+import { passengerEmailReviewJson } from "./serialize.ts";
 import { acknowledgeTodo, listTodos, orderTodoJson } from "../services/order-todos.ts";
 import { retryRefund } from "../services/order-money.ts";
 import { changeJson, extraChargeJson } from "../services/order-views.ts";
@@ -43,7 +45,7 @@ import { assertPlatformOrderInScope } from "../services/order-queries.ts";
 import { authenticateSales } from "../services/sales-auth.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { authenticateTenant } from "../services/tenant-auth.ts";
-import { dateTimeSchema, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, visibleText } from "../validation.ts";
+import { dateTimeSchema, ifMatchVersion, parseInput, passengerInput, passengerPatchInput, resourceId, singleLine, validationFailed, visibleText } from "../validation.ts";
 import { approvalJson } from "./channels.ts";
 import { fileJson } from "./orders.ts";
 import { salesOrderJson } from "./sales.ts";
@@ -90,6 +92,17 @@ export const changeSchema = z
   })
   .strict();
 
+/**
+ * 运营代改（ADR 0065）：乘客信息可以只给要改的那几项（运营后台只看得到打码的）；改了邮箱要写核实方式和原因（`email_review`），
+ * 邮箱那一项要另一位同事批准才生效。
+ */
+const platformChangeSchema = changeSchema
+  .extend({
+    passenger: passengerPatchInput().optional(),
+    email_review: z.object({ verification: z.enum(VIEW_LINK_VERIFICATIONS), reason: visibleText(500) }).strict().optional(),
+  })
+  .strict();
+
 export const disputeSchema = z.object({ reason: z.string().trim().min(1).max(EXTRA_CHARGE_RULES.disputeReasonMax) }).strict();
 const extraChargeSchema = z
   .object({
@@ -106,7 +119,7 @@ const changeDecisionSchema = z.object({ note: note(500) }).strict();
 const changeReasonSchema = z.object({ note: visibleText(500) }).strict();
 const fileQuerySchema = z.object({ kind: z.literal("receipt") }).strict();
 
-export function toChangeInput(body: z.output<typeof changeSchema>): OrderChangeInput {
+export function toChangeInput(body: Omit<z.output<typeof changeSchema>, "passenger"> & { passenger?: OrderChangeInput["passenger"] }): OrderChangeInput {
   const input: OrderChangeInput = {};
   if (body.passenger !== undefined) input.passenger = body.passenger;
   if (body.flight_no !== undefined) input.flightNo = body.flight_no;
@@ -304,15 +317,18 @@ export function registerOrderActionRoutes(app: FastifyInstance, ctx: AppContext)
     return { order_id: orderId, status: result.order.status, version: result.order.version };
   });
 
-  app.patch("/platform/v1/orders/:id", async (request) => {
+  app.patch("/platform/v1/orders/:id", async (request, reply) => {
     const principal = await authenticatePlatform(ctx, platformCredentials(request), { action: "order.manage" });
     const orderId = resourceId(request.params, "订单");
     await assertPlatformOrderInScope(ctx, principal.grant.scope, orderId);
     const version = ifMatchVersion(request.headers["if-match"]);
-    const input = parseInput(changeSchema, request.body ?? {}, "body");
-    const result = await changeForPlatform(ctx, principal, orderId, version, toChangeInput(input), request.ip, request.log);
+    const input = parseInput(platformChangeSchema, request.body ?? {}, "body");
+    if (input.email_review !== undefined && input.passenger?.email === undefined) throw validationFailed("body", [{ path: "/email_review", reason: "NOT_APPLICABLE", message: "没有改乘客邮箱，不用写核实方式（请删掉）" }]);
+    const result = await changeOrderForPlatform(ctx, principal, orderId, version, toChangeInput(input), input.email_review ?? null, request.ip, request.log);
     // 响应里的改前值不能绕过「查看」（ADR 0055）
-    return { change: maskOrderValues(changeJson(result.change), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null) };
+    const change = result.change === null ? null : maskOrderValues(changeJson(result.change), (await orderPassengerNames(ctx, [orderId])).get(orderId) ?? null);
+    // 只改了邮箱：没有立即生效或待确认的改动，只发起了复核
+    return reply.code(change === null ? 202 : 200).send({ change, email_review: result.emailReview === null ? null : passengerEmailReviewJson(result.emailReview) });
   });
 
   // 运营代供应商处理改单（ADR 0060）：有权限、有审计，必填原因；不是双人复核

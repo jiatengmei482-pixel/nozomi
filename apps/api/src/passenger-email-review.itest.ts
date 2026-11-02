@@ -140,7 +140,7 @@ test("一个人改不了乘客邮箱：发起复核，批准前订单邮箱不�
   assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", res);
   assert.equal(res.status, 200, res.text);
   assert.equal(res.body.change.status, "applied", "姓名直接生效");
-  assert.equal(res.body.email_review.status, "pending");
+  assert.equal(res.body.email_review.status, "pending_review");
   assert.match(res.body.email_review.email_masked, /^fi\*\*\*@example\.test$/);
   assert.equal(res.text.includes(fresh), false, "应答里只有打码地址");
   const approvalId = res.body.email_review.approval_id;
@@ -153,8 +153,8 @@ test("一个人改不了乘客邮箱：发起复核，批准前订单邮箱不�
   assert.equal(JSON.stringify(shown).includes(fresh), false);
   const stored = await api.db.owner.query("select status, email, email_enc, previous_email, previous_email_enc, email_masked from passenger_email_changes where approval_id = $1", [approvalId]);
   assert.equal(stored.rows[0].status, "pending_review");
-  assert.notEqual(stored.rows[0].email_enc, null, "等审核期间的新邮箱加密存");
-  assert.equal(stored.rows[0].email.includes(fresh), false, "明文列只有占位");
+  assert.notEqual(stored.rows[0].email_enc, null, "等审核期间的新邮箱加密存（明文列按 PASSENGER_PLAINTEXT_WRITE，和订单的乘客信息一样）");
+  assert.notEqual(stored.rows[0].previous_email_enc, null);
 
   await deliver();
   assert.equal(mailsTo(fresh).length, 0, "批准之前新地址收不到任何信");
@@ -233,7 +233,7 @@ test("其他字段照常：履约字段（人数）等供应商确认、备注�
   assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", res);
   assert.equal(res.status, 200, res.text);
   assert.equal(res.body.change.status, "pending_confirmation", "人数等供应商确认");
-  assert.equal(res.body.email_review.status, "pending");
+  assert.equal(res.body.email_review.status, "pending_review");
   const shown = await detail(placed.order.id);
   assert.deepEqual([shown.order.notes, shown.order.passengers], ["带一个婴儿车", 2], "备注已生效，人数没变");
   assert.deepEqual(shown.changes.map((change: any) => change.status).sort(), ["applied", "pending_confirmation"]);
@@ -296,7 +296,7 @@ test("权限：财务、风控、只读改不了；租户令牌进不来；供�
   assert.equal((await api.call("GET", `/tenant/v1/orders/${placed.order.id}`, { token: tenantA })).status, 404, "别家供应商读不到这张单");
   assert.equal((await api.call("GET", `/platform/v1/approvals/${requested.email_review.approval_id}`, { token: tenantB })).status, 401);
 
-  const root = await api.superAdminToken();
+  const root = await login("root@platform.test");
   const grants = ["orders:view", "orders:edit", "order_view_link:view", "order_view_link:review", "approvals:view"];
   const roleIn = async (cityId: string): Promise<string> => {
     const created = await ok(api.call("POST", "/platform/v1/roles", { token: root, body: { name: `邮箱复核 ${randomUUID().slice(0, 6)}`, grants, data_scope: { city_ids: [cityId], channel_ids: null } } }), 201);

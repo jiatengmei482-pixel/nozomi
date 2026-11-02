@@ -140,6 +140,7 @@ export type ApprovalKind =
   | "order.proxy_pick_up"
   | "order.proxy_complete"
   | "order.view_link_email"
+  | "order.passenger_email"
   | "rescue.manual_assign"
   | "compensation_table.update"
   | "ticket.decision"

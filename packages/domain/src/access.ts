@@ -173,6 +173,8 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 官网订单链接重发（M4-30，ADR 0061）：核实客人身份后把订单链接发到下单邮箱、发起「发到核实后的新邮箱」（`order.view_link_resend`）：运营、客服——
  * 官网让找不回订单的客人联系客服，接电话的是客服（和 `order.resend`、`notification.retry` 同一批人）。
  * 发到新邮箱等于把订单交给另一个人，要另一位同事审核（`order.view_link_review`）：运营——客服发起、运营审核；两位运营互审，或超级管理员审。
+ * 运营、客服代客人改单时改了乘客邮箱（M4-31，ADR 0065）同样是把订单交给另一个地址：由同一个 `order.view_link_review` 审核（同一批人、勾选表同一格），
+ * 不另加操作——两件事审的是同一个问题「这个新邮箱是不是客人本人的」。
  */
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,

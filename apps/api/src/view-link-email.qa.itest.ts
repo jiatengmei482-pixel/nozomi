@@ -610,8 +610,10 @@ test("运营改了下单邮箱以后：用旧邮箱查订单不再发；用新�
   const detail = await ok(api.call("GET", `/platform/v1/orders/${placed.order.id}`, { token: await login(m.staff.operations.email) }));
   const version = detail.order?.version ?? detail.version;
   const newEmail = fictional("change.new");
-  const patched = await api.call("PATCH", `/platform/v1/orders/${placed.order.id}`, { token: await login(m.staff.operations.email), headers: { "if-match": `"${version}"` }, body: { passenger: { name: PASSENGER_NAME, phone: PASSENGER_PHONE, email: newEmail } } });
-  assert.equal(patched.status, 200, patched.text);
+  // 代改邮箱要另一位同事批准（M4-31，ADR 0065）
+  const patched = await api.call("PATCH", `/platform/v1/orders/${placed.order.id}`, { token: await login(m.staff.operations.email), headers: { "if-match": `"${version}"` }, body: { passenger: { name: PASSENGER_NAME, phone: PASSENGER_PHONE, email: newEmail }, email_review: { verification: "callback_phone", reason: "回拨确认邮箱写错了" } } });
+  assert.equal(patched.status, 202, patched.text);
+  await ok(api.call("POST", `/platform/v1/approvals/${patched.body.email_review.approval_id}/approve`, { token: await login(ops2.email), body: {} }));
   await drain();
   assert.equal((await lookup(placed.order.order_no, oldEmail)).status, 202);
   assert.equal((await lookup(placed.order.order_no, newEmail)).status, 202);
