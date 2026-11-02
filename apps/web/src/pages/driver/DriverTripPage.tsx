@@ -4,6 +4,8 @@
  * - 令牌在 `#` 后面：不会发给服务器、不进访问日志；页面把它放进 `Authorization` 调 `/driver/v1/trip…`，不存进任何存储。
  * - 页面上**没有任何价格**（接口里本来就没有）。有乘客、电话、航班、上下车点（一键导航）、时间、附加服务、备注、调度电话。
  * - 按钮按顺序出现：出发 → 已到达上车点 → 接到客人 → 完成；点的时候带上手机的定位（不给定位也能点，只是到达时算不出距离）。出发后每分钟自动上报一次定位。
+ * - 每一步有最早可以点的时间（ADR 0064：出发、到达用车前 24 小时，接到客人、完成用车前 3 小时）。还没到时按钮下面写明最早几点（当地时间）；
+ *   按钮照样能点（以服务器的时间为准），太早时显示服务器给的说明。
  * - 接机：先拍到达屏再填实际落地时间（按城市当地时间填），提交后不能改。
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
  */
@@ -70,6 +72,7 @@ function errorText(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === "DRIVER_LINK_INVALID") return "链接无效或已过期，请联系调度重新发送。";
     if (err.code === "ORDER_STATE_INVALID") return "这一步现在不能做（可能已经有人点过了），页面已刷新。";
+    if (err.code === "FULFILMENT_TOO_EARLY") return err.message || "还没到可以点这一步的时间。";
     if (err.code === "NO_SHOW_EVIDENCE_INCOMPLETE") return "证据还不齐，请看下面还差哪几项。";
     if (err.code === "FREE_WAIT_NOT_ENDED") return "免费等待还没结束，结束后才能申请离开。";
     if (err.code === "LANDING_ALREADY_REPORTED") return "落地时间已经提交过，不能修改。";
@@ -177,6 +180,8 @@ export function DriverTripPage() {
   const zone = order.timezone;
   const next = NEXT_ACTION[order.status];
   const charterCompleting = next?.type === "completed" && order.category === "charter";
+  /** 打开页面时（服务器的时间）还没到下一步最早可以点的时间 */
+  const notYet = trip.next_event !== null && trip.next_event.type === next?.type && Date.parse(trip.server_time) < Date.parse(trip.next_event.earliest_at) ? trip.next_event : null;
   const placeName = order.place === null ? null : displayName(order.place.name).text;
   const landingOpen = trip.landing !== null && trip.landing.driver_reported_at === null && ["assigned", "departed", "arrived", "in_service"].includes(order.status);
 
@@ -263,6 +268,7 @@ export function DriverTripPage() {
           <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km))} onClick={() => act(next.type)}>
             {next.label}
           </Button>
+          {notYet !== null && <p className="field__hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
           <p className="field__hint">点按钮时会带上手机的定位（到达时用来核对是否在上车点 300 米内）。</p>
         </Section>
       )}

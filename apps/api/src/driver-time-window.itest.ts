@@ -4,8 +4,10 @@
  * - 边界：正好在最早时间那一刻可以，早 1 毫秒不行；航班晚点时比用车时间晚很多照样可以；
  * - 状态不对时先报 409（页面过时），不报太早；
  * - 司机页的这一单带上下一步最早什么时候可以点；
- * - 供应商的调度接口不受这次的窗口影响（ADR 0064「范围」）。
+ * - 供应商的调度接口不受这次的窗口影响（ADR 0064「范围」）；
+ * - ADR 0064 里识别「提前完成」订单的只读查询能执行，找得到提前完成的单、找不到正常的单。
  */
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { type TestApi, createTestApi } from "./testing/api.ts";
@@ -105,9 +107,20 @@ test("司机页的这一单带下一步最早什么时候可以点；完成以�
   assert.equal(serving.next_event, null);
 });
 
-test("供应商的调度接口不受这次的窗口影响：用车前两天仍可回传（ADR 0064「范围」）", async () => {
+test("供应商的调度接口不受这次的窗口影响：用车前两天仍可回传（ADR 0064「范围」）；ADR 里的只读查询找得到这张提前完成的单，找不到正常完成的单", async () => {
   const serviceAt = serviceIn(49);
   const { order, tenantToken } = await dispatched(serviceAt);
   for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(api.call("POST", `/tenant/v1/orders/${order.id}/events`, { token: tenantToken, body: { type } }));
   assert.equal((await trail(order.id)).status, "completed");
+
+  const normal = await dispatched(serviceIn(2));
+  for (const type of ["departed", "arrived", "picked_up", "completed"]) await ok(event(normal.token, type));
+  const adr = await readFile(new URL("../../../docs/adr/0064-driver-fulfilment-time-window.md", import.meta.url), "utf8");
+  const sql = /```sql\n([\s\S]*?)```/.exec(adr)?.[1];
+  assert.ok(sql !== undefined, "ADR 0064 里有只读查询");
+  const found = await api.db.owner.query<{ order_no: string; who: string }>(sql);
+  const numbers = found.rows.map((row) => row.order_no);
+  assert.ok(numbers.includes(order.orderNo), "提前完成的单找得到");
+  assert.ok(!numbers.includes(normal.order.orderNo), "正常完成的单找不到");
+  assert.equal(found.rows.find((row) => row.order_no === order.orderNo)?.who, "departed:tenant_user, arrived:tenant_user, in_service:tenant_user, completed:tenant_user");
 });

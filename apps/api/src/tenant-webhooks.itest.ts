@@ -182,6 +182,8 @@ test("推单：客人付款 → 自动确认 → order.confirmed 推给中标供
   const v = await newVehicle(api, who, m.ids.biz7);
   const first = await ok(assign(api, who, order.id, d1.id, v.id));
   await ok(assign(api, who, order.id, d2.id, v.id));
+  // 司机最早在用车前 24 小时才能点出发（ADR 0064）：派好车以后把用车时间挪到 1 小时后
+  await api.db.owner.query("update orders set service_at = $2 where id = $1", [order.id, new Date(api.clock.now().getTime() + 3_600_000)]);
   await ok(api.call("POST", "/driver/v1/trip/events", { token: (await ok(api.call("POST", `/tenant/v1/orders/${order.id}/driver-link`, { token }))).driver_link.token, body: { type: "departed" } }));
   assert.ok(first.driver_link.token);
   receiver.received.length = 0;

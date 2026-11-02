@@ -499,6 +499,8 @@ export function retryPlatformDelivery(token: string, id: string): Promise<{ deli
 // ---- 司机 H5 ----
 
 export interface DriverTrip {
+  /** 下一步和它最早什么时候可以点（ADR 0064）：`earliest_local` 是城市当地时间 `YYYY-MM-DD HH:mm`。这个状态不能回传履约时为 null */
+  next_event: { type: FulfilmentEventType; earliest_at: string; earliest_local: string } | null;
   /** 客人有修改申请在等调度确认（只有改了哪些项目）：确认前按原任务执行 */
   pending_change: { fields: string[] } | null;
   order: {
@@ -587,5 +589,5 @@ export const DISPATCH_SCHEMA_FIELDS = {
   TenantWebhook: ["url", "events", "status", "secret_hint", "secret_created_at", "version", "created_at", "updated_at"],
   WebhookDelivery: ["id", "event_id", "event_type", "order_id", "data", "status", "attempts", "next_attempt_at", "last_attempt_at", "last_status_code", "last_error_code", "last_duration_ms", "succeeded_at", "failed_at", "created_at"],
   WebhookAttempt: ["attempt_no", "trigger", "started_at", "duration_ms", "status_code", "error_code", "target_host", "request_bytes", "request_sha256"],
-  DriverTrip: ["order", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
+  DriverTrip: ["order", "next_event", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
 } as const;
