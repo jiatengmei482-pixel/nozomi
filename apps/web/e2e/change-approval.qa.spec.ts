@@ -105,6 +105,8 @@ async function dispatchedOrder(request: APIRequestContext, days: number) {
 }
 
 const THEMES = ["light", "dark"] as const;
+/** 官网页面的日期写法：11月22日 */
+const guestDate = (day: string): string => `${Number(day.slice(5, 7))}月${Number(day.slice(8, 10))}日`;
 const SECRET_REASON = "虚构原因：结算价太低司机小张生病";
 const changeOf = (page: Page) => page.locator("section").filter({ has: page.getByRole("heading", { name: "修改记录" }) });
 
@@ -169,7 +171,7 @@ for (const scheme of THEMES) {
 
     await guest.reload();
     await expect(section.getByText(/您的修改没有通过，原预约不变/)).toBeVisible();
-    await expect(guest.locator("body")).toContainText(`${oldDay} 10:00`);
+    await expect(guest.locator("body")).toContainText(guestDate(oldDay));
     await expect(guest.locator("body")).not.toContainText(SECRET_REASON);
     await expectNoHorizontalOverflow(guest, `官网 ${scheme}：被拒`);
     await expectAccessible(guest, `官网 ${scheme}：被拒`);
@@ -185,10 +187,11 @@ for (const scheme of THEMES) {
     await expectNoHorizontalOverflow(driverPage, `司机页 ${scheme}`);
 
     // 客人取消：通知即生效
-    await guest.getByRole("button", { name: /取消订单|免费取消/ }).first().click();
-    const confirmDialog = guest.getByRole("dialog");
-    await expect(confirmDialog).toBeVisible();
-    await confirmDialog.getByRole("button", { name: /确认取消|取消订单/ }).click();
+    await guest.getByRole("button", { name: /免费取消/ }).click();
+    const confirmGroup = guest.getByRole("group", { name: "确认取消订单" });
+    await expect(confirmGroup).toBeVisible();
+    await expectNoHorizontalOverflow(guest, `官网 ${scheme}：确认取消`);
+    await confirmGroup.getByRole("button", { name: "确认取消订单" }).click();
     await expect(guest.locator("body")).toContainText("已取消");
     const tenantCancel = await waitForMail(supplier.tenant.adminEmail, /这张订单已取消/);
     expect(tenantCancel).toContain("需调整司机");
@@ -229,7 +232,7 @@ test("运营代处理（暗色，手机宽度）：原因必填；代拒绝后�
   await expectAccessible(page, "运营详情：代拒绝后 暗色");
   await guest.reload();
   await expect(section.getByText(/您的修改没有通过/)).toBeVisible();
-  await expect(guest.locator("body")).toContainText(`${oldDay} 10:00`);
+  await expect(guest.locator("body")).toContainText(guestDate(oldDay));
   await expect(guest.locator("body")).not.toContainText(SECRET_REASON);
   const supplierContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "zh-CN", baseURL: `http://127.0.0.1:${E2E_WEB_DRIVER_MAIL_PORT}`, colorScheme: "light" });
   const supplierPage = await supplierContext.newPage();
