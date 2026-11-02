@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { EXCEPTION_DUE_MINUTES, EXCEPTION_HANDLING, EXCEPTION_TYPES, EXCEPTION_TYPE_NAMES, exceptionActionRefusal, exceptionDueAt, exceptionOverdue, fulfilmentUnfinishedAt } from "./exceptions.ts";
 
 test("异常类型与需求表一致（另加救援中），每种都有名称、处理方式、时限", () => {
-  assert.deepEqual(EXCEPTION_TYPES.map((type) => EXCEPTION_TYPE_NAMES[type]), ["超时未派车", "司机未出发", "司机未到达", "状态推送失败", "no-show 待审核", "附加费用待审核", "履约未结束", "支付异常", "救援中"]);
+  assert.deepEqual(EXCEPTION_TYPES.map((type) => EXCEPTION_TYPE_NAMES[type]), ["超时未派车", "司机未出发", "司机未到达", "状态推送失败", "no-show 待审核", "附加费用待审核", "履约未结束", "支付异常", "救援中", "改单未确认"]);
   for (const type of EXCEPTION_TYPES) assert.ok(EXCEPTION_HANDLING[type].length > 0, type);
   assert.deepEqual(EXCEPTION_DUE_MINUTES, {
+    change_unconfirmed: 15,
     dispatch_overdue: 0,
     departure_overdue: 15,
     arrival_overdue: 5,

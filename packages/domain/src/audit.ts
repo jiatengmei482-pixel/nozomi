@@ -84,6 +84,8 @@ export const AUDIT_ACTIONS = [
   "fetch",
   "hold",
   "confirm",
+  // 改单标记调整中（ADR 0060）
+  "mark_adjusting",
   "dismiss",
   "stale",
   "request",

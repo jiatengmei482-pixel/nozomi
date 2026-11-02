@@ -54,6 +54,7 @@ function tripJson(view: TripView): Record<string, unknown> {
       driver_language: order.driverLanguage,
       free_wait_minutes: order.freeWaitMinutes,
     },
+    pending_change: view.pendingChangeFields === null ? null : { fields: view.pendingChangeFields },
     driver: view.driver === null ? null : { name: view.driver.name },
     vehicle: view.vehicle === null ? null : { plate: view.vehicle.plate, model: view.vehicle.model, color: view.vehicle.color },
     dispatchers: view.dispatchers,

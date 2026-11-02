@@ -37,7 +37,7 @@ type Json = Record<string, unknown>;
 
 const dateSchema = z.string().refine(isLocalDate, "日期写成 YYYY-MM-DD").optional();
 
-const tenantListSchema = pageQuerySchema.extend({ status: z.enum(ORDER_STATUSES).optional(), from: dateSchema, to: dateSchema, dispatch: z.enum(["unassigned", "overdue"]).optional() });
+const tenantListSchema = pageQuerySchema.extend({ status: z.enum(ORDER_STATUSES).optional(), from: dateSchema, to: dateSchema, dispatch: z.enum(["unassigned", "overdue"]).optional(), change: z.enum(["pending"]).optional() });
 const platformListSchema = pageQuerySchema.extend({
   status: z.enum(ORDER_STATUSES).optional(),
   tenant_id: uuidSchema.transform((value) => value.toLowerCase()).optional(),
@@ -223,7 +223,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
   app.get("/tenant/v1/orders", async (request) => {
     const principal = await authenticateTenant(ctx, bearerToken(request.headers.authorization), { action: "order.read" });
     const query = parseInput(tenantListSchema, request.query, "querystring");
-    const page = await listOrdersForTenant(ctx, principal.tenantId, { status: query.status ?? null, from: query.from ?? null, to: query.to ?? null, dispatch: query.dispatch ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
+    const page = await listOrdersForTenant(ctx, principal.tenantId, { status: query.status ?? null, from: query.from ?? null, to: query.to ?? null, dispatch: query.dispatch ?? null, change: query.change ?? null }, query.limit, decodeTimeCursor(query.cursor ?? null));
     const now = ctx.now();
     return { items: page.items.map((item) => tenantOrderJson(item.order, item.facts, now)), next_cursor: page.nextCursor, total: page.total };
   });

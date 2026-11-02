@@ -8,6 +8,8 @@ import {
   type DriverLinkEmailFacts,
   type DriverLinkSendFacts,
   driverLinkEmailErrorText,
+  driverNoticeChannel,
+  driverNoticeSendBlock,
   driverLinkEmailView,
   driverLinkResendWait,
   driverLinkSendBlock,
@@ -171,7 +173,7 @@ test("司机模板：变量都在白名单、没有价格字眼、写明不要�
   assert.match(template.body, /客人信息/);
   for (const name of DRIVER_VARIABLES) assert.doesNotMatch(name, TENANT_FORBIDDEN_PATTERN);
   assert.doesNotMatch(DRIVER_VARIABLES.join(","), /passenger|phone|email|address/);
-  assert.equal(NOTIFICATION_TEMPLATES.filter((item) => item.audience === "driver").length, 1);
+  assert.deepEqual(NOTIFICATION_TEMPLATES.filter((item) => item.audience === "driver").map((item) => item.event).sort(), ["order.driver_cancelled", "order.driver_change_declined", "order.driver_change_pending", "order.driver_changed", "order.driver_link"]);
 });
 
 test("司机模板：渲染；主题里没有链接；变量里的换行被规整", () => {
@@ -188,4 +190,29 @@ test("司机模板：渲染；主题里没有链接；变量里的换行被规�
 
 test("打码沿用通知中心的规则", () => {
   assert.equal(maskEmail("fictional.driver@example.test"), "fi***@example.test");
+});
+
+test("发给司机的修改和取消通知（ADR 0060）：只有名称没有值；只有「任务有更新」带链接；发送前复查偏向不发", () => {
+  for (const event of ["order.driver_change_pending", "order.driver_changed", "order.driver_change_declined", "order.driver_cancelled"] as const) {
+    const template = findNotificationTemplate(event, "driver", "zh-CN", "email");
+    assert.ok(template);
+    for (const name of templatePlaceholders(template)) assert.ok((DRIVER_VARIABLES as readonly string[]).includes(name), `${event} ${name}`);
+    assert.equal(templatePlaceholders(template).includes("driver_link_url"), event === "order.driver_changed", event);
+    assert.doesNotMatch(`${template.subject}${template.body}`, TENANT_FORBIDDEN_PATTERN);
+  }
+  const now = new Date("2026-11-01T00:00:00Z");
+  const later = new Date("2026-11-05T00:00:00Z");
+  const ok = { now, driverId: "d1", order: { status: "assigned", driverId: "d1" }, changeOpen: true, anchor: { driverId: "d1", revokedAt: null, expiresAt: later }, mode: "auto" as const, driver: { email: "fictional.driver@example.test", status: "active" } };
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_changed" }), null);
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_changed", anchor: { ...ok.anchor, revokedAt: now } }), "DRIVER_LINK_REVOKED");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_changed", anchor: { ...ok.anchor, expiresAt: now } }), "DRIVER_LINK_REVOKED");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_changed", order: { status: "assigned", driverId: "d2" } }), "ORDER_STATE_CHANGED", "改派之后不发给旧司机");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_change_pending", changeOpen: false }), "CHANGE_DECIDED");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_cancelled", order: { status: "cancelled", driverId: "d1" }, anchor: null, changeOpen: null }), null, "取消：通知的就是当时那位");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_cancelled", mode: "manual" }), "DRIVER_LINK_MANUAL");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_cancelled", driver: { email: null, status: "active" } }), "DRIVER_EMAIL_MISSING");
+  assert.equal(driverNoticeSendBlock({ ...ok, event: "order.driver_cancelled", driver: { email: "fictional.driver@example.test", status: "disabled" } }), "DRIVER_DISABLED");
+  assert.equal(driverNoticeChannel("auto", "x@example.test"), "email");
+  assert.equal(driverNoticeChannel("manual", "x@example.test"), "manual");
+  assert.equal(driverNoticeChannel("auto", " "), "no_email");
 });

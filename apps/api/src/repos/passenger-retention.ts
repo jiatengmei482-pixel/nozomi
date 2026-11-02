@@ -50,7 +50,7 @@ export const RETENTION_BLOCKERS = {
   refund: `exists (select 1 from order_refunds r where r.order_id = a.id
                      and (r.status in ('pending', 'processing') or (r.status = 'failed' and r.superseded_at is null and not exists (select 1 from order_refunds retry where retry.retry_of = r.id))))`,
   open_work: `exists (select 1 from order_exceptions e where e.order_id = a.id and e.status <> 'closed')
-    or exists (select 1 from order_changes c where c.order_id = a.id and c.status in ('awaiting_payment', 'pending_confirmation'))
+    or exists (select 1 from order_changes c where c.order_id = a.id and c.status in ('awaiting_payment', 'pending_confirmation', 'adjusting'))
     or exists (select 1 from order_rescues r where r.order_id = a.id and r.status in ('open', 'offering', 'exhausted'))
     or exists (select 1 from approvals v where v.status = 'pending' and (
          (v.resource = 'order' and v.resource_id = a.id::text)

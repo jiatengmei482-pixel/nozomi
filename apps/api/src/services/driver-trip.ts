@@ -19,6 +19,7 @@ import {
   freeWaitWindow,
   landingReportIssue,
   noShowChecklist,
+  orderChangeDecidable,
   orderStatusIsFinal,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -47,6 +48,7 @@ import {
   updateFulfilment,
 } from "../repos/dispatch.ts";
 import { type Driver, type Vehicle, findDriver, findVehicle } from "../repos/fleet.ts";
+import { findOpenChange } from "../repos/order-changes.ts";
 import { type Order, findTenantOrder } from "../repos/orders.ts";
 import { validationFailed } from "../validation.ts";
 import { type FulfilmentInput, type ReportedLocation, applyFulfilmentEvent, assertTenantCanOperate, orderStateInvalid, pickupPoint, recordStatusChange } from "./fulfilment.ts";
@@ -119,6 +121,8 @@ export interface TripView {
   freeWait: FreeWaitWindow;
   checklist: NoShowChecklist;
   claim: NoShowClaim | null;
+  /** 客人有修改申请在等调度确认（只有改了哪些项目的名称）：确认前按原任务执行 */
+  pendingChangeFields: string[] | null;
   now: Date;
 }
 
@@ -126,6 +130,7 @@ async function tripView(db: Db, session: DriverSession, order: Order, now: Date)
   const { tenantId } = session;
   const fresh = (await findTenantOrder(db, tenantId, order.id)) as Order;
   const place = fresh.placeId === null ? null : await findPlace(db, fresh.placeId);
+  const open = await findOpenChange(db, tenantId, fresh.id);
   return {
     order: fresh,
     driver: fresh.dispatch.driverId === null ? null : await findDriver(db, tenantId, fresh.dispatch.driverId),
@@ -140,6 +145,7 @@ async function tripView(db: Db, session: DriverSession, order: Order, now: Date)
     freeWait: orderFreeWait(fresh),
     checklist: await checklistOf(db, fresh, now),
     claim: await findNoShowClaim(db, tenantId, fresh.id),
+    pendingChangeFields: open !== null && orderChangeDecidable(open.status) ? Object.keys(open.after).filter((field) => field !== "service_local") : null,
     now,
   };
 }

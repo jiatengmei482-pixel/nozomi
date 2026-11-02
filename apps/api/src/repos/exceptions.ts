@@ -6,7 +6,7 @@
  * 已经生成、还没关的，如果条件已经不成立（已经派车、退款重试成功了……），系统关闭（`cleared`）。
  * 整个「找出 + 新建 + 关闭」是一条语句，多个实例同时跑也不会建重复的。
  */
-import { EXCEPTION_DUE_MINUTES, EXCEPTION_RULES, type ExceptionCloseKind, type ExceptionStatus, type ExceptionType } from "@nozomi/domain";
+import { EXCEPTION_DUE_MINUTES, EXCEPTION_RULES, ORDER_CHANGE_RULES, type ExceptionCloseKind, type ExceptionStatus, type ExceptionType } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { textForOrder } from "./passenger-texts.ts";
 import { type Page, type TimeCursor, toPage } from "../pagination.ts";
@@ -41,6 +41,13 @@ const DETECTORS: readonly string[] = [
   `select 'fulfilment_unfinished', 'order:' || o.tenant_id || ':' || o.id, o.id, o.tenant_id, jsonb_build_object('status', o.status, 'service_at', o.service_at)
      from orders o where o.status in ('assigned', 'departed', 'arrived', 'in_service')
       and o.service_at + make_interval(hours => coalesce(o.package_hours, 0) + ${EXCEPTION_RULES.unfinishedHoursAfterService}) <= $1`,
+  // 改单没结论：提出超过时限（离最早用车时间越近越短，ADR 0060）。有结论后条件不成立，系统关闭
+  `select 'change_unconfirmed', 'change:' || c.id, c.order_id, c.tenant_id, jsonb_build_object('change_id', c.id, 'status', c.status, 'requested_at', c.requested_at, 'confirm_due_at', c.confirm_due_at)
+     from order_changes c join orders o on o.tenant_id = c.tenant_id and o.id = c.order_id
+    where c.status in ('pending_confirmation', 'adjusting')
+      and c.requested_at + make_interval(mins => case when coalesce(c.earliest_service_at, o.service_at) <= $1 + interval '24 hours' then ${ORDER_CHANGE_RULES.remindMinutes.within24h}
+                                                      when coalesce(c.earliest_service_at, o.service_at) <= $1 + interval '48 hours' then ${ORDER_CHANGE_RULES.remindMinutes.within48h}
+                                                      else ${ORDER_CHANGE_RULES.remindMinutes.later} end) <= $1`,
   // 支付异常：退款失败（重试耗尽或被拒；作废的、已经重试过的不算）
   `select 'payment_issue', 'refund:' || r.id, r.order_id, r.supplier_tenant_id, jsonb_build_object('reason', 'refund_failed', 'refund_id', r.id, 'purpose', r.purpose, 'amount_minor', r.amount_minor, 'currency', r.currency, 'last_error', r.last_error)
      from order_refunds r where r.status = 'failed' and r.superseded_at is null and not exists (select 1 from order_refunds retry where retry.retry_of = r.id)`,

@@ -7,7 +7,7 @@
  * 每一轮：展开事件 → 用车提醒（最多每分钟扫一次）→ 过期 → 处理中途断掉的 → 邮件没配置就到此为止（记录保留，配置后发）→ 取走到期的记录逐条发送。
  * 发送在事务之外（最多 15 秒，ADR 0048）；取走时写租约令牌，记结果时核对。
  *
- * 发给司机的邮件（M4-27，ADR 0058）走同一条路，只是发送前的复查和生成链接在租户事务里。
+ * 发给司机的邮件（M4-27，ADR 0058；M4-29，ADR 0060）走同一条路，只是发送前的复查和生成链接在租户事务里。
  *
  * 日志只写通知编号、事件、订单编号、错误码：**不写邮箱、令牌、主题、正文**。查看链接的令牌只在内存里（库里只有哈希）。
  */
@@ -22,8 +22,15 @@ import {
   type LocalizedText,
   type NotificationAudience,
   type NotificationEvent,
+  CHANGE_DECLINE_ADVICE,
   ORDER_CHANGE_FIELD_NAMES,
   OBSERVATION_REASON_NAMES,
+  TENANT_DRIVER_NOTICE_EVENTS,
+  changeFieldsNeedConfirmation,
+  driverNoticeChannel,
+  isDriverNoticeEvent,
+  orderChangeOpen,
+  tenantDriverNoticeText,
   TENANT_RULES,
   TENANT_STATUS_NAMES,
   type TenantStatus,
@@ -53,6 +60,7 @@ import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import { findExtraChargeForPlatform } from "../repos/extra-charges.ts";
 import { findDriver, findVehicle } from "../repos/fleet.ts";
+import { findOrderChange } from "../repos/order-changes.ts";
 import { PASSENGER_DECRYPT_FAILED, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import {
   type Notification,
@@ -84,7 +92,7 @@ import {
 } from "../repos/notifications.ts";
 import { type Order, type OrderSale, findOrderForPlatform, findOrderOfTenant, findSale } from "../repos/orders.ts";
 import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
-import { prepareDriverLinkEmail } from "./driver-link-email.ts";
+import { prepareDriverLinkEmail, prepareDriverNotice } from "./driver-link-email.ts";
 import { customerAmountOf } from "./extra-charges.ts";
 import { sendMail } from "./mail.ts";
 import type { OrderLog } from "./orders.ts";
@@ -173,6 +181,7 @@ async function guestVariables(db: Db, event: StoredNotificationEvent, order: Ord
     const vehicle = await findVehicle(db, order.tenantId, order.dispatch.vehicleId);
     if (driver !== null && vehicle !== null) Object.assign(base, { driver_name: driver.name, driver_phone: driver.phone, vehicle_plate: vehicle.plate });
   }
+  if (event.event === "order.change_declined") base["change_decline_advice"] = CHANGE_DECLINE_ADVICE[String(event.data["advice"])] ?? (CHANGE_DECLINE_ADVICE["policy"] as string);
   if (event.event === "extra_charge.submitted") {
     const charge = await findExtraChargeForPlatform(db, order.id, String(event.data["charge_id"]));
     if (charge !== null) Object.assign(base, { extra_charge_type: EXTRA_CHARGE_TYPE_NAMES[charge.type as ExtraChargeType], extra_charge_amount: moneyText(customerAmountOf(charge, sale), sale.currency), dispute_until: tokyoText(charge.disputeUntil) });
@@ -195,6 +204,13 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
       changed_fields: changedFieldsText(data["fields"]),
       ...(order.dispatch.dueAt === null ? {} : { dispatch_due_at: tokyoText(order.dispatch.dueAt) }),
     });
+  }
+  if (order !== null && TENANT_DRIVER_NOTICE_EVENTS.includes(event.event)) {
+    // 只读司机的名字和邮箱有没有：邮件里只写名字
+    const driver = order.dispatch.driverId === null ? null : await findDriver(db, order.tenantId, order.dispatch.driverId);
+    const { driverLinkDelivery } = await findNotificationSettings(db, order.tenantId);
+    const needsAdjustment = event.event !== "order.changed" || (Array.isArray(data["fields"]) && changeFieldsNeedConfirmation(data["fields"].map(String)));
+    out["driver_notice"] = tenantDriverNoticeText(event.event, driver?.name ?? null, driverNoticeChannel(driverLinkDelivery, driver?.email ?? null), needsAdjustment);
   }
   if (typeof data["confirm_due_at"] === "string") out["confirm_due_at"] = tokyoText(new Date(data["confirm_due_at"]));
   if (typeof data["ticket_no"] === "string") out["ticket_no"] = data["ticket_no"];
@@ -444,6 +460,11 @@ export class NotificationJobs {
       const facts = order === null ? null : { status: order.status, serviceAtMs: order.serviceAt.getTime(), driverId: order.dispatch.driverId, vehicleId: order.dispatch.vehicleId };
       if (notificationStale(notification.event, event.data, facts, { now: this.ctx.now(), audience: notification.audience })) return { kind: "stale" };
     }
+    // 等处理的通知：申请已经有结论了，再发就是让人去处理一件已经结束的事
+    if (notification.event === "order.change_pending" && notification.tenantId !== null && typeof event.data["change_id"] === "string") {
+      const change = await findOrderChange(db, notification.tenantId, event.data["change_id"]);
+      if (change === null || !orderChangeOpen(change.status)) return { kind: "stale", code: "CHANGE_DECIDED" };
+    }
     const now = this.ctx.now();
     if (!manual && notification.audience === "tenant" && notification.tenantId !== null) {
       const { quietHours } = await findNotificationSettings(db, notification.tenantId);
@@ -479,7 +500,7 @@ export class NotificationJobs {
     if (event === null || notification.tenantId === null || notification.orderId === null) return { kind: "render_failed" };
     const tenantId = notification.tenantId;
     const orderId = notification.orderId;
-    const prepared = await withTenantTx(this.ctx.pool, tenantId, (db) => prepareDriverLinkEmail(db, this.ctx, { requestId: event.id, tenantId, orderId, data: event.data }));
+    const prepared = await withTenantTx(this.ctx.pool, tenantId, (db) => (isDriverNoticeEvent(notification.event) ? prepareDriverNotice(db, this.ctx, { event: notification.event, tenantId, orderId, data: event.data }) : prepareDriverLinkEmail(db, this.ctx, { requestId: event.id, tenantId, orderId, data: event.data })));
     if (prepared.kind === "blocked") return { kind: "stale", code: prepared.code };
     if (prepared.kind === "render_failed") return prepared;
     if (prepared.message.to !== notification.recipient) await withPlatformTx(this.ctx.pool, (db) => updateDriverRecipient(db, notification.id, prepared.message.to));

@@ -49,6 +49,40 @@ export function driverLinkSendBlock(facts: DriverLinkSendFacts): DriverLinkSendB
   return null;
 }
 
+export type DriverNoticeBlock = "ORDER_STATE_CHANGED" | "CHANGE_DECIDED" | "DRIVER_LINK_REVOKED" | "DRIVER_LINK_MANUAL" | "DRIVER_EMAIL_MISSING" | "DRIVER_DISABLED";
+
+/** 客人修改、取消时发给司机的通知（ADR 0060）。发送前复查：能发返回 null。规则和 `driverLinkSendBlock` 同一个方向：对不上就不发。 */
+export function driverNoticeSendBlock(facts: {
+  now: Date;
+  event: string;
+  driverId: string;
+  order: { status: string; driverId: string | null };
+  /** 等确认的通知：那次申请现在还有没有结论 */
+  changeOpen: boolean | null;
+  /** 带链接的通知：发起时调度员手里那条链接现在的样子 */
+  anchor: { driverId: string; revokedAt: Date | null; expiresAt: Date } | null;
+  mode: DriverLinkDeliveryMode;
+  driver: { email: string | null; status: string } | null;
+}): DriverNoticeBlock | null {
+  const { event, order, anchor, driver, now } = facts;
+  // 取消：通知的就是当时派的那位，订单已经不在可发链接的状态
+  if (event !== "order.driver_cancelled") {
+    if (!DRIVER_LINK_EMAIL_STATUSES.includes(order.status) || order.driverId !== facts.driverId) return "ORDER_STATE_CHANGED";
+    if (event === "order.driver_change_pending" && facts.changeOpen !== true) return "CHANGE_DECIDED";
+  }
+  if (event === "order.driver_changed" && (anchor === null || anchor.driverId !== facts.driverId || anchor.revokedAt !== null || anchor.expiresAt.getTime() <= now.getTime())) return "DRIVER_LINK_REVOKED";
+  if (facts.mode !== "auto") return "DRIVER_LINK_MANUAL";
+  if (driver === null || driver.status !== "active") return "DRIVER_DISABLED";
+  if (driver.email === null || driver.email.trim() === "") return "DRIVER_EMAIL_MISSING";
+  return null;
+}
+
+/** 调度员要不要自己通知司机：`email` 系统发邮件；`manual` 供应商设的手动发送；`no_email` 司机没邮箱。 */
+export function driverNoticeChannel(mode: DriverLinkDeliveryMode, driverEmail: string | null): "email" | "manual" | "no_email" {
+  if (mode !== "auto") return "manual";
+  return driverEmail === null || driverEmail.trim() === "" ? "no_email" : "email";
+}
+
 /** 重发限速：还要等多少秒；能发返回 null。`orderRecent` 是这张单最近一小时发起的时间，`tenantCount` 是这家最近一小时的次数。 */
 export function driverLinkResendWait(input: { now: Date; orderRecent: readonly Date[]; tenantCount: number; tenantOldest: Date | null }): number | null {
   const { orderCooldownSeconds, orderPerHour, tenantPerHour } = DRIVER_LINK_EMAIL_LIMITS;

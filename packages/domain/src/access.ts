@@ -61,6 +61,7 @@ export const PLATFORM_ACTIONS = [
   "order.manage",
   "order.proxy_fulfilment",
   "order.proxy_review",
+  "order.change_decide",
   "payment.manage",
   "cancellation_policy.manage",
   "cancellation_policy.review",
@@ -172,7 +173,7 @@ const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformActio
   super_admin: PLATFORM_ACTIONS,
   operations: [
     "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
-    "order.manage", "order.proxy_fulfilment", "order.proxy_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
+    "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review", "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
   ],
   tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
@@ -319,6 +320,8 @@ export const PLATFORM_MENUS = [
   { key: "orders", name: "订单", operations: { view: ["order.read"], edit: ["order.resend", "order.manage"], review: ["payment.manage"] } },
   // 代传履约（M4-18，ADR 0052）：单独一格。自建角色存的是勾选，放进「订单 · 编辑」的话，已有的自建角色会没人审核就多出这个权限
   { key: "order_proxy", name: "代传履约", operations: { view: ["order.read"], edit: ["order.proxy_fulfilment"], review: ["order.proxy_review"] } },
+  // 代供应商处理改单（M4-29，ADR 0060）：单独一格。放进「订单 · 编辑」的话，客服和已有的自建角色就能替供应商答应排车
+  { key: "order_change_decide", name: "代处理改单", operations: { view: ["order.read"], edit: ["order.change_decide"] } },
   // 异常队列（M4-02，ADR 0034）：看和看订单是同一个操作（和救援一样），认领和关闭算编辑——单独一格，财务处理支付异常不用拿到代取消、改单
   { key: "exceptions", name: "异常队列", operations: { view: ["order.read"], edit: ["exception.manage"] } },
   // 救援改派（M3-04）：救援队列就是订单的一部分，看和看订单是同一个操作；发起救援、发救援单、不可抗力、发起人工指定算编辑，审核人工指定算审核

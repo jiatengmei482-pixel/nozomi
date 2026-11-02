@@ -11,6 +11,9 @@ import {
   DRIVER_LINK_EMAIL_STATUSES,
   type DriverLinkEmailView,
   type DriverLinkSendBlock,
+  type DriverNoticeBlock,
+  type NotificationEvent,
+  ORDER_CHANGE_FIELD_NAMES,
   type LocalizedText,
   type MailMessage,
   driverLinkEmailErrorText,
@@ -18,10 +21,12 @@ import {
   driverLinkExpiry,
   driverLinkResendWait,
   driverLinkSendBlock,
+  driverNoticeSendBlock,
   driverTripSummary,
   findNotificationTemplate,
   instantToLocal,
   maskEmail,
+  orderChangeOpen,
   renderNotification,
 } from "@nozomi/domain";
 import { newDriverToken } from "../auth/driver-token.ts";
@@ -33,6 +38,7 @@ import { type DriverLink, currentDriverLink, findDriverLinkById, insertDriverLin
 import { driverLinkEmailUsage, insertDriverLinkEmail, latestDriverLinkEmailId, latestDriverLinkEmailOfLink } from "../repos/driver-link-emails.ts";
 import { type Driver, findDriver } from "../repos/fleet.ts";
 import { enqueueNotification, findNotificationSettings } from "../repos/notifications.ts";
+import { findOrderChange } from "../repos/order-changes.ts";
 import { type Order, findTenantOrder } from "../repos/orders.ts";
 import { findOrderNames } from "../repos/site.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
@@ -116,7 +122,7 @@ export async function resendDriverLinkEmail(ctx: AppContext, writer: { principal
   });
 }
 
-export type PreparedDriverEmail = { kind: "message"; message: MailMessage } | { kind: "blocked"; code: DriverLinkSendBlock } | { kind: "render_failed" };
+export type PreparedDriverEmail = { kind: "message"; message: MailMessage } | { kind: "blocked"; code: DriverLinkSendBlock | DriverNoticeBlock } | { kind: "render_failed" };
 
 /**
  * 发送前（后台任务，租户事务，事件里的租户编号）：先锁订单，再读链接、司机、设置，复查都过了才生成邮件专用链接。
@@ -163,6 +169,51 @@ export async function prepareDriverLinkEmail(db: Db, ctx: AppContext, input: { r
   });
   if (rendered === null) return { kind: "render_failed" };
   await insertDriverLink(db, tenantId, { purpose: "email", orderId, assignmentId, driverId, tokenHash, createdAt: now, expiresAt });
+  return { kind: "message", message: { to: driver.email, subject: rendered.subject, text: rendered.text } };
+}
+
+/**
+ * 客人修改、取消时发给司机的通知（ADR 0060），发送前（后台任务，租户事务）：先锁订单再复查。
+ * 只有行程概要和改了哪些项目的名称，不写值，没有客人信息和价格。只有「任务有更新」带链接：和上面一样现生成，原文只在返回的邮件内容里。
+ */
+export async function prepareDriverNotice(db: Db, ctx: AppContext, input: { event: NotificationEvent; tenantId: string; orderId: string; data: Readonly<Record<string, unknown>> }): Promise<PreparedDriverEmail> {
+  const { tenantId, orderId, data, event } = input;
+  const driverId = data["driver_id"];
+  if (typeof driverId !== "string") return { kind: "render_failed" };
+  const now = ctx.now();
+  const order = await findTenantOrder(db, tenantId, orderId, { lock: true });
+  if (order === null) return { kind: "blocked", code: "ORDER_STATE_CHANGED" };
+  const linkId = typeof data["link_id"] === "string" ? data["link_id"] : null;
+  const anchor = linkId === null ? null : await findDriverLinkById(db, tenantId, linkId);
+  const changeId = typeof data["change_id"] === "string" ? data["change_id"] : null;
+  const change = changeId === null ? null : await findOrderChange(db, tenantId, changeId);
+  const { driverLinkDelivery } = await findNotificationSettings(db, tenantId);
+  const driver = await findDriver(db, tenantId, driverId);
+  const block = driverNoticeSendBlock({ now, event, driverId, order: { status: order.status, driverId: order.dispatch.driverId }, changeOpen: change === null ? null : orderChangeOpen(change.status), anchor, mode: driverLinkDelivery, driver });
+  if (block !== null) return { kind: "blocked", code: block };
+  const template = findNotificationTemplate(event, "driver", "zh-CN", "email");
+  if (template === null || driver === null || driver.email === null) return { kind: "render_failed" };
+  const names = await findOrderNames(db, { cityId: order.cityId, placeId: order.placeId, vehicleGroupId: order.vehicleGroupId });
+  const fields = Array.isArray(data["fields"]) ? data["fields"].map((field) => ORDER_CHANGE_FIELD_NAMES[String(field)] ?? String(field)) : [];
+  const variables: Record<string, string> = {
+    driver_name: driver.name,
+    order_no: order.orderNo,
+    service_time: order.serviceLocal.replace("T", " "),
+    trip_summary: driverTripSummary({ city: nameOf(names.city?.name), category: order.category, direction: order.direction, place: nameOf(names.place?.name), packageHours: order.packageHours }),
+    vehicle_group: nameOf(names.vehicleGroup?.name) ?? "见任务详情",
+    changed_fields: fields.length > 0 ? fields.join("、") : "任务信息",
+  };
+  let link: { token: string; tokenHash: string; expiresAt: Date } | null = null;
+  if (event === "order.driver_changed") {
+    const expiresAt = driverLinkExpiry(order.serviceAt, order.packageHours);
+    if (expiresAt.getTime() <= now.getTime() || typeof data["assignment_id"] !== "string") return { kind: "blocked", code: "DRIVER_LINK_REVOKED" };
+    link = { ...newDriverToken(tenantId), expiresAt };
+    variables["driver_link_url"] = `${ctx.config.publicBaseUrl}/driver#${link.token}`;
+    variables["link_expires_at"] = clockText(expiresAt, order.timezone);
+  }
+  const rendered = renderNotification(template, variables);
+  if (rendered === null) return { kind: "render_failed" };
+  if (link !== null) await insertDriverLink(db, tenantId, { purpose: "email", orderId, assignmentId: data["assignment_id"] as string, driverId, tokenHash: link.tokenHash, createdAt: now, expiresAt: link.expiresAt });
   return { kind: "message", message: { to: driver.email, subject: rendered.subject, text: rendered.text } };
 }
 

@@ -20,7 +20,7 @@ import { type SalesPoint, type SalesQuote, createSalesQuotes, getSalesQuote, sal
 import { type SalesOrderPayment, type SalesOrderView, createSalesOrder, getSalesOrderView, reportGuestLanding } from "../services/orders.ts";
 import { dateTimeSchema, idempotencyKey, parseInput, passengerInput, resourceId, singleLine, uuidSchema } from "../validation.ts";
 import { cancelPolicyJson, landingJson, orderTripJson } from "../services/order-views.ts";
-import { disputeOpen, portionBasisPoints, priceDifference } from "@nozomi/domain";
+import { disputeOpen, orderChangeDecidable, portionBasisPoints, priceDifference } from "@nozomi/domain";
 import type { OrderChange } from "../repos/order-changes.ts";
 import type { ExtraCharge } from "../repos/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
@@ -125,7 +125,7 @@ function salesChangeJson(change: OrderChange, view: SalesOrderView): Record<stri
     before: change.before,
     after: change.after,
     price_difference: diff === null || sale === null ? null : { kind: diff.kind, amount: salesMoney(diff.amountMinor, sale.currency) },
-    confirm_due_at: change.status === "pending_confirmation" ? (change.confirmDueAt?.toISOString() ?? null) : null,
+    confirm_due_at: orderChangeDecidable(change.status) ? (change.confirmDueAt?.toISOString() ?? null) : null,
     requested_at: change.requestedAt.toISOString(),
     decided_at: change.decidedAt?.toISOString() ?? null,
   };
