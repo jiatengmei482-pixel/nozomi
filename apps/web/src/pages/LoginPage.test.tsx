@@ -45,7 +45,7 @@ test("供应商后台登录页：副标题、标签、切换链接、页面标�
   assert.equal(password.autocomplete, "current-password");
   assert.equal(password.placeholder, "");
   assert.equal(screen.getByRole("button", { name: "登录" }).getAttribute("type"), "submit");
-  assert.equal(screen.getByRole("link", { name: "我是平台员工，去运营后台登录" }).getAttribute("href"), "/platform/login");
+  assert.equal(screen.getByRole("link", { name: "平台管理员请从此登录" }).getAttribute("href"), "/platform/login");
   assertAbsent(screen.queryByText(/忘记密码|注册|记住我/));
 });
 
