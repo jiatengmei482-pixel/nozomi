@@ -23,6 +23,7 @@ import {
   type NotificationAudience,
   type NotificationEvent,
   CHANGE_DECLINE_ADVICE,
+  changeDeclineReason,
   ORDER_CHANGE_FIELD_NAMES,
   OBSERVATION_REASON_NAMES,
   TENANT_DRIVER_NOTICE_EVENTS,
@@ -183,7 +184,10 @@ async function guestVariables(db: Db, event: StoredNotificationEvent, order: Ord
     const vehicle = await findVehicle(db, order.tenantId, order.dispatch.vehicleId);
     if (driver !== null && vehicle !== null) Object.assign(base, { driver_name: driver.name, driver_phone: driver.phone, vehicle_plate: vehicle.plate });
   }
-  if (event.event === "order.change_declined") base["change_decline_advice"] = CHANGE_DECLINE_ADVICE[String(event.data["advice"])] ?? (CHANGE_DECLINE_ADVICE["policy"] as string);
+  if (event.event === "order.change_declined") {
+    base["change_decline_advice"] = CHANGE_DECLINE_ADVICE[String(event.data["advice"])] ?? (CHANGE_DECLINE_ADVICE["policy"] as string);
+    base["change_decline_reason"] = changeDeclineReason(String(event.data["advice"]));
+  }
   if (event.event === "extra_charge.submitted") {
     const charge = await findExtraChargeForPlatform(db, order.id, String(event.data["charge_id"]));
     if (charge !== null) Object.assign(base, { extra_charge_type: EXTRA_CHARGE_TYPE_NAMES[charge.type as ExtraChargeType], extra_charge_amount: moneyText(customerAmountOf(charge, sale), sale.currency), dispute_until: tokyoText(charge.disputeUntil) });
