@@ -211,9 +211,14 @@ export function parsePriceImportMapping(input: unknown): PriceImportMapping {
   return { airports, regions, vehicles };
 }
 
-/** 车型列的默认映射：第 0 阶段的建议编码（名字里没有座位数、有不认识的词的给不出，要在映射文件里写）。 */
+/**
+ * 车型列的默认映射：第 0 阶段的建议编码，只给等级在现有四个里的列（Economy、Comfort、Luxury……）。
+ * 名字里没有座位数、有不认识的词、等级不在现有四个里的（Premium、Bus、Van、SUV、EV）给不出：
+ * 这些归哪个等级、要不要导是业主的决定，必须在映射文件里写明编码或 null（ADR 0062）。
+ */
 export function defaultPriceImportVehicle(name: string): string | null {
-  return suggestPriceSheetVehicleCode(name).code;
+  const suggestion = suggestPriceSheetVehicleCode(name);
+  return suggestion.grade === null ? null : suggestion.code;
 }
 
 // ---- 计划 ----
@@ -225,6 +230,7 @@ export type PriceImportSkipReason =
   | "REGION_UNMAPPED"
   | "REGION_PENDING"
   | "VEHICLE_UNMAPPED"
+  | "VEHICLE_GRADE_UNSET"
   | "VEHICLE_EXCLUDED"
   | "VEHICLE_CODE_REPEATED"
   | "CAPACITY_UNKNOWN"
@@ -239,6 +245,7 @@ export const PRICE_IMPORT_SKIP_NAMES: Readonly<Record<PriceImportSkipReason, str
   REGION_UNMAPPED: "映射文件里没有这个地区",
   REGION_PENDING: "地区范围待定（业主核对后再导）",
   VEHICLE_UNMAPPED: "映射文件里没有这个车型列，名字也给不出建议编码",
+  VEHICLE_GRADE_UNSET: "车型列的等级不在现有四个里（Premium、Bus、Van、SUV 等），映射文件没写明编码或 null，不导",
   VEHICLE_EXCLUDED: "映射文件把这个车型列标为不导",
   VEHICLE_CODE_REPEATED: "两个车型列映射到了同一个车型组，后面的不导",
   CAPACITY_UNKNOWN: "车型列的容量读不出来（选车型组的人数 / 行李组合要用）",
@@ -323,7 +330,8 @@ export function planPriceSheetImport(country: PriceSheetCountry, notes: PriceShe
   // 车型列：映射文件优先，没写的用建议编码；映射到同一个车型组的只取第一列
   const columns = country.columns.map((column) => {
     const mapped = mapping.vehicles.has(column.name) ? mapping.vehicles.get(column.name) : defaultPriceImportVehicle(column.name);
-    const reason: PriceImportSkipReason | null = mapped === undefined ? "VEHICLE_UNMAPPED" : mapped === null ? (mapping.vehicles.has(column.name) ? "VEHICLE_EXCLUDED" : "VEHICLE_UNMAPPED") : column.capacity === null ? "CAPACITY_UNKNOWN" : null;
+    const unmappedReason: PriceImportSkipReason = suggestPriceSheetVehicleCode(column.name).code !== null ? "VEHICLE_GRADE_UNSET" : "VEHICLE_UNMAPPED";
+    const reason: PriceImportSkipReason | null = mapped === undefined ? unmappedReason : mapped === null ? (mapping.vehicles.has(column.name) ? "VEHICLE_EXCLUDED" : unmappedReason) : column.capacity === null ? "CAPACITY_UNKNOWN" : null;
     return { column, code: mapped ?? null, reason: reason as PriceImportSkipReason | null };
   });
   const seenCodes = new Set<string>();

@@ -10,6 +10,7 @@ import {
   type PriceSheetNotes,
   type SitePriceRules,
   PriceImportError,
+  defaultPriceImportVehicle,
   groupPriceImport,
   inverseSitePrice,
   parsePriceImportMapping,
@@ -188,6 +189,45 @@ test("范围：只取机场↔地区；滑雪场、港口（以「港」结尾�
       ["某某港", "PORT"],
     ],
   );
+});
+
+test("范围：度假小镇（名字里没有滑雪、港口字样）按普通地区导入；名字里有「滑雪」的才算滑雪场", () => {
+  for (const name of ["北海道二世古", "北海道喜乐乐", "北海道留寿都"]) assert.equal(priceImportExclusion(name), null, name);
+  assert.equal(priceImportExclusion("某县滑雪场"), "SKI_RESORT");
+  const plan = planPriceSheetImport(country([["甲机场", "北海道二世古", [10_000, 12_000]]]), notes, mapping({ regions: { 北海道二世古: { lat: 42.8, lng: 140.7, radius_m: 10_000 } } }));
+  assert.equal(plan.cells.length, 2);
+  assert.deepEqual(plan.skips, []);
+});
+
+test("车型：等级不在现有四个里的列（Premium、Bus、Van、SUV、EV）不按建议编码导，必须在映射里写明；写了编码就按编码导，写 null 就不导", () => {
+  assert.equal(defaultPriceImportVehicle("Economy 5 Seater"), "VG-ECO-5");
+  assert.equal(defaultPriceImportVehicle("Comfort 7 Seater"), "VG-CMF-7");
+  for (const name of ["Premium 5 Seater", "Bus 14 Seater", "Van 9 Seater", "SUV 5 Seater", "EV Car"]) assert.equal(defaultPriceImportVehicle(name), null, name);
+  const wide: PriceSheetCountry = {
+    ...country([]),
+    columns: [
+      { column: 2, ref: "日本!C1", name: "Economy 5 Seater", capacity: CAP4 },
+      { column: 3, ref: "日本!D1", name: "Premium 5 Seater", capacity: CAP4 },
+      { column: 4, ref: "日本!E1", name: "Bus 14 Seater", capacity: { passengers: 13, luggage: 6 } },
+      { column: 5, ref: "日本!F1", name: "Bus 22 Seater", capacity: { passengers: 22, luggage: 18 } },
+    ],
+    routes: [{ row: 3, from: "甲机场", to: "一号地区", prices: [10_000, 15_000, 30_000, 50_000], invalidCells: 0 }],
+  };
+  // 映射里一个都没写：只有 Economy 按建议编码导，其余三列没有等级，不导
+  const unmapped = planPriceSheetImport(wide, notes, parsePriceImportMapping({ airports: { 甲机场: "AAA" }, regions: { 一号地区: { lat: 35.1, lng: 139.1, radius_m: 10_000 } }, vehicles: {} }));
+  assert.deepEqual(unmapped.cells.map((cell) => cell.vehicleGroupCode), ["VG-ECO-5"]);
+  assert.deepEqual(unmapped.skips.map((skip) => [skip.column, skip.reason]), [
+    ["Premium 5 Seater", "VEHICLE_GRADE_UNSET"],
+    ["Bus 14 Seater", "VEHICLE_GRADE_UNSET"],
+    ["Bus 22 Seater", "VEHICLE_GRADE_UNSET"],
+  ]);
+  // Premium 写成豪华级的编码，Bus 写 null：Premium 导、Bus 明确不导
+  const mapped = planPriceSheetImport(wide, notes, parsePriceImportMapping({ airports: { 甲机场: "AAA" }, regions: { 一号地区: { lat: 35.1, lng: 139.1, radius_m: 10_000 } }, vehicles: { "Premium 5 Seater": "VG-LUX-5", "Bus 14 Seater": null, "Bus 22 Seater": null } }));
+  assert.deepEqual(mapped.cells.map((cell) => `${cell.column}|${cell.vehicleGroupCode}|${cell.sheetPriceMinor}`), ["Economy 5 Seater|VG-ECO-5|10000", "Premium 5 Seater|VG-LUX-5|15000"]);
+  assert.deepEqual(mapped.skips.map((skip) => [skip.column, skip.reason]), [
+    ["Bus 14 Seater", "VEHICLE_EXCLUDED"],
+    ["Bus 22 Seater", "VEHICLE_EXCLUDED"],
+  ]);
 });
 
 test("方向：只列一个方向时（说明页写了反向同价）是接送通用；机场在后面的是送机方向的那一行", () => {
