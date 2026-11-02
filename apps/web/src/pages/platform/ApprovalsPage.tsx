@@ -52,6 +52,9 @@ export function decisionFailure(err: unknown): string {
 }
 
 /** 批准的确认框里「批准后会怎样」，按改动的类别写（M1-17：暂停渠道不是「按新的规则算」）。 */
+/** 针对一张订单、审核人要去订单详情核对的几类：卡片上给订单号的链接。 */
+const ORDER_LINK_KINDS: readonly ApprovalKind[] = ["order.proxy_pick_up", "order.proxy_complete", "order.view_link_email", "order.passenger_email"];
+
 const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "channel.pricing": "批准后立即生效：之后的询价按新的定价参数算。这个渠道上其他还在等审核的改动会过时，只能驳回后重新发起。",
   "channel.pause": "批准后渠道立即暂停：它调用销售端接口（询价等）一律被拒绝。要恢复，到渠道详情点「启用」。",
@@ -68,6 +71,7 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "order.proxy_pick_up": "批准后这张单立即进入服务中（不能撤销）：客人和运营都不能再取消，也不能再提交客人未出现。请先和司机或客人确认客人确实上车了。",
   "order.proxy_complete": "批准后这张单立即变成已完成（不能撤销），按结算价进供应商账单，供应商也能开始提交事后加收。请先和司机或客人确认这一单确实跑完了。",
   "order.view_link_email": "批准后立即把这张单的订单链接发到新邮箱：收到的人能查看、修改、取消这张单，等于把订单交给他。请先确认发起的同事核实过是客人本人（看发起说明里的核实方式和原因）。订单上的邮箱不改。",
+  "order.passenger_email": "批准后这张单的乘客邮箱立即改成新地址：之后带订单链接的通知（订单修改、取消、派车等）都发到新地址，等于把订单交给这个邮箱的主人。请先确认发起的同事核实过是客人本人（看发起说明里的核实方式和原因）。审核期间客人自己改过邮箱的，批准会失败，请驳回。",
   "rescue.manual_assign": "批准后这张单立即转给指定的供应商（按上面的结算价，不用它再接单），客人付的钱不变；差价记到原供应商的应扣款项。",
   "platform_role.update": "批准后立即生效：用这个角色的员工的权限、数据范围、IP 白名单马上按新的来，不用重新登录。",
   "staff.mfa_reset": "批准后他的两步验证立即清掉，已经登录着的也会退出；下次用密码登录时要重新绑定验证器。请先确认提出要求的就是他本人。",
@@ -127,7 +131,7 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           </Link>
         </p>
       )}
-      {(approval.kind === "order.proxy_pick_up" || approval.kind === "order.proxy_complete") && (
+      {ORDER_LINK_KINDS.includes(approval.kind) && (
         <p>
           订单：
           <Link className="link mono" to={platformOrderPath(approval.resource_id)}>

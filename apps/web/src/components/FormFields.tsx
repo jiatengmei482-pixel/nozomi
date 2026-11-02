@@ -73,7 +73,7 @@ export function SelectField<T extends string>({ label, value, options, onChange,
         {label}
         {required && <Required />}
       </label>
-      <select id={id} className="input select" value={value} aria-invalid={errors.length > 0 || undefined} aria-describedby={describedBy || undefined} onChange={(event) => onChange(event.target.value as T)}>
+      <select id={id} className="input select" value={value} aria-required={required || undefined} aria-invalid={errors.length > 0 || undefined} aria-describedby={describedBy || undefined} onChange={(event) => onChange(event.target.value as T)}>
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((option) => (
           <option key={option.value} value={option.value}>

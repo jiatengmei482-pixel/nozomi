@@ -153,6 +153,12 @@ export const singleLine = (max: number) => z.string().max(max).refine((value) =>
 /** 乘客的姓名、电话、邮箱：不能恰好是系统的占位（ADR 0057），其余规则和 `singleLine` 相同。 */
 const passengerField = (max: number) => singleLine(max).refine((value) => !isReservedPassengerText(value), { message: "这个内容是系统保留的，请填真实信息" });
 export const passengerInput = () => z.object({ name: passengerField(200), phone: passengerField(40), email: passengerField(320) }).strict();
+/** 运营代改乘客信息（ADR 0065）：只给要改的那几项，至少一项。 */
+export const passengerPatchInput = () =>
+  z
+    .object({ name: passengerField(200).optional(), phone: passengerField(40).optional(), email: passengerField(320).optional() })
+    .strict()
+    .refine((value) => value.name !== undefined || value.phone !== undefined || value.email !== undefined, { message: "至少改一项（姓名、电话或邮箱）" });
 
 export const pageQuerySchema = z.object({
   limit: limitSchema,

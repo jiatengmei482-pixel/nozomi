@@ -3,7 +3,7 @@
  * 字段与 `apps/api/openapi.yaml` 对齐，由 order-money.contract.test.ts 保证。
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
-import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel } from "@nozomi/domain";
+import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
 import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords } from "./dispatch.ts";
@@ -301,6 +301,20 @@ export interface PlatformOrderDetail {
   tickets: OrderTicketRef[];
   /** 下一步的代传（接到客人、完成）在等复核（M4-18）；没有为 null */
   pending_proxy_review: { approval_id: string; event: "picked_up" | "completed"; requested_at: string } | null;
+  /** 代改的乘客邮箱在等审核（M4-31，ADR 0065）；没有为 null。旧的测试数据里可能没有这一项 */
+  pending_email_review?: PassengerEmailReview | null;
+}
+
+/** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */
+export interface PassengerEmailReview {
+  id: string;
+  approval_id: string;
+  status: "pending_review" | "applied" | "dismissed";
+  email_masked: string;
+  previous_email_masked: string | null;
+  verification: ViewLinkVerification;
+  requested_by: { id: string; name: string };
+  created_at: string;
 }
 
 export interface PlatformOrderQuery {
@@ -362,7 +376,9 @@ export function cancelPlatformOrder(token: string, id: string, body: { reason: O
 }
 
 export interface OrderChangeRequest {
-  passenger?: { name: string; phone: string; email: string };
+  /** 运营可以只给要改的那几项；改邮箱要同时给 `email_review`，另一位同事批准才生效（ADR 0065） */
+  passenger?: { name?: string; phone?: string; email?: string };
+  email_review?: { verification: ViewLinkVerification; reason: string };
   flight_no?: string | null;
   notes?: string | null;
   service_time?: string;
@@ -370,7 +386,8 @@ export interface OrderChangeRequest {
   luggage?: number;
 }
 
-export function changePlatformOrder(token: string, id: string, version: number, body: OrderChangeRequest): Promise<{ change: OrderChange }> {
+/** `change` 只改了邮箱时为 null（202）；`email_review` 改了邮箱时是等审核的那一条。 */
+export function changePlatformOrder(token: string, id: string, version: number, body: OrderChangeRequest): Promise<{ change: OrderChange | null; email_review: PassengerEmailReview | null }> {
   return apiRequest("PATCH", platformOrder(id), { token, body, headers: { "if-match": `"${version}"` } });
 }
 

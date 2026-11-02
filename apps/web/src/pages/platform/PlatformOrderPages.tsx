@@ -7,7 +7,9 @@
  * - 代客人改单（`order.manage`）：航班号、乘客、备注、人数行李、用车时间（城市当地时间）；
  * - 派车、履约时间点、落地（M4-19）；代供应商回传履约（M4-18，`order.proxy_fulfilment`）。
  */
-import { ANONYMIZED_TEXT } from "@nozomi/domain";
+import { ANONYMIZED_TEXT, VIEW_LINK_VERIFICATIONS, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
+import { TextAreaField } from "../../components/TextAreaField.tsx";
+import { APPROVALS_PAGE_PATH } from "../../lib/channel-display.ts";
 import { RevealedTexts } from "./PassengerReveal.tsx";
 import { type OrderCancelReason, type OrderStatus, ORDER_STATUSES, ORDER_STATUS_NAMES, SERVICE_CATEGORIES, type ServiceCategory, localDateTimeToInstant } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -32,6 +34,7 @@ import {
   getPlatformOrder,
   listPlatformOrders,
   retryExtraCharge,
+  type PassengerEmailReview,
   type PassengerReveal,
   revealPlatformPassenger,
   retryRefund,
@@ -423,8 +426,21 @@ function DecideChangeDialog({ orderId, change, decision, onClose, onDone }: { or
   );
 }
 
-function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClose(): void; onDone(text: string): void }) {
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** 代改的结果说给运营听：改了邮箱的那一项要另一位同事批准（ADR 0065）。 */
+function changeDoneText(change: { status: string } | null, emailReview: PassengerEmailReview | null): string {
+  const base = change === null ? null : change.status === "applied" ? "已改好，已通知供应商和司机" : "修改已提交：要供应商同意才生效，确认前原预约有效";
+  if (emailReview === null) return base ?? "没有要改的内容";
+  const email = `乘客邮箱改成 ${emailReview.email_masked} 需要另一位同事在「待审核」里批准，批准前订单上的邮箱不变`;
+  return base === null ? `已提交：${email}` : `${base}；${email}`;
+}
+
+function ChangeDialog({ order, emailPending, onClose, onDone }: { order: PlatformOrder; emailPending: PassengerEmailReview | null; onClose(): void; onDone(text: string): void }) {
   const { token, handleAuthFailure } = usePortalSession();
+  const [email, setEmail] = useState("");
+  const [verification, setVerification] = useState<ViewLinkVerification | "">("");
+  const [reason, setReason] = useState("");
   const [flight, setFlight] = useState(order.flight_no ?? "");
   // 备注被打了码时不能当初始值：改一个字保存就会把打码后的内容存回去、原文丢失（ADR 0055）
   const notesMasked = order.notes_masked === true;
@@ -448,6 +464,19 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
       }
       body.service_time = instant.toISOString();
     }
+    const newEmail = email.trim();
+    if (newEmail !== "") {
+      if (!EMAIL_SHAPE.test(newEmail)) {
+        setProblem("新邮箱的格式不对");
+        return;
+      }
+      if (verification === "" || reason.trim() === "") {
+        setProblem("改乘客邮箱要另一位同事批准：请选怎么核实的客人身份，并写明原因");
+        return;
+      }
+      body.passenger = { email: newEmail };
+      body.email_review = { verification, reason: reason.trim() };
+    }
     if (Object.keys(body).length === 0) {
       setProblem("没有要改的内容");
       return;
@@ -455,8 +484,8 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
     setBusy(true);
     setProblem(null);
     try {
-      const { change } = await changePlatformOrder(token, order.id, order.version, body);
-      onDone(change.status === "applied" ? "已改好，已通知供应商和司机" : "修改已提交：要供应商同意才生效，确认前原预约有效");
+      const result = await changePlatformOrder(token, order.id, order.version, body);
+      onDone(changeDoneText(result.change ?? null, result.email_review ?? null));
     } catch (err) {
       if (!handleAuthFailure(err)) setProblem(err instanceof ApiError && err.status !== 500 ? err.message : failureText(err, "改单"));
     } finally {
@@ -470,6 +499,18 @@ function ChangeDialog({ order, onClose, onDone }: { order: PlatformOrder; onClos
       <TextField label="人数" inputMode="numeric" value={passengers} onChange={(event) => setPassengers(event.target.value)} />
       <TextField label="行李" inputMode="numeric" value={luggage} onChange={(event) => setLuggage(event.target.value)} />
       <TextField label="备注" value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} {...(notesMasked ? { hint: "现在的备注含联系方式，已打码。留空不改，填写则整条替换。" } : {})} />
+      {emailPending !== null ? (
+        <p className="field__hint">{`乘客邮箱已经有一次修改（改成 ${emailPending.email_masked}）在等另一位同事批准，处理完之前不能再改邮箱。`}</p>
+      ) : (
+        <TextField label="乘客的新邮箱" type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(event) => setEmail(event.target.value)} hint="留空不改。改邮箱需要另一位同事批准" />
+      )}
+      {emailPending === null && email.trim() !== "" && (
+        <>
+          <Alert kind="info">改乘客邮箱需要另一位同事批准：之后带订单链接的通知都会发到新邮箱，等于把订单交给这个邮箱的主人。批准前订单上的邮箱不变，通知照旧发到原来的邮箱；同一次提交的其他内容照常处理。</Alert>
+          <SelectField label="怎么核实的客人身份" required placeholder="请选择" value={verification} options={VIEW_LINK_VERIFICATIONS.map((value) => ({ value, label: VIEW_LINK_VERIFICATION_NAMES[value] }))} onChange={(value) => setVerification(value as ViewLinkVerification)} />
+          <TextAreaField label="原因" required maxLength={500} value={reason} hint="如「客人来电说邮箱写错一个字母，回拨下单电话确认是本人」。审核的同事据此决定，记进审计日志。" onChange={(event) => setReason(event.target.value)} />
+        </>
+      )}
       <p className="field__hint">出了免费取消期只能改航班号和乘客信息；车型、品类、城市、上下车点的位置不能改（请取消后重新下单）。</p>
       {problem !== null && <Alert kind="danger">{problem}</Alert>}
     </Dialog>
@@ -587,6 +628,16 @@ export function PlatformOrderDetailPage() {
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
+          {detail.pending_email_review && (
+            <Detail label="乘客邮箱（等审核）">
+              <Alert kind="info">
+                {`改成 ${detail.pending_email_review.email_masked} 在等另一位同事批准（${detail.pending_email_review.requested_by.name} 发起），批准前订单上的邮箱不变，通知照旧发到原来的邮箱。`}
+                <Link className="link" to={APPROVALS_PAGE_PATH}>
+                  去待审核
+                </Link>
+              </Alert>
+            </Detail>
+          )}
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>
@@ -855,7 +906,7 @@ export function PlatformOrderDetailPage() {
       </section>
 
       {dialog === "cancel" && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
-      {dialog === "change" && <ChangeDialog order={order} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === "change" && <ChangeDialog order={order} emailPending={detail.pending_email_review ?? null} onClose={() => setDialog(null)} onDone={done} />}
       {decidingChange !== null && <DecideChangeDialog orderId={order.id} change={decidingChange.change} decision={decidingChange.decision} onClose={() => setDecidingChange(null)} onDone={(text) => { setDecidingChange(null); done(text); }} />}
       {typeof dialog === "object" && dialog !== null && <DecideDialog orderId={order.id} charge={dialog.decide} onClose={() => setDialog(null)} onDone={done} />}
     </>,

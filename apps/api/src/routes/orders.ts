@@ -32,6 +32,7 @@ import { authenticateTenant } from "../services/tenant-auth.ts";
 import { dateTimeSchema, pageQuerySchema, parseInput, resourceId, uuidSchema } from "../validation.ts";
 import { orderTicketJson } from "./order-center.ts";
 import { platformRescueJson, tenantOrderRescueJson } from "./rescues.ts";
+import { passengerEmailReviewJson } from "./serialize.ts";
 
 type Json = Record<string, unknown>;
 
@@ -303,6 +304,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       order: platformOrderJson(found, now, names),
       events: found.events.map((event) => eventJson(event, "platform")),
       pending_proxy_review: found.pendingProxyReview === null ? null : { approval_id: found.pendingProxyReview.approval.id, event: found.pendingProxyReview.event, requested_at: found.pendingProxyReview.approval.requestedAt.toISOString() },
+      // 代改的乘客邮箱在等审核（ADR 0065）：只有打码地址
+      pending_email_review: found.pendingEmailReview === null ? null : passengerEmailReviewJson(found.pendingEmailReview),
       // 司机手写的联系备注可能抄了客人的联系方式：运营这边同样打码（ADR 0054）
       records: recordsJson(found.records, now),
       webhook_deliveries: found.deliveries.map((delivery) => ({ ...deliveryJson(delivery), data: delivery.eventData })),

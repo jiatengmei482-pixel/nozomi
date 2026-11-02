@@ -8709,6 +8709,11 @@ paths:
                       requested_at:
                         type: string
                         format: date-time
+                  pending_email_review:
+                    description: 代改的乘客邮箱在等审核时才有（ADR 0065）；只有打码地址。批准、驳回、撤回在「待审核」里
+                    oneOf:
+                      - $ref: "#/components/schemas/PassengerEmailReview"
+                      - type: "null"
                   webhook_deliveries:
                     type: array
                     description: 这一单推给供应商的全部 Webhook 投递（ADR 0027）
@@ -8904,7 +8909,13 @@ paths:
         - 订单
       operationId: changePlatformOrder
       summary: 代客人改单
-      description: 需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
+      description: |
+        需要操作 `order.manage`（运营、客服）。规则和渠道的改单接口一样；写审计日志。限定了数据范围的员工（ADR 0030）对范围外的订单和对不存在的订单得到同样的 404。
+
+        **改乘客邮箱要双人复核（M4-31，ADR 0065）**：`passenger.email` 和订单上的不是同一个地址（按 NFKC、不分大小写、去首尾空白比）时，这一项不在这次生效，
+        而是发起复核 `order.passenger_email`，必须同时给 `email_review`（核实方式、原因），否则 400。另一位有 `order.view_link_review` 的同事（超级管理员、运营）
+        在「待审核」里批准时才改订单上的邮箱、通知客人（新地址）；批准前订单上的邮箱不变，新地址收不到任何通知。发起人不能批自己发起的。
+        同一次提交里的其他字段照常：联系信息直接生效，履约字段等供应商确认（ADR 0060）。应答里只有打码后的地址。
       security:
         - platformToken: []
       parameters:
@@ -8915,20 +8926,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OrderChangeRequest"
+              $ref: "#/components/schemas/PlatformOrderChangeRequest"
       responses:
         "200":
-          description: 改单的结果
+          description: 改单的结果（有立即生效或待供应商确认的改动）；改了邮箱时 `email_review` 是等审核的那一条
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: false
-                required:
-                  - change
-                properties:
-                  change:
-                    $ref: "#/components/schemas/OrderChange"
+                $ref: "#/components/schemas/PlatformOrderChangeResult"
+        "202":
+          description: 只改了乘客邮箱：没有生效的改动（`change` 为 null），只发起了复核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformOrderChangeResult"
+        "400":
+          description: "`VALIDATION_FAILED`：写法不对（电话、邮箱、航班号）；改了邮箱没写 `email_review`（`/email_review` REQUIRED）；没改邮箱却写了 `email_review`（NOT_APPLICABLE）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "402":
           description: "`CHANGE_PAYMENT_DECLINED`：补差价没扣到（`details.code`、`details.decline_code`）"
           content:
@@ -8938,7 +8955,7 @@ paths:
         "404":
           $ref: "#/components/responses/ResourceNotFound"
         "409":
-          description: "`VERSION_CONFLICT`、`CHANGE_IN_PROGRESS`、`ORDER_STATE_INVALID`、`CHANGE_NOT_ALLOWED`（出了免费取消期）、`CHANGE_NOT_SERVICEABLE`（新的时间这家供应商报不出价或订满了，`details.reason`）、`NO_SAVED_PAYMENT_METHOD`"
+          description: "`VERSION_CONFLICT`、`CHANGE_IN_PROGRESS`、`ORDER_STATE_INVALID`、`CHANGE_NOT_ALLOWED`（出了免费取消期）、`CHANGE_NOT_SERVICEABLE`（新的时间这家供应商报不出价或订满了，`details.reason`）、`NO_SAVED_PAYMENT_METHOD`；`PASSENGER_EMAIL_REVIEW_PENDING`（这张单已经有一次改邮箱在等审核，`details.approval_id`）、`PASSENGER_ANONYMIZED`（乘客信息已清除）"
           content:
             application/json:
               schema:
@@ -15666,6 +15683,7 @@ components:
             - order.proxy_pick_up
             - order.proxy_complete
             - order.view_link_email
+            - order.passenger_email
             - rescue.manual_assign
             - platform_role.update
             - staff.mfa_reset
@@ -22983,6 +23001,106 @@ components:
         needs_review:
           type: boolean
           description: 只有运营后台：多退了钱，代取消要双人复核
+    PlatformOrderChangeRequest:
+      type: object
+      additionalProperties: false
+      description: 运营代改（ADR 0065）。和 `OrderChangeRequest` 一样，只是乘客信息可以只给要改的那几项；改乘客邮箱要同时给 `email_review`
+      properties:
+        passenger:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+              description: 和订单上的不是同一个地址时，这一项要另一位同事批准才生效
+        email_review:
+          type: object
+          additionalProperties: false
+          required: [ verification, reason ]
+          description: 改乘客邮箱时必填：怎么核实的客人身份。进复核记录，审核人据此决定
+          properties:
+            verification:
+              type: string
+              enum: [ callback_phone, email_from_order_address, order_details, payment_details, other ]
+            reason:
+              type: string
+              minLength: 1
+              maxLength: 500
+        flight_no:
+          type: [ string, "null" ]
+        messaging:
+          oneOf:
+            - $ref: "#/components/schemas/OrderMessaging"
+            - type: "null"
+        notes:
+          type: [ string, "null" ]
+        pickup_address:
+          type: string
+        dropoff_address:
+          type: string
+        service_time:
+          type: string
+          format: date-time
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+    PlatformOrderChangeResult:
+      type: object
+      additionalProperties: false
+      required: [ change, email_review ]
+      properties:
+        change:
+          description: 这次生效或待供应商确认的改单（两类都有时是待确认的那一行）；只改了邮箱时 null
+          oneOf:
+            - $ref: "#/components/schemas/OrderChange"
+            - type: "null"
+        email_review:
+          description: 改了乘客邮箱时，等审核的那一条；没改邮箱时 null
+          oneOf:
+            - $ref: "#/components/schemas/PassengerEmailReview"
+            - type: "null"
+    PassengerEmailReview:
+      type: object
+      additionalProperties: false
+      description: 运营代改乘客邮箱的复核（ADR 0065）。只有打码后的地址
+      required: [ id, approval_id, status, email_masked, previous_email_masked, verification, requested_by, created_at ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        approval_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ pending_review, applied, dismissed ]
+        email_masked:
+          type: string
+        previous_email_masked:
+          type: [ string, "null" ]
+          description: 发起时订单上的邮箱（打码）；原来没有邮箱时 null
+        verification:
+          type: string
+          enum: [ callback_phone, email_from_order_address, order_details, payment_details, other ]
+        requested_by:
+          type: object
+          additionalProperties: false
+          required: [ id, name ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        created_at:
+          type: string
+          format: date-time
     OrderChangeRequest:
       type: object
       additionalProperties: false

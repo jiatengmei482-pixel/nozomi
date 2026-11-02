@@ -2,6 +2,7 @@
  * M4-21 QA：脱敏后「副本」清干净（全库扫描虚构的姓名、电话、邮箱），业务不被破坏（账单、工单历史、详情都还能打开，金额和订单号不变），通知不发到占位上。
  * 第一个 before 里经真实接口做一张什么都经历过的单，再脱敏；同一个库里只有这张单带这些虚构信息，所以可以按整张表扫描。真实 PostgreSQL，随 schema 删除。
  */
+import { platformChangeWithEmailReview } from "./testing/passenger-email.ts";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
@@ -79,7 +80,9 @@ before(async () => {
 
   // 改单：旧姓名、新姓名都进了前后值和推送
   const version = (await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(version) }, body: { passenger: NOW, notes: `${WRITTEN}，订单 ${order.order_no}` } }));
+  // 改邮箱要另一位同事批准（M4-31，ADR 0065）：走完复核，新邮箱也进了改单记录和推送
+  const changed = await platformChangeWithEmailReview(api, order.id, token, { passenger: NOW, notes: `${WRITTEN}，订单 ${order.order_no}` }, String(version));
+  assert.equal(changed.status, 200, changed.text);
 
   // 工单：标题、经过、对话、内部备注、关闭说明
   const ticket = await ok(api.call("POST", "/platform/v1/tickets", { token, body: { order_id: order.id, type: "other", subject: "柏木悠真来电 08066228844", description: `${WRITTEN}，订单 ${order.order_no}，2026-11-01 付了 ¥15000` } }), 201);

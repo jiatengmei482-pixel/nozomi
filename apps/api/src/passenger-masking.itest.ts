@@ -201,11 +201,11 @@ test("订单：备注、即时通讯账号、取消说明打码；notes_masked �
   const before = await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }));
   assert.equal(before.order.notes_masked, false);
   assert.equal(before.order.passenger_anonymized_at, null);
-  const patched = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(before.order.version) }, body: { notes: WRITTEN, passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } } });
+  const patched = await api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(before.order.version) }, body: { notes: WRITTEN, passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "guest@example.com" } } });
   assert.equal(patched.status, 200, patched.text);
   assertMatchesOpenApi("PATCH", "/platform/v1/orders/{id}", patched);
   noSecrets(patched.text, "改单的响应");
-  assert.ok(!patched.text.includes("大伟") && !patched.text.includes("new@"));
+  assert.ok(!patched.text.includes("大伟") && !patched.text.includes("guest@example.com"));
   const res = await api.call("GET", `/platform/v1/orders/${order.id}`, { token });
   assertMatchesOpenApi("GET", "/platform/v1/orders/{id}", res);
   noSecrets(res.text, "订单详情");
@@ -225,12 +225,12 @@ test("审计日志：改单的前后值写入时就打码（库里也没有原�
   const order = await paid();
   const token = await ops();
   const version = (await ok(api.call("GET", `/platform/v1/orders/${order.id}`, { token }))).order.version;
-  await ok(api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(version) }, body: { notes: WRITTEN, passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "new@example.com" } } }));
+  await ok(api.call("PATCH", `/platform/v1/orders/${order.id}`, { token, headers: { "if-match": String(version) }, body: { notes: WRITTEN, passenger: { name: "李大伟", phone: "+81 80-9999-0000", email: "guest@example.com" } } }));
   const stored = (await api.db.owner.query("select before, after from audit_logs where resource = 'order_change' and after ->> 'order_id' = $1", [order.id])).rows;
   assert.equal(stored.length, 1);
   const raw = JSON.stringify(stored);
   noSecrets(raw, "库里的审计");
-  assert.ok(!raw.includes("大伟") && !raw.includes("new@") && !raw.includes("9999"));
+  assert.ok(!raw.includes("大伟") && !raw.includes("guest@example.com") && !raw.includes("9999"));
   assert.equal(stored[0].after.passenger.name, "李**");
   // 这个任务之前写入的旧记录：库里是原文，接口读出来是打码的
   const old = randomUUID();
