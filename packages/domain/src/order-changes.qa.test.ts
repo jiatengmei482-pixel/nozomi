@@ -34,16 +34,16 @@ test("改期的期限不晚于新的用车时间；最早用车时间取两者�
   }
 });
 
-test("调整中的期限：一定晚于现在；≤ 24 小时不会比原来短；> 24 小时不超过 24 小时；有余量时不晚于用车前 1 小时；至少给 2 小时（放得下时）", () => {
+test("调整中的期限（协调人定：永远不缩短，原来是远期最多 24 小时）：一定晚于现在；不会比原来短；有余量时不晚于用车前 1 小时；至少给 2 小时（放得下时）", () => {
   for (const lead of LEADS) {
     const earliest = at(lead);
     const current = changeConfirmDeadline(NOW, earliest, null);
     const due = changeAdjustingDeadline(NOW, current, earliest).getTime();
     const label = `离用车 ${lead / HOUR} 小时`;
     assert.ok(due > NOW.getTime(), label);
-    if (lead <= 24 * HOUR) assert.ok(due >= current.getTime(), `${label}：不缩短`);
-    else {
-      assert.ok(due <= NOW.getTime() + ORDER_CHANGE_RULES.adjustingMaxHours * HOUR, `${label}：远期最多 24 小时`);
+    assert.ok(due >= current.getTime(), `${label}：不缩短`);
+    if (lead > 24 * HOUR) {
+      assert.ok(due <= Math.max(NOW.getTime() + ORDER_CHANGE_RULES.adjustingMaxHours * HOUR, current.getTime()), `${label}：放宽最多到 24 小时`);
       assert.ok(due <= Math.max(earliest.getTime() - HOUR, current.getTime()), `${label}：不晚于用车前 1 小时`);
       assert.ok(due >= NOW.getTime() + ORDER_CHANGE_RULES.adjustingMinHours * HOUR, `${label}：至少 2 小时`);
     }
