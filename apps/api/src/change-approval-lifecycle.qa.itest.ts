@@ -583,3 +583,16 @@ test("缺陷：单已经完成，订单还写「可以免费取消」（free_can
   assert.equal(res.status, 409);
   assert.equal(seen.free_cancel_available, false);
 });
+
+test("缺陷：不符合免费条件时，试算接口按 CHANGE_NOT_CONFIRMED 仍报取消费 0（实际取消 409）——渠道按试算告诉客人免费，提交时又被拒", async () => {
+  const oldAt = w.freshDay();
+  const { order } = await w.dispatched(oldAt);
+  moveTo(oldAt - 12 * HOUR);
+  await w.relogin();
+  const res = await w.patch(order.id, { flight_no: "JL5" });
+  await ok(w.tenantDecide(order.id, res.body.change.id, "reject", { note: "接不了" }));
+  const refused = await w.salesCancel(order.id, { reason: "CHANGE_NOT_CONFIRMED" });
+  assert.equal(refused.body.error.code, "FREE_CANCEL_NOT_APPLICABLE");
+  const fee = await w.api.call("GET", `/sales/v1/orders/${order.id}/cancel-fee?reason=CHANGE_NOT_CONFIRMED`, { token: await w.flow.token() });
+  assert.ok(fee.status !== 200 || fee.body.fee.amount !== "0", `试算和实际要一致：${fee.text.slice(0, 200)}`);
+});

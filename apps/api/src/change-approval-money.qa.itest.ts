@@ -191,6 +191,24 @@ test("补收时收款服务超时：504，定时任务用同一笔重试，只�
   assert.equal(w.net(second.order.id), 0);
 });
 
+test("补收重试时才被拒：申请记为失败，供应商从头到尾没被打扰，钱不动；可以再提", async () => {
+  const oldAt = w.freshDay();
+  const newAt = oldAt + DAY;
+  await w.surge(tokyoDate(newAt));
+  const { order } = await w.dispatched(oldAt);
+  w.pay.failNext("PAYMENT_PROVIDER_TIMEOUT");
+  assert.equal((await w.patch(order.id, { service_time: iso(newAt) })).status, 504);
+  w.pay.declineNextCharge();
+  w.api.clock.advance(3 * MINUTE);
+  await w.api.app.orderJobs.money();
+  await w.relogin();
+  const seen = await w.salesGet(order.id);
+  assert.deepEqual([seen.changes[0].status, seen.service_time, w.net(order.id)], ["failed", order.service_time, SELL]);
+  assert.deepEqual(await w.todosOf(order.id), []);
+  assert.deepEqual(await w.events(order.id, "order.change_pending"), {});
+  assert.equal((await w.patch(order.id, { service_time: iso(newAt) })).body.change.status, "pending_confirmation");
+});
+
 test("扣差价的请求在路上时客人取消：差价扣到后退回，净额 0；供应商不会收到要处理的申请", async () => {
   const oldAt = w.freshDay();
   const newAt = oldAt + DAY;
