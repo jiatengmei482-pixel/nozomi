@@ -186,6 +186,24 @@ test("联系信息直接生效并通知（司机收到带链接的邮件，邮�
   assert.equal((await salesGet(order.id)).passengers, 2, "人数还是原来的");
 });
 
+test("带链接的司机通知发信失败（M4-27 的规则）：这次生成的链接作废（send_failed），调度员的和之前邮件的不动；重试时另生成一条", async () => {
+  const { order, email, token } = await dispatched();
+  const emailLinks = async (): Promise<(string | null)[]> => (await api.db.owner.query("select revoke_reason from driver_links where order_id = $1 and purpose = 'email' order by created_at, id", [order.id])).rows.map((row) => row.revoke_reason);
+  assert.deepEqual(await emailLinks(), [null], "派车那封");
+  await patch(order.id, { notes: "带婴儿车" });
+  smtp.behave({ rejectAt: { stage: "DOT", reply: "451 4.3.0 try later" } });
+  await tick();
+  assert.deepEqual(await emailLinks(), [null, "send_failed"]);
+  assert.equal((await api.call("GET", "/driver/v1/trip", { token })).status, 200, "调度员的链接不受影响");
+  smtp.reset();
+  api.clock.advance(61_000);
+  await tick();
+  assert.deepEqual(await emailLinks(), [null, "send_failed", null]);
+  const sent = tokenInMail(texts(mailsTo(email)));
+  assert.ok(sent);
+  assert.equal((await api.call("GET", "/driver/v1/trip", { token: sent })).status, 200);
+});
+
 test("拆开提交：报价失败时联系信息也不生效（同一个事务）", async () => {
   const { order } = await dispatched();
   const res = await patch(order.id, { notes: "不该生效", service_time: iso(api.clock.now().getTime() + 2 * HOUR) });
