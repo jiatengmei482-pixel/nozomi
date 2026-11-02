@@ -48,6 +48,7 @@ import {
   localDateTimeIn,
   packageText,
   serviceTimeLabels,
+  visibleTimeline,
 } from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
 
@@ -377,7 +378,7 @@ export function TimelineSection({ order, timeline }: { order: SiteOrder; timelin
   return (
     <Section id="site-timeline-title" title="订单进度">
       <ol className="site-timeline">
-        {timeline.map((entry, index) => (
+        {visibleTimeline(timeline).map((entry, index) => (
           <li key={`${entry.occurred_at}-${index}`} className="site-timeline__item">
             <span className="site-timeline__text">{entry.to_status === "cancelled" && entry.reason !== null ? (GUEST_CANCEL_REASON_NAMES[entry.reason] ?? TIMELINE_NAMES.cancelled) : TIMELINE_NAMES[entry.to_status]}</span>
             <time className="site-muted" dateTime={entry.occurred_at}>
