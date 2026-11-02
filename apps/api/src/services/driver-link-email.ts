@@ -176,9 +176,9 @@ export async function mailConfigured(ctx: AppContext): Promise<boolean> {
   }
 }
 
-/** 接口里的发送状态：地址一律打码；没有令牌。等待中且邮件没配置时带 `NOT_CONFIGURED`，页面提示调度员手动发。 */
+/** 接口里的发送状态：地址一律打码；没有令牌。等待中且邮件没配置时带 `NOT_CONFIGURED`，页面提示调度员手动发；已经配好了就不再带（记录上的旧原因要等发出去才清）。 */
 export function driverLinkEmailJson(view: DriverLinkEmailOutcome, configured: boolean): Record<string, unknown> {
-  const errorCode = view.state === "pending" && !configured ? "NOT_CONFIGURED" : view.errorCode;
+  const errorCode = view.state !== "pending" ? view.errorCode : !configured ? "NOT_CONFIGURED" : view.errorCode === "NOT_CONFIGURED" ? null : view.errorCode;
   return {
     state: view.state,
     recipient_masked: view.recipient === null ? null : maskEmail(view.recipient),

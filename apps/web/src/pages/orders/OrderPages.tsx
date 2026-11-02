@@ -156,7 +156,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 const EMAIL_POLL_MS = 4_000;
 const EMAIL_POLL_ROUNDS = 30;
 
-/** 还在等邮件服务器的时候隔一会儿问一次（后台任务每 5 秒发一轮）；有结果或问够了就停。邮件没配置的不问：要等人去配。 */
+/** 还在等邮件服务器的时候隔一会儿问一次（后台任务每 5 秒发一轮）；有结果或问够了就停。 */
 function useDriverLinkEmail(orderId: string, initial: DriverLinkEmail | null): [DriverLinkEmail | null, (next: DriverLinkEmail) => void] {
   const { token } = usePortalSession();
   // 新前端先于新后端上线的那几分钟里应答没有这一项：当作没有状态，不影响派车和复制链接
@@ -166,7 +166,7 @@ function useDriverLinkEmail(orderId: string, initial: DriverLinkEmail | null): [
     setEmail(initial ?? null);
     setRounds(0);
   }, [initial]);
-  const waiting = email?.state === "pending" && email.error_code === null && rounds < EMAIL_POLL_ROUNDS;
+  const waiting = email?.state === "pending" && rounds < EMAIL_POLL_ROUNDS;
   useEffect(() => {
     if (!waiting) return undefined;
     const timer = setTimeout(() => {
