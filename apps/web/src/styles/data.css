@@ -388,6 +388,12 @@
 }
 
 /* ───────────── 表单页骨架 ───────────── */
+/* 表单里的卡片：字段、说明段落、提示条之间统一隔 space-4（上一个字段的帮助说明不贴着下一个字段的标签，M6-03）。
+   卡片是普通块布局，相邻外边距会合并，原来自带间距的部件不会被加倍 */
+.form > .card > * + * {
+  margin-top: var(--space-4);
+}
+
 .form-card {
   display: flex;
   flex-direction: column;
@@ -580,11 +586,12 @@
 }
 
 /* ───────────── 筛选条 ───────────── */
+/* 条件之间（space-4）比「标签—输入框」（space-2）宽一级，一眼分得清哪个标签管哪个框；换行后行距 space-3（M6-03） */
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3) var(--space-4);
 }
 
 /* < 768px：条件收进「筛选」面板；≥ 768px：直接排开，没有「筛选」按钮 */
@@ -1078,6 +1085,12 @@
   margin-top: var(--space-6);
 }
 
+/* 标题行（和供应商后台标题下的名称、状态）到第一个分区：比标题行下的常规间距多一级，分区标题不贴着页面标题（M6-03） */
+.page > .page__header + .home-section,
+.page > .page__meta + .home-section {
+  margin-top: var(--space-6);
+}
+
 @media (min-width: 768px) {
   .page > .home-section + .home-section {
     margin-top: var(--space-8);
@@ -1094,7 +1107,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
   padding: var(--space-4) var(--space-5);
   border: var(--border-width) solid var(--color-border-default);
@@ -1153,13 +1166,13 @@ a.entry-card__title:focus-visible {
 }
 
 .entry-card__counts-row {
-  min-height: calc(var(--font-size-2xl) * var(--line-height-tight));
+  min-height: calc(var(--font-size-3xl) * var(--line-height-tight));
 }
 
 .entry-card__counts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
+  gap: var(--space-1) var(--space-5);
 }
 
 .entry-card__count {
@@ -1176,7 +1189,7 @@ a.entry-card__title:focus-visible {
 
 .entry-card__count dd {
   color: var(--color-text-primary);
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-3xl);
   font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   line-height: var(--line-height-tight);
@@ -1185,7 +1198,7 @@ a.entry-card__title:focus-visible {
 .entry-card__skeleton {
   display: block;
   width: 60%;
-  height: calc(var(--font-size-2xl) * var(--line-height-tight));
+  height: calc(var(--font-size-3xl) * var(--line-height-tight));
   border-radius: var(--radius-sm);
   background: var(--color-bg-subtle);
   animation: skeleton-appear 1ms linear 300ms both;
@@ -1193,7 +1206,7 @@ a.entry-card__title:focus-visible {
 
 .entry-card__missing {
   color: var(--color-text-tertiary);
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-3xl);
   line-height: var(--line-height-tight);
 }
 
@@ -1205,6 +1218,7 @@ a.entry-card__title:focus-visible {
 .entry-card__reminder {
   position: relative;
   display: flex;
+  margin-top: auto;
   align-items: flex-start;
   gap: var(--space-1);
   padding: var(--space-1) var(--space-2);
@@ -1326,6 +1340,21 @@ a.entry-card__title:focus-visible {
   align-items: center;
   gap: var(--space-1) var(--space-3);
   font-size: var(--font-size-md);
+}
+
+/* ───────────── 卡片里的节奏（M6-03） ─────────────
+   「标签：值」之后的内容、一组操作按钮、说明段落之后的「标签：值」或表格：和上一块隔 space-4，不贴在一起。
+   卡片是块布局，相邻外边距合并，自带上外边距的分区小标题、标题下外边距都不会被加倍 */
+.card > .details + *,
+.card > * + .action-row,
+.card > p + .details,
+.card > p + .table-wrap {
+  margin-top: var(--space-4);
+}
+
+/* 「标签：值」下面紧跟的文字按钮（声明无法履约等）：按钮文字和上面的标签左对齐，不缩进一个按钮内边距 */
+.card > .details + .form__actions > .button--text:first-child {
+  margin-left: calc(0px - var(--space-3));
 }
 
 .card__header {

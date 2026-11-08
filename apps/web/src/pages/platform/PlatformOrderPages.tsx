@@ -641,7 +641,7 @@ export function PlatformOrderDetailPage() {
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="供应商">{order.tenant.name}</Detail>
           <Detail label="渠道">{`${order.channel.name}${order.channel_order_no ? `（${order.channel_order_no}）` : ""}`}</Detail>
-          <Detail label="对外价 / 结算价">{`${moneyText(order.sell)} / ${moneyText(order.settlement.total)}（加价 ${order.markup_bp / 100}%）`}</Detail>
+          <Detail label="对外价 / 结算价"><span className="price">{`${moneyText(order.sell)} / ${moneyText(order.settlement.total)}（加价 ${order.markup_bp / 100}%）`}</span></Detail>
           <Detail label="取消政策">{order.cancel_policy === null ? "按现在的平台政策" : `第 ${order.cancel_policy.version} 版 · ${levelName(order.cancel_policy.level)}：${tiersText(order.cancel_policy.tiers)}`}</Detail>
         </dl>
         {(canManage && (CANCELLABLE.includes(order.status) || CHANGEABLE.includes(order.status))) && (

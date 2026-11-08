@@ -36,7 +36,7 @@
 - 聚焦：聚焦环 `border-focus`，`outline-offset: -1px`。
 - 出错：边框 2px `danger-solid`（内边距相应减 1px，避免抖动）；下方显示出错文字（见第 4 节）。`aria-invalid="true"`。
 - 禁用：底 `bg-disabled`，字 `text-disabled`，边框 `border-default`。
-- 只读：底 `bg-subtle`，字 `text-primary`，边框 `border-default`，可以选中复制，可以聚焦。
+- 只读：底 `bg-subtle`，字 `text-primary`，边框 `border-default`，可以选中复制，可以聚焦。下拉框（`<select>`）在浏览器看来总是「只读」，不套这个样式，和输入框一样是 `bg-surface` + `border-strong`（M6-03 修正：之前所有下拉框都显示成灰底）。
 - 前后缀（币种代码、单位「分钟」「公里」、显示密码按钮）放在输入框内部两端，字色 `text-secondary`，不能被输入内容盖住。
 - 占位文字只用来举格式的例子，不能代替标签。
 - 按内容设置 `type`、`inputmode`、`autocomplete`：邮箱 `type="email"`，电话 `type="tel"`，金额和数量 `inputmode="decimal"` 或 `"numeric"`。**金额和数量不用 `type="number"`**（滚轮会误改数值，且不同浏览器对小数处理不一致）。
@@ -112,7 +112,7 @@
 
 每个页面的说明里要写明用 A 还是 B；用 B 时列出卡片上保留哪几个字段。
 
-**筛选条**：在表格上方，控件用 `sm` 尺寸，间距 `space-2`，放不下自动换行。< 768px 时只保留搜索框和一个「筛选」按钮，其余条件收进从底部升起的面板；按钮上显示已生效的条件数（「筛选 · 2」）。已生效的条件在表格上方以可删除的小标签列出，并提供「清空筛选」。
+**筛选条**：在表格上方，控件用 `sm` 尺寸，条件之间横向 `space-4`、换行后行距 `space-3`（M6-03：比条件内「标签—输入框」的 `space-2` 宽一级，看得出哪个标签管哪个框），放不下自动换行；筛选条到表格 `space-3`。< 768px 时只保留搜索框和一个「筛选」按钮，其余条件收进从底部升起的面板；按钮上显示已生效的条件数（「筛选 · 2」）。已生效的条件在表格上方以可删除的小标签列出，并提供「清空筛选」。
 
 筛选条的细则：
 
@@ -363,9 +363,9 @@
 └──────────────────────────┘
 ```
 
-- 容器：卡片样式（`03-layout.md` 第 2 节），内边距 `space-4` / `space-5`，三行之间间距 `space-2`；另加 `shadow-card`（ADR 0066，后台只有入口卡片带阴影，暗色下靠描边）。栅格用 `repeat(auto-fill, minmax(min(240px, 100%), 1fr))`，间距 `space-4`。同一行的卡片等高。
+- 容器：卡片样式（`03-layout.md` 第 2 节），内边距 `space-4` / `space-5`，三行之间间距 `space-3`（M6-03 由 `space-2` 放宽）；另加 `shadow-card`（ADR 0066，后台只有入口卡片带阴影，暗色下靠描边）。栅格用 `repeat(auto-fill, minmax(min(240px, 100%), 1fr))`，间距 `space-4`。同一行的卡片等高；提醒行贴卡片底部（`margin-top: auto`），同一行里有的卡片有提醒、有的没有时，提醒行上下对齐（M6-03）。
 - **标题行**：模块名是一个 `<a>`（`font-size-lg`，`font-weight-bold`，`text-primary`），右侧 16px 向右箭头（`text-tertiary`，`aria-hidden`）。链接用 `::after { position: absolute; inset: 0 }` 把可点区域铺满整张卡片（卡片 `position: relative`）。悬停：卡片边框换成 `border-strong`，模块名和箭头换成 `text-link`；聚焦环画在整张卡片上（`:focus-within` 时给卡片加聚焦环，链接自身的去掉）。
-- **数量行**：一到三组「数字 + 说明」，组与组之间用「·」分隔，放不下自动换行。数字 `font-size-2xl`、`font-weight-bold`、`text-primary`、等宽数字、带千分位；说明 `font-size-sm`、`text-secondary`，在数字右侧，间距 `space-1`。**数字的含义全靠说明文字表达，不用颜色区分「启用」和「停用」。** 数量行用 `<dl>`（说明是 `<dt>`，数字是 `<dd>`，视觉上数字在前）。
+- **数量行**：一到三组「数字 + 说明」，组与组之间用「·」分隔，放不下自动换行，组间距 `space-5`。数字 `font-size-3xl`（M6-03 由 `font-size-2xl` 放大一级，数字比模块名更醒目）、`font-weight-bold`、`text-primary`、等宽数字、带千分位；说明 `font-size-sm`、`text-secondary`，在数字右侧，间距 `space-1`。**数字的含义全靠说明文字表达，不用颜色区分「启用」和「停用」。** 数量行用 `<dl>`（说明是 `<dt>`，数字是 `<dd>`，视觉上数字在前）。
 - **提醒行**（有需要处理的事才显示，一张卡片最多两条）：底 `warning-bg`，边框 `warning-border`，圆角 `radius-md`，内边距 `space-1` / `space-2`；16px 三角警示图标（`warning-text`）+ 文字（`font-size-sm`，`text-primary`）+ 右侧向右箭头（`warning-text`；状态底色上不能用 `text-tertiary`）。它自己是一个 `<a>`，去到已经筛好的列表；要加 `position: relative`，这样它盖在标题链接铺开的那一层上面、能单独点到（不写 `z-index` 数字）。
 - **还没有对应页面的模块**：只显示模块名和数量，模块名是普通文字不是链接，没有箭头，没有悬停效果。不写「即将上线」之类的话。
 - 状态：
@@ -495,7 +495,7 @@
 
 （每个按钮都是「图标 + 文字」，图标用第 15 节的线性图标。）
 
-- 容器：`role="toolbar"`，`aria-label="绘制工具"`，`aria-controls` 指向地图画布。底 `bg-surface`，边框 `border-default`，圆角 `radius-md`，内边距 `space-1`，与地图间距 `space-2`；`flex-wrap: wrap`，放不下自动换行。
+- 容器：`role="toolbar"`，`aria-label="绘制工具"`，`aria-controls` 指向地图画布。底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`、内边距 `space-2` / `space-3`（M6-03：和地图画布、图形列表同一级圆角，按钮不贴边），与地图间距 `space-2`；`flex-wrap: wrap`，放不下自动换行。
 - **工具按钮**（选择、画多边形、画圆）是互斥的：样式是次要按钮（`md` 尺寸，图标 + 文字）；当前工具底 `primary-subtle`、字 `text-link`、边框 `border-focus`，并设 `aria-pressed="true"`。**当前工具不只靠底色区分**：它的文字前多一个对勾图标。
 - **动作按钮**（粘贴坐标、撤销、重做）点一下做一件事，没有「当前」状态。撤销、重做没有可撤销 / 可重做的步骤时禁用。
 - **「新图形是」**：一组两个单选（原生 `<input type="radio">`，外观做成并排的两段，`<fieldset>` + `<legend>`）。每一段的文字前有一个和图例相同的小图样。它决定接下来画出来、粘贴进来的图形是哪一类。
@@ -867,9 +867,9 @@
 
 - **月份条**：「上个月」「下个月」图标按钮（`aria-label`）+ 中间的「{YYYY} 年 {M} 月」（标题元素，`aria-live="polite"`）+「回到本月」（文字按钮，已经是本月时不显示）。到了页面规定的范围尽头，按钮禁用。
 - **一周从周一开始**。只画这个月的日子；月初月末的空位是空白格，不显示相邻月的日子。
-- **大月历的格子**：七列 `repeat(7, minmax(0, 1fr))`，格子最小高度是 `table-row-height` 的两倍，内边距 `space-1` / `space-2`，格子之间 `border-default`；底 `bg-surface`。第一行是「日」（`font-size-sm`，`text-secondary`，等宽数字）和这一天的标记；下面的内容由页面给，每行单行省略。
+- **大月历的格子**：七列 `repeat(7, minmax(0, 1fr))`，格子最小高度是 `table-row-height` 的两倍，内边距 `space-1` / `space-2`，格子之间 `border-default`；底 `bg-surface`；外框圆角 `radius-lg`（窄屏列表的每周一块也是），星期表头 `font-weight-bold`（M6-03，和表格表头一致）。第一行是「日」（`font-size-sm`，`text-secondary`，等宽数字）和这一天的标记；下面的内容由页面给，每行单行省略。
 - **今天**：「日」用 `font-weight-bold` + `text-primary`，后面跟文字「今天」。**不只靠圈或底色**。「今天」是页面给的日期（按业务的时区），不是浏览器的今天。
-- **选中**：格子底 `bg-selected`；一段日期的起点、终点两格第一行另有文字「起」「止」（`text-link`，`font-weight-medium`）。**只选了一天时不写标记**（M1-14：「起止」两个字看不懂；底色和选择条里的「已选 {日期}，共 1 天」已经说清楚），读屏读作「已选」。选中的范围同时写在月历上方的**选择条**里（「已选 {从} 至 {到}，共 {N} 天」+ 页面给的操作按钮 +「取消选择」；`role="status"`；吸在月历容器顶部）。
+- **选中**：格子底 `bg-selected`，「日」换成 `text-link` + `font-weight-bold`（M6-03，不只靠底色）；一段日期的起点、终点两格第一行另有文字「起」「止」（`text-link`，`font-weight-medium`）。**只选了一天时不写标记**（M1-14：「起止」两个字看不懂；底色和选择条里的「已选 {日期}，共 1 天」已经说清楚），读屏读作「已选」。选中的范围同时写在月历上方的**选择条**里（「已选 {从} 至 {到}，共 {N} 天」+ 页面给的操作按钮 +「取消选择」；`role="status"`；吸在月历容器顶部）。
 - **没有值、值有问题的日子**：图标 + 文字（「没有价格」等，由页面给），底 `bg-subtle`。过去的日子：只把「日」降成 `text-tertiary`，内容不变淡（过去的数据仍然要看得清）。
 - **不能选、不能改的日子**（页面规定的范围以外，例如库存日历里过去的日子）：`aria-disabled`；方向键走得到、读得到（读出为什么不能改），但 `Enter`、空格和选择对它们不起作用；拖动选择经过它们时，范围停在最后一个可选的日子。
 - **点一天直接改**（库存日历）：这一天的面板里可以放一个小表单；从月历按 `Enter` 后焦点进入面板，面板里 `Esc` 回到月历的那一天。

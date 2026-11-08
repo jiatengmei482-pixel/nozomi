@@ -335,13 +335,13 @@
 }
 
 .step-nav__item {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: var(--space-0-5);
   min-height: var(--control-height-lg);
   padding: var(--space-2) var(--space-3);
-  border-left: var(--focus-ring-width) solid transparent;
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
   text-decoration: none;
@@ -354,8 +354,19 @@
 }
 
 .step-nav__item--current {
-  border-left-color: var(--color-primary);
   background: var(--color-primary-subtle);
+}
+
+/* 当前步骤左侧的竖条和侧边栏菜单的「当前页」一样：3px、两端圆头、上下各缩进 space-1（M6-03） */
+.step-nav__item--current::before {
+  content: "";
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: 0;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
 }
 
 .step-nav__item--current .step-nav__name {
@@ -1962,7 +1973,8 @@
 .calendar__week {
   display: grid;
   border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
   background: var(--color-bg-surface);
 }
 
@@ -1996,6 +2008,12 @@
 
 .calendar__cell--selected {
   background: var(--color-bg-selected);
+}
+
+/* 选中的日子：日期数字也换成链接色加粗，不只靠底色（M6-03） */
+.calendar__cell--selected .calendar__num {
+  color: var(--color-text-link);
+  font-weight: var(--font-weight-bold);
 }
 
 .calendar__cell--none {
@@ -2261,7 +2279,7 @@
   .calendar {
     gap: 0;
     border: var(--border-width) solid var(--color-border-default);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     background: var(--color-bg-surface);
     overflow: hidden;
   }
@@ -2279,6 +2297,7 @@
     background: var(--color-bg-subtle);
     color: var(--color-text-secondary);
     font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-bold);
   }
 
   .calendar__week-title,

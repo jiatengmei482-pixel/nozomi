@@ -439,7 +439,7 @@ export function OrderDetailPage() {
           {order.messaging && <Detail label="即时通讯">{`${order.messaging.app}：${order.messaging.handle}`}</Detail>}
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
           <Detail label="免费等待">{order.free_wait_minutes === null ? "不限" : `${order.free_wait_minutes} 分钟`}</Detail>
-          <Detail label="结算价">{moneyText(order.settlement.total)}</Detail>
+          <Detail label="结算价"><span className="price price--sm"><span className="price__amount">{moneyText(order.settlement.total)}</span></span></Detail>
         </dl>
         {canDispatch && DECLARABLE.includes(order.status) && (
           <div className="form__actions">
