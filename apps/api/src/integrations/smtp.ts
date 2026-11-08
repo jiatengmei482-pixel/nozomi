@@ -10,11 +10,12 @@
  * 时限：一次发信总共 15 秒，到点直接断开连接。只有连接这一步失败才换下一个地址再试 1 次；连上之后失败不重试（可能已经发出去了）。
  * 错误只归成代码 + 我们自己写的一句话：服务器返回的原文不外传，nodemailer 的日志关闭。
  * 服务器拒收的归类见 ADR 0049「邮件服务器拒收的归类」：只看哪一步、应答码和增强状态码，不看说明文字（各家写法不同，也可能含收件人地址）。
+ * 调用方只给纯文字时，这里用 @nozomi/domain 的 `renderMailHtml` 排一份带品牌页眉的 HTML 版，和纯文字版一起发（multipart/alternative，ADR 0067）。
  */
 import { lookup as dnsLookup } from "node:dns/promises";
 import { type Socket, connect as netConnect, isIP, isIPv4 } from "node:net";
 import { type SmtpSettings } from "@nozomi/config";
-import { type MailMessage, smtpAddressAllowed, smtpHostAllowed } from "@nozomi/domain";
+import { type MailMessage, renderMailHtml, smtpAddressAllowed, smtpHostAllowed } from "@nozomi/domain";
 import { createTransport } from "nodemailer";
 
 export type SmtpFailureCode =
@@ -231,7 +232,7 @@ export class SmtpMailer implements Mailer {
         envelope: { from: settings.fromAddress, to: [message.to] },
         subject: message.subject,
         text: message.text,
-        ...(message.html === undefined ? {} : { html: message.html }),
+        html: message.html ?? renderMailHtml(message),
       });
       return { ok: true, messageId: info.messageId };
     } finally {

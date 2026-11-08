@@ -12,7 +12,7 @@ import { NOTIFICATION_LEASE_MS } from "./services/notification-jobs.ts";
 import { claimDueNotifications } from "./repos/notifications.ts";
 import { type TestApi, TEST_PASSWORD, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
-import { type FakeSmtp, type FakeSmtpMessage, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, type FakeSmtpMessage, decodedMailHtml, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { type Market, allKeys, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
@@ -115,14 +115,8 @@ function subjectOf(message: FakeSmtpMessage): string {
     kind.toLowerCase() === "b" ? Buffer.from(text, "base64").toString("utf8") : Buffer.from(text.replace(/_/g, " ").replace(/=([0-9A-F]{2})/gi, (__, hex: string) => String.fromCharCode(Number.parseInt(hex, 16))), "latin1").toString("utf8"));
 }
 
-function bodyOf(message: FakeSmtpMessage): string {
-  const split = message.data.search(/\r?\n\r?\n/);
-  const head = message.data.slice(0, split);
-  const body = message.data.slice(split).trim();
-  if (/content-transfer-encoding:\s*base64/i.test(head)) return Buffer.from(body.replace(/\s/g, ""), "base64").toString("utf8");
-  if (/content-transfer-encoding:\s*quoted-printable/i.test(head)) return Buffer.from(body.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))), "latin1").toString("utf8");
-  return body;
-}
+/** 邮件的纯文字正文（M6-06 起邮件同时有 HTML 版，取纯文字那一部分）。 */
+const bodyOf = (message: FakeSmtpMessage): string => decodedMailText(message.data);
 
 const guestMails = (): FakeSmtpMessage[] => smtp.messages.filter((message) => message.to.includes(GUEST_EMAIL));
 const rowsOf = async (orderId: string): Promise<any[]> => (await api.db.owner.query("select * from notifications where order_id = $1 order by audience, recipient", [orderId])).rows;
@@ -689,16 +683,19 @@ test("缺陷：客人下车地址带换行，经真实接口下单：发给供�
   assert.doesNotMatch(bodyOf(mail), /[\r\n]NOZOMI 平台紧急通知/, bodyOf(mail));
 });
 
-test("姓名、地址里的 HTML、占位符原样是文字；邮件只有纯文本部分；备注不进任何邮件", async () => {
+test("姓名、地址里的 HTML、占位符原样是文字（M6-06 起另有 HTML 版，里面这些都转义成文字）；备注不进任何邮件", async () => {
   const order = await paidOrder({ passenger: { name: "<img src=x onerror=alert(1)>{{view_url}}" }, dropoff_address: "<b>东京站</b>{{order_no}}", notes: "QA备注不外传" });
   await site.app.notificationJobs.tick();
   assert.ok(smtp.messages.length >= 2);
   for (const message of smtp.messages) {
-    assert.doesNotMatch(message.data, /content-type:\s*text\/html/i);
-    assert.doesNotMatch(message.data, /multipart\/alternative/i);
+    assert.match(message.data, /multipart\/alternative/i);
+    const html = decodedMailHtml(message.data) ?? "";
+    assert.doesNotMatch(html, /<img|<b>|onerror=alert\(1\)>/i, "客人填的标签在 HTML 版里只是文字");
+    assert.ok(!html.includes("QA备注不外传"));
     assert.ok(!bodyOf(message).includes("QA备注不外传"));
     assert.ok(!bodyOf(message).includes("undefined"));
   }
+  assert.ok((decodedMailHtml((guestMails()[0] as FakeSmtpMessage).data) ?? "").includes("&lt;img src=x onerror=alert(1)&gt;{{view_url}}，您好"));
   const guest = bodyOf(guestMails()[0] as FakeSmtpMessage);
   assert.ok(guest.includes("<img src=x onerror=alert(1)>{{view_url}}，您好"), guest);
   const tenantMail = smtp.messages.find((message) => message.to.includes(sideOf(order.tenantId).adminEmail));

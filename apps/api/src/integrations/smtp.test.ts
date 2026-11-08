@@ -6,8 +6,8 @@ import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { type SmtpSettings, smtpSettingsIssues } from "@nozomi/config";
-import { isSingleMailAddress } from "@nozomi/domain";
-import { type FakeSmtp, type FakeTlsCert, generateFakeTlsCert, startFakeSmtp } from "../testing/fake-integrations.ts";
+import { isSingleMailAddress, renderMailHtml } from "@nozomi/domain";
+import { type FakeSmtp, type FakeTlsCert, decodedMailHtml, decodedMailText, generateFakeTlsCert, startFakeSmtp } from "../testing/fake-integrations.ts";
 import { type MailSendResult, SMTP_FAILURE_MESSAGES, SMTP_SEND_DEADLINE_MS, type SmtpFailureCode, type SmtpMailerOptions, SmtpMailer, classifySmtpError } from "./smtp.ts";
 
 const PASSWORD = "unit-smtp-Pass-0001";
@@ -65,6 +65,20 @@ test("明文（none）：认证、发件人、收件人、内容都到了服务�
   assert.match(message?.data ?? "", /^From: .*<noreply@example\.com>/m);
   assert.match(message?.data ?? "", /^To: someone@example\.com/m);
   assert.ok(!(message?.data ?? "").includes(PASSWORD), "邮件内容里没有密码");
+});
+
+test("HTML 版（ADR 0067）：只给纯文字时按 renderMailHtml 排一份一起发；调用方给了 HTML 就用调用方的", async () => {
+  const text = "王先生，您好：\n\n查看订单：\nhttps://nozomi.example/o?t=1\n\nNOZOMI 用车";
+  assert.equal((await mailer().send(settingsOf(plain, "none"), { to: MESSAGE.to, subject: MESSAGE.subject, text })).ok, true);
+  const data = plain.messages[0]?.data ?? "";
+  assert.match(data, /^Content-Type: multipart\/alternative;/m);
+  const lf = (value: string | null | undefined): string | undefined => value?.replace(/\r\n/g, "\n").trim();
+  assert.equal(lf(decodedMailText(data)), text, "纯文字版原样（SMTP 传输时换行是 CRLF）");
+  assert.equal(lf(decodedMailHtml(data)), renderMailHtml({ subject: MESSAGE.subject, text }).trim());
+
+  plain.reset();
+  assert.equal((await mailer().send(settingsOf(plain, "none"), MESSAGE)).ok, true);
+  assert.equal(lf(decodedMailHtml(plain.messages[0]?.data ?? "")), MESSAGE.html);
 });
 
 test("STARTTLS：升级之后才认证、才发信；服务器不支持升级就失败，不退回明文，密码没有发出去", async () => {
