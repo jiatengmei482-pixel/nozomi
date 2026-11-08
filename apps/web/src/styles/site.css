@@ -436,6 +436,13 @@
     padding: var(--space-8) var(--space-6) var(--space-12);
   }
 
+  /* 页脚署名和页眉、正文左右对齐（M6-07）：正文内容区宽 reading-max-width、居中、两侧 space-6，页脚按同样的宽度和边距排 */
+  .site__footer {
+    width: min(var(--layout-reading-max-width), 100%);
+    margin: 0 auto;
+    padding-inline: var(--space-6);
+  }
+
   .site-section {
     padding: var(--space-6);
   }
