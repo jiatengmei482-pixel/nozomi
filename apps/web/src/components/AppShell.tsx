@@ -15,6 +15,7 @@ import { type Portal, roleName } from "../lib/portal.ts";
 import { ACCOUNT_SECURITY_PATH } from "../lib/platform-paths.ts";
 import { platformAccountCan } from "../lib/use-master-access.ts";
 import { ThemeSwitcher } from "../theme/ThemeSwitcher.tsx";
+import { Brand } from "./Brand.tsx";
 import { IconButton } from "./Button.tsx";
 import { Dropdown } from "./Dropdown.tsx";
 import { Icon, type IconName } from "./Icon.tsx";
@@ -204,7 +205,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { portal, account, navigationAllowed } = usePortalSession();
   const brand = (
     <div className="sidebar__brand">
-      <span className="sidebar__brand-name">NOZOMI</span>
+      <Brand className="sidebar__brand-name" />
       <span className="sidebar__portal">{portal.name}</span>
     </div>
   );
@@ -365,7 +366,7 @@ export function AppShell({ pageName, trail = [], children }: { pageName: string;
         <header className="topbar">
           {mustChangePassword ? (
             <span className="topbar__brand">
-              <span className="topbar__brand-name">NOZOMI</span>
+              <Brand className="topbar__brand-name" />
               <span className="topbar__portal">{portal.name}</span>
             </span>
           ) : (

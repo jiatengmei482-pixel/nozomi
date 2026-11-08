@@ -74,26 +74,34 @@
   min-height: 100%;
 }
 
+/* 侧边栏顶部：品牌（标志 + 字标）和后台名称排一行，高度与顶栏相同，下边线和顶栏的下边线对齐 */
 .sidebar__brand {
   display: flex;
-  flex-direction: column;
-  padding: var(--space-4) var(--space-4) var(--space-3);
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-height: var(--layout-topbar-height);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border-default);
 }
 
 .sidebar__brand-name {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  letter-spacing: 0.08em;
+  font-size: var(--font-size-lg);
 }
 
 .sidebar__portal {
+  padding-left: var(--space-2);
+  border-left: var(--border-width) solid var(--color-border-default);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
 }
 
 .sidebar__nav {
-  padding: var(--space-2);
+  padding: var(--space-3) var(--space-2);
 }
 
 .sidebar__list {
@@ -113,6 +121,21 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
   text-decoration: none;
+  transition:
+    background-color var(--duration-fast),
+    color var(--duration-fast);
+}
+
+/* 图标比文字淡一级；悬停和当前页时跟着文字变深 */
+.nav-item > .icon {
+  flex: none;
+  color: var(--color-text-tertiary);
+  transition: color var(--duration-fast);
+}
+
+.nav-item > span:not(.nav-item__badge) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .nav-item__badge {
@@ -122,7 +145,9 @@
   border-radius: var(--radius-full);
   background: var(--color-danger-solid);
   color: var(--color-on-danger);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
   line-height: var(--line-height-normal);
   text-align: center;
 }
@@ -138,12 +163,21 @@
     background: var(--color-bg-hover);
     color: var(--color-text-primary);
   }
+
+  .nav-item:hover > .icon {
+    color: currentColor;
+  }
 }
 
 .nav-item[aria-current="page"] {
   background: var(--color-primary-subtle);
   color: var(--color-text-link);
   font-weight: var(--font-weight-medium);
+}
+
+.nav-item[aria-current="page"] > .icon,
+.nav-item--within > .icon {
+  color: currentColor;
 }
 
 .nav-item[aria-current="page"]::before {
@@ -171,6 +205,16 @@
   flex: 1;
 }
 
+/* 分组项右侧的箭头只是提示，比左侧图标小一号 */
+.nav-item--group > .icon:last-child {
+  width: 14px;
+  height: 14px;
+}
+
+.nav-item[aria-expanded="true"] {
+  color: var(--color-text-primary);
+}
+
 .nav-item--within {
   color: var(--color-text-link);
   font-weight: var(--font-weight-medium);
@@ -180,13 +224,37 @@
   padding-left: calc(var(--space-3) + var(--space-6));
 }
 
+/* 子项左侧一条细竖线对齐分组图标的中线，看得出层级；当前子项的竖条压在这条线上 */
 .sidebar__list--children {
+  position: relative;
   margin-top: var(--space-0-5);
+  margin-bottom: var(--space-1);
+}
+
+.sidebar__list--children::before {
+  content: "";
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: calc(var(--space-3) + 8px);
+  border-left: var(--border-width) solid var(--color-border-default);
+}
+
+.nav-item--child[aria-current="page"]::before {
+  left: calc(var(--space-3) + 8px - 1px);
 }
 
 .breadcrumb__ancestor {
   display: none;
   color: var(--color-text-secondary);
+}
+
+.breadcrumb__ancestor > [aria-hidden="true"] {
+  color: var(--color-text-tertiary);
+}
+
+.breadcrumb [aria-current="page"] {
+  font-weight: var(--font-weight-medium);
 }
 
 @media (min-width: 768px) {
@@ -291,6 +359,10 @@
     padding: 0 var(--space-4);
   }
 
+  .topbar__actions {
+    gap: var(--space-2);
+  }
+
   .account-button__name,
   .account-button__role {
     display: inline;
@@ -310,26 +382,45 @@
   .topbar__menu-button {
     display: none;
   }
+
+  /* 侧边栏常驻时顶栏左边没有菜单按钮：面包屑和下面的页面标题左对齐 */
+  .topbar {
+    padding-left: var(--layout-page-padding);
+  }
 }
 
 /* 必须先改密码时没有侧边栏：整页一栏，顶栏左侧写明这是哪个后台 */
 .topbar__brand {
   display: flex;
-  flex: none;
-  align-items: baseline;
+  flex: 0 1 auto;
+  align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   padding: 0 var(--space-2);
 }
 
+/* 手机上字标小一号、后台名称可以折行：320px 宽时顶栏右侧还有主题切换和账号菜单 */
 .topbar__brand-name {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.08em;
+  font-size: var(--font-size-md);
 }
 
 .topbar__portal {
+  padding-left: var(--space-2);
+  border-left: var(--border-width) solid var(--color-border-default);
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+@media (min-width: 480px) {
+  .topbar__brand-name {
+    font-size: var(--font-size-lg);
+  }
+
+  .topbar__portal {
+    white-space: nowrap;
+  }
 }
 
 @media (min-width: 1024px) {
