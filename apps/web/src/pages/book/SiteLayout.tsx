@@ -8,6 +8,7 @@ import { Link, Outlet, useLocation } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import { type SiteConfig, getSiteConfig } from "../../api/site.ts";
 import { Attributions, placeSources } from "../../components/Attribution.tsx";
+import { Brand } from "../../components/Brand.tsx";
 import { Button } from "../../components/Button.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { failureText } from "../../lib/failure.ts";
@@ -22,8 +23,8 @@ function navCurrent(pathname: string, target: string): "page" | "true" | undefin
 }
 
 /**
- * 顶栏：DOM 顺序是品牌、主题切换、入口（F10）。窄屏（320px）品牌和主题切换在第一行两端、入口在第二行；
- * 宽屏一行，主题切换和入口一起靠右。两种宽度下 Tab 顺序都和看到的顺序一致。
+ * 顶栏：DOM 顺序是品牌、主题切换、入口（F10）。品牌和主题切换在第一行两端（品牌色带上，M6-05），入口在色带下面的第二行；
+ * 各宽度都是这样排，Tab 顺序和看到的顺序一致。品牌链接的可读名字仍是「NOZOMI 用车」（标志对读屏隐藏）。
  */
 export function SiteLayout({ children, attribution = true }: { children: ReactNode; attribution?: boolean }) {
   const { pathname } = useLocation();
@@ -31,7 +32,7 @@ export function SiteLayout({ children, attribution = true }: { children: ReactNo
     <div className="site">
       <header className="site__header">
         <Link to={SITE_HOME_PATH} className="site__brand">
-          NOZOMI 用车
+          <Brand tone="on-brand" /> <span className="site__brand-service">用车</span>
         </Link>
         <div className="site__theme">
           <ThemeSwitcher />

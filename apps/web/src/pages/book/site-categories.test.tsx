@@ -166,7 +166,7 @@ test("包车：选时长（只有包车的字段进请求体）；报价卡写�
   const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "charter", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, pickup: { lat: 35.6812, lng: 139.7671 }, package_hours: 8 });
   assert.ok(within(card).getByText("8 小时，含 150 公里"));
-  assert.ok(within(card).getByText("77,000 JPY"));
+  assert.equal(card.querySelector(".site-quote__price")?.textContent, "77,000 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
   assert.ok(screen.getByText(/超出套餐的时长和公里、高速费、停车费服务后按实际收取/));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
 

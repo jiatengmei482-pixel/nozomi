@@ -121,7 +121,7 @@ async function headerBoxes(page: Page): Promise<{ brand: Box; theme: Box; nav: B
   return { brand, theme, nav };
 }
 
-test("F10：顶栏在 320 两行、480 和 768 一行；各宽度从左到右、从上到下的顺序都和 Tab 顺序（品牌 → 主题 → 入口）一致", async ({ page }) => {
+test("F10：顶栏各宽度都是两行（M6-05：第一行品牌色带上品牌和主题切换，第二行入口）；从左到右、从上到下的顺序都和 Tab 顺序（品牌 → 主题 → 入口）一致", async ({ page }) => {
   await page.goto("/book");
   await expect(page.getByRole("heading", { level: 1, name: "预订用车" })).toBeVisible();
 
@@ -133,9 +133,9 @@ test("F10：顶栏在 320 两行、480 和 768 一行；各宽度从左到右、
   for (const width of [480, 768, 1280]) {
     await page.setViewportSize({ width, height: 800 });
     const { brand, theme, nav } = await headerBoxes(page);
-    expect(sameRow(brand, theme) && sameRow(theme, nav), `${width}：一行`).toBe(true);
-    expect(brand.x + brand.width, `${width}：品牌在最左`).toBeLessThanOrEqual(theme.x);
-    expect(theme.x + theme.width, `${width}：主题在入口左边（DOM 顺序在前）`).toBeLessThanOrEqual(nav.x);
+    expect(sameRow(brand, theme), `${width}：品牌和主题同一行`).toBe(true);
+    expect(brand.x + brand.width, `${width}：品牌在主题左边`).toBeLessThanOrEqual(theme.x);
+    expect(nav.y, `${width}：入口在第二行（主题之后）`).toBeGreaterThanOrEqual(Math.max(brand.y + brand.height, theme.y + theme.height) - 1);
     expect(nav.x + nav.width, `${width}：入口不超出视口`).toBeLessThanOrEqual(width);
   }
 

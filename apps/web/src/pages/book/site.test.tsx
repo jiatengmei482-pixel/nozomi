@@ -170,7 +170,7 @@ test("询价：唯一的城市和机场自动选好；没填的标红；请求�
   await actor.click(screen.getByRole("button", { name: "查询价格" }));
   const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "airport_transfer", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, airport_id: AIRPORT_ID, direction: "pickup", address: { lat: 35.6812, lng: 139.7671 } });
-  assert.ok(within(card).getByText("21,780 JPY"));
+  assert.equal(card.querySelector(".site-quote__price")?.textContent, "21,780 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
   assert.ok(within(card).getByText("90 分钟（从航班落地起算）"));
   assert.ok(within(card).getByText("用车前 48 小时以上取消免费；24–48 小时内取消收 50%；24 小时内取消收全额"));
   assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);

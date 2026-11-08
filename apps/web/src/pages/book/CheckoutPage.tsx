@@ -22,6 +22,7 @@ import { ADDRESS_LABELS, SITE_HOME_PATH, addressEnds, guestCancelPolicyText, gue
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import type { CheckoutState } from "./BookPage.tsx";
 import { SiteLayout, siteFailureText } from "./SiteLayout.tsx";
+import { SitePrice } from "./SitePrice.tsx";
 
 const MESSAGING_NAMES: Readonly<Record<MessagingApp, string>> = { whatsapp: "WhatsApp", line: "LINE", wechat: "微信", kakaotalk: "KakaoTalk" };
 
@@ -195,9 +196,11 @@ export function CheckoutPage() {
               {draft.passengers} 人 / {draft.luggage} 件
             </dd>
           </div>
-          <div className="site-facts__item">
+          <div className="site-facts__item site-facts__item--total">
             <dt>{category === "charter" ? "总价（按车计价的套餐价）" : "总价（按车计价，已含高速费和停车费）"}</dt>
-            <dd className="site-price">{moneyText(quote.price.total)}</dd>
+            <dd>
+              <SitePrice text={moneyText(quote.price.total)} size="lg" />
+            </dd>
           </div>
           <div className="site-facts__item">
             <dt>取消政策</dt>
@@ -212,7 +215,7 @@ export function CheckoutPage() {
         </LinkButton>
       </section>
 
-      <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
+      <form className="site-form site-section" noValidate onSubmit={(event) => void submit(event)}>
         <h2 className="site-section__title">乘车人和联系方式</h2>
         <AlertSlot notice={notice} />
         <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => update({ name: event.target.value })} />
