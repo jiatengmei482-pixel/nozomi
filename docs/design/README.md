@@ -28,6 +28,7 @@
 | [`pages/platform-orders.md`](./pages/platform-orders.md) | 运营后台的订单中心：订单列表的筛选和异常数、订单详情里的异常和工单、异常队列（认领、转交、写说明关闭） |
 | [`pages/platform-tickets.md`](./pages/platform-tickets.md) | 工单（运营后台的列表、新建、详情和判定；供应商后台的回复、申诉、发起）、客人赔付表、复核页新接的三类 |
 | [`pages/finance.md`](./pages/finance.md) | 财务结算：运营后台的账单、手工出账、付款复核、付款批次；供应商后台的账单确认和异议 |
+| [`pages/driver.md`](./pages/driver.md) | 司机页（司机 H5）：给谁用、首屏的信息层级（时间、地点、客人、航班）、「下一步」主按钮和「还没到时间」提示、出错和链接失效（M6-04） |
 | [`contrast-check.mjs`](./contrast-check.mjs) | 校验脚本：两段暗色令牌一致、亮暗令牌齐全、对比度达标 |
 
 以后每个有界面的任务，在 `pages/` 下加一篇页面说明，固定写四件事：给谁用、要完成什么、首屏看到什么、空状态和出错时显示什么。
