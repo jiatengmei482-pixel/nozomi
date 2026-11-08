@@ -670,7 +670,12 @@ test("解不开的隔离（明文不再写）：运营列表这一行显示无�
   const delivery = (await api.db.owner.query("update webhook_deliveries set event_data_enc = $2 where order_id = $1 and status = 'pending' and event_type = 'order.changed' returning id", [broken.id, `${useCrypto(RETIRED).currentPrefix}v1.AAAA.AAAA.AAAA`])).rows[0];
   assert.ok(delivery);
   receiver.received.length = 0;
-  await api.app.webhookJobs.tick();
+  // 一轮只取到期最早的一批，同一单前面还有没投完的，这一条要等下一轮（claimDueDeliveries 的说明）；最多推几轮，直到它不再排队
+  for (let round = 0; round < 5; round += 1) {
+    await api.app.webhookJobs.tick();
+    const state = (await api.db.owner.query("select status from webhook_deliveries where id = $1", [delivery.id])).rows[0];
+    if (state.status !== "pending") break;
+  }
   const pushed = (await api.db.owner.query("select status, last_error_code, next_attempt_at from webhook_deliveries where id = $1", [delivery.id])).rows[0];
   assert.deepEqual([pushed.status, pushed.last_error_code, pushed.next_attempt_at], ["failed", "PASSENGER_DECRYPT_FAILED", null]);
   assert.ok(!receiver.received.some((item) => item.body.includes("无法读取")));

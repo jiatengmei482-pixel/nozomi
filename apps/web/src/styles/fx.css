@@ -155,7 +155,7 @@
   gap: var(--space-1);
   padding: var(--space-3);
   border: var(--border-width) solid var(--color-warning-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-warning-bg);
 }
 
