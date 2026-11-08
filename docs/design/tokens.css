@@ -97,7 +97,7 @@
   --font-size-2xl: 1.25rem;   /* 20px */
   --font-size-3xl: 1.5rem;    /* 24px */
   --font-size-4xl: 1.875rem;  /* 30px */
-  --font-size-5xl: 2.25rem;   /* 36px 官网报价卡片、订单页的应付金额 */
+  --font-size-5xl: 2.25rem;   /* 36px 下单页、订单页的总价 */
 
   /* 行高 */
   --line-height-tight: 1.25;

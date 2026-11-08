@@ -12,7 +12,9 @@
   min-height: 0;
 }
 
+/* 定位上下文（M6-07）：正文里绝对定位的读屏文字（.visually-hidden）按正文定位，不撑高整个窗口 */
 .shell__main {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
