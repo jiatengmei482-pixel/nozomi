@@ -1,41 +1,66 @@
-/* 登录、设置密码页的版式（docs/design/pages/login.md 2.2）。从手机写起。 */
+/*
+ * 登录、设置密码页的版式（docs/design/pages/login.md 2.2；M6 改版见 ADR 0066）。从手机写起。
+ * 页面底色仍是 color-bg-page；顶部的品牌色带是 ::before 画的装饰，不影响 body 的底色。
+ * 色带在最底层：页眉和卡片都是定位元素、在 DOM 里排在 ::before 之后，所以画在它上面。
+ */
 .auth-page {
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   justify-items: center;
   min-height: 100dvh;
-  padding: var(--space-4);
+  padding: 0 var(--space-4) var(--space-12);
 }
 
+.auth-page::before {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: var(--z-base);
+  height: 13rem;
+  background: var(--color-brand);
+  content: "";
+}
+
+.auth-page__header {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: min(var(--layout-auth-card-width), 100%);
+  padding: var(--space-12) 0 var(--space-6);
+}
+
+.auth-page__brand {
+  font-size: var(--font-size-2xl);
+}
+
+/* 主题切换放在 bg-surface 的小底板上：深色色带上的图标按钮对比度没有校验过 */
 .auth-page__theme {
   position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
+  top: var(--space-3);
+  right: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
-/* < 480px：没有边框和底色，由页面边距控制左右留白；手机上靠上、不垂直居中 */
 .auth-card {
+  position: relative;
   width: min(var(--layout-auth-card-width), 100%);
-  margin-top: var(--space-12);
-}
-
-.auth-card__brand {
-  margin-bottom: var(--space-1);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-3xl);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-tight);
-  letter-spacing: 0.08em;
+  padding: var(--space-6) var(--space-5);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
 }
 
 .auth-card__title {
   margin-bottom: var(--space-6);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 .auth-card__intro {
@@ -44,7 +69,9 @@
 }
 
 .auth-card__switch {
-  margin-top: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
   font-size: var(--font-size-sm);
   text-align: center;
 }
@@ -70,21 +97,27 @@
 @media (min-width: 480px) {
   .auth-card {
     padding: var(--space-8);
-    border: var(--border-width) solid var(--color-border-default);
-    border-radius: var(--radius-xl);
-    background: var(--color-bg-surface);
+  }
+
+  .auth-page__theme {
+    top: var(--space-4);
+    right: var(--space-4);
   }
 }
 
-/* ≥ 768px：垂直居中并略偏上（上方留白 : 下方留白 = 2 : 3） */
+/* ≥ 768px：色带加高，品牌更大，卡片在色带下沿 */
 @media (min-width: 768px) {
-  .auth-page {
-    grid-template-rows: 2fr auto 3fr;
-    align-content: stretch;
+  .auth-page::before {
+    height: 18rem;
   }
 
-  .auth-card {
-    grid-row: 2;
-    margin-top: 0;
+  .auth-page__header {
+  position: relative;
+    padding-top: var(--space-16);
+    padding-bottom: var(--space-8);
+  }
+
+  .auth-page__brand {
+    font-size: var(--font-size-3xl);
   }
 }

@@ -18,7 +18,7 @@
   --color-bg-surface: #FFFFFF;
   --color-bg-subtle: #ECEEF2;
   --color-bg-hover: #E3E6EB;
-  --color-bg-selected: #E6EDFD;
+  --color-bg-selected: #E8ECFA;
   --color-bg-disabled: #ECEEF2;
   --color-bg-inverse: #1A1F29;
   --color-bg-overlay: rgb(15 18 23 / 0.5);
@@ -29,19 +29,24 @@
   --color-text-tertiary: #5C6574;
   --color-text-disabled: #9AA3B1;
   --color-text-inverse: #FFFFFF;
-  --color-text-link: #1B4FD0;
+  --color-text-link: #2A45B0;
 
   /* 边框 */
   --color-border-default: #D6DAE1;
   --color-border-strong: #7C8696;
-  --color-border-focus: #1B4FD0;
+  --color-border-focus: #2A45B0;
 
   /* 主色 */
-  --color-primary: #1B4FD0;
-  --color-primary-hover: #173FA8;
-  --color-primary-active: #123287;
+  --color-primary: #2A45B0;
+  --color-primary-hover: #223993;
+  --color-primary-active: #1B2E78;
   --color-on-primary: #FFFFFF;
-  --color-primary-subtle: #E6EDFD;
+  --color-primary-subtle: #E8ECFA;
+
+  /* 品牌（M6，ADR 0066）：登录页顶部色带、官网和邮件的页眉。只放品牌标识和页面名称，不放操作控件 */
+  --color-brand: #1B2A5C;
+  --color-on-brand: #FFFFFF;
+  --color-on-brand-muted: #C9D3F5;
 
   /* 成功 */
   --color-success-text: #146C3A;
@@ -73,9 +78,10 @@
   --color-neutral-border: #D6DAE1;
 
   /* 阴影 */
-  --shadow-sm: 0 1px 2px rgb(15 18 23 / 0.08);
-  --shadow-md: 0 4px 12px rgb(15 18 23 / 0.12);
-  --shadow-lg: 0 12px 32px rgb(15 18 23 / 0.18);
+  --shadow-sm: 0 1px 2px rgb(20 30 70 / 0.08);
+  --shadow-md: 0 4px 16px rgb(20 30 70 / 0.12);
+  --shadow-lg: 0 16px 40px rgb(20 30 70 / 0.18);
+  --shadow-card: 0 1px 2px rgb(20 30 70 / 0.06), 0 2px 8px rgb(20 30 70 / 0.05);
 
   /* 字体 */
   --font-family-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
@@ -91,6 +97,7 @@
   --font-size-2xl: 1.25rem;   /* 20px */
   --font-size-3xl: 1.5rem;    /* 24px */
   --font-size-4xl: 1.875rem;  /* 30px */
+  --font-size-5xl: 2.25rem;   /* 36px 官网报价卡片、订单页的应付金额 */
 
   /* 行高 */
   --line-height-tight: 1.25;
@@ -101,6 +108,7 @@
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-bold: 600;
+  --font-weight-heavy: 700;   /* 只用于价格数字和品牌字标 */
 
   /* 间距（4px 基准） */
   --space-0: 0;
@@ -118,9 +126,9 @@
 
   /* 圆角 */
   --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
   --radius-full: 9999px;
 
   /* 边框与聚焦环 */
@@ -182,7 +190,7 @@
     --color-bg-surface: #171B22;
     --color-bg-subtle: #1E232C;
     --color-bg-hover: #272D38;
-    --color-bg-selected: #1B2B52;
+    --color-bg-selected: #1C2A55;
     --color-bg-disabled: #1E232C;
     --color-bg-inverse: #E6E9EE;
     --color-bg-overlay: rgb(0 0 0 / 0.6);
@@ -191,15 +199,18 @@
     --color-text-tertiary: #929BAA;
     --color-text-disabled: #5F6877;
     --color-text-inverse: #1A1F29;
-    --color-text-link: #8FB2FF;
+    --color-text-link: #A9BBFF;
     --color-border-default: #2D3440;
     --color-border-strong: #768092;
-    --color-border-focus: #8FB2FF;
-    --color-primary: #2F62DE;
-    --color-primary-hover: #3868E0;
-    --color-primary-active: #2752C0;
+    --color-border-focus: #A9BBFF;
+    --color-primary: #4466E0;
+    --color-primary-hover: #4A6CE4;
+    --color-primary-active: #3A5AD6;
     --color-on-primary: #FFFFFF;
-    --color-primary-subtle: #1B2B52;
+    --color-primary-subtle: #1C2A55;
+    --color-brand: #141C3D;
+    --color-on-brand: #FFFFFF;
+    --color-on-brand-muted: #B8C4EE;
     --color-success-text: #6FD397;
     --color-success-bg: #12301F;
     --color-success-border: #245C3C;
@@ -222,6 +233,7 @@
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
     --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.6);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
   }
 }
 
@@ -232,7 +244,7 @@
   --color-bg-surface: #171B22;
   --color-bg-subtle: #1E232C;
   --color-bg-hover: #272D38;
-  --color-bg-selected: #1B2B52;
+  --color-bg-selected: #1C2A55;
   --color-bg-disabled: #1E232C;
   --color-bg-inverse: #E6E9EE;
   --color-bg-overlay: rgb(0 0 0 / 0.6);
@@ -241,15 +253,18 @@
   --color-text-tertiary: #929BAA;
   --color-text-disabled: #5F6877;
   --color-text-inverse: #1A1F29;
-  --color-text-link: #8FB2FF;
+  --color-text-link: #A9BBFF;
   --color-border-default: #2D3440;
   --color-border-strong: #768092;
-  --color-border-focus: #8FB2FF;
-  --color-primary: #2F62DE;
-  --color-primary-hover: #3868E0;
-  --color-primary-active: #2752C0;
+  --color-border-focus: #A9BBFF;
+  --color-primary: #4466E0;
+  --color-primary-hover: #4A6CE4;
+  --color-primary-active: #3A5AD6;
   --color-on-primary: #FFFFFF;
-  --color-primary-subtle: #1B2B52;
+  --color-primary-subtle: #1C2A55;
+  --color-brand: #141C3D;
+  --color-on-brand: #FFFFFF;
+  --color-on-brand-muted: #B8C4EE;
   --color-success-text: #6FD397;
   --color-success-bg: #12301F;
   --color-success-border: #245C3C;
@@ -272,6 +287,7 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.5);
   --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.6);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
 }
 
 /* ───────────── 触屏：放大点击区域，输入框 16px 防止 iOS 自动放大页面 ───────────── */

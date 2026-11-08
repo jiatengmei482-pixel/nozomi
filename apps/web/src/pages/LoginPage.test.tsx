@@ -30,7 +30,9 @@ test("供应商后台登录页：副标题、标签、切换链接、页面标�
   renderAt("/login", ROUTES);
   assert.equal(screen.getByRole("heading", { level: 1 }).textContent, "供应商后台");
   assert.equal(document.title, "登录 · NOZOMI 供应商后台");
-  assert.equal(screen.getByText("NOZOMI").tagName, "P");
+  const brand = screen.getByText("NOZOMI");
+  assert.equal(brand.closest("h1, h2, h3"), null, "品牌字标不是标题");
+  assert.ok(brand.closest("header")?.contains(brand), "品牌在页眉里");
   const email = screen.getByLabelText("邮箱") as HTMLInputElement;
   assert.equal(email.type, "email");
   assert.equal(email.name, "email");
