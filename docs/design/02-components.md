@@ -26,6 +26,7 @@
 - 排列：一组按钮间距 `space-2`。桌面端主按钮在最右；对话框和表单底部同此。手机下（< 480px）表单和对话框底部的按钮各占一行、撑满宽度，主按钮在最上。
 - 危险操作的入口（列表里的「停用」）用次要按钮或文字按钮加 `danger-text` 文字色，只有二次确认对话框里的最终确认才用危险按钮。
 - 键盘：Tab 聚焦，Enter 和空格触发。跳转页面用 `<a>`，执行操作用 `<button>`，不要混用；`<button>` 一律写明 `type`。
+- 按下反馈（M6-02）：所有按钮按下时整体下移 1px（`transform: translateY(1px)`，过渡 `duration-fast`），禁用和加载中的按钮不动。设置了「减少动态效果」时时长为 0，只是没有过渡。
 
 ## 2. 输入框
 
@@ -92,9 +93,9 @@
 ## 5. 表格
 
 - 容器：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，`overflow-x: auto`。**表格只在自己的容器里横向滚动，页面本身不滚动。** 容器加 `tabindex="0"`、`role="region"`、`aria-label`（表格名称），让键盘用户能用方向键横向滚动。
-- 表头：底 `bg-subtle`，字号 `font-size-sm`，字重 `font-weight-medium`，字色 `text-secondary`，高 `table-row-height`，不换行。纵向滚动时吸顶（`z-sticky`）。
+- 表头：底 `bg-subtle`，字号 `font-size-sm`，字重 `font-weight-bold`，字色 `text-secondary`，高 `table-row-height`，不换行；表头的下边线用 `border-strong`，比行间的分隔线深一级（M6-02）。没有数据行时容器下方两个圆角不切掉表头下边线。纵向滚动时吸顶（`z-sticky`）。
 - 行：最小高度 `table-row-height`；单元格内边距上下 `space-2`、左右 `space-3`；行间用 `border-default` 分隔，不用斑马纹；悬停 `bg-hover`；选中 `bg-selected`。
-- 对齐：文字左对齐；金额和数量右对齐并用等宽数字；状态徽标左对齐；操作列在最右。表头与内容对齐方式一致。
+- 对齐：文字左对齐；金额和数量右对齐；整张表格都用等宽数字（`tabular-nums`，日期、时间、编号也上下对齐）；状态徽标左对齐；操作列在最右。表头与内容对齐方式一致。
 - 列宽：编号、日期、金额、状态、操作不换行；名称、地址等长文字最多两行，超出用省略号，完整内容放在 `title` 和详情页里。
 - 行内操作：最多 2 个文字按钮，其余收进「更多」菜单。
 - 排序：可排序的表头是一个 `<button>`，右侧有箭头标出方向；所在 `<th>` 设 `aria-sort`。
@@ -142,7 +143,7 @@
 
 **状态徽标**
 
-- 尺寸：高 22px；内边距 `space-0-5` / `space-2`；字号 `font-size-xs`；字重 `font-weight-medium`；圆角 `radius-sm`；不换行。
+- 尺寸：高 22px；内边距 `space-0-5` / `space-2`；字号 `font-size-xs`；字重 `font-weight-medium`；圆角 `radius-full`（M6-02 起是胶囊形，和方角的「标签」一眼分开）；不换行。
 - 样式：底 `{状态}-bg`，字 `{状态}-text`，边框 1px `{状态}-border`。文字前有一个 6px 圆点，颜色同文字。
 - **文字必须写出状态名**。同一个页面里两种状态即使颜色相同，文字也必须不同。
 - 颜色按含义选，同一个状态在所有页面用同一个颜色：
@@ -167,7 +168,7 @@
 **提示条**（留在页面里，直到情况改变或用户关闭）
 
 - 用于：页面或表单级别的错误、需要用户知道的持续状态（如「资质审核通过前不能上架」）。
-- 样式：底 `{状态}-bg`，边框 `{状态}-border`，圆角 `radius-md`，内边距 `space-3`；左侧 16px 图标（色 `{状态}-text`），标题 `font-weight-medium` + `{状态}-text`，正文 `text-primary`，字号 `font-size-md`。可带一个文字按钮（「重试」「去处理」）。
+- 样式：底 `{状态}-bg`，边框 `{状态}-border`，圆角 `radius-lg`（M6-02），内边距 `space-3`（右侧 `space-4`）；左侧 16px 图标（色 `{状态}-text`），标题 `font-weight-medium` + `{状态}-text`，正文 `text-primary`，字号 `font-size-md`。可带一个文字按钮（「重试」「去处理」）。
 - 四种：`info`、`success`、`warning`、`danger`，各自用固定的图标（信息、对勾、三角警示、圆形叹号）。图标形状不同，不只靠颜色。
 - 位置：页面级放在页面标题下方；表单级放在表单顶部。
 - 无障碍：出错和警告用 `role="alert"`（出现时立即读出）；信息和成功用 `role="status"`。
@@ -175,7 +176,7 @@
 **Toast**（短暂出现，自动消失）
 
 - 只用于确认「刚才的操作成功了」（「已保存」「已复制」「已派车」）。**出错不用 Toast**：错误用提示条或字段提示，留在原地直到解决。
-- 样式：底 `bg-inverse`，字 `text-inverse`，圆角 `radius-md`，阴影 `shadow-md`，内边距 `space-3` / `space-4`，层级 `z-toast`；最大宽度 `min(360px, 100% - 32px)`。
+- 样式：底 `bg-inverse`，字 `text-inverse`，圆角 `radius-lg`（M6-02），阴影 `shadow-md`，内边距 `space-3` / `space-4`，层级 `z-toast`；最大宽度 `min(360px, 100% - 32px)`。
 - 位置：桌面端顶部居中，距顶 `space-4`；手机端底部居中，距底 `space-4` 再加上 `env(safe-area-inset-bottom)`。
 - 停留 4 秒；鼠标悬停或键盘聚焦时暂停计时。带「撤销」按钮的停留 8 秒。同时最多显示 3 条，新的在下方。
 - 无障碍：放在一个始终存在的 `role="status"` + `aria-live="polite"` 区域里；不抢焦点。
@@ -200,7 +201,7 @@
 - 用于：二次确认、不离开当前页的简短表单（一屏以内）。更长的内容用单独的页面。
 - 尺寸：宽 `min(480px, 100% - 32px)`（确认）或 `min(640px, 100% - 32px)`（表单）；最大高度 `100dvh - 64px`，超出时只有正文区域纵向滚动，标题和底部按钮固定。
 - 样式：底 `bg-surface`，边框 `border-default`，圆角 `radius-xl`，阴影 `shadow-lg`，内边距 `space-5`，层级 `z-dialog`；遮罩 `bg-overlay`，层级 `z-overlay`。
-- 结构：标题（`font-size-xl`，`font-weight-bold`）+ 右上角关闭按钮（`aria-label="关闭"`）；正文；底部按钮右对齐，主按钮在最右。
+- 结构：标题（`font-size-xl`，`font-weight-bold`）+ 右上角关闭按钮（`aria-label="关闭"`）；正文；底部按钮右对齐，主按钮在最右。底部按钮区上方一条 `border-default` 分隔线，和正文隔开 `space-4`（M6-02）。
 - 手机（< 480px）：贴底显示，宽度撑满，只有上方两个角有圆角；底部按钮各占一行，底部留出 `env(safe-area-inset-bottom)`。
 - **危险操作的确认**：标题直接写要做的事（「停用这个司机？」）；正文写清后果（会影响什么、能不能恢复、要扣多少钱）；确认按钮用危险按钮，文字写动作本身（「停用」），不写「确定」；取消按钮写「取消」。默认焦点落在「取消」上。
 - 打开时：焦点移到对话框内第一个可操作的元素（危险确认时是「取消」）；Tab 只在对话框内循环；背景内容不可操作、不可滚动。
@@ -218,12 +219,13 @@
 **侧边栏**
 
 - 宽 `layout-sidebar-width`；底 `bg-surface`，右边线 `border-default`；内部可纵向滚动。
-- 顶部是品牌名 NOZOMI 和当前后台的名称（「运营后台」或「供应商后台」）。
+- 顶部是品牌（`Brand` 组件：标志 + 字标 NOZOMI，`font-size-lg`）和当前后台的名称（「运营后台」或「供应商后台」，`font-size-xs`、`font-weight-medium`、`text-secondary`，左侧 1px `border-default` 竖线隔开）。这一块高 `layout-topbar-height`，下边线 `border-default` 和顶栏的下边线对齐（M6-02）。
 - 菜单项：高 36px（触屏 44px）；左右内边距 `space-3`；16px 图标 + 文字，间距 `space-2`；字号 `font-size-md`；字色 `text-secondary`；圆角 `radius-md`。
+  - 图标比文字淡一级（`text-tertiary`）；悬停、当前页、所在分组时跟文字同色（M6-02）。
   - 悬停：底 `bg-hover`，字 `text-primary`。
   - 当前页：底 `primary-subtle`，字 `text-link`，字重 `font-weight-medium`，左侧 3px `primary` 竖条；`aria-current="page"`。
 - 二级菜单：一级项可展开，子项缩进 `space-6`；一级项是 `<button aria-expanded>`。当前页所在的分组默认展开。最多两级。
-  - 分组项本身不是页面，点它只展开或收起，右侧有一个 16px 箭头（收起时朝右、展开时朝下）。子项没有图标，只有文字。
+  - 分组项本身不是页面，点它只展开或收起，右侧有一个 14px 箭头（收起时朝右、展开时朝下）；展开时分组项文字 `text-primary`。子项没有图标，只有文字；子项左侧一条 1px `border-default` 竖线对齐分组图标的中线，当前子项的 3px 竖条压在这条线上（M6-02）。
   - 当前页在某个分组里而分组被用户收起时，分组项自己显示「当前页」的文字色和字重（没有底色和竖条），让人知道自己在这个分组里。
   - 展开 / 收起的状态存在浏览器本地；当前页所在的分组在进入页面时总是展开的。
   - 一个分组里当前角色能看到的子项一个都没有时，整个分组不显示。
@@ -238,7 +240,7 @@
 
 **顶栏**
 
-- 高 `layout-topbar-height`；底 `bg-surface`，下边线 `border-default`；吸顶，层级 `z-topbar`。
+- 高 `layout-topbar-height`；底 `bg-surface`，下边线 `border-default`，不加阴影；吸顶，层级 `z-topbar`。≥ 1024px（没有菜单按钮）时左内边距等于 `layout-page-padding`，面包屑和页面标题左对齐（M6-02）。
 - 左侧：菜单按钮（仅 < 1024px 显示，`aria-label="打开菜单"`，`aria-expanded`）、面包屑。
 - 右侧：主题切换（跟随系统 / 亮色 / 暗色）、当前账号（姓名 + 角色，点开是下拉菜单：个人设置、退出登录）。
 - < 768px：面包屑只显示当前页名称；账号只显示头像或姓名首字，角色名收进下拉菜单。
@@ -246,14 +248,14 @@
 
 **跳到正文**：页面第一个可聚焦元素是「跳到正文」链接，平时不可见，聚焦时显示在左上角，跳到 `<main>`。
 
-**面包屑**：`font-size-sm`，层级之间用「/」分隔；前面几级是链接（`text-link`），最后一级是当前页（`text-primary`，`aria-current="page"`）。外层 `<nav aria-label="当前位置">`。
+**面包屑**：`font-size-sm`，层级之间用「/」分隔（`text-tertiary`）；前面几级是链接（`text-link`），最后一级是当前页（`text-primary`，`font-weight-medium`，`aria-current="page"`）。外层 `<nav aria-label="当前位置">`。
 
 **页签**（一个页面里的平级分区，如地点列表的「机场 / 车站 / 地标」。**有先后顺序、要显示每一步做完没有的，用步骤导航（第 24 节），不用页签**——商品的「基础信息 / 服务规则 / 价格规则 / 库存 / 商品详情」就是步骤导航）：高 40px；当前项字 `text-link`、下方 2px `primary` 横线；其余字 `text-secondary`。放不下时页签条自己横向滚动，不换行，也不撑宽页面。`role="tablist"` / `role="tab"` / `role="tabpanel"`，←→ 切换。
 
 ## 11. 空状态
 
 - 位置：在本该出现内容的区域里居中（表格就在表格容器内，表头保留），上下留白 `space-10`。
-- 内容：一句标题（`font-size-lg`，`font-weight-medium`，`text-primary`）+ 一句说明（`font-size-md`，`text-secondary`，最多两行）+ 最多一个按钮。不用插图。
+- 内容：一句标题（`font-size-lg`，`font-weight-medium`，`text-primary`）+ 一句说明（`font-size-md`，`text-secondary`，最多两行，最宽 40em）+ 最多一个按钮。不用插图。左右至少留 `space-4`，窄屏下文字不贴着容器边（M6-02）。出错状态的圆形叹号 24px。
 - 区分三种情况，文案不能混用：
 
 | 情况 | 标题怎么写 | 说明怎么写 | 按钮 |
@@ -268,7 +270,7 @@
 
 | 场景 | 做法 |
 | --- | --- |
-| 页面或区域首次加载 | 骨架屏：按最终布局画出灰块（底 `bg-subtle`，圆角 `radius-sm`）。表格画表头 + 5 行灰条。加载完成后布局不跳动 |
+| 页面或区域首次加载 | 骨架屏：按最终布局画出灰块（底 `bg-subtle`，圆角 `radius-md`，M6-02）。表格画表头 + 5 行灰条。加载完成后布局不跳动 |
 | 已有内容，正在刷新（翻页、改筛选） | 保留旧内容并降到 60% 不透明度，区域顶部显示 2px 的 `primary` 进度条；不清空成骨架屏 |
 | 按钮触发的提交 | 按钮加载态（见第 1 节） |
 | 下拉面板、小区域 | 16px 转圈 + 「加载中…」 |
@@ -361,8 +363,8 @@
 └──────────────────────────┘
 ```
 
-- 容器：卡片样式（`03-layout.md` 第 2 节），内边距 `space-4`，三行之间间距 `space-2`。栅格用 `repeat(auto-fill, minmax(min(240px, 100%), 1fr))`，间距 `space-4`。同一行的卡片等高。
-- **标题行**：模块名是一个 `<a>`（`font-size-lg`，`font-weight-bold`，`text-primary`），右侧 16px 向右箭头（`text-tertiary`，`aria-hidden`）。链接用 `::after { position: absolute; inset: 0 }` 把可点区域铺满整张卡片（卡片 `position: relative`）。悬停：卡片边框换成 `border-strong`，模块名换成 `text-link`；聚焦环画在整张卡片上（`:focus-within` 时给卡片加聚焦环，链接自身的去掉）。
+- 容器：卡片样式（`03-layout.md` 第 2 节），内边距 `space-4` / `space-5`，三行之间间距 `space-2`；另加 `shadow-card`（ADR 0066，后台只有入口卡片带阴影，暗色下靠描边）。栅格用 `repeat(auto-fill, minmax(min(240px, 100%), 1fr))`，间距 `space-4`。同一行的卡片等高。
+- **标题行**：模块名是一个 `<a>`（`font-size-lg`，`font-weight-bold`，`text-primary`），右侧 16px 向右箭头（`text-tertiary`，`aria-hidden`）。链接用 `::after { position: absolute; inset: 0 }` 把可点区域铺满整张卡片（卡片 `position: relative`）。悬停：卡片边框换成 `border-strong`，模块名和箭头换成 `text-link`；聚焦环画在整张卡片上（`:focus-within` 时给卡片加聚焦环，链接自身的去掉）。
 - **数量行**：一到三组「数字 + 说明」，组与组之间用「·」分隔，放不下自动换行。数字 `font-size-2xl`、`font-weight-bold`、`text-primary`、等宽数字、带千分位；说明 `font-size-sm`、`text-secondary`，在数字右侧，间距 `space-1`。**数字的含义全靠说明文字表达，不用颜色区分「启用」和「停用」。** 数量行用 `<dl>`（说明是 `<dt>`，数字是 `<dd>`，视觉上数字在前）。
 - **提醒行**（有需要处理的事才显示，一张卡片最多两条）：底 `warning-bg`，边框 `warning-border`，圆角 `radius-md`，内边距 `space-1` / `space-2`；16px 三角警示图标（`warning-text`）+ 文字（`font-size-sm`，`text-primary`）+ 右侧向右箭头（`warning-text`；状态底色上不能用 `text-tertiary`）。它自己是一个 `<a>`，去到已经筛好的列表；要加 `position: relative`，这样它盖在标题链接铺开的那一层上面、能单独点到（不写 `z-index` 数字）。
 - **还没有对应页面的模块**：只显示模块名和数量，模块名是普通文字不是链接，没有箭头，没有悬停效果。不写「即将上线」之类的话。
