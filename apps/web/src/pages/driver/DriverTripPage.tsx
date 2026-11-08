@@ -9,6 +9,7 @@
  * - 出错的说明放在页面顶部的播报区（AlertSlot，role="alert"），出现时焦点移过去。
  * - 接机：先拍到达屏再填实际落地时间（按城市当地时间填），提交后不能改。
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
+ * - 版式（M6-04，docs/design/pages/driver.md）：关键信息大字加粗，「下一步」是框起来的整宽主按钮，样式在 styles/driver.css。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
 import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
@@ -86,9 +87,9 @@ function errorText(err: unknown): string {
   return "网络连接失败，请检查网络后重试。";
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
   return (
-    <section className="driver-section">
+    <section className={className === undefined ? "driver-section" : `driver-section ${className}`}>
       <h2 className="driver-section__title">{title}</h2>
       {children}
     </section>
@@ -184,16 +185,16 @@ export function DriverTripPage() {
 
   if (token === null) {
     return (
-      <AuthLayout>
-        <h1 className="auth-card__title">链接不完整</h1>
+      <AuthLayout className="driver-page">
+        <h1 className="auth-card__title driver-title">链接不完整</h1>
         <p>请从调度发给你的消息里重新打开完整的链接。</p>
       </AuthLayout>
     );
   }
   if (trip === null) {
     return (
-      <AuthLayout>
-        <h1 className="auth-card__title">这一单</h1>
+      <AuthLayout className="driver-page">
+        <h1 className="auth-card__title driver-title">这一单</h1>
         {loadError === null && <p>加载中…</p>}
         <AlertSlot notice={loadError === null ? null : { kind: "danger", text: loadError }} />
       </AuthLayout>
@@ -249,31 +250,31 @@ export function DriverTripPage() {
   };
 
   return (
-    <AuthLayout>
-      <h1 className="auth-card__title">{`${directionName(order)} · ${order.service_local.replace("T", " ")}`}</h1>
+    <AuthLayout className="driver-page">
+      <h1 className="auth-card__title driver-title">{`${directionName(order)} · ${order.service_local.replace("T", " ")}`}</h1>
       <p className="driver-meta">
-        <StatusBadge {...ORDER_STATUS_BADGES[order.status]} /> <span className="mono">{order.order_no}</span>
+        <StatusBadge {...ORDER_STATUS_BADGES[order.status]} /> <span className="mono driver-meta__no">{order.order_no}</span>
       </p>
       <AlertSlot notice={problem === null ? null : { kind: "danger", text: problem }} focusRef={problemRef} />
       {trip.pending_change !== null && <Alert kind="warning">{`客人申请修改（${trip.pending_change.fields.map((field) => CHANGE_FIELD_NAMES[field] ?? field).join("、")}），调度正在确认。确认之前请按原任务执行。`}</Alert>}
 
       <Section title="客人">
-        <p>{`${order.passenger.name} · ${order.passengers} 人 ${order.luggage} 件行李`}</p>
+        <p className="driver-key">{`${order.passenger.name} · ${order.passengers} 人 ${order.luggage} 件行李`}</p>
         <p>
-          <a className="link" href={`tel:${order.passenger.phone}`}>
+          <a className="link driver-tel" href={`tel:${order.passenger.phone}`}>
             {order.passenger.phone}
           </a>
           {order.messaging && ` · ${order.messaging.app}：${order.messaging.handle}`}
         </p>
-        {order.flight_no && <p>{`航班 ${order.flight_no}`}</p>}
+        {order.flight_no && <p className="driver-key">{`航班 ${order.flight_no}`}</p>}
         {order.notes && <p>{`备注：${order.notes}`}</p>}
         {order.addons.length > 0 && <p>{`附加服务：${order.addons.map((addon) => `${addon.name === null ? "—" : displayName(addon.name).text} × ${addon.quantity}`).join("、")}`}</p>}
         {order.driver_language && <p>{`客人要求的司机语言：${order.driver_language}`}</p>}
       </Section>
 
       <Section title="行程">
-        <p>{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
-        <p>{`下车：${order.dropoff?.address ?? placeName ?? "—"}`}</p>
+        <p className="driver-key">{`上车：${order.pickup?.address ?? placeName ?? "—"}`}</p>
+        <p className="driver-key">{`下车：${order.dropoff?.address ?? placeName ?? "—"}`}</p>
         {order.pickup_point !== null && (
           <>
             <a className="button button--secondary button--block" href={mapLink(order.pickup_point)}>
@@ -287,7 +288,7 @@ export function DriverTripPage() {
         {trip.dispatchers.map((dispatcher) => (
           <p key={dispatcher.phone}>
             {`调度 ${dispatcher.name}：`}
-            <a className="link" href={`tel:${dispatcher.phone}`}>
+            <a className="link driver-tel" href={`tel:${dispatcher.phone}`}>
               {dispatcher.phone}
             </a>
           </p>
@@ -295,7 +296,7 @@ export function DriverTripPage() {
       </Section>
 
       {next !== undefined && (
-        <Section title="下一步">
+        <Section title="下一步" className="driver-section--next">
           {charterCompleting && (
             <>
               <TextField label="实际用了多少分钟" inputMode="numeric" value={actual.minutes} onChange={(event) => setActual((current) => ({ ...current, minutes: event.target.value.trim() }))} />
@@ -305,7 +306,7 @@ export function DriverTripPage() {
           <Button variant="primary" size="lg" block loading={working} loadingText="提交中…" disabled={charterCompleting && (!/^\d+$/.test(actual.minutes) || !/^\d+$/.test(actual.km))} aria-describedby={notYet === null ? undefined : "driver-next-hint"} onClick={() => act(next.type)}>
             {next.label}
           </Button>
-          {notYet !== null && <p className="field__hint" id="driver-next-hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
+          {notYet !== null && <p className="field__hint driver-wait" id="driver-next-hint">{`还没到时间：最早 ${notYet.earliest_local}（${zone} 当地时间）才能点「${next.label}」。行程有变请联系调度。`}</p>}
           <p className="field__hint">点按钮时会带上手机的定位（到达时用来核对是否在上车点 300 米内）。</p>
         </Section>
       )}
@@ -336,9 +337,9 @@ export function DriverTripPage() {
           <Button variant="secondary" block disabled={working || !trip.free_wait.ended || trip.fulfilment.leave_requested_at !== null} onClick={() => void run(async () => driverRequestLeave(token, await currentLocation()))}>
             {trip.fulfilment.leave_requested_at === null ? "申请离开" : `已申请离开（${formatInZone(trip.fulfilment.leave_requested_at, zone)}）`}
           </Button>
-          <ul className="plain-list">
+          <ul className="plain-list driver-checklist">
             {trip.no_show.checklist.map((entry) => (
-              <li key={entry.item}>{`${entry.ok ? "✓" : "✗"} ${entry.name ?? entry.item}`}</li>
+              <li key={entry.item} className={entry.ok ? "driver-checklist__item driver-checklist__item--ok" : "driver-checklist__item"}>{`${entry.ok ? "✓" : "✗"} ${entry.name ?? entry.item}`}</li>
             ))}
           </ul>
           <Button variant="danger" block disabled={working || !trip.no_show.complete} onClick={() => void run(async () => driverNoShow(token, await currentLocation()))}>
@@ -360,7 +361,7 @@ export function DriverTripPage() {
           </ul>
         </Section>
       )}
-      <p className="field__hint">{`链接有效期到 ${formatInZone(trip.link.expires_at, zone)}（${zone}）。`}</p>
+      <p className="field__hint driver-footnote">{`链接有效期到 ${formatInZone(trip.link.expires_at, zone)}（${zone}）。`}</p>
     </AuthLayout>
   );
 }
