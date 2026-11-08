@@ -1,0 +1,147 @@
+/*
+ * 司机 H5 的版式（M6-04，docs/design/pages/driver.md）：只在手机上用，车上、户外、单手。
+ * 借用登录页的 AuthLayout（品牌色带 + 卡片），用 .driver-page 收窄色带、放宽卡片、放大字和按钮；
+ * 区块本身（.driver-meta、.driver-section）的规则在 dispatch.css。
+ * 主题切换按钮也在 .driver-page 里，所以按钮的放大只作用在卡片（.auth-card）里面。
+ */
+.auth-page.driver-page {
+  padding-inline: var(--space-2);
+}
+
+.auth-page.driver-page::before {
+  height: 9rem;
+}
+
+.driver-page .auth-page__header {
+  padding: var(--space-6) 0 var(--space-4);
+}
+
+.driver-page .auth-page__brand {
+  font-size: var(--font-size-xl);
+}
+
+/* 正文 16px：在车上隔一臂远也看得清 */
+.driver-page .auth-card {
+  padding: var(--space-5) var(--space-4);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-normal);
+}
+
+.auth-card__title.driver-title {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-3xl);
+  overflow-wrap: anywhere;
+}
+
+/* 订单状态：比后台的徽标大一号，加粗；仍是颜色 + 圆点 + 文字 */
+.driver-meta .badge {
+  height: auto;
+  min-height: var(--control-height-sm);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+.driver-meta .badge__dot {
+  width: var(--space-2);
+  height: var(--space-2);
+}
+
+.driver-meta__no {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+/* 关键信息：客人和人数、航班、上车、下车 */
+.driver-key {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+/* 电话：大号、够一个手指点 */
+.driver-tel {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-md);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-medium);
+}
+
+.driver-page .auth-card .field__hint {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+/* 卡片里的按钮至少 48px（触屏）高；字长的按钮换行，320px 宽也不横向溢出 */
+.driver-page .auth-card .button {
+  height: auto;
+  min-height: var(--control-height-lg);
+  padding-block: var(--space-2);
+  font-size: var(--font-size-lg);
+  white-space: normal;
+  text-align: center;
+}
+
+/* 下一步：页面上唯一的主操作，用主色描边的面板框起来，按钮再高一级 */
+.driver-section--next {
+  margin: var(--space-2) 0;
+  padding: var(--space-4);
+  border: calc(var(--border-width) * 2) solid var(--color-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+}
+
+.driver-section--next + .driver-section {
+  border-top: 0;
+}
+
+.driver-page .auth-card .driver-section--next .button--primary {
+  min-height: calc(var(--control-height-lg) + var(--space-4));
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 还没到时间：警告色的提示条，文字写明最早几点 */
+.driver-page .auth-card .driver-wait {
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* 客人未出现的证据清单：齐了的一项是成功色，还差的是灰底；每项前面有 ✓ / ✗ */
+.driver-checklist {
+  gap: var(--space-2);
+}
+
+.driver-checklist__item {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+}
+
+.driver-checklist__item--ok {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.driver-page .auth-card .driver-footnote {
+  margin-top: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+@media (min-width: 480px) {
+  .auth-page.driver-page {
+    padding-inline: var(--space-4);
+  }
+
+  .driver-page .auth-card {
+    padding: var(--space-6);
+  }
+}
