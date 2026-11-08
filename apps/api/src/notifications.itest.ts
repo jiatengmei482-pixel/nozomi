@@ -16,7 +16,7 @@ import { beginSending, claimDueNotifications, enqueueNotification } from "./repo
 import { NOTIFICATION_LEASE_MS } from "./services/notification-jobs.ts";
 import { type TestApi, TEST_PASSWORD, createTestApi } from "./testing/api.ts";
 import { assign, newDriver, newVehicle, seedOrder } from "./testing/dispatch.ts";
-import { type FakeSmtp, type FakeSmtpMessage, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, type FakeSmtpMessage, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { type Market, addStaff, buildMarket, newChannel, ok, salesCredentials } from "./testing/market.ts";
 import { tenantLogin } from "./testing/money.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
@@ -106,17 +106,8 @@ async function payFor(orderId: string): Promise<string> {
   return raw;
 }
 
-/** 邮件正文解码（nodemailer 对非 ASCII 用 base64 或 quoted-printable）。 */
-function bodyOf(message: FakeSmtpMessage): string {
-  const split = message.data.search(/\r?\n\r?\n/);
-  const head = message.data.slice(0, split);
-  const body = message.data.slice(split).trim();
-  if (/content-transfer-encoding:\s*base64/i.test(head)) return Buffer.from(body.replace(/\s/g, ""), "base64").toString("utf8");
-  if (/content-transfer-encoding:\s*quoted-printable/i.test(head)) {
-    return Buffer.from(body.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))), "latin1").toString("utf8");
-  }
-  return body;
-}
+/** 邮件的纯文字正文（M6-06 起邮件同时有 HTML 版，取纯文字那一部分）。 */
+const bodyOf = (message: FakeSmtpMessage): string => decodedMailText(message.data);
 
 const rowsOf = async (orderId: string): Promise<any[]> => (await api.db.owner.query("select * from notifications where order_id = $1 order by audience, recipient", [orderId])).rows;
 const guestRow = async (orderId: string, event: string = "order.confirmed"): Promise<any> => (await rowsOf(orderId)).find((row) => row.audience === "guest" && row.event === event);

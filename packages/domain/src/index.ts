@@ -1,6 +1,7 @@
 export * from "./geo.ts";
 export * from "./money.ts";
 export * from "./mail.ts";
+export * from "./mail-html.ts";
 export * from "./notifications.ts";
 export * from "./driver-link-email.ts";
 export * from "./fx.ts";
