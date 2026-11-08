@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { type TestApi, createTestApi } from "./testing/api.ts";
 import { seedOrder } from "./testing/dispatch.ts";
-import { type FakeSmtp, type FakeSmtpMessage, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, type FakeSmtpMessage, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { type Market, buildMarket, newChannel, salesCredentials } from "./testing/market.ts";
 import { FakePaymentProvider, deliverWebhook } from "./testing/payments.ts";
 import { type SiteApi, siteApi } from "./testing/site.ts";
@@ -66,14 +66,8 @@ const insertEvent = (tenantId: string | null, event: string, orderId: string | n
 const rowsOf = async (orderId: string): Promise<any[]> => (await api.db.owner.query("select * from notifications where order_id = $1 order by created_at, recipient", [orderId])).rows;
 const tick = (): Promise<unknown> => site.app.notificationJobs.tick();
 
-function bodyOf(message: FakeSmtpMessage): string {
-  const split = message.data.search(/\r?\n\r?\n/);
-  const head = message.data.slice(0, split);
-  const body = message.data.slice(split).trim();
-  if (/content-transfer-encoding:\s*base64/i.test(head)) return Buffer.from(body.replace(/\s/g, ""), "base64").toString("utf8");
-  if (/content-transfer-encoding:\s*quoted-printable/i.test(head)) return Buffer.from(body.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))), "latin1").toString("utf8");
-  return body;
-}
+/** 邮件的纯文字正文（M6-06 起邮件同时有 HTML 版，取纯文字那一部分）。 */
+const bodyOf = (message: FakeSmtpMessage): string => decodedMailText(message.data);
 
 const mailsFor = (orderNo: string): FakeSmtpMessage[] => smtp.messages.filter((message) => bodyOf(message).includes(orderNo));
 

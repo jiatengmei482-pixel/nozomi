@@ -54,7 +54,8 @@
 ## 后果
 
 - 每封邮件大约多 4–6 KB（HTML 部分），对发送没有影响。
-- 测试辅助 `decodedMailText` 改成能从 `multipart/alternative` 里取纯文字那一部分，另加 `decodedMailHtml`；读纯文字正文的已有集成测试不用改。
+- 测试辅助 `decodedMailText` 改成能从 `multipart/alternative` 里取纯文字那一部分，另加 `decodedMailHtml`。通知中心的三个集成测试文件（`notifications.itest.ts`、`notifications-delivery.qa.itest.ts`、`notifications-time.qa.itest.ts`）原来各有一份只认单一正文的解码函数，改为调用 `decodedMailText`，断言不变。
+- `notifications-delivery.qa.itest.ts` 原有一条断言「邮件只有纯文本部分、没有 text/html」，那是为了确认客人填写的 HTML 不会被当成 HTML。按新行为改成：邮件是 `multipart/alternative`，HTML 版里客人填的 `<img onerror>`、`<b>` 都被转义成文字，备注仍然不进任何一部分。
 - 以后要做「一封邮件专门设计的 HTML」（比如带行程表格），调用方直接给 `html` 即可，发信模块不再自动生成；但那时同样要遵守本篇的转义和协议白名单。
 
 ## 测试
