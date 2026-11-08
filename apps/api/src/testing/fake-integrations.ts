@@ -192,16 +192,39 @@ export function generateFakeTlsCert(subjectAltName = "IP:127.0.0.1,DNS:localhost
   }
 }
 
-/** 把假 SMTP 收到的原始邮件还原成正文（nodemailer 对中文用 base64 或 quoted-printable）。 */
-export function decodedMailText(data: string): string {
-  const head = data.split(/\r?\n\r?\n/)[0] ?? "";
-  const body = data.slice(head.length).trim();
-  if (/content-transfer-encoding: base64/i.test(head)) return Buffer.from(body, "base64").toString("utf8");
+/** 一段邮件（邮件头 + 正文）的正文按 Content-Transfer-Encoding 解码（nodemailer 对中文用 base64 或 quoted-printable）。 */
+function decodedEntity(entity: string): { head: string; body: string } {
+  const head = entity.split(/\r?\n\r?\n/)[0] ?? "";
+  const body = entity.slice(head.length).trim();
+  if (/content-transfer-encoding: base64/i.test(head)) return { head, body: Buffer.from(body, "base64").toString("utf8") };
   if (/content-transfer-encoding: quoted-printable/i.test(head)) {
     const bytes = body.replace(/=\r?\n/g, "").replace(/=([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
-    return Buffer.from(bytes, "latin1").toString("utf8");
+    return { head, body: Buffer.from(bytes, "latin1").toString("utf8") };
   }
-  return body;
+  return { head, body };
+}
+
+/** 邮件里某一种类型的那一部分（multipart/alternative 里挑出来；不是 multipart 的整封就是一部分）；没有就是 null。 */
+export function decodedMailPart(data: string, type: "text/plain" | "text/html"): string | null {
+  const head = data.split(/\r?\n\r?\n/)[0] ?? "";
+  const boundary = /content-type:\s*multipart\/[a-z]+;[\s\S]*?boundary="?([^";\r\n]+)"?/i.exec(head)?.[1];
+  const entities = boundary === undefined ? [data] : data.slice(head.length).split(`--${boundary}`).slice(1).filter((part) => !part.startsWith("--"));
+  for (const entity of entities) {
+    const part = decodedEntity(entity.replace(/^\r?\n/, ""));
+    const partType = /content-type:\s*([a-z]+\/[a-z+.-]+)/i.exec(part.head)?.[1]?.toLowerCase() ?? "text/plain";
+    if (partType === type) return part.body;
+  }
+  return null;
+}
+
+/** 把假 SMTP 收到的原始邮件还原成纯文字正文（同时有 HTML 版时取纯文字那一部分）。 */
+export function decodedMailText(data: string): string {
+  return decodedMailPart(data, "text/plain") ?? "";
+}
+
+/** 邮件的 HTML 版（M6-06，ADR 0067）；没有就是 null。 */
+export function decodedMailHtml(data: string): string | null {
+  return decodedMailPart(data, "text/html");
 }
 
 /**
