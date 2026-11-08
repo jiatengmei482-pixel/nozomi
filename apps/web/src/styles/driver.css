@@ -92,7 +92,7 @@
 .driver-section--next {
   margin: var(--space-2) 0;
   padding: var(--space-4);
-  border: calc(var(--border-width) * 2) solid var(--color-primary);
+  border: var(--border-width) solid var(--color-primary);
   border-radius: var(--radius-lg);
   background: var(--color-bg-surface);
 }
