@@ -49,6 +49,7 @@ import {
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import { AddressFields, type AddressLookup, type PlacesState, type PointDraft, type PointErrors, emptyPoint } from "./AddressFields.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
+import { SitePrice } from "./SitePrice.tsx";
 
 /** 询价时客人填的内容：带到下单页，返回修改时再带回来。 */
 export interface BookingDraft {
@@ -161,7 +162,9 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
         <h3 className="site-quote__name" lang={name.lang}>
           {name.text}
         </h3>
-        <p className="site-quote__price">{moneyText(quote.price.total)}</p>
+        <p className="site-quote__price">
+          <SitePrice text={moneyText(quote.price.total)} />
+        </p>
       </div>
       <dl className="site-facts">
         {quote.package !== null && (

@@ -92,7 +92,7 @@ function LookupForm({ expired, paymentReturnLost = null }: { expired: boolean; p
   };
 
   return (
-    <form className="site-form" noValidate onSubmit={(event) => void submit(event)}>
+    <form className="site-form site-section" noValidate onSubmit={(event) => void submit(event)}>
       <AlertSlot notice={notice} />
       {expired && <p className="field__hint">{EXPIRED_LINK_HINT}</p>}
       <TextField label="订单号" size="lg" required autoCapitalize="characters" autoComplete="off" spellCheck={false} hint="NZ 开头的 18 位，在下单成功页和订单邮件里" value={orderNo} errors={errors.orderNo ? [errors.orderNo] : []} onChange={(event) => setOrderNo(event.target.value)} />

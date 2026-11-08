@@ -33,8 +33,9 @@
 }
 
 /*
- * 顶栏（F10）：DOM 顺序是品牌、主题切换、入口。< 480px 品牌和主题切换在第一行两端、入口在第二行；
- * ≥ 480px 一行，主题切换和入口一起靠右。Tab 顺序和看到的顺序一致。
+ * 顶栏（F10；M6-05 改版，ADR 0066 第 1 节）：DOM 顺序是品牌、主题切换、入口，各宽度都排成两行——
+ * 第一行是品牌色带，品牌在左、主题切换在右；第二行是色带下面 bg-surface 上的两个入口。Tab 顺序和看到的顺序一致。
+ * 色带上只有品牌（回到预订页的链接）；主题切换垫一块 bg-surface 的小底板，入口不放在色带上。
  */
 .site__header {
   display: grid;
@@ -42,32 +43,60 @@
   grid-template-areas:
     "brand theme"
     "nav nav";
-  gap: var(--space-2) var(--space-4);
   align-items: center;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-width) solid var(--color-border-default);
-  background: var(--color-bg-surface);
+  background: var(--color-brand);
 }
 
+/* 品牌是块级的格子：里面按行内排，标志 + 字标和「用车」之间的空格照常渲染，链接的可读名字是「NOZOMI 用车」 */
 .site__brand {
   grid-area: brand;
   justify-self: start;
-  color: var(--color-text-primary);
+  min-width: 0;
+  margin: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-brand);
   font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
   text-decoration: none;
 }
 
+/* 色带上默认的藍色聚焦环看不清（亮色 1.68:1），改用 on-brand（对色带 13.70 / 16.62） */
+.site__brand:focus-visible {
+  outline-color: var(--color-on-brand);
+}
+
+.site__brand > .brand {
+  vertical-align: middle;
+}
+
+.site__brand-service {
+  margin-left: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: var(--border-width) solid var(--color-on-brand-muted);
+  color: var(--color-on-brand-muted);
+  font-weight: var(--font-weight-bold);
+  vertical-align: middle;
+}
+
+/* 主题切换垫 bg-surface 的小底板（同登录页）：内边距 = 聚焦环宽度 + 偏移，聚焦环整圈落在底板里 */
 .site__theme {
   grid-area: theme;
   display: flex;
+  margin: var(--space-2) var(--space-4);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .site__nav {
   grid-area: nav;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-4);
+  gap: var(--space-6);
+  padding: var(--space-1) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
 }
 
 .site__nav-link {
@@ -84,13 +113,6 @@
   text-decoration: underline;
   text-decoration-thickness: var(--focus-ring-width);
   text-underline-offset: var(--space-1);
-}
-
-@media (min-width: 480px) {
-  .site__header {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas: "brand theme nav";
-  }
 }
 
 .site__main {
@@ -119,6 +141,11 @@
   overflow-wrap: anywhere;
 }
 
+/* 标题下面紧跟的一句说明和标题是一组，不按区块间距隔开（M6-05） */
+.site__title + .site-muted {
+  margin-top: calc(var(--space-4) * -1);
+}
+
 .site-muted {
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
@@ -139,7 +166,10 @@
   overflow-wrap: anywhere;
 }
 
+/* 区块标题下面一条细线，把「这一步是什么」和内容分开（M6-05：下单、订单页的步骤感） */
 .site-section__title {
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border-default);
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
@@ -187,14 +217,33 @@
   gap: var(--space-4);
 }
 
-.site-quote,
 .site-charge {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
   border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+}
+
+/*
+ * 报价卡片（M6-05）：描边 + shadow-card（暗色下阴影几乎看不见，靠描边）。
+ * 从上到下：车型和总价一行（放不下时总价换行、靠右）→ 细线 → 车的信息 → 一个撑满的主按钮。
+ */
+.site-quote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.site-quote > .site-facts {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
 }
 
 .site-quote__head,
@@ -208,20 +257,14 @@
 }
 
 .site-quote__name {
-  font-size: var(--font-size-lg);
+  min-width: 0;
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
 }
 
 .site-quote__price {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  font-variant-numeric: tabular-nums;
-}
-
-.site-price {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  font-variant-numeric: tabular-nums;
+  margin-left: auto;
 }
 
 .site-charge__name {
@@ -231,8 +274,9 @@
 }
 
 .site-charge__amount {
+  font-size: var(--font-size-xl);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-heavy);
 }
 
 .site-facts {
@@ -255,6 +299,15 @@
 
 .site-facts__item > dd {
   overflow-wrap: anywhere;
+}
+
+/* 总价（下单页、订单页的行程）：独占一行，浅底色托住大号价格（M6-05） */
+.site-facts__item--total {
+  grid-column: 1 / -1;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
 }
 
 .site-reasons {
@@ -305,7 +358,7 @@
   gap: var(--space-3);
   padding: var(--space-4);
   border: var(--border-width) solid var(--color-warning-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--color-warning-bg);
   color: var(--color-text-primary);
 }
@@ -319,9 +372,22 @@
 }
 
 .site-timeline__item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-0-5);
+}
+
+/* 时间线上每一步一个圆点，压在左边线的正中（M6-05）；装饰，不出现在读屏里 */
+.site-timeline__item::before {
+  position: absolute;
+  top: calc(var(--font-size-lg) * var(--line-height-normal) / 2 - var(--space-1));
+  left: calc(var(--space-4) * -1 - var(--space-1) - var(--border-width) / 2);
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-border-strong);
+  content: "";
 }
 
 .site-landing__done {
@@ -342,8 +408,28 @@
 }
 
 @media (min-width: 768px) {
+  /*
+   * 宽屏时顶栏的品牌、主题切换、入口和正文左右对齐（正文最宽 layout-reading-max-width、居中、边距 space-6）；
+   * 色带和入口的底色仍然铺满整行。100cqi 是顶栏的宽度（顶栏是尺寸容器，只影响它里面的这几处计算）。
+   */
   .site__header {
-    padding: var(--space-3) var(--space-6);
+    container-type: inline-size;
+  }
+
+  .site__brand {
+    margin-left: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+  }
+
+  .site__theme {
+    margin-right: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+  }
+
+  .site__nav {
+    padding-inline: max(var(--space-6), calc((100cqi - var(--layout-reading-max-width)) / 2 + var(--space-6)));
+  }
+
+  .site-quote {
+    padding: var(--space-6);
   }
 
   .site__main {

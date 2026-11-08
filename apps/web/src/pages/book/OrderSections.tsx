@@ -51,6 +51,7 @@ import {
   visibleTimeline,
 } from "../../lib/site-display.ts";
 import { siteFailureText } from "./SiteLayout.tsx";
+import { SitePrice } from "./SitePrice.tsx";
 
 type Changed = (envelope: SiteOrderEnvelope) => void;
 
@@ -65,9 +66,9 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
-function Fact({ label, children }: { label: string; children: ReactNode }) {
+function Fact({ label, total = false, children }: { label: string; total?: boolean; children: ReactNode }) {
   return (
-    <div className="site-facts__item">
+    <div className={total ? "site-facts__item site-facts__item--total" : "site-facts__item"}>
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
@@ -364,8 +365,8 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
           <span className="site-break">{order.passenger.email}</span>
         </Fact>
         {order.notes !== null && <Fact label="备注">{order.notes}</Fact>}
-        <Fact label="总价">
-          <span className="site-price">{moneyText(order.price.total)}</span>
+        <Fact label="总价" total>
+          <SitePrice text={moneyText(order.price.total)} size="lg" />
         </Fact>
         <Fact label="免费等待">{freeWaitText(order.free_wait_minutes, order.category, order.direction)}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}
