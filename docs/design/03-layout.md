@@ -25,7 +25,7 @@
 - 侧边栏和顶栏固定，只有 `<main>` 纵向滚动。
 - 页面语义结构：`<header>`（顶栏）、`<nav>`（侧边栏）、`<main>`（内容，每页只有一个），每页有且只有一个 `<h1>`。
 - 两个后台结构相同，靠侧边栏顶部的名称（「运营后台」/「供应商后台」）和菜单内容区分，不另做配色。
-- **受限框架**（账号必须先修改密码时）：没有侧边栏，没有菜单按钮；顶栏左侧显示品牌名和后台名称；内容区水平居中。只有修改密码页会用到，细则见 [`pages/change-password.md`](./pages/change-password.md) 第 3 节。
+- **受限框架**（账号必须先修改密码时）：没有侧边栏，没有菜单按钮；顶栏左侧显示品牌（`Brand` 组件：标志 + 字标 NOZOMI）和后台名称；内容区水平居中。只有修改密码页会用到，细则见 [`pages/change-password.md`](./pages/change-password.md) 第 3 节。
 
 ## 2. 内容区
 
@@ -46,7 +46,7 @@
 | 分步编辑（步骤导航 + 当前步骤） | `layout-content-max-width`；≥ 1024px 时步骤导航 `minmax(0, 240px)` + 当前步骤 `minmax(0, 1fr)`，栏间距 `space-6`，步骤导航吸在视口里；当前步骤的内容自己再限制到 `layout-form-max-width`，居左；**主体是表格、覆盖表、月历的步骤（价格规则，`pages/tenant-prices.md` 第 2 节）用满右栏**，里面的表单仍然限制到 `layout-form-max-width`。更窄时单栏，步骤导航收成一个按钮排在标题行下面（`02-components.md` 第 24 节）。两种布局的 DOM 顺序相同 | 商品的新建 / 编辑（`pages/tenant-products.md` 第 3 节）；其中第 ③ 步见 `pages/tenant-prices.md` |
 | 大段文字 | `layout-reading-max-width`（960px） | 条款、帮助说明 |
 
-**卡片**：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，内边距 `space-4`（≥ 768px 为 `space-6`），无阴影。卡片标题 `font-size-lg` + `font-weight-bold`。卡片里不再套卡片；需要再分区时用标题加分隔线。
+**卡片**：底 `bg-surface`，边框 `border-default`，圆角 `radius-lg`，内边距 `space-4`（≥ 768px 为 `space-6`），无阴影（例外只有首页的入口卡片带 `shadow-card`，见 `02-components.md` 第 18 节）。卡片标题 `font-size-lg` + `font-weight-bold`。卡片里不再套卡片；需要再分区时用标题加分隔线。
 
 **详情里的「标签：值」**：用 `<dl>`。标签 `font-size-sm` + `text-secondary`，值 `font-size-md` + `text-primary`。≥ 768px 排成 2–3 栏的栅格；< 768px 单栏，标签在上、值在下。没有值时显示「—」。
 

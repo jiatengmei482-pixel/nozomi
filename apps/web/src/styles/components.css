@@ -24,7 +24,13 @@
   transition:
     background-color var(--duration-fast),
     border-color var(--duration-fast),
-    color var(--duration-fast);
+    color var(--duration-fast),
+    transform var(--duration-fast) var(--easing-standard);
+}
+
+/* 按下时整体下沉 1px，手指和鼠标都能感到「按到了」；禁用、提交中不动 */
+.button:active:not(:disabled, [aria-busy="true"]) {
+  transform: translateY(1px);
 }
 
 .button--sm {
@@ -269,7 +275,9 @@
   color: var(--color-text-primary);
   font-size: var(--control-font-size);
   line-height: var(--line-height-tight);
-  transition: border-color var(--duration-fast);
+  transition:
+    border-color var(--duration-fast),
+    background-color var(--duration-fast);
 }
 
 .input--lg {
@@ -389,9 +397,9 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-3);
   border: var(--border-width) solid;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
 }
@@ -410,7 +418,8 @@
   background: var(--color-info-bg);
 }
 
-.alert--info .alert__icon {
+.alert--info .alert__icon,
+.alert--info .alert__title {
   color: var(--color-info-text);
 }
 
@@ -419,7 +428,8 @@
   background: var(--color-success-bg);
 }
 
-.alert--success .alert__icon {
+.alert--success .alert__icon,
+.alert--success .alert__title {
   color: var(--color-success-text);
 }
 
@@ -428,7 +438,8 @@
   background: var(--color-warning-bg);
 }
 
-.alert--warning .alert__icon {
+.alert--warning .alert__icon,
+.alert--warning .alert__title {
   color: var(--color-warning-text);
 }
 
@@ -437,7 +448,8 @@
   background: var(--color-danger-bg);
 }
 
-.alert--danger .alert__icon {
+.alert--danger .alert__icon,
+.alert--danger .alert__title {
   color: var(--color-danger-text);
 }
 
@@ -449,7 +461,7 @@
   height: 22px;
   padding: var(--space-0-5) var(--space-2);
   border: var(--border-width) solid;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-tight);
@@ -540,6 +552,7 @@
   text-align: left;
   text-decoration: none;
   cursor: pointer;
+  transition: background-color var(--duration-fast);
 }
 
 .menu-item:focus-visible {
@@ -609,7 +622,7 @@
 .skeleton__block {
   display: block;
   height: var(--font-size-lg);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-bg-subtle);
 }
 
@@ -636,13 +649,14 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-10) 0;
+  padding: var(--space-10) var(--space-4);
   text-align: center;
 }
 
 .state-block__icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  margin-bottom: var(--space-1);
   color: var(--color-danger-text);
 }
 
@@ -654,8 +668,10 @@
 }
 
 .state-block__description {
+  max-width: 40em;
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
 }
 
 .state-block__action {
@@ -673,6 +689,7 @@
 
 .card__title {
   margin-bottom: var(--space-4);
+  color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
@@ -699,6 +716,7 @@
 .details dd {
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 

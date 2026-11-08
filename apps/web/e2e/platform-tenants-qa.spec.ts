@@ -241,9 +241,9 @@ test("新建供应商拿到链接后：令牌只在对话框那个只读文本�
     await page.setViewportSize({ width, height: 720 });
     await expect(box).toHaveValue(link);
     await expectNoHorizontalOverflow(page, `一次性链接对话框（${width}px）`);
-    const fits = await box.evaluate((node) => ({ scroll: node.scrollHeight, client: node.clientHeight, horizontal: node.scrollWidth - node.clientWidth }));
-    expect(fits.scroll, `${width}px 宽：链接要能看全（文本框里不用滚动）`).toBeLessThanOrEqual(fits.client + 1);
-    expect(fits.horizontal, `${width}px 宽：链接不横向滚动`).toBeLessThanOrEqual(1);
+    // 文本框按内容撑高（field-sizing: content），改窗口宽度后要等一次重新排版再量，所以用 poll 而不是只量一次
+    await expect.poll(() => box.evaluate((node) => node.scrollHeight - node.clientHeight), { message: `${width}px 宽：链接要能看全（文本框里不用滚动）` }).toBeLessThanOrEqual(1);
+    await expect.poll(() => box.evaluate((node) => node.scrollWidth - node.clientWidth), { message: `${width}px 宽：链接不横向滚动` }).toBeLessThanOrEqual(1);
   }
   await page.emulateMedia({ colorScheme: "dark" });
   await expect(box).toHaveValue(link);
