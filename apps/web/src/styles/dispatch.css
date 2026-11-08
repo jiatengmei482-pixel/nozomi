@@ -81,6 +81,11 @@
   gap: var(--space-2);
 }
 
+/* 查找框的标签在输入框上方：同一行的其他条件和它按输入框底边对齐，不悬在中间（M6-03） */
+.filter-bar:has(> .order-search) {
+  align-items: flex-end;
+}
+
 /* 取消政策的编辑（M3-03）：每档两个输入框和「删掉」排在一行，窄屏时换行 */
 .policy-tiers {
   display: flex;

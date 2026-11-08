@@ -320,7 +320,8 @@
   color: var(--color-text-disabled);
 }
 
-.input:read-only {
+/* 下拉框在浏览器看来也是「只读」（没有可编辑的文字），要排除，否则所有下拉框都显示成只读的灰底（M6-03） */
+.input:read-only:not(select) {
   border-color: var(--color-border-default);
   background: var(--color-bg-subtle);
 }
@@ -701,7 +702,9 @@
   gap: var(--space-4);
 }
 
-.details__item {
+/* 有的页面直接用 <div> 包「标签 + 值」，和 details__item 同样排（M6-03） */
+.details__item,
+.details > div {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);

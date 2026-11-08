@@ -52,8 +52,10 @@
 }
 
 .score-summary__value {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-3xl);
   font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
 }
 
 .card__subtitle {
@@ -72,7 +74,7 @@
   width: 100%;
   height: var(--space-16);
   border: var(--border-width) solid var(--color-border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-bg-subtle);
 }
 
