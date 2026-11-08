@@ -212,7 +212,7 @@
 | `shadow-sm` | — | 吸顶的表头和顶栏滚动后 |
 | `shadow-md` | — | 下拉面板、气泡、Toast |
 | `shadow-lg` | — | 对话框、手机上滑出的侧边栏 |
-| `shadow-card` | — | 官网的报价卡片、登录卡片、后台首页的入口卡片（很轻，只让卡片「浮」起一点） |
+| `shadow-card` | — | 官网的报价卡片、后台首页的入口卡片（很轻，只让卡片「浮」起一点） |
 | `border-width` | 1px | 所有边框 |
 | `focus-ring-width` / `focus-ring-offset` | 2px / 2px | 聚焦环 |
 
