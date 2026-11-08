@@ -69,6 +69,10 @@
   font-weight: var(--font-weight-medium);
 }
 
+.driver-page .auth-card .field__label {
+  font-size: var(--font-size-md);
+}
+
 .driver-page .auth-card .field__hint {
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);

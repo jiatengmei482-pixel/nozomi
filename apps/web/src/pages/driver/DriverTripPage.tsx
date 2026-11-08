@@ -9,6 +9,7 @@
  * - 出错的说明放在页面顶部的播报区（AlertSlot，role="alert"），出现时焦点移过去。
  * - 接机：先拍到达屏再填实际落地时间（按城市当地时间填），提交后不能改。
  * - 客人没出现：记联系记录、拍举牌照片、免等结束后申请离开；5 项证据齐了才能提交（页面实时显示还差什么）。
+ * - 版式（M6-04，docs/design/pages/driver.md）：关键信息大字加粗，「下一步」是框起来的整宽主按钮，样式在 styles/driver.css。
  */
 import { CHANGE_FIELD_NAMES } from "../../lib/order-money-display.ts";
 import { DRIVER_ACTION_LABELS, EVIDENCE_FILE_RULES, localDateTimeToInstant } from "@nozomi/domain";
@@ -185,7 +186,7 @@ export function DriverTripPage() {
   if (token === null) {
     return (
       <AuthLayout className="driver-page">
-        <h1 className="auth-card__title">链接不完整</h1>
+        <h1 className="auth-card__title driver-title">链接不完整</h1>
         <p>请从调度发给你的消息里重新打开完整的链接。</p>
       </AuthLayout>
     );
@@ -193,7 +194,7 @@ export function DriverTripPage() {
   if (trip === null) {
     return (
       <AuthLayout className="driver-page">
-        <h1 className="auth-card__title">这一单</h1>
+        <h1 className="auth-card__title driver-title">这一单</h1>
         {loadError === null && <p>加载中…</p>}
         <AlertSlot notice={loadError === null ? null : { kind: "danger", text: loadError }} />
       </AuthLayout>
