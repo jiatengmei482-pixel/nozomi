@@ -379,9 +379,9 @@
           "id": "M6-01",
           "title": "设计规范（ADR 0066）、共用样式和后台登录页",
           "role": "designer",
-          "status": "doing",
+          "status": "done",
           "acceptance": ["ADR 0066 写明品牌、颜色、圆角、阴影、价格样式和分批；令牌改动过 contrast-check，01-tokens.md 与 tokens.css 一致", "共用样式：品牌标识（标志 + 字标）、价格样式", "/platform/login、/login（含两步验证、设置密码页）按新规范改版", "部署到测试环境，改版前后截图（电脑、手机各一套）存到 /home/codespace/import/ui-screens/", "只改视觉和排版，不改业务逻辑、接口和文案意思", "亮色、暗色两套都看过；360px 宽不横向滚动；axe 无障碍检查通过；键盘可用", "所有单元、集成、端到端测试通过（PR 的 CI 绿）"],
-          "evidence": "",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/113 ；CI 全绿（check、e2e、deploy-smoke）；新增品牌组件测试 3 条、主题切换聚焦环端到端 1 条，2 条登录版式用例按新规范改写；测试环境验收通过（验收发现的亮色聚焦环问题已修并复查，报告 docs/acceptance/M6.md）；改版前后截图在 /home/codespace/import/ui-screens/",
           "updated": "2026-11-08"
         },
         {
@@ -986,6 +986,11 @@
       "date": "2026-11-08",
       "by": "Claude",
       "summary": "新建 M6「整站美化」（M6-01～M6-07）：先定设计规范（ADR 0066）和共用样式、改后台登录页，再做后台、司机页、官网，最后邮件模板。M6-01 开发中。"
+    },
+    {
+      "date": "2026-11-08",
+      "by": "Claude",
+      "summary": "M6-01 已验收：设计规范 ADR 0066、品牌标识和价格样式、后台登录页改版，PR #113 已合并；改版前后截图已存档。"
     }
   ]
 }

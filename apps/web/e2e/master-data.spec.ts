@@ -377,7 +377,8 @@ test("320 / 360 / 400 宽度下首页和各列表都不横向滚动；亮色、�
   const headers = await platformAdminHeaders(request);
   const longAddon = `ADD-${"E2E_LONG_CODE_".repeat(2)}${randomLetters(8)}`;
   expect((await request.post("/platform/v1/master/addons", { headers, data: { code: longAddon, categories: ["airport_transfer", "point_to_point", "charter"], charge_unit: "per_duration", name: { zh: "名字很长很长的附加服务".repeat(4), en: "A".repeat(120) }, description: {} } })).status()).toBe(201);
-  await importAirports(country, [{ iata: `Y${randomLetters(2)}`, name: `E2E Keflavik ${"Very Long Name ".repeat(6)}Airport`, lat: 63.985, lng: -22.605556 }]);
+  // 三字码首字母选别的用例不用的（Z、Y 开头的机场很多用例都在建，随机撞上时导入会当冲突跳过，页面就没有待处理的机场）
+  await importAirports(country, [{ iata: `K${randomLetters(2)}`, name: `E2E Keflavik ${"Very Long Name ".repeat(6)}Airport`, lat: 63.985, lng: -22.605556 }]);
   await signInAsAdmin(page);
 
   const widths = [320, 360, 400] as const;
@@ -444,7 +445,8 @@ test("320 / 360 / 400 宽度下流水线页和各表单都不横向滚动；亮�
   test.setTimeout(240_000); // 十几个页面状态 × 三个宽度 × 两套主题的 axe，一条用例里做完
   const country = "MT";
   const city = await createCity(request, country, "Europe/Malta");
-  await importAirports(country, [{ iata: `Z${randomLetters(2)}`, name: `E2E Luqa ${"Very Long Name ".repeat(6)}Airport`, lat: 63.985, lng: -22.605556 }]);
+  // 三字码首字母选别的用例不用的（Z、Y 开头的机场很多用例都在建，随机撞上时导入会当冲突跳过，页面就没有待处理的机场）
+  await importAirports(country, [{ iata: `J${randomLetters(2)}`, name: `E2E Luqa ${"Very Long Name ".repeat(6)}Airport`, lat: 63.985, lng: -22.605556 }]);
   await signInAsAdmin(page);
 
   const widths = [320, 360, 400] as const;

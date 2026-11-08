@@ -8,6 +8,8 @@
 }
 
 .link-dialog__link {
+  /* 对话框到了最大高度时由对话框本身滚动，链接框不能被压扁（否则链接要在框里滚动才能看全） */
+  flex: none;
   width: 100%;
   min-height: calc(var(--control-height-md) * 2);
   background: var(--color-bg-subtle);
