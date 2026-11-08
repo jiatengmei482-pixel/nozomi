@@ -4,11 +4,11 @@
  */
 import { after, afterEach, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { EMAIL_CODE_RESEND_INTERVAL_MS, EMAIL_CODE_TTL_MS } from "@nozomi/domain";
+import { EMAIL_CODE_RESEND_INTERVAL_MS, EMAIL_CODE_TTL_MS, MAIL_LIGHT_COLORS, emailCodeMail } from "@nozomi/domain";
 import { SmtpMailer } from "./integrations/smtp.ts";
 import { createSuperAdmin } from "./services/platform-staff.ts";
 import { type ApiResponse, TEST_PASSWORD, type TestApi, createTestApi } from "./testing/api.ts";
-import { type FakeSmtp, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, decodedMailHtml, decodedMailText, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
 import { totpAt } from "./testing/totp.ts";
 
@@ -108,6 +108,24 @@ test("平台员工：邮件 → 验证码 → 待验证的会话，两步验证�
   assert.equal(again.body.second_factor.status, "verify_required");
   const blockedAgain = await api.call("GET", "/platform/v1/staff", { token: again.body.access_token, ip });
   assert.deepEqual([blockedAgain.status, blockedAgain.body.error.code], [403, "MFA_REQUIRED"]);
+});
+
+test("验证码邮件同时有纯文字版和 HTML 版（M6-06，ADR 0067）：纯文字一字不改；HTML 有品牌页眉，验证码大号显示，文字与纯文字版一致", async () => {
+  const email = "code-html@platform.test";
+  await staff(email);
+  await requestCode("platform", email, nextIp());
+  const data = smtp.messages[0]?.data ?? "";
+  assert.match(data.split(/\r?\n\r?\n/)[0] ?? "", /^Content-Type: multipart\/alternative;/m);
+  const code = latestCode(smtp, email);
+  const text = decodedMailText(data).replace(/\r\n/g, "\n");
+  assert.equal(text, emailCodeMail("platform", code).text, "纯文字版就是原来的正文");
+  const html = decodedMailHtml(data) ?? "";
+  assert.match(html, /<html lang="zh-Hans">/);
+  assert.match(html, new RegExp(`class="nz-brand" bgcolor="${MAIL_LIGHT_COLORS["color-brand"]}"`));
+  assert.match(html, /class="nz-wordmark"[^>]*>NOZOMI<\/span>/);
+  assert.match(html, new RegExp(`<p class="nz-code"[^>]*>${code}</p>`));
+  const visible = html.slice(html.indexOf("<body")).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  assert.equal(visible, `NOZOMI ${text.replace(/\s+/g, " ").trim()}`);
 });
 
 test("防枚举：存在、不存在、停用、待激活的邮箱，发码的应答完全一样；只有真实在用的账号收到信；校验也是同一个 401", async () => {

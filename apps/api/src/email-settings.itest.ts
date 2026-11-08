@@ -18,7 +18,7 @@ import { sendMail } from "./services/mail.ts";
 import type { PlatformPrincipal } from "./services/platform-auth.ts";
 import { createSuperAdmin } from "./services/platform-staff.ts";
 import { type ApiResponse, type HttpMethod, TEST_PASSWORD, type TenantFixture, type TestApi, createTestApi, testContext } from "./testing/api.ts";
-import { type FakeSmtp, type FakeTlsCert, generateFakeTlsCert, startFakeSmtp } from "./testing/fake-integrations.ts";
+import { type FakeSmtp, type FakeTlsCert, decodedMailHtml, decodedMailText, generateFakeTlsCert, startFakeSmtp } from "./testing/fake-integrations.ts";
 import { testEnv } from "./testing/fixtures.ts";
 import { allValues } from "./testing/market.ts";
 import { assertMatchesOpenApi } from "./testing/openapi.ts";
@@ -393,6 +393,24 @@ test("内部发信接口 sendMail：现取生效的配置；邮件头注入一�
   admin.behave({ rejectAuth: true });
   const failed = await sendMail(ctx, message);
   assert.deepEqual([failed.ok, !failed.ok && failed.code], [false, "AUTH_FAILED"]);
+  await ctx.integrations.reloadNow();
+});
+
+test("只给纯文字的邮件（M6-06，ADR 0067）：发出去的同时有 text/plain 和 text/html；客人填的内容在 HTML 里被转义，只有 http(s) 网址变成链接", async () => {
+  const ctx = { ...testContext(loadConfig(testEnv(api.db.url)), api.db.pool, api.clock.now), mailer: testMailer() };
+  await save(body(admin));
+  await ctx.integrations.reloadNow();
+  const text = "王先生，您好：\n\n客人备注：<script>alert(\"x\")</script> & javascript:alert(1)\n\n查看和管理订单：\nhttps://nozomi.example/o/view?t=abc&x=1\n\nNOZOMI 用车";
+  const sent = await sendMail(ctx, { to: "guest@example.test", subject: "预订已确认：N-1", text });
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  const data = admin.messages[0]?.data ?? "";
+  assert.match(data.split(/\r?\n\r?\n/)[0] ?? "", /^Content-Type: multipart\/alternative;/m);
+  assert.equal(decodedMailText(data).replace(/\r\n/g, "\n"), text);
+  const html = decodedMailHtml(data) ?? "";
+  assert.match(html, /class="nz-wordmark"[^>]*>NOZOMI<\/span>/);
+  assert.ok(!html.includes("<script>") && html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; javascript:alert(1)"));
+  assert.deepEqual([...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1]), ["https://nozomi.example/o/view?t=abc&amp;x=1"]);
+  assert.match(html, /<title>预订已确认：N-1<\/title>/);
   await ctx.integrations.reloadNow();
 });
 
