@@ -318,7 +318,7 @@ test("只用键盘完成登录：Tab 顺序符合规范，聚焦环可见，Ente
   await expect(page.locator("main")).toBeFocused();
 });
 
-test("手机：360×640 首屏完整看到品牌名、后台名称、两个输入框和登录按钮；不自动聚焦；卡片靠上且没有边框", async ({ page }) => {
+test("手机：360×640 首屏完整看到品牌名、后台名称、两个输入框和登录按钮；不自动聚焦；卡片靠上、压住品牌色带下沿（ADR 0066）", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 640 });
   await page.goto("/login");
   const button = page.getByRole("button", { name: "登录" });
@@ -327,28 +327,51 @@ test("手机：360×640 首屏完整看到品牌名、后台名称、两个输�
     await expect(locator).toBeInViewport({ ratio: 1 });
   }
   expect(await page.evaluate(() => document.activeElement?.tagName), "手机上不自动聚焦，避免一打开就弹键盘").toBe("BODY");
-  const card = await page.locator(".auth-card").evaluate((element) => {
-    const style = getComputedStyle(element);
-    const box = element.getBoundingClientRect();
-    return { border: style.borderTopWidth, padding: style.paddingLeft, left: box.left, width: box.width, top: box.top };
+  const layout = await page.evaluate(() => {
+    const card = document.querySelector(".auth-card") as HTMLElement;
+    const style = getComputedStyle(card);
+    const box = card.getBoundingClientRect();
+    const band = Number.parseFloat(getComputedStyle(document.querySelector(".auth-page") as HTMLElement, "::before").height);
+    return { border: style.borderTopWidth, padding: style.paddingLeft, left: box.left, width: box.width, top: box.top, band };
   });
-  expect(card).toEqual({ border: "0px", padding: "0px", left: 16, width: 328, top: 64 });
+  expect({ border: layout.border, padding: layout.padding, left: layout.left, width: layout.width }).toEqual({ border: "1px", padding: "20px", left: 16, width: 328 });
+  expect(layout.top, "卡片的上沿在品牌色带里").toBeLessThan(layout.band);
+  expect(layout.top, "卡片靠上").toBeLessThan(160);
   const buttonBox = await button.boundingBox();
-  expect(buttonBox?.width, "按钮撑满内容宽度").toBe(328);
+  expect(buttonBox?.width, "按钮撑满卡片内容宽度").toBe(328 - 2 * 20 - 2);
 });
 
-test("桌面：登录卡片 400px 宽、有边框、垂直方向略偏上（上 : 下 ≈ 2 : 3）", async ({ page }) => {
+test("桌面：登录卡片 400px 宽、有边框、靠上并压住品牌色带下沿（ADR 0066）", async ({ page }) => {
   await page.setViewportSize(VIEWPORTS.desktop);
   await page.goto("/login");
   await expect(page.getByRole("button", { name: "登录" })).toBeVisible();
   const card = await page.locator(".auth-card").evaluate((element) => {
     const box = element.getBoundingClientRect();
-    return { width: box.width, above: box.top, below: window.innerHeight - box.bottom, border: getComputedStyle(element).borderTopWidth };
+    const band = Number.parseFloat(getComputedStyle(document.querySelector(".auth-page") as HTMLElement, "::before").height);
+    return { width: box.width, top: box.top, bottom: box.bottom, below: window.innerHeight - box.bottom, band, border: getComputedStyle(element).borderTopWidth };
   });
   expect(card.width).toBe(400);
   expect(card.border).toBe("1px");
-  expect(card.above / card.below).toBeGreaterThan(0.55);
-  expect(card.above / card.below).toBeLessThan(0.75);
+  expect(card.top, "卡片上沿在色带里").toBeLessThan(card.band);
+  expect(card.bottom, "卡片下沿在色带外").toBeGreaterThan(card.band);
+  expect(card.top, "卡片偏上").toBeLessThan(card.below);
+});
+
+test("亮色：主题切换的聚焦环整圈落在白色底板里，不画到深色品牌色带上（M6-01 验收问题 1）", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize(VIEWPORTS.desktop);
+  await page.goto("/login");
+  const button = page.getByRole("button", { name: "切换主题" });
+  await button.focus();
+  const boxes = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const ring = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const b = element.getBoundingClientRect();
+    const p = (element.closest(".auth-page__theme") as HTMLElement).getBoundingClientRect();
+    return { ring, inside: b.left - ring >= p.left && b.top - ring >= p.top && b.right + ring <= p.right && b.bottom + ring <= p.bottom };
+  });
+  expect(boxes.ring).toBeGreaterThan(0);
+  expect(boxes.inside).toBe(true);
 });
 
 test("触屏设备：输入框和按钮高 48px、输入文字 16px（令牌按 pointer: coarse 自动切换）", async ({ browser, baseURL }) => {

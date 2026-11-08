@@ -170,7 +170,7 @@ test("contrast-check.mjs 通过；01-tokens.md 的对比度表与它现算的结
 test("contrast-check.mjs 真的会拦：把颜色改到对比度不够、让两段暗色不一致、删掉一个暗色令牌，都以非 0 退出", async () => {
   const sabotages: [string, (css: string) => string, RegExp][] = [
     ["亮色正文改成浅灰", (css) => css.replace("--color-text-primary: #1A1F29;", "--color-text-primary: #C0C4CC;"), /亮色 text-primary/],
-    ["只改手动暗色那一段的主色", (css) => css.replace(/(:root\[data-theme="dark"\][\s\S]*?--color-primary: )#2F62DE;/, "$1#2F62DF;"), /两段暗色不一致：--color-primary/],
+    ["只改手动暗色那一段的主色", (css) => css.replace(/(:root\[data-theme="dark"\][\s\S]*?--color-primary: )#4466E0;/, "$1#4466E1;"), /两段暗色不一致：--color-primary/],
     ["手动暗色少一个令牌", (css) => css.replace(/(:root\[data-theme="dark"\][\s\S]*?)\s*--color-info-bg: #0E2C3D;/, "$1"), /--color-info-bg/],
     ["暗色的出错边框改暗", (css) => css.replaceAll("--color-danger-solid: #C9352A;", "--color-danger-solid: #3A1512;"), /暗色 danger-solid/],
   ];

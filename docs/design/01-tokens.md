@@ -12,7 +12,7 @@
 | `color-bg-surface` | `#FFFFFF` | `#171B22` | 卡片、表格、对话框、输入框、侧边栏、顶栏 |
 | `color-bg-subtle` | `#ECEEF2` | `#1E232C` | 表头、分组标题条、只读字段、骨架屏 |
 | `color-bg-hover` | `#E3E6EB` | `#272D38` | 行、菜单项、次要按钮的悬停 |
-| `color-bg-selected` | `#E6EDFD` | `#1B2B52` | 选中的行、选中的导航项 |
+| `color-bg-selected` | `#E8ECFA` | `#1C2A55` | 选中的行、选中的导航项 |
 | `color-bg-disabled` | `#ECEEF2` | `#1E232C` | 禁用的控件 |
 | `color-bg-inverse` | `#1A1F29` | `#E6E9EE` | Toast、气泡提示 |
 | `color-bg-overlay` | `rgb(15 18 23 / 0.5)` | `rgb(0 0 0 / 0.6)` | 对话框、手机侧边栏后面的遮罩 |
@@ -26,7 +26,7 @@
 | `color-text-tertiary` | `#5C6574` | `#929BAA` | 辅助说明、占位文字、时间戳 |
 | `color-text-disabled` | `#9AA3B1` | `#5F6877` | 禁用控件的文字（只用于禁用态） |
 | `color-text-inverse` | `#FFFFFF` | `#1A1F29` | `color-bg-inverse` 上的文字 |
-| `color-text-link` | `#1B4FD0` | `#8FB2FF` | 链接、文字按钮、选中导航项的文字 |
+| `color-text-link` | `#2A45B0` | `#A9BBFF` | 链接、文字按钮、选中导航项的文字 |
 
 ### 1.3 边框
 
@@ -34,19 +34,31 @@
 | --- | --- | --- | --- |
 | `color-border-default` | `#D6DAE1` | `#2D3440` | 分隔线、卡片和表格的边线（装饰性） |
 | `color-border-strong` | `#7C8696` | `#768092` | 输入框、选择器、复选框、次要按钮的边框（要让人看得出「这是个控件」） |
-| `color-border-focus` | `#1B4FD0` | `#8FB2FF` | 聚焦环 |
+| `color-border-focus` | `#2A45B0` | `#A9BBFF` | 聚焦环 |
 
 ### 1.4 主色
 
 | 令牌 | 亮色 | 暗色 | 用途 |
 | --- | --- | --- | --- |
-| `color-primary` | `#1B4FD0` | `#2F62DE` | 主按钮底色、选中的复选框和开关、进度条 |
-| `color-primary-hover` | `#173FA8` | `#3868E0` | 主按钮悬停 |
-| `color-primary-active` | `#123287` | `#2752C0` | 主按钮按下 |
+| `color-primary` | `#2A45B0` | `#4466E0` | 主按钮底色、选中的复选框和开关、进度条 |
+| `color-primary-hover` | `#223993` | `#4A6CE4` | 主按钮悬停 |
+| `color-primary-active` | `#1B2E78` | `#3A5AD6` | 主按钮按下 |
 | `color-on-primary` | `#FFFFFF` | `#FFFFFF` | 主色底上的文字和图标 |
-| `color-primary-subtle` | `#E6EDFD` | `#1B2B52` | 主色浅底（选中导航项、文字按钮悬停） |
+| `color-primary-subtle` | `#E8ECFA` | `#1C2A55` | 主色浅底（选中导航项、文字按钮悬停） |
 
 暗色下不能把 `color-primary` 当文字颜色用，文字一律用 `color-text-link`。
+
+主色是偏靛的「藍色」（M6 起，ADR 0066），比原来的亮蓝更沉稳，亮、暗两套都比原来对比度更高。
+
+### 1.4.1 品牌
+
+| 令牌 | 亮色 | 暗色 | 用途 |
+| --- | --- | --- | --- |
+| `color-brand` | `#1B2A5C` | `#141C3D` | 品牌色带：登录页顶部、官网页眉、邮件页眉 |
+| `color-on-brand` | `#FFFFFF` | `#FFFFFF` | 色带上的品牌字标、标志、页面名称 |
+| `color-on-brand-muted` | `#C9D3F5` | `#B8C4EE` | 色带上的次要文字 |
+
+色带上只放品牌和页面名称，**不放按钮、输入框、链接**（聚焦环和控件颜色没有为深色底校验过）。需要放控件时，把控件放在 `bg-surface` 的小底板上。
 
 ### 1.5 状态色
 
@@ -80,7 +92,7 @@
 | `text-primary` | 13.20 | 11.36 | 16.51 / 14.19 |
 | `text-secondary` | 6.21 | 7.08 | 7.77 / 8.84 |
 | `text-tertiary` | 4.70 | 4.93 | 5.88 / 6.16 |
-| `text-link` | 5.46 | 6.57 | 6.83 / 8.21 |
+| `text-link` | 6.51 | 7.40 | 8.15 / 9.24 |
 | `success-text` | 5.19 | 7.53 | 6.49 / 9.41 |
 | `warning-text` | 5.44 | 8.00 | 6.80 / 9.99 |
 | `danger-text` | 5.25 | 6.86 | 6.57 / 8.56 |
@@ -90,13 +102,13 @@
 
 | 前景 | 背景 | 用途 | 要求 | 亮色 | 暗色 |
 | --- | --- | --- | --- | --- | --- |
-| `on-primary` | `primary` | 主按钮文字 | 4.5 | 6.83 | 5.35 |
-| `on-primary` | `primary-hover` | 主按钮文字（悬停） | 4.5 | 9.08 | 4.97 |
-| `on-primary` | `primary-active` | 主按钮文字（按下） | 4.5 | 11.46 | 6.88 |
+| `on-primary` | `primary` | 主按钮文字 | 4.5 | 8.15 | 4.97 |
+| `on-primary` | `primary-hover` | 主按钮文字（悬停） | 4.5 | 10.12 | 4.61 |
+| `on-primary` | `primary-active` | 主按钮文字（按下） | 4.5 | 12.29 | 5.81 |
 | `on-danger` | `danger-solid` | 危险按钮文字 | 4.5 | 5.73 | 5.22 |
 | `on-danger` | `danger-solid-hover` | 危险按钮文字（悬停） | 4.5 | 7.57 | 4.89 |
 | `on-danger` | `danger-solid-active` | 危险按钮文字（按下） | 4.5 | 9.68 | 6.96 |
-| `text-link` | `primary-subtle` | 选中导航项 | 4.5 | 5.82 | 6.59 |
+| `text-link` | `primary-subtle` | 选中导航项 | 4.5 | 6.91 | 7.43 |
 | `success-text` | `success-bg` | 状态徽标、提示条 | 4.5 | 5.67 | 7.79 |
 | `warning-text` | `warning-bg` | 状态徽标、提示条 | 4.5 | 5.97 | 8.15 |
 | `danger-text` | `danger-bg` | 状态徽标、提示条 | 4.5 | 5.59 | 7.66 |
@@ -109,13 +121,15 @@
 | `text-inverse` | `bg-inverse` | Toast、气泡提示 | 4.5 | 16.51 | 13.57 |
 | `border-strong` | `bg-surface` | 输入框边框 | 3 | 3.68 | 4.34 |
 | `border-strong` | `bg-page` | 输入框边框 | 3 | 3.37 | 4.71 |
-| `border-focus` | `bg-surface` | 聚焦环 | 3 | 6.83 | 8.21 |
-| `border-focus` | `bg-page` | 聚焦环 | 3 | 6.26 | 8.92 |
-| `border-focus` | `bg-subtle` | 聚焦环 | 3 | 5.88 | 7.49 |
+| `border-focus` | `bg-surface` | 聚焦环 | 3 | 8.15 | 9.24 |
+| `border-focus` | `bg-page` | 聚焦环 | 3 | 7.47 | 10.04 |
+| `border-focus` | `bg-subtle` | 聚焦环 | 3 | 7.02 | 8.44 |
 | `danger-solid` | `bg-surface` | 出错输入框边框 | 3 | 5.73 | 3.31 |
 | `danger-solid` | `bg-page` | 出错输入框边框 | 3 | 5.25 | 3.60 |
-| `primary` | `bg-surface` | 选中的复选框、开关、进度条 | 3 | 6.83 | 3.23 |
-| `primary` | `bg-page` | 选中的复选框、开关、进度条 | 3 | 6.26 | 3.50 |
+| `primary` | `bg-surface` | 选中的复选框、开关、进度条 | 3 | 8.15 | 3.47 |
+| `primary` | `bg-page` | 选中的复选框、开关、进度条 | 3 | 7.47 | 3.77 |
+| `on-brand` | `brand` | 品牌色带上的字标和页面名称 | 4.5 | 13.70 | 16.62 |
+| `on-brand-muted` | `brand` | 品牌色带上的次要文字 | 4.5 | 9.21 | 9.63 |
 
 **不在表里的组合不要用。** 特别是：
 
@@ -154,6 +168,7 @@
 | `font-size-2xl` | 20px | 页面标题 |
 | `font-size-3xl` | 24px | 登录页品牌名、看板上的大数字 |
 | `font-size-4xl` | 30px | 官网首屏标题 |
+| `font-size-5xl` | 36px | 官网报价卡片、订单页的应付金额（价格数字专用） |
 
 字号用 rem，跟随用户在浏览器里设置的字体大小。
 
@@ -165,6 +180,7 @@
 | `font-weight-regular` | 400 | 正文 |
 | `font-weight-medium` | 500 | 字段标签、表头、按钮、选中的导航项 |
 | `font-weight-bold` | 600 | 标题、需要强调的数字 |
+| `font-weight-heavy` | 700 | 只用于价格数字和品牌字标 |
 
 ## 4. 间距
 
@@ -189,17 +205,18 @@
 | 令牌 | 值 | 用途 |
 | --- | --- | --- |
 | `radius-sm` | 4px | 状态徽标、复选框、表格里的小控件 |
-| `radius-md` | 6px | 按钮、输入框、选择器、提示条 |
-| `radius-lg` | 8px | 卡片、表格容器、下拉面板 |
-| `radius-xl` | 12px | 对话框、登录卡片 |
+| `radius-md` | 8px | 按钮、输入框、选择器、提示条 |
+| `radius-lg` | 10px | 卡片、表格容器、下拉面板 |
+| `radius-xl` | 16px | 对话框、登录卡片 |
 | `radius-full` | 9999px | 头像、圆点、开关 |
 | `shadow-sm` | — | 吸顶的表头和顶栏滚动后 |
 | `shadow-md` | — | 下拉面板、气泡、Toast |
 | `shadow-lg` | — | 对话框、手机上滑出的侧边栏 |
+| `shadow-card` | — | 官网的报价卡片、后台首页的入口卡片（很轻，只让卡片「浮」起一点） |
 | `border-width` | 1px | 所有边框 |
 | `focus-ring-width` / `focus-ring-offset` | 2px / 2px | 聚焦环 |
 
-卡片和表格不用阴影，用 `border-default` 描边。暗色下阴影几乎看不见，浮层必须同时有 `border-default` 描边。
+后台的表格和普通卡片不用阴影，用 `border-default` 描边；`shadow-card` 只给上一行列出的几种卡片，而且同时保留描边。暗色下阴影几乎看不见，浮层必须同时有 `border-default` 描边。
 
 聚焦环统一写法（所有可聚焦元素）：
 

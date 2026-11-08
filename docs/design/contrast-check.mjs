@@ -104,6 +104,8 @@ const pairs = [
   ["danger-solid", "bg-page", NON_TEXT, "出错输入框边框"],
   ["primary", "bg-surface", NON_TEXT, "选中的复选框、开关、进度条"],
   ["primary", "bg-page", NON_TEXT, "选中的复选框、开关、进度条"],
+  ["on-brand", "brand", TEXT, "品牌色带上的字标和页面名称"],
+  ["on-brand-muted", "brand", TEXT, "品牌色带上的次要文字"],
 ];
 
 const themes = [

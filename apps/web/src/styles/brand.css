@@ -1,0 +1,89 @@
+/*
+ * 整站共用的品牌和价格样式（M6，ADR 0066）。数值只引用 docs/design/tokens.css 的令牌。
+ */
+
+/* ───────────── 品牌标识：标志 + 字标 ───────────── */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-tight);
+}
+
+.brand-mark {
+  flex: none;
+  width: 1.5em;
+  height: 1.5em;
+}
+
+.brand-mark__tile {
+  fill: var(--color-primary);
+}
+
+.brand-mark__route {
+  fill: transparent;
+  stroke: var(--color-on-primary);
+  stroke-width: 2.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.brand-mark__stop {
+  fill: var(--color-on-primary);
+}
+
+.brand__word {
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: 0.14em;
+}
+
+/* 品牌色带上：标志反白（白底藍线），字标用 on-brand */
+.brand--on-brand {
+  color: var(--color-on-brand);
+}
+
+.brand--on-brand .brand-mark__tile {
+  fill: var(--color-on-brand);
+}
+
+.brand--on-brand .brand-mark__route,
+.brand--on-brand .brand-mark__stop {
+  stroke: var(--color-brand);
+  fill: var(--color-brand);
+}
+
+.brand--on-brand .brand-mark__route {
+  fill: transparent;
+}
+
+/* ───────────── 价格：数字大、粗、等宽；币种小一号跟在后面 ───────────── */
+.price {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
+}
+
+.price__amount {
+  font-size: var(--font-size-3xl);
+  font-weight: var(--font-weight-heavy);
+  letter-spacing: -0.01em;
+}
+
+.price__currency {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.price--lg .price__amount {
+  font-size: var(--font-size-5xl);
+}
+
+.price--sm .price__amount {
+  font-size: var(--font-size-xl);
+}
