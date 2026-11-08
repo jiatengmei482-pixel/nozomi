@@ -392,14 +392,16 @@
 /* 必须先改密码时没有侧边栏：整页一栏，顶栏左侧写明这是哪个后台 */
 .topbar__brand {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   padding: 0 var(--space-2);
 }
 
+/* 手机上字标小一号、后台名称可以折行：320px 宽时顶栏右侧还有主题切换和账号菜单 */
 .topbar__brand-name {
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-md);
 }
 
 .topbar__portal {
@@ -409,7 +411,16 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-tight);
-  white-space: nowrap;
+}
+
+@media (min-width: 480px) {
+  .topbar__brand-name {
+    font-size: var(--font-size-lg);
+  }
+
+  .topbar__portal {
+    white-space: nowrap;
+  }
 }
 
 @media (min-width: 1024px) {
