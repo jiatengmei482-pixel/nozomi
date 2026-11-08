@@ -35,9 +35,13 @@
   font-size: var(--font-size-2xl);
 }
 
-/* 主题切换放在 bg-surface 的小底板上：深色色带上的图标按钮对比度没有校验过 */
+/*
+ * 主题切换放在 bg-surface 的小底板上：深色色带上的图标按钮对比度没有校验过。
+ * 底板的内边距 = 聚焦环宽度 + 偏移（4px），让聚焦环整圈落在底板里，不画到色带上（亮色下藍色聚焦环对色带只有 1.68:1）。
+ */
 .auth-page__theme {
   position: absolute;
+  padding: var(--space-1);
   top: var(--space-3);
   right: var(--space-3);
   border-radius: var(--radius-md);
@@ -112,7 +116,6 @@
   }
 
   .auth-page__header {
-  position: relative;
     padding-top: var(--space-16);
     padding-bottom: var(--space-8);
   }

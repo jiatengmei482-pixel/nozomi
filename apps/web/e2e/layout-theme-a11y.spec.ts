@@ -357,6 +357,23 @@ test("桌面：登录卡片 400px 宽、有边框、靠上并压住品牌色带�
   expect(card.top, "卡片偏上").toBeLessThan(card.below);
 });
 
+test("亮色：主题切换的聚焦环整圈落在白色底板里，不画到深色品牌色带上（M6-01 验收问题 1）", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize(VIEWPORTS.desktop);
+  await page.goto("/login");
+  const button = page.getByRole("button", { name: "切换主题" });
+  await button.focus();
+  const boxes = await button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const ring = Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset);
+    const b = element.getBoundingClientRect();
+    const p = (element.closest(".auth-page__theme") as HTMLElement).getBoundingClientRect();
+    return { ring, inside: b.left - ring >= p.left && b.top - ring >= p.top && b.right + ring <= p.right && b.bottom + ring <= p.bottom };
+  });
+  expect(boxes.ring).toBeGreaterThan(0);
+  expect(boxes.inside).toBe(true);
+});
+
 test("触屏设备：输入框和按钮高 48px、输入文字 16px（令牌按 pointer: coarse 自动切换）", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ ...devices["Pixel 7"], ...(baseURL ? { baseURL } : {}) });
   const page = await context.newPage();
