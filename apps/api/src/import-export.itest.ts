@@ -69,7 +69,10 @@ const num = (value: number | string): XlsxWriteCell => ({ number: String(value) 
 const sha = (file: Buffer): string => createHash("sha256").update(file).digest("hex");
 
 const TRANSFER_HEADER = ["价格编号", "区域", "车型组", "方向", "计价方式", "基础价", "起步价", "起步里程(公里)", "起步时长(分钟)", "每公里单价", "每分钟单价", "最低消费", "生效开始", "生效结束", "状态"];
+/** M8-15 之前的包车模版（没有「上车加价」「下车加价」两列）：照样能导入 */
 const CHARTER_HEADER = ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "生效开始", "生效结束", "状态"];
+/** 现在导出的包车表头（M8-15 加了区域加价的两列） */
+const CHARTER_EXPORT_HEADER = ["价格编号", "区域", "车型组", "套餐时长(小时)", "套餐公里", "套餐价", "超时单价(每小时)", "超公里单价(每公里)", "上车加价", "下车加价", "生效开始", "生效结束", "状态"];
 /** 接送机的一行一口价。 */
 const fixedRow = (extra: Partial<Record<string, XlsxWriteCell>> = {}): XlsxWriteCell[] => {
   const values: Record<string, XlsxWriteCell> = { 区域: "东京市区", 车型组: "VG-BIZ-7", 方向: "接送通用", 计价方式: "一口价", 基础价: num(20000), 生效开始: "2026-10-01", ...extra };
@@ -141,8 +144,8 @@ test("下载模版：只有表头，不预置任何价格；第二张表列出�
   const usd = await product("charter", "usd");
   await ok(call("POST", `/products/${usd}/price-rules`, { version: 1, body: { area_id: ids["a1"], vehicle_group_id: ids["biz7"], package_hours: 10, pricing_model: "charter_package", package_km: 300, package_price: 98_050, overtime_per_hour: 5_000, over_km_per_km: 5, valid_from: "2026-10-01" } }), 201);
   const charter = await download(`/products/${usd}/price-rules/export`);
-  assert.deepEqual(charter.rows[0], CHARTER_HEADER);
-  assert.deepEqual(charter.rows[1]?.slice(1), ["东京市区", "VG-BIZ-7", "10", "300", "980.50", "50.00", "0.05", "2026-10-01", null, "启用"]);
+  assert.deepEqual(charter.rows[0], CHARTER_EXPORT_HEADER);
+  assert.deepEqual(charter.rows[1]?.slice(1), ["东京市区", "VG-BIZ-7", "10", "300", "980.50", "50.00", "0.05", null, null, "2026-10-01", null, "启用"]);
   // 导出失败时是统一的 JSON 错误格式，不是文件（页面按 Content-Type 分辨）
   const failed = await api.app.inject({ method: "GET", url: `/tenant/v1/products/${MISSING}/price-rules/export`, headers: { authorization: `Bearer ${tenant.adminToken}` } });
   assert.deepEqual([failed.statusCode, String(failed.headers["content-type"]).split(";")[0], failed.json().error.code, failed.headers["content-disposition"]], [404, "application/json", "NOT_FOUND", undefined]);
@@ -188,12 +191,12 @@ test("预览：只校验不写入——逐行给出新增 / 修改 / 没变 / �
   // 每一行带着它读到的内容，新增的行也有：确认前可以核对「新增的是不是我想的那些」
   assert.deepEqual(Object.keys(body.rows[0]).sort(), ["action", "conflicts_with", "content", "issues", "price_rule_id", "row"]);
   assert.deepEqual(body.rows.slice(0, 3).map((row: any) => row.content), [
-    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 21_000, valid_from: "2026-10-01", valid_to: "2026-12-31", status: "enabled" },
-    { area: "东京市区", vehicle_group: "VG-ECO-4", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 12_000, valid_from: "2026-10-01", valid_to: null, status: "enabled" },
-    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, pricing_model: "mileage_time", main_price: 3_000, valid_from: "2026-10-01", valid_to: null, status: "disabled" },
+    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 21_000, surcharge: null, valid_from: "2026-10-01", valid_to: "2026-12-31", status: "enabled" },
+    { area: "东京市区", vehicle_group: "VG-ECO-4", direction: "pickup", package_hours: null, pricing_model: "fixed", main_price: 12_000, surcharge: null, valid_from: "2026-10-01", valid_to: null, status: "enabled" },
+    { area: "东京市区", vehicle_group: "VG-BIZ-7", direction: "dropoff", package_hours: null, pricing_model: "mileage_time", main_price: 3_000, surcharge: null, valid_from: "2026-10-01", valid_to: null, status: "disabled" },
   ]);
   // 出错的行：认得出来的照样带着，认不出来的写表里填的原文，读不出来的是 null
-  assert.deepEqual(body.rows[3].content, { area: "大阪", vehicle_group: "VG-LUX-4", direction: null, package_hours: null, pricing_model: null, main_price: null, valid_from: null, valid_to: null, status: "enabled" });
+  assert.deepEqual(body.rows[3].content, { area: "大阪", vehicle_group: "VG-LUX-4", direction: null, package_hours: null, pricing_model: null, main_price: null, surcharge: null, valid_from: null, valid_to: null, status: "enabled" });
   assert.deepEqual([body.rows[4].content.main_price, body.rows[4].content.direction, body.rows[8].content.area], [null, "dropoff", null]);
   const issue = body.rows[4].issues[0];
   assert.deepEqual([issue.cell, issue.column, issue.reason, typeof issue.message], ["F7", "基础价", "PRECISION", "string"]);

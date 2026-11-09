@@ -37,6 +37,7 @@ import {
   storedNumberDecimal,
   pricingModelsFor,
   sheetDate,
+  areaUsableByCategory,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import type { Db } from "../db/context.ts";
@@ -191,6 +192,9 @@ const P = {
   packagePrice: "套餐价",
   overtime: "超时单价(每小时)",
   overKm: "超公里单价(每公里)",
+  // 包车区域加价（M8-15，ADR 0073）：填了这两列的行是一条区域加价，「区域」是加价区域
+  pickupSurcharge: "上车加价",
+  dropoffSurcharge: "下车加价",
   validFrom: "生效开始",
   validTo: "生效结束",
   status: "状态",
@@ -198,6 +202,11 @@ const P = {
 
 /** 各种计价方式自己的那几列（一种方式用不到的要留空） */
 const MODEL_COLUMNS: readonly string[] = [P.basePrice, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
+/** 包车：套餐价那几列和区域加价那两列，一行只能填其中一组 */
+const PACKAGE_COLUMNS: readonly string[] = [P.packageKm, P.packagePrice, P.overtime, P.overKm];
+const SURCHARGE_COLUMNS: readonly string[] = [P.pickupSurcharge, P.dropoffSurcharge];
+/** 后来加的列：表头里没有也照样能导入（旧模版，ADR 0073 第五部分） */
+const OPTIONAL_HEADER_COLUMNS: readonly string[] = [P.id, P.validTo, P.status, P.minPrice, ...SURCHARGE_COLUMNS];
 
 const PRICE_SHEET = "价格";
 
@@ -207,7 +216,7 @@ const STATUS_NAMES: Readonly<Record<PriceRuleStatus, string>> = { enabled: "启�
 function priceColumns(category: ServiceCategory): string[] {
   const middle =
     category === "charter"
-      ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm]
+      ? [P.packageHours, P.packageKm, P.packagePrice, P.overtime, P.overKm, P.pickupSurcharge, P.dropoffSurcharge]
       : [...(category === "airport_transfer" ? [P.direction] : []), P.model, P.basePrice, P.startPrice, P.startKm, P.startMinutes, P.perKm, P.perMinute, P.minPrice];
   return [P.id, P.area, P.group, ...middle, P.validFrom, P.validTo, P.status];
 }
@@ -231,6 +240,8 @@ const FIELD_COLUMNS: Readonly<Record<string, string>> = {
   package_price: P.packagePrice,
   overtime_per_hour: P.overtime,
   over_km_per_km: P.overKm,
+  pickup_surcharge: P.pickupSurcharge,
+  dropoff_surcharge: P.dropoffSurcharge,
   valid_from: P.validFrom,
   valid_to: P.validTo,
   status: P.status,
@@ -244,6 +255,9 @@ const SAVE_MESSAGES: Readonly<Record<string, string>> = {
   REQUIRED: "这一格必填",
   NOT_APPLICABLE: "这个商品的品类不填这一列，请留空",
   MODEL_NOT_ALLOWED: "这个商品的品类不能用这种计价方式，请按「填写说明」里列出的填",
+  AREA_IS_PRODUCT_AREA: "这是商品本身的区域，上车、下车在这里都不加价。区域加价请填商品区域以外的区域",
+  AREA_NOT_USABLE: "区域加价只能用业务类型是包车或「通用」的区域",
+  AREA_DISABLED: "这个区域已停用，不能新设区域加价",
 };
 
 /** 金额的上限写成这个币种的主单位（上限是 10 亿最小货币单位：日元 1,000,000,000，美元 10,000,000.00）。 */
@@ -256,7 +270,7 @@ function outOfRangeMessage(column: string, currency: CurrencyCode): string {
   if (column === P.packageKm) return `套餐公里要在 1 到 ${PRICE_LIMITS.maxPackageKm} 之间`;
   if (column === P.startKm) return `起步里程要在 0 到 ${PRICE_LIMITS.maxStartMeters / 1_000} 公里之间，最多 1 位小数`;
   if (column === P.startMinutes) return `起步时长要在 0 到 ${PRICE_LIMITS.maxStartMinutes} 分钟之间`;
-  const zeroAllowed = column === P.perKm || column === P.perMinute || column === P.overtime || column === P.overKm || column === P.startPrice;
+  const zeroAllowed = column === P.perKm || column === P.perMinute || column === P.overtime || column === P.overKm || column === P.startPrice || SURCHARGE_COLUMNS.includes(column);
   return `金额要${zeroAllowed ? "不小于 0" : "大于 0"}，最多 ${amountLimitText(currency)} ${currency}。请检查是不是多打或少打了位数`;
 }
 
@@ -264,7 +278,7 @@ const nameKey = (text: string): string => text.normalize("NFKC").trim().toLowerC
 const displayName = (name: LocalizedText): string => name.zh ?? name.ja ?? name.en ?? name.ko ?? "";
 
 interface PriceNames {
-  /** 商品现在选的区域和车型组，外加现有价格用到的（已经被商品去掉的） */
+  /** 商品现在选的区域和车型组，外加现有价格用到的（已经被商品去掉的）；包车另加本租户的全部区域（区域加价可以用任何一个） */
   areas: Map<string, LocalizedText>;
   groups: Map<string, { code: string; name: LocalizedText }>;
 }
@@ -273,7 +287,7 @@ async function priceNames(db: Db, tenantId: string, context: PricingContext): Pr
   const areaIds = [...new Set([...context.areaIds, ...context.priceRules.map((rule) => rule.areaId)])];
   const groupIds = [...new Set([...context.vehicleGroupIds, ...context.priceRules.map((rule) => rule.vehicleGroupId)])];
   const areas = await findAreasForProduct(db, tenantId, areaIds);
-  return { areas: new Map([...areas].map(([id, area]) => [id, area.name])), groups: await findVehicleGroupLabels(db, groupIds) };
+  return { areas: new Map([...[...areas].map(([id, area]): [string, LocalizedText] => [id, area.name]), ...[...context.tenantAreas].map(([id, area]): [string, LocalizedText] => [id, area.name])]), groups: await findVehicleGroupLabels(db, groupIds) };
 }
 
 const money = (minor: number | null, currency: CurrencyCode): XlsxWriteCell => (minor === null ? null : { number: formatMajor(minor, currency) });
@@ -303,6 +317,8 @@ function priceRow(rule: StoredPriceRule, names: PriceNames, currency: CurrencyCo
       [P.perMinute]: money(pricing.perMinuteMinor, currency),
       [P.minPrice]: money(pricing.minPriceMinor, currency),
     });
+  } else if (pricing.model === "charter_area_surcharge") {
+    Object.assign(values, { [P.pickupSurcharge]: money(pricing.pickupSurchargeMinor, currency), [P.dropoffSurcharge]: money(pricing.dropoffSurchargeMinor, currency) });
   } else {
     Object.assign(values, { [P.packageKm]: whole(pricing.packageKm), [P.packagePrice]: money(pricing.packagePriceMinor, currency), [P.overtime]: money(pricing.overtimePerHourMinor, currency), [P.overKm]: money(pricing.overKmPerKmMinor, currency) });
   }
@@ -337,7 +353,11 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
       ["日期写成 2026-10-01；「生效结束」留空 = 一直有效。两头的日期都算在内，同一个组合的日期不能重叠。"],
       [`「${P.status}」填 启用 或 停用，留空 = 启用。`],
       ...(category === "charter"
-        ? [[`包车：每一行要填「${P.packageHours}」「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」。`]]
+        ? [
+            [`包车：每一行要填「${P.packageHours}」「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」。`],
+            [`区域加价：「${P.area}」填加价区域（下面列出的），填「${P.packageHours}」「${P.pickupSurcharge}」「${P.dropoffSurcharge}」（可以填 0），「${P.packageKm}」「${P.packagePrice}」「${P.overtime}」「${P.overKm}」留空。上车点、下车点在这个区域时分别加这么多。`],
+            [`旧模版没有「${P.pickupSurcharge}」「${P.dropoffSurcharge}」两列也能导入（只导入套餐价）。`],
+          ]
         : [
             [`「${P.model}」填 ${pricingModelsFor(category).map((model) => PRICING_MODEL_NAMES[model]).join(" 或 ")}。`],
             [`${PRICING_MODEL_NAMES.fixed}：只填「${P.basePrice}」。${PRICING_MODEL_NAMES.mileage_time}：填「${P.startPrice}」「${P.startKm}」「${P.startMinutes}」「${P.perKm}」「${P.perMinute}」，「${P.minPrice}」可以不填。用不到的列留空。`],
@@ -346,6 +366,9 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
       [],
       ["可以填的区域"],
       ...context.areaIds.map((id): XlsxWriteCell[] => [displayName(names.areas.get(id) ?? {})]),
+      ...(category === "charter"
+        ? [[] as XlsxWriteCell[], ["可以填的加价区域（区域加价用）"], ...surchargeAreaChoices(context).map((id): XlsxWriteCell[] => [displayName(names.areas.get(id) ?? {})])]
+        : []),
       [],
       ["可以填的车型组（编码）", "名称"],
       ...context.vehicleGroupIds.map((id): XlsxWriteCell[] => [names.groups.get(id)?.code ?? "", displayName(names.groups.get(id)?.name ?? {})]),
@@ -358,6 +381,11 @@ export function exportPriceRules(ctx: AppContext, tenantId: string, productId: s
       ]),
     };
   });
+}
+
+/** 包车区域加价可以选的区域：本租户启用中的、业务类型是包车或通用的、不是商品本身的区域（ADR 0073）。 */
+function surchargeAreaChoices(context: PricingContext): string[] {
+  return [...context.tenantAreas].flatMap(([id, area]) => (area.status === "active" && areaUsableByCategory("charter", area.bizType) && !context.areaIds.includes(id) ? [id] : []));
 }
 
 export type ImportRowAction = "create" | "update" | "unchanged" | "error" | "conflict";
@@ -373,8 +401,10 @@ export interface PriceComboText {
 /** 这一行读到的内容（确认前让人核对）：读不出来的项是 null。 */
 export interface PriceRowContent extends PriceComboText {
   pricingModel: PricingModel | null;
-  /** 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价 */
+  /** 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价；区域加价是 null（见 `surcharge`） */
   mainPriceMinor: number | null;
+  /** 包车区域加价的行：上车加价、下车加价（最小货币单位，读不出来的是 null）；别的行是 null */
+  surcharge: { pickupMinor: number | null; dropoffMinor: number | null } | null;
   validFrom: string | null;
   validTo: string | null;
   status: PriceRuleStatus;
@@ -427,7 +457,7 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
   const { category } = context.product;
   const currency = context.currency ?? "JPY";
   const columns = priceColumns(category);
-  const sheet = new Sheet(sheetRows(bytes, PRICE_SHEET), columns.filter((column) => column !== P.id && column !== P.validTo && column !== P.status && column !== P.minPrice));
+  const sheet = new Sheet(sheetRows(bytes, PRICE_SHEET), columns.filter((column) => !OPTIONAL_HEADER_COLUMNS.includes(column)));
   const dataRows = sheet.dataRows();
   if (dataRows.length > IMPORT_LIMITS.maxPriceRows) throw fileInvalid("TOO_MANY_ROWS", `一次最多导入 ${IMPORT_LIMITS.maxPriceRows} 行，这个文件有 ${dataRows.length} 行。请分几次导入`, { max: IMPORT_LIMITS.maxPriceRows, rows: dataRows.length });
 
@@ -447,7 +477,9 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
   for (const index of dataRows) {
     const issues: CellIssue[] = [];
     const read = rowReader(sheet, index, issues);
-    const content: PriceRowContent = { area: null, vehicleGroup: null, direction: null, packageHours: null, pricingModel: null, mainPriceMinor: null, validFrom: null, validTo: null, status: "enabled" };
+    const content: PriceRowContent = { area: null, vehicleGroup: null, direction: null, packageHours: null, pricingModel: null, mainPriceMinor: null, surcharge: null, validFrom: null, validTo: null, status: "enabled" };
+    // 包车：填了「上车加价」或「下车加价」的行是区域加价（区域可以是本租户的任何区域）
+    const surchargeRow = category === "charter" && SURCHARGE_COLUMNS.some((column) => sheet.has(column) && read.text(column) !== null);
     const result: PriceImportRow = { row: index + 1, action: "error", priceRuleId: null, content, issues, conflictsWith: [] };
     rows.push(result);
 
@@ -464,9 +496,11 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     const areaText = read.required(P.area);
     let areaId: string | null = null;
     if (areaText !== null) {
-      const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => productAreas.has(id) || id === before?.areaId);
+      const candidates = (areaByName.get(nameKey(areaText)) ?? []).filter((id) => (surchargeRow ? context.tenantAreas.has(id) : productAreas.has(id)) || id === before?.areaId);
       if (candidates.length === 1) areaId = candidates[0] as string;
-      else read.problem(P.area, candidates.length === 0 ? "AREA_NOT_IN_PRODUCT" : "AMBIGUOUS", candidates.length === 0 ? "这个商品没有选叫这个名字的区域（见「填写说明」里列出的）" : "有不止一个区域叫这个名字，请先在区域页面把名字改得不一样");
+      else if (candidates.length > 1) read.problem(P.area, "AMBIGUOUS", "有不止一个区域叫这个名字，请先在区域页面把名字改得不一样");
+      else if (surchargeRow) read.problem(P.area, "UNKNOWN_AREA", "没有叫这个名字的区域（加价区域见「填写说明」里列出的）");
+      else read.problem(P.area, "AREA_NOT_IN_PRODUCT", "这个商品没有选叫这个名字的区域（见「填写说明」里列出的）");
     }
     const groupText = read.required(P.group);
     let groupId: string | null = null;
@@ -506,7 +540,13 @@ function readPriceSheet(bytes: Uint8Array, context: PricingContext, names: Price
     content.area = areaId === null ? areaText : displayName(names.areas.get(areaId) ?? {});
     content.vehicleGroup = groupId === null ? groupText : (names.groups.get(groupId)?.code ?? groupText);
     content.direction = direction;
-    if (category === "charter") {
+    if (surchargeRow) {
+      packageHours = read.integer(P.packageHours, true);
+      for (const column of PACKAGE_COLUMNS) if (read.text(column) !== null) read.problem(column, "NOT_APPLICABLE", `区域加价的行不填这一列，请留空（套餐价另起一行）`);
+      const [pickupSurcharge, dropoffSurcharge] = [amount(P.pickupSurcharge), amount(P.dropoffSurcharge)];
+      Object.assign(content, { packageHours, pricingModel: "charter_area_surcharge", surcharge: { pickupMinor: pickupSurcharge, dropoffMinor: dropoffSurcharge } });
+      if (pickupSurcharge !== null && dropoffSurcharge !== null) pricing = { model: "charter_area_surcharge", pickupSurchargeMinor: pickupSurcharge, dropoffSurchargeMinor: dropoffSurcharge };
+    } else if (category === "charter") {
       packageHours = read.integer(P.packageHours, true);
       const packageKm = read.integer(P.packageKm, true);
       const [packagePrice, overtime, overKm] = [amount(P.packagePrice), amount(P.overtime), amount(P.overKm)];

@@ -84,7 +84,7 @@ const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; qua
 
 /**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
- * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+ * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`（下车地点必填，M8-15，ADR 0073）。
  * 该给的没给是 `REQUIRED`，不该给的给了是 `NOT_APPLICABLE`（和 `/sales/v1` 同一种说法），见 `siteTripOf`。
  */
 const quoteSchema = z
@@ -110,7 +110,7 @@ type TripField = "airport_id" | "direction" | "address" | "pickup" | "dropoff" |
 const TRIP_FIELDS: Readonly<Record<QuoteBody["category"], readonly TripField[]>> = {
   airport_transfer: ["airport_id", "direction", "address"],
   point_to_point: ["pickup", "dropoff"],
-  charter: ["pickup", "package_hours"],
+  charter: ["pickup", "dropoff", "package_hours"],
 };
 const TRIP_FIELD_NAMES: Readonly<Record<TripField, string>> = { airport_id: "机场", direction: "接机还是送机", address: "地址那一端的坐标", pickup: "上车点的坐标", dropoff: "下车点的坐标", package_hours: "包车套餐时长" };
 const CATEGORY_NAMES: Readonly<Record<QuoteBody["category"], string>> = { airport_transfer: "接送机", point_to_point: "点对点", charter: "包车" };
@@ -132,7 +132,7 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
     case "point_to_point":
       return { category: "point_to_point", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number } };
     case "charter":
-      return { category: "charter", pickup: pickup as { lng: number; lat: number }, packageHours: packageHours as number };
+      return { category: "charter", pickup: pickup as { lng: number; lat: number }, dropoff: dropoff as { lng: number; lat: number }, packageHours: packageHours as number };
   }
 }
 
@@ -228,6 +228,8 @@ function quoteJson(quote: SiteQuote): Json {
     urgent: quote.urgent,
     vehicle_group: { id: group.id, code: group.code, name: group.name, grade: group.grade, seats: group.seats, sample_models: group.sampleModels, combos: group.combos },
     package: quote.packageHours === null ? null : { hours: quote.packageHours, km: quote.packageKm },
+    // 包车：这个价里含区域加价（上车或下车不在商品本身的区域里，ADR 0073）；只说明「含区域加价」，不单列金额
+    includes_area_surcharge: quote.includesAreaSurcharge,
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },

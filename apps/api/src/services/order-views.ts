@@ -4,7 +4,7 @@
  * 规则 4：这里没有渠道、对外价、加价比例、汇率——`Order` 里本来就没有这些（在平台表 order_sales），这里也只逐个字段列出订单表里的内容。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口和推送里。
  */
-import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew, vehicleLabelMailVariables } from "@nozomi/domain";
+import { type LandingResult, type LocalizedText, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew, vehicleLabelMailVariables } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import type { Order } from "../repos/orders.ts";
@@ -74,7 +74,36 @@ export function settlementJson(order: Order): Json {
     night: money(s.nightMinor),
     addons: money(s.addonsMinor),
     driver_language: money(s.driverLanguageMinor),
+    area_surcharge: settlementAreaSurchargeJson(order),
   };
+}
+
+/**
+ * 包车的区域加价（结算价，M8-15，ADR 0073）：已含在 `base` 里；`package` 是其中的基础定价。
+ * 一端的 `area_id` 为 null = 在商品本身的区域里（加 0）。M8-15 之前的订单、没给下车点的包车、别的品类都是 null。
+ */
+export function settlementAreaSurchargeJson(order: Order): Json | null {
+  return areaSurchargeMoneyJson(order.settlement, order.settlementCurrency);
+}
+
+/** 同上，给任意一份结算价明细用（救援的候选报价和订单的 `settlement` 同一个格式）。 */
+export function areaSurchargeMoneyJson(settlement: Pick<Order["settlement"], "areaSurcharge">, currency: Order["settlementCurrency"]): Json | null {
+  const surcharge = settlement.areaSurcharge ?? null;
+  if (surcharge === null) return null;
+  const money = (minor: number): Json => salesMoney(minor, currency);
+  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, amount: money(entry.amountMinor) });
+  return { package: money(surcharge.packageMinor), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff) };
+}
+
+/**
+ * 订单详情里的包车区域加价（M8-15，ADR 0073 第四部分）：上车、下车各在哪个加价区域（现在的名称）、加了多少结算价。
+ * 供应商和运营都用；**只有结算价**（规则 4）——运营另外在 `platformAreaSurchargeJson` 里加对外价。没有区域加价的订单为 null。
+ */
+export function areaSurchargeDetailJson(order: Order, names: ReadonlyMap<string, LocalizedText>): Json | null {
+  const surcharge = order.settlement.areaSurcharge ?? null;
+  if (surcharge === null) return null;
+  const end = (entry: typeof surcharge.pickup): Json => ({ area_id: entry.areaId, area_name: entry.areaId === null ? null : (names.get(entry.areaId) ?? null), settlement: salesMoney(entry.amountMinor, order.settlementCurrency) });
+  return { package_settlement: salesMoney(surcharge.packageMinor, order.settlementCurrency), pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff) };
 }
 
 /**

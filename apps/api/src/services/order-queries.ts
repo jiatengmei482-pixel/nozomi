@@ -7,7 +7,7 @@
  *   完整的订单中心（筛选、异常队列、人工介入）在 M4-02。
  */
 import { type PassengerEmailChange, findPendingPassengerEmailChange } from "../repos/passenger-email-changes.ts";
-import { type OrderStatus, type PlatformDataScope, UNRESTRICTED_SCOPE, nextFulfilmentEvent, proxyEventNeedsReview, scopeAllowsChannel, scopeAllowsCity, scopeIsRestricted } from "@nozomi/domain";
+import { type LocalizedText, type OrderStatus, type PlatformDataScope, UNRESTRICTED_SCOPE, nextFulfilmentEvent, proxyEventNeedsReview, scopeAllowsChannel, scopeAllowsCity, scopeIsRestricted } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
 import {
@@ -27,6 +27,7 @@ import {
 } from "../repos/dispatch.ts";
 import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
 import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "../repos/master-data.ts";
+import { findAreasForProduct } from "../repos/products.ts";
 import { type WebhookDelivery, listDeliveries } from "../repos/webhooks.ts";
 import type { DispatchFacts } from "./order-views.ts";
 import type { TimeCursor } from "../pagination.ts";
@@ -137,6 +138,16 @@ export interface TenantOrderDetail {
   rescue: TenantRescueView | null;
   /** M7-02：车型组当前的名称、代表车型、组合（ADR 0068，不做快照） */
   vehicleGroup: OrderVehicleGroupRef | null;
+  /** M8-15：包车区域加价用到的加价区域现在的名称（ADR 0073）；区域被删了的不在里面 */
+  surchargeAreaNames: Map<string, LocalizedText>;
+}
+
+/** 这一单的包车区域加价用到的加价区域现在的名称（只查这个供应商自己的区域）。 */
+async function surchargeAreaNamesOf(db: Db, order: Order): Promise<Map<string, LocalizedText>> {
+  const surcharge = order.settlement.areaSurcharge ?? null;
+  const ids = surcharge === null ? [] : [...new Set([surcharge.pickup.areaId, surcharge.dropoff.areaId].filter((id): id is string => id !== null))];
+  const found = await findAreasForProduct(db, order.tenantId, ids);
+  return new Map([...found].map(([id, area]) => [id, area.name]));
 }
 
 export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
@@ -155,6 +166,7 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
         changes: await listOrderChanges(db, tenantId, orderId),
         extraCharges: await listExtraCharges(db, tenantId, orderId),
         vehicleGroup: await findOrderVehicleGroup(db, order.vehicleGroupId),
+        surchargeAreaNames: await surchargeAreaNamesOf(db, order),
       };
     },
     { snapshot: true },
@@ -252,6 +264,8 @@ export interface PlatformOrderDetail {
   pendingEmailReview: PassengerEmailChange | null;
   /** M7-02：车型组当前的名称、代表车型、组合（ADR 0068，不做快照） */
   vehicleGroup: OrderVehicleGroupRef | null;
+  /** M8-15：包车区域加价用到的加价区域现在的名称（ADR 0073） */
+  surchargeAreaNames: Map<string, LocalizedText>;
 }
 
 /** 只看下一步：别人已经把这一步回传了的旧复核（批准只会得到「已过时」）不算在等。 */
@@ -295,6 +309,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         pendingProxyReview: await pendingProxyReviewOf(db, order as Order),
         pendingEmailReview: await findPendingPassengerEmailChange(db, orderId),
         vehicleGroup: await findOrderVehicleGroup(db, order.vehicleGroupId),
+        surchargeAreaNames: await surchargeAreaNamesOf(db, order as Order),
       };
     },
     { snapshot: true },

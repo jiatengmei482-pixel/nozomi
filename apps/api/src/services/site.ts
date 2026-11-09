@@ -417,8 +417,8 @@ export type SiteTrip =
   | { category: "airport_transfer"; airportId: string; direction: "pickup" | "dropoff"; address: Point }
   /** 点对点：上车点、下车点的坐标 */
   | { category: "point_to_point"; pickup: Point; dropoff: Point }
-  /** 包车：上车点的坐标、套餐时长（小时） */
-  | { category: "charter"; pickup: Point; packageHours: number };
+  /** 包车：上车点、下车点的坐标（下车点必填，ADR 0073）、套餐时长（小时） */
+  | { category: "charter"; pickup: Point; dropoff: Point; packageHours: number };
 
 export interface SiteQuoteInput {
   cityId: string;
@@ -471,7 +471,7 @@ function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId:
     case "point_to_point":
       return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: null, request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff } };
     case "charter":
-      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: null, packageHours: trip.packageHours, request: { ...common, pickup: trip.pickup, package_hours: trip.packageHours } };
+      return { category: trip.category, placeId: null, direction: null, pickup: trip.pickup, dropoff: trip.dropoff, packageHours: trip.packageHours, request: { ...common, pickup: trip.pickup, dropoff: trip.dropoff, package_hours: trip.packageHours } };
   }
 }
 

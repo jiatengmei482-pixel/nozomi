@@ -35,6 +35,7 @@ import {
   adjustStackProblems,
   holidayLookup,
   sellablePriceRules,
+  isSurchargeRule,
   areaUsableByCategory,
   canPublish,
   contentIssues,
@@ -751,7 +752,8 @@ async function runPublishCheck(db: Db, tenantId: string, product: Product, now: 
   const view = await detail(db, tenantId, product);
   // 价格过没过期按商品所在城市当地的今天算
   const today = instantToLocal(now, view.city?.timezone ?? "UTC").date;
-  const priceRules = await listPriceRules(db, tenantId, product.id);
+  // 区域加价（ADR 0073）不算在上架检查的价格统计里：它的区域本来就不在商品的区域列表里，不是「已不在选择范围内的价格」
+  const priceRules = (await listPriceRules(db, tenantId, product.id)).filter((rule) => !isSurchargeRule(rule));
   const adjustRules = await listAdjustRules(db, tenantId, product.id);
   // 「可以卖的价格」：启用、未过期，而且区域和车型组都是商品现在选着的（price-overview、修改保护用的是同一个判断）
   const selected = { areaIds: (view.areas ?? []).map((area) => area.areaId), vehicleGroupIds: (view.vehicleGroups ?? []).map((group) => group.vehicleGroupId) };

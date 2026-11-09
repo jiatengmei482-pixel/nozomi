@@ -105,7 +105,8 @@ function tokyoLocal(days: number, time = "10:00"): string {
 }
 
 const p2pBody = (extra: Record<string, unknown> = {}) => ({ category: "point_to_point", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: tokyoLocal(10), passengers: 2, luggage: 1, ...extra });
-const charterBody = (extra: Record<string, unknown> = {}) => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, package_hours: 8, service_local: tokyoLocal(10), passengers: 3, luggage: 2, ...extra });
+// 包车下车地点必填（M8-15，ADR 0073）
+const charterBody = (extra: Record<string, unknown> = {}) => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, package_hours: 8, service_local: tokyoLocal(10), passengers: 3, luggage: 2, ...extra });
 
 async function quoteRes(body: Record<string, unknown>, on: SiteApi = site) {
   api.clock.advance(1_000);
@@ -212,7 +213,7 @@ test("坐标：±90 / ±180 是合法的（服务区外，报不出价），差�
   }
 });
 
-test("地址长度：300 个字（含 emoji，按字符算）可以下单，301 个字 TOO_LONG，只有空白是 REQUIRED；包车不收下车地址", async () => {
+test("地址长度：300 个字（含 emoji，按字符算）可以下单，301 个字 TOO_LONG，只有空白是 REQUIRED；包车上车、下车地址都要（M8-15）", async () => {
   const quoted = await quote(p2pBody());
   const base = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true };
   const tooLong = await order({ ...base, pickup_address: "东".repeat(301), dropoff_address: "新宿站" });
@@ -226,12 +227,12 @@ test("地址长度：300 个字（含 emoji，按字符算）可以下单，301 
   const charter = await quote(charterBody());
   const charterBase = { quote_id: charter.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true };
   const both = await order({ ...charterBase, pickup_address: "东京站", dropoff_address: "新宿站", flight_no: "NH211" });
-  assert.deepEqual([both.status, issuesOf(both).sort()], [400, [["/dropoff_address", "NOT_APPLICABLE"], ["/flight_no", "NOT_APPLICABLE"]]]);
+  assert.deepEqual([both.status, issuesOf(both).sort()], [400, [["/flight_no", "NOT_APPLICABLE"]]]);
   const noPickup = await order(charterBase);
-  assert.deepEqual([noPickup.status, issuesOf(noPickup)], [400, [["/pickup_address", "REQUIRED"]]]);
+  assert.deepEqual([noPickup.status, issuesOf(noPickup)], [400, [["/pickup_address", "REQUIRED"], ["/dropoff_address", "REQUIRED"]]]);
 });
 
-test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填航班号）；包车改下车地址 NOT_APPLICABLE、上车地址照常能改", async () => {
+test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填航班号）；包车上车、下车地址都能改（M8-15 起包车单有下车点）", async () => {
   const p2p = await placed(p2pBody(), { pickup_address: "东京站八重洲口", dropoff_address: "新宿站南口" });
   await payFor(p2p.order.id);
   const token = p2p.link.token as string;
@@ -248,20 +249,19 @@ test("改单：点对点两端地址都能改（301 个字 TOO_LONG、不能填�
   const changedOrder = await approved(p2p.order.id, changed.body.change.id, token);
   assert.deepEqual([changedOrder.pickup.address, changedOrder.dropoff.address, changedOrder.pickup.lng, changedOrder.dropoff.lat], ["东京站丸之内北口", "涩谷站八公口", PICKUP.lng, DROPOFF.lat]);
 
-  const charter = await placed(charterBody(), { pickup_address: "东京站大饭店" });
+  const charter = await placed(charterBody(), { pickup_address: "东京站大饭店", dropoff_address: "新宿站南口" });
   await payFor(charter.order.id);
   const charterToken = charter.link.token as string;
   const view = await site.call("GET", "/site/v1/order", { token: charterToken, ip: nextIp() });
-  const dropoff = await site.call("PATCH", "/site/v1/order", { token: charterToken, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { dropoff_address: "新宿站" } });
-  assert.deepEqual([dropoff.status, issuesOf(dropoff)], [400, [["/dropoff_address", "NOT_APPLICABLE"]]]);
-  const pickup = await site.call("PATCH", "/site/v1/order", { token: charterToken, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { pickup_address: "帝国饭店" } });
+  // M8-15 起包车单有下车点：下车地址和点对点一样能改文字（坐标不变）
+  const pickup = await site.call("PATCH", "/site/v1/order", { token: charterToken, ip: nextIp(), headers: { "if-match": `"${view.body.order.version}"` }, body: { pickup_address: "帝国饭店", dropoff_address: "新宿站" } });
   assert.equal(pickup.status, 200, pickup.text);
   const pickupOrder = await approved(charter.order.id, pickup.body.change.id, charterToken);
-  assert.deepEqual([pickupOrder.pickup.address, pickupOrder.dropoff, pickupOrder.package_hours], ["帝国饭店", null, 8]);
+  assert.deepEqual([pickupOrder.pickup.address, pickupOrder.dropoff, pickupOrder.package_hours], ["帝国饭店", { ...DROPOFF, address: "新宿站" }, 8]);
 });
 
 test("包车改期：改到当地 23:30（跨午夜跑完）价不变、套餐不变；改到 4 小时套餐到期（12-31）之后 409 CHANGE_NOT_SERVICEABLE，订单不变", async () => {
-  const eight = await placed(charterBody({ service_local: tokyoLocal(12, "09:00") }), { pickup_address: "东京站" });
+  const eight = await placed(charterBody({ service_local: tokyoLocal(12, "09:00") }), { pickup_address: "东京站", dropoff_address: "新宿站" });
   await payFor(eight.order.id);
   const token = eight.link.token as string;
   const before = (await site.call("GET", "/site/v1/order", { token, ip: nextIp() })).body.order;
@@ -274,7 +274,7 @@ test("包车改期：改到当地 23:30（跨午夜跑完）价不变、套餐�
     [`${date}T23:30`, date, new Date(`${date}T14:30:00Z`).toISOString(), 8, before.price.total.amount],
   );
 
-  const four = await placed(charterBody({ package_hours: 4, service_local: "2026-12-31T23:00" }), { pickup_address: "东京站" });
+  const four = await placed(charterBody({ package_hours: 4, service_local: "2026-12-31T23:00" }), { pickup_address: "东京站", dropoff_address: "新宿站" });
   assert.equal(four.order.price.total.amount, "44000");
   await payFor(four.order.id);
   const fourToken = four.link.token as string;
@@ -288,7 +288,7 @@ test("包车改期：改到当地 23:30（跨午夜跑完）价不变、套餐�
 test("取消：点对点、包车各按自己品类的取消阶梯；试算与实际一致（扣的 + 退的 = 付的）；取消后再试算不能取消", async () => {
   for (const [body, addresses, category] of [
     [p2pBody({ service_local: tokyoLocal(9) }), { pickup_address: "东京站", dropoff_address: "新宿站" }, "point_to_point"],
-    [charterBody({ service_local: tokyoLocal(9) }), { pickup_address: "东京站" }, "charter"],
+    [charterBody({ service_local: tokyoLocal(9) }), { pickup_address: "东京站", dropoff_address: "新宿站" }, "charter"],
   ] as const) {
     const done = await placed(body, addresses);
     await payFor(done.order.id);
@@ -306,7 +306,7 @@ test("取消：点对点、包车各按自己品类的取消阶梯；试算与�
 
 test("对外价与结算价隔离：官网的包车报价、下单、订单页、取消试算里没有超时 / 超公里单价、套餐结算价、供应商、加价比例；中标的乙看不到对外价，甲看不到这张单", async () => {
   const quoted = await quote(charterBody());
-  const placedRes = await order({ quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站" });
+  const placedRes = await order({ quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站", dropoff_address: "新宿站" });
   assert.equal(placedRes.status, 201, placedRes.text);
   const token = placedRes.body.link.token as string;
   const view = await site.call("GET", "/site/v1/order", { token, ip: nextIp() });
@@ -405,9 +405,9 @@ test("时区与跨午夜：洛杉矶的点对点价格 10-20 到期——当地 
   const nextDay = await quote({ ...base, service_local: "2026-10-21T00:00" });
   assert.equal(nextDay.quotes.length, 0, "当地 10-21 00:00 已过有效期");
 
-  const charter = await quote({ category: "charter", city_id: la, pickup: base.pickup, package_hours: 8, service_local: "2026-10-30T20:00", passengers: 2, luggage: 0 });
+  const charter = await quote({ category: "charter", city_id: la, pickup: base.pickup, dropoff: base.pickup, package_hours: 8, service_local: "2026-10-30T20:00", passengers: 2, luggage: 0 });
   assert.deepEqual(charter.quotes.map((entry: any) => [entry.service_date, entry.package]), [["2026-10-30", { hours: 8, km: 150 }]]);
-  const res = await order({ quote_id: charter.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "Union Station" });
+  const res = await order({ quote_id: charter.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "Union Station", dropoff_address: "Union Station" });
   assert.equal(res.status, 201, res.text);
   assert.deepEqual(
     [res.body.order.service_local, res.body.order.service_date, res.body.order.service_time, res.body.order.timezone, res.body.order.package_hours],
@@ -419,7 +419,7 @@ test("缺陷：城市当地不存在的时间（洛杉矶夏令时跳过的 2027
   const la = await newCity("America/Los_Angeles", "US", { lng: -118.25, lat: 34.05 });
   const polygon = [[[-119.0, 33.5], [-117.5, 33.5], [-117.5, 34.5], [-119.0, 34.5], [-119.0, 33.5]]];
   await product(m.a, la, polygon, "charter", [charterPrice(8, 70_000, 150)]);
-  const body = { category: "charter", city_id: la, pickup: { lng: -118.25, lat: 34.05 }, package_hours: 8, passengers: 2, luggage: 0 };
+  const body = { category: "charter", city_id: la, pickup: { lng: -118.25, lat: 34.05 }, dropoff: { lng: -118.25, lat: 34.05 }, package_hours: 8, passengers: 2, luggage: 0 };
   const exists = await quote({ ...body, service_local: "2027-03-14T03:30" });
   assert.equal(exists.quotes.length, 1, "拨快之后的 03:30 是存在的时间，报得出价");
   const gap = await quoteRes({ ...body, service_local: "2027-03-14T02:30" });
@@ -482,13 +482,13 @@ test("询价日志：点对点记上下车坐标、包车记上车坐标和时�
   await quote(charterBody({ passengers: 6, package_hours: 4 }));
   const charter = (await api.db.owner.query("select category, request from quote_logs where request->>'source' = 'site' and request->>'category' = 'charter' and (request->>'passengers')::int = 6 order by created_at desc limit 1")).rows[0];
   assert.ok(charter, "记了包车的询价");
-  assert.deepEqual([charter.category, charter.request.pickup, charter.request.package_hours, "dropoff" in charter.request, "direction" in charter.request], ["charter", PICKUP, 4, false, false]);
+  assert.deepEqual([charter.category, charter.request.pickup, charter.request.dropoff, charter.request.package_hours, "direction" in charter.request], ["charter", PICKUP, DROPOFF, 4, false], "M8-15 起包车带下车点");
 });
 
 test("包车下单幂等：同一个键并发提交 3 次只成一单；同一个键换了上车地址被拒", async () => {
   const quoted = await quote(charterBody({ service_local: tokyoLocal(11) }));
   const key = randomUUID();
-  const body = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站" };
+  const body = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站", dropoff_address: "新宿站" };
   const results = await Promise.all([0, 1, 2].map(() => site.call("POST", "/site/v1/orders", { headers: { "idempotency-key": key }, body, ip: nextIp() })));
   for (const res of results) assert.ok(res.status === 200 || res.status === 201, res.text);
   assert.equal(new Set(results.map((res) => res.body.order.id)).size, 1);

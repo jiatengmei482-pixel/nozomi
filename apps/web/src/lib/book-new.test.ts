@@ -10,13 +10,17 @@ test("链接参数：编码、「纬度,经度」加名称、日期、时间、�
     time: "14:30",
     passengers: 2,
     luggage: 3,
+    mode: null,
   });
+  // 旧 /book 的包车跳过来（M8-15）
+  assert.equal(parseBookingLink("?mode=charter").mode, "charter");
 });
 
 test("链接参数：不合法的那一项为 null（不预填、不报错），其余照常", () => {
   const link = parseBookingLink("?from=91,10&to=%3Cscript%3E&date=2030-02-30&time=25:00&pax=0&bags=61");
-  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null });
-  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null });
+  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
+  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null, mode: null });
+  assert.equal(parseBookingLink("?mode=transfer").mode, null);
   assert.deepEqual(parseBookingLink("?from=35.1,139.2&from_name=%20%20&pax=60&bags=0").from, { kind: "point", lat: 35.1, lng: 139.2, name: null });
   assert.equal(parseBookingLink("?pax=60&bags=0").passengers, 60);
   assert.equal(parseBookingLink("?pax=2.5").passengers, null);

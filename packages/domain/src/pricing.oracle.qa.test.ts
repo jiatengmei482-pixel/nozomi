@@ -76,6 +76,7 @@ function qRound(a: Q, unit: bigint): bigint {
 
 function oracleBase(pricing: Pricing, meters: number, minutes: number, packageHours: number | null): Q {
   if (pricing.model === "fixed") return q(pricing.basePriceMinor);
+  if (pricing.model === "charter_area_surcharge") return q(0);
   if (pricing.model === "mileage_time") {
     const overMeters = Math.max(0, meters - pricing.startMeters);
     const overMinutes = Math.max(0, minutes - pricing.startMinutes);

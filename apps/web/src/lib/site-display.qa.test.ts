@@ -54,6 +54,7 @@ const quoteOf = (id: string, amount: string): SiteQuote => ({
   service_date: "2026-11-20",
   urgent: false,
   package: null,
+  includes_area_surcharge: false,
   vehicle_group: { id, code: `VG-${id}`, name: { zh: id }, grade: "business", seats: 7, sample_models: [], combos: [] },
   price: { total: { amount, currency: "KRW" }, fx: null },
   free_wait_minutes: 60,

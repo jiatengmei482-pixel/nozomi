@@ -87,3 +87,4 @@
 | `0231_view_link_requests.sql` | 官网订单链接发到下单邮箱（M4-30，ADR 0061）：运营核实后重发的记录 `view_link_requests`（平台表）；发到新邮箱的等审核期间加密存着，有结论后清空。不含任何数据 |
 | `0235_passenger_email_changes.sql` | 运营代改乘客邮箱要双人复核（M4-31，ADR 0065）：代改邮箱的记录 `passenger_email_changes`（平台表）；新邮箱和发起时的邮箱等审核期间加密存着，有结论后清空。编号空出 0232–0234 给并行的任务。不含任何数据 |
 | `0240_tenant_profile_changes.sql` | 供应商名称和企业信息的维护（M4-34，ADR 0071）：平台角色对 `tenant_profiles` 多了 `insert`、`update`（平台改企业信息）；新表 `tenant_profile_changes`（供应商改对外显示名称、法定名称、登记号的申请，租户表、行级安全，供应商只读；内容不可变、状态机、已生效必须有已批准的复核，触发器兜底）。编号空出 0236–0239 给并行的任务。不含任何数据 |
+| `0260_charter_area_surcharge.sql` | 包车区域加价（M8-15，ADR 0073 第三部分）：价格规则多一种价格方式 `charter_area_surcharge`（上车加价、下车加价，按套餐时长分，`package_hours` 必填），只改 `price_rules` 的两条检查约束。0250 由 M8-10 占用。不含任何数据 |

@@ -43,6 +43,7 @@ import {
   passengerEmailNeedsReview,
   priceDifference,
   quoteProduct,
+  isSurchargeRule,
   sellPrice,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
@@ -255,7 +256,9 @@ async function reprice(db: Db, order: Order, sale: OrderSale, next: PlannedChang
   const sameDay = next.serviceDate === order.serviceDate;
   const ownDay = sameDay && inventoryDay !== null && order.inventoryHeld ? { ...inventoryDay, sold: Math.max(0, inventoryDay.sold - 1) } : inventoryDay;
   const urgentUsed = Math.max(0, (facts.urgentUsed.get(order.productId) ?? 0) - (sameDay && order.urgent ? 1 : 0));
-  const result = quoteProduct(candidate.product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed });
+  // M8-15 之前下的包车单没有下车点（ADR 0073「已下的订单不改」）：改期照以前的算法，只看上车点、不算区域加价——商品后来设了区域加价也一样
+  const product = request.category === "charter" && request.dropoff === null ? { ...candidate.product, priceRules: candidate.product.priceRules.filter((rule) => !isSurchargeRule(rule)) } : candidate.product;
+  const result = quoteProduct(product, request, { now, holidays: facts.holidays, route: order.settlement.usage, inventoryDay: ownDay, urgentUsed });
   if (!result.ok) throw notServiceable(result.reason);
   const offer = result.offers.find((entry) => entry.vehicleGroupId === order.vehicleGroupId && entry.packageHours === order.packageHours);
   if (offer === undefined) throw notServiceable(result.refused.find((entry) => entry.vehicleGroupId === order.vehicleGroupId)?.reason ?? "NOT_AVAILABLE");

@@ -41,6 +41,7 @@ function quoteOf(index: number, changes: { passengers?: number; luggage?: number
     expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
     service_date: "2030-11-20",
     urgent: false,
+    includes_area_surcharge: false,
     vehicle_group: {
       id: `33333333-3333-4333-8333-3333333333${String(index).padStart(2, "0")}`,
       code: `VG-T${index}`,

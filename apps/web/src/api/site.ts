@@ -128,6 +128,8 @@ export interface SiteQuote {
   vehicle_group: SiteVehicleGroup;
   /** 包车：套餐时长和含的公里数；其他品类 null */
   package: { hours: number; km: number | null } | null;
+  /** 包车：这个价里含区域加价（M8-15，ADR 0073）；只说「含区域加价」，不单列金额 */
+  includes_area_surcharge?: boolean;
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   free_wait_minutes: number | null;
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
@@ -138,6 +140,7 @@ export interface SiteQuote {
 export type SiteUnavailableReason =
   | "NO_PRODUCT"
   | "OUT_OF_SERVICE_AREA"
+  | "DROPOFF_REQUIRED"
   | "LEAD_TIME_TOO_SHORT"
   | "SOLD_OUT"
   | "OUTSIDE_SERVICE_TIME"
@@ -363,7 +366,7 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "includes_area_surcharge", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
   SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["order", "timeline", "names"],

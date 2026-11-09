@@ -180,7 +180,7 @@ export async function listBrandSellablePrices(db: Db, tenantId: string, brandId:
        from price_rules r
        join products p on p.tenant_id = r.tenant_id and p.id = r.product_id
        join cities c on c.id = p.city_id
-      where r.tenant_id = $1 and p.brand_id = $2 and r.status = 'enabled'
+      where r.tenant_id = $1 and p.brand_id = $2 and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge'
         and (r.valid_to is null or r.valid_to >= ($3::timestamptz at time zone c.timezone)::date)
         and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
         and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id)
@@ -226,13 +226,13 @@ export interface ProductPriceOverview {
 }
 
 /**
- * 「可以卖的价格」有几条（SQL 片段）：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的。
+ * 「可以卖的价格」有几条（SQL 片段）：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的，不是区域加价（ADR 0073）。
  * 和 domain 的 `sellablePriceRules` 同一个判断；要求查询里商品的别名是 `p`、它的城市是 `c`，`now` 是现在这一刻的参数占位符。
  * 价格概况（租户）和运营后台的商品列表用的都是它。
  */
 export function activePriceRuleCountSql(now: string): string {
   return `(select count(*)::int from price_rules r
-              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled'
+              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge'
                 and (r.valid_to is null or r.valid_to >= (${now}::timestamptz at time zone c.timezone)::date)
                 and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
                 and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id))`;

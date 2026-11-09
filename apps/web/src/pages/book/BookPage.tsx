@@ -1,5 +1,6 @@
 /**
  * 官网首页：询价（M3-05 接送机；M3-10 加上点对点、包车，ADR 0032 及其补充）。
+ * 包车从 M8-15 起跳到新预订页的包车（`/book/new?mode=charter`）：包车要选下车地点（ADR 0073），这个页面不再询包车的价。
  * 客人选城市、服务（这个城市能订的那几种）、各服务自己的行程（接送机：接机 / 送机、机场、地址；点对点：上车点、下车点；包车：上车点、套餐时长）、
  * 城市当地的日期时间、人数、行李，看到各车型组的对外价、免费等待、取消政策摘要（包车还有套餐时长和公里），选一个去下单。
  * 地址可以搜索（后端代调谷歌，M3-12）、从城市的常用地点（机场、车站、地标，主数据）里选、在地图上选点（有底图时），也可以自己写地址和坐标；
@@ -48,6 +49,7 @@ import {
   serviceTimeLabels,
 } from "../../lib/site-display.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
+import { SITE_NEW_CHARTER_URL } from "../../lib/book-new.ts";
 import { AddressFields, type AddressLookup, type PlacesState, type PointDraft, type PointErrors, emptyPoint } from "./AddressFields.tsx";
 import { SiteLayout, siteFailureText, useSiteConfig } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
@@ -275,6 +277,10 @@ export function BookPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SiteQuoteResult | null>(null);
   const [round, setRound] = useState(0);
+  // 包车改到新预订页订（M8-15，ADR 0073：包车要选下车地点，这个页面没有）：选了包车、或城市只有包车时直接跳过去
+  useEffect(() => {
+    if (draft.category === "charter") navigate(SITE_NEW_CHARTER_URL, { replace: true });
+  }, [draft.category, navigate]);
 
   const open = config.kind === "ready" && config.config.open;
   useEffect(() => {

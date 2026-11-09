@@ -5087,6 +5087,9 @@ paths:
         一条价格 = 区域 × 车型组 ×（接送机：方向；包车：套餐时长）× 生效日期 + 计价方式和它的几个数。区域、车型组必须是这个商品现在选的。
         三种计价方式各填各的数（别的留空）：`fixed` 填 `base_price`；`mileage_time` 填 `start_price`、`start_meters`、`start_minutes`、`per_km`、`per_minute`，`min_price` 可不填；
         `charter_package` 填 `package_km`、`package_price`、`overtime_per_hour`、`over_km_per_km`（套餐时长是 `package_hours`）。
+        包车区域加价 `charter_area_surcharge`（M8-15，ADR 0073）填 `pickup_surcharge`、`dropoff_surcharge` 和 `package_hours`；它的 `area_id` 是加价区域：
+        本租户的报价区域就行（不必是商品选的；不能是商品本身的区域 400 `AREA_IS_PRODUCT_AREA`；业务类型要是包车或通用 400 `AREA_NOT_USABLE`；新选的不能是停用的 400 `AREA_DISABLED`）；
+        区域不存在或是别的租户的：404（不区分）。加价区域不加进商品的区域列表。
         写审计日志（`resource` = `price_rule`）。
       security:
         - tenantToken: []
@@ -5113,7 +5116,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5140,6 +5143,7 @@ paths:
         需要操作 `product.manage`。要带 `Idempotency-Key` 和 `If-Match`（商品的版本号）。`create`、`update`、`delete` 合计最多 500 条，**全部成功或全部失败**。
         页面保存「价格规则」一页、一次给一个区域下的多个车型组设价、把价格复制到别的区域，都用它。
         重叠按**保存之后**的样子判断：同一批里删掉旧的、加上新的同一个组合不算冲突。
+        包车「一次给所有车型组和套餐时长填同一个区域加价」也用它：页面展开成多条 `charter_area_surcharge` 一起新增（同一事务，ADR 0073）；区域不存在或是别的租户的整批 404。
         400 时 `path` 指到是哪一条的哪一项（`/create/3/base_price`、`/update/0/id`、`/delete/2`）。写审计日志（每条变了的规则一条，带前后值）。
       security:
         - tenantToken: []
@@ -5166,7 +5170,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5217,7 +5221,7 @@ paths:
           $ref: "#/components/responses/ResourceNotFound"
         "409":
           description: |
-            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）。
+            - `PRICE_RULE_CONFLICT`：同一个「区域 + 车型组 + 方向或套餐时长」的生效日期重叠（两头的日期都算，停用的也算）；基础定价和区域加价各算各的，同一个区域可以同时有套餐价和区域加价。
               `details.conflicts[]`：每一条被拒绝的规则 `{ id 或 ref, valid_from, valid_to, with: [{ id 或 ref, valid_from, valid_to }] }`——已经在库里的用 `id`，这次新增的用请求里的 `ref`
             - `VERSION_CONFLICT`：商品已经被别人改过（`details.current_version` 是现在的版本号）
             - `PUBLISH_CHECK_FAILED`：商品已上架，这样改完就不满足上架条件了（`details.items` 同上架校验）
@@ -5294,6 +5298,7 @@ paths:
         一天按调价规则的时段切成几段（`segments`），每段里结果相同；跨午夜的时段算在开始的那一天头上。
         里程 + 时长的价格按「不超出起步」算（起步价或最低消费）。`delta`、`after`、`base`、`unrounded` 是没取整的精确值（十进制字符串，最小货币单位）。
         最多 62 天。这里没有对外价和加价比例。
+        包车的区域加价（M8-15，ADR 0073）按区域分行：`area_id` 给加价区域时，每天的 `surcharge` 是这个区域这一天用的上车加价、下车加价（这时 `segments` 没有基础价）。
       security:
         - tenantToken: []
       parameters:
@@ -5975,7 +5980,7 @@ paths:
       description: |
         需要操作 `product.read`。`rows=all`（默认）导出现有的全部价格；`rows=none` 只有表头——就是空白模版，不预置任何价格。
         失败时（商品不存在、没有权限）返回统一的 JSON 错误格式，`Content-Type` 是 `application/json`。
-        列按品类不同（接送机有「方向」，包车是套餐的几列）。金额是子品牌币种的**主单位**（日元整数、美元两位小数）。
+        列按品类不同（接送机有「方向」，包车是套餐的几列，M8-15 起另有「上车加价」「下车加价」两列：填了这两列的行是区域加价，「区域」是加价区域）。金额是子品牌币种的**主单位**（日元整数、美元两位小数）。
         第二张表「填写说明」列出这个商品可以填的区域（名称）、车型组（编码）和各列怎么填。以 `= + - @` 开头的文字前面加了单引号，Excel 不会把它当公式。
       security:
         - tenantToken: []
@@ -6004,7 +6009,9 @@ paths:
         （存成数字的单元格先取回用户填的写法：Excel 把 19.99 存成 `19.989999999999998`，读成 19.99；存成文字的按敲的字符）；
         负数、大得存不下的数是 `OUT_OF_RANGE`；逻辑值（TRUE / FALSE）、错误值（#N/A）在数字列里是 `NOT_A_NUMBER` / `NOT_INTEGER`，在日期列里是 `INVALID_DATE`；
         带公式的单元格报 `FORMULA`（不取它的值）；日期可以写 `2026-10-01` / `2026/10/1`，也认 Excel 的日期格（1900 和 1904 两种纪元）。这里不能删除价格。什么都不写。
-        每一行的 `content` 是它读到的内容（区域、车型组、方向 / 套餐、主价格、生效日期），新增的行也有。文件里有叫「价格」的工作表就读它，没有就读第一张。
+        每一行的 `content` 是它读到的内容（区域、车型组、方向 / 套餐、主价格、区域加价、生效日期），新增的行也有。文件里有叫「价格」的工作表就读它，没有就读第一张。
+        包车（M8-15，ADR 0073）：「上车加价」「下车加价」两列可选——旧模版没有这两列照样导入；填了的行是区域加价（区域按本租户全部区域的名称认，不认识报 `UNKNOWN_AREA`；
+        套餐那几列要留空，填了报 `NOT_APPLICABLE`；商品本身的区域报 `AREA_IS_PRODUCT_AREA`）。
       security:
         - tenantToken: []
       parameters:
@@ -7080,6 +7087,7 @@ paths:
         渠道身份只来自访问令牌（请求里不接受 `channel_id`、`tenant_id`）。只比这个渠道授权的租户、城市、品类：城市或品类不在授权范围里 422 `CHANNEL_SCOPE_DENIED`（`details.reason` 是 `CITY_NOT_AUTHORIZED` / `CATEGORY_NOT_AUTHORIZED`）。
         每个车型组（包车按套餐）只返回中标的一个价，每个带 `quote_id`，有效期 30 分钟，下单以它为准。加价按渠道的规则（五级匹配、下限、最低毛利、对外价取整、价格带 δ）。
         **应答里没有中标租户、结算价、加价比例**（付款前不显示中标租户）。没报出价的车型组在 `unavailable` 里，只给面向客人的原因。
+        包车的下车点（`dropoff`）现在可以不填，以后会改为必填（M8-15，ADR 0073；见 `SalesQuoteRequest.dropoff`）。
         每个渠道每秒最多 50 次，超了 429 `RATE_LIMITED` + `Retry-After`。每次询价记一条询价日志（平台内部）。
         金额是 `{ amount, currency }`，`amount` 是主单位的十进制字符串（日元 `"119800"`、人民币 `"1234.56"`）。
       security:
@@ -8800,8 +8808,13 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group, area_surcharge ]
                 properties:
+                  area_surcharge:
+                    description: 包车区域加价（M8-15）：上车、下车所在的加价区域和加价，只有结算价（规则 4）；没有为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderAreaSurcharge"
+                      - type: "null"
                   driver_link_email:
                     $ref: "#/components/schemas/DriverLinkEmail"
                   vehicle_group:
@@ -8976,9 +8989,15 @@ paths:
                   - exceptions
                   - tickets
                   - vehicle_group
+                  - area_surcharge
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  area_surcharge:
+                    description: 包车区域加价（M8-15，ADR 0073）：上车、下车所在的加价区域和加价，结算价和对外价参考都有；没有为 null
+                    oneOf:
+                      - $ref: "#/components/schemas/PlatformOrderAreaSurcharge"
+                      - type: "null"
                   vehicle_group:
                     description: 订单的车型组和车型标识的来源（M7-02，ADR 0068）；车型组当前的值
                     oneOf:
@@ -12018,8 +12037,11 @@ paths:
       summary: 官网询价（接送机、点对点、包车）
       description: |
         服务端以官网渠道的身份走正式询价（ADR 0035；和 `POST /sales/v1/quotes` 同一个流程：比价、加价、`quote_id` 30 分钟有效）。用车时间是城市当地时间；币种是渠道的结算币种。
-        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
+        三种品类各填各的（`category` 不填是接送机）：接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `dropoff` + `package_hours`。
         该给的没给 400 `REQUIRED`，不该给的给了 400 `NOT_APPLICABLE`。包车的报价带 `package`（套餐时长和含的公里数）。
+        包车的下车地点从 M8-15 起**必填**（ADR 0073）：报价 = 基础定价 + 上车点所在加价区域的上车加价 + 下车点所在加价区域的下车加价（一口价，已含）；
+        上车点或下车点不在商品本身的区域、也不在任何加价区域里的不报价（`unavailable` 是 `OUT_OF_SERVICE_AREA`，页面说「这个地址暂时没有在线报价，请联系客服」）。
+        报价里含区域加价时 `includes_area_surcharge` 为 true（只说「含区域加价」，不单列金额）。下单时包车要填 `dropoff_address`。
         应答里每个车型组一个对外价，带车型组的名称、免费等待、按现在的平台取消政策下单后适用的阶梯。**没有中标供应商、结算价、加价比例。**
         每个地址每分钟 30 次。
       requestBody:
@@ -16553,6 +16575,10 @@ components:
             - $ref: "#/components/schemas/SalesPoint"
             - type: "null"
         dropoff:
+          description: |
+            下车点。包车（M8-15，ADR 0073）：**暂时可以不填**，为了不打断已接入的渠道；不填时只报没有设区域加价的包车商品，设了的那些不报（原因 `DROPOFF_REQUIRED`）。
+            给了下车点时按「基础定价 + 上车加价 + 下车加价」报价，上车点或下车点不在商品的区域、也不在任何加价区域里的不报（`OUT_OF_SERVICE_AREA`）。
+            **以后包车的下车点会改为必填**，请渠道尽早在包车询价里带上下车点（下单时再带 `dropoff_address`）。
           oneOf:
             - $ref: "#/components/schemas/SalesPoint"
             - type: "null"
@@ -16672,7 +16698,7 @@ components:
           type: array
           description: |
             没报出价的车型组（请求里指定了车型组时逐个列；没指定、又一个都没报出时一条 `vehicle_group_id` 为 null 的）。原因只有面向客人的几种：
-            `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
+            `NO_PRODUCT`（这里没有可卖的商品）、`OUT_OF_SERVICE_AREA`、`DROPOFF_REQUIRED`（包车没给下车地点，而商品设了区域加价；给了下车地点再询价，M8-15）、`LEAD_TIME_TOO_SHORT`、`SOLD_OUT`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、
             `CAPACITY_EXCEEDED`、`ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、
             `NO_ROUTE`（里程计价：两点之间没有可行驶的路线，换个地点）、`TEMPORARILY_UNAVAILABLE`（里程计价：路线预估暂时不可用，稍后再试；ADR 0042）、`NOT_AVAILABLE`（其他）
           items:
@@ -16687,7 +16713,7 @@ components:
                 type: array
                 items:
                   type: string
-                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+                  enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     FxCurrency:
       type: string
       enum: [ JPY, KRW, CNY, USD, HKD, TWD, THB, SGD ]
@@ -17356,10 +17382,12 @@ components:
       description: |
         报不出价的原因。商品层面的：`PRODUCT_NOT_PUBLISHED`、`TENANT_SUSPENDED`、`TENANT_NOT_ONBOARDED`（还没开始试运营或已清退）、`TRIAL_DAILY_LIMIT`（试运营当天已到每日上限）、`BRAND_DISABLED`、`SERVICE_RULES_INCOMPLETE`、`INVALID_SERVICE_TIME`、
         `OUTSIDE_SALE_PERIOD`、`OUTSIDE_SERVICE_TIME`、`SERVICE_TIME_PASSED`、`LEAD_TIME_TOO_SHORT`、`URGENT_SOLD_OUT`、`OUT_OF_SERVICE_AREA`、`IN_FORBIDDEN_AREA`、
-        `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。车型组层面的：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
+        `DROPOFF_REQUIRED`（包车没给下车地点、而商品设了区域加价，M8-15）、
+        `ADDON_NOT_OFFERED`、`DRIVER_LANGUAGE_NOT_OFFERED`、`SOLD_OUT`。包车的上车点、下车点都要在商品本身的区域或某个加价区域里，否则是 `OUT_OF_SERVICE_AREA` / `IN_FORBIDDEN_AREA`（ADR 0073）。
+        车型组层面的（包车两端所在的加价区域没有这个车型组、套餐的区域加价也报 `NO_PRICE_RULE` / `PRICE_NOT_IN_EFFECT` / `PRICE_RULE_DISABLED`）：`VEHICLE_GROUP_NOT_OFFERED`、`VEHICLE_GROUP_DISABLED`、`CAPACITY_EXCEEDED`、
         `NO_PRICE_RULE`、`PRICE_NOT_IN_EFFECT`、`PRICE_RULE_DISABLED`、`ROUTE_UNAVAILABLE`、`PRICE_NOT_POSITIVE`、`PRICE_OVER_LIMIT`。
         只在平台侧比价时出现的：`FX_RATE_UNAVAILABLE`、`SELL_PRICE_OVER_LIMIT`。
-      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
+      enum: [ PRODUCT_NOT_PUBLISHED, TENANT_SUSPENDED, TENANT_NOT_ONBOARDED, TRIAL_DAILY_LIMIT, BRAND_DISABLED, SERVICE_RULES_INCOMPLETE, INVALID_SERVICE_TIME, OUTSIDE_SALE_PERIOD, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, LEAD_TIME_TOO_SHORT, URGENT_SOLD_OUT, OUT_OF_SERVICE_AREA, IN_FORBIDDEN_AREA, DROPOFF_REQUIRED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, SOLD_OUT, VEHICLE_GROUP_NOT_OFFERED, VEHICLE_GROUP_DISABLED, CAPACITY_EXCEEDED, NO_PRICE_RULE, PRICE_NOT_IN_EFFECT, PRICE_RULE_DISABLED, ROUTE_UNAVAILABLE, PRICE_NOT_POSITIVE, PRICE_OVER_LIMIT, FX_RATE_UNAVAILABLE, SELL_PRICE_OVER_LIMIT ]
     QuoteRouteEstimate:
       type: object
       additionalProperties: false
@@ -17574,7 +17602,8 @@ components:
       description: |
         一个车型组的结算价和明细（子品牌币种的最小货币单位整数）。`total` = `base` + `adjust` + `urgent` + `night` + `addons` + `driver_language`，
         取整只在最后按 `rounding_unit` 做一次，尾差在 `adjust` 里。这里只有供应商自己的结算价。
-      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, free_wait ]
+        包车给了下车点时 `base` 含区域加价（调价作用在「基础定价 + 区域加价」的合计上），`area_surcharge` 是它的明细（M8-15，ADR 0073）。
+      required: [ currency, rounding_unit, total, base, adjust, urgent, night, addons, driver_language, exact, adjusts, urgent_tier, night_detail, addon_items, driver_language_code, usage, area_surcharge, free_wait ]
       properties:
         currency:
           type: string
@@ -17699,6 +17728,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/QuoteRouteEstimate"
             - type: "null"
+        area_surcharge:
+          description: 包车的区域加价明细（结算价，已含在 `base` 里）；只有给了下车点的包车报价才有，否则为 null（M8-15）
+          oneOf:
+            - $ref: "#/components/schemas/QuoteAreaSurcharge"
+            - type: "null"
         free_wait:
           type: object
           additionalProperties: false
@@ -17715,6 +17749,34 @@ components:
               type: [ integer, "null" ]
             platform_minimum_minutes:
               type: integer
+    QuoteAreaSurcharge:
+      type: object
+      additionalProperties: false
+      required: [ package, pickup, dropoff ]
+      description: 包车区域加价（结算价，最小货币单位整数；ADR 0073）。一端的 `area_id` 为 null = 在商品本身的区域里，加 0
+      properties:
+        package:
+          type: integer
+          description: 其中的基础定价（套餐价）
+        pickup:
+          $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
+        dropoff:
+          $ref: "#/components/schemas/QuoteAreaSurchargeEnd"
+    QuoteAreaSurchargeEnd:
+      type: object
+      additionalProperties: false
+      required: [ area_id, price_rule_id, amount ]
+      properties:
+        area_id:
+          type: [ string, "null" ]
+          format: uuid
+        price_rule_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 用的是哪条区域加价规则；这一端在商品本身的区域里为 null
+        amount:
+          type: integer
+          minimum: 0
     QuoteOffer:
       type: object
       additionalProperties: false
@@ -17901,7 +17963,7 @@ components:
                 items:
                   type: object
                   additionalProperties: false
-                  required: [ position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, markup_level, markup_rule_id, min_margin_applied, fx_buffer_bp, fx, offer ]
+                  required: [ position, in_band, rank_price, tenant_id, tenant_name, product_id, product_code, product_version, observation, score_centi, completed_orders, sell, sell_exact, markup_bp, markup_level, markup_rule_id, min_margin_applied, fx_buffer_bp, fx, area_surcharge_sell, offer ]
                   properties:
                     position:
                       type: integer
@@ -17947,6 +18009,20 @@ components:
                     min_margin_applied:
                       type: boolean
                       description: 加价部分不足渠道的最低毛利、被补到了最低毛利
+                    area_surcharge_sell:
+                      description: |
+                        包车区域加价的对外价参考（`currency` 的最小货币单位，M8-15，ADR 0073 第四部分）：上车、下车加价各自按这个候选的汇率、缓冲、加价比例换算，单独四舍五入；
+                        已含在 `sell` 里，只用来说明（和总价可能差一个取整单位以内）。结算价明细里没有 `area_surcharge` 时为 null
+                      oneOf:
+                        - type: object
+                          additionalProperties: false
+                          required: [ pickup, dropoff ]
+                          properties:
+                            pickup:
+                              type: integer
+                            dropoff:
+                              type: integer
+                        - type: "null"
                     fx_buffer_bp:
                       type: integer
                     fx:
@@ -21238,8 +21314,12 @@ components:
           $ref: "#/components/schemas/PublishCheck"
     PricingModel:
       type: string
-      enum: [ fixed, mileage_time, charter_package ]
-      description: "fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐"
+      enum: [ fixed, mileage_time, charter_package, charter_area_surcharge ]
+      description: |
+        fixed：固定一口价；mileage_time：里程 + 时长；charter_package：包车套餐；
+        charter_area_surcharge：包车区域加价（M8-15，ADR 0073 第三部分）——`area_id` 是加价区域（本租户的报价区域，不必是商品选的，也不能是商品本身的区域），
+        按车型组 × 套餐时长填 `pickup_surcharge`（上车点在这个区域时加）、`dropoff_surcharge`（下车点在这个区域时加），都可以是 0。
+        区域加价不是基础定价：不算进缺价统计和上架检查；冲突只和同一区域 × 车型组 × 套餐时长的区域加价比（和同一区域的套餐价不冲突）
     PriceDirection:
       type: string
       enum: [ pickup, dropoff, both ]
@@ -21338,6 +21418,16 @@ components:
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        pickup_surcharge:
+          description: 包车区域加价：上车点在这个区域时加多少（可以是 0；M8-15）
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
+        dropoff_surcharge:
+          description: 包车区域加价：下车点在这个区域时加多少（可以是 0；M8-15）
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
         valid_from:
           type: string
           format: date
@@ -21351,7 +21441,7 @@ components:
     PriceRule:
       type: object
       additionalProperties: false
-      required: [ id, area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, base, valid_from, valid_to, status, created_at, updated_at ]
+      required: [ id, area_id, vehicle_group_id, direction, package_hours, pricing_model, base_price, start_price, start_meters, start_minutes, per_km, per_minute, min_price, package_km, package_price, overtime_per_hour, over_km_per_km, pickup_surcharge, dropoff_surcharge, base, valid_from, valid_to, status, created_at, updated_at ]
       properties:
         id:
           type: string
@@ -21430,6 +21520,16 @@ components:
           type: [ integer, "null" ]
           minimum: 0
           maximum: 1000000000
+        pickup_surcharge:
+          description: 包车区域加价：上车点在这个区域时加多少（可以是 0；M8-15）
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
+        dropoff_surcharge:
+          description: 包车区域加价：下车点在这个区域时加多少（可以是 0；M8-15）
+          type: [ integer, "null" ]
+          minimum: 0
+          maximum: 1000000000
         valid_from:
           type: string
           format: date
@@ -21442,7 +21542,7 @@ components:
           $ref: "#/components/schemas/RuleStatus"
         base:
           type: string
-          description: 这条价格能报出的最低数（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价），十进制字符串：试算和日历的基数
+          description: 这条价格能报出的最低数（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价），十进制字符串：试算和日历的基数。区域加价不是基础定价，是 "0"
         created_at:
           type: string
           format: date-time
@@ -21465,7 +21565,7 @@ components:
     PriceRules:
       type: object
       additionalProperties: false
-      required: [ version, currency, rounding_unit, available_models, today, items, coverage ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage ]
       properties:
         version:
           type: integer
@@ -21478,6 +21578,12 @@ components:
           description: 子品牌的取整单位（最小货币单位）；1 = 不另外取整
         available_models:
           type: array
+          description: 基础定价可以用的计价方式
+          items:
+            $ref: "#/components/schemas/PricingModel"
+        surcharge_models:
+          type: array
+          description: 加价类的价格方式（包车：`charter_area_surcharge`；别的品类是空数组；M8-15）
           items:
             $ref: "#/components/schemas/PricingModel"
         today:
@@ -21494,7 +21600,7 @@ components:
       type: object
       additionalProperties: false
       description: 批量保存之后的全部价格规则（各字段同 `PriceRules`），外加这次新增的规则的编号
-      required: [ version, currency, rounding_unit, available_models, today, items, coverage, created_ids ]
+      required: [ version, currency, rounding_unit, available_models, surcharge_models, today, items, coverage, created_ids ]
       properties:
         version:
           type: integer
@@ -21505,6 +21611,10 @@ components:
         rounding_unit:
           type: integer
         available_models:
+          type: array
+          items:
+            $ref: "#/components/schemas/PricingModel"
+        surcharge_models:
           type: array
           items:
             $ref: "#/components/schemas/PricingModel"
@@ -21874,11 +21984,34 @@ components:
     PriceCalendarDay:
       type: object
       additionalProperties: false
-      required: [ date, weekday, holiday, price_rule, segments ]
+      required: [ date, weekday, holiday, price_rule, surcharge, segments ]
       properties:
         date:
           type: string
           format: date
+        surcharge:
+          description: 包车：这个区域作为加价区域时这一天用的区域加价（启用、在生效期内）；没有、或不是包车为 null（M8-15）
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ price_rule_id, pickup_surcharge, dropoff_surcharge, valid_from, valid_to ]
+              properties:
+                price_rule_id:
+                  type: string
+                  format: uuid
+                pickup_surcharge:
+                  type: integer
+                  minimum: 0
+                dropoff_surcharge:
+                  type: integer
+                  minimum: 0
+                valid_from:
+                  type: string
+                  format: date
+                valid_to:
+                  type: [ string, "null" ]
+                  format: date
+            - type: "null"
         weekday:
           type: integer
           minimum: 1
@@ -22326,7 +22459,7 @@ components:
               content:
                 type: object
                 additionalProperties: false
-                required: [ area, vehicle_group, direction, package_hours, pricing_model, main_price, valid_from, valid_to, status ]
+                required: [ area, vehicle_group, direction, package_hours, pricing_model, main_price, surcharge, valid_from, valid_to, status ]
                 description: 这一行读到的内容（确认前核对用），新增的行也有。读不出来的项是 null
                 properties:
                   area:
@@ -22347,7 +22480,19 @@ components:
                       - type: "null"
                   main_price:
                     type: [ integer, "null" ]
-                    description: 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价
+                    description: 主价格（最小货币单位）：一口价的基础价、里程 + 时长的起步价、包车的套餐价；区域加价的行是 null
+                  surcharge:
+                    description: 包车区域加价的行（填了「上车加价」「下车加价」的行，M8-15）：两项加价（最小货币单位，读不出来的是 null）；别的行是 null
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ pickup, dropoff ]
+                        properties:
+                          pickup:
+                            type: [ integer, "null" ]
+                          dropoff:
+                            type: [ integer, "null" ]
+                      - type: "null"
                   valid_from:
                     type: [ string, "null" ]
                     format: date
@@ -22507,6 +22652,10 @@ components:
             - VEHICLE_GROUP_NOT_IN_PRODUCT
             - AMBIGUOUS
             - INVENTORY_BELOW_OCCUPIED
+            - UNKNOWN_AREA
+            - AREA_IS_PRODUCT_AREA
+            - AREA_NOT_USABLE
+            - AREA_DISABLED
           description: |
             `REQUIRED` 必填的格空着；`FORMULA` 这一格是公式；`NOT_A_NUMBER` / `NOT_INTEGER` 不是数字 / 不是整数；
             `PRECISION` 小数位超过了币种的精度（或起步里程超过 1 位小数）；`OUT_OF_RANGE` 超出范围；
@@ -22515,6 +22664,7 @@ components:
             `NOT_APPLICABLE` 这种计价方式或品类不填这一列；`MODEL_NOT_ALLOWED` 这个品类不能用这种计价方式；
             `UNKNOWN_PRICE_RULE` 价格编号不是这个商品的；`AREA_NOT_IN_PRODUCT` / `VEHICLE_GROUP_NOT_IN_PRODUCT` 不是这个商品选的区域 / 车型组；
             `AMBIGUOUS` 有不止一个区域叫这个名字；`INVENTORY_BELOW_OCCUPIED` 这一天有订单占着，不能改成这个数。
+            包车区域加价的行（M8-15）：`UNKNOWN_AREA` 本租户没有叫这个名字的区域；`AREA_IS_PRODUCT_AREA` 是商品本身的区域；`AREA_NOT_USABLE` 业务类型不是包车或通用；`AREA_DISABLED` 区域已停用。
         message:
           type: string
     OrderStatus:
@@ -22616,8 +22766,24 @@ components:
       type: object
       additionalProperties: false
       description: 结算价和明细（中标租户的结算币种），来自报价快照；各项之和等于 `total`
-      required: [ total, base, adjust, urgent, night, addons, driver_language ]
+      required: [ total, base, adjust, urgent, night, addons, driver_language, area_surcharge ]
       properties:
+        area_surcharge:
+          description: |
+            包车的区域加价（结算价，已含在 `base` 里；`package` 是其中的基础定价，M8-15，ADR 0073）。一端的 `area_id` 为 null = 在商品本身的区域里（加 0）。
+            M8-15 之前的订单、没给下车点的包车、别的品类为 null
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [ package, pickup, dropoff ]
+              properties:
+                package:
+                  $ref: "#/components/schemas/SalesMoney"
+                pickup:
+                  $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
+                dropoff:
+                  $ref: "#/components/schemas/OrderSettlementSurchargeEnd"
+            - type: "null"
         total:
           $ref: "#/components/schemas/SalesMoney"
         base:
@@ -22632,6 +22798,75 @@ components:
           $ref: "#/components/schemas/SalesMoney"
         driver_language:
           $ref: "#/components/schemas/SalesMoney"
+    OrderSettlementSurchargeEnd:
+      type: object
+      additionalProperties: false
+      required: [ area_id, amount ]
+      properties:
+        area_id:
+          type: [ string, "null" ]
+          format: uuid
+        amount:
+          $ref: "#/components/schemas/SalesMoney"
+    OrderAreaSurcharge:
+      type: object
+      additionalProperties: false
+      description: |
+        订单详情里的包车区域加价（M8-15，ADR 0073 第四部分）：上车、下车各在哪个加价区域（区域现在的名称，删了为 null）、加了多少。
+        供应商看到的只有结算价（规则 4）；运营看到的每一端另有 `sell`（对外价参考：按这一单的汇率、缓冲、加价比例单独换算、单独取整，已含在对外价里，和总价可能差一个取整单位以内）。
+      required: [ package_settlement, pickup, dropoff ]
+      properties:
+        package_settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        pickup:
+          $ref: "#/components/schemas/OrderAreaSurchargeEnd"
+        dropoff:
+          $ref: "#/components/schemas/OrderAreaSurchargeEnd"
+    OrderAreaSurchargeEnd:
+      type: object
+      additionalProperties: false
+      required: [ area_id, area_name, settlement ]
+      properties:
+        area_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 加价区域；null = 这一端在商品本身的区域里（加 0）
+        area_name:
+          oneOf:
+            - $ref: "#/components/schemas/LocalizedText"
+            - type: "null"
+        settlement:
+          $ref: "#/components/schemas/SalesMoney"
+    PlatformOrderAreaSurcharge:
+      type: object
+      additionalProperties: false
+      description: 运营看到的包车区域加价：同 `OrderAreaSurcharge`，每一端另有对外价参考 `sell`（报价快照里没有时为 null）
+      required: [ package_settlement, pickup, dropoff ]
+      properties:
+        package_settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        pickup:
+          $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
+        dropoff:
+          $ref: "#/components/schemas/PlatformOrderAreaSurchargeEnd"
+    PlatformOrderAreaSurchargeEnd:
+      type: object
+      additionalProperties: false
+      required: [ area_id, area_name, settlement, sell ]
+      properties:
+        area_id:
+          type: [ string, "null" ]
+          format: uuid
+        area_name:
+          oneOf:
+            - $ref: "#/components/schemas/LocalizedText"
+            - type: "null"
+        settlement:
+          $ref: "#/components/schemas/SalesMoney"
+        sell:
+          oneOf:
+            - $ref: "#/components/schemas/SalesMoney"
+            - type: "null"
     SalesOrder:
       type: object
       additionalProperties: false
@@ -25945,7 +26180,7 @@ components:
           description: 点对点、包车：上车点的坐标
         dropoff:
           $ref: "#/components/schemas/SitePoint"
-          description: 点对点：下车点的坐标
+          description: 点对点、包车（M8-15 起必填，ADR 0073）：下车点的坐标
         package_hours:
           type: integer
           minimum: 1
@@ -26005,8 +26240,11 @@ components:
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy, available_addons ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, includes_area_surcharge, price, free_wait_minutes, cancel_policy, available_addons ]
       properties:
+        includes_area_surcharge:
+          type: boolean
+          description: 包车：这个价里含区域加价（上车或下车不在商品本身的区域里，ADR 0073）；只说「含区域加价」，不单列金额。别的品类恒为 false（M8-15）
         package:
           description: 包车：套餐时长和含的公里数（超时、超公里服务后按实际加收）；其他品类 null
           oneOf:
@@ -26121,7 +26359,7 @@ components:
           type: array
           items:
             type: string
-            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
+            enum: [ NO_PRODUCT, OUT_OF_SERVICE_AREA, DROPOFF_REQUIRED, LEAD_TIME_TOO_SHORT, SOLD_OUT, OUTSIDE_SERVICE_TIME, SERVICE_TIME_PASSED, CAPACITY_EXCEEDED, ADDON_NOT_OFFERED, DRIVER_LANGUAGE_NOT_OFFERED, NO_ROUTE, TEMPORARILY_UNAVAILABLE, NOT_AVAILABLE ]
     SiteOrderRequest:
       type: object
       additionalProperties: false

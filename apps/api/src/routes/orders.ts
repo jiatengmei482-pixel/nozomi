@@ -11,7 +11,7 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { maskOrderValues, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
+import { type CurrencyCode, type LocalizedText, maskOrderValues, ORDER_STATUSES, SERVICE_CATEGORIES, isLocalDate, portionBasisPoints } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
@@ -19,7 +19,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, areaSurchargeDetailJson, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -166,6 +166,18 @@ function platformCancellationJson(order: Order, sale: OrderSale): Json | null {
   };
 }
 
+/**
+ * 运营看到的包车区域加价（ADR 0073 第四部分）：结算价（同供应商看到的）加上对外价参考——报价快照里按这一单的汇率、缓冲、加价比例
+ * 单独换算、单独取整的数（已含在对外价里，和总价可能差一个取整单位以内）。快照里没有（M8-15 之前的报价）时对外价为 null。
+ */
+function platformAreaSurchargeJson(found: { order: Order; surchargeAreaNames: ReadonlyMap<string, LocalizedText>; quote: { currency: CurrencyCode; winner: { sell: { areaSurcharge?: { pickupMinor: number; dropoffMinor: number } } } } }): Json | null {
+  const detail = areaSurchargeDetailJson(found.order, found.surchargeAreaNames);
+  if (detail === null) return null;
+  const sell = found.quote.winner.sell.areaSurcharge ?? null;
+  const money = (minor: number | undefined): Json | null => (sell === null || minor === undefined ? null : salesMoney(minor, found.quote.currency));
+  return { ...detail, pickup: { ...(detail["pickup"] as Json), sell: money(sell?.pickupMinor) }, dropoff: { ...(detail["dropoff"] as Json), sell: money(sell?.dropoffMinor) } };
+}
+
 /** 推送内容里的乘客也打码（运营详情一页看全，不能从这里绕过「查看」）。 */
 export function maskedDeliveryData(data: Record<string, unknown>, names: readonly string[] | null = null): Record<string, unknown> {
   return maskOrderValues(data, names);
@@ -242,6 +254,8 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       rescue: tenantOrderRescueJson(found.rescue, found.order),
       driver_link_email: driverLinkEmailJson(await getDriverLinkEmail(ctx, principal.tenantId, found.order.id), await mailConfigured(ctx)),
       vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
+      // 包车区域加价（ADR 0073）：只有结算价（规则 4）
+      area_surcharge: areaSurchargeDetailJson(found.order, found.surchargeAreaNames),
     };
   });
 
@@ -333,6 +347,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
       }, names),
       vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
+      area_surcharge: platformAreaSurchargeJson(found),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,
