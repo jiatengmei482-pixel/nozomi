@@ -11382,6 +11382,41 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/places/by-code:
+    get:
+      tags: [ 官网 ]
+      operationId: getSitePlaceByCode
+      summary: 按编码取一个平台地点（新预订页的链接参数）
+      description: |
+        M8-04（ADR 0069）：新预订页的链接参数 `from` / `to` 写平台地点编码（如 `NRT`）时，页面用它取一次地点。只读平台主数据，**不调谷歌**。
+        编码不分大小写；只在官网渠道授权的城市里找启用的机场、车站、地标；航站楼、出口按所属机场 / 车站的种类返回（`type` 为 `airport` 或 `station`），坐标用它自己的。
+        找不到 404。格式不对（1–32 位字母、数字、连字符以外）400。和城市地点同一份读接口限速（每个地址每分钟 120 次）。
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9-]{1,32}$"
+      responses:
+        "200":
+          description: 地点
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitePlace"
+        "400":
+          description: "`VALIDATION_FAILED`：编码格式不对（`FORMAT`）、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/places/search:
     get:
       tags: [ 官网 ]

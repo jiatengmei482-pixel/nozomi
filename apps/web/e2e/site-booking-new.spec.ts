@@ -65,8 +65,8 @@ async function publishTransfer(request: APIRequestContext, supplier: Supplier, w
 }
 
 /**
- * 链接里的出发地：机场的坐标加名称（离机场 0 米，按两个坐标报价认得出是接机）。
- * 用编码（`from=机场编码`）要后端的 `GET /site/v1/places/by-code`（M8-04 验收问题 1，后端角色实现）；接口上线前端到端先用坐标。
+ * 链接里的出发地写成机场的坐标加名称（离机场 0 米，按两个坐标报价认得出是接机）。
+ * 另一种写法 `from=机场编码` 走 `GET /site/v1/places/by-code`（M8-04 验收问题 1），在单页用例里覆盖。
  */
 function airportLink(airport: { name: string; location: { lat: number; lng: number } }): string {
   return `from=${airport.location.lat},${airport.location.lng}&from_name=${encodeURIComponent(airport.name)}`;
@@ -208,9 +208,9 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   }
   await page.emulateMedia({ colorScheme: "light" });
 
-  // 带参数的链接：出发地是机场的坐标加名称（按编码取地点的接口 GET /site/v1/places/by-code 由后端补上后改回 from=编码），目的地是坐标加名称，打开就报价
+  // 带参数的链接：出发地写机场编码（按编码取一次平台地点，不调谷歌），目的地是坐标加名称，打开就报价
   await page.setViewportSize({ width: 400, height: 800 });
-  await page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
+  await page.goto(`${SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
   await expect(page.locator(".book-new__strip-text")).toContainText(`接机 ${airport.name} → 東京駅八重洲口`);
   await expect(page.locator(".book-new__strip-text")).toContainText("3 人 · 1 件");
