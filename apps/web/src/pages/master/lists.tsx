@@ -1,7 +1,7 @@
 /**
  * 四个列表页各自的列、筛选条件和文案（docs/design/pages/master-data.md 第 3 节）。
  */
-import { VEHICLE_GRADES, type VehicleGrade } from "@nozomi/domain";
+import { VEHICLE_GRADES, type VehicleGrade, vehicleLabel } from "@nozomi/domain";
 import { useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { type City, type DashboardSummary, type Place, fetchDashboardSummary } from "../../api/master.ts";
@@ -269,6 +269,7 @@ export function VehicleGroupListPage() {
           </span>
         ),
       },
+      { key: "similar", header: "同级车型", cell: (row) => <span lang="en">{vehicleLabel(row).similar ?? "—"}</span> },
     ],
     filters: <GradeFilter />,
     query: grade ? { grade } : {},
