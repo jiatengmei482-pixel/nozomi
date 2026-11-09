@@ -371,6 +371,15 @@ test("官网地址搜索和反查的每日调用上限（ADR 0044）：默认 50
   for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_PLACES_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_PLACES_DAILY_LIMIT")), bad);
 });
 
+test("官网路线小地图的每日调用上限（ADR 0072）：默认 300，空值按默认，0 = 不调用；负数、小数、超过 100 万报错；和路线、地址搜索的上限互不影响", () => {
+  assert.equal(loadConfig(base).staticMaps.dailyLimit, 300);
+  assert.equal(loadConfig({ ...base, GOOGLE_STATIC_MAPS_DAILY_LIMIT: "" }).staticMaps.dailyLimit, 300);
+  assert.equal(loadConfig({ ...base, GOOGLE_STATIC_MAPS_DAILY_LIMIT: "0" }).staticMaps.dailyLimit, 0);
+  const staging = loadConfig({ ...base, APP_ENV: "staging", GOOGLE_STATIC_MAPS_DAILY_LIMIT: "40", GOOGLE_PLACES_DAILY_LIMIT: "50", GOOGLE_ROUTES_DAILY_LIMIT: "7" });
+  assert.deepEqual([staging.staticMaps.dailyLimit, staging.places.dailyLimit, staging.routes.dailyLimit], [40, 50, 7]);
+  for (const bad of ["-1", "1.5", "1000001", "many"]) assert.ok(issuesOf({ ...base, GOOGLE_STATIC_MAPS_DAILY_LIMIT: bad }).some((issue) => issue.startsWith("GOOGLE_STATIC_MAPS_DAILY_LIMIT")), bad);
+});
+
 test("关闭密码登录（ADR 0050）：默认不关闭；不填、空白、false 都不关闭，只有写明 true 才算；别的写法启动报错", () => {
   const base = { DATABASE_URL: "postgres://app@localhost/db", AUTH_JWT_SECRET: "x".repeat(48) };
   for (const value of [undefined, "", "  ", "false"]) {

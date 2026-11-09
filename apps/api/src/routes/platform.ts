@@ -6,13 +6,14 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { integrationStatus } from "@nozomi/config";
-import { type PlatformAction, ROUTE_FAILURE_MESSAGES, type RouteFailureCode, fxTableState, routeCallAllowed, routeUsageDay } from "@nozomi/domain";
+import { type PlatformAction, ROUTE_FAILURE_MESSAGES, type RouteFailureCode, STATIC_MAP_FAILURE_MESSAGES, type StaticMapFailureCode, fxTableState, routeCallAllowed, routeUsageDay } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { decodeSequenceCursor, decodeTimeCursor } from "../pagination.ts";
 import { insertAuditLog, listAuditLogsAcrossTenants } from "../repos/audit-logs.ts";
 import { listColleagues } from "../repos/platform-users.ts";
 import { routeUsageStatus } from "../repos/route-estimates.ts";
+import { staticMapUsageStatus } from "../repos/static-maps.ts";
 import { latestFetch, latestRateSet } from "../repos/fx.ts";
 import { consoleOrigin, platformActor } from "../services/audit.ts";
 import { auditPassengerNames, maskedAuditLog } from "../services/passenger-privacy.ts";
@@ -336,7 +337,7 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
         after: null,
       });
       const current = await latestRateSet(db);
-      return { current, last: await latestFetch(db), routes: await routeUsageStatus(db, routeUsageDay(now)) };
+      return { current, last: await latestFetch(db), routes: await routeUsageStatus(db, routeUsageDay(now)), staticMaps: await staticMapUsageStatus(db, routeUsageDay(now)) };
     });
     return {
       // 谷歌地图、Stripe 按生效的值、标出来源（ADR 0041）；打码后的末 4 位只给能管理密钥的人（超级管理员）
@@ -363,6 +364,24 @@ export function registerPlatformRoutes(app: FastifyInstance, ctx: AppContext): v
           fx.routes.lastFailure === null
             ? null
             : { code: fx.routes.lastFailure.code, message: ROUTE_FAILURE_MESSAGES[fx.routes.lastFailure.code as RouteFailureCode] ?? null, at: fx.routes.lastFailure.at.toISOString() },
+      },
+      // 官网路线小地图（谷歌 Maps Static API，ADR 0072）：同上的口径，单独计数；最近一次失败的原因码给运营判断要不要开通（不含密钥和谷歌原文）
+      static_maps: {
+        day: fx.staticMaps.day,
+        calls: fx.staticMaps.calls,
+        daily_limit: ctx.config.staticMaps.dailyLimit,
+        daily_limit_reached: !routeCallAllowed(fx.staticMaps.calls, ctx.config.staticMaps.dailyLimit),
+        failures: fx.staticMaps.failures,
+        refused: fx.staticMaps.refused,
+        last_success_at: fx.staticMaps.lastSuccessAt?.toISOString() ?? null,
+        last_failure:
+          fx.staticMaps.lastFailure === null
+            ? null
+            : {
+                code: fx.staticMaps.lastFailure.code,
+                message: STATIC_MAP_FAILURE_MESSAGES[fx.staticMaps.lastFailure.code as StaticMapFailureCode] ?? null,
+                at: fx.staticMaps.lastFailure.at.toISOString(),
+              },
       },
     };
   });

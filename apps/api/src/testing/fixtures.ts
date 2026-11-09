@@ -59,6 +59,7 @@ export const UNREACHABLE_INTEGRATIONS: Record<string, string> = {
   GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:1/v1/places:autocomplete",
   GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:1/v1/places",
   GOOGLE_GEOCODE_URL: "http://127.0.0.1:1/v4beta/geocode/location",
+  GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:1/maps/api/staticmap",
   STRIPE_API_URL: "http://127.0.0.1:1",
 };
 

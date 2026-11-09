@@ -5,6 +5,7 @@
  * 路线预估的测试（ADR 0042）看请求体（起终点、字段掩码）和请求次数（并发同一组只调一次、缓存命中不调用）。
  * 官网地址搜索、反查（ADR 0044）：假 Places Text Search 默认找到一个地点（东京站），假 Geocoding 反查默认给一个地址。
  * 输入即提示（M8-02，ADR 0069）：假 Autocomplete 默认给一个候选（东京站），假 Place Details 默认给东京站的坐标；路线可以带折线（`googleRouteBody` 的第三个参数）。
+ * 官网路线小地图（M8-10，ADR 0072）：假 Maps Static API 默认给一张 1 × 1 的 PNG（`FAKE_STATIC_MAP_PNG`）；错误时回谷歌那样的一句纯文本（`raw`）。
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -19,6 +20,10 @@ export interface FakeReply {
   body: unknown;
   /** 晚多少毫秒才回（模拟慢、超时） */
   delayMs?: number;
+  /** 原样写出的应答体（图片、纯文本），给了就不用 `body` */
+  raw?: Buffer | string;
+  /** 应答的 content-type；不给是 application/json */
+  contentType?: string;
 }
 
 export interface FakeRequest {
@@ -61,8 +66,8 @@ async function startFake(path: string, initial: FakeReply, port: number): Promis
       const current = typeof reply === "function" ? reply() : reply;
       const send = (): void => {
         if (response.destroyed) return;
-        response.writeHead(current.status ?? 200, { "content-type": "application/json", "request-id": "req_fake" });
-        response.end(JSON.stringify(current.body));
+        response.writeHead(current.status ?? 200, { "content-type": current.contentType ?? "application/json", "request-id": "req_fake" });
+        response.end(current.raw ?? JSON.stringify(current.body));
       };
       if (current.delayMs) setTimeout(send, current.delayMs).unref();
       else send();
@@ -147,6 +152,14 @@ export function startFakeGooglePlaceDetails(port = 0): Promise<FakeService> {
 /** 假 Geocoding：`url` 是反查的前缀，请求是 `前缀/纬度,经度?…`。 */
 export function startFakeGoogleGeocode(port = 0): Promise<FakeService> {
   return startFake("/v4beta/geocode/location", { body: googleGeocodeBody("日本、〒100-0005 東京都千代田区丸の内１丁目９") }, port);
+}
+
+/** 一张真的 1 × 1 PNG（浏览器能显示），假静态地图的默认应答。 */
+export const FAKE_STATIC_MAP_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+
+/** 假 Maps Static API：`GET /maps/api/staticmap?…&key=…`，默认回 `FAKE_STATIC_MAP_PNG`。 */
+export function startFakeGoogleStaticMaps(port = 0): Promise<FakeService> {
+  return startFake("/maps/api/staticmap", { body: null, raw: FAKE_STATIC_MAP_PNG, contentType: "image/png" }, port);
 }
 
 // ---- 假 SMTP 服务器（ADR 0048）：测试从不连真实的邮件服务 ----

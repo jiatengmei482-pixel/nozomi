@@ -1,6 +1,6 @@
 /**
  * 新预订页右侧栏（手机第 3 步顶部）的几块和「怎么联系你」（M8-04，ADR 0069「修正版 v2」「B15 / B16 → A」；规范 site-booking-v2.md 5、6）：
- * - 路线：后端给的折线画在现有底图上 +「约 X 分钟 · Y 公里」；取不到路线不显示；
+ * - 路线：谷歌静态地图（M8-10，后端出图；没开通时退回现有底图画折线）+「约 X 分钟 · Y 公里」；取不到路线不显示；
  * - 附加服务：报价给的这个车型能加的（`available_addons`），每项 − 0 +；改了数量页面带 `addons` 重新报价，这里只显示「合计差额」，不另算单价；
  * - 车费、合计（订单币种）、参考价「≈ 客人币种」（汇率不可用时不显示）、取消规则、去付款、支付方式（只有银行卡）；
  * - 「怎么联系你」：字段、校验、下单和旧下单页同一套（`lib/site-order-form.ts`）。
@@ -15,24 +15,27 @@ import { Button } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { ADDON_QUANTITY, FX_REFERENCE_NOTE, decodePolyline, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
+import { ADDON_QUANTITY, FX_REFERENCE_NOTE, type TripPoint, decodePolyline, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors } from "../../../lib/site-order-form.ts";
 import { SitePrice } from "../SitePrice.tsx";
-import { RouteMap } from "./RouteMap.tsx";
+import { RoutePicture } from "./StaticRouteMap.tsx";
 import { Stepper } from "./TravellersField.tsx";
 
 export const CONTACT_FORM_ID = "book-contact-form";
 
-/** 路线：有折线和底图时画图；只有时间距离时只写字；取不到（null）不显示。 */
-export function RouteBlock({ route, tiles, from, to }: { route: SiteRoutePreview | null; tiles: MapTiles | null; from: string; to: string }) {
+/**
+ * 路线：谷歌静态地图（M8-10，后端出图）+「约 X 分钟 · Y 公里」；平台还没开通静态地图时退回现有底图画折线（有折线和底图才画）；
+ * 图出不来只写字；取不到路线（null）整块不显示。
+ */
+export function RouteBlock({ route, tiles, from, to }: { route: SiteRoutePreview | null; tiles: MapTiles | null; from: TripPoint; to: TripPoint }) {
   if (route === null) return null;
   const points = route.polyline === null ? [] : decodePolyline(route.polyline);
   const text = routeSummaryText(route.minutes, route.meters);
   return (
     <div className="book-summary__block">
-      {tiles !== null && points.length >= 2 && <RouteMap tiles={tiles} points={points} label={`路线图：${from} → ${to}，${text}`} />}
+      <RoutePicture from={from} to={to} points={points} tiles={tiles} label={`路线图：${from.name} → ${to.name}，${text}`} />
       <p className="book-summary__route">
         <Icon name="clock" />
         <span>{text}</span>

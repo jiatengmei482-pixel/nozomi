@@ -161,6 +161,32 @@ async function send(method: string, url: string, init: { headers: Record<string,
   }
 }
 
+/**
+ * 只看一个站内接口的状态码和 JSON 应答体（不需要登录，不抛 ApiError）：用在图片之类拿不到错误内容的地方，出错后再问一次原因。
+ * 应答体不是 JSON 时 `body` 为 null；连不上、超时抛 NetworkError。
+ */
+export async function apiStatus(url: string): Promise<{ status: number; body: unknown }> {
+  const sent = await send("GET", url, { headers: { accept: "application/json" }, body: null, timeoutMs: REQUEST_TIMEOUT_MS });
+  try {
+    const { response } = sent;
+    const isJson = (response.headers.get("content-type") ?? "").includes("application/json");
+    let body: unknown = null;
+    if (isJson) {
+      try {
+        body = await response.json();
+      } catch {
+        body = null;
+      }
+    } else {
+      await response.body?.cancel().catch(() => undefined);
+    }
+    if (sent.aborted()) throw new NetworkError();
+    return { status: response.status, body };
+  } finally {
+    sent.done();
+  }
+}
+
 /** 用户自己取消的请求：不算出错。 */
 export class CancelledError extends Error {
   constructor() {

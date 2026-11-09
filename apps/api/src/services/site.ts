@@ -82,6 +82,7 @@ import {
   findAddons,
 } from "../repos/site.ts";
 import type { RoutePreview } from "./route-estimates.ts";
+import type { RouteMapRequest, RouteMapResult } from "./static-maps.ts";
 import { validationFailed } from "../validation.ts";
 import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
@@ -157,6 +158,16 @@ export async function requireOpenSite(ctx: AppContext): Promise<SiteChannel> {
   const site = await loadSiteChannel(ctx);
   if (site === null || !site.open) throw siteNotOpen();
   return site;
+}
+
+/**
+ * 官网路线小地图（M8-10，ADR 0072）：官网开着才出图（没开不花钱调谷歌），出不了图的原因见 domain 的 `routeMapReason`。
+ * 只读路线、只出图，不碰报价。
+ */
+export async function siteRouteMap(ctx: AppContext, request: RouteMapRequest): Promise<RouteMapResult> {
+  const site = await loadSiteChannel(ctx);
+  if (site === null || !site.open) return { ok: false, reason: "UNAVAILABLE", failure: { stage: "map", code: "SITE_NOT_OPEN" } };
+  return ctx.routeMap.render(request);
 }
 
 /** 订单相关的接口只要求配置了官网的客户端：停止接单不能让客人连自己的订单都看不到。 */

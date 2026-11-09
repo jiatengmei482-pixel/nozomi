@@ -118,13 +118,14 @@ test("日志脱敏要抹掉的生效值：谷歌地图密钥和 Stripe 三项", 
 });
 
 test("测试用的服务地址：local / ci 可以指到本机，staging / production 不能改", () => {
-  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/v1/places:searchText", GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/v1/places:autocomplete", GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/v1/places", GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/geocode", STRIPE_API_URL: "http://127.0.0.1:4011" });
+  const ci = loadConfig({ ...base, APP_ENV: "ci", GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/directions/v2:computeRoutes", GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/v1/places:searchText", GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/v1/places:autocomplete", GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/v1/places", GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/geocode", GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/maps/api/staticmap", STRIPE_API_URL: "http://127.0.0.1:4011" });
   assert.deepEqual(ci.integrationEndpoints, {
     googleMapsRoutesUrl: "http://127.0.0.1:4010/directions/v2:computeRoutes",
     googlePlacesSearchUrl: "http://127.0.0.1:4012/v1/places:searchText",
     googlePlacesAutocompleteUrl: "http://127.0.0.1:4014/v1/places:autocomplete",
     googlePlaceDetailsUrl: "http://127.0.0.1:4015/v1/places",
     googleGeocodeUrl: "http://127.0.0.1:4013/geocode",
+    googleStaticMapsUrl: "http://127.0.0.1:4016/maps/api/staticmap",
     stripeApi: { host: "127.0.0.1", port: 4011, protocol: "http" },
   });
   assert.deepEqual(loadConfig(base).integrationEndpoints, {
@@ -133,11 +134,12 @@ test("测试用的服务地址：local / ci 可以指到本机，staging / produ
     googlePlacesAutocompleteUrl: "https://places.googleapis.com/v1/places:autocomplete",
     googlePlaceDetailsUrl: "https://places.googleapis.com/v1/places",
     googleGeocodeUrl: "https://geocode.googleapis.com/v4beta/geocode/location",
+    googleStaticMapsUrl: "https://maps.googleapis.com/maps/api/staticmap",
     stripeApi: null,
   });
   for (const env of ["staging", "production"]) {
     const extra = env === "production" ? { AUTH_JWT_SECRET: "x".repeat(64), DATA_ENCRYPTION_KEY: "k".repeat(40) } : {};
-    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/x" }, { GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/x" }, { GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/x" }, { GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
+    for (const override of [{ GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:4010/x" }, { GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:4012/x" }, { GOOGLE_GEOCODE_URL: "http://127.0.0.1:4013/x" }, { GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:4014/x" }, { GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:4015/x" }, { GOOGLE_STATIC_MAPS_URL: "http://127.0.0.1:4016/x" }, { STRIPE_API_URL: "http://127.0.0.1:4011" }]) {
       assert.throws(() => loadConfig({ ...base, ...extra, APP_ENV: env, ...override }), /只给本机和 CI 的测试用/, `${env} ${Object.keys(override)[0]}`);
     }
   }

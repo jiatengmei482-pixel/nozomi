@@ -194,12 +194,15 @@ const rawSchema = z.object({
   GOOGLE_ROUTES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(1_000)),
   // 官网的地址搜索和坐标反查每天（东京时间）最多调用谷歌几次（两者合计，ADR 0044，费用控制；不是密钥）。默认 500，0 = 不调用（官网只能从常用地点选、在地图上点选或手填）
   GOOGLE_PLACES_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(500)),
+  // 官网路线小地图每天（东京时间）最多调用谷歌 Maps Static API 几次（ADR 0072，费用控制；不是密钥）。默认 300，0 = 不调用（页面只显示时间和距离）
+  GOOGLE_STATIC_MAPS_DAILY_LIMIT: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.coerce.number().int().min(0).max(1_000_000).default(300)),
   // 「测试一下」、路线、地址搜索、反查和收款连到哪里（ADR 0041、0044）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
   GOOGLE_MAPS_ROUTES_URL: optionalString,
   GOOGLE_PLACES_SEARCH_URL: optionalString,
   GOOGLE_PLACES_AUTOCOMPLETE_URL: optionalString,
   GOOGLE_PLACE_DETAILS_URL: optionalString,
   GOOGLE_GEOCODE_URL: optionalString,
+  GOOGLE_STATIC_MAPS_URL: optionalString,
   STRIPE_API_URL: optionalString,
 
   // 邮件发送（通用 SMTP，ADR 0048）：七项一组，要么都填、要么都不填。只有 SMTP_PASSWORD 是密钥；也可以在运营后台填写（后台的优先）
@@ -286,6 +289,8 @@ export interface IntegrationEndpoints {
   googlePlaceDetailsUrl: string;
   /** 谷歌 Geocoding API 反查的地址前缀（后面接 `/纬度,经度`，ADR 0044） */
   googleGeocodeUrl: string;
+  /** 谷歌 Maps Static API 的地址（官网路线小地图，M8-10，ADR 0072） */
+  googleStaticMapsUrl: string;
   /** Stripe 接口的主机；null = Stripe 官方地址 */
   stripeApi: { host: string; port: number; protocol: "http" | "https" } | null;
 }
@@ -311,6 +316,8 @@ export interface AppConfig {
   routes: { dailyLimit: number };
   /** 官网的地址搜索和反查（ADR 0044）：每天（东京时间）最多调用谷歌几次（两者合计）；0 = 不调用 */
   places: { dailyLimit: number };
+  /** 官网路线小地图（ADR 0072）：每天（东京时间）最多调用谷歌 Maps Static API 几次；0 = 不调用 */
+  staticMaps: { dailyLimit: number };
   /** 地图底图；这个环境没有配置时为 null */
   mapTiles: MapTilesConfig | null;
   /** 汇率：数据源地址、跨币种缓冲（基点整数，150 = 1.5%）、服务进程是否定时拉取 */
@@ -428,6 +435,7 @@ const DEFAULT_GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/place
 const DEFAULT_GOOGLE_GEOCODE_URL = "https://geocode.googleapis.com/v4beta/geocode/location";
 const DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete";
 const DEFAULT_GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
+const DEFAULT_GOOGLE_STATIC_MAPS_URL = "https://maps.googleapis.com/maps/api/staticmap";
 
 /**
  * 「测试一下」和收款连到哪里（ADR 0041）。正式的地址是默认值；只有 local / ci 可以改到本机的假服务器上（端到端测试用），
@@ -438,7 +446,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const routesUrl = env.GOOGLE_MAPS_ROUTES_URL ?? DEFAULT_GOOGLE_MAPS_ROUTES_URL;
   if (routesUrl !== DEFAULT_GOOGLE_MAPS_ROUTES_URL && !local) issues.push(`${env.APP_ENV} 环境不能修改 GOOGLE_MAPS_ROUTES_URL（只给本机和 CI 的测试用）`);
   if (!URL.canParse(routesUrl)) issues.push("GOOGLE_MAPS_ROUTES_URL 不是合法的网址");
-  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_PLACES_AUTOCOMPLETE_URL" | "GOOGLE_PLACE_DETAILS_URL" | "GOOGLE_GEOCODE_URL", fallback: string): string => {
+  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_PLACES_AUTOCOMPLETE_URL" | "GOOGLE_PLACE_DETAILS_URL" | "GOOGLE_GEOCODE_URL" | "GOOGLE_STATIC_MAPS_URL", fallback: string): string => {
     const value = env[name] ?? fallback;
     if (value !== fallback && !local) issues.push(`${env.APP_ENV} 环境不能修改 ${name}（只给本机和 CI 的测试用）`);
     if (!URL.canParse(value)) issues.push(`${name} 不是合法的网址`);
@@ -448,6 +456,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const geocodeUrl = fixed("GOOGLE_GEOCODE_URL", DEFAULT_GOOGLE_GEOCODE_URL);
   const autocompleteUrl = fixed("GOOGLE_PLACES_AUTOCOMPLETE_URL", DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL);
   const detailsUrl = fixed("GOOGLE_PLACE_DETAILS_URL", DEFAULT_GOOGLE_PLACE_DETAILS_URL);
+  const staticMapsUrl = fixed("GOOGLE_STATIC_MAPS_URL", DEFAULT_GOOGLE_STATIC_MAPS_URL);
   let stripeApi: IntegrationEndpoints["stripeApi"] = null;
   if (env.STRIPE_API_URL !== undefined) {
     if (!local) issues.push(`${env.APP_ENV} 环境不能配置 STRIPE_API_URL（只给本机和 CI 的测试用）`);
@@ -458,7 +467,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
       stripeApi = { host: url.hostname, port: url.port === "" ? (protocol === "https" ? 443 : 80) : Number(url.port), protocol };
     }
   }
-  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, stripeApi };
+  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, googleStaticMapsUrl: staticMapsUrl, stripeApi };
 }
 
 /** 从环境变量构建配置；有任何问题都抛出 ConfigError，列出全部问题。 */
@@ -510,6 +519,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     smtp,
     routes: { dailyLimit: env.GOOGLE_ROUTES_DAILY_LIMIT },
     places: { dailyLimit: env.GOOGLE_PLACES_DAILY_LIMIT },
+    staticMaps: { dailyLimit: env.GOOGLE_STATIC_MAPS_DAILY_LIMIT },
     mapTiles,
     fx: { sourceUrl: env.FX_SOURCE_URL, bufferBp: env.FX_BUFFER_PERCENT, autoFetch: env.FX_AUTO_FETCH === "true" },
     quote: { defaultMarkupBp: env.QUOTE_DEFAULT_MARKUP_BP },

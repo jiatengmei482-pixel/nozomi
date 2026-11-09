@@ -42,6 +42,8 @@ import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
+import { fetchStaticMap } from "./integrations/google-static-maps.ts";
+import { GoogleStaticMapService } from "./services/static-maps.ts";
 import { autocompletePlaces, placeDetails, reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
 import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
@@ -221,9 +223,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(response.statusCode).send(response.body);
   });
 
-  // 带令牌或账号数据的响应不允许被任何缓存保存
+  // 带令牌或账号数据的响应不允许被任何缓存保存。唯一的例外是官网路线小地图的图片（不含任何个人或账号数据，ADR 0072）：成功时由接口自己给 `private, max-age=86400`
   app.addHook("onSend", async (request, reply) => {
     const path = pathOnly(request.url);
+    if (reply.statusCode === 200 && request.routeOptions.url === "/site/v1/route-map") return;
     if (path.startsWith("/platform/") || path.startsWith("/tenant/") || path.startsWith("/sales/") || path.startsWith("/driver/") || path.startsWith("/site/")) reply.header("cache-control", "no-store");
   });
 
@@ -278,6 +281,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     log: app.log,
     ...(deps.routePreviewCacheTtlMs === undefined ? {} : { previewCacheTtlMs: deps.routePreviewCacheTtlMs }),
   });
+  // 官网路线小地图（ADR 0072）：同样每次现取生效的谷歌密钥；路线折线和按两个坐标报价共用，每日上限单独计
+  const routeMap = new GoogleStaticMapService({
+    pool,
+    now,
+    apiKey: () => secretCache.effective.googleMaps.apiKey,
+    dailyLimit: config.staticMaps.dailyLimit,
+    routes,
+    fetch: (apiKey, query, beforeAttempt) => fetchStaticMap(apiKey, query, { url: config.integrationEndpoints.googleStaticMapsUrl, beforeAttempt }),
+    log: app.log,
+  });
   // 官网的地址搜索和反查（ADR 0044）：同样每次现取生效的谷歌密钥；每日上限和路线分开计
   const places = new GooglePlaceSearch({
     pool,
@@ -307,6 +320,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
     places,
     routePreview: routes,
+    routeMap,
   };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);
