@@ -53,6 +53,8 @@ export * from "./billing.ts";
 export * from "./audit.ts";
 export * from "./route-estimate.ts";
 export * from "./place-search.ts";
+export * from "./place-match.ts";
+export * from "./points-trip.ts";
 export * from "./bank-transfer.ts";
 export * from "./view-link.ts";
 export * from "./passenger-email-review.ts";

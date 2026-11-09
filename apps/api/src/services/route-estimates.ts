@@ -7,9 +7,12 @@
  * → 成功的写缓存（7 天），没有路线 / 坐标无效也写（1 天）；失败记进今天的计数和「最近一次失败」，按原因冷却一会儿。
  *
  * 永远不抛异常：结果是路线（带来源），或取不到的原因代码。日志只记原因代码，不记密钥和谷歌返回的原文。
+ *
+ * 给客人看的路线（`preview`，M8-02，ADR 0069 B11）：按两个坐标报价时顺带算「约 X 分钟 · Y 公里」和路线折线。同一个缓存键、同一把密钥的冷却、同一个每日上限（`GOOGLE_ROUTES_DAILY_LIMIT`），
+ * 但要折线，所以不读库里的缓存（库里只有里程和时长）：进程内保留 10 分钟（`ROUTE_RULES.previewCacheTtlMs`，折线不存库），调到的里程和时长照样写进库里的缓存给报价用。
  */
 import { createHash } from "node:crypto";
-import { type LatLng, type RouteCacheKey, type RouteFailureCode, type RouteLookup, routeCacheExpiry, routeCacheKey, routeCallAllowed, routeFailureCacheable, routeFailureCooldownMs, routeMinutesFromSeconds, routeUsageDay } from "@nozomi/domain";
+import { type LatLng, type RouteCacheKey, type RouteFailureCode, type RouteLookup, ROUTE_RULES, routeCacheExpiry, routeCacheKey, routeCallAllowed, routeFailureCacheable, routeFailureCooldownMs, routeMinutesFromSeconds, routeUsageDay } from "@nozomi/domain";
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
 import type { ComputedRoute } from "../integrations/google-maps.ts";
@@ -30,10 +33,29 @@ export interface GoogleRouteEstimatorDeps {
   apiKey: () => string | null;
   /** 每天最多调用几次（配置 `GOOGLE_ROUTES_DAILY_LIMIT`） */
   dailyLimit: number;
-  /** 调一次谷歌（`integrations/google-maps.ts` 的 `computeRoute`）；`beforeAttempt` 每次发请求前调用 */
-  compute: (apiKey: string, from: LatLng, to: LatLng, beforeAttempt: () => Promise<boolean>) => Promise<ComputedRoute>;
+  /** 调一次谷歌（`integrations/google-maps.ts` 的 `computeRoute`）；`beforeAttempt` 每次发请求前调用；`polyline` 为 true 时多要路线折线 */
+  compute: (apiKey: string, from: LatLng, to: LatLng, beforeAttempt: () => Promise<boolean>, polyline?: boolean) => Promise<ComputedRoute>;
   log: RouteEstimatorLog;
+  /** 给客人看的路线在进程内保留多久（毫秒）；不给用 `ROUTE_RULES.previewCacheTtlMs`。测试用它验证过期 */
+  previewCacheTtlMs?: number;
 }
+
+/** 给客人看的路线：约多少分钟（四舍五入）、多少米、路线折线（谷歌的 encoded polyline；取不到为 null）。 */
+export interface RoutePreview {
+  minutes: number;
+  meters: number;
+  polyline: string | null;
+}
+
+export type RoutePreviewLookup = { ok: true; route: RoutePreview; source: "cache" | "google" | "same_point" } | { ok: false; code: RouteFailureCode };
+
+/** 按两个坐标报价时顺带给客人看的路线（ADR 0069 B11）。实现应当自己处理超时和错误，永远不抛异常。 */
+export interface RoutePreviewer {
+  preview(input: { from: LatLng; to: LatLng }): Promise<RoutePreviewLookup>;
+}
+
+/** 不接路线服务时：一律「没有配置」（只给不经 buildApp 的测试上下文用）。 */
+export const NO_ROUTE_PREVIEW: RoutePreviewer = { preview: async () => ({ ok: false, code: "NOT_CONFIGURED" }) };
 
 const fail = (code: RouteFailureCode): RouteLookup => ({ ok: false, code });
 
@@ -46,10 +68,13 @@ function fingerprint(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
 }
 
-export class GoogleRouteEstimator implements RouteEstimator {
+export class GoogleRouteEstimator implements RouteEstimator, RoutePreviewer {
   readonly #deps: GoogleRouteEstimatorDeps;
   /** 正在查的缓存键：同一组起终点同时来几次，只查一次、只调一次谷歌 */
   readonly #inflight = new Map<string, Promise<RouteLookup>>();
+  readonly #previewInflight = new Map<string, Promise<RoutePreviewLookup>>();
+  /** 给客人看的路线：缓存键 → 路线和到期时刻（单调时钟）；先进先出，最多 `ROUTE_RULES.previewCacheMaxEntries` 条 */
+  readonly #previews = new Map<string, { route: RoutePreview; until: number }>();
   /** 上一次失败带来的冷却：哪把密钥、什么原因、到什么时候（单调时钟） */
   #cooldown: { key: string; code: RouteFailureCode; until: number; day: string } | null = null;
 
@@ -68,15 +93,54 @@ export class GoogleRouteEstimator implements RouteEstimator {
   }
 
   async #lookup(cacheKey: RouteCacheKey): Promise<RouteLookup> {
-    const { pool, log } = this.#deps;
     try {
-      const cached = await withPlatformTx(pool, (db) => findRouteEstimate(db, cacheKey.key, this.#deps.now()), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS });
+      const cached = await withPlatformTx(this.#deps.pool, (db) => findRouteEstimate(db, cacheKey.key, this.#deps.now()), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS });
       if (cached !== null) return fromCached(cached, "cache");
     } catch (err) {
-      log.warn({ err }, "读路线缓存失败，直接问谷歌");
+      this.#deps.log.warn({ err }, "读路线缓存失败，直接问谷歌");
     }
+    const result = await this.#call(cacheKey, false);
+    return result.ok ? fromCached(result, "google") : fail(result.code);
+  }
+
+  /** 给客人看的路线（时间、距离、折线）：进程内 10 分钟缓存 → 同一个键并发只调一次 → 调谷歌（冷却、每日上限和报价的路线预估共用）。 */
+  preview(input: { from: LatLng; to: LatLng }): Promise<RoutePreviewLookup> {
+    const cacheKey = routeCacheKey(input.from, input.to);
+    if (cacheKey.samePoint) return Promise.resolve({ ok: true, route: { minutes: 0, meters: 0, polyline: null }, source: "same_point" });
+    const hit = this.#previews.get(cacheKey.key);
+    if (hit !== undefined && performance.now() < hit.until) return Promise.resolve({ ok: true, route: hit.route, source: "cache" });
+    if (hit !== undefined) this.#previews.delete(cacheKey.key);
+    const running = this.#previewInflight.get(cacheKey.key);
+    if (running !== undefined) return running;
+    const lookup = this.#call(cacheKey, true)
+      .then((result): RoutePreviewLookup => {
+        if (!result.ok) return { ok: false, code: result.code };
+        const route: RoutePreview = { minutes: routeMinutesFromSeconds(result.seconds), meters: result.meters, polyline: result.polyline ?? null };
+        this.#rememberPreview(cacheKey.key, route);
+        return { ok: true, route, source: "google" };
+      })
+      .finally(() => this.#previewInflight.delete(cacheKey.key));
+    this.#previewInflight.set(cacheKey.key, lookup);
+    return lookup;
+  }
+
+  #rememberPreview(key: string, route: RoutePreview): void {
+    const ttl = this.#deps.previewCacheTtlMs ?? ROUTE_RULES.previewCacheTtlMs;
+    if (ttl <= 0) return;
+    this.#previews.delete(key);
+    while (this.#previews.size >= ROUTE_RULES.previewCacheMaxEntries) {
+      const oldest = this.#previews.keys().next().value;
+      if (oldest === undefined) break;
+      this.#previews.delete(oldest);
+    }
+    this.#previews.set(key, { route, until: performance.now() + ttl });
+  }
+
+  /** 调一次谷歌（冷却、占每日名额、记结果和库里的缓存）。 */
+  async #call(cacheKey: RouteCacheKey, polyline: boolean): Promise<ComputedRoute> {
+    const { pool, log } = this.#deps;
     const apiKey = this.#deps.apiKey();
-    if (apiKey === null) return fail("NOT_CONFIGURED");
+    if (apiKey === null) return { ok: false, code: "NOT_CONFIGURED" };
     const keyId = fingerprint(apiKey);
     const cooling = this.#cooldown;
     // 冷却只在记下它的那一天（东京时间）有效：0 点换了新的一天，前一天的「到了上限」不再挡人，也不记到新的一天
@@ -85,7 +149,7 @@ export class GoogleRouteEstimator implements RouteEstimator {
       if (cooling.code === "DAILY_LIMIT_REACHED") {
         await withPlatformTx(pool, (db) => recordRouteRefused(db, routeUsageDay(this.#deps.now())), { queryTimeoutMs: ROUTE_DB_TIMEOUT_MS }).catch((err: unknown) => log.warn({ err }, "记「被挡下」失败"));
       }
-      return fail(cooling.code);
+      return { ok: false, code: cooling.code };
     }
 
     const day = routeUsageDay(this.#deps.now());
@@ -100,14 +164,14 @@ export class GoogleRouteEstimator implements RouteEstimator {
         return false;
       }
     };
-    const computed = await this.#deps.compute(apiKey, cacheKey.from, cacheKey.to, beforeAttempt);
+    const computed = polyline ? await this.#deps.compute(apiKey, cacheKey.from, cacheKey.to, beforeAttempt, true) : await this.#deps.compute(apiKey, cacheKey.from, cacheKey.to, beforeAttempt);
     const result: ComputedRoute = !computed.ok && computed.code === "DAILY_LIMIT_REACHED" && reserveFailed ? { ok: false, code: "UNAVAILABLE" } : computed;
     const at = this.#deps.now();
 
     if (!result.ok) {
       const cooldownMs = routeFailureCooldownMs(result.code);
       if (cooldownMs > 0) this.#cooldown = { key: keyId, code: result.code, until: performance.now() + cooldownMs, day };
-      log.warn({ routeFailure: result.code }, "路线预估取不到（谷歌地图），用得到它的商品暂时无法报价");
+      log.warn({ routeFailure: result.code }, polyline ? "给客人看的路线取不到（谷歌地图），页面不显示时间和距离" : "路线预估取不到（谷歌地图），用得到它的商品暂时无法报价");
     } else if (this.#cooldown?.key === keyId) {
       this.#cooldown = null;
     }
@@ -125,6 +189,6 @@ export class GoogleRouteEstimator implements RouteEstimator {
     } catch (err) {
       log.warn({ err }, "写路线缓存或调用计数失败（这次的结果照常使用）");
     }
-    return result.ok ? fromCached(result, "google") : fail(result.code);
+    return result;
   }
 }

@@ -41,7 +41,7 @@ import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
 import { GoogleRouteEstimator } from "./services/route-estimates.ts";
-import { reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
+import { autocompletePlaces, placeDetails, reverseGeocode, searchPlaces } from "./integrations/google-places.ts";
 import { GooglePlaceSearch } from "./services/place-search.ts";
 import { type IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import { registerIntegrationSecretRoutes } from "./routes/integration-secrets.ts";
@@ -95,8 +95,10 @@ export interface AppDeps {
   integrationSecretsTtlMs?: number;
   /** 发邮件的替身（只给测试：本机假 SMTP 的证书、缩短的时限）；不给时用真的，回环地址只有 local / ci 放行 */
   mailer?: Mailer;
-  /** 官网地址搜索、反查的进程内短时缓存保留多久（毫秒，ADR 0044）；不给用 10 分钟。测试用它验证过期 */
+  /** 官网地址搜索、反查、输入即提示的进程内短时缓存保留多久（毫秒，ADR 0044、0069）；不给用 10 分钟。测试用它验证过期 */
   placeCacheTtlMs?: number;
+  /** 按两个坐标报价时给客人看的路线在进程内保留多久（毫秒，ADR 0069 B11）；不给用 10 分钟。测试用它验证过期 */
+  routePreviewCacheTtlMs?: number;
   /** 是否启动后台定时任务（汇率定时拉取和过期告警、待支付超时取消、Webhook 投递、供应商每日检查、供应商账单、通知发送）。只有服务进程（server.ts）打开；测试直接调 `FxCenter.tick`、`OrderJobs.tick` */
   jobs?: boolean;
 }
@@ -271,8 +273,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     now,
     apiKey: () => secretCache.effective.googleMaps.apiKey,
     dailyLimit: config.routes.dailyLimit,
-    compute: (apiKey, from, to, beforeAttempt) => computeRoute(apiKey, from, to, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt }),
+    compute: (apiKey, from, to, beforeAttempt, polyline = false) => computeRoute(apiKey, from, to, { url: config.integrationEndpoints.googleMapsRoutesUrl, beforeAttempt, polyline }),
     log: app.log,
+    ...(deps.routePreviewCacheTtlMs === undefined ? {} : { previewCacheTtlMs: deps.routePreviewCacheTtlMs }),
   });
   // 官网的地址搜索和反查（ADR 0044）：同样每次现取生效的谷歌密钥；每日上限和路线分开计
   const places = new GooglePlaceSearch({
@@ -282,6 +285,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     dailyLimit: config.places.dailyLimit,
     search: (apiKey, request, beforeAttempt) => searchPlaces(apiKey, request, { url: config.integrationEndpoints.googlePlacesSearchUrl, beforeAttempt }),
     reverse: (apiKey, point, regionCode, beforeAttempt) => reverseGeocode(apiKey, point, regionCode, { url: config.integrationEndpoints.googleGeocodeUrl, beforeAttempt }),
+    autocomplete: (apiKey, request, beforeAttempt) => autocompletePlaces(apiKey, request, { url: config.integrationEndpoints.googlePlacesAutocompleteUrl, beforeAttempt }),
+    details: (apiKey, placeId, sessionToken, beforeAttempt) => placeDetails(apiKey, placeId, sessionToken, { url: config.integrationEndpoints.googlePlaceDetailsUrl, beforeAttempt }),
     log: app.log,
     ...(deps.placeCacheTtlMs === undefined ? {} : { cacheTtlMs: deps.placeCacheTtlMs }),
   });
@@ -300,6 +305,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     secretBox,
     webhookSender: deps.webhookSender ?? new HttpsWebhookSender(),
     places,
+    routePreview: routes,
   };
   const orderJobs = new OrderJobs(context, app.log);
   app.decorate("orderJobs", orderJobs);

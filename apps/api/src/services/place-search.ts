@@ -6,14 +6,16 @@
  * → 这把密钥在冷却中就直接按上次的原因降级 → 调谷歌（每次真正发请求前占一个今天的名额，到了每日上限不发）
  * → 失败记进今天的计数和「最近一次失败」，按原因冷却一会儿。
  *
+ * 输入即提示（M8-02，ADR 0069 B1）：`autocomplete`（键：渠道授权范围 + 关键字，不含会话令牌）和选中后的 `details`（键：地点 ID）走同一套缓存、并发、冷却和每日上限。
+ *
  * 永远不抛异常：结果是候选地点 / 地址，或原因代码。客人只看到「暂时用不了」，页面退回常用地点、地图点选和手填。
  * 日志只记原因代码，不记密钥、关键字、坐标和谷歌返回的原文。
  */
 import { createHash } from "node:crypto";
-import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, PLACE_SEARCH_RULES, placeFailureCooldownMs, placeReverseKey, placeSearchCacheKey, routeCallAllowed, routeUsageDay } from "@nozomi/domain";
+import { type LatLng, type LatLngBounds, type PlaceCandidate, type PlaceFailureCode, type PlacePrediction, PLACE_SEARCH_RULES, placeAutocompleteCacheKey, placeDetailsCacheKey, placeFailureCooldownMs, placeReverseKey, placeSearchCacheKey, routeCallAllowed, routeUsageDay } from "@nozomi/domain";
 import { withPlatformTx } from "../db/context.ts";
 import type { Pool } from "../db/pool.ts";
-import type { PlaceCallResult, PlaceSearchRequest } from "../integrations/google-places.ts";
+import type { PlaceAutocompleteRequest, PlaceCallResult, PlaceDetails, PlaceSearchRequest } from "../integrations/google-places.ts";
 import { recordPlaceOutcome, recordPlaceRefused, reservePlaceCall } from "../repos/place-search.ts";
 
 /** 读写计数的每条查询最多等多久（毫秒） */
@@ -36,6 +38,10 @@ export interface GooglePlaceSearchDeps {
   search: (apiKey: string, request: PlaceSearchRequest, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<PlaceCandidate[]>>;
   /** 调谷歌反查（`reverseGeocode`） */
   reverse: (apiKey: string, point: LatLng, regionCode: string, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<string | null>>;
+  /** 调谷歌输入即提示（`autocompletePlaces`） */
+  autocomplete: (apiKey: string, request: PlaceAutocompleteRequest, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<PlacePrediction[]>>;
+  /** 调谷歌取一个地点的坐标和类型（`placeDetails`） */
+  details: (apiKey: string, placeId: string, sessionToken: string | null, beforeAttempt: () => Promise<boolean>) => Promise<PlaceCallResult<PlaceDetails>>;
   log: PlaceSearchLog;
   /** 进程内短时缓存保留多久（毫秒）；不给用 `PLACE_SEARCH_RULES.cacheTtlMs`。测试用它验证过期 */
   cacheTtlMs?: number;
@@ -64,11 +70,27 @@ export class GooglePlaceSearch {
     return this.#deps.apiKey() !== null && this.#deps.dailyLimit > 0;
   }
 
-  /** 按关键字（已规范化、长短合格）在城市附近搜。 */
-  search(input: { cityId: string; query: string; bounds: LatLngBounds; regionCode: string }): Promise<PlaceLookup<PlaceCandidate[]>> {
+  /**
+   * 按关键字（已规范化、长短合格）在城市附近搜。`cityId` 是缓存键里的范围：带城市时是城市编号，不带城市时是渠道授权范围的标识（M8-02）；
+   * `accept` 是范围里的结果再筛一遍（不带城市时：在不在某个授权城市的范围里）。
+   */
+  search(input: { cityId: string; query: string; bounds: LatLngBounds; regionCode: string | null; accept?: (location: LatLng) => boolean }): Promise<PlaceLookup<PlaceCandidate[]>> {
     const key = placeSearchCacheKey(input.cityId, input.query);
-    const request: PlaceSearchRequest = { query: input.query, bounds: input.bounds, regionCode: input.regionCode };
+    const request: PlaceSearchRequest = { query: input.query, bounds: input.bounds, regionCode: input.regionCode, ...(input.accept === undefined ? {} : { accept: input.accept }) };
     return this.#once(key, (apiKey, beforeAttempt) => this.#deps.search(apiKey, request, beforeAttempt)) as Promise<PlaceLookup<PlaceCandidate[]>>;
+  }
+
+  /** 输入即提示：`scope` 是渠道授权范围的标识（缓存键用），会话令牌照传给谷歌但不进缓存键。 */
+  autocomplete(input: { scope: string; query: string; sessionToken: string; regionCodes: readonly string[]; bounds: LatLngBounds | null }): Promise<PlaceLookup<PlacePrediction[]>> {
+    const key = placeAutocompleteCacheKey(input.scope, input.query);
+    const request: PlaceAutocompleteRequest = { query: input.query, sessionToken: input.sessionToken, regionCodes: input.regionCodes, bounds: input.bounds };
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.autocomplete(apiKey, request, beforeAttempt)) as Promise<PlaceLookup<PlacePrediction[]>>;
+  }
+
+  /** 选中的地点的坐标、地址、类型（地点 ID 已核对过格式）。 */
+  details(input: { placeId: string; sessionToken: string | null }): Promise<PlaceLookup<PlaceDetails>> {
+    const key = placeDetailsCacheKey(input.placeId);
+    return this.#once(key, (apiKey, beforeAttempt) => this.#deps.details(apiKey, input.placeId, input.sessionToken, beforeAttempt)) as Promise<PlaceLookup<PlaceDetails>>;
   }
 
   /** 查一个坐标的地址（坐标先取整，调谷歌也用取整后的）。没有地址是 `value: null`。 */

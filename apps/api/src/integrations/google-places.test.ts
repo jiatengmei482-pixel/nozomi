@@ -7,7 +7,22 @@ import assert from "node:assert/strict";
 import { type IncomingMessage, type Server, createServer } from "node:http";
 import { cityBounds } from "@nozomi/domain";
 import { MAX_RESPONSE_BYTES } from "./google-maps.ts";
-import { PLACE_SEARCH_FIELD_MASK, REVERSE_FIELD_MASK, parsePlaceSearch, parseReverse, reverseGeocode, reverseGeocodeUrl, searchPlaces } from "./google-places.ts";
+import {
+  PLACE_AUTOCOMPLETE_FIELD_MASK,
+  PLACE_DETAILS_FIELD_MASK,
+  PLACE_SEARCH_FIELD_MASK,
+  REVERSE_FIELD_MASK,
+  autocompletePlaces,
+  parsePlaceAutocomplete,
+  parsePlaceDetails,
+  parsePlaceSearch,
+  parseReverse,
+  placeDetails,
+  placeDetailsUrl,
+  reverseGeocode,
+  reverseGeocodeUrl,
+  searchPlaces,
+} from "./google-places.ts";
 
 interface Seen {
   method: string;
@@ -68,13 +83,13 @@ const reverse = (reply: Reply | (() => Reply), options: Partial<Parameters<typeo
   return reverseGeocode(KEY, { lat: 35.6812, lng: 139.7671 }, "JP", { url: `${origin}/v4beta/geocode/location`, ...options });
 };
 
-test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址、坐标；结果限制在城市范围里、最多 5 条、中文；密钥只在请求头", async () => {
-  const result = await search({ status: 200, body: { places: [place("ChIJa", "東京駅", 35.6812, 139.7671), place("ChIJb", "ホテル", 35.68, 139.76, "日本東京都中央区")] } });
+test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址、坐标、主类型；结果限制在城市范围里、最多 5 条、中文；密钥只在请求头；主类型是机场的 kind 为 airport", async () => {
+  const result = await search({ status: 200, body: { places: [place("ChIJa", "東京駅", 35.6812, 139.7671), { ...(place("ChIJb", "羽田空港", 35.55, 139.78, "日本東京都大田区") as object), primaryType: "international_airport" }] } });
   assert.deepEqual(result, {
     ok: true,
     value: [
-      { id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 } },
-      { id: "ChIJb", name: "ホテル", address: "日本東京都中央区", location: { lat: 35.68, lng: 139.76 } },
+      { id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 }, kind: "other" },
+      { id: "ChIJb", name: "羽田空港", address: "日本東京都大田区", location: { lat: 35.55, lng: 139.78 }, kind: "airport" },
     ],
   });
   assert.equal(seen.length, 1);
@@ -83,7 +98,7 @@ test("搜索成功：POST Text Search，字段掩码只要 ID、名称、地址�
   assert.equal(request.path, "/v1/places:searchText");
   assert.equal(request.headers["x-goog-api-key"], KEY);
   assert.equal(request.headers["x-goog-fieldmask"], PLACE_SEARCH_FIELD_MASK);
-  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location");
+  assert.equal(PLACE_SEARCH_FIELD_MASK, "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
   assert.ok(!request.path.includes(KEY) && !request.body.includes(KEY));
   assert.deepEqual(JSON.parse(request.body), {
     textQuery: "东京站 酒店",
@@ -207,4 +222,96 @@ test("每日上限：发请求之前问一次，不允许就不发（DAILY_LIMIT
   asked = 0;
   assert.deepEqual(await reverse({ status: 503, body: {} }, { beforeAttempt: async () => ++asked === 1 }), { ok: false, code: "UNAVAILABLE" });
   assert.deepEqual([seen.length, asked], [1, 2]);
+});
+
+test("不带城市的搜索（M8-02）：没有国家时不给 regionCode；范围里的结果再按 accept 筛一遍", async () => {
+  seen.length = 0;
+  handler = () => ({ status: 200, body: { places: [place("ChIJin", "在城市里", 35.68, 139.76), place("ChIJout", "在矩形里、不在城市里", 35.6, 139.7)] } });
+  const result = await searchPlaces(KEY, { query: "酒店 甲", bounds: BOUNDS, regionCode: null, accept: (location) => location.lat > 35.65 }, { url: `${origin}/v1/places:searchText` });
+  assert.deepEqual(result.ok && result.value.map((item) => item.id), ["ChIJin"]);
+  const body = JSON.parse((seen[0] as Seen).body) as Record<string, unknown>;
+  assert.equal("regionCode" in body, false);
+  assert.equal(body["textQuery"], "酒店 甲");
+});
+
+const autocomplete = (reply: Reply, regionCodes: string[] = ["JP"]): ReturnType<typeof autocompletePlaces> => {
+  seen.length = 0;
+  handler = () => reply;
+  return autocompletePlaces(KEY, { query: "東京 ヒルトン", sessionToken: "3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab", regionCodes, bounds: BOUNDS }, { url: `${origin}/v1/places:autocomplete` });
+};
+const prediction = (placeId: unknown, main: unknown, secondary: unknown, types: unknown = ["lodging"]): unknown => ({ placePrediction: { placeId, text: { text: `${String(main)}, ${String(secondary)}` }, structuredFormat: { mainText: { text: main }, secondaryText: { text: secondary } }, types } });
+
+test("输入即提示（M8-02）：POST Autocomplete，带会话令牌、只要地点预测的几个字段、中文、只要授权的国家和范围；密钥只在请求头", async () => {
+  const result = await autocomplete({ status: 200, body: { suggestions: [prediction("ChIJh", "ヒルトン東京", "日本、東京都新宿区"), prediction("ChIJa", "羽田空港", "日本、東京都大田区", ["airport", "point_of_interest"])] } });
+  assert.deepEqual(result, {
+    ok: true,
+    value: [
+      { id: "ChIJh", name: "ヒルトン東京", address: "日本、東京都新宿区", kind: "other" },
+      { id: "ChIJa", name: "羽田空港", address: "日本、東京都大田区", kind: "airport" },
+    ],
+  });
+  const [request] = seen as [Seen];
+  assert.equal(request.method, "POST");
+  assert.equal(request.path, "/v1/places:autocomplete");
+  assert.equal(request.headers["x-goog-api-key"], KEY);
+  assert.equal(request.headers["x-goog-fieldmask"], PLACE_AUTOCOMPLETE_FIELD_MASK);
+  assert.ok(!request.path.includes(KEY) && !request.body.includes(KEY));
+  assert.deepEqual(JSON.parse(request.body), {
+    input: "東京 ヒルトン",
+    sessionToken: "3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab",
+    languageCode: "zh-CN",
+    includedRegionCodes: ["JP"],
+    locationRestriction: { rectangle: { low: { latitude: BOUNDS.low.lat, longitude: BOUNDS.low.lng }, high: { latitude: BOUNDS.high.lat, longitude: BOUNDS.high.lng } } },
+  });
+  await autocomplete({ status: 200, body: {} }, Array.from({ length: 20 }, (_, index) => `C${String.fromCharCode(65 + index)}`));
+  assert.equal((JSON.parse((seen[0] as Seen).body) as { includedRegionCodes: string[] }).includedRegionCodes.length, 15, "谷歌最多收 15 个国家");
+});
+
+test("输入即提示的应答：没有 suggestions 是没有候选；查询预测、缺 ID / 名称、ID 不合法、重复的丢掉；没有第二行时地址为空；最多 5 条；不是数组看不懂", () => {
+  assert.deepEqual(parsePlaceAutocomplete({}), { ok: true, value: [] });
+  assert.deepEqual(parsePlaceAutocomplete({ suggestions: {} }), { ok: false, code: "UNEXPECTED" });
+  const messy = parsePlaceAutocomplete({
+    suggestions: [
+      null,
+      { queryPrediction: { text: { text: "东京 酒店" } } },
+      prediction("bad id!", "坏 ID", "x"),
+      { placePrediction: { placeId: "ChIJ1", structuredFormat: { secondaryText: { text: "没有名称" } } } },
+      { placePrediction: { placeId: "ChIJ2", text: { text: "只有整段 文字" } } },
+      prediction("ChIJ2", "重复", "x"),
+      ...Array.from({ length: 8 }, (_, index) => prediction(`ChIJx${index}`, `第${index}个`, "东京")),
+    ],
+  });
+  assert.ok(messy.ok);
+  assert.deepEqual(
+    messy.value.map((entry) => [entry.id, entry.name, entry.address, entry.kind]),
+    [["ChIJ2", "只有整段 文字", "", "other"], ["ChIJx0", "第0个", "东京", "other"], ["ChIJx1", "第1个", "东京", "other"], ["ChIJx2", "第2个", "东京", "other"], ["ChIJx3", "第3个", "东京", "other"]],
+  );
+});
+
+test("取坐标（M8-02）：GET Place Details，地点 ID 在路径里、同一个会话令牌、中文；字段掩码是 Essentials 一档；类型是机场的 kind 为 airport", async () => {
+  seen.length = 0;
+  handler = () => ({ status: 200, body: { id: "ChIJa", formattedAddress: "日本、東京都大田区羽田空港", location: { latitude: 35.5494, longitude: 139.7798 }, types: ["international_airport", "airport"] } });
+  const result = await placeDetails(KEY, "ChIJa", "3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab", { url: `${origin}/v1/places` });
+  assert.deepEqual(result, { ok: true, value: { id: "ChIJa", address: "日本、東京都大田区羽田空港", location: { lat: 35.5494, lng: 139.7798 }, kind: "airport" } });
+  const [request] = seen as [Seen];
+  assert.equal(request.method, "GET");
+  assert.equal(request.path, "/v1/places/ChIJa?languageCode=zh-CN&sessionToken=3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab");
+  assert.equal(request.headers["x-goog-fieldmask"], PLACE_DETAILS_FIELD_MASK);
+  assert.equal(PLACE_DETAILS_FIELD_MASK, "id,formattedAddress,location,types");
+  assert.equal(request.headers["x-goog-api-key"], KEY);
+  assert.ok(!request.path.includes(KEY));
+  assert.equal(placeDetailsUrl("http://h/v1/places/", "ChIJb", null), "http://h/v1/places/ChIJb?languageCode=zh-CN");
+  assert.deepEqual(parsePlaceDetails({ id: "x" }, "ChIJa"), { ok: false, code: "UNEXPECTED" });
+  assert.deepEqual(parsePlaceDetails({ location: { latitude: 95, longitude: 139 } }, "ChIJa"), { ok: false, code: "UNEXPECTED" });
+  assert.deepEqual(parsePlaceDetails({ location: { latitude: 35, longitude: 139 } }, "ChIJa"), { ok: true, value: { id: "ChIJa", address: "", location: { lat: 35, lng: 139 }, kind: "other" } });
+});
+
+test("输入即提示、取坐标的失败和搜索一样归类：429 不重试、400 是请求无效、每日上限不发请求", async () => {
+  assert.deepEqual(await autocomplete({ status: 429, body: googleError(429, "RESOURCE_EXHAUSTED", "RATE_LIMIT_EXCEEDED") }), { ok: false, code: "QUOTA_EXCEEDED" });
+  assert.equal(seen.length, 1);
+  assert.deepEqual(await autocomplete({ status: 400, body: googleError(400, "INVALID_ARGUMENT", null) }), { ok: false, code: "INVALID_REQUEST" });
+  seen.length = 0;
+  handler = () => ({ status: 200, body: {} });
+  assert.deepEqual(await placeDetails(KEY, "ChIJa", null, { url: `${origin}/v1/places`, beforeAttempt: async () => false }), { ok: false, code: "DAILY_LIMIT_REACHED" });
+  assert.equal(seen.length, 0);
 });

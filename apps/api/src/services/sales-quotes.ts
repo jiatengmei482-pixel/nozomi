@@ -97,6 +97,11 @@ export interface SalesQuote {
   fx: { rate: string; asOf: string } | null;
   freeWaitMinutes: number | null;
   urgent: boolean;
+  /**
+   * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
+   * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
+   */
+  offeredAddonIds?: string[];
 }
 
 export interface SalesQuoteResult {
@@ -190,7 +195,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   );
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
-  const result: SalesQuoteResult = { quotes: snapshots.map(toSalesQuote), unavailable: unavailable(preview, input.vehicleGroupIds) };
+  const result: SalesQuoteResult = { quotes: snapshots.map((snapshot) => ({ ...toSalesQuote(snapshot), offeredAddonIds: offeredAddonIds(preview, snapshot) })), unavailable: unavailable(preview, input.vehicleGroupIds) };
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
@@ -231,6 +236,19 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
     }
   });
   return result;
+}
+
+/** 参加了这个车型组比价的候选商品提供的附加服务（开着、目录里启用、适用这个品类）。 */
+function offeredAddonIds(preview: PlatformQuotePreview, snapshot: StoredQuoteSnapshot): string[] {
+  const ids = new Set<string>();
+  for (const bidder of snapshot.candidates) {
+    const product = preview.candidates.find((candidate) => candidate.product.productId === bidder.productId)?.product;
+    if (product === undefined) continue;
+    for (const addon of product.serviceRules.addons) {
+      if (addon.enabled && product.addonCatalog.some((entry) => entry.addonId === addon.addonId && entry.usable)) ids.add(addon.addonId);
+    }
+  }
+  return [...ids].sort();
 }
 
 /** 询价日志里的路线（ADR 0042）：用没用到、来源和里程时长，或取不到的原因代码（降级原因）。 */

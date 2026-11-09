@@ -33,6 +33,7 @@ const airport = { id: AIRPORT_ID, code: "NRT", name: { zh: "成田机场" }, loc
 const tiers = [{ min_hours_before: 48, fee_bp: 0 }, { min_hours_before: 24, fee_bp: 5000 }, { min_hours_before: 0, fee_bp: 10000 }];
 const quote: SiteQuote = {
   quote_id: "QT20261026ABCDEFGHIJ",
+  available_addons: [],
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   service_date: "2026-11-20",
   urgent: false,

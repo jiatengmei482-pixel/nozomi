@@ -5,7 +5,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { type IncomingMessage, type Server, createServer } from "node:http";
-import { MAX_RESPONSE_BYTES, ROUTE_FIELD_MASK, computeRoute } from "./google-maps.ts";
+import { MAX_RESPONSE_BYTES, ROUTE_FIELD_MASK, ROUTE_PREVIEW_FIELD_MASK, computeRoute } from "./google-maps.ts";
 
 interface Seen {
   path: string;
@@ -158,4 +158,15 @@ test("每日上限：发请求之前问一次，不允许就不发（DAILY_LIMIT
   assert.deepEqual(await run({ status: 503, body: {} }, { beforeAttempt: async () => ++asked === 1 }), { ok: false, code: "UNAVAILABLE" });
   assert.equal(seen.length, 1);
   assert.equal(asked, 2);
+});
+
+test("给客人看的路线（M8-02）：多要路线折线（仍是 Essentials 一档）；折线看不懂、太长时为 null，里程和时长照常；不要折线时应答里的折线不读", async () => {
+  const body = { routes: [{ distanceMeters: 6_812, duration: "1085s", polyline: { encodedPolyline: "_p~iF~ps|U_ulLnnqC" } }] };
+  assert.deepEqual(await run({ status: 200, body }, { polyline: true }), { ok: true, meters: 6_812, seconds: 1_085, polyline: "_p~iF~ps|U_ulLnnqC" });
+  assert.equal((seen[0] as Seen).headers["x-goog-fieldmask"], ROUTE_PREVIEW_FIELD_MASK);
+  assert.equal(ROUTE_PREVIEW_FIELD_MASK, "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline");
+  assert.deepEqual(await run({ status: 200, body: { routes: [{ distanceMeters: 10, duration: "60s", polyline: { encodedPolyline: "has space" } }] } }), { ok: true, meters: 10, seconds: 60 }, "不要折线时不带 polyline");
+  assert.deepEqual(await run({ status: 200, body: { routes: [{ distanceMeters: 10, duration: "60s", polyline: { encodedPolyline: "has space" } }] } }, { polyline: true }), { ok: true, meters: 10, seconds: 60, polyline: null });
+  assert.deepEqual(await run({ status: 200, body: { routes: [{ distanceMeters: 10, duration: "60s" }] } }, { polyline: true }), { ok: true, meters: 10, seconds: 60, polyline: null });
+  assert.deepEqual(await run({ status: 200, body: {} }, { polyline: true }), { ok: false, code: "NO_ROUTE" });
 });

@@ -26,6 +26,7 @@ const configOf = (changes: Partial<SiteConfig> = {}): SiteConfig => ({ open: tru
 const candidate = { id: "ChIJhotel", name: "东京站大饭店", address: "东京都千代田区丸之内 1-9-1", location: { lat: 35.6813, lng: 139.7662 } };
 const quote: SiteQuote = {
   quote_id: "QT20261026ABCDEFGHIJ",
+  available_addons: [],
   expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
   service_date: "2030-11-20",
   urgent: false,

@@ -9,7 +9,12 @@
  * - `GET /site/v1/cities/{id}/places`：地址输入辅助——城市里的机场、车站、地标（主数据，不调外部地图服务，M3-10）；
  * - `GET /site/v1/places/search`、`GET /site/v1/places/reverse`：地址搜索、地图上那一点的地址（后端代调谷歌，密钥不进浏览器；
  *   每个地址每分钟 20 次、每天 300 次；谷歌出问题时 200 + `available: false`，页面退回常用地点和手填，M3-12，ADR 0044）；
- * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
+ *   搜索可以不带城市（渠道授权的范围里搜），候选带类型（机场 / 其他），平台的机场、车站排在最前（M8-02，ADR 0069）；
+ * - `GET /site/v1/places/autocomplete`、`GET /site/v1/places/details`：输入即提示和选中后取坐标（谷歌 Autocomplete / Place Details，同一个会话令牌；
+ *   每个地址每分钟 60 次，和搜索、反查共用每天 300 次，M8-02，ADR 0069 B1）；
+ * - `GET /site/v1/fx/reference?to=`：订单币种 → 客人币种的参考汇率（只读汇率中心现在生效的汇率，只用于显示，M8-02，ADR 0069 B16）；
+ * - `POST /site/v1/quotes`：询价，三种品类，可带附加服务（每个地址每分钟 30 次；报价带「这个车型能加哪些附加服务」，M8-02）；
+ * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱，对上了把新链接发到下单邮箱（ADR 0061）。一律 202，不透露订单存不存在；
@@ -20,8 +25,9 @@
  * 只去掉落地信息里司机到达屏照片的文件编号（客人用不上）。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { CurrencyCode } from "@nozomi/domain";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -29,7 +35,31 @@ import { cancelForChannel, previewCancellation } from "../services/cancellations
 import { disputeExtraCharge } from "../services/extra-charges.ts";
 import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
-import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, placeSiteOrder, requestSiteOrderLink, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
+import {
+  type SiteLink,
+  type SitePlaceItem,
+  type SiteQuote,
+  type SiteQuoteInput,
+  type SiteQuoteResult,
+  type SiteTrip,
+  placeSiteOrder,
+  requestSiteOrderLink,
+  resolveSiteLink,
+  siteAirports,
+  siteAutocomplete,
+  siteCharterPackages,
+  siteCities,
+  siteConfig,
+  siteFxReference,
+  siteOrderExtras,
+  sitePlaceDetails,
+  sitePlaces,
+  siteQuotes,
+  siteQuotesByPoints,
+  siteReversePlace,
+  siteSearchPlaces,
+  takeSiteSlot,
+} from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
@@ -40,6 +70,16 @@ import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 type Json = Record<string, unknown>;
 
 const pointSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict();
+
+/**
+ * 客人选的附加服务和数量（M8-02，ADR 0069 B15）：照原样交给报价引擎。同一项写两次、数量超出范围由报价引擎报 400；
+ * 没有商品提供（或目录里没有这一项）的车型组报不出价（`ADDON_NOT_OFFERED`）。
+ */
+const addonsSchema = z
+  .array(z.object({ addon_id: uuidSchema, quantity: z.number().int().min(1).max(QUOTE_RULES.maxAddonQuantity).default(1) }).strict())
+  .max(QUOTE_RULES.maxAddonKinds)
+  .default([]);
+const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; quantity: number }[] => addons.map((addon) => ({ addonId: addon.addon_id, quantity: addon.quantity }));
 
 /**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
@@ -59,6 +99,7 @@ const quoteSchema = z
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
+    addons: addonsSchema,
   })
   .strict();
 
@@ -94,8 +135,48 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
   }
 }
 
-/** 地址搜索：城市 + 关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`）。 */
-const placeSearchSchema = z.object({ city_id: uuidSchema, q: z.string().max(400) }).strict();
+/** 地址搜索：关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`），城市可以不带（M8-02：在渠道授权的范围里搜）。 */
+const placeSearchSchema = z.object({ city_id: uuidSchema.optional(), q: z.string().max(400) }).strict();
+/** 输入即提示：关键字 + 浏览器生成的会话令牌（一次「输入 → 选中」同一个，见 domain 的 `isPlaceSessionToken`）。 */
+const sessionSchema = z.string().refine(isPlaceSessionToken, "会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID）");
+const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema }).strict();
+/** 输入即提示选中之后：谷歌的地点 ID + 同一个会话令牌（不给也行，按单次计费）。 */
+const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional() }).strict();
+
+/** 按两个坐标报价的一端：名称（客人看到的地址文字，只校验、不进日志）、坐标、地址搜索给的类型（手填的不给）。 */
+const tripEndSchema = z
+  .object({
+    name: singleLine(300).refine((value) => value.trim() !== "", "请填地址"),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    kind: z.enum(PLACE_KINDS).optional(),
+  })
+  .strict();
+const byPointsSchema = z
+  .object({
+    pickup: tripEndSchema,
+    dropoff: tripEndSchema,
+    service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
+    passengers: z.number().int().min(1).max(60),
+    luggage: z.number().int().min(0).max(60).default(0),
+    addons: addonsSchema,
+  })
+  .strict();
+
+/** 参考汇率：客人币种（汇率中心支持的币种，大写三位）。 */
+const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
+
+/** 关键字规范化后核对长短（搜索、输入即提示同一个规则）。 */
+function placeQueryOf(raw: string): string {
+  const query = normalizePlaceQuery(raw);
+  const issue = placeQueryIssue(query);
+  if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
+  return query;
+}
+
+function placeItemJson(item: SitePlaceItem): Json {
+  return { source: item.source, id: item.id, name: item.name, address: item.address, location: item.location === null ? null : { lat: item.location.lat, lng: item.location.lng }, kind: item.kind };
+}
 /** 地图上一个位置：城市 + 坐标。 */
 const placeReverseSchema = z
   .object({
@@ -149,7 +230,13 @@ function quoteJson(quote: SiteQuote): Json {
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
+    // 只有目录信息（编码、名称、计费方式），不带供应商单价、也不带对外单价：价格只在加了之后重新询价的合计里（ADR 0069 B15）
+    available_addons: quote.availableAddons.map((addon) => ({ id: addon.id, code: addon.code, name: addon.name, charge_unit: addon.chargeUnit })),
   };
+}
+
+function quoteResultJson(result: SiteQuoteResult): Json {
+  return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
@@ -239,11 +326,28 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/places/search", async (request) => {
     await placeSlot(request);
     const input = parseInput(placeSearchSchema, request.query, "querystring");
-    const query = normalizePlaceQuery(input.q);
-    const issue = placeQueryIssue(query);
-    if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
-    const found = await siteSearchPlaces(ctx, input.city_id, query);
-    return { available: found.available, items: found.items.map((item) => ({ id: item.id, name: item.name, address: item.address, location: { lat: item.location.lat, lng: item.location.lng } })) };
+    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q));
+    return { available: found.available, items: found.items.map(placeItemJson) };
+  });
+
+  /** 输入即提示每输入几个字就调一次（页面防抖 300 毫秒）：每分钟的额度比搜索宽，每天的额度和搜索、反查共用 */
+  const autocompleteSlot = async (request: FastifyRequest): Promise<void> => {
+    await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
+  };
+
+  app.get("/site/v1/places/autocomplete", async (request) => {
+    await autocompleteSlot(request);
+    const input = parseInput(placeAutocompleteSchema, request.query, "querystring");
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session);
+    return { available: found.available, items: found.items.map(placeItemJson) };
+  });
+
+  app.get("/site/v1/places/details", async (request) => {
+    await autocompleteSlot(request);
+    const input = parseInput(placeDetailsSchema, request.query, "querystring");
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null);
+    return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
   app.get("/site/v1/places/reverse", async (request) => {
@@ -256,12 +360,34 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng });
   });
 
+  // 按客人币种显示参考价（M8-02，ADR 0069 B16）：只读汇率中心现在生效的汇率，不拉外部服务；不可用时 200 + available false
+  app.get("/site/v1/fx/reference", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(fxReferenceSchema, request.query, "querystring");
+    const found = await siteFxReference(ctx, input.to as CurrencyCode);
+    return { available: found.available, from: found.from, to: found.to, rate: found.rate, as_of: found.asOf, reason: found.reason };
+  });
+
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
-    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage };
-    const result = await siteQuotes(ctx, quoteInput);
-    return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) };
+    return quoteResultJson(await siteQuotes(ctx, quoteInput));
+  });
+
+  app.post("/site/v1/quotes/by-points", async (request) => {
+    await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
+    const input = parseInput(byPointsSchema, request.body, "body");
+    const end = (value: z.output<typeof tripEndSchema>) => ({ lat: value.lat, lng: value.lng, kind: value.kind ?? null });
+    const result = await siteQuotesByPoints(ctx, { pickup: end(input.pickup), dropoff: end(input.dropoff), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) });
+    return {
+      trip_type: result.tripType,
+      airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters },
+      city: result.city,
+      ...quoteResultJson(result),
+      expires_at: result.expiresAt,
+      route: result.route === null ? null : { minutes: result.route.minutes, meters: result.route.meters, polyline: result.route.polyline },
+    };
   });
 
   app.post("/site/v1/orders", async (request, reply) => {

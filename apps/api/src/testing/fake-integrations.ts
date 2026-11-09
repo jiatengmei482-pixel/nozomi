@@ -4,6 +4,7 @@
  * 默认应答是「可用」：谷歌给一条路线（6.8 公里、18 分钟），Stripe 给一份测试模式的余额。
  * 路线预估的测试（ADR 0042）看请求体（起终点、字段掩码）和请求次数（并发同一组只调一次、缓存命中不调用）。
  * 官网地址搜索、反查（ADR 0044）：假 Places Text Search 默认找到一个地点（东京站），假 Geocoding 反查默认给一个地址。
+ * 输入即提示（M8-02，ADR 0069）：假 Autocomplete 默认给一个候选（东京站），假 Place Details 默认给东京站的坐标；路线可以带折线（`googleRouteBody` 的第三个参数）。
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -87,9 +88,9 @@ async function startFake(path: string, initial: FakeReply, port: number): Promis
   };
 }
 
-/** 谷歌 computeRoutes 的成功应答：一条路线的里程（米）和时长（秒）。 */
-export function googleRouteBody(meters: number, seconds: number): unknown {
-  return { routes: [{ distanceMeters: meters, duration: `${seconds}s` }] };
+/** 谷歌 computeRoutes 的成功应答：一条路线的里程（米）和时长（秒）；给了 `polyline` 时带路线折线。 */
+export function googleRouteBody(meters: number, seconds: number, polyline?: string): unknown {
+  return { routes: [{ distanceMeters: meters, duration: `${seconds}s`, ...(polyline === undefined ? {} : { polyline: { encodedPolyline: polyline } }) }] };
 }
 
 export function startFakeGoogleRoutes(port = 0): Promise<FakeService> {
@@ -117,6 +118,30 @@ export function googleGeocodeBody(address: string | null): unknown {
 
 export function startFakeGooglePlaces(port = 0): Promise<FakeService> {
   return startFake("/v1/places:searchText", { body: googlePlacesBody([googlePlace("ChIJfakeTokyoStation", "東京駅", 35.6812, 139.7671, "日本、〒100-0005 東京都千代田区丸の内１丁目")]) }, port);
+}
+
+/** 谷歌 Places Autocomplete 的一个地点预测。 */
+export function googlePrediction(placeId: string, main: string, secondary: string | null, types: string[] = ["establishment"]): unknown {
+  return { placePrediction: { placeId, text: { text: secondary === null ? main : `${main}, ${secondary}` }, structuredFormat: { mainText: { text: main }, ...(secondary === null ? {} : { secondaryText: { text: secondary } }) }, types } };
+}
+
+/** 谷歌 Places Autocomplete 的成功应答；没有候选时谷歌回空对象。 */
+export function googleAutocompleteBody(suggestions: unknown[]): unknown {
+  return suggestions.length === 0 ? {} : { suggestions };
+}
+
+/** 谷歌 Place Details 的成功应答（只有字段掩码要的几项）。 */
+export function googleDetailsBody(id: string, lat: number, lng: number, address: string, types: string[] = ["establishment"]): unknown {
+  return { id, formattedAddress: address, location: { latitude: lat, longitude: lng }, types };
+}
+
+export function startFakeGoogleAutocomplete(port = 0): Promise<FakeService> {
+  return startFake("/v1/places:autocomplete", { body: googleAutocompleteBody([googlePrediction("ChIJfakeTokyoStation", "東京駅", "日本、東京都千代田区丸の内１丁目", ["train_station", "transit_station"])]) }, port);
+}
+
+/** 假 Place Details：`url` 是前缀，请求是 `前缀/地点ID?…`。 */
+export function startFakeGooglePlaceDetails(port = 0): Promise<FakeService> {
+  return startFake("/v1/places", { body: googleDetailsBody("ChIJfakeTokyoStation", 35.6812, 139.7671, "日本、〒100-0005 東京都千代田区丸の内１丁目", ["train_station"]) }, port);
 }
 
 /** 假 Geocoding：`url` 是反查的前缀，请求是 `前缀/纬度,经度?…`。 */

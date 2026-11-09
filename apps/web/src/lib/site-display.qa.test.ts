@@ -49,6 +49,7 @@ test("F8 写法：带秒的当地时间只取到分钟；无效时刻写「—�
 
 const quoteOf = (id: string, amount: string): SiteQuote => ({
   quote_id: id,
+  available_addons: [],
   expires_at: "2026-10-26T03:30:00.000Z",
   service_date: "2026-11-20",
   urgent: false,

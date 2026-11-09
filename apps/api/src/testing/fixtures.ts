@@ -56,6 +56,8 @@ export function testEnv(databaseUrl: string): Record<string, string> {
 export const UNREACHABLE_INTEGRATIONS: Record<string, string> = {
   GOOGLE_MAPS_ROUTES_URL: "http://127.0.0.1:1/directions/v2:computeRoutes",
   GOOGLE_PLACES_SEARCH_URL: "http://127.0.0.1:1/v1/places:searchText",
+  GOOGLE_PLACES_AUTOCOMPLETE_URL: "http://127.0.0.1:1/v1/places:autocomplete",
+  GOOGLE_PLACE_DETAILS_URL: "http://127.0.0.1:1/v1/places",
   GOOGLE_GEOCODE_URL: "http://127.0.0.1:1/v4beta/geocode/location",
   STRIPE_API_URL: "http://127.0.0.1:1",
 };

@@ -35,6 +35,7 @@ test("日期时间写成「10月26日（周一）17:45」；不在城市当地�
 
 const quoteOf = (id: string, amount: string): SiteQuote => ({
   quote_id: id,
+  available_addons: [],
   expires_at: "2026-10-26T03:30:00.000Z",
   service_date: "2026-11-20",
   urgent: false,

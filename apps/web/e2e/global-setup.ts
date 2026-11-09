@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
-import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleGeocode, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
+import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleAutocomplete, startFakeGoogleGeocode, startFakeGooglePlaceDetails, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_DRIVER_MAIL_PORT, E2E_API_MAIL_PORT, E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_DRIVER_MAIL_PORT, E2E_WEB_MAIL_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { type FakeStripeService, startFakeStripeService } from "./fake-stripe.ts";
@@ -271,6 +271,13 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     fakeIntegrations.push(googleGeocode);
     apiEnv["GOOGLE_PLACES_SEARCH_URL"] = googlePlaces.url;
     apiEnv["GOOGLE_GEOCODE_URL"] = googleGeocode.url;
+    // 输入即提示和选中后取坐标（M8-02，ADR 0069）：同样指向本机的假服务器（假 Autocomplete 默认给「東京駅」，假 Place Details 给它的坐标）
+    const googleAutocomplete = await startFakeGoogleAutocomplete();
+    fakeIntegrations.push(googleAutocomplete);
+    const googleDetails = await startFakeGooglePlaceDetails();
+    fakeIntegrations.push(googleDetails);
+    apiEnv["GOOGLE_PLACES_AUTOCOMPLETE_URL"] = googleAutocomplete.url;
+    apiEnv["GOOGLE_PLACE_DETAILS_URL"] = googleDetails.url;
     apiEnv["STRIPE_API_URL"] = stripeApi.url;
     // 邮件发送（ADR 0048）：配置文件里不给，用例在运营后台填本机假 SMTP 的地址。证书校验没有开关，所以让 API 进程信任这张现场生成的证书
     for (const name of Object.keys(apiEnv)) if (name.startsWith("SMTP_")) delete apiEnv[name];

@@ -12,6 +12,7 @@ import type { FxCenter } from "./services/fx-center.ts";
 import type { QuoteDeps } from "./services/quote-deps.ts";
 import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import type { GooglePlaceSearch } from "./services/place-search.ts";
+import type { RoutePreviewer } from "./services/route-estimates.ts";
 
 /** 只读写数据库的服务函数要的那一部分：命令行（价格表导入）不用起整个应用也能调用它们。 */
 export type DbContext = Pick<AppContext, "pool" | "now">;
@@ -41,4 +42,6 @@ export interface AppContext {
   webhookSender: WebhookSender;
   /** 官网的地址搜索和坐标反查（谷歌地图，后端代调；缓存、每日上限、冷却，ADR 0044） */
   places: GooglePlaceSearch;
+  /** 按两个坐标报价时给客人看的路线（时间、距离、折线；谷歌 Routes，和报价的路线预估同一把密钥、同一个每日上限，ADR 0069 B11） */
+  routePreview: RoutePreviewer;
 }
