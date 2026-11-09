@@ -32,6 +32,7 @@ import { useLoad } from "../../lib/use-load.ts";
 import { usePlatformCan } from "../../lib/use-master-access.ts";
 import { PlatformProductTable } from "./ProductPages.tsx";
 import { TenantOnboardingSections } from "./TenantOnboardingSections.tsx";
+import { TenantProfileSection } from "./TenantProfileSection.tsx";
 import { useTenantActions } from "./useTenantActions.tsx";
 import { observationText, suspensionText } from "../../lib/onboarding-display.ts";
 
@@ -435,6 +436,7 @@ export function TenantDetailPage() {
   const canRead = usePlatformCan("tenant.read");
   const canCreate = usePlatformCan("tenant.create");
   const canChangeStatus = usePlatformCan("tenant.change_status");
+  const canEdit = usePlatformCan("tenant.edit");
   const canAudit = usePlatformCan("audit_log.read");
   const canReadProducts = usePlatformCan("product.read");
   const valid = UUID_PATTERN.test(id);
@@ -493,7 +495,7 @@ export function TenantDetailPage() {
 
   return shell(
     <>
-      {!canCreate && !canChangeStatus && <Alert kind="info">你可以查看供应商，但不能修改。</Alert>}
+      {!canCreate && !canChangeStatus && !canEdit && <Alert kind="info">你可以查看供应商，但不能修改。</Alert>}
       {suspended && (
         <div role="status">
           <Alert kind="warning">
@@ -551,6 +553,7 @@ export function TenantDetailPage() {
           </div>
         </dl>
       </section>
+      <TenantProfileSection tenant={tenant} onTenantChanged={loaded.set} />
       {(tenant.observation_reasons ?? []).length > 0 && (
         <Alert kind="info">
           <strong className="alert__title">在观察期。</strong>

@@ -53,9 +53,10 @@ export const ROLE_DUTIES: Readonly<Record<PlatformRole, string>> = {
 export const PLATFORM_ACTION_PHRASES: Readonly<Record<PlatformAction, string>> = {
   "tenant.read": "看供应商",
   "tenant.create": "新建供应商、邀请管理员",
+  "tenant.edit": "改供应商的名称和企业信息",
   "tenant.change_status": "签约、开始试运营、暂停和恢复供应商（暂停、清退要另一位同事审核）",
-  "tenant.review": "审核资质、发起合同新版本",
-  "tenant.approve": "审核同事发起的供应商暂停、清退和合同（另一位同事审核）",
+  "tenant.review": "审核资质、发起合同新版本、处理供应商改名称和登记号的申请",
+  "tenant.approve": "审核同事发起的供应商暂停、清退、合同和资料修改（另一位同事审核）",
   "product.read": "查看供应商的商品和价格",
   "quote.preview": "报价试算",
   "master_data.read": "看主数据",
@@ -109,12 +110,13 @@ const SUPERSEDES: Readonly<Partial<Record<PlatformAction, readonly PlatformActio
   "role.manage": ["role.read"],
   "master_data.manage": ["master_data.read"],
   "tenant.create": ["tenant.read"],
+  "tenant.edit": ["tenant.read"],
   "tenant.change_status": ["tenant.read"],
   "tenant.review": ["tenant.read"],
   "channel.manage": ["channel.read"],
 };
 
-const TENANT_MANAGE_PHRASE = "管理供应商（新建、邀请管理员、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同要另一位同事审核）";
+const TENANT_MANAGE_PHRASE = "管理供应商（新建、邀请管理员、改名称和企业信息、审核资质和合同、签约和试运营、暂停和恢复；暂停、清退、合同、供应商的资料修改要另一位同事审核）";
 
 /**
  * 「现在能做的」：按 @nozomi/domain 的 platformPermissions 现算出来，换成人话，顺序同上面这张表。
@@ -127,7 +129,7 @@ export function roleAbilities(role: PlatformRole): string[] {
   const out: string[] = [];
   for (const action of Object.keys(PLATFORM_ACTION_PHRASES) as PlatformAction[]) {
     if (!can.has(action) || covered.has(action)) continue;
-    if (managesTenants && (action === "tenant.create" || action === "tenant.change_status" || action === "tenant.review" || action === "tenant.approve")) {
+    if (managesTenants && (action === "tenant.create" || action === "tenant.edit" || action === "tenant.change_status" || action === "tenant.review" || action === "tenant.approve")) {
       if (!out.includes(TENANT_MANAGE_PHRASE)) out.push(TENANT_MANAGE_PHRASE);
       continue;
     }
