@@ -52,7 +52,9 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { OrderAddonsItem } from "../../components/OrderAddons.tsx";
 import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
+import { listAllMaster } from "../../api/master.ts";
 import { useToast } from "../../components/Toast.tsx";
 import { formatInZone, moneyText, routeText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
@@ -629,6 +631,7 @@ export function PlatformOrderDetailPage() {
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
           <OrderVehicleDetails group={detail.vehicle_group} />
+          <OrderAddonsItem addons={order.addons} cacheKey="platform-addons-catalog" load={(token) => listAllMaster("addons", token, { status: "all" })} />
           <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
           {detail.pending_email_review && (
             <Detail label="乘客邮箱（等审核）">

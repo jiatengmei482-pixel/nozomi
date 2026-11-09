@@ -9,7 +9,7 @@ import { contentSecurityPolicy, isSitePagePath, renderEdgeConfig } from "../../b
 const HASH = `sha256-${"A".repeat(43)}=`;
 
 test("放行：/book、结尾斜杠、下面的页面、带查询串和 #", () => {
-  for (const path of ["/book", "/book/", "/book/order", "/book/order/", "/book/checkout", "/book/order?payment_intent=pi_1&redirect_status=failed", "/book?next=/platform", "/book/order#nzo_x"]) assert.equal(isSitePagePath(path), true, path);
+  for (const path of ["/book", "/book/", "/book/order", "/book/order/", "/book/checkout", "/book/new", "/book/new?from=NRT&date=2030-11-20", "/book/order?payment_intent=pi_1&redirect_status=failed", "/book?next=/platform", "/book/order#nzo_x"]) assert.equal(isSitePagePath(path), true, path);
 });
 
 test("不放行：长得像的、前缀在后面的、查询串和 # 里才有 /book 的、编码绕到后台的", () => {

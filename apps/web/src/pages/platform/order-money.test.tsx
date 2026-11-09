@@ -54,6 +54,7 @@ const user = () => userEvent.setup();
 
 const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => ({
   ...NOT_DISPATCHED,
+  addons: [],
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",
   status: "confirmed",
@@ -628,4 +629,39 @@ test("车型标识（M7-03）：供应商后台订单详情的「行程」有车
     for (const label of ["车型", "代表车型", "同级车型", "最多乘客", "最多行李"]) assert.equal(tripValue(label), null, `${String(vehicle_group)}：不显示「${label}」`);
     assert.ok(tripValue("结算价"), "其余照常");
   }
+});
+
+test("附加服务（M8-04）：供应商和运营的订单详情写「名称 × 数量」，名称从附加服务目录取（连已停用的）；没有附加服务时不出这一项；供应商这边仍然没有对外价", async () => {
+  const SEAT = "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+  const SIGN = "a2a2a2a2-aaaa-4aaa-8aaa-aaaaaaaaaaa2";
+  const catalog = { items: [SEAT, SIGN].map((id, index) => ({ id, code: `ADD-${index}`, name: { zh: index === 0 ? "儿童座椅" : "举牌接机" }, status: index === 0 ? "active" : "disabled", categories: ["airport_transfer"], charge_unit: "per_item", description: {}, version: 1, ...stamps })), next_cursor: null, total: 2 };
+  const addons = [{ addon_id: SEAT, quantity: 2 }, { addon_id: SIGN, quantity: 1 }];
+  const asked: string[] = [];
+  open(`/orders/${ORDER_ID}`, "dispatch", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}`) return json(200, tenantDetail(tenantOrder({ addons })));
+    if (call.method === "GET" && call.url.pathname === "/tenant/v1/master/addons") {
+      asked.push(call.url.searchParams.get("status") ?? "");
+      return json(200, catalog);
+    }
+    return null;
+  }, "tenant");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  await waitFor(() => assert.equal(tripValue("附加服务")?.textContent, "儿童座椅 × 2、举牌接机 × 1"));
+  assert.deepEqual(asked, ["all"]);
+  assert.doesNotMatch(document.body.textContent ?? "", /对外价|加价/);
+
+  resetBrowser();
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => {
+    if (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}`) return json(200, platformDetail(platformOrder({ addons: [{ addon_id: SEAT, quantity: 1 }] })));
+    if (call.method === "GET" && call.url.pathname === "/platform/v1/master/addons") return json(200, catalog);
+    return null;
+  }, "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  await waitFor(() => assert.equal(tripValue("附加服务")?.textContent, "儿童座椅 × 1"));
+
+  resetBrowser();
+  const calls = open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder())) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("附加服务"), null);
+  assert.ok(calls.every((call) => !call.path.includes("/master/addons")), "没有附加服务时不读目录");
 });

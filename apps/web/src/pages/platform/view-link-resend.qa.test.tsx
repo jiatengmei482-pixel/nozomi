@@ -42,6 +42,7 @@ function open(role: string, routes: Route): ApiCall[] {
 
 const platformOrder = (): PlatformOrder => ({
   ...NOT_DISPATCHED,
+  addons: [],
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",
   status: "confirmed",

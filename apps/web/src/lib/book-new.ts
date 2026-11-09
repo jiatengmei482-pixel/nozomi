@@ -3,6 +3,7 @@
  * 链接参数、报不出价的说法、车型列表默认显示几个、乘客 / 行李栏的写法、车内俯视示意图的排布。
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
+import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero } from "@nozomi/domain";
 import type { SitePlaceKind, SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
@@ -193,4 +194,90 @@ export function seatPlan(passengers: number, luggage: number): SeatPlan {
   }
   const body = { x: padding, y: top, width: inner + padding * 2, height: y - gap + padding - top };
   return { width: body.width + padding * 2, height: body.y + body.height + padding, body, glassY, driver, seats, bags, trunkY };
+}
+
+// ---- 右侧栏（M8-04）：路线、附加服务差额、参考价 ----
+
+/** 谷歌的 encoded polyline → 坐标点（只用来画路线，不参与计价）。写法不对时返回空数组。 */
+export function decodePolyline(encoded: string): { lat: number; lng: number }[] {
+  const points: { lat: number; lng: number }[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const next = (): number | null => {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      if (index >= encoded.length) return null;
+      const byte = encoded.charCodeAt(index++) - 63;
+      if (byte < 0 || byte > 63) return null;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+      if (byte < 0x20) break;
+      if (shift > 30) return null;
+    }
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (index < encoded.length) {
+    const dLat = next();
+    const dLng = next();
+    if (dLat === null || dLng === null) return [];
+    lat += dLat;
+    lng += dLng;
+    points.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return points;
+}
+
+/** 「约 52 分钟 · 63.4 公里」：分钟取整，公里保留一位小数（整数不带 .0）。 */
+export function routeSummaryText(minutes: number, meters: number): string {
+  const km = (Math.round(meters / 100) / 10).toFixed(1).replace(/\.0$/, "");
+  return `约 ${Math.max(1, Math.round(minutes))} 分钟 · ${km} 公里`;
+}
+
+/** 附加服务的数量上下限（和询价接口一致；按单计的最多 1 个）。 */
+export const ADDON_QUANTITY = { max: 20, perOrderMax: 1 } as const;
+
+/** 两个同币种金额的差（`a − b`），整数运算；币种不认识或不一样时为 null。 */
+export function moneyDifference(a: { amount: string; currency: string }, b: { amount: string; currency: string }): { amount: string; currency: string } | null {
+  if (a.currency !== b.currency || !isCurrencyCode(a.currency)) return null;
+  return { amount: formatMajor(parseMajor(a.amount, a.currency) - parseMajor(b.amount, a.currency), a.currency), currency: a.currency };
+}
+
+/**
+ * 参考价（ADR 0069「B16 → A」）：订单币种的金额 × 参考汇率，四舍五入到客人币种的最小单位（整数和分数运算，不经浮点）。
+ * 汇率不可用、币种不认识时为 null。只用于显示「≈」，实际按订单币种收款。
+ */
+export function referenceMoney(total: { amount: string; currency: string }, reference: { available: boolean; from: string; to: string; rate: string | null }): { amount: string; currency: string } | null {
+  if (!reference.available || reference.rate === null || reference.from !== total.currency || !isCurrencyCode(total.currency) || !isCurrencyCode(reference.to)) return null;
+  let rate;
+  try {
+    rate = rateToFraction(reference.rate);
+  } catch {
+    return null;
+  }
+  const from = BigInt(parseMajor(total.amount, total.currency));
+  const scale = 10n ** BigInt(minorDigits(reference.to));
+  const unscale = 10n ** BigInt(minorDigits(total.currency));
+  const minor = roundFractionHalfAwayFromZero(from * rate.numerator * scale, rate.denominator * unscale);
+  return { amount: formatMajor(Number(minor), reference.to), currency: reference.to };
+}
+
+/** 参考价下面的小字（ADR 0069 B16 中文原文）。 */
+export const FX_REFERENCE_NOTE = "按当前汇率换算，仅供参考，实际以支付金额为准";
+
+const REGION_CURRENCY: Readonly<Record<string, CurrencyCode>> = { CN: "CNY", HK: "HKD", MO: "HKD", TW: "TWD", KR: "KRW", JP: "JPY", US: "USD", TH: "THB", SG: "SGD" };
+const LANGUAGE_CURRENCY: Readonly<Record<string, CurrencyCode>> = { zh: "CNY", ja: "JPY", ko: "KRW", th: "THB", en: "USD" };
+
+/** 按浏览器的语言地区推断客人币种（只影响参考价）：先看地区（zh-HK → HKD），再看语言（ko → KRW），认不出来用美元。 */
+export function guestCurrencyOf(languages: readonly string[]): CurrencyCode {
+  for (const tag of languages) {
+    const [language = "", ...rest] = tag.split("-");
+    const region = rest.find((part) => /^[A-Za-z]{2}$/.test(part))?.toUpperCase();
+    if (region !== undefined && REGION_CURRENCY[region] !== undefined) return REGION_CURRENCY[region];
+    if (language.toLowerCase() === "zh" && rest.some((part) => part.toLowerCase() === "hant")) return "TWD";
+    const byLanguage = LANGUAGE_CURRENCY[language.toLowerCase()];
+    if (byLanguage !== undefined) return byLanguage;
+  }
+  return "USD";
 }

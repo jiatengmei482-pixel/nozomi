@@ -5,11 +5,10 @@
  * 选中的报价从询价页带过来；直接打开这一页（刷新、收藏）没有报价，提示回去重新查询。
  * 提交用一个幂等键：网络失败再点一次不会下出两张单；改了内容就换一个新的。
  */
-import { MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS, isFlightNo, isInternationalPhone } from "@nozomi/domain";
+import { MESSAGING_APPS, type MessagingApp, ORDER_FIELD_LIMITS } from "@nozomi/domain";
 import { type FormEvent, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { ApiError } from "../../api/client.ts";
-import { type SiteOrderRequest, createSiteOrder } from "../../api/site.ts";
+import { createSiteOrder } from "../../api/site.ts";
 import { AlertSlot, type Notice } from "../../components/Alert.tsx";
 import { Button, LinkButton } from "../../components/Button.tsx";
 import { SelectField } from "../../components/FormFields.tsx";
@@ -20,55 +19,13 @@ import { VehicleLabelItems } from "../../components/VehicleLabelFacts.tsx";
 import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { ADDRESS_LABELS, SITE_HOME_PATH, addressEnds, guestCancelPolicyText, guestInstantText, guestLocalText, newIdempotencyKey, packageText, priceNote, serviceTimeLabels, siteOrderUrl } from "../../lib/site-display.ts";
+import { ADDRESS_FIELDS, CONSENT_HELP, CONSENT_TEXT, FIELD_HINTS, MESSAGING_NAMES, type OrderErrors, type OrderForm, orderFailureOf, orderRequestOf, validateOrderForm } from "../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../lib/use-document-title.ts";
 import type { CheckoutState } from "./BookPage.tsx";
 import { SiteLayout, siteFailureText } from "./SiteLayout.tsx";
 import { SitePrice } from "./SitePrice.tsx";
 
-const MESSAGING_NAMES: Readonly<Record<MessagingApp, string>> = { whatsapp: "WhatsApp", line: "LINE", wechat: "微信", kakaotalk: "KakaoTalk" };
-
-interface Form {
-  name: string;
-  phone: string;
-  email: string;
-  flightNo: string;
-  pickupAddress: string;
-  dropoffAddress: string;
-  messagingApp: MessagingApp | "";
-  messagingHandle: string;
-  notes: string;
-  consent: boolean;
-}
-
-type Field = "name" | "phone" | "email" | "flightNo" | "pickupAddress" | "dropoffAddress" | "messagingHandle" | "notes" | "consent";
-type Errors = Partial<Record<Field, string>>;
-
-const SERVER_PATHS: Readonly<Record<string, Field>> = {
-  "/passenger/name": "name",
-  "/passenger/phone": "phone",
-  "/passenger/email": "email",
-  "/flight_no": "flightNo",
-  "/pickup_address": "pickupAddress",
-  "/dropoff_address": "dropoffAddress",
-  "/messaging/handle": "messagingHandle",
-  "/notes": "notes",
-  "/save_payment_method": "consent",
-};
-
-const ADDRESS_FIELDS = { pickup: "pickupAddress", dropoff: "dropoffAddress" } as const;
-
-function validate(form: Form, trip: { transfer: boolean; arrival: boolean; ends: ("pickup" | "dropoff")[] }): Errors {
-  const errors: Errors = {};
-  if (form.name.trim() === "") errors.name = "请填写乘车人姓名";
-  if (!isInternationalPhone(form.phone.trim())) errors.phone = "请填写带国家码的手机号，如 +81 90-1234-5678、+86 138 0000 0000";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "请填写正确的邮箱，订单确认和查看链接会发到这里";
-  if (trip.arrival && form.flightNo.trim() === "") errors.flightNo = "接机要填航班号，司机按航班落地时间等候";
-  if (trip.transfer && form.flightNo.trim() !== "" && !isFlightNo(form.flightNo)) errors.flightNo = "航班号的格式不对，如 NH211、MU523";
-  for (const end of trip.ends) if (form[ADDRESS_FIELDS[end]].trim() === "") errors[ADDRESS_FIELDS[end]] = end === "pickup" ? "请填写上车的地址或酒店名" : "请填写下车的地址或酒店名";
-  if (form.messagingApp !== "" && form.messagingHandle.trim() === "") errors.messagingHandle = "选了即时通讯就要填账号";
-  if (!form.consent) errors.consent = "需要同意保存支付方式才能下单";
-  return errors;
-}
+type Form = OrderForm;
 
 export function CheckoutPage() {
   useDocumentTitle("填写订单 · NOZOMI 用车");
@@ -88,7 +45,7 @@ export function CheckoutPage() {
     return end === "pickup" ? draft.from.address : draft.to.address;
   };
   const [form, setForm] = useState<Form>({ name: "", phone: "", email: "", flightNo: "", pickupAddress: prefill("pickup"), dropoffAddress: prefill("dropoff"), messagingApp: "", messagingHandle: "", notes: "", consent: false });
-  const [errors, setErrors] = useState<Errors>({});
+  const [errors, setErrors] = useState<OrderErrors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -118,46 +75,33 @@ export function CheckoutPage() {
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
     if (busy) return;
-    const found = validate(form, { transfer, arrival, ends });
+    const trip = { transfer, arrival, ends };
+    const found = validateOrderForm(form, trip);
     setErrors(found);
     if (Object.keys(found).length > 0) {
       setNotice({ kind: "danger", text: "有几项没有填好，请看标红的地方。" });
       return;
     }
     setNotice(null);
-    const body: SiteOrderRequest = {
-      quote_id: quote.quote_id,
-      passenger: { name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim() },
-      flight_no: !transfer || form.flightNo.trim() === "" ? null : form.flightNo.trim(),
-      pickup_address: ends.includes("pickup") ? form.pickupAddress.trim() : null,
-      dropoff_address: ends.includes("dropoff") ? form.dropoffAddress.trim() : null,
-      messaging: form.messagingApp === "" ? null : { app: form.messagingApp, handle: form.messagingHandle.trim() },
-      notes: form.notes.trim() === "" ? null : form.notes.trim(),
-      save_payment_method: form.consent,
-    };
+    const body = orderRequestOf(quote.quote_id, form, trip);
     key.current ??= newIdempotencyKey();
     setBusy(true);
     try {
       const created = await createSiteOrder(body, key.current);
       navigate(siteOrderUrl(created.link.token), { state: { placed: true, payment: created.payment } });
     } catch (err) {
-      if (err instanceof ApiError && (err.code === "QUOTE_EXPIRED" || err.code === "QUOTE_ALREADY_ORDERED" || err.code === "QUOTE_NO_LONGER_AVAILABLE" || err.code === "SOLD_OUT")) {
+      const failure = orderFailureOf(err);
+      if (failure.kind === "expired") {
         setExpired(true);
-        setNotice({ kind: "warning", text: err.code === "QUOTE_EXPIRED" ? "报价已经过了 30 分钟的有效期，请重新查询价格。" : err.code === "QUOTE_ALREADY_ORDERED" ? "这个报价已经下过单了。要再订一辆，请重新查询价格。" : "这辆车刚刚被订完或暂停预订了，请重新查询价格。" });
+        setNotice({ kind: "warning", text: failure.text });
         return;
       }
-      if (err instanceof ApiError && err.code === "VALIDATION_FAILED") {
-        const issues = Array.isArray(err.details["issues"]) ? (err.details["issues"] as { path?: string; message?: string }[]) : [];
-        const mapped: Errors = {};
-        for (const issue of issues) {
-          const field = SERVER_PATHS[issue.path ?? ""];
-          if (field !== undefined && issue.message) mapped[field] = issue.message;
-        }
-        setErrors(mapped);
-        setNotice({ kind: "danger", text: Object.keys(mapped).length > 0 ? "有几项没有通过检查，请看标红的地方。" : "提交的内容不符合要求，请检查后重试。" });
+      if (failure.kind === "fields") {
+        setErrors(failure.errors);
+        setNotice({ kind: "danger", text: failure.text });
         return;
       }
-      setNotice({ kind: "danger", text: `${siteFailureText(err, "提交订单")}${err instanceof ApiError && err.status >= 500 ? "再点一次「提交订单」不会重复下单。" : ""}` });
+      setNotice({ kind: "danger", text: `${siteFailureText(err, "提交订单")}${failure.retrySafe ? "再点一次「提交订单」不会重复下单。" : ""}` });
     } finally {
       setBusy(false);
     }
@@ -221,10 +165,10 @@ export function CheckoutPage() {
         <h2 className="site-section__title">乘车人和联系方式</h2>
         <AlertSlot notice={notice} />
         <TextField label="乘车人姓名" size="lg" required autoComplete="name" value={form.name} errors={errors.name ? [errors.name] : []} onChange={(event) => update({ name: event.target.value })} />
-        <TextField label="手机号（带国家码）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint="以 + 和国家码开头，如 +81 90-1234-5678。司机和客服用它联系您" onChange={(event) => update({ phone: event.target.value })} />
-        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint="订单链接会发到这个邮箱；链接丢了，可以在「查订单」用订单号和这个邮箱重新发" onChange={(event) => update({ email: event.target.value })} />
+        <TextField label="手机号（带国家码）" size="lg" required type="tel" autoComplete="tel" inputMode="tel" value={form.phone} errors={errors.phone ? [errors.phone] : []} hint={FIELD_HINTS.phone} onChange={(event) => update({ phone: event.target.value })} />
+        <TextField label="邮箱" size="lg" required type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={form.email} errors={errors.email ? [errors.email] : []} hint={FIELD_HINTS.email} onChange={(event) => update({ email: event.target.value })} />
         {transfer && (
-          <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint={arrival ? "如 NH211。航班延误时司机按实际落地时间等候" : "如 NH211"} onChange={(event) => update({ flightNo: event.target.value })} />
+          <TextField label={arrival ? "航班号" : "航班号（选填）"} size="lg" required={arrival} autoCapitalize="characters" value={form.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint={arrival ? FIELD_HINTS.arrivalFlight : "如 NH211"} onChange={(event) => update({ flightNo: event.target.value })} />
         )}
         {ends.map((end) => {
           const field = ADDRESS_FIELDS[end];
@@ -250,10 +194,10 @@ export function CheckoutPage() {
         <div className="field">
           <label className="choice site-consent">
             <input type="checkbox" checked={form.consent} aria-invalid={errors.consent ? true : undefined} aria-describedby={errors.consent ? "site-consent-error site-consent-help" : "site-consent-help"} onChange={(event) => update({ consent: event.target.checked })} />
-            <span className="choice__text">同意保存这次付款用的银行卡，用于服务后产生的费用（如超时等候）</span>
+            <span className="choice__text">{CONSENT_TEXT}</span>
           </label>
           <p className="field__hint" id="site-consent-help">
-            服务后的费用会先通知您，48 小时内可以在订单页提异议；没有异议才会扣款。
+            {CONSENT_HELP}
           </p>
           {errors.consent && (
             <p className="field__error" id="site-consent-error">

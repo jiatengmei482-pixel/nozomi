@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseBookingLink, rejectionTexts, seatPlan, travellersText } from "./book-new.ts";
+import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, referenceMoney, rejectionTexts, routeSummaryText, seatPlan, travellersText } from "./book-new.ts";
 
 test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
   assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
@@ -61,4 +61,35 @@ test("座位示意图：前排是 1 号座位和司机；后排 2 或 3 列（7 
   assert.ok(Math.min(...minivan.bags.map((bag) => bag.y)) > Math.max(...minivan.seats.map((seat) => seat.y)));
   const sedan = seatPlan(4, 2);
   assert.deepEqual([...new Set(sedan.seats.map((seat) => seat.y))].map((y) => sedan.seats.filter((seat) => seat.y === y).length), [1, 3]);
+});
+
+test("路线折线：谷歌的写法解码成坐标；写法不对时为空；时间距离的说法", () => {
+  assert.deepEqual(decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@"), [{ lat: 38.5, lng: -120.2 }, { lat: 40.7, lng: -120.95 }, { lat: 43.252, lng: -126.453 }]);
+  assert.deepEqual(decodePolyline("_p~iF"), []);
+  assert.deepEqual(decodePolyline(""), []);
+  assert.equal(routeSummaryText(52.4, 63_420), "约 52 分钟 · 63.4 公里");
+  assert.equal(routeSummaryText(10, 8_000), "约 10 分钟 · 8 公里");
+});
+
+test("合计差额：同币种整数相减；币种不同为 null", () => {
+  assert.deepEqual(moneyDifference({ amount: "23500", currency: "JPY" }, { amount: "22000", currency: "JPY" }), { amount: "1500", currency: "JPY" });
+  assert.deepEqual(moneyDifference({ amount: "10.05", currency: "USD" }, { amount: "9.10", currency: "USD" }), { amount: "0.95", currency: "USD" });
+  assert.equal(moneyDifference({ amount: "1", currency: "JPY" }, { amount: "1", currency: "USD" }), null);
+});
+
+test("参考价：按汇率换到客人币种的最小单位，四舍五入；不可用、币种对不上为 null", () => {
+  const ref = (rate: string | null, to = "CNY", available = true) => ({ available, from: "JPY", to, rate });
+  assert.deepEqual(referenceMoney({ amount: "22000", currency: "JPY" }, ref("0.047351")), { amount: "1041.72", currency: "CNY" });
+  assert.deepEqual(referenceMoney({ amount: "22000", currency: "JPY" }, ref("9.12", "KRW")), { amount: "200640", currency: "KRW" });
+  assert.equal(referenceMoney({ amount: "22000", currency: "JPY" }, ref(null, "CNY", false)), null);
+  assert.equal(referenceMoney({ amount: "22000", currency: "USD" }, ref("0.05")), null);
+});
+
+test("客人币种：先看地区再看语言，认不出来用美元", () => {
+  assert.equal(guestCurrencyOf(["zh-CN", "en"]), "CNY");
+  assert.equal(guestCurrencyOf(["zh-HK"]), "HKD");
+  assert.equal(guestCurrencyOf(["zh-Hant"]), "TWD");
+  assert.equal(guestCurrencyOf(["ko"]), "KRW");
+  assert.equal(guestCurrencyOf(["en-SG"]), "SGD");
+  assert.equal(guestCurrencyOf(["fr-FR", "de"]), "USD");
 });

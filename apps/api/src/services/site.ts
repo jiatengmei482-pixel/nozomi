@@ -72,6 +72,7 @@ import {
   listBookableCharterPackages,
   listBookableCities,
   listCityPlaces,
+  findSitePlaceByCode,
   type AirportCandidateRow,
   type SiteCityInfo,
   listActiveCities,
@@ -82,6 +83,7 @@ import {
 } from "../repos/site.ts";
 import type { RoutePreview } from "./route-estimates.ts";
 import { validationFailed } from "../validation.ts";
+import { notFound } from "./errors.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
 import { inBackground } from "./background.ts";
 import { type SalesRateScope, rateLimited, takeRateSlot } from "./rate-limit.ts";
@@ -269,6 +271,14 @@ export async function sitePlaces(ctx: AppContext, cityId: string): Promise<SiteP
   if (channel.scope.cityIds !== null && !channel.scope.cityIds.includes(cityId)) return [];
   const rows = await withPlatformTx(ctx.pool, (db) => listCityPlaces(db, cityId), { snapshot: true });
   return rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat }));
+}
+
+/** 按编码取一个平台地点（M8-04，新预订页链接参数）：只在渠道授权的城市里找启用的；找不到 404。不调谷歌。 */
+export async function sitePlaceByCode(ctx: AppContext, code: string): Promise<SitePlace> {
+  const { channel } = await requireOpenSite(ctx);
+  const row = await withPlatformTx(ctx.pool, (db) => findSitePlaceByCode(db, code, channel.scope.cityIds), { snapshot: true });
+  if (row === null) throw notFound("地点");
+  return { id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: row.lng, lat: row.lat };
 }
 
 /**

@@ -54,6 +54,7 @@ import {
   siteOrderExtras,
   sitePlaceDetails,
   sitePlaces,
+  sitePlaceByCode,
   siteQuotes,
   siteQuotesByPoints,
   siteReversePlace,
@@ -315,6 +316,16 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_read", { ip: request.ip });
     const places = await sitePlaces(ctx, resourceId(request.params, "城市"));
     return { items: places.map((place) => ({ id: place.id, type: place.type, code: place.code, name: place.name, address: place.address, location: { lng: place.lng, lat: place.lat } })) };
+  });
+
+  /** 按编码取平台地点（M8-04，新预订页链接参数 from=NRT）：只读主数据、不调谷歌，和城市地点同一份读接口限速 */
+  app.get("/site/v1/places/by-code", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const raw = (request.query as { code?: unknown }).code;
+    const code = typeof raw === "string" ? raw.trim() : "";
+    if (!/^[A-Za-z0-9-]{1,32}$/.test(code)) throw validationFailed("querystring", [{ path: "/code", reason: "FORMAT", message: "地点编码只能是 1 到 32 位字母、数字和连字符" }]);
+    const place = await sitePlaceByCode(ctx, code);
+    return { id: place.id, type: place.type, code: place.code, name: place.name, address: place.address, location: { lng: place.lng, lat: place.lat } };
   });
 
   /** 地址搜索、反查的限速：每个地址每分钟、每天各一份额度（每次都可能花钱调谷歌） */

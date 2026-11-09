@@ -115,6 +115,28 @@ export async function listCityPlaces(db: Db, cityId: string): Promise<SitePlaceR
   return rows.rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: Number(row.lng), lat: Number(row.lat) }));
 }
 
+/**
+ * 按编码取一个启用的平台地点（新预订页的链接参数 `from=NRT`，M8-04；不调谷歌）。编码不分大小写；
+ * 航站楼、出口按所属机场 / 车站的种类返回（页面靠种类认机场一端），坐标用它自己的；城市取它自己的或上级的。
+ * `cityIds` 为 null 表示渠道不限城市。
+ */
+export async function findSitePlaceByCode(db: Db, code: string, cityIds: readonly string[] | null): Promise<SitePlaceRow | null> {
+  const rows = await db.query<{ id: string; type: SitePlaceType; code: string; name: LocalizedText; address: string | null; lng: string; lat: string }>(
+    `select pl.id, case when pl.type in ('terminal', 'exit') then parent.type else pl.type end as type, pl.code, pl.name, pl.address, pl.lng, pl.lat
+       from places pl
+       left join places parent on parent.id = pl.parent_id
+       join cities c on c.id = coalesce(pl.city_id, parent.city_id) and c.status = 'active'
+      where upper(pl.code) = upper($1) and pl.status = 'active'
+        and (pl.parent_id is null or parent.status = 'active')
+        and (case when pl.type in ('terminal', 'exit') then parent.type else pl.type end) = any($2::text[])
+        and ($3::uuid[] is null or c.id = any($3::uuid[]))
+      limit 1`,
+    [code, SITE_PLACE_TYPES, cityIds],
+  );
+  const row = rows.rows[0];
+  return row === undefined ? null : { id: row.id, type: row.type, code: row.code, name: row.name, address: row.address, lng: Number(row.lng), lat: Number(row.lat) };
+}
+
 /** 包车报价用的价格规则里的套餐公里数（按报价编号）。 */
 export async function findQuotePackageKm(db: Db, quoteIds: readonly string[]): Promise<Map<string, number>> {
   if (quoteIds.length === 0) return new Map();
