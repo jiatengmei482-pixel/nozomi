@@ -162,6 +162,9 @@ test("异常：运营从订单详情进超时未派车的异常，认领、写�
   const row = page.getByRole("row").filter({ hasText: order.orderNo });
   await expect(row).toContainText("1 条没处理完");
   await row.getByRole("link", { name: order.orderNo }).click();
+  const trip = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "行程" }) });
+  await expect(trip).toContainText("代表车型丰田埃尔法");
+  await expect(trip).toContainText("最多行李5 件");
   const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "异常", exact: true }) });
   await section.getByRole("link", { name: "超时未派车" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "超时未派车" })).toBeVisible();

@@ -551,3 +551,59 @@ test("运营后台：官网订单链接——客服核实后重发到下单邮�
   await screen.findByRole("heading", { name: "行程" });
   await waitFor(() => assert.equal(screen.queryByRole("heading", { name: "官网订单链接" }), null));
 });
+
+/** 「行程」卡片里某一项的值：按 <dt> 的文字找同一项的 <dd>（M7-03）。 */
+function tripValue(label: string): HTMLElement | null {
+  const card = screen.getByRole("heading", { name: "行程" }).closest("section") as HTMLElement;
+  return (within(card).queryByText(label, { selector: "dt" })?.nextElementSibling ?? null) as HTMLElement | null;
+}
+const vehicleGroupOf = (sample_models: string[]) => ({ id: "55555555-5555-4555-8555-555555555555", code: "VG-BIZ-7", name: { zh: "商务七座" }, seats: 7, sample_models, combos: [{ passengers: 6, luggage: 4 }, { passengers: 5, luggage: 5 }] });
+
+test("车型标识（M7-03）：运营后台订单详情的「行程」有车型和 4 项；没给车型组（null 或旧数据没有这一项）时不显示、页面照常", async () => {
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder(), { vehicle_group: vehicleGroupOf(["Toyota Alphard", "Toyota Vellfire"]) })) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("车型")?.textContent, "商务七座（VG-BIZ-7）");
+  assert.equal(tripValue("代表车型")?.textContent, "Toyota Alphard");
+  assert.equal(tripValue("代表车型")?.getAttribute("lang"), "en");
+  assert.equal(tripValue("同级车型")?.textContent, "Toyota Alphard, Toyota Vellfire or similar");
+  assert.equal(tripValue("最多乘客")?.textContent, "6 人");
+  assert.equal(tripValue("最多行李")?.textContent, "5 件");
+
+  for (const vehicle_group of [null, undefined]) {
+    resetBrowser();
+    const detail = platformDetail(platformOrder(), vehicle_group === null ? { vehicle_group: null } : {});
+    open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, detail) : null), "platform");
+    await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+    for (const label of ["车型", "代表车型", "同级车型", "最多乘客", "最多行李"]) assert.equal(tripValue(label), null, `${String(vehicle_group)}：不显示「${label}」`);
+    assert.ok(tripValue("对外价 / 结算价"), "其余照常");
+  }
+});
+
+test("车型标识（M7-03）：供应商后台订单详情的「行程」有车型和 4 项，没填代表车型时不出空的项；没给车型组时不显示；仍然没有对外价和加价", async () => {
+  const route = (vehicle_group: ReturnType<typeof vehicleGroupOf> | null | undefined) => (call: ApiCall & { url: URL }) =>
+    call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, { ...tenantDetail(tenantOrder()), ...(vehicle_group === undefined ? {} : { vehicle_group }) }) : null;
+  open(`/orders/${ORDER_ID}`, "dispatch", route(vehicleGroupOf(["Toyota Alphard"])), "tenant");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("车型")?.textContent, "商务七座（VG-BIZ-7）");
+  assert.equal(tripValue("代表车型")?.textContent, "Toyota Alphard");
+  assert.equal(tripValue("同级车型")?.textContent, "Toyota Alphard or similar");
+  assert.equal(tripValue("最多乘客")?.textContent, "6 人");
+  assert.equal(tripValue("最多行李")?.textContent, "5 件");
+  assert.doesNotMatch(document.body.textContent ?? "", /对外价|加价/);
+
+  resetBrowser();
+  open(`/orders/${ORDER_ID}`, "dispatch", route(vehicleGroupOf([])), "tenant");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("车型")?.textContent, "商务七座（VG-BIZ-7）");
+  assert.equal(tripValue("代表车型"), null);
+  assert.equal(tripValue("同级车型"), null);
+  assert.equal(tripValue("最多乘客")?.textContent, "6 人");
+
+  for (const vehicle_group of [null, undefined]) {
+    resetBrowser();
+    open(`/orders/${ORDER_ID}`, "readonly", route(vehicle_group), "tenant");
+    await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+    for (const label of ["车型", "代表车型", "同级车型", "最多乘客", "最多行李"]) assert.equal(tripValue(label), null, `${String(vehicle_group)}：不显示「${label}」`);
+    assert.ok(tripValue("结算价"), "其余照常");
+  }
+});

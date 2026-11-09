@@ -503,3 +503,62 @@ test("页面规范（M3-09，docs/design/pages/site-booking.md）：格式示例
   await actor.click(entry);
   assert.match((await screen.findByRole("button", { name: "确认取消订单" })).className, /button--danger/);
 });
+
+/** 「标签 + 值」里的值：按 <dt> 的文字找同一项的 <dd>（M7-03）。 */
+const factValue = (scope: HTMLElement, label: string): HTMLElement | null => (within(scope).queryByText(label, { selector: "dt" })?.nextElementSibling ?? null) as HTMLElement | null;
+const labelled = { ...quote.vehicle_group, sample_models: ["Toyota Alphard", "Toyota Vellfire"], combos: [{ passengers: 6, luggage: 4 }, { passengers: 5, luggage: 5 }] };
+
+test("车型标识（M7-03）：报价卡片有代表车型、同级车型、最多乘客、最多行李，座位一项仍写全部组合；没填代表车型时不出空的项", async () => {
+  const bare = { ...quote, quote_id: "QT20261026BAREBAREBA", vehicle_group: { ...quote.vehicle_group, id: "66666666-6666-4666-8666-666666666666", code: "VG-STD-5", name: { zh: "舒适 5 座" }, seats: 5, sample_models: [], combos: [{ passengers: 4, luggage: 2 }] } };
+  open("/book", bookingRoutes((call) => (call.method === "POST" && call.url.pathname === "/site/v1/quotes" ? json(200, { currency: "JPY", quotes: [{ ...quote, vehicle_group: labelled }, bare], unavailable: [] }) : null)));
+  const actor = user();
+  await fillInquiry(actor);
+  await actor.click(screen.getByRole("button", { name: "查询价格" }));
+  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
+  assert.equal(factValue(card, "代表车型")?.textContent, "Toyota Alphard");
+  assert.equal(factValue(card, "代表车型")?.getAttribute("lang"), "en");
+  assert.equal(factValue(card, "同级车型")?.textContent, "Toyota Alphard, Toyota Vellfire or similar");
+  assert.equal(factValue(card, "同级车型")?.getAttribute("lang"), "en");
+  assert.equal(factValue(card, "最多乘客")?.textContent, "6 人");
+  assert.equal(factValue(card, "最多行李")?.textContent, "5 件");
+  assert.equal(factValue(card, "座位")?.textContent, "7 座（最多 6 人 + 4 件行李 或 5 人 + 5 件行李）", "组合是选车依据，保留");
+  assert.ok(card.querySelector(".site-facts .site-facts__item > dt"), "4 项和卡片其他项在同一个 site-facts 里");
+  assert.doesNotMatch(card.textContent ?? "", /参考车型|或同级/);
+
+  const other = screen.getByRole("heading", { name: "舒适 5 座" }).closest("li") as HTMLElement;
+  assert.equal(factValue(other, "代表车型"), null);
+  assert.equal(factValue(other, "同级车型"), null);
+  assert.equal(factValue(other, "最多乘客")?.textContent, "4 人");
+  assert.equal(factValue(other, "最多乘客")?.getAttribute("lang"), null, "人数不是车型名，不标 lang");
+  assert.equal(factValue(other, "最多行李")?.textContent, "2 件");
+  assert.doesNotMatch(other.textContent ?? "", /or similar/);
+});
+
+test("车型标识（M7-03）：填写订单的「行程」在车型下面有 4 项", async () => {
+  const entry = checkoutEntry();
+  open({ ...entry, state: { ...entry.state, quote: { ...quote, vehicle_group: labelled } } }, () => null);
+  const summary = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  const labels = [...summary.querySelectorAll("dt")].map((node) => node.textContent);
+  assert.deepEqual(labels.slice(labels.indexOf("车型"), labels.indexOf("车型") + 6), ["车型", "代表车型", "同级车型", "最多乘客", "最多行李", "人数 / 行李"]);
+  assert.equal(factValue(summary, "同级车型")?.textContent, "Toyota Alphard, Toyota Vellfire or similar");
+  assert.equal(factValue(summary, "最多行李")?.textContent, "5 件");
+});
+
+test("车型标识（M7-03）：订单页（查订单进来的也是它）的「行程」在车型下面有 4 项；没填代表车型时只有最多乘客、最多行李", async () => {
+  const names = (models: string[]) => ({ ...envelopeOf().names, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7, sample_models: models, combos: labelled.combos } });
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, { ...envelopeOf(), names: names(["Toyota Alphard"]) }) : null));
+  const trip = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(trip, "代表车型")?.textContent, "Toyota Alphard");
+  assert.equal(factValue(trip, "同级车型")?.textContent, "Toyota Alphard or similar");
+  assert.equal(factValue(trip, "最多乘客")?.textContent, "6 人");
+  assert.equal(factValue(trip, "最多行李")?.textContent, "5 件");
+
+  resetBrowser();
+  open({ pathname: "/book/order", hash: `#${TOKEN}` }, (call) => (call.url.pathname === "/site/v1/config" ? json(200, openConfig) : call.url.pathname === "/site/v1/order" ? json(200, { ...envelopeOf(), names: names([]) }) : null));
+  const bare = (await screen.findByRole("heading", { name: "行程" })).closest("section") as HTMLElement;
+  assert.equal(factValue(bare, "车型")?.textContent, "商务 7 座");
+  assert.equal(factValue(bare, "代表车型"), null);
+  assert.equal(factValue(bare, "同级车型"), null);
+  assert.equal(factValue(bare, "最多乘客")?.textContent, "6 人");
+  assert.equal([...bare.querySelectorAll("dd")].filter((node) => (node.textContent ?? "").trim() === "").length, 0, "没有空的项");
+});
