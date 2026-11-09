@@ -123,7 +123,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）、航班号
   await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
   await expect(page.getByLabel("航班落地时间（当地）")).toHaveValue("10:00");
-  await page.getByLabel("航班号（选填）").fill("NH211");
+  await page.getByLabel("航班号").fill("NH211");
   const travellers = page.getByRole("button", { name: "乘客 / 行李 2 人 · 2 件" });
   await travellers.click();
   await page.getByRole("button", { name: "增加乘客" }).click();
