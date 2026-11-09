@@ -64,6 +64,36 @@ async function publishTransfer(request: APIRequestContext, supplier: Supplier, w
   expect(published.status(), await published.text()).toBe(200);
 }
 
+/**
+ * 链接里的出发地：机场的坐标加名称（离机场 0 米，按两个坐标报价认得出是接机）。
+ * 用编码（`from=机场编码`）要后端的 `GET /site/v1/places/by-code`（M8-04 验收问题 1，后端角色实现）；接口上线前端到端先用坐标。
+ */
+function airportLink(airport: { name: string; location: { lat: number; lng: number } }): string {
+  return `from=${airport.location.lat},${airport.location.lng}&from_name=${encodeURIComponent(airport.name)}`;
+}
+
+/** 谷歌 encoded polyline 的写法（只用来构造路线图的检查数据）。 */
+function encodePolyline(points: readonly { lat: number; lng: number }[]): string {
+  let last = { lat: 0, lng: 0 };
+  let out = "";
+  const encode = (value: number): void => {
+    let rest = value < 0 ? ~(value << 1) : value << 1;
+    while (rest >= 0x20) {
+      out += String.fromCharCode((0x20 | (rest & 0x1f)) + 63);
+      rest >>= 5;
+    }
+    out += String.fromCharCode(rest + 63);
+  };
+  for (const point of points) {
+    const lat = Math.round(point.lat * 1e5);
+    const lng = Math.round(point.lng * 1e5);
+    encode(lat - last.lat);
+    encode(lng - last.lng);
+    last = { lat, lng };
+  }
+  return out;
+}
+
 function tomorrowInTokyo(): string {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(Date.now() + 24 * 3_600_000)).map((part) => [part.type, part.value]));
   return `${parts["year"]}-${parts["month"]}-${parts["day"]}`;
@@ -93,6 +123,12 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await publishTransfer(request, supplier, { ...world, airport });
   const origins = new Set<string>();
   page.on("request", (sent) => origins.add(new URL(sent.url()).origin));
+  // 假谷歌路线不给折线（只有时间距离）；为了检查路线图真的画出了线，只把真实应答的 route 换成一条从机场到东京站的折线（价格等其余内容原样）
+  await page.route(`${SITE}/site/v1/quotes/by-points`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    route.fulfill({ response, json: { ...body, route: { minutes: 25, meters: 14_200, polyline: encodePolyline([airport.location, { lat: (airport.location.lat + TOKYO_STATION.lat) / 2 + 0.01, lng: (airport.location.lng + TOKYO_STATION.lng) / 2 }, TOKYO_STATION]) } } });
+  });
   await page.setViewportSize({ width: 400, height: 800 });
 
   await page.goto(`${SITE}/book/new`);
@@ -159,6 +195,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   // 电脑宽：单页两栏，右侧栏有所选车型的一口价
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expectRouteLineVisible(page, airport.location);
   const aside = page.getByRole("complementary", { name: "行程摘要" });
   await expect(aside).toContainText(world.group.name);
   await expect(aside).toContainText("合计");
@@ -171,9 +208,9 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   }
   await page.emulateMedia({ colorScheme: "light" });
 
-  // 带参数的链接：出发地是机场编码，目的地是坐标加名称，打开就报价
+  // 带参数的链接：出发地是机场的坐标加名称（按编码取地点的接口 GET /site/v1/places/by-code 由后端补上后改回 from=编码），目的地是坐标加名称，打开就报价
   await page.setViewportSize({ width: 400, height: 800 });
-  await page.goto(`${SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
+  await page.goto(`${SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
   await expect(page.locator(".book-new__strip-text")).toContainText(`接机 ${airport.name} → 東京駅八重洲口`);
   await expect(page.locator(".book-new__strip-text")).toContainText("3 人 · 1 件");
@@ -182,6 +219,31 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   // 浏览器只连本站和底图（不连谷歌）
   expect([...origins].filter((origin) => origin !== SITE && origin !== TILE_ORIGIN)).toEqual([]);
 });
+
+/**
+ * 路线图上真的画出了线（M8-04 验收问题 2：矢量层的 <svg> 被全站的 max-width 压成 0 宽，线看不见）：
+ * 路线的路径有可见的大小、落在地图框里，起终点也在框里。
+ */
+async function expectRouteLineVisible(page: Page, start: { lat: number; lng: number }): Promise<void> {
+  const canvas = page.locator(".route-map__canvas").first();
+  await expect(canvas).toBeVisible();
+  await expect(page.getByText("约 25 分钟 · 14.2 公里").first()).toBeVisible();
+  const frame = await canvas.boundingBox();
+  const line = await canvas.locator("path.route-map__line").boundingBox();
+  const svg = await canvas.locator(".leaflet-pane > svg").first().boundingBox();
+  if (frame === null || line === null || svg === null) throw new Error(`路线图没有画出来（起点 ${start.lat},${start.lng}）`);
+  expect(svg.width, "矢量层的 svg 有宽度").toBeGreaterThan(frame.width / 2);
+  expect(line.width + line.height, "路线有可见的长度").toBeGreaterThan(40);
+  expect(line.x).toBeGreaterThanOrEqual(frame.x - 1);
+  expect(line.y).toBeGreaterThanOrEqual(frame.y - 1);
+  expect(line.x + line.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  expect(line.y + line.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+  for (const marker of [".route-map__start", ".route-map__end"]) {
+    const box = await canvas.locator(`path${marker}`).boundingBox();
+    expect(box, `${marker} 画出来了`).not.toBeNull();
+    if (box !== null) expect(box.width, `${marker} 有大小`).toBeGreaterThan(4);
+  }
+}
 
 test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计差额）→ 怎么联系你 → 去付款 → 现有订单页用 Stripe 付款（假 Stripe，测试卡 4242）；手机第 3 步和电脑单页窄屏、亮暗 axe", async ({ page, request }) => {
   test.setTimeout(150_000);
@@ -193,7 +255,7 @@ test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计
   const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
   if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
   await routeStripe(page, fakeStripe);
-  const link = `${STRIPE_SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
+  const link = `${STRIPE_SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
 
   // 手机：链接打开到第 2 步 → 选车 → 下一步 → 第 3 步
   await page.setViewportSize({ width: 360, height: 740 });

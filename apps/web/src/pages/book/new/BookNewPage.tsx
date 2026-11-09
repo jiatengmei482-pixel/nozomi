@@ -30,8 +30,8 @@ import {
   createSiteQuotesByPoints,
   getSiteFxReference,
   listSiteCharterPackages,
+  getSitePlaceByCode,
   listSiteCities,
-  listSitePlaces,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
@@ -126,22 +126,30 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
   return { key: JSON.stringify(body), run: async () => ({ mode: "transfer", result: await createSiteQuotesByPoints(body) }) };
 }
 
-/** 按编码找平台地点时一次并行读几个城市的常用地点。 */
-const PLACE_LOOKUP_BATCH = 4;
+/** 链接里的一端读出来的结果：地点；或者没找到 / 没读出来（页面要说一句，不能静默不预填）。 */
+type LinkResolution = { kind: "point"; point: TripPoint } | { kind: "missing"; code: string } | { kind: "failed"; code: string } | null;
 
 /**
- * 链接里的一端 → 地点：坐标直接用；编码只在平台地点里找（官网能订的各城市的机场、车站、地标，`GET /site/v1/cities/{id}/places`），
- * 不调谷歌（M8-03 验收问题 2：经输入即提示找会在缓存过期后真调谷歌计费）。找不到为 null（不预填）。
+ * 链接里的一端 → 地点：坐标直接用；编码按编码取一次平台地点（`GET /site/v1/places/by-code`，只在渠道授权的城市里、不调谷歌），
+ * 每个编码只调一次（M8-04 验收问题 1：原来逐城市读常用地点，一次打开几十上百个请求，触发官网限速）。
  */
-async function resolveLinkEnd(link: LinkEnd | null, cities: readonly SiteCity[]): Promise<TripPoint | null> {
+async function resolveLinkEnd(link: LinkEnd | null): Promise<LinkResolution> {
   if (link === null) return null;
-  if (link.kind === "point") return { name: link.name ?? pointName(link.lat, link.lng), lat: link.lat, lng: link.lng, kind: null };
-  const code = link.code.toUpperCase();
-  for (let start = 0; start < cities.length; start += PLACE_LOOKUP_BATCH) {
-    const batch = await Promise.all(cities.slice(start, start + PLACE_LOOKUP_BATCH).map((city) => listSitePlaces(city.id).then(({ items }) => items, () => [])));
-    const place = batch.flat().find((item) => item.code.toUpperCase() === code);
-    if (place !== undefined) return { name: displayName(place.name).text, lat: place.location.lat, lng: place.location.lng, kind: place.type === "airport" ? "airport" : "other" };
+  if (link.kind === "point") return { kind: "point", point: { name: link.name ?? pointName(link.lat, link.lng), lat: link.lat, lng: link.lng, kind: null } };
+  try {
+    const place = await getSitePlaceByCode(link.code);
+    return { kind: "point", point: { name: displayName(place.name).text, lat: place.location.lat, lng: place.location.lng, kind: place.type === "airport" ? "airport" : "other" } };
+  } catch (err) {
+    return err instanceof ApiError && err.status === 404 ? { kind: "missing", code: link.code } : { kind: "failed", code: link.code };
   }
+}
+
+/** 链接里的地点没有预填时的说法。 */
+function linkNotice(ends: LinkResolution[]): string | null {
+  const missing = ends.filter((end) => end?.kind === "missing").map((end) => `「${(end as { code: string }).code}」`);
+  const failed = ends.filter((end) => end?.kind === "failed").map((end) => `「${(end as { code: string }).code}」`);
+  if (missing.length > 0) return `链接里的地点${missing.join("、")}没有找到，请在下面重新选择出发地和目的地。`;
+  if (failed.length > 0) return `链接里的地点${failed.join("、")}暂时没有读出来，请稍后刷新页面，或在下面直接选择。`;
   return null;
 }
 
@@ -235,10 +243,14 @@ export function BookNewPage() {
     linkDone.current = true;
     if (link.from === null && link.to === null) return;
     let alive = true;
-    void Promise.all([resolveLinkEnd(link.from, cities.items), resolveLinkEnd(link.to, cities.items)]).then(([from, to]) => {
+    void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([fromEnd, toEnd]) => {
       if (!alive) return;
+      const from = fromEnd?.kind === "point" ? fromEnd.point : null;
+      const to = toEnd?.kind === "point" ? toEnd.point : null;
       setDraft((current) => ({ ...current, from: current.from ?? from, to: current.to ?? to }));
-      if (from !== null && to !== null && link.date !== null && link.time !== null) setStep(2);
+      const text = linkNotice([fromEnd, toEnd]);
+      if (text !== null) setNotice({ kind: "warning", text });
+      else if (from !== null && to !== null && link.date !== null && link.time !== null) setStep(2);
     });
     return () => {
       alive = false;
@@ -381,7 +393,17 @@ export function BookNewPage() {
     event.preventDefault();
     if (busy) return;
     if (priced === null) {
-      setContactNotice({ kind: "danger", text: selected === null ? "请先选择车型。" : "价格还在计算，请稍等再点「去付款」。" });
+      setContactNotice({
+        kind: "danger",
+        text:
+          selected === null
+            ? "请先选择车型。"
+            : pricedState.kind === "unavailable"
+              ? "这个车型暂时不能加所选的附加服务，请减少附加服务或换一个车型。"
+              : pricedState.kind === "failed"
+                ? pricedState.message
+                : "价格还在计算，请稍等再点「去付款」。",
+      });
       return;
     }
     const form = { ...contact, flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" };

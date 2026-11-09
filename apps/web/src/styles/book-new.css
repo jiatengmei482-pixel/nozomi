@@ -652,3 +652,16 @@
     min-width: 0;
   }
 }
+
+/*
+ * 路线图的矢量层（Leaflet 自带样式里的两条，不引入它的样式文件，ADR 0017）：
+ * - 矢量层的 <svg> 要绝对定位在图层里；
+ * - 全站 base.css 给 svg 设了 max-width: 100%，而图层本身宽度是 0，路线的 <svg> 会被压成 0 宽、看不见，这里取消。
+ */
+.route-map__canvas .leaflet-pane > svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+}
