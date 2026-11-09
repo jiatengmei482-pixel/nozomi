@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { ACTOR_NAMES, DOCUMENT_STATUS_BADGES, REQUIREMENT_BADGES, SCORE_COMPONENT_NAMES, SUSPENSION_REASON_NAMES, OBSERVATION_REASON_NAMES, TENANT_STATUS_NAMES, TRIGGER_NAMES } from "../lib/onboarding-display.ts";
 import { APPROVAL_KIND_NAMES } from "../lib/channel-display.ts";
-import type { CompanyOverview, CompanyProfile, DocumentRequirement, TenantContract, TenantDocument, TenantFile, TenantNotice, TenantPerformance, TenantStatusEvent } from "./onboarding.ts";
+import type { CompanyOverview, CompanyProfile, DocumentRequirement, PlatformTenantProfileChange, TenantContract, TenantDocument, TenantFile, TenantNotice, TenantPerformance, TenantProfileChange, TenantStatusEvent } from "./onboarding.ts";
 import { DOCUMENT_QUEUE_PATH, PLATFORM_TENANTS_PATH, TENANT_COMPANY_PATH, TENANT_PERFORMANCE_PATH } from "./onboarding.ts";
 import { SCHEMA_FIELDS, TENANT_STATUSES } from "./types.ts";
 
@@ -43,6 +43,8 @@ const FIELDS = {
   TenantStatusEvent: ["id", "trigger", "from_status", "to_status", "suspension_before", "suspension_after", "observation_before", "observation_after", "actor", "note", "approval_id", "occurred_at"],
   TenantNotice: ["id", "kind", "data", "created_at"],
   TenantPerformance: ["today", "status", "observation_reasons", "suspension_reasons", "rules", "latest", "trend"],
+  TenantProfileChange: ["id", "fields", "proposed", "previous", "note", "status", "submitted_by", "submitted_at", "decided_at", "reject_reason", "version"],
+  PlatformTenantProfileChange: ["id", "fields", "proposed", "previous", "note", "status", "submitted_by", "submitted_at", "decided_at", "reject_reason", "rejected_by", "approval_id", "pending_approval_id", "version"],
 } as const satisfies {
   CompanyProfile: readonly (keyof CompanyProfile)[];
   TenantFile: readonly (keyof TenantFile)[];
@@ -53,6 +55,8 @@ const FIELDS = {
   TenantStatusEvent: readonly (keyof TenantStatusEvent)[];
   TenantNotice: readonly (keyof TenantNotice)[];
   TenantPerformance: readonly (keyof TenantPerformance)[];
+  TenantProfileChange: readonly (keyof TenantProfileChange)[];
+  PlatformTenantProfileChange: readonly (keyof PlatformTenantProfileChange)[];
 };
 
 test("入驻的几种对象：前端的字段和 openapi.yaml 的定义一一对应", () => {
@@ -96,4 +100,13 @@ test("前端用到的入驻接口都在定义里，应答的结构对得上", ()
   for (const decision of ["approve", "reject", "request-supplement"]) assert.ok(op("post", `${PLATFORM_TENANTS_PATH}/{id}/documents/{documentId}/${decision}`));
   for (const action of ["contracts", "suspend", "terminate"]) assert.ok(op("post", `${PLATFORM_TENANTS_PATH}/{id}/${action}`).responses["202"], `${action} 是发起复核（202）`);
   for (const action of ["sign", "start-trial", "resume"]) assert.equal(ref(json(op("post", `${PLATFORM_TENANTS_PATH}/{id}/${action}`), "200")), "Tenant", action);
+  // 名称和企业信息（M4-34）
+  assert.equal(ref(json(op("patch", `${PLATFORM_TENANTS_PATH}/{id}`), "200")), "Tenant");
+  assert.equal(ref(json(op("put", `${PLATFORM_TENANTS_PATH}/{id}/company/profile`), "200")), "CompanyProfile");
+  assert.ok(op("get", `${PLATFORM_TENANTS_PATH}/{id}/profile-changes`));
+  assert.ok(op("post", `${PLATFORM_TENANTS_PATH}/{id}/profile-changes/{changeId}/approval`).responses["202"]);
+  assert.ok(op("post", `${PLATFORM_TENANTS_PATH}/{id}/profile-changes/{changeId}/reject`));
+  assert.ok(op("get", `${TENANT_COMPANY_PATH}/profile-changes`));
+  assert.equal(ref(json(op("post", `${TENANT_COMPANY_PATH}/profile-changes`), "201")), "TenantProfileChange");
+  assert.equal(ref(json(op("post", `${TENANT_COMPANY_PATH}/profile-changes/{id}/withdraw`), "200")), "TenantProfileChange");
 });

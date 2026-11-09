@@ -98,3 +98,11 @@
 .score-trend__threshold--suspend {
   stroke: var(--color-danger-border);
 }
+
+/* 供应商的资料修改申请（M4-34）：一条申请里的说明、对照表、按钮上下排开 */
+.profile-change {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-wrap: anywhere;
+}

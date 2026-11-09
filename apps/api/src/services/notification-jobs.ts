@@ -60,6 +60,7 @@ import {
   type MailMessage,
   type NotificationVariables,
   type PlatformAction,
+  profileFieldsText,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { type Db, withPlatformTx, withTenantTx } from "../db/context.ts";
@@ -139,6 +140,9 @@ const STAFF_RULES: Partial<Record<NotificationEvent, { action: PlatformAction } 
   "exception.opened": { action: "exception.manage" },
   "fx.alert": { action: "fx.manage" },
   "site.lookup_ceiling": { roles: ["risk", "super_admin"] },
+  // 供应商的资料（ADR 0071）：直接改了联系信息的告诉维护企业信息的人；修改申请告诉要核对、发起复核的人
+  "tenant.profile_updated": { action: "tenant.edit" },
+  "tenant.profile_change_submitted": { action: "tenant.review" },
 };
 
 interface Target {
@@ -240,6 +244,7 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
   if (typeof data["payout_currency"] === "string") out["payout_currency"] = data["payout_currency"];
   if (typeof data["payout_account"] === "string") out["payout_account"] = data["payout_account"];
   if (typeof data["reject_reason"] === "string") out["reject_reason"] = data["reject_reason"];
+  if (Array.isArray(data["profile_fields"])) out["changed_fields"] = profileFieldsText(data["profile_fields"].map(String));
   if (Array.isArray(data["reasons"])) out["reasons"] = data["reasons"].map((reason) => OBSERVATION_REASON_NAMES[String(reason)] ?? String(reason)).join("、");
   return out;
 }
@@ -247,6 +252,13 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
 function staffVariables(ctx: AppContext, notification: Notification, event: StoredNotificationEvent): NotificationVariables {
   const data = event.data;
   const base = ctx.config.publicBaseUrl;
+  if (event.event === "tenant.profile_updated" || event.event === "tenant.profile_change_submitted") {
+    return {
+      tenant_name: typeof data["tenant_name"] === "string" ? data["tenant_name"] : "（见供应商详情）",
+      changed_fields: Array.isArray(data["profile_fields"]) ? profileFieldsText(data["profile_fields"].map(String)) : "企业信息",
+      console_url: event.tenantId === null ? `${base}/platform/tenants` : `${base}/platform/tenants/${event.tenantId}`,
+    };
+  }
   if (event.event === "exception.opened") {
     return { order_no: notification.orderNo ?? "", exception_type: EXCEPTION_TYPE_NAMES[data["type"] as ExceptionType] ?? "请到异常队列查看", console_url: `${base}/platform/exceptions` };
   }
@@ -379,7 +391,7 @@ export class NotificationJobs {
       }
       case "tenant": {
         if (event.tenantId === null) return [];
-        const emails = event.event.startsWith("payout_account.") ? await tenantAdminRecipients(db, event.tenantId) : await tenantRecipients(db, event.tenantId);
+        const emails = event.event.startsWith("payout_account.") || event.event.startsWith("tenant.profile_change_") ? await tenantAdminRecipients(db, event.tenantId) : await tenantRecipients(db, event.tenantId);
         return emails.map((recipient) => ({ audience, recipient, tenantId: event.tenantId, orderNo: order?.orderNo ?? null }));
       }
       case "staff":
