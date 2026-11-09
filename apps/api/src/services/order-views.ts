@@ -4,7 +4,7 @@
  * 规则 4：这里没有渠道、对外价、加价比例、汇率——`Order` 里本来就没有这些（在平台表 order_sales），这里也只逐个字段列出订单表里的内容。
  * 每个函数都逐个字段列出，不展开整个对象：新加的内部字段不会不知不觉出现在接口和推送里。
  */
-import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew } from "@nozomi/domain";
+import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew, vehicleLabelMailVariables } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
 import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import type { Order } from "../repos/orders.ts";
@@ -20,6 +20,11 @@ const iso = (date: Date | null): string | null => date?.toISOString() ?? null;
 export function orderVehicleGroupJson(group: OrderVehicleGroupRef | null): Json | null {
   if (group === null) return null;
   return { id: group.id, code: group.code, name: group.name, seats: group.seats, sample_models: group.sampleModels, combos: group.combos.map((combo) => ({ passengers: combo.passengers, luggage: combo.luggage })) };
+}
+
+/** 邮件里的车型标识（M7-04，ADR 0068）：车型组当前的代表车型和组合；找不到车型组或没填代表车型时对应的行不出现。没有任何金额。 */
+export function vehicleMailVariables(group: OrderVehicleGroupRef | null): ReturnType<typeof vehicleLabelMailVariables> {
+  return vehicleLabelMailVariables(group === null ? null : { sample_models: group.sampleModels, combos: group.combos });
 }
 
 /** 行程和乘客：租户、平台、渠道都能看的部分（没有任何金额）。 */

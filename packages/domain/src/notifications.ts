@@ -5,6 +5,7 @@
  * **供应商的白名单里没有对外价、加价比例、客人付款金额、退款金额、汇率**（CLAUDE.md 规则 4），测试扫所有模板。
  */
 import { parseTimeOfDay, instantToLocal, MINUTES_PER_DAY } from "./service-time.ts";
+import { VEHICLE_LABEL_TEXTS } from "./vehicle-label.ts";
 
 export const NOTIFICATION_AUDIENCES = ["guest", "tenant", "staff", "driver"] as const;
 export type NotificationAudience = (typeof NOTIFICATION_AUDIENCES)[number];
@@ -96,17 +97,25 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
-export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
+export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
 /** 司机邮件能用的变量（ADR 0058）：行程概要和链接。**没有客人的姓名、电话、邮箱、详细地址，也没有任何价格**。 */
-export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "changed_fields", "driver_link_url", "link_expires_at"] as const;
+export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "changed_fields", "driver_link_url", "link_expires_at"] as const;
 
 /** 不能出现在供应商邮件里的内容：模板、变量名都不能含这些词（规则 4）。 */
 export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refund|fx_|汇率|客人付|实付/i;
+
+/**
+ * 可以整行省略的变量（M7-04 的车型标识，ADR 0068）：值没有或为空时，正文里含它的那一行整行不出现，其余照常发；
+ * 别的变量缺了仍然整封不发。只能用在正文里自成一行的地方（「标签：{{x}}」），主题里不能用。
+ */
+export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage"] as const;
+
+const isOptionalLine = (name: string): boolean => (OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name);
 
 export function audienceVariables(audience: NotificationAudience): readonly string[] {
   if (audience === "driver") return DRIVER_VARIABLES;
@@ -123,10 +132,13 @@ export interface NotificationTemplate {
 }
 
 const GUEST_FOOTER = "\n\n查看和管理订单：\n{{view_url}}\n这个链接只属于您的这张订单，请不要转发给别人。\n\nNOZOMI 用车";
-const TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}";
-const TENANT_TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}\n人数：{{passengers}}";
+const VEHICLE_TEXTS = VEHICLE_LABEL_TEXTS.zh;
+/** 「车型」下面的车型标识（M7-04，ADR 0068）：同级车型说明一行、最多乘客 / 行李一行；值为空时整行不出现。代表车型就是同级说明的第一个，不单列。 */
+const VEHICLE_LABEL_LINES = `\n${VEHICLE_TEXTS.similar}：{{vehicle_similar}}\n${VEHICLE_TEXTS.maxPassengers}：{{vehicle_max_passengers}}，${VEHICLE_TEXTS.maxLuggage}：{{vehicle_max_luggage}}`;
+const TRIP = `订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}${VEHICLE_LABEL_LINES}`;
+const TENANT_TRIP = `订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}${VEHICLE_LABEL_LINES}\n人数：{{passengers}}`;
 const TENANT_FOOTER = "\n\n到后台处理：\n{{order_url}}\n\nNOZOMI 平台";
-const DRIVER_TRIP = "订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}";
+const DRIVER_TRIP = `订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}${VEHICLE_LABEL_LINES}`;
 const DRIVER_FOOTER = "\n\nNOZOMI 用车";
 const COMPANY_FOOTER = "\n\n到后台查看：\n{{console_url}}\n\nNOZOMI 平台";
 
@@ -175,7 +187,7 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
     "order.driver_link",
     "driver",
     "用车任务：{{service_time}}（{{order_no}}）",
-    "{{driver_name}}，您好：\n\n调度给您安排了一张用车任务，请打开下面的链接查看详情，并在行程中回传出发、到达、接到客人、完成。\n\n订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{trip_summary}}\n车型：{{vehicle_group}}\n\n打开任务：\n{{driver_link_url}}\n\n请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。\n链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。\n\nNOZOMI 用车",
+    `{{driver_name}}，您好：\n\n调度给您安排了一张用车任务，请打开下面的链接查看详情，并在行程中回传出发、到达、接到客人、完成。\n\n${DRIVER_TRIP}\n\n打开任务：\n{{driver_link_url}}\n\n请不要转发这封邮件：这个链接能看到客人信息，只给您本人使用。\n链接到 {{link_expires_at}}（当地时间）失效；改派或调度重新生成后也会失效，打不开时请联系调度。\n\nNOZOMI 用车`,
   ),
 
   // 客人的修改和取消（ADR 0060）：只有行程概要和改了哪些项目的名称，不写值。只有「任务有更新」带链接
@@ -222,17 +234,23 @@ const oneLine = (value: string): string => value.replace(CONTROL_CHARS, " ").tri
 
 
 /**
- * 渲染：一次替换（变量值里的 `{{x}}` 不会被再次替换），只认这个接收方白名单里的变量。缺变量返回 null（不发半截邮件）。
+ * 渲染：一次替换（变量值里的 `{{x}}` 不会被再次替换），只认这个接收方白名单里的变量。缺变量返回 null（不发半截邮件）；
+ * 例外是 `OPTIONAL_LINE_VARIABLES`：为空时正文里那一行整行不出现（主题里用了照样算缺）。
  * 主题和正文里的变量都把换行、行分隔符等控制字符规整成空格：主题防邮件头注入，正文防客人填的内容伪造段落（如在发给供应商的邮件里伪造「平台通知」）。
  */
 export function renderNotification(template: NotificationTemplate, variables: NotificationVariables): { subject: string; text: string } | null {
   const allowed = audienceVariables(template.audience);
+  const subjectNames = new Set(templatePlaceholders({ subject: template.subject, body: "" }));
+  const blank = (name: string): boolean => variables[name] === undefined || oneLine(variables[name] as string) === "";
   for (const name of templatePlaceholders(template)) {
-    const value = variables[name];
-    if (!allowed.includes(name) || value === undefined || oneLine(value) === "") return null;
+    if (!allowed.includes(name)) return null;
+    if (blank(name) && (!isOptionalLine(name) || subjectNames.has(name))) return null;
   }
+  // 可省略的变量为空：正文里含它的行整行去掉（不留空标签）
+  const lineDropped = (line: string): boolean => [...line.matchAll(PLACEHOLDER)].some((match) => isOptionalLine(match[1] as string) && blank(match[1] as string));
+  const body = template.body.split("\n").filter((line) => !lineDropped(line)).join("\n");
   const fill = (text: string): string => text.replace(PLACEHOLDER, (_, name: string) => oneLine(variables[name] as string));
-  return { subject: fill(template.subject).slice(0, 200), text: fill(template.body) };
+  return { subject: fill(template.subject).slice(0, 200), text: fill(body) };
 }
 
 /** 邮箱打码：`ab***@example.com`。不像邮箱的整个打码。 */

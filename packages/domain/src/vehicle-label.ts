@@ -65,3 +65,18 @@ export function vehicleLabelLines(group: VehicleLabelSource, language: VehicleLa
   if (label.maxLuggage !== null) lines.push({ label: texts.maxLuggage, value: texts.luggage(label.maxLuggage) });
   return lines;
 }
+
+/**
+ * 邮件里的车型标识变量（M7-04，ADR 0068 第 3 节补记）：同级车型说明、最多乘客、最多行李，值用 `VEHICLE_LABEL_TEXTS` 的写法。
+ * 代表车型就是同级说明的第一个，邮件里不单列。没填代表车型（或找不到车型组）时对应的值是空字符串：模板里那一行整行不出现。
+ */
+export function vehicleLabelMailVariables(group: VehicleLabelSource | null, language: VehicleLabelLanguage = "zh"): { vehicle_similar: string; vehicle_max_passengers: string; vehicle_max_luggage: string } {
+  if (group === null) return { vehicle_similar: "", vehicle_max_passengers: "", vehicle_max_luggage: "" };
+  const label = vehicleLabel(group);
+  const texts = VEHICLE_LABEL_TEXTS[language];
+  return {
+    vehicle_similar: label.similar ?? "",
+    vehicle_max_passengers: label.maxPassengers === null ? "" : texts.passengers(label.maxPassengers),
+    vehicle_max_luggage: label.maxLuggage === null ? "" : texts.luggage(label.maxLuggage),
+  };
+}
