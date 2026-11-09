@@ -3,7 +3,7 @@
  * 表里每一行是一条价格；每个还没有价格的组合也占一行，空着等填。改完一批，一次保存（全部成功或一条都不保存）。
  * 行怎么读、缺不缺价、日期重不重叠都在 lib/price-form.ts（规则来自 @nozomi/domain）。
  */
-import { PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, PRICE_DIRECTIONS, PRICE_LIMITS, PRICING_MODEL_NAMES, type PriceDirection, type PriceRule, type PricingModel, VEHICLE_GRADES, addDays, applyAdjustRules, basePrice } from "@nozomi/domain";
 import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ApiError } from "../../../api/client.ts";
@@ -504,6 +504,7 @@ export function PriceRulesTab({ shared }: { shared: PricesShared }) {
                 <span>按客人实际路线的里程和时长报价，要等路线预估功能上线；在那之前，价格日历上显示的是不超出起步里程和起步时长时的价。</span>
               </Alert>
             )}
+            {category === "charter" && <Alert kind="info">{CHARTER_SUPPLIER_PRICE_NOTE}</Alert>}
             {category === "charter" && (
               <div className="price-packages">
                 <span className="price-packages__label">套餐：</span>

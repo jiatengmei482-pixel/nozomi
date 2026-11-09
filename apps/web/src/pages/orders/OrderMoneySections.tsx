@@ -2,7 +2,8 @@
  * 供应商订单详情里的取消、改单、事后加收（M3-03，ADR 0029）。规则 4：这里只有结算价一侧的金额（你报的、你应得的），没有客人付的。
  * - 取消规则：这一单适用的阶梯（下单时的平台政策，只读）；取消了的写出扣款比例和你应得的；
  * - 改单：客人改了什么（改前改后）；客人的修改申请：同意、标记调整中、拒绝（必填原因）（`order.dispatch`，ADR 0060）；
- * - 事后加收（`order.extra_charge`：管理员、调度、财务）：服务结束 24 小时内提交，高速费、停车费要附票据照片；48 小时异议期内可以撤回。
+ * - 事后加收（`order.extra_charge`：管理员、调度、财务）：服务结束 24 小时内提交；48 小时异议期内可以撤回。包车一口价已含高速费、停车费（ADR 0070），
+ *   类型里只有分界前下的包车单还有高速费、停车费（要附票据照片）。
  */
 import { useState } from "react";
 import type { TenantOrder } from "../../api/dispatch.ts";
@@ -18,8 +19,8 @@ import { TextField } from "../../components/TextField.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
-import { CHANGE_FIELD_NAMES, CHANGE_STATUS_BADGES, EXTRA_STATUS_BADGES, REVIEW_REASON_NAMES, amountToMinor, cancelReasonName, changeValueText, extraTypeName, extraTypesFor, levelName, tiersText } from "../../lib/order-money-display.ts";
-import type { ExtraChargeType } from "@nozomi/domain";
+import { CHANGE_FIELD_NAMES, CHANGE_STATUS_BADGES, EXTRA_STATUS_BADGES, REVIEW_REASON_NAMES, amountToMinor, cancelReasonName, changeValueText, extraTypeName, extraTypesFor, levelName, receiptTypesOffered, tiersText } from "../../lib/order-money-display.ts";
+import { type ExtraChargeType, extraChargeNeedsReceipt } from "@nozomi/domain";
 
 export function CancellationSection({ order }: { order: TenantOrder }) {
   return (
@@ -169,7 +170,8 @@ export function ChangesSection({ order, changes, canDecide, driverEmailState, on
 
 function SubmitDialog({ order, onClose, onDone }: { order: TenantOrder; onClose(): void; onDone(): void }) {
   const { token, handleAuthFailure } = usePortalSession();
-  const types = extraTypesFor(order.category);
+  const types = extraTypesFor(order.category, order.created_at);
+  const receiptTypes = receiptTypesOffered(types);
   const [type, setType] = useState<ExtraChargeType>(types[0] as ExtraChargeType);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -199,7 +201,7 @@ function SubmitDialog({ order, onClose, onDone }: { order: TenantOrder; onClose(
       setProblem(`金额写成大于 0 的数（${currency}），如 2000`);
       return;
     }
-    if ((type === "toll" || type === "parking") && files.length === 0) {
+    if (extraChargeNeedsReceipt(type) && files.length === 0) {
       setProblem("高速费、停车费要附票据照片");
       return;
     }
@@ -232,7 +234,13 @@ function SubmitDialog({ order, onClose, onDone }: { order: TenantOrder; onClose(
         </>
       }
     >
-      <SelectField label="类型" value={type} options={types.map((value) => ({ value, label: extraTypeName(value) }))} onChange={(value) => setType(value)} />
+      <SelectField
+        label="类型"
+        value={type}
+        options={types.map((value) => ({ value, label: extraTypeName(value) }))}
+        {...(order.category === "charter" && !receiptTypes ? { hint: "包车一口价已含高速费、停车费，不能另收" } : {})}
+        onChange={(value) => setType(value)}
+      />
       <TextField label={`金额（结算价，${currency}）`} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} hint="不能超过这一单的结算价；超过客人付的 50% 会转平台审核" />
       <TextField label="说明" value={description} maxLength={200} onChange={(event) => setDescription(event.target.value)} hint="如「等了 40 分钟」「多去了一个地方」" />
       <div className="field">
@@ -240,7 +248,7 @@ function SubmitDialog({ order, onClose, onDone }: { order: TenantOrder; onClose(
           票据照片
         </label>
         <input id="receipt-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple disabled={uploading} onChange={(event) => void upload(event.target.files)} />
-        <p className="field__hint">{files.length === 0 ? "高速费、停车费必须附；其他类型没有凭证会转平台审核。" : `已上传：${files.map((file) => file.name).join("、")}`}</p>
+        <p className="field__hint">{files.length === 0 ? (receiptTypes ? "高速费、停车费必须附；其他类型没有凭证会转平台审核。" : "没有凭证会转平台审核。") : `已上传：${files.map((file) => file.name).join("、")}`}</p>
       </div>
       {problem !== null && <Alert kind="danger">{problem}</Alert>}
     </Dialog>

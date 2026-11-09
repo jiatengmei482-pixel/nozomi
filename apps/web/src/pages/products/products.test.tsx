@@ -504,7 +504,7 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   assert.deepEqual((writes(second)[0]?.body as ServiceRulesBody).free_wait, { pickup: { mode: "limited", minutes: 60 }, dropoff: { mode: "limited", minutes: 15 }, general: null });
 });
 
-test("服务规则：包车的免费等待由平台固定为 0——没有输入框，写明原因；以前存的 15 分钟提示已按 0 算，保存时改成 0", async () => {
+test("服务规则：包车的免费等待由平台固定为 0——没有输入框，写明原因；以前存的 15 分钟提示已按 0 算，保存时改成 0；写清包车报价须含高速费、停车费", async () => {
   const actor = user();
   const charter = productOf({ category: "charter", poi_id: null, poi: null });
   const legacy = rulesOf({ booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 24, note: null }, free_wait: { pickup: null, dropoff: null, general: { mode: "limited", minutes: 15 } } });
@@ -517,6 +517,7 @@ test("服务规则：包车的免费等待由平台固定为 0——没有输入
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await screen.findByText("已保存");
   assert.deepEqual((writes(calls)[0]?.body as ServiceRulesBody).free_wait, { pickup: null, dropoff: null, general: { mode: "limited", minutes: 0 } });
+  assert.ok(screen.getByText(/包车的超时费、超公里费在「价格规则」里设置。包车报价须包含高速费、停车费：对客人是一口价全含，服务后不能再另收高速费、停车费/), "M8-09：写清包车报价须含高速、停车");
 });
 
 test("服务规则：后端指出的问题落在对应的输入框上；平台停用的附加服务有提醒；只读角色不能改也没有保存", async () => {

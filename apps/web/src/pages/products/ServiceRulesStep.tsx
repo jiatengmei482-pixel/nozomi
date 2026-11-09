@@ -4,7 +4,7 @@
  * 表单怎么读、哪里写错了在 lib/service-rules-form.ts；范围和缺项问 @nozomi/domain。
  */
 import { PlatformPolicyLines } from "./PlatformPolicyLines.tsx";
-import { type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
+import { CHARTER_SUPPLIER_PRICE_NOTE, type FreeWaitItem, type NightChargeUnit, PRODUCT_CATEGORY_NAMES, PRODUCT_LIMITS, addonAllowsFirstFree, fixedFreeWaitMinutes, freeWaitItems, serviceRuleMissing } from "@nozomi/domain";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AddonOption } from "../../api/master-options.ts";
 import { type Product, type ProductServiceRules, putServiceRules } from "../../api/products.ts";
@@ -585,7 +585,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                   </ul>
                 )}
                 <FieldErrors id="addons-error" errors={server["addons"] ?? []} />
-                {category === "charter" && <p className="field__hint">包车的超时费、超公里费在「价格规则」里设置。</p>}
+                {category === "charter" && <p className="field__hint">{`包车的超时费、超公里费在「价格规则」里设置。${CHARTER_SUPPLIER_PRICE_NOTE}`}</p>}
 
                 <fieldset className="field fieldset addon-languages">
                   <legend className="field__label">司机语言</legend>

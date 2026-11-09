@@ -36,7 +36,7 @@ export const CHARTER_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>>
 };
 
 /** 供应商侧：包车报价须包含高速费、停车费（供应商后台价格规则、服务规则说明，接单邮件）。 */
-export const CHARTER_SUPPLIER_PRICE_NOTE = "包车报价须包含高速费、停车费：客人付的是一口价，服务后不能再另收高速费、停车费；超出套餐的时长和公里仍按商品规则加收。";
+export const CHARTER_SUPPLIER_PRICE_NOTE = "包车报价须包含高速费、停车费：对客人是一口价全含，服务后不能再另收高速费、停车费；超出套餐的时长和公里仍按商品规则加收。";
 
 export type FixedPriceItemKey = "all_inclusive" | "private_car" | "meet_and_greet" | "free_wait";
 

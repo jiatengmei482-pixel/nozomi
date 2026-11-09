@@ -260,6 +260,7 @@ test("包车套餐和里程 + 时长各设一条；日期重叠当场标出、�
   // 包车：先加套餐，再填套餐价
   const charter = await readyProduct(request, supplier, world, "charter", "东京包车");
   await page.goto(`/products/${charter.id}/prices`);
+  await expect(page.locator("main")).toContainText("包车报价须包含高速费、停车费");
   await page.getByRole("button", { name: "新增套餐" }).first().click();
   const dialog = page.getByRole("dialog", { name: "新增套餐" });
   await dialog.getByLabel(/套餐时长/).fill("8");

@@ -13,6 +13,8 @@ import {
   type ServiceCategory,
   VEHICLE_LEVEL_NAMES,
   type VehicleLevel,
+  extraChargeNeedsReceipt,
+  extraChargeTypesFor,
   isCurrencyCode,
   parseMajor,
 } from "@nozomi/domain";
@@ -156,10 +158,17 @@ export function extraTypeName(type: ExtraChargeType): string {
 
 export const REVIEW_REASON_NAMES: Readonly<Record<string, string>> = { OVER_THRESHOLD: "超过对外价 50%", NO_EVIDENCE: "没有凭证", DISPUTED: "客人提了异议" };
 
-/** 每种品类能加收的类型（和后端同一份规则：接送机、点对点是一口价，只有付费等待、加停靠点、加附加服务）。 */
-export function extraTypesFor(category: ServiceCategory): ExtraChargeType[] {
-  const all: ExtraChargeType[] = ["charter_overtime", "charter_over_km", "waiting", "extra_stop", "extra_addon", "toll", "parking"];
-  return category === "charter" ? all : ["waiting", "extra_stop", "extra_addon"];
+/**
+ * 这一单能加收的类型：和后端同一份规则（domain `extraChargeTypesFor`）。接送机、点对点是一口价，只有付费等待、加停靠点、加附加服务；
+ * 包车另有超时、超公里；高速费、停车费只有分界前下的包车单有（包车一口价全含，ADR 0070）。
+ */
+export function extraTypesFor(category: ServiceCategory, createdAt: string): ExtraChargeType[] {
+  return extraChargeTypesFor(category, new Date(createdAt));
+}
+
+/** 这一单能不能收高速费、停车费（分界前下的包车单）：表单里才提「必须附票据」。 */
+export function receiptTypesOffered(types: readonly ExtraChargeType[]): boolean {
+  return types.some((type) => extraChargeNeedsReceipt(type));
 }
 
 /** 改单里改了的字段的名字。 */
