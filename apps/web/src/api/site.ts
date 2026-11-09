@@ -4,7 +4,7 @@
  * 类型与 `apps/api/openapi.yaml` 对账（site.contract.test.ts）。
  */
 import type { ExtraChargeStatus, ExtraChargeType, LocalizedText, MessagingApp, OrderChangeStatus, OrderStatus } from "@nozomi/domain";
-import { apiRequest } from "./client.ts";
+import { apiRequest, apiStatus } from "./client.ts";
 import type { MapTiles } from "./areas.ts";
 import type { CancelTier, OrderCancelPolicy } from "./order-money.ts";
 
@@ -576,4 +576,58 @@ export function listSiteTickets(token: string): Promise<{ items: SiteTicket[] }>
 
 export function createSiteTicket(token: string, body: { type: SiteTicketType; subject: string; description: string; language: string | null }): Promise<{ ticket: SiteTicket }> {
   return apiRequest("POST", `${SITE_BASE}/order/tickets`, { ...guest(token), body });
+}
+
+// ───────────── 路线小地图（M8-10）：后端代调谷歌静态地图，浏览器不放谷歌密钥 ─────────────
+
+/** 路线图的尺寸范围（CSS 像素，和接口一致）；倍率 1 或 2。 */
+export const SITE_ROUTE_MAP_LIMITS = { minWidth: 200, maxWidth: 640, minHeight: 150, maxHeight: 640 } as const;
+
+export interface SiteRouteMapRequest {
+  from: SitePoint;
+  to: SitePoint;
+  theme: "light" | "dark";
+  width: number;
+  height: number;
+  scale: 1 | 2;
+}
+
+/**
+ * 路线图的地址：`GET /site/v1/route-map`，成功是一张 PNG（灰色底图、品牌色路线和起终点），直接给 `<img>` 用
+ * （同源，内容安全策略 img-src 'self' 已放行；不转成 blob: 地址）。
+ */
+export function siteRouteMapUrl(request: SiteRouteMapRequest): string {
+  const query = new URLSearchParams({
+    from_lat: request.from.lat.toFixed(6),
+    from_lng: request.from.lng.toFixed(6),
+    to_lat: request.to.lat.toFixed(6),
+    to_lng: request.to.lng.toFixed(6),
+    theme: request.theme,
+    width: String(request.width),
+    height: String(request.height),
+    scale: String(request.scale),
+  });
+  return `${SITE_BASE}/route-map?${query.toString()}`;
+}
+
+/**
+ * 应答是不是「平台还没开通谷歌静态地图」：503 + 全站统一错误格式 `{ error: { code: "ROUTE_MAP_UNAVAILABLE", details: { reason: "NOT_ENABLED" } } }`（ADR 0072）。
+ * 其他一切（reason 为 UNAVAILABLE、429 太频繁、400、500、不是 JSON）都不算。
+ */
+export function isRouteMapNotEnabled(status: number, body: unknown): boolean {
+  if (status !== 503 || typeof body !== "object" || body === null) return false;
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) return false;
+  const { code, details } = error as { code?: unknown; details?: unknown };
+  return code === "ROUTE_MAP_UNAVAILABLE" && typeof details === "object" && details !== null && (details as { reason?: unknown }).reason === "NOT_ENABLED";
+}
+
+/** 图片没出来以后再问一次原因：只有「还没开通」返回 true（这时用现有底图画路线）；其他任何情况（暂时不可用、太频繁、网络、不是 503）返回 false。 */
+export async function siteRouteMapNotEnabled(url: string): Promise<boolean> {
+  try {
+    const { status, body } = await apiStatus(url);
+    return isRouteMapNotEnabled(status, body);
+  } catch {
+    return false;
+  }
 }

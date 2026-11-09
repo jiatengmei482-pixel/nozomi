@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_ROUTE_MAP_LIMITS, siteRouteMapUrl, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -39,6 +39,7 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["post", `${SITE_BASE}/quotes`],
     ["post", `${SITE_BASE}/quotes/by-points`],
     ["get", `${SITE_BASE}/fx/reference`],
+    ["get", `${SITE_BASE}/route-map`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
   ];
@@ -156,4 +157,25 @@ test("附加服务、参考汇率（M8-02）：报价只给可加的附加服务
   const fx = (spec.paths[`${SITE_BASE}/fx/reference`]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
   assert.deepEqual(props(fx), sorted(SITE_FX_REFERENCE_FIELDS));
   assert.deepEqual(sorted(fx?.required ?? []), sorted(SITE_FX_REFERENCE_FIELDS));
+});
+
+test("路线小地图（M8-10）：前端发的查询参数正好是接口定义的那几个，尺寸范围、主题、倍率和接口一致", () => {
+  interface Parameter {
+    name: string;
+    in: string;
+    required?: boolean;
+    schema?: { minimum?: number; maximum?: number; enum?: (string | number)[] };
+  }
+  const operation = spec.paths[`${SITE_BASE}/route-map`]?.["get"] as (Operation & { parameters?: Parameter[] }) | undefined;
+  const parameters = new Map((operation?.parameters ?? []).filter((parameter) => parameter.in === "query").map((parameter) => [parameter.name, parameter]));
+  const sent = new URL(siteRouteMapUrl({ from: { lat: 35.7, lng: 139.7 }, to: { lat: 35.6, lng: 139.8 }, theme: "dark", width: 300, height: 200, scale: 2 }), "http://localhost").searchParams;
+  assert.deepEqual([...sent.keys()].sort(), [...parameters.keys()].sort(), "多余的参数后端回 400");
+  for (const [name, parameter] of parameters) if (parameter.required === true) assert.ok(sent.has(name), name);
+  assert.deepEqual([parameters.get("width")?.schema?.minimum, parameters.get("width")?.schema?.maximum], [SITE_ROUTE_MAP_LIMITS.minWidth, SITE_ROUTE_MAP_LIMITS.maxWidth]);
+  assert.deepEqual([parameters.get("height")?.schema?.minimum, parameters.get("height")?.schema?.maximum], [SITE_ROUTE_MAP_LIMITS.minHeight, SITE_ROUTE_MAP_LIMITS.maxHeight]);
+  assert.deepEqual(parameters.get("theme")?.schema?.enum, ["light", "dark"]);
+  assert.deepEqual(parameters.get("scale")?.schema?.enum, [1, 2]);
+  const error = schemas["RouteMapUnavailable"]?.properties?.["error"];
+  assert.deepEqual(error?.properties?.["code"]?.enum, ["ROUTE_MAP_UNAVAILABLE"]);
+  assert.deepEqual(error?.properties?.["details"]?.properties?.["reason"]?.enum, ["NOT_ENABLED", "UNAVAILABLE"], "页面只认 NOT_ENABLED（退回底图），其余只写字");
 });

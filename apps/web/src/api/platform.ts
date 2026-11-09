@@ -207,6 +207,8 @@ export interface IntegrationsOverview {
   items: IntegrationStatus[];
   fx_center: FxCenterStatus;
   routes: RouteUsageStatus;
+  /** 官网路线小地图（谷歌静态地图，M8-10，ADR 0072）的用量，字段和路线预估一样 */
+  static_maps: RouteUsageStatus;
 }
 
 export function listIntegrations(token: string): Promise<IntegrationsOverview> {
