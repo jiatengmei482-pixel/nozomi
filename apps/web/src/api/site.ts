@@ -459,6 +459,14 @@ export function searchSitePlaces(cityId: string | null, query: string): Promise<
   return apiRequest("GET", `${SITE_BASE}/places/search?${cityId === null ? "" : `city_id=${encodeURIComponent(cityId)}&`}q=${encodeURIComponent(query)}`);
 }
 
+/**
+ * 按编码取一个平台地点（M8-04，新预订页的链接参数 `from=NRT`）：只在渠道授权的城市里找、只给启用的，不调谷歌；找不到 404。
+ * 和后端约定的接口 `GET /site/v1/places/by-code?code=`，应答就是一个 `SitePlace`（M8-04 验收问题 1）。
+ */
+export function getSitePlaceByCode(code: string): Promise<SitePlace> {
+  return apiRequest("GET", `${SITE_BASE}/places/by-code?code=${encodeURIComponent(code)}`);
+}
+
 /** 输入即提示：一次「输入 → 选中」用同一个 `session`（如 `crypto.randomUUID()`）。 */
 export function autocompleteSitePlaces(query: string, session: string): Promise<SitePlaceSuggestionResult> {
   return apiRequest("GET", `${SITE_BASE}/places/autocomplete?q=${encodeURIComponent(query)}&session=${encodeURIComponent(session)}`);

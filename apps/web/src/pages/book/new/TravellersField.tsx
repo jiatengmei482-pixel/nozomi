@@ -7,7 +7,8 @@ import { useId, useState } from "react";
 import { Icon } from "../../../components/Icon.tsx";
 import { TRAVELLER_LIMITS, travellersText } from "../../../lib/book-new.ts";
 
-function Stepper({ label, unit, value, min, max, onChange }: { label: string; unit: string; value: number; min: number; max: number; onChange(value: number): void }) {
+/** 一组 − 数字 +（乘客、行李；M8-04 起附加服务也用）。 */
+export function Stepper({ label, unit, value, min, max, onChange }: { label: string; unit?: string; value: number; min: number; max: number; onChange(value: number): void }) {
   const id = useId();
   return (
     <div className="travellers__row" role="group" aria-labelledby={id}>
@@ -19,7 +20,7 @@ function Stepper({ label, unit, value, min, max, onChange }: { label: string; un
           <Icon name="minus" />
         </button>
         <output className="travellers__value" aria-live="polite">
-          {value} {unit}
+          {unit === undefined ? value : `${value} ${unit}`}
         </output>
         <button type="button" className="icon-button travellers__step" aria-label={`增加${label}`} disabled={value >= max} onClick={() => onChange(value + 1)}>
           <Icon name="plus" />

@@ -113,6 +113,8 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   await expect(page.getByLabel(/^机场/)).toHaveCount(0);
   const pickupPicker = page.getByRole("combobox", { name: "从常用地点选上车地点（选填）" });
   await pickupPicker.fill(station);
+  // 常用地点是选了城市以后才读的：等候选出来再回车（还在读的时候回车只是收起面板，什么都没选上）
+  await expect(page.getByRole("option", { name: new RegExp(station) })).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("上车地址或酒店名")).toHaveValue(station);
   await expect(page.getByRole("group", { name: /上车地点的坐标/ }).getByLabel(/^纬度/)).toHaveValue(String(STATION.lat));
@@ -150,6 +152,7 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
   await expect(page.getByLabel("下车地址或酒店名")).toHaveCount(0);
   await page.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }).fill(station);
+  await expect(page.getByRole("option", { name: new RegExp(station) })).toBeVisible();
   await page.keyboard.press("Enter");
   await page.getByLabel("用车日期（当地）").fill(date);
   await page.getByLabel("上车时间（当地）").fill("09:00");

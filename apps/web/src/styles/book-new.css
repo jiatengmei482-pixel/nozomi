@@ -476,15 +476,163 @@
   overflow-wrap: anywhere;
 }
 
-.book-bar__note {
-  grid-column: 1 / -1;
+
+/* ---------- 右侧栏（M8-04）：路线、附加服务、车费合计、参考价、取消规则、去付款 ---------- */
+
+.book-summary__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.book-summary__route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.book-summary__route > .icon {
+  flex: none;
+  color: var(--color-text-secondary);
+}
+
+.route-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.route-map__canvas {
+  height: 200px;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+/* 路线：主色粗线；起点主色实心、终点 bg-surface 实心 + 主色描边（不只靠颜色：起终点形状一样但填充不同，旁边有文字） */
+.route-map__line {
+  fill: transparent;
+  stroke: var(--color-primary);
+  stroke-width: 4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.route-map__start {
+  fill: var(--color-primary);
+  fill-opacity: 1;
+  stroke: var(--color-bg-surface);
+  stroke-width: 2px;
+}
+
+.route-map__end {
+  fill: var(--color-bg-surface);
+  fill-opacity: 1;
+  stroke: var(--color-primary);
+  stroke-width: 3px;
+}
+
+.route-map__attribution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.book-addons .travellers__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.book-prices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.book-prices__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+.book-prices__row > dt {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.book-prices__row > dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.book-prices__row--total {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+.book-prices__row--total > dt {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.book-prices__approx {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.book-prices__note {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.book-pay {
+  gap: var(--space-2);
+}
+
+.book-pay__methods {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--font-size-md);
 }
 
-.book-bar__note:empty {
-  display: none;
+.book-pay__method {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+
+.book-new__back {
+  align-self: flex-start;
+}
+
+.site-actions .book-pay {
+  padding-top: 0;
+  border-top: 0;
 }
 
 @media (min-width: 768px) {
@@ -503,4 +651,33 @@
     top: var(--space-4);
     min-width: 0;
   }
+}
+
+/*
+ * 路线图的矢量层（Leaflet 自带样式里的两条，不引入它的样式文件，ADR 0017）：
+ * - 矢量层的 <svg> 要绝对定位在图层里；
+ * - 全站 base.css 给 svg 设了 max-width: 100%，而图层本身宽度是 0，路线的 <svg> 会被压成 0 宽、看不见，这里取消。
+ */
+.route-map__canvas .leaflet-pane > svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  max-height: none;
+}
+
+/*
+ * 图层的上下顺序（M8-04 复查问题 1）：地图库给瓦片层写了 z-index: 1，路线所在的矢量层没有，瓦片会盖住路线。
+ * 地图框自成一个层叠范围（不影响页面别处），瓦片层放最底、矢量层放上面。
+ */
+.route-map__canvas {
+  isolation: isolate;
+}
+
+.route-map__canvas .leaflet-tile-pane {
+  z-index: var(--z-base);
+}
+
+.route-map__canvas .leaflet-overlay-pane {
+  z-index: var(--z-sticky);
 }

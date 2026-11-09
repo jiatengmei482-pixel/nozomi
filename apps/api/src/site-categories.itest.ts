@@ -148,6 +148,38 @@ test("包车套餐时长：启用、没过期的价格规则里的，从短到�
   assert.equal((await site.call("GET", "/site/v1/cities/not-a-uuid/charter-packages")).status, 404);
 });
 
+test("按编码取平台地点（M8-04 新预订页链接参数）：不分大小写、找到带坐标；航站楼按机场返回；找不到、停用、授权外的城市都是 404；格式不对 400；不调谷歌", async () => {
+  const found = await site.call("GET", "/site/v1/places/by-code?code=nrt");
+  assertMatchesOpenApi("GET", "/site/v1/places/by-code", found);
+  assert.equal(found.status, 200);
+  assert.deepEqual([found.body.type, found.body.code], ["airport", "NRT"]);
+  assert.equal(typeof found.body.location.lat, "number");
+  const station = await site.call("GET", "/site/v1/places/by-code?code=STN-JP-OSAKA");
+  assert.deepEqual([station.status, station.body.type], [200, "station"]);
+  const terminal = await api.db.owner.query("select pl.code from places pl join places parent on parent.id = pl.parent_id where pl.type = 'terminal' and pl.status = 'active' and parent.code = 'NRT' limit 1");
+  if (terminal.rows[0]) {
+    const res = await site.call("GET", `/site/v1/places/by-code?code=${terminal.rows[0].code}`);
+    assert.deepEqual([res.status, res.body.type], [200, "airport"], "航站楼按所属机场的种类返回");
+  }
+  assert.equal((await site.call("GET", "/site/v1/places/by-code?code=ZZZ999")).status, 404);
+  assert.equal((await site.call("GET", "/site/v1/places/by-code?code=bad%20code")).status, 400);
+  assert.equal((await site.call("GET", "/site/v1/places/by-code")).status, 400);
+  const osakaOnly = await newChannel(api, m.staff.cm1.token, { name: "只卖大阪的官网 by-code", scope: { city_ids: [m.ids.osaka] } });
+  const scoped = await siteApi(api, (await salesCredentials(api, m, osakaOnly.id)).clientId, pay);
+  try {
+    assert.equal((await scoped.call("GET", "/site/v1/places/by-code?code=NRT")).status, 404, "渠道没授权东京：东京的机场找不到");
+    assert.equal((await scoped.call("GET", "/site/v1/places/by-code?code=STN-JP-OSAKA")).status, 200);
+  } finally {
+    await scoped.close();
+  }
+  await api.db.owner.query("update places set status = 'disabled' where code = 'STN-JP-OSAKA'");
+  try {
+    assert.equal((await site.call("GET", "/site/v1/places/by-code?code=STN-JP-OSAKA")).status, 404, "停用的找不到");
+  } finally {
+    await api.db.owner.query("update places set status = 'active' where code = 'STN-JP-OSAKA'");
+  }
+});
+
 test("地址输入辅助：城市里启用的机场、车站、地标（带坐标、地标的地址）；不含航站楼、停用的、别的城市的", async () => {
   const res = await site.call("GET", `/site/v1/cities/${m.ids.tokyo}/places`);
   assertMatchesOpenApi("GET", "/site/v1/cities/{id}/places", res);

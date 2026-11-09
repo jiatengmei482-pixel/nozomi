@@ -12,11 +12,14 @@
  * 每一步 320 / 360 / 400 宽不横向滚动，亮暗两色 axe；浏览器只连本站。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
+import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { CENTER, type Ref, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
+import { TEST_CARDS, routeStripe } from "./fake-stripe.ts";
 import { platformAdminHeaders, randomLetters } from "./support.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
+const STRIPE_SITE = `http://127.0.0.1:${E2E_WEB_STRIPE_PORT}`;
+const TILE_ORIGIN = `http://127.0.0.1:${E2E_TILE_PORT}`;
 const RULES = {
   booking: { sale_from: null, sale_to: null, service_time: { start: "00:00", end: "24:00" }, lead_time_hours: 0, note: null },
   urgent: { enabled: false, daily_quota: null, tiers: [] },
@@ -43,9 +46,10 @@ async function createAirport(request: APIRequestContext, world: World): Promise<
   throw new Error("没有建出机场");
 }
 
-async function publishTransfer(request: APIRequestContext, supplier: Supplier, world: World): Promise<void> {
+/** 上架接送机商品；`seat` 给了时商品提供这项附加服务（每件 1,000 日元）。 */
+async function publishTransfer(request: APIRequestContext, supplier: Supplier, world: World, seat: Ref | null = null): Promise<void> {
   const product = await createProductByApi(request, supplier, world, "airport_transfer");
-  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
+  const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: { ...RULES, addons: seat === null ? [] : [{ addon_id: seat.id, enabled: true, unit_price: 1000, first_free: false }] } });
   expect(rules.status(), await rules.text()).toBe(200);
   const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "新预订页接送机", pickup_guide: "到达大厅 1 号出口" } } });
   expect(content.status(), await content.text()).toBe(200);
@@ -58,6 +62,36 @@ async function publishTransfer(request: APIRequestContext, supplier: Supplier, w
   expect(price.status(), await price.text()).toBe(200);
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers: supplier.headers });
   expect(published.status(), await published.text()).toBe(200);
+}
+
+/**
+ * 链接里的出发地写成机场的坐标加名称（离机场 0 米，按两个坐标报价认得出是接机）。
+ * 另一种写法 `from=机场编码` 走 `GET /site/v1/places/by-code`（M8-04 验收问题 1），在单页用例里覆盖。
+ */
+function airportLink(airport: { name: string; location: { lat: number; lng: number } }): string {
+  return `from=${airport.location.lat},${airport.location.lng}&from_name=${encodeURIComponent(airport.name)}`;
+}
+
+/** 谷歌 encoded polyline 的写法（只用来构造路线图的检查数据）。 */
+function encodePolyline(points: readonly { lat: number; lng: number }[]): string {
+  let last = { lat: 0, lng: 0 };
+  let out = "";
+  const encode = (value: number): void => {
+    let rest = value < 0 ? ~(value << 1) : value << 1;
+    while (rest >= 0x20) {
+      out += String.fromCharCode((0x20 | (rest & 0x1f)) + 63);
+      rest >>= 5;
+    }
+    out += String.fromCharCode(rest + 63);
+  };
+  for (const point of points) {
+    const lat = Math.round(point.lat * 1e5);
+    const lng = Math.round(point.lng * 1e5);
+    encode(lat - last.lat);
+    encode(lng - last.lng);
+    last = { lat, lng };
+  }
+  return out;
 }
 
 function tomorrowInTokyo(): string {
@@ -89,6 +123,12 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await publishTransfer(request, supplier, { ...world, airport });
   const origins = new Set<string>();
   page.on("request", (sent) => origins.add(new URL(sent.url()).origin));
+  // 假谷歌路线不给折线（只有时间距离）；为了检查路线图真的画出了线，只把真实应答的 route 换成一条从机场到东京站的折线（价格等其余内容原样）
+  await page.route(`${SITE}/site/v1/quotes/by-points`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    route.fulfill({ response, json: { ...body, route: { minutes: 25, meters: 14_200, polyline: encodePolyline([airport.location, { lat: (airport.location.lat + TOKYO_STATION.lat) / 2 + 0.01, lng: (airport.location.lng + TOKYO_STATION.lng) / 2 }, TOKYO_STATION]) } } });
+  });
   await page.setViewportSize({ width: 400, height: 800 });
 
   await page.goto(`${SITE}/book/new`);
@@ -119,7 +159,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）、航班号
   await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
   await expect(page.getByLabel("航班落地时间（当地）")).toHaveValue("10:00");
-  await page.getByLabel("航班号（选填）").fill("NH211");
+  await page.getByLabel("航班号").fill("NH211");
   const travellers = page.getByRole("button", { name: "乘客 / 行李 2 人 · 2 件" });
   await travellers.click();
   await page.getByRole("button", { name: "增加乘客" }).click();
@@ -142,16 +182,25 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await expect(page.locator("main")).not.toContainText("跟踪航班");
   const bar = page.locator(".book-bar");
   await expect(bar).toContainText(`${world.group.name} · 一口价 22,000 JPY`);
-  await bar.getByRole("button", { name: "下一步" }).click();
-  await expect(bar).toContainText("填写乘客信息并付款的一步还没有开放");
   await expectNarrowAndAccessible(page, "新预订页第 2 步（座位示意图展开、底部固定条）");
+  await bar.getByRole("button", { name: "下一步" }).click();
+  // 第 3 步：顶部摘要（车费、合计、取消规则），下面「怎么联系你」，吸底「去付款 →」
+  await expect(page.getByRole("heading", { name: "行程摘要" })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
+  await expect(page.locator(".book-summary")).toContainText("合计");
+  await expect(page.locator(".book-summary")).toContainText("22,000");
+  await expect(page.getByRole("button", { name: "去付款 →" })).toBeVisible();
+  await expectNarrowAndAccessible(page, "新预订页第 3 步（摘要、怎么联系你）");
 
   // 电脑宽：单页两栏，右侧栏有所选车型的一口价
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expectRouteLineVisible(page, airport.location);
   const aside = page.getByRole("complementary", { name: "行程摘要" });
-  await expect(aside).toContainText(`${world.group.name} · 一口价`);
+  await expect(aside).toContainText(world.group.name);
+  await expect(aside).toContainText("合计");
   await expect(aside).toContainText("22,000");
+  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
   await expect(aside).toContainText("NH211");
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
@@ -159,7 +208,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   }
   await page.emulateMedia({ colorScheme: "light" });
 
-  // 带参数的链接：出发地是机场编码，目的地是坐标加名称，打开就报价
+  // 带参数的链接：出发地写机场编码（按编码取一次平台地点，不调谷歌），目的地是坐标加名称，打开就报价
   await page.setViewportSize({ width: 400, height: 800 });
   await page.goto(`${SITE}/book/new?from=${airport.code}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=3&bags=1`);
   await expect(page.getByRole("heading", { name: "选择车型" })).toBeVisible();
@@ -167,6 +216,118 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await expect(page.locator(".book-new__strip-text")).toContainText("3 人 · 1 件");
   await expect(page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) })).toContainText("22,000 JPY");
 
-  // 浏览器只连本站（不连谷歌）
-  expect([...origins].filter((origin) => origin !== SITE)).toEqual([]);
+  // 浏览器只连本站和底图（不连谷歌）
+  expect([...origins].filter((origin) => origin !== SITE && origin !== TILE_ORIGIN)).toEqual([]);
+});
+
+/**
+ * 路线图上真的画出了线（M8-04 验收问题 2：矢量层的 <svg> 被全站的 max-width 压成 0 宽，线看不见）：
+ * 路线的路径有可见的大小、落在地图框里，起终点也在框里。
+ */
+async function expectRouteLineVisible(page: Page, start: { lat: number; lng: number }): Promise<void> {
+  const canvas = page.locator(".route-map__canvas").first();
+  await expect(canvas).toBeVisible();
+  await expect(page.getByText("约 25 分钟 · 14.2 公里").first()).toBeVisible();
+  const frame = await canvas.boundingBox();
+  const line = await canvas.locator("path.route-map__line").boundingBox();
+  const svg = await canvas.locator(".leaflet-pane > svg").first().boundingBox();
+  if (frame === null || line === null || svg === null) throw new Error(`路线图没有画出来（起点 ${start.lat},${start.lng}）`);
+  expect(svg.width, "矢量层的 svg 有宽度").toBeGreaterThan(frame.width / 2);
+  expect(line.width + line.height, "路线有可见的长度").toBeGreaterThan(40);
+  expect(line.x).toBeGreaterThanOrEqual(frame.x - 1);
+  expect(line.y).toBeGreaterThanOrEqual(frame.y - 1);
+  expect(line.x + line.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+  expect(line.y + line.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+  for (const marker of [".route-map__start", ".route-map__end"]) {
+    const box = await canvas.locator(`path${marker}`).boundingBox();
+    expect(box, `${marker} 画出来了`).not.toBeNull();
+    if (box !== null) expect(box.width, `${marker} 有大小`).toBeGreaterThan(4);
+  }
+  // 线真的在最上面（M8-04 复查问题 1：瓦片层盖住了路线）：取路线中点和终点标记中心，那一点最上层的元素就是它们自己
+  const onTop = await canvas.evaluate((root) => {
+    const hit = (element: Element | null, target: SVGGraphicsElement): boolean => element === target || (element !== null && target.contains(element));
+    const line = root.querySelector("path.route-map__line") as SVGPathElement;
+    const endMarker = root.querySelector("path.route-map__end") as SVGGraphicsElement;
+    // 路线不接收点击（pointer-events: none），量的时候临时打开，elementFromPoint 才会把它算进去；量完还原
+    for (const element of [line, endMarker]) element.style.pointerEvents = "visiblePainted";
+    const middle = line.getPointAtLength(line.getTotalLength() / 2);
+    const matrix = line.getScreenCTM();
+    const point = matrix === null ? null : new DOMPoint(middle.x, middle.y).matrixTransform(matrix);
+    const end = endMarker.getBoundingClientRect();
+    const result = {
+      line: point !== null && hit(document.elementFromPoint(point.x, point.y), line),
+      end: hit(document.elementFromPoint(end.x + end.width / 2, end.y + end.height / 2), endMarker),
+    };
+    for (const element of [line, endMarker]) element.style.pointerEvents = "";
+    return result;
+  });
+  expect(onTop, "路线和终点没有被瓦片盖住").toEqual({ line: true, end: true });
+  // 测试环境的瓦片不一定画在路线底下，上面那条不一定能发现；再直接核对层级：瓦片层必须在矢量层下面
+  const layers = await canvas.evaluate((root) => {
+    const z = (selector: string): string => getComputedStyle(root.querySelector(selector) as Element).zIndex;
+    return { tiles: z(".leaflet-tile-pane"), overlay: z(".leaflet-overlay-pane"), isolation: getComputedStyle(root).isolation };
+  });
+  expect(Number.isFinite(Number(layers.tiles)) && Number.isFinite(Number(layers.overlay)) && Number(layers.tiles) < Number(layers.overlay), `瓦片层（${layers.tiles}）在矢量层（${layers.overlay}）下面`).toBe(true);
+  expect(layers.isolation, "地图框自成层叠范围").toBe("isolate");
+}
+
+test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计差额）→ 怎么联系你 → 去付款 → 现有订单页用 Stripe 付款（假 Stripe，测试卡 4242）；手机第 3 步和电脑单页窄屏、亮暗 axe", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const world = await createWorld(request);
+  const airport = await createAirport(request, world);
+  const supplier = await createSupplier(request, world);
+  await publishTransfer(request, supplier, { ...world, airport }, world.seat);
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${1 + Math.floor(Math.random() * 250)}` });
+  const fakeStripe = process.env["E2E_FAKE_STRIPE_URL"];
+  if (!fakeStripe) throw new Error("global-setup 没有启动假 Stripe");
+  await routeStripe(page, fakeStripe);
+  const link = `${STRIPE_SITE}/book/new?${airportLink(airport)}&to=${TOKYO_STATION.lat},${TOKYO_STATION.lng}&to_name=${encodeURIComponent("東京駅八重洲口")}&date=${tomorrowInTokyo()}&time=11:30&pax=2&bags=2`;
+
+  // 手机：链接打开到第 2 步 → 选车 → 下一步 → 第 3 步
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto(link);
+  const card = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
+  await card.getByRole("button", { name: `选择 ${world.group.name}` }).click();
+  await page.locator(".book-bar").getByRole("button", { name: "下一步" }).click();
+  await expect(page.getByRole("heading", { name: "怎么联系你" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "附加服务（选填）" })).toContainText(world.seat.name);
+  await expectNarrowAndAccessible(page, "新预订页手机第 3 步");
+
+  // 电脑：单页，右侧栏加附加服务 → 重新报价 → 合计差额
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const aside = page.getByRole("complementary", { name: "行程摘要" });
+  await aside.getByRole("button", { name: `增加${world.seat.name}` }).click();
+  await expect(aside).toContainText("附加服务（合计差额）");
+  await expect(aside).toContainText("+1,100 JPY");
+  await expect(aside).toContainText("23,100");
+  await expect(aside).toContainText("车费");
+  await expect(aside).toContainText("22,000 JPY");
+  await expect(aside).toContainText("银行卡");
+  await expect(aside.getByText(/^≈ /)).toBeVisible();
+  await expect(aside).toContainText("按当前汇率换算，仅供参考，实际以支付金额为准");
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expectAccessible(page, `新预订页电脑单页（附加服务、参考价，${scheme === "light" ? "亮色" : "暗色"}）`);
+  }
+  await page.emulateMedia({ colorScheme: "light" });
+
+  // 怎么联系你：空着点「去付款」标红，航班号标在行程里；填好 → 下单 → 现有订单页
+  await aside.getByRole("button", { name: "去付款 →" }).click();
+  await expect(page.getByText("有几项没有填好，请看标红的地方。")).toBeVisible();
+  await expect(page.getByLabel("航班号")).toHaveAttribute("aria-invalid", "true");
+  await page.getByLabel("航班号").fill("NH 211");
+  await page.getByLabel("乘车人姓名").fill("王小明");
+  await page.getByLabel("邮箱").fill(`book-new-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
+  await page.getByLabel("手机号（含国家区号）").fill("+81 90-1234-5678");
+  await page.getByLabel("给司机的备注（选填）").fill("两个大箱子");
+  await page.getByRole("checkbox", { name: /同意保存这次付款用的银行卡/ }).check();
+  await aside.getByRole("button", { name: "去付款 →" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: /^订单 NZ/ })).toBeVisible();
+  await expect(page.getByLabel("卡号（假 Stripe）")).toBeVisible();
+  await expect(page.locator("main")).toContainText("23,100 JPY");
+  await page.getByLabel("卡号（假 Stripe）").fill(TEST_CARDS.success);
+  await page.getByRole("button", { name: "付款 23,100 JPY" }).click();
+  await page.getByRole("button", { name: "确认支付" }).click();
+  await expect(page.getByRole("region", { name: "付款", exact: true }).getByRole("status")).toContainText("付款成功，等待确认。");
+  await expect(page.getByText("付款成功，订单已确认。派车后这里会显示司机和车辆。")).toBeVisible({ timeout: 20_000 });
 });
