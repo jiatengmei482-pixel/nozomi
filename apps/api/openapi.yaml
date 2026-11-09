@@ -767,6 +767,222 @@ paths:
                 $ref: "#/components/schemas/Tenant"
         "404":
           $ref: "#/components/responses/ResourceNotFound"
+    patch:
+      tags: [ 租户管理 ]
+      operationId: renameTenant
+      summary: 改供应商的对外显示名称
+      description: |
+        需要操作 `tenant.edit`（超级管理员、运营、招商；M4-34，ADR 0071）。只能改 `name`；任何状态都能改，直接生效。
+        必须带 `If-Match`：供应商当前的 `version`（状态变化也会让它加一；不一致 409 `VERSION_CONFLICT`，刷新后再改）。和现在一样的不写、版本不变。
+        写审计日志（对象 `tenant`、动作 `update`，前后的名称）。供应商自己改名称要提交修改申请（`/tenant/v1/company/profile-changes`）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ name ]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: 对外显示名称（去掉首尾空白）
+      responses:
+        "200":
+          description: 改过的供应商
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "428":
+          $ref: "#/components/responses/VersionRequired"
+  /platform/v1/tenants/{id}/company/profile:
+    put:
+      tags: [ 供应商入驻 ]
+      operationId: putTenantCompanyProfileForPlatform
+      summary: 平台改供应商的企业信息
+      description: |
+        需要操作 `tenant.edit`（M4-34，ADR 0071）。整体替换，任何状态都能改，直接生效。还没有企业信息时不带 `If-Match`；以后每次都要带企业信息当前的 `version`（不一致 409 `VERSION_CONFLICT`）。
+        和现在一样的不写、版本不变。写审计日志（对象 `tenant_profile`，改前改后）。银行信息不在这里（收款账户，ADR 0051）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: If-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ country_code ]
+              properties:
+                country_code:
+                  type: [ string, "null" ]
+                  pattern: "^[A-Za-z]{2}$"
+                legal_name:
+                  type: [ string, "null" ]
+                  maxLength: 200
+                registration_no:
+                  type: [ string, "null" ]
+                  maxLength: 100
+                address:
+                  type: [ string, "null" ]
+                  maxLength: 300
+                contact_name:
+                  type: [ string, "null" ]
+                  maxLength: 100
+                contact_phone:
+                  type: [ string, "null" ]
+                  maxLength: 40
+                contact_email:
+                  type: [ string, "null" ]
+                  maxLength: 254
+      responses:
+        "200":
+          description: 保存后的企业信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyProfile"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`VERSION_CONFLICT`：版本不对"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}/profile-changes:
+    get:
+      tags: [ 供应商入驻 ]
+      operationId: listTenantProfileChangesForPlatform
+      summary: 供应商的资料修改申请
+      description: 需要操作 `tenant.read`。改对外显示名称、法定名称、登记号的申请，从新到旧最多 50 条，带提交人、驳回人和等审核的复核编号（ADR 0071）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 修改申请
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PlatformTenantProfileChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+  /platform/v1/tenants/{id}/profile-changes/{changeId}/approval:
+    post:
+      tags: [ 供应商入驻 ]
+      operationId: requestTenantProfileChangeReview
+      summary: 发起资料修改的复核（双人复核）
+      description: |
+        需要操作 `tenant.review`。核对过营业执照、登记簿以后发起：返回 202 和一条待审核的复核（`kind` = `tenant.profile_change`）；另一位有 `tenant.approve` 的同事批准后才写进供应商的名称和企业信息。
+        只有等处理的申请能发起（409 `PROFILE_CHANGE_STATE_INVALID`）；同一条申请同时只有一条待审核的复核（409 `PROFILE_CHANGE_REVIEW_PENDING`）。
+        批准时核对申请没被撤回、提交时的旧值没被平台直接改过，否则 409 `APPROVAL_STALE`（驳回这条复核，再驳回或重新发起申请）。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ProfileChangeId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+      responses:
+        "202":
+          $ref: "#/components/responses/ApprovalRequested"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PROFILE_CHANGE_STATE_INVALID`、`PROFILE_CHANGE_REVIEW_PENDING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /platform/v1/tenants/{id}/profile-changes/{changeId}/reject:
+    post:
+      tags: [ 供应商入驻 ]
+      operationId: rejectTenantProfileChange
+      summary: 驳回资料修改申请
+      description: 需要操作 `tenant.review`。原因必填，供应商看得到（通知中心给供应商的管理员发邮件）。有待审核的复核时先处理复核（409 `PROFILE_CHANGE_REVIEW_PENDING`）。原来的名称和企业信息不变。
+      security:
+        - platformToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/ProfileChangeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+      responses:
+        "200":
+          description: 已驳回
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ change ]
+                properties:
+                  change:
+                    $ref: "#/components/schemas/PlatformTenantProfileChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PROFILE_CHANGE_STATE_INVALID`、`PROFILE_CHANGE_REVIEW_PENDING`"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /platform/v1/tenants/{id}/suspend:
     post:
       tags: [ 租户管理 ]
@@ -3399,7 +3615,9 @@ paths:
       operationId: putOwnCompanyProfile
       summary: 填写企业信息
       description: |
-        需要操作 `company.manage`（管理员）。整体替换。只有「申请中」能改（409 `TENANT_STATE_INVALID`）。
+        需要操作 `company.manage`（管理员）。整体替换。「申请中」每一项都能改。
+        审核通过以后（M4-34，ADR 0071）只能直接改注册地址、联系人、电话、邮箱：改了直接生效，写审计日志并通知平台运营；
+        所在国家、法定名称、登记号和现在不一样时 409 `PROFILE_FIELDS_LOCKED`（`details.fields`）——法定名称、登记号要提交修改申请，国家只有平台能改。什么都没改的不写。
         第一次填不带 `If-Match`；以后每次都要带企业信息当前的 `version`（不一致 409 `VERSION_CONFLICT`）。提交审核前每一项都要填（国家决定必交资料清单）。写审计日志。
       security:
         - tenantToken: []
@@ -3447,7 +3665,101 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompanyProfile"
         "409":
-          description: "`TENANT_STATE_INVALID`：不在「申请中」；`VERSION_CONFLICT`：版本不对；`TENANT_TERMINATED`：已清退"
+          description: "`PROFILE_FIELDS_LOCKED`：审核通过以后改了国家、法定名称或登记号；`VERSION_CONFLICT`：版本不对；`TENANT_TERMINATED`：已清退"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/company/profile-changes:
+    get:
+      tags: [ 企业信息与资质 ]
+      operationId: listOwnProfileChanges
+      summary: 本供应商的资料修改申请
+      description: 需要操作 `company.read`（管理员、财务、只读）。从新到旧最多 50 条。没有平台员工的身份（驳回原因有）。
+      security:
+        - tenantToken: []
+      responses:
+        "200":
+          description: 修改申请
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TenantProfileChange"
+    post:
+      tags: [ 企业信息与资质 ]
+      operationId: submitOwnProfileChange
+      summary: 申请修改对外显示名称、法定名称、登记号
+      description: |
+        需要操作 `company.manage`（管理员；M4-34，ADR 0071）。只给要改的几项（至少一项；不能为空、不能和现在一样，400 `VALIDATION_FAILED`）。
+        平台一位同事核对后发起复核、另一位批准才生效；审核期间原来的照常使用。同时只有一条等处理的申请（409 `PROFILE_CHANGE_PENDING_EXISTS`，先撤回）。
+        写审计日志，通知平台运营。
+      security:
+        - tenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  maxLength: 200
+                  description: 新的对外显示名称（最多 100 个字符）
+                legal_name:
+                  type: string
+                  maxLength: 400
+                  description: 新的法定名称（最多 200 个字符）
+                registration_no:
+                  type: string
+                  maxLength: 200
+                  description: 新的登记号（最多 100 个字符）
+                note:
+                  type: [ string, "null" ]
+                  maxLength: 500
+                  description: 给平台的说明（如改名的原因）
+      responses:
+        "201":
+          description: 已提交
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantProfileChange"
+        "409":
+          description: "`PROFILE_CHANGE_PENDING_EXISTS`：已有等处理的申请；`TENANT_TERMINATED`：已清退"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /tenant/v1/company/profile-changes/{id}/withdraw:
+    post:
+      tags: [ 企业信息与资质 ]
+      operationId: withdrawOwnProfileChange
+      summary: 撤回资料修改申请
+      description: 需要操作 `company.manage`。只有等处理的能撤回（409 `PROFILE_CHANGE_STATE_INVALID`）；别的供应商的申请 404。已经发起的复核在批准时会过期（`APPROVAL_STALE`）。
+      security:
+        - tenantToken: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: 已撤回
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantProfileChange"
+        "404":
+          $ref: "#/components/responses/ResourceNotFound"
+        "409":
+          description: "`PROFILE_CHANGE_STATE_INVALID`"
           content:
             application/json:
               schema:
@@ -14854,6 +15166,14 @@ components:
       schema:
         type: string
         format: uuid
+    ProfileChangeId:
+      name: changeId
+      in: path
+      required: true
+      description: 供应商资料修改申请的编号
+      schema:
+        type: string
+        format: uuid
     DocumentId:
       name: documentId
       in: path
@@ -16164,6 +16484,7 @@ components:
             - tenant.suspend
             - tenant.terminate
             - tenant.contract
+            - tenant.profile_change
             - cancellation_policy.update
             - order.cancel_refund
             - order.proxy_pick_up
@@ -17870,6 +18191,7 @@ components:
         - staff.manage
         - tenant.read
         - tenant.create
+        - tenant.edit
         - tenant.change_status
         - tenant.review
         - tenant.approve
@@ -18187,6 +18509,127 @@ components:
         note:
           type: [ string, "null" ]
           maxLength: 500
+    TenantProfileChange:
+      type: object
+      additionalProperties: false
+      description: 供应商改对外显示名称、法定名称、登记号的申请（供应商看到的，没有平台员工的身份；ADR 0071）
+      required: [ id, fields, proposed, previous, note, status, submitted_by, submitted_at, decided_at, reject_reason, version ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fields:
+          type: array
+          items:
+            type: string
+            enum: [ name, legal_name, registration_no ]
+        proposed:
+          type: object
+          description: 要改成什么（键和 `fields` 一致）
+          additionalProperties:
+            type: [ string, "null" ]
+        previous:
+          type: object
+          description: 提交时的值（键和 `fields` 一致）
+          additionalProperties:
+            type: [ string, "null" ]
+        note:
+          type: [ string, "null" ]
+        status:
+          type: string
+          enum: [ pending, approved, rejected, withdrawn ]
+          description: pending 等平台处理、approved 已生效、rejected 被驳回、withdrawn 已撤回
+        submitted_by:
+          type: object
+          additionalProperties: false
+          required: [ name ]
+          properties:
+            name:
+              type: [ string, "null" ]
+        submitted_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
+        reject_reason:
+          type: [ string, "null" ]
+        version:
+          type: integer
+    PlatformTenantProfileChange:
+      type: object
+      additionalProperties: false
+      description: 供应商的资料修改申请（运营后台）
+      required: [ id, fields, proposed, previous, note, status, submitted_by, submitted_at, decided_at, reject_reason, rejected_by, approval_id, pending_approval_id, version ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fields:
+          type: array
+          items:
+            type: string
+            enum: [ name, legal_name, registration_no ]
+        proposed:
+          type: object
+          description: 要改成什么（键和 `fields` 一致）
+          additionalProperties:
+            type: [ string, "null" ]
+        previous:
+          type: object
+          description: 提交时的值（键和 `fields` 一致）
+          additionalProperties:
+            type: [ string, "null" ]
+        note:
+          type: [ string, "null" ]
+        status:
+          type: string
+          enum: [ pending, approved, rejected, withdrawn ]
+          description: pending 等平台处理、approved 已生效、rejected 被驳回、withdrawn 已撤回
+        submitted_by:
+          type: object
+          additionalProperties: false
+          required: [ id, name, email ]
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: [ string, "null" ]
+            email:
+              type: [ string, "null" ]
+        submitted_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: [ string, "null" ]
+          format: date-time
+        reject_reason:
+          type: [ string, "null" ]
+        rejected_by:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [ id, name, email ]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                email:
+                  type: string
+        approval_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 批准生效的那条复核
+        pending_approval_id:
+          type: [ string, "null" ]
+          format: uuid
+          description: 等审核的那条复核
+        version:
+          type: integer
     CompanyProfile:
       type: object
       additionalProperties: false
@@ -18765,6 +19208,7 @@ components:
             - tenant_webhook
             - webhook_delivery
             - tenant_profile
+            - tenant_profile_change
             - tenant_file
             - tenant_document
             - tenant_contract
@@ -24659,6 +25103,10 @@ components:
         - tenant.document_expired
         - tenant.observation_started
         - tenant.status_changed
+        - tenant.profile_updated
+        - tenant.profile_change_submitted
+        - tenant.profile_change_approved
+        - tenant.profile_change_rejected
         - payout_account.submitted
         - payout_account.approved
         - payout_account.rejected

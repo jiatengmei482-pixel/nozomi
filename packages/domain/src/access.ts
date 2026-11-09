@@ -40,6 +40,7 @@ export const PLATFORM_ACTIONS = [
   "staff.manage",
   "tenant.read",
   "tenant.create",
+  "tenant.edit",
   "tenant.change_status",
   "tenant.review",
   "tenant.approve",
@@ -141,6 +142,8 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
  * 供应商入驻（M4-01，ADR 0028）：菜单表「租户管理：入驻申请、资质审核、合同、结算条款、评分、停用」归招商和运营。
  * 资质审核、上传合同、发起合同版本（`tenant.review`）：超级管理员、运营、招商。签约、开始试运营、恢复、**发起**暂停和清退仍是 `tenant.change_status`。
  * 审核供应商这几类双人复核（人工暂停、清退、合同版本，`tenant.approve`）：超级管理员、运营、招商——运营和招商可以互审，只有一位时由超级管理员审。
+ * 供应商名称和企业信息的维护（M4-34，ADR 0071）：直接改对外显示名称和企业信息（`tenant.edit`）给超级管理员、运营、招商（和新建供应商同一批人）；
+ * 供应商提交的改名称、法定名称、登记号的申请，发起复核、驳回用 `tenant.review`，批准用 `tenant.approve`（和合同版本同一种分工）。
  * 手动重推给供应商的 Webhook（`order.resend`，M3-02，ADR 0027；需求「人工介入：手工重发渠道和租户推送」）：运营、客服（处理订单的人）。
  * 第三方密钥（M4-09，ADR 0041）：在运营后台填写、更换、清空、测试谷歌地图和 Stripe 的密钥（`integration.manage`）只归超级管理员——
  * 拿到它就能把收款换成别人的 Stripe 账户；技术（`integration.read`）只看得到「已配置 / 未配置」和来源。
@@ -179,12 +182,12 @@ export type TenantAction = (typeof TENANT_ACTIONS)[number];
 const PLATFORM_PERMISSIONS: Readonly<Record<PlatformRole, readonly PlatformAction[]>> = {
   super_admin: PLATFORM_ACTIONS,
   operations: [
-    "tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
+    "tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend",
     "order.manage", "order.proxy_fulfilment", "order.proxy_review", "order.change_decide", "order.view_link_resend", "order.view_link_review", "payment.manage", "cancellation_policy.manage", "cancellation_policy.review",
     "rescue.manage", "rescue.review",
     "exception.manage", "ticket.read", "ticket.manage", "ticket.review", "compensation_table.manage", "compensation_table.review", "notification.read", "notification.retry",
   ],
-  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
+  tenant_onboarding: ["tenant.read", "tenant.create", "tenant.edit", "tenant.change_status", "tenant.review", "tenant.approve", "master_data.read", "quote.preview", "product.read", "channel.read", "approval.read"],
   channel_manager: ["tenant.read", "master_data.read", "quote.preview", "product.read", "channel.read", "channel.manage", "channel.review", "approval.read"],
   customer_service: ["master_data.read", "quote.preview", "product.read", "channel.read", "approval.read", "order.read", "order.resend", "order.manage", "order.view_link_resend", "rescue.manage", "exception.manage", "ticket.read", "ticket.manage", "notification.read", "notification.retry"],
   finance: ["master_data.read", "channel.read", "approval.read", "order.read", "order.proxy_review", "payment.manage", "cancellation_policy.review", "exception.manage", "ticket.read", "compensation_table.review", "statement.read", "statement.manage", "statement.review"],
@@ -319,7 +322,8 @@ export interface PlatformMenu {
 
 export const PLATFORM_MENUS = [
   // 入驻（M4-01）：资质审核、合同上传和发起合同版本（`tenant.review`）算编辑；人工暂停、清退、合同版本的复核（`tenant.approve`）算审核
-  { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.change_status", "tenant.review"], review: ["tenant.approve"] } },
+  // 改名称和企业信息（M4-34）：`tenant.edit` 算编辑；供应商改名称、法定名称、登记号的申请的复核也是 `tenant.approve`
+  { key: "tenants", name: "供应商", operations: { view: ["tenant.read"], edit: ["tenant.create", "tenant.edit", "tenant.change_status", "tenant.review"], review: ["tenant.approve"] } },
   { key: "products", name: "供应商商品", operations: { view: ["product.read"] } },
   { key: "quote_preview", name: "报价试算", operations: { view: ["quote.preview"] } },
   { key: "channels", name: "渠道", operations: { view: ["channel.read"], edit: ["channel.manage"], review: ["channel.review"] } },

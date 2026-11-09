@@ -1343,6 +1343,42 @@ test("供应商入驻（ADR 0028）：企业信息、资质文件、资质、提
   assert.equal((await api.db.owner.query("select legal_name from tenant_profiles where tenant_id = $1", [d.tenantId])).rows[0].legal_name, "丁株式会社");
 });
 
+test("资料修改申请和审核通过后的企业信息（ADR 0071）：甲看不到、撤不了乙的申请，带乙的编号也只会落在自己名下；改企业信息只改自己的；数据库层面甲读不到乙的申请、也写不进", async () => {
+  for (const route of ["GET /tenant/v1/company/profile-changes", "POST /tenant/v1/company/profile-changes", "POST /tenant/v1/company/profile-changes/:id/withdraw"]) cover(route);
+  // 乙（正式）提交一条改名申请
+  const bChange = await api.call("POST", "/tenant/v1/company/profile-changes", { token: b.adminToken, body: { name: "车队乙新名", note: "乙的说明" } });
+  assert.equal(bChange.status, 201, bChange.text);
+  // 甲列表里没有乙的；带乙的 tenant_id 也一样
+  const listed = await api.call("GET", `/tenant/v1/company/profile-changes?tenant_id=${b.tenantId}`, { token: a.adminToken });
+  assert.equal(listed.status, 200, listed.text);
+  assert.deepEqual(listed.body.items, []);
+  for (const secret of [bChange.body.id, "车队乙新名", "乙的说明"]) assert.ok(!listed.text.includes(secret));
+  // 甲撤回乙的申请：和不存在一样 404，乙的照旧等处理
+  const foreign = await api.call("POST", `/tenant/v1/company/profile-changes/${bChange.body.id}/withdraw`, { token: a.adminToken });
+  assert.equal(foreign.status, 404);
+  assert.equal(foreign.text, (await api.call("POST", `/tenant/v1/company/profile-changes/${NO_SUCH_ID}/withdraw`, { token: a.adminToken })).text);
+  assert.equal((await api.db.owner.query("select status from tenant_profile_changes where id = $1", [bChange.body.id])).rows[0].status, "pending");
+  // 请求体里塞乙的 tenant_id：不认识的字段 400；查询串里的不生效，申请建在甲名下（乙已有等处理的也不影响甲）
+  assert.equal((await api.call("POST", "/tenant/v1/company/profile-changes", { token: a.adminToken, body: { name: "甲想改乙", tenant_id: b.tenantId } })).status, 400);
+  const aChange = await api.call("POST", `/tenant/v1/company/profile-changes?tenant_id=${b.tenantId}`, { token: a.adminToken, body: { name: "车队甲新名" } });
+  assert.equal(aChange.status, 201, aChange.text);
+  const owners = await api.db.owner.query<{ id: string; tenant_id: string; previous: Record<string, string> }>("select id, tenant_id, previous from tenant_profile_changes where id = any($1::uuid[])", [[aChange.body.id, bChange.body.id]]);
+  assert.deepEqual(Object.fromEntries(owners.rows.map((row) => [row.id, [row.tenant_id, row.previous["name"]]])), { [aChange.body.id]: [a.tenantId, "车队甲"], [bChange.body.id]: [b.tenantId, "车队乙"] });
+  // 审核通过以后直接改联系信息：甲带乙的 tenant_id 改的仍是自己的，乙的企业信息不动
+  const aProfile = await api.call("PUT", `/tenant/v1/company/profile?tenant_id=${b.tenantId}`, { token: a.adminToken, body: { country_code: null, contact_name: "甲的联系人", tenant_id: b.tenantId } });
+  assert.equal(aProfile.status, 200, aProfile.text);
+  assert.deepEqual((await api.db.owner.query("select tenant_id, contact_name from tenant_profiles where tenant_id = any($1::uuid[])", [[a.tenantId, b.tenantId]])).rows.map((row) => [row.tenant_id, row.contact_name]), [[a.tenantId, "甲的联系人"]]);
+  // 平台路径上换成别的供应商的编号也找不到这条申请（平台员工的接口，顺带核对）
+  assert.equal((await api.call("POST", `/platform/v1/tenants/${a.tenantId}/profile-changes/${bChange.body.id}/reject`, { token: platformToken, body: { reason: "x" } })).status, 404);
+  // 数据库层面：甲的租户事务里看不到乙的申请；租户角色写不进、改不了任何申请（提交、撤回都在平台事务里）
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from tenant_profile_changes where tenant_id = $1", [b.tenantId]))).rowCount, 0);
+  assert.equal((await withTenantTx(api.db.pool, a.tenantId, (db) => db.query("select 1 from tenant_profile_changes"))).rowCount, 1);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update tenant_profile_changes set status = 'withdrawn', decided_at = now()")), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("insert into tenant_profile_changes (tenant_id, fields, proposed, previous, submitted_by, submitted_at, updated_at) values ($1, '{name}', '{}', '{}', $2, now(), now())", [a.tenantId, a.adminId])), deniedByDatabase);
+  await assert.rejects(withTenantTx(api.db.pool, a.tenantId, (db) => db.query("update tenants set name = 'x'")), deniedByDatabase);
+  for (const id of [aChange.body.id, bChange.body.id]) await api.db.owner.query("update tenant_profile_changes set status = 'withdrawn', decided_at = now() where id = $1", [id]);
+});
+
 /** 两边的已确认订单（seedOrders 写入的，按订单号找回来）。 */
 async function orderIds(): Promise<{ a: string; b: string }> {
   await seedOrders();

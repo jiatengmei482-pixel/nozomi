@@ -10,6 +10,7 @@ import { PLATFORM_ACTION_PHRASES, roleAbilities } from "./platform-display.ts";
 const MENTIONS: Readonly<Record<PlatformAction, string>> = {
   "tenant.read": "供应商",
   "tenant.create": "新建",
+  "tenant.edit": "企业信息",
   "tenant.change_status": "暂停和恢复",
   "tenant.review": "审核资质",
   "tenant.approve": "另一位同事审核",

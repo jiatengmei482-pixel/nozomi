@@ -16,6 +16,7 @@ import { AreaListPage } from "./pages/areas/AreaListPage.tsx";
 import { ProductEditorPage } from "./pages/products/ProductEditorPage.tsx";
 import { PRICE_OVERVIEW_PATH, PriceOverviewPage } from "./pages/prices/PriceOverviewPage.tsx";
 import { COMPANY_PATH, CompanyPage } from "./pages/company/CompanyPage.tsx";
+import { COMPANY_INFO_PATH, CompanyInfoPage } from "./pages/company/CompanyInfoPage.tsx";
 import { PERFORMANCE_PATH, PerformancePage } from "./pages/company/PerformancePage.tsx";
 import { ProductListPage } from "./pages/products/ProductListPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
@@ -82,6 +83,7 @@ function portalRoutes(portal: Portal) {
             <Route path={WEBHOOK_SETTINGS_PATH} element={<WebhookSettingsPage />} />
             <Route path={TENANT_NOTIFICATIONS_PATH} element={<TenantNotificationsPage />} />
             <Route path={COMPANY_PATH} element={<CompanyPage />} />
+            <Route path={COMPANY_INFO_PATH} element={<CompanyInfoPage />} />
             <Route path={PERFORMANCE_PATH} element={<PerformancePage />} />
             <Route path={TENANT_TICKETS_PAGE} element={<TenantTicketListPage />} />
             <Route path={TENANT_TICKET_NEW_PATH} element={<TenantTicketNewPage />} />

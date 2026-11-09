@@ -269,3 +269,63 @@ export function startTenantTrial(token: string, id: string, testOrderNote: strin
 export function requestTerminateTenant(token: string, id: string, reason: string): Promise<{ approval: Approval }> {
   return apiRequest("POST", `${one(id)}/terminate`, { token, body: { reason } });
 }
+
+// ───────────── 名称和企业信息的维护（M4-34，ADR 0071）─────────────
+
+export type ProfileChangeField = "name" | "legal_name" | "registration_no";
+export type ProfileChangeStatus = "pending" | "approved" | "rejected" | "withdrawn";
+
+/** 供应商改名称、法定名称、登记号的申请（供应商看到的：没有平台员工的身份）。 */
+export interface TenantProfileChange {
+  id: string;
+  fields: ProfileChangeField[];
+  proposed: Partial<Record<ProfileChangeField, string | null>>;
+  previous: Partial<Record<ProfileChangeField, string | null>>;
+  note: string | null;
+  status: ProfileChangeStatus;
+  submitted_by: { name: string | null };
+  submitted_at: string;
+  decided_at: string | null;
+  reject_reason: string | null;
+  version: number;
+}
+
+/** 运营后台看到的申请：多了提交人邮箱、驳回人、复核编号。 */
+export interface PlatformTenantProfileChange extends Omit<TenantProfileChange, "submitted_by"> {
+  submitted_by: { id: string; name: string | null; email: string | null };
+  rejected_by: { id: string; name: string; email: string } | null;
+  approval_id: string | null;
+  pending_approval_id: string | null;
+}
+
+export function renameTenant(token: string, id: string, name: string, version: number): Promise<Tenant> {
+  return apiRequest("PATCH", one(id), { token, body: { name }, headers: { "if-match": `"${version}"` } });
+}
+
+export function putTenantProfile(token: string, id: string, body: ProfileInput, version: number | null): Promise<CompanyProfile> {
+  return apiRequest("PUT", `${one(id)}/company/profile`, { token, body, ...(version === null ? {} : { headers: { "if-match": `"${version}"` } }) });
+}
+
+export function listTenantProfileChanges(token: string, id: string): Promise<{ items: PlatformTenantProfileChange[] }> {
+  return apiRequest("GET", `${one(id)}/profile-changes`, { token });
+}
+
+export function requestProfileChangeReview(token: string, id: string, changeId: string, note: string | null): Promise<{ approval: Approval }> {
+  return apiRequest("POST", `${one(id)}/profile-changes/${encodeURIComponent(changeId)}/approval`, { token, body: { note } });
+}
+
+export function rejectProfileChange(token: string, id: string, changeId: string, reason: string): Promise<{ change: PlatformTenantProfileChange }> {
+  return apiRequest("POST", `${one(id)}/profile-changes/${encodeURIComponent(changeId)}/reject`, { token, body: { reason } });
+}
+
+export function listOwnProfileChanges(token: string): Promise<{ items: TenantProfileChange[] }> {
+  return apiRequest("GET", `${TENANT_COMPANY_PATH}/profile-changes`, { token });
+}
+
+export function submitOwnProfileChange(token: string, body: Partial<Record<ProfileChangeField, string>> & { note: string | null }): Promise<TenantProfileChange> {
+  return apiRequest("POST", `${TENANT_COMPANY_PATH}/profile-changes`, { token, body });
+}
+
+export function withdrawOwnProfileChange(token: string, changeId: string): Promise<TenantProfileChange> {
+  return apiRequest("POST", `${TENANT_COMPANY_PATH}/profile-changes/${encodeURIComponent(changeId)}/withdraw`, { token });
+}

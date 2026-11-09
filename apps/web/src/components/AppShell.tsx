@@ -127,6 +127,8 @@ export function navEntries(portal: Portal, home: string, role: string | null, pl
     if (tenantRoleCan(role, "company.read")) entries.push({ to: "/company", label: "企业资质", icon: "file", prefix: true });
     if (tenantRoleCan(role, "performance.read")) entries.push({ to: "/performance", label: "履约评分", icon: "check-circle", prefix: true });
     const settings = [
+      // 企业信息（M4-34）：对外显示名称、联系方式；改名称、法定名称、登记号的申请
+      ...(tenantRoleCan(role, "company.read") ? [{ to: "/settings/company", label: "企业信息", prefix: true }] : []),
       ...(tenantRoleCan(role, "webhook.read") ? [{ to: "/settings/webhook", label: "调度对接（Webhook）", prefix: true }] : []),
       ...(tenantRoleCan(role, "notification.read") ? [{ to: "/settings/notifications", label: "通知", prefix: true }] : []),
     ];
