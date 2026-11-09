@@ -655,8 +655,15 @@ test("列表性能：运营 100 行、供应商 100 行，查询条数和 10 行
   };
   for (const [url, token] of [["/platform/v1/orders", platform], ["/tenant/v1/orders", tenant]] as const) {
     await measure(`${url}?limit=5`, token);
-    const small = await measure(`${url}?limit=10`, token);
-    const large = await measure(`${url}?limit=100`, token);
+    // 计数的是整个进程里的查询：后台任务刚好在这时跑会多出几条（CI 上见过 +4）。各量两次取少的那次：
+    // 真正的 N+1 在 100 行时会多出几十条，取少的照样拦得住
+    const fewest = async (target: string): Promise<{ queries: number; ms: number; rows: number }> => {
+      const first = await measure(target, token);
+      const second = await measure(target, token);
+      return first.queries <= second.queries ? first : second;
+    };
+    const small = await fewest(`${url}?limit=10`);
+    const large = await fewest(`${url}?limit=100`);
     assert.equal(small.rows, 10);
     assert.equal(large.rows, 100);
     assert.equal(large.queries, small.queries, `${url}：查询条数随行数变多是 N+1（10 行 ${small.queries} 条，100 行 ${large.queries} 条）`);
