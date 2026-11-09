@@ -146,7 +146,7 @@ test("模板页：正文原样分行显示，「车型」下面的车型标识�
   openPlatform("/platform/notification-templates", "operations", (call) => (call.url.pathname === "/platform/v1/notification-templates" ? json(200, { items: [{ ...template, variables: templatePlaceholders(template) }] }) : null));
   const table = await tableNamed("通知模板");
   const body = await within(table).findByText((_, element) => element?.classList.contains("prewrap") === true && (element.textContent ?? "").includes("车型：{{vehicle_group}}"));
-  assert.ok(body.textContent?.includes("车型：{{vehicle_group}}\n同级车型：{{vehicle_similar}}\n最多乘客：{{vehicle_max_passengers}}，最多行李：{{vehicle_max_luggage}}\n"), body.textContent ?? "");
+  assert.ok(body.textContent?.includes("车型：{{vehicle_group}}\n同级车型：{{vehicle_similar}}\n最多乘客：{{vehicle_max_persons}}，最多行李：{{vehicle_max_luggage}}\n"), body.textContent ?? "");
 });
 
 const settingsRoute = (version = 0, hours: { start: string; end: string } | null = null, delivery: "auto" | "manual" = "auto") => json(200, { quiet_hours: hours, driver_link_delivery: delivery, time_zone: "Asia/Tokyo", version });

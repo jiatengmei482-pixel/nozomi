@@ -55,7 +55,7 @@
 
 补记（M7-04，邮件）：
 - 发给客人、供应商、司机的订单相关邮件（凡是有「车型：{{vehicle_group}}」那一行的，共 19 个模板），在「车型」下面加两行：
-  `同级车型：{{vehicle_similar}}`、`最多乘客：{{vehicle_max_passengers}}，最多行李：{{vehicle_max_luggage}}`。标签取自 `VEHICLE_LABEL_TEXTS.zh`，值由 `vehicleLabelMailVariables` 算（同 `vehicleLabel`）。
+  `同级车型：{{vehicle_similar}}`、`最多乘客：{{vehicle_max_persons}}，最多行李：{{vehicle_max_luggage}}`。标签取自 `VEHICLE_LABEL_TEXTS.zh`，值由 `vehicleLabelMailVariables` 算（同 `vehicleLabel`）。
 - **代表车型不单列**：它就是同级说明的第一个，邮件里再列一行是重复。
 - 这三个变量是「可省略的行」（`OPTIONAL_LINE_VARIABLES`）：值为空时正文里那一行整行不出现，不留空标签；别的变量缺了仍然整封不发。没填代表车型时只少同级车型那一行；找不到车型组时两行都不出现。不能用在主题里。
 - 三类接收方的变量白名单都加了这三个变量；只有车型名称和人数、件数，没有金额（规则 4）。HTML 版由纯文字生成（ADR 0067），自动一致。

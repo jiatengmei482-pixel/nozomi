@@ -97,14 +97,14 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
-export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
+export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
 /** 司机邮件能用的变量（ADR 0058）：行程概要和链接。**没有客人的姓名、电话、邮箱、详细地址，也没有任何价格**。 */
-export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage", "changed_fields", "driver_link_url", "link_expires_at"] as const;
+export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "changed_fields", "driver_link_url", "link_expires_at"] as const;
 
 /** 不能出现在供应商邮件里的内容：模板、变量名都不能含这些词（规则 4）。 */
 export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refund|fx_|汇率|客人付|实付/i;
@@ -113,7 +113,7 @@ export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refun
  * 可以整行省略的变量（M7-04 的车型标识，ADR 0068）：值没有或为空时，正文里含它的那一行整行不出现，其余照常发；
  * 别的变量缺了仍然整封不发。只能用在正文里自成一行的地方（「标签：{{x}}」），主题里不能用。
  */
-export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_passengers", "vehicle_max_luggage"] as const;
+export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage"] as const;
 
 const isOptionalLine = (name: string): boolean => (OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name);
 
@@ -134,7 +134,7 @@ export interface NotificationTemplate {
 const GUEST_FOOTER = "\n\n查看和管理订单：\n{{view_url}}\n这个链接只属于您的这张订单，请不要转发给别人。\n\nNOZOMI 用车";
 const VEHICLE_TEXTS = VEHICLE_LABEL_TEXTS.zh;
 /** 「车型」下面的车型标识（M7-04，ADR 0068）：同级车型说明一行、最多乘客 / 行李一行；值为空时整行不出现。代表车型就是同级说明的第一个，不单列。 */
-const VEHICLE_LABEL_LINES = `\n${VEHICLE_TEXTS.similar}：{{vehicle_similar}}\n${VEHICLE_TEXTS.maxPassengers}：{{vehicle_max_passengers}}，${VEHICLE_TEXTS.maxLuggage}：{{vehicle_max_luggage}}`;
+const VEHICLE_LABEL_LINES = `\n${VEHICLE_TEXTS.similar}：{{vehicle_similar}}\n${VEHICLE_TEXTS.maxPassengers}：{{vehicle_max_persons}}，${VEHICLE_TEXTS.maxLuggage}：{{vehicle_max_luggage}}`;
 const TRIP = `订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}${VEHICLE_LABEL_LINES}`;
 const TENANT_TRIP = `订单号：{{order_no}}\n用车时间：{{service_time}}（当地时间）\n行程：{{route}}\n车型：{{vehicle_group}}${VEHICLE_LABEL_LINES}\n人数：{{passengers}}`;
 const TENANT_FOOTER = "\n\n到后台处理：\n{{order_url}}\n\nNOZOMI 平台";

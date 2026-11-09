@@ -16,9 +16,9 @@ function template(event: NotificationTemplate["event"], audience: NotificationTe
 const fill = (target: NotificationTemplate, overrides: Record<string, string>): Record<string, string> => ({ ...Object.fromEntries(templatePlaceholders(target).map((name) => [name, `v-${name}`])), ...overrides });
 
 test("邮件变量：同级车型说明、最多乘客、最多行李按 VEHICLE_LABEL_TEXTS 的写法；没填代表车型、找不到车型组时为空字符串", () => {
-  assert.deepEqual(vehicleLabelMailVariables(GROUP), { vehicle_similar: "Toyota Noah / Voxy, Nissan Serena or similar", vehicle_max_passengers: "6 人", vehicle_max_luggage: "5 件" });
-  assert.deepEqual(vehicleLabelMailVariables({ sample_models: [" ", ""], combos: GROUP.combos }), { vehicle_similar: "", vehicle_max_passengers: "6 人", vehicle_max_luggage: "5 件" });
-  assert.deepEqual(vehicleLabelMailVariables(null), { vehicle_similar: "", vehicle_max_passengers: "", vehicle_max_luggage: "" });
+  assert.deepEqual(vehicleLabelMailVariables(GROUP), { vehicle_similar: "Toyota Noah / Voxy, Nissan Serena or similar", vehicle_max_persons: "6 人", vehicle_max_luggage: "5 件" });
+  assert.deepEqual(vehicleLabelMailVariables({ sample_models: [" ", ""], combos: GROUP.combos }), { vehicle_similar: "", vehicle_max_persons: "6 人", vehicle_max_luggage: "5 件" });
+  assert.deepEqual(vehicleLabelMailVariables(null), { vehicle_similar: "", vehicle_max_persons: "", vehicle_max_luggage: "" });
 });
 
 test("凡是有「车型：{{vehicle_group}}」的模板（客人、供应商、司机），下面紧跟同级车型一行、最多乘客 / 行李一行；三类接收方的白名单都有这三个变量", () => {
@@ -26,7 +26,7 @@ test("凡是有「车型：{{vehicle_group}}」的模板（客人、供应商、
   assert.deepEqual([...new Set(withGroup.map((target) => target.audience))].sort(), ["driver", "guest", "tenant"]);
   assert.ok(withGroup.length >= 19, String(withGroup.length));
   for (const target of withGroup) {
-    assert.match(target.body, /车型：\{\{vehicle_group\}\}\n同级车型：\{\{vehicle_similar\}\}\n最多乘客：\{\{vehicle_max_passengers\}\}，最多行李：\{\{vehicle_max_luggage\}\}\n?/, `${target.event}/${target.audience}`);
+    assert.match(target.body, /车型：\{\{vehicle_group\}\}\n同级车型：\{\{vehicle_similar\}\}\n最多乘客：\{\{vehicle_max_persons\}\}，最多行李：\{\{vehicle_max_luggage\}\}\n?/, `${target.event}/${target.audience}`);
   }
   for (const names of [GUEST_VARIABLES, TENANT_VARIABLES, DRIVER_VARIABLES]) for (const name of OPTIONAL_LINE_VARIABLES) assert.ok((names as readonly string[]).includes(name), name);
   for (const target of NOTIFICATION_TEMPLATES) for (const name of OPTIONAL_LINE_VARIABLES) assert.ok(!target.subject.includes(`{{${name}}}`), `${target.event}/${target.audience} 主题里不能用 ${name}`);
