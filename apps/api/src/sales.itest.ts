@@ -208,7 +208,9 @@ test("租户端（规则 4）：逐个 /tenant/v1 接口的应答里没有渠道
   await approvedBy(api, m, ruleRequest(api, m, channel.id, { tenant_id: m.a.tenantId, markup_bp: 1_777 }));
   const creds = await salesCredentials(api, m, channel.id, "198.51.100.91");
   const quoteId = (await quote(creds.token)).body.quotes[0].quote_id as string;
-  const leaks = [channel.id, "秘密渠道 XYZ", quoteId, creds.clientId, "1777"];
+  const leaks = [channel.id, "秘密渠道 XYZ", quoteId, creds.clientId];
+  // 加价比例 1777 只按独立的数字找：编号、哈希里偶然出现的「…1777…」不算（CI 上审计日志的十六进制串撞到过）
+  const markupNumber = /(?<![0-9A-Za-z])1777(?![0-9])/;
   // 「sellable_days」（可售天数）是库存的概念，不是对外价：按整词匹配
   const forbiddenKeys = /markup|^sell$|sell_price|sell_exact|selling|channel|quote_id|margin|band_bp|buffer|winner|rank_price/i;
   const product = m.ids.pa;
@@ -220,6 +222,7 @@ test("租户端（规则 4）：逐个 /tenant/v1 接口的应答里没有渠道
     const res = await api.call("GET", `${fill(route.path)}${query}`, { token: m.a.adminToken });
     scanned.push(`${route.path} ${res.status}`);
     for (const leak of leaks) assert.ok(!res.text.includes(leak), `${route.path} 的应答里出现了 ${leak}`);
+    assert.ok(!markupNumber.test(res.text), `${route.path} 的应答里出现了加价比例 1777`);
     let parsed: unknown = null;
     try {
       parsed = JSON.parse(res.text);
@@ -233,6 +236,7 @@ test("租户端（规则 4）：逐个 /tenant/v1 接口的应答里没有渠道
   assert.equal(preview.status, 200, preview.text);
   assert.deepEqual([...allKeys(preview.body)].filter((key) => forbiddenKeys.test(key)), []);
   for (const leak of leaks) assert.ok(!preview.text.includes(leak));
+  assert.ok(!markupNumber.test(preview.text));
   for (const table of ["channels", "channel_tenants", "channel_cities", "markup_rules", "approvals", "channel_api_clients", "quote_logs", "quotes", "sales_rate_limits"]) {
     await assert.rejects(withTenantTx(api.db.pool, m.a.tenantId, (db) => db.query(`select * from ${table} limit 1`)), deniedByDatabase, table);
   }
