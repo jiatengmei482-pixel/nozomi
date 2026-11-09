@@ -215,6 +215,7 @@ test("列表的各种状态：加载中、没有数据（有无新增权限）�
   const row = (await screen.findByRole("link", { name: "VG-BIZ-7" })).closest("tr") as HTMLElement;
   assert.ok(within(row).getByText("商务"));
   assert.ok(within(row).getByText("6 人 4 件"));
+  assert.ok(within(row).getByText("丰田埃尔法 or similar"), "列表多一列「同级车型」（ADR 0068）");
   resetBrowser();
 
   open("/platform/master/cities", "master_data", (call) => (call.url.searchParams.get("limit") === "50" ? apiError(403, "FORBIDDEN", "没有权限") : null));
@@ -492,7 +493,10 @@ test("只读角色打开编辑页：字段只读、没有保存和停用，只�
   assert.ok(await screen.findByText("你可以查看主数据，但不能修改。需要修改的话，请联系管理员开通。"));
   assert.equal(document.querySelectorAll("form input:not([readonly])").length, 0);
   assert.ok(screen.getByText("6 人 4 件"));
-  assert.ok(screen.getByText("丰田埃尔法"));
+  assert.ok(document.querySelector('[data-field="models"]')?.textContent?.includes("丰田埃尔法"), "代表车型字段里显示原值");
+  // 车型标识预览（ADR 0068）：代表车型、同级车型说明、最多乘客、最多行李
+  const preview = document.querySelector('[data-field="labelPreview"]');
+  assert.deepEqual([...(preview?.querySelectorAll("dt, dd") ?? [])].map((node) => node.textContent), ["代表车型", "丰田埃尔法", "同级车型", "丰田埃尔法 or similar", "最多乘客", "6 人", "最多行李", "4 件"]);
   assertAbsent(screen.queryByRole("button", { name: "保存" }));
   assertAbsent(screen.queryByRole("button", { name: "停用" }));
   assertAbsent(screen.queryByRole("button", { name: /添加/ }));
