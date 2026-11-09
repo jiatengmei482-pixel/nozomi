@@ -1,0 +1,39 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceIncludes } from "./fixed-price-includes.ts";
+
+const texts = (items: { text: string }[]): string[] => items.map((item) => item.text);
+
+test("接机：含所有费用、专车、航班落地后免费等待 N 分钟（N 取报价）；没有举牌时不写举牌", () => {
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, meetAndGreet: false })), [
+    "一口价已含所有费用（高速费、停车费等），无需另付",
+    "专车专用，不拼车",
+    "航班落地后免费等待 60 分钟",
+  ]);
+});
+
+test("送机、点对点：免费等待不说航班落地；中标商品包含举牌时写举牌", () => {
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "transfer", arrival: false, freeWaitMinutes: 15, meetAndGreet: true })), [
+    "一口价已含所有费用（高速费、停车费等），无需另付",
+    "专车专用，不拼车",
+    "举牌接机",
+    "免费等待 15 分钟",
+  ]);
+});
+
+test("包车：规则切换前（默认）不写「含所有费用」；切换后写；免费等待是 0 或不限时都不写", () => {
+  assert.equal(FIXED_PRICE_RULES.charterAllInclusive, false);
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: 0, meetAndGreet: false })), ["专车专用，不拼车"]);
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: null, meetAndGreet: false, charterAllInclusive: true })), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"]);
+});
+
+test("三语原文（ADR 0069）；任何语言都没有「跟踪航班」", () => {
+  const ja = texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 90, meetAndGreet: true }, "ja"));
+  assert.deepEqual(ja, ["高速料金・駐車料金などすべて込みの定額料金で、追加のお支払いはありません", "専用車（相乗りなし）", "ネームボードでお出迎え", "着陸後 90 分間の無料待機"]);
+  const en = texts(fixedPriceIncludes({ service: "transfer", arrival: false, freeWaitMinutes: 30, meetAndGreet: false }, "en"));
+  assert.deepEqual(en, ["All-inclusive fixed price — tolls, parking and other fees included, nothing extra to pay", "Private car, no sharing", "30 minutes of free waiting"]);
+  for (const language of ["zh", "ja", "en"] as const) {
+    const all = JSON.stringify(FIXED_PRICE_INCLUDES_TEXTS[language]) + texts(fixedPriceIncludes({ service: "transfer", arrival: true, freeWaitMinutes: 60, meetAndGreet: true }, language)).join();
+    assert.doesNotMatch(all, /跟踪航班|航班跟踪|フライト追跡|flight track/i);
+  }
+});

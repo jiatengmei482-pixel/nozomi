@@ -28,5 +28,10 @@ test("显示行：中文、日文、英文三套标签；空的项不出现；�
     { label: "Max passengers", value: "1 passenger" },
     { label: "Max luggage", value: "1 bag" },
   ]);
-  for (const language of ["zh", "ja", "en"] as const) assert.equal(Object.keys(VEHICLE_LABEL_TEXTS[language]).length, 6);
+  for (const language of ["zh", "ja", "en"] as const) assert.equal(Object.keys(VEHICLE_LABEL_TEXTS[language]).length, 7);
+});
+
+test("行李尺寸（ADR 0069 B13）：三语原文，只是说明文字，不进 4 项显示行", () => {
+  assert.deepEqual([VEHICLE_LABEL_TEXTS.zh.luggageBasis, VEHICLE_LABEL_TEXTS.ja.luggageBasis, VEHICLE_LABEL_TEXTS.en.luggageBasis], ["行李按 28 寸行李箱计", "28インチのスーツケース換算", "based on 28-inch suitcases"]);
+  assert.ok(vehicleLabelLines(alphard).every((line) => !line.value.includes("28")));
 });

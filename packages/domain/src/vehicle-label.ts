@@ -45,13 +45,15 @@ export interface VehicleLabelTexts {
   maxLuggage: string;
   passengers: (count: number) => string;
   luggage: (count: number) => string;
+  /** 行李按什么箱子计（业主 2026-11-09 定为 28 寸，ADR 0069 B13）：座位示意图的注释、车型「最多 N 件」旁边 */
+  luggageBasis: string;
 }
 
 /** 4 项的标签。界面是哪种语言就用哪一套；日文界面上线前（ADR 0068 改进方案 2）先备好。 */
 export const VEHICLE_LABEL_TEXTS: Readonly<Record<VehicleLabelLanguage, VehicleLabelTexts>> = {
-  zh: { representative: "代表车型", similar: "同级车型", maxPassengers: "最多乘客", maxLuggage: "最多行李", passengers: (count) => `${count} 人`, luggage: (count) => `${count} 件` },
-  ja: { representative: "代表車種", similar: "同等クラスの車種", maxPassengers: "最大乗車人数", maxLuggage: "最大荷物数", passengers: (count) => `${count}名`, luggage: (count) => `${count}個` },
-  en: { representative: "Representative model", similar: "Similar models", maxPassengers: "Max passengers", maxLuggage: "Max luggage", passengers: (count) => `${count} ${count === 1 ? "passenger" : "passengers"}`, luggage: (count) => `${count} ${count === 1 ? "bag" : "bags"}` },
+  zh: { representative: "代表车型", similar: "同级车型", maxPassengers: "最多乘客", maxLuggage: "最多行李", passengers: (count) => `${count} 人`, luggage: (count) => `${count} 件`, luggageBasis: "行李按 28 寸行李箱计" },
+  ja: { representative: "代表車種", similar: "同等クラスの車種", maxPassengers: "最大乗車人数", maxLuggage: "最大荷物数", passengers: (count) => `${count}名`, luggage: (count) => `${count}個`, luggageBasis: "28インチのスーツケース換算" },
+  en: { representative: "Representative model", similar: "Similar models", maxPassengers: "Max passengers", maxLuggage: "Max luggage", passengers: (count) => `${count} ${count === 1 ? "passenger" : "passengers"}`, luggage: (count) => `${count} ${count === 1 ? "bag" : "bags"}`, luggageBasis: "based on 28-inch suitcases" },
 };
 
 /** 按顺序排好的「标签 + 值」，空的项不出现。页面和邮件都用这一份，保证各处一致。 */
