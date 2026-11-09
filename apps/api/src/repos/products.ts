@@ -299,6 +299,12 @@ export async function findAreasForProduct(db: Db, tenantId: string, areaIds: rea
   return new Map(result.rows.map((row) => [row["id"] as string, { id: row["id"], cityId: row["city_id"], bizType: row["biz_type"], status: row["status"], name: row["name"] }]));
 }
 
+/** 本租户的全部区域：名称、业务类型、状态（包车区域加价选区域、导入时按名称认区域用，ADR 0073）。只在租户事务里调用。 */
+export async function listTenantAreaFacts(db: Db, tenantId: string): Promise<Map<string, { name: LocalizedText; bizType: AreaBizType; status: AreaStatus }>> {
+  const result = await db.query<Row>("select id, biz_type, status, name from areas where tenant_id = $1 order by created_at, id", [tenantId]);
+  return new Map(result.rows.map((row) => [row["id"] as string, { name: row["name"], bizType: row["biz_type"], status: row["status"] }]));
+}
+
 /** 商品选的一个车型组，连同车型组现在的情况。 */
 export interface ProductVehicleGroup {
   vehicleGroupId: string;
@@ -451,14 +457,22 @@ export interface AreaUsage {
   publishedProductCount: number;
 }
 
-/** 这些区域各被多少个商品选了、其中多少个是已上架的。没被选的区域不在返回里。 */
+/**
+ * 这些区域各被多少个商品用着、其中多少个是已上架的。没被用的区域不在返回里。
+ * 「用着」= 商品选了这个区域，或者包车商品有启用的区域加价挂在这个区域上（ADR 0073：加价区域不在商品的区域列表里，但停用、删除它同样会让已上架的商品少报价）。
+ */
 export async function areaUsage(db: Db, tenantId: string, areaIds: readonly string[]): Promise<Map<string, AreaUsage>> {
   if (areaIds.length === 0) return new Map();
   const result = await db.query<{ area_id: string; product_count: number; published_count: number }>(
-    `select pa.area_id, count(*)::int as product_count, count(*) filter (where p.status = 'published')::int as published_count
-       from product_areas pa join products p on p.tenant_id = pa.tenant_id and p.id = pa.product_id
-      where pa.tenant_id = $1 and pa.area_id = any($2::uuid[])
-      group by pa.area_id`,
+    `select used.area_id, count(*)::int as product_count, count(*) filter (where used.status = 'published')::int as published_count
+       from (select pa.area_id, p.id, p.status
+               from product_areas pa join products p on p.tenant_id = pa.tenant_id and p.id = pa.product_id
+              where pa.tenant_id = $1 and pa.area_id = any($2::uuid[])
+             union
+             select r.area_id, p.id, p.status
+               from price_rules r join products p on p.tenant_id = r.tenant_id and p.id = r.product_id
+              where r.tenant_id = $1 and r.area_id = any($2::uuid[]) and r.pricing_model = 'charter_area_surcharge' and r.status = 'enabled') used
+      group by used.area_id`,
     [tenantId, areaIds],
   );
   return new Map(result.rows.map((row) => [row.area_id, { productCount: row.product_count, publishedProductCount: row.published_count }]));

@@ -140,13 +140,14 @@ test("新商品还没有价格：返回币种、取整单位、这个品类可�
     currency: "JPY",
     rounding_unit: 1,
     available_models: ["fixed", "mileage_time"],
+    surcharge_models: [],
     today: TODAY,
     items: [],
     coverage: { total: 8, priced: 0, missing: 8 },
   });
   const charterId = await product("charter");
   const empty = await ok(call("GET", `/products/${charterId}/price-rules`));
-  assert.deepEqual([empty.available_models, empty.coverage], [["charter_package"], { total: 0, priced: 0, missing: 0 }]);
+  assert.deepEqual([empty.available_models, empty.surcharge_models, empty.coverage], [["charter_package"], ["charter_area_surcharge"], { total: 0, priced: 0, missing: 0 }]);
   assert.equal((await call("GET", `/products/${MISSING}/price-rules`)).status, 404);
   // 城市当地的今天，不是服务器的：同一时刻（UTC 10-07 01:00）洛杉矶还是 10-06，所以 10-06 到期的价格在那里还没过期
   const la = (await ok(platform("POST", "/master/cities", { country_code: "US", timezone: "America/Los_Angeles", code: "CTY-US-LAX", name: { en: "Los Angeles" }, center: { lng: -118.2437, lat: 34.0522 } }), 201)).id;
@@ -170,13 +171,14 @@ test("新增一条价格：要带幂等键和商品的版本号；三种计价�
   const created = await ok(call("POST", `/products/${id}/price-rules`, { version: 1, body, key }), 201);
   assert.equal(created.version, 2);
   assert.deepEqual(Object.keys(created.price_rule).sort(), [
-    "area_id", "base", "base_price", "created_at", "direction", "id", "min_price", "over_km_per_km", "overtime_per_hour", "package_hours", "package_km", "package_price", "per_km", "per_minute",
-    "pricing_model", "start_meters", "start_minutes", "start_price", "status", "updated_at", "valid_from", "valid_to", "vehicle_group_id",
+    "area_id", "base", "base_price", "created_at", "direction", "dropoff_surcharge", "id", "min_price", "over_km_per_km", "overtime_per_hour", "package_hours", "package_km", "package_price", "per_km", "per_minute",
+    "pickup_surcharge", "pricing_model", "start_meters", "start_minutes", "start_price", "status", "updated_at", "valid_from", "valid_to", "vehicle_group_id",
   ]);
   const { id: ruleId, created_at: _created, updated_at: _updated, ...rule } = created.price_rule;
   assert.deepEqual(rule, {
     area_id: ids["a1"], vehicle_group_id: ids["biz7"], direction: "pickup", package_hours: null, pricing_model: "fixed", base_price: 20_000,
     start_price: null, start_meters: null, start_minutes: null, per_km: null, per_minute: null, min_price: null, package_km: null, package_price: null, overtime_per_hour: null, over_km_per_km: null,
+    pickup_surcharge: null, dropoff_surcharge: null,
     base: "20000", valid_from: "2026-10-01", valid_to: null, status: "enabled",
   });
   // 同一个键同样的内容再来：原样返回，只建了一条

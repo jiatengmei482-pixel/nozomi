@@ -93,7 +93,7 @@ async function fillCheckout(page: Page, email: string): Promise<string> {
   return ((await heading.textContent()) ?? "").replace("订单 ", "").trim();
 }
 
-test("官网点对点、包车：选服务 → 上车点从常用地点里选 → 询价 → 下单 → 订单页按服务显示行程；没有供应商和结算价", async ({ page, request }) => {
+test("官网点对点、包车：选服务 → 上车点从常用地点里选 → 询价 → 下单 → 订单页按服务显示行程；没有供应商和结算价；包车跳到新预订页", async ({ page, request }) => {
   test.setTimeout(150_000);
   const world = await createWorld(request);
   const supplier = await createSupplier(request, world);
@@ -145,34 +145,11 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   await expectNoOverflow(page, "订单页（点对点）");
   await expectAccessibleBothThemes(page, "订单页（点对点）");
 
-  // 包车
+  // 包车：旧 /book 选了包车跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点）；新预订页的包车下单由 M8-13 的端到端测试覆盖
   await page.goto("/book");
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
   await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).check();
-  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
-  await expect(page.getByLabel("下车地址或酒店名")).toHaveCount(0);
-  await page.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }).fill(station);
-  await expect(page.getByRole("option", { name: new RegExp(station) })).toBeVisible();
-  await page.keyboard.press("Enter");
-  await page.getByLabel("用车日期（当地）").fill(date);
-  await page.getByLabel("上车时间（当地）").fill("09:00");
-  await expectAccessibleBothThemes(page, "询价页（包车）");
-  await page.getByRole("button", { name: "查询价格" }).click();
-  const charter = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) });
-  await expect(charter).toContainText("77,000 JPY");
-  await expect(charter).toContainText("8 小时，含 150 公里");
-  await expect(charter).toContainText("不另计免费等待（从约定的开始时间起计入包车时长）");
-  await expect(page.locator("main")).toContainText("一口价已含所有费用（高速费、停车费等），无需另付。超出套餐的时长和公里服务后按实际收取");
-  await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|70,000/);
-  await expectNoOverflow(page, "询价结果（包车）");
-  await expectAccessibleBothThemes(page, "询价结果（包车）");
-  await charter.getByRole("button", { name: `预订${world.group.name}` }).click();
-  await expect(page.locator("main")).toContainText("8 小时，含 150 公里");
-  await expect(page.getByLabel("下车地址或酒店名")).toHaveCount(0);
-  await fillCheckout(page, `charter-${crypto.randomUUID().slice(0, 8)}@e2e.example.com`);
-  const charterTrip = page.getByRole("region", { name: "行程" });
-  await expect(charterTrip).toContainText("8 小时");
-  await expect(charterTrip).toContainText(station);
-  await expectNoOverflow(page, "订单页（包车）");
-  await expectAccessibleBothThemes(page, "订单页（包车）");
+  await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
+  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
+  await expect(page.getByLabel(/^包车时长/)).toHaveCount(0);
 });

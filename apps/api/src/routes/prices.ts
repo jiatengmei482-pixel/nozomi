@@ -67,6 +67,8 @@ const MODEL_FIELDS = {
   fixed: { base_price: "basePriceMinor" },
   mileage_time: { start_price: "startPriceMinor", start_meters: "startMeters", start_minutes: "startMinutes", per_km: "perKmMinor", per_minute: "perMinuteMinor", min_price: "minPriceMinor" },
   charter_package: { package_km: "packageKm", package_price: "packagePriceMinor", overtime_per_hour: "overtimePerHourMinor", over_km_per_km: "overKmPerKmMinor" },
+  // 包车区域加价（ADR 0073）：area_id 是加价区域
+  charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor" },
 } as const;
 const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) => Object.keys(fields)))];
 /** 可以不填（null）的数：最低消费 */
@@ -90,6 +92,8 @@ const priceRuleSchema = z.object({
   package_price: amount,
   overtime_per_hour: amount,
   over_km_per_km: amount,
+  pickup_surcharge: amount,
+  dropoff_surcharge: amount,
   valid_from: date,
   valid_to: date.nullable().default(null),
   status: z.enum(PRICE_RULE_STATUSES).default("enabled"),
@@ -177,6 +181,7 @@ export function priceRulesJson(view: PriceRulesView): Json {
     currency: view.currency,
     rounding_unit: view.roundingUnit,
     available_models: view.availableModels,
+    surcharge_models: view.surchargeModels,
     today: view.today,
     items: view.items.map(priceRuleJson),
     coverage: { total: coverage.total, priced: coverage.priced, missing: coverage.total - coverage.priced },
@@ -269,6 +274,11 @@ function calendarDaysJson(days: CalendarView["groups"][number]["days"]): Json[] 
       weekday: weekdayOf(day.date),
       holiday: day.holiday === null ? null : { name: day.holiday },
       price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
+      // 包车：这个区域作为加价区域时这一天的上车加价、下车加价（ADR 0073 第五部分「区域加价按区域分行」）；没有能用的区域加价为 null
+      surcharge:
+        day.surcharge === null || day.surcharge.pricing.model !== "charter_area_surcharge"
+          ? null
+          : { price_rule_id: day.surcharge.id, pickup_surcharge: day.surcharge.pricing.pickupSurchargeMinor, dropoff_surcharge: day.surcharge.pricing.dropoffSurchargeMinor, valid_from: day.surcharge.validFrom, valid_to: day.surcharge.validTo },
       segments: day.segments.map((segment) => ({
         from: clock(segment.fromMinute),
         to: clock(segment.toMinute),

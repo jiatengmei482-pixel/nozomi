@@ -8,6 +8,8 @@ import { SITE_ROUTE_MAP_LIMITS, type SitePlaceKind, type SiteUnavailableReason }
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
 export const SITE_NEW_BOOKING_PATH = "/book/new";
+/** 新预订页的包车（M8-15，ADR 0073）：旧 `/book` 选了包车就跳到这里——包车要选下车地点，旧页面没有 */
+export const SITE_NEW_CHARTER_URL = `${SITE_NEW_BOOKING_PATH}?mode=charter`;
 
 /** 乘客、行李的上下限（和询价接口一致）。 */
 export const TRAVELLER_LIMITS = { passengers: { min: 1, max: 60 }, luggage: { min: 0, max: 60 } } as const;
@@ -32,6 +34,8 @@ export interface BookingLink {
   time: string | null;
   passengers: number | null;
   luggage: number | null;
+  /** `mode=charter`：打开就是包车（旧 `/book` 的包车跳过来）；别的值、没给为 null */
+  mode: "charter" | null;
 }
 
 const CODE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
@@ -85,6 +89,7 @@ export function parseBookingLink(search: string): BookingLink {
     time: validTime(params.get("time")),
     passengers: count(params.get("pax"), TRAVELLER_LIMITS.passengers),
     luggage: count(params.get("bags"), TRAVELLER_LIMITS.luggage),
+    mode: params.get("mode") === "charter" ? "charter" : null,
   };
 }
 

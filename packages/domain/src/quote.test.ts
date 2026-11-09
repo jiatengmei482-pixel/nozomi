@@ -195,11 +195,16 @@ test("第 4 步 区域校验：接送机只校验非机场一端，点对点两�
   assert.equal(outcome(p2p, trip(WEST, OVERLAP)), 8_000);
   assert.equal(outcome(p2p, trip(WEST, FAR)), "OUT_OF_SERVICE_AREA");
   assert.equal(outcome(p2p, trip(FAR, WEST)), "OUT_OF_SERVICE_AREA");
-  // 包车：只看上车点
+  // 包车：基础定价看上车点；没给下车点时只看上车点。M8-15 起给了下车点也要判（ADR 0073：下车点不在商品区域、也不在加价区域里不报，见 area-surcharge.test.ts）
   const charter = product({ category: "charter", pickupPlace: null, priceRules: [price({ model: "charter_package", packageKm: 300, packagePriceMinor: 98_000, overtimePerHourMinor: 5_000, overKmPerKmMinor: 400 }, { direction: null, packageHours: 10 })], serviceRules: rules({ freeWait: { pickup: null, dropoff: null, general: { mode: "unlimited" } } }) });
   const day = (pickup: typeof WEST, dropoff: typeof WEST | null): QuoteRequest => request({ category: "charter", direction: null, packageHours: 10, pickup, dropoff });
-  assert.equal(outcome(charter, day(WEST, FAR)), 98_000);
+  assert.equal(outcome(charter, day(WEST, null)), 98_000);
+  assert.equal(outcome(charter, day(WEST, EAST)), 98_000);
+  assert.equal(outcome(charter, day(WEST, FAR)), "OUT_OF_SERVICE_AREA");
   assert.equal(outcome(charter, day(FAR, WEST)), "OUT_OF_SERVICE_AREA");
+  // 设了区域加价、却没给下车点（渠道接口暂时允许不给）：不报
+  const surcharged = { ...charter, priceRules: [...charter.priceRules, price({ model: "charter_area_surcharge", pickupSurchargeMinor: 500, dropoffSurchargeMinor: 500 }, { areaId: "a9", direction: null, packageHours: 10 })] };
+  assert.equal(outcome(surcharged, day(WEST, null)), "DROPOFF_REQUIRED");
 });
 
 test("第 4 步 禁行优先：点落在禁行区就不报（没有别的区域能接时）；停用的区域不算；另一个区域的营运区包着这个点时由那个区域接", () => {

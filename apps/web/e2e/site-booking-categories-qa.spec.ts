@@ -4,7 +4,7 @@
  * - 包车单的订单页：改单只有上车地址、没有航班号；点对点单两端地址都在；
  * - 缺陷：待付款的单页面给了「修改订单」，后端却只允许确认后改（提交必定失败）；
  * - 缺陷：同一标签页换一张单的链接（只换 # 后面），展开着的修改表单还是上一张单的内容；
- * - 只上架了点对点的城市选不到包车（服务单选里没有），换回有包车的城市能选。
+ * - 只上架了点对点的城市选不到包车（服务单选里没有），换回有包车的城市能选（M8-15 起选了包车跳到新预订页的包车）。
  * 订单经 /site/v1 接口下（和页面同一个接口；端到端没有 Stripe，订单待付款）。要改单的用例用支付替身把单记成已付款、已确认（待付款的单不能改，和后端一致），数据都在本次运行的临时 schema 里。
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
@@ -149,23 +149,16 @@ test("官网点对点、包车（测试角色补充）：长名称的常用地�
   await expectNoOverflow(page, "下单页（点对点，长地址）");
   await expectAccessibleBothThemes(page, "下单页（点对点，长地址）");
 
-  // 包车询价页（只有上车点）和结果
+  // 包车：旧 /book 选了包车跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点）
   await page.goto("/book");
   await page.getByLabel(/^城市/).selectOption({ label: world.city.name });
   await page.getByRole("group", { name: /服务/ }).getByRole("radio", { name: /包车/ }).check();
-  await expect(page.getByLabel(/^包车时长/)).toHaveValue("8");
-  await page.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }).fill(station.slice(0, 12));
-  await page.getByRole("option", { name: new RegExp(station) }).click();
-  await page.getByLabel("用车日期（当地）").fill(tokyoDayAfter(3));
-  await page.getByLabel("上车时间（当地）").fill("21:00");
-  await expectNoOverflow(page, "询价页（包车）");
-  await page.getByRole("button", { name: "查询价格" }).click();
-  await expect(page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: world.group.name }) })).toContainText("8 小时，含 150 公里");
-  await expectNoOverflow(page, "询价结果（包车）");
-  await expectAccessibleBothThemes(page, "询价结果（包车）");
+  await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
+  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 
   // 包车单的订单页：展开「修改订单」只有上车地址，没有下车地址和航班号
-  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: LONG_ADDRESS }, { paid: true });
+  // 包车下车地点必填（M8-15）：下车点也在商品的区域里，不加价
+  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, dropoff: OTHER, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: LONG_ADDRESS, dropoff_address: "包车下车点" }, { paid: true });
   await page.goto(`/book/order#${charterToken}`);
   await expect(page.getByRole("region", { name: "行程" })).toContainText("8 小时");
   await page.getByRole("button", { name: "修改订单" }).click();
@@ -209,10 +202,10 @@ test("只上架了点对点的城市：服务里没有包车（只有一种时�
   await page.getByLabel(/^城市/).selectOption({ label: full.city.name });
   const services = page.getByRole("group", { name: /服务/ });
   await expect(services.getByRole("radio")).toHaveCount(2);
+  // 包车跳到新预订页的包车（M8-15）
   await services.getByRole("radio", { name: /包车/ }).check();
-  await expect(page.getByLabel(/^包车时长/)).toHaveValue("4");
-  await expectNoOverflow(page, "询价页（换城市后的包车）");
-  await expectAccessibleBothThemes(page, "询价页（换城市后的包车）");
+  await expect(page).toHaveURL(/\/book\/new\?mode=charter$/);
+  await expect(page.getByRole("heading", { name: "你的行程" })).toBeVisible();
 });
 
 test("缺陷：待付款的点对点 / 包车单（Stripe 没配置时官网的单都是待付款）页面给了「修改订单」，可后端只允许确认后再改——客人改了地址提交必定失败", async ({ page, request }) => {
@@ -241,7 +234,7 @@ test("缺陷：同一个标签页里先打开包车单的链接、展开「修�
   const supplier = await createSupplier(request, world);
   await publishedProduct(request, supplier, world, "point_to_point", { pricing_model: "fixed", base_price: 15000 });
   await publishedProduct(request, supplier, world, "charter", { pricing_model: "charter_package", package_hours: 8, package_km: 150, package_price: 70000, overtime_per_hour: 5000, over_km_per_km: 400 });
-  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: "包车上车点甲" }, { paid: true });
+  const charterToken = await placeByApi(request, { category: "charter", city_id: world.city.id, pickup: POINT, dropoff: OTHER, package_hours: 8, service_local: `${tokyoDayAfter(4)}T21:00`, passengers: 2, luggage: 1 }, { pickup_address: "包车上车点甲", dropoff_address: "包车下车点甲" }, { paid: true });
   const p2pToken = await placeByApi(request, { category: "point_to_point", city_id: world.city.id, pickup: POINT, dropoff: OTHER, service_local: `${tokyoDayAfter(4)}T10:00`, passengers: 2, luggage: 1 }, { pickup_address: "点对点上车点乙", dropoff_address: "点对点下车点乙" }, { paid: true });
 
   await page.goto(`/book/order#${charterToken}`);

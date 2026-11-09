@@ -67,7 +67,7 @@ export interface PriceContext {
 
 export const FIELD_NAMES: Readonly<Record<PriceField, string>> = { base: "基础价", startKm: "起步里程", startMin: "起步时长", perKm: "超出每公里", perMin: "超出每分钟", min: "最低消费", pkgKm: "套餐公里", pkgPrice: "套餐价", overHour: "超时每小时", overKm: "超公里每公里" };
 /** 每种计价方式用到哪几格（按表格里从左到右）。 */
-export const MODEL_FIELDS: Readonly<Record<PricingModel, readonly PriceField[]>> = { fixed: ["base"], mileage_time: ["base", "startKm", "startMin", "perKm", "perMin", "min"], charter_package: ["pkgKm", "pkgPrice", "overHour", "overKm"] };
+export const MODEL_FIELDS: Readonly<Record<PricingModel, readonly PriceField[]>> = { fixed: ["base"], mileage_time: ["base", "startKm", "startMin", "perKm", "perMin", "min"], charter_package: ["pkgKm", "pkgPrice", "overHour", "overKm"], charter_area_surcharge: [] };
 const MONEY_FIELDS: readonly PriceField[] = ["base", "perKm", "perMin", "min", "pkgPrice", "overHour", "overKm"];
 /** 可以填 0 的（0 = 不另收）。 */
 const ZERO_OK: readonly PriceField[] = ["perKm", "perMin", "overHour", "overKm", "startKm", "startMin"];
@@ -415,6 +415,7 @@ export function pricingSentence(pricing: Pricing, packageHours: number | null, c
     const example = basePrice(pricing, { meters: pricing.startMeters + 10_000, minutes: pricing.startMinutes + 20 });
     return `${within}；超出的部分${over.join("、")}${pricing.minPriceMinor !== null ? `；最少收 ${money(pricing.minPriceMinor)}` : ""}。按预估的里程和时长报价，不按实际跑的结算。例：预估 ${kmText(pricing.startMeters + 10_000)} 公里、${pricing.startMinutes + 20} 分钟 = ${exactMoney(example, currency)}。`;
   }
+  if (pricing.model === "charter_area_surcharge") return `上车点在这个区域加 ${money(pricing.pickupSurchargeMinor)}，下车点在这个区域加 ${money(pricing.dropoffSurchargeMinor)}（报价时加进一口价）。`;
   const over = [pricing.overtimePerHourMinor === 0 ? "超时不另收" : `超时每小时 ${money(pricing.overtimePerHourMinor)}`, pricing.overKmPerKmMinor === 0 ? "超公里不另收" : `超公里每公里 ${money(pricing.overKmPerKmMinor)}`];
   return `${packageHours ?? ""} 小时、${pricing.packageKm} 公里以内 ${money(pricing.packagePriceMinor)}；${over.join("，")}（超出的部分服务结束后按实际结算，不足 1 小时、1 公里的按比例算）。`;
 }

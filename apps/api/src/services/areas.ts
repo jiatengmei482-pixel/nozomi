@@ -93,7 +93,7 @@ const UNUSED: AreaUsage = { productCount: 0, publishedProductCount: 0 };
 
 /** 有已上架的商品在用这个区域：不能删、不能停用（需求文档「被上架商品引用的区域不能删除」）。 */
 function areaInUse(action: string, usage: AreaUsage): AppError {
-  return new AppError(409, "AREA_IN_USE", `有 ${usage.publishedProductCount} 个已上架的商品在用这个区域，不能${action}。请先把这些商品下架，或在商品里去掉这个区域`, {
+  return new AppError(409, "AREA_IN_USE", `有 ${usage.publishedProductCount} 个已上架的商品在用这个区域，不能${action}。请先把这些商品下架，或在商品里去掉这个区域（包车：或停用、删除挂在这个区域上的区域加价）`, {
     published_product_count: usage.publishedProductCount,
   });
 }

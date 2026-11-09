@@ -25,6 +25,7 @@ import { dataScopeDenied, notFound } from "../services/errors.ts";
 import { getSalesOrderView } from "../services/orders.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
 import { assertPlatformOrderInScope } from "../services/order-queries.ts";
+import { areaSurchargeMoneyJson } from "../services/order-views.ts";
 import {
   type PlatformRescueView,
   type TenantRescueView,
@@ -100,6 +101,7 @@ function breakdownJson(settlement: SettlementBreakdown): Json {
     night: money(settlement.nightMinor),
     addons: money(settlement.addonsMinor),
     driver_language: money(settlement.driverLanguageMinor),
+    area_surcharge: areaSurchargeMoneyJson(settlement, settlement.currency),
   };
 }
 

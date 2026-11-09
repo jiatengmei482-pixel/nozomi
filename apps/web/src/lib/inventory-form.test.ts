@@ -114,10 +114,10 @@ test("选文件：类型、大小、空文件、一次好几个，页面先拦�
 });
 
 test("检查结果的每一行：价格写组合、主价格、生效日期；冲突写和哪一行或哪一条；库存写日期和设成什么", () => {
-  const content = { area: "东京 23 区", vehicle_group: "VG-BIZ-7", direction: "pickup" as const, package_hours: null, pricing_model: "fixed" as const, main_price: 20000, valid_from: "2026-10-10", valid_to: null, status: "enabled" as const };
+  const content = { area: "东京 23 区", vehicle_group: "VG-BIZ-7", direction: "pickup" as const, package_hours: null, pricing_model: "fixed" as const, main_price: 20000, surcharge: null, valid_from: "2026-10-10", valid_to: null, status: "enabled" as const };
   assert.equal(priceRowText(content, "JPY", false), "东京 23 区 · VG-BIZ-7 · 接机，JPY 20,000，2026-10-10 起一直有效");
   assert.equal(priceRowText({ ...content, direction: "dropoff", status: "disabled", valid_to: "2026-12-31" }, "JPY", true), "东京 23 区 · VG-BIZ-7 · 送站，JPY 20,000，2026-10-10 至 2026-12-31，停用");
-  assert.equal(priceRowText({ area: null, vehicle_group: null, direction: null, package_hours: null, pricing_model: null, main_price: null, valid_from: null, valid_to: null, status: "enabled" }, "JPY", false), "—");
+  assert.equal(priceRowText({ area: null, vehicle_group: null, direction: null, package_hours: null, pricing_model: null, main_price: null, surcharge: null, valid_from: null, valid_to: null, status: "enabled" }, "JPY", false), "—");
   const conflict = { row: 30, price_rule_id: null, area: "东京 23 区", vehicle_group: "VG-BIZ-7", direction: "both" as const, package_hours: null, valid_from: "2026-10-10", valid_to: null };
   assert.equal(priceConflictText(conflict, false), "生效日期和第 30 行重叠（2026-10-10 起一直有效）");
   assert.equal(priceConflictText({ ...conflict, row: null, price_rule_id: "p1" }, false), "生效日期和已有的价格重叠：东京 23 区 · VG-BIZ-7 · 接送通用，2026-10-10 起一直有效");

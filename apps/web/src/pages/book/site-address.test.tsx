@@ -32,6 +32,7 @@ const quote: SiteQuote = {
   urgent: false,
   vehicle_group: { id: GROUP_ID, code: "VG-BIZ-7", name: { zh: "商务 7 座" }, grade: "business", seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] },
   package: null,
+  includes_area_surcharge: false,
   price: { total: { amount: "16500", currency: "JPY" }, fx: null },
   free_wait_minutes: 30,
   cancel_policy: { category: "point_to_point", level: "business", tiers: [{ min_hours_before: 0, fee_bp: 10000 }] },

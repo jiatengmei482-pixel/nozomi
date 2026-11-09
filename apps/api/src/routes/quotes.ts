@@ -5,7 +5,7 @@
  *   这条路径不算对外价、不取加价比例，应答的结构里也没有这些字段（规则 4）。
  * 金额是最小货币单位的整数；`exact` 里是取整之前的精确值（十进制写法的字符串）。
  */
-import { type ComparisonRefusal, type FxQuote, ROUTE_FAILURE_MESSAGES, guestRouteReason, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
+import { type AreaSurchargeBreakdown, type ComparisonRefusal, type FxQuote, ROUTE_FAILURE_MESSAGES, guestRouteReason, type PlatformGrant, grantCan, scopeAllowsChannel, PRICE_LIMITS, type PlatformAction, QUOTE_RULES, SERVICE_CATEGORIES, type SettlementBreakdown, TRIP_DIRECTIONS, type TenantAction, type VehicleOffer } from "@nozomi/domain";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AppContext } from "../context.ts";
@@ -99,15 +99,16 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   SERVICE_TIME_PASSED: "用车时间已经过去了",
   LEAD_TIME_TOO_SHORT: "离用车的时间不够提前预订时长，而且没开加急（或没有够用的一档）",
   URGENT_SOLD_OUT: "这一天的加急库存用完了",
-  OUT_OF_SERVICE_AREA: "地址不在这个商品任何一个区域的营运区里",
+  OUT_OF_SERVICE_AREA: "地址不在这个商品任何一个区域的营运区里（包车：上车点、下车点都要在商品的区域或某个加价区域里）",
   IN_FORBIDDEN_AREA: "地址在禁行区里",
+  DROPOFF_REQUIRED: "这个包车商品设了区域加价，要给下车地点才能报价",
   ADDON_NOT_OFFERED: "要的附加服务这个商品不提供",
   DRIVER_LANGUAGE_NOT_OFFERED: "要的司机语言这个商品不提供",
   SOLD_OUT: "这一天的库存不足",
   VEHICLE_GROUP_NOT_OFFERED: "这个商品没有选这个车型组",
   VEHICLE_GROUP_DISABLED: "这个车型组已被平台停用",
   CAPACITY_EXCEEDED: "人数或行李数超过了这个车型组的组合",
-  NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格",
+  NO_PRICE_RULE: "这个区域、车型组、方向或套餐没有价格（包车：或者上车点、下车点所在的加价区域没有这个车型组、套餐的加价）",
   PRICE_NOT_IN_EFFECT: "有价格，但用车日期不在它的生效期里",
   PRICE_RULE_DISABLED: "对得上的那条价格停用了",
   ROUTE_UNAVAILABLE: "价格是「里程 + 时长」，需要路线预估，而现在取不到",
@@ -116,6 +117,13 @@ export const REFUSAL_MESSAGES: Readonly<Record<ComparisonRefusal, string>> = {
   FX_RATE_UNAVAILABLE: "商品的结算币种和客人支付的币种不同，而现在没有可用的汇率（没有，或超过 48 小时没更新）",
   SELL_PRICE_OVER_LIMIT: "对外价超过了上限",
 };
+
+/** 包车区域加价的结算价明细（报价试算、订单共用的样子）：金额是结算币种的最小货币单位整数。 */
+export function areaSurchargeJson(surcharge: AreaSurchargeBreakdown | null): Json | null {
+  if (surcharge === null) return null;
+  const end = (entry: AreaSurchargeBreakdown["pickup"]): Json => ({ area_id: entry.areaId, price_rule_id: entry.priceRuleId, amount: entry.amountMinor });
+  return { package: surcharge.packageMinor, pickup: end(surcharge.pickup), dropoff: end(surcharge.dropoff) };
+}
 
 /** 结算价的明细。两个接口共用——里面只有供应商自己的结算价，没有对外价和加价比例。 */
 function settlementJson(settlement: SettlementBreakdown): Json {
@@ -136,6 +144,8 @@ function settlementJson(settlement: SettlementBreakdown): Json {
     addon_items: settlement.addons.map((addon) => ({ addon_id: addon.addonId, charge_unit: addon.chargeUnit, quantity: addon.quantity, charged_quantity: addon.chargedQuantity, first_free: addon.firstFree, unit_price: addon.unitPriceMinor, amount: addon.amountMinor, amount_exact: addon.amountExact })),
     driver_language_code: settlement.driverLanguage,
     usage: settlement.usage,
+    // 包车的区域加价（ADR 0073）：已含在 base 里；area_id 为 null = 这一端在商品本身的区域里（加 0）
+    area_surcharge: areaSurchargeJson(settlement.areaSurcharge ?? null),
     free_wait: {
       item: settlement.freeWait.item,
       mode: settlement.freeWait.value?.mode ?? null,
@@ -203,6 +213,8 @@ export function registerQuoteRoutes(app: FastifyInstance, ctx: AppContext): void
           min_margin_applied: candidate.sell.channel?.minMarginApplied ?? false,
           fx_buffer_bp: candidate.sell.fxBufferBp,
           fx: candidate.sell.fx === null ? null : fxJson(candidate.sell.fx),
+          // 包车区域加价的对外价参考（ADR 0073 第四部分）：已含在 sell 里，单独取整，只用来说明
+          area_surcharge_sell: candidate.sell.areaSurcharge === undefined ? null : { pickup: candidate.sell.areaSurcharge.pickupMinor, dropoff: candidate.sell.areaSurcharge.dropoffMinor },
           offer: offerJson(candidate.offer),
         })),
       })),

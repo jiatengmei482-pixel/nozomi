@@ -111,7 +111,8 @@ async function siteQuote(body: Record<string, unknown>): Promise<any> {
   return res.body;
 }
 
-const charterBody = () => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, package_hours: 8, service_local: SERVICE_LOCAL, passengers: 3, luggage: 2 });
+// 包车下车地点必填（M8-15，ADR 0073）
+const charterBody = () => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, package_hours: 8, service_local: SERVICE_LOCAL, passengers: 3, luggage: 2 });
 const p2pBody = () => ({ category: "point_to_point", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 });
 
 /** 官网下一张单；`paid` 时按 Stripe 通知付款成功（自动确认）。返回订单编号和查看链接的令牌。 */
@@ -176,7 +177,7 @@ test("包车免等：库里留着旧的 15 分钟——供应商报价试算、�
 
   const quoted = await siteQuote(charterBody());
   assert.equal(quoted.quotes[0].free_wait_minutes, 0, "官网询价按 0");
-  const placed = await siteOrder(quoted.quotes[0].quote_id, { pickup_address: "东京站大饭店" }, false);
+  const placed = await siteOrder(quoted.quotes[0].quote_id, { pickup_address: "东京站大饭店", dropoff_address: "新宿站" }, false);
   assert.equal(placed.order.free_wait_minutes, 0, "下单的快照是 0");
   const stored = (await api.db.owner.query<{ minutes: number | null; settlement: any }>("select free_wait_minutes as minutes, settlement from orders where id = $1", [placed.id])).rows[0];
   assert.equal(stored?.minutes, 0);
@@ -201,7 +202,7 @@ test("包车免等：库里留着旧的「不限时」——询价、下单按 0
   await storeLegacyFreeWait(charterId, { mode: "unlimited" });
   const quoted = await siteQuote(charterBody());
   assert.equal(quoted.quotes[0].free_wait_minutes, 0, "不限时的旧值也按 0，不显示「不限时」");
-  const placed = await siteOrder(quoted.quotes[0].quote_id, { pickup_address: "东京站大饭店" }, true);
+  const placed = await siteOrder(quoted.quotes[0].quote_id, { pickup_address: "东京站大饭店", dropoff_address: "新宿站" }, true);
   const view = await site.call("GET", "/site/v1/order", { token: placed.link, ip: nextIp() });
   assert.equal(view.status, 200, view.text);
   assert.equal(view.body.order.status, "confirmed");

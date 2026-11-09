@@ -62,6 +62,8 @@ function pricePreviewJson(preview: PriceImportPreview): Json {
         package_hours: row.content.packageHours,
         pricing_model: row.content.pricingModel,
         main_price: row.content.mainPriceMinor,
+        // 包车区域加价的行（ADR 0073）：上车加价、下车加价（最小货币单位）；别的行为 null
+        surcharge: row.content.surcharge === null ? null : { pickup: row.content.surcharge.pickupMinor, dropoff: row.content.surcharge.dropoffMinor },
         valid_from: row.content.validFrom,
         valid_to: row.content.validTo,
         status: row.content.status,

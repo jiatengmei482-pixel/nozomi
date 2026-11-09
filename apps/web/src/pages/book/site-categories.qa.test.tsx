@@ -1,9 +1,9 @@
 /**
  * M3-10 测试角色补充：官网询价页的点对点、包车和常用地点（组件测试，接口用替身）。
- * - 换城市：新城市没有现在这种服务时换成它有的；包车时长、选中的常用地点清掉，只有一种时长时替客人选上；
+ * - 换城市：新城市只有包车时跳到新预订页的包车（M8-15，ADR 0073）；
  * - 坐标越界在页面上就拦住，不发请求；±90 / ±180 照样能查；
  * - 「时间已经过了」按城市的时区判断（UTC+14 的城市刚过去的时间不能选，UTC-11 的城市几分钟后的时间能选）；
- * - 从下单页「返回修改」：服务、包车时长、上车地点都还在；
+ * - 从下单页「返回修改」：服务、上车和下车地点都还在；
  * - 渠道没授权这种服务（422）时说清是哪种服务；
  * - 常用地点 500 个时照样能按编号找到；选中后填进地址栏的写法不能超过下单允许的地址长度（300 个字）。
  */
@@ -110,45 +110,24 @@ async function fillPoint(actor: ReturnType<typeof user>, end: "上车" | "下车
 
 const posts = (calls: ApiCall[]) => calls.filter((call) => call.method === "POST" && call.path.includes("/site/v1/quotes"));
 
-test("换城市：东京选了点对点，换到只有包车的大阪——服务换成包车、不再显示服务单选；包车时长只有一种时替客人选上；选中的常用地点清掉；请求体是大阪的包车", async () => {
+test("换城市：东京选了点对点，换到只有包车的大阪——直接跳到新预订页的包车（M8-15：包车要选下车地点，旧页面不再询包车的价）；从下单页带着包车回来也一样", async () => {
   const calls = open("/book", routes({ cities: [tokyo, osaka], packages: { [OSAKA_ID]: [6] } }));
   const actor = user();
   await actor.selectOptions(await screen.findByLabelText(/^城市/), TOKYO_ID);
   await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /点对点/ }));
   await pickStation(actor, "上车");
-  assert.equal((screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }) as HTMLInputElement).value, "东京站");
-
   await actor.selectOptions(screen.getByLabelText(/^城市/), OSAKA_ID);
-  await waitFor(() => assertAbsent(screen.queryByRole("group", { name: /服务/ })));
-  assertAbsent(screen.queryByLabelText("下车地址或酒店名"));
-  const hours = (await screen.findByLabelText(/^包车时长/)) as HTMLSelectElement;
-  await waitFor(() => assert.equal(hours.value, "6"));
-  const picker = (await screen.findByRole("combobox", { name: "从常用地点选上车地点（选填）" })) as HTMLInputElement;
-  assert.equal(picker.value, "", "东京的常用地点不能还算选中");
+  assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
+  assert.ok(screen.getAllByText("上车地点").length > 0);
+  assertAbsent(screen.queryByLabelText(/^包车时长/));
+  assert.equal(posts(calls).length, 0);
 
-  await setWhen(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  await waitFor(() => assert.equal(posts(calls).length, 1));
-  const body = posts(calls)[0]?.body as Record<string, unknown>;
-  assert.deepEqual([body["category"], body["city_id"], body["package_hours"], "dropoff" in body, "airport_id" in body], ["charter", OSAKA_ID, 6, false, false]);
-});
-
-test("换城市：东京选了 8 小时，换到时长是 4 / 6 的城市——不保留 8 小时（新城市没有），要客人重选", async () => {
-  const kyoto: SiteCity = { ...osaka, categories: ["point_to_point", "charter"] };
-  open("/book", routes({ cities: [tokyo, kyoto], packages: { [OSAKA_ID]: [4, 6] } }));
-  const actor = user();
-  await actor.selectOptions(await screen.findByLabelText(/^城市/), TOKYO_ID);
-  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /包车/ }));
-  const hours = (await screen.findByLabelText(/^包车时长/)) as HTMLSelectElement;
-  await waitFor(() => assert.equal(hours.options.length, 3));
-  await actor.selectOptions(hours, "8");
-  await actor.selectOptions(screen.getByLabelText(/^城市/), OSAKA_ID);
-  assert.ok((within(screen.getByRole("group", { name: /服务/ })).getByRole("radio", { name: /包车/ }) as HTMLInputElement).checked, "大阪也有包车，服务不变");
-  const after = (await screen.findByLabelText(/^包车时长/)) as HTMLSelectElement;
-  await waitFor(() => assert.deepEqual([...after.options].map((option) => option.value), ["", "4", "6"]));
-  assert.equal(after.value, "");
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("请选择包车时长"));
+  resetBrowser();
+  const draft = { cityId: TOKYO_ID, category: "charter", airportId: "", direction: "pickup", address: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, from: { address: "东京站八重洲口", coordinates: { lat: "35.6812", lng: "139.7671" }, placeId: null }, to: { address: "", coordinates: { lat: "", lng: "" }, placeId: null }, packageHours: "8", date: "2030-11-20", time: "09:00", passengers: "3", luggage: "2" };
+  const back = open({ pathname: "/book", state: { draft } }, routes());
+  assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
+  assert.ok((screen.getByRole("radio", { name: "按小时包车" }) as HTMLInputElement).checked);
+  assert.equal(posts(back).length, 0);
 });
 
 test("坐标：纬度 90.5、经度 -180.1 在页面上就拦住，不发询价；正好 90 / -180 照样发出去", async () => {
@@ -176,13 +155,13 @@ test("坐标：纬度 90.5、经度 -180.1 在页面上就拦住，不发询价�
 });
 
 test("「时间已经过了」按城市的时区：UTC+14 的城市当地 2 分钟前不能选（换成浏览器时区还在将来）；UTC-11 的城市当地 5 分钟后可以选", async () => {
-  const kiritimati: SiteCity = { ...tokyo, id: TOKYO_ID, code: "CTY-KI-CXI", name: { zh: "圣诞岛" }, timezone: "Pacific/Kiritimati", categories: ["charter"] };
-  const pagoPago: SiteCity = { ...osaka, id: OSAKA_ID, code: "CTY-AS-PPG", name: { zh: "帕果帕果" }, timezone: "Pacific/Pago_Pago", categories: ["charter"] };
-  const calls = open("/book", routes({ cities: [kiritimati, pagoPago], packages: { [TOKYO_ID]: [8], [OSAKA_ID]: [8] } }));
+  const kiritimati: SiteCity = { ...tokyo, id: TOKYO_ID, code: "CTY-KI-CXI", name: { zh: "圣诞岛" }, timezone: "Pacific/Kiritimati", categories: ["point_to_point"] };
+  const pagoPago: SiteCity = { ...osaka, id: OSAKA_ID, code: "CTY-AS-PPG", name: { zh: "帕果帕果" }, timezone: "Pacific/Pago_Pago", categories: ["point_to_point"] };
+  const calls = open("/book", routes({ cities: [kiritimati, pagoPago] }));
   const actor = user();
   await actor.selectOptions(await screen.findByLabelText(/^城市/), TOKYO_ID);
-  await waitFor(() => assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "8"));
   await pickStation(actor, "上车");
+  await pickStation(actor, "下车");
   const past = localParts("Pacific/Kiritimati", new Date(Date.now() - 2 * 60_000));
   await setWhen(actor, past.date, past.time);
   await actor.click(screen.getByRole("button", { name: "查询价格" }));
@@ -190,7 +169,8 @@ test("「时间已经过了」按城市的时区：UTC+14 的城市当地 2 分�
   assert.equal(posts(calls).length, 0);
 
   await actor.selectOptions(screen.getByLabelText(/^城市/), OSAKA_ID);
-  await waitFor(() => assert.equal((screen.getByLabelText(/^包车时长/) as HTMLSelectElement).value, "8"));
+  await pickStation(actor, "上车");
+  await pickStation(actor, "下车");
   const soon = localParts("Pacific/Pago_Pago", new Date(Date.now() + 5 * 60_000));
   await setWhen(actor, soon.date, soon.time);
   await actor.click(screen.getByRole("button", { name: "查询价格" }));
@@ -198,16 +178,16 @@ test("「时间已经过了」按城市的时区：UTC+14 的城市当地 2 分�
   assert.equal((posts(calls)[0]?.body as { service_local: string }).service_local, `${soon.date}T${soon.time}`);
 });
 
-test("从下单页「返回修改」回来：包车、8 小时、上车地址和坐标都还在，直接能再查", async () => {
+test("从下单页「返回修改」回来：点对点、上车和下车地址、坐标都还在，直接能再查", async () => {
   const draft = {
     cityId: TOKYO_ID,
-    category: "charter",
+    category: "point_to_point",
     airportId: "",
     direction: "pickup",
     address: { address: "", coordinates: { lat: "", lng: "" }, placeId: null },
     from: { address: "东京站八重洲口", coordinates: { lat: "35.6812", lng: "139.7671" }, placeId: null },
-    to: { address: "", coordinates: { lat: "", lng: "" }, placeId: null },
-    packageHours: "8",
+    to: { address: "新宿某酒店", coordinates: { lat: "35.6895", lng: "139.6917" }, placeId: null },
+    packageHours: "",
     date: "2030-11-20",
     time: "09:00",
     passengers: "3",
@@ -216,23 +196,22 @@ test("从下单页「返回修改」回来：包车、8 小时、上车地址和
   const calls = open({ pathname: "/book", state: { draft } }, routes());
   const actor = user();
   const services = await screen.findByRole("group", { name: /服务/ });
-  assert.ok((within(services).getByRole("radio", { name: /包车/ }) as HTMLInputElement).checked);
-  const hours = screen.getByLabelText(/^包车时长/) as HTMLSelectElement;
-  await waitFor(() => assert.equal(hours.value, "8"));
+  assert.ok((within(services).getByRole("radio", { name: /点对点/ }) as HTMLInputElement).checked);
   assert.equal((screen.getByLabelText("上车地址或酒店名") as HTMLInputElement).value, "东京站八重洲口");
+  assert.equal((screen.getByLabelText("下车地址或酒店名") as HTMLInputElement).value, "新宿某酒店");
   await actor.click(screen.getByRole("button", { name: "查询价格" }));
   await waitFor(() => assert.equal(posts(calls).length, 1));
-  assert.deepEqual(posts(calls)[0]?.body, { category: "charter", city_id: TOKYO_ID, service_local: "2030-11-20T09:00", passengers: 3, luggage: 2, pickup: { lat: 35.6812, lng: 139.7671 }, package_hours: 8 });
+  assert.deepEqual(posts(calls)[0]?.body, { category: "point_to_point", city_id: TOKYO_ID, service_local: "2030-11-20T09:00", passengers: 3, luggage: 2, pickup: { lat: 35.6812, lng: 139.7671 }, dropoff: { lat: 35.6895, lng: 139.6917 } });
 });
 
 test("渠道没授权这种服务（422 CHANNEL_SCOPE_DENIED）：说清是包车 / 点对点暂不开放，不显示报价", async () => {
-  for (const [radio, word] of [[/包车/, "包车"], [/点对点/, "点对点"]] as const) {
+  // 包车在新预订页询价（M8-15）：这里只剩点对点
+  for (const [radio, word] of [[/点对点/, "点对点"]] as const) {
     open("/book", routes({ quotes: () => apiError(422, "CHANNEL_SCOPE_DENIED", "渠道没有授权") }));
     const actor = user();
     await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: radio }));
-    if (word === "包车") await actor.selectOptions(await screen.findByLabelText(/^包车时长/), "4");
     await pickStation(actor, "上车");
-    if (word === "点对点") await pickStation(actor, "下车");
+    await pickStation(actor, "下车");
     await setWhen(actor);
     await actor.click(screen.getByRole("button", { name: "查询价格" }));
     assert.ok(await screen.findByText(`这个城市的${word}暂不开放预订，请换一种服务或换一个城市。`));
@@ -252,7 +231,7 @@ test("常用地点 500 个：按编号能找到最后一个，选中后填好名
   }));
   open("/book", routes({ places: { [TOKYO_ID]: many } }));
   const actor = user();
-  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /包车/ }));
+  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /点对点/ }));
   await pickStation(actor, "上车", "POI-000499");
   assert.equal((screen.getByLabelText("上车地址或酒店名") as HTMLInputElement).value, "酒店499（某区某町 499）");
   assert.equal((within(screen.getByRole("group", { name: /上车地点的坐标/ })).getByLabelText(/^经度/) as HTMLInputElement).value, "139.499");

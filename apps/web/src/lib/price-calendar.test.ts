@@ -4,7 +4,7 @@ import type { CalendarDay, CalendarSegment } from "../api/prices.ts";
 import { addMonths, cellView, clampMonth, daysInRange, exactFromText, exactTextMoney, monthDates, monthRange, monthTitle, monthWeeks, moveDay, orderedRange, sameDayIn, segmentAt, spokenDate } from "./price-calendar.ts";
 
 const segment = (changes: Partial<CalendarSegment> = {}): CalendarSegment => ({ from: "00:00", to: "24:00", final: 20000, no_price_reason: null, base: "20000", unrounded: "20000", adjusts: [], ...changes });
-const day = (segments: CalendarSegment[]): CalendarDay => ({ date: "2027-10-01", weekday: 5, holiday: null, price_rule: null, segments });
+const day = (segments: CalendarSegment[]): CalendarDay => ({ date: "2027-10-01", weekday: 5, holiday: null, price_rule: null, surcharge: null, segments });
 const up = { rule_id: "r1", name: "国庆旺季", steps: [{ type: "percent" as const, value: 2000, delta: "4000", after: "24000" }] };
 
 test("月份：加减、范围、标题；网址里不合法或超出范围的换成本月", () => {

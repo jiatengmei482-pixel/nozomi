@@ -9,7 +9,7 @@
  * - 电脑（≥ 1024px）单页：左列三块，右侧栏跟着滚动：行程摘要、路线图、附加服务（改数量带 `addons` 重新报价，显示合计差额）、车费、合计、
  *   参考价（≈ 客人币种）、取消规则、去付款、支付方式。
  *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型（底部固定「车型 · 一口价 [下一步]」）→ 第 3 步：右侧栏的内容在顶部，下面「怎么联系你」。
- * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。
+ * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。`mode=charter` 打开就是包车（旧 `/book` 的包车跳过来，M8-15）。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
 import { type CityCandidate, type CurrencyCode, fixedPriceIncludes, isFlightNo, serviceCityOf } from "@nozomi/domain";
@@ -158,7 +158,7 @@ function linkNotice(ends: LinkResolution[]): string | null {
 }
 
 function initialDraft(link: BookingLink): TripDraft {
-  return { mode: "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
+  return { mode: link.mode ?? "transfer", from: null, to: null, date: link.date ?? "", time: link.time ?? "", passengers: link.passengers ?? 2, luggage: link.luggage ?? link.passengers ?? 2, packageHours: "", flightNo: "" };
 }
 
 function validate(draft: TripDraft, charterCity: SiteCity | null, arrival: boolean): Errors {

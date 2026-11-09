@@ -75,11 +75,20 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
       order by pa.product_id, pa.priority, pa.area_id`,
     [ids, tenantIds],
   );
-  const areaIds = [...new Set(areas.rows.map((row) => row["area_id"] as string))];
+  // 包车的加价区域（ADR 0073）：区域加价规则用到的区域，不在商品的区域列表里；它们的状态和图形一起取
+  const surchargeRows = await db.query<Row>(
+    `select distinct r.product_id, r.area_id, a.status
+       from price_rules r join areas a on a.tenant_id = r.tenant_id and a.id = r.area_id
+      where r.tenant_id = any($2::uuid[]) and r.product_id = any($1::uuid[]) and r.pricing_model = 'charter_area_surcharge'
+      order by r.product_id, r.area_id`,
+    [ids, tenantIds],
+  );
+  const areaIds = [...new Set([...areas.rows, ...surchargeRows.rows].map((row) => row["area_id"] as string))];
   const polygons = areaIds.length === 0 ? { rows: [] as Row[] } : await db.query<Row>("select id, area_id, kind, geometry from area_polygons where tenant_id = any($2::uuid[]) and area_id = any($1::uuid[]) order by area_id, position, id", [areaIds, tenantIds]);
   const shapes = new Map<string, { id: string; kind: "operate" | "forbid"; ring: Position[] }[]>();
   for (const row of polygons.rows) shapes.set(row["area_id"], [...(shapes.get(row["area_id"]) ?? []), { id: row["id"], kind: row["kind"], ring: (row["geometry"] as { coordinates: Position[][] }).coordinates[0] ?? [] }]);
   const areasByProduct = group(areas.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
+  const surchargeAreasByProduct = group(surchargeRows.rows, (row) => ({ areaId: row["area_id"] as string, active: row["status"] === "active", shapes: shapes.get(row["area_id"]) ?? [] }));
 
   const vehicleGroups = await db.query<Row>(
     `select pv.product_id, pv.vehicle_group_id, pv.passengers, pv.luggage, vg.status
@@ -123,6 +132,7 @@ export async function loadQuoteCandidates(db: Db, filter: QuoteCandidateFilter):
         timeZone: row["timezone"],
         pickupPlace: row["place_type"] === null ? null : { type: row["place_type"], flightScope: row["flight_scope"] },
         areas: areasByProduct.get(row["id"]) ?? [],
+        surchargeAreas: surchargeAreasByProduct.get(row["id"]) ?? [],
         vehicleGroups: groupsByProduct.get(row["id"]) ?? [],
         serviceRules,
         addonCatalog: serviceRules.addons.flatMap((chosen) => {

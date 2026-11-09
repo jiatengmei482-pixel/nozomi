@@ -98,7 +98,8 @@ after(async () => {
 });
 
 const p2pBody = (extra: Record<string, unknown> = {}) => ({ category: "point_to_point", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1, ...extra });
-const charterBody = (extra: Record<string, unknown> = {}) => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, package_hours: 8, service_local: SERVICE_LOCAL, passengers: 3, luggage: 2, ...extra });
+// 包车下车地点必填（M8-15，ADR 0073）：两端都在商品的区域里，不加价
+const charterBody = (extra: Record<string, unknown> = {}) => ({ category: "charter", city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, package_hours: 8, service_local: SERVICE_LOCAL, passengers: 3, luggage: 2, ...extra });
 
 async function quote(body: Record<string, unknown>, on: SiteApi = site): Promise<any> {
   api.clock.advance(1_000);
@@ -213,7 +214,6 @@ test("各品类该填的没填是 REQUIRED、不该填的填了是 NOT_APPLICABL
     [p2pBody({ airport_id: m.ids.narita, direction: "pickup" }), [["/airport_id", "NOT_APPLICABLE"], ["/direction", "NOT_APPLICABLE"]]],
     [p2pBody({ package_hours: 4 }), [["/package_hours", "NOT_APPLICABLE"]]],
     [charterBody({ package_hours: undefined }), [["/package_hours", "REQUIRED"]]],
-    [charterBody({ dropoff: DROPOFF }), [["/dropoff", "NOT_APPLICABLE"]]],
     [charterBody({ address: PICKUP }), [["/address", "NOT_APPLICABLE"]]],
     [{ city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: SERVICE_LOCAL, passengers: 2 }, [["/airport_id", "REQUIRED"], ["/direction", "REQUIRED"], ["/address", "REQUIRED"], ["/pickup", "NOT_APPLICABLE"], ["/dropoff", "NOT_APPLICABLE"]]],
   ];
@@ -268,19 +268,26 @@ test("点对点：询价（甲 15,000 中标，对外 16,500）→ 下单（两�
   assert.equal(tenantB.status, 404);
 });
 
-test("包车：选 8 小时（乙 70,000，对外 77,000，含 150 公里）→ 下单（只要上车地址）→ 订单带套餐时长；没有的时长报不出价", async () => {
+test("包车：选 8 小时（乙 70,000，对外 77,000，含 150 公里）→ 下单（上车、下车地址都要，M8-15）→ 订单带套餐时长和下车点；没有的时长报不出价", async () => {
   const quoted = await quote(charterBody());
   assert.deepEqual(quoted.quotes.map((entry: any) => [entry.price.total.amount, entry.package, entry.cancel_policy.category]), [["77000", { hours: 8, km: 150 }, "charter"]]);
   assert.doesNotMatch(withoutRandomIds(JSON.stringify(quoted)), /70000|乙车队|markup|settlement/);
+  // 下车地点暂时可以不给（M8-15，M8-13 改为必填）：这个商品没设区域加价，和以前一样报，下单也不用下车地址
+  const noDropoff = await quote(charterBody({ dropoff: undefined }));
+  assert.deepEqual(noDropoff.quotes.map((entry: any) => [entry.price.total.amount, entry.includes_area_surcharge]), [["77000", false]]);
+  const noDropoffOrder = await order({ quote_id: noDropoff.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站大饭店" });
+  assert.equal(noDropoffOrder.status, 201, noDropoffOrder.text);
+  assert.equal(noDropoffOrder.body.order.dropoff, null);
   const none = await quote(charterBody({ package_hours: 6 }));
   assert.deepEqual([none.quotes.length, none.unavailable.length > 0], [0, true], "停用的 6 小时报不出价");
 
   const base = { quote_id: quoted.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true };
-  const extra = await order({ ...base, pickup_address: "东京站大饭店", dropoff_address: "新宿" });
-  assert.deepEqual([extra.status, extra.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/dropoff_address", "NOT_APPLICABLE"]]]);
-  const created = await order({ ...base, pickup_address: "东京站大饭店" });
+  assert.equal(quoted.quotes[0].includes_area_surcharge, false, "两端都在商品的区域里：不含区域加价");
+  const missing = await order({ ...base, pickup_address: "东京站大饭店" });
+  assert.deepEqual([missing.status, missing.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/dropoff_address", "REQUIRED"]]]);
+  const created = await order({ ...base, pickup_address: "东京站大饭店", dropoff_address: "新宿" });
   assert.equal(created.status, 201, created.text);
-  assert.deepEqual([created.body.order.category, created.body.order.package_hours, created.body.order.dropoff, created.body.order.price.total.amount], ["charter", 8, null, "77000"]);
+  assert.deepEqual([created.body.order.category, created.body.order.package_hours, created.body.order.dropoff, created.body.order.price.total.amount], ["charter", 8, { ...DROPOFF, address: "新宿" }, "77000"]);
   const seen = await site.call("GET", "/site/v1/order", { token: created.body.link.token, ip: nextIp() });
   assert.deepEqual([seen.body.order.package_hours, seen.body.order.cancel_policy.category], [8, "charter"]);
   const fee = await site.call("GET", "/site/v1/order/cancel-fee?reason=GUEST_REQUEST", { token: created.body.link.token, ip: nextIp() });
@@ -304,7 +311,7 @@ test("包车的免费等待按需求固定为 0：报价写 0 分钟；供应商
   api.clock.advance(QUOTE_CATALOG_TTL_MS + 1_000);
   const legacy = await quote(charterBody());
   assert.equal(legacy.quotes[0].free_wait_minutes, 0);
-  const placed = await order({ quote_id: legacy.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站大饭店" });
+  const placed = await order({ quote_id: legacy.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站大饭店", dropoff_address: "新宿" });
   assert.equal(placed.status, 201, placed.text);
   assert.equal(placed.body.order.free_wait_minutes, 0);
 });

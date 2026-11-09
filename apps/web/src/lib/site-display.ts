@@ -137,6 +137,7 @@ export const GUEST_CANCEL_REASON_NAMES: Readonly<Record<string, string>> = {
 export const UNAVAILABLE_REASON_TEXT: Readonly<Record<SiteUnavailableReason, string>> = {
   NO_PRODUCT: "这里暂时没有这种服务可预订，请换一种服务或换一个城市。",
   OUT_OF_SERVICE_AREA: "这个地址不在服务范围内，请换一个更靠近市区的地址。",
+  DROPOFF_REQUIRED: "包车请填写下车地点。",
   LEAD_TIME_TOO_SHORT: "离用车时间太近了，请选晚一些的时间。",
   SOLD_OUT: "这一天已经订满了，请换一天。",
   OUTSIDE_SERVICE_TIME: "这个时间不在服务时间内，请换一个时间。",

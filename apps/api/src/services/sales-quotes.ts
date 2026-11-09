@@ -44,8 +44,9 @@ export interface SalesQuoteInput {
 /**
  * 给渠道看的「为什么没有这个车型组的价」：只有面向客人的几种。
  * 里程 + 时长的价格取不到路线时（ADR 0042）：`NO_ROUTE`（两点之间没有可行驶的路线）或 `TEMPORARILY_UNAVAILABLE`（路线服务暂时不可用，稍后再试）。
+ * 包车没给下车地点、而这个商品设了区域加价（M8-15，ADR 0073）：`DROPOFF_REQUIRED`（给了下车地点再询价就可能报得出；以后下车地点改为必填）。
  */
-export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
+export const SALES_UNAVAILABLE_REASONS = ["NO_PRODUCT", "OUT_OF_SERVICE_AREA", "DROPOFF_REQUIRED", "LEAD_TIME_TOO_SHORT", "SOLD_OUT", "OUTSIDE_SERVICE_TIME", "SERVICE_TIME_PASSED", "CAPACITY_EXCEEDED", "ADDON_NOT_OFFERED", "DRIVER_LANGUAGE_NOT_OFFERED", "NO_ROUTE", "TEMPORARILY_UNAVAILABLE", "NOT_AVAILABLE"] as const;
 export type SalesUnavailableReason = (typeof SALES_UNAVAILABLE_REASONS)[number];
 
 function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnavailableReason {
@@ -55,6 +56,9 @@ function salesReason(reason: ComparisonRefusal, route: RouteOutcome): SalesUnava
     case "OUT_OF_SERVICE_AREA":
     case "IN_FORBIDDEN_AREA":
       return "OUT_OF_SERVICE_AREA";
+    // 包车没给下车地点、而商品设了区域加价（ADR 0073）：渠道补上下车地点就能报
+    case "DROPOFF_REQUIRED":
+      return "DROPOFF_REQUIRED";
     case "LEAD_TIME_TOO_SHORT":
       return "LEAD_TIME_TOO_SHORT";
     case "SOLD_OUT":
@@ -97,6 +101,8 @@ export interface SalesQuote {
   fx: { rate: string; asOf: string } | null;
   freeWaitMinutes: number | null;
   urgent: boolean;
+  /** 包车：这个价里含区域加价（上车或下车不在中标商品本身的区域里，ADR 0073）；别的都是 false。只说「含」，不给金额 */
+  includesAreaSurcharge: boolean;
   /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
@@ -134,6 +140,7 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     fx: winner.sell.fx === null ? null : { rate: winner.sell.fx.rate, asOf: winner.sell.fx.asOf },
     freeWaitMinutes: freeWait === null ? null : freeWait.mode === "limited" ? freeWait.minutes : null,
     urgent: snapshot.urgent,
+    includesAreaSurcharge: (winner.offer.settlement.areaSurcharge?.pickup.amountMinor ?? 0) + (winner.offer.settlement.areaSurcharge?.dropoff.amountMinor ?? 0) > 0,
   };
 }
 

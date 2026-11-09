@@ -1,5 +1,5 @@
 /**
- * 官网的点对点、包车和地址输入辅助（M3-10）的组件测试：选服务、按服务拼询价请求（只给这个服务的字段）、包车时长（空、出错）、
+ * 官网的点对点、包车和地址输入辅助（M3-10）的组件测试：选服务、按服务拼询价请求（只给这个服务的字段）、包车跳到新预订页（M8-15）、
  * 从常用地点选地址（填好名称和坐标；手改后清掉选择；读不出来照样能自己写）、下单页和订单页按服务显示行程、改单只给这一单有的地址。
  * 接口用测试替身；真实后端由集成测试 site-categories.itest.ts 和端到端测试 e2e/site-booking-categories.spec.ts 覆盖。
  */
@@ -122,7 +122,7 @@ test("从常用地点选了以后手改地址：选择清掉，地址和坐标�
   open("/book", routes());
   const actor = user();
   const services = await screen.findByRole("group", { name: /服务/ });
-  await actor.click(within(services).getByRole("radio", { name: /包车/ }));
+  await actor.click(within(services).getByRole("radio", { name: /点对点/ }));
   const picker = screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }) as HTMLInputElement;
   await actor.type(picker, "东京站");
   await actor.keyboard("{Enter}");
@@ -146,68 +146,16 @@ test("从常用地点选了以后手改地址：选择清掉，地址和坐标�
   await waitFor(() => assertAbsent(screen.queryByRole("combobox", { name: /从常用地点/ })));
 });
 
-test("包车：选时长（只有包车的字段进请求体）；报价卡写套餐时长和公里、价格说明写一口价已含所有费用、超出套餐另收（M8-09）；下单页只有上车地址、总价写已含高速停车", async () => {
-  const charter = quoteOf({ package: { hours: 8, km: 150 }, price: { total: { amount: "77000", currency: "JPY" }, fx: null }, free_wait_minutes: 30, cancel_policy: { category: "charter", level: "business", tiers } });
-  const calls = open("/book", routes({ quotes: () => json(200, { currency: "JPY", quotes: [charter], unavailable: [] }) }));
+test("包车：选了包车就跳到新预订页的包车（M8-15，ADR 0073：包车要选下车地点，旧页面不再询包车的价）", async () => {
+  const calls = open("/book", routes());
   const actor = user();
   const services = await screen.findByRole("group", { name: /服务/ });
   await actor.click(within(services).getByRole("radio", { name: /包车/ }));
-  const hours = (await screen.findByLabelText(/^包车时长/)) as HTMLSelectElement;
-  await waitFor(() => assert.deepEqual([...hours.options].map((option) => option.textContent), ["请选择时长", "4 小时", "8 小时"]));
-  assertAbsent(screen.queryByLabelText("下车地址或酒店名"));
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("请选择包车时长"));
-  await actor.selectOptions(hours, "8");
-  await actor.type(screen.getByLabelText("上车地址或酒店名"), "东京站八重洲口");
-  const coordinates = screen.getByRole("group", { name: /上车地点的坐标/ });
-  await actor.type(within(coordinates).getByLabelText(/^纬度/), "35.6812");
-  await actor.type(within(coordinates).getByLabelText(/^经度/), "139.7671");
-  await setTime(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  const card = (await screen.findByRole("heading", { name: "商务 7 座" })).closest("li") as HTMLElement;
-  assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "charter", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, pickup: { lat: 35.6812, lng: 139.7671 }, package_hours: 8 });
-  assert.ok(within(card).getByText("8 小时，含 150 公里"));
-  assert.equal(card.querySelector(".site-quote__price")?.textContent, "77,000 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(screen.getByText(/按车计价的套餐价，一口价已含所有费用（高速费、停车费等），无需另付。超出套餐的时长和公里服务后按实际收取/));
-  assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商|高速费、停车费服务后/);
-
-  await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
-  assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
-  assert.ok(screen.getByText("8 小时，含 150 公里"));
-  assert.ok(screen.getByText("东京站八重洲口"));
-  assert.ok(screen.getByText("总价（按车计价的套餐价，已含高速费和停车费）"));
-  assertAbsent(screen.queryByLabelText("下车地址或酒店名"));
-  assertAbsent(screen.queryByLabelText(/^航班号/));
-});
-
-test("包车：城市没有可选的时长时说明并不出下拉；读不出来时说明并能重试；报不出价时提示换时长", async () => {
-  open("/book", routes({ packages: () => json(200, { items: [] }) }));
-  const actor = user();
-  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /包车/ }));
-  assert.ok(await screen.findByRole("heading", { name: "暂时没有可选的包车时长" }));
+  assert.ok(await screen.findByRole("heading", { name: "你的行程" }));
+  assert.ok((screen.getByRole("radio", { name: "按小时包车" }) as HTMLInputElement).checked, "打开就是包车");
+  assert.ok(screen.getAllByText("上车地点").length > 0);
   assertAbsent(screen.queryByLabelText(/^包车时长/));
-
-  resetBrowser();
-  let fail = true;
-  open(
-    "/book",
-    routes({
-      packages: () => (fail ? apiError(500, "INTERNAL", "出错了") : json(200, { items: [{ hours: 6 }] })),
-      quotes: () => json(200, { currency: "JPY", quotes: [], unavailable: [{ vehicle_group_id: null, reasons: ["NO_PRODUCT"] }] }),
-    }),
-  );
-  await actor.click(within(await screen.findByRole("group", { name: /服务/ })).getByRole("radio", { name: /包车/ }));
-  assert.ok(await screen.findByRole("heading", { name: "包车时长没有读出来" }));
-  fail = false;
-  await actor.click(screen.getByRole("button", { name: "重试" }));
-  const hours = (await screen.findByLabelText(/^包车时长/)) as HTMLSelectElement;
-  await waitFor(() => assert.equal(hours.value, "6", "只有一种时长时替客人选上"));
-  await actor.type(screen.getByRole("combobox", { name: "从常用地点选上车地点（选填）" }), "东京站");
-  await actor.keyboard("{Enter}");
-  await setTime(actor);
-  await actor.click(screen.getByRole("button", { name: "查询价格" }));
-  assert.ok(await screen.findByText("这里暂时没有这种服务可预订，请换一种服务或换一个城市。"));
-  assert.ok(screen.getByText("也可以换一个包车时长试试。"));
+  assert.equal(calls.filter((call) => call.method === "POST").length, 0);
 });
 
 test("点对点：两点之间没有路线、路线暂时算不出时，告诉客人换地址或稍后再试，不出现原因代码", async () => {

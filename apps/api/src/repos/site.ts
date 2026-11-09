@@ -78,7 +78,7 @@ export async function listBookableCharterPackages(db: Db, cityId: string, today:
        from price_rules r
        join products p on p.tenant_id = r.tenant_id and p.id = r.product_id and p.status = 'published' and p.category = 'charter' and p.city_id = $1
        join tenants t on t.id = p.tenant_id
-      where r.status = 'enabled' and r.package_hours is not null and (r.valid_to is null or r.valid_to >= $2::date)
+      where r.status = 'enabled' and r.pricing_model = 'charter_package' and (r.valid_to is null or r.valid_to >= $2::date)
       order by r.package_hours`,
     [cityId, today],
   );
