@@ -353,7 +353,8 @@ test("财务结算：手工出上个月的账 → 供应商确认 → 财务发�
   await expect(page.getByText("待付款").first()).toBeVisible();
   await page.locator("dl").getByRole("link").filter({ hasText: /\d{4}-\d{2}-20/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: /^付款批次 \d{4}-\d{2}-20$/ })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: statementNo })).toContainText("JPY 19,800");
+  // 批次详情里这张账单可能出现在两张表里（账单列表和付款明细，CI 上见过）：只认带金额的那一行
+  await expect(page.getByRole("row").filter({ hasText: statementNo }).filter({ hasText: "JPY 19,800" })).toHaveCount(1);
   await checkLayout(page, "付款批次详情");
 });
 
