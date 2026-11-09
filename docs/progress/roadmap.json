@@ -458,53 +458,62 @@
           "id": "M7-01",
           "title": "车型标识的定义（ADR 0068）和后台车型组的编辑预览",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["ADR 0068 写明 4 项由现有字段怎么得出、超出框架的改进方案", "domain 有唯一的计算函数和中日英三套标签，单元测试覆盖", "后台车型组表单有 4 项预览，列表有「同级车型」列", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "分支 m7-01-vehicle-labels；ADR 0068；domain vehicle-label 单元 4 条；主数据组件测试 41 条全过（新增预览和列表列断言）；待验收",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/120 ；CI 全绿；验收通过（后台车型组列表「同级车型」列、编辑页 4 项预览在测试环境实测），报告 docs/acceptance/M7.md",
           "updated": "2026-11-09"
         },
         {
           "id": "M7-02",
           "title": "接口：官网订单、运营和供应商订单详情带上车型标识",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["官网订单、运营订单详情、供应商订单详情里的车型组带代表车型和组合（只加字段）", "OpenAPI 同步；集成测试覆盖，供应商接口仍不含对外价和加价比例", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "分支 m7-02-vehicle-label-api；官网订单 names.vehicle_group、运营和供应商订单详情新增顶层 vehicle_group（代表车型、组合，取当前值）；OpenAPI 同步；新集成测试 3 条（含供应商隔离、无对外价字段）、相关已有集成 154 条全过；单元 2373、组件 1026 全过；待验收",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/123 （#121 的提交随它合并，最后一个用例修复随 #122）；CI 全绿；验收通过（运营订单详情实测、供应商接口无对外价），报告 docs/acceptance/M7.md",
           "updated": "2026-11-09"
         },
         {
           "id": "M7-03",
           "title": "页面：官网选车、填写订单、订单页和两边后台订单详情显示车型标识",
           "role": "frontend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["官网报价卡片、填写订单、订单页（查订单）、运营和供应商订单详情显示 4 项", "按 M6 设计规范，手机可用", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "分支 m7-03-vehicle-label-pages；官网报价卡片、填写订单、订单页、运营和供应商订单详情显示 4 项（座位和完整组合保留）；组件 1031 全过（新增 5 条）、单元 2373 全过；端到端 19 条通过（1 条登录偶发，单独重跑通过）；协调者目视核对截图；待验收",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/123 ；CI 全绿；验收通过（官网报价卡片实测，填写订单 / 订单页 / 供应商详情看截图和组件测试），报告 docs/acceptance/M7.md",
           "updated": "2026-11-09"
         },
         {
           "id": "M7-04",
           "title": "邮件：订单相关邮件加车型标识",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["订单相关邮件的「车型」下加同级车型说明和最多乘客 / 行李；纯文字和 HTML 两版一致", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "分支 m7-04-vehicle-label-email；客人、供应商、司机的订单相关邮件在「车型」下加同级车型、最多乘客 / 行李两行（代表车型没填时整行不出现）；HTML 版随纯文字自动生成；单元 45、集成 38 条全过（含假 SMTP 的客人、供应商、司机邮件，供应商邮件无金额）；待验收",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/122 ；CI 全绿；验收通过（19 个模板本地渲染核对、集成测试含纯文字和 HTML 版），报告 docs/acceptance/M7.md",
           "updated": "2026-11-09"
         },
         {
           "id": "M7-05",
           "title": "测试环境车型组按抄录数据填代表车型，列出对不上的",
           "role": "backend",
-          "status": "todo",
+          "status": "done",
           "acceptance": ["按名称对应、日本优先，只填代表车型；组合不一致的不改、列出来", "不动业主的账号和商品；改动有审计记录", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
-          "evidence": "",
+          "evidence": "测试环境 9 个车型组的代表车型已填（平台接口写入，有审计记录，组合未改），清单 docs/delivery/m7-vehicle-label-data.md；验收通过，报告 docs/acceptance/M7.md",
           "updated": "2026-11-09"
         },
         {
           "id": "M7-06",
           "title": "M7 验收",
           "role": "acceptance",
-          "status": "todo",
+          "status": "done",
           "acceptance": ["测试环境逐项验证 4 项在各处的显示，截图存 /home/codespace/import/ui-screens/（m7- 开头）", "不新增重复字段；选车校验（人数 / 行李数组合）逻辑不变", "亮暗两套、360px 不横向滚动、axe 通过；测试全过（PR 的 CI 绿）"],
+          "evidence": "本 PR；验收报告 docs/acceptance/M7.md；截图 /home/codespace/import/ui-screens/m7-*.png（8 张）",
+          "updated": "2026-11-09"
+        },
+        {
+          "id": "M7-07",
+          "title": "车型名、代表车型多语言（中 / 日 / 英 / 韩）",
+          "role": "backend",
+          "status": "todo",
+          "acceptance": ["代表车型列表按 ADR 0068 改为多语言（不加新字段，走主站 LocalizedText 做法），按客人语言取名称", "页面上代表车型的 lang 属性按取到的语言标", "和 M8 方案 B3（多语言界面）一起排期"],
           "evidence": "",
           "updated": "2026-11-09"
         }
@@ -1101,6 +1110,11 @@
       "date": "2026-11-09",
       "by": "Claude",
       "summary": "新建 M7「车型标识」（M7-01～M7-06）：4 项由车型组现有的代表车型列表和人数 / 行李数组合得出，不加字段、选车逻辑不变（ADR 0068）。M7-01 开发中。"
+    },
+    {
+      "date": "2026-11-09",
+      "by": "Claude",
+      "summary": "M7「车型标识」M7-01～M7-06 已验收：4 项由现有字段得出、不加字段、选车逻辑不变；后台可编辑、官网选车、订单页、两边后台订单详情、邮件都显示；测试环境 9 个车型组已填。车型名多语言登记为 M7-07。"
     }
   ]
 }
