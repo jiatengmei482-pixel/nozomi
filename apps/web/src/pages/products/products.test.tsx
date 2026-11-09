@@ -475,6 +475,17 @@ test("服务规则：时区和币种的说明；免费等待预先填好、没�
   await actor.type(screen.getByLabelText("第 1 档：加收的金额"), "3000");
   await screen.findByText("提前不足 12 小时下单：加收 JPY 3,000");
   assert.match(document.querySelector(".readback__gap")?.textContent ?? "", /提前 12 到 48 小时下单：不接（不在任何一档里）。要接这一段，请加一档「提前不足 48 小时」/);
+  // 业主反馈（2026-11-09）：加急的小时数超过提前预订时长时，旁边直接给「去修改提前预订时长」
+  assert.match(document.body.textContent ?? "", /提前预订时长以内下单 = 加急/);
+  const leadInput = screen.getByLabelText("提前预订时长（小时）") as HTMLInputElement;
+  await actor.clear(leadInput);
+  await actor.type(leadInput, "3");
+  await screen.findByText(/加急阶梯的小时数不能超过提前预订时长（现在是 3 小时）/);
+  await actor.click(screen.getByRole("link", { name: "去修改提前预订时长" }));
+  assert.equal(document.activeElement, leadInput);
+  await actor.clear(leadInput);
+  await actor.type(leadInput, "48");
+  await waitFor(() => assert.equal(document.getElementById("urgent-lead-time-hint"), null));
   await actor.click(screen.getByRole("checkbox", { name: /儿童座椅/ }));
   await actor.click(screen.getByRole("button", { name: "保存草稿" }));
   await waitFor(() => assert.ok(screen.getAllByText(/请填单价，免费提供请填 0/).length > 0));
