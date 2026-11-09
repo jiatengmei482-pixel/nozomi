@@ -11605,6 +11605,63 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/fx/reference:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteFxReference
+      summary: 订单币种 → 客人币种的参考汇率（只用于显示）
+      description: |
+        M8-02，ADR 0069 B16。只读汇率中心「现在生效」的汇率（和报价同一个来源，含人工锁定），不拉任何外部服务；只用来在页面上显示「≈ 客人币种金额」，实际按订单币种收款。
+        不可用时 200 + `available: false`：`NO_RATE` 没有这两种币种的汇率；`STALE` 超过 48 小时没更新；`PENDING_REVIEW` 有一批涨跌超过阈值的汇率挂起待确认。
+        客人币种和订单币种相同时 `rate` 是 "1"。每个地址每分钟 120 次（和官网其余读接口合计）。
+      parameters:
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ JPY, CNY, USD, KRW, HKD, TWD, THB, SGD ]
+          description: 客人币种
+      responses:
+        "200":
+          description: 参考汇率，或不可用的原因
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, from, to, rate, as_of, reason ]
+                properties:
+                  available:
+                    type: boolean
+                  from:
+                    type: string
+                    description: 订单币种（官网渠道的结算币种）
+                  to:
+                    type: string
+                  rate:
+                    type: [ string, "null" ]
+                    pattern: "^\\d+(\\.\\d+)?$"
+                    description: 1 个订单币种的主单位约等于多少个客人币种的主单位；不可用为 null
+                  as_of:
+                    type: [ string, "null" ]
+                    format: date-time
+                    description: 这个汇率是哪一批的（数据源的时间）；同币种、不可用为 null
+                  reason:
+                    oneOf:
+                      - type: "null"
+                      - type: string
+                        enum: [ NO_RATE, STALE, PENDING_REVIEW ]
+        "400":
+          description: "`VALIDATION_FAILED`：币种不支持、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
   /site/v1/quotes:
     post:
       tags: [ 官网 ]
@@ -25351,6 +25408,13 @@ components:
           minimum: 0
           maximum: 60
           default: 0
+        addons:
+          type: array
+          maxItems: 20
+          default: []
+          description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
+          items:
+            $ref: "#/components/schemas/SiteAddonRequest"
     SiteRoutePreview:
       type: object
       additionalProperties: false
@@ -25415,10 +25479,48 @@ components:
           minimum: 0
           maximum: 60
           default: 0
+        addons:
+          type: array
+          maxItems: 20
+          default: []
+          description: 客人选的附加服务和数量（M8-02，ADR 0069 B15）。照原样交给报价引擎：没有商品提供的车型组报不出价（`ADDON_NOT_OFFERED`）；价格只在报价的合计里，不单独给单价
+          items:
+            $ref: "#/components/schemas/SiteAddonRequest"
+    SiteAddonRequest:
+      type: object
+      additionalProperties: false
+      required: [ addon_id ]
+      properties:
+        addon_id:
+          type: string
+          format: uuid
+          description: 附加服务目录里的编号（从报价的 `available_addons` 里选）
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 1
+    SiteAddonOption:
+      type: object
+      additionalProperties: false
+      required: [ id, code, name, charge_unit ]
+      description: 这个车型能加的一项附加服务（参加比价的供应商里有人提供的）：只有目录信息，不带供应商单价、也不带对外单价
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        charge_unit:
+          type: string
+          enum: [ per_order, per_item, per_person, per_duration ]
+          description: per_order 按次 / per_item 按个 / per_person 按人 / per_duration 按时长
     SiteQuote:
       type: object
       additionalProperties: false
-      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy ]
+      required: [ quote_id, expires_at, service_date, urgent, vehicle_group, package, price, free_wait_minutes, cancel_policy, available_addons ]
       properties:
         package:
           description: 包车：套餐时长和含的公里数（超时、超公里服务后按实际加收）；其他品类 null
@@ -25517,6 +25619,11 @@ components:
                     type: integer
                   fee_bp:
                     type: integer
+        available_addons:
+          type: array
+          description: 这个车型还能加哪些附加服务（M8-02）。选了以后带上 `addons` 重新询价，合计里就含附加服务费；没有可加的为空数组
+          items:
+            $ref: "#/components/schemas/SiteAddonOption"
     SiteUnavailable:
       type: object
       additionalProperties: false

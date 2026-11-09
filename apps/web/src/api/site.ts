@@ -92,6 +92,22 @@ export interface SiteQuoteRequest {
   service_local: string;
   passengers: number;
   luggage: number;
+  /** 客人选的附加服务和数量（M8-02）；不选可以不给 */
+  addons?: SiteAddonRequest[];
+}
+
+/** 询价时选的一项附加服务（从报价的 `available_addons` 里选）。 */
+export interface SiteAddonRequest {
+  addon_id: string;
+  quantity?: number;
+}
+
+/** 这个车型能加的一项附加服务：只有目录信息，没有单价（加了以后重新询价，看合计）。 */
+export interface SiteAddonOption {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  charge_unit: "per_order" | "per_item" | "per_person" | "per_duration";
 }
 
 export interface SiteVehicleGroup {
@@ -115,6 +131,8 @@ export interface SiteQuote {
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
   free_wait_minutes: number | null;
   cancel_policy: { category: string; level: string; tiers: CancelTier[] };
+  /** 这个车型还能加哪些附加服务（M8-02）；没有为空数组 */
+  available_addons: SiteAddonOption[];
 }
 
 export type SiteUnavailableReason =
@@ -152,6 +170,7 @@ export interface SiteByPointsRequest {
   service_local: string;
   passengers: number;
   luggage?: number;
+  addons?: SiteAddonRequest[];
 }
 
 /** 出发地到目的地的行车路线（谷歌 Routes，只用来给客人看，不影响价格）。 */
@@ -344,7 +363,8 @@ export const SITE_SCHEMA_FIELDS = {
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
-  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "price", "free_wait_minutes", "cancel_policy"],
+  SiteQuote: ["quote_id", "expires_at", "service_date", "urgent", "vehicle_group", "package", "price", "free_wait_minutes", "cancel_policy", "available_addons"],
+  SiteAddonOption: ["id", "code", "name", "charge_unit"],
   SiteOrderLink: ["token", "expires_at"],
   SiteOrderEnvelope: ["order", "timeline", "names"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
@@ -360,10 +380,11 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 
-export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage"];
+export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage", "addons"];
 export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
 export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
-export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage"];
+export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage", "addons"];
+export const SITE_FX_REFERENCE_FIELDS: readonly (keyof SiteFxReference)[] = ["available", "from", "to", "rate", "as_of", "reason"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method"];
 
 const guest = (token: string) => ({ token });
@@ -454,6 +475,22 @@ export function reverseSitePlace(cityId: string, point: { lat: number; lng: numb
 
 export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResult> {
   return apiRequest("POST", `${SITE_BASE}/quotes`, { body });
+}
+
+/** 参考汇率（M8-02）：订单币种 → 客人币种，只用于显示「≈ 金额」，实际按订单币种收款。 */
+export interface SiteFxReference {
+  available: boolean;
+  from: string;
+  to: string;
+  /** 1 个订单币种 ≈ 多少个客人币种（十进制字符串）；不可用为 null */
+  rate: string | null;
+  as_of: string | null;
+  /** NO_RATE 没有汇率 / STALE 超过 48 小时没更新 / PENDING_REVIEW 有一批挂起待确认；可用为 null */
+  reason: "NO_RATE" | "STALE" | "PENDING_REVIEW" | null;
+}
+
+export function getSiteFxReference(to: string): Promise<SiteFxReference> {
+  return apiRequest("GET", `${SITE_BASE}/fx/reference?to=${encodeURIComponent(to)}`);
 }
 
 /** 按两个坐标报价（M8-02）：服务端认出机场和接机 / 送机 / 点对点，走同一个询价。 */
