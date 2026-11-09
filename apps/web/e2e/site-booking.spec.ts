@@ -139,6 +139,12 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await expect(card).toContainText("60 分钟（从航班落地起算）");
   await expect(card).toContainText("24 小时内取消收全额");
   await expect(card).not.toContainText(/≥|扣 100%/);
+  // 车型标识 4 项（M7-03，ADR 0068），座位一项仍写全部组合
+  await expect(card).toContainText("代表车型丰田埃尔法");
+  await expect(card).toContainText("同级车型丰田埃尔法 or similar");
+  await expect(card).toContainText("最多乘客6 人");
+  await expect(card).toContainText("最多行李5 件");
+  await expect(card).toContainText("7 座（最多 6 人 + 4 件行李 或 5 人 + 5 件行李）");
   await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|20,000/);
   await expectNoOverflow(page, "询价结果");
   await expectAccessibleBothThemes(page, "询价结果");
@@ -147,6 +153,7 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   // 下单
   await expect(page.getByRole("heading", { level: 1, name: "填写订单" })).toBeVisible();
   await expect(page.locator("main")).toContainText(`${world.airport.name}（${world.airport.code}） → 新宿站南口`);
+  await expect(page.locator("main")).toContainText("同级车型丰田埃尔法 or similar");
   await page.getByRole("button", { name: /提交订单/ }).click();
   await expect(page.getByText("需要同意保存支付方式才能下单")).toBeVisible();
   await page.getByLabel("乘车人姓名").fill("王小明");
@@ -224,5 +231,9 @@ test("官网：询价 → 选车 → 下单（付款暂未开放，订单待支�
   await other.goto(`/book/order#${await issueSiteLink(orderNo)}`);
   await expect(other.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
   await expect(other.getByText(/您已确认落地/)).toBeVisible();
+  const trip = other.locator("section").filter({ has: other.getByRole("heading", { level: 2, name: "行程" }) });
+  await expect(trip).toContainText("代表车型丰田埃尔法");
+  await expect(trip).toContainText("最多乘客6 人");
+  await expect(trip).toContainText("最多行李5 件");
   await otherContext.close();
 });

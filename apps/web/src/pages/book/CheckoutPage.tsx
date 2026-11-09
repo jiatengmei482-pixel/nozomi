@@ -16,6 +16,7 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { Icon } from "../../components/Icon.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { VehicleLabelItems } from "../../components/VehicleLabelFacts.tsx";
 import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { ADDRESS_LABELS, SITE_HOME_PATH, addressEnds, guestCancelPolicyText, guestInstantText, guestLocalText, newIdempotencyKey, packageText, priceNote, serviceTimeLabels, siteOrderUrl } from "../../lib/site-display.ts";
@@ -190,6 +191,7 @@ export function CheckoutPage() {
             <dt>车型</dt>
             <dd lang={group.lang}>{group.text}</dd>
           </div>
+          <VehicleLabelItems group={quote.vehicle_group} itemClassName="site-facts__item" />
           <div className="site-facts__item">
             <dt>人数 / 行李</dt>
             <dd>

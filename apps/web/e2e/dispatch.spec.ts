@@ -101,6 +101,12 @@ test("派车 → 司机链接 → 司机 H5 出发和到达 → 供应商看到�
   await expectAccessible(page, "订单列表");
   await row.getByRole("link", { name: orderNo }).click();
   await expect(page.getByRole("heading", { level: 1, name: `订单 ${orderNo}` })).toBeVisible();
+  const trip = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "行程" }) });
+  await expect(trip).toContainText(`车型${world.group.name}（${world.group.code}）`);
+  await expect(trip).toContainText("同级车型丰田埃尔法 or similar");
+  await expect(trip).toContainText("最多乘客6 人");
+  await expect(trip).toContainText("最多行李5 件");
+  await expect(trip).not.toContainText(/对外价|加价/);
   await page.getByRole("button", { name: "派车", exact: true }).click();
   const assign = page.getByRole("dialog", { name: "派车" });
   await assign.getByLabel("司机").selectOption({ label: "佐藤一郎（ja）" });

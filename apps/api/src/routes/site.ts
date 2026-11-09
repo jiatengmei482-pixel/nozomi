@@ -35,6 +35,7 @@ import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerI
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
 import { paymentJson, salesOrderJson } from "./sales.ts";
 import { mapConfigJson } from "./areas.ts";
+import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 
 type Json = Record<string, unknown>;
 
@@ -160,6 +161,12 @@ function guestOrderJson(view: SalesOrderView, now: Date): Json {
   return { ...order, landing: guestLanding };
 }
 
+/** 订单页的车型组：名称、座位数和车型标识的来源（代表车型、组合，M7-02）。车型组当前的值。 */
+function siteOrderVehicleGroupJson(group: OrderVehicleGroupRef | null): Json | null {
+  if (group === null) return null;
+  return { code: group.code, name: group.name, seats: group.seats, sample_models: group.sampleModels, combos: group.combos.map((combo) => ({ passengers: combo.passengers, luggage: combo.luggage })) };
+}
+
 /**
  * 客人看到的订单：`order` 就是渠道看到的那一份（没有结算价、加价比例，付款前没有中标供应商），
  * 另加状态时间线（不含操作人和派车细节）和城市、机场、车型组的名称。
@@ -169,7 +176,7 @@ async function siteOrderJson(ctx: AppContext, view: SalesOrderView): Promise<Jso
   return {
     order: guestOrderJson(view, ctx.now()),
     timeline: extras.events.map((event) => ({ from_status: event.fromStatus, to_status: event.toStatus, reason: event.reason, occurred_at: event.occurredAt.toISOString() })),
-    names: { city: extras.names.city, place: extras.names.place, vehicle_group: extras.names.vehicleGroup },
+    names: { city: extras.names.city, place: extras.names.place, vehicle_group: siteOrderVehicleGroupJson(extras.names.vehicleGroup) },
   };
 }
 

@@ -248,7 +248,8 @@ export interface SiteTimelineEntry {
 export interface SiteOrderNames {
   city: { code: string; name: LocalizedText } | null;
   place: { code: string; name: LocalizedText; type: string } | null;
-  vehicle_group: { code: string; name: LocalizedText; seats: number } | null;
+  /** 车型组当前的值；`sample_models`、`combos` 是车型标识的来源（M7-02，ADR 0068），用 `@nozomi/domain` 的 `vehicleLabel` 显示 */
+  vehicle_group: { code: string; name: LocalizedText; seats: number; sample_models: string[]; combos: { passengers: number; luggage: number }[] } | null;
 }
 
 export interface SiteOrderEnvelope {
@@ -309,6 +310,9 @@ export const SITE_SCHEMA_FIELDS = {
   SiteOrderEnvelope: ["order", "timeline", "names"],
   SiteOrderNames: ["city", "place", "vehicle_group"],
 } as const;
+
+/** 契约测试用：订单页的车型组（`SiteOrderNames.vehicle_group`）的字段。 */
+export const SITE_ORDER_VEHICLE_GROUP_FIELDS: readonly (keyof NonNullable<SiteOrderNames["vehicle_group"]>)[] = ["code", "name", "seats", "sample_models", "combos"];
 
 export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "id", "order_no", "status", "category", "city_id", "place_id", "direction", "vehicle_group_id", "package_hours", "service_time", "service_local", "timezone", "service_date", "urgent",

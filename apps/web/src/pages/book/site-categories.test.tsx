@@ -279,7 +279,7 @@ const charterOrder = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
 const envelopeOf = (order: SiteOrder): SiteOrderEnvelope => ({
   order,
   timeline: [{ from_status: null, to_status: "pending_payment", reason: null, occurred_at: order.created_at }],
-  names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: null, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7 } },
+  names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: null, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] } },
 });
 
 test("订单页：包车写套餐时长和上车地点、没有「我已落地」；改单只有上车地址、没有航班号；点对点两端都能改", async () => {

@@ -28,6 +28,7 @@ import { AlertSlot, type Notice } from "../../components/Alert.tsx";
 import { Button } from "../../components/Button.tsx";
 import { RadioGroup, SelectField, coordinateIssue } from "../../components/FormFields.tsx";
 import { Skeleton, StateBlock } from "../../components/States.tsx";
+import { VehicleLabelItems } from "../../components/VehicleLabelFacts.tsx";
 import { TextField } from "../../components/TextField.tsx";
 import { formatInZone, moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
@@ -173,16 +174,11 @@ function QuoteCard({ quote, draft, onChoose }: { quote: SiteQuote; draft: Bookin
             <dd>{packageText(quote.package.hours, quote.package.km)}</dd>
           </div>
         )}
+        <VehicleLabelItems group={group} itemClassName="site-facts__item" />
         <div className="site-facts__item">
           <dt>座位</dt>
           <dd>{group.seats} 座{capacity !== "" ? `（最多 ${capacity}）` : ""}</dd>
         </div>
-        {group.sample_models.length > 0 && (
-          <div className="site-facts__item">
-            <dt>参考车型</dt>
-            <dd>{group.sample_models.join("、")} 或同级</dd>
-          </div>
-        )}
         <div className="site-facts__item">
           <dt>免费等待</dt>
           <dd>{freeWaitText(quote.free_wait_minutes, draft.category, draft.direction)}</dd>

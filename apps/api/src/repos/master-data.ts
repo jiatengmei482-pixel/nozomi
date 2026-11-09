@@ -316,6 +316,26 @@ export async function findPlaceRefs(db: Db, ids: readonly string[]): Promise<(Ma
   return result.rows;
 }
 
+/**
+ * 订单上显示的车型组（M7-02，ADR 0068）：名称、座位数，以及车型标识的两个来源（代表车型列表、人数 / 行李组合）。
+ * 取车型组**当前**的值，订单上不存快照（ADR 0068 改进方案 3）。
+ */
+export interface OrderVehicleGroupRef extends MasterRef {
+  seats: number;
+  sampleModels: string[];
+  combos: { passengers: number; luggage: number }[];
+}
+
+export async function findOrderVehicleGroup(db: Db, id: string): Promise<OrderVehicleGroupRef | null> {
+  const row = (
+    await db.query<{ id: string; code: string; name: LocalizedText; seats: number; sample_models: string[]; combos: { passengers: number; luggage: number }[] }>(
+      "select id, code, name, seats, sample_models, combos from vehicle_groups where id = $1",
+      [id],
+    )
+  ).rows[0];
+  return row === undefined ? null : { id: row.id, code: row.code, name: row.name, seats: row.seats, sampleModels: row.sample_models, combos: row.combos };
+}
+
 /** 只读出一个地点的上级编号（不加锁）。 */
 export async function findPlaceParentId(db: Db, placeId: string): Promise<string | null> {
   const result = await db.query<{ parent_id: string | null }>("select parent_id from places where id = $1", [placeId]);

@@ -162,6 +162,9 @@ test("异常：运营从订单详情进超时未派车的异常，认领、写�
   const row = page.getByRole("row").filter({ hasText: order.orderNo });
   await expect(row).toContainText("1 条没处理完");
   await row.getByRole("link", { name: order.orderNo }).click();
+  const trip = page.locator("section").filter({ has: page.getByRole("heading", { level: 2, name: "行程" }) });
+  await expect(trip).toContainText("代表车型丰田埃尔法");
+  await expect(trip).toContainText("最多行李5 件");
   const section = page.locator("section").filter({ has: page.getByRole("heading", { name: "异常", exact: true }) });
   await section.getByRole("link", { name: "超时未派车" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "超时未派车" })).toBeVisible();
@@ -350,7 +353,8 @@ test("财务结算：手工出上个月的账 → 供应商确认 → 财务发�
   await expect(page.getByText("待付款").first()).toBeVisible();
   await page.locator("dl").getByRole("link").filter({ hasText: /\d{4}-\d{2}-20/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: /^付款批次 \d{4}-\d{2}-20$/ })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: statementNo })).toContainText("JPY 19,800");
+  // 批次详情里这张账单可能出现在两张表里（账单列表和付款明细，CI 上见过）：只认带金额的那一行
+  await expect(page.getByRole("row").filter({ hasText: statementNo }).filter({ hasText: "JPY 19,800" })).toHaveCount(1);
   await checkLayout(page, "付款批次详情");
 });
 

@@ -26,6 +26,7 @@ import {
   listOrderLocations,
 } from "../repos/dispatch.ts";
 import { findDriversByIds, findVehiclesByIds } from "../repos/fleet.ts";
+import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "../repos/master-data.ts";
 import { type WebhookDelivery, listDeliveries } from "../repos/webhooks.ts";
 import type { DispatchFacts } from "./order-views.ts";
 import type { TimeCursor } from "../pagination.ts";
@@ -134,6 +135,8 @@ export interface TenantOrderDetail {
   extraCharges: ExtraCharge[];
   /** 这一单和救援改派的关系（M3-04）：原供应商 / 救援供应商；没有为 null */
   rescue: TenantRescueView | null;
+  /** M7-02：车型组当前的名称、代表车型、组合（ADR 0068，不做快照） */
+  vehicleGroup: OrderVehicleGroupRef | null;
 }
 
 export async function getOrderForTenant(ctx: AppContext, tenantId: string, orderId: string): Promise<TenantOrderDetail> {
@@ -144,7 +147,15 @@ export async function getOrderForTenant(ctx: AppContext, tenantId: string, order
       const order = await findTenantOrder(db, tenantId, orderId);
       if (order === null) throw notFound("订单");
       const facts = { ...((await dispatchFactsOf(db, [order])).get(order.id) ?? NO_FACTS), pendingChange: (await ordersWithPendingChange(db, tenantId, [order.id])).has(order.id) };
-      return { order, facts, events: await listOrderEvents(db, tenantId, orderId), records: await fulfilmentRecords(db, order), changes: await listOrderChanges(db, tenantId, orderId), extraCharges: await listExtraCharges(db, tenantId, orderId) };
+      return {
+        order,
+        facts,
+        events: await listOrderEvents(db, tenantId, orderId),
+        records: await fulfilmentRecords(db, order),
+        changes: await listOrderChanges(db, tenantId, orderId),
+        extraCharges: await listExtraCharges(db, tenantId, orderId),
+        vehicleGroup: await findOrderVehicleGroup(db, order.vehicleGroupId),
+      };
     },
     { snapshot: true },
   );
@@ -239,6 +250,8 @@ export interface PlatformOrderDetail {
   pendingProxyReview: { event: keyof typeof PROXY_REVIEW_KINDS; approval: Approval } | null;
   /** M4-31：代改的乘客邮箱在等审核（ADR 0065），只有打码地址 */
   pendingEmailReview: PassengerEmailChange | null;
+  /** M7-02：车型组当前的名称、代表车型、组合（ADR 0068，不做快照） */
+  vehicleGroup: OrderVehicleGroupRef | null;
 }
 
 /** 只看下一步：别人已经把这一步回传了的旧复核（批准只会得到「已过时」）不算在等。 */
@@ -281,6 +294,7 @@ export async function getOrderForPlatform(ctx: AppContext, orderId: string, scop
         tickets: await listOrderTickets(db, orderId),
         pendingProxyReview: await pendingProxyReviewOf(db, order as Order),
         pendingEmailReview: await findPendingPassengerEmailChange(db, orderId),
+        vehicleGroup: await findOrderVehicleGroup(db, order.vehicleGroupId),
       };
     },
     { snapshot: true },
