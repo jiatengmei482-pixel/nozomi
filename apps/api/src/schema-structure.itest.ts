@@ -121,6 +121,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     statements: ["SELECT"],
     // 收款账户（ADR 0051）：供应商只看（查询不取密文列）；提交、撤回在平台事务里做（租户编号只来自令牌）
     payout_accounts: ["SELECT"],
+    // 名称、法定名称、登记号的修改申请（ADR 0071）：供应商只看；提交、撤回在平台事务里做（租户编号只来自令牌）
+    tenant_profile_changes: ["SELECT"],
     // 派车记录、照片、联系记录、定位、no-show 申请（ADR 0027）：只追加
     order_assignments: ["INSERT", "SELECT"],
     order_contacts: ["INSERT", "SELECT"],
@@ -231,6 +233,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     bank_file_items: ["INSERT", "SELECT", "UPDATE"],
     bank_files: ["INSERT", "SELECT", "UPDATE"],
     payout_accounts: ["INSERT", "SELECT", "UPDATE"],
+    // 供应商的资料修改申请（ADR 0071）：不删；内容不可变，触发器按语句检查
+    tenant_profile_changes: ["INSERT", "SELECT", "UPDATE"],
     orders: ["INSERT", "SELECT", "UPDATE"],
     payment_events: ["INSERT", "SELECT", "UPDATE"],
     // 派车和履约（ADR 0027）：运营后台订单详情只读查看司机、车辆、派车记录、司机链接（只有哈希）、照片、联系记录、定位、no-show 申请
@@ -296,7 +300,8 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     tenant_notices: ["INSERT", "SELECT"],
     // 申诉成立时撤销那张工单记下的履约事件（ADR 0034），所以能删
     tenant_performance_events: ["DELETE", "INSERT", "SELECT"],
-    tenant_profiles: ["SELECT"],
+    // 平台改企业信息（ADR 0071）
+    tenant_profiles: ["INSERT", "SELECT", "UPDATE"],
     tenant_score_daily: ["INSERT", "SELECT", "UPDATE"],
     tenant_status_events: ["INSERT", "SELECT"],
     tenant_users: ["INSERT", "SELECT", "UPDATE"],
@@ -377,8 +382,9 @@ const CROSS_TENANT_POLICIES: Readonly<Record<string, PolicyShape>> = {
   // 每日库存：下单预占、付款扣减、超时释放（ADR 0026）
   "inventory_days.inventory_days_platform_booking": { roles: [PLATFORM_DB_ROLE], cmd: "w", using: "true", check: "true" },
   "audit_logs.audit_logs_platform_append": { roles: [PLATFORM_DB_ROLE], cmd: "a", using: null, check: "true" },
-  // 供应商入驻（ADR 0028）：审核、合同、状态、评分、提醒都是平台跨供应商做的；企业信息平台只读
-  "tenant_profiles.tenant_profiles_platform_read": { roles: [PLATFORM_DB_ROLE], cmd: "r", using: "true", check: null },
+  // 供应商入驻（ADR 0028）：审核、合同、状态、评分、提醒都是平台跨供应商做的
+  // 企业信息：平台任何状态都能改；资料修改申请的提交、撤回、审核、生效都在平台事务里（ADR 0071，和收款账户同一做法）
+  ...Object.fromEntries(["tenant_profiles", "tenant_profile_changes"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   ...Object.fromEntries(["tenant_files", "tenant_documents", "tenant_contracts", "tenant_status_events", "tenant_performance_events", "order_reviews", "tenant_score_daily", "tenant_notices"].map((table) => [`${table}.${table}_platform`, { roles: [PLATFORM_DB_ROLE], cmd: "*", using: "true", check: "true" }])),
   // 供应商和司机的回传写评分事件（ADR 0052）：比「限定在当前租户」更窄，投诉和履约失败仍然只有平台能写
   "tenant_performance_events.tenant_performance_events_tenant_insert": {
@@ -454,6 +460,8 @@ const INDEX_EXCEPTIONS = [
   "statements_platform_idx",
   // 资质审核队列跨供应商找待审核的（ADR 0028）
   "tenant_documents_pending_idx",
+  // 运营后台跨供应商的资料修改申请（ADR 0071）
+  "tenant_profile_changes_platform_idx",
   "tenant_users_email_key",
   "tenant_users_invite_token_key",
   // 退款、赔付记录、内部备注按编号指向工单；工单号全平台唯一；运营后台跨租户的工单队列（ADR 0034）
