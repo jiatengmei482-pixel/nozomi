@@ -9,6 +9,7 @@ import {
   NOTIFICATION_RULES,
   NOTIFICATION_TEMPLATES,
   OBSERVATION_REASON_NAMES,
+  OPTIONAL_LINE_VARIABLES,
   ORDER_CHANGE_FIELD_NAMES,
   type NotificationTemplate,
   findNotificationTemplate,
@@ -193,11 +194,20 @@ test("主题头注入：换行和各种行分隔符都被去掉，注入的头�
   }
 });
 
-test("缺字段：逐个变量缺失或为空都不发，不会出现 undefined、null 字样；白名单外的变量不能用", () => {
+test("缺字段：逐个变量缺失或为空都不发，不会出现 undefined、null 字样；白名单外的变量不能用。可省略的车型标识（M7-04）缺了只去掉那一行", () => {
   for (const target of NOTIFICATION_TEMPLATES) {
     for (const name of templatePlaceholders(target)) {
       const complete = variablesFor(target);
       const { [name]: _dropped, ...missing } = complete;
+      if ((OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name)) {
+        for (const partial of [missing, { ...complete, [name]: "" }]) {
+          const rendered = renderNotification(target, partial);
+          assert.ok(rendered, `${target.event}/${target.audience} 缺 ${name} 照样发`);
+          assert.doesNotMatch(rendered.text, /undefined|null|\{\{|(同级车型|最多乘客|最多行李)：\s*$|：，/m, `${target.event}/${target.audience} 缺 ${name} 不留空标签`);
+          assert.equal(rendered.text.split("\n").length, renderNotification(target, complete)!.text.split("\n").length - 1, `${target.event}/${target.audience} 缺 ${name} 正好少一行`);
+        }
+        continue;
+      }
       assert.equal(renderNotification(target, missing), null, `${target.event}/${target.audience} 缺 ${name}`);
       assert.equal(renderNotification(target, { ...complete, [name]: "" }), null, `${target.event}/${target.audience} ${name} 为空`);
     }

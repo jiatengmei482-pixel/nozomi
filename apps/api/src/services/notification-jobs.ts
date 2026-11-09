@@ -45,6 +45,7 @@ import {
   notificationFailureAction,
   notificationStale,
   renderNotification,
+  type vehicleLabelMailVariables,
   resolvePlatformGrant,
   scopeAllowsChannel,
   scopeAllowsCity,
@@ -95,6 +96,7 @@ import {
 } from "../repos/notifications.ts";
 import { type Order, type OrderSale, findOrderForPlatform, findOrderOfTenant, findSale } from "../repos/orders.ts";
 import { findOrderNames, insertSiteOrderLink } from "../repos/site.ts";
+import { vehicleMailVariables } from "./order-views.ts";
 import { prepareDriverLinkEmail, prepareDriverNotice } from "./driver-link-email.ts";
 import { customerAmountOf } from "./extra-charges.ts";
 import { sendMail } from "./mail.ts";
@@ -158,7 +160,7 @@ const clockText = (local: string): string => local.replace("T", " ");
 const tokyoText = (at: Date): string => clockText(instantToLocal(at, TENANT_RULES.timeZone).dateTime);
 const moneyText = (minor: number, currency: string): string => `${currency} ${formatMajor(minor, currency as CurrencyCode)}`;
 
-async function tripVariables(db: Db, order: Order): Promise<{ service_time: string; route: string; vehicle_group: string }> {
+async function tripVariables(db: Db, order: Order): Promise<{ service_time: string; route: string; vehicle_group: string } & ReturnType<typeof vehicleLabelMailVariables>> {
   const names = await findOrderNames(db, { cityId: order.cityId, placeId: order.placeId, vehicleGroupId: order.vehicleGroupId });
   const place = names.place === null ? null : nameOf(names.place.name, names.place.code);
   const pickup = order.pickup?.address ?? null;
@@ -170,6 +172,7 @@ async function tripVariables(db: Db, order: Order): Promise<{ service_time: stri
     service_time: clockText(order.serviceLocal),
     route: [city, route, order.packageHours === null ? "" : `包车 ${order.packageHours} 小时`].filter((part) => part !== "").join("：") || "见订单",
     vehicle_group: names.vehicleGroup === null ? "见订单" : nameOf(names.vehicleGroup.name, names.vehicleGroup.code),
+    ...vehicleMailVariables(names.vehicleGroup),
   };
 }
 

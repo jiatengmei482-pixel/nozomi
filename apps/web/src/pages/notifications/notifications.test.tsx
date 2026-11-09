@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
+import { findNotificationTemplate, templatePlaceholders } from "@nozomi/domain";
 import { App } from "../../App.tsx";
 import type { NotificationRow } from "../../api/notifications.ts";
 import { type ApiCall, apiError, assertAbsent, json, resetBrowser, signIn, stubApiWith } from "../../testing/harness.tsx";
@@ -137,6 +138,15 @@ test("模板页：只读，看得到事件 × 接收方 × 语言 × 通道", as
   await within(table).findByText("订单确认");
   for (const text of ["订单确认", "供应商", "简体中文", "邮件", "新订单：{{order_no}}"]) assert.ok(within(table).getByText(text), text);
   assertAbsent(screen.queryByRole("button", { name: "保存" }));
+});
+
+test("模板页：正文原样分行显示，「车型」下面的车型标识两行（M7-04）看得到", async () => {
+  const template = findNotificationTemplate("order.confirmed", "guest", "zh-CN", "email");
+  assert.ok(template);
+  openPlatform("/platform/notification-templates", "operations", (call) => (call.url.pathname === "/platform/v1/notification-templates" ? json(200, { items: [{ ...template, variables: templatePlaceholders(template) }] }) : null));
+  const table = await tableNamed("通知模板");
+  const body = await within(table).findByText((_, element) => element?.classList.contains("prewrap") === true && (element.textContent ?? "").includes("车型：{{vehicle_group}}"));
+  assert.ok(body.textContent?.includes("车型：{{vehicle_group}}\n同级车型：{{vehicle_similar}}\n最多乘客：{{vehicle_max_persons}}，最多行李：{{vehicle_max_luggage}}\n"), body.textContent ?? "");
 });
 
 const settingsRoute = (version = 0, hours: { start: string; end: string } | null = null, delivery: "auto" | "manual" = "auto") => json(200, { quiet_hours: hours, driver_link_delivery: delivery, time_zone: "Asia/Tokyo", version });

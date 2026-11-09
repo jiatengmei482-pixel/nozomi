@@ -41,6 +41,7 @@ import { enqueueNotification, findNotificationSettings } from "../repos/notifica
 import { findOrderChange } from "../repos/order-changes.ts";
 import { type Order, findTenantOrder } from "../repos/orders.ts";
 import { findOrderNames } from "../repos/site.ts";
+import { vehicleMailVariables } from "./order-views.ts";
 import { consoleOrigin, tenantActor } from "./audit.ts";
 import { notFound } from "./errors.ts";
 import { assertTenantCanOperate, orderStateInvalid } from "./fulfilment.ts";
@@ -174,6 +175,7 @@ export async function prepareDriverLinkEmail(db: Db, ctx: AppContext, input: { r
     service_time: order.serviceLocal.replace("T", " "),
     trip_summary: driverTripSummary({ city: nameOf(names.city?.name), category: order.category, direction: order.direction, place: nameOf(names.place?.name), packageHours: order.packageHours }),
     vehicle_group: nameOf(names.vehicleGroup?.name) ?? "见任务详情",
+    ...vehicleMailVariables(names.vehicleGroup),
     driver_link_url: `${ctx.config.publicBaseUrl}/driver#${token}`,
     link_expires_at: clockText(expiresAt, order.timezone),
   });
@@ -211,6 +213,7 @@ export async function prepareDriverNotice(db: Db, ctx: AppContext, input: { even
     service_time: order.serviceLocal.replace("T", " "),
     trip_summary: driverTripSummary({ city: nameOf(names.city?.name), category: order.category, direction: order.direction, place: nameOf(names.place?.name), packageHours: order.packageHours }),
     vehicle_group: nameOf(names.vehicleGroup?.name) ?? "见任务详情",
+    ...vehicleMailVariables(names.vehicleGroup),
     changed_fields: fields.length > 0 ? fields.join("、") : "任务信息",
   };
   let link: { token: string; tokenHash: string; expiresAt: Date } | null = null;
