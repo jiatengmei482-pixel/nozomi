@@ -363,3 +363,23 @@ test("加价区域被已上架的包车商品用着：不能停用、不能删�
   const disabled = await tenantCall(m.b, "POST", `/areas/${charterB.hachioji}/disable`);
   assert.equal(disabled.status, 200, disabled.text);
 });
+
+test("一端落在几个区域：两个加价区域重叠时取小的（800 和 500 取 500）；一端同时在商品本身的区域和加价区域里时算 0", async () => {
+  // 「千叶东」整个在千叶里面，上车加价 800；千叶是 500：千叶站那个点两个都在，取 500
+  const chibaEast = await newArea(m.b, m.ids.tokyo, "千叶东", square(140.05, 35.6, 140.25, 35.8));
+  // 「东京西」和商品本身的区域（东京 23 区）重叠，加价 300：东京那个点两个都在，商品本身的区域算 0
+  const tokyoWest = await newArea(m.b, m.ids.tokyo, "东京西", square(139.45, 35.55, 139.75, 35.85));
+  await ok(tenantCall(m.b, "POST", `/products/${charterB.id}/price-rules/batch`, { version: await version(m.b, charterB.id), body: { create: [surcharge(chibaEast, 800, 800), surcharge(tokyoWest, 300, 300)] } }));
+  const preview = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<any> => {
+    const res = await tenantCall(m.b, "POST", `/products/${charterB.id}/quote-preview`, { body: { pickup: P[pickup], dropoff: P[dropoff], package_hours: 8, service_time: SERVICE_LOCAL, passengers: 2, luggage: 1, vehicle_group_ids: [m.ids.biz7] } });
+    assertMatchesOpenApi("POST", "/tenant/v1/products/{id}/quote-preview", res);
+    assert.equal(res.status, 200, res.text);
+    assert.equal(res.body.offers.length, 1, res.text);
+    return res.body.offers[0].settlement;
+  };
+  const both = await preview("chiba", "tokyo");
+  assert.deepEqual(both.area_surcharge, { package: 70_000, pickup: { area_id: charterB.chiba, price_rule_id: both.area_surcharge.pickup.price_rule_id, amount: 500 }, dropoff: { area_id: null, price_rule_id: null, amount: 0 } });
+  assert.equal(both.total, 70_500, "70,000 + 上车 500（不是 800）+ 下车 0（不是 300）");
+  const reverse = await preview("tokyo", "chiba");
+  assert.deepEqual([reverse.area_surcharge.pickup, reverse.area_surcharge.dropoff.area_id, reverse.area_surcharge.dropoff.amount, reverse.total], [{ area_id: null, price_rule_id: null, amount: 0 }, charterB.chiba, 500, 70_500]);
+});
