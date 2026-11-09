@@ -33,6 +33,7 @@ export const RESOURCE_NAMES: Readonly<Record<string, string>> = {
   approval: "双人复核",
   platform_role: "角色",
   tenant_profile: "供应商的企业信息",
+  tenant_profile_change: "供应商的资料修改申请",
   tenant_file: "供应商的文件",
   tenant_document: "供应商的资质",
   tenant_contract: "供应商的合同",
@@ -258,6 +259,13 @@ export const FIELD_NAMES: Readonly<Record<string, string>> = {
   reference: "凭证号",
   statement_no: "账单号",
   period: "周期",
+  country_code: "所在国家",
+  legal_name: "法定名称",
+  registration_no: "登记号",
+  address: "注册地址",
+  contact_name: "联系人",
+  contact_phone: "联系电话",
+  contact_email: "联系邮箱",
 };
 
 /** 只在某一类对象上才这样叫的字段（同名字段在别处意思不同）：双人复核的 `kind` 是复核类别，`resource_id` 是要改的对象。 */
@@ -280,6 +288,7 @@ function statusNames(resource: string): Readonly<Record<string, string>> {
   if (resource === "payout_batch") return { open: "收账单中", closed: "已锁定", paid: "已付款" };
   if (resource === "bank_file") return { generated: "已生成", downloaded: "已下载", paid: "已付款", void: "已作废" };
   if (resource === "payout_account") return { pending: "待审核", active: "生效中", superseded: "已被替换", rejected: "已驳回", withdrawn: "已撤回" };
+  if (resource === "tenant_profile_change") return { pending: "待审核", approved: "已生效", rejected: "已驳回", withdrawn: "已撤回" };
   if (resource === "order") return ORDER_STATUS_NAMES;
   if (resource === "platform_user" || resource === "tenant_user") return { invited: "待激活", active: "在用", disabled: "已停用" };
   if (resource === "product") return PRODUCT_STATUS_NAMES;

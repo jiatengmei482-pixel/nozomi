@@ -4,7 +4,7 @@
  */
 import type { CancellationPolicyRule } from "../api/order-money.ts";
 import { POLICY_CATEGORY_NAMES, cancelReasonName, levelName, tiersText } from "./order-money-display.ts";
-import { CHANNEL_RULES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
+import { CHANNEL_RULES, PROFILE_FIELD_NAMES, COMPENSATION_SCENARIOS, COMPENSATION_SCENARIO_NAMES, type CompensationScenario, MENU_OPERATIONS, PLATFORM_MENUS, type ServiceCategory, TICKET_STATUS_NAMES, type TicketStatus, VIEW_LINK_VERIFICATION_NAMES, type ViewLinkVerification } from "@nozomi/domain";
 import type { Approval, ApprovalKind, ApprovalStatus, ChannelPricing, ChannelStatus, ChannelType, MarkupRule, TenantScope } from "../api/channels.ts";
 import type { SelectableCity } from "../api/city-options.ts";
 import type { ComboboxOption } from "../components/Combobox.tsx";
@@ -50,6 +50,7 @@ export const APPROVAL_KIND_NAMES: Readonly<Record<ApprovalKind, string>> = {
   "tenant.suspend": "暂停供应商",
   "tenant.terminate": "清退供应商",
   "tenant.contract": "供应商合同新版本",
+  "tenant.profile_change": "供应商资料修改（名称、法定名称、登记号）",
   "cancellation_policy.update": "修改平台取消政策",
   "order.cancel_refund": "代取消（多退给客人）",
   "order.proxy_pick_up": "代供应商回传「已接到客人」",
@@ -363,6 +364,13 @@ function ticketDecisionChanges(before: Record<string, unknown> | null, after: Re
   ];
 }
 
+/** 供应商资料修改（ADR 0071）：申请里的每一项，改之前是提交时的值。 */
+function profileChangeLines(before: Record<string, unknown> | null, after: Record<string, unknown>): { label: string; before: string; after: string }[] {
+  const fields = Array.isArray(after["fields"]) ? after["fields"].map(String) : [];
+  const text = (value: unknown): string => (typeof value === "string" && value !== "" ? value : "（空）");
+  return fields.map((field) => ({ label: PROFILE_FIELD_NAMES[field as keyof typeof PROFILE_FIELD_NAMES] ?? field, before: text(before?.[field]), after: text(after[field]) }));
+}
+
 export function approvalChanges(kind: ApprovalKind, before: Record<string, unknown> | null, after: Record<string, unknown>, settleCurrency: string | null): { label: string; before: string; after: string }[] {
   if (isFxApproval(kind)) return fxLockChanges(kind, before, after);
   if (isTenantApproval(kind)) return tenantChanges(kind, before, after);
@@ -377,6 +385,7 @@ export function approvalChanges(kind: ApprovalKind, before: Record<string, unkno
   if (kind === "staff.mfa_reset") return [{ label: "两步验证", before: "已绑定", after: "清掉（下次登录重新绑定）" }];
   if (kind === "statement.payout") return payoutChanges(after);
   if (kind === "payout_account.activate") return payoutAccountChanges(before, after);
+  if (kind === "tenant.profile_change") return profileChangeLines(before, after);
   if (kind === "bank_file.generate") return bankFileChanges(after);
   if (kind === "compensation_table.update") return compensationTableChanges(before, after);
   if (kind === "ticket.decision") return ticketDecisionChanges(before, after);

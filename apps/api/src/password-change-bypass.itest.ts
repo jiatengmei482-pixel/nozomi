@@ -136,6 +136,11 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
       ["GET", "/platform/v1/tenants"],
       ["POST", "/platform/v1/tenants", { name: "不该出现的车队", admin: { email: `bypass-${randomUUID().slice(0, 8)}@c.test`, name: "某人" } }],
       ["GET", `/platform/v1/tenants/${ids.tenantId}`],
+      ["PATCH", `/platform/v1/tenants/${ids.tenantId}`, { name: "不该生效的名称" }],
+      ["PUT", `/platform/v1/tenants/${ids.tenantId}/company/profile`, { country_code: "JP", legal_name: "不该生效" }],
+      ["GET", `/platform/v1/tenants/${ids.tenantId}/profile-changes`],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/profile-changes/${ids.userId}/approval`, {}],
+      ["POST", `/platform/v1/tenants/${ids.tenantId}/profile-changes/${ids.userId}/reject`, { reason: "不该生效" }],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/suspend`, { reason: "不该生效" }],
       ["POST", `/platform/v1/tenants/${ids.tenantId}/resume`],
       ["GET", `/platform/v1/tenants/${ids.tenantId}/company`],
@@ -417,6 +422,9 @@ function generalRequests(entry: Entry, ids: { tenantId: string; userId: string; 
     ["GET", "/tenant/v1/company/contracts"],
     ["GET", "/tenant/v1/company/status-events"],
     ["GET", "/tenant/v1/company/notices"],
+    ["GET", "/tenant/v1/company/profile-changes"],
+    ["POST", "/tenant/v1/company/profile-changes", { name: "不该生效的名称" }],
+    ["POST", `/tenant/v1/company/profile-changes/${ids.userId}/withdraw`],
     ["GET", "/tenant/v1/performance"],
   ];
 }

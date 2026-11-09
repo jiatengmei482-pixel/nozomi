@@ -68,6 +68,7 @@ const TENANT_PAGE_VIEW: Readonly<Record<string, TenantAction>> = {
   "/performance": "performance.read",
   "/settings/webhook": "webhook.read",
   "/settings/notifications": "notification.read",
+  "/settings/company": "company.read",
 };
 
 function leaves(entries: readonly NavEntry[]): NavLeaf[] {

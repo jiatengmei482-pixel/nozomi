@@ -78,6 +78,12 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/tenants/${MISSING}/resume`, action: "tenant.change_status" },
   // 供应商入驻（ADR 0028）：看资质、合同、评分、状态记录、审核队列 tenant.read；审核资质、上传 / 下载文件、发起合同 tenant.review；签约、试运营、清退 tenant.change_status
   { method: "GET", url: `/platform/v1/tenants/${MISSING}/company`, action: "tenant.read" },
+  // 名称和企业信息（ADR 0071）：直接改 tenant.edit；供应商的修改申请看 tenant.read，发起复核、驳回 tenant.review（批准在待审核里，tenant.approve）
+  { method: "PATCH", url: `/platform/v1/tenants/${MISSING}`, action: "tenant.edit", body: { name: "测试" } },
+  { method: "PUT", url: `/platform/v1/tenants/${MISSING}/company/profile`, action: "tenant.edit", body: { country_code: "JP" } },
+  { method: "GET", url: `/platform/v1/tenants/${MISSING}/profile-changes`, action: "tenant.read" },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/profile-changes/${MISSING}/approval`, action: "tenant.review", body: {} },
+  { method: "POST", url: `/platform/v1/tenants/${MISSING}/profile-changes/${MISSING}/reject`, action: "tenant.review", body: { reason: "测试" } },
   { method: "GET", url: `/platform/v1/tenants/${MISSING}/status-events`, action: "tenant.read" },
   { method: "GET", url: `/platform/v1/tenants/${MISSING}/performance`, action: "tenant.read" },
   { method: "GET", url: "/platform/v1/tenant-documents", action: "tenant.read" },

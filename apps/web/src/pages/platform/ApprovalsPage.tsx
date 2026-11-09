@@ -66,6 +66,7 @@ const APPROVE_EFFECTS: Readonly<Record<ApprovalKind, string>> = {
   "tenant.suspend": "批准后供应商立即暂停：商品不参与比价、不能下单；已经接下的订单照常履约；它的账号仍然可以登录。要恢复，到供应商详情点「恢复」。",
   "tenant.terminate": "批准后供应商立即清退：后台只能查看历史，不能再修改任何东西，商品不再参与比价。清退不能撤销。",
   "tenant.contract": "批准后这一版合同写入；到了生效日期就是这家供应商现在的结算条款。",
+  "tenant.profile_change": "批准后立即生效：改了对外显示名称的，客人和渠道之后看到新名称；法定名称、登记号写进企业信息。请先按营业执照、登记簿核对。审核期间平台直接改过这几项、或供应商撤回了申请的，批准会失败，请驳回。",
   "cancellation_policy.update": "批准后立即生效：之后下的单按新的取消政策；已经下了的单仍按下单时的那一版。",
   "order.cancel_refund": "批准后这张单立即取消，按上面的金额退给客人（走 Stripe 退款）。",
   "order.proxy_pick_up": "批准后这张单立即进入服务中（不能撤销）：客人和运营都不能再取消，也不能再提交客人未出现。请先和司机或客人确认客人确实上车了。",
@@ -120,6 +121,14 @@ function ApprovalCard({ approval, channel, onDecide }: { approval: Approval; cha
           员工：
           <Link className="link" to={staffPath(approval.resource_id)}>
             {typeof approval.payload["email"] === "string" ? approval.payload["email"] : "查看员工"}
+          </Link>
+        </p>
+      )}
+      {approval.kind === "tenant.profile_change" && typeof approval.payload["tenant_id"] === "string" && (
+        <p>
+          供应商：
+          <Link className="link" to={tenantPath(approval.payload["tenant_id"])}>
+            {typeof approval.payload["tenant_name"] === "string" ? approval.payload["tenant_name"] : "去供应商详情"}
           </Link>
         </p>
       )}
