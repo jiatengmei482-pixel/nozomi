@@ -148,7 +148,11 @@ async function resolveLinkEnd(link: LinkEnd | null): Promise<LinkResolution> {
 function linkNotice(ends: LinkResolution[]): string | null {
   const missing = ends.filter((end) => end?.kind === "missing").map((end) => `「${(end as { code: string }).code}」`);
   const failed = ends.filter((end) => end?.kind === "failed").map((end) => `「${(end as { code: string }).code}」`);
-  if (missing.length > 0) return `链接里的地点${missing.join("、")}没有找到，请在下面重新选择出发地和目的地。`;
+  if (missing.length > 0) {
+    // 只提没找到的那一端（[出发地, 目的地]）
+    const which = ["出发地", "目的地"].filter((_, index) => ends[index]?.kind === "missing").join("和");
+    return `链接里的地点${missing.join("、")}没有找到，请在下面重新选择${which}。`;
+  }
   if (failed.length > 0) return `链接里的地点${failed.join("、")}暂时没有读出来，请稍后刷新页面，或在下面直接选择。`;
   return null;
 }
@@ -399,7 +403,7 @@ export function BookNewPage() {
           selected === null
             ? "请先选择车型。"
             : pricedState.kind === "unavailable"
-              ? "这个车型暂时不能加所选的附加服务，请减少附加服务或换一个车型。"
+              ? "这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。"
               : pricedState.kind === "failed"
                 ? pricedState.message
                 : "价格还在计算，请稍等再点「去付款」。",

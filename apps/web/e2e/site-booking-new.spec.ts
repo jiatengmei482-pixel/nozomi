@@ -243,6 +243,32 @@ async function expectRouteLineVisible(page: Page, start: { lat: number; lng: num
     expect(box, `${marker} 画出来了`).not.toBeNull();
     if (box !== null) expect(box.width, `${marker} 有大小`).toBeGreaterThan(4);
   }
+  // 线真的在最上面（M8-04 复查问题 1：瓦片层盖住了路线）：取路线中点和终点标记中心，那一点最上层的元素就是它们自己
+  const onTop = await canvas.evaluate((root) => {
+    const hit = (element: Element | null, target: SVGGraphicsElement): boolean => element === target || (element !== null && target.contains(element));
+    const line = root.querySelector("path.route-map__line") as SVGPathElement;
+    const endMarker = root.querySelector("path.route-map__end") as SVGGraphicsElement;
+    // 路线不接收点击（pointer-events: none），量的时候临时打开，elementFromPoint 才会把它算进去；量完还原
+    for (const element of [line, endMarker]) element.style.pointerEvents = "visiblePainted";
+    const middle = line.getPointAtLength(line.getTotalLength() / 2);
+    const matrix = line.getScreenCTM();
+    const point = matrix === null ? null : new DOMPoint(middle.x, middle.y).matrixTransform(matrix);
+    const end = endMarker.getBoundingClientRect();
+    const result = {
+      line: point !== null && hit(document.elementFromPoint(point.x, point.y), line),
+      end: hit(document.elementFromPoint(end.x + end.width / 2, end.y + end.height / 2), endMarker),
+    };
+    for (const element of [line, endMarker]) element.style.pointerEvents = "";
+    return result;
+  });
+  expect(onTop, "路线和终点没有被瓦片盖住").toEqual({ line: true, end: true });
+  // 测试环境的瓦片不一定画在路线底下，上面那条不一定能发现；再直接核对层级：瓦片层必须在矢量层下面
+  const layers = await canvas.evaluate((root) => {
+    const z = (selector: string): string => getComputedStyle(root.querySelector(selector) as Element).zIndex;
+    return { tiles: z(".leaflet-tile-pane"), overlay: z(".leaflet-overlay-pane"), isolation: getComputedStyle(root).isolation };
+  });
+  expect(Number.isFinite(Number(layers.tiles)) && Number.isFinite(Number(layers.overlay)) && Number(layers.tiles) < Number(layers.overlay), `瓦片层（${layers.tiles}）在矢量层（${layers.overlay}）下面`).toBe(true);
+  expect(layers.isolation, "地图框自成层叠范围").toBe("isolate");
 }
 
 test("新预订页第 3 步：选车 → 加附加服务（重新报价、合计差额）→ 怎么联系你 → 去付款 → 现有订单页用 Stripe 付款（假 Stripe，测试卡 4242）；手机第 3 步和电脑单页窄屏、亮暗 axe", async ({ page, request }) => {

@@ -665,3 +665,19 @@
   max-width: none;
   max-height: none;
 }
+
+/*
+ * 图层的上下顺序（M8-04 复查问题 1）：地图库给瓦片层写了 z-index: 1，路线所在的矢量层没有，瓦片会盖住路线。
+ * 地图框自成一个层叠范围（不影响页面别处），瓦片层放最底、矢量层放上面。
+ */
+.route-map__canvas {
+  isolation: isolate;
+}
+
+.route-map__canvas .leaflet-tile-pane {
+  z-index: var(--z-base);
+}
+
+.route-map__canvas .leaflet-overlay-pane {
+  z-index: var(--z-sticky);
+}

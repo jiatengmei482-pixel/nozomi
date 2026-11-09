@@ -522,7 +522,7 @@ test("路线：有折线和底图时画路线图并写「约 X 分钟 · Y 公�
 test("链接参数：编码找不到、或被限速读不出来时，页面说一句（不静默），其余照常预填，不自动报价", async () => {
   wideScreen();
   const calls = open({ at: "/book/new?from=ZZZ&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B&date=2030-11-20&time=14:30" });
-  assert.ok(await screen.findByText("链接里的地点「ZZZ」没有找到，请在下面重新选择出发地和目的地。", {}, SLOW));
+  assert.ok(await screen.findByText("链接里的地点「ZZZ」没有找到，请在下面重新选择出发地。", {}, SLOW));
   await waitFor(() => assert.equal((screen.getByRole("combobox", { name: "目的地" }) as HTMLInputElement).value, "京王"));
   assert.equal((screen.getByRole("combobox", { name: "出发地" }) as HTMLInputElement).value, "");
   assert.equal(posts(calls).length, 0);
@@ -533,7 +533,7 @@ test("链接参数：编码找不到、或被限速读不出来时，页面说�
   assert.ok(await screen.findByText("链接里的地点「NRT」、「HND」暂时没有读出来，请稍后刷新页面，或在下面直接选择。", {}, SLOW));
 });
 
-test("附加服务报不出价时点「去付款」：说这个车型暂时不能加，不说价格还在计算", async () => {
+test("附加服务报不出价时点「去付款」：说这个车型现在加不了（和合计处同一句），不说价格还在计算", async () => {
   const seat = { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaa1", code: "ADD-SEAT", name: { zh: "儿童座椅" }, charge_unit: "per_item" } as const;
   const { actor } = await openSelected({
     quote: (call) =>
@@ -544,6 +544,6 @@ test("附加服务报不出价时点「去付款」：说这个车型暂时不�
   await actor.click(within(screen.getByRole("region", { name: "附加服务（选填）" })).getByRole("button", { name: "增加儿童座椅" }));
   await screen.findByText("这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。", {}, SLOW);
   await actor.click(screen.getByRole("button", { name: "去付款 →" }));
-  assert.ok(screen.getByText("这个车型暂时不能加所选的附加服务，请减少附加服务或换一个车型。"));
+  assert.equal(screen.getAllByText("这个车型现在加不了所选的附加服务，请减少附加服务或换一个车型。").length, 2, "合计处和「去付款」后的说法一致");
   assertAbsent(screen.queryByText(/价格还在计算/));
 });
