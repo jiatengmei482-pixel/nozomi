@@ -5,6 +5,7 @@
 import type { LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
 import type { PassengerContact } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
+import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "./master-data.ts";
 
 export interface SiteClientRow {
   /** API 客户端的内部编号 */
@@ -172,14 +173,13 @@ export async function findVehicleGroups(db: Db, ids: readonly string[]): Promise
 export interface OrderNames {
   city: { code: string; name: LocalizedText } | null;
   place: { code: string; name: LocalizedText; type: string } | null;
-  vehicleGroup: { code: string; name: LocalizedText; seats: number } | null;
+  vehicleGroup: OrderVehicleGroupRef | null;
 }
 
 export async function findOrderNames(db: Db, ids: { cityId: string; placeId: string | null; vehicleGroupId: string }): Promise<OrderNames> {
   const city = (await db.query<{ code: string; name: LocalizedText }>("select code, name from cities where id = $1", [ids.cityId])).rows[0] ?? null;
   const place = ids.placeId === null ? null : ((await db.query<{ code: string; name: LocalizedText; type: string }>("select code, name, type from places where id = $1", [ids.placeId])).rows[0] ?? null);
-  const group = (await db.query<{ code: string; name: LocalizedText; seats: number }>("select code, name, seats from vehicle_groups where id = $1", [ids.vehicleGroupId])).rows[0] ?? null;
-  return { city, place, vehicleGroup: group };
+  return { city, place, vehicleGroup: await findOrderVehicleGroup(db, ids.vehicleGroupId) };
 }
 
 /** `lookup` 是 ADR 0061 之前「查订单直接打开」时发的，之后不再产生；查订单的链接走邮件（`email`）。 */

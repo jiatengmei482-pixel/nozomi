@@ -16,10 +16,12 @@ import {
   type VehiclePower,
   addonCodeIssue,
   vehicleGroupCodeIssue,
+  vehicleLabelLines,
 } from "@nozomi/domain";
 import type { AddonPatch, VehicleGroupPatch } from "../../api/master.ts";
 import { CheckboxGroup, CodeField, LocalizedInput, RadioGroup, StaticField } from "../../components/FormFields.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { VehicleLabelFacts } from "../../components/VehicleLabelFacts.tsx";
 import { CHARGE_UNIT_HINTS, CHARGE_UNIT_NAMES, SERVICE_CATEGORY_NAMES, VEHICLE_POWER_NAMES, cleanLocalized, sameLocalized } from "../../lib/master-display.ts";
 import { masterListPath } from "../../lib/master-paths.ts";
 import { type FieldErrors, FieldSlot, FormGroup, type FormModel } from "./MasterForm.tsx";
@@ -103,6 +105,15 @@ function validateGroup(values: VehicleGroupValues, mode: "new" | "edit", lockedS
     if (model.trim().length > SAMPLE_MODEL_MAX_LENGTH) errors[`models.${index}`] = [`代表车型最多 ${SAMPLE_MODEL_MAX_LENGTH} 个字`];
   });
   return errors;
+}
+
+/** 表单里现在填的值对应的车型标识预览（ADR 0068）；组合里不是正整数的行先不算。 */
+function labelPreview(values: VehicleGroupValues) {
+  const combos = filledCombos(values.combos)
+    .map((combo) => ({ passengers: Number(combo.passengers), luggage: Number(combo.luggage) }))
+    .filter((combo) => Number.isInteger(combo.passengers) && combo.passengers > 0 && Number.isInteger(combo.luggage) && combo.luggage >= 0);
+  const group = { sample_models: values.models, combos };
+  return vehicleLabelLines(group).length === 0 ? null : <VehicleLabelFacts group={group} />;
 }
 
 const comboNumbers = (combos: readonly ComboText[]) => filledCombos(combos).map((combo) => ({ passengers: Number(combo.passengers), luggage: Number(combo.luggage) }));
@@ -247,7 +258,7 @@ export const vehicleGroupFormModel: FormModel<"vehicle-groups", VehicleGroupValu
               max={MAX_SAMPLE_MODELS}
               errors={form.errors("models")}
               rowErrors={(index) => form.errors(`models.${index}`)}
-              hint="让人知道这个车型组大概是什么车，写具体的品牌车型。"
+              hint="写当地实际在跑的具体品牌车型。第一个是「代表车型」；全部连起来就是给客人看的「同级车型」说明（X, Y or similar），见下面的预览。"
               onAdd={() => form.set({ models: [...values.models, ""] })}
               onRemove={(index) => form.set({ models: values.models.filter((_, position) => position !== index) })}
               renderRow={(index) =>
@@ -260,6 +271,11 @@ export const vehicleGroupFormModel: FormModel<"vehicle-groups", VehicleGroupValu
                 )
               }
             />
+          </FieldSlot>
+        </FormGroup>
+        <FormGroup title="客人看到的车型标识">
+          <FieldSlot name="labelPreview" wide>
+            {labelPreview(values) ?? <p className="field__hint">填好组合和代表车型后，这里显示客人在官网、订单页、邮件里看到的 4 项。</p>}
           </FieldSlot>
         </FormGroup>
       </>

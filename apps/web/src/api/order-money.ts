@@ -6,7 +6,7 @@
 import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
-import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords } from "./dispatch.ts";
+import type { ListPage, Money, OrderDispatch, OrderEvent, OrderFile, OrderFulfilment, OrderLanding, OrderRecords, OrderVehicleGroup } from "./dispatch.ts";
 import type { Approval } from "./channels.ts";
 import { PLATFORM_BASE } from "./platform.ts";
 import type { PlatformRescue } from "./rescues.ts";
@@ -303,6 +303,8 @@ export interface PlatformOrderDetail {
   pending_proxy_review: { approval_id: string; event: "picked_up" | "completed"; requested_at: string } | null;
   /** 代改的乘客邮箱在等审核（M4-31，ADR 0065）；没有为 null。旧的测试数据里可能没有这一项 */
   pending_email_review?: PassengerEmailReview | null;
+  /** 车型组和车型标识的来源（M7-02，ADR 0068）；接口总是给（车型组找不到时为 null），旧的测试数据里可能没有这一项 */
+  vehicle_group?: OrderVehicleGroup | null;
 }
 
 /** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */

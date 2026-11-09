@@ -52,6 +52,7 @@ import { SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
 import { useToast } from "../../components/Toast.tsx";
 import { formatInZone, moneyText, routeText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
@@ -627,6 +628,7 @@ export function PlatformOrderDetailPage() {
           <Detail label={`用车时间（当地，${zone}）`}><time dateTime={order.service_time}>{order.service_local.replace("T", " ")}</time></Detail>
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
+          <OrderVehicleDetails group={detail.vehicle_group} />
           <Detail label="乘客"><PassengerContact key={order.id} order={order} /></Detail>
           {detail.pending_email_review && (
             <Detail label="乘客邮箱（等审核）">

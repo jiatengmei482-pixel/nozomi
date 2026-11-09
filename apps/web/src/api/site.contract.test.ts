@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -60,6 +60,9 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的", () => {
     assert.deepEqual(sorted(schemas[name]?.required ?? []), sorted(fields), `${name} 的必填字段`);
   }
   assert.deepEqual(props(schemas["SalesOrder"]), sorted(SITE_ORDER_FIELDS), "订单页用的订单就是渠道看到的那一份");
+  const group = schemas["SiteOrderNames"]?.properties?.["vehicle_group"]?.oneOf?.[0];
+  assert.deepEqual(props(group), sorted(SITE_ORDER_VEHICLE_GROUP_FIELDS), "订单页的车型组带车型标识的来源（M7-02）");
+  assert.deepEqual(sorted(group?.required ?? []), sorted(SITE_ORDER_VEHICLE_GROUP_FIELDS), "订单页的车型组的必填字段");
   assert.deepEqual(props(schemas["SiteQuoteRequest"]), sorted(SITE_QUOTE_REQUEST_FIELDS));
   assert.deepEqual(props(schemas["SiteOrderRequest"]), sorted(SITE_ORDER_REQUEST_FIELDS));
 });

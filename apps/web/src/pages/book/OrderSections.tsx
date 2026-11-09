@@ -27,6 +27,7 @@ import { Icon } from "../../components/Icon.tsx";
 import { Skeleton } from "../../components/States.tsx";
 import { StatusBadge } from "../../components/StatusBadge.tsx";
 import { TextField } from "../../components/TextField.tsx";
+import { VehicleLabelItems } from "../../components/VehicleLabelFacts.tsx";
 import { moneyText } from "../../lib/dispatch-display.ts";
 import { displayName } from "../../lib/master-display.ts";
 import { CHANGE_FIELD_NAMES, extraTypeName } from "../../lib/order-money-display.ts";
@@ -356,6 +357,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         </Fact>
         {order.flight_no !== null && <Fact label="航班号">{order.flight_no}</Fact>}
         <Fact label="车型">{group === null ? "—" : <span lang={group.lang}>{group.text}</span>}</Fact>
+        {names.vehicle_group !== null && <VehicleLabelItems group={names.vehicle_group} itemClassName="site-facts__item" />}
         <Fact label="人数 / 行李">
           {order.passengers} 人 / {order.luggage} 件
         </Fact>

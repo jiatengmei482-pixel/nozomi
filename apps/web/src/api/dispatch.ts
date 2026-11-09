@@ -7,7 +7,7 @@
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
 import type { TenantOrderRescue } from "./rescues.ts";
-import type { DriverLinkEmailState, DriverStatus, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
+import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
 import { PLATFORM_BASE } from "./platform.ts";
@@ -231,6 +231,19 @@ export interface OrderRecords {
   no_show_claim: { status: "pending_review" | "approved" | "rejected"; submitted_at: string; free_wait_start: string; free_wait_end: string; checklist: NoShowChecklistItem[] } | null;
 }
 
+/**
+ * 订单详情里的车型组（M7-02，ADR 0068）：车型标识 4 项用 `@nozomi/domain` 的 `vehicleLabel` 从 `sample_models`、`combos` 算出。
+ * 是车型组**当前**的值（不是下单时的快照）。供应商、运营后台的订单详情都是这一份。
+ */
+export interface OrderVehicleGroup {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  seats: number;
+  sample_models: string[];
+  combos: { passengers: number; luggage: number }[];
+}
+
 export interface TenantOrderDetail {
   order: TenantOrder;
   events: OrderEvent[];
@@ -242,6 +255,8 @@ export interface TenantOrderDetail {
   rescue: TenantOrderRescue | null;
   /** 司机链接邮件的发送状态（ADR 0058） */
   driver_link_email: DriverLinkEmail;
+  /** 车型组和车型标识的来源（M7-02）；接口总是给（车型组找不到时为 null），旧的测试数据里可能没有这一项 */
+  vehicle_group?: OrderVehicleGroup | null;
 }
 
 export interface AssignmentIssue {
@@ -589,5 +604,6 @@ export const DISPATCH_SCHEMA_FIELDS = {
   TenantWebhook: ["url", "events", "status", "secret_hint", "secret_created_at", "version", "created_at", "updated_at"],
   WebhookDelivery: ["id", "event_id", "event_type", "order_id", "data", "status", "attempts", "next_attempt_at", "last_attempt_at", "last_status_code", "last_error_code", "last_duration_ms", "succeeded_at", "failed_at", "created_at"],
   WebhookAttempt: ["attempt_no", "trigger", "started_at", "duration_ms", "status_code", "error_code", "target_host", "request_bytes", "request_sha256"],
+  OrderVehicleGroup: ["id", "code", "name", "seats", "sample_models", "combos"],
   DriverTrip: ["order", "next_event", "pending_change", "driver", "vehicle", "dispatchers", "fulfilment", "landing", "free_wait", "contacts", "files", "no_show", "link", "server_time"],
 } as const;

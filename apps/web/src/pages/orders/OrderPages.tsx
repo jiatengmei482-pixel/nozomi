@@ -36,6 +36,7 @@ import { CopyButton, SelectField } from "../../components/FormFields.tsx";
 import { StateBlock } from "../../components/States.tsx";
 import { ORDER_STATUS_BADGES, StatusBadge } from "../../components/StatusBadge.tsx";
 import { useToast } from "../../components/Toast.tsx";
+import { OrderVehicleDetails } from "../../components/VehicleLabelFacts.tsx";
 import { ORDER_LIST_PATH, directionName, driverLinkEmailNotice, driverLinkUrl, orderCategoryText, formatInZone, landingSourceName, moneyText, orderPath, routeText, serviceLocalText } from "../../lib/dispatch-display.ts";
 import { failureText } from "../../lib/failure.ts";
 import { formatLocalDateTime } from "../../lib/master-display.ts";
@@ -435,6 +436,7 @@ export function OrderDetailPage() {
           <Detail label="品类">{orderCategoryText(order)}</Detail>
           <Detail label="行程">{routeText(order)}</Detail>
           {order.flight_no && <Detail label="航班号"><span className="mono">{order.flight_no}</span></Detail>}
+          <OrderVehicleDetails group={detail.vehicle_group} />
           <Detail label="乘客">{`${order.passenger.name} · ${order.passenger.phone} · ${order.passengers} 人 ${order.luggage} 件行李`}</Detail>
           {order.messaging && <Detail label="即时通讯">{`${order.messaging.app}：${order.messaging.handle}`}</Detail>}
           {order.notes && <Detail label="备注">{order.notes}</Detail>}
