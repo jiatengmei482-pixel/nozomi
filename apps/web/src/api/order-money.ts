@@ -211,6 +211,8 @@ export interface PlatformOrder {
   luggage: number;
   pickup: { lng: number; lat: number; address: string } | null;
   dropoff: { lng: number; lat: number; address: string } | null;
+  /** 附加服务（编号和数量；名称从附加服务目录取） */
+  addons: { addon_id: string; quantity: number }[];
   flight_no: string | null;
   passenger: { name: string; phone: string; email: string };
   messaging: { app: string; handle: string } | null;

@@ -135,6 +135,7 @@ test("救援队列：限定了数据范围的运营（M4-10）没有「批量发
 
 const platformOrder = (changes: Partial<PlatformOrder> = {}): PlatformOrder => ({
   ...NOT_DISPATCHED,
+  addons: [],
   id: ORDER_ID,
   order_no: "NZ20261007ABCDEFGH",
   status: "rescue_pending",
