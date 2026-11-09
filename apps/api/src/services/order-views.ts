@@ -6,6 +6,7 @@
  */
 import { type LandingResult, NO_SHOW_RULES, departureReminderAt, dispatchEscalationAt, dispatchOverdue, effectiveLanding, landingApplies, orderChangeDecidable, vehicleIsNew } from "@nozomi/domain";
 import type { Driver, Vehicle } from "../repos/fleet.ts";
+import type { OrderVehicleGroupRef } from "../repos/master-data.ts";
 import type { Order } from "../repos/orders.ts";
 import type { OrderChange } from "../repos/order-changes.ts";
 import type { ExtraCharge } from "../repos/extra-charges.ts";
@@ -14,6 +15,12 @@ import { salesMoney } from "./sales-quotes.ts";
 type Json = Record<string, unknown>;
 
 const iso = (date: Date | null): string | null => date?.toISOString() ?? null;
+
+/** 订单详情里的车型组（M7-02，ADR 0068）：车型标识由 `sample_models`、`combos` 得出，是车型组当前的值。没有金额。 */
+export function orderVehicleGroupJson(group: OrderVehicleGroupRef | null): Json | null {
+  if (group === null) return null;
+  return { id: group.id, code: group.code, name: group.name, seats: group.seats, sample_models: group.sampleModels, combos: group.combos.map((combo) => ({ passengers: combo.passengers, luggage: combo.luggage })) };
+}
 
 /** 行程和乘客：租户、平台、渠道都能看的部分（没有任何金额）。 */
 export function orderTripJson(order: Order): Json {

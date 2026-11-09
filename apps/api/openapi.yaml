@@ -8486,10 +8486,15 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email ]
+                required: [ order, events, records, changes, extra_charges, rescue, driver_link_email, vehicle_group ]
                 properties:
                   driver_link_email:
                     $ref: "#/components/schemas/DriverLinkEmail"
+                  vehicle_group:
+                    description: 订单的车型组和车型标识的来源（M7-02，ADR 0068）；车型组当前的值
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderVehicleGroup"
+                      - type: "null"
                   order:
                     $ref: "#/components/schemas/TenantOrder"
                   rescue:
@@ -8656,9 +8661,15 @@ paths:
                   - rescues
                   - exceptions
                   - tickets
+                  - vehicle_group
                 properties:
                   order:
                     $ref: "#/components/schemas/PlatformOrder"
+                  vehicle_group:
+                    description: 订单的车型组和车型标识的来源（M7-02，ADR 0068）；车型组当前的值
+                    oneOf:
+                      - $ref: "#/components/schemas/OrderVehicleGroup"
+                      - type: "null"
                   rescues:
                     type: array
                     description: 这一单的全部救援改派（M3-04）：触发、违约金、救援单、改派结果、应扣款项、不可抗力
@@ -18488,6 +18499,33 @@ components:
       type: string
       enum: [ fuel, ev ]
       description: "fuel：燃油；ev：电动"
+    OrderVehicleGroup:
+      type: object
+      additionalProperties: false
+      required: [ id, code, name, seats, sample_models, combos ]
+      description: |
+        订单详情里的车型组（M7-02，ADR 0068）。车型标识 4 项由 `@nozomi/domain` 的 `vehicleLabel` 从 `sample_models`、`combos` 得出：
+        代表车型是第一个，同级车型说明是全部加「or similar」，最多乘客、最多行李是组合里各自的最大值。
+        取的是车型组**当前**的值，不是下单时的快照（ADR 0068 改进方案 3）。没有任何金额。
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          $ref: "#/components/schemas/LocalizedText"
+        seats:
+          type: integer
+        sample_models:
+          type: array
+          description: 代表车型列表；没填时为空列表
+          items:
+            type: string
+        combos:
+          type: array
+          items:
+            $ref: "#/components/schemas/VehicleCombo"
     VehicleCombo:
       type: object
       additionalProperties: false
@@ -25258,10 +25296,11 @@ components:
                   type: string
             - type: "null"
         vehicle_group:
+          description: 车型组当前的名称、座位数和车型标识的来源（M7-02，ADR 0068）：代表车型列表、人数 / 行李组合。不是下单时的快照，车型组改了这里跟着变
           oneOf:
             - type: object
               additionalProperties: false
-              required: [ code, name, seats ]
+              required: [ code, name, seats, sample_models, combos ]
               properties:
                 code:
                   type: string
@@ -25269,6 +25308,16 @@ components:
                   $ref: "#/components/schemas/LocalizedText"
                 seats:
                   type: integer
+                sample_models:
+                  type: array
+                  description: 代表车型列表；第一个是代表车型，全部加「or similar」是同级车型说明。没填时为空列表
+                  items:
+                    type: string
+                combos:
+                  type: array
+                  description: 人数 / 行李组合；最多乘客、最多行李各取最大值
+                  items:
+                    $ref: "#/components/schemas/VehicleCombo"
             - type: "null"
     SiteOrder:
       type: object

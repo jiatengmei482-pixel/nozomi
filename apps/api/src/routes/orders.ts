@@ -19,7 +19,7 @@ import type { Order, OrderEvent, OrderPayment, OrderSale, PaymentEventRecord } f
 import type { DriverLink, OrderFile } from "../repos/dispatch.ts";
 import { driverLinkEmailJson, getDriverLinkEmail, mailConfigured } from "../services/driver-link-email.ts";
 import type { WebhookDelivery } from "../repos/webhooks.ts";
-import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
+import { type DispatchFacts, cancelPolicyJson, changeJson, dispatchJson, extraChargeJson, fulfilmentJson, landingJson, orderTripJson, orderVehicleGroupJson, settlementJson, tenantOrderJson } from "../services/order-views.ts";
 import { customerAmountOf } from "../services/extra-charges.ts";
 import type { OrderRefund } from "../repos/refunds.ts";
 import { authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -241,6 +241,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       extra_charges: found.extraCharges.map(extraChargeJson),
       rescue: tenantOrderRescueJson(found.rescue, found.order),
       driver_link_email: driverLinkEmailJson(await getDriverLinkEmail(ctx, principal.tenantId, found.order.id), await mailConfigured(ctx)),
+      vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
     };
   });
 
@@ -331,6 +332,7 @@ export function registerOrderRoutes(app: FastifyInstance, ctx: AppContext): void
       tickets: found.tickets.map(orderTicketJson),
       extra_charges: found.extraCharges.map((charge) => ({ ...extraChargeJson(charge), customer_amount: salesMoney(customerAmountOf(charge, found.sale), found.sale.currency), last_charge_error: charge.lastChargeError, charge_attempts: charge.chargeAttempts })),
       }, names),
+      vehicle_group: orderVehicleGroupJson(found.vehicleGroup),
       quote: {
         quote_id: found.quote.quoteId,
         created_at: found.quote.createdAt,
