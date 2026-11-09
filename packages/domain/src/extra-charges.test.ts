@@ -16,21 +16,58 @@ import {
   extraChargeSubmitRefusal,
   extraChargeTransitionAllowed,
   extraChargeTypeAllowed,
+  extraChargeTypesFor,
   nextChargeAttemptAt,
   extraChargeReviewRefusal,
   extraChargeWithdrawable,
 } from "./extra-charges.ts";
+import { CHARTER_ALL_INCLUSIVE_FROM, charterAllInclusiveFor } from "./fixed-price-includes.ts";
 
 const completedAt = new Date("2026-11-01T10:00:00.000Z");
 const HOUR = 3_600_000;
-const order = (extra: Partial<ExtraChargeOrderFacts> = {}): ExtraChargeOrderFacts => ({ status: "completed", category: "charter", completedAt, settlementMinor: 98_000, existingItems: 0, ...extra });
+/** 默认是分界前下的单（旧规则，包车还能收高速、停车）；分界后的单见「包车一口价全含」几条。 */
+const placedBefore = new Date("2026-10-30T09:00:00.000Z");
+const order = (extra: Partial<ExtraChargeOrderFacts> = {}): ExtraChargeOrderFacts => ({ status: "completed", category: "charter", placedAt: placedBefore, completedAt, settlementMinor: 98_000, existingItems: 0, ...extra });
+const BOUNDARY = new Date(CHARTER_ALL_INCLUSIVE_FROM);
 
-test("可加收的类型：包车超时、超公里、高速、停车只有包车；付费等待、加停靠点、加附加服务各品类都有", () => {
-  for (const type of EXTRA_CHARGE_TYPES) assert.equal(extraChargeTypeAllowed(type, "charter"), true, type);
+test("可加收的类型（分界前下的单）：包车超时、超公里、高速、停车只有包车；付费等待、加停靠点、加附加服务各品类都有", () => {
+  for (const type of EXTRA_CHARGE_TYPES) assert.equal(extraChargeTypeAllowed(type, "charter", placedBefore), true, type);
   for (const category of ["airport_transfer", "point_to_point"] as const) {
-    assert.deepEqual(EXTRA_CHARGE_TYPES.filter((type) => extraChargeTypeAllowed(type, category)), ["waiting", "extra_stop", "extra_addon"], `${category} 是一口价，含高速和停车费`);
+    assert.deepEqual(EXTRA_CHARGE_TYPES.filter((type) => extraChargeTypeAllowed(type, category, placedBefore)), ["waiting", "extra_stop", "extra_addon"], `${category} 是一口价，含高速和停车费`);
   }
   assert.deepEqual(EXTRA_CHARGE_TYPES.filter(extraChargeNeedsReceipt), ["toll", "parking"]);
+});
+
+test("包车一口价全含的分界：东京 2026-11-10 00:00；正好那一刻下的算全含，早 1 毫秒不算", () => {
+  assert.equal(BOUNDARY.toISOString(), "2026-11-09T15:00:00.000Z");
+  assert.equal(charterAllInclusiveFor(BOUNDARY), true);
+  assert.equal(charterAllInclusiveFor(new Date(BOUNDARY.getTime() - 1)), false);
+  assert.equal(charterAllInclusiveFor(new Date(BOUNDARY.getTime() + 1)), true);
+});
+
+test("包车一口价全含：分界后下的包车单不能收高速、停车；超时、超公里、付费等待、加停靠点、加附加服务不变", () => {
+  for (const placedAt of [BOUNDARY, new Date("2027-03-01T00:00:00.000Z")]) {
+    assert.deepEqual(extraChargeTypesFor("charter", placedAt), ["charter_overtime", "charter_over_km", "waiting", "extra_stop", "extra_addon"], placedAt.toISOString());
+    assert.equal(extraChargeTypeAllowed("toll", "charter", placedAt), false);
+    assert.equal(extraChargeTypeAllowed("parking", "charter", placedAt), false);
+  }
+  assert.deepEqual(extraChargeTypesFor("charter", new Date(BOUNDARY.getTime() - 1)), [...EXTRA_CHARGE_TYPES], "分界前 1 毫秒下的单照旧规则");
+  for (const category of ["airport_transfer", "point_to_point"] as const) {
+    for (const placedAt of [placedBefore, BOUNDARY]) assert.deepEqual(extraChargeTypesFor(category, placedAt), ["waiting", "extra_stop", "extra_addon"], `${category} ${placedAt.toISOString()}`);
+  }
+});
+
+test("包车一口价全含：提交按下单时间判断，不按提交时间；分界后的单提交高速、停车是 TYPE_NOT_ALLOWED（附了票据也一样），超时照常", () => {
+  const after = order({ placedAt: new Date(BOUNDARY.getTime() + HOUR), completedAt: new Date(BOUNDARY.getTime() + 10 * HOUR) });
+  const at = new Date(BOUNDARY.getTime() + 11 * HOUR);
+  for (const type of ["toll", "parking"] as const) {
+    assert.equal(extraChargeSubmitRefusal({ type, amountMinor: 1_000, fileCount: 1 }, after, at), "TYPE_NOT_ALLOWED", type);
+    assert.equal(extraChargeSubmitRefusal({ type, amountMinor: 1_000, fileCount: 0 }, after, at), "TYPE_NOT_ALLOWED", `${type} 没附票据也先报不能收`);
+  }
+  for (const type of ["charter_overtime", "charter_over_km", "waiting", "extra_stop", "extra_addon"] as const) assert.equal(extraChargeSubmitRefusal({ type, amountMinor: 1_000, fileCount: 1 }, after, at), null, type);
+  const before = order({ placedAt: new Date(BOUNDARY.getTime() - 1), completedAt: new Date(BOUNDARY.getTime() + 10 * HOUR) });
+  assert.equal(extraChargeSubmitRefusal({ type: "toll", amountMinor: 1_000, fileCount: 1 }, before, at), null, "分界前下、分界后服务和提交的单仍按旧规则");
+  assert.equal(extraChargeSubmitRefusal({ type: "parking", amountMinor: 1_000, fileCount: 0 }, before, at), "RECEIPT_REQUIRED");
 });
 
 test("提交：只有已完成的单、服务结束 24 小时内（正好 24 小时还行，多 1 毫秒不行）", () => {

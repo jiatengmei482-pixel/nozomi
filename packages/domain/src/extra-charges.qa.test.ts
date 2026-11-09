@@ -81,7 +81,7 @@ test("客人付的金额：正好 .5 往上入；同币种不加缓冲（给了�
 });
 
 const completedAt = new Date("2026-10-31T14:59:59.999Z"); // 东京 10-31 23:59:59.999（跨午夜、跨月的那一刻）
-const facts = { status: "completed" as const, category: "charter" as const, completedAt, settlementMinor: 30_000, existingItems: 0 };
+const facts = { status: "completed" as const, category: "charter" as const, placedAt: new Date("2026-10-30T00:00:00.000Z"), completedAt, settlementMinor: 30_000, existingItems: 0 };
 
 test("提交期 24 小时按毫秒（服务在月末午夜前结束）：到截止那一刻还能交，多 1 毫秒不行", () => {
   const deadline = extraChargeSubmitDeadline(completedAt);

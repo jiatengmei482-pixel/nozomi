@@ -10,7 +10,10 @@
  * 「财务结算 · 一单的账务分录」：附加费用 应收 + 金额 × (1 + 加价比例)，应付 + 金额，毛利 + 加价部分。
  * 《用车报价服务平台》「8. 订单与履约」：停车费等实报实销的费用必须上传凭证照片；「履约时间点」：服务结束后 24 小时内必须提交完成和附加费用。
  * 第五轮决策 ⑤：事后加收走 Stripe 保存的支付方式；48 小时异议期；平台单不收现金。
+ * 业主 2026-11-09（ADR 0069 第二批确认 ①、ADR 0070，M8-09）：包车也是一口价全含——分界（`CHARTER_ALL_INCLUSIVE_FROM`）及以后下的包车单不能再收高速费、停车费；
+ * 分界前下的包车单按旧规则仍可凭票加收（不追溯）。`toll`、`parking` 两个值保留（历史加收要能读出、结算）。
  */
+import { charterAllInclusiveFor } from "./fixed-price-includes.ts";
 import type { ServiceCategory } from "./master-data.ts";
 import type { CurrencyCode } from "./money.ts";
 import type { OrderStatus } from "./orders.ts";
@@ -19,7 +22,7 @@ import { type FxQuote, sellPrice } from "./quote.ts";
 /**
  * 加收项的类型：
  * `charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待（免费等待之后、客人最终上车的）、
- * `extra_stop` 客人现场加的停靠点、`extra_addon` 客人现场加的附加服务、`toll` 包车的高速费、`parking` 包车的停车费（凭票实报）。
+ * `extra_stop` 客人现场加的停靠点、`extra_addon` 客人现场加的附加服务、`toll` 包车的高速费、`parking` 包车的停车费（凭票实报；只有分界前下的包车单能提交，ADR 0070）。
  */
 export const EXTRA_CHARGE_TYPES = ["charter_overtime", "charter_over_km", "waiting", "extra_stop", "extra_addon", "toll", "parking"] as const;
 export type ExtraChargeType = (typeof EXTRA_CHARGE_TYPES)[number];
@@ -38,9 +41,21 @@ export const EXTRA_CHARGE_TYPE_NAMES: Readonly<Record<ExtraChargeType, string>> 
 const CHARTER_ONLY: readonly ExtraChargeType[] = ["charter_overtime", "charter_over_km", "toll", "parking"];
 /** 必须有凭证（票据照片）才能提交的：实报实销的高速费、停车费。 */
 const RECEIPT_REQUIRED: readonly ExtraChargeType[] = ["toll", "parking"];
+/** 一口价全含以后不能再收的（ADR 0070）：高速费、停车费。分界前下的包车单仍可收。 */
+const ALL_INCLUSIVE_EXCLUDED: readonly ExtraChargeType[] = ["toll", "parking"];
 
-export function extraChargeTypeAllowed(type: ExtraChargeType, category: ServiceCategory): boolean {
-  return category === "charter" || !CHARTER_ONLY.includes(type);
+/**
+ * 这一单能不能收这一项：按品类和订单的下单时间（`placedAt`）。
+ * 接送机、点对点只能收付费等待、加停靠点、加附加服务；包车另能收超时、超公里；高速费、停车费只有分界（`CHARTER_ALL_INCLUSIVE_FROM`）前下的包车单能收。
+ */
+export function extraChargeTypeAllowed(type: ExtraChargeType, category: ServiceCategory, placedAt: Date): boolean {
+  if (category !== "charter") return !CHARTER_ONLY.includes(type);
+  return !(ALL_INCLUSIVE_EXCLUDED.includes(type) && charterAllInclusiveFor(placedAt));
+}
+
+/** 这一单能加收的类型（按 `EXTRA_CHARGE_TYPES` 的顺序；供应商后台的类型下拉框用）。 */
+export function extraChargeTypesFor(category: ServiceCategory, placedAt: Date): ExtraChargeType[] {
+  return EXTRA_CHARGE_TYPES.filter((type) => extraChargeTypeAllowed(type, category, placedAt));
 }
 
 export function extraChargeNeedsReceipt(type: ExtraChargeType): boolean {
@@ -79,7 +94,7 @@ export type ExtraChargeSubmitRefusal =
   | "ORDER_NOT_COMPLETED"
   /** 服务结束超过 24 小时了 */
   | "SUBMIT_WINDOW_CLOSED"
-  /** 这一单的品类不能收这一项（接送机、点对点是一口价） */
+  /** 这一单不能收这一项（接送机、点对点是一口价；分界后下的包车单一口价已含高速费、停车费） */
   | "TYPE_NOT_ALLOWED"
   /** 高速费、停车费没有附票据照片 */
   | "RECEIPT_REQUIRED"
@@ -98,6 +113,8 @@ export interface ExtraChargeSubmission {
 export interface ExtraChargeOrderFacts {
   status: OrderStatus;
   category: ServiceCategory;
+  /** 下单时间（订单创建的时刻；救援改派的单沿用原单的） */
+  placedAt: Date;
   completedAt: Date | null;
   settlementMinor: number;
   /** 这一单已经有几项（撤回、驳回的不算） */
@@ -113,7 +130,7 @@ export function extraChargeSubmitDeadline(completedAt: Date): Date {
 export function extraChargeSubmitRefusal(item: ExtraChargeSubmission, order: ExtraChargeOrderFacts, now: Date): ExtraChargeSubmitRefusal | null {
   if (order.status !== "completed" || order.completedAt === null) return "ORDER_NOT_COMPLETED";
   if (now.getTime() > extraChargeSubmitDeadline(order.completedAt).getTime()) return "SUBMIT_WINDOW_CLOSED";
-  if (!extraChargeTypeAllowed(item.type, order.category)) return "TYPE_NOT_ALLOWED";
+  if (!extraChargeTypeAllowed(item.type, order.category, order.placedAt)) return "TYPE_NOT_ALLOWED";
   if (!Number.isSafeInteger(item.amountMinor) || item.amountMinor <= 0) return "AMOUNT_INVALID";
   if (item.amountMinor * 10_000 > order.settlementMinor * EXTRA_CHARGE_RULES.maxOfSettlementBp) return "AMOUNT_OVER_LIMIT";
   if (extraChargeNeedsReceipt(item.type) && item.fileCount === 0) return "RECEIPT_REQUIRED";
