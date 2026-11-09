@@ -4,6 +4,7 @@
  * 上传分两步：先把文件传上去（拿到文件编号），再提交资质（类型、到期日）。文件只认 PDF、JPEG、PNG，最大 10 MB；页面先查一遍，服务器按字节再查。
  */
 import { type FormEvent, type ReactNode, useState } from "react";
+import { Link } from "react-router";
 import { ApiError } from "../../api/client.ts";
 import {
   type CompanyOverview,
@@ -109,7 +110,15 @@ function ProfileCard({ company, editable, onSaved }: { company: CompanyOverview;
         </form>
       ) : (
         <>
-          {company.tenant.status === "applying" ? null : <p className="page-intro">提交审核以后企业信息不能再改；需要改的话请联系平台。</p>}
+          {company.tenant.status === "applying" ? null : (
+            <p className="page-intro">
+              注册地址和联系方式在
+              <Link className="link" to="/settings/company">
+                「设置 › 企业信息」
+              </Link>
+              里直接改；名称、法定名称、登记号也在那里提交修改申请，平台审核通过后生效。
+            </p>
+          )}
           <dl className="details">
             {PROFILE_FIELDS.map((field) => (
               <div key={field.key}>
