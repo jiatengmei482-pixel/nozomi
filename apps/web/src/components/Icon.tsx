@@ -46,9 +46,16 @@ export type IconName =
   | "calculator"
   | "file"
   | "message"
-  | "wallet";
+  | "wallet"
+  | "credit-card";
 
 const SHAPES: Readonly<Record<IconName, ReactNode>> = {
+  "credit-card": (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 10h18M7 15h4" />
+    </>
+  ),
   file: (
     <>
       <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />

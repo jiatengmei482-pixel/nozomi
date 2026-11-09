@@ -5,24 +5,31 @@
  *   接送按两个坐标报价（`POST /site/v1/quotes/by-points`，服务端认机场、接机 / 送机 / 点对点）；包车沿用现有询价（上车点 + 套餐时长，城市按上车点找最近的可订城市）。
  *   填齐了就自动报价（停顿一下再查），改了任何一项旧结果立刻收起。
  * - 「选择车型」：价格从低到高，坐不下的接口不返回；默认电脑 4 个、手机 3 个；选中的展开车内俯视示意图；下面「一口价包含」。
- * - 电脑（≥ 1024px）单页：左列两块，右侧栏只有行程摘要和所选车型的一口价（路线图、合计、取消规则、付款是 M8-04）。
- *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型；第 2 步底部固定「车型 · 一口价 [下一步]」——「下一步」（填写乘客信息并付款）在 M8-04 接，现在只说明还没开放。
+ * - 「怎么联系你」（M8-04）：字段、校验、下单（`POST /site/v1/orders`）和旧下单页同一套（`lib/site-order-form.ts`），下单后进现有订单页付款。
+ * - 电脑（≥ 1024px）单页：左列三块，右侧栏跟着滚动：行程摘要、路线图、附加服务（改数量带 `addons` 重新报价，显示合计差额）、车费、合计、
+ *   参考价（≈ 客人币种）、取消规则、去付款、支付方式。
+ *   手机分步：第 1 步行程 →「查看车型和价格」→ 第 2 步车型（底部固定「车型 · 一口价 [下一步]」）→ 第 3 步：右侧栏的内容在顶部，下面「怎么联系你」。
  * - 链接参数 from / to / date / time / pax / bags（parseBookingLink）：打开就预填并报价；不合法的只是不预填。
  * 四种状态：加载中（骨架）、官网没开 / 没有可订城市（空）、出错（说明 + 重试）、正常。页面上没有供应商、结算价、加价比例。
  */
-import { type CityCandidate, fixedPriceIncludes, isFlightNo, serviceCityOf } from "@nozomi/domain";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router";
+import { type CityCandidate, type CurrencyCode, fixedPriceIncludes, isFlightNo, serviceCityOf } from "@nozomi/domain";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { ApiError } from "../../../api/client.ts";
 import {
+  type SiteAddonRequest,
   type SiteByPointsRequest,
   type SiteByPointsResult,
   type SiteCity,
+  type SiteFxReference,
+  type SiteQuote,
   type SiteQuoteRequest,
   type SiteQuoteResult,
   autocompleteSitePlaces,
+  createSiteOrder,
   createSiteQuotes,
   createSiteQuotesByPoints,
+  getSiteFxReference,
   listSiteCharterPackages,
   listSiteCities,
 } from "../../../api/site.ts";
@@ -32,13 +39,15 @@ import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { Skeleton, StateBlock } from "../../../components/States.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, parseBookingLink, pointName, rejectionTexts, travellersText } from "../../../lib/book-new.ts";
+import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, travellersText } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { defaultServiceDate, guestLocalText, priceNote, quotesByTotal } from "../../../lib/site-display.ts";
+import { addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, priceNote, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
+import { FIELD_HINTS, type OrderErrors, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
+import { AddonsBlock, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
 import { PlaceField, newSessionToken } from "./PlaceField.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
@@ -77,12 +86,14 @@ export interface TripDraft {
   luggage: number;
   /** 包车：套餐时长（小时） */
   packageHours: string;
-  /** 接机：航班号（选填） */
+  /** 接机：航班号（下单时接机必填，和旧下单页同一条规则） */
   flightNo: string;
 }
 
 type Outcome = { mode: "transfer"; result: SiteByPointsResult } | { mode: "charter"; result: SiteQuoteResult; city: SiteCity };
 type QuoteState = { kind: "idle" } | { kind: "loading"; key: string } | { kind: "ready"; key: string; outcome: Outcome } | { kind: "failed"; key: string; message: string; scope: boolean };
+/** 加了附加服务的那次报价：所选车型的报价（没报出来为 null） */
+type AddonQuoteState = { kind: "loading"; key: string } | { kind: "ready"; key: string; quote: SiteQuote | null } | { kind: "failed"; key: string; message: string };
 type Load<T> = { kind: "loading" } | { kind: "failed"; message: string } | { kind: "ready"; items: T };
 type Errors = Partial<Record<"from" | "to" | "date" | "time" | "packageHours" | "flightNo", string>>;
 
@@ -102,16 +113,16 @@ function charterCityOf(point: TripPoint | null, cities: readonly SiteCity[]): Si
 }
 
 /** 填齐了时的询价请求（和它的键）；没填齐为 null。 */
-function requestOf(draft: TripDraft, charterCity: SiteCity | null): { key: string; run(): Promise<Outcome> } | null {
+function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: readonly SiteAddonRequest[] = []): { key: string; run(): Promise<Outcome> } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !/^\d{2}:\d{2}$/.test(draft.time) || draft.from === null) return null;
   const serviceLocal = `${draft.date}T${draft.time}`;
   if (draft.mode === "charter") {
     if (charterCity === null || draft.packageHours === "") return null;
-    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage };
+    const body: SiteQuoteRequest = { category: "charter", city_id: charterCity.id, pickup: { lat: draft.from.lat, lng: draft.from.lng }, package_hours: Number(draft.packageHours), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
     return { key: JSON.stringify(body), run: async () => ({ mode: "charter", result: await createSiteQuotes(body), city: charterCity }) };
   }
   if (draft.to === null) return null;
-  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage };
+  const body: SiteByPointsRequest = { pickup: end(draft.from), dropoff: end(draft.to), service_local: serviceLocal, passengers: draft.passengers, luggage: draft.luggage, ...(addons.length > 0 ? { addons: [...addons] } : {}) };
   return { key: JSON.stringify(body), run: async () => ({ mode: "transfer", result: await createSiteQuotesByPoints(body) }) };
 }
 
@@ -167,14 +178,25 @@ export function BookNewPage() {
   const [draft, setDraft] = useState<TripDraft>(() => initialDraft(link));
   const [errors, setErrors] = useState<Errors>({});
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
   const [quoteRound, setQuoteRound] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [recognized, setRecognized] = useState<{ ends: string; tripType: SiteByPointsResult["trip_type"] } | null>(null);
   const [packages, setPackages] = useState<{ cityId: string; load: Load<number[]> } | null>(null);
-  const [nextNote, setNextNote] = useState(false);
+  const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({});
+  const [addonQuote, setAddonQuote] = useState<AddonQuoteState | null>(null);
+  const [guestCurrency, setGuestCurrency] = useState<CurrencyCode>(() => guestCurrencyOf(navigator.languages?.length ? navigator.languages : [navigator.language]));
+  const [reference, setReference] = useState<SiteFxReference | null>(null);
+  const [contact, setContact] = useState<ContactForm>(emptyContact);
+  const [contactErrors, setContactErrors] = useState<OrderErrors>({});
+  const [contactNotice, setContactNotice] = useState<Notice | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const orderKey = useRef<string | null>(null);
+  const navigate = useNavigate();
   const vehiclesHeading = useRef<HTMLHeadingElement>(null);
+  const summaryHeading = useRef<HTMLHeadingElement>(null);
   const tripHeading = useRef<HTMLHeadingElement>(null);
 
   const open = config.kind === "ready" && config.config.open;
@@ -284,10 +306,129 @@ export function BookNewPage() {
   const timezone = outcome?.mode === "charter" ? outcome.city.timezone : (outcome?.result.city?.timezone ?? firstCity?.timezone ?? "Asia/Tokyo");
   const cityName = outcome?.mode === "charter" ? displayName(outcome.city.name).text : outcome?.result.city ? displayName(outcome.result.city.name).text : null;
 
+  // 附加服务：所选车型带上客人选的数量再报一次价，合计用这一次的；车型列表仍是不带附加服务的那一次（带了以后不提供的车型会被筛掉）
+  const addonList = useMemo<SiteAddonRequest[]>(
+    () =>
+      Object.entries(addonQuantities)
+        .filter(([, quantity]) => quantity > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([addon_id, quantity]) => ({ addon_id, quantity })),
+    [addonQuantities],
+  );
+  const addonRequest = selected !== null && addonList.length > 0 ? requestOf(draft, charterCity, addonList) : null;
+  const addonKey = addonRequest?.key ?? null;
+  const latestAddonRequest = useRef(addonRequest);
+  latestAddonRequest.current = addonRequest;
+  const selectedGroupId = selected?.vehicle_group.id ?? null;
+  useEffect(() => {
+    const run = latestAddonRequest.current;
+    if (run === null || selectedGroupId === null) {
+      setAddonQuote(null);
+      return;
+    }
+    let alive = true;
+    setAddonQuote({ kind: "loading", key: run.key });
+    const timer = setTimeout(() => {
+      run.run().then(
+        (found) => alive && setAddonQuote({ kind: "ready", key: run.key, quote: found.result.quotes.find((entry) => entry.vehicle_group.id === selectedGroupId) ?? null }),
+        (err: unknown) => alive && setAddonQuote({ kind: "failed", key: run.key, message: siteFailureText(err, "计算附加服务") }),
+      );
+    }, QUOTE_DEBOUNCE_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [addonKey, selectedGroupId]);
+  const addonCurrent = addonQuote !== null && addonQuote.key === addonKey ? addonQuote : null;
+  /** 下单用的报价：没加附加服务就是所选车型的报价；加了就是带附加服务的那一次（还在算、报不出来为 null） */
+  const priced: SiteQuote | null = selected === null ? null : addonList.length === 0 ? selected : addonCurrent?.kind === "ready" ? addonCurrent.quote : null;
+  let pricedState: PricedState = { kind: "loading" };
+  if (priced !== null && selected !== null) pricedState = { kind: "ready", total: priced.price.total, difference: addonList.length > 0 ? moneyDifference(priced.price.total, selected.price.total) : null };
+  else if (addonCurrent?.kind === "ready") pricedState = { kind: "unavailable" };
+  else if (addonCurrent?.kind === "failed") pricedState = { kind: "failed", message: addonCurrent.message };
+
+  // 参考价：客人币种的参考汇率（汇率中心「现在生效」的）；取不到就不显示
+  useEffect(() => {
+    if (selectedGroupId === null) return;
+    let alive = true;
+    getSiteFxReference(guestCurrency).then(
+      (found) => alive && setReference(found),
+      () => alive && setReference(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [guestCurrency, selectedGroupId !== null]);
+
+  // 换了报价（重新查价、改了附加服务）：下单的幂等键作废，报价过期的提示收起
+  const pricedId = priced?.quote_id ?? null;
+  useEffect(() => {
+    orderKey.current = null;
+    setExpired(false);
+  }, [pricedId]);
+
+  const tripCategory = draft.mode === "charter" ? "charter" : tripType === "point_to_point" ? "point_to_point" : "airport_transfer";
+  const tripDirection = tripCategory === "airport_transfer" && (tripType === "pickup" || tripType === "dropoff") ? tripType : null;
+  const orderTrip: OrderTrip = { transfer: tripCategory === "airport_transfer", arrival, ends: addressEnds(tripCategory, tripDirection) };
+
+  const submitOrder = async (event: FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (busy) return;
+    if (priced === null) {
+      setContactNotice({ kind: "danger", text: selected === null ? "请先选择车型。" : "价格还在计算，请稍等再点「去付款」。" });
+      return;
+    }
+    const form = { ...contact, flightNo: draft.flightNo, pickupAddress: draft.from?.name ?? "", dropoffAddress: draft.to?.name ?? "" };
+    const found = validateOrderForm(form, orderTrip);
+    setContactErrors(found);
+    setErrors((value) => (found.flightNo !== undefined ? { ...value, flightNo: found.flightNo } : value));
+    if (Object.keys(found).length > 0) {
+      setContactNotice({ kind: "danger", text: found.flightNo !== undefined && Object.keys(found).length === 1 && wide ? "接机要填航班号，请在上面「你的行程」里填写。" : "有几项没有填好，请看标红的地方。" });
+      return;
+    }
+    setContactNotice(null);
+    orderKey.current ??= newIdempotencyKey();
+    setBusy(true);
+    try {
+      const created = await createSiteOrder(orderRequestOf(priced.quote_id, form, orderTrip), orderKey.current);
+      navigate(siteOrderUrl(created.link.token), { state: { placed: true, payment: created.payment } });
+    } catch (err) {
+      const failure = orderFailureOf(err);
+      if (failure.kind === "expired") {
+        setExpired(true);
+        setContactNotice({ kind: "warning", text: failure.text });
+      } else if (failure.kind === "fields") {
+        setContactErrors(failure.errors);
+        if (failure.errors.flightNo !== undefined) setErrors((value) => ({ ...value, flightNo: failure.errors.flightNo as string }));
+        setContactNotice({ kind: "danger", text: failure.text });
+      } else {
+        setContactNotice({ kind: "danger", text: `${siteFailureText(err, "提交订单")}${failure.retrySafe ? "再点一次「去付款」不会重复下单。" : ""}` });
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requote = (): void => {
+    setExpired(false);
+    setContactNotice(null);
+    setQuoteRound((value) => value + 1);
+  };
+
+  const updateContact = (changes: Partial<ContactForm>): void => {
+    setContact((value) => ({ ...value, ...changes }));
+    orderKey.current = null;
+    setContactErrors((value) => {
+      const next = { ...value };
+      for (const key of Object.keys(changes)) delete next[key as keyof OrderErrors];
+      return next;
+    });
+  };
+
   const update = useCallback((changes: Partial<TripDraft>): void => {
     setDraft((value) => ({ ...value, ...changes }));
     setNotice(null);
-    setNextNote(false);
+    orderKey.current = null;
     setErrors((value) => {
       const next = { ...value };
       for (const key of Object.keys(changes)) delete next[key as keyof Errors];
@@ -314,7 +455,7 @@ export function BookNewPage() {
       return;
     }
     if (wide) return;
-    const target = step === 2 ? vehiclesHeading.current : tripHeading.current;
+    const target = step === 3 ? summaryHeading.current : step === 2 ? vehiclesHeading.current : tripHeading.current;
     target?.focus({ preventScroll: true });
     target?.scrollIntoView?.({ block: "start" });
   }, [step]);
@@ -340,9 +481,26 @@ export function BookNewPage() {
     const transferOnly = cityList.some((city) => city.categories.includes("airport_transfer") || city.categories.includes("point_to_point"));
     const showStep1 = wide || step === 1;
     const showStep2 = wide || step === 2;
+    const showStep3 = wide || step === 3;
     const timeLabel = arrival ? "航班落地时间（当地）" : draft.mode === "charter" ? "上车时间（当地）" : "用车时间（当地）";
     const tripName = draft.mode === "charter" ? "包车" : tripType !== null ? TRIP_TYPE_NAMES[tripType] : null;
     const whenText = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) && /^\d{2}:\d{2}$/.test(draft.time) ? `${guestLocalText(`${draft.date}T${draft.time}`, timezone, new Date())}${arrival ? " 落地" : ""}` : null;
+
+    const flightField = (
+      <TextField
+        label="航班号"
+        size="lg"
+        autoCapitalize="characters"
+        value={draft.flightNo}
+        errors={errors.flightNo ? [errors.flightNo] : []}
+        hint={FIELD_HINTS.arrivalFlight}
+        onChange={(event) => update({ flightNo: event.target.value })}
+        onBlur={() => {
+          const issue = validate(draft, charterCity, arrival).flightNo;
+          if (issue !== undefined) setErrors((value) => ({ ...value, flightNo: issue }));
+        }}
+      />
+    );
 
     const tripSection = (
       <section aria-labelledby="book-trip-title" className="site-section book-new__trip">
@@ -408,12 +566,7 @@ export function BookNewPage() {
         )}
         <div className="site-form__row">
           <TravellersField passengers={draft.passengers} luggage={draft.luggage} onChange={(value) => update(value)} />
-          {arrival && (
-            <TextField label="航班号（选填）" size="lg" autoCapitalize="characters" value={draft.flightNo} errors={errors.flightNo ? [errors.flightNo] : []} hint="如 NH211" onChange={(event) => update({ flightNo: event.target.value })} onBlur={() => {
-                const issue = validate(draft, charterCity, arrival).flightNo;
-                if (issue !== undefined) setErrors((value) => ({ ...value, flightNo: issue }));
-              }} />
-          )}
+          {arrival && flightField}
         </div>
         {!wide && (
           <div className="site-actions">
@@ -460,7 +613,16 @@ export function BookNewPage() {
           <p className="site-muted">
             按价格从低到高 · 坐不下的已隐藏。报价 30 分钟内有效（到当地时间 {formatInZone(expires, timezone).slice(11)}），过了请重新查询。
           </p>
-          <VehicleList key={current.key} quotes={quotes} limit={wide ? VISIBLE_VEHICLES.wide : VISIBLE_VEHICLES.narrow} selectedId={selected?.vehicle_group.id ?? null} onSelect={(entry) => setSelectedId(entry.vehicle_group.id)} />
+          <VehicleList
+            key={current.key}
+            quotes={quotes}
+            limit={wide ? VISIBLE_VEHICLES.wide : VISIBLE_VEHICLES.narrow}
+            selectedId={selected?.vehicle_group.id ?? null}
+            onSelect={(entry) => {
+              if (entry.vehicle_group.id !== selectedId) setAddonQuantities({});
+              setSelectedId(entry.vehicle_group.id);
+            }}
+          />
           <section aria-labelledby="book-includes-title" className="book-includes">
             <h3 id="book-includes-title" className="book-new__subtitle">
               一口价包含
@@ -502,56 +664,77 @@ export function BookNewPage() {
       </section>
     );
 
-    const summary = (
-      <aside className="book-new__aside" aria-labelledby="book-summary-title">
-        <section className="site-section book-summary">
-          <h2 id="book-summary-title" className="site-section__title">
-            行程摘要
-          </h2>
-          <dl className="book-summary__facts">
-            {tripName !== null && (
-              <div className="site-facts__item">
-                <dt>行程</dt>
-                <dd>{draft.mode === "charter" && draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : tripName}</dd>
-              </div>
-            )}
+    const routeResult = outcome?.mode === "transfer" ? outcome.result.route : null;
+    const summaryInner = (
+      <section className="site-section book-summary" aria-labelledby="book-summary-title">
+        <h2 id="book-summary-title" ref={summaryHeading} tabIndex={-1} className="site-section__title">
+          行程摘要
+        </h2>
+        <dl className="book-summary__facts">
+          {tripName !== null && (
             <div className="site-facts__item">
-              <dt>{draft.mode === "charter" ? "上车地点" : "出发地"}</dt>
-              <dd>{draft.from?.name ?? "—"}</dd>
-            </div>
-            {draft.mode === "transfer" && (
-              <div className="site-facts__item">
-                <dt>目的地</dt>
-                <dd>{draft.to?.name ?? "—"}</dd>
-              </div>
-            )}
-            <div className="site-facts__item">
-              <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
-              <dd>{whenText ?? "—"}</dd>
-            </div>
-            <div className="site-facts__item">
-              <dt>乘客 / 行李</dt>
-              <dd>{travellersText(draft.passengers, draft.luggage)}</dd>
-            </div>
-            {arrival && draft.flightNo.trim() !== "" && (
-              <div className="site-facts__item">
-                <dt>航班号</dt>
-                <dd>{draft.flightNo.trim().toUpperCase()}</dd>
-              </div>
-            )}
-          </dl>
-          {selected === null ? (
-            <p className="site-muted">还没有选择车型</p>
-          ) : (
-            <div className="site-facts__item site-facts__item--total book-summary__total">
-              <span className="book-summary__vehicle" lang={displayName(selected.vehicle_group.name).lang}>
-                {displayName(selected.vehicle_group.name).text} · 一口价
-              </span>
-              <SitePrice text={moneyText(selected.price.total)} size="lg" />
+              <dt>行程</dt>
+              <dd>{draft.mode === "charter" && draft.packageHours !== "" ? `包车 ${draft.packageHours} 小时` : tripName}</dd>
             </div>
           )}
-        </section>
-      </aside>
+          <div className="site-facts__item">
+            <dt>{draft.mode === "charter" ? "上车地点" : "出发地"}</dt>
+            <dd>{draft.from?.name ?? "—"}</dd>
+          </div>
+          {draft.mode === "transfer" && (
+            <div className="site-facts__item">
+              <dt>目的地</dt>
+              <dd>{draft.to?.name ?? "—"}</dd>
+            </div>
+          )}
+          <div className="site-facts__item">
+            <dt>{arrival ? "航班落地（当地时间）" : "用车时间（当地时间）"}</dt>
+            <dd>{whenText ?? "—"}</dd>
+          </div>
+          <div className="site-facts__item">
+            <dt>乘客 / 行李</dt>
+            <dd>{travellersText(draft.passengers, draft.luggage)}</dd>
+          </div>
+          {arrival && draft.flightNo.trim() !== "" && (
+            <div className="site-facts__item">
+              <dt>航班号</dt>
+              <dd>{draft.flightNo.trim().toUpperCase()}</dd>
+            </div>
+          )}
+          {selected !== null && (
+            <div className="site-facts__item">
+              <dt>车型</dt>
+              <dd lang={displayName(selected.vehicle_group.name).lang}>{displayName(selected.vehicle_group.name).text}</dd>
+            </div>
+          )}
+        </dl>
+        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from.name} to={draft.to.name} />}
+        {selected === null ? (
+          <p className="site-muted">还没有选择车型</p>
+        ) : (
+          <>
+            <AddonsBlock options={selected.available_addons} quantities={addonQuantities} onChange={(id, quantity) => setAddonQuantities((value) => ({ ...value, [id]: quantity }))} />
+            <PriceBlock fare={selected.price.total} priced={pricedState} currency={guestCurrency} onCurrency={(code) => setGuestCurrency(code as CurrencyCode)} reference={reference !== null && reference.to === guestCurrency ? reference : null} />
+            <div className="book-summary__block">
+              <h3 className="book-new__subtitle">取消规则</h3>
+              <p>{guestCancelPolicyText((priced ?? selected).cancel_policy.tiers)}</p>
+            </div>
+            {wide && <PayBlock busy={busy} expired={expired} onRequote={requote} />}
+          </>
+        )}
+      </section>
+    );
+
+    const contactSection = (
+      <ContactSection
+        form={contact}
+        errors={contactErrors}
+        notice={contactNotice}
+        onChange={updateContact}
+        onSubmit={(event) => void submitOrder(event)}
+        {...(!wide && arrival ? { extra: flightField } : {})}
+        {...(!wide ? { actions: <div className="site-actions"><PayBlock busy={busy} expired={expired} onRequote={requote} /></div> } : {})}
+      />
     );
 
     const bar = !wide && step === 2 && selected !== null && (
@@ -559,12 +742,9 @@ export function BookNewPage() {
         <p className="book-bar__text">
           <span lang={displayName(selected.vehicle_group.name).lang}>{displayName(selected.vehicle_group.name).text}</span> · 一口价 <SitePrice text={moneyText(selected.price.total)} size="sm" />
         </p>
-        <Button variant="primary" size="lg" onClick={() => setNextNote(true)}>
+        <Button variant="primary" size="lg" onClick={() => setStep(3)}>
           下一步
         </Button>
-        <p className="book-bar__note" role="status">
-          {nextNote ? "填写乘客信息并付款的一步还没有开放，敬请稍候。" : ""}
-        </p>
       </div>
     );
 
@@ -573,8 +753,21 @@ export function BookNewPage() {
         <div className="book-new__main">
           {showStep1 && tripSection}
           {showStep2 && vehicleSection}
+          {!wide && step === 3 && (
+            <>
+              <Button variant="text" className="book-new__back" onClick={() => setStep(2)}>
+                ← 返回选车型
+              </Button>
+              {summaryInner}
+            </>
+          )}
+          {showStep3 && contactSection}
         </div>
-        {wide && summary}
+        {wide && (
+          <aside className="book-new__aside" aria-labelledby="book-summary-title">
+            {summaryInner}
+          </aside>
+        )}
         {bar}
       </div>
     );
