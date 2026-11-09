@@ -2,7 +2,7 @@
  * 新预订页 `/book/new`（M8-03，ADR 0069 A3、修正版 v2；规范 site-booking-v2.md）的组件测试：
  * 地址框输入即提示（至少 2 个字、停顿后查、会话令牌、平台地点在前、谷歌候选选中后取坐标）、认出接机后的时间标签和提示（N 取报价）、
  * 「乘客 / 行李」合并栏、车型「显示全部」（电脑 4 个、手机 3 个）、车内示意图的座位和行李个数、编号和文字、链接参数、报不出价的说法、
- * 包车下不写「含所有费用」、任何时候都没有「跟踪航班」、手机分步和底部固定条；
+ * 包车也写「含所有费用」（M8-09，ADR 0070）、任何时候都没有「跟踪航班」、手机分步和底部固定条；
  * M8-04：「怎么联系你」的校验和下单、附加服务改数量重新报价和合计差额、参考价可用 / 不可用、路线有 / 无、手机第 3 步。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-new.spec.ts 覆盖。
  */
@@ -332,7 +332,7 @@ test("报不出价：时间太近、人数太多、地址不在服务范围各�
   }
 });
 
-test("一口价包含：接送写「含所有费用」、专车、免费等待；包车不写「含所有费用」（规则切换前），写现有的包车说明；任何时候都没有「跟踪航班」，也没有举牌（报价里没有商品的包含清单）", async () => {
+test("一口价包含：接送写「含所有费用」、专车、免费等待；包车也写「含所有费用」（M8-09），下面只说超出套餐的时长和公里另收；任何时候都没有「跟踪航班」，也没有举牌（报价里没有商品的包含清单）", async () => {
   wideScreen();
   const calls = open({ at: "/book/new?from=35.772,140.3929&to=35.6905,139.6948&date=2030-11-20&time=14:30" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
@@ -347,9 +347,9 @@ test("一口价包含：接送写「含所有费用」、专车、免费等待�
   const charter = posts(calls, "/site/v1/quotes").at(-1)?.body as Record<string, unknown>;
   assert.deepEqual([charter["category"], charter["city_id"], charter["package_hours"]], ["charter", CITY_ID, 8]);
   const charterIncludes = screen.getByRole("region", { name: "一口价包含" });
-  assert.deepEqual(within(charterIncludes).getAllByRole("listitem").map((item) => item.textContent), ["专车专用，不拼车"]);
-  assert.doesNotMatch(document.body.textContent ?? "", /包含所有费用|已含所有费用|跟踪航班/);
-  assert.ok(within(charterIncludes).getByText(/高速费、停车费服务后按实际收取/));
+  assert.deepEqual(within(charterIncludes).getAllByRole("listitem").map((item) => item.textContent), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"]);
+  assert.doesNotMatch(document.body.textContent ?? "", /跟踪航班|高速费、停车费服务后/);
+  assert.ok(within(charterIncludes).getByText("超出套餐的时长和公里服务后按实际收取：先通知您，48 小时内可以在订单页提异议。"));
   assert.ok(screen.getByText("8 小时，含 150 公里"));
 });
 

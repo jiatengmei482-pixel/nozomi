@@ -42,7 +42,7 @@ import { TextField } from "../../../components/TextField.tsx";
 import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, guestCurrencyOf, moneyDifference, parseBookingLink, pointName, rejectionTexts, travellersText } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, priceNote, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
+import { CHARTER_OVERAGE_NOTE, addressEnds, defaultServiceDate, guestCancelPolicyText, guestLocalText, newIdempotencyKey, quotesByTotal, siteOrderUrl } from "../../../lib/site-display.ts";
 import { FIELD_HINTS, type OrderErrors, type OrderTrip, orderFailureOf, orderRequestOf, validateOrderForm } from "../../../lib/site-order-form.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
@@ -663,7 +663,7 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {draft.mode === "charter" && <p className="site-muted">{priceNote("charter")}</p>}
+            {draft.mode === "charter" && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
       );

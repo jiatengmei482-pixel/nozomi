@@ -97,9 +97,9 @@ export const NOTIFICATION_CHANNELS = ["email"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 客人邮件能用的变量。 */
-export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until"] as const;
+export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "paid_amount", "view_url", "driver_name", "driver_phone", "vehicle_plate", "changed_fields", "change_decline_reason", "change_decline_advice", "extra_charge_amount", "extra_charge_type", "dispute_until", "fee_note"] as const;
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
-export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
+export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason", "charter_price_note"] as const;
 /** 平台员工邮件能用的变量。 */
 export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
 
@@ -110,10 +110,12 @@ export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "tri
 export const TENANT_FORBIDDEN_PATTERN = /对外价|加价|markup|sell|paid|refund|fx_|汇率|客人付|实付/i;
 
 /**
- * 可以整行省略的变量（M7-04 的车型标识，ADR 0068）：值没有或为空时，正文里含它的那一行整行不出现，其余照常发；
- * 别的变量缺了仍然整封不发。只能用在正文里自成一行的地方（「标签：{{x}}」），主题里不能用。
+ * 可以整行省略的变量：值没有或为空时，正文里含它的那一行整行不出现，其余照常发；别的变量缺了仍然整封不发。
+ * 只能用在正文里自成一行的地方（「标签：{{x}}」），主题里不能用。
+ * - 车型标识（M7-04，ADR 0068）：`vehicle_similar`、`vehicle_max_persons`、`vehicle_max_luggage`；
+ * - 一口价说明（M8-09，ADR 0070）：客人的 `fee_note`（分界前下的包车单为空）、供应商的 `charter_price_note`（只有分界后下的包车单有）。
  */
-export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage"] as const;
+export const OPTIONAL_LINE_VARIABLES = ["vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "fee_note", "charter_price_note"] as const;
 
 const isOptionalLine = (name: string): boolean => (OPTIONAL_LINE_VARIABLES as readonly string[]).includes(name);
 
@@ -146,7 +148,7 @@ const zhEmail = (event: NotificationEvent, audience: NotificationAudience, subje
 
 /** 全部模板。加语言 = 在这里加常量（ADR 0049「模板」）。 */
 export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
-  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
+  zhEmail("order.confirmed", "guest", "预订已确认：{{order_no}}", `{{passenger_name}}，您好：\n\n我们已收到您的付款，订单已确认。\n\n${TRIP}\n已付金额：{{paid_amount}}\n费用说明：{{fee_note}}\n\n派好司机后我们会再发邮件告诉您司机信息。${GUEST_FOOTER}`),
   zhEmail("order.assigned", "guest", "司机信息：{{order_no}}", `{{passenger_name}}，您好：\n\n您的订单已安排司机。如果之前收到过司机信息，请以这一封为准。\n\n${TRIP}\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
   zhEmail("order.service_reminder", "guest", "用车提醒：{{service_time}}（{{order_no}}）", `{{passenger_name}}，您好：\n\n您的用车时间快到了，请按时到达上车点。\n\n${TRIP}${GUEST_FOOTER}`),
   zhEmail("order.driver_arrived", "guest", "司机已到达：{{order_no}}", `{{passenger_name}}，您好：\n\n司机已经到达上车点。\n\n司机：{{driver_name}}\n电话：{{driver_phone}}\n车牌：{{vehicle_plate}}${GUEST_FOOTER}`),
@@ -163,7 +165,7 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   ),
   zhEmail("ticket.guest_reply", "guest", "您的工单有新回复：{{order_no}}", `{{passenger_name}}，您好：\n\n客服回复了您关于订单 {{order_no}} 的问题，请到订单页查看。${GUEST_FOOTER}`),
 
-  zhEmail("order.confirmed", "tenant", "新订单：{{order_no}}", `你有一张新订单，请在派车截止时间前派好司机和车辆。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）${TENANT_FOOTER}`),
+  zhEmail("order.confirmed", "tenant", "新订单：{{order_no}}", `你有一张新订单，请在派车截止时间前派好司机和车辆。\n\n${TENANT_TRIP}\n派车截止：{{dispatch_due_at}}（东京时间）\n{{charter_price_note}}${TENANT_FOOTER}`),
   zhEmail("order.rescue_assigned", "tenant", "救援新订单：{{order_no}}", `这张救援单已经转给你，请尽快派好司机和车辆。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
   zhEmail("order.changed", "tenant", "订单已修改：{{order_no}}", `这张订单有修改，已经生效，改动的内容：{{changed_fields}}。\n{{driver_notice}}\n\n${TENANT_TRIP}${TENANT_FOOTER}`),
   zhEmail("order.change_pending", "tenant", "修改待确认：{{order_no}}", `客人申请修改订单（{{changed_fields}}），确认前原预约仍然有效。\n{{driver_notice}}\n\n请在 {{confirm_due_at}}（东京时间）之前到后台同意或拒绝；正在换司机或协调的，可以先标记「调整中」。超时没有结论的，修改不生效，客人可能免费取消。\n\n${TENANT_TRIP}${TENANT_FOOTER}`),

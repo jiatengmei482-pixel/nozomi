@@ -28,7 +28,7 @@ test("凡是有「车型：{{vehicle_group}}」的模板（客人、供应商、
   for (const target of withGroup) {
     assert.match(target.body, /车型：\{\{vehicle_group\}\}\n同级车型：\{\{vehicle_similar\}\}\n最多乘客：\{\{vehicle_max_persons\}\}，最多行李：\{\{vehicle_max_luggage\}\}\n?/, `${target.event}/${target.audience}`);
   }
-  for (const names of [GUEST_VARIABLES, TENANT_VARIABLES, DRIVER_VARIABLES]) for (const name of OPTIONAL_LINE_VARIABLES) assert.ok((names as readonly string[]).includes(name), name);
+  for (const names of [GUEST_VARIABLES, TENANT_VARIABLES, DRIVER_VARIABLES]) for (const name of Object.keys(vehicleLabelMailVariables(null))) assert.ok((names as readonly string[]).includes(name), name);
   for (const target of NOTIFICATION_TEMPLATES) for (const name of OPTIONAL_LINE_VARIABLES) assert.ok(!target.subject.includes(`{{${name}}}`), `${target.event}/${target.audience} 主题里不能用 ${name}`);
   for (const name of OPTIONAL_LINE_VARIABLES) assert.doesNotMatch(name, TENANT_FORBIDDEN_PATTERN);
 });

@@ -47,6 +47,7 @@ import {
   guestLocalText,
   landingAvailability,
   localDateTimeIn,
+  orderFeeNote,
   packageText,
   serviceTimeLabels,
   visibleTimeline,
@@ -370,6 +371,7 @@ export function TripSection({ order, names }: { order: SiteOrder; names: SiteOrd
         <Fact label="总价" total>
           <SitePrice text={moneyText(order.price.total)} size="lg" />
         </Fact>
+        {orderFeeNote(order) !== null && <Fact label="费用说明">{orderFeeNote(order)}</Fact>}
         <Fact label="免费等待">{freeWaitText(order.free_wait_minutes, order.category, order.direction)}</Fact>
         {order.winning_tenant !== null && <Fact label="服务方">{order.winning_tenant.name}</Fact>}
       </dl>
