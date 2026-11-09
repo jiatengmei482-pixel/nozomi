@@ -35,6 +35,7 @@ export const AUDIT_RESOURCES = [
   "tenant_webhook",
   "webhook_delivery",
   "tenant_profile",
+  "tenant_profile_change",
   "tenant_file",
   "tenant_document",
   "tenant_contract",

@@ -147,3 +147,9 @@ export async function findOwnTenant(db: Db, tenantId: string): Promise<Tenant | 
   const row = result.rows[0];
   return row ? toTenant(row) : null;
 }
+
+/** 改对外显示名称（版本加一）。调用方已锁住这一行、核对过版本，并负责写审计。 */
+export async function renameTenant(db: Db, tenantId: string, name: string, now: Date): Promise<Tenant> {
+  const result = await db.query<Row>(`update tenants set name = $2, version = version + 1, updated_at = $3 where id = $1 returning ${COLUMNS}`, [tenantId, name, now]);
+  return toTenant(result.rows[0] as Row);
+}

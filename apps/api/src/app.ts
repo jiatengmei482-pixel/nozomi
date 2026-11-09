@@ -37,6 +37,7 @@ import { registerBillingRoutes } from "./routes/billing.ts";
 import { registerBankFileRoutes } from "./routes/bank-files.ts";
 import { registerWebhookRoutes } from "./routes/webhooks.ts";
 import { registerTenantOnboardingRoutes } from "./routes/tenant-onboarding.ts";
+import { registerTenantProfileRoutes } from "./routes/tenant-profile.ts";
 import type { PaymentProvider } from "./integrations/payments.ts";
 import { StripePaymentProvider, checkStripeKey } from "./integrations/stripe.ts";
 import { checkGoogleMapsKey, computeRoute } from "./integrations/google-maps.ts";
@@ -371,6 +372,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerTenantWebhookRoutes(app, context);
   registerNotificationRoutes(app, context);
   registerTenantOnboardingRoutes(app, context);
+  registerTenantProfileRoutes(app, context);
   registerSiteRoutes(app, context);
   registerViewLinkRoutes(app, context);
 

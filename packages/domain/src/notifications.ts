@@ -38,6 +38,10 @@ export const NOTIFICATION_EVENTS = [
   "tenant.document_expired",
   "tenant.observation_started",
   "tenant.status_changed",
+  "tenant.profile_updated",
+  "tenant.profile_change_submitted",
+  "tenant.profile_change_approved",
+  "tenant.profile_change_rejected",
   "payout_account.submitted",
   "payout_account.approved",
   "payout_account.rejected",
@@ -77,6 +81,10 @@ export const NOTIFICATION_EVENT_NAMES: Readonly<Record<NotificationEvent, string
   "tenant.document_expired": "资质已到期",
   "tenant.observation_started": "进入观察期",
   "tenant.status_changed": "供应商状态变化",
+  "tenant.profile_updated": "供应商改了企业信息",
+  "tenant.profile_change_submitted": "供应商申请修改资料",
+  "tenant.profile_change_approved": "资料修改已生效",
+  "tenant.profile_change_rejected": "资料修改被驳回",
   "payout_account.submitted": "收款账户已提交",
   "payout_account.approved": "收款账户已生效",
   "payout_account.rejected": "收款账户被驳回",
@@ -101,7 +109,7 @@ export const GUEST_VARIABLES = ["order_no", "passenger_name", "service_time", "r
 /** 供应商邮件能用的变量：行程和编号。**不能往这里加对外价、加价比例、客人付的钱**（规则 4）。 */
 export const TENANT_VARIABLES = ["order_no", "service_time", "route", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "passengers", "order_url", "console_url", "dispatch_due_at", "confirm_due_at", "changed_fields", "driver_notice", "ticket_no", "document_type", "expires_on", "days_left", "tenant_status", "reasons", "payout_currency", "payout_account", "reject_reason"] as const;
 /** 平台员工邮件能用的变量。 */
-export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail"] as const;
+export const STAFF_VARIABLES = ["order_no", "exception_type", "console_url", "alert_kind", "detail", "tenant_name", "changed_fields"] as const;
 
 /** 司机邮件能用的变量（ADR 0058）：行程概要和链接。**没有客人的姓名、电话、邮箱、详细地址，也没有任何价格**。 */
 export const DRIVER_VARIABLES = ["driver_name", "order_no", "service_time", "trip_summary", "vehicle_group", "vehicle_similar", "vehicle_max_persons", "vehicle_max_luggage", "changed_fields", "driver_link_url", "link_expires_at"] as const;
@@ -176,6 +184,9 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
   zhEmail("tenant.document_expired", "tenant", "资质已到期：{{document_type}}", `你的「{{document_type}}」已在 {{expires_on}} 到期，请尽快上传新的证件。${COMPANY_FOOTER}`),
   zhEmail("tenant.observation_started", "tenant", "进入观察期，请整改", `你的账号已进入观察期，原因：{{reasons}}。观察期内排序会受影响，请尽快整改。${COMPANY_FOOTER}`),
   zhEmail("tenant.status_changed", "tenant", "供应商状态变化：{{tenant_status}}", `你的供应商状态已变为「{{tenant_status}}」。${COMPANY_FOOTER}`),
+  // 名称、法定名称、登记号的修改申请（ADR 0071）：只写改了哪几项，不抄新旧值（发给管理员，值在后台看）
+  zhEmail("tenant.profile_change_approved", "tenant", "资料修改已生效", `你们申请修改的{{changed_fields}}已通过平台审核，现在起按新的内容显示和使用。\n\n如果不是你们提交的，请马上联系平台。${COMPANY_FOOTER}`),
+  zhEmail("tenant.profile_change_rejected", "tenant", "资料修改没有通过", `你们申请修改的{{changed_fields}}没有通过平台审核，原因：{{reject_reason}}。原来的内容照常使用；核对后可以重新提交。${COMPANY_FOOTER}`),
 
   // 账号只有末 4 位（ADR 0051）。发给供应商的管理员：账号被盗用时，管理员能从这封邮件发现异常提交
   zhEmail("payout_account.submitted", "tenant", "收款账户变更已提交：{{payout_currency}}", `你们提交了新的 {{payout_currency}} 收款账户（账号 {{payout_account}}），平台审核通过后生效，批准之前现在的账户继续有效。\n\n如果不是你们提交的，请马上联系平台，并修改管理员密码。${COMPANY_FOOTER}`),
@@ -198,6 +209,9 @@ export const NOTIFICATION_TEMPLATES: readonly NotificationTemplate[] = [
 
   zhEmail("exception.opened", "staff", "新的异常：{{exception_type}}（{{order_no}}）", `异常队列新增一条，请处理。\n\n类型：{{exception_type}}\n订单号：{{order_no}}${COMPANY_FOOTER}`),
   zhEmail("fx.alert", "staff", "汇率告警：{{alert_kind}}", `{{alert_kind}}\n\n{{detail}}${COMPANY_FOOTER}`),
+  // 供应商的资料（ADR 0071）：只写哪家、改了哪几项；前后的值在审计日志和供应商详情里看
+  zhEmail("tenant.profile_updated", "staff", "供应商改了企业信息：{{tenant_name}}", `供应商「{{tenant_name}}」在供应商后台直接改了：{{changed_fields}}。改动已经生效，改之前和改之后的内容见审计日志。如果对方没有事先打过招呼，请和供应商确认。${COMPANY_FOOTER}`),
+  zhEmail("tenant.profile_change_submitted", "staff", "供应商申请修改资料：{{tenant_name}}", `供应商「{{tenant_name}}」申请修改：{{changed_fields}}。请按营业执照、登记簿核对后，在供应商详情里发起复核（另一位同事批准后生效）或驳回。审核期间原来的内容照常使用。${COMPANY_FOOTER}`),
   zhEmail("site.lookup_ceiling", "staff", "官网找回订单告警", `官网找回订单：同一个订单号 24 小时内失败满 100 次，接下来连对上的联系方式也会被挡，请留意是否有人在猜。\n\n{{detail}}${COMPANY_FOOTER}`),
 ];
 

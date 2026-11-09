@@ -28,7 +28,7 @@ import type { AppContext } from "../context.ts";
 import { withPlatformTx, withTenantTx } from "../db/context.ts";
 import { decodeTimeCursor } from "../pagination.ts";
 import type { Approval } from "../repos/approvals.ts";
-import { type Notice, type ScoreDay, type StatusEvent, type StoredContract, type StoredDocument, type StoredFileMeta, type StoredProfile, listScoreDays } from "../repos/tenant-onboarding.ts";
+import { type Notice, type ProfileFields, type ScoreDay, type StatusEvent, type StoredContract, type StoredDocument, type StoredFileMeta, type StoredProfile, listScoreDays } from "../repos/tenant-onboarding.ts";
 import { findOwnTenant, findTenantForPlatform, type Tenant } from "../repos/tenants.ts";
 import { notFound } from "../services/errors.ts";
 import { type PlatformPrincipal, authenticatePlatform, platformCredentials } from "../services/platform-auth.ts";
@@ -72,7 +72,7 @@ const UPLOAD_BODY_LIMIT = TENANT_RULES.maxFileBytes + 1024;
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional().transform((value) => (value === undefined || value === null || value === "" ? null : value));
 const reasonSchema = z.string().trim().min(1).max(TENANT_RULES.maxReasonLength);
 
-const profileSchema = z.object({
+export const profileSchema = z.object({
   country_code: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "两位国家代码，如 JP").nullable(),
   legal_name: optionalText(200),
   registration_no: optionalText(100),
@@ -81,6 +81,11 @@ const profileSchema = z.object({
   contact_phone: optionalText(40),
   contact_email: z.string().trim().toLowerCase().max(254).email().nullable().optional().transform((value) => value ?? null),
 });
+
+/** 企业信息的请求体 → 存储的字段。 */
+export function profileFieldsOf(input: z.infer<typeof profileSchema>): ProfileFields {
+  return { countryCode: input.country_code, legalName: input.legal_name, registrationNo: input.registration_no, address: input.address, contactName: input.contact_name, contactPhone: input.contact_phone, contactEmail: input.contact_email };
+}
 
 const documentSchema = z.object({
   type: z.enum(DOCUMENT_TYPES),
@@ -103,7 +108,7 @@ const iso = (value: Date | null): string | null => (value === null ? null : valu
 
 // ---- 序列化 ----
 
-function profileJson(profile: StoredProfile | null): Json | null {
+export function profileJson(profile: StoredProfile | null): Json | null {
   if (profile === null) return null;
   return {
     country_code: profile.countryCode,
@@ -303,14 +308,7 @@ export function registerTenantOnboardingRoutes(app: FastifyInstance, ctx: AppCon
       const principal = await tenantAuth(request, "company.manage");
       // 第一次填写没有版本，不带 If-Match；以后每次都要带
       const version = request.headers["if-match"] === undefined ? null : ifMatchVersion(request.headers["if-match"]);
-      const input = parseInput(profileSchema, request.body, "body");
-      const saved = await putOwnProfile(
-        ctx,
-        principal,
-        version,
-        { countryCode: input.country_code, legalName: input.legal_name, registrationNo: input.registration_no, address: input.address, contactName: input.contact_name, contactPhone: input.contact_phone, contactEmail: input.contact_email },
-        request.ip,
-      );
+      const saved = await putOwnProfile(ctx, principal, version, profileFieldsOf(parseInput(profileSchema, request.body, "body")), request.ip);
       return profileJson(saved);
     });
 
