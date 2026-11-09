@@ -24,7 +24,21 @@ export const ROUTE_RULES = {
   /** 谷歌给的里程、时长的合理范围（超出当作看不懂的应答）：5000 公里、7 天 */
   maxMeters: 5_000_000,
   maxSeconds: 7 * 24 * 3_600,
+  /**
+   * 给客人看的路线（时间、距离、折线，M8-02，ADR 0069 B11）在进程内保留多久：10 分钟（同一对坐标 10 分钟内不重复调谷歌）。
+   * 折线只在内存里，不存库；里程和时长照样写进上面的路线缓存，报价能直接用
+   */
+  previewCacheTtlMs: 10 * MINUTE_MS,
+  /** 进程内最多留几条路线（先进先出） */
+  previewCacheMaxEntries: 500,
+  /** 路线折线（谷歌的 encoded polyline）最长多少个字符：再长的不给（页面画不了这么长的线，也挡住看不懂的应答） */
+  polylineMaxLength: 30_000,
 } as const;
+
+/** 谷歌的 encoded polyline：只有 ASCII 63–126 的字符，不超过 `ROUTE_RULES.polylineMaxLength`。空字符串不算。 */
+export function isEncodedPolyline(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= ROUTE_RULES.polylineMaxLength && /^[\x3f-\x7e]+$/.test(value);
+}
 
 /**
  * 取不到路线的原因（询价日志、运营后台试算里给出）。

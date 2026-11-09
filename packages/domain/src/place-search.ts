@@ -21,8 +21,12 @@ export const PLACE_SEARCH_RULES = {
   cityReachKm: 80,
   /** 反查前坐标取整到小数点后几位：4 位 ≈ 11 米，同一栋楼的几次点选共用一次查询 */
   reverseDecimals: 4,
-  /** 进程内短时缓存保留多久：0 = 不缓存结果，只留「并发只调一次」（ADR 0053：谷歌的条款只明确允许缓存地点 ID 和坐标，名称和地址文字不在内）。机制保留，要改回时改这个数 */
-  cacheTtlMs: 0,
+  /**
+   * 进程内短时缓存保留多久：10 分钟（同一关键字、同一个地点 10 分钟内不重复调谷歌）。
+   * ADR 0053 曾改成 0（谷歌的条款只明确允许缓存地点 ID 和坐标）；业主 2026-11-09 确认 ADR 0069「每个接口都有 10 分钟短时缓存」，改回 10 分钟。
+   * 只在进程内存里，不存库；要严格按条款时改成 0，就只剩「并发只调一次」
+   */
+  cacheTtlMs: 10 * MINUTE_MS,
   /** 进程内短时缓存最多留几条（先进先出） */
   cacheMaxEntries: 500,
   /** 每天（东京时间）最多调用谷歌几次（搜索和反查合计）：默认 500（配置 `GOOGLE_PLACES_DAILY_LIMIT`，0 = 不调用） */
@@ -55,12 +59,48 @@ export const PLACE_FAILURE_CODES = [
 ] as const;
 export type PlaceFailureCode = (typeof PLACE_FAILURE_CODES)[number];
 
-/** 一个候选地点：名称、地址、坐标。`id` 是谷歌的地点 ID（只用来区分候选）。 */
+/** 地点的类型（M8-02，ADR 0069）：`airport` 机场（谷歌的类型是机场，或平台主数据的机场、航站楼），其余 `other`。按两个坐标报价时用它认机场。 */
+export const PLACE_KINDS = ["airport", "other"] as const;
+export type PlaceKind = (typeof PLACE_KINDS)[number];
+
+/** 谷歌地点类型里算「机场」的（Places API (New) 的 `primaryType` / `types`）。 */
+export const GOOGLE_AIRPORT_TYPES: readonly string[] = ["airport", "international_airport"];
+
+/** 谷歌给的主类型（`primaryType`）或类型列表（`types`）→ 机场 / 其他。看不懂的一律 `other`。 */
+export function placeKindOfGoogleTypes(primaryType: unknown, types: unknown = undefined): PlaceKind {
+  if (typeof primaryType === "string" && GOOGLE_AIRPORT_TYPES.includes(primaryType)) return "airport";
+  if (Array.isArray(types) && types.some((type) => typeof type === "string" && GOOGLE_AIRPORT_TYPES.includes(type))) return "airport";
+  return "other";
+}
+
+/** 一个候选地点：名称、地址、坐标、类型。`id` 是谷歌的地点 ID（只用来区分候选，输入即提示选中后拿它取坐标）。 */
 export interface PlaceCandidate {
   id: string;
   name: string;
   address: string;
   location: LatLng;
+  kind: PlaceKind;
+}
+
+/** 输入即提示（Autocomplete）的一个候选：还没有坐标，选中后用地点 ID 取（Place Details，同一个会话）。 */
+export interface PlacePrediction {
+  id: string;
+  name: string;
+  address: string;
+  kind: PlaceKind;
+}
+
+/** 谷歌的地点 ID：字母、数字、下划线、连字符，最多 300 个字符。 */
+export function isGooglePlaceId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,300}$/.test(value);
+}
+
+/**
+ * 输入即提示的会话令牌（浏览器生成，一次「输入 → 选中」用同一个，谷歌按会话计费）：URL 安全的字符（字母、数字、下划线、连字符），16–36 个。
+ * 推荐用 UUID（36 个字符）。
+ */
+export function isPlaceSessionToken(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{16,36}$/.test(value);
 }
 
 /** 关键字的规范化：全角半角统一（NFKC）、去掉控制字符、首尾空白去掉、中间连续的空白并成一个。 */
@@ -86,9 +126,19 @@ export function placeQueryIssue(normalized: string): PlaceQueryIssue | null {
   return null;
 }
 
-/** 搜索的缓存键：城市 + 规范化后的关键字（不分大小写）。 */
+/** 搜索的缓存键：城市（不带城市时是渠道授权范围的标识）+ 规范化后的关键字（不分大小写）。 */
 export function placeSearchCacheKey(cityId: string, normalizedQuery: string): string {
   return `search:${cityId}:${normalizedQuery.toLowerCase()}`;
+}
+
+/** 输入即提示的缓存键：渠道授权范围的标识 + 规范化后的关键字（不分大小写）。不含会话令牌：同一关键字 10 分钟内谁来都不再调谷歌。 */
+export function placeAutocompleteCacheKey(scope: string, normalizedQuery: string): string {
+  return `autocomplete:${scope}:${normalizedQuery.toLowerCase()}`;
+}
+
+/** 取一个地点的坐标和类型（Place Details）的缓存键：谷歌的地点 ID（区分大小写）。 */
+export function placeDetailsCacheKey(placeId: string): string {
+  return `details:${placeId}`;
 }
 
 /** 反查的缓存键和调谷歌用的坐标：都取整到 `PLACE_SEARCH_RULES.reverseDecimals` 位，同一个键的结果一定来自同一组坐标。 */
@@ -122,6 +172,24 @@ export function cityBounds(center: LatLng, km: number = PLACE_SEARCH_RULES.cityR
 
 export function inBounds(point: LatLng, bounds: LatLngBounds): boolean {
   return point.lat >= bounds.low.lat && point.lat <= bounds.high.lat && point.lng >= bounds.low.lng && point.lng <= bounds.high.lng;
+}
+
+/**
+ * 几个城市的范围合起来的外接矩形（不带城市的地址搜索用它限制谷歌的搜索范围，M8-02）。没有城市时为 null。
+ * 外接矩形会比各城市的范围大，结果另按「在不在某个城市的范围里」再筛一遍（`inAnyCity`）。
+ */
+export function regionBounds(centers: readonly LatLng[], km: number = PLACE_SEARCH_RULES.cityReachKm): LatLngBounds | null {
+  if (centers.length === 0) return null;
+  const all = centers.map((center) => cityBounds(center, km));
+  return {
+    low: { lat: Math.min(...all.map((b) => b.low.lat)), lng: Math.min(...all.map((b) => b.low.lng)) },
+    high: { lat: Math.max(...all.map((b) => b.high.lat)), lng: Math.max(...all.map((b) => b.high.lng)) },
+  };
+}
+
+/** 这个点在不在某个城市中心周围的范围里。 */
+export function inAnyCity(point: LatLng, centers: readonly LatLng[], km: number = PLACE_SEARCH_RULES.cityReachKm): boolean {
+  return centers.some((center) => inBounds(point, cityBounds(center, km)));
 }
 
 /**

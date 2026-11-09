@@ -16,7 +16,7 @@
  *
  * 单元测试和集成测试都用本机的假服务器（地址由配置 `GOOGLE_MAPS_ROUTES_URL` 指定，只有 local / ci 能改），不联网。
  */
-import { type LatLng, type RouteFailureCode, routeValuesUsable } from "@nozomi/domain";
+import { type LatLng, type RouteFailureCode, isEncodedPolyline, routeValuesUsable } from "@nozomi/domain";
 import { type IntegrationCheckCode, type IntegrationCheckResult, checkFailed } from "./integration-check.ts";
 
 export const GOOGLE_MAPS_TIMEOUT_MS = 5_000;
@@ -136,8 +136,11 @@ export const ROUTE_ATTEMPT_TIMEOUT_MS = 1_000;
 const ROUTE_MIN_RETRY_MS = 300;
 /** 路线预估要的字段：只要里程和时长（Essentials 一档，不多取任何字段） */
 export const ROUTE_FIELD_MASK = "routes.distanceMeters,routes.duration";
+/** 给客人看的路线（M8-02，ADR 0069 B11）多要路线折线：仍是 Essentials 一档（不要路况、不要备选路线） */
+export const ROUTE_PREVIEW_FIELD_MASK = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline";
 
-export type ComputedRoute = { ok: true; meters: number; seconds: number } | { ok: false; code: RouteFailureCode };
+/** 路线：里程（米）、时长（秒）；要了折线时带 `polyline`（谷歌的 encoded polyline，看不懂或太长为 null）。 */
+export type ComputedRoute = { ok: true; meters: number; seconds: number; polyline?: string | null } | { ok: false; code: RouteFailureCode };
 
 export interface ComputeRouteOptions {
   /** computeRoutes 的地址（配置 `integrationEndpoints.googleMapsRoutesUrl`） */
@@ -148,6 +151,8 @@ export interface ComputeRouteOptions {
   attemptTimeoutMs?: number;
   /** 只给单元测试用的替身 */
   fetch?: typeof fetch;
+  /** 多要路线折线（给客人看路线时） */
+  polyline?: boolean;
 }
 
 /** computeRoutes 的请求体：驾车、不考虑实时路况，不要备选路线。 */
@@ -165,7 +170,7 @@ export function routeRequestBody(from: LatLng, to: LatLng): string {
  * 读成功的应答：`{ routes: [{ distanceMeters, duration: "123s" }] }`。
  * 谷歌的 JSON 省略取默认值的字段：没有 `distanceMeters` 是 0 米；没有 `routes`（空对象）是两点之间没有路线。
  */
-function parseRoute(text: string): ComputedRoute {
+function parseRoute(text: string, withPolyline: boolean): ComputedRoute {
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -176,13 +181,17 @@ function parseRoute(text: string): ComputedRoute {
   const routes = (body as { routes?: unknown }).routes;
   if (routes === undefined || (Array.isArray(routes) && routes.length === 0)) return { ok: false, code: "NO_ROUTE" };
   if (!Array.isArray(routes)) return { ok: false, code: "UNEXPECTED" };
-  const first = routes[0] as { distanceMeters?: unknown; duration?: unknown } | null;
+  const first = routes[0] as { distanceMeters?: unknown; duration?: unknown; polyline?: { encodedPolyline?: unknown } | null } | null;
   if (typeof first !== "object" || first === null) return { ok: false, code: "UNEXPECTED" };
   const meters = first.distanceMeters === undefined ? 0 : first.distanceMeters;
   const duration = typeof first.duration === "string" ? /^(\d{1,9})(?:\.\d{1,9})?s$/.exec(first.duration) : null;
   if (typeof meters !== "number" || duration === null) return { ok: false, code: "UNEXPECTED" };
   const seconds = Number(duration[1]);
-  return routeValuesUsable(meters, seconds) ? { ok: true, meters, seconds } : { ok: false, code: "UNEXPECTED" };
+  if (!routeValuesUsable(meters, seconds)) return { ok: false, code: "UNEXPECTED" };
+  if (!withPolyline) return { ok: true, meters, seconds };
+  // 折线看不懂、太长时只是不画路线，里程和时长照常用
+  const encoded = first.polyline?.encodedPolyline;
+  return { ok: true, meters, seconds, polyline: isEncodedPolyline(encoded) ? encoded : null };
 }
 
 /** 400 而又不是密钥的问题：谷歌认为请求的内容（起终点）无效。 */
@@ -206,13 +215,13 @@ export async function computeRoute(apiKey: string, from: LatLng, to: LatLng, opt
     try {
       const res = await doFetch(options.url, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": apiKey, "x-goog-fieldmask": ROUTE_FIELD_MASK },
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey, "x-goog-fieldmask": options.polyline === true ? ROUTE_PREVIEW_FIELD_MASK : ROUTE_FIELD_MASK },
         body,
         redirect: "manual",
         signal: AbortSignal.timeout(Math.max(1, Math.floor(Math.min(attemptTimeout, deadline - performance.now())))),
       });
       const text = await readCapped(res);
-      if (res.status === 200) return parseRoute(text);
+      if (res.status === 200) return parseRoute(text, options.polyline === true);
       last = { ok: false, code: routeFailure(res.status, text) };
       if (res.status < 500) return last;
     } catch (err) {

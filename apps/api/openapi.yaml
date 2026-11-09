@@ -11386,30 +11386,34 @@ paths:
     get:
       tags: [ 官网 ]
       operationId: searchSitePlaces
-      summary: 地址搜索（关键字 + 城市 → 候选地点）
+      summary: 地址搜索（关键字 → 候选地点；可以不带城市）
       description: |
-        M3-12，ADR 0044。服务端以平台的谷歌地图密钥调 Places API (New) 的 Text Search（密钥不进浏览器），只要名称、地址、坐标，
-        只要城市中心周围 80 公里以内的结果，最多 5 条，中文。关键字先规范化（全角转半角、空白并成一个），规范化后 2–100 个字。
-        同一城市同一关键字 10 分钟内在服务端直接复用（进程内短时缓存，谷歌的名称、地址不存库）。
-        谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和反查合计）、出错、超时时**不报错**：200 + `available: false`，页面退回「从常用地点选」、地图点选和手填。
-        城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次、每天 300 次（和反查合计）。
+        M3-12，ADR 0044；M8-02 起（ADR 0069 A2）城市可以不带、候选带类型、平台的地点排在最前。
+        **平台的地点在前**：平台主数据里名字（各语言）或编码匹配关键字的启用的机场、航站楼、车站（`source: platform`，最多 5 个，带坐标），不依赖谷歌也能搜到机场。
+        **谷歌的在后**（`source: google`）：服务端以平台的谷歌地图密钥调 Places API (New) 的 Text Search（密钥不进浏览器），只要名称、地址、坐标、主类型，最多 5 条，中文。
+        带 `city_id`：只要城市中心周围 80 公里以内的；不带：只要渠道授权的城市（各自周围 80 公里）里的，授权的只有一个国家时按它做 `regionCode`。
+        `kind`：机场（谷歌的主类型是机场，或平台的机场、航站楼）为 `airport`，其余 `other`——按两个坐标报价时用它认机场。
+        关键字先规范化（全角转半角、空白并成一个），规范化后 2–100 个字。同一范围同一关键字 10 分钟内在服务端直接复用（进程内短时缓存，谷歌的名称、地址不存库）。
+        谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和反查、输入即提示合计）、出错、超时时**不报错**：200 + `available: false`，`items` 只有平台的地点，页面退回「从常用地点选」、地图点选和手填。
+        带了城市、而城市不存在、停用或不在官网渠道的授权里 400 `UNKNOWN_CITY`。每个地址每分钟 20 次、每天 300 次（和反查、输入即提示合计）。
       parameters:
         - name: city_id
           in: query
-          required: true
+          required: false
           schema:
             type: string
             format: uuid
+          description: 只在这个城市附近搜；不带时在官网渠道授权的全部城市里搜
         - name: q
           in: query
           required: true
           schema:
             type: string
             maxLength: 400
-          description: 关键字（酒店名、地址、地标），规范化后 2–100 个字（`TOO_SHORT` / `TOO_LONG`）
+          description: 关键字（酒店名、地址、地标、机场），规范化后 2–100 个字（`TOO_SHORT` / `TOO_LONG`）
       responses:
         "200":
-          description: 候选地点；`available` 为 false 时这次用不了（`items` 为空）
+          description: 候选地点（平台的在前）；`available` 为 false 时谷歌这次用不了（`items` 只有平台的地点）
           content:
             application/json:
               schema:
@@ -11421,9 +11425,131 @@ paths:
                     type: boolean
                   items:
                     type: array
-                    maxItems: 5
+                    maxItems: 10
                     items:
                       $ref: "#/components/schemas/SitePlaceCandidate"
+        "400":
+          description: "`VALIDATION_FAILED`：关键字太短 / 太长（`TOO_SHORT` / `TOO_LONG`）、城市（`UNKNOWN_CITY`）、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/places/autocomplete:
+    get:
+      tags: [ 官网 ]
+      operationId: autocompleteSitePlaces
+      summary: 地址输入即提示（每输入几个字给一次候选）
+      description: |
+        M8-02，ADR 0069 B1。页面防抖 300 毫秒、至少 2 个字才查；一次「输入 → 选中」用同一个会话令牌 `session`（浏览器生成，推荐 UUID），谷歌按会话计费。
+        平台的机场、航站楼、车站在前（`source: platform`，带坐标，规则同地址搜索）；谷歌的候选在后（`source: google`，Places API (New) Autocomplete，后端代调、密钥不进浏览器），
+        **还没有坐标**（`location: null`），客人选中后用 `GET /site/v1/places/details` 带同一个 `session` 取坐标和类型。谷歌只给官网渠道授权的国家、授权城市合起来的范围里的。
+        同一关键字 10 分钟内在服务端直接复用（不分会话）。谷歌没配置、到了每日上限（`GOOGLE_PLACES_DAILY_LIMIT`，和搜索、反查合计）、出错时 200 + `available: false`，只有平台的地点。
+        每个地址每分钟 60 次（和取坐标合计），每天 300 次（和搜索、反查合计）。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 400
+          description: 已经输入的文字，规范化后 2–100 个字（`TOO_SHORT` / `TOO_LONG`）
+        - name: session
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]{16,36}$"
+          description: 会话令牌（16–36 个字母、数字、下划线或连字符；推荐 UUID）。同一次「输入 → 选中」用同一个
+      responses:
+        "200":
+          description: 候选（平台的在前）；`available` 为 false 时谷歌这次用不了（`items` 只有平台的地点）
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, items ]
+                properties:
+                  available:
+                    type: boolean
+                  items:
+                    type: array
+                    maxItems: 10
+                    items:
+                      $ref: "#/components/schemas/SitePlaceSuggestion"
+        "400":
+          description: "`VALIDATION_FAILED`：关键字太短 / 太长、会话令牌的格式、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/places/details:
+    get:
+      tags: [ 官网 ]
+      operationId: getSitePlaceDetails
+      summary: 输入即提示选中的谷歌地点的坐标和类型
+      description: |
+        M8-02，ADR 0069 B1。用输入即提示给的谷歌地点 ID 和同一个会话令牌调 Place Details（只要地址、坐标、类型；Essentials 一档）。名称用输入即提示给的。
+        同一个地点 10 分钟内在服务端直接复用。谷歌用不了时 200 + `available: false`、`place` 为 null（页面退回常用地点、地图点选和手填）。
+        每个地址每分钟 60 次（和输入即提示合计），每天 300 次（和搜索、反查合计）。
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]{1,300}$"
+          description: "输入即提示里 `source: google` 的候选的 `id`"
+        - name: session
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: "^[A-Za-z0-9_-]{16,36}$"
+          description: 和输入即提示同一个会话令牌（不给按单次计费）
+      responses:
+        "200":
+          description: 这个地点的地址、坐标、类型
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ available, place ]
+                properties:
+                  available:
+                    type: boolean
+                  place:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, address, location, kind ]
+                        properties:
+                          id:
+                            type: string
+                          address:
+                            type: string
+                            maxLength: 240
+                            description: 谷歌给的地址；没有时为空字符串
+                          location:
+                            $ref: "#/components/schemas/SitePoint"
+                          kind:
+                            $ref: "#/components/schemas/SitePlaceKind"
+        "400":
+          description: "`VALIDATION_FAILED`：地点 ID、会话令牌的格式、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
         "503":
@@ -11518,6 +11644,115 @@ paths:
                       $ref: "#/components/schemas/SiteUnavailable"
         "400":
           description: "`VALIDATION_FAILED`：城市（`UNKNOWN_CITY`）、机场（`UNKNOWN_PLACE`：不存在、停用或不在这个城市）、用车时间（`INVALID_FORMAT`）、这个品类该填的没填（`REQUIRED`）或不该填的填了（`NOT_APPLICABLE`）等"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: "`CHANNEL_SCOPE_DENIED`：这个城市或品类官网不卖"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/quotes/by-points:
+    post:
+      tags: [ 官网 ]
+      operationId: createSiteQuotesByPoints
+      summary: 按两个坐标报价（自动认机场和接机 / 送机 / 点对点）
+      description: |
+        M8-02，ADR 0069 A1。客人只给出发地、目的地两个地址（坐标 + 地址搜索给的类型）、用车时间（当地；接机是航班落地时间）、人数、行李。服务端：
+        1. **认机场**：一端离某个启用的机场（渠道授权、能卖接送机的城市里的）不超过 3 公里，或地址搜索说它是机场（`kind: airport`）且不超过 10 公里；几个机场都在范围里取最近的；
+        2. **判断方向**：出发地是机场 → 接机（`pickup`）；目的地是机场 → 送机（`dropoff`）；两端都是机场 → 按出发地算接机；两端都不是 → 点对点，按出发地落在哪个能订点对点的城市（中心周围 80 公里，取最近）报价；
+        3. 组装成 `POST /site/v1/quotes` 同样的请求、走**同一个**询价（价格规则、区域、比价、30 分钟报价快照、取消政策都不变），按价格从低到高排；
+        4. 顺带用路线预估（谷歌 Routes，ADR 0042）算出发地到目的地的行车时间、距离和路线折线（`route`；同一对坐标 10 分钟内复用，受 `GOOGLE_ROUTES_DAILY_LIMIT` 限制）。取不到为 null，不影响报价。
+        报不出价时 `quotes` 为空，原因在 `unavailable`（现有的面向客人的原因：时间太近 `LEAD_TIME_TOO_SHORT`、人数太多 `CAPACITY_EXCEEDED`、地址不在服务范围 `OUT_OF_SERVICE_AREA` 等）。
+        点对点的出发地不在任何能订的城市里时 `city` 为 null、原因是 `OUT_OF_SERVICE_AREA`。包车不走这个接口（用 `POST /site/v1/quotes`）。
+        **没有中标供应商、结算价、加价比例。** 地址的名称只做校验，不进询价日志。和询价共用每个地址每分钟 30 次。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteByPointsRequest"
+      responses:
+        "200":
+          description: 识别结果、各车型组的报价（价低的在前）、报不出价的原因、路线
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ trip_type, airport, city, currency, quotes, unavailable, expires_at, route ]
+                properties:
+                  trip_type:
+                    type: string
+                    enum: [ pickup, dropoff, point_to_point ]
+                    description: pickup 接机（机场 → 地址）/ dropoff 送机（地址 → 机场）/ point_to_point 点对点
+                  airport:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, matched_by, distance_meters ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          matched_by:
+                            type: string
+                            enum: [ distance, kind ]
+                            description: distance 离机场 3 公里以内；kind 地址搜索说是机场、10 公里以内
+                          distance_meters:
+                            type: integer
+                            minimum: 0
+                            description: 这一端离机场坐标多远（米）
+                    description: 识别到的机场（接机是出发地那一端，送机是目的地那一端）；点对点为 null
+                  city:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [ id, code, name, timezone ]
+                        properties:
+                          id:
+                            type: string
+                            format: uuid
+                          code:
+                            type: string
+                          name:
+                            $ref: "#/components/schemas/LocalizedText"
+                          timezone:
+                            type: string
+                    description: 按哪个城市报的价；点对点的出发地不在任何能订的城市里时为 null
+                  currency:
+                    type: string
+                  quotes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteQuote"
+                    description: 按价格从低到高（一样时座位少的在前）
+                  unavailable:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SiteUnavailable"
+                  expires_at:
+                    type: [ string, "null" ]
+                    format: date-time
+                    description: 最早到期的那个报价的有效期；没有报价为 null
+                  route:
+                    oneOf:
+                      - type: "null"
+                      - $ref: "#/components/schemas/SiteRoutePreview"
+        "400":
+          description: "`VALIDATION_FAILED`：坐标、地址名称、用车时间（`INVALID_FORMAT`：格式不对或这个城市里不存在的当地时间）、人数、多余的字段"
           content:
             application/json:
               schema:
@@ -25021,24 +25256,118 @@ components:
           description: 地标的地址（主数据里有才有）
         location:
           $ref: "#/components/schemas/SitePoint"
+    SitePlaceKind:
+      type: string
+      enum: [ airport, other ]
+      description: airport 机场（谷歌的类型是机场，或平台的机场、航站楼）/ other 其他。按两个坐标报价时用它认机场（M8-02）
     SitePlaceCandidate:
       type: object
       additionalProperties: false
-      required: [ id, name, address, location ]
-      description: 地址搜索的一个候选（谷歌地图 Places API (New)，名称和地址按谷歌给的中文写法，清理过空白、截短过）
+      required: [ source, id, name, address, location, kind ]
+      description: 地址搜索的一个候选：平台主数据的机场、航站楼、车站（排在前面），或谷歌地图 Places API (New) 给的地点（名称和地址按谷歌给的中文写法，清理过空白、截短过）
       properties:
+        source:
+          type: string
+          enum: [ platform, google ]
         id:
           type: string
-          description: 谷歌的地点 ID，只用来区分候选
+          description: 平台地点的编号，或谷歌的地点 ID（只用来区分候选）
         name:
           type: string
-          maxLength: 120
+          maxLength: 240
         address:
           type: string
           maxLength: 240
-          description: 谷歌给的地址；没有时为空字符串
+          description: 谷歌给的地址；平台的机场、车站和谷歌没给地址的为空字符串
         location:
           $ref: "#/components/schemas/SitePoint"
+        kind:
+          $ref: "#/components/schemas/SitePlaceKind"
+    SitePlaceSuggestion:
+      type: object
+      additionalProperties: false
+      required: [ source, id, name, address, location, kind ]
+      description: 输入即提示的一个候选（M8-02）：平台的地点带坐标；谷歌的还没有坐标（`location` 为 null），选中后用 `GET /site/v1/places/details` 取
+      properties:
+        source:
+          type: string
+          enum: [ platform, google ]
+        id:
+          type: string
+          description: 平台地点的编号，或谷歌的地点 ID（取坐标时用）
+        name:
+          type: string
+          maxLength: 240
+        address:
+          type: string
+          maxLength: 240
+          description: 谷歌给的地址的第二行（城市、区等）；平台的地点为空字符串
+        location:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SitePoint"
+        kind:
+          $ref: "#/components/schemas/SitePlaceKind"
+    SiteTripEnd:
+      type: object
+      additionalProperties: false
+      required: [ name, lat, lng ]
+      description: 按两个坐标报价的一端（M8-02）
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: 客人看到的地址文字（只做校验，不进询价日志；下单时照旧在订单里填地址）
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        kind:
+          $ref: "#/components/schemas/SitePlaceKind"
+    SiteByPointsRequest:
+      type: object
+      additionalProperties: false
+      required: [ pickup, dropoff, service_local, passengers ]
+      properties:
+        pickup:
+          $ref: "#/components/schemas/SiteTripEnd"
+        dropoff:
+          $ref: "#/components/schemas/SiteTripEnd"
+        service_local:
+          type: string
+          pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+          description: 当地的用车时间（接机是航班落地时间）
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 60
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 0
+    SiteRoutePreview:
+      type: object
+      additionalProperties: false
+      required: [ minutes, meters, polyline ]
+      description: 出发地到目的地的行车路线（谷歌 Routes，不考虑实时路况；M8-02，ADR 0069 B11）。只用来给客人看「约 X 分钟 · Y 公里」和在底图上画路线，不影响价格
+      properties:
+        minutes:
+          type: integer
+          minimum: 0
+          description: 约多少分钟（四舍五入）
+        meters:
+          type: integer
+          minimum: 0
+        polyline:
+          type: [ string, "null" ]
+          maxLength: 30000
+          description: 路线折线（谷歌的 encoded polyline，精度 5 位）；取不到为 null
     SiteQuoteRequest:
       type: object
       additionalProperties: false

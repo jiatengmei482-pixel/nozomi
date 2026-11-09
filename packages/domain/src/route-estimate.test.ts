@@ -14,6 +14,7 @@ import {
   routeMinutesFromSeconds,
   routeUsageDay,
   routeValuesUsable,
+  isEncodedPolyline,
 } from "./route-estimate.ts";
 
 test("坐标取整：3 位小数、四舍五入、离 0 远的方向进位，不受二进制误差影响", () => {
@@ -119,4 +120,15 @@ test("缓存过期：成功的 7 天，失败的 1 天", () => {
   const now = new Date("2026-10-26T00:00:00.000Z");
   assert.equal(routeCacheExpiry(now, true).toISOString(), "2026-11-02T00:00:00.000Z");
   assert.equal(routeCacheExpiry(now, false).toISOString(), "2026-10-27T00:00:00.000Z");
+});
+
+test("M8-02：路线折线只认谷歌 encoded polyline 的字符（ASCII 63–126），不超过上限；给客人看的路线在进程内留 10 分钟", () => {
+  assert.ok(isEncodedPolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@"));
+  assert.ok(!isEncodedPolyline(""));
+  assert.ok(!isEncodedPolyline("abc def"), "空格不在字符集里");
+  assert.ok(!isEncodedPolyline("abc<script>"), "< 不在字符集里");
+  assert.ok(!isEncodedPolyline("a".repeat(ROUTE_RULES.polylineMaxLength + 1)));
+  assert.ok(isEncodedPolyline("a".repeat(ROUTE_RULES.polylineMaxLength)));
+  assert.ok(!isEncodedPolyline(42));
+  assert.equal(ROUTE_RULES.previewCacheTtlMs, 10 * 60_000);
 });

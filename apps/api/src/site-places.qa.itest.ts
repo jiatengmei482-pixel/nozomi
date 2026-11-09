@@ -108,7 +108,7 @@ const adminKeys: string[] = [];
 const TOKYO_CENTER = { lng: 139.6917, lat: 35.6895 };
 
 const googleEnv = (): Record<string, string> => ({ GOOGLE_PLACES_SEARCH_URL: `${origin}/v1/places:searchText`, GOOGLE_GEOCODE_URL: `${origin}/v4beta/geocode/location`, GOOGLE_MAPS_API_KEY: "" });
-/** 默认不缓存（ADR 0053）；这些用例测的是缓存机制本身，明确给一个时长 */
+/** 这些用例测的是缓存机制本身，明确给一个时长（默认也是 10 分钟，ADR 0069） */
 const CACHE_MECHANISM_TTL_MS = 10 * 60_000;
 const openSite = async (env: Record<string, string> = {}, deps: Parameters<typeof siteApi>[4] = {}, clientId = siteClientId): Promise<SiteApi> => {
   const app = await siteApi(api, clientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, placeCacheTtlMs: CACHE_MECHANISM_TTL_MS, logDestination: { write: (line) => void (logs += line) }, ...deps });
@@ -162,6 +162,8 @@ function service(options: { now: () => Date; search?: SearchFn; dailyLimit?: num
     dailyLimit: options.dailyLimit ?? 1_000_000,
     search: options.search ?? (async () => ({ ok: true, value: [] })),
     reverse: async (_key, _point, _region, beforeAttempt) => ((await beforeAttempt()) ? { ok: true, value: "替身地址" } : { ok: false, code: "DAILY_LIMIT_REACHED" }),
+    autocomplete: async () => ({ ok: false, code: "UNREACHABLE" }),
+    details: async () => ({ ok: false, code: "UNREACHABLE" }),
     log: { warn: (obj, msg) => void warnings.push({ obj, msg }) },
     cacheTtlMs: options.cacheTtlMs ?? CACHE_MECHANISM_TTL_MS,
   });
@@ -195,15 +197,20 @@ async function withMonotonic<T>(start: number, fn: (set: (ms: number) => void) =
   }
 }
 
-test("默认不缓存结果（ADR 0053，谷歌条款）：同一个关键字问两次，调两次谷歌；并发的才只调一次", async () => {
-  assert.equal(PLACE_SEARCH_RULES.cacheTtlMs, 0);
+test("默认缓存 10 分钟（ADR 0069，业主 2026-11-09 确认；原 ADR 0053 为 0）：同一个关键字问两次只调一次谷歌；缓存时长设成 0 时只留「并发只调一次」", async () => {
+  assert.equal(PLACE_SEARCH_RULES.cacheTtlMs, 10 * 60_000);
   const google = counting();
   const places = service({ now: () => new Date("2030-09-02T03:00:00.000Z"), search: google.search, cacheTtlMs: PLACE_SEARCH_RULES.cacheTtlMs, apiKey: () => "AIzaQaNoCacheDefault00000000001" });
   await ask(places, "渋谷 ホテル");
   await ask(places, "渋谷 ホテル");
-  assert.equal(google.calls(), 2);
-  await Promise.all([ask(places, "新宿 ホテル"), ask(places, "新宿 ホテル"), ask(places, "新宿 ホテル")]);
-  assert.equal(google.calls(), 3);
+  assert.equal(google.calls(), 1);
+  const strict = counting();
+  const noCache = service({ now: () => new Date("2030-09-02T03:00:00.000Z"), search: strict.search, cacheTtlMs: 0, apiKey: () => "AIzaQaNoCacheDefault00000000002" });
+  await ask(noCache, "渋谷 ホテル");
+  await ask(noCache, "渋谷 ホテル");
+  assert.equal(strict.calls(), 2);
+  await Promise.all([ask(noCache, "新宿 ホテル"), ask(noCache, "新宿 ホテル"), ask(noCache, "新宿 ホテル")]);
+  assert.equal(strict.calls(), 3);
 });
 
 test("每日上限按东京日期：东京 23:59:59.999 还算当天（已满、被挡下、不调用），东京 0 点整换新的一天、从 1 开始计（和路线的表无关）", async () => {
@@ -278,6 +285,8 @@ test("每日上限含重试：上限 3，两个关键字同时搜、谷歌每次
     dailyLimit: 3,
     search: (apiKey, request, beforeAttempt) => searchPlaces(apiKey, request, { url: `${origin}/v1/places:searchText`, beforeAttempt }),
     reverse: async () => ({ ok: false, code: "UNREACHABLE" }),
+    autocomplete: async () => ({ ok: false, code: "UNREACHABLE" }),
+    details: async () => ({ ok: false, code: "UNREACHABLE" }),
     log: { warn: () => undefined },
   });
   await Promise.all([ask(places, "重试 一"), ask(places, "重试 二")]);

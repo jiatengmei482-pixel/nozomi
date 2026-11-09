@@ -28,6 +28,8 @@ export const SALES_RATE_LIMITS = {
   site_link_email_day: VIEW_LINK_REQUEST_LIMITS.emailDay,
   /** 官网的地址搜索和反查（ADR 0044，每次可能花钱调谷歌）：每个地址每分钟 20 次 */
   site_places: { max: 20, windowMs: 60_000 },
+  /** 官网的输入即提示和选中后取坐标（M8-02，ADR 0069 B1）：每输入几个字就调一次，每个地址每分钟 60 次；每天的额度和搜索、反查共用 `site_places_day` */
+  site_autocomplete: { max: 60, windowMs: 60_000 },
   /** 同上，每个地址每天 300 次：一个人刷不光全站的每日上限 */
   site_places_day: { max: 300, windowMs: 86_400_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */

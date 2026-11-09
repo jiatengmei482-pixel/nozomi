@@ -197,6 +197,8 @@ const rawSchema = z.object({
   // 「测试一下」、路线、地址搜索、反查和收款连到哪里（ADR 0041、0044）：只给本机和 CI 的测试用（指到本机的假服务器），staging / production 不能改
   GOOGLE_MAPS_ROUTES_URL: optionalString,
   GOOGLE_PLACES_SEARCH_URL: optionalString,
+  GOOGLE_PLACES_AUTOCOMPLETE_URL: optionalString,
+  GOOGLE_PLACE_DETAILS_URL: optionalString,
   GOOGLE_GEOCODE_URL: optionalString,
   STRIPE_API_URL: optionalString,
 
@@ -278,6 +280,10 @@ export interface IntegrationEndpoints {
   googleMapsRoutesUrl: string;
   /** 谷歌 Places API (New) 的 Text Search 地址（官网地址搜索，ADR 0044） */
   googlePlacesSearchUrl: string;
+  /** 谷歌 Places API (New) 的 Autocomplete 地址（官网输入即提示，M8-02，ADR 0069） */
+  googlePlacesAutocompleteUrl: string;
+  /** 谷歌 Places API (New) 的 Place Details 地址前缀（后面接 `/地点ID`，M8-02） */
+  googlePlaceDetailsUrl: string;
   /** 谷歌 Geocoding API 反查的地址前缀（后面接 `/纬度,经度`，ADR 0044） */
   googleGeocodeUrl: string;
   /** Stripe 接口的主机；null = Stripe 官方地址 */
@@ -420,6 +426,8 @@ function parseSmtp(env: z.output<typeof rawSchema>, issues: string[]): SmtpSetti
 const DEFAULT_GOOGLE_MAPS_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 const DEFAULT_GOOGLE_PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
 const DEFAULT_GOOGLE_GEOCODE_URL = "https://geocode.googleapis.com/v4beta/geocode/location";
+const DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete";
+const DEFAULT_GOOGLE_PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
 
 /**
  * 「测试一下」和收款连到哪里（ADR 0041）。正式的地址是默认值；只有 local / ci 可以改到本机的假服务器上（端到端测试用），
@@ -430,7 +438,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   const routesUrl = env.GOOGLE_MAPS_ROUTES_URL ?? DEFAULT_GOOGLE_MAPS_ROUTES_URL;
   if (routesUrl !== DEFAULT_GOOGLE_MAPS_ROUTES_URL && !local) issues.push(`${env.APP_ENV} 环境不能修改 GOOGLE_MAPS_ROUTES_URL（只给本机和 CI 的测试用）`);
   if (!URL.canParse(routesUrl)) issues.push("GOOGLE_MAPS_ROUTES_URL 不是合法的网址");
-  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_GEOCODE_URL", fallback: string): string => {
+  const fixed = (name: "GOOGLE_PLACES_SEARCH_URL" | "GOOGLE_PLACES_AUTOCOMPLETE_URL" | "GOOGLE_PLACE_DETAILS_URL" | "GOOGLE_GEOCODE_URL", fallback: string): string => {
     const value = env[name] ?? fallback;
     if (value !== fallback && !local) issues.push(`${env.APP_ENV} 环境不能修改 ${name}（只给本机和 CI 的测试用）`);
     if (!URL.canParse(value)) issues.push(`${name} 不是合法的网址`);
@@ -438,6 +446,8 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   };
   const placesSearchUrl = fixed("GOOGLE_PLACES_SEARCH_URL", DEFAULT_GOOGLE_PLACES_SEARCH_URL);
   const geocodeUrl = fixed("GOOGLE_GEOCODE_URL", DEFAULT_GOOGLE_GEOCODE_URL);
+  const autocompleteUrl = fixed("GOOGLE_PLACES_AUTOCOMPLETE_URL", DEFAULT_GOOGLE_PLACES_AUTOCOMPLETE_URL);
+  const detailsUrl = fixed("GOOGLE_PLACE_DETAILS_URL", DEFAULT_GOOGLE_PLACE_DETAILS_URL);
   let stripeApi: IntegrationEndpoints["stripeApi"] = null;
   if (env.STRIPE_API_URL !== undefined) {
     if (!local) issues.push(`${env.APP_ENV} 环境不能配置 STRIPE_API_URL（只给本机和 CI 的测试用）`);
@@ -448,7 +458,7 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
       stripeApi = { host: url.hostname, port: url.port === "" ? (protocol === "https" ? 443 : 80) : Number(url.port), protocol };
     }
   }
-  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googleGeocodeUrl: geocodeUrl, stripeApi };
+  return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, stripeApi };
 }
 
 /** 从环境变量构建配置；有任何问题都抛出 ConfigError，列出全部问题。 */

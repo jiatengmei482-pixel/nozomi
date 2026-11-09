@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -33,7 +33,10 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/cities/{id}/places`],
     ["get", `${SITE_BASE}/places/search`],
     ["get", `${SITE_BASE}/places/reverse`],
+    ["get", `${SITE_BASE}/places/autocomplete`],
+    ["get", `${SITE_BASE}/places/details`],
     ["post", `${SITE_BASE}/quotes`],
+    ["post", `${SITE_BASE}/quotes/by-points`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
   ];
@@ -103,9 +106,42 @@ test("地址搜索、反查（M3-12）：应答只有 available 和候选 / 地�
   const spec200 = (path: string): Schema | undefined => (spec.paths[path]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
   assert.deepEqual(props(spec200(`${SITE_BASE}/places/search`)), ["available", "items"]);
   assert.deepEqual(props(spec200(`${SITE_BASE}/places/reverse`)), ["address", "available"]);
-  assert.deepEqual(props(schemas["SitePlaceCandidate"]), ["address", "id", "location", "name"]);
+  assert.deepEqual(props(schemas["SitePlaceCandidate"]), ["address", "id", "kind", "location", "name", "source"]);
   for (const schema of [spec200(`${SITE_BASE}/places/search`), spec200(`${SITE_BASE}/places/reverse`), schemas["SitePlaceCandidate"], schemas["SiteConfig"]]) {
     assert.deepEqual(props(schema).filter((key) => /key|secret|token|google|raw/i.test(key)), []);
   }
   assert.equal(schemas["SiteConfig"]?.properties?.["map_tiles"]?.$ref, "#/components/schemas/MapConfig/properties/tiles");
+});
+
+test("按两个坐标报价、输入即提示（M8-02）：请求和应答的字段与 openapi.yaml 一致；应答里没有结算价、加价比例、中标供应商，也没有像密钥、谷歌原文的字段", () => {
+  const post200 = (path: string): Schema | undefined => (spec.paths[path]?.["post"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
+  const get200 = (path: string): Schema | undefined => (spec.paths[path]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
+  assert.deepEqual(props(schemas["SiteByPointsRequest"]), sorted(SITE_BY_POINTS_REQUEST_FIELDS));
+  assert.deepEqual(props(schemas["SiteTripEnd"]), sorted(SITE_TRIP_END_FIELDS));
+  const result = post200(`${SITE_BASE}/quotes/by-points`);
+  assert.deepEqual(props(result), sorted(SITE_BY_POINTS_RESULT_FIELDS));
+  assert.deepEqual(sorted(result?.required ?? []), sorted(SITE_BY_POINTS_RESULT_FIELDS));
+  assert.deepEqual(result?.properties?.["trip_type"]?.enum, ["pickup", "dropoff", "point_to_point"]);
+  assert.deepEqual(props(get200(`${SITE_BASE}/places/autocomplete`)), ["available", "items"]);
+  assert.deepEqual(props(get200(`${SITE_BASE}/places/details`)), ["available", "place"]);
+  assert.deepEqual(schemas["SitePlaceKind"]?.enum, ["airport", "other"]);
+  const keys = new Set<string>();
+  const walk = (schema: Schema | undefined, seen: Set<string>): void => {
+    if (schema === undefined) return;
+    if (schema.$ref !== undefined) {
+      const name = schema.$ref.replace("#/components/schemas/", "");
+      if (seen.has(name)) return;
+      walk(schemas[name], new Set([...seen, name]));
+      return;
+    }
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      keys.add(key);
+      walk(child, seen);
+    }
+    walk(schema.items, seen);
+    for (const option of schema.oneOf ?? []) walk(option, seen);
+  };
+  for (const schema of [result, get200(`${SITE_BASE}/places/autocomplete`), get200(`${SITE_BASE}/places/details`)]) walk(schema, new Set());
+  assert.ok(keys.has("route") && keys.has("polyline") && keys.has("kind"));
+  assert.deepEqual([...keys].filter((key) => /settlement|markup|tenant_id|secret|key$|token|google|raw/i.test(key)), []);
 });

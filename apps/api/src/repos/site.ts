@@ -220,3 +220,83 @@ export async function findChannelOrderByNo(db: Db, channelId: string, orderNo: s
   ).rows[0];
   return row === undefined ? null : { orderId: row.id, tenantId: row.tenant_id, passengerEnc: row.passenger_enc, passengerPlain: row.passenger, emailBidx: row.passenger_email_bidx, phoneBidx: row.passenger_phone_bidx, serviceAt: row.service_at, anonymized: row.passenger_anonymized_at !== null };
 }
+
+/** 官网能用的城市的基本信息（M8-02：不带城市的地址搜索、输入即提示、按两个坐标报价）。`ids` 为 null = 全部启用的城市。 */
+export interface SiteCityInfo {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  timezone: string;
+  countryCode: string;
+  center: { lat: number; lng: number };
+}
+
+export async function listActiveCities(db: Db, ids: readonly string[] | null): Promise<SiteCityInfo[]> {
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; center_lat: string; center_lng: string }>(
+    `select id, code, name, timezone, country_code, center_lat, center_lng
+       from cities
+      where status = 'active' and ($1::uuid[] is null or id = any($1::uuid[]))
+      order by code`,
+    [ids],
+  );
+  return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, center: { lat: Number(row.center_lat), lng: Number(row.center_lng) } }));
+}
+
+/** 地址搜索、输入即提示排在最前的平台地点（M8-02）：启用的机场、航站楼（所属机场也启用）、车站，所在城市启用并在 `cityIds` 里。最多这么多行。 */
+export const SUGGESTION_PLACE_LIMIT = 5_000;
+
+export interface SuggestionPlaceRow {
+  id: string;
+  type: "airport" | "terminal" | "station";
+  code: string;
+  name: LocalizedText;
+  parentName: LocalizedText | null;
+  lat: number;
+  lng: number;
+}
+
+export async function listSuggestionPlaces(db: Db, cityIds: readonly string[]): Promise<SuggestionPlaceRow[]> {
+  if (cityIds.length === 0) return [];
+  const rows = await db.query<{ id: string; type: SuggestionPlaceRow["type"]; code: string; name: LocalizedText; parent_name: LocalizedText | null; lat: string; lng: string }>(
+    `select pl.id, pl.type, pl.code, pl.name, parent.name as parent_name, pl.lat, pl.lng
+       from places pl
+       left join places parent on parent.id = pl.parent_id
+       join cities c on c.id = coalesce(pl.city_id, parent.city_id) and c.status = 'active'
+      where pl.status = 'active' and pl.type in ('airport', 'terminal', 'station')
+        and (pl.type <> 'terminal' or parent.status = 'active')
+        and c.id = any($1::uuid[])
+      order by pl.code
+      limit $2`,
+    [cityIds, SUGGESTION_PLACE_LIMIT],
+  );
+  return rows.rows.map((row) => ({ id: row.id, type: row.type, code: row.code, name: row.name, parentName: row.parent_name, lat: Number(row.lat), lng: Number(row.lng) }));
+}
+
+/** 按两个坐标报价认机场用的候选（M8-02）：启用的机场，所在城市启用并在 `cityIds` 里，坐标在 `box` 里（先用外接矩形筛一遍）。 */
+export interface AirportCandidateRow {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  cityId: string;
+  lat: number;
+  lng: number;
+}
+
+export async function listAirportsNear(db: Db, cityIds: readonly string[], boxes: readonly { low: { lat: number; lng: number }; high: { lat: number; lng: number } }[]): Promise<AirportCandidateRow[]> {
+  if (cityIds.length === 0 || boxes.length === 0) return [];
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; city_id: string; lat: string; lng: string }>(
+    `select pl.id, pl.code, pl.name, pl.city_id, pl.lat, pl.lng
+       from places pl
+       join cities c on c.id = pl.city_id and c.status = 'active'
+       join jsonb_to_recordset($2::jsonb) as box(low_lat float8, low_lng float8, high_lat float8, high_lng float8)
+         on pl.lat between box.low_lat and box.high_lat and pl.lng between box.low_lng and box.high_lng
+      where pl.type = 'airport' and pl.status = 'active' and c.id = any($1::uuid[])`,
+    [cityIds, JSON.stringify(boxes.map((box) => ({ low_lat: box.low.lat, low_lng: box.low.lng, high_lat: box.high.lat, high_lng: box.high.lng })))],
+  );
+  const seen = new Set<string>();
+  return rows.rows.flatMap((row) => {
+    if (seen.has(row.id)) return [];
+    seen.add(row.id);
+    return [{ id: row.id, code: row.code, name: row.name, cityId: row.city_id, lat: Number(row.lat), lng: Number(row.lng) }];
+  });
+}

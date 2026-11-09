@@ -36,7 +36,7 @@ const adminKeys: string[] = [];
 let ipSeq = 0;
 const nextIp = (): string => `10.88.${Math.floor(++ipSeq / 200)}.${ipSeq % 200}`;
 const googleEnv = (): Record<string, string> => ({ GOOGLE_PLACES_SEARCH_URL: places.url, GOOGLE_GEOCODE_URL: geocode.url });
-/** 默认不缓存（ADR 0053）；这些用例测的是缓存机制本身，明确给一个时长 */
+/** 这些用例测的是缓存机制本身，明确给一个时长（默认也是 10 分钟，ADR 0069） */
 const CACHE_MECHANISM_TTL_MS = 10 * 60_000;
 const openSite = async (env: Record<string, string> = {}, deps: Parameters<typeof siteApi>[4] = {}): Promise<SiteApi> => {
   const app = await siteApi(api, siteClientId, new FakePaymentProvider(), { ...googleEnv(), ...env }, { integrationSecretsTtlMs: 0, placeCacheTtlMs: CACHE_MECHANISM_TTL_MS, ...deps });
@@ -100,16 +100,16 @@ test("官网配置多了「有没有地址搜索」和底图；城市带中心�
   assert.deepEqual(cities.body.items.find((city: any) => city.id === m.ids.tokyo).center, { lat: TOKYO_CENTER.lat, lng: TOKYO_CENTER.lng });
 });
 
-test("搜索成功：后端调一次谷歌（密钥只在请求头、只要四个字段、只要城市附近、关键字规范化），给候选的名称、地址、坐标", async () => {
+test("搜索成功：后端调一次谷歌（密钥只在请求头、只要五个字段、只要城市附近、关键字规范化），给候选的来源、名称、地址、坐标、类型", async () => {
   reset();
   places.respond({ body: googlePlacesBody([googlePlace("ChIJa", "東京駅", 35.6812, 139.7671, "日本東京都千代田区丸の内1丁目"), googlePlace("ChIJosaka", "大阪", 34.69, 135.5, "大阪")]) });
   const res = await search("  東京駅　ホテル ");
   assertMatchesOpenApi("GET", "/site/v1/places/search", res);
-  assert.deepEqual(res.body, { available: true, items: [{ id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 } }] });
+  assert.deepEqual(res.body, { available: true, items: [{ source: "google", id: "ChIJa", name: "東京駅", address: "日本東京都千代田区丸の内1丁目", location: { lat: 35.6812, lng: 139.7671 }, kind: "other" }] });
   assert.equal(places.requests.length, 1);
   const [request] = places.requests as [FakeService["requests"][number]];
   assert.equal(request.headers["x-goog-api-key"], FAKE_SECRETS.googleMapsApiKey);
-  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location");
+  assert.equal(request.headers["x-goog-fieldmask"], "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType");
   assert.ok(!request.path.includes("AIza") && !request.body.includes("AIza"));
   const bounds = cityBounds(TOKYO_CENTER);
   assert.deepEqual(JSON.parse(request.body), {

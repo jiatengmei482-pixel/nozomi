@@ -137,6 +137,43 @@ export interface SiteQuoteResult {
   unavailable: { vehicle_group_id: string | null; reasons: SiteUnavailableReason[] }[];
 }
 
+/** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：地址文字（只校验）、坐标、地址搜索给的类型（手填、地图选点的不给）。 */
+export interface SiteTripEnd {
+  name: string;
+  lat: number;
+  lng: number;
+  kind?: SitePlaceKind;
+}
+
+export interface SiteByPointsRequest {
+  pickup: SiteTripEnd;
+  dropoff: SiteTripEnd;
+  /** 当地的用车时间 `YYYY-MM-DDTHH:mm`（接机是航班落地时间） */
+  service_local: string;
+  passengers: number;
+  luggage?: number;
+}
+
+/** 出发地到目的地的行车路线（谷歌 Routes，只用来给客人看，不影响价格）。 */
+export interface SiteRoutePreview {
+  minutes: number;
+  meters: number;
+  /** 路线折线（谷歌的 encoded polyline）；取不到为 null */
+  polyline: string | null;
+}
+
+export interface SiteByPointsResult extends SiteQuoteResult {
+  /** pickup 接机 / dropoff 送机 / point_to_point 点对点 */
+  trip_type: "pickup" | "dropoff" | "point_to_point";
+  airport: { id: string; code: string; name: LocalizedText; matched_by: "distance" | "kind"; distance_meters: number } | null;
+  /** 按哪个城市报的价；点对点的出发地不在任何能订的城市里时为 null */
+  city: { id: string; code: string; name: LocalizedText; timezone: string } | null;
+  /** 最早到期的报价的有效期；没有报价为 null */
+  expires_at: string | null;
+  /** 取不到为 null，不影响报价 */
+  route: SiteRoutePreview | null;
+}
+
 export interface SiteOrderRequest {
   quote_id: string;
   passenger: { name: string; phone: string; email: string };
@@ -301,7 +338,9 @@ export interface SiteChangeRequest {
 export const SITE_SCHEMA_FIELDS = {
   SiteConfig: ["open", "currency", "payments", "support_phone", "address_search", "map_tiles"],
   SiteCity: ["id", "code", "name", "timezone", "country_code", "center", "categories"],
-  SitePlaceCandidate: ["id", "name", "address", "location"],
+  SitePlaceCandidate: ["source", "id", "name", "address", "location", "kind"],
+  SitePlaceSuggestion: ["source", "id", "name", "address", "location", "kind"],
+  SiteRoutePreview: ["minutes", "meters", "polyline"],
   SiteAirport: ["id", "code", "name", "location"],
   SiteCharterPackage: ["hours"],
   SitePlace: ["id", "type", "code", "name", "address", "location"],
@@ -321,6 +360,9 @@ export const SITE_ORDER_FIELDS: readonly (keyof SiteOrder)[] = [
   "free_cancel_available", "changes", "extra_charges", "version",
 ];
 
+export const SITE_BY_POINTS_REQUEST_FIELDS: readonly (keyof SiteByPointsRequest)[] = ["pickup", "dropoff", "service_local", "passengers", "luggage"];
+export const SITE_TRIP_END_FIELDS: readonly (keyof SiteTripEnd)[] = ["name", "lat", "lng", "kind"];
+export const SITE_BY_POINTS_RESULT_FIELDS: readonly (keyof SiteByPointsResult)[] = ["trip_type", "airport", "city", "currency", "quotes", "unavailable", "expires_at", "route"];
 export const SITE_QUOTE_REQUEST_FIELDS: readonly (keyof SiteQuoteRequest)[] = ["category", "city_id", "airport_id", "direction", "address", "pickup", "dropoff", "package_hours", "service_local", "passengers", "luggage"];
 export const SITE_ORDER_REQUEST_FIELDS: readonly (keyof SiteOrderRequest)[] = ["quote_id", "passenger", "flight_no", "pickup_address", "dropoff_address", "messaging", "notes", "save_payment_method"];
 
@@ -346,18 +388,43 @@ export function listSitePlaces(cityId: string): Promise<{ items: SitePlace[] }> 
   return apiRequest("GET", `${SITE_BASE}/cities/${encodeURIComponent(cityId)}/places`);
 }
 
-/** 地址搜索的一个候选（谷歌给的名称、地址、坐标）。 */
+/** 地点的类型：airport 机场（谷歌的类型是机场，或平台的机场、航站楼）/ other 其他。按两个坐标报价时用它认机场（M8-02）。 */
+export type SitePlaceKind = "airport" | "other";
+
+/** 地址搜索的一个候选：平台的机场、车站（排在前面）或谷歌给的地点（名称、地址、坐标、类型）。 */
 export interface SitePlaceCandidate {
+  source: "platform" | "google";
   id: string;
   name: string;
   address: string;
   location: { lat: number; lng: number };
+  kind: SitePlaceKind;
 }
 
-/** `available` 为 false：这次用不了（没配置、到了每日上限、谷歌出错），页面退回常用地点、地图和手填。 */
+/** `available` 为 false：谷歌这次用不了（没配置、到了每日上限、谷歌出错），`items` 只有平台的地点；页面退回常用地点、地图和手填。 */
 export interface SitePlaceSearchResult {
   available: boolean;
   items: SitePlaceCandidate[];
+}
+
+/** 输入即提示的一个候选（M8-02）：谷歌的还没有坐标（`location` 为 null），选中后用 `getSitePlaceDetails` 取。 */
+export interface SitePlaceSuggestion {
+  source: "platform" | "google";
+  id: string;
+  name: string;
+  address: string;
+  location: { lat: number; lng: number } | null;
+  kind: SitePlaceKind;
+}
+
+export interface SitePlaceSuggestionResult {
+  available: boolean;
+  items: SitePlaceSuggestion[];
+}
+
+export interface SitePlaceDetailsResult {
+  available: boolean;
+  place: { id: string; address: string; location: { lat: number; lng: number }; kind: SitePlaceKind } | null;
 }
 
 export interface SiteReverseResult {
@@ -366,8 +433,19 @@ export interface SiteReverseResult {
   address: string | null;
 }
 
-export function searchSitePlaces(cityId: string, query: string): Promise<SitePlaceSearchResult> {
-  return apiRequest("GET", `${SITE_BASE}/places/search?city_id=${encodeURIComponent(cityId)}&q=${encodeURIComponent(query)}`);
+/** `cityId` 为 null 时在官网渠道授权的全部城市里搜（M8-02）。 */
+export function searchSitePlaces(cityId: string | null, query: string): Promise<SitePlaceSearchResult> {
+  return apiRequest("GET", `${SITE_BASE}/places/search?${cityId === null ? "" : `city_id=${encodeURIComponent(cityId)}&`}q=${encodeURIComponent(query)}`);
+}
+
+/** 输入即提示：一次「输入 → 选中」用同一个 `session`（如 `crypto.randomUUID()`）。 */
+export function autocompleteSitePlaces(query: string, session: string): Promise<SitePlaceSuggestionResult> {
+  return apiRequest("GET", `${SITE_BASE}/places/autocomplete?q=${encodeURIComponent(query)}&session=${encodeURIComponent(session)}`);
+}
+
+/** 输入即提示选中的谷歌地点的坐标和类型（同一个 `session`）。 */
+export function getSitePlaceDetails(id: string, session: string): Promise<SitePlaceDetailsResult> {
+  return apiRequest("GET", `${SITE_BASE}/places/details?id=${encodeURIComponent(id)}&session=${encodeURIComponent(session)}`);
 }
 
 export function reverseSitePlace(cityId: string, point: { lat: number; lng: number }): Promise<SiteReverseResult> {
@@ -376,6 +454,11 @@ export function reverseSitePlace(cityId: string, point: { lat: number; lng: numb
 
 export function createSiteQuotes(body: SiteQuoteRequest): Promise<SiteQuoteResult> {
   return apiRequest("POST", `${SITE_BASE}/quotes`, { body });
+}
+
+/** 按两个坐标报价（M8-02）：服务端认出机场和接机 / 送机 / 点对点，走同一个询价。 */
+export function createSiteQuotesByPoints(body: SiteByPointsRequest): Promise<SiteByPointsResult> {
+  return apiRequest("POST", `${SITE_BASE}/quotes/by-points`, { body });
 }
 
 /** 下单。`idempotencyKey` 每次「提交」生成一个；网络失败重试用同一个，不会下出两张单。 */

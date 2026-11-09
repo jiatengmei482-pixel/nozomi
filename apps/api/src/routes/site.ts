@@ -9,7 +9,11 @@
  * - `GET /site/v1/cities/{id}/places`：地址输入辅助——城市里的机场、车站、地标（主数据，不调外部地图服务，M3-10）；
  * - `GET /site/v1/places/search`、`GET /site/v1/places/reverse`：地址搜索、地图上那一点的地址（后端代调谷歌，密钥不进浏览器；
  *   每个地址每分钟 20 次、每天 300 次；谷歌出问题时 200 + `available: false`，页面退回常用地点和手填，M3-12，ADR 0044）；
+ *   搜索可以不带城市（渠道授权的范围里搜），候选带类型（机场 / 其他），平台的机场、车站排在最前（M8-02，ADR 0069）；
+ * - `GET /site/v1/places/autocomplete`、`GET /site/v1/places/details`：输入即提示和选中后取坐标（谷歌 Autocomplete / Place Details，同一个会话令牌；
+ *   每个地址每分钟 60 次，和搜索、反查共用每天 300 次，M8-02，ADR 0069 B1）；
  * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
+ * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱，对上了把新链接发到下单邮箱（ADR 0061）。一律 202，不透露订单存不存在；
@@ -21,7 +25,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { MESSAGING_APPS, PRICE_LIMITS, SERVICE_CATEGORIES, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, SERVICE_CATEGORIES, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -29,7 +33,30 @@ import { cancelForChannel, previewCancellation } from "../services/cancellations
 import { disputeExtraCharge } from "../services/extra-charges.ts";
 import { changeForChannel } from "../services/order-changes.ts";
 import { type SalesOrderView, getSalesOrderView, orderPaymentForChannel, reportGuestLanding } from "../services/orders.ts";
-import { type SiteLink, type SiteQuote, type SiteQuoteInput, type SiteTrip, placeSiteOrder, requestSiteOrderLink, resolveSiteLink, siteAirports, siteCharterPackages, siteCities, siteConfig, siteOrderExtras, sitePlaces, siteQuotes, siteReversePlace, siteSearchPlaces, takeSiteSlot } from "../services/site.ts";
+import {
+  type SiteLink,
+  type SitePlaceItem,
+  type SiteQuote,
+  type SiteQuoteInput,
+  type SiteQuoteResult,
+  type SiteTrip,
+  placeSiteOrder,
+  requestSiteOrderLink,
+  resolveSiteLink,
+  siteAirports,
+  siteAutocomplete,
+  siteCharterPackages,
+  siteCities,
+  siteConfig,
+  siteOrderExtras,
+  sitePlaceDetails,
+  sitePlaces,
+  siteQuotes,
+  siteQuotesByPoints,
+  siteReversePlace,
+  siteSearchPlaces,
+  takeSiteSlot,
+} from "../services/site.ts";
 import { salesMoney } from "../services/sales-quotes.ts";
 import { type InputIssue, idempotencyKey, ifMatchVersion, parseInput, passengerInput, resourceId, singleLine, uuidSchema, validationFailed } from "../validation.ts";
 import { changeSchema, disputeSchema, feeJson, salesCancelSchema, salesFeeQuerySchema, toChangeInput } from "./order-actions.ts";
@@ -94,8 +121,44 @@ export function siteTripOf(body: QuoteBody): SiteTrip {
   }
 }
 
-/** 地址搜索：城市 + 关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`）。 */
-const placeSearchSchema = z.object({ city_id: uuidSchema, q: z.string().max(400) }).strict();
+/** 地址搜索：关键字（规范化后 2–100 个字，见 domain 的 `placeQueryIssue`），城市可以不带（M8-02：在渠道授权的范围里搜）。 */
+const placeSearchSchema = z.object({ city_id: uuidSchema.optional(), q: z.string().max(400) }).strict();
+/** 输入即提示：关键字 + 浏览器生成的会话令牌（一次「输入 → 选中」同一个，见 domain 的 `isPlaceSessionToken`）。 */
+const sessionSchema = z.string().refine(isPlaceSessionToken, "会话令牌是 16–36 个字母、数字、下划线或连字符（推荐用 UUID）");
+const placeAutocompleteSchema = z.object({ q: z.string().max(400), session: sessionSchema }).strict();
+/** 输入即提示选中之后：谷歌的地点 ID + 同一个会话令牌（不给也行，按单次计费）。 */
+const placeDetailsSchema = z.object({ id: z.string().refine(isGooglePlaceId, "不是谷歌地点 ID 的格式"), session: sessionSchema.optional() }).strict();
+
+/** 按两个坐标报价的一端：名称（客人看到的地址文字，只校验、不进日志）、坐标、地址搜索给的类型（手填的不给）。 */
+const tripEndSchema = z
+  .object({
+    name: singleLine(300).refine((value) => value.trim() !== "", "请填地址"),
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+    kind: z.enum(PLACE_KINDS).optional(),
+  })
+  .strict();
+const byPointsSchema = z
+  .object({
+    pickup: tripEndSchema,
+    dropoff: tripEndSchema,
+    service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
+    passengers: z.number().int().min(1).max(60),
+    luggage: z.number().int().min(0).max(60).default(0),
+  })
+  .strict();
+
+/** 关键字规范化后核对长短（搜索、输入即提示同一个规则）。 */
+function placeQueryOf(raw: string): string {
+  const query = normalizePlaceQuery(raw);
+  const issue = placeQueryIssue(query);
+  if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
+  return query;
+}
+
+function placeItemJson(item: SitePlaceItem): Json {
+  return { source: item.source, id: item.id, name: item.name, address: item.address, location: item.location === null ? null : { lat: item.location.lat, lng: item.location.lng }, kind: item.kind };
+}
 /** 地图上一个位置：城市 + 坐标。 */
 const placeReverseSchema = z
   .object({
@@ -150,6 +213,10 @@ function quoteJson(quote: SiteQuote): Json {
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
   };
+}
+
+function quoteResultJson(result: SiteQuoteResult): Json {
+  return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
 }
 
 /** 渠道看到的那一份订单，落地信息去掉司机到达屏照片的文件编号（照片只给平台和供应商核对）。 */
@@ -239,11 +306,28 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get("/site/v1/places/search", async (request) => {
     await placeSlot(request);
     const input = parseInput(placeSearchSchema, request.query, "querystring");
-    const query = normalizePlaceQuery(input.q);
-    const issue = placeQueryIssue(query);
-    if (issue !== null) throw validationFailed("querystring", [{ path: "/q", reason: issue, message: issue === "TOO_SHORT" ? "请至少输入 2 个字（字母、数字、汉字或假名），如酒店名、地址" : "关键字太长了，最多 100 个字" }]);
-    const found = await siteSearchPlaces(ctx, input.city_id, query);
-    return { available: found.available, items: found.items.map((item) => ({ id: item.id, name: item.name, address: item.address, location: { lat: item.location.lat, lng: item.location.lng } })) };
+    const found = await siteSearchPlaces(ctx, input.city_id ?? null, placeQueryOf(input.q));
+    return { available: found.available, items: found.items.map(placeItemJson) };
+  });
+
+  /** 输入即提示每输入几个字就调一次（页面防抖 300 毫秒）：每分钟的额度比搜索宽，每天的额度和搜索、反查共用 */
+  const autocompleteSlot = async (request: FastifyRequest): Promise<void> => {
+    await takeSiteSlot(ctx, "site_autocomplete", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_places_day", { ip: request.ip });
+  };
+
+  app.get("/site/v1/places/autocomplete", async (request) => {
+    await autocompleteSlot(request);
+    const input = parseInput(placeAutocompleteSchema, request.query, "querystring");
+    const found = await siteAutocomplete(ctx, placeQueryOf(input.q), input.session);
+    return { available: found.available, items: found.items.map(placeItemJson) };
+  });
+
+  app.get("/site/v1/places/details", async (request) => {
+    await autocompleteSlot(request);
+    const input = parseInput(placeDetailsSchema, request.query, "querystring");
+    const found = await sitePlaceDetails(ctx, input.id, input.session ?? null);
+    return { available: found.available, place: found.place === null ? null : { id: found.place.id, address: found.place.address, location: { lat: found.place.location.lat, lng: found.place.location.lng }, kind: found.place.kind } };
   });
 
   app.get("/site/v1/places/reverse", async (request) => {
@@ -260,8 +344,22 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
     const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage };
-    const result = await siteQuotes(ctx, quoteInput);
-    return { currency: result.currency, quotes: result.quotes.map(quoteJson), unavailable: result.unavailable.map((entry) => ({ vehicle_group_id: entry.vehicleGroupId, reasons: entry.reasons })) };
+    return quoteResultJson(await siteQuotes(ctx, quoteInput));
+  });
+
+  app.post("/site/v1/quotes/by-points", async (request) => {
+    await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
+    const input = parseInput(byPointsSchema, request.body, "body");
+    const end = (value: z.output<typeof tripEndSchema>) => ({ lat: value.lat, lng: value.lng, kind: value.kind ?? null });
+    const result = await siteQuotesByPoints(ctx, { pickup: end(input.pickup), dropoff: end(input.dropoff), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage });
+    return {
+      trip_type: result.tripType,
+      airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters },
+      city: result.city,
+      ...quoteResultJson(result),
+      expires_at: result.expiresAt,
+      route: result.route === null ? null : { minutes: result.route.minutes, meters: result.route.meters, polyline: result.route.polyline },
+    };
   });
 
   app.post("/site/v1/orders", async (request, reply) => {

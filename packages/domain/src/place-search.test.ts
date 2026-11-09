@@ -11,6 +11,13 @@ import {
   placeQueryIssue,
   placeReverseKey,
   placeSearchCacheKey,
+  placeAutocompleteCacheKey,
+  placeDetailsCacheKey,
+  placeKindOfGoogleTypes,
+  isGooglePlaceId,
+  isPlaceSessionToken,
+  regionBounds,
+  inAnyCity,
 } from "./place-search.ts";
 
 test("关键字规范化：全角转半角、控制字符当空白、连续空白并成一个、去掉首尾空白", () => {
@@ -89,4 +96,35 @@ test("给客人看的文字：去掉控制字符、并空白、超长截短加�
   assert.equal(cleanPlaceText("\u0000 ", 10), null);
   assert.equal(cleanPlaceText(42, 10), null);
   assert.equal(cleanPlaceText(undefined, 10), null);
+});
+
+test("M8-02：谷歌的类型 → 机场 / 其他；地点 ID、会话令牌的格式；输入即提示和地点详情的缓存键", () => {
+  assert.equal(placeKindOfGoogleTypes("airport"), "airport");
+  assert.equal(placeKindOfGoogleTypes("international_airport"), "airport");
+  assert.equal(placeKindOfGoogleTypes("lodging"), "other");
+  assert.equal(placeKindOfGoogleTypes(undefined, ["establishment", "airport"]), "airport");
+  assert.equal(placeKindOfGoogleTypes(undefined, ["train_station"]), "other");
+  assert.equal(placeKindOfGoogleTypes(42, "airport"), "other");
+  assert.ok(isGooglePlaceId("ChIJ-abc_123"));
+  assert.ok(!isGooglePlaceId("ChIJ abc") && !isGooglePlaceId("") && !isGooglePlaceId("x".repeat(301)) && !isGooglePlaceId(1));
+  assert.ok(isPlaceSessionToken("3f2c1e9a-5b7d-4c1e-9a2b-1234567890ab"));
+  assert.ok(!isPlaceSessionToken("short") && !isPlaceSessionToken("x".repeat(37)) && !isPlaceSessionToken("3f2c1e9a 5b7d 4c1e 9a2b") && !isPlaceSessionToken(undefined));
+  assert.equal(placeAutocompleteCacheKey("JP", "Hilton Tokyo"), "autocomplete:JP:hilton tokyo");
+  assert.equal(placeDetailsCacheKey("ChIJabc"), "details:ChIJabc");
+});
+
+test("M8-02：短时缓存 10 分钟（业主确认 ADR 0069）", () => {
+  assert.equal(PLACE_SEARCH_RULES.cacheTtlMs, 10 * 60_000);
+});
+
+test("M8-02：几个城市合起来的范围、点在不在某个城市的范围里", () => {
+  const tokyo = { lat: 35.6895, lng: 139.6917 };
+  const osaka = { lat: 34.7, lng: 135.5 };
+  assert.equal(regionBounds([]), null);
+  const both = regionBounds([tokyo, osaka]);
+  assert.ok(both !== null);
+  assert.deepEqual(both, { low: { lat: cityBounds(osaka).low.lat, lng: cityBounds(osaka).low.lng }, high: { lat: cityBounds(tokyo).high.lat, lng: cityBounds(tokyo).high.lng } });
+  assert.ok(inAnyCity({ lat: 35.68, lng: 139.76 }, [tokyo, osaka]));
+  assert.ok(inBounds({ lat: 35.2, lng: 137.5 }, both), "名古屋在外接矩形里");
+  assert.ok(!inAnyCity({ lat: 35.18, lng: 136.9 }, [tokyo, osaka]), "但不在任何一个城市的范围里");
 });

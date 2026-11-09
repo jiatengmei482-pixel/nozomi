@@ -11,20 +11,30 @@
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
+  type AirportMatch,
   type LatLng,
   type LocalizedText,
-  type PlaceCandidate,
+  type PlaceKind,
+  type PointsTripType,
   type ServiceCategory,
+  type TripEnd,
   type VehicleGrade,
   cancellationRuleFor,
   channelScopeRefusal,
   channelSellsTenant,
   cityBounds,
+  classifyPointsTrip,
+  cleanPlaceText,
+  inAnyCity,
   instantToLocal,
   localDateTimeExists,
   localDateTimeToInstant,
   inBounds,
+  platformPlaceDisplayName,
+  platformPlaceSuggestions,
   rateLimitKeyOf,
+  regionBounds,
+  serviceCityOf,
   tenantBids,
   vehicleLevel,
   type PassengerContact,
@@ -59,7 +69,13 @@ import {
   listBookableCharterPackages,
   listBookableCities,
   listCityPlaces,
+  type AirportCandidateRow,
+  type SiteCityInfo,
+  listActiveCities,
+  listAirportsNear,
+  listSuggestionPlaces,
 } from "../repos/site.ts";
+import type { RoutePreview } from "./route-estimates.ts";
 import { validationFailed } from "../validation.ts";
 import { type SalesOrderInput, type SalesOrderPayment, type SalesOrderView, type OrderLog, SILENT_ORDER_LOG, createSiteOrder } from "./orders.ts";
 import { inBackground } from "./background.ts";
@@ -263,17 +279,105 @@ async function sitePlaceCity(ctx: AppContext, cityId: string): Promise<{ country
   return city;
 }
 
-export interface SitePlaceSearchResult {
-  /** false：这次用不了（没配置、到了每日上限、谷歌出错），页面退回常用地点、地图点选和手填 */
-  available: boolean;
-  items: PlaceCandidate[];
+/** 地址搜索、输入即提示的一个候选：平台主数据的机场、车站（排在前面）或谷歌给的地点。 */
+export interface SitePlaceItem {
+  source: "platform" | "google";
+  /** 平台地点的编号，或谷歌的地点 ID */
+  id: string;
+  name: string;
+  /** 地址；平台的机场、车站和谷歌没给地址的为空字符串 */
+  address: string;
+  /** 输入即提示里谷歌的候选还没有坐标（选中后用 `GET /site/v1/places/details` 取），为 null */
+  location: LatLng | null;
+  kind: PlaceKind;
 }
 
-/** 按关键字在城市附近搜地点（关键字已规范化、长短合格）。谷歌出问题不报错，`available: false`。 */
-export async function siteSearchPlaces(ctx: AppContext, cityId: string, query: string): Promise<SitePlaceSearchResult> {
-  const city = await sitePlaceCity(ctx, cityId);
-  const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode });
-  return found.ok ? { available: true, items: found.value } : { available: false, items: [] };
+export interface SitePlaceSearchResult {
+  /** false：谷歌这次用不了（没配置、到了每日上限、谷歌出错），`items` 只有平台的地点；页面退回常用地点、地图点选和手填 */
+  available: boolean;
+  items: SitePlaceItem[];
+}
+
+/** 官网的授权范围（M8-02）：渠道授权的、启用的城市，和它们的缓存键标识（城市编号排序后的哈希）。 */
+interface SiteRegion {
+  cities: SiteCityInfo[];
+  /** 城市所在的国家（去重、排序） */
+  countries: string[];
+  /** 缓存键里的范围标识：授权的城市变了，缓存不串 */
+  scope: string;
+}
+
+async function siteRegion(ctx: AppContext): Promise<SiteRegion> {
+  const { channel } = await requireOpenSite(ctx);
+  const cities = await withPlatformTx(ctx.pool, (db) => listActiveCities(db, channel.scope.cityIds), { snapshot: true });
+  const countries = [...new Set(cities.map((city) => city.countryCode))].sort();
+  const scope = createHash("sha256").update(cities.map((city) => city.id).sort().join(","), "utf8").digest("hex").slice(0, 16);
+  return { cities, countries, scope };
+}
+
+/** 平台地点给客人看的名称最多几个字（航站楼连着机场名，比谷歌的名称长一些） */
+const PLATFORM_NAME_MAX_LENGTH = 240;
+
+/** 平台的机场、航站楼、车站里名字匹配关键字的（最多 5 个），给地址搜索、输入即提示排在最前（不依赖谷歌也能搜到机场）。 */
+async function platformSuggestions(ctx: AppContext, cityIds: readonly string[], query: string): Promise<SitePlaceItem[]> {
+  const rows = await withPlatformTx(ctx.pool, (db) => listSuggestionPlaces(db, cityIds), { snapshot: true });
+  return platformPlaceSuggestions(rows, query).map((row) => ({
+    source: "platform",
+    id: row.id,
+    name: cleanPlaceText(platformPlaceDisplayName(row), PLATFORM_NAME_MAX_LENGTH) ?? row.code,
+    address: "",
+    location: { lat: row.lat, lng: row.lng },
+    kind: row.type === "station" ? "other" : "airport",
+  }));
+}
+
+/**
+ * 按关键字搜地点（关键字已规范化、长短合格）：平台的机场、车站在前，谷歌的结果在后。谷歌出问题不报错，`available: false`、只有平台的地点。
+ * 带城市：城市附近（ADR 0044）；不带城市（M8-02）：渠道授权的几个城市的范围里，授权的只有一个国家时按它做 `regionCode`。
+ */
+export async function siteSearchPlaces(ctx: AppContext, cityId: string | null, query: string): Promise<SitePlaceSearchResult> {
+  const google = (found: { ok: true; value: { id: string; name: string; address: string; location: LatLng; kind: PlaceKind }[] } | { ok: false }): SitePlaceItem[] =>
+    found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: item.location, kind: item.kind })) : [];
+  if (cityId !== null) {
+    const city = await sitePlaceCity(ctx, cityId);
+    const platform = await platformSuggestions(ctx, [cityId], query);
+    const found = await ctx.places.search({ cityId, query, bounds: cityBounds(city.center), regionCode: city.countryCode });
+    return { available: found.ok, items: [...platform, ...google(found)] };
+  }
+  const region = await siteRegion(ctx);
+  const platform = await platformSuggestions(ctx, region.cities.map((city) => city.id), query);
+  const centers = region.cities.map((city) => city.center);
+  const bounds = regionBounds(centers);
+  if (bounds === null) return { available: ctx.places.enabled, items: platform };
+  const found = await ctx.places.search({ cityId: `region-${region.scope}`, query, bounds, regionCode: region.countries.length === 1 ? (region.countries[0] as string) : null, accept: (location) => inAnyCity(location, centers) });
+  return { available: found.ok, items: [...platform, ...google(found)] };
+}
+
+/**
+ * 输入即提示（M8-02，ADR 0069 B1）：平台的机场、车站在前（带坐标），谷歌的候选在后（还没有坐标，选中后取）。
+ * 谷歌只给渠道授权的国家、授权城市合起来的范围里的。谷歌出问题不报错，`available: false`、只有平台的地点。
+ */
+export async function siteAutocomplete(ctx: AppContext, query: string, sessionToken: string): Promise<SitePlaceSearchResult> {
+  const region = await siteRegion(ctx);
+  const platform = await platformSuggestions(ctx, region.cities.map((city) => city.id), query);
+  const bounds = regionBounds(region.cities.map((city) => city.center));
+  if (bounds === null) return { available: ctx.places.enabled, items: platform };
+  const found = await ctx.places.autocomplete({ scope: region.scope, query, sessionToken, regionCodes: region.countries, bounds });
+  const google: SitePlaceItem[] = found.ok ? found.value.map((item) => ({ source: "google", id: item.id, name: item.name, address: item.address, location: null, kind: item.kind })) : [];
+  return { available: found.ok, items: [...platform, ...google] };
+}
+
+export interface SitePlaceDetailsResult {
+  available: boolean;
+  /** 选中的谷歌地点的坐标、地址、类型；谷歌用不了时为 null */
+  place: { id: string; address: string; location: LatLng; kind: PlaceKind } | null;
+}
+
+/** 输入即提示选中的谷歌地点的坐标和类型（同一个会话令牌，谷歌按一次会话计费）。官网要开着；谷歌出问题不报错，`available: false`。 */
+export async function sitePlaceDetails(ctx: AppContext, placeId: string, sessionToken: string | null): Promise<SitePlaceDetailsResult> {
+  await requireOpenSite(ctx);
+  const found = await ctx.places.details({ placeId, sessionToken });
+  return found.ok ? { available: true, place: found.value } : { available: false, place: null };
 }
 
 export interface SiteReverseResult {
@@ -352,8 +456,11 @@ function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId:
   }
 }
 
-/** 官网询价：城市（接送机还有机场）核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称、取消阶梯和包车的套餐公里。 */
-export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promise<SiteQuoteResult> {
+/**
+ * 官网询价：城市（接送机还有机场）核对过、当地时间换成时刻后，走渠道询价（同一个 `createSalesQuotes`），再补上车型组的名称、取消阶梯和包车的套餐公里。
+ * `logExtra` 是询价日志的原始请求里多记的几项（按两个坐标报价记 `mode` 和识别结果，M8-02）；不影响报价。
+ */
+export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtra: Record<string, unknown> = {}): Promise<SiteQuoteResult> {
   const { principal, channel } = await requireOpenSite(ctx);
   const { trip } = input;
   const city = await withPlatformTx(ctx.pool, async (db) => {
@@ -388,7 +495,7 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promis
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
     },
-    { request: sales.request },
+    { request: { ...sales.request, ...logExtra } },
   );
   const { groups, policy, packageKm } = await withPlatformTx(
     ctx.pool,
@@ -409,6 +516,104 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput): Promis
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
   return { currency: channel.settleCurrency, quotes, unavailable: result.unavailable };
+}
+
+/** 按两个坐标报价的一端（M8-02，ADR 0069 A1）：坐标和地址搜索给的类型（手填、地图选点的为 null）。名称只用来校验，不进日志。 */
+export interface SiteByPointsInput {
+  pickup: TripEnd;
+  dropoff: TripEnd;
+  /** 当地的用车时间 `YYYY-MM-DDTHH:mm`（接机是航班落地时间） */
+  serviceLocal: string;
+  passengers: number;
+  luggage: number;
+}
+
+export interface SiteByPointsResult extends SiteQuoteResult {
+  tripType: PointsTripType;
+  /** 识别到的机场（接机是出发地那一端，送机是目的地那一端）；点对点为 null */
+  airport: { id: string; code: string; name: LocalizedText; matchedBy: "distance" | "kind"; meters: number } | null;
+  /** 按哪个城市报的价；点对点的出发地不在任何能订的城市范围里时为 null（`unavailable` 是 `OUT_OF_SERVICE_AREA`） */
+  city: { id: string; code: string; name: LocalizedText; timezone: string } | null;
+  /** 最早到期的报价的有效期；没有报价为 null */
+  expiresAt: string | null;
+  /** 出发地到目的地的行车时间、距离、路线折线（谷歌 Routes，ADR 0069 B11）；取不到为 null，不影响报价 */
+  route: RoutePreview | null;
+}
+
+/** 按两个坐标报价时认机场用的范围：每一端周围这么远（公里）以内的机场先从库里取出来，再按 3 / 10 公里的规则认 */
+const AIRPORT_LOOKUP_KM = 15;
+
+/** 给客人看的路线最多等多久（毫秒）：和报价并行，不拖慢报价太多；超时、出错都当作取不到 */
+const ROUTE_PREVIEW_TIMEOUT_MS = 2_000;
+
+async function routePreviewOrNull(ctx: AppContext, from: LatLng, to: LatLng): Promise<RoutePreview | null> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ROUTE_PREVIEW_TIMEOUT_MS);
+      timer.unref();
+    });
+    const found = await Promise.race([ctx.routePreview.preview({ from, to }).then((lookup) => (lookup.ok ? lookup.route : null)), timeout]);
+    return found;
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** 一端的识别结果（询价日志里记，ADR 0069 A1「询价日志多记识别结果」）：类型、认到的机场、距离、怎么认的。不记名称和坐标以外的东西。 */
+function endLog(end: TripEnd, match: AirportMatch<AirportCandidateRow> | null): Record<string, unknown> {
+  return { lat: end.lat, lng: end.lng, kind: end.kind, airport_id: match?.airport.id ?? null, meters: match?.meters ?? null, matched_by: match?.matchedBy ?? null };
+}
+
+/**
+ * 按两个坐标报价（M8-02，ADR 0069 A1）：认出机场（渠道授权、能卖接送机的城市里启用的机场；3 公里以内，或地址搜索说是机场时 10 公里以内，取最近）、
+ * 判断接机 / 送机 / 点对点，点对点按出发地选城市，然后组装成现有的询价请求、走 `siteQuotes`（和 `POST /site/v1/quotes` 同一条路：价格规则、区域、比价、快照、日志都不变）。
+ * 路线（时间、距离、折线）和报价并行取，取不到为 null。
+ */
+export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInput): Promise<SiteByPointsResult> {
+  const { channel } = await requireOpenSite(ctx);
+  const { airports, cities } = await withPlatformTx(
+    ctx.pool,
+    async (db) => {
+      const active = await listActiveCities(db, channel.scope.cityIds);
+      const transferCities = active.filter((city) => channelScopeRefusal(channel.scope, city.id, "airport_transfer") === null).map((city) => city.id);
+      const boxes = [input.pickup, input.dropoff].map((end) => cityBounds(end, AIRPORT_LOOKUP_KM));
+      return { airports: await listAirportsNear(db, transferCities, boxes), cities: active };
+    },
+    { snapshot: true },
+  );
+  const recognized = classifyPointsTrip(input.pickup, input.dropoff, airports);
+  const { trip } = recognized;
+  const cityOf = (id: string): SiteCityInfo | null => cities.find((city) => city.id === id) ?? null;
+  let city: SiteCityInfo | null;
+  let siteTrip: SiteTrip | null = null;
+  if (trip.tripType === "point_to_point") {
+    // 点对点只在官网能订点对点的城市里找（城市和品类在渠道授权里、有渠道卖的供应商上架了点对点商品）
+    const bookable = (await siteCities(ctx)).filter((candidate) => candidate.categories.includes("point_to_point"));
+    const found = serviceCityOf(trip.pickup, bookable);
+    city = found === null ? null : cityOf(found.id);
+    if (city !== null) siteTrip = { category: "point_to_point", pickup: trip.pickup, dropoff: trip.dropoff };
+  } else {
+    city = cityOf(trip.airport.airport.cityId);
+    siteTrip = { category: "airport_transfer", airportId: trip.airport.airport.id, direction: trip.tripType, address: trip.address };
+  }
+  const airport = trip.tripType === "point_to_point" ? null : { id: trip.airport.airport.id, code: trip.airport.airport.code, name: trip.airport.airport.name, matchedBy: trip.airport.matchedBy, meters: trip.airport.meters };
+  const cityJson = city === null ? null : { id: city.id, code: city.code, name: city.name, timezone: city.timezone };
+  if (city === null || siteTrip === null) {
+    return { tripType: trip.tripType, airport, city: null, currency: channel.settleCurrency, quotes: [], unavailable: [{ vehicleGroupId: null, reasons: ["OUT_OF_SERVICE_AREA"] }], expiresAt: null, route: null };
+  }
+  const logExtra = {
+    mode: "by_points",
+    recognition: { trip_type: trip.tripType, airport_id: airport?.id ?? null, pickup: endLog(input.pickup, recognized.pickupAirport), dropoff: endLog(input.dropoff, recognized.dropoffAirport) },
+  };
+  const [result, route] = await Promise.all([
+    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage }, logExtra),
+    routePreviewOrNull(ctx, { lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }),
+  ]);
+  const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
+  return { ...result, tripType: trip.tripType, airport, city: cityJson, expiresAt, route };
 }
 
 export interface SiteLink {
