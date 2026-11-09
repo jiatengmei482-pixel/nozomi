@@ -12,6 +12,7 @@ export * from "./login-throttle.ts";
 export * from "./email-login.ts";
 export * from "./master-data.ts";
 export * from "./vehicle-label.ts";
+export * from "./fixed-price-includes.ts";
 export * from "./csv.ts";
 export * from "./ourairports.ts";
 export * from "./temporary-password.ts";

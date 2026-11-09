@@ -1,0 +1,506 @@
+/*
+ * 新预订页 /book/new（M8-03，ADR 0069；docs/design/pages/site-booking-v2.md）。官网的通则（字号、控件、区块卡片、吸底按钮）沿用 site.css。
+ * 手机分步、单栏；≥ 1024px 单页两栏：左列「你的行程」「选择车型」，右侧栏「行程摘要」跟着滚动。只用设计令牌。
+ */
+
+.book-new {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.book-new__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+/* 手机第 2 步底部固定的「车型 · 一口价 [下一步]」不能挡住最后一张车型卡 */
+.book-new--with-bar {
+  padding-bottom: calc(var(--space-16) * 2 + env(safe-area-inset-bottom));
+}
+
+.book-new__subtitle {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+/* ---------- 接送 | 按小时包车：两段式的单选（键盘方向键切换） ---------- */
+
+.book-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.book-mode__option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height-lg);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  text-align: center;
+  cursor: pointer;
+}
+
+.book-mode__option + .book-mode__option {
+  border-left: var(--border-width) solid var(--color-border-strong);
+}
+
+/* 选中：主色实底 + 加粗（不只靠颜色：字重也变） */
+.book-mode__option--checked {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.book-mode__input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.book-mode__option:has(.book-mode__input:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--color-border-focus);
+  outline-offset: calc(var(--focus-ring-width) * -1 - var(--border-width));
+}
+
+/* ---------- 地址框（输入即提示） ---------- */
+
+.place-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.place-field > .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.place-field__option {
+  min-height: var(--control-height-lg);
+}
+
+.place-field__detail {
+  flex-basis: 100%;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- 识别为接机、包车地址不在服务范围 ---------- */
+
+.book-new__arrival {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-info-border);
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+}
+
+.book-new__arrival > .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-info-text);
+}
+
+.book-new__notice,
+.book-new__rejected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-text-primary);
+}
+
+.book-new__notice .link,
+.book-new__rejected .link {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-bold);
+  text-decoration: underline;
+}
+
+/* ---------- 乘客 / 行李 ---------- */
+
+.travellers {
+  min-width: 0;
+}
+
+/* 按钮在浏览器看来是「只读」的，压过 .input:read-only 的灰底：它是可以点的控件，和输入框一样白底、border-strong 描边 */
+.travellers .travellers__toggle.input {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-surface);
+}
+
+.travellers__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.travellers__arrow {
+  flex: none;
+  color: var(--color-text-secondary);
+  transition: transform var(--duration-fast);
+}
+
+.travellers__arrow--open {
+  transform: rotate(180deg);
+}
+
+.travellers__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.travellers__panel[hidden] {
+  display: none;
+}
+
+.travellers__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.travellers__label {
+  font-weight: var(--font-weight-medium);
+}
+
+.travellers__stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* − + 按钮：触屏够大（lg 控件高），有边框，到上下限时禁用 */
+.travellers__step {
+  width: var(--control-height-lg);
+  height: var(--control-height-lg);
+  border: var(--border-width) solid var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.travellers__step:disabled {
+  border-color: var(--color-border-default);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.travellers__value {
+  min-width: var(--space-12);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ---------- 选择车型 ---------- */
+
+.book-new__strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-subtle);
+}
+
+.book-new__strip-text {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+}
+
+.book-new__strip-type {
+  font-weight: var(--font-weight-bold);
+}
+
+.book-vehicles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-vehicle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+/* 选中的车型：主色的双线描边（按钮也变成「已选择」，不只靠颜色） */
+.book-vehicle--selected {
+  border-color: var(--color-primary);
+  outline: var(--border-width) solid var(--color-primary);
+}
+
+.book-vehicle__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.book-vehicle__name {
+  min-width: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.book-vehicle__price {
+  margin-left: auto;
+}
+
+.book-vehicle__facts {
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.book-includes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.book-includes__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-includes__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.book-includes__icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--color-success-text);
+}
+
+/* ---------- 车内俯视示意图 ---------- */
+
+.seat-map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border-default);
+}
+
+.seat-map__image {
+  max-width: 100%;
+  height: auto;
+}
+
+.seat-map__body {
+  fill: var(--color-bg-surface);
+  stroke: var(--color-border-strong);
+  stroke-width: 2px;
+}
+
+.seat-map__glass,
+.seat-map__trunk {
+  fill: transparent;
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5px;
+}
+
+.seat-map__trunk {
+  stroke-dasharray: 4 4;
+}
+
+.seat-map__driver {
+  fill: var(--color-neutral-bg);
+  stroke: var(--color-border-strong);
+  stroke-width: 1px;
+}
+
+.seat-map__driver-label {
+  fill: var(--color-neutral-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 乘客座位：主色实底 + on-primary 编号（主按钮同一组搭配） */
+.seat-map__seat {
+  fill: var(--color-primary);
+}
+
+.seat-map__seat-number {
+  fill: var(--color-on-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 行李位：警告色系（warning-bg 底、warning-text 描边和编号，状态徽标同一组搭配），带提手，形状和座位不同 */
+.seat-map__bag {
+  fill: var(--color-warning-bg);
+  stroke: var(--color-warning-text);
+  stroke-width: 1.5px;
+}
+
+.seat-map__bag-handle {
+  fill: transparent;
+  stroke: var(--color-warning-text);
+  stroke-width: 1.5px;
+}
+
+.seat-map__bag-number {
+  fill: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.seat-map__caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  text-align: center;
+}
+
+.seat-map__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.seat-map__swatch {
+  flex: none;
+}
+
+.seat-map__note {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+/* ---------- 右侧栏（电脑）：行程摘要 + 所选车型的一口价 ---------- */
+
+.book-summary__facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.book-summary__total {
+  gap: var(--space-1);
+}
+
+.book-summary__vehicle {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+/* ---------- 手机第 2 步底部固定条 ---------- */
+
+.book-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  border-top: var(--border-width) solid var(--color-border-default);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.book-bar__text {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+}
+
+.book-bar__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.book-bar__note:empty {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .book-vehicle {
+    padding: var(--space-6);
+  }
+}
+
+@media (min-width: 1024px) {
+  .book-new {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+
+  .book-new__aside {
+    position: sticky;
+    top: var(--space-4);
+    min-width: 0;
+  }
+}

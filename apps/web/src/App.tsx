@@ -33,7 +33,9 @@ import { TenantNotificationsPage } from "./pages/notifications/NotificationPages
 import { DEDUCTIONS_PATH, RESCUE_OFFERS_PATH } from "./lib/rescue-display.ts";
 import { DeductionsPage, RescueOffersPage } from "./pages/rescues/TenantRescuePages.tsx";
 import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "./lib/site-display.ts";
+import { SITE_NEW_BOOKING_PATH } from "./lib/book-new.ts";
 import { BookPage } from "./pages/book/BookPage.tsx";
+import { BookNewPage } from "./pages/book/new/BookNewPage.tsx";
 import { CheckoutPage } from "./pages/book/CheckoutPage.tsx";
 import { OrderPage } from "./pages/book/OrderPage.tsx";
 import { SiteErrorBoundary } from "./pages/book/SiteLayout.tsx";
@@ -105,6 +107,8 @@ export function App() {
         {/* 官网（ADR 0032）：客人不需要账号；订单页凭链接里的令牌（# 后面）。面向客人的独立外观，不在任何一个后台里 */}
         <Route element={<SiteErrorBoundary />}>
           <Route path={SITE_HOME_PATH} element={<BookPage />} />
+          {/* 新预订页（M8-03，ADR 0069）：和旧页并存，M8-05 验收后再切换 */}
+          <Route path={SITE_NEW_BOOKING_PATH} element={<BookNewPage />} />
           <Route path={SITE_CHECKOUT_PATH} element={<CheckoutPage />} />
           <Route path={SITE_ORDER_PATH} element={<OrderPage />} />
         </Route>
