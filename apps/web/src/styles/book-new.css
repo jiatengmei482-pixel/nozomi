@@ -151,6 +151,12 @@
   min-width: 0;
 }
 
+/* 按钮在浏览器看来是「只读」的，压过 .input:read-only 的灰底：它是可以点的控件，和输入框一样白底、border-strong 描边 */
+.travellers .travellers__toggle.input {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-surface);
+}
+
 .travellers__toggle {
   display: flex;
   align-items: center;

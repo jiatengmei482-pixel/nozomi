@@ -13,7 +13,7 @@
  */
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
-import { CENTER, type Ref, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
+import { CENTER, type Ref, type Supplier, type World, createProductByApi, createSupplier, createWorld, expectAccessible } from "./catalog.ts";
 import { platformAdminHeaders, randomLetters } from "./support.ts";
 
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
@@ -47,17 +47,15 @@ async function publishTransfer(request: APIRequestContext, supplier: Supplier, w
   const product = await createProductByApi(request, supplier, world, "airport_transfer");
   const rules = await request.put(`/tenant/v1/products/${product.id}/service-rules`, { headers: { ...supplier.headers, "if-match": `"${product.version}"` }, data: RULES });
   expect(rules.status(), await rules.text()).toBe(200);
-  const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "新预订页接送机" } } });
+  const content = await request.put(`/tenant/v1/products/${product.id}/content`, { headers: { ...supplier.headers, "if-match": `"${((await rules.json()) as { version: number }).version}"` }, data: { zh: { title: "新预订页接送机", pickup_guide: "到达大厅 1 号出口" } } });
   expect(content.status(), await content.text()).toBe(200);
   const { today } = (await (await request.get(`/tenant/v1/products/${product.id}/price-rules`, { headers: supplier.headers })).json()) as { today: string };
   const version = ((await (await request.get(`/tenant/v1/products/${product.id}`, { headers: supplier.headers })).json()) as { version: number }).version;
-  await post(
-    request,
-    { ...supplier.headers, "if-match": `"${version}"`, "idempotency-key": crypto.randomUUID() },
-    `/tenant/v1/products/${product.id}/price-rules/batch`,
-    { create: [{ ...EMPTY_PRICE, ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "both", pricing_model: "fixed", base_price: 20000, valid_from: today, valid_to: null, status: "enabled" }], update: [], delete: [] },
-    "价格规则",
-  );
+  const price = await request.post(`/tenant/v1/products/${product.id}/price-rules/batch`, {
+    headers: { ...supplier.headers, "if-match": `"${version}"`, "idempotency-key": crypto.randomUUID() },
+    data: { create: [{ ...EMPTY_PRICE, ref: "a", area_id: supplier.area.id, vehicle_group_id: world.group.id, direction: "both", pricing_model: "fixed", base_price: 20000, valid_from: today, valid_to: null, status: "enabled" }], update: [], delete: [] },
+  });
+  expect(price.status(), await price.text()).toBe(200);
   const published = await request.post(`/tenant/v1/products/${product.id}/publish`, { headers: supplier.headers });
   expect(published.status(), await published.text()).toBe(200);
 }
@@ -117,7 +115,7 @@ test("新预订页：输入即提示选机场和酒店 → 自动报价、认出
   await expect(to).toHaveValue(/^東京駅/);
 
   await page.getByLabel("日期（当地）").fill(tomorrowInTokyo());
-  await page.getByLabel("用车时间（当地）").fill("10:00");
+  await page.getByLabel("航班落地时间（当地）").fill("10:00");
   // 填齐就自动报价：认出接机，时间标签、提示（免费等待取报价的 60 分钟）、航班号
   await expect(page.getByText("已识别为接机：司机按航班落地时间等候，落地后免费等待 60 分钟")).toBeVisible();
   await expect(page.getByLabel("航班落地时间（当地）")).toHaveValue("10:00");

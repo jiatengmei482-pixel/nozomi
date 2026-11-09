@@ -188,7 +188,7 @@ export function seatPlan(passengers: number, luggage: number): SeatPlan {
       const inRow = Math.min(columns, bagsCount - placed + 1);
       for (let column = 0; column < inRow; column += 1) bags.push({ number: placed + column, x: slotX(column, inRow), y, width: seat, height: bagHeight });
       placed += inRow;
-      y += bagHeight + gap;
+      y += bagHeight + gap * 1.5;
     }
   }
   const body = { x: padding, y: top, width: inner + padding * 2, height: y - gap + padding - top };
