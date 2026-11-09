@@ -32,6 +32,10 @@ export const SALES_RATE_LIMITS = {
   site_autocomplete: { max: 60, windowMs: 60_000 },
   /** 同上，每个地址每天 300 次：一个人刷不光全站的每日上限 */
   site_places_day: { max: 300, windowMs: 86_400_000 },
+  /** 官网路线小地图（M8-10，ADR 0072，可能花钱调谷歌静态地图）：每个地址每分钟 30 次（换主题、换尺寸各算一次） */
+  site_route_map: { max: 30, windowMs: 60_000 },
+  /** 同上，每个地址每天 200 次：一个人刷不光全站的每日上限 */
+  site_route_map_day: { max: 200, windowMs: 86_400_000 },
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

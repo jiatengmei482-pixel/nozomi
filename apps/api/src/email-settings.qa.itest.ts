@@ -388,7 +388,7 @@ test("IPv6 映射、方括号、尾点、区域标识、大写：保存时都拒
 
 test("测试环境的真实装配：配置文件里写回环、内网、元数据地址，发信一律 TARGET_FORBIDDEN，不连接（回环的例外打不开）", async () => {
   for (const host of ["127.0.0.1", "10.0.0.8", "169.254.169.254"]) {
-    const staging = await createTestApi({ env: { APP_ENV: "staging", GOOGLE_MAPS_ROUTES_URL: "", GOOGLE_PLACES_SEARCH_URL: "", GOOGLE_PLACES_AUTOCOMPLETE_URL: "", GOOGLE_PLACE_DETAILS_URL: "", GOOGLE_GEOCODE_URL: "", STRIPE_API_URL: "", SMTP_HOST: host, SMTP_PORT: "587", SMTP_ENCRYPTION: "starttls", SMTP_USERNAME: "qa-env-user", SMTP_PASSWORD: ENV_PASSWORD, SMTP_FROM_NAME: "配置文件", SMTP_FROM_ADDRESS: "env@example.test" }, integrationSecretsTtlMs: 0 });
+    const staging = await createTestApi({ env: { APP_ENV: "staging", GOOGLE_MAPS_ROUTES_URL: "", GOOGLE_PLACES_SEARCH_URL: "", GOOGLE_PLACES_AUTOCOMPLETE_URL: "", GOOGLE_PLACE_DETAILS_URL: "", GOOGLE_GEOCODE_URL: "", GOOGLE_STATIC_MAPS_URL: "", STRIPE_API_URL: "", SMTP_HOST: host, SMTP_PORT: "587", SMTP_ENCRYPTION: "starttls", SMTP_USERNAME: "qa-env-user", SMTP_PASSWORD: ENV_PASSWORD, SMTP_FROM_NAME: "配置文件", SMTP_FROM_ADDRESS: "env@example.test" }, integrationSecretsTtlMs: 0 });
     try {
       const token = await staging.superAdminToken("qa-staging@platform.test");
       const res = await runTest(token, undefined, staging);

@@ -1442,7 +1442,7 @@ paths:
       description: |
         需要操作 `integration.read`（超级管理员、技术）。在 `/health` 的「已配置 / 未配置」之外，
         多给一段脱敏说明（打码后的数据库地址；谷歌地图、Stripe 按生效的值写来源，如「后台设置（••••1234）」——末 4 位只给超级管理员，ADR 0041），永远不含密钥原文；
-        另给汇率数据源的运行状态（`fx_center`）和路线预估（谷歌地图 Routes API）的今日调用与最近失败（`routes`，ADR 0042）。每次查看都写审计日志。
+        另给汇率数据源的运行状态（`fx_center`）、路线预估（谷歌地图 Routes API）的今日调用与最近失败（`routes`，ADR 0042）和官网路线小地图（Maps Static API）的同一组数（`static_maps`，ADR 0072）。每次查看都写审计日志。
       security:
         - platformToken: []
       responses:
@@ -1453,7 +1453,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ items, fx_center, routes ]
+                required: [ items, fx_center, routes, static_maps ]
                 properties:
                   items:
                     type: array
@@ -1485,6 +1485,42 @@ paths:
                     description: |
                       路线预估的运行状态（ADR 0042）：今天（东京时间 `day`）调用谷歌的次数（含重试）、每日上限、是否已到上限（到了里程 + 时长的商品暂时无法报价，次日 0 点恢复）、
                       失败次数、被上限挡下的次数，最近一次成功、最近一次失败（不限今天；原因代码同 `QuoteRouteFailureCode`）。
+                    additionalProperties: false
+                    required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
+                    properties:
+                      day:
+                        type: string
+                        format: date
+                      calls:
+                        type: integer
+                      daily_limit:
+                        type: integer
+                      daily_limit_reached:
+                        type: boolean
+                      failures:
+                        type: integer
+                      refused:
+                        type: integer
+                      last_success_at:
+                        type: [ string, "null" ]
+                        format: date-time
+                      last_failure:
+                        type: [ object, "null" ]
+                        additionalProperties: false
+                        required: [ code, message, at ]
+                        properties:
+                          code:
+                            type: string
+                          message:
+                            type: [ string, "null" ]
+                          at:
+                            type: string
+                            format: date-time
+                  static_maps:
+                    type: object
+                    description: |
+                      官网路线小地图（谷歌 Maps Static API，ADR 0072）的运行状态，口径同 `routes`、单独计数：今天的调用次数、每日上限（`GOOGLE_STATIC_MAPS_DAILY_LIMIT`）、是否已到上限、
+                      失败和被上限挡下的次数，最近一次成功、最近一次失败（原因代码同 domain 的 `STATIC_MAP_FAILURE_CODES`，如 `API_NOT_ENABLED` 表示谷歌云项目没开通 Maps Static API）。不含密钥和谷歌返回的原文。
                     additionalProperties: false
                     required: [ day, calls, daily_limit, daily_limit_reached, failures, refused, last_success_at, last_failure ]
                     properties:
@@ -11861,6 +11897,116 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "503":
           $ref: "#/components/responses/SiteNotOpen"
+  /site/v1/route-map:
+    get:
+      tags: [ 官网 ]
+      operationId: getSiteRouteMap
+      summary: 行程摘要的路线小地图（谷歌静态地图，PNG）
+      description: |
+        M8-10，ADR 0072。新预订页右侧「行程摘要」的路线图：服务端代调谷歌 Maps Static API（**密钥不进浏览器**），灰色调底图（亮色、暗色两套），
+        路线和起点 A、终点 B 用品牌色（亮色 #1B2A5C；暗色 #A9BBFF）。路线折线和 `POST /site/v1/quotes/by-points` 的 `route` 是同一份
+        （同一个路线缓存键：起终点各自取整到 3 位小数；10 分钟内取过的不再调 Routes，没有就按 ADR 0042 调、计入 `GOOGLE_ROUTES_DAILY_LIMIT`）。**只出图，不改报价和路线。**
+        同一条路线 × 主题 × 尺寸 × 倍率的图在服务端存 1 天；没有才调谷歌，计入 `GOOGLE_STATIC_MAPS_DAILY_LIMIT`（默认每天 300 次，东京时间）。
+        成功：200，`content-type` 是图片（一般 `image/png`），`Cache-Control: private, max-age=86400`。
+        出不了图：503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 只有两种——
+        `NOT_ENABLED`：没配谷歌密钥，或谷歌说静态地图服务没开通 / 密钥不允许（页面继续用原来的地图）；
+        `UNAVAILABLE`：其余一切（每日上限、谷歌出错或冷却中、超时、两点之间取不到路线、官网没开……；页面只显示「约 X 分钟 · Y 公里」）。
+        每个地址每分钟 30 次、每天 200 次。
+      parameters:
+        - name: from_lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: from_lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+        - name: to_lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: to_lng
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+        - name: theme
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ light, dark ]
+            default: light
+        - name: width
+          in: query
+          required: true
+          description: 图的宽（CSS 像素）
+          schema:
+            type: integer
+            minimum: 200
+            maximum: 640
+        - name: height
+          in: query
+          required: true
+          description: 图的高（CSS 像素）
+          schema:
+            type: integer
+            minimum: 150
+            maximum: 640
+        - name: scale
+          in: query
+          required: false
+          description: 倍率：高清屏用 2（实际像素是宽高的 2 倍）
+          schema:
+            type: integer
+            enum: [ 1, 2 ]
+            default: 1
+      responses:
+        "200":
+          description: 路线图
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: "`private, max-age=86400`"
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "`VALIDATION_FAILED`：坐标缺少或不合法、主题、尺寸、倍率不在范围里、多余的参数"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          description: "`ROUTE_MAP_UNAVAILABLE`：出不了图，`details.reason` 是 `NOT_ENABLED` 或 `UNAVAILABLE`（见上）"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteMapUnavailable"
   /site/v1/orders:
     post:
       tags: [ 官网 ]
@@ -16804,6 +16950,30 @@ components:
               type: object
               description: 补充信息；没有时为空对象
               additionalProperties: true
+    RouteMapUnavailable:
+      type: object
+      additionalProperties: false
+      required: [ error ]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [ code, message, details ]
+          properties:
+            code:
+              type: string
+              enum: [ ROUTE_MAP_UNAVAILABLE ]
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: false
+              required: [ reason ]
+              properties:
+                reason:
+                  type: string
+                  enum: [ NOT_ENABLED, UNAVAILABLE ]
+                  description: NOT_ENABLED 服务没开通或密钥不允许（页面用原来的地图）；UNAVAILABLE 其余一切（页面只显示时间和距离）
     HealthResponse:
       type: object
       additionalProperties: false

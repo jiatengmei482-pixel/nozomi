@@ -13,6 +13,7 @@ import type { QuoteDeps } from "./services/quote-deps.ts";
 import type { IntegrationChecks, IntegrationSecretCache } from "./services/integration-secrets.ts";
 import type { GooglePlaceSearch } from "./services/place-search.ts";
 import type { RoutePreviewer } from "./services/route-estimates.ts";
+import type { RouteMapRenderer } from "./services/static-maps.ts";
 
 /** 只读写数据库的服务函数要的那一部分：命令行（价格表导入）不用起整个应用也能调用它们。 */
 export type DbContext = Pick<AppContext, "pool" | "now">;
@@ -44,4 +45,6 @@ export interface AppContext {
   places: GooglePlaceSearch;
   /** 按两个坐标报价时给客人看的路线（时间、距离、折线；谷歌 Routes，和报价的路线预估同一把密钥、同一个每日上限，ADR 0069 B11） */
   routePreview: RoutePreviewer;
+  /** 官网路线小地图（谷歌静态地图，后端代调；图片缓存、独立的每日上限、冷却，路线折线来自 `routePreview`，ADR 0072） */
+  routeMap: RouteMapRenderer;
 }

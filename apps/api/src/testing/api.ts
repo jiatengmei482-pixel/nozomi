@@ -16,6 +16,7 @@ import { SecretBox } from "../integrations/secret-box.ts";
 import type { Mailer } from "../integrations/smtp.ts";
 import { GooglePlaceSearch } from "../services/place-search.ts";
 import { NO_ROUTE_PREVIEW } from "../services/route-estimates.ts";
+import { NO_ROUTE_MAP } from "../services/static-maps.ts";
 import { IntegrationSecretCache } from "../services/integration-secrets.ts";
 import { HttpsWebhookSender, type WebhookSender } from "../integrations/webhook-sender.ts";
 import type { AppConfig } from "@nozomi/config";
@@ -292,6 +293,7 @@ export function testContext(config: AppConfig, pool: Pool, now: () => Date, quot
       log: silent,
     }),
     routePreview: NO_ROUTE_PREVIEW,
+    routeMap: NO_ROUTE_MAP,
   };
 }
 

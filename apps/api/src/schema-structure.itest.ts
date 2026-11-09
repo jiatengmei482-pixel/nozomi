@@ -68,6 +68,8 @@ const PLATFORM_TABLES = [
   "schema_migrations",
   "site_lookup_failures",
   "site_order_links",
+  "static_map_api_usage",
+  "static_map_images",
   "tenant_roles",
   "ticket_compensations",
   "ticket_notes",
@@ -279,6 +281,9 @@ const ROLE_GRANTS: Readonly<Record<string, Readonly<Record<string, string[]>>>> 
     route_estimates: ["DELETE", "INSERT", "SELECT", "UPDATE"],
     route_api_usage: ["INSERT", "SELECT", "UPDATE"],
     place_api_usage: ["INSERT", "SELECT", "UPDATE"],
+    // 官网路线小地图（ADR 0072）：图片缓存覆盖写、写入时顺手删过期的；每日调用计数只增改
+    static_map_images: ["DELETE", "INSERT", "SELECT", "UPDATE"],
+    static_map_api_usage: ["INSERT", "SELECT", "UPDATE"],
     // /sales/v1 的限流计数
     sales_rate_limits: ["INSERT", "SELECT", "UPDATE"],
     // 官网的订单查看链接（ADR 0032）：只追加，到有效期自然失效
