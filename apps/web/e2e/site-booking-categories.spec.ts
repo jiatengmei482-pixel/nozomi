@@ -159,7 +159,7 @@ test("官网点对点、包车：选服务 → 上车点从常用地点里选 �
   await expect(charter).toContainText("77,000 JPY");
   await expect(charter).toContainText("8 小时，含 150 公里");
   await expect(charter).toContainText("不另计免费等待（从约定的开始时间起计入包车时长）");
-  await expect(page.locator("main")).toContainText("超出套餐的时长和公里、高速费、停车费服务后按实际收取");
+  await expect(page.locator("main")).toContainText("一口价已含所有费用（高速费、停车费等），无需另付。超出套餐的时长和公里服务后按实际收取");
   await expect(page.locator("main")).not.toContainText(/结算|加价|供应商|70,000/);
   await expectNoOverflow(page, "询价结果（包车）");
   await expectAccessibleBothThemes(page, "询价结果（包车）");

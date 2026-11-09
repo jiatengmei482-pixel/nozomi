@@ -12,6 +12,9 @@
  * 日志只写通知编号、事件、订单编号、错误码：**不写邮箱、令牌、主题、正文**。查看链接的令牌只在内存里（库里只有哈希）。
  */
 import {
+  CHARTER_SUPPLIER_PRICE_NOTE,
+  charterAllInclusiveFor,
+  fixedPriceFeeNote,
   EXCEPTION_TYPE_NAMES,
   DOCUMENT_TYPE_INFO,
   EXTRA_CHARGE_TYPE_NAMES,
@@ -180,12 +183,18 @@ async function tripVariables(db: Db, order: Order): Promise<{ service_time: stri
   };
 }
 
+/** 客人邮件的「费用说明」（ADR 0070）：和新预订页同一份清单；分界前下的包车单是按「高速、停车另收」报的价，不写（那一行整行不出现）。 */
+function guestFeeNote(order: Order): string {
+  if (order.category !== "charter") return fixedPriceFeeNote("transfer");
+  return charterAllInclusiveFor(order.createdAt) ? fixedPriceFeeNote("charter") : "";
+}
+
 const changedFieldsText = (fields: unknown): string => (Array.isArray(fields) && fields.length > 0 ? fields.map((field) => ORDER_CHANGE_FIELD_NAMES[String(field)] ?? String(field)).join("、") : "订单信息");
 
 /** 客人邮件的变量。这里可以读对外价（客人自己付的钱）。 */
 async function guestVariables(db: Db, event: StoredNotificationEvent, order: Order): Promise<NotificationVariables> {
   const sale = (await findSale(db, order.id)) as OrderSale;
-  const base: Record<string, string> = { order_no: order.orderNo, passenger_name: order.passenger.name, paid_amount: moneyText(sale.sellMinor, sale.currency), changed_fields: changedFieldsText(event.data["fields"]), ...(await tripVariables(db, order)) };
+  const base: Record<string, string> = { order_no: order.orderNo, passenger_name: order.passenger.name, paid_amount: moneyText(sale.sellMinor, sale.currency), changed_fields: changedFieldsText(event.data["fields"]), fee_note: guestFeeNote(order), ...(await tripVariables(db, order)) };
   if ((event.event === "order.assigned" || event.event === "order.driver_arrived") && order.dispatch.driverId !== null && order.dispatch.vehicleId !== null) {
     const driver = await findDriver(db, order.tenantId, order.dispatch.driverId);
     const vehicle = await findVehicle(db, order.tenantId, order.dispatch.vehicleId);
@@ -215,6 +224,7 @@ async function tenantVariables(ctx: AppContext, db: Db, event: StoredNotificatio
       passengers: String(order.passengers),
       order_url: `${ctx.config.publicBaseUrl}/orders/${order.id}`,
       changed_fields: changedFieldsText(data["fields"]),
+      charter_price_note: order.category === "charter" && charterAllInclusiveFor(order.createdAt) ? CHARTER_SUPPLIER_PRICE_NOTE : "",
       ...(order.dispatch.dueAt === null ? {} : { dispatch_due_at: tokyoText(order.dispatch.dueAt) }),
     });
   }

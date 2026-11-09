@@ -497,6 +497,28 @@ test("供应商订单详情：已完成的单能提交加收（接送机只有�
   assert.equal(screen.queryByRole("button", { name: "撤回" }), null);
 });
 
+test("供应商订单详情：包车一口价全含（M8-09）——分界后下的包车单加收类型没有高速费、停车费，写明不能另收；分界前下的照旧有，并提示必须附票据", async () => {
+  const charterOrder = (createdAt: string): TenantOrder => tenantOrder({ category: "charter", place_id: null, direction: null, flight_no: null, package_hours: 8, created_at: createdAt, cancel_policy: { version: 0, category: "charter", level: "business", tiers: businessTiers } });
+  const typesOf = async (createdAt: string): Promise<{ types: (string | null)[]; text: string }> => {
+    open(`/orders/${ORDER_ID}`, "dispatch", (call) => (call.method === "GET" && call.url.pathname === `/tenant/v1/orders/${ORDER_ID}` ? json(200, tenantDetail(charterOrder(createdAt))) : null), "tenant");
+    await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+    await user().click(screen.getByRole("button", { name: "提交加收" }));
+    const dialog = await screen.findByRole("dialog", { name: "提交事后加收" });
+    const types = [...(within(dialog).getByLabelText("类型") as HTMLSelectElement).options].map((option) => option.textContent);
+    const text = dialog.textContent ?? "";
+    resetBrowser();
+    return { types, text };
+  };
+  const after = await typesOf("2026-11-09T15:00:00.000Z");
+  assert.deepEqual(after.types, ["包车超时", "包车超公里", "付费等待", "现场加停靠点", "现场加附加服务"]);
+  assert.match(after.text, /包车一口价已含高速费、停车费，不能另收/);
+  assert.doesNotMatch(after.text, /高速费、停车费必须附|凭票实报/);
+  const before = await typesOf("2026-11-09T14:59:59.999Z");
+  assert.deepEqual(before.types, ["包车超时", "包车超公里", "付费等待", "现场加停靠点", "现场加附加服务", "高速费（凭票实报）", "停车费（凭票实报）"]);
+  assert.match(before.text, /高速费、停车费必须附/);
+  assert.doesNotMatch(before.text, /不能另收/);
+});
+
 test("运营后台：官网订单链接——客服核实后重发到下单邮箱（核实方式、原因必填）；发到新邮箱提交审核；只读看得到记录、没有按钮；不是官网的单不显示", async () => {
   const request = (extra: Record<string, unknown>) => ({ id: "d1d1d1d1-dddd-4ddd-8ddd-dddddddddddd", target: "original", email_masked: "gu***@example.com", verification: "callback_phone", status: "queued", approval_id: null, requested_by: { id: "p1", name: "测试员工" }, created_at: stamps.updated_at, decided_at: null, ...extra });
   let status: Record<string, unknown> = { available: true, unavailable_reason: null, email_masked: "gu***@example.com", pending_review: null, requests: [] };

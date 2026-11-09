@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceIncludes } from "./fixed-price-includes.ts";
+import { CHARTER_SUPPLIER_PRICE_NOTE, FIXED_PRICE_INCLUDES_TEXTS, FIXED_PRICE_RULES, fixedPriceFeeNote, fixedPriceIncludes } from "./fixed-price-includes.ts";
 
 const texts = (items: { text: string }[]): string[] => items.map((item) => item.text);
 
@@ -21,10 +21,17 @@ test("送机、点对点：免费等待不说航班落地；中标商品包含�
   ]);
 });
 
-test("包车：规则切换前（默认）不写「含所有费用」；切换后写；免费等待是 0 或不限时都不写", () => {
-  assert.equal(FIXED_PRICE_RULES.charterAllInclusive, false);
-  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: 0, meetAndGreet: false })), ["专车专用，不拼车"]);
-  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: null, meetAndGreet: false, charterAllInclusive: true })), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"]);
+test("包车：一口价全含（M8-09 起默认写「含所有费用」）；传 false 时不写；免费等待是 0 或不限时都不写", () => {
+  assert.equal(FIXED_PRICE_RULES.charterAllInclusive, true);
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: 0, meetAndGreet: false })), ["一口价已含所有费用（高速费、停车费等），无需另付", "专车专用，不拼车"]);
+  assert.deepEqual(texts(fixedPriceIncludes({ service: "charter", arrival: false, freeWaitMinutes: null, meetAndGreet: false, charterAllInclusive: false })), ["专车专用，不拼车"]);
+});
+
+test("费用说明：接送机只写含所有费用；包车再接「超出套餐的时长和公里服务后按实际收取」；供应商侧写明报价须含高速、停车", () => {
+  assert.equal(fixedPriceFeeNote("transfer"), "一口价已含所有费用（高速费、停车费等），无需另付");
+  assert.equal(fixedPriceFeeNote("charter"), "一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取");
+  assert.match(fixedPriceFeeNote("charter", "en"), /^All-inclusive fixed price .*; Time and distance beyond the package/);
+  assert.match(CHARTER_SUPPLIER_PRICE_NOTE, /包车报价须包含高速费、停车费/);
 });
 
 test("三语原文（ADR 0069）；任何语言都没有「跟踪航班」", () => {

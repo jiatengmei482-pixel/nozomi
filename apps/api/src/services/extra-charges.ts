@@ -1,7 +1,7 @@
 /**
  * 服务后加收（M3-03，ADR 0029；需求「服务后加收费用」，第五轮决策 ⑤）。
  *
- * 1. 供应商提交（`POST /tenant/v1/orders/{id}/extra-charges`，`order.extra_charge`）：只有已完成的单、服务结束 24 小时内；类型限定（包车的超时、超公里、高速、停车，
+ * 1. 供应商提交（`POST /tenant/v1/orders/{id}/extra-charges`，`order.extra_charge`）：只有已完成的单、服务结束 24 小时内；类型限定（包车的超时、超公里，分界前下的包车单还有高速、停车——ADR 0070，
  *    各品类的付费等待、加停靠点、加附加服务）；高速费、停车费必须附票据照片（先 `POST /tenant/v1/orders/{id}/files?kind=receipt` 上传）；单笔不超过这一单的结算价。
  *    提交即通知客人（邮件在通知中心任务里接；渠道的订单接口里马上看得到），**从提交起 48 小时是异议期**，异议期内不扣款，供应商可以撤回。
  * 2. 客人异议（`POST /sales/v1/orders/{id}/extra-charges/{chargeId}/dispute`）：异议期内（按毫秒，截止那一刻起不能再提）；之后转平台审核。
@@ -13,6 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import {
+  CHARTER_ALL_INCLUSIVE_FROM,
   EVIDENCE_FILE_RULES,
   EXTRA_CHARGE_RULES,
   type ExtraChargeDecision,
@@ -53,7 +54,7 @@ import type { TenantPrincipal } from "./tenant-auth.ts";
 const SUBMIT_REFUSALS: Readonly<Record<ExtraChargeSubmitRefusal, { status: number; message: string }>> = {
   ORDER_NOT_COMPLETED: { status: 409, message: "只有已完成的订单才能加收" },
   SUBMIT_WINDOW_CLOSED: { status: 409, message: `服务结束已经超过 ${EXTRA_CHARGE_RULES.submitWithinHours} 小时，不能再提交加收` },
-  TYPE_NOT_ALLOWED: { status: 422, message: "这一单的品类不能收这一项（接送机、点对点是一口价，含高速和停车费；超时、超公里只有包车）" },
+  TYPE_NOT_ALLOWED: { status: 422, message: `这一单不能收这一项：接送机、点对点是一口价，含高速费和停车费；包车一口价已含高速费、停车费（东京时间 ${CHARTER_ALL_INCLUSIVE_FROM.slice(0, 10)} 起下的包车单），只能加收超时、超公里、付费等待、加停靠点、加附加服务` },
   RECEIPT_REQUIRED: { status: 422, message: "高速费、停车费要附票据照片" },
   AMOUNT_INVALID: { status: 422, message: "金额要是大于 0 的整数（最小货币单位）" },
   AMOUNT_OVER_LIMIT: { status: 422, message: "单笔加收不能超过这一单的结算价，请核对金额" },
@@ -104,7 +105,7 @@ export async function submitExtraCharge(ctx: AppContext, principal: TenantPrinci
     const unknown = input.fileIds.filter((id) => !files.some((file) => file.id === id && file.kind === "receipt"));
     if (unknown.length > 0 || new Set(input.fileIds).size !== input.fileIds.length) throw validationFailed("body", [{ path: "/file_ids", reason: "UNKNOWN_FILE", message: "凭证要是这一单上传的票据照片（kind=receipt），不能重复" }]);
     const existing = (await listExtraCharges(db, principal.tenantId, orderId)).filter((charge) => charge.status !== "withdrawn" && charge.status !== "rejected");
-    const refusal = extraChargeSubmitRefusal({ type: input.type, amountMinor: input.amountMinor, fileCount: input.fileIds.length }, { status: order.status, category: order.category, completedAt: order.dispatch.completedRecordedAt ?? order.dispatch.completedAt, settlementMinor: order.settlementMinor, existingItems: existing.length }, now);
+    const refusal = extraChargeSubmitRefusal({ type: input.type, amountMinor: input.amountMinor, fileCount: input.fileIds.length }, { status: order.status, category: order.category, placedAt: order.createdAt, completedAt: order.dispatch.completedRecordedAt ?? order.dispatch.completedAt, settlementMinor: order.settlementMinor, existingItems: existing.length }, now);
     if (refusal !== null) throw new AppError(SUBMIT_REFUSALS[refusal].status, refusal === "AMOUNT_INVALID" || refusal === "AMOUNT_OVER_LIMIT" || refusal === "RECEIPT_REQUIRED" || refusal === "TYPE_NOT_ALLOWED" ? "EXTRA_CHARGE_INVALID" : "EXTRA_CHARGE_NOT_ALLOWED", SUBMIT_REFUSALS[refusal].message, { reason: refusal });
     const customer = extraChargeCustomerMinor({ amountMinor: input.amountMinor, settlementCurrency: order.settlementCurrency, currency: sale.currency, markupBp: sale.markupBp, fxBufferBp: sale.fxBufferBp, fx: sale.fx });
     const reviewReasons = extraChargeReviewReasons(customer, sale.sellMinor, input.fileIds.length);

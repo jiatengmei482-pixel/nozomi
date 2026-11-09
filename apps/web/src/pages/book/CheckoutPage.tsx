@@ -199,7 +199,7 @@ export function CheckoutPage() {
             </dd>
           </div>
           <div className="site-facts__item site-facts__item--total">
-            <dt>{category === "charter" ? "总价（按车计价的套餐价）" : "总价（按车计价，已含高速费和停车费）"}</dt>
+            <dt>{category === "charter" ? "总价（按车计价的套餐价，已含高速费和停车费）" : "总价（按车计价，已含高速费和停车费）"}</dt>
             <dd>
               <SitePrice text={moneyText(quote.price.total)} size="lg" />
             </dd>
