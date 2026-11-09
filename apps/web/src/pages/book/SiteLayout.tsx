@@ -11,14 +11,15 @@ import { Attributions, placeSources } from "../../components/Attribution.tsx";
 import { Brand } from "../../components/Brand.tsx";
 import { Button } from "../../components/Button.tsx";
 import { StateBlock } from "../../components/States.tsx";
+import { SITE_NEW_BOOKING_PATH } from "../../lib/book-new.ts";
 import { failureText } from "../../lib/failure.ts";
 import { SITE_CHECKOUT_PATH, SITE_HOME_PATH, SITE_ORDER_PATH } from "../../lib/site-display.ts";
 import { ThemeSwitcher } from "../../theme/ThemeSwitcher.tsx";
 
-/** 顶栏的入口：当前页是哪一个（F11）。询价和下单都算「预订用车」，订单页和查订单都算「查订单」。 */
+/** 顶栏的入口：当前页是哪一个（F11）。询价、新预订页（M8-03）和下单都算「预订用车」，订单页和查订单都算「查订单」。 */
 function navCurrent(pathname: string, target: string): "page" | "true" | undefined {
   if (pathname === target) return "page";
-  if (target === SITE_HOME_PATH && pathname === SITE_CHECKOUT_PATH) return "true";
+  if (target === SITE_HOME_PATH && (pathname === SITE_CHECKOUT_PATH || pathname === SITE_NEW_BOOKING_PATH)) return "true";
   return undefined;
 }
 

@@ -6,13 +6,14 @@
  * - `VehicleLabelFacts`：自带一个 <dl>（后台车型组预览）。
  * - `VehicleLabelItems`（M7-03）：只出「标签 + 值」的几项，放进页面已有的 <dl> 里，排在「车型」后面，
  *   和同一张卡片的其他项同样排（官网 site-facts、后台 details）。没有可显示的项时什么都不出。
+ *   `luggageBasis`（M8-03，ADR 0069 B13）：「最多行李」后面加「（行李按 28 寸行李箱计）」；默认不加，原有页面不变。
  * - `OrderVehicleDetails`（M7-03）：后台订单详情「行程」卡片里的「车型」和 4 项；接口没给车型组（旧数据、找不到）时什么都不出。
  */
 import { VEHICLE_LABEL_TEXTS, type VehicleLabelLanguage, type VehicleLabelSource, vehicleLabelLines } from "@nozomi/domain";
 import type { OrderVehicleGroup } from "../api/dispatch.ts";
 import { displayName } from "../lib/master-display.ts";
 
-export function VehicleLabelItems({ group, language = "zh", itemClassName = "details__item" }: { group: VehicleLabelSource; language?: VehicleLabelLanguage; itemClassName?: string }) {
+export function VehicleLabelItems({ group, language = "zh", itemClassName = "details__item", luggageBasis = false }: { group: VehicleLabelSource; language?: VehicleLabelLanguage; itemClassName?: string; luggageBasis?: boolean }) {
   const texts = VEHICLE_LABEL_TEXTS[language];
   const modelLabels = new Set([texts.representative, texts.similar]);
   return (
@@ -20,7 +21,7 @@ export function VehicleLabelItems({ group, language = "zh", itemClassName = "det
       {vehicleLabelLines(group, language).map((line) => (
         <div key={line.label} className={itemClassName}>
           <dt>{line.label}</dt>
-          <dd {...(modelLabels.has(line.label) ? { lang: "en" } : {})}>{line.value}</dd>
+          <dd {...(modelLabels.has(line.label) ? { lang: "en" } : {})}>{luggageBasis && line.label === texts.maxLuggage ? `${line.value}（${texts.luggageBasis}）` : line.value}</dd>
         </div>
       ))}
     </>

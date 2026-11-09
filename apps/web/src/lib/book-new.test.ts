@@ -1,0 +1,64 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { parseBookingLink, rejectionTexts, seatPlan, travellersText } from "./book-new.ts";
+
+test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
+  assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
+    from: { kind: "code", code: "NRT" },
+    to: { kind: "point", lat: 35.6895, lng: 139.6917, name: "京王广场酒店" },
+    date: "2030-11-20",
+    time: "14:30",
+    passengers: 2,
+    luggage: 3,
+  });
+});
+
+test("链接参数：不合法的那一项为 null（不预填、不报错），其余照常", () => {
+  const link = parseBookingLink("?from=91,10&to=%3Cscript%3E&date=2030-02-30&time=25:00&pax=0&bags=61");
+  assert.deepEqual(link, { from: null, to: null, date: null, time: null, passengers: null, luggage: null });
+  assert.deepEqual(parseBookingLink(""), { from: null, to: null, date: null, time: null, passengers: null, luggage: null });
+  assert.deepEqual(parseBookingLink("?from=35.1,139.2&from_name=%20%20&pax=60&bags=0").from, { kind: "point", lat: 35.1, lng: 139.2, name: null });
+  assert.equal(parseBookingLink("?pax=60&bags=0").passengers, 60);
+  assert.equal(parseBookingLink("?pax=2.5").passengers, null);
+});
+
+test("乘客 / 行李栏的写法", () => {
+  assert.equal(travellersText(2, 2), "2 人 · 2 件");
+});
+
+test("报不出价：三种原因按方案的说法，「没有商品」也说没有在线报价；去重；提到客服时给客服电话；不显示内部代码", () => {
+  assert.deepEqual(rejectionTexts(["LEAD_TIME_TOO_SHORT"]), { texts: ["时间太近，请选更晚的时间或联系客服"], support: true });
+  assert.deepEqual(rejectionTexts(["CAPACITY_EXCEEDED", "CAPACITY_EXCEEDED"]), { texts: ["人数或行李超过所有车型，可以分两辆车预订或联系客服"], support: true });
+  assert.deepEqual(rejectionTexts(["OUT_OF_SERVICE_AREA", "NO_PRODUCT"]), { texts: ["这个地址暂时没有在线报价，请联系客服"], support: true });
+  assert.deepEqual(rejectionTexts(["SOLD_OUT"]), { texts: ["这一天已经订满了，请换一天。"], support: false });
+  assert.equal(rejectionTexts([]).texts.length, 1);
+  assert.doesNotMatch(JSON.stringify(rejectionTexts(["LEAD_TIME_TOO_SHORT", "OUT_OF_SERVICE_AREA", "CAPACITY_EXCEEDED", "NO_ROUTE"])), /[A-Z]{2,}_[A-Z]/);
+});
+
+test("座位示意图：乘客座位编号 1–N、行李位编号 1–M，个数和最多乘客、最多行李一致；都在车身里、互不重叠", () => {
+  for (const [passengers, luggage] of [[1, 0], [3, 2], [4, 2], [6, 4], [9, 9], [13, 13], [20, 0]] as const) {
+    const plan = seatPlan(passengers, luggage);
+    assert.deepEqual(plan.seats.map((seat) => seat.number), Array.from({ length: passengers }, (_, index) => index + 1));
+    assert.deepEqual(plan.bags.map((bag) => bag.number), Array.from({ length: luggage }, (_, index) => index + 1));
+    assert.equal(plan.trunkY === null, luggage === 0);
+    const boxes = [plan.driver, ...plan.seats, ...plan.bags];
+    for (const box of boxes) {
+      assert.ok(box.x >= plan.body.x && box.y >= plan.body.y && box.x + box.width <= plan.body.x + plan.body.width && box.y + box.height <= plan.body.y + plan.body.height, `${passengers} 人 ${luggage} 件：有一格出了车身`);
+    }
+    for (const [index, a] of boxes.entries()) {
+      for (const b of boxes.slice(index + 1)) assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, `${passengers} 人 ${luggage} 件：有两格重叠`);
+    }
+    assert.ok(plan.width <= 320, "手机上不超过一屏宽");
+  }
+});
+
+test("座位示意图：前排是 1 号座位和司机；后排 2 或 3 列（7 座车 3 + 2，轿车后排 3 个）；行李在座位后面", () => {
+  const minivan = seatPlan(6, 4);
+  const rows = [...new Set(minivan.seats.map((seat) => seat.y))].map((y) => minivan.seats.filter((seat) => seat.y === y).length);
+  assert.deepEqual(rows, [1, 3, 2]);
+  assert.equal(minivan.seats[0]?.y, minivan.driver.y);
+  assert.ok(minivan.driver.x > (minivan.seats[0]?.x ?? 0));
+  assert.ok(Math.min(...minivan.bags.map((bag) => bag.y)) > Math.max(...minivan.seats.map((seat) => seat.y)));
+  const sedan = seatPlan(4, 2);
+  assert.deepEqual([...new Set(sedan.seats.map((seat) => seat.y))].map((y) => sedan.seats.filter((seat) => seat.y === y).length), [1, 3]);
+});
