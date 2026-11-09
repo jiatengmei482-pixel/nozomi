@@ -12,7 +12,8 @@
  *   搜索可以不带城市（渠道授权的范围里搜），候选带类型（机场 / 其他），平台的机场、车站排在最前（M8-02，ADR 0069）；
  * - `GET /site/v1/places/autocomplete`、`GET /site/v1/places/details`：输入即提示和选中后取坐标（谷歌 Autocomplete / Place Details，同一个会话令牌；
  *   每个地址每分钟 60 次，和搜索、反查共用每天 300 次，M8-02，ADR 0069 B1）；
- * - `POST /site/v1/quotes`：询价，三种品类（每个地址每分钟 30 次）；
+ * - `GET /site/v1/fx/reference?to=`：订单币种 → 客人币种的参考汇率（只读汇率中心现在生效的汇率，只用于显示，M8-02，ADR 0069 B16）；
+ * - `POST /site/v1/quotes`：询价，三种品类，可带附加服务（每个地址每分钟 30 次；报价带「这个车型能加哪些附加服务」，M8-02）；
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
@@ -24,8 +25,9 @@
  * 只去掉落地信息里司机到达屏照片的文件编号（客人用不上）。
  */
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { CurrencyCode } from "@nozomi/domain";
 import { z } from "zod";
-import { MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, SERVICE_CATEGORIES, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
 import { notFound } from "../services/errors.ts";
@@ -48,6 +50,7 @@ import {
   siteCharterPackages,
   siteCities,
   siteConfig,
+  siteFxReference,
   siteOrderExtras,
   sitePlaceDetails,
   sitePlaces,
@@ -69,6 +72,16 @@ type Json = Record<string, unknown>;
 const pointSchema = z.object({ lng: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) }).strict();
 
 /**
+ * 客人选的附加服务和数量（M8-02，ADR 0069 B15）：照原样交给报价引擎。同一项写两次、数量超出范围由报价引擎报 400；
+ * 没有商品提供（或目录里没有这一项）的车型组报不出价（`ADDON_NOT_OFFERED`）。
+ */
+const addonsSchema = z
+  .array(z.object({ addon_id: uuidSchema, quantity: z.number().int().min(1).max(QUOTE_RULES.maxAddonQuantity).default(1) }).strict())
+  .max(QUOTE_RULES.maxAddonKinds)
+  .default([]);
+const addonsOf = (addons: z.output<typeof addonsSchema>): { addonId: string; quantity: number }[] => addons.map((addon) => ({ addonId: addon.addon_id, quantity: addon.quantity }));
+
+/**
  * 询价请求：`category` 不填是接送机（M3-05 的请求照旧能用）。各品类要的字段：
  * 接送机 `airport_id` + `direction` + `address`；点对点 `pickup` + `dropoff`；包车 `pickup` + `package_hours`。
  * 该给的没给是 `REQUIRED`，不该给的给了是 `NOT_APPLICABLE`（和 `/sales/v1` 同一种说法），见 `siteTripOf`。
@@ -86,6 +99,7 @@ const quoteSchema = z
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
+    addons: addonsSchema,
   })
   .strict();
 
@@ -145,8 +159,12 @@ const byPointsSchema = z
     service_local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, "写成当地时间 YYYY-MM-DDTHH:mm"),
     passengers: z.number().int().min(1).max(60),
     luggage: z.number().int().min(0).max(60).default(0),
+    addons: addonsSchema,
   })
   .strict();
+
+/** 参考汇率：客人币种（汇率中心支持的币种，大写三位）。 */
+const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
 
 /** 关键字规范化后核对长短（搜索、输入即提示同一个规则）。 */
 function placeQueryOf(raw: string): string {
@@ -212,6 +230,8 @@ function quoteJson(quote: SiteQuote): Json {
     price: { total: salesMoney(quote.sellMinor, quote.currency), fx: quote.fx === null ? null : { rate: quote.fx.rate, as_of: quote.fx.asOf } },
     free_wait_minutes: quote.freeWaitMinutes,
     cancel_policy: { category: quote.cancelPolicy.category, level: quote.cancelPolicy.level, tiers: quote.cancelPolicy.tiers.map((tier) => ({ min_hours_before: tier.minHoursBefore, fee_bp: tier.feeBp })) },
+    // 只有目录信息（编码、名称、计费方式），不带供应商单价、也不带对外单价：价格只在加了之后重新询价的合计里（ADR 0069 B15）
+    available_addons: quote.availableAddons.map((addon) => ({ id: addon.id, code: addon.code, name: addon.name, charge_unit: addon.chargeUnit })),
   };
 }
 
@@ -340,10 +360,18 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     return siteReversePlace(ctx, input.city_id, { lat: input.lat, lng: input.lng });
   });
 
+  // 按客人币种显示参考价（M8-02，ADR 0069 B16）：只读汇率中心现在生效的汇率，不拉外部服务；不可用时 200 + available false
+  app.get("/site/v1/fx/reference", async (request) => {
+    await takeSiteSlot(ctx, "site_read", { ip: request.ip });
+    const input = parseInput(fxReferenceSchema, request.query, "querystring");
+    const found = await siteFxReference(ctx, input.to as CurrencyCode);
+    return { available: found.available, from: found.from, to: found.to, rate: found.rate, as_of: found.asOf, reason: found.reason };
+  });
+
   app.post("/site/v1/quotes", async (request) => {
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(quoteSchema, request.body, "body");
-    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage };
+    const quoteInput: SiteQuoteInput = { cityId: input.city_id, trip: siteTripOf(input), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) };
     return quoteResultJson(await siteQuotes(ctx, quoteInput));
   });
 
@@ -351,7 +379,7 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     await takeSiteSlot(ctx, "site_quote", { ip: request.ip });
     const input = parseInput(byPointsSchema, request.body, "body");
     const end = (value: z.output<typeof tripEndSchema>) => ({ lat: value.lat, lng: value.lng, kind: value.kind ?? null });
-    const result = await siteQuotesByPoints(ctx, { pickup: end(input.pickup), dropoff: end(input.dropoff), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage });
+    const result = await siteQuotesByPoints(ctx, { pickup: end(input.pickup), dropoff: end(input.dropoff), serviceLocal: input.service_local, passengers: input.passengers, luggage: input.luggage, addons: addonsOf(input.addons) });
     return {
       trip_type: result.tripType,
       airport: result.airport === null ? null : { id: result.airport.id, code: result.airport.code, name: result.airport.name, matched_by: result.airport.matchedBy, distance_meters: result.airport.meters },

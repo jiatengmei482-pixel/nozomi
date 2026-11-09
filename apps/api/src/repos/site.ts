@@ -2,7 +2,7 @@
  * 官网（ADR 0032）的数据访问：官网用的 API 客户端和渠道、能预订的城市和机场、订单的查看链接、用订单号找回订单。
  * 全在平台事务里调用（官网是一个渠道，这些都是平台的数据）。
  */
-import type { LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
+import type { AddonChargeUnit, LocalizedText, ServiceCategory, TenantStatus } from "@nozomi/domain";
 import type { PassengerContact } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { type OrderVehicleGroupRef, findOrderVehicleGroup } from "./master-data.ts";
@@ -299,4 +299,18 @@ export async function listAirportsNear(db: Db, cityIds: readonly string[], boxes
     seen.add(row.id);
     return [{ id: row.id, code: row.code, name: row.name, cityId: row.city_id, lat: Number(row.lat), lng: Number(row.lng) }];
   });
+}
+
+/** 报价应答里「这个车型能加哪些附加服务」要的目录信息（M8-02，ADR 0069 B15）：编码、名称（各语言）、计费方式。没有任何单价。 */
+export interface SiteAddonInfo {
+  id: string;
+  code: string;
+  name: LocalizedText;
+  chargeUnit: AddonChargeUnit;
+}
+
+export async function findAddons(db: Db, ids: readonly string[]): Promise<Map<string, SiteAddonInfo>> {
+  if (ids.length === 0) return new Map();
+  const rows = await db.query<{ id: string; code: string; name: LocalizedText; charge_unit: AddonChargeUnit }>("select id, code, name, charge_unit from addons where id = any($1::uuid[]) and status = 'active'", [ids]);
+  return new Map(rows.rows.map((row) => [row.id, { id: row.id, code: row.code, name: row.name, chargeUnit: row.charge_unit }]));
 }

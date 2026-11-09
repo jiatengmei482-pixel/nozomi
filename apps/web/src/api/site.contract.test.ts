@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
 import { API_PATH_PREFIXES } from "../lib/api-prefixes.ts";
 import { UNAVAILABLE_REASON_TEXT } from "../lib/site-display.ts";
-import { SITE_BASE, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
+import { SITE_BASE, SITE_FX_REFERENCE_FIELDS, SITE_BY_POINTS_REQUEST_FIELDS, SITE_BY_POINTS_RESULT_FIELDS, SITE_ORDER_FIELDS, SITE_ORDER_REQUEST_FIELDS, SITE_ORDER_VEHICLE_GROUP_FIELDS, SITE_QUOTE_REQUEST_FIELDS, SITE_SCHEMA_FIELDS, SITE_TRIP_END_FIELDS } from "./site.ts";
 
 interface Schema {
   $ref?: string;
@@ -37,6 +37,7 @@ test("前端用到的官网接口都在 openapi.yaml 里；订单页的接口要
     ["get", `${SITE_BASE}/places/details`],
     ["post", `${SITE_BASE}/quotes`],
     ["post", `${SITE_BASE}/quotes/by-points`],
+    ["get", `${SITE_BASE}/fx/reference`],
     ["post", `${SITE_BASE}/orders`],
     ["post", `${SITE_BASE}/orders/lookup`],
   ];
@@ -144,4 +145,14 @@ test("按两个坐标报价、输入即提示（M8-02）：请求和应答的字
   for (const schema of [result, get200(`${SITE_BASE}/places/autocomplete`), get200(`${SITE_BASE}/places/details`)]) walk(schema, new Set());
   assert.ok(keys.has("route") && keys.has("polyline") && keys.has("kind"));
   assert.deepEqual([...keys].filter((key) => /settlement|markup|tenant_id|secret|key$|token|google|raw/i.test(key)), []);
+});
+
+test("附加服务、参考汇率（M8-02）：报价只给可加的附加服务的目录信息，没有任何单价；参考汇率的字段与 openapi.yaml 一致", () => {
+  assert.deepEqual(props(schemas["SiteAddonOption"]), ["charge_unit", "code", "id", "name"]);
+  assert.deepEqual(props(schemas["SiteAddonRequest"]), ["addon_id", "quantity"]);
+  assert.equal(schemas["SiteQuote"]?.properties?.["available_addons"]?.items?.$ref, "#/components/schemas/SiteAddonOption");
+  assert.equal(schemas["SiteByPointsRequest"]?.properties?.["addons"]?.items?.$ref, "#/components/schemas/SiteAddonRequest");
+  const fx = (spec.paths[`${SITE_BASE}/fx/reference`]?.["get"] as unknown as { responses: Record<string, { content: Record<string, { schema: Schema }> }> }).responses["200"]?.content["application/json"]?.schema;
+  assert.deepEqual(props(fx), sorted(SITE_FX_REFERENCE_FIELDS));
+  assert.deepEqual(sorted(fx?.required ?? []), sorted(SITE_FX_REFERENCE_FIELDS));
 });

@@ -25,6 +25,8 @@ import {
   cityBounds,
   classifyPointsTrip,
   cleanPlaceText,
+  type CurrencyCode,
+  fxQuoteFromTable,
   inAnyCity,
   instantToLocal,
   localDateTimeExists,
@@ -44,6 +46,7 @@ import {
   viewLinkThrottleSteps,
 } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
+import { pendingHeldFetches } from "../repos/fx.ts";
 import { type PassengerCrypto, isPassengerDecryptFailure } from "../integrations/passenger-crypto.ts";
 import { passengerCryptoOfPool, withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -74,6 +77,8 @@ import {
   listActiveCities,
   listAirportsNear,
   listSuggestionPlaces,
+  type SiteAddonInfo,
+  findAddons,
 } from "../repos/site.ts";
 import type { RoutePreview } from "./route-estimates.ts";
 import { validationFailed } from "../validation.ts";
@@ -412,6 +417,8 @@ export interface SiteQuoteInput {
   serviceLocal: string;
   passengers: number;
   luggage: number;
+  /** 客人选的附加服务和数量（M8-02，ADR 0069 B15）：照原样交给报价引擎，没提供的商品不报（`ADDON_NOT_OFFERED`） */
+  addons: { addonId: string; quantity: number }[];
 }
 
 export interface SiteCancelPolicy {
@@ -426,6 +433,8 @@ export interface SiteQuote extends SalesQuote {
   packageKm: number | null;
   /** 按现在的平台取消政策：这个车型组下单后适用的阶梯（下单时抄进订单） */
   cancelPolicy: SiteCancelPolicy;
+  /** 这个车型还能加哪些附加服务（参加比价的供应商里有人提供的；只有目录信息，不带任何单价，M8-02） */
+  availableAddons: SiteAddonInfo[];
 }
 
 export interface SiteQuoteResult {
@@ -437,7 +446,7 @@ export interface SiteQuoteResult {
 /** 询价请求里给渠道询价用的那几项（各品类的起终点、方向、套餐），和询价日志里记的原始请求。 */
 function salesTrip(input: SiteQuoteInput): { category: ServiceCategory; placeId: string | null; direction: "pickup" | "dropoff" | null; pickup: Point | null; dropoff: Point | null; packageHours: number | null; request: Record<string, unknown> } {
   const { trip } = input;
-  const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage };
+  const common = { source: "site", category: trip.category, city_id: input.cityId, service_local: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons.map((addon) => ({ addon_id: addon.addonId, quantity: addon.quantity })) };
   switch (trip.category) {
     case "airport_transfer":
       return {
@@ -490,17 +499,18 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
       packageHours: sales.packageHours,
       passengers: input.passengers,
       luggage: input.luggage,
-      addons: [],
+      addons: input.addons,
       driverLanguage: null,
       vehicleGroupIds: [],
       currency: channel.settleCurrency,
     },
     { request: { ...sales.request, ...logExtra } },
   );
-  const { groups, policy, packageKm } = await withPlatformTx(
+  const { groups, policy, packageKm, addons } = await withPlatformTx(
     ctx.pool,
     async (db) => ({
       groups: await findVehicleGroups(db, result.quotes.map((quote) => quote.vehicleGroupId)),
+      addons: await findAddons(db, [...new Set(result.quotes.flatMap((quote) => quote.offeredAddonIds ?? []))]),
       policy: await currentCancellationPolicy(db),
       packageKm: trip.category === "charter" ? await findQuotePackageKm(db, result.quotes.map((quote) => quote.quoteId)) : new Map<string, number>(),
     }),
@@ -511,7 +521,8 @@ export async function siteQuotes(ctx: AppContext, input: SiteQuoteInput, logExtr
     if (group === undefined) return [];
     const level = vehicleLevel(group.grade as VehicleGrade, group.seats);
     const rule = cancellationRuleFor(policy.rules, sales.category, level);
-    return [{ ...quote, vehicleGroup: group, packageKm: packageKm.get(quote.quoteId) ?? null, cancelPolicy: { category: sales.category, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) } }];
+    const availableAddons = (quote.offeredAddonIds ?? []).flatMap((id) => addons.get(id) ?? []);
+    return [{ ...quote, vehicleGroup: group, packageKm: packageKm.get(quote.quoteId) ?? null, cancelPolicy: { category: sales.category, level, tiers: rule.tiers.map((tier) => ({ minHoursBefore: tier.minHoursBefore, feeBp: tier.feeBp })) }, availableAddons }];
   });
   // 价低的在前：客人先看到最便宜的
   quotes.sort((a, b) => a.sellMinor - b.sellMinor || a.vehicleGroup.seats - b.vehicleGroup.seats);
@@ -526,6 +537,7 @@ export interface SiteByPointsInput {
   serviceLocal: string;
   passengers: number;
   luggage: number;
+  addons: { addonId: string; quantity: number }[];
 }
 
 export interface SiteByPointsResult extends SiteQuoteResult {
@@ -609,11 +621,47 @@ export async function siteQuotesByPoints(ctx: AppContext, input: SiteByPointsInp
     recognition: { trip_type: trip.tripType, airport_id: airport?.id ?? null, pickup: endLog(input.pickup, recognized.pickupAirport), dropoff: endLog(input.dropoff, recognized.dropoffAirport) },
   };
   const [result, route] = await Promise.all([
-    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage }, logExtra),
+    siteQuotes(ctx, { cityId: city.id, trip: siteTrip, serviceLocal: input.serviceLocal, passengers: input.passengers, luggage: input.luggage, addons: input.addons }, logExtra),
     routePreviewOrNull(ctx, { lat: input.pickup.lat, lng: input.pickup.lng }, { lat: input.dropoff.lat, lng: input.dropoff.lng }),
   ]);
   const expiresAt = result.quotes.reduce<string | null>((earliest, quote) => (earliest === null || quote.expiresAt < earliest ? quote.expiresAt : earliest), null);
   return { ...result, tripType: trip.tripType, airport, city: cityJson, expiresAt, route };
+}
+
+/**
+ * 参考汇率不可用的原因（M8-02，ADR 0069 B16）：`NO_RATE` 汇率中心没有这两种币种的汇率；`STALE` 超过 48 小时没更新（跨币种报价也停了）；
+ * `PENDING_REVIEW` 有一批涨跌超过阈值的汇率挂起、等人工确认（这时不给客人看参考价）。
+ */
+export type SiteFxUnavailable = "NO_RATE" | "STALE" | "PENDING_REVIEW";
+
+export interface SiteFxReference {
+  available: boolean;
+  /** 订单币种（官网渠道的结算币种） */
+  from: string;
+  to: CurrencyCode;
+  /** 1 个订单币种的主单位 ≈ 多少个客人币种的主单位（十进制字符串）；不可用为 null */
+  rate: string | null;
+  /** 这个汇率是哪一批的（数据源的时间）；同币种、不可用为 null */
+  asOf: string | null;
+  reason: SiteFxUnavailable | null;
+}
+
+/**
+ * 按客人币种显示的参考价用的汇率（M8-02，ADR 0069 B16）：只读汇率中心「现在生效」的汇率（和报价引擎同一个 `ctx.fx.rates`，含人工锁定），不拉任何外部服务。
+ * 只用于显示，不进报价、不影响收款。
+ */
+export async function siteFxReference(ctx: AppContext, to: CurrencyCode): Promise<SiteFxReference> {
+  const { channel } = await requireOpenSite(ctx);
+  const from = channel.settleCurrency as CurrencyCode;
+  if (from === to) return { available: true, from, to, rate: "1", asOf: null, reason: null };
+  const unavailable = (reason: SiteFxUnavailable): SiteFxReference => ({ available: false, from, to, rate: null, asOf: null, reason });
+  const table = await ctx.fx.currentTable();
+  if (table === null || fxQuoteFromTable(table, from, to) === null) return unavailable("NO_RATE");
+  const held = await withPlatformTx(ctx.pool, (db) => pendingHeldFetches(db, new Date(table.asOf)), { snapshot: true });
+  if (held.length > 0) return unavailable("PENDING_REVIEW");
+  const quote = await ctx.fx.rates.quote(from, to, ctx.now());
+  if (quote === null) return unavailable("STALE");
+  return { available: true, from, to, rate: quote.rate, asOf: quote.asOf, reason: null };
 }
 
 export interface SiteLink {
