@@ -57,7 +57,7 @@ test("写错了的：每一种都有定稿的话，指到对应的输入框", ()
   assert.deepEqual(texts(fresh({ urgent: true, quota: "0" })), ["每日加急库存：要停掉加急，请取消勾选「允许加急预订」"]);
   assert.deepEqual(texts(fresh({ urgent: true, quota: "10001" })), ["每日加急库存：请填 1 到 10,000 之间的整数，或留空表示不限"]);
   assert.deepEqual(texts(fresh({ leadTime: "24", urgent: true, tiers: [{ hours: "25", amount: "0" }, { hours: "6", amount: "" }, { hours: "", amount: "100" }, { hours: "12", amount: "1" }, { hours: "12", amount: "1" }] })), [
-    "加急阶梯第 1 档：请填 1 到 24 之间的整数",
+    "加急阶梯第 1 档：提前不足的小时数不能超过提前预订时长（现在是 24 小时），请填 1 到 24；要把更早下的单也算加急，先把提前预订时长改大",
     "加急阶梯第 2 档：请填写加收的金额，不加收请填 0",
     "加急阶梯第 3 档：请填写小时数",
     "第 4 档和第 5 档的小时数相同",

@@ -209,7 +209,7 @@ export function readRulesForm(form: RulesForm, context: RulesFormContext): Rules
       if (hoursText === "" && row.amount.trim() === "") return;
       let hours: number | null = null;
       if (hoursText === "") problems.push({ text: `${label}：请填写小时数`, target: `tier-${index}-hours` });
-      else if (!INTEGER.test(hoursText) || Number(hoursText) < 1 || Number(hoursText) > limit) problems.push({ text: limit < 1 ? `${label}：提前预订时长是 0 小时时没有「来不及」的单。请关掉加急，或把提前预订时长改成至少 1 小时` : `${label}：请填 1 到 ${limit} 之间的整数`, target: `tier-${index}-hours` });
+      else if (!INTEGER.test(hoursText) || Number(hoursText) < 1 || Number(hoursText) > limit) problems.push({ text: limit < 1 ? `${label}：提前预订时长是 0 小时时没有「来不及」的单。请关掉加急，或把提前预订时长改成至少 1 小时` : leadTime === null ? `${label}：请填 1 到 ${limit} 之间的整数` : `${label}：提前不足的小时数不能超过提前预订时长（现在是 ${limit} 小时），请填 1 到 ${limit}；要把更早下的单也算加急，先把提前预订时长改大`, target: `tier-${index}-hours` });
       else if (seen.has(Number(hoursText))) problems.push({ text: `第 ${(seen.get(Number(hoursText)) ?? 0) + 1} 档和第 ${index + 1} 档的小时数相同`, target: `tier-${index}-hours` });
       else {
         hours = Number(hoursText);
