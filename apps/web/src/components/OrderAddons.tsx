@@ -23,7 +23,8 @@ export function orderAddonsText(addons: readonly OrderAddon[], catalog: readonly
     .join("、");
 }
 
-export function OrderAddonsItem({ addons, cacheKey, load }: { addons: readonly OrderAddon[]; cacheKey: string; load(token: string): Promise<Addon[]> }) {
+/** `addons` 缺省（旧版接口、测试替身没给）当作没有附加服务。 */
+export function OrderAddonsItem({ addons = [], cacheKey, load }: { addons?: readonly OrderAddon[] | undefined; cacheKey: string; load(token: string): Promise<Addon[]> }) {
   const catalog = useLoad<Addon[]>(cacheKey, addons.length > 0 ? load : null);
   if (addons.length === 0) return null;
   const ready = catalog.state.status === "ready" ? catalog.state.data : null;
