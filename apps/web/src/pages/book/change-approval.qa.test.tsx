@@ -63,7 +63,7 @@ const order = (changes: Partial<SiteOrder>): SiteOrder =>
     ...changes,
   }) as SiteOrder;
 const change = (status: SiteOrder["changes"][number]["status"], fields: string[]): SiteOrder["changes"][number] => ({ id: "c1", status, fields, before: {}, after: {}, price_difference: null, confirm_due_at: null, requested_at: "2026-10-27T00:00:00.000Z", decided_at: null }) as SiteOrder["changes"][number];
-const envelope = (value: SiteOrder): SiteOrderEnvelope => ({ order: value, timeline: [], names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: { code: "NRT", name: { zh: "成田机场" }, type: "airport" }, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7 } } }) as SiteOrderEnvelope;
+const envelope = (value: SiteOrder): SiteOrderEnvelope => ({ order: value, timeline: [], names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: { code: "NRT", name: { zh: "成田机场" }, type: "airport" }, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] } } }) as SiteOrderEnvelope;
 
 function open(value: SiteOrder, patched?: SiteOrder): void {
   stubApiWith((call) => {

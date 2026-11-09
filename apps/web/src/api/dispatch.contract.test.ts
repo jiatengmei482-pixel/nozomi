@@ -74,6 +74,7 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的", () => {
     ["TenantWebhook", schemas["TenantWebhook"]],
     ["WebhookDelivery", schemas["WebhookDelivery"]],
     ["WebhookAttempt", schemas["WebhookAttempt"]],
+    ["OrderVehicleGroup", schemas["OrderVehicleGroup"]],
     ["DriverTrip", schemas["DriverTrip"]],
   ];
   for (const [name, schema] of pairs) {
@@ -81,6 +82,17 @@ test("应答的字段与 openapi.yaml 一致，且都是必有的", () => {
     assert.deepEqual(sorted(schema?.required ?? []), sorted(DISPATCH_SCHEMA_FIELDS[name]), `${name} 的必填字段`);
   }
   for (const field of ["dispatch", "fulfilment", "landing"]) assert.ok(schemas["TenantOrder"]?.required?.includes(field), `TenantOrder 缺 ${field}`);
+});
+
+test("供应商、运营后台的订单详情都带车型组（M7-02）：必有，是 OrderVehicleGroup 或 null；里面有车型标识的两个来源", () => {
+  const detail = (path: string): Schema | undefined =>
+    (spec.paths[path]?.["get"] as { responses: Record<string, { content: Record<string, { schema: Schema }> }> } | undefined)?.responses["200"]?.content["application/json"]?.schema;
+  for (const path of [`${ORDERS_PATH}/{id}`, "/platform/v1/orders/{id}"]) {
+    const schema = detail(path);
+    assert.ok(schema?.required?.includes("vehicle_group"), `${path} 缺 vehicle_group`);
+    assert.deepEqual(schema?.properties?.["vehicle_group"]?.oneOf, [{ $ref: "#/components/schemas/OrderVehicleGroup" }, { type: "null" }], path);
+  }
+  assert.equal(schemas["OrderVehicleGroup"]?.properties?.["combos"]?.items?.$ref, "#/components/schemas/VehicleCombo");
 });
 
 test("枚举与 @nozomi/domain 一致：订单状态、司机和车辆的状态、牌照类型、Webhook 事件", () => {
@@ -102,7 +114,7 @@ test("规则 4：供应商看到的订单、司机页面里没有对外价、加
     walk(schema.items);
     for (const option of schema.oneOf ?? []) walk(option);
   };
-  for (const name of ["TenantOrder", "OrderDispatch", "OrderFulfilment", "DriverTrip"]) walk(schemas[name]);
+  for (const name of ["TenantOrder", "OrderDispatch", "OrderFulfilment", "DriverTrip", "OrderVehicleGroup"]) walk(schemas[name]);
   assert.ok(keys.has("settlement") && keys.has("dispatch"));
   assert.deepEqual([...keys].filter((key) => /markup|sell|price|fx/i.test(key)), []);
 });

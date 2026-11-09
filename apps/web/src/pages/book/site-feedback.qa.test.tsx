@@ -80,7 +80,7 @@ const orderOf = (changes: Partial<SiteOrder> = {}): SiteOrder => ({
 const envelopeOf = (order: SiteOrder = orderOf()): SiteOrderEnvelope => ({
   order,
   timeline: [{ from_status: null, to_status: "pending_payment", reason: null, occurred_at: order.created_at }],
-  names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: { code: "NRT", name: { zh: "成田机场" }, type: "airport" }, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7 } },
+  names: { city: { code: "CTY-JP-TYO", name: { zh: "东京" } }, place: { code: "NRT", name: { zh: "成田机场" }, type: "airport" }, vehicle_group: { code: "VG-BIZ-7", name: { zh: "商务 7 座" }, seats: 7, sample_models: [], combos: [{ passengers: 6, luggage: 4 }] } },
 });
 
 type Route = (call: ApiCall & { url: URL }) => Response | Promise<Response> | null;
