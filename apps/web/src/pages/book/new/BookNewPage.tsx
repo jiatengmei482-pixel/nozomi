@@ -35,7 +35,7 @@ import { TextField } from "../../../components/TextField.tsx";
 import { type BookingLink, type LinkEnd, type TripPoint, VISIBLE_VEHICLES, parseBookingLink, pointName, rejectionTexts, travellersText } from "../../../lib/book-new.ts";
 import { formatInZone, moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
-import { defaultServiceDate, guestLocalText, priceNote, quotesByTotal } from "../../../lib/site-display.ts";
+import { CHARTER_OVERAGE_NOTE, defaultServiceDate, guestLocalText, quotesByTotal } from "../../../lib/site-display.ts";
 import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
@@ -473,7 +473,7 @@ export function BookNewPage() {
                 </li>
               ))}
             </ul>
-            {draft.mode === "charter" && <p className="site-muted">{priceNote("charter")}</p>}
+            {draft.mode === "charter" && <p className="site-muted">{CHARTER_OVERAGE_NOTE}</p>}
           </section>
         </>
       );

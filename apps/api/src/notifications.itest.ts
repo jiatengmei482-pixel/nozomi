@@ -174,6 +174,36 @@ test("规则 4：发给供应商的邮件没有对外价、加价比例；客人
   assert.match(bodyOf(guestMail), /已付金额/);
 });
 
+test("一口价说明（M8-09，ADR 0070）：接送机客人写「一口价已含所有费用」；分界后下的包车单客人多写超出套餐另收、供应商写包车报价须含高速停车；分界前下的包车单都不写", async () => {
+  const charterAt = async (orderId: string, placedAt: string): Promise<void> => {
+    await api.db.owner.query("update orders set category = 'charter', place_id = null, direction = null, package_hours = 8, flight_no = null, pickup = dropoff, dropoff = null, created_at = $2, payment_due_at = $2::timestamptz + interval '30 minutes' where id = $1", [orderId, placedAt]);
+  };
+  const mails = async (setup: (orderId: string) => Promise<void>): Promise<{ guest: string; tenant: string }> => {
+    smtp.reset();
+    const order = await placeOrder();
+    await payFor(order.orderId);
+    await setup(order.orderId);
+    await site.app.notificationJobs.tick();
+    const mine = smtp.messages.filter((message) => bodyOf(message).includes(order.orderNo));
+    const guest = mine.find((message) => message.to.includes(GUEST_EMAIL));
+    const tenant = mine.find((message) => message.to.includes(m.a.adminEmail) || message.to.includes(m.b.adminEmail));
+    assert.ok(guest && tenant, `${order.orderNo} 两封都要有`);
+    return { guest: bodyOf(guest), tenant: bodyOf(tenant) };
+  };
+  const transfer = await mails(async () => undefined);
+  assert.match(transfer.guest, /已付金额：.+\n费用说明：一口价已含所有费用（高速费、停车费等），无需另付\n/);
+  assert.doesNotMatch(transfer.guest, /超出套餐/);
+  assert.doesNotMatch(transfer.tenant, /包车报价|费用说明/);
+  const charter = await mails((orderId) => charterAt(orderId, "2026-11-10T00:00:00+09:00"));
+  assert.match(charter.guest, /费用说明：一口价已含所有费用（高速费、停车费等），无需另付；超出套餐的时长和公里服务后按实际收取\n/);
+  assert.match(charter.tenant, /包车报价须包含高速费、停车费/);
+  assert.doesNotMatch(charter.tenant, /对外价|加价|已付/);
+  const legacy = await mails((orderId) => charterAt(orderId, "2026-11-09T23:59:59.999+09:00"));
+  assert.doesNotMatch(legacy.guest, /费用说明|含所有费用/);
+  assert.match(legacy.guest, /已付金额：/);
+  assert.doesNotMatch(legacy.tenant, /包车报价/);
+});
+
 test("邮件没配置：下单、付款照常；记录留着，原因写明，不算次数；手动重试 409；配好后自动发", async () => {
   const order = await placeOrder(unconfigured);
   await payFor(order.orderId);

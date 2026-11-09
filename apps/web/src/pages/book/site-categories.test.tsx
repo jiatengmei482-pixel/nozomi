@@ -146,7 +146,7 @@ test("从常用地点选了以后手改地址：选择清掉，地址和坐标�
   await waitFor(() => assertAbsent(screen.queryByRole("combobox", { name: /从常用地点/ })));
 });
 
-test("包车：选时长（只有包车的字段进请求体）；报价卡写套餐时长和公里、价格说明写超出部分和高速停车另收；下单页只有上车地址", async () => {
+test("包车：选时长（只有包车的字段进请求体）；报价卡写套餐时长和公里、价格说明写一口价已含所有费用、超出套餐另收（M8-09）；下单页只有上车地址、总价写已含高速停车", async () => {
   const charter = quoteOf({ package: { hours: 8, km: 150 }, price: { total: { amount: "77000", currency: "JPY" }, fx: null }, free_wait_minutes: 30, cancel_policy: { category: "charter", level: "business", tiers } });
   const calls = open("/book", routes({ quotes: () => json(200, { currency: "JPY", quotes: [charter], unavailable: [] }) }));
   const actor = user();
@@ -168,13 +168,14 @@ test("包车：选时长（只有包车的字段进请求体）；报价卡写�
   assert.deepEqual(calls.find((call) => call.method === "POST")?.body, { category: "charter", city_id: CITY_ID, service_local: "2030-11-20T10:00", passengers: 2, luggage: 1, pickup: { lat: 35.6812, lng: 139.7671 }, package_hours: 8 });
   assert.ok(within(card).getByText("8 小时，含 150 公里"));
   assert.equal(card.querySelector(".site-quote__price")?.textContent, "77,000 JPY", "价格数字和币种分两段套样式（M6-05），文字不变");
-  assert.ok(screen.getByText(/超出套餐的时长和公里、高速费、停车费服务后按实际收取/));
-  assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商/);
+  assert.ok(screen.getByText(/按车计价的套餐价，一口价已含所有费用（高速费、停车费等），无需另付。超出套餐的时长和公里服务后按实际收取/));
+  assert.doesNotMatch(document.body.textContent ?? "", /结算|加价|供应商|高速费、停车费服务后/);
 
   await actor.click(within(card).getByRole("button", { name: "预订商务 7 座" }));
   assert.ok(await screen.findByRole("heading", { level: 1, name: "填写订单" }));
   assert.ok(screen.getByText("8 小时，含 150 公里"));
   assert.ok(screen.getByText("东京站八重洲口"));
+  assert.ok(screen.getByText("总价（按车计价的套餐价，已含高速费和停车费）"));
   assertAbsent(screen.queryByLabelText("下车地址或酒店名"));
   assertAbsent(screen.queryByLabelText(/^航班号/));
 });

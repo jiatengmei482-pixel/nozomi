@@ -1,6 +1,6 @@
 /**
  * 「一口价包含」清单（M8-03，ADR 0069「修正版 v2」的三语清单和「第二批确认 ①」）：新预订页（以后的确认邮件同一来源）只写这里的条目。
- * - 含所有费用：接送机、点对点写；包车要等「包车不再另收高速费、停车费」的规则切换后才写（`FIXED_PRICE_RULES.charterAllInclusive`）；
+ * - 含所有费用：全部写（M8-09 起包车也是一口价全含，`FIXED_PRICE_RULES.charterAllInclusive`；ADR 0070）；
  * - 专车不拼车：全部写；
  * - 举牌接机：只有中标商品的「包含」清单里有才写（调用方传进来）；
  * - 免费等待 N 分钟：N 取报价里的值，0 或不限时不写；接机写「航班落地后」。
@@ -11,11 +11,32 @@ export type FixedPriceLanguage = "zh" | "ja" | "en";
 
 export const FIXED_PRICE_RULES = {
   /**
-   * 包车页面能不能写「一口价已含所有费用」。现在包车还能事后加收高速费、停车费（`extra-charges.ts` 的 toll、parking，ADR 0029），
-   * 页面不能先写「包含所有费用」（ADR 0069 第二批确认 ① 安全方案第 3 条：说法和规则同一天切换）。规则切换的那个 PR 把这里改成 true。
+   * 包车页面能不能写「一口价已含所有费用」。M8-09（ADR 0070）起包车也不再另收高速费、停车费（`extra-charges.ts` 按下单时间判断），说法和规则同一个 PR 切换。
    */
-  charterAllInclusive: false,
+  charterAllInclusive: true,
 } as const;
+
+/**
+ * 包车一口价全含的分界（ADR 0070）：这一刻（东京 2026-11-10 00:00）及以后下的包车单，服务后不能再加收高速费、停车费；
+ * 之前下的包车单报价时是按「高速、停车另收」报的，仍可按旧规则凭票加收（不追溯）。按订单的下单时间判断，只在这里定义。
+ */
+export const CHARTER_ALL_INCLUSIVE_FROM = "2026-11-10T00:00:00+09:00";
+const CHARTER_ALL_INCLUSIVE_FROM_MS = Date.parse(CHARTER_ALL_INCLUSIVE_FROM);
+
+/** 这一张包车单是不是一口价全含（按下单时间；正好在分界那一刻下的算全含）。 */
+export function charterAllInclusiveFor(placedAt: Date): boolean {
+  return placedAt.getTime() >= CHARTER_ALL_INCLUSIVE_FROM_MS;
+}
+
+/** 包车超出套餐的部分（客人侧说法，接在「含所有费用」后面）。 */
+export const CHARTER_OVERAGE_TEXTS: Readonly<Record<FixedPriceLanguage, string>> = {
+  zh: "超出套餐的时长和公里服务后按实际收取",
+  ja: "パッケージを超えた時間・距離はサービス後に実費でご請求します",
+  en: "Time and distance beyond the package are charged after the service at actual usage",
+};
+
+/** 供应商侧：包车报价须包含高速费、停车费（供应商后台价格规则、服务规则说明，接单邮件）。 */
+export const CHARTER_SUPPLIER_PRICE_NOTE = "包车报价须包含高速费、停车费：对客人是一口价全含，服务后不能再另收高速费、停车费；超出套餐的时长和公里仍按商品规则加收。";
 
 export type FixedPriceItemKey = "all_inclusive" | "private_car" | "meet_and_greet" | "free_wait";
 
@@ -75,4 +96,14 @@ export function fixedPriceIncludes(input: FixedPriceIncludesInput, language: Fix
   const minutes = input.freeWaitMinutes;
   if (minutes !== null && minutes > 0) items.push({ key: "free_wait", text: input.arrival ? texts.freeWaitAfterLanding(minutes) : texts.freeWait(minutes) });
   return items;
+}
+
+/**
+ * 客人看到的「费用说明」一句（订单确认邮件、官网说明同一来源）：
+ * 接送机、点对点只写「含所有费用」；包车再接一句超出套餐的时长和公里另收。
+ */
+export function fixedPriceFeeNote(service: "transfer" | "charter", language: FixedPriceLanguage = "zh"): string {
+  const texts = FIXED_PRICE_INCLUDES_TEXTS[language];
+  if (service === "transfer") return texts.allInclusive;
+  return `${texts.allInclusive}${language === "en" ? "; " : "；"}${CHARTER_OVERAGE_TEXTS[language]}`;
 }

@@ -7291,7 +7291,9 @@ paths:
       operationId: submitTenantExtraCharge
       summary: 提交事后加收
       description: |
-        需要操作 `order.extra_charge`（管理员、调度、财务）。只有已完成的单、服务结束 24 小时内（正好 24 小时还行）；类型按品类限定；高速费、停车费必须附票据（`file_ids`，先上传）；
+        需要操作 `order.extra_charge`（管理员、调度、财务）。只有已完成的单、服务结束 24 小时内（正好 24 小时还行）；类型按品类和订单的下单时间限定（见 `ExtraChargeType`）；
+        包车一口价已含高速费、停车费：东京时间 2026-11-10 00:00 及以后下的包车单不能提交 `toll`、`parking`（422 `TYPE_NOT_ALLOWED`），之前下的仍可按旧规则提交（ADR 0070）；
+        高速费、停车费必须附票据（`file_ids`，先上传）；
         单笔不超过这一单的结算价。提交后 48 小时是客人的异议期（不扣款，可以撤回）；之后没有异议、不超过对外价 50%、有凭证的自动用保存的支付方式扣款，其余转平台审核。
         `amount` 是这一单结算币种的最小货币单位整数（和价格规则一样）。
       security:
@@ -7341,7 +7343,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "422":
-          description: "`EXTRA_CHARGE_INVALID`（`details.reason`：`TYPE_NOT_ALLOWED`、`RECEIPT_REQUIRED`、`AMOUNT_INVALID`、`AMOUNT_OVER_LIMIT`）。凭证不是这一单的票据是 400 `VALIDATION_FAILED`"
+          description: "`EXTRA_CHARGE_INVALID`（`details.reason`：`TYPE_NOT_ALLOWED` 这一单不能收这一项——接送机和点对点的包车类型、分界后下的包车单的高速费和停车费；`RECEIPT_REQUIRED`、`AMOUNT_INVALID`、`AMOUNT_OVER_LIMIT`）。凭证不是这一单的票据是 400 `VALIDATION_FAILED`"
           content:
             application/json:
               schema:
@@ -23087,7 +23089,7 @@ components:
     ExtraChargeType:
       type: string
       enum: [ charter_overtime, charter_over_km, waiting, extra_stop, extra_addon, toll, parking ]
-      description: "`charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待、`extra_stop` 现场加停靠点、`extra_addon` 现场加附加服务、`toll` 包车高速费、`parking` 包车停车费（后两种凭票实报，必须附票据）。接送机、点对点是一口价，只能收后三种之外的 `waiting`、`extra_stop`、`extra_addon`"
+      description: "`charter_overtime` 包车超时、`charter_over_km` 包车超公里、`waiting` 付费等待、`extra_stop` 现场加停靠点、`extra_addon` 现场加附加服务、`toll` 包车高速费、`parking` 包车停车费（后两种凭票实报，必须附票据）。接送机、点对点是一口价，只能收 `waiting`、`extra_stop`、`extra_addon`。包车一口价全含（ADR 0070）：东京时间 2026-11-10 00:00 及以后下的包车单不能再提交 `toll`、`parking`；这两个值保留，用于分界前下的包车单和已有的加收（照常显示、审核、扣款、结算）"
     ExtraChargeStatus:
       type: string
       enum: [ in_window, review, disputed, approved, charging, charged, charge_failed, rejected, withdrawn ]
