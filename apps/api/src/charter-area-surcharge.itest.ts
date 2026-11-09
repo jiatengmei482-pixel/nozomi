@@ -2,7 +2,7 @@
  * M8-15：包车区域加价（ADR 0073 第三部分），经真实接口、真实 PostgreSQL；收款服务用替身。
  * - 价格规则：新价格方式 `charter_area_surcharge`（批量新增、冲突键含价格方式、加价区域是本租户的任何报价区域、不能是商品本身的区域、别人的区域 404）；
  * - 价格日历按区域分行；导入导出加「上车加价」「下车加价」两列；
- * - 官网包车：下车地点必填；报价 = 基础定价 + 上车加价 + 下车加价；哪里都不在转人工；订单存下车点和加价；
+ * - 官网包车：下车地点暂时可选（同渠道接口，不给时设了区域加价的商品不报 DROPOFF_REQUIRED，M8-13 改为必填）；给了下车地点时下车地址必填；报价 = 基础定价 + 上车加价 + 下车加价；哪里都不在转人工；订单存下车点和加价；
  *   供应商订单详情只有结算价，运营订单详情另有对外价参考；
  * - 渠道接口：不给下车地点时只报没设区域加价的商品，设了的给出原因 `DROPOFF_REQUIRED`；
  * - 规则 2：甲读不到、改不了乙的区域加价、价格日历、导出、订单；规则 4：/tenant/v1 的应答里没有对外价和加价比例；
@@ -235,15 +235,16 @@ test("导入导出：导出带「上车加价」「下车加价」两列和区�
   assert.deepEqual([oldSeen.status, oldSeen.body.can_import, oldSeen.body.rows[0].action, oldSeen.body.rows[0].content.surcharge], [200, true, "create", null], oldSeen.text);
 });
 
-test("官网包车：下车地点必填；报价 = 基础定价 + 上车加价 + 下车加价（一口价，已含）；哪里都不在转人工；没有结算价和加价区域的金额", async () => {
+test("官网包车：不给下车地点时设了区域加价的商品不报（DROPOFF_REQUIRED）；报价 = 基础定价 + 上车加价 + 下车加价（一口价，已含）；哪里都不在转人工；没有结算价和加价区域的金额", async () => {
   const quote = async (pickup: keyof typeof P, dropoff: keyof typeof P | null): Promise<ApiResponse> => {
     api.clock.advance(1_000);
     const res = await site.call("POST", "/site/v1/quotes", { body: { category: "charter", city_id: m.ids.tokyo, pickup: P[pickup], ...(dropoff === null ? {} : { dropoff: P[dropoff] }), package_hours: 8, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
     assertMatchesOpenApi("POST", "/site/v1/quotes", res);
     return res;
   };
+  // 下车地点暂时可选（同 /sales/v1，M8-13 改为必填）：这个商品设了区域加价，不给下车点就不报
   const missing = await quote("tokyo", null);
-  assert.deepEqual([missing.status, missing.body.error.details.issues.map((issue: any) => [issue.path, issue.reason])], [400, [["/dropoff", "REQUIRED"]]]);
+  assert.deepEqual([missing.status, missing.body.quotes.length, missing.body.unavailable], [200, 0, [{ vehicle_group_id: null, reasons: ["DROPOFF_REQUIRED"] }]]);
   const price = async (pickup: keyof typeof P, dropoff: keyof typeof P): Promise<[string, boolean] | string[]> => {
     const res = await quote(pickup, dropoff);
     assert.equal(res.status, 200, res.text);
@@ -257,6 +258,11 @@ test("官网包车：下车地点必填；报价 = 基础定价 + 上车加价 +
   const quoted = await quote("chiba", "fuji");
   const text = JSON.stringify(quoted.body);
   for (const key of ["settlement", "area_surcharge", "pickup_surcharge", "markup_bp"]) assert.ok(!allKeys(quoted.body).has(key), key);
+  // 没设区域加价的商品（甲的大阪包车）：不给下车点照常报，和以前一样只看上车点
+  api.clock.advance(1_000);
+  const osaka = await site.call("POST", "/site/v1/quotes", { body: { category: "charter", city_id: m.ids.osaka, pickup: P.osaka, package_hours: 8, service_local: SERVICE_LOCAL, passengers: 2, luggage: 1 }, ip: nextIp() });
+  assertMatchesOpenApi("POST", "/site/v1/quotes", osaka);
+  assert.deepEqual(osaka.body.quotes.map((entry: any) => [entry.price.total.amount, entry.includes_area_surcharge]), [["66000", false]], osaka.text);
   assert.doesNotMatch(text.replace(/[0-9a-f-]{36}|QT\d{8}[0-9A-Z]+/gi, ""), /71500|70000|乙车队/);
 });
 

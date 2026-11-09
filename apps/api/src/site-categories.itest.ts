@@ -214,7 +214,6 @@ test("各品类该填的没填是 REQUIRED、不该填的填了是 NOT_APPLICABL
     [p2pBody({ airport_id: m.ids.narita, direction: "pickup" }), [["/airport_id", "NOT_APPLICABLE"], ["/direction", "NOT_APPLICABLE"]]],
     [p2pBody({ package_hours: 4 }), [["/package_hours", "NOT_APPLICABLE"]]],
     [charterBody({ package_hours: undefined }), [["/package_hours", "REQUIRED"]]],
-    [charterBody({ dropoff: undefined }), [["/dropoff", "REQUIRED"]]],
     [charterBody({ address: PICKUP }), [["/address", "NOT_APPLICABLE"]]],
     [{ city_id: m.ids.tokyo, pickup: PICKUP, dropoff: DROPOFF, service_local: SERVICE_LOCAL, passengers: 2 }, [["/airport_id", "REQUIRED"], ["/direction", "REQUIRED"], ["/address", "REQUIRED"], ["/pickup", "NOT_APPLICABLE"], ["/dropoff", "NOT_APPLICABLE"]]],
   ];
@@ -273,6 +272,12 @@ test("包车：选 8 小时（乙 70,000，对外 77,000，含 150 公里）→ 
   const quoted = await quote(charterBody());
   assert.deepEqual(quoted.quotes.map((entry: any) => [entry.price.total.amount, entry.package, entry.cancel_policy.category]), [["77000", { hours: 8, km: 150 }, "charter"]]);
   assert.doesNotMatch(withoutRandomIds(JSON.stringify(quoted)), /70000|乙车队|markup|settlement/);
+  // 下车地点暂时可以不给（M8-15，M8-13 改为必填）：这个商品没设区域加价，和以前一样报，下单也不用下车地址
+  const noDropoff = await quote(charterBody({ dropoff: undefined }));
+  assert.deepEqual(noDropoff.quotes.map((entry: any) => [entry.price.total.amount, entry.includes_area_surcharge]), [["77000", false]]);
+  const noDropoffOrder = await order({ quote_id: noDropoff.quotes[0].quote_id, passenger: PASSENGER, save_payment_method: true, pickup_address: "东京站大饭店" });
+  assert.equal(noDropoffOrder.status, 201, noDropoffOrder.text);
+  assert.equal(noDropoffOrder.body.order.dropoff, null);
   const none = await quote(charterBody({ package_hours: 6 }));
   assert.deepEqual([none.quotes.length, none.unavailable.length > 0], [0, true], "停用的 6 小时报不出价");
 
