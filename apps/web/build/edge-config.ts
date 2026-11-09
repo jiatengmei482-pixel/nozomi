@@ -55,12 +55,12 @@ export const SITE_PAGE_PREFIX = "/book";
 
 /**
  * 哪些请求地址算官网页面（只有它们的策略放行 Stripe，ADR 0046）。对着**没解码的原始地址**比，只认字面上就是官网三个页面的
- * （`/book`、`/book/checkout`、`/book/order`，可带结尾斜杠和查询串）：
+ * （`/book`、`/book/checkout`、`/book/order`、M8-03 起的新预订页 `/book/new`，可带结尾斜杠和查询串；新预订页下单后在同一个文档里进订单页付款，也要放行 Stripe）：
  * - Caddy 的 `path` 匹配器会先解码、规整，`/platform/..%2Fbook` 会被它当成 `/book`，而浏览器和前端路由看到的是后台地址；
  * - `/book/别的` 前端路由对不上官网，落到供应商后台的页面，同样不能放行。
  * 不分大小写：前端路由不分大小写，`/Book/order` 渲染的就是订单页。没有反斜杠和花括号：要原样放进 Caddy 的 CEL 表达式。
  */
-export const SITE_PAGE_URI_PATTERN = `^${SITE_PAGE_PREFIX}(/(order/?|checkout/?)?)?([?#].*)?$`;
+export const SITE_PAGE_URI_PATTERN = `^${SITE_PAGE_PREFIX}(/(order/?|checkout/?|new/?)?)?([?#].*)?$`;
 
 /** `url`：请求行里的原始地址（路径 + 查询串）。和 Caddy 片段里的 `@site_pages` 同一个正则。 */
 export function isSitePagePath(url: string): boolean {

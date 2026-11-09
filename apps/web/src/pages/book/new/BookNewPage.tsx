@@ -25,13 +25,13 @@ import {
   type SiteQuote,
   type SiteQuoteRequest,
   type SiteQuoteResult,
-  autocompleteSitePlaces,
   createSiteOrder,
   createSiteQuotes,
   createSiteQuotesByPoints,
   getSiteFxReference,
   listSiteCharterPackages,
   listSiteCities,
+  listSitePlaces,
 } from "../../../api/site.ts";
 import { AlertSlot, type Notice } from "../../../components/Alert.tsx";
 import { Button } from "../../../components/Button.tsx";
@@ -48,7 +48,7 @@ import { useDocumentTitle } from "../../../lib/use-document-title.ts";
 import { SiteLayout, siteFailureText, useSiteConfig } from "../SiteLayout.tsx";
 import { SitePrice } from "../SitePrice.tsx";
 import { AddonsBlock, type ContactForm, ContactSection, PayBlock, PriceBlock, type PricedState, RouteBlock, emptyContact } from "./CheckoutParts.tsx";
-import { PlaceField, newSessionToken } from "./PlaceField.tsx";
+import { PlaceField } from "./PlaceField.tsx";
 import { TravellersField } from "./TravellersField.tsx";
 import { VehicleList } from "./VehicleList.tsx";
 
@@ -126,17 +126,23 @@ function requestOf(draft: TripDraft, charterCity: SiteCity | null, addons: reado
   return { key: JSON.stringify(body), run: async () => ({ mode: "transfer", result: await createSiteQuotesByPoints(body) }) };
 }
 
-/** 链接里的一端 → 地点：坐标直接用；编码用输入即提示找平台的地点（排在最前的那个）。找不到为 null。 */
-async function resolveLinkEnd(link: LinkEnd | null): Promise<TripPoint | null> {
+/** 按编码找平台地点时一次并行读几个城市的常用地点。 */
+const PLACE_LOOKUP_BATCH = 4;
+
+/**
+ * 链接里的一端 → 地点：坐标直接用；编码只在平台地点里找（官网能订的各城市的机场、车站、地标，`GET /site/v1/cities/{id}/places`），
+ * 不调谷歌（M8-03 验收问题 2：经输入即提示找会在缓存过期后真调谷歌计费）。找不到为 null（不预填）。
+ */
+async function resolveLinkEnd(link: LinkEnd | null, cities: readonly SiteCity[]): Promise<TripPoint | null> {
   if (link === null) return null;
   if (link.kind === "point") return { name: link.name ?? pointName(link.lat, link.lng), lat: link.lat, lng: link.lng, kind: null };
-  try {
-    const found = await autocompleteSitePlaces(link.code, newSessionToken());
-    const place = found.items.find((item) => item.source === "platform" && item.location !== null);
-    return place === undefined || place.location === null ? null : { name: place.name, lat: place.location.lat, lng: place.location.lng, kind: place.kind };
-  } catch {
-    return null;
+  const code = link.code.toUpperCase();
+  for (let start = 0; start < cities.length; start += PLACE_LOOKUP_BATCH) {
+    const batch = await Promise.all(cities.slice(start, start + PLACE_LOOKUP_BATCH).map((city) => listSitePlaces(city.id).then(({ items }) => items, () => [])));
+    const place = batch.flat().find((item) => item.code.toUpperCase() === code);
+    if (place !== undefined) return { name: displayName(place.name).text, lat: place.location.lat, lng: place.location.lng, kind: place.type === "airport" ? "airport" : "other" };
   }
+  return null;
 }
 
 function initialDraft(link: BookingLink): TripDraft {
@@ -229,7 +235,7 @@ export function BookNewPage() {
     linkDone.current = true;
     if (link.from === null && link.to === null) return;
     let alive = true;
-    void Promise.all([resolveLinkEnd(link.from), resolveLinkEnd(link.to)]).then(([from, to]) => {
+    void Promise.all([resolveLinkEnd(link.from, cities.items), resolveLinkEnd(link.to, cities.items)]).then(([from, to]) => {
       if (!alive) return;
       setDraft((current) => ({ ...current, from: current.from ?? from, to: current.to ?? to }));
       if (from !== null && to !== null && link.date !== null && link.time !== null) setStep(2);

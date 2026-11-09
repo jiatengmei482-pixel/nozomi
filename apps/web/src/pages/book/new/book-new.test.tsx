@@ -95,6 +95,7 @@ function open(options: Options = {}): ApiCall[] {
       return json(200, { available: true, items: q.includes("成田") || q === "NRT" ? [airportSuggestion, { ...hotelSuggestion, id: "ChIJnrt", name: "成田站" }] : [hotelSuggestion] });
     }
     if (path === "/site/v1/places/details") return json(200, { available: true, place: { id: "ChIJkeio", address: hotelSuggestion.address, location: { lat: 35.6905, lng: 139.6948 }, kind: "other" } });
+    if (path === `/site/v1/cities/${CITY_ID}/places`) return json(200, { items: [{ id: "55555555-5555-4555-8555-555555555555", type: "station", code: "STN-NRT", name: { zh: "成田站" }, address: null, location: { lat: 35.776, lng: 140.318 } }, { id: AIRPORT_ID, type: "airport", code: "NRT", name: { zh: "成田国际机场" }, address: null, location: { lat: 35.772, lng: 140.3929 } }] });
     if (path === `/site/v1/cities/${CITY_ID}/charter-packages`) return json(200, { items: [{ hours: 8 }] });
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.quote?.(call) ?? json(200, byPoints());
     if (path === "/site/v1/fx/reference") return options.fx?.(call) ?? json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
@@ -282,11 +283,12 @@ test("座位示意图：选中的车型才展开；乘客座位 1–N、行李 1
   assert.ok(within(aside).getByText("20,000"));
 });
 
-test("链接参数：from 编码（按平台地点找）、to 坐标加名称、date、time、pax、bags 打开就报价；不合法的只是不预填", async () => {
+test("链接参数：from 编码（只在平台地点里按编码找，不调谷歌）、to 坐标加名称、date、time、pax、bags 打开就报价；不合法的只是不预填", async () => {
   wideScreen();
   const calls = open({ at: "/book/new?from=NRT&to=35.6905,139.6948&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=3&bags=1" });
   await screen.findByRole("heading", { name: "车型1" }, SLOW);
-  assert.equal(new URL(calls.find((call) => call.path.includes("autocomplete"))?.path ?? "", "http://x").searchParams.get("q"), "NRT");
+  assert.ok(calls.some((call) => call.path === `/site/v1/cities/${CITY_ID}/places`), "编码在官网能订的城市的平台地点里找");
+  assert.equal(calls.filter((call) => call.path.includes("/places/autocomplete") || call.path.includes("/places/search")).length, 0, "不经输入即提示、不调谷歌（M8-03 验收问题 2）");
   assert.deepEqual(posts(calls)[0]?.body, {
     pickup: { name: "成田国际机场", lat: 35.772, lng: 140.3929, kind: "airport" },
     dropoff: { name: "京王广场酒店", lat: 35.6905, lng: 139.6948 },
