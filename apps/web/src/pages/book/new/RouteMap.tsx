@@ -1,5 +1,6 @@
 /**
  * 右侧栏的路线图（M8-04，ADR 0069「B1 + B11 → A」：后端给路线折线，画在现有底图上，浏览器不放谷歌密钥、不加载谷歌脚本）。
+ * M8-10 起这是后备：平台还没开通谷歌静态地图（`route-map` 应答 NOT_ENABLED）时才用它，见 StaticRouteMap.tsx。
  * 底图和地图选点同一份配置、同一个瓦片层；只是看的图：不能拖、不能缩放、不能聚焦（键盘用户读到的是旁边的「约 X 分钟 · Y 公里」和图的文字说明）。
  * 路线、起终点的颜色用令牌（样式在 book-new.css，Leaflet 的 className）。
  */
@@ -7,11 +8,7 @@ import L from "leaflet";
 import { useEffect, useRef } from "react";
 import type { MapTiles } from "../../../api/areas.ts";
 import { QuietTileLayer } from "../../../lib/quiet-tile-layer.ts";
-
-function isDark(): boolean {
-  const chosen = document.documentElement.dataset["theme"];
-  return chosen === "dark" || (chosen !== "light" && (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false));
-}
+import { currentColorScheme } from "../../../theme/use-color-scheme.ts";
 
 export function RouteMap({ tiles, points, label }: { tiles: MapTiles; points: readonly { lat: number; lng: number }[]; label: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,7 +31,7 @@ export function RouteMap({ tiles, points, label }: { tiles: MapTiles; points: re
       minZoom: tiles.min_zoom,
       maxZoom: tiles.max_zoom,
     });
-    const dark = isDark();
+    const dark = currentColorScheme() === "dark";
     if (dark && tiles.dark_url_template === null) container.classList.add("area-map__canvas--dimmed");
     new QuietTileLayer(dark && tiles.dark_url_template !== null ? tiles.dark_url_template : tiles.url_template, {
       tileSize: tiles.tile_size,

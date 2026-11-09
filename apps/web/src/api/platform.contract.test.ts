@@ -112,13 +112,16 @@ test("审计日志和系统状态：筛选参数、枚举都对得上；对象�
   assert.deepEqual(Object.keys(fx?.properties ?? {}).sort(), [...fields].sort());
   assert.deepEqual([...(fx?.required ?? [])].sort(), [...fields].sort());
   // 路线预估的用量（M2-02，ADR 0042）：字段和手写的 RouteUsageStatus 一样
-  const overview: (keyof IntegrationsOverview)[] = ["items", "fx_center", "routes"];
+  const overview: (keyof IntegrationsOverview)[] = ["items", "fx_center", "routes", "static_maps"];
   assert.deepEqual(Object.keys(response(op("get", INTEGRATIONS_PATH), "200")?.properties ?? {}).sort(), [...overview].sort());
   const routes = response(op("get", INTEGRATIONS_PATH), "200")?.properties?.["routes"];
   const routeFields: (keyof RouteUsageStatus)[] = ["day", "calls", "daily_limit", "daily_limit_reached", "failures", "refused", "last_success_at", "last_failure"];
   assert.deepEqual(Object.keys(routes?.properties ?? {}).sort(), [...routeFields].sort());
   assert.deepEqual([...(routes?.required ?? [])].sort(), [...routeFields].sort());
   assert.deepEqual(Object.keys(routes?.properties?.["last_failure"]?.properties ?? {}).sort(), ["at", "code", "message"]);
+  // 官网路线小地图的用量（M8-10，ADR 0072）：和路线预估同一个结构
+  const staticMaps = response(op("get", INTEGRATIONS_PATH), "200")?.properties?.["static_maps"];
+  assert.deepEqual(Object.keys(staticMaps?.properties ?? {}).sort(), [...routeFields].sort());
   assert.deepEqual(Object.keys(ROUTE_FAILURE_TEXT).sort(), [...(schemas["QuoteRouteFailureCode"]?.enum ?? [])].sort(), "每个路线原因码都有中文说明");
 });
 

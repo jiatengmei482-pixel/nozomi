@@ -740,7 +740,7 @@ export function BookNewPage() {
             </div>
           )}
         </dl>
-        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from.name} to={draft.to.name} />}
+        {draft.mode === "transfer" && draft.from !== null && draft.to !== null && <RouteBlock route={routeResult} tiles={tiles} from={draft.from} to={draft.to} />}
         {selected === null ? (
           <p className="site-muted">还没有选择车型</p>
         ) : (

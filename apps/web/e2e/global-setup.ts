@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { type Server, createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { createMigratedTestDatabase } from "../../api/src/testing/db.ts";
-import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleAutocomplete, startFakeGoogleGeocode, startFakeGooglePlaceDetails, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
+import { type FakeService, type FakeSmtp, generateFakeTlsCert, startFakeGoogleAutocomplete, startFakeGoogleGeocode, startFakeGooglePlaceDetails, startFakeGooglePlaces, startFakeGoogleRoutes, startFakeGoogleStaticMaps, googleRouteBody, startFakeSmtp, startFakeStripe } from "../../api/src/testing/fake-integrations.ts";
 import { type FakeFxSource, fxSourceBody, startFakeFxSource } from "../../api/src/testing/fx-source.ts";
 import { E2E_API_DRIVER_MAIL_PORT, E2E_API_MAIL_PORT, E2E_API_NO_MAP_PORT, E2E_API_PLACES_PORT, E2E_API_PORT, E2E_API_STRIPE_PORT, E2E_FX_PORT, E2E_TILE_PORT, E2E_WEB_DRIVER_MAIL_PORT, E2E_WEB_MAIL_PORT, E2E_WEB_PLACES_PORT, E2E_WEB_PORT, E2E_WEB_STRIPE_PORT } from "../playwright.config.ts";
 import { type FakeStripeService, startFakeStripeService } from "./fake-stripe.ts";
@@ -260,6 +260,8 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     // 第三方密钥（ADR 0041）：配置文件里不给，「测试一下」打到本机的假服务（只有 local / ci 能改这两个地址）
     for (const name of ["GOOGLE_MAPS_API_KEY", "STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"]) delete apiEnv[name];
     const googleRoutes = await startFakeGoogleRoutes();
+    // 路线带一条折线（东京站附近的三个点）：官网路线小地图（M8-10）要有折线后端才去要静态图；其余用例只看里程和时长，不受影响
+    googleRoutes.respond({ body: googleRouteBody(6_800, 1_080, "o~wxEkgatY_X_q@c`@g^") });
     fakeIntegrations.push(googleRoutes);
     const stripeApi = await startFakeStripe();
     fakeIntegrations.push(stripeApi);
@@ -278,6 +280,10 @@ export default async function globalSetup(config: FullConfig): Promise<() => Pro
     fakeIntegrations.push(googleDetails);
     apiEnv["GOOGLE_PLACES_AUTOCOMPLETE_URL"] = googleAutocomplete.url;
     apiEnv["GOOGLE_PLACE_DETAILS_URL"] = googleDetails.url;
+    // 官网路线小地图（M8-10，ADR 0072）：同样指向本机的假 Maps Static API（默认回一张 1 × 1 的 PNG），从不调用真实的谷歌
+    const googleStaticMaps = await startFakeGoogleStaticMaps();
+    fakeIntegrations.push(googleStaticMaps);
+    apiEnv["GOOGLE_STATIC_MAPS_URL"] = googleStaticMaps.url;
     apiEnv["STRIPE_API_URL"] = stripeApi.url;
     // 邮件发送（ADR 0048）：配置文件里不给，用例在运营后台填本机假 SMTP 的地址。证书校验没有开关，所以让 API 进程信任这张现场生成的证书
     for (const name of Object.keys(apiEnv)) if (name.startsWith("SMTP_")) delete apiEnv[name];

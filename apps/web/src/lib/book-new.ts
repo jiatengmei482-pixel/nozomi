@@ -4,7 +4,7 @@
  * 价格、报价、下单逻辑都不在这里：报价走 `POST /site/v1/quotes/by-points`（包车走 `POST /site/v1/quotes`），只负责显示。
  */
 import { type CurrencyCode, formatMajor, isCurrencyCode, minorDigits, parseMajor, rateToFraction, roundFractionHalfAwayFromZero } from "@nozomi/domain";
-import type { SitePlaceKind, SiteUnavailableReason } from "../api/site.ts";
+import { SITE_ROUTE_MAP_LIMITS, type SitePlaceKind, type SiteUnavailableReason } from "../api/site.ts";
 import { UNAVAILABLE_REASON_TEXT } from "./site-display.ts";
 
 export const SITE_NEW_BOOKING_PATH = "/book/new";
@@ -238,6 +238,19 @@ export function decodePolyline(encoded: string): { lat: number; lng: number }[] 
 export function routeSummaryText(minutes: number, meters: number): string {
   const km = (Math.round(meters / 100) / 10).toFixed(1).replace(/\.0$/, "");
   return `约 ${Math.max(1, Math.round(minutes))} 分钟 · ${km} 公里`;
+}
+
+/**
+ * 路线图向后端要多大的图（M8-10）：按地图框实际的宽高取整、收进接口允许的范围；
+ * 倍率按屏幕像素比取 1 或 2（高清屏要 2 倍的图，显示尺寸不变）。
+ */
+export function routeMapSize(width: number, height: number, devicePixelRatio: number): { width: number; height: number; scale: 1 | 2 } {
+  const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, Number.isFinite(value) ? Math.round(value) : min));
+  return {
+    width: clamp(width, SITE_ROUTE_MAP_LIMITS.minWidth, SITE_ROUTE_MAP_LIMITS.maxWidth),
+    height: clamp(height, SITE_ROUTE_MAP_LIMITS.minHeight, SITE_ROUTE_MAP_LIMITS.maxHeight),
+    scale: devicePixelRatio > 1 ? 2 : 1,
+  };
 }
 
 /** 附加服务的数量上下限（和询价接口一致；按单计的最多 1 个）。 */

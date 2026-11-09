@@ -15,6 +15,8 @@
  * - `GET /site/v1/fx/reference?to=`：订单币种 → 客人币种的参考汇率（只读汇率中心现在生效的汇率，只用于显示，M8-02，ADR 0069 B16）；
  * - `POST /site/v1/quotes`：询价，三种品类，可带附加服务（每个地址每分钟 30 次；报价带「这个车型能加哪些附加服务」，M8-02）；
  * - `POST /site/v1/quotes/by-points`：按两个坐标报价——认出机场和接机 / 送机 / 点对点后走同一个询价，顺带给路线的时间、距离（和询价共用每分钟 30 次，M8-02，ADR 0069 A1）；
+ * - `GET /site/v1/route-map`：行程摘要的路线小地图（谷歌静态地图，后端代调、密钥不进浏览器；灰色调底图、品牌色路线；每个地址每分钟 30 次、每天 200 次；
+ *   出不了图 503 `ROUTE_MAP_UNAVAILABLE`，`details.reason` 只有 `NOT_ENABLED`（页面用原来的地图）和 `UNAVAILABLE`（只显示时间和距离），M8-10，ADR 0072）；
  * - `POST /site/v1/orders`：下单（`Idempotency-Key`，每个地址 10 分钟 10 次），应答里有查看链接的令牌（只这一次）。
  * 客人自己的订单（凭查看链接的令牌 `Authorization: Bearer nzo_…`；一个令牌只对应一张单，路径里没有订单编号）：
  * - `POST /site/v1/orders/lookup`：订单号 + 下单邮箱，对上了把新链接发到下单邮箱（ADR 0061）。一律 202，不透露订单存不存在；
@@ -27,9 +29,10 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { CurrencyCode } from "@nozomi/domain";
 import { z } from "zod";
-import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
+import { FX_CURRENCIES, MESSAGING_APPS, PLACE_KINDS, PRICE_LIMITS, QUOTE_RULES, SERVICE_CATEGORIES, STATIC_MAP_RULES, STATIC_MAP_THEMES, type RouteMapReason, isGooglePlaceId, isPlaceSessionToken, normalizePlaceQuery, placeQueryIssue, viewLinkLookupEmail } from "@nozomi/domain";
 import { bearerToken } from "../auth/token.ts";
 import type { AppContext } from "../context.ts";
+import { AppError } from "../errors.ts";
 import { notFound } from "../services/errors.ts";
 import { cancelForChannel, previewCancellation } from "../services/cancellations.ts";
 import { disputeExtraCharge } from "../services/extra-charges.ts";
@@ -58,6 +61,7 @@ import {
   siteQuotes,
   siteQuotesByPoints,
   siteReversePlace,
+  siteRouteMap,
   siteSearchPlaces,
   takeSiteSlot,
 } from "../services/site.ts";
@@ -166,6 +170,31 @@ const byPointsSchema = z
     addons: addonsSchema,
   })
   .strict();
+
+/** 路线小地图：起终点坐标、主题、尺寸（CSS 像素）、倍率（高清屏 2）。 */
+const routeMapSchema = z
+  .object({
+    from_lat: z.coerce.number().finite().min(-90).max(90),
+    from_lng: z.coerce.number().finite().min(-180).max(180),
+    to_lat: z.coerce.number().finite().min(-90).max(90),
+    to_lng: z.coerce.number().finite().min(-180).max(180),
+    theme: z.enum(STATIC_MAP_THEMES).default("light"),
+    width: z.coerce.number().int().min(STATIC_MAP_RULES.minWidth).max(STATIC_MAP_RULES.maxWidth),
+    height: z.coerce.number().int().min(STATIC_MAP_RULES.minHeight).max(STATIC_MAP_RULES.maxHeight),
+    scale: z.enum(["1", "2"]).default("1"),
+  })
+  .strict();
+const ROUTE_MAP_REQUIRED = ["from_lat", "from_lng", "to_lat", "to_lng", "width", "height"] as const;
+
+const ROUTE_MAP_MESSAGES: Readonly<Record<RouteMapReason, string>> = {
+  NOT_ENABLED: "路线图服务没有开通，请用页面上的地图",
+  UNAVAILABLE: "路线图暂时出不了，请稍后再试",
+};
+
+/** 出不了图（ADR 0072）：页面按 `details.reason` 决定用原来的地图（NOT_ENABLED）还是只显示时间和距离（UNAVAILABLE）。 */
+function routeMapUnavailable(reason: RouteMapReason): AppError {
+  return new AppError(503, "ROUTE_MAP_UNAVAILABLE", ROUTE_MAP_MESSAGES[reason], { reason });
+}
 
 /** 参考汇率：客人币种（汇率中心支持的币种，大写三位）。 */
 const fxReferenceSchema = z.object({ to: z.enum(FX_CURRENCIES as [string, ...string[]]) }).strict();
@@ -382,6 +411,31 @@ export function registerSiteRoutes(app: FastifyInstance, ctx: AppContext): void 
     const input = parseInput(fxReferenceSchema, request.query, "querystring");
     const found = await siteFxReference(ctx, input.to as CurrencyCode);
     return { available: found.available, from: found.from, to: found.to, rate: found.rate, as_of: found.asOf, reason: found.reason };
+  });
+
+  /** 路线小地图（M8-10，ADR 0072）：每次可能花钱调谷歌静态地图（缓存命中不花钱），每个地址每分钟、每天各一份额度 */
+  app.get("/site/v1/route-map", async (request, reply) => {
+    await takeSiteSlot(ctx, "site_route_map", { ip: request.ip });
+    await takeSiteSlot(ctx, "site_route_map_day", { ip: request.ip });
+    // 留空的参数是「没填」，不能被当成 0（数字转换会把空字符串变成 0）
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const missing = ROUTE_MAP_REQUIRED.filter((name) => query[name] === undefined || (typeof query[name] === "string" && (query[name] as string).trim() === ""));
+    if (missing.length > 0) throw validationFailed("querystring", missing.map((name) => ({ path: `/${name}`, reason: "REQUIRED", message: `请给出 ${name}` })));
+    const input = parseInput(routeMapSchema, request.query, "querystring");
+    const result = await siteRouteMap(ctx, {
+      from: { lat: input.from_lat, lng: input.from_lng },
+      to: { lat: input.to_lat, lng: input.to_lng },
+      theme: input.theme,
+      width: input.width,
+      height: input.height,
+      scale: input.scale === "2" ? 2 : 1,
+    });
+    if (!result.ok) throw routeMapUnavailable(result.reason);
+    return reply
+      .header("content-type", result.contentType)
+      .header("cache-control", `private, max-age=${STATIC_MAP_RULES.browserMaxAgeSeconds}`)
+      .header("x-content-type-options", "nosniff")
+      .send(result.image);
   });
 
   app.post("/site/v1/quotes", async (request) => {

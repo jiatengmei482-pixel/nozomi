@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, referenceMoney, rejectionTexts, routeSummaryText, seatPlan, travellersText } from "./book-new.ts";
+import { decodePolyline, guestCurrencyOf, moneyDifference, parseBookingLink, referenceMoney, rejectionTexts, routeMapSize, routeSummaryText, seatPlan, travellersText } from "./book-new.ts";
 
 test("链接参数：编码、「纬度,经度」加名称、日期、时间、人数、行李都合法时全部读出", () => {
   assert.deepEqual(parseBookingLink("?from=NRT&to=35.6895,139.6917&to_name=%E4%BA%AC%E7%8E%8B%E5%B9%BF%E5%9C%BA%E9%85%92%E5%BA%97&date=2030-11-20&time=14:30&pax=2&bags=3"), {
@@ -96,4 +96,12 @@ test("客人币种：先看地区再看语言，认不出来用美元", () => {
   assert.equal(guestCurrencyOf(["ko"]), "KRW");
   assert.equal(guestCurrencyOf(["en-SG"]), "SGD");
   assert.equal(guestCurrencyOf(["fr-FR", "de"]), "USD");
+});
+
+test("路线图要多大的图（M8-10）：按框的实际宽高取整、收进接口范围（宽 200–640、高 150–640）；像素比大于 1 要 2 倍", () => {
+  assert.deepEqual(routeMapSize(318.6, 198, 1), { width: 319, height: 198, scale: 1 });
+  assert.deepEqual(routeMapSize(120, 90, 2), { width: 200, height: 150, scale: 2 });
+  assert.deepEqual(routeMapSize(900, 800, 1.5), { width: 640, height: 640, scale: 2 });
+  assert.deepEqual(routeMapSize(0, 0, 3), { width: 200, height: 150, scale: 2 });
+  assert.deepEqual(routeMapSize(Number.NaN, Number.POSITIVE_INFINITY, 0.9), { width: 200, height: 150, scale: 1 });
 });

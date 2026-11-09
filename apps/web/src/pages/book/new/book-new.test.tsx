@@ -3,12 +3,13 @@
  * 地址框输入即提示（至少 2 个字、停顿后查、会话令牌、平台地点在前、谷歌候选选中后取坐标）、认出接机后的时间标签和提示（N 取报价）、
  * 「乘客 / 行李」合并栏、车型「显示全部」（电脑 4 个、手机 3 个）、车内示意图的座位和行李个数、编号和文字、链接参数、报不出价的说法、
  * 包车也写「含所有费用」（M8-09，ADR 0070）、任何时候都没有「跟踪航班」、手机分步和底部固定条；
- * M8-04：「怎么联系你」的校验和下单、附加服务改数量重新报价和合计差额、参考价可用 / 不可用、路线有 / 无、手机第 3 步。
+ * M8-04：「怎么联系你」的校验和下单、附加服务改数量重新报价和合计差额、参考价可用 / 不可用、路线有 / 无、手机第 3 步；
+ * M8-10：路线小地图用后端出的谷歌静态图（出图、没开通退回底图、其他失败只写字）。
  * 接口用测试替身（浏览器只连 /site/v1）；真实后端由 e2e/site-booking-new.spec.ts 覆盖。
  */
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { App } from "../../../App.tsx";
@@ -82,6 +83,8 @@ interface Options {
   fx?: Route;
   order?: Route;
   byCode?: Route;
+  /** 路线图的图片没出来以后，前端再问一次原因（M8-10） */
+  routeMap?: Route;
   at?: string;
 }
 
@@ -106,6 +109,7 @@ function open(options: Options = {}): ApiCall[] {
     if (call.method === "POST" && path === "/site/v1/quotes/by-points") return options.quote?.(call) ?? json(200, byPoints());
     if (path === "/site/v1/fx/reference") return options.fx?.(call) ?? json(200, { available: false, from: "JPY", to: call.url.searchParams.get("to"), rate: null, as_of: null, reason: "NO_RATE" });
     if (call.method === "POST" && path === "/site/v1/orders") return options.order?.(call) ?? null;
+    if (call.method === "GET" && path === "/site/v1/route-map") return options.routeMap?.(call) ?? null;
     if (call.method === "GET" && path === "/site/v1/order") return apiError(503, "SERVICE_UNAVAILABLE", "x");
     if (call.method === "POST" && path === "/site/v1/quotes") return options.charter?.(call) ?? json(200, { currency: "JPY", quotes: [quoteOf(1, { freeWait: 0, package: { hours: 8, km: 150 } })], unavailable: [] } satisfies SiteQuoteResult);
     return null;
@@ -504,17 +508,100 @@ test("参考价：按浏览器语言推断币种、可以手动换；可用时�
   await waitFor(() => assertAbsent(within(aside).queryByText(/≈/)));
 });
 
-test("路线：有折线和底图时画路线图并写「约 X 分钟 · Y 公里」；取不到路线时这一块不出现", async () => {
-  const tiles: MapTiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] };
-  await openSelected({ config: configOf({ map_tiles: tiles }), quote: () => json(200, byPoints({ route: { minutes: 52, meters: 63_420, polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } })) });
-  assert.ok(screen.getByRole("img", { name: "路线图：成田国际机场 → 京王广场酒店，约 52 分钟 · 63.4 公里" }));
+const ROUTE_TILES: MapTiles = { url_template: "http://127.0.0.1:1/{z}/{x}/{y}.png", dark_url_template: null, min_zoom: 3, max_zoom: 19, tile_size: 256, referrer_policy: "strict-origin", attribution: [{ text: "© OpenStreetMap", href: "https://www.openstreetmap.org/copyright" }] };
+const ROUTE_LABEL = "路线图：成田国际机场 → 京王广场酒店，约 52 分钟 · 63.4 公里";
+const withRoute = (): Route => () => json(200, byPoints({ route: { minutes: 52, meters: 63_420, polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@" } }));
+const png = (): Response => new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { status: 200, headers: { "content-type": "image/png" } });
+
+/** 右侧栏里路线图的那张静态图（加载中整框对读屏隐藏，所以直接按类名找）。 */
+function staticMap(): HTMLImageElement {
+  const image = document.querySelector<HTMLImageElement>(".route-map__image");
+  assert.ok(image, "有路线静态图");
+  return image;
+}
+
+test("路线（M8-10）：按框的大小、倍率、亮暗要谷歌静态图；加载中是同样大小的骨架；出图后是带文字说明的图（不叠底图署名）；切到暗色换一张暗色的图", async () => {
+  const { calls } = await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute() });
+  const image = staticMap();
+  const url = new URL(image.getAttribute("src") ?? "", "http://localhost");
+  assert.equal(url.pathname, "/site/v1/route-map");
+  assert.deepEqual(Object.fromEntries(url.searchParams), { from_lat: "35.772000", from_lng: "140.392900", to_lat: "35.690500", to_lng: "139.694800", theme: "light", width: "200", height: "150", scale: "1" });
+  assert.equal(image.getAttribute("alt"), ROUTE_LABEL);
+  const frame = image.closest(".route-map__canvas");
+  assert.ok(frame?.classList.contains("route-map__canvas--loading"), "加载中用骨架");
+  assert.equal(frame?.getAttribute("aria-hidden"), "true");
   assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
+
+  fireEvent.load(image);
+  assert.ok(screen.getByRole("img", { name: ROUTE_LABEL }));
+  assert.equal(frame?.classList.contains("route-map__canvas--loading"), false);
+  assertAbsent(screen.queryByRole("link", { name: "© OpenStreetMap" }));
+  assertAbsent(document.querySelector(".leaflet-container"));
+  assert.deepEqual(screen.queryAllByRole("alert").map((alert) => alert.textContent), screen.queryAllByRole("alert").map(() => ""), "没有报错");
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 0, "图正常出来时不再另外请求");
+
+  document.documentElement.dataset["theme"] = "dark";
+  await waitFor(() => assert.equal(new URL(staticMap().getAttribute("src") ?? "", "http://localhost").searchParams.get("theme"), "dark"));
+  assert.ok(staticMap().closest(".route-map__canvas--loading"), "换图时先是骨架");
+  fireEvent.load(staticMap());
+  assert.ok(screen.getByRole("img", { name: ROUTE_LABEL }));
+});
+
+test("路线（M8-10）：高清屏要 2 倍的图", async () => {
+  const original = window.devicePixelRatio;
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 3 });
+  try {
+    await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute() });
+    assert.equal(new URL(staticMap().getAttribute("src") ?? "", "http://localhost").searchParams.get("scale"), "2");
+  } finally {
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: original });
+  }
+});
+
+test("路线（M8-10）：平台还没开通静态地图（503 NOT_ENABLED）时退回现有底图画折线，带底图署名；没有底图时只写字", async () => {
+  const notEnabled = (): Response => apiError(503, "ROUTE_MAP_UNAVAILABLE", "路线图暂不可用", { reason: "NOT_ENABLED" });
+  await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap: notEnabled });
+  fireEvent.error(staticMap());
+  assert.ok(await screen.findByRole("img", { name: ROUTE_LABEL }, SLOW));
+  assert.ok(document.querySelector(".leaflet-container"), "现有底图");
+  assertAbsent(document.querySelector(".route-map__image"));
   assert.ok(screen.getByRole("link", { name: "© OpenStreetMap" }));
+  assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
   resetBrowser();
 
-  await openSelected({ config: configOf({ map_tiles: tiles }) });
-  assertAbsent(screen.queryByRole("img", { name: /路线图/ }));
+  await openSelected({ config: configOf({ map_tiles: null }), quote: withRoute(), routeMap: notEnabled });
+  fireEvent.error(staticMap());
+  await waitFor(() => assertAbsent(document.querySelector(".route-map")), SLOW);
+  assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"));
+});
+
+test("路线（M8-10）：静态图暂时不可用、网络不通、图片坏了或不是图片时不显示地图（也不留空框），只写「约 X 分钟 · Y 公里」，不报错", async () => {
+  const failures: [string, Route][] = [
+    ["503 UNAVAILABLE", () => apiError(503, "ROUTE_MAP_UNAVAILABLE", "路线图暂不可用", { reason: "UNAVAILABLE" })],
+    ["429 太频繁", () => apiError(429, "RATE_LIMITED", "太频繁", { retry_after_seconds: 30 }, { "retry-after": "30" })],
+    ["网络错误", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["图片坏了（再问一次是 200 图片）", png],
+    ["不是图片", () => json(200, { ok: true })],
+    ["别的错误", () => apiError(500, "INTERNAL", "x")],
+  ];
+  for (const [what, routeMap] of failures) {
+    const { calls } = await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }), quote: withRoute(), routeMap });
+    fireEvent.error(staticMap());
+    await waitFor(() => assertAbsent(document.querySelector(".route-map")), SLOW);
+    assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 1, what);
+    assertAbsent(document.querySelector(".leaflet-container"));
+    assertAbsent(screen.queryByRole("img", { name: /路线图/ }));
+    assert.ok(screen.getByText("约 52 分钟 · 63.4 公里"), what);
+    assert.deepEqual(screen.queryAllByRole("alert").map((alert) => alert.textContent), screen.queryAllByRole("alert").map(() => ""), "没有报错");
+    resetBrowser();
+  }
+});
+
+test("路线：取不到路线时这一块不出现，不要静态图", async () => {
+  const { calls } = await openSelected({ config: configOf({ map_tiles: ROUTE_TILES }) });
+  assertAbsent(document.querySelector(".route-map"));
   assertAbsent(screen.queryByText(/约 \d+ 分钟/));
+  assert.equal(calls.filter((call) => call.path.startsWith("/site/v1/route-map")).length, 0);
   assert.ok(screen.getByRole("button", { name: "去付款 →" }));
   assert.ok(screen.getByText("银行卡"));
   assert.ok(screen.getByText("用车前 24 小时以上取消免费；24 小时内取消收全额"));

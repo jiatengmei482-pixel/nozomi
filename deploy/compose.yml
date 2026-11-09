@@ -88,6 +88,8 @@ services:
       GOOGLE_ROUTES_DAILY_LIMIT: ${GOOGLE_ROUTES_DAILY_LIMIT:-}
       # 官网地址搜索和反查每天最多调用谷歌几次（两者合计，不是密钥，ADR 0044）。不配 = 500；0 = 不调用
       GOOGLE_PLACES_DAILY_LIMIT: ${GOOGLE_PLACES_DAILY_LIMIT:-}
+      # 官网路线小地图每天最多调用谷歌 Maps Static API 几次（不是密钥，ADR 0072）。不配 = 300；0 = 不调用
+      GOOGLE_STATIC_MAPS_DAILY_LIMIT: ${GOOGLE_STATIC_MAPS_DAILY_LIMIT:-}
       # 地图底图（不是密钥，会经接口下发给浏览器；不配 = 这个环境没有底图）。说明见 docs/secrets.md、ADR 0015。
       MAP_TILE_URL_TEMPLATE: ${MAP_TILE_URL_TEMPLATE:-}
       MAP_TILE_DARK_URL_TEMPLATE: ${MAP_TILE_DARK_URL_TEMPLATE:-}

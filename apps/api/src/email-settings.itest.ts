@@ -464,7 +464,7 @@ test("租户拿不到任何相关信息：平台接口 401，租户一侧没有�
 
 test("测试环境（staging）：不收明文、不收回环地址、不放开端口；库里已有的回环 / 明文配置不生效并标出，回落到配置文件", async () => {
   const staging = await createTestApi({
-    env: { APP_ENV: "staging", GOOGLE_MAPS_ROUTES_URL: "", GOOGLE_PLACES_SEARCH_URL: "", GOOGLE_PLACES_AUTOCOMPLETE_URL: "", GOOGLE_PLACE_DETAILS_URL: "", GOOGLE_GEOCODE_URL: "", STRIPE_API_URL: "", SMTP_HOST: "", SMTP_PORT: "", SMTP_ENCRYPTION: "", SMTP_USERNAME: "", SMTP_PASSWORD: "", SMTP_FROM_NAME: "", SMTP_FROM_ADDRESS: "" },
+    env: { APP_ENV: "staging", GOOGLE_MAPS_ROUTES_URL: "", GOOGLE_PLACES_SEARCH_URL: "", GOOGLE_PLACES_AUTOCOMPLETE_URL: "", GOOGLE_PLACE_DETAILS_URL: "", GOOGLE_GEOCODE_URL: "", GOOGLE_STATIC_MAPS_URL: "", STRIPE_API_URL: "", SMTP_HOST: "", SMTP_PORT: "", SMTP_ENCRYPTION: "", SMTP_USERNAME: "", SMTP_PASSWORD: "", SMTP_FROM_NAME: "", SMTP_FROM_ADDRESS: "" },
     integrationSecretsTtlMs: 0,
   });
   try {
