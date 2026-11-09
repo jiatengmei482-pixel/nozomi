@@ -312,7 +312,7 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                   <input type="checkbox" id="urgent-toggle" checked={form.urgent} disabled={locked} aria-expanded={form.urgent} aria-controls="urgent-body" onChange={(event) => set({ urgent: event.target.checked, tiers: event.target.checked && form.tiers.length === 0 ? [{ hours: "", amount: "" }] : form.tiers })} />
                   <span className="choice__text">允许加急预订</span>
                 </label>
-                <p className="field__hint">开启后，客人在提前预订时长以内也能下单，按下面的阶梯加收加急费。不开启：不足提前预订时长的一律不报价。</p>
+                <p className="field__hint">提前预订时长以内下单 = 加急。例如提前预订时长填 24：用车前 24 小时以内下的单都算加急，按下面的阶梯加收加急费。不开启：不足提前预订时长的一律不报价。</p>
                 {lead === 0 && <p className="field__hint field__hint--info">提前预订时长是 0，客人随时可以订，用不到加急预订。</p>}
                 {!form.urgent && data.rules.urgent.enabled && <p className="field__hint field__hint--info">保存后，这里填的内容会清除。</p>}
                 {missingHint("urgent")}
@@ -351,6 +351,23 @@ export function ServiceRulesStep({ frame, product }: { frame: ProductFrame; prod
                           </div>
                         );
                       })}
+                      {lead !== null && lead >= 1 && form.tiers.some((tier) => /^\d+$/.test(tidyNumber(tier.hours)) && Number(tidyNumber(tier.hours)) > lead) && (
+                        <p className="field__hint field__hint--info" id="urgent-lead-time-hint">
+                          {`加急阶梯的小时数不能超过提前预订时长（现在是 ${lead} 小时）。想让用车前更早下的单也算加急，请先把提前预订时长改大。`}{" "}
+                          <a
+                            className="link"
+                            href="#lead-time-input"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              const input = document.getElementById("lead-time-input");
+                              input?.scrollIntoView?.({ block: "center" });
+                              input?.focus();
+                            }}
+                          >
+                            去修改提前预订时长
+                          </a>
+                        </p>
+                      )}
                       {!readOnly && (
                         <div>
                           <Button size="sm" disabled={busy || form.tiers.length >= PRODUCT_LIMITS.maxUrgentTiers} onClick={() => set({ tiers: [...form.tiers, { hours: "", amount: "" }] })}>
