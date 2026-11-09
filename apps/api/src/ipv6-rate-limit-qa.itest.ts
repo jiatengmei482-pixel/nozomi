@@ -108,7 +108,7 @@ test("凭链接看订单、看工单（site / order-center 两处的 guest）和
 });
 
 test("ADR「窗口最长 15 分钟」属实：按来源地址的额度窗口都不超过 15 分钟（查订单按订单号、邮箱的四层和运营重发按订单的一层不按地址，不在此列，ADR 0061）", () => {
-  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read", "site_places"] as const;
+  const perAddress = ["token", "site_quote", "site_order", "site_lookup", "site_read", "site_places", "site_autocomplete"] as const;
   const longest = Math.max(...perAddress.map((scope) => SALES_RATE_LIMITS[scope].windowMs), LOGIN_THROTTLE_WINDOW_MS);
   assert.equal(longest, 15 * 60_000);
   // 官网地址搜索每个地址每天的额度（M3-12，ADR 0044）窗口是 24 小时，但它和 /64 的限流键同时上线（合并在 M4-11 之后），

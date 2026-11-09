@@ -295,3 +295,36 @@ B4（支付宝 / 微信支付）不变：支付方式图标确认前只显示银
 - 前端 Stripe 支付组件按设备显示；下单页的「保存支付方式」勾选只对银行卡要求。
 - 冲突 2、3 的「当场付」「付款链接」是新路径，需要业主确认后才做；在那之前，**钱包付款只在测试环境开放**。
 - 测试只用 Stripe 测试模式和本机的假 Stripe，不做真实付款。
+
+## 实现补记：M8-02（2026-11-09，后端 A1、A2、B1、B11）
+
+### 做了什么
+
+| 接口 | 做法 |
+| --- | --- |
+| `POST /site/v1/quotes/by-points` | 请求 `pickup` / `dropoff`（`name`、`lat`、`lng`、`kind?`）、`service_local`、`passengers`、`luggage?`。认机场、判断方向（domain `points-trip.ts` 的 `recognizeAirport`、`classifyPointsTrip`）后组装成 `POST /site/v1/quotes` 同样的行程，调**同一个** `siteQuotes` → `createSalesQuotes`。应答 `trip_type`、`airport`（编号、编码、名称、`matched_by`、`distance_meters`）、`city`、`currency`、`quotes`（现有 `SiteQuote`，价低的在前）、`unavailable`（现有原因）、`expires_at`（最早到期的报价）、`route`。询价日志的 `request` 多记 `mode: "by_points"` 和 `recognition`（两端的坐标、类型、认到的机场、距离、怎么认的）；地址名称不进日志 |
+| `GET /site/v1/places/search` | `city_id` 改为选填：不带时在渠道授权的城市（各自中心周围 80 公里）里搜，`locationRestriction` 用这些城市合起来的外接矩形、结果再按「在不在某个城市范围里」筛；授权的只有一个国家时按它做 `regionCode`。候选多 `source`（`platform` / `google`）和 `kind`（`airport` / `other`，谷歌的 `primaryType` 是机场时为 `airport`；字段掩码多 `places.primaryType`，同一档）。平台主数据里名字或编码匹配的启用机场、航站楼、车站排在最前（最多 5 个，匹配规则和后台选接送点同一套，已从前端移到 domain 的 `place-match.ts`）。谷歌用不了时 `available: false`、只给平台的地点 |
+| `GET /site/v1/places/autocomplete?q=&session=` | 谷歌 Places Autocomplete (New)，带浏览器给的会话令牌、`includedRegionCodes`（授权的国家，最多 15 个）、`locationRestriction`（授权城市合起来的范围）、`languageCode=zh-CN`；只要地点预测的 ID、名称两段、类型。平台的地点在前（带坐标），谷歌的候选 `location: null` |
+| `GET /site/v1/places/details?id=&session=` | 选中谷歌候选后取坐标和类型：Place Details (New)，同一个会话令牌，字段掩码 `id,formattedAddress,location,types`（Essentials 一档；名称用输入即提示给的，不取更贵的 `displayName`） |
+| 路线（B11） | 按两个坐标报价时和报价**并行**调 `GoogleRouteEstimator.preview`：Routes API 多要 `routes.polyline.encodedPolyline`（仍是 Essentials），给 `minutes`、`meters`、`polyline`；最多等 2 秒，取不到为 null，不影响报价 |
+
+费用和安全：密钥只经 `IntegrationSecretCache`（`resolveIntegrations` 选出的生效值）取，只在请求头；新地址 `GOOGLE_PLACES_AUTOCOMPLETE_URL`、`GOOGLE_PLACE_DETAILS_URL` 只有 local / ci 能改（只给测试、端到端指向本机假服务器）。
+输入即提示、取坐标和搜索、反查共用一套「并发只调一次、进程内短时缓存、按密钥冷却、`GOOGLE_PLACES_DAILY_LIMIT` 每日上限（合计）」；路线和报价的路线预估共用冷却和 `GOOGLE_ROUTES_DAILY_LIMIT`，调到的里程和时长也写进报价的路线缓存。
+测试：domain 单元测试（3 公里边界、10 公里放宽、取最近、两端都是机场、方向、授权外不认、城市选择、平台地点匹配）；谷歌调用的单元测试（本机假服务器）；集成测试 `apps/api/src/site-by-points.itest.ts`（真实 PostgreSQL + 本机假谷歌，从不调真实谷歌）。
+
+### 和方案有出入的地方
+
+1. **短时缓存改回 10 分钟**：ADR 0053 曾把地址搜索的进程内缓存设为 0（谷歌条款只明确允许缓存地点 ID 和坐标）；本篇「B1 + B11 → A」业主确认「每个接口都有短时缓存（同一关键字 / 同一对坐标 10 分钟内不重复调）」，所以 `PLACE_SEARCH_RULES.cacheTtlMs` 改为 10 分钟，搜索、反查、输入即提示、取坐标都按它；路线折线只在进程内存 10 分钟（`ROUTE_RULES.previewCacheTtlMs`），不存库。仍只在内存、不存库；要严格按条款时把这两个常量改成 0。
+2. **地址搜索说是机场时放宽到 10 公里**：方案写「`kind` 是机场，或 3 公里以内」。`kind` 是机场时仍要落到平台主数据的某个机场（接送机商品挂在机场上），所以定为「`kind: airport` 且离最近的启用机场不超过 10 公里」（`BY_POINTS_RULES.airportKindRadiusMeters`）；超过就不认，按普通地址处理。
+3. **「只认渠道授权范围里的城市的机场」**按「城市在授权里、启用，且渠道能卖这个城市的接送机」理解：只卖点对点的渠道不会把机场附近的地址认成机场（否则询价会被 422 `CHANNEL_SCOPE_DENIED` 挡掉）。停用的机场不认。
+4. **点对点选哪个城市**：方案没写。按出发地落在哪个「官网能订点对点的城市」（城市中心周围 80 公里，和地址搜索同一个范围）取最近的；都不在时不询价，`city: null`、原因 `OUT_OF_SERVICE_AREA`，也不算路线（不花钱），这种情况没有询价日志（`quote_logs` 要城市）。跨城市行程仍按出发地的城市（B8 待核对）。
+5. **两端都是机场**：按方案算接机，目的地那个机场的坐标当作地址那一端，由出发地机场的商品按区域判断能不能接。
+6. **「时间太近给最早可订时间」没做**：现有拒绝原因只有 `LEAD_TIME_TOO_SHORT`，没有「最早可订时间」；要给的话得从各候选商品的提前预订时长、服务时间算，属于报价引擎的新输出，留给 M8-03 一起看要不要（不改价格规则）。
+7. **限速**：输入即提示每输入几个字就调一次，单设每个地址每分钟 60 次（`site_autocomplete`，取坐标合计），每天的额度和搜索、反查共用 300 次（`site_places_day`）；按两个坐标报价和询价共用每分钟 30 次。
+8. **地址名称**：请求要 `name`（非空、单行、最多 300 字），只做校验，不进询价日志和快照；下单时照旧在订单里填地址文字。
+
+### 遗留
+
+- 页面（M8-03 / 04）：用 `GET /site/v1/places/autocomplete` + `details`（防抖 300 毫秒、至少 2 个字），按两个坐标报价，把 `route.polyline` 画在现有底图上。
+- 输入即提示上线后谷歌调用次数会明显变多：`GOOGLE_PLACES_DAILY_LIMIT` 默认 500 次可能不够，要按测试环境的实际用量调整（不是密钥，改配置即可）。
+- `/sales/v1` 的同名接口（B7）不在本次。
