@@ -21,6 +21,10 @@ import {
   type TenantIssue,
   type TenantStatus,
   type TenantTrigger,
+  type ProfileKey,
+  changedProfileKeys,
+  profileFieldsText,
+  tenantLockedProfileKeys,
   contractIssues,
   documentInputIssues,
   documentRequirements,
@@ -285,24 +289,42 @@ export async function getOwnCompany(ctx: AppContext, tenantId: string): Promise<
 }
 
 /** 改企业信息：只有「申请中」能改（提交审核以后改要先被退回）。If-Match 是企业信息的版本（还没填过时是 0 以外的任何值都不对，见下）。 */
+/**
+ * 供应商自己改企业信息。「申请中」什么都能改（ADR 0028）；审核通过以后（M4-34，ADR 0071）只能直接改注册地址和联系信息，
+ * 改了要给平台运营发通知；国家、法定名称、登记号不能直接改（409 `PROFILE_FIELDS_LOCKED`，法定名称和登记号走修改申请）。
+ */
 export async function putOwnProfile(ctx: AppContext, principal: TenantPrincipal, expectedVersion: number | null, fields: ProfileFields, ip: string): Promise<StoredProfile> {
   const now = ctx.now();
   const tenantId = principal.tenantId;
   return withTenantTx(ctx.pool, tenantId, async (db) => {
     const tenant = await findOwnTenant(db, tenantId);
     if (!tenant) throw notFound("供应商");
-    if (tenant.status !== "applying") throw stateInvalid(tenant.status, "企业信息只能在「申请中」修改；提交审核以后要改，请联系平台退回");
     const before = await findProfile(db, tenantId, { lock: true });
     // 第一次填（还没有版本）不带 If-Match；以后每次都要带当前的版本
     if (before !== null && expectedVersion !== before.version) throw versionConflict(before.version);
     if (before === null && expectedVersion !== null) throw versionConflict(0);
+    const beforeValues = before === null ? null : profileValues(before);
+    const afterValues = profileValues({ ...fields });
+    const locked = tenantLockedProfileKeys(tenant.status, beforeValues, afterValues);
+    if (locked.length > 0) throw profileFieldsLocked(locked);
+    const changed = changedProfileKeys(beforeValues, afterValues);
+    // 审核通过以后什么都没改的不写（不打扰平台运营）；申请中照旧每次保存都记一笔
+    if (tenant.status !== "applying" && before !== null && changed.length === 0) return before;
     const saved = await upsertProfile(db, tenantId, fields, now);
-    await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId, resource: "tenant_profile", resourceId: tenantId, action: before === null ? "create" : "update", before: before === null ? null : profileValues(before), after: profileValues(saved) });
+    await insertAuditLog(db, consoleOrigin(tenantActor(principal.user), ip, now), { tenantId, resource: "tenant_profile", resourceId: tenantId, action: before === null ? "create" : "update", before: beforeValues, after: profileValues(saved) });
+    if (tenant.status !== "applying" && changed.length > 0) {
+      await enqueueNotification(db, { event: "tenant.profile_updated", tenantId, orderId: null, dedupeKey: `tenant.profile_updated:${tenantId}:${saved.version}`, data: { tenant_name: tenant.name, profile_fields: changed } }, now);
+    }
     return saved;
   });
 }
 
-function profileValues(profile: StoredProfile): AuditValues {
+function profileFieldsLocked(keys: readonly ProfileKey[]): AppError {
+  return new AppError(409, "PROFILE_FIELDS_LOCKED", `审核通过以后不能直接改${profileFieldsText(keys)}：法定名称、登记号请提交修改申请，由平台审核；所在国家请联系平台`, { fields: keys.join(",") });
+}
+
+/** 企业信息的各项（审计日志、比较用的键名）。 */
+export function profileValues(profile: ProfileFields): Record<ProfileKey, string | null> {
   return {
     country_code: profile.countryCode,
     legal_name: profile.legalName,

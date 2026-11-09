@@ -1,6 +1,7 @@
 # ADR 0030：平台账号安全——两步验证、IP 白名单、自建角色与数据范围
 
 - 状态：已采纳（2026-10-25，M4-05）
+- 由 ADR 0071 补充（2026-11-09，M4-34）：新增操作 `tenant.edit`（直接改供应商名称和企业信息），算菜单「供应商」的「编辑」。
 - 由 ADR 0061 补充（2026-11-02，M4-30）：新增操作 `order.view_link_resend`（运营、客服）、`order.view_link_review`（运营），角色勾选表新增单独一格「订单链接重发」。
 - 由 ADR 0060 补充（2026-11-02，M4-29）：新增操作 `order.change_decide`，勾选表单独一格「代处理改单」。
 - 由 ADR 0050 补充（2026-11-01，M4-06）：公司 SSO 不做了，改为邮箱验证码；验证码只代替「密码」这一步，下面的两步验证、IP 白名单、必须先改密码都不变。
@@ -97,7 +98,7 @@ roadmap 验收标准：平台员工必须开启两步验证才能登录；可按
 
   | 菜单 | 查看 | 编辑 | 审核 |
   | --- | --- | --- | --- |
-  | 供应商 | `tenant.read` | `tenant.create`、`tenant.change_status`、`tenant.review`（资质审核、合同，M4-01） | `tenant.approve`（人工暂停、清退、合同版本的复核，M4-01） |
+  | 供应商 | `tenant.read` | `tenant.create`、`tenant.edit`（改名称和企业信息，M4-34）、`tenant.change_status`、`tenant.review`（资质审核、合同，M4-01） | `tenant.approve`（人工暂停、清退、合同版本、供应商资料修改的复核） |
   | 供应商商品 | `product.read` | | |
   | 报价试算 | `quote.preview` | | |
   | 渠道 | `channel.read` | `channel.manage` | `channel.review` |

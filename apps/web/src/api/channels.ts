@@ -148,6 +148,7 @@ export type ApprovalKind =
   | "staff.mfa_reset"
   | "statement.payout"
   | "payout_account.activate"
+  | "tenant.profile_change"
   | "bank_file.generate";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "withdrawn";
 

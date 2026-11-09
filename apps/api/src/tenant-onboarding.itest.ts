@@ -96,9 +96,9 @@ test("完整入驻：申请中 → 提交审核 → 驳回退回 → 再提交 �
 
   submit = await own("POST", "/company/submit", "/company/submit");
   assert.deepEqual([submit.status, submit.body.status], [200, "reviewing"]);
-  // 审核中不能改企业信息
-  const locked = await call("PUT", "/tenant/v1/company/profile", "/tenant/v1/company/profile", { token: c.adminToken, body: JP_PROFILE, headers: { "if-match": '"2"' } });
-  assert.deepEqual([locked.status, locked.body.error.code], [409, "TENANT_STATE_INVALID"]);
+  // 审核中（M4-34 起）：法定名称、登记号、国家不能直接改（要提交申请）；注册地址、联系信息可以直接改
+  const locked = await call("PUT", "/tenant/v1/company/profile", "/tenant/v1/company/profile", { token: c.adminToken, body: { ...JP_PROFILE, address: "东京都港区", legal_name: "株式会社丙交通改" }, headers: { "if-match": '"2"' } });
+  assert.deepEqual([locked.status, locked.body.error.code, locked.body.error.details.fields], [409, "PROFILE_FIELDS_LOCKED", "legal_name"]);
 
   // 审核队列：这 5 份都在，提交得早的在前
   const queue = await platform("GET", "/tenant-documents?kind=pending", "/tenant-documents");

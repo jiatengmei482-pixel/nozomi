@@ -9,6 +9,7 @@ import { CANCELLATION_APPROVAL_KINDS } from "./cancellations.ts";
 import { PROXY_FULFILMENT_APPROVAL_KINDS } from "./proxy-fulfilment.ts";
 import { RESCUE_APPROVAL_KINDS } from "./rescues.ts";
 import { TENANT_APPROVAL_KINDS } from "./tenant-onboarding.ts";
+import { TENANT_PROFILE_APPROVAL_KINDS } from "./tenant-profile.ts";
 import { COMPENSATION_TABLE_UPDATE } from "./compensation-table.ts";
 import { TICKET_APPROVAL_KINDS } from "./tickets.ts";
 
@@ -24,6 +25,7 @@ export const APPROVAL_KINDS: ApprovalKinds = approvalKinds([
   ...CHANNEL_APPROVAL_KINDS,
   ...FX_APPROVAL_KINDS,
   ...TENANT_APPROVAL_KINDS,
+  ...TENANT_PROFILE_APPROVAL_KINDS,
   ...CANCELLATION_POLICY_APPROVAL_KINDS,
   ...CANCELLATION_APPROVAL_KINDS,
   ...PROXY_FULFILMENT_APPROVAL_KINDS,
