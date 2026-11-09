@@ -362,9 +362,9 @@
           "id": "M4-34",
           "title": "供应商名称和企业信息的维护",
           "role": "backend",
-          "status": "review",
+          "status": "done",
           "acceptance": ["平台管理员（tenant.edit）能直接改供应商的对外显示名称（If-Match 供应商版本）和企业信息（任何状态），每次改记审计（改前改后）；权限不够 403", "平台供应商详情页有「企业信息」卡片（名称、法定名称、登记号、注册地址、联系人、电话、邮箱、国家），有权限才显示「编辑企业信息」", "供应商后台「设置 › 企业信息」：审核通过以后联系方式、注册地址直接改（审计 + 通知平台运营）；对外显示名称、法定名称、登记号提交申请，平台一位发起复核、另一位批准后才生效，提交 / 发起的人不能自己批，审核期间旧值照用，批准 / 驳回通知供应商", "新的 /tenant/v1 接口有「租户 A 读不到、改不了租户 B」的集成测试；ADR 0071"],
-          "evidence": "分支 m4-34-tenant-profile-edit（未开 PR）。迁移 0240；ADR 0071。新增测试：领域单元 5、集成 tenant-profile.itest.ts 9 + tenant-isolation 1（另更新 platform-admin、password-change-bypass、rls、tenant-onboarding 的登记）、组件 8（tenant-profile.test.tsx 4、company-info.test.tsx 4）、端到端 1（e2e/tenant-profile.spec.ts）",
+          "evidence": "https://github.com/jiatengmei482-pixel/nozomi/pull/131 ；ADR 0071；测试环境验收通过（平台在验收测试供应商上实测改名称和企业信息、审计、乐观锁，改完已还原；供应商侧和双人复核以集成 / 组件 / 端到端测试判断，测试环境没有供应商账号且不能自批；1280 / 360 × 亮暗 axe 零违规），报告 docs/acceptance/M4-34.md",
           "updated": "2026-11-09"
         }
       ]
@@ -1243,6 +1243,11 @@
       "date": "2026-11-09",
       "by": "Claude",
       "summary": "M4-34 供应商名称和企业信息的维护：平台可直接改供应商名称和企业信息（详情页「企业信息」卡片）；供应商审核通过后可直接改联系方式，改名称、法定名称、登记号要提交申请、平台双人复核后生效（业主 11-09 确认名称也要审核）。待验收。"
+    },
+    {
+      "date": "2026-11-09",
+      "by": "Claude",
+      "summary": "M4-34 已验收：平台可直接维护供应商名称和企业信息；供应商审核通过后改联系信息直接生效，改对外显示名称、法定名称、登记号走平台双人复核。"
     }
   ]
 }
