@@ -52,6 +52,7 @@ function quoteOf(index: number, changes: { passengers?: number; luggage?: number
     price: { total: { amount: String(changes.amount ?? 18000 + index * 1000), currency: "JPY" }, fx: null },
     free_wait_minutes: changes.freeWait === undefined ? 60 : changes.freeWait,
     cancel_policy: { category: "airport_transfer", level: "economy", tiers: [{ min_hours_before: 24, fee_bp: 0 }, { min_hours_before: 0, fee_bp: 10000 }] },
+    available_addons: [],
   };
 }
 
