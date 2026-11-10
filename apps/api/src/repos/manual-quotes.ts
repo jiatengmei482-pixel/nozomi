@@ -196,7 +196,7 @@ export async function listManualQuoteEvents(db: Db, requestId: string): Promise<
        left join platform_users a on a.id = e.assignee_id
        left join platform_users u on u.id = e.actor_id
       where e.request_id = $1
-      order by e.created_at, e.id`,
+      order by e.seq`,
     [requestId],
   );
   return result.rows.map((row) => ({

@@ -15328,16 +15328,36 @@ paths:
         - $ref: "#/components/parameters/Id"
       responses:
         "200":
-          description: 申请和跟进记录（从早到晚）
+          description: 申请、客人留下的内容（已清除时 `contact`、`pickup`、`dropoff` 为 null）和跟进记录（从早到晚）
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [ request, events ]
+                required: [ request, contact, pickup, dropoff, events ]
                 properties:
                   request:
-                    $ref: "#/components/schemas/ManualQuoteRequestDetail"
+                    $ref: "#/components/schemas/ManualQuoteRequestSummary"
+                  contact:
+                    oneOf:
+                      - type: object
+                        additionalProperties: false
+                        required: [ email, whatsapp ]
+                        properties:
+                          email:
+                            type: [ string, "null" ]
+                          whatsapp:
+                            type: [ string, "null" ]
+                            description: 以 + 开头的纯数字，如 +819012345678
+                      - type: "null"
+                  pickup:
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuotePlace"
+                      - type: "null"
+                  dropoff:
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualQuotePlace"
+                      - type: "null"
                   events:
                     type: array
                     items:
@@ -29922,33 +29942,6 @@ components:
           type: [ string, "null" ]
           format: date-time
           description: 过了保留期、联系方式和地点已清除的时间
-    ManualQuoteRequestDetail:
-      description: 一条申请和客人留下的内容（已清除时 `contact`、`pickup`、`dropoff` 为 null）
-      allOf:
-        - $ref: "#/components/schemas/ManualQuoteRequestSummary"
-        - type: object
-          required: [ contact, pickup, dropoff ]
-          properties:
-            contact:
-              oneOf:
-                - type: object
-                  additionalProperties: false
-                  required: [ email, whatsapp ]
-                  properties:
-                    email:
-                      type: [ string, "null" ]
-                    whatsapp:
-                      type: [ string, "null" ]
-                      description: 以 + 开头的纯数字，如 +819012345678
-                - type: "null"
-            pickup:
-              oneOf:
-                - $ref: "#/components/schemas/ManualQuotePlace"
-                - type: "null"
-            dropoff:
-              oneOf:
-                - $ref: "#/components/schemas/ManualQuotePlace"
-                - type: "null"
     ManualQuoteEvent:
       type: object
       additionalProperties: false

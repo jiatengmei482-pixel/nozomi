@@ -67,6 +67,8 @@ create index manual_quote_requests_purge_created_idx on manual_quote_requests (c
 -- 备注可能写进客人的姓名、电话，按同一个方案加密在 note_enc。
 create table manual_quote_request_events (
   id uuid primary key default gen_random_uuid(),
+  -- 写入顺序：同一个事务里的几条（改状态 + 指派）时间相同，按它排
+  seq bigint generated always as identity,
   request_id uuid not null references manual_quote_requests (id),
   kind text not null,
   from_status text,
@@ -83,7 +85,7 @@ create table manual_quote_request_events (
   constraint manual_quote_request_events_actor_check check ((kind = 'created') = (actor_id is null))
 );
 
-create index manual_quote_request_events_request_idx on manual_quote_request_events (request_id, created_at, id);
+create index manual_quote_request_events_request_idx on manual_quote_request_events (request_id, seq);
 
 -- 官网设置：全站一份（只有一行，第一次保存时写入；不预置）。现在只有客服 WhatsApp 号码（纯数字，wa.me 的写法）。
 create table site_settings (

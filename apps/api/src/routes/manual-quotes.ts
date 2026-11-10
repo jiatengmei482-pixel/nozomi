@@ -165,12 +165,10 @@ function eventJson(event: ManualQuoteEventView): Json {
 function detailJson(detail: ManualQuoteDetail): Json {
   const contact = detail.contact;
   return {
-    request: {
-      ...summaryJson(detail.request),
-      contact: contact === null ? null : { email: contact.email, whatsapp: contact.whatsapp === null ? null : `+${contact.whatsapp}` },
-      pickup: contact === null ? null : contact.pickup,
-      dropoff: contact === null ? null : contact.dropoff,
-    },
+    request: summaryJson(detail.request),
+    contact: contact === null ? null : { email: contact.email, whatsapp: contact.whatsapp === null ? null : `+${contact.whatsapp}` },
+    pickup: contact === null ? null : contact.pickup,
+    dropoff: contact === null ? null : contact.dropoff,
     events: detail.events.map(eventJson),
   };
 }
