@@ -14,6 +14,10 @@ import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { E2E_TILE_PORT, E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { CENTER, type Supplier, type World, createProductByApi, createSupplier, createWorld } from "./catalog.ts";
+import { OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 const TILE_ORIGIN = `http://127.0.0.1:${E2E_TILE_PORT}`;
