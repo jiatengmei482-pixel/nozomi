@@ -15,7 +15,7 @@ import { Button } from "../../../components/Button.tsx";
 import { SelectField } from "../../../components/FormFields.tsx";
 import { Icon } from "../../../components/Icon.tsx";
 import { TextField } from "../../../components/TextField.tsx";
-import { ADDON_QUANTITY, FX_REFERENCE_NOTE, type TripPoint, decodePolyline, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
+import { ADDON_QUANTITY, FX_REFERENCE_NOTE, type TripPoint, decodePolyline, lockedRouteSummaryText, referenceMoney, routeSummaryText } from "../../../lib/book-new.ts";
 import { moneyText } from "../../../lib/dispatch-display.ts";
 import { displayName } from "../../../lib/master-display.ts";
 import { AREA_SURCHARGE_NOTE } from "../../../lib/site-display.ts";
@@ -30,10 +30,11 @@ export const CONTACT_FORM_ID = "book-contact-form";
  * 路线：谷歌静态地图（M8-10，后端出图）+「约 X 分钟 · Y 公里」；平台还没开通静态地图时退回现有底图画折线（有折线和底图才画）；
  * 图出不来只写字；取不到路线（null）整块不显示。
  */
-export function RouteBlock({ route, tiles, from, to }: { route: SiteRoutePreview | null; tiles: MapTiles | null; from: TripPoint; to: TripPoint }) {
+export function RouteBlock({ route, tiles, from, to, lockedMeters = null }: { route: SiteRoutePreview | null; tiles: MapTiles | null; from: TripPoint; to: TripPoint; lockedMeters?: number | null }) {
   if (route === null) return null;
   const points = route.polyline === null ? [] : decodePolyline(route.polyline);
-  const text = routeSummaryText(route.minutes, route.meters);
+  // 选了含公里数的车型（M8-13，规范 10.3）：公里数用报价锁定的路线、同一个取整（向上到 0.1 公里），和「公里数」那句话的 D 一样
+  const text = lockedMeters === null ? routeSummaryText(route.minutes, route.meters) : lockedRouteSummaryText(route.minutes, lockedMeters);
   return (
     <div className="book-summary__block">
       <RoutePicture from={from} to={to} points={points} tiles={tiles} label={`路线图：${from.name} → ${to.name}，${text}`} />
@@ -71,6 +72,7 @@ export function PriceBlock({
   onCurrency,
   reference,
   areaSurcharge = false,
+  kmNote = null,
 }: {
   fare: SiteMoney;
   priced: PricedState;
@@ -79,6 +81,8 @@ export function PriceBlock({
   reference: SiteFxReference | null;
   /** 这个车型的报价含区域加价（M8-19）：车费下面说一句「含区域加价，已算在这个价格里」，不写金额 */
   areaSurcharge?: boolean;
+  /** 含公里数那一句（M8-13，规范 10.3）：车费下面一行；没设为 null */
+  kmNote?: string | null;
 }) {
   const approx = priced.kind === "ready" && reference !== null && reference.to !== priced.total.currency ? referenceMoney(priced.total, reference) : null;
   return (
@@ -91,6 +95,12 @@ export function PriceBlock({
             {areaSurcharge && <span className="book-prices__surcharge">{AREA_SURCHARGE_NOTE}</span>}
           </dd>
         </div>
+        {kmNote !== null && (
+          <div className="book-prices__row book-prices__row--note">
+            <dt className="visually-hidden">公里数</dt>
+            <dd>{kmNote}</dd>
+          </div>
+        )}
         {priced.kind === "ready" && priced.difference !== null && (
           <div className="book-prices__row">
             <dt>附加服务（合计差额）</dt>

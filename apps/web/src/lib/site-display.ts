@@ -2,7 +2,7 @@
  * 官网（M3-05，ADR 0032）页面上的说法和小规则：客人看到的订单状态、报不出价的原因、「我已落地」什么时候能点、
  * 订单页地址里的令牌、城市当地的日期时间。文案用客人的说法（「付款」「用车时间」），不出现「供应商」「结算价」。
  */
-import { CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays, charterAllInclusiveFor, fixedPriceFeeNote } from "@nozomi/domain";
+import { AREA_SURCHARGE_NOTE as DOMAIN_AREA_SURCHARGE_NOTE, CHARTER_OVERAGE_TEXTS, type ExtraChargeStatus, FIXED_PRICE_INCLUDES_TEXTS, LANDING_RULES, type OrderChangeStatus, type OrderStatus, addDays, charterAllInclusiveFor, fixedPriceFeeNote, includedKmNote, isCurrencyCode, parseMajor } from "@nozomi/domain";
 import type { CancelTier } from "../api/order-money.ts";
 import type { SiteCategory, SiteDirection, SiteOrder, SitePlace, SiteQuote, SiteUnavailableReason } from "../api/site.ts";
 import type { BadgeSpec } from "../components/StatusBadge.tsx";
@@ -53,8 +53,33 @@ export function orderAddressEnds(order: Pick<SiteOrder, "category" | "direction"
   return order.category === "charter" && order.dropoff === null ? ends.filter((end) => end !== "dropoff") : ends;
 }
 
-/** 报价含区域加价时的说明（ADR 0073 第四部分；规范 site-booking-v2.md 10.2）：只说已含，不写金额、不写是哪个区域。 */
-export const AREA_SURCHARGE_NOTE = "含区域加价，已算在这个价格里";
+/** 报价含区域加价时的说明（ADR 0073 第四部分；规范 site-booking-v2.md 10.2）：只说已含，不写金额、不写是哪个区域。车型卡、车费、订单页「总价」下面和确认邮件同一来源（domain）。 */
+export const AREA_SURCHARGE_NOTE = DOMAIN_AREA_SURCHARGE_NOTE;
+
+/** 报价、订单上的含公里数（对外价）：`over_km_per_km` 是 `{ amount, currency }` 的十进制写法 */
+export interface SiteDistance {
+  included_km: number;
+  route_meters: number;
+  over_km: number;
+  over_km_per_km: { amount: string; currency: string };
+}
+
+/**
+ * 含公里数那一句（M8-13，规范 site-booking-v2.md 10.3）：车型卡、右侧栏「车费」下面、订单页「公里数」都用这一句，和确认邮件同一个 domain 函数。
+ * 没设含公里数（null / 旧接口没有这一项）返回 null；币种不认识、金额写法不对时也不写（不猜）。
+ */
+export function siteDistanceNote(distance: SiteDistance | null | undefined): string | null {
+  if (distance === null || distance === undefined) return null;
+  const { currency, amount } = distance.over_km_per_km;
+  if (!isCurrencyCode(currency)) return null;
+  let perKm: number;
+  try {
+    perKm = parseMajor(amount, currency);
+  } catch {
+    return null;
+  }
+  return includedKmNote({ includedKm: distance.included_km, routeMeters: distance.route_meters, overKm: distance.over_km, overKmPerKmMinor: perKm, currency });
+}
 
 /** 地址那一栏的名字：接送机、点对点都按上车 / 下车说。 */
 export const ADDRESS_LABELS: Readonly<Record<"pickup" | "dropoff", string>> = { pickup: "上车地址或酒店名", dropoff: "下车地址或酒店名" };

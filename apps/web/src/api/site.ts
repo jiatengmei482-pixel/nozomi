@@ -295,6 +295,10 @@ export interface SiteOrder {
   quote_id: string;
   channel_order_no: string | null;
   price: { total: SiteMoney; fx: { rate: string; as_of: string } | null };
+  /** 包车：这一单的价格里含区域加价（M8-13，订单上锁定的）；只说「含区域加价」，不写金额。旧接口、旧数据可能没有这一项 */
+  includes_area_surcharge?: boolean;
+  /** 点对点：含公里数（M8-13，订单上锁定的，每公里是对外价）；没设为 null。旧接口、旧数据可能没有这一项 */
+  distance?: { included_km: number; route_meters: number; over_km: number; over_km_per_km: SiteMoney } | null;
   payment_status: string;
   payment_due_at: string;
   winning_tenant: { name: string } | null;

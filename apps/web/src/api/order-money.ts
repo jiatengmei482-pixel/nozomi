@@ -3,6 +3,7 @@
  * 字段与 `apps/api/openapi.yaml` 对齐，由 order-money.contract.test.ts 保证。
  * 供应商的接口里没有客人付的金额（对外价、退款、加收的客人金额，规则 4）；运营后台的有。
  */
+import type { OrderAreaSurchargeView, OrderDistanceView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { ExceptionStatus, ExceptionType, ExtraChargeStatus, ExtraChargeType, FulfilmentEventType, OrderCancelReason, OrderChangeStatus, OrderStatus, PaymentStatus, RefundStatus, ServiceCategory, TicketPriority, TicketStatus, TicketType, VehicleLevel, ViewLinkVerification } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiRequest, apiUpload } from "./client.ts";
@@ -307,6 +308,12 @@ export interface PlatformOrderDetail {
   pending_email_review?: PassengerEmailReview | null;
   /** 车型组和车型标识的来源（M7-02，ADR 0068）；接口总是给（车型组找不到时为 null），旧的测试数据里可能没有这一项 */
   vehicle_group?: OrderVehicleGroup | null;
+  /** 包车区域加价（M8-15）：结算价和对外价参考；没有为 null。旧的测试数据里可能没有这一项 */
+  area_surcharge?: OrderAreaSurchargeView | null;
+  /** 点对点含公里数（M8-11）：结算价和每公里的对外价参考；没设为 null */
+  distance?: OrderDistanceView | null;
+  /** 点对点用的价格（M8-13）；没有为 null */
+  pricing_route?: OrderPricingRoute | null;
 }
 
 /** 运营代改乘客邮箱的复核（ADR 0065）：只有打码后的地址。 */

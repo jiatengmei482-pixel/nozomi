@@ -7,6 +7,7 @@
  * - 供应商的接口里没有对外价和加价比例（规则 4）；司机 H5 的接口里没有任何价格。
  */
 import type { TenantOrderRescue } from "./rescues.ts";
+import type { OrderAreaSurchargeView, OrderDistanceView, OrderPricingRoute } from "../lib/order-area-price-display.ts";
 import type { DriverLinkEmailState, DriverStatus, LocalizedText, OrderStatus, PlateType, TenantWebhookEvent, VehicleStatus } from "@nozomi/domain";
 import { query, TENANT_BASE } from "./areas.ts";
 import { apiDownload, apiRequest, apiUpload } from "./client.ts";
@@ -173,7 +174,17 @@ export interface TenantOrder {
   cancel_reason: string | null;
   product_id: string;
   product_version: number;
-  settlement: { total: Money; base: Money; adjust: Money; urgent: Money; night: Money; addons: Money; driver_language: Money };
+  settlement: {
+    total: Money;
+    base: Money;
+    adjust: Money;
+    urgent: Money;
+    night: Money;
+    addons: Money;
+    driver_language: Money;
+    /** 点对点含公里数（M8-11，结算价，订单上锁定的）；没设为 null。旧的测试数据里可能没有这一项 */
+    distance?: OrderDistanceView | null;
+  };
   dispatch: OrderDispatch;
   fulfilment: OrderFulfilment;
   landing: OrderLanding | null;
@@ -257,6 +268,10 @@ export interface TenantOrderDetail {
   driver_link_email: DriverLinkEmail;
   /** 车型组和车型标识的来源（M7-02）；接口总是给（车型组找不到时为 null），旧的测试数据里可能没有这一项 */
   vehicle_group?: OrderVehicleGroup | null;
+  /** 包车区域加价（M8-15，只有结算价）；没有为 null。旧的测试数据里可能没有这一项 */
+  area_surcharge?: OrderAreaSurchargeView | null;
+  /** 点对点用的价格（M8-13）；没有为 null。旧的测试数据里可能没有这一项 */
+  pricing_route?: OrderPricingRoute | null;
 }
 
 export interface AssignmentIssue {

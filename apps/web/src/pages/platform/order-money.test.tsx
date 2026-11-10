@@ -665,3 +665,48 @@ test("附加服务（M8-04）：供应商和运营的订单详情写「名称 ×
   assert.equal(tripValue("附加服务"), null);
   assert.ok(calls.every((call) => !call.path.includes("/master/addons")), "没有附加服务时不读目录");
 });
+
+test("区域价（M8-13，platform-orders.md 3d）：点对点线路价写「用的价格」和「公里数」三行（对外 / 结算每公里、核对米数）；包车写两端的区域加价（对外 / 结算）；总价仍是一个数", async () => {
+  const p2p = platformDetail(platformOrder({ category: "point_to_point", direction: null, place_id: null, flight_no: null, pickup: { lng: 139.7, lat: 35.7, address: "新宿站" }, dropoff: { lng: 140.3, lat: 35.7, address: "成田机场" } }), {
+    pricing_route: { kind: "route", area: { id: "a1", name: { zh: "东京 23 区" } }, to_area: { id: "a2", name: { zh: "成田周边" } } },
+    distance: { included_km: 30, route_meters: 34_153, over_km: 5, over_km_per_km: money("250"), over_km_per_km_sell: money("300") },
+    area_surcharge: null,
+  });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, p2p) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("用的价格")?.textContent, "线路价 · 东京 23 区 → 成田周边");
+  const km = tripValue("公里数");
+  assert.ok(km);
+  assert.deepEqual([...km.querySelectorAll(".details__lines > span")].map((line) => line.textContent), ["含 30 公里 · 路线约 34.2 公里（报价时）· 超出 5 公里", "每公里 对外 300 JPY / 结算 250 JPY", "路线 34,153 米"]);
+  assert.equal(tripValue("区域加价"), null);
+  assert.doesNotMatch(km.textContent ?? "", /[=+]|合计/, "不写成算式");
+
+  resetBrowser();
+  const charter = platformDetail(platformOrder({ category: "charter", direction: null, place_id: null, flight_no: null, package_hours: 8, pickup: { lng: 138.7, lat: 35.4, address: "河口湖站" }, dropoff: { lng: 139.7, lat: 35.69, address: "京王广场酒店" } }), {
+    pricing_route: null,
+    distance: null,
+    area_surcharge: { package_settlement: money("70000"), pickup: { area_id: "a3", area_name: { zh: "富士山" }, settlement: money("1000"), sell: money("1100") }, dropoff: { area_id: null, area_name: null, settlement: money("0"), sell: money("0") } },
+  });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, charter) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("行程")?.textContent, "包车 8 小时 · 河口湖站 → 京王广场酒店");
+  assert.deepEqual([...(tripValue("区域加价")?.querySelectorAll(".details__lines > span") ?? [])].map((line) => line.textContent), ["上车：富士山 · 对外 1,100 JPY / 结算 1,000 JPY", "下车：在服务区域里，不加价"]);
+  assert.equal(tripValue("用的价格"), null);
+  assert.equal(tripValue("公里数"), null);
+});
+
+test("区域价（M8-13）：旧单、接送机（没有这些数、或接口里没有这几项）一项都不出；两端都在服务区域里不写「区域加价」；区域删了写「（已删除的区域）」", async () => {
+  for (const extra of [{}, { pricing_route: null, distance: null, area_surcharge: null }, { area_surcharge: { package_settlement: money("70000"), pickup: { area_id: null, area_name: null, settlement: money("0"), sell: null }, dropoff: { area_id: null, area_name: null, settlement: money("0"), sell: null } } }]) {
+    resetBrowser();
+    open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, platformDetail(platformOrder(), extra)) : null), "platform");
+    await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+    for (const label of ["用的价格", "公里数", "区域加价"]) assert.equal(tripValue(label), null, `${JSON.stringify(extra)}：不显示「${label}」`);
+    assert.ok(tripValue("对外价 / 结算价"), "其余照常");
+  }
+  resetBrowser();
+  const gone = platformDetail(platformOrder({ category: "point_to_point", direction: null }), { pricing_route: { kind: "area", area: { id: "a1", name: null }, to_area: null }, distance: { included_km: 30, route_meters: 28_400, over_km: 0, over_km_per_km: money("250"), over_km_per_km_sell: null } });
+  open(`/platform/orders/${ORDER_ID}`, "operations", (call) => (call.method === "GET" && call.url.pathname === `/platform/v1/orders/${ORDER_ID}` ? json(200, gone) : null), "platform");
+  await screen.findByRole("heading", { level: 1, name: "订单 NZ20261007ABCDEFGH" });
+  assert.equal(tripValue("用的价格")?.textContent, "区域价 · （已删除的区域）");
+  assert.match(tripValue("公里数")?.textContent ?? "", /含 30 公里 · 路线约 28\.4 公里（报价时）· 在含的公里数以内每公里 对外 — \/ 结算 250 JPY/);
+});

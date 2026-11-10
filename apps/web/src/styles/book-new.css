@@ -653,6 +653,13 @@
   text-align: right;
 }
 
+/* 含公里数那一句（M8-13，site-booking-v2.md 10.3）：「车费」下面单独一行，整宽、可折行；不是另一笔费用，所以不右对齐成金额列 */
+.book-prices__row--note > dd {
+  flex: 1 1 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 .book-pay {
   gap: var(--space-2);
 }
