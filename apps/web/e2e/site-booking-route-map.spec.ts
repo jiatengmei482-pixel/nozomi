@@ -12,6 +12,10 @@ import { type Browser, type Page, type Route, expect, test } from "@playwright/t
 import { E2E_WEB_PLACES_PORT } from "../playwright.config.ts";
 import { TOKYO_STATION, airportLink, createAirport, encodePolyline, expectRouteLineVisible, publishTransfer, tomorrowInTokyo } from "./book-new-support.ts";
 import { createSupplier, createWorld } from "./catalog.ts";
+import { OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 const SITE = `http://127.0.0.1:${E2E_WEB_PLACES_PORT}`;
 const ROUTE_TEXT = "约 25 分钟 · 14.2 公里";
@@ -28,7 +32,6 @@ async function prepareTrip(page: Page, request: Parameters<typeof createWorld>[0
   const airport = await createAirport(request, world);
   const supplier = await createSupplier(request, world);
   await publishTransfer(request, supplier, { ...world, airport });
-  await page.setExtraHTTPHeaders({ "x-forwarded-for": `198.51.100.${1 + Math.floor(Math.random() * 250)}` });
   await page.route(`${SITE}/site/v1/quotes/by-points`, async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as Record<string, unknown>;

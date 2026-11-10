@@ -10,7 +10,10 @@ import { randomInt } from "node:crypto";
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { createPool } from "../../api/src/db/pool.ts";
 import { createProductByApi, createSupplier, createWorld, expectAccessible, post } from "./catalog.ts";
-import { adminCredentials, loginAs, newPassword, platformAdminHeaders, uniqueEmail, issueSiteLink } from "./support.ts";
+import { adminCredentials, loginAs, newPassword, platformAdminHeaders, uniqueEmail, issueSiteLink, OWN_SITE_SOURCE } from "./support.ts";
+
+// 官网按来源地址限速：每条用例带自己的文档专用地址，不和并行的官网用例在 127.0.0.1 上抢同一份额度（M8-17）
+test.use(OWN_SITE_SOURCE);
 
 const ALPHABET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const random = (length: number, alphabet = ALPHABET): string => Array.from({ length }, () => alphabet[randomInt(alphabet.length)]).join("");

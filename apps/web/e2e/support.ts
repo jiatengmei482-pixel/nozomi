@@ -427,3 +427,26 @@ export async function issueSiteLink(orderNo: string): Promise<string> {
     await client.end();
   }
 }
+
+let siteSourceCount = 0;
+
+/**
+ * 一条官网用例自己的来源地址（192.0.2.0/24，RFC 5737 文档专用，不会是真实客人）。官网按来源地址限速，额度记在各个 API 共用的数据库里；
+ * 每个并行进程分一段（parallelIndex），段内按顺序取，同时跑的用例不撞同一个地址。
+ */
+export function siteSourceAddress(parallelIndex: number): string {
+  const perWorker = 63;
+  const slot = (parallelIndex * perWorker + (siteSourceCount++ % perWorker)) % 254;
+  return `192.0.2.${slot + 1}`;
+}
+
+/**
+ * 打开官网页面、调官网接口的用例文件写 `test.use(OWN_SITE_SOURCE)`（M8-17）：每条用例的页面、`request`、以及它 `browser.newContext()` 开的页面
+ * 都带 `X-Forwarded-For: <这条用例自己的地址>`。端到端的官网 API 信任一层代理（global-setup），不带这个头的请求来源都是 127.0.0.1，
+ * 全量并行时几十条官网用例共用一份「每分钟 120 次」，页面被「操作太频繁了，请 N 秒后再试」挡住。生产代码的限速照常生效，测试只是不再共用一个地址。
+ */
+export const OWN_SITE_SOURCE: Parameters<typeof test.use>[0] = {
+  extraHTTPHeaders: async ({}, use: (headers: Record<string, string>) => Promise<void>) => {
+    await use({ "x-forwarded-for": siteSourceAddress(test.info().parallelIndex) });
+  },
+};
