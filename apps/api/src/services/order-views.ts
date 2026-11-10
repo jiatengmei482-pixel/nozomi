@@ -75,7 +75,20 @@ export function settlementJson(order: Order): Json {
     addons: money(s.addonsMinor),
     driver_language: money(s.driverLanguageMinor),
     area_surcharge: settlementAreaSurchargeJson(order),
+    // 点对点（M8-11，ADR 0073 第二部分）：用的是线路价时的下车区域；含公里数的一口价在这一单上的情况（结算价）。没有的为 null
+    to_area_id: s.toAreaId ?? null,
+    distance: distanceMoneyJson(s, order.settlementCurrency),
   };
+}
+
+/**
+ * 含公里数的一口价在这一单上的情况（结算价，M8-11，ADR 0073 第二部分第 4 节）：报价时锁定的路线距离（米）、超出公里数、超出每公里单价。
+ * 超出的钱已经含在 `base` 里。没设含公里数的、M8-11 之前的订单为 null。
+ */
+export function distanceMoneyJson(settlement: Pick<Order["settlement"], "distance">, currency: Order["settlementCurrency"]): Json | null {
+  const distance = settlement.distance ?? null;
+  if (distance === null) return null;
+  return { included_km: distance.includedKm, route_meters: distance.routeMeters, over_km: distance.overKm, over_km_per_km: salesMoney(distance.overKmPerKmMinor, currency) };
 }
 
 /**

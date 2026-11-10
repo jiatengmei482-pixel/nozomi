@@ -64,24 +64,31 @@ const date = z.string().max(10);
 
 /** 每种计价方式用哪几个数：接口里的字段名 → domain 里的字段名。 */
 const MODEL_FIELDS = {
-  fixed: { base_price: "basePriceMinor" },
+  // 点对点的一口价可以再设含公里数（ADR 0073 第二部分第 4 节）：included_km、over_km_per_km 要么都填、要么都不填
+  fixed: { base_price: "basePriceMinor", included_km: "includedKm", over_km_per_km: "overKmPerKmMinor" },
   mileage_time: { start_price: "startPriceMinor", start_meters: "startMeters", start_minutes: "startMinutes", per_km: "perKmMinor", per_minute: "perMinuteMinor", min_price: "minPriceMinor" },
   charter_package: { package_km: "packageKm", package_price: "packagePriceMinor", overtime_per_hour: "overtimePerHourMinor", over_km_per_km: "overKmPerKmMinor" },
   // 包车区域加价（ADR 0073）：area_id 是加价区域
   charter_area_surcharge: { pickup_surcharge: "pickupSurchargeMinor", dropoff_surcharge: "dropoffSurchargeMinor" },
 } as const;
 const PRICE_FIELDS = [...new Set(Object.values(MODEL_FIELDS).flatMap((fields) => Object.keys(fields)))];
-/** 可以不填（null）的数：最低消费 */
-const OPTIONAL_FIELDS = ["min_price"];
+/**
+ * 可以不填（null）的数：里程 + 时长的最低消费（存成 null）；一口价的含公里数、超出每公里（不填就不存这两个键，和 M8-11 之前的一口价一模一样；
+ * 只填了一个由 domain 报 REQUIRED）。
+ */
+const OPTIONAL_FIELDS: Readonly<Partial<Record<keyof typeof MODEL_FIELDS, readonly string[]>>> = { mileage_time: ["min_price"], fixed: ["included_km", "over_km_per_km"] };
 
 // 这里只管类型；范围、整数、日期、品类和计价方式对不对由 domain 查，报出原因代码
 const priceRuleSchema = z.object({
   area_id: id,
+  // 点对点线路价的下车区域（ADR 0073 第二部分）：不填 = 区域价
+  to_area_id: id.nullable().default(null),
   vehicle_group_id: id,
   direction: z.enum(PRICE_DIRECTIONS).nullable().default(null),
   package_hours: z.number().finite().nullable().default(null),
   pricing_model: z.enum(PRICING_MODELS),
   base_price: amount,
+  included_km: amount,
   start_price: amount,
   start_meters: amount,
   start_minutes: amount,
@@ -110,19 +117,21 @@ const batchSchema = z.object({
 function toPriceRule(body: PriceRuleBody, at: string, issues: InputIssue[]): PriceRule {
   const values = body as unknown as Record<string, number | null>;
   const wanted: Record<string, string> = MODEL_FIELDS[body.pricing_model];
+  const optional = OPTIONAL_FIELDS[body.pricing_model] ?? [];
   const pricing: Record<string, unknown> = { model: body.pricing_model };
   for (const field of PRICE_FIELDS) {
     const value = values[field] ?? null;
     const target = wanted[field];
     if (target === undefined) {
       if (value !== null) issues.push({ path: `${at}/${field}`, reason: "NOT_APPLICABLE", message: "这种计价方式不填这一项" });
-    } else if (value === null && !OPTIONAL_FIELDS.includes(field)) {
+    } else if (value === null && !optional.includes(field)) {
       issues.push({ path: `${at}/${field}`, reason: "REQUIRED", message: "必填" });
       pricing[target] = 0;
-    } else pricing[target] = value;
+    } else if (value !== null || body.pricing_model !== "fixed") pricing[target] = value;
   }
   return {
     areaId: body.area_id,
+    toAreaId: body.to_area_id,
     vehicleGroupId: body.vehicle_group_id,
     direction: body.direction,
     packageHours: body.package_hours,
@@ -139,12 +148,14 @@ function priceRuleJson(rule: StoredPriceRule): Json {
   return {
     id: rule.id,
     area_id: rule.areaId,
+    // 点对点线路价的下车区域；区域价为 null
+    to_area_id: rule.toAreaId ?? null,
     vehicle_group_id: rule.vehicleGroupId,
     direction: rule.direction,
     package_hours: rule.packageHours,
     pricing_model: rule.pricing.model,
     ...Object.fromEntries(PRICE_FIELDS.map((field) => [field, fields[field] === undefined ? null : (pricing[fields[field] as string] ?? null)])),
-    // 这条价格能报出的最低数（一口价的基础价、里程 + 时长的起步价或最低消费、包车的套餐价）：试算和日历的基数
+    // 这条价格能报出的最低数（一口价的基础价——设了含公里数的是不超出时的价、里程 + 时长的起步价或最低消费、包车的套餐价）：试算和日历的基数
     base: formatExact(basePrice(rule.pricing, {}, rule.packageHours)),
     valid_from: rule.validFrom,
     valid_to: rule.validTo,
@@ -252,6 +263,8 @@ export function adjustRulesJson(view: AdjustRulesView): Json {
 
 const calendarQuerySchema = z.object({
   area_id: id,
+  // 点对点：看从 area_id 上车、到这个区域下车的价（有线路价用线路价，没有退回区域价）
+  to_area_id: id.optional(),
   // 一个或几个车型组（逗号分隔，最多 20 个）：对比表一次取一行里的全部
   vehicle_group_id: z
     .string()
@@ -273,7 +286,9 @@ function calendarDaysJson(days: CalendarView["groups"][number]["days"]): Json[] 
       date: day.date,
       weekday: weekdayOf(day.date),
       holiday: day.holiday === null ? null : { name: day.holiday },
-      price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
+      price_rule: rule === null ? null : { id: rule.id, pricing_model: rule.pricing.model, to_area_id: rule.toAreaId ?? null, direction: rule.direction, valid_from: rule.validFrom, valid_to: rule.validTo },
+      // 点对点给了下车区域时：这一天用的是线路价（true）还是这个车型组没有线路价、退回了区域价（false）；没给下车区域为 null
+      route_rule: day.routeRule,
       // 包车：这个区域作为加价区域时这一天的上车加价、下车加价（ADR 0073 第五部分「区域加价按区域分行」）；没有能用的区域加价为 null
       surcharge:
         day.surcharge === null || day.surcharge.pricing.model !== "charter_area_surcharge"
@@ -418,6 +433,7 @@ export function registerPriceRoutes(app: FastifyInstance, ctx: AppContext): void
     return calendarJson(
       await getPriceCalendar(ctx, principal.tenantId, productId, {
         areaId: query.area_id,
+        toAreaId: query.to_area_id ?? null,
         vehicleGroupIds: query.vehicle_group_id,
         direction: query.direction ?? null,
         packageHours: query.package_hours ?? null,

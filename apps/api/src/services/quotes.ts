@@ -29,6 +29,7 @@ import {
   type MarkupMatch,
   type FxQuote,
   fxQuoteUsable,
+  hasIncludedKm,
   addDays,
   channelScopeRefusal,
   channelSellsTenant,
@@ -180,7 +181,8 @@ async function estimateRoute(ctx: AppContext, log: QuoteLog, request: QuoteReque
 function needsRoute(candidates: readonly QuoteCandidate[]): boolean {
   return candidates.some(({ product }) => {
     const rules = product.serviceRules;
-    return product.priceRules.some((rule) => rule.pricing.model === "mileage_time") || (rules.night.enabled && rules.night.chargeUnit === "per_hour") || product.addonCatalog.some((addon) => addon.chargeUnit === "per_duration");
+    // 里程 + 时长、设了含公里数的一口价（M8-11，ADR 0073）按路线距离算钱
+    return product.priceRules.some((rule) => rule.pricing.model === "mileage_time" || hasIncludedKm(rule.pricing)) || (rules.night.enabled && rules.night.chargeUnit === "per_hour") || product.addonCatalog.some((addon) => addon.chargeUnit === "per_duration");
   });
 }
 

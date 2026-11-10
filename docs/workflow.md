@@ -32,10 +32,19 @@ flowchart LR
 ## 完成的定义（Definition of Done）
 
 - 验收标准逐条满足，每条都能指到测试或验收报告里的证据。
-- `pnpm check` 通过，CI 全绿。
+- 本机按下面「本机检查与 CI 的分工」跑完该跑的检查，CI 全绿（CI 跑全套，是唯一的「通过」标准）。
 - 没有演示数据、没有密钥原文、没有注释掉的代码。
 - 接口变化同步更新 OpenAPI 文档。
 - roadmap 已更新，日志已追加。
+
+## 本机检查与 CI 的分工（2026-11-10 起，从 M8-19 开始）
+
+两个角色同时在本机共用一个数据库跑全套 `pnpm check`，一次要 1.5 小时左右。改为：
+
+- **本机只跑和改动相关的**：类型检查（`pnpm typecheck`）、lint（如有），加上受影响模块的单元 / 组件测试和对应的集成测试、端到端测试（只跑相关文件，`node --test <文件>`、`pnpm --filter @nozomi/web exec playwright test <文件> --workers=1`）。改了共用模块（`packages/domain`、`packages/config`、`apps/api/src/app.ts`、数据库迁移、接口定义等）时，相关范围要放宽到所有引用它的测试。
+- **全套交给 CI**：PR 的 CI（check、e2e、deploy-smoke）全绿才算通过，质量标准不降。CI 有失败一律先查原因；确认是和本改动无关的偶发失败，要在 roadmap 里有对应的去偶发任务，才可以重新触发。
+- **必须在本机跑全套时**（例如改了测试基础设施、迁移框架），两个角色错开跑，不要同时跑；开始前先看有没有别的 `pnpm check` / `pnpm test:integration` 进程在跑。
+- 交回报告写清本机跑了哪些测试、多少条，以及 PR 的 CI 结果。
 
 ## 在 claude.ai/code 里怎么开始一个会话
 

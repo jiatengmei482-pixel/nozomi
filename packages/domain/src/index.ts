@@ -19,6 +19,7 @@ export * from "./temporary-password.ts";
 export * from "./geonames.ts";
 export * from "./geonames-airports.ts";
 export * from "./areas.ts";
+export * from "./area-overlap.ts";
 export * from "./city-suggestion.ts";
 export * from "./service-time.ts";
 export * from "./products.ts";

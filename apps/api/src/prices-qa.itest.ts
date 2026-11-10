@@ -1027,7 +1027,7 @@ test("审计：批量保存里的每一条新增、修改、删除各一条日�
     }),
   );
   const d = second.created_ids[0] as string;
-  const full = (extra: Record<string, unknown>): Record<string, unknown> => ({ product_id: id, area_id: ids["a1"], vehicle_group_id: ids["biz7"], direction: "pickup", package_hours: null, pricing_model: "fixed", params: { basePriceMinor: 20_000 }, valid_from: "2026-10-01", valid_to: null, status: "enabled", ...extra });
+  const full = (extra: Record<string, unknown>): Record<string, unknown> => ({ product_id: id, area_id: ids["a1"], to_area_id: null, vehicle_group_id: ids["biz7"], direction: "pickup", package_hours: null, pricing_model: "fixed", params: { basePriceMinor: 20_000 }, valid_from: "2026-10-01", valid_to: null, status: "enabled", ...extra });
   const rows = async (ruleId: string): Promise<unknown[]> => (await audits("price_rule", ruleId)).map((log) => [log.action, log.tenant_id, log.actor_email, log.before, log.after]);
   const who = [tenant.tenantId, "qa-admin@a.test"];
   assert.deepEqual(await rows(a), [["create", ...who, null, full({})], ["update", ...who, { params: { basePriceMinor: 20_000 }, valid_to: null }, { params: { basePriceMinor: 21_000 }, valid_to: "2026-12-31" }]]);

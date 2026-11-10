@@ -17,12 +17,13 @@ export interface StoredPriceRule extends PriceRule {
 }
 
 // 日期按文字取：驱动会把 date 换成带时区的时刻，再换回来可能差一天
-export const PRICE_COLUMNS = "id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from::text as valid_from, valid_to::text as valid_to, status, created_at, updated_at";
+export const PRICE_COLUMNS = "id, area_id, to_area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from::text as valid_from, valid_to::text as valid_to, status, created_at, updated_at";
 
 export function toPriceRule(row: Row): StoredPriceRule {
   return {
     id: row["id"],
     areaId: row["area_id"],
+    toAreaId: row["to_area_id"],
     vehicleGroupId: row["vehicle_group_id"],
     direction: row["direction"],
     packageHours: row["package_hours"],
@@ -37,7 +38,7 @@ export function toPriceRule(row: Row): StoredPriceRule {
 
 function priceValues(rule: PriceRule): unknown[] {
   const { model, ...params } = rule.pricing;
-  return [rule.areaId, rule.vehicleGroupId, rule.direction, rule.packageHours, model, JSON.stringify(params), rule.validFrom, rule.validTo, rule.status];
+  return [rule.areaId, rule.vehicleGroupId, rule.direction, rule.packageHours, model, JSON.stringify(params), rule.validFrom, rule.validTo, rule.status, rule.toAreaId ?? null];
 }
 
 /** 一个商品的全部价格规则，按创建的先后。 */
@@ -48,8 +49,8 @@ export async function listPriceRules(db: Db, tenantId: string, productId: string
 
 export async function insertPriceRule(db: Db, tenantId: string, productId: string, rule: PriceRule, now: Date): Promise<StoredPriceRule> {
   const result = await db.query<Row>(
-    `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from, valid_to, status, created_at, updated_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $12)
+    `insert into price_rules (tenant_id, product_id, area_id, vehicle_group_id, direction, package_hours, pricing_model, params, valid_from, valid_to, status, to_area_id, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $13)
      returning ${PRICE_COLUMNS}`,
     [tenantId, productId, ...priceValues(rule), now],
   );
@@ -60,7 +61,7 @@ export async function updatePriceRule(db: Db, tenantId: string, productId: strin
   const result = await db.query<Row>(
     `update price_rules
         set area_id = $4, vehicle_group_id = $5, direction = $6, package_hours = $7, pricing_model = $8, params = $9::jsonb,
-            valid_from = $10, valid_to = $11, status = $12, updated_at = $13
+            valid_from = $10, valid_to = $11, status = $12, to_area_id = $13, updated_at = $14
       where tenant_id = $1 and product_id = $2 and id = $3
       returning ${PRICE_COLUMNS}`,
     [tenantId, productId, id, ...priceValues(rule), now],
@@ -173,7 +174,9 @@ export async function setBrandRoundingUnit(db: Db, tenantId: string, brandId: st
   return (result.rows[0] as { version: number }).version;
 }
 
-/** 一个子品牌下每个商品「可以卖的价格」（口径同 `sellablePriceRules`）：改取整单位之前用来看哪些价格会受影响。 */
+/**
+ * 一个子品牌下每个商品「可以卖的价格」（口径同 `sellablePriceRules`，但线路价也算——它们同样会被取整成 0）：改取整单位之前用来看哪些价格会受影响。
+ */
 export async function listBrandSellablePrices(db: Db, tenantId: string, brandId: string, now: Date): Promise<{ productId: string; code: string; status: string; rule: StoredPriceRule }[]> {
   const result = await db.query<Row>(
     `select p.id as product_id, p.code, p.status as product_status, ${PRICE_COLUMNS.split(", ").map((column) => `r.${column}`).join(", ")}
@@ -190,9 +193,9 @@ export async function listBrandSellablePrices(db: Db, tenantId: string, brandId:
   return result.rows.map((row) => ({ productId: row["product_id"], code: row["code"], status: row["product_status"], rule: toPriceRule(row) }));
 }
 
-/** 这个区域下的全部价格（跨商品）：删除区域之前取，给连带删除的价格各记一条日志。 */
+/** 这个区域下的全部价格（跨商品；上车区域或线路价的下车区域是它）：删除区域之前取，给连带删除的价格各记一条日志。 */
 export async function listPriceRulesInArea(db: Db, tenantId: string, areaId: string): Promise<{ productId: string; rule: StoredPriceRule }[]> {
-  const result = await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 and area_id = $2 order by product_id, created_at, id`, [tenantId, areaId]);
+  const result = await db.query<Row>(`select product_id, ${PRICE_COLUMNS} from price_rules where tenant_id = $1 and (area_id = $2 or to_area_id = $2) order by product_id, created_at, id`, [tenantId, areaId]);
   return result.rows.map((row) => ({ productId: row["product_id"], rule: toPriceRule(row) }));
 }
 
@@ -226,13 +229,13 @@ export interface ProductPriceOverview {
 }
 
 /**
- * 「可以卖的价格」有几条（SQL 片段）：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的，不是区域加价（ADR 0073）。
+ * 「可以卖的价格」有几条（SQL 片段）：启用、没过期（按商品所在城市当地的今天），区域和车型组都是商品现在选着的，不是区域加价、不是线路价（ADR 0073）。
  * 和 domain 的 `sellablePriceRules` 同一个判断；要求查询里商品的别名是 `p`、它的城市是 `c`，`now` 是现在这一刻的参数占位符。
  * 价格概况（租户）和运营后台的商品列表用的都是它。
  */
 export function activePriceRuleCountSql(now: string): string {
   return `(select count(*)::int from price_rules r
-              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge'
+              where r.tenant_id = p.tenant_id and r.product_id = p.id and r.status = 'enabled' and r.pricing_model <> 'charter_area_surcharge' and r.to_area_id is null
                 and (r.valid_to is null or r.valid_to >= (${now}::timestamptz at time zone c.timezone)::date)
                 and exists (select 1 from product_areas pa where pa.tenant_id = p.tenant_id and pa.product_id = p.id and pa.area_id = r.area_id)
                 and exists (select 1 from product_vehicle_groups pv where pv.tenant_id = p.tenant_id and pv.product_id = p.id and pv.vehicle_group_id = r.vehicle_group_id))`;

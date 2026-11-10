@@ -20,7 +20,7 @@ export interface SiteApi {
  * 在 `api` 的库上起一个官网用 `clientId`（null = 没配置）的应用。`payments` 为 null 模拟没配置 Stripe；`env` 是额外的配置项（如客服电话、假谷歌的地址）；
  * `deps` 是额外的应用依赖（日志去向、地址搜索的缓存时长、密钥缓存的重读间隔）。
  */
-export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}, deps: Pick<AppDeps, "logDestination" | "placeCacheTtlMs" | "integrationSecretsTtlMs"> = {}): Promise<SiteApi> {
+export async function siteApi(api: TestApi, clientId: string | null, payments: PaymentProvider | null, env: Record<string, string> = {}, deps: Pick<AppDeps, "logDestination" | "placeCacheTtlMs" | "integrationSecretsTtlMs" | "quote"> = {}): Promise<SiteApi> {
   const app = buildApp({
     config: loadConfig({ ...testEnv(api.db.url), ...UNREACHABLE_INTEGRATIONS, ...(clientId === null ? {} : { SITE_CLIENT_ID: clientId }), ...env }),
     pool: api.db.pool,

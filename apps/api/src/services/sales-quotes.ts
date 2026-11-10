@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -104,6 +104,11 @@ export interface SalesQuote {
   /** 包车：这个价里含区域加价（上车或下车不在中标商品本身的区域里，ADR 0073）；别的都是 false。只说「含」，不给金额 */
   includesAreaSurcharge: boolean;
   /**
+   * 点对点：中标的价格是设了含公里数的一口价时（M8-11，ADR 0073 第四部分）——含多少公里、报价时锁定的路线距离（米）、超出公里数，
+   * 和超出每公里的**对外价**（客人支付币种的最小单位，单独取整，是说明，已含在 `sellMinor` 里）。没设含公里数为 null。不给结算价（对外接口只给对外价）
+   */
+  distance: { includedKm: number; routeMeters: number; overKm: number; overKmPerKmMinor: number } | null;
+  /**
    * 这个车型组还能加哪些附加服务（M8-02，ADR 0069 B15）：参加了这个车型组比价的候选商品里，有供应商提供（开着、目录里启用、适用这个品类）的附加服务编号，去重排序。
    * 只有编号，不带任何单价；只在刚询价时有（查报价 `getSalesQuote` 不给）
    */
@@ -125,6 +130,12 @@ export function newQuoteId(now: Date): string {
   return `QT${date}${random}`;
 }
 
+/** 含公里数对外的样子：只有对外价的超出每公里；快照里没有对外价参考（不会发生）时不给这一项。 */
+function salesDistance(distance: DistanceBreakdown | null, sellPerKmMinor: number | undefined): SalesQuote["distance"] {
+  if (distance === null || sellPerKmMinor === undefined) return null;
+  return { includedKm: distance.includedKm, routeMeters: distance.routeMeters, overKm: distance.overKm, overKmPerKmMinor: sellPerKmMinor };
+}
+
 function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
   const { winner } = snapshot;
   const freeWait = winner.offer.settlement.freeWait.value;
@@ -141,6 +152,7 @@ function toSalesQuote(snapshot: StoredQuoteSnapshot): SalesQuote {
     freeWaitMinutes: freeWait === null ? null : freeWait.mode === "limited" ? freeWait.minutes : null,
     urgent: snapshot.urgent,
     includesAreaSurcharge: (winner.offer.settlement.areaSurcharge?.pickup.amountMinor ?? 0) + (winner.offer.settlement.areaSurcharge?.dropoff.amountMinor ?? 0) > 0,
+    distance: salesDistance(winner.offer.settlement.distance ?? null, winner.sell.overKmPerKmMinor),
   };
 }
 

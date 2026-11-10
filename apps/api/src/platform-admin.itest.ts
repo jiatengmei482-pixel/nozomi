@@ -47,7 +47,7 @@ const MISSING_SECRET = "no-such-integration";
 /** 不存在的自建角色 */
 const MISSING_ROLE = "custom_0000000000000000";
 /** 不要求特定操作、任何已登录的平台员工都能调的接口（内容按角色裁剪，各自有测试）。 */
-const ANY_STAFF = ["GET /platform/v1/dashboard/summary", "GET /platform/v1/colleagues"];
+const ANY_STAFF = ["GET /platform/v1/dashboard/summary", "GET /platform/v1/colleagues", "GET /platform/v1/map/config"];
 const HOLIDAY = "/platform/v1/holidays/JP/2027-01-01";
 const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: string; action: PlatformAction; body?: unknown }[] = [
   // 节假日日历是平台主数据（ADR 0018）：看用 master_data.read，登记、修改、删除用 master_data.manage
@@ -216,6 +216,8 @@ const PROTECTED: { method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; url: str
   { method: "POST", url: `/platform/v1/webhook-deliveries/${MISSING}/retry`, action: "order.resend" },
   // 查看供应商的商品（只读，ADR 0021）
   { method: "GET", url: "/platform/v1/products", action: "product.read" },
+  // 区域地图（M8-18）：只读看全部供应商的区域，和看商品同一个权限
+  { method: "GET", url: "/platform/v1/area-map", action: "product.read" },
   { method: "GET", url: `/platform/v1/products/${MISSING}`, action: "product.read" },
   ...MASTER_PATHS.flatMap((path) => [
     { method: "GET", url: `/platform/v1/master/${path}`, action: "master_data.read" } as const,
@@ -282,6 +284,17 @@ test("权限矩阵覆盖了全部平台操作，以及登录接口之外的全�
     ...ANY_OF.map((r) => `GET ${r.url.split("?")[0]}`),
   ].sort();
   assert.deepEqual(tested, registered);
+});
+
+test("底图配置（M8-18）：每个角色都能取、内容都一样（只有 tiles 一项，没有任何密钥）；没登录 401", async () => {
+  const expected = (await api.call("GET", "/platform/v1/map/config", { token: tokens.get("super_admin")! })).body;
+  assert.deepEqual(Object.keys(expected), ["tiles"]);
+  for (const { key: role } of PLATFORM_ROLES) {
+    const res = await api.call("GET", "/platform/v1/map/config", { token: tokens.get(role)! });
+    assert.equal(res.status, 200, role);
+    assert.deepEqual(res.body, expected, role);
+  }
+  assert.equal((await api.call("GET", "/platform/v1/map/config")).status, 401);
 });
 
 test("首页统计：每个角色都能调；租户数量只给有 tenant.read 的角色，其余角色拿到 null；没登录 401", async () => {
