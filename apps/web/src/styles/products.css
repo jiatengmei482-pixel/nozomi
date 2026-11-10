@@ -3020,3 +3020,418 @@ p.stock-day__status.stock-cell--sold_out {
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);
 }
+
+/* ───────────── 包车「区域加价」（tenant-prices.md 17.2，M8-12a） ───────────── */
+.price-sections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.price-section-title,
+.surcharge__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.surcharge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.surcharge__missing,
+.surcharge-sum__missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-warning-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.surcharge__lead {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
+}
+
+.surcharge-pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.surcharge-pick__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.surcharge-pick__select {
+  width: 100%;
+  min-width: 0;
+}
+
+.surcharge-pick__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.surcharge-pick__new {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.surcharge-pick__error {
+  margin: 0;
+  color: var(--color-danger-text);
+}
+
+.surcharge-view {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.surcharge-view .price-filters__item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.surcharge-view__all {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+/* 手机：每个区域一张卡片（方式 B）；≥ 768px 才是表格 */
+.surcharge-table {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.surcharge-table caption,
+.surcharge-table thead {
+  display: none;
+}
+
+.surcharge-table tbody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.surcharge-table tr {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border-default);
+  border-left: var(--focus-ring-width) solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.surcharge-table th,
+.surcharge-table td {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  font-weight: var(--font-weight-regular);
+  overflow-wrap: anywhere;
+}
+
+.surcharge-table tbody th {
+  grid-column: 1 / -1;
+}
+
+.surcharge-table td.price-table__number::before {
+  content: attr(data-label) " ";
+  color: var(--color-text-secondary);
+}
+
+.surcharge-table .surcharge-table__own-note,
+.surcharge-table .surcharge-table__actions,
+.surcharge-table .surcharge-table__detail > td {
+  grid-column: 1 / -1;
+}
+
+.surcharge-table__own-note {
+  color: var(--color-text-secondary);
+}
+
+.surcharge-table td.surcharge-table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.surcharge-table tr.surcharge-table__area--unsaved {
+  border-left-color: var(--color-primary);
+}
+
+.surcharge-table__area--removing .surcharge-table__name,
+.surcharge-table__area--removing .surcharge-sum__value {
+  text-decoration: line-through;
+}
+
+.surcharge-table tr.surcharge-table__detail {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.surcharge-table__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.surcharge-table__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .surcharge-table__toggle:hover {
+    background: var(--color-bg-hover);
+  }
+}
+
+.surcharge-table__name {
+  font-weight: var(--font-weight-medium);
+}
+
+.surcharge-table__city,
+.surcharge-sum__note {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.surcharge-table__disabled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.surcharge-table tbody th > .price-state,
+.surcharge-table tbody th > .surcharge-sum__missing,
+.surcharge-table tbody th > .surcharge-sum__note {
+  display: flex;
+  margin-top: var(--space-0-5);
+}
+
+.surcharge-sum {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.surcharge-sum__value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.surcharge-detail__text {
+  font-variant-numeric: tabular-nums;
+}
+
+.surcharge-deleted > summary {
+  min-height: var(--control-height-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.surcharge-deleted__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.surcharge-deleted__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.surcharge-dialog__amount {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.surcharge-dialog__amount > .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.surcharge-dialog__currency {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.surcharge-dialog__dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.surcharge-dialog__dates > legend {
+  padding: 0;
+}
+
+.surcharge-dialog__date {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.surcharge-dialog__date > .input {
+  width: 9em;
+  min-width: 0;
+}
+
+.surcharge-dialog__checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.surcharge-dialog__checks > legend {
+  padding: 0;
+}
+
+.surcharge-dialog__warn {
+  color: var(--color-warning-text);
+}
+
+.surcharge-dialog__result {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+@media (min-width: 768px) {
+  .surcharge-pick__row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .surcharge-pick__select {
+    width: auto;
+    max-width: 360px;
+    flex: 1 1 auto;
+  }
+
+  .surcharge-view {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .surcharge-view .price-filters__item {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .surcharge-view__all {
+    margin-left: auto;
+  }
+
+  .surcharge-table {
+    display: table;
+    border: var(--border-width) solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+  }
+
+  .surcharge-table thead {
+    display: table-header-group;
+  }
+
+  .surcharge-table tbody {
+    display: table-row-group;
+  }
+
+  .surcharge-table tr {
+    display: table-row;
+    padding: 0;
+    border: 0;
+    border-top: var(--border-width) solid var(--color-border-default);
+    border-left: var(--focus-ring-width) solid transparent;
+  }
+
+  .surcharge-table th,
+  .surcharge-table td {
+    display: table-cell;
+    padding: var(--space-2) var(--space-3);
+    vertical-align: top;
+  }
+
+  .surcharge-table thead th {
+    border-bottom: var(--border-width) solid var(--color-border-strong);
+    background: var(--color-bg-subtle);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .surcharge-table .price-table__number {
+    text-align: right;
+  }
+
+  .surcharge-table td.price-table__number::before {
+    content: none;
+  }
+
+  .surcharge-sum {
+    align-items: flex-end;
+  }
+
+  .surcharge-table td.surcharge-table__actions {
+    display: table-cell;
+    white-space: nowrap;
+  }
+
+  .surcharge-table__detail > td {
+    padding: 0 var(--space-3) var(--space-3);
+  }
+}
