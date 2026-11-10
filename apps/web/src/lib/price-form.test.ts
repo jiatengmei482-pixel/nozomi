@@ -107,7 +107,7 @@ test("这一行现在怎么样：按城市当地的今天算", () => {
   assert.equal(state(fixed("a", { valid_to: "2026-10-31" })), "2026-10-31 到期，之后没有价格");
   assert.equal(state(fixed("a", { valid_to: "2027-10-31" })), "生效中");
   assert.equal(state(fixed("a"), { deleted: true }), "将删除");
-  assert.equal(state(fixed("a"), { values: { base: "1", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "" } }), "改过，未保存");
+  assert.equal(state(fixed("a"), { values: { base: "1", startKm: "", startMin: "", perKm: "", perMin: "", min: "", pkgKm: "", pkgPrice: "", overHour: "", overKm: "", inclKm: "", kmPrice: "" } }), "改过，未保存");
 });
 
 test("读回来的话：三种计价方式；0 写成人话；里程 + 时长的例子用 domain 的 basePrice 算", () => {

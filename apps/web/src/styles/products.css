@@ -3449,3 +3449,134 @@ p.stock-day__status.stock-cell--sold_out {
     padding: 0 var(--space-3) var(--space-3);
   }
 }
+
+/* ───── 点对点线路价（M8-12，tenant-prices.md 17.3、17.9）───── */
+.route-pick__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.route-pick__label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.route-pick__selects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.route-pick__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.route-pick__item > .select {
+  width: 100%;
+  min-width: 0;
+}
+
+.route-pick__arrow {
+  align-self: center;
+  color: var(--color-text-tertiary);
+}
+
+.route-pick__arrow-wide {
+  display: none;
+}
+
+.route-pick__add {
+  width: 100%;
+}
+
+.route-group > th {
+  color: var(--color-text-primary);
+}
+
+.route-group__head {
+  position: sticky;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  max-width: min(100%, calc(100vw - var(--space-8) * 2));
+}
+
+.route-group__name {
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.route-group__meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.route-dialog .field__label {
+  overflow-wrap: anywhere;
+}
+
+.route-dialog__adjust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.route-dialog__adjust > .surcharge-dialog__amount {
+  flex: 1 1 10em;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .route-pick__row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .route-pick__label {
+    align-self: center;
+  }
+
+  .route-pick__selects {
+    flex-direction: row;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+
+  .route-pick__item > .select {
+    width: auto;
+    max-width: 240px;
+  }
+
+  .route-pick__arrow {
+    align-self: flex-end;
+    padding-bottom: var(--space-1);
+  }
+
+  .route-pick__arrow-wide {
+    display: inline;
+  }
+
+  .route-pick__arrow-narrow {
+    display: none;
+  }
+
+  .route-pick__add {
+    width: auto;
+  }
+}
