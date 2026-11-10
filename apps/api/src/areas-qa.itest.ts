@@ -324,7 +324,7 @@ test("审计：图形变更的前后值是两份完整的图形——每一块�
     polygons.map((polygon) => ({ kind: polygon.kind, seq: polygon.seq, label: polygon.label, source: polygon.source, circle: polygon.circle, ring: polygon.geometry.coordinates[0].slice(0, -1) }));
   const [createLog] = await auditRows(area.id);
   assert.equal(createLog.before, null);
-  assert.deepEqual(createLog.after, { city_id: tokyo.id, name: area.name, biz_type: "general", status: "active", polygons: audited(area.polygons) });
+  assert.deepEqual(createLog.after, { city_id: tokyo.id, name: area.name, biz_type: "general", role: "both", status: "active", polygons: audited(area.polygons) });
   assert.equal(createLog.after.polygons[1].ring.length, 64);
 
   // 改一个顶点、把圆的半径改大、删掉备注名、再加一块
@@ -355,7 +355,7 @@ test("审计：图形变更的前后值是两份完整的图形——每一块�
   assert.equal((await call("DELETE", `/areas/${area.id}`)).status, 204);
   const deleteLog = (await auditRows(area.id))[3];
   assert.equal(deleteLog.after, null);
-  assert.deepEqual(deleteLog.before, { city_id: tokyo.id, name: area.name, biz_type: "general", status: "active", polygons: audited(relabeled.body.polygons) });
+  assert.deepEqual(deleteLog.before, { city_id: tokyo.id, name: area.name, biz_type: "general", role: "both", status: "active", polygons: audited(relabeled.body.polygons) });
 });
 
 // ───────────── 上限的两侧（经真实接口） ─────────────

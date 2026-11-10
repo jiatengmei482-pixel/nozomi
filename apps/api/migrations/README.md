@@ -90,3 +90,4 @@
 | `0250_static_map_images.sql` | 官网路线小地图（M8-10，ADR 0072；0240 是 M4-34 的）：谷歌静态地图的图片缓存 `static_map_images`（一条路线 × 主题 × 尺寸 × 倍率一行，最大 1 MB，保留 1 天，写入时顺手删过期的）、每日调用计数 `static_map_api_usage`（东京时间的日期一行：调用、失败、被每日上限挡下的次数，最近一次成功和失败），和路线预估的计数分开。平台表，租户角色没有任何权限。不含任何数据 |
 | `0260_charter_area_surcharge.sql` | 包车区域加价（M8-15，ADR 0073 第三部分）：价格规则多一种价格方式 `charter_area_surcharge`（上车加价、下车加价，按套餐时长分，`package_hours` 必填），只改 `price_rules` 的两条检查约束。0250 由 M8-10 占用。不含任何数据 |
 | `0270_p2p_route_prices.sql` | 点对点线路价（M8-11，ADR 0073 第二部分）：`price_rules` 加可空的下车区域 `to_area_id`（外键到同一租户的区域，删区域时跟着删；只能用在点对点、不能等于上车区域，检查约束兜底）和它的部分索引。一口价的含公里数在 `params` 里，不改表。不含任何数据 |
+| `0290_area_roles_uncovered_demands.sql` | 运营区域与报价区域分开、未覆盖需求（M8-20，ADR 0075；0280 由 M8-21 占用）：`areas.role`（`operating` / `pricing` / `both`，已有的行由加列时的默认值填成 `both`，随即去掉默认值）和启用中运营范围的部分索引；平台表 `uncovered_demands`（一个价都报不出的询价：坐标 4 位小数、无客人个人信息，按指纹 + 东京日期去重）、`uncovered_demand_limits`（新增行的限流计数，键只有哈希）、`uncovered_demand_drops`（每天被限掉的条数），三张只授权给平台角色。不含任何数据 |

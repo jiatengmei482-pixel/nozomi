@@ -266,3 +266,35 @@
 - 供应商可以画一个大的运营区域，只在需要单独定价的地方画报价区域；没勾的地方不需要价格，也不会被按别处的价报出去。
 - 现有 143 个左右的区域都变成「运营 + 报价」，报价逐分不变；供应商以后可以逐步把大区域改成运营区域、把定价区域缩小。
 - 平台第一次能看到「客人想去、却没有任何供应商报价」的地方，运营和招商有了补区域、找供应商的依据。
+
+## M8-20 后端落地时定下的细节（不改上面的决定）
+
+**迁移**：编号 0290（0270 是 M8-11，0280 由 M8-21 占用）。`areas.role` 加列时默认 `both`、加检查约束、随即去掉默认值；另加部分索引 `areas_operating_idx`（报价时按供应商取启用中的运营范围）。同一个迁移建「未覆盖需求」的三张平台表（见下）。迁移升级测试：已有区域全部是 `both`，其余各列和图形逐字不变，不写用途不能新建。
+
+**用途的接口**
+- 新建区域时 `role` 可以不给，按 `both`（页面改版前的调用照旧可用；数据库没有默认值，由接口写明）；修改时不给 = 不改。区域列表多一个筛选 `role`。
+- `AREA_ROLE_NOT_PRICING` 和同类的 `AREA_NOT_USABLE` 一样，是 400 `VALIDATION_FAILED` 里 `details.issues[].reason` 的原因代码（商品区域 `/areas/{i}/area_id`、价格规则 `/area_id`、`/to_area_id`、价格导入的「区域」一格）；`PRICING_AREA_OUTSIDE_OPERATING` 是 409 的错误码。
+- 改成运营区域时「有商品勾着」的口径：商品区域，或任何状态、任何价格方式的价格规则的 `area_id` / `to_area_id`（草稿也算）。
+- 409 `PRICING_AREA_OUTSIDE_OPERATING` 在这些改动时核对：启用中的运营区域（`operating` / `both`）改图形、改业务类型、改用途（不再是运营范围），停用、删除。每个已上架商品勾选的报价区域（商品区域 + 启用的区域加价的区域），运营范围按商品品类取（和报价时一样），改后比改前「不在运营区域里」多出不小于 100 平方米就拦，`details.items` 是 `[{ product_id, product_code, area_id, outside_m2 }]`。
+- 「超出运营区域」的提醒：区域详情、区域地图的每一项多 `outside_operating_m2`（报价区域；不到 100 平方米为 0；运营区域、停用的为 null）。单个区域的提醒按业务类型相容（相同或其一是通用）找运营区域；上架检查和 409 按商品的品类找（更准）。
+- 上架检查多一项 `area_coverage`（「运营区域」），**只在有提醒时出现**、从不必须，原因 `PRICING_AREA_OUTSIDE_OPERATING`，`path` 是 `/areas/{区域编号}`、`detail.outside_m2`。没有提醒时检查结果和以前完全一样（6 项）。
+- `@nozomi/domain`：`AREA_ROLES`、`areaRoleCanPrice` / `areaRoleCanOperate`；`findAreaOverlaps` 的入参多可选的 `role`（`operating` 的不参与重叠）；新 `findPricingOutsideOperating`（同一个竖条分解，和重叠检查共用 `sweepSpans`）和 `productPricingOutsideOperating`。前端区域地图用同一份函数画超出的部分。
+
+**报价第 4 步**
+- 报价引擎的商品多一个可选的 `operatingAreas`（报价、试算都由取数层给：这家供应商启用中的、用途是运营或运营 + 报价、业务类型和品类相容的区域，不限城市）；不给 = 不做运营判断（只有切换前的清单「不做运营判断」那一遍用）。
+- 两道判断**一个点一个点地做**（先运营、再报价），第一个不过的点决定原因——和今天「第一个不在区域里的点决定原因」同一个顺序，所以 golden 对比只出现写明的细分。
+- 包车没给下车点、商品设了区域加价：照旧先报 `DROPOFF_REQUIRED`（在运营判断之前，和今天的先后一样）。
+- golden 对比（`quote-compat.test.ts`，以 M8-11 合并后的为基础）：迁移后的运营范围 = 供应商的全部区域（另加一个商品没选的区域 a4）。和 golden 逐项一致，唯一的差别是 41 组写明的样例（不分用车时间、路线）上 `OUT_OF_SERVICE_AREA` → `NO_PRICING_AREA`，都是「第一个不在商品区域里的点落在没被选的 a4 里」。另有一条只在内部的细分写进了测试：点只落在**没被选的区域的禁行区**里、又不在任何营运区里时，内部原因是 `IN_FORBIDDEN_AREA`（今天是 `OUT_OF_SERVICE_AREA`）；对外同是 `OUT_OF_SERVICE_AREA`，报不报、金额不变。
+- 对外：`/sales/v1`、`/site/v1` 的原因映射里 `NO_PRICING_AREA` → `OUT_OF_SERVICE_AREA`，枚举不加值。
+
+**未覆盖需求**
+- 表：`uncovered_demands`（多一列 `seen_on`：去重用的东京日期；唯一索引 `(fingerprint, seen_on)`）、限流计数 `uncovered_demand_limits`（和 `sales_rate_limits` 同一种固定窗口，键是 `source:` + 来源哈希或 `global`，单独一张表以便清理）、每天被限掉的条数 `uncovered_demand_drops`。三张只授权给 `nozomi_platform`。
+- 记录：`createSalesQuotes`（渠道询价和官网两个报价接口都走它）一个价都报不出时，在应答之后的后台任务里记；时刻用询价那一刻。事务里 `statement_timeout`、`lock_timeout` 各 200 毫秒，超时、出错只记一条错误日志（事件 `uncovered_demand.record`，不含请求内容）。官网按坐标报价、点对点出发地不在任何能订的城市里（不进询价日志的那条路）也记，主原因 `OUTSIDE_OPERATING`、城市为空。
+- 接送机机场那一端：坐标用机场的坐标，名称用机场名（中文，没有时英文）；客人给的名称只用地址那一端。`vehicle_group_id` 只在渠道只问了一个车型组时有。两端的「落在哪些运营区域」都记（含机场那一端），`tenant_ids` 是两端的并集。
+- 全站每天 5000 条是从第一条新行起的 24 小时固定窗口（不是日历日）；每个来源每小时 30 条同理。
+- 保留期清理任务每小时跑一次（每次都是幂等的删除），启动后 30 秒第一次；同时删 1 天以前的限流窗口。
+- 运营后台接口多给 `from` / `to`（实际用的东京日期）、`tenants`、`cities`（这一页和计数里出现的供应商、城市的名字）；日期范围最长 366 天；按城市、供应商的计数各最多 100 项。
+- `pickup_name` / `dropoff_name` 两个可选字段加在 `POST /site/v1/quotes` 和 `POST /site/v1/quotes/by-points` 上（最长 200 字），按坐标报价原有的 `name`（客人看到的地址文字，可能是手打的）不进未覆盖需求。
+- M8-21（人工报价留资）的表不在本分支：不加外键列；M8-21 合并后由它那边加一列可空的、指向 `uncovered_demands` 的关联。
+
+**切换前的只读清单** `pnpm areas:role-preview [--days 1–90] [--json]`：用应用账号在平台的只读事务里读（数据库拒绝任何写入，命令也没有写入的开关）。迁移 0290 之前（区域还没有用途这一列）按「每个区域都是运营 + 报价」算；需要库里已经有 M8-11 的迁移 0270。对外结果有不同时退出码是 2。回放用的是现在的商品和规则、询价当时的时刻和路线；库存、节假日两边一样地不看。
