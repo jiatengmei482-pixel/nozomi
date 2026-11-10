@@ -60,6 +60,8 @@ import {
   notificationQuietUntil,
   uniqueRecipients,
   type MailMessage,
+  QA_ACCEPTANCE_MAIL_RECIPIENT,
+  qaAcceptanceMailAllowed,
   type NotificationVariables,
   type PlatformAction,
   profileFieldsText,
@@ -127,6 +129,9 @@ const EXPAND_MAX_ATTEMPTS = 3;
 const LOCALE = "zh-CN";
 const CHANNEL = "email";
 const NOT_CONFIGURED_MESSAGE = "邮件发送还没有配置，配好后自动发送";
+/** 验收单被压下的那一封（M8-26，ADR 0078）的错误码和说明：不能重试（`notificationRetryable` 只放行 EXPIRED） */
+export const ACCEPTANCE_SUPPRESSED = "ACCEPTANCE_SUPPRESSED";
+const ACCEPTANCE_SUPPRESSED_MESSAGE = `测试环境的验收单：只给 ${QA_ACCEPTANCE_MAIL_RECIPIENT} 发信，这一封没有发出，内容可在发送记录里查看`;
 
 export interface NotificationSweepResult {
   expanded: number;
@@ -465,6 +470,8 @@ export class NotificationJobs {
       this.log.error({ event: "notification.failed", notificationId: notification.id, eventType: notification.event, orderId: notification.orderId, errorCode: "RENDER_FAILED" }, "通知的内容生成失败：缺变量或没有模板");
       return this.finish(notification, { status: "failed", attempts: attemptNo, code: "RENDER_FAILED", message: null });
     }
+    // 测试环境的验收单（M8-26，ADR 0078）：只给验收专用邮箱真的发；别的收件人（客人、供应商、司机、运营）一封都不发，内容留在发送记录里
+    if (notification.orderId !== null && !qaAcceptanceMailAllowed(prepared.message.to) && (await this.isAcceptanceOrder(notification.orderId))) return this.suppress(notification, prepared.message);
     // 最后一道：租约还是自己的才发（可能已被判中断、被别人接手）。从这里起进程退出才算「可能已发出」
     const mine = await withPlatformTx(this.ctx.pool, (db) => beginSending(db, notification, new Date(this.ctx.now().getTime() + NOTIFICATION_LEASE_MS)));
     if (!mine) {
@@ -487,6 +494,26 @@ export class NotificationJobs {
     } catch (err) {
       this.log.error({ event: "notification.driver_link_revoke_failed", notificationId: notification.id, orderId: link.orderId, dbCode: dbCodeOf(err) }, "发信失败后吊销邮件链接出错：这条链接到期才失效");
     }
+  }
+
+  private async isAcceptanceOrder(orderId: string): Promise<boolean> {
+    return withPlatformTx(this.ctx.pool, async (db) => (await db.query<{ acceptance: boolean | null }>("select bool_or(is_acceptance) as acceptance from orders where id = $1", [orderId])).rows[0]?.acceptance === true);
+  }
+
+  /**
+   * 验收单的这一封不发（M8-26，ADR 0078）：记成「已过期」、错误码 `ACCEPTANCE_SUPPRESSED`（不能重试），主题和正文存进 `notification_suppressions`（只有平台角色读得到），
+   * 运营后台「发送记录」里查看。和记结果在同一个事务里：租约不是自己的就什么都不记。日志只有编号，不写收件人和内容。
+   */
+  private async suppress(notification: Notification, message: MailMessage): Promise<Notification | null> {
+    const now = this.ctx.now();
+    const saved = await withPlatformTx(this.ctx.pool, async (db) => {
+      const done = await finishNotification(db, notification, { status: "expired", attempts: notification.attempts, code: ACCEPTANCE_SUPPRESSED, message: ACCEPTANCE_SUPPRESSED_MESSAGE }, now);
+      if (done !== null) await db.query("insert into notification_suppressions (notification_id, subject, body, created_at) values ($1, $2, $3, $4) on conflict (notification_id) do nothing", [notification.id, message.subject, message.text, now]);
+      return done;
+    });
+    if (saved === null) this.log.warn({ event: "notification.lease_lost", notificationId: notification.id }, "这条通知的租约已被接手，本次结果不记");
+    else this.log.info({ event: "notification.acceptance_suppressed", notificationId: notification.id, eventType: notification.event, orderId: notification.orderId }, "测试环境的验收单：这一封没有发出（只给验收专用邮箱发），内容留在发送记录里");
+    return saved;
   }
 
   private afterFailure(notification: Notification, code: string, message: string | null, attemptNo: number, manual: boolean): NotificationOutcome {

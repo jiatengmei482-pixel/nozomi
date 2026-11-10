@@ -39,6 +39,9 @@ import {
   paymentStatusOf,
   quoteSnapshotValid,
   TENANT_RULES,
+  QA_ACCEPTANCE_MAIL_RECIPIENT,
+  type SiteAudience,
+  qaAcceptanceGuestEmailAllowed,
   type TenantStatus,
   tenantBids,
   tenantDayStart,
@@ -109,6 +112,25 @@ export function requirePayments(ctx: AppContext): PaymentProvider {
   return ctx.payments;
 }
 
+/**
+ * 验收单（M8-26，ADR 0078）只能用 Stripe 测试模式收款：没配置 503，正式模式（或者分不清是不是测试模式）409 `ACCEPTANCE_REQUIRES_TEST_PAYMENTS`。
+ * 模式看收款服务自己的 `livemode`（密钥前缀判断，ADR 0041），再核对一次 publishable key 的前缀。
+ */
+export function requireAcceptancePayments(ctx: AppContext): PaymentProvider {
+  const provider = requirePayments(ctx);
+  if (provider.livemode || !provider.publishableKey.startsWith("pk_test_")) {
+    throw new AppError(409, "ACCEPTANCE_REQUIRES_TEST_PAYMENTS", "验收单只能用 Stripe 测试模式收款：现在生效的 Stripe 密钥不是测试密钥（sk_test_ / pk_test_），不能下验收单、不能建付款");
+  }
+  return provider;
+}
+
+/** 验收单的客人邮箱只能是 @example.com 或验收专用邮箱（M8-26，ADR 0078）：别的地址 400，免得给真人发信。 */
+function assertAcceptanceGuestEmail(details: OrderDetailsInput): void {
+  if (!qaAcceptanceGuestEmailAllowed(details.passenger.email)) {
+    throw validationFailed("body", [{ path: "/passenger/email", reason: "ACCEPTANCE_EMAIL_NOT_ALLOWED", message: `验收单的客人邮箱只能是 …@example.com 或 ${QA_ACCEPTANCE_MAIL_RECIPIENT}` }]);
+  }
+}
+
 /** 收款服务出错 → 应答。订单已经建好时带上订单号，告诉渠道用同一个 Idempotency-Key 重试。 */
 function providerFailed(err: PaymentProviderError, order: { id: string; orderNo: string } | null): AppError {
   const status = err.code === "PAYMENT_PROVIDER_TIMEOUT" ? 504 : 502;
@@ -172,6 +194,7 @@ interface QuoteRow {
 
 interface ProductRow {
   status: string;
+  is_test_tenant: boolean;
   inventory_mode: "unlimited" | "limited";
   service_rules: { urgent: { dailyQuota: number | null } };
   city_id: string;
@@ -189,8 +212,11 @@ function soldOut(reason: "SOLD_OUT" | "URGENT_SOLD_OUT"): AppError {
   return new AppError(409, "SOLD_OUT", reason === "SOLD_OUT" ? "这一天已经订满了，请重新询价" : "这一天的加急名额已经用完了，请重新询价", { reason });
 }
 
-/** 第 1 步：在一个平台事务里校验、占库存、建单。同一个幂等键以前用过返回那张单的编号（`replayed`）。 */
-async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, hash: string): Promise<{ orderId: string; replayed: boolean }> {
+/**
+ * 第 1 步：在一个平台事务里校验、占库存、建单。同一个幂等键以前用过返回那张单的编号（`replayed`）。
+ * `acceptance`（M8-26，ADR 0078）：验收会话下单——只认验收会话询出的报价（普通的报价当作不存在，反过来也一样）、商品是测试供应商的验收可售，建出来的是验收单。
+ */
+async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, hash: string, acceptance: boolean): Promise<{ orderId: string; replayed: boolean }> {
   const now = ctx.now();
   return withPlatformTx(ctx.pool, async (db) => {
     const existing = await findSaleByIdempotencyKey(db, principal.channelId, input.idempotencyKey);
@@ -198,8 +224,8 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       if (existing.requestHash !== hash) throw idempotencyKeyReused();
       return { orderId: existing.orderId, replayed: true };
     }
-    const quote = (await db.query<QuoteRow>("select snapshot, quote_log_id from quotes where id = $1 and channel_id = $2", [input.quoteId, principal.channelId])).rows[0];
-    // 别的渠道的报价和不存在一样
+    const quote = (await db.query<QuoteRow>("select snapshot, quote_log_id from quotes where id = $1 and channel_id = $2 and is_acceptance = $3", [input.quoteId, principal.channelId, acceptance])).rows[0];
+    // 别的渠道的报价和不存在一样；验收会话的报价和普通的报价互相当作不存在
     if (quote === undefined) throw validationFailed("body", [{ path: "/quote_id", reason: "UNKNOWN_QUOTE", message: "报价不存在" }]);
     const snapshot = quote.snapshot;
     if (!quoteSnapshotValid(snapshot, now)) throw new QuoteExpired(snapshot.expiresAt);
@@ -216,15 +242,20 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
 
     const product = (
       await db.query<ProductRow>(
-        `select p.status, p.inventory_mode, p.service_rules, p.city_id, p.poi_id, t.status as tenant_status, c.timezone, pl.type as place_type
+        `select p.status, p.inventory_mode, p.service_rules, p.city_id, p.poi_id, t.status as tenant_status, t.is_test_tenant, c.timezone, pl.type as place_type
            from products p join tenants t on t.id = p.tenant_id join cities c on c.id = p.city_id left join places pl on pl.id = p.poi_id
           where p.tenant_id = $1 and p.id = $2`,
         [winner.tenantId, winner.productId],
       )
     ).rows[0];
     // 报价之后（30 分钟内）供应商被暂停、商品被下架：车没法派，不能下单。价格变了不影响——以快照为准
-    if (product === undefined || product.status !== "published") throw noLongerAvailable("PRODUCT_UNPUBLISHED");
-    if (!tenantBids(product.tenant_status as TenantStatus)) throw noLongerAvailable(product.tenant_status === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED");
+    if (acceptance) {
+      // 验收单：商品还是测试供应商的验收可售（测试供应商永远停在申请中，不看入驻状态）
+      if (product === undefined || product.status !== "qa_listed" || !product.is_test_tenant) throw noLongerAvailable("PRODUCT_UNPUBLISHED");
+    } else {
+      if (product === undefined || product.status !== "published") throw noLongerAvailable("PRODUCT_UNPUBLISHED");
+      if (!tenantBids(product.tenant_status as TenantStatus)) throw noLongerAvailable(product.tenant_status === "suspended" ? "TENANT_SUSPENDED" : "TENANT_NOT_ONBOARDED");
+    }
     // 试运营的每日订单上限（ADR 0028）：同一个供应商的下单在这把锁上排队，数完再建单，并发也不会超过上限
     if (product.tenant_status === "trial") {
       await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [`trial-daily-limit:${winner.tenantId}`]);
@@ -299,6 +330,7 @@ async function placeOrder(ctx: AppContext, principal: SalesPrincipal, input: Sal
       paymentDueAt: paymentDeadline(now),
       createdAt: now,
       cancelPolicy,
+      isAcceptance: acceptance,
     });
     await insertOrderEvent(db, { tenantId: winner.tenantId, id: orderId }, { fromStatus: null, toStatus: "pending_payment", actor: "channel", reason: null, occurredAt: now });
     await insertOrderSale(db, {
@@ -372,27 +404,33 @@ async function ensurePayment(ctx: AppContext, provider: PaymentProvider, orderId
 /** 下单。返回订单和给前端的付款信息；同一个幂等键再来一次返回同一张单（`replayed`）。没配置 Stripe 时 503（`/sales/v1`）。 */
 export async function createSalesOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment; replayed: boolean }> {
   const provider = requirePayments(ctx);
-  const created = await createOrder(ctx, principal, input, provider, log);
+  const created = await createOrder(ctx, principal, input, provider, log, false);
   return { ...created, payment: created.payment as SalesOrderPayment };
 }
 
 /**
  * 官网下单（ADR 0032）：和渠道下单同一个流程。唯一的不同是没配置 Stripe 时照样建单——订单停在待支付、`payment` 为 null，
  * 到付款期限由超时检查取消、释放库存（还没建付款的单在那里就地取消）。不伪造付款成功。
+ * 验收会话（M8-26，ADR 0078）不一样：Stripe 必须配置且是测试模式（否则不建单），客人邮箱先过白名单，建出来的是验收单。
  */
-export async function createSiteOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
-  return createOrder(ctx, principal, input, ctx.payments, log);
+export async function createSiteOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, log: OrderLog = SILENT_ORDER_LOG, audience: SiteAudience = "public"): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
+  if (audience === "acceptance") {
+    const provider = requireAcceptancePayments(ctx);
+    assertAcceptanceGuestEmail(input.details);
+    return createOrder(ctx, principal, input, provider, log, true);
+  }
+  return createOrder(ctx, principal, input, ctx.payments, log, false);
 }
 
-async function createOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, provider: PaymentProvider | null, log: OrderLog): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
+async function createOrder(ctx: AppContext, principal: SalesPrincipal, input: SalesOrderInput, provider: PaymentProvider | null, log: OrderLog, acceptance: boolean): Promise<{ view: SalesOrderView; payment: SalesOrderPayment | null; replayed: boolean }> {
   const hash = requestHash({ quote_id: input.quoteId, details: input.details });
   let placed: { orderId: string; replayed: boolean };
   try {
-    placed = await placeOrder(ctx, principal, input, hash);
+    placed = await placeOrder(ctx, principal, input, hash, acceptance);
   } catch (err) {
     // 同时来了两次（同一个键，或同一个报价）：后到的那次在唯一约束上等前一次提交、整体回滚，再走一遍——
     // 同一个键就按「用过的键」返回那张单，换了键就是「这个报价已经下过单了」
-    if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash);
+    if (isUniqueViolation(err, "order_sales_idempotency_key") || isUniqueViolation(err, "order_sales_quote_id_key")) placed = await placeOrder(ctx, principal, input, hash, acceptance);
     else throw err;
   }
   const intent = provider === null ? null : await ensurePayment(ctx, provider, placed.orderId, log);
@@ -410,9 +448,11 @@ function paymentFor(view: SalesOrderView, intent: ProviderPayment | null, provid
  * 没配置 Stripe 503；别的渠道的单和不存在一样。
  */
 export async function orderPaymentForChannel(ctx: AppContext, channelId: string, orderId: string, log: OrderLog = SILENT_ORDER_LOG): Promise<SalesOrderPayment> {
-  const provider = requirePayments(ctx);
+  const configured = requirePayments(ctx);
   const before = await getSalesOrderView(ctx, channelId, orderId);
   if (before === null) throw notFound("订单");
+  // 验收单（M8-26，ADR 0078）只在 Stripe 测试模式下建付款、给付款凭据
+  const provider = before.order.isAcceptance ? requireAcceptancePayments(ctx) : configured;
   const intent = await ensurePayment(ctx, provider, orderId, log);
   const view = (await getSalesOrderView(ctx, channelId, orderId)) as SalesOrderView;
   return paymentFor(view, intent, provider);

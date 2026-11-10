@@ -4,7 +4,7 @@
  * 和登录限速（ADR 0008）同一种做法：固定时间窗、计数在数据库里（多实例也有效）、「先占用一次再判断」在一条 SQL 里原子完成，并发请求绕不过去。
  * 判断规则是 domain 的 `evaluateFixedWindow`。限流按渠道计（一个渠道的几个 API 客户端共用一个额度），令牌接口按来源地址计。
  */
-import { MANUAL_QUOTE_LIMITS, type ThrottleDecision, VIEW_LINK_REQUEST_LIMITS, VIEW_LINK_STAFF_LIMIT, evaluateFixedWindow } from "@nozomi/domain";
+import { MANUAL_QUOTE_LIMITS, QA_ACCEPTANCE_RULES, type ThrottleDecision, VIEW_LINK_REQUEST_LIMITS, VIEW_LINK_STAFF_LIMIT, evaluateFixedWindow } from "@nozomi/domain";
 import type { Db } from "../db/context.ts";
 import { AppError } from "../errors.ts";
 
@@ -44,6 +44,10 @@ export const SALES_RATE_LIMITS = {
   site_manual_quote_contact: MANUAL_QUOTE_LIMITS.contactDay,
   /** 同上，全站每小时 300 次：换地址、换联系方式刷库时的总闸 */
   site_manual_quote_all: MANUAL_QUOTE_LIMITS.globalHour,
+  /** 测试环境验收通道的解锁（M8-26，ADR 0078，见 domain 的 `QA_ACCEPTANCE_RULES`）：每个地址 15 分钟 10 次，成功失败都计 */
+  site_qa_unlock: QA_ACCEPTANCE_RULES.unlockPerIp,
+  /** 同上，全站每小时 30 次：换地址也猜不动口令 */
+  site_qa_unlock_all: QA_ACCEPTANCE_RULES.unlockGlobal,
   /** 官网的其余接口（配置、城市、机场、订单页）：每个地址每分钟 120 次 */
   site_read: { max: 120, windowMs: 60_000 },
   /** 运营重发订单链接（ADR 0061）：同一张单每小时 5 次 */

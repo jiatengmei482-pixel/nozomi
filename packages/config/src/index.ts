@@ -258,6 +258,8 @@ const rawSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
     z.string().regex(/^nzc_[0-9a-f]{24}$/, "SITE_CLIENT_ID 应当是运营后台「API 客户端与密钥」里显示的 client_id（nzc_ 加 24 位十六进制）").optional(),
   ),
+  // 测试环境的验收通道口令（M8-26，ADR 0078；密钥）。不配 = 没有验收通道（和以前完全一样）；production 配了启动失败。值本身不进任何报错
+  QA_ACCEPTANCE_TOKEN: z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? undefined : value), z.string().optional()),
   // 官网订单页「需要帮助」里的客服电话（ADR 0032 待定事项 6；公开值，不是密钥）。不配 = 订单页不显示客服区块
   SITE_SUPPORT_PHONE: z.preprocess(
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : typeof value === "string" ? value.trim() : value),
@@ -338,6 +340,11 @@ export interface AppConfig {
   integrationEndpoints: IntegrationEndpoints;
   /** 官网订单页显示的客服电话（`+81 3-1234-5678` 这样的写法，原样显示）；没有登记时为 null，订单页不显示客服区块 */
   siteSupportPhone: string | null;
+  /**
+   * 测试环境的验收通道（M8-26，ADR 0078）：解锁验收会话用的口令（密钥）。没配置时为 null（没有验收通道）；production 永远是 null（配了启动失败）。
+   * 只给 apps/api 的验收会话比较用，不进日志（logging.ts 的脱敏清单里有它）、不进应答
+   */
+  qaAcceptance: { token: string } | null;
 }
 
 export class ConfigError extends Error {
@@ -470,6 +477,31 @@ function parseIntegrationEndpoints(env: z.output<typeof rawSchema>, issues: stri
   return { googleMapsRoutesUrl: routesUrl, googlePlacesSearchUrl: placesSearchUrl, googlePlacesAutocompleteUrl: autocompleteUrl, googlePlaceDetailsUrl: detailsUrl, googleGeocodeUrl: geocodeUrl, googleStaticMapsUrl: staticMapsUrl, stripeApi };
 }
 
+/** 验收通道口令的长度（和 @nozomi/domain 的 `QA_ACCEPTANCE_RULES` 一致；config 不依赖 domain，单元测试核对两边一致）。 */
+export const QA_ACCEPTANCE_TOKEN_LENGTH = { min: 32, max: 256 } as const;
+
+/**
+ * 验收通道的口令（M8-26，ADR 0078）：production 不许配（验收通道只在测试环境用，配了就拒绝启动）；
+ * 其余环境要 32–256 个可见 ASCII 字符、不能和别的密钥相同。报错只说哪一项、哪条规则，永远不带值。
+ */
+function parseQaAcceptance(env: z.output<typeof rawSchema>, issues: string[]): { token: string } | null {
+  const token = env.QA_ACCEPTANCE_TOKEN;
+  if (token === undefined) return null;
+  if (env.APP_ENV === "production") {
+    issues.push("production 环境不能配置 QA_ACCEPTANCE_TOKEN：验收通道只在测试环境用（ADR 0078），请从 production 的 .env 删掉这一行");
+    return null;
+  }
+  if (token.length < QA_ACCEPTANCE_TOKEN_LENGTH.min || token.length > QA_ACCEPTANCE_TOKEN_LENGTH.max || !/^[\x21-\x7e]+$/.test(token)) {
+    issues.push(`QA_ACCEPTANCE_TOKEN 要是 ${QA_ACCEPTANCE_TOKEN_LENGTH.min}–${QA_ACCEPTANCE_TOKEN_LENGTH.max} 个字母、数字或符号（不含空格），建议用 openssl rand -base64 36 生成`);
+    return null;
+  }
+  if ([env.AUTH_JWT_SECRET, env.DATA_ENCRYPTION_KEY, env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET, env.SMTP_PASSWORD].includes(token)) {
+    issues.push("QA_ACCEPTANCE_TOKEN 不能和别的密钥相同：请单独生成一个");
+    return null;
+  }
+  return { token };
+}
+
 /** 从环境变量构建配置；有任何问题都抛出 ConfigError，列出全部问题。 */
 export function loadConfig(source: Record<string, string | undefined> = process.env): AppConfig {
   const parsed = rawSchema.safeParse(source);
@@ -499,6 +531,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   if ((env.APP_ENV === "staging" || env.APP_ENV === "production") && env.LOGIN_MAX_ATTEMPTS_PER_IP > DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP) {
     issues.push(`${env.APP_ENV} 环境的 LOGIN_MAX_ATTEMPTS_PER_IP 不能超过 ${DEFAULT_LOGIN_MAX_ATTEMPTS_PER_IP}（调高只给本机和 CI 的端到端测试用）`);
   }
+  const qaAcceptance = parseQaAcceptance(env, issues);
   const databaseMigrationUrl = env.DATABASE_MIGRATION_URL ?? null;
   if (databaseMigrationUrl !== null && sameDatabaseAccount(env.DATABASE_URL, databaseMigrationUrl)) {
     issues.push(SAME_DATABASE_ACCOUNT);
@@ -530,6 +563,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     passwordLoginDisabled: env.PASSWORD_LOGIN_DISABLED === "true",
     siteSupportPhone: env.SITE_SUPPORT_PHONE ?? null,
     integrationEndpoints,
+    qaAcceptance,
   };
 }
 

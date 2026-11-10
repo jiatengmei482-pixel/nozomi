@@ -44,15 +44,22 @@ export interface BookableCity extends BookableRow {
   category: ServiceCategory;
 }
 
+/**
+ * 官网列城市、机场、包车套餐时看哪一种商品（M8-26，ADR 0078）：默认已上架；`qa_listed` 是验收会话，只看 QA 测试供应商的验收可售商品。
+ * SQL 里是 `p.status = $listing and ($listing = 'published' or t.is_test_tenant)`：默认时就是原来的「已上架」。
+ */
+export type SiteListing = "published" | "qa_listed";
+
 /** 启用的城市里有哪些供应商上架了哪些品类的商品（每个城市 × 品类 × 供应商一行）。 */
-export async function listBookableCities(db: Db): Promise<BookableCity[]> {
+export async function listBookableCities(db: Db, listing: SiteListing = "published"): Promise<BookableCity[]> {
   const rows = await db.query<{ id: string; code: string; name: LocalizedText; timezone: string; country_code: string; center_lat: string; center_lng: string; category: ServiceCategory; tenant_id: string; tenant_status: TenantStatus }>(
     `select distinct c.id, c.code, c.name, c.timezone, c.country_code, c.center_lat, c.center_lng, p.category, p.tenant_id, t.status as tenant_status
        from cities c
-       join products p on p.city_id = c.id and p.status = 'published'
-       join tenants t on t.id = p.tenant_id
+       join products p on p.city_id = c.id and p.status = $1
+       join tenants t on t.id = p.tenant_id and ($1 = 'published' or t.is_test_tenant)
       where c.status = 'active'
       order by c.code, p.category`,
+    [listing],
   );
   return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, timezone: row.timezone, countryCode: row.country_code, center: { lat: Number(row.center_lat), lng: Number(row.center_lng) }, category: row.category, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
 }
@@ -72,15 +79,15 @@ export interface BookableCharterPackage extends BookableRow {
  * 这个城市里上架的包车商品有哪些套餐时长：启用的、到 `today`（城市当地日期）还没过期的价格规则里出现的（每个时长 × 供应商一行）。
  * 只用来给客人列可选的时长；某个时长那一天到底报不报得出价，询价时由报价引擎判断。
  */
-export async function listBookableCharterPackages(db: Db, cityId: string, today: string): Promise<BookableCharterPackage[]> {
+export async function listBookableCharterPackages(db: Db, cityId: string, today: string, listing: SiteListing = "published"): Promise<BookableCharterPackage[]> {
   const rows = await db.query<{ hours: number; tenant_id: string; tenant_status: TenantStatus }>(
     `select distinct r.package_hours as hours, p.tenant_id, t.status as tenant_status
        from price_rules r
-       join products p on p.tenant_id = r.tenant_id and p.id = r.product_id and p.status = 'published' and p.category = 'charter' and p.city_id = $1
-       join tenants t on t.id = p.tenant_id
+       join products p on p.tenant_id = r.tenant_id and p.id = r.product_id and p.status = $3 and p.category = 'charter' and p.city_id = $1
+       join tenants t on t.id = p.tenant_id and ($3 = 'published' or t.is_test_tenant)
       where r.status = 'enabled' and r.pricing_model = 'charter_package' and (r.valid_to is null or r.valid_to >= $2::date)
       order by r.package_hours`,
-    [cityId, today],
+    [cityId, today, listing],
   );
   return rows.rows.map((row) => ({ hours: row.hours, tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
 }
@@ -159,15 +166,15 @@ export interface BookablePlace extends BookableRow {
 }
 
 /** 这个城市里启用的机场，有哪些供应商上架了接送机商品（每个机场 × 供应商一行）。 */
-export async function listBookableAirports(db: Db, cityId: string): Promise<BookablePlace[]> {
+export async function listBookableAirports(db: Db, cityId: string, listing: SiteListing = "published"): Promise<BookablePlace[]> {
   const rows = await db.query<{ id: string; code: string; name: LocalizedText; lng: string; lat: string; tenant_id: string; tenant_status: TenantStatus }>(
     `select distinct pl.id, pl.code, pl.name, pl.lng, pl.lat, p.tenant_id, t.status as tenant_status
        from places pl
-       join products p on p.poi_id = pl.id and p.status = 'published' and p.category = 'airport_transfer' and p.city_id = $1
-       join tenants t on t.id = p.tenant_id
+       join products p on p.poi_id = pl.id and p.status = $2 and p.category = 'airport_transfer' and p.city_id = $1
+       join tenants t on t.id = p.tenant_id and ($2 = 'published' or t.is_test_tenant)
       where pl.type = 'airport' and pl.status = 'active' and pl.city_id = $1
       order by pl.code`,
-    [cityId],
+    [cityId, listing],
   );
   return rows.rows.map((row) => ({ id: row.id, code: row.code, name: row.name, lng: Number(row.lng), lat: Number(row.lat), tenantId: row.tenant_id, tenantStatus: row.tenant_status }));
 }

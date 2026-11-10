@@ -96,6 +96,7 @@ import {
   replaceProductDispatchers,
   replaceProductVehicleGroups,
   updateProduct as updateProductRow,
+  type CountedProductStatus,
 } from "../repos/products.ts";
 import { countSellableDays, findInventoryMode } from "../repos/inventory.ts";
 import { lockMasterReferencesShared } from "../repos/master-data.ts";
@@ -277,7 +278,7 @@ export async function getProduct(ctx: DbContext, tenantId: string, id: string): 
 }
 
 /** 首页上本租户的商品数量。 */
-export function productCounts(ctx: DbContext, tenantId: string): Promise<Record<ProductStatus, number>> {
+export function productCounts(ctx: DbContext, tenantId: string): Promise<Record<CountedProductStatus, number>> {
   return readTx(ctx, tenantId, (db) => countProductsByStatus(db, tenantId));
 }
 
@@ -854,7 +855,31 @@ export async function publishProduct(ctx: DbContext, writer: ProductWriter, id: 
   });
 }
 
-/** 下架：已上架 → 已下架。已经下架的原样返回；草稿没有上过架，不能下架。 */
+/**
+ * 设为「验收可售」（M8-26，ADR 0078）：只有测试环境的 QA 测试供应商（ADR 0077）能用——别的供应商 409 `NOT_TEST_TENANT`（数据库另有触发器兜底）。
+ * 和上架一样要过上架校验（验收要报得出价）；供应商仍停在申请中，不上架、不参与官网比价。只有带验收会话的官网询价看得到它。
+ * 已经是验收可售的原样返回；已上架的不会出现（测试供应商不能上架）。下架走原来的「下架」。
+ */
+export async function qaListProduct(ctx: DbContext, writer: ProductWriter, id: string): Promise<ProductView> {
+  const now = ctx.now();
+  const tenantId = writer.principal.tenantId;
+  return writeTx(ctx, tenantId, async (db) => {
+    const tenant = await findOwnTenant(db, tenantId);
+    if (tenant === null || !tenant.isTestTenant) throw new AppError(409, "NOT_TEST_TENANT", "只有测试环境的 QA 测试供应商能把商品设为「验收可售」");
+    const current = await findProduct(db, tenantId, id, { lock: true });
+    if (!current) throw notFound("商品");
+    if (current.status === "qa_listed") return detail(db, tenantId, current);
+    await lockMasterReferences(db, current, (await listProductVehicleGroups(db, tenantId, id)).map((group) => group.vehicleGroupId), current.serviceRules);
+    await lockProductAreas(db, tenantId, id);
+    const checked = await runPublishCheck(db, tenantId, current, now);
+    if (!canPublish(checked.items)) throw publishCheckFailed(checked, "还有上架条件没有满足：验收可售和上架用同一份校验");
+    const updated = await updateProductRow(db, tenantId, id, { status: "qa_listed" }, now);
+    await audit(db, writer, now, { resource: "product", id, action: "publish", before: { status: current.status }, after: { status: updated.status } });
+    return detail(db, tenantId, updated);
+  });
+}
+
+/** 下架：已上架（或验收可售）→ 已下架。已经下架的原样返回；草稿没有上过架，不能下架。 */
 export async function unpublishProduct(ctx: DbContext, writer: ProductWriter, id: string): Promise<ProductView> {
   const now = ctx.now();
   const tenantId = writer.principal.tenantId;

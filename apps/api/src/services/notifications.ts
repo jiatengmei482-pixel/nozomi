@@ -78,6 +78,33 @@ export async function leaseNotificationForRetry(ctx: AppContext, principal: Plat
   });
 }
 
+export interface SuppressedContent {
+  notification: Notification;
+  subject: string;
+  body: string;
+  createdAt: Date;
+}
+
+/**
+ * 测试环境验收单被压下没发的那一封的主题和正文（M8-26，ADR 0078）：验收角色核对邮件内容用。`notification.read`，数据范围同手动重试；
+ * 不是被压下的那种（正常发出、失败、过期）一律 404（那些本来就不存正文）。每看一次记审计（不记内容）。
+ */
+export async function getSuppressedContent(ctx: AppContext, principal: PlatformPrincipal, ip: string, id: string): Promise<SuppressedContent> {
+  const now = ctx.now();
+  return withPlatformTx(ctx.pool, async (db) => {
+    const found = await findNotification(db, id);
+    if (found === null) throw notFound("通知内容");
+    if (scopeIsRestricted(principal.grant.scope)) {
+      const order = found.orderId === null ? null : await findOrderForPlatform(db, found.orderId);
+      if (order === null || !(await orderInScope(db, order, principal.grant.scope))) throw notFound("通知内容");
+    }
+    const row = (await db.query<{ subject: string; body: string; created_at: Date }>("select subject, body, created_at from notification_suppressions where notification_id = $1", [id])).rows[0];
+    if (row === undefined) throw notFound("通知内容");
+    await insertAuditLog(db, consoleOrigin(platformActor(principal.user), ip, now), { tenantId: null, resource: "notification", resourceId: id, action: "view", before: null, after: { event: found.event, audience: found.audience, order_id: found.orderId } });
+    return { notification: found, subject: row.subject, body: row.body, createdAt: row.created_at };
+  });
+}
+
 export async function getNotificationSettings(ctx: AppContext, tenantId: string): Promise<TenantNotificationSettings> {
   return withTenantTx(ctx.pool, tenantId, (db) => findNotificationSettings(db, tenantId), { snapshot: true });
 }

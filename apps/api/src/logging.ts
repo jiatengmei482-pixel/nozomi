@@ -31,6 +31,8 @@ export function secretValues(config: AppConfig): string[] {
     config.stripe?.webhookSecret,
     config.googleMapsApiKey,
     config.smtp?.password,
+    // 测试环境验收通道的口令（M8-26，ADR 0078）
+    config.qaAcceptance?.token,
   ];
   if (URL.canParse(config.databaseUrl)) {
     const url = new URL(config.databaseUrl);

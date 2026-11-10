@@ -10,7 +10,7 @@
  */
 import { randomInt } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { type ComparisonRefusal, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
+import { type ComparisonRefusal, type SiteAudience, guestRouteReason, type CurrencyCode, type DistanceBreakdown, type FxQuote, type LatLng, type MarkupMatch, type QuoteSnapshot, type ServiceCategory, type TripDirection, formatMajor, instantToLocal, isPickupPlaceType, quoteCheckPoints, quoteSnapshotValid } from "@nozomi/domain";
 import type { AppContext } from "../context.ts";
 import { withPlatformTx } from "../db/context.ts";
 import { AppError } from "../errors.ts";
@@ -192,8 +192,10 @@ async function resolvePoints(ctx: AppContext, input: SalesQuoteInput): Promise<{
  * 询价：比价、生成 quote_id、存快照和询价日志。
  * 一个价都报不出、又给了 `demand`（官网、渠道的正式询价）时，应答之后另记一条「未覆盖需求」（M8-20，ADR 0075 第四部分），不影响应答。
  */
-export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown>; demand?: DemandSource }): Promise<SalesQuoteResult> {
+export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincipal, input: SalesQuoteInput, options: { log?: QuoteLog; request: Record<string, unknown>; demand?: DemandSource; audience?: SiteAudience }): Promise<SalesQuoteResult> {
   const started = performance.now();
+  // 官网的验收会话（M8-26，ADR 0078）：报价和询价日志标成验收的，只能下成验收单；不记「未覆盖需求」（那是给运营看的真实需求）
+  const acceptance = options.audience === "acceptance";
   const points = await resolvePoints(ctx, input);
   const serviceLocal = instantToLocal(input.serviceTime, points.timezone).dateTime;
   const preview = await previewPlatformQuote(
@@ -216,7 +218,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       vehicleGroupIds: input.vehicleGroupIds,
       assumeRoute: null,
     },
-    { fresh: false, ...(options.log === undefined ? {} : { log: options.log }) },
+    { fresh: false, ...(options.log === undefined ? {} : { log: options.log }), ...(acceptance ? { audience: "acceptance" as const } : {}) },
   );
   const now = ctx.now();
   const snapshots = storedSnapshots(preview, now);
@@ -224,8 +226,8 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
   const durationMs = Math.round(performance.now() - started);
   await withPlatformTx(ctx.pool, async (db) => {
     const log = await db.query<{ id: string }>(
-      `insert into quote_logs (channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms, route)
-       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13::jsonb) returning id`,
+      `insert into quote_logs (channel_id, api_client_id, created_at, request, currency, city_id, category, candidate_count, quote_count, bids, rejects, duration_ms, route, is_acceptance)
+       values ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12, $13::jsonb, $14) returning id`,
       [
         principal.channelId,
         principal.apiClientId,
@@ -243,6 +245,7 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
         ]),
         durationMs,
         JSON.stringify(routeLogJson(preview.routeOutcome)),
+        acceptance,
       ],
     );
     const logId = (log.rows[0] as { id: string }).id;
@@ -250,17 +253,17 @@ export async function createSalesQuotes(ctx: AppContext, principal: SalesPrincip
       const { winner } = snapshot;
       await db.query(
         `insert into quotes (id, channel_id, quote_log_id, vehicle_group_id, package_hours, winner_tenant_id, product_id, product_version, currency, sell_minor, settlement_minor, settlement_currency,
-                             markup_bp, markup_rule_id, markup_level, snapshot, created_at, expires_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18)`,
+                             markup_bp, markup_rule_id, markup_level, snapshot, created_at, expires_at, is_acceptance)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19)`,
         [
           snapshot.quoteId, principal.channelId, logId, winner.offer.vehicleGroupId, winner.offer.packageHours, winner.tenantId, winner.productId, winner.productVersion, snapshot.currency,
           winner.sell.sellMinor, winner.offer.settlement.totalMinor, winner.offer.settlement.currency, winner.sell.markupBp, snapshot.markup.ruleId, snapshot.markup.level,
-          JSON.stringify(snapshot), snapshot.createdAt, snapshot.expiresAt,
+          JSON.stringify(snapshot), snapshot.createdAt, snapshot.expiresAt, acceptance,
         ],
       );
     }
   });
-  if (snapshots.length === 0 && options.demand !== undefined) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
+  if (snapshots.length === 0 && options.demand !== undefined && !acceptance) recordUncoveredDemandLater(ctx, options.demand, demandFacts(principal, input, points, serviceLocal, preview));
   return result;
 }
 
@@ -350,10 +353,10 @@ export class QuoteExpired extends AppError {
   }
 }
 
-/** 查一个报价：只查得到本渠道的（别的渠道的和不存在一样 404）；过了有效期 410 `QUOTE_EXPIRED`。 */
+/** 查一个报价：只查得到本渠道的（别的渠道的、官网验收会话的和不存在一样 404）；过了有效期 410 `QUOTE_EXPIRED`。 */
 export async function getSalesQuote(ctx: AppContext, principal: SalesPrincipal, quoteId: string): Promise<SalesQuote> {
   const row = await withPlatformTx(ctx.pool, async (db) => {
-    const result = await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1 and channel_id = $2", [quoteId, principal.channelId]);
+    const result = await db.query<{ snapshot: StoredQuoteSnapshot }>("select snapshot from quotes where id = $1 and channel_id = $2 and not is_acceptance", [quoteId, principal.channelId]);
     return result.rows[0] ?? null;
   });
   if (!row) throw new AppError(404, "NOT_FOUND", "报价不存在");

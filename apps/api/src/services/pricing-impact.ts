@@ -224,7 +224,7 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   const acc = pricingImpactAccumulator({ before: states.before, after: states.after, settleCurrency });
   const bufferBp = ctx.config.fx.bufferBp;
 
-  const quotesTotal = Number((await db.query<{ n: string }>("select count(*)::text as n from quotes where channel_id = $1 and created_at >= $2 and created_at <= $3", [channel.id, from, now])).rows[0]?.n ?? 0);
+  const quotesTotal = Number((await db.query<{ n: string }>("select count(*)::text as n from quotes where channel_id = $1 and created_at >= $2 and created_at <= $3 and not is_acceptance", [channel.id, from, now])).rows[0]?.n ?? 0);
   let cursor: { t: Date; id: string } | null = null;
   let read = 0;
   while (read < PRICING_IMPACT_RULES.maxQuotes) {
@@ -233,7 +233,7 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
       await db.query<StoredQuoteRow>(
         `with page as materialized (
            select id from quotes
-            where channel_id = $1 and created_at >= $2 and created_at <= $3 and ($4::timestamptz is null or (created_at, id) < ($4::timestamptz, $5::text))
+            where channel_id = $1 and created_at >= $2 and created_at <= $3 and not is_acceptance and ($4::timestamptz is null or (created_at, id) < ($4::timestamptz, $5::text))
             order by created_at desc, id desc limit $6)
          select ${QUOTE_FIELDS}
            from page p join quotes q on q.id = p.id join quote_logs l on l.id = q.quote_log_id
@@ -249,7 +249,8 @@ async function compute(db: Db, ctx: AppContext, channel: Channel, states: { befo
   }
 
   // 订单：近 30 天下单、付过款的（没付款就取消的、还在待支付的不算）。按下单时的报价快照重算
-  const ordersWhere = `s.channel_id = $1 and s.created_at >= $2 and s.created_at <= $3 and o.confirmed_at is not null`;
+  // 测试环境的验收单、验收报价（M8-26，ADR 0078）不算：它们不是真实的生意
+  const ordersWhere = `s.channel_id = $1 and s.created_at >= $2 and s.created_at <= $3 and o.confirmed_at is not null and not o.is_acceptance`;
   const ordersJoins = `join orders o on o.tenant_id = s.supplier_tenant_id and o.id = s.order_id join quotes q on q.id = s.quote_id join quote_logs l on l.id = q.quote_log_id`;
   const ordersFrom = `order_sales s ${ordersJoins}`;
   const ordersTotal = Number((await db.query<{ n: string }>(`select count(*)::text as n from ${ordersFrom} where ${ordersWhere}`, [channel.id, from, now])).rows[0]?.n ?? 0);
